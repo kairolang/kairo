@@ -7,7 +7,7 @@ change the loop.
 
 Pipeline, as scheduled by `Sema.k`:
 
-    P -> I -> E -> V -> N -> T (TypeResolve, RedeclMerge, ChainBinding)
+    P -> I -> E -> V -> N -> T (TypeResolve, RedeclMerge, EvalIfLateFolding, ChainBinding)
       -> C (ConstraintExtraction, TypeCycleCheck, ExprTyper, ShadowCheck,
             ... ConformanceChecking)                       => Typed
       == the panic-set barrier: every TU of the import cycle (one TU when
@@ -549,6 +549,38 @@ dedups, so a group is one candidate with one signature and every call,
 in every TU, binds to the lead. A dependent signature never compares
 equal (above), so generic functions do not group (WhereGuardCheck gates
 them, SC116E).
+
+### 2.6b L EvalIfLateFolding [DONE]
+
+`EvalIfFolding::run_late()`, in the T stage right after RedeclMerge and
+before InterfaceComposition, ConstraintExtraction and ChainBinding (EVAL.md
+4.2b). It decides every declaration-scope `eval if` E deferred on a type fact
+(§2.3) with E's own writer -- the same hoisting, `_members_from_branches` and
+frozen-table rebuild -- so every pass after it sees one branch: X, the
+lowerings and codegen are untouched, and ConstraintExtraction, TypeCycleCheck
+and ShadowCheck never see a discarded branch. It is a pass of its own, not
+part of T (invariant 9), and it replaces tables exactly as E does (invariant
+1: a table is replaced, never mutated).
+
+The facts: `sizeof` / `alignof` from `EnumLayoutQuery::size_of` (builtins,
+pointers, arrays, plain enums and plain records of them; any other layout is
+C++'s to choose, SC001E with a note pointing at `if constexpr`), and
+`is_trivially_copyable!` / `is_trivially_destructible!` from
+`ClassLifecycle::facts_of_type_concrete`. A fact about a type parameter is an
+error. A fact about a record whose own member set another deferred `eval if`
+still decides -- the record itself, or one it holds by value through a field,
+base, array element or type argument -- and a name only such branches
+declare, wait: the walk repeats while a round folds something,
+`ClassLifecycle::forget_facts()` after each such round, and when a round folds
+nothing one last round reports what still waits (SC001E). Then
+`LateFoldRebind` rebinds every `NamedIdentExpr` N bound to a discarded
+declaration (`resolved_decl`, or a `candidate_cell` holding one) to the
+survivor of that name in that scope; none is R020E. A TU that already has an
+error is not folded: the stage stops at its end.
+
+    [MISSING] A TYPE that reads a constant a deferred `eval if` declares
+    (`[u8; W]`) is resolved by T before the fold decides which `W` exists.
+    A type declared in a deferred branch is refused (§2.3). Both ticketed.
 
 ### 2.7 ChainBinding [DONE]
 
@@ -2386,6 +2418,8 @@ A pass that needs one asks that file; it never spells the string itself.
    `init_fold` / `init_neg` / `init_mag` / `init_thunk` on FieldDecl:
    FieldInitLowering. `ci_split` / `ci_index` / `ci_slots` / `ci_dense` on
    FunctionDecl: CtorInitCheck; `ci_cut`: CtorInitLowering.
+   `ConditionalStmt::eval_deferred` and `sc->eval_branches`: EvalIfFolding
+   (filed in E, retired by EvalIfLateFolding).
    `is_generator` / `has_yield` on FunctionDecl: X. A transfer
    constructor's `other` mode stamp: ClassLifecycle. A record's derived
    `op =` (`assign_from`, `assign_form`): ClassLifecycle. Lifecycle facts:

@@ -1,14 +1,22 @@
 /// --- The Kairo Project ---------------- Sema/Expand/EvalIfFolding.k --- ///
 ///
-///   \brief `eval if` folded like `#if`: the untaken branches are discarded
-///          before name resolution, the taken branch's declarations are
-///          hoisted into the enclosing scope.
+///   \brief `eval if` folded like `#if`: the untaken branches are discarded,
+///          the taken branch's declarations are hoisted into the enclosing
+///          scope -- before name resolution, or, for a declaration-scope
+///          condition that reads a type fact, once types are resolved.
 ///
 ///   \detail
-///     EVAL.md §4. Runs first in phase E: after I (an imported `eval`
-///     constant is reachable through the overlay) and before V and N, so no
-///     later pass sees an untaken branch. Those may name what does not
-///     exist on this target; they are never resolved.
+///     EVAL.md §4. One writer, two evaluators, two slots:
+///
+///       run()       first in phase E: after I (an imported `eval` constant
+///                   is reachable through the overlay) and before V and N,
+///                   so no later pass sees an untaken branch. Those may name
+///                   what does not exist on this target; they are never
+///                   resolved.
+///       run_late()  EvalIfLateFolding, in the T stage right after
+///                   TypeResolve and RedeclMerge, before InterfaceComposition,
+///                   ConstraintExtraction and ChainBinding (EVAL.md 4.2b):
+///                   the `eval if`s run() deferred (Type facts, below).
 ///
 ///       eval if WIDE { eval LINE = 64  fn f() {} } else { eval LINE = 128 }
 ///     ->
@@ -52,7 +60,7 @@
 ///       `sizeof`, `alignof`, `is_trivially_copyable!` and
 ///       `is_trivially_destructible!` -- directly, or in the initializer of
 ///       an `eval` constant the condition reads -- need resolved types, which
-///       this phase does not have. At declaration scope such an `eval if` is
+///       phase E does not have. At declaration scope such an `eval if` is
 ///       DEFERRED: it stays where it is with every branch indexed, marked
 ///       eval_deferred and filed in sc->eval_branches. Its branches are
 ///       walked now (a nested `eval if` that folds does, and every
@@ -60,11 +68,26 @@
 ///       FieldDecl now (N then binds the field), and a branch may not
 ///       declare a type, which T would resolve before anything decides
 ///       whether it exists. A condition naming an `eval` constant that only
-///       a deferred branch declares is deferred with it. In a function body
+///       a deferred branch declares is deferred with it. N, T and
+///       RedeclMerge see every branch; two declarations in sibling branches
+///       never conflict (EvalBranchTable::exclusive). In a function body
 ///       nothing is deferred: the condition is C++'s `if constexpr`, which
 ///       clang decides with its own layouts.
 ///
-///   Phase: EXPAND (first)
+///       run_late() answers the facts: `sizeof` / `alignof` from the layout
+///       Sema predicts for the target (EnumLayoutQuery::size_of: builtins,
+///       pointers, arrays, plain enums and plain records of them), the two
+///       triviality facts from ClassLifecycle (facts_of_type_concrete). A
+///       fact about a record whose own member set another deferred `eval if`
+///       still decides -- or a name only such branches declare -- waits: the
+///       walk repeats while a round folds something, the lifecycle memo is
+///       forgotten after each round that changed a member set, and whatever
+///       still waits when a round folds nothing is an error (two `eval if`s
+///       that decide each other). Last, every name N bound to a declaration
+///       the fold discarded is bound again to the one that survived under
+///       that name (LateFoldRebind).
+///
+///   Phase: EXPAND (first), and RESOLVE (EvalIfLateFolding)
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -77,8 +100,12 @@
 
 import Sema::SemaContext::*;
 import Sema::Check::ConstEval::*;
+import Sema::Check::ClassLifecycle::*;
+import Sema::Lower::EnumLayoutLowering::*;
 import Sema::Resolve::NameLookup::*;
+import Sema::Type::TypeUtil::*;
 import AST::Visitor::ASTWriter::*;
+import AST::Visitor::RecursiveASTVisitor::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -91,6 +118,8 @@ import AST::Node::PrimaryExpressions::*;
 import AST::Node::Expressions::*;
 import AST::Node::Statements::*;
 import AST::Node::Declarations::*;
+import AST::Node::Types::*;
+import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::StmtKind::*;
@@ -107,14 +136,101 @@ struct FoldVal {
     var is_int: bool;
     var b:      bool;
     var i:      IntConst;
-    /// Not decided yet: a type fact this phase cannot answer (file header,
-    /// Type facts). `ok` is false with it; it is not a failure.
+    /// Not decided yet: a type fact E cannot answer, or (late) a fact or a
+    /// name another deferred `eval if` still decides. `ok` is false with it;
+    /// it is not a failure.
     var deferred: bool;
+}
+
+/// After the late fold (file header, Type facts): every name N bound to a
+/// declaration the fold discarded is bound again, to the one that survived
+/// under that name in that scope -- a sibling branch's -- or reported as
+/// undeclared, which it now is. N bound such names before anything could
+/// say which branch stays: `W` with `eval W` in both branches was a cell of
+/// two (candidate_cell, into the table the fold replaced), and a name only
+/// one branch declares was bound to it.
+class LateFoldRebind derives RecursiveASTVisitor::<LateFoldRebind> {
+    pub var sc: *SemaContext;
+    priv var _dropped: *vec::<*Decl> = &null;
+
+    fn LateFoldRebind(self, sc: *SemaContext, dropped: *vec::<*Decl>) {
+        self.sc       = sc;
+        self._dropped = dropped;
+    }
+
+    fn run(self) {
+        var tu = self.sc->tu;
+        if (tu == &null) || (tu->program == &null) { return; }
+        var items = &(tu->program->items);
+        for var i: usize = 0; i < items->size(); ++i {
+            if self.stop { break; }
+            var item = *(items->get(i));
+            switch item.get_kind() {
+                case TopLevelKind::Decl { self.dyn()->dispatch_decl(item.as_decl()); }
+                case TopLevelKind::Stmt { self.dyn()->dispatch_stmt(item.as_stmt()); }
+                case TopLevelKind::Expr { self.dyn()->dispatch_expr(item.as_expr()); }
+            }
+        }
+    }
+
+    fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
+        if (n == &null) || n->is_poisoned() { return true; }
+        if n->resolved_decl != &null {
+            if self._gone(n->resolved_decl) { self._rebind(n, n->resolved_decl); }
+            return true;
+        }
+        var cell = n->candidate_cell;
+        if cell == &null { return true; }
+        for var i: usize = 0; i < cell->size(); ++i {
+            var d = cell->get(i);
+            if (d != &null) && self._gone(d) {
+                self._rebind(n, d);
+                return true;
+            }
+        }
+        return true;
+    }
+
+    priv fn _gone(self, d: *Decl) -> bool {
+        for var i: usize = 0; i < self._dropped->size(); ++i { if (*self._dropped)[i] == d { return true; } }
+        return false;
+    }
+
+    /// \p n's name looked up again in the scope \p was (a discarded
+    /// declaration) was declared in: its new table holds the survivors only.
+    /// One is bound as N binds one; several stay a cell, as N leaves an
+    /// overload set; none is the undeclared name it now is.
+    priv fn _rebind(self, n: *NamedIdentExpr, was: *Decl) {
+        n->resolved_decl  = &null;
+        n->candidate_cell = &null;
+        var dc  = reinterpret_cast::<*DeclContext>(was->semantic_dc);
+        var imm = self.sc->ctx->get_ident_imm(n->name);
+        var nm  = self.sc->ctx->get_spelling(n->name);
+        if (dc != &null) && (imm != u32(-1)) {
+            var r = self.sc->lookup.in_context(dc, DeclName::ident(imm), nm);
+            if r.single() {
+                n->resolved_decl = NameLookup::representative(r.first());
+                return;
+            }
+            if r.found() {
+                n->candidate_cell = r.cell;
+                return;
+            }
+        }
+        var b = self.sc->diag->report(DiagID::R020E, n->range.start,
+            f"use of undeclared identifier '{nm}\x27");
+        b.first(n->range);
+        b.note(DiagID::R001N, was->range.start,
+            f"'{nm}' is declared only in a branch of an 'eval if' that is not taken").first(was->range);
+        b.emit();
+        n->poison();
+    }
 }
 
 class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
     pub var sc: *SemaContext;
     priv var _ce: ConstEval;
+    priv var _tu: TypeUtil;
 
     /// The scopes a name in a condition is looked up from, innermost last.
     priv var _dcs: vec::<*DeclContext>;
@@ -137,11 +253,20 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
     /// The last lookup found only declarations a deferred `eval if` may
     /// still discard: the condition waits for it rather than fails.
     priv var _pending_name: bool = false;
+    /// run_late(): the type facts are answered, not deferred.
+    priv var _late: bool = false;
+    /// The last late round: nothing may wait any more, so a wait is a
+    /// failure, reported with its reason.
+    priv var _force: bool = false;
+    /// This late round folded something / left something waiting.
+    priv var _progress: bool = false;
+    priv var _waiting: bool = false;
 
     fn EvalIfFolding(self, sc: *SemaContext) {
         self.sc  = sc;
         self.ctx = sc->ctx;
         self._ce = ConstEval(sc);
+        self._tu = TypeUtil(sc);
     }
 
     fn run(self) {
@@ -150,6 +275,43 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         self._dcs.push_back(static_cast::<*DeclContext>(self.sc->tu));
         ASTWriter::<EvalIfFolding>::run(self.sc->tu);
         for var i: usize = 0; i < self._dirty.size(); ++i { self._rebuild_table(self._dirty[i]); }
+    }
+
+    /// EvalIfLateFolding (file header, Type facts). Each round walks the TU
+    /// once and folds every deferred `eval if` it can answer; a round that
+    /// folds nothing while something waits is followed by one last round
+    /// that reports what waits.
+    fn run_late(self) {
+        var tu = self.sc->tu;
+        if tu == &null { return; }
+        if self.sc->eval_branches.pending() == 0 { return; }
+        // An error above (an unresolved type in a condition, a redefinition)
+        // stops the schedule at the end of this stage; folding over it would
+        // only add a second error for the same mistake.
+        if self.sc->errored() { return; }
+        self._late = true;
+        var folded = false;
+        while true {
+            self._progress = false;
+            self._waiting  = false;
+            self._dcs.clear();
+            self._dcs.push_back(static_cast::<*DeclContext>(tu));
+            ASTWriter::<EvalIfFolding>::run(tu);
+            for var i: usize = 0; i < self._dirty.size(); ++i { self._rebuild_table(self._dirty[i]); }
+            self._dirty.clear();
+            // A member set changed: a fact computed this round about a record
+            // that holds the folded one by value describes the old set.
+            if self._progress {
+                folded = true;
+                lifecycle_of(self.sc)->forget_facts();
+            }
+            if (!self._waiting) || self._force { break; }
+            if !self._progress { self._force = true; }
+        }
+        if folded {
+            var rb = LateFoldRebind(self.sc, &(self._dropped));
+            rb.run();
+        }
     }
 
     // === scopes =============================================================
@@ -178,6 +340,9 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
     }
 
     fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
+        // The late fold decides declaration-scope `eval if`s only: a body's
+        // was folded by E or is `if constexpr`.
+        if self._late { return self._one_decl(n); }
         self._dcs.push_back(static_cast::<*DeclContext>(n));
         self._body_depth += 1;
         var out = ASTWriter::<EvalIfFolding>::transform_function_decl(n);
@@ -199,15 +364,17 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
     /// A file-scope or function-body `eval if`.
     fn transform_conditional_stmt(self, n: *ConditionalStmt) -> vec::<*Stmt> {
         if !n->is_eval { return ASTWriter::<EvalIfFolding>::transform_conditional_stmt(n); }
+        // The late fold decides only what E deferred.
+        if self._late && (!n->eval_deferred) { return ASTWriter::<EvalIfFolding>::transform_conditional_stmt(n); }
         var r = self._choose(n);
         if r != 1 {
             if self._body_depth > 0 {
                 // `if constexpr`: both branches stay, and are resolved and typed.
                 return ASTWriter::<EvalIfFolding>::transform_conditional_stmt(n);
             }
-            // A type fact (r == 2) waits for EvalIfLateFolding; anything else
-            // was reported, and E stops before N.
-            if r == 2 { self._defer_node(n, self._record_of_top()); }
+            // A type fact (r == 2) waits; anything else was reported, and the
+            // schedule stops at the end of this stage.
+            if r == 2 { self._wait(n, self._record_of_top()); }
             return self._one_stmt(n);
         }
         var taken = self._taken;
@@ -229,11 +396,12 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
             return ASTWriter::<EvalIfFolding>::transform_eval_block_decl(n);
         }
         var c = cast::<ConditionalStmt>(n->stmt);
+        if self._late && (!c->eval_deferred) { return self._one_decl(n); }
         var r = self._choose(c);
         if r != 1 {
             // A local class's (in a function body) is not deferred, as a
             // body's `eval if` is not: it stays, as it always did.
-            if (r == 2) && (self._body_depth == 0) { self._defer_node(c, self._record_of_top()); }
+            if (r == 2) && (self._body_depth == 0) { self._wait(c, self._record_of_top()); }
             return self._one_decl(n);
         }
         var taken = self._taken;
@@ -245,6 +413,15 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
             for var j: usize = 0; j < rs.size(); ++j {
                 var ds = dyn_cast::<DeclStmt>(rs[j]);
                 if (ds != &null) && (ds->decl != &null) { out.push_back(ds->decl); continue; }
+                // A nested deferred `eval if` that still waits keeps a
+                // carrier, as the parser gave it one, for the next round.
+                var w = dyn_cast::<ConditionalStmt>(rs[j]);
+                if (w != &null) && w->eval_deferred {
+                    var carrier = EvalBlockDecl::create(self.ctx, w->range);
+                    carrier->stmt = static_cast::<*Stmt>(w);
+                    out.push_back(static_cast::<*Decl>(carrier));
+                    continue;
+                }
                 self._not_a_member(rs[j]);
             }
         }
@@ -275,9 +452,9 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
 
     /// Which branch \p n takes, into `_taken` (null: none). 1 when decided;
     /// 0 when the condition does not fold (reported, unless in a function
-    /// body); 2 when it reads a type fact (file header, Type facts). An
-    /// else-if chain waits at its first link that does: whether an earlier
-    /// link that folded false still decides is the late fold's to see again.
+    /// body); 2 when it waits -- for the late fold (E), or for another
+    /// deferred `eval if` (a late round). An else-if chain waits at its first
+    /// link that does: an earlier link that folded false is seen again.
     priv fn _choose(self, n: *ConditionalStmt) -> i32 {
         var c = n;
         var chosen: *CompoundStmt = &null;
@@ -291,6 +468,10 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
             if v.deferred { return 2; }
             if !v.ok {
                 if self._body_depth == 0 { self._report(c); }
+                // Reported: what waits on it goes on (the error stops the run
+                // anyway) rather than add a second error for one mistake. Not
+                // in the last round, where each waiting one is reported itself.
+                if self._late && (!self._force) { self.sc->eval_branches.retire(static_cast::<*Stmt>(n)); }
                 return 0;
             }
             if self._truth(v) {
@@ -305,6 +486,10 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         }
         self._drop_untaken(static_cast::<*Stmt>(n), chosen);
         self._taken = chosen;
+        if self._late {
+            self.sc->eval_branches.retire(static_cast::<*Stmt>(n));
+            self._progress = true;
+        }
         return 1;
     }
 
@@ -316,8 +501,9 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
     priv fn _report(self, c: *ConditionalStmt) {
         var at = (self._why_at) if (self._why_at != &null) else (c->cond);
         var why = (self._why) if (self._why.size() > 0) else ("it is not a compile-time constant");
+        var by_when = ("must fold once types are resolved") if (self._late) else ("must fold before names are resolved");
         var b = self.sc->diag->report(DiagID::SC001E, at->range.start,
-            f"the condition of an 'eval if' outside a function body must fold before names are resolved; {why}");
+            f"the condition of an 'eval if' outside a function body {by_when}; {why}");
         b.first(at->range);
         var vd = (dyn_cast::<VariableDecl>(self._why_decl)) if (self._why_decl != &null) else (&null);
         if vd != &null {
@@ -328,10 +514,27 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
                 b.fix(vd->storage_kw, "eval", f"declare '{nm}' as 'eval\x27");
             }
         }
+        // A layout the late fold does not predict: in a function body the
+        // same condition is C++'s `if constexpr`, which sees every layout.
+        if self._late && (isa::<SizeOfExpr>(at) || isa::<AlignOfExpr>(at)) {
+            b.note(DiagID::SC001N, at->range.start,
+                "in a function body the same condition is 'if constexpr', which C++ decides with the layout it chooses").first(at->range);
+        }
         b.emit();
     }
 
     // === deferred (file header, Type facts) =================================
+
+    /// \p head waits: in E it is deferred and filed; in a late round it waits
+    /// for the next one. \p record is the class or struct whose body holds
+    /// it, or null.
+    priv fn _wait(self, head: *ConditionalStmt, record: *Decl) {
+        if self._late {
+            self._waiting = true;
+            return;
+        }
+        self._defer_node(head, record);
+    }
 
     /// The class or struct whose body is the innermost scope, or null (file
     /// scope, a module body): where a branch's `var` is a field.
@@ -500,8 +703,10 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         return v;
     }
 
-    /// Not decided yet (FoldVal::deferred).
+    /// Not decided yet (FoldVal::deferred). In the last late round (_force)
+    /// nothing may wait any more: it is a failure, with \p why.
     priv fn _defer(self, at: *Expr, why: string) -> FoldVal {
+        if self._force { return self._no(at, why); }
         var v = FoldVal{};
         v.ok       = false;
         v.deferred = true;
@@ -578,10 +783,18 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
             return self._ref(e, d, depth);
         }
         if isa::<CallExpr>(e) { return self._no(e, "a call is computed by C++ after names are resolved; use an 'eval' constant, a literal or 'defined!' here"); }
-        // EVAL.md 4.2b: a type fact needs resolved types, which this phase
-        // does not have. At declaration scope the `eval if` waits for
-        // EvalIfLateFolding; in a body it is `if constexpr`.
-        if isa::<SizeOfExpr>(e) || isa::<AlignOfExpr>(e) || isa::<TypeTraitExpr>(e) { return self._defer(e, ""); }
+        // EVAL.md 4.2b: a type fact. E cannot answer one (types are not
+        // resolved), so the `eval if` waits for the late fold, which can.
+        if isa::<SizeOfExpr>(e) || isa::<AlignOfExpr>(e) {
+            if !self._late { return self._defer(e, ""); }
+            var is_size = isa::<SizeOfExpr>(e);
+            var ta = (cast::<SizeOfExpr>(e)->type_arg) if (is_size) else (cast::<AlignOfExpr>(e)->type_arg);
+            return self._layout_fact(e, ta, is_size);
+        }
+        if isa::<TypeTraitExpr>(e) {
+            if !self._late { return self._defer(e, ""); }
+            return self._trait_fact(cast::<TypeTraitExpr>(e));
+        }
         return self._no(e, "this does not fold before names are resolved");
     }
 
@@ -641,6 +854,116 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         var below = a.mag < b.mag;
         if a.neg { below = !below; }
         return (i32(-1)) if (below) else (i32(1));
+    }
+
+    // === type facts (late) ==================================================
+
+    /// `sizeof` / `alignof` of \p ta, from the layout Sema predicts for the
+    /// types whose layout is target arithmetic (EnumLayoutQuery::size_of).
+    /// Any other layout is C++'s to choose, so a declaration-scope
+    /// condition cannot read it.
+    priv fn _layout_fact(self, e: *Expr, ta: *Type, is_size: bool) -> FoldVal {
+        var kw = ("sizeof") if (is_size) else ("alignof");
+        if (ta == &null) || (ta->canonical == &null) { return self._no(e, f"the type of this '{kw}' is not resolved"); }
+        var c = ta->canonical;
+        if c->is_dependent() || c->is_instantiation_dependent() { return self._dependent_fact(e); }
+        var held = self._held_by_pending(c, u32(0));
+        if held != &null { return self._defer(e, self._held_why(held)); }
+        var q = EnumLayoutQuery(self.sc);
+        var sz: u64 = 0;
+        var al: u64 = 0;
+        if !q.size_of(ta, &sz, &al) {
+            var tn = self._tu.str(c);
+            return self._no(e, f"the layout of '{tn}' is C++'s to choose: a declaration-scope condition reads only the layout of builtins, pointers, arrays, and plain enums and records of them");
+        }
+        return self._int(self._ce.make(false, (sz) if (is_size) else (al)));
+    }
+
+    /// `is_trivially_copyable!` / `is_trivially_destructible!` of a concrete
+    /// type: ClassLifecycle's facts, which C++'s builtins agree with.
+    priv fn _trait_fact(self, n: *TypeTraitExpr) -> FoldVal {
+        var e  = static_cast::<*Expr>(n);
+        var ta = n->type_arg;
+        if (ta == &null) || (ta->canonical == &null) { return self._no(e, "the type of this fact is not resolved"); }
+        var c = ta->canonical;
+        if c->is_dependent() || c->is_instantiation_dependent() { return self._dependent_fact(e); }
+        var held = self._held_by_pending(c, u32(0));
+        if held != &null { return self._defer(e, self._held_why(held)); }
+        var f = lifecycle_of(self.sc)->facts_of_type_concrete(c, "EvalIfLateFolding");
+        var t = (f.trivially_copyable) if (n->fact == TypeTraitKind::TriviallyCopyable) else (f.trivial_dtor);
+        if t == LifecycleTri::Unknown {
+            return self._no(e, f"'{self._tu.str(c)}' has no answer to this before it is instantiated");
+        }
+        return self._bool(t == LifecycleTri::Yes);
+    }
+
+    /// A fact about a type parameter: one answer per instance, while a
+    /// declaration-scope `eval if` chooses members once for all of them.
+    priv fn _dependent_fact(self, e: *Expr) -> FoldVal {
+        return self._no(e, "it depends on a type parameter, and the members it chooses are the same for every instance");
+    }
+
+    /// The record whose member set a still-deferred `eval if` decides, when
+    /// \p t's facts or layout read it: \p t itself, or a record it holds by
+    /// value (field, base, array element, type argument). Null when none
+    /// does. A pointer stops the walk: what it points at is no part of the
+    /// fact. Very deep by-value nesting is cut off and reads as held, which
+    /// only costs a wait (and a report if nothing else ever folds).
+    priv fn _held_by_pending(self, t: *Type, depth: u32) -> *Decl {
+        if t == &null { return &null; }
+        var c = canon_unqual(t);
+        if c == &null { return &null; }
+        if isa::<FixedArrayType>(c) { return self._held_by_pending(cast::<FixedArrayType>(c)->element, depth + 1); }
+        if !isa::<RecordType>(c) { return &null; }
+        var d = cast::<RecordType>(c)->decl;
+        if d == &null { return &null; }
+        var body = NameLookup::representative(self._tu.pattern_of(d));
+        if body == &null { return &null; }
+        if depth > u32(32) { return body; }
+        if self.sc->eval_branches.pending_in(NameLookup::context_of(body)) { return body; }
+        var args = self._tu.record_args(c);
+        for var i: usize = 0; i < args.size(); ++i {
+            var h = self._held_by_pending(*(args.get(i)), depth + 1);
+            if h != &null { return h; }
+        }
+        var cd = dyn_cast::<ClassDecl>(body);
+        if cd != &null {
+            for var i: usize = 0; i < cd->derives_list.size(); ++i {
+                var be = cd->derives_list.get(i);
+                if (be == &null) || (be->base == &null) { continue; }
+                var h = self._held_by_pending(be->base->canonical, depth + 1);
+                if h != &null { return h; }
+            }
+        }
+        var fields: *FrozenList::<*FieldDecl> = &null;
+        if cd != &null { fields = &(cd->fields); }
+        else if isa::<StructDecl>(body) { fields = &(cast::<StructDecl>(body)->fields); }
+        if fields != &null {
+            for var i: usize = 0; i < fields->size(); ++i {
+                var fd = (*fields)[i];
+                if (fd == &null) || fd->is_static() || (fd->type_ == &null) { continue; }
+                var h = self._held_by_pending(fd->type_->canonical, depth + 1);
+                if h != &null { return h; }
+            }
+        }
+        var en = dyn_cast::<EnumDecl>(body);
+        if en != &null {
+            for var i: usize = 0; i < en->variants.size(); ++i {
+                var v = en->variants[i];
+                if v == &null { continue; }
+                for var j: usize = 0; j < v->payload.size(); ++j {
+                    var pf = v->payload[j];
+                    if (pf == &null) || (pf->type_ == &null) { continue; }
+                    var h = self._held_by_pending(pf->type_->canonical, depth + 1);
+                    if h != &null { return h; }
+                }
+            }
+        }
+        return &null;
+    }
+
+    priv fn _held_why(self, d: *Decl) -> string {
+        return f"it reads the members of '{self._tu.decl_name(d)}', which an 'eval if' that is not decided yet chooses";
     }
 
     /// An `eval` variable or field: its initializer, folded where IT stands.
@@ -819,15 +1142,16 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
     // === class members ======================================================
 
     /// A class branch's statements were spliced into the class's dc_decls:
-    /// a `var` becomes a FieldDecl at the end of `fields`, a `fn` joins
-    /// `methods`; nested types stay in dc_decls, where the parser keeps them.
+    /// a `var` becomes a FieldDecl at the end of `fields` (a deferred
+    /// branch's already is one, _fieldize), a `fn` joins `methods`; nested
+    /// types stay in dc_decls, where the parser keeps them.
     priv fn _members_from_branches(self, owner: *Decl, fields: *FrozenList::<*FieldDecl>, methods: *FrozenList::<*FunctionDecl>) {
         var dc = NameLookup::context_of(owner);
         if dc == &null { return; }
         var moved = false;
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
             var d = *(dc->dc_decls.get(i));
-            if (d != &null) && (isa::<VariableDecl>(d) || isa::<FunctionDecl>(d)) { moved = true; break; }
+            if (d != &null) && (isa::<VariableDecl>(d) || isa::<FunctionDecl>(d) || isa::<FieldDecl>(d)) { moved = true; break; }
         }
         if !moved { return; }
 
@@ -847,6 +1171,12 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
             if isa::<VariableDecl>(d) {
                 var f = self._as_field(cast::<VariableDecl>(d), u32(fb.size()));
                 if f != &null { fb.push(f); }
+                continue;
+            }
+            if isa::<FieldDecl>(d) {
+                var fd = cast::<FieldDecl>(d);
+                fd->index = u32(fb.size());
+                fb.push(fd);
                 continue;
             }
             rest.push(d);

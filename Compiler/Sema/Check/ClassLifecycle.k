@@ -409,6 +409,15 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         return f;
     }
 
+    /// Drop every memoized fact. EvalIfLateFolding calls it after a round
+    /// that changed a record's member set: a fact computed before it (of a
+    /// record holding the folded one by value) describes members the record
+    /// no longer has. The arena keeps the old values; nothing holds one
+    /// across a round, the late fold reads facts by value.
+    fn forget_facts(self) {
+        self._facts.clear();
+    }
+
     /// \p d's registry entry when it is an instance of a KAIRO generic at
     /// concrete arguments -- the one kind of record whose facts are its own
     /// but computed from another's members. Null for an imported template's

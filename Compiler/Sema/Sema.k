@@ -239,6 +239,9 @@ class Sema {
         var _t = TimeRegion("Expand");
         self.sc.require_phase(SemaPhase::ImportsResolved);
         // First: no later pass may see an untaken `eval if` branch (EVAL.md §4).
+        // The exception is a declaration-scope one on a type fact: it is
+        // deferred, V, N, T and RedeclMerge see all of its branches, and
+        // EvalIfLateFolding decides it in the T stage (EVAL.md 4.2b).
         { var _p = TimeRegion("EvalIfFolding"); EvalIfFolding(&self.sc).run(); }
         // TODO(sema): MacroExpansion(&self.sc).run();
         var desugar = RequiresDesugar(self.sc.ctx);
@@ -304,6 +307,15 @@ class Sema {
         self.sc.require_phase(SemaPhase::NamesResolved);
         { var _p = TimeRegion("TypeResolve");  TypeResolution(&self.sc).run(); }
         { var _p = TimeRegion("RedeclMerge");  RedeclMerge(&self.sc).run();    }
+        // EVAL.md 4.2b: the declaration-scope `eval if`s E deferred on a type
+        // fact, decided now that every canonical exists and every function
+        // chain is linked (RedeclMerge kept sibling branches apart). Before
+        // everything that reads a record's members as final --
+        // InterfaceComposition, ConstraintExtraction, ChainBinding here, and
+        // TypeCycleCheck, ShadowCheck and the rest in the checks -- so none
+        // of them sees a discarded branch, and X, the lowerings and codegen
+        // see one branch as if E had folded it.
+        { var _p = TimeRegion("EvalIfLateFolding"); EvalIfFolding(&self.sc).run_late(); }
         // Algebraic interfaces normalized to regular ones, after their leaves
         // resolve and before ChainBinding reads any interface's members.
         { var _p = TimeRegion("InterfaceComposition"); InterfaceComposition(&self.sc).run(); }
