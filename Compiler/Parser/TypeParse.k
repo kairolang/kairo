@@ -1290,7 +1290,15 @@ class <T> TypeParse {
         var return_type: *Type = &null;
         if dyn()->check(TokenKind::OpArrow) {
             dyn()->advance(); // consume `->`
-            return_type = self.parse_type();
+            // `!` is the never type, a builtin spelled by punctuation. It is
+            // deliberately not in TYPE_TOK_TBL (`!x` must stay an expression
+            // everywhere else), so the one place it is a type, a return
+            // position, takes it here the way a function decl's `-> !` does.
+            if dyn()->check(TokenKind::OpExclaim) {
+                return_type = self._parse_qual_type();
+            } else {
+                return_type = self.parse_type();
+            }
             if (return_type == &null) || is_recovery(return_type) {
                 var err = FunctionPointerType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
                 if return_type != &null {
