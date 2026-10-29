@@ -137,6 +137,16 @@ var d: [i32]      // []
 
 `bool` has no default value: declaring a `bool` without an initializer is an error. The same applies to a struct or class with no default constructor, including one whose default constructor is explicitly deleted, to an [enum with payloads](/docs/language/enums-adt/) (no variant is its default), and to an array of any of these. A class field of such a type is initialized by the constructor instead; see [Classes](/docs/language/classes/#fields-without-a-default).
 
+A struct or class that declares no constructor at all has an implicit default constructor, which builds each base and field from nothing: a field with an initializer takes it, any other field takes its type's default. It exists only when every one of them can be built that way, so a field with no initializer whose type has no default (a `bool`, a record without a default constructor, ...), a `const` field with no initializer, or a base with no default constructor leaves the type with none, and the error names that field or base. Declaring any constructor, a `@copy` or `@move` one included, means there is no implicit one.
+
+```kairo
+struct Point { var x: i32  var y: i32 = 5 }
+var p: Point      // ok: x is 0, y is 5
+
+struct Flag { var on: bool }
+var f: Flag       // error: Flag has no default constructor: field 'on' has no initializer
+```
+
 ```kairo
 var c: bool       // error: c must be initialized
 

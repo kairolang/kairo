@@ -54,7 +54,7 @@ class Config impl Defaultable {
 }
 ```
 
-Only the conforming type's own constructors count; a base class's constructors do not. A type that declares no constructor at all has the implicit one, so it satisfies a requirement with no parameters (`fn Defaultable(self)`) and nothing else. Built-in types such as `i32` and `bool` satisfy no constructor requirement, because `i32()` is not a call in Kairo; use `x as i32` to convert.
+Only the conforming type's own constructors count; a base class's constructors do not. A type that declares no constructor at all has the implicit one (when every field can be built from nothing; see [Default Initialization](/docs/language/variables/#default-initialization)), so it satisfies a requirement with no parameters (`fn Defaultable(self)`) and nothing else. Built-in types such as `i32` and `bool` satisfy no constructor requirement, because `i32()` is not a call in Kairo; use `x as i32` to convert.
 
 Inside a generic body, `T(args)` constructs a `T` when one of `T`'s bounds has a constructor requirement taking that many arguments:
 

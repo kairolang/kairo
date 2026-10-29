@@ -149,6 +149,8 @@ Some macros are compiler intrinsics that perform operations beyond token substit
 | `label!(name)` | Declare a jump target | [Control Flow](/docs/language/control-flow/#jumps) |
 | `jump!(name)` | Unconditional jump to a label | [Control Flow](/docs/language/control-flow/#jumps) |
 | `forget!(ptr)` | Drop a pointer from Tether tracking | [Unsafe](/docs/language/unsafe/#forget) |
+| `is_trivially_copyable!(T)` | `true` when a `T` is copied as its bytes (C++ `__is_trivially_copyable`) | [Eval](/docs/language/eval/) |
+| `is_trivially_destructible!(T)` | `true` when destroying a `T` runs no code | [Eval](/docs/language/eval/) |
 | `unwrap!(expr)` | Force-unwrap a nullable; aborts the program on null | [Nullables](/docs/language/nullables/#force-unwrap) |
 | `mref!(T)` | Produce an rvalue reference type (`&&T`) | [Library](/docs/library/core/functions/move_refrence/) |
 

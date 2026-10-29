@@ -142,13 +142,25 @@ eval if defined!(__linux__) {
 
 `eval if` can appear at the top level, in a `module` or in a class body (selecting between declarations) or inside function bodies (selecting between code paths). The declarations of the selected branch belong to the enclosing scope, exactly as if the `eval if` were not there: at file scope and in a module they are the scope's declarations, in a class body a `var` is a field and a `fn` a method, and in a function body the branch's locals are the function's.
 
-Outside a function body the condition decides which declarations exist, so it must be evaluable before names are resolved: literals, `eval` constants (including ones an earlier `eval if` declared), `!`, `&&`, `||`, comparisons, integer arithmetic and [`defined!`](/docs/language/macros-builtin/#conditional). Calling an `eval fn` there is an error, and so is `sizeof` or `alignof`: a type's layout is not known that early. To ask for the pointer width, test the target with `defined!(__LP64__)`; to test a layout, put the `eval if` in a function body. Inside a function body a condition that depends on a generic parameter (`sizeof T`) is decided per instantiation.
+Outside a function body the condition decides which declarations exist. It may use literals, `eval` constants (including ones an earlier `eval if` declared), `!`, `&&`, `||`, comparisons, integer arithmetic, [`defined!`](/docs/language/macros-builtin/#conditional), and type facts: `sizeof` and `alignof` of builtins, pointers, arrays, and plain enums and structs of them, and `is_trivially_copyable!(T)` / `is_trivially_destructible!(T)` of any concrete type. A condition that reads a type fact is decided once types are known, and the compiler checks its answer against C++'s, so the branch kept is the one C++ would keep. Its branches may declare functions, constants and fields, not types. Calling an `eval fn` there is an error, and so is a type fact that depends on a generic parameter: a generic's members are the same for every instantiation, so select a type instead, with a partial specialization chosen by a `requires` clause. Inside a function body a condition that depends on a generic parameter (`sizeof T`) is decided per instantiation.
 
 ```kairo
-eval if defined!(__LP64__) {      // not `sizeof usize == 8`
+eval if sizeof usize == 8 {
     eval WORD_BITS = 64
 } else {
     eval WORD_BITS = 32
+}
+```
+
+```kairo
+struct Plain { var x: i32 }
+
+class Holder {
+    eval if is_trivially_copyable!(Plain) {
+        var fast: Plain        // the member set is chosen once types are known
+    } else {
+        var slow: *Plain
+    }
 }
 ```
 

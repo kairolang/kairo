@@ -163,7 +163,7 @@ When a definition follows a forward declaration, the two must match exactly:
 - Visibility (`pub`, `priv`, `prot`)
 - ABI linkage (`ffi "c"`, `ffi "c++"`, `static`, `virtual`, `override`)
 
-Parameter names may differ; the definition's names are used in the body. Defaults are not part of the match: each parameter's default may be written on any one declaration, and it applies to every call (see [Defaults apply to the whole function](/docs/language/functions-parameters/#defaults-apply-to-the-whole-function)).
+Parameter names may differ; the definition's names are used in the body. So may the names of generic parameters: `fn <T impl Graph> g(x: T) -> i32` and a later `fn <U impl Graph> g(x: U) -> i32 { ... }` are one function. Their bounds may not: a declaration and its definition must name the same bounds for each generic parameter. (Two generic functions that both have bodies and differ only in their bounds are two overloads.) Defaults are not part of the match: each parameter's default may be written on any one declaration, and it applies to every call (see [Defaults apply to the whole function](/docs/language/functions-parameters/#defaults-apply-to-the-whole-function)).
 
 A mismatch in any other element is a compile error.
 

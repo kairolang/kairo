@@ -652,7 +652,87 @@ A header struct and a variable or function with the same name are not ambiguous:
 
 ---
 
+### R001W: import cycle
+
+`import cycle: {a.k -> b.k -> a.k}; a cycle hinders maintainability: no module on it can be read, built or tested without the others` (for a file that imports itself: `'{s.k}' imports itself; ...`)
+
+Modules import each other in a cycle: `a` imports `b` and `b` imports `a`, a longer chain, or a file that imports itself ([Circular Dependencies](/docs/language/modules/#circular-dependencies)). The cycle compiles; the warning sits on the import that closes it, a note points at each import on the cycle, and a last note suggests a third module. For a self-import, a fix-it removes the import instead: a file sees its own declarations without importing itself. The code is a placeholder until the warning gets its own.
+
+```kairo
+// a.k
+import b::*
+// b.k
+import a::*    // warning R001W: import cycle: a.k -> b.k -> a.k
+```
+
+Under `-fno-import-cycles` the same diagnostic is the error **R001E** (`...; import cycles are disabled (-fno-import-cycles)`), and the build stops after parsing. `-Werror` promotes the warning; `-w` silences it.
+
+**Fix:** move what both modules need into a third module that each imports.
+
+---
+
+## Access
+
+### SC001E: `{kind} '{m}' of '{T}' is private` / `... is protected`
+
+Using a `priv` member outside the file that declares its class, or a `prot` member outside that file and outside a subclass. Operators count: `a + b` uses `op +`. The fix-it makes the member `pub`.
+
+### SC001E: `protected {kind} '{m}' of '{B}' is reached here through a '{X}', not through '{D}' or a class deriving from it`
+
+A subclass `D` in another file used an instance `prot` member of its base through an object that is not a `D` (a `*B`, or a sibling subclass):
+
+```kairo
+class Counter derives Base {
+    fn via_base(self, b: *Base) -> i32 { return b->hits }   // error SC001E
+}
+```
+
+Reach it through `self` or another `Counter`, or make the member `pub`.
+
+### SC001E: `this constructor of '{B}' is protected: a class deriving from '{B}' calls it only as a base initializer, not to build a separate '{B}'`
+
+A subclass in another file built a standalone object with a `prot` constructor (`var b = Base(5)`). Only `Base::Base(self, ...)` at the start of the subclass's constructor may call it.
+
+### SC001E: `'{X}' does not conform to '{I}': its '{m}' is not public, and its file declares no 'impl {I}'`
+
+A `priv` or `prot` member satisfies an interface requirement only when its type's own file declares the conformance. Declare `impl I` on the type (or `extend X impl I` in its file), or make the member `pub` (the fix-it).
+
+### I003E: `the emitted C++ refuses an access Kairo accepted ...`
+
+An internal error: Kairo admitted a member access and the generated C++ refused it. It names clang's own message. Please report it with the source; meanwhile making the member `pub` works around it.
+
+---
+
 ## Members
+
+### SC001E: `'&null' cannot be stored in '{T}': a safe pointer is never null`
+
+`&null` where a value lands in a safe pointer `*T`: a variable's or field's initializer, an assignment, an argument, a default argument, a `return`, a struct literal's field, an `if` arm or the fallback of `??`. A `*T` always points at something ([Pointers](/docs/language/pointers/)). The code is a placeholder until the error gets its own.
+
+```kairo
+var p: *i32 = &null        // error SC001E
+fn give() -> *i32 { return &null }   // error SC001E
+```
+
+The note points at the declared type of the variable, field, parameter or return and names both ways out; the fix-it makes that type nullable (`*i32?`). A call through a `fn` value has no declaration to point at, and gets the note alone. Comparing a `*T` with `&null` is not this error.
+
+**Fix:** declare the pointer `*T?` if it may be absent (its null is `null`, and `&null` converts to it), or `unsafe *T` for a raw pointer that may hold the null address.
+
+### SC001E: `'{f}' is a named function declared in a body, and cannot use '{x}' from the function around it`
+
+A function declared inside another function's body (a local `fn`, or a method of a local class) uses a local, a parameter, `self` or a `static` local of an enclosing function. A named function captures nothing ([Closures vs Inner Functions](/docs/language/closures/#closures-vs-inner-functions)). Each use is reported once, by the innermost function that makes it. The code is a placeholder until the error gets its own.
+
+```kairo
+fn outer() -> i32 {
+    var x = 10
+    fn inner(y: i32) -> i32 { return y + x }   // error SC001E
+    return inner(1)
+}
+```
+
+The note points at the binding.
+
+**Fix:** pass the value as a parameter, or use a closure.
 
 ### SC001W: `nested type '{N}' of '{T}' is named without a qualifier; write 'Self::{N}' so it reads as a member`
 
@@ -781,9 +861,23 @@ A length or value argument is computed at compile time, so a function it calls m
 
 An [eval class](/docs/language/generics/#eval-classes-as-value-parameters) used as a value parameter's type must be structural: `{why}` names the first field that is not `pub`, is `mutable` or points to mutable memory (through nested fields: `its field 'inner' is a 'Hidden', and its field 'secret' is not 'pub'`), or the first of its constructors that is not `eval`, or a destructor. A note points at it.
 
-### SC001E: `the condition of an 'eval if' outside a function body must fold before names are resolved; 'sizeof' needs a type's layout, ...`
+### SC132E: a declaration-scope `eval if` depends on a type parameter
 
-A declaration-scope [`eval if`](/docs/language/eval/#eval-if) decides which declarations exist before types are resolved, so `sizeof` and `alignof` cannot be part of it. The note names what works: `defined!(__LP64__)` for the pointer width, or the `eval if` moved into a function body, where it is decided with the layout known.
+An [`eval if`](/docs/language/eval/#eval-if) outside a function body chooses which declarations exist. A generic is emitted as one C++ template for every instance, and C++ has no `if constexpr` at class scope, so a generic's members cannot differ from one instance to another. A condition that reads a type parameter (`is_trivially_copyable!(T)`, `sizeof T`) would need exactly that.
+
+```kairo
+class <T> Holder {
+    eval if is_trivially_copyable!(T) {   // error SC132E: depends on T
+        var fast: T
+    } else {
+        var slow: *T
+    }
+}
+```
+
+A condition inside a generic that names no parameter (`is_trivially_copyable!(Plain)`, `sizeof usize < 8`) is decided once, after types are resolved. The note (SC132N) spells the partial specialization to write instead.
+
+**Fix:** select a type: declare each member set as a partial specialization chosen by a `requires` clause (`class <T> Holder<T> requires <condition>`). In a function body an `eval if` on a type parameter is `if constexpr` and needs no change.
 
 ---
 
@@ -817,6 +911,8 @@ It is reported for:
 - a call of a panicking operator (`a call of a panicking operator is not yet supported`)
 - a [`panic`](/docs/language/panic/) function under a [`<T: type>`](/docs/language/generics/#the-type-regime-transitional) parameter, a generic `panic` closure, a `panic` generator or `async` function or closure, and a `panic` statement or a call that may panic inside such a body (bounded and unbounded generics are [supported](/docs/language/panic/#generic-functions))
 - a call whose callee's panic set names a generic parameter the call does not bind (no bound declares the requirement it calls)
+- a `fn`, class, struct, union or enum declared in a function body that uses a generic parameter of the function or class around it (`'echo' is declared in a body and uses 'T', a generic parameter of 'wraps'; that is not yet supported`); a note points at the parameter. One that is generic in its own right, or names no outer parameter, compiles
+- an `extend` in a function body
 - [`where` dispatch](/docs/language/where/) on a generic function, a `virtual` or `override` method, an `extend` member, an operator, a constructor, an out-of-line definition, a forward declaration, a generator, an `async` function, a variadic function, or an overload with a default argument (`'where' dispatch on a generic function is not yet supported`)
 
 It means "not yet supported", not "invalid": the code is correct Kairo that the current compiler cannot build.

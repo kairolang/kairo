@@ -45,6 +45,7 @@ The fully qualified form (`Direction::North`) always works and is required when 
 - an initializer with a declared type: `var d: Dir = .North`
 - a `return` in a function with a declared return type
 - a call argument, which takes the parameter's type
+- the other operand of `==` or `!=`, on either side: `.North == d` is `d == .North`. Two shorthands compared with each other (`.A == .B`) have no enum to take and are an error (SC123E)
 
 ```kairo
 enum Dir { North, East, South, West }

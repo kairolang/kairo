@@ -114,10 +114,21 @@ Visibility modifiers control access to members from outside the class:
 | Keyword | Scope |
 |---|---|
 | `pub` | Accessible from any module |
-| `priv` | Accessible only within the defining class or module |
-| `prot` | Accessible within the defining class, subclasses, and the defining module |
+| `priv` | Accessible within the defining class, and anywhere in the file that declares it, free functions included |
+| `prot` | What `priv` allows, plus every class that derives from the defining class, in any module |
 
 Modifiers are applied per-declaration. There are no visibility blocks (`public:` sections).
+
+Kairo checks visibility itself: using a `priv` member from another file, or a `prot` one outside a subclass, is an error that offers to make the member `pub`. Operators are members like any other: a `priv fn op +` is usable only where a `priv` method would be. A base's members reached through a `derives priv` (or `derives prot`) edge are private (protected) to the deriving class and its file.
+
+A subclass in another file uses a `prot` member the way C++ allows a protected one:
+
+- an instance field or method only through an object of the subclass's own type, or of a type deriving from it (`self.hits`, `other_counter.hits`), not through a `*Base` or a sibling subclass;
+- a `prot` constructor only as the base initializer `Base::Base(self, ...)` at the start of its own constructor, not to build a separate `Base`.
+
+`prot` statics and nested types have no such restriction.
+
+The C++ that Kairo generates keeps these levels: a `priv` member is `private:` and a `prot` one `protected:`, and the class names its file's functions and types as friends. A C++ program that includes the module sees the members as Kairo has them (see [What crosses an include](/docs/language/c-cpp-exposing/#what-crosses-an-include)).
 
 ### Default visibility
 
@@ -483,6 +494,8 @@ class Tree {
     }
 }
 ```
+
+A type nested in a generic class belongs to each instance: `L<i32>::P` and `L<f64>::P` are different types, and a member of `L<i32>::P` typed with `L`'s parameter reads with `i32`. Name it through the instance from outside the class (`var q: L<i32>::P = l.make(7)`, `L<i32>::P { k: 1 }`, `L<i32>::Color::Red`); inside the class, `Self::P` is the current instance's. A generic function can take one and deduce the instance's arguments from it (`fn <T> first(r: L<T>::P) -> T`).
 
 ---
 

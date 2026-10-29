@@ -186,8 +186,6 @@ See [Requires Clauses](/docs/language/requires/) for the full constraint system.
 
 ## Associated Types
 
-> [!NOTE]
-> Associated types compile, except a generic associated type (`type <K> Map`), a member of an associated type or a call through its bounds, one inherited from a generic interface, and a derived interface giving an inherited one a default: those are [SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported) for now. See [Status](/docs/status/#not-compiled-yet).
 
 An interface can require a type member. A conforming type supplies it with a type alias:
 
@@ -215,7 +213,7 @@ interface Store {
 }
 ```
 
-A generic body names a generic associated type with its arguments: `T::Map<K>`.
+A generic body names a generic associated type with its arguments: `T::Map<K>`. A conformer supplies it with a generic alias of the same arity (`type <K> Map = HashMap<K, Self>`); an alias with a different number of parameters does not supply it. An argument must meet the bounds of the parameter it fills (`T::Map<K>` needs `K impl Hashable`).
 
 A bound on an associated type is written with `impl`, and several are separated by commas. The type a conformer supplies must satisfy each of them:
 
@@ -226,6 +224,8 @@ interface Catalog {
     fn lookup(const self, k: Self::Key) -> Self::Item
 }
 ```
+
+A generic body uses a value of an associated type through the associated type's own bounds, exactly as it uses a value of a bounded parameter: with `type Item impl Display`, `x.show()` on `x: T::Item` is a call to `Display`'s `show`. The same holds for everything else named through it: a static requirement (`T::Item::make()`), an associated type one of its bounds declares (`T::Item::Inner`, at any depth), an operator (`a == b` needs an `op ==` requirement in one of its bounds) and a conversion or interpolation. A member none of its bounds declares is a compile error, and an associated type with no bound has no members. A bound may name `Self`, another associated type or the interface's own parameter (`type Item impl Has<Self::Key>`); it is read for the type the body named it through (`Has<T::Key>` for `T::Item`).
 
 Associated types are declared only inside an interface. Outside one, a `type` declaration is an alias and needs `=`.
 
@@ -257,7 +257,11 @@ A default must satisfy its own bounds. This is checked once, at the interface de
 
 ### Associated types and inheritance
 
-A derived interface may give an inherited associated type a default if it has none. It may not change a default that is already given; otherwise which default applies would depend on the inheritance path.
+A derived interface may give an inherited associated type a default if it has none. It may not change a default that is already given; otherwise which default applies would depend on the inheritance path. For the same reason, a type that declares two interfaces giving one inherited associated type different defaults takes neither: it must declare the type itself, or its conformance is a compile error.
+
+The derived interface's line is the inherited associated type, not a new one: `Self::Node` inside it names the base's, and a type that conforms to the derived interface explicitly gets the default. Restating the inherited type without a default, giving it bounds of its own, or changing a default the base already gives is a compile error.
+
+An associated type inherited from a generic interface is the one at the arguments the derived interface names: in `interface IntSource derives Source<i32>`, `S::Item` for `S impl IntSource` is `Source<i32>`'s `Item`.
 
 ### Name collisions between bounds
 
@@ -423,7 +427,7 @@ Inside `fn <T impl Foo>`, a value of type `T` supports exactly what `Foo` (and e
 - A generic method requirement is called with explicit arguments, `x.liz<i32>()`, or with deduced ones.
 - `T(args)` constructs a `T`; it requires a constructor requirement taking those arguments in some bound (see [Constructors in Interfaces](/docs/language/interfaces-requirements/#constructors-in-interfaces)).
 - `var x: T` with no initializer requires a constructor requirement `fn Foo(self)` in some bound.
-- An operator on `x` (`x == y`, `x + y`, `-x`, `x += y`, and the `!=`, `<` or `+` derived from `op ==`, `op <=>` or `op +=`), `x as string` and `f"{x}"` resolve against the bounds' requirements (`fn op ==(const self, other: Self) -> bool`, `fn op as(const self) -> string`, `fn repr(const self) -> string`) and call them through the bound. With no requirement that grants it, each is a compile error in the generic (R051E for an unbounded `T`, R025E when no bound declares it), even if every type it is used with has the operator.
+- An operator on `x` (`x == y`, `x + y`, `-x`, `x += y`, `x[i]`, and the `!=`, `<` or `+` derived from `op ==`, `op <=>` or `op +=`), `x as string` and `f"{x}"` resolve against the bounds' requirements (`fn op ==(const self, other: Self) -> bool`, `fn op as(const self) -> string`, `fn repr(const self) -> string`) and call them through the bound. An operator on a `T derives Base` resolves against `Base`'s operators too (its own, its bases' and its extensions'), and calls the base's operator directly. With no requirement that grants it, each is a compile error in the generic (R051E for an unbounded `T`, R025E when no bound declares it), even if every type it is used with has the operator. A base operator whose parameter is the base by value (`fn op ==(self, o: Base)`) does not take a `T`, as it does not take a derived class's value.
 - `T` is never nullable: `x?`, `x == null` and `unwrap!(x)` are errors (write the parameter as `T?`). `===` on a `T?` compares the values with the bounds' `op ==`.
 - `match x` can bind `x` (`case var v`), guard it (`case var v where ...`) or ignore it (`case _`, `default`). A variant, literal, range, tuple or struct pattern is an error: no bound gives `T` variants or values to compare.
 - `T::Name` names an [associated type](#associated-types). A value of it has nothing but what the associated type's own bounds declare. `T::Name()` / `T::Name{}` builds one only through a constructor requirement in one of those bounds (`type Node impl Default`); a field list (`T::Name{x: 1}`) never compiles, since no bound can promise fields.

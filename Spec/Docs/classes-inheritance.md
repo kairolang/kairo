@@ -33,6 +33,12 @@ class Dog derives Animal {
 }
 ```
 
+A base initializer is a statement of its own among the **first** statements of the constructor, before anything else runs: it builds the base part of `self` before any field. Its first argument is `self`; the other arguments may not use `self` (the object does not exist yet). Each base is initialized at most once, and only a direct base, or a [virtual base](#diamond-and-virtual-inheritance), can be. Calling a constructor by name anywhere else is an error: to build a value, call the type (`Animal("Rex")`).
+
+A base with no default constructor (its constructors all take arguments, or its default constructor is `= delete`) must be initialized by every constructor of a class that derives from it, so such a derived class has to declare a constructor. Declaring only a transfer constructor (`@copy` / `@move`), even a deleted one, removes the implicit default constructor; declare `fn X(self) = default` to keep it.
+
+A derived class's own `@copy` or `@move` constructor initializes its base with the base's transfer constructor: `Base::Base(self, other)` transfers the base part of `other`.
+
 ### Inheritance visibility
 
 By default, inheritance is public. Append `pub`, `prot`, or `priv` after `derives` to control how base members are exposed in the derived class:
@@ -42,6 +48,8 @@ class Derived derives pub Base { ... }    // base members keep their visibility
 class Derived derives prot Base { ... }   // all base members become protected
 class Derived derives priv Base { ... }   // all base members become private
 ```
+
+The narrowing applies to members reached through `Derived`. The conversion from `*Derived` to `*Base` stays available everywhere, and through a `*Base` the members have their own visibility again. (In the generated C++ the base is public and the members are narrowed with `private:` / `protected:` using-declarations, so a C++ program sees the same thing.)
 
 ### Multiple inheritance
 
@@ -72,6 +80,24 @@ class Derived derives Base {
     }
 }
 ```
+
+The qualified call is not virtual: `Base::method(self)` runs `Base`'s version even when `method` is `virtual` and overridden further down. A derived method with the same parameters (and the same `const self` or plain `self`) overrides or hides the base's, so `d.method()` on a derived value calls the derived one; a base overload with different parameters stays callable on the derived value (Kairo merges the overload sets, as C++ does with a `using` declaration). A C++ class keeps C++'s lookup: a name it declares hides the base's unless its definition says `using Base::name;`.
+
+### Protected members from another file
+
+A subclass declared in a different file than its base reaches a `prot` instance member only through an object of its own type or a type deriving from it, and calls a `prot` constructor only as its base initializer:
+
+```kairo
+class Counter derives Base {
+    fn Counter(self) { Base::Base(self, 2) }       // ok: base initializer
+    fn own(self) -> i32 { return self.hits }        // ok
+    fn other(self, c: *Counter) -> i32 { return c->hits }   // ok
+    fn via_base(self, b: *Base) -> i32 { return b->hits }   // error: through a Base
+    fn standalone(self) { var b = Base(5) }        // error: a separate Base
+}
+```
+
+Code in the base's own file has no such restriction.
 
 ### Destructors and inheritance
 

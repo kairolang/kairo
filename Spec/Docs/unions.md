@@ -168,6 +168,18 @@ union Payload {
 }
 ```
 
+A forward declaration and its definition are one type, wherever each sits in the scope (the definition may even come first), and they must use the same keyword: `union Payload` followed by `struct Payload { ... }` is an error, with a fix-it to the definition's keyword. A type that is only forward-declared and never defined can be used through a pointer only: a field, base or variable holding it by value is an error, since its size is unknown.
+
+Forward declarations also work inside a class body, with or without a trailing `;`:
+
+```kairo
+class Queue {
+    struct Cell;
+    var head: unsafe *Self::Cell
+    struct Cell { var seq: u64 }
+}
+```
+
 ---
 
 ## No Extends

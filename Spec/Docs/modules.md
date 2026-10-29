@@ -279,15 +279,19 @@ See [Imports](/docs/language/imports/) for import syntax and the `pub import` pa
 
 ## Circular Dependencies
 
-Circular imports are a compile error:
+Modules may import each other in a cycle: `a` imports `b` and `b` imports `a`, a longer chain, or a file that imports itself. A cycle compiles: every file on it sees the others' declarations and macros, functions may call each other across it, and a `pub import` on a cycle re-exports through it. The compiler warns on each cycle ([R001W](/docs/language/diagnostics/#r001w-import-cycle)), because a cycle hinders maintainability: no module on it can be read, built or tested without the others.
 
 ```kairo
 // a.k
-import b    // compile error if b.k imports a
+import b::*
+pub fn fa(n: i32) -> i32 { return if n <= 0 => 0 else => fb(n - 1) + 1 }
 
 // b.k
-import a    // circular dependency detected
+import a::*         // warning R001W: import cycle: a.k -> b.k -> a.k
+pub fn fb(n: i32) -> i32 { return fa(n) }
 ```
+
+`-fno-import-cycles` makes every import cycle an error (R001E) and stops the build. `-Werror` promotes the warning and `-w` silences it, as for any other warning.
 
 **Break circular dependencies** by extracting shared declarations into a third module that both A and B import:
 

@@ -264,7 +264,24 @@ fn main() {
 
 ### Strings and `const char*`
 
-A Kairo [`string`](/docs/language/primitives/#strings) cannot yet be passed to a C `const char*` parameter. The underlying pointer is `*u8`, and `*u8` to `*i8` is neither an implicit nor a [safe cast](/docs/language/casting/#pointer-cast-rules). A `string.c_str()` method is planned. Until it lands, use `cxx::std::string` on the Kairo side, or add a small C++ helper that takes a `std::string` and makes the C call.
+C's `char` is [`std::c_char`](/docs/language/primitives/#cs-char-stdc_char), so a C++ `const char*` is `*const c_char` in Kairo, and back: a function returning one can be stored, compared with `&null`, indexed and passed on to any C or C++ parameter of that type. `char`, `signed char` and `unsigned char` are three types, as in C++, so a header that overloads on them gives three Kairo overloads (`c_char`, `i8`, `u8`).
+
+A Kairo [`string`](/docs/language/primitives/#strings) stores UTF-8 bytes (`data` is `*const u8`) with a NUL after the last one, so its bytes are a C string once the pointer is reinterpreted. Bytes and C chars are unrelated types, so that is an `as unsafe *` cast inside an `unsafe` block ([pointer cast rules](/docs/language/casting/#pointer-cast-rules)); passing the `*u8` itself is an error whose fix-it inserts the cast:
+
+```kairo
+import std::c_char
+ffi "c" import "string.h"
+
+fn main() {
+    var s = "hello"
+    unsafe {
+        var n = strlen(s.data as unsafe *const c_char)   // 5
+        // strlen(s.data)   // error SC063E: a C string is '*const c_char'; fix-it: ` as unsafe *const c_char`
+    }
+}
+```
+
+A `*const c_char` in an f-string prints as a pointer (`const c_char @ 0x...`), like any pointer: there is no C-string formatter yet. A `string.c_str()` method is planned.
 
 ---
 
@@ -320,6 +337,20 @@ int main() {
 ```
 
 `T impl Addable` in Kairo maps directly to `Addable T` in the generated C++. The constraint is preserved across the boundary, not erased.
+
+### Template arguments, pointers and forwarding
+
+Non-type template arguments are written as Kairo values: `cxx::std::array<i32, 4>`, `llvm::SmallVector<*Node, 8>`, `Flag<true>`. An `eval` constant or arithmetic over constants works (`array<i32, N * 2>`). The argument's identity is its integer, so `array<i32, N>` with `eval N: usize = 4` and `array<i32, 4>` are the same type.
+
+A container of Kairo pointers keeps the pointer kind you wrote: `cxx::std::vector<*Node>` hands out `*Node`, `vector<unsafe *Node>` hands out `unsafe *Node`. Both are `std::vector<Node*>` in C++.
+
+Any Kairo type with a C++ spelling may be an argument of an imported class template: builtins, pointers, records and generic records, tuples, plain enums, ADT enums (generic or not), and nullables (`vector<i32?>`, `vector<*Node?>`). The instance's members read back as the Kairo types, so `push_back(null)`, `if x? { ... }`, `v[0] ?? d`, `v[0] = null` and `match` on an element work as for any value. Not yet: a function type (`fn(i32) -> i32`) as an element (calling `v[0](3)` is rejected).
+
+A C++ function template with a forwarding pack (`template <class... Args> void emplace_back(Args&&... args)`) takes any number of arguments; each is passed as written and C++ deduces its reference kind. A `const Ts&...` pack takes any argument, a `Ts&...` pack only variables (lvalues).
+
+Overloaded C++ function templates are chosen as C++ chooses them, SFINAE included: an overload whose `enable_if` condition, `requires` clause, `decltype(...)` return type or `void_t` test fails for the arguments is not a candidate. So `cxx::std::make_unique<i32>(9)`, `make_unique<T[]>(n)` (through a header alias such as `using IntArr = int[];`, since `[T;]` in Kairo is a slice) and `make_shared` work, and `v.assign(n, x)` on a `cxx::std::vector` takes the count overload while `v.assign(a.begin(), a.end())` takes the iterator one. When every overload is removed, the error lists each with C++'s reason (`requirement 'std::is_integral_v<Pair>' was not satisfied`). Only the generic arguments you write are passed (`make_unique<i32>`); C++ deduces the rest from the arguments, so a variable passed through `Args&&` stays a reference to that variable. Inside a generic function, a call whose choice depends on `T` is decided for each instantiation.
+
+A C++ method with a ref-qualifier is called only on the object it accepts: `int q() &` on a variable, `int q() &&` on a temporary (`make().q()`), and with both declared a temporary calls the `&&` one. A method without a ref-qualifier can be called on either.
 
 ## See also
 

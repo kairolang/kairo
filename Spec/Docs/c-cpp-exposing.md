@@ -53,7 +53,7 @@ Hello from Kairo! x = 42
 An included `.k` gives C++ the same interface a Kairo importer sees:
 
 - Its `pub` declarations. A `priv` or `internal` top-level declaration is left out, unless a `pub` `inline` or generic body names it (that body is compiled by the C++ code, so it must see what it calls). C++ has no way to keep a declaration from the rest of its translation unit, so that is the only one that crosses.
-- `priv` class members as `private:` members.
+- Every class member at its own visibility: a `priv` member is `private:`, a `prot` one `protected:`, a `pub` one `public:`. Kairo's `priv` reaches every function of the class's file, which C++ says by making the class befriend that file's functions and types, so the module's own `inline` and generic functions still work when the C++ code compiles them. The C++ code itself cannot read a `priv` field or call a `priv` method. Some members are public in C++ whatever their Kairo visibility: copy and move constructors and destructors (so C++ containers can hold the type), and the fields of a struct, of a union, and of a class with no constructor (these are plain aggregates, built with designated initializers, and a struct keeps the C layout and calling convention). Every base is a public base; a `derives priv` (or `prot`) base's members are private (protected) through the derived class, through using-declarations.
 - The bodies of templates and `inline` functions; every other body stays in the `.k`'s object.
 - Its types' dependencies, from other modules and from the builtin library, declared once per translation unit however many `.k` files include them.
 

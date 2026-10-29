@@ -60,7 +60,7 @@ var teal = Color::from_hex(0x008080)
 
 ## Visibility
 
-All struct members default to `pub`. You can explicitly mark a member `priv` or `prot`, but the compiler emits a warning if you need access control on fields, a [class](/docs/language/classes/) is the better fit.
+All struct members default to `pub`. You can explicitly mark a member `priv` or `prot`, but the compiler emits a warning if you need access control on fields, a [class](/docs/language/classes/) is the better fit. Kairo enforces a `priv` field, but in the generated C++ a struct's fields stay public: a struct is a plain aggregate with the C layout, and a private field would change how C and MSVC pass it.
 
 ```kairo
 struct Packet {
@@ -324,6 +324,18 @@ struct Node {
     var value: i32
     var left: unsafe *Node
     var right: unsafe *Node
+}
+```
+
+A forward declaration and its definition are one type, wherever each sits in the scope (the definition may even come first), and they must use the same keyword: `struct Node` followed by `class Node { ... }` is an error, with a fix-it to the definition's keyword. A type that is only forward-declared and never defined can be used through a pointer only: a field, base or variable holding it by value is an error, since its size is unknown.
+
+Forward declarations also work inside a class body, with or without a trailing `;`:
+
+```kairo
+class Queue {
+    struct Cell;
+    var head: unsafe *Self::Cell
+    struct Cell { var seq: u64 }
 }
 ```
 

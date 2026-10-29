@@ -103,6 +103,21 @@ fn process(animal: *Animal) {
 
 Both forms perform a runtime type check using the [vtable](/docs/language/classes-inheritance/#virtual-dispatch) (the class must have at least one `virtual` method), compiled to C++'s `dynamic_cast`. Downcasting a non-polymorphic class is a compile error. Inside a generic body, a pointee that is a type parameter works only with the checked form (`a as (*T)?`); the asserting form is an error there for now.
 
+**The CRTP downcast** is the one exception that needs no vtable. Inside a generic base whose parameter is bounded by `derives` on the base itself, `&self as *X` (or `*const X`) is allowed without `unsafe`: the bound proves every `X` derives the base, so the target is known statically, and the cast compiles to C++'s `static_cast`, which also adjusts the pointer when the base is not the first one:
+
+```kairo
+class <X derives Counter<X> impl Weighted> Counter {
+    fn dyn(self) -> *X { return &self as *X }          // static, no vtable
+    fn bump(self) -> i32 { return self.dyn()->weight() }
+}
+
+class Node derives Base, Counter<Node> impl Weighted {
+    fn weight(const self) -> i32 { return 5 }
+}
+```
+
+The bound may also reach the source through a chain of bases (`X derives Stmts<X>`, `Stmts<T> derives Rav<T>` lets a `*Rav<X>` cast down to `*X`). Under a [`: type`](/docs/language/generics/#the-type-regime-transitional) parameter the same cast is written as a `static_cast` and checked by the C++ compiler per instantiation. The cast cannot drop `const`; without such a bound (none, an `impl` bound, or a `derives` bound naming another class) a pointer cast between unrelated types is still an error. As in C++, the cast trusts that the object really is an `X`: a class that names `Counter<Other>` for some other `Other` that derives `Counter<Other>` makes it undefined.
+
 ### Raw pointer cast
 
 Casting to `unsafe *T` reinterprets the pointer with no type checking equivalent to C++'s `reinterpret_cast`. The compiler performs no validation.
@@ -132,7 +147,7 @@ var ptr: *i32 = &some_value
 var addr = ptr as usize    // ok: numeric address
 ```
 
-`usize` is the only permitted target it is the one integer type guaranteed to hold a full address. Casting a pointer directly to a narrower integer is a compile error, not a warning: silently discarding the high bits of an address is never what the programmer meant.
+`usize` is the only permitted target it is the one integer type guaranteed to hold a full address. Casting a pointer directly to any other integer is a compile error, not a warning, `u64` and `isize` included even on a target where they are as wide ([SC026E](/docs/language/diagnostics/), with a fix-it inserting `usize as`): silently discarding the high bits of an address is never what the programmer meant, and a cast that compiles on one target must not truncate on another.
 
 ```kairo
 // var truncated = ptr as u8       // compile error: cannot cast pointer to u8
@@ -172,6 +187,7 @@ Every pointer cast is classified by what it does to *provenance* the compiler's 
 | `unsafe *T as unsafe *U` | Allowed, no `unsafe` | Already absent | Nothing left to lose |
 | `*Derived as *Base` | Implicit | Preserved | Same allocation, adjusted offset |
 | `*Base as *Derived` | Allowed, runtime check | Preserved | Vtable check, crashes (`as *Derived`) or yields null (`as *Derived?`) |
+| `&self as *X` in `class <X derives B<X>> B` | Allowed, no runtime check | Preserved | The `derives` bound proves the relation; compiled to `static_cast` |
 
 The two error rows are deliberate refusals rather than warnings. `ptr as u8` has an honest spelling (`ptr as usize as u8`) that says the same thing in two steps, and `n as *T` has no honest spelling at all a safe pointer's guarantees cannot be reconstructed from a number.
 
@@ -281,7 +297,7 @@ var f = temp as f64      // 100.0
 var s = temp as string   // "100.0C"
 ```
 
-`op as` can be overloaded for multiple target types. The compiler selects the overload based on the target type in the `as` expression. `op as` must take only `self` as a parameter and return the target type.
+`op as` can be overloaded for multiple target types. The compiler selects the overload based on the target type in the `as` expression, which must be exactly one overload's result: no second conversion follows a user one, so `x as f64` with only `op as -> i32` declared is an error. Two `op as` with the same target are one member declared twice. `op as` must take only `self` as a parameter and return the target type. In a generic class, `fn op as(self) -> T` converts to whatever the instance binds `T` to (`Wrap<i64> as i64`), and an interface may require several `op as`, one per target.
 
 Marking an `op as` with `@implicit` lets it apply without `as` where its exact result type is wanted. See [Implicit `op as`](/docs/language/operator-overloading/#implicit-op-as).
 

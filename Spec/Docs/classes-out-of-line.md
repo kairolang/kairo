@@ -1,6 +1,6 @@
 # Forward Declarations and Out-of-Line Definitions
 
-A class can be forward-declared without a body sufficient for `*Class` uses, not for `sizeof` or member access:
+A class (and likewise a [struct](/docs/language/structures/#forward-declarations) or [union](/docs/language/unions/#forward-declarations)) can be forward-declared without a body sufficient for `*Class` uses, not for `sizeof`, member access or holding it by value. The forward declaration must use the same keyword as the definition:
 
 ```kairo
 class Parser

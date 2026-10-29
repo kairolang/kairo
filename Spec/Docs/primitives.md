@@ -39,7 +39,11 @@ var d = 1_000_000   // i32 underscores are ignored, use freely as separators
 var e = 0xFF        // i32 hexadecimal
 var f = 0b1010_0011 // i32 binary
 var g = 0o77        // i32 octal
+var h = 64usize     // usize: the target's pointer width
+var i = 5f32        // f32: a float suffix on an integer body makes it that float
 ```
+
+The integer suffixes are `i8` `i16` `i32` `i64` `i128`, `u8` `u16` `u32` `u64` `u128`, in lower or upper case (`42U8`), and `usize` and `isize`. A suffix is a declaration, not a hint: `42u8` is a `u8` wherever it stands, so it selects the `u8` overload and a generic called with it deduces `T = u8`. A value that does not fit the suffix's type is an error, and so is a suffix that names no type (`1u7`, [SC074E](/docs/language/diagnostics/)). Prefixes and separators combine with a suffix: `0xFF_FFu16`, `0b1010u8`.
 
 ### Overflow behavior
 
@@ -76,7 +80,11 @@ All floating-point types except `f80` follow the IEEE 754 standard. A float lite
 var x = 3.14        // f64 (default)
 var y = 3.14f32     // f32
 var z = 1.0e-10     // f64 scientific notation
+var w = 0x1.8p3f32  // f32 hexadecimal float: 12.0
+var b = 1.5bf16     // bf16
 ```
+
+The float suffixes are `f16`, `bf16`, `f32`, `f64`, `f80` and `f128` (`f80` and `f128` only where the target has them, see below), in lower or upper case. A literal is rounded once, to the type it is used at, from its decimal digits: `16777217.0f32` is `16777216.0` and `16777217.0f64` is exact, and `var q: f128 = 0.1` is `0.1` at `f128` precision, not the `f64` value `0.1` widened. An unknown float suffix (`1.5f8`, `1.5xyz`) is [SC074E](/docs/language/diagnostics/).
 
 Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN` (e.g., `0.0 / 0.0`, `sqrt(-1.0)`) propagate `NaN` per IEEE 754 no crash, no trap. Check for `NaN` explicitly with `std::is_nan()` when needed.
 
@@ -154,6 +162,19 @@ var cjk = '漢'
 
 > [!NOTE]
 > `char` is the *decoded* representation of a single codepoint. Strings store text as UTF-8 bytes internally, not as arrays of `char`. See [Strings](#strings) below.
+
+### C's `char`: `std::c_char`
+
+`char` is a Unicode scalar value, which C and C++'s `char` is not. C's plain `char` is `std::c_char` (`import std::c_char`): one byte, a third type beside `signed char` (`i8`) and `unsigned char` (`u8`), signed or not as the target's C is. A C++ `char` imports as `c_char`, so a C string is `*const c_char`, which is `const char*` exactly. It is a character, not a number: `as` converts it to and from the integers, it compares with `==` and `<`, it does no arithmetic, and an integer literal takes it only in 0 through 127, where both signednesses agree. In an f-string a `c_char` prints its code, 0 through 255.
+
+```kairo
+import std::c_char
+
+var c: c_char = 65          // ok: 'A'
+var d = 200u8 as c_char     // the byte 200, whatever the target's char is
+// var e: c_char = 200      // error SC075E: only 0 through 127 fit on every target
+var n = (c as i32) + 1      // arithmetic on the integer
+```
 
 ---
 
@@ -319,7 +340,7 @@ The full conversion rules between primitive types are covered in the [Conversion
 
 Literals are **untyped** until a type is assigned. Literal typing is not conversion and does not consult this lattice.
 
-1. If an expected type is available from context (annotation, parameter, return position, the other operand of a binop, aggregate element type), the literal takes that type directly, and the compiler checks the value fits. `var b: u8 = 42` is fine. `var b: u8 = 300` is an error at the literal, with the range in the diagnostic.
+1. If an expected type is available from context (annotation, parameter, return position, the other operand of a binop, aggregate element type), the literal takes that type directly, and the compiler checks the value fits. `var b: u8 = 42` is fine. `var b: u8 = 300` is an error at the literal, with the range in the diagnostic. The other operand of a binop gives its type whichever side the literal is on: `1 + b` and `b + 1` are both `u8` additions, and `300 + b` is the same error as `b + 300`. A shift's result is its left operand's type, so a literal on the left of `<<` / `>>` takes the expected type when there is one (`var m: u16 = 1 << n` is a `u16` shift) and otherwise the count's integer type (`1 << 4u8` is a `u8` shift). When both operands are untyped literals, neither gives the other a type and rule 2 applies (`1 << 4` is `i32`).
 2. With no expected type, the default is `i32` for integer literals and `f64` for float literals. Only if the value does not fit does the "smallest type that holds it" rule from [Integers](#integers) apply.
 
 Rule 1 comes first on purpose. If promotion fired unconditionally, `var x: u32 = 3000000000` would type the literal as `i64` before looking at the annotation, and then fail to narrow it. Expected-type-first removes that whole class of error.
