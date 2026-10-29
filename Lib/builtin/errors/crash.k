@@ -36,5 +36,5 @@ pub fn unwrap_failed(msg: *const u8, len: usize) -> ! {
 /// touches nothing else (no method of `string` runs on a program that is
 /// crashing). A literal costs no allocation: it is a borrowed view.
 pub fn crash_with(msg: string = "") -> ! {
-    unsafe { kairo_rt_crash(msg.data as unsafe *const u8, msg.len) }
+    unsafe { kairo_rt_crash(msg.as_ptr() as unsafe *const u8, msg.length()) }
 }

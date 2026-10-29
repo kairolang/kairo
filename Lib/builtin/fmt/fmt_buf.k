@@ -57,26 +57,37 @@ pub class FmtBuf {
     }
 
     pub inline fn put_str(self, const s: string, spec: u64) {
-        if spec == 0 { self.text(s.data, s.len, s.cp_len); return }
-        var take_cp = s.cp_len
-        var take_n  = s.len
-        var prec    = FmtBuf::prec_(spec)
-        if (prec >= 0) && ((prec as usize) < s.cp_len) {
-            take_cp = prec as usize
-            take_n  = FmtBuf::byte_offset_(s.data, s.len, take_cp)
+        if spec == 0 {
+            self.text(s.as_ptr(), s.length(), s.codepoints())
+            return
         }
-        if (FmtBuf::flags_(spec) & 16) != 0 { self.quoted_(s.data, take_n, take_cp, spec); return }
+
+        var take_cp = s.codepoints()
+        var take_n  = s.length()
+        var prec    = FmtBuf::prec_(spec)
+
+        if (prec >= 0) && ((prec as usize) < s.codepoints()) {
+            take_cp = prec as usize
+            take_n  = FmtBuf::byte_offset_(s.as_ptr(), s.length(), take_cp)
+        }
+
+        if (FmtBuf::flags_(spec) & 16) != 0 {
+            self.quoted_(s.as_ptr(), take_n, take_cp, spec)
+            return
+        }
+
         var width = FmtBuf::width_(spec)
         var pad: usize = if width > take_cp => width - take_cp else => 0
         var right = self.pad_open_(pad, spec, 1)
-        self.text(s.data, take_n, take_cp)
+
+        self.text(s.as_ptr(), take_n, take_cp)
         self.pad_(right, FmtBuf::fill_(spec))
     }
 
     pub inline fn put_bool(self, v: bool, spec: u64) {
         var t = "true"
         var f = "false"
-        if v { self.ascii_(t.data, 4, spec, 1) } else { self.ascii_(f.data, 5, spec, 1) }
+        if v { self.ascii_(t.as_ptr(), 4, spec, 1) } else { self.ascii_(f.as_ptr(), 5, spec, 1) }
     }
 
     pub fn put_char(self, c: char, spec: u64) {
@@ -246,12 +257,12 @@ pub class FmtBuf {
     pub fn put_ptr(self, addr: usize, name: *const u8, name_len: usize, spec: u64) {
         if addr == 0 {
             var s = "&null"
-            self.text(s.data, s.len, s.cp_len)
+            self.text(s.as_ptr(), s.length(), s.codepoints())
             return
         }
         self.text(name, name_len, FmtBuf::cp_count_(name, name_len))
         var at = " @ 0x"
-        self.text(at.data, at.len, at.cp_len)
+        self.text(at.as_ptr(), at.length(), at.codepoints())
         var one: u64 = 1
         var hex = one << 55
         self.int64_(addr as u64, false, hex)
@@ -261,10 +272,12 @@ pub class FmtBuf {
     pub inline fn finish(self) -> string {
         self.data[self.len] = 0
         var s = string()
-        s.data   = self.data as const *u8
-        s.len    = self.len
-        s.cp_len = self.cp_len
-        s.cap    = self.cap + 1
+        s.place(
+            d:  self.data as const *u8,
+            l:  self.len,
+            c:  self.cp_len,
+            ca: self.cap + 1
+        )
         self.data = &null
         self.len  = 0
         self.cap  = 0
