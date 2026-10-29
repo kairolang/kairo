@@ -1,14 +1,13 @@
 /// --- The Kairo Project ----------------------------------- Extras/Formatter/Renderer.k --- ///
 ///
-///   Wadler-style renderer for the Doc IR: walks a Doc tree and produces the
-///   final formatted text. Groups decide flat-vs-broken by measuring their
-///   flattened width against the remaining columns.
+///   Wadler/prettier renderer for the Doc IR. Iterative over an explicit
+///   command stack: a Group goes flat only when it AND the rest of its line fit
+///   in the remaining columns, which is what a measure of the group alone
+///   cannot tell.
 ///
-///   The walk is mutually recursive (_render_node <-> _flush_and_newline <->
-///   _render_align) and carries no state beyond the explicit out/col/suffixes
-///   accumulators. Free functions would need forward declarations to close
-///   that cycle, so these are statics on `Renderer`   member lookup inside a
-///   class body is order-independent.
+///   Indentation and flat-Line spaces are owed, not written: they go out with
+///   the next text on the line, so blank lines and line ends carry no
+///   whitespace.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -21,222 +20,290 @@
 
 import DocIR::*;
 
-class Renderer {
-    /// One indent level, in columns.
-    static fn indent_width() -> i32 { return 4; }
+/// One indent level, in columns.
+fn indent_width() -> i32 { return 4; }
 
-    /// Flat width for a node that can never fit on one line. Large enough to
-    /// lose every `<= width` comparison, small enough not to overflow when
-    /// summed across a Concat.
+fn spaces(n: i32) -> string {
+    var s: string = "";
+    for var i: i32 = 0; i < n; ++i { s += " "; }
+    return s;
+}
+
+/// Pending work: print `doc` at indent level `ind`, broken or flat. A null
+/// `doc` is the literal `lit`; a `lit` of "\n" is a row break inside an Align.
+struct Cmd {
+    var ind: i32    = 0;
+    var brk: bool   = true;
+    var doc: *Doc   = &null;
+    var lit: string = "";
+}
+
+/// The output and where it stands.
+class Pen {
+    pub var out:  string = "";
+    pub var col:  i32    = 0;
+    pub var owed: i32    = 0;     ///< indent owed before the next text on this line
+    pub var sp:   i32    = 0;     ///< spaces owed by flat Lines; a newline drops them
+    pub var bol:  bool   = true;  ///< nothing printed on this line yet
+
+    default fn Pen(self);
+
+    /// The column the next text would start at.
+    fn at(self) -> i32 {
+        return (self.owed) if (self.bol) else (self.col + self.sp);
+    }
+
+    fn put(self, s: string) {
+        if s.length() == 0 { return; }
+        if self.bol {
+            self.out += spaces(self.owed);
+            self.col  = self.owed;
+            self.bol  = false;
+        } else if self.sp > 0 {
+            self.out += spaces(self.sp);
+            self.col += self.sp;
+        }
+        self.sp   = 0;
+        self.out += s;
+        self.col += static_cast::<i32>(s.length());
+    }
+
+    fn newline(self, ind: i32) {
+        self.out += "\n";
+        self.col  = 0;
+        self.sp   = 0;
+        self.owed = ind * indent_width();
+        self.bol  = true;
+    }
+}
+
+class Renderer {
+    /// Flat width of a node that can never be flat. Large enough to lose every
+    /// comparison, small enough not to overflow when summed.
     static fn unfittable() -> i32 { return 1000000; }
 
-    static fn _spaces(n: i32) -> string {
-        var s: string = "";
-        for var i: i32 = 0; i < n; ++i { s += " "; }
-        return s;
+    /// Width of \p doc printed flat; unfittable when it holds a hard break.
+    static fn flat_width(doc: *Doc) -> i32 {
+        if doc->hard { return Renderer::unfittable(); }
+
+        var k = doc->kind;
+        if k == DocKind::Text { return static_cast::<i32>(doc->txt.length()); }
+        if k == DocKind::Line { return 1; }
+        if (k == DocKind::SoftLine) || (k == DocKind::LineSuffix) || (k == DocKind::BreakParent) { return 0; }
+        if k == DocKind::IfBreak {
+            if doc->children.size() < 2 { return 0; }
+            return Renderer::flat_width(&(doc->children[1]));
+        }
+
+        var w: i32 = 0;
+        for var i: usize = 0; i < doc->children.size(); ++i {
+            w += Renderer::flat_width(&(doc->children[i]));
+            if w >= Renderer::unfittable() { return Renderer::unfittable(); }
+        }
+        return w;
     }
 
-    static fn render(doc: Doc, width: i32) -> string {
-        var out: string = "";
-        var col: i32    = 0;
-        var suffixes    = vec::<Doc>();
+    static fn render(doc: *Doc, width: i32) -> string {
+        var pen   = Pen();
+        var stack = vec::<Cmd>();
+        var sfx   = vec::<Cmd>();
 
-        Renderer::_render_node(doc, width, /*indent*/ 0, /*broken*/ false, &out, &col, &suffixes);
-        Renderer::_flush_suffixes(&out, &col, &suffixes);
+        stack.push_back(Cmd { ind: 0, brk: true, doc: doc, lit: "" });
 
-        return out;
+        while true {
+            while !stack.empty() {
+                var c = stack.back();
+                stack.pop_back();
+
+                if Renderer::_is_newline(c) {
+                    // line suffixes go out before the break that ends their line
+                    if !sfx.empty() {
+                        stack.push_back(c);
+                        Renderer::_drain(&stack, &sfx);
+                        continue;
+                    }
+                    var ind = c.ind;
+                    if (c.doc != &null) && (c.doc->kind == DocKind::LiteralLine) { ind = 0; }
+                    pen.newline(ind);
+                    continue;
+                }
+
+                if c.doc == &null { pen.put(c.lit); continue; }
+
+                var d = c.doc;
+                var k = d->kind;
+
+                if k == DocKind::Text { pen.put(d->txt); continue; }
+
+                if k == DocKind::Concat {
+                    var i = d->children.size();
+                    while i > 0 {
+                        i -= 1;
+                        stack.push_back(Cmd { ind: c.ind, brk: c.brk, doc: &(d->children[i]), lit: "" });
+                    }
+                    continue;
+                }
+
+                if k == DocKind::Indent {
+                    if d->children.empty() { continue; }
+                    stack.push_back(Cmd { ind: c.ind + 1, brk: c.brk, doc: &(d->children[0]), lit: "" });
+                    continue;
+                }
+
+                if k == DocKind::Group {
+                    if d->children.empty() { continue; }
+                    var flat = Cmd { ind: c.ind, brk: false, doc: &(d->children[0]), lit: "" };
+                    if (!c.brk) || ((!d->hard) && Renderer::_fits(flat, &stack, width - pen.at())) {
+                        stack.push_back(flat);
+                    } else {
+                        stack.push_back(Cmd { ind: c.ind, brk: true, doc: &(d->children[0]), lit: "" });
+                    }
+                    continue;
+                }
+
+                // only flat Lines reach here; broken ones were newlines above
+                if k == DocKind::Line { pen.sp += 1; continue; }
+
+                if k == DocKind::IfBreak {
+                    if d->children.size() < 2 { continue; }
+                    var arm: usize = (0) if (c.brk) else (1);
+                    stack.push_back(Cmd { ind: c.ind, brk: c.brk, doc: &(d->children[arm]), lit: "" });
+                    continue;
+                }
+
+                if k == DocKind::LineSuffix {
+                    if d->children.empty() { continue; }
+                    sfx.push_back(Cmd { ind: c.ind, brk: false, doc: &(d->children[0]), lit: "" });
+                    continue;
+                }
+
+                if k == DocKind::Align { Renderer::_push_align(&stack, d, c.ind); continue; }
+
+                // SoftLine flat, BreakParent: nothing to print
+            }
+
+            if sfx.empty() { break; }
+            Renderer::_drain(&stack, &sfx);
+        }
+
+        if !pen.bol { pen.out += "\n"; }
+        return pen.out;
     }
 
-    /// True if `doc` contains a hardline or an explicit BreakParent, which
-    /// forces every enclosing Group to break regardless of measured width.
-    static fn _contains_break_parent(doc: Doc) -> bool {
-        if (doc.kind == DocKind::HardLine) || (doc.kind == DocKind::BreakParent) {
-            return true;
-        }
-
-        for var i: usize = 0; i < doc.children.size(); ++i {
-            if Renderer::_contains_break_parent(doc.children[i]) { return true; }
-        }
-
-        for var i: usize = 0; i < doc.rows.size(); ++i {
-            if (doc.rows[i].key != &null) && Renderer::_contains_break_parent(*(doc.rows[i].key)) {
-                return true;
-            }
-            if (doc.rows[i].value != &null) && Renderer::_contains_break_parent(*(doc.rows[i].value)) {
-                return true;
-            }
-        }
-
+    priv static fn _is_newline(c: Cmd) -> bool {
+        if c.doc == &null { return c.lit == "\n"; }
+        var k = c.doc->kind;
+        if (k == DocKind::HardLine) || (k == DocKind::LiteralLine) { return true; }
+        if (k == DocKind::Line) || (k == DocKind::SoftLine) { return c.brk; }
         return false;
     }
 
-    /// Width `doc` would occupy printed entirely flat. Line -> one space,
-    /// SoftLine -> nothing, HardLine -> unfittable.
-    static fn _measure_flat(doc: Doc) -> i32 {
-        switch doc.kind {
-            case DocKind::Text {
-                return static_cast::<i32>(doc.txt.length());
+    priv static fn _drain(stack: *vec::<Cmd>, sfx: *vec::<Cmd>) {
+        var i = sfx->size();
+        while i > 0 {
+            i -= 1;
+            stack->push_back((*sfx)[i]);
+        }
+        sfx->clear();
+    }
+
+    /// Rule 2: one row per line, every sep pinned just past the widest flat key.
+    priv static fn _push_align(stack: *vec::<Cmd>, d: *Doc, ind: i32) {
+        var rows = d->seps.size();
+        if rows == 0 { return; }
+
+        var kw: i32 = 0;
+        for var r: usize = 0; r < rows; ++r {
+            var w = Renderer::flat_width(&(d->children[2 * r]));
+            if w > kw { kw = w; }
+        }
+
+        // pushed in reverse: per row the print order is [break], key, pad+sep, value
+        var r = rows;
+        while r > 0 {
+            r -= 1;
+            var key = &(d->children[2 * r]);
+            var pad = kw - Renderer::flat_width(key);
+            stack->push_back(Cmd { ind: ind, brk: false, doc: &(d->children[2 * r + 1]), lit: "" });
+            stack->push_back(Cmd { ind: ind, brk: false, doc: &null, lit: spaces(pad) + d->seps[r] });
+            stack->push_back(Cmd { ind: ind, brk: false, doc: key, lit: "" });
+            if r > 0 { stack->push_back(Cmd { ind: ind, brk: true, doc: &null, lit: "\n" }); }
+        }
+    }
+
+    /// Does \p next fit in \p rem0 columns, followed by the rest of its line?
+    /// The rest is the pending stack, read from the top down in its own modes.
+    priv static fn _fits(next: Cmd, stack: *vec::<Cmd>, rem0: i32) -> bool {
+        var rem  = rem0;
+        var rest = stack->size();
+        var work = vec::<Cmd>();
+        work.push_back(next);
+
+        while true {
+            if rem < 0 { return false; }
+
+            if work.empty() {
+                if rest == 0 { return true; }
+                rest -= 1;
+                work.push_back((*stack)[rest]);
+                continue;
             }
-            case DocKind::Concat {
-                var w: i32 = 0;
-                for var i: usize = 0; i < doc.children.size(); ++i {
-                    w += Renderer::_measure_flat(doc.children[i]);
+
+            var c = work.back();
+            work.pop_back();
+
+            if c.doc == &null {
+                if c.lit == "\n" { return true; }
+                rem -= static_cast::<i32>(c.lit.length());
+                continue;
+            }
+
+            var d = c.doc;
+            var k = d->kind;
+
+            if k == DocKind::Text { rem -= static_cast::<i32>(d->txt.length()); continue; }
+
+            if k == DocKind::Concat {
+                var i = d->children.size();
+                while i > 0 {
+                    i -= 1;
+                    work.push_back(Cmd { ind: c.ind, brk: c.brk, doc: &(d->children[i]), lit: "" });
                 }
-                return w;
+                continue;
             }
-            case DocKind::Line     { return 1; }
-            case DocKind::SoftLine { return 0; }
-            case DocKind::HardLine { return Renderer::unfittable(); }
-            case DocKind::Group {
-                if doc.children.empty() { return 0; }
-                return Renderer::_measure_flat(doc.children[0]);
+
+            if (k == DocKind::Group) || (k == DocKind::Indent) {
+                if d->children.empty() { continue; }
+                var b = c.brk || ((k == DocKind::Group) && d->hard);
+                work.push_back(Cmd { ind: c.ind, brk: b, doc: &(d->children[0]), lit: "" });
+                continue;
             }
-            case DocKind::Indent {
-                if doc.children.empty() { return 0; }
-                return Renderer::_measure_flat(doc.children[0]);
+
+            if k == DocKind::Line {
+                if c.brk { return true; }
+                rem -= 1;
+                continue;
             }
-            case DocKind::IfBreak {
-                // measuring flat means taking the flat arm
-                if doc.children.size() < 2 { return 0; }
-                return Renderer::_measure_flat(doc.children[1]);
+
+            if k == DocKind::SoftLine {
+                if c.brk { return true; }
+                continue;
             }
-            case DocKind::LineSuffix  { return 0; }
-            case DocKind::BreakParent { return 0; }
-            case DocKind::Align {
-                // an Align block is always one row per line
-                return Renderer::unfittable();
+
+            if (k == DocKind::HardLine) || (k == DocKind::LiteralLine) || (k == DocKind::Align) {
+                return true;
             }
+
+            if k == DocKind::IfBreak {
+                if d->children.size() < 2 { continue; }
+                var arm: usize = (0) if (c.brk) else (1);
+                work.push_back(Cmd { ind: c.ind, brk: c.brk, doc: &(d->children[arm]), lit: "" });
+                continue;
+            }
+
+            // LineSuffix, BreakParent: zero width
         }
 
-        return 0;
-    }
-
-    /// Emit pending line suffixes (trailing comments) at the current column.
-    /// Suffixes are drained into a local first: rendering one may legally
-    /// queue another, and re-entering the live vector while iterating it is a
-    /// dangling read.
-    static fn _flush_suffixes(out: *string, col: *i32, suffixes: *vec::<Doc>) -> void {
-        if suffixes->empty() { return; }
-
-        var pending = *suffixes;
-        suffixes->clear();
-
-        var drain = vec::<Doc>();
-        for var i: usize = 0; i < pending.size(); ++i {
-            Renderer::_render_node(
-                pending[i], Renderer::unfittable(),
-                /*indent*/ 0, /*broken*/ false, out, col, &drain
-            );
-        }
-    }
-
-    static fn _flush_and_newline(indent: i32, out: *string, col: *i32, suffixes: *vec::<Doc>) -> void {
-        Renderer::_flush_suffixes(out, col, suffixes);
-
-        var pad = indent * Renderer::indent_width();
-        (*out) += "\n";
-        (*out) += Renderer::_spaces(pad);
-        (*col)  = pad;
-    }
-
-    static fn _render_node(
-        doc:      Doc,
-        width:    i32,
-        indent:   i32,
-        broken:   bool,
-        out:      *string,
-        col:      *i32,
-        suffixes: *vec::<Doc>
-    ) -> void {
-
-        switch doc.kind {
-            case DocKind::Text {
-                (*out) += doc.txt;
-                (*col) += static_cast::<i32>(doc.txt.length());
-            }
-            case DocKind::Concat {
-                for var i: usize = 0; i < doc.children.size(); ++i {
-                    Renderer::_render_node(doc.children[i], width, indent, broken, out, col, suffixes);
-                }
-            }
-            case DocKind::Line {
-                if broken { Renderer::_flush_and_newline(indent, out, col, suffixes); }
-                else      { (*out) += " "; (*col) += 1; }
-            }
-            case DocKind::SoftLine {
-                if broken { Renderer::_flush_and_newline(indent, out, col, suffixes); }
-            }
-            case DocKind::HardLine {
-                Renderer::_flush_and_newline(indent, out, col, suffixes);
-            }
-            case DocKind::Indent {
-                if doc.children.empty() { return; }
-                Renderer::_render_node(doc.children[0], width, indent + 1, broken, out, col, suffixes);
-            }
-            case DocKind::Group {
-                if doc.children.empty() { return; }
-                var forced     = Renderer::_contains_break_parent(doc.children[0]);
-                var will_break = forced || (((*col) + Renderer::_measure_flat(doc.children[0])) > width);
-                Renderer::_render_node(doc.children[0], width, indent, will_break, out, col, suffixes);
-            }
-            case DocKind::IfBreak {
-                if doc.children.size() < 2 { return; }
-                if broken { Renderer::_render_node(doc.children[0], width, indent, broken, out, col, suffixes); }
-                else      { Renderer::_render_node(doc.children[1], width, indent, broken, out, col, suffixes); }
-            }
-            case DocKind::LineSuffix {
-                if doc.children.empty() { return; }
-                suffixes->push_back(doc.children[0]);
-            }
-            case DocKind::BreakParent {
-                return;
-            }
-            case DocKind::Align {
-                Renderer::_render_align(doc.rows, width, indent, out, col, suffixes);
-            }
-        }
-    }
-
-    /// Style rule 2: `key <sep> value`, one row per line, every `sep` in the
-    /// block pinned to the column just past the widest flat key.
-    static fn _render_align(
-        rows:     vec::<AlignRow>,
-        width:    i32,
-        indent:   i32,
-        out:      *string,
-        col:      *i32,
-        suffixes: *vec::<Doc>
-    ) -> void {
-        if rows.empty() { return; }
-
-        var key_width: i32 = 0;
-        for var i: usize = 0; i < rows.size(); ++i {
-            if rows[i].key == &null { continue; }
-            var w = Renderer::_measure_flat(*(rows[i].key));
-            if w > key_width { key_width = w; }
-        }
-
-        for var i: usize = 0; i < rows.size(); ++i {
-            if i > 0 { Renderer::_flush_and_newline(indent, out, col, suffixes); }
-
-            var key_start = *col;
-
-            if rows[i].key != &null {
-                Renderer::_render_node(*(rows[i].key), width, indent, /*broken*/ false, out, col, suffixes);
-            }
-
-            var written = (*col) - key_start;
-            if written < key_width {
-                (*out) += Renderer::_spaces(key_width - written);
-                (*col) += (key_width - written);
-            }
-
-            (*out) += rows[i].sep;
-            (*col) += static_cast::<i32>(rows[i].sep.length());
-
-            if rows[i].value != &null {
-                Renderer::_render_node(*(rows[i].value), width, indent, /*broken*/ false, out, col, suffixes);
-            }
-        }
+        return true;
     }
 }
