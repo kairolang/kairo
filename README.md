@@ -47,6 +47,149 @@ The **Stage 0 compiler** (written in C++) is functional and can compile Kairo al
 
 Kairo is built to slot directly into C **and** C++ ecosystems, offering a fresh syntax and features, without abandoning decades of code.
 
+### Example
+
+This builds today with the Stage 1 compiler (build from source for now; see [Installation](#installation)).
+
+C++ includes a `.k` file directly. There is no generated header and no binding layer:
+
+```cpp
+//> main.cpp
+#include "packet.k"
+#include <concepts>
+#include <iostream>
+
+template <typename B>
+concept ScorableBatch = requires(B& b, const B& cb) {
+    { cb.score() } -> std::same_as<int>;
+    { b[0] };
+};
+
+template <ScorableBatch B>
+int run_from_cxx(B& b) {
+    b[0] = packet::Frame<int>::Burst(20, 4);   // Kairo `*Frame` surfaces as `Frame&`
+    return b.score() + packet::sum_burst(b[0]);
+}
+
+int main() {
+    packet::Batch batch(10, 204);
+    std::cout << "[C++] total = " << run_from_cxx(batch) << "\n";
+}   // `batch` leaves C++ scope: Kairo's destructor runs here
+```
+
+```kairo
+//> packet.k
+import std::io::println
+
+pub enum <T> Frame {
+    Burst { base: T, count: i32 },
+    Code  { status: i32 },
+    Idle,
+}
+
+pub class Batch {
+    pub var frames: [Frame<i32>; 3]
+    pub var tag:    i32? = null
+
+    pub fn Batch(self, a: i32, b: i32) {
+        self.frames = [
+            .Burst { base: a, count: 3 },
+            .Code  { status: b },
+            .Idle
+        ]
+        self.tag = a + b
+    }
+
+    pub fn score(const self) -> i32 {
+        return match self.frames[1] {
+            case .Code(const s) => match s {
+                case 200..=299 => 50
+                default        => 10
+            }
+            default => 0
+        } + (self.tag ?? 0)
+    }
+
+    pub fn op [] (self, idx: usize) -> *Frame<i32> { return &self.frames[idx] }
+
+    // Destructor: runs when the owning scope ends, C++ or Kairo.
+    fn op delete (self) {
+        println("[Kairo] ~Batch()")
+    }
+}
+
+pub fn sum_burst(f: Frame<i32>) -> i32 = match f {
+    case .Burst(const base, const count) => base * count
+    default => 0
+}
+```
+
+```bash
+kcc main.cpp -o main && ./main
+```
+
+```
+[C++] total = 344
+[Kairo] ~Batch()
+```
+
+`kcc` is a drop-in replacement for `clang++` that takes Clang's arguments. `kairo` is the Kairo compiler driver.
+
+### Where Kairo Semantics Differ from C and C++
+ 
+These are legal C and C++ calls. `clang++` accepts all three. Kairo rejects them:
+
+```c
+//> buf.h
+#pragma once
+#include <stddef.h>
+
+void buf_reserve(size_t n);
+```
+
+```kairo
+//> buf.k
+ffi "c"   import "buf.h"
+ffi "c++" import "vector"
+
+fn grow(a: u32, b: u64, s: i32) {
+    buf_reserve(a)   // ok: lossless on every 32/64-bit target
+    buf_reserve(b)   // error: narrows on 32-bit targets
+    buf_reserve(s)   // error: signed -> unsigned is never implicit
+}
+
+fn first(v: cxx::std::vector<i32>?) -> i32 {
+    return v.at(0)   // error: 'v' may be null here
+}
+```
+
+```
+$ kairo buf.k
+error @ buf.k:6
+    6 |     buf_reserve(b)
+      |     ^^^^^^^^^^^^^^
+      |     [SC063E] no matching overload for call to 'buf_reserve'
+    note @ buf.h:4
+       4 | void buf_reserve(size_t n);
+         | ^ candidate not viable: cannot convert argument of type 'u64' to parameter 'n' of type 'usize'
+
+error @ buf.k:7
+    7 |     buf_reserve(s)
+      |     ^^^^^^^^^^^^^^
+      |     [SC063E] no matching overload for call to 'buf_reserve'
+    note @ buf.h:4
+       4 | void buf_reserve(size_t n);
+         | ^ candidate not viable: cannot convert argument of type 'i32' to parameter 'n' of type 'usize'
+
+error @ buf.k:11
+   11 |     return v.at(0)
+      |            ^
+      |            [SC001E] 'v' may be null here; check it with 'if v?' first
+    note @ buf.k:10
+   10 | fn first(v: cxx::std::vector<i32>?) -> i32 {
+      |          ^ 'v' is a nullable parameter; it may be null on entry
+```
+
 ### Getting Started
 
 **Download a release:** grab a prebuilt binary from the [releases page](https://github.com/kairolang/kairo/releases).
