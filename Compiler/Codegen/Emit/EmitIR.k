@@ -961,7 +961,7 @@ class EmitIR {
             case StmtKind::FinallyStmt            { self._ice(s->range, "EmitIR: finally; FinallyLowering owns it"); }
             case StmtKind::PanicStmt              { self._ice(s->range, "EmitIR: panic; PanicLowering owns it"); }
             case StmtKind::YieldStmt              { self._yield(cast::<YieldStmt>(s)); }
-            case StmtKind::RuntimeAssertStmt      { self._ice(s->range, "EmitIR: assert; not emitted yet (a crash-family check, PANIC.md §2.4a)"); }
+            case StmtKind::RuntimeAssertStmt      { self._assert(cast::<RuntimeAssertStmt>(s)); }
             case StmtKind::StaticAssertStmt       { self._ice(s->range, "EmitIR: static assert; the Evaluator owns it"); }
             case StmtKind::ContextBindingStmt     { self._ice(s->range, "EmitIR: context binding; ContextLowering owns it"); }
             case StmtKind::DestructuringDeclStmt  { self._ice(s->range, "EmitIR: destructuring; TupleLowering owns a tuple's, FeatureGateCheck rejects a struct's"); }
@@ -1283,6 +1283,20 @@ class EmitIR {
         if (rt == &null) || (!isa::<RecordType>(rt)) { return &null; }
         var r = cast::<RecordType>(rt);
         return (r->args[0]) if (r->args.size() > 0) else (&null);
+    }
+
+    /// `assert c, msg?` (PANIC.md §2.4a): a crash-family check, so
+    /// `if (!(c)) crash_exit(...)` with the runtime's own noreturn entry. The
+    /// message operand is optional and a `string` here, not a C literal, so the
+    /// crash text is the statement's own source and location instead; that
+    /// names the failed condition and carries the message as written.
+    priv fn _assert(self, n: *RuntimeAssertStmt) {
+        var sm  = self._cg->ctx->sm;
+        var lc  = sm->get_line_col(n->range.start);
+        var lit = CXXSpell::c_string(f"kairo: assertion failed at {sm->get_filename(n->range.start)}:{lc.line}:{lc.column}: {sm->get_text(n->range)}");
+        self._cg->sink->spell(n->range, "if (!(");
+        self.emit(n->condition);
+        self._cg->sink->spell(n->range, ")) ::kairo_rt_crash_exit(reinterpret_cast<const unsigned char*>(" + lit + "), sizeof(" + lit + ") - 1, 134);");
     }
 
     priv fn _if(self, n: *ConditionalStmt) {
@@ -2101,10 +2115,17 @@ class EmitIR {
         // type's; an operand that names a function is a plain call below.
         var fv = self._fn_value_type(n->callee, callee);
         if fv != &null {
+            // `fn(...) -> !` lowers to `__kairo_fn<void(...)>`: C++ cannot
+            // put noreturn on that call, so a function whose last act is
+            // the call (`oom`) would fall off its end under [[noreturn]]
+            // (C532W). The value's own type says it never returns; say so.
+            var never = self._returns_never(fv);
+            if never { self._cg->sink->spell(n->range, "("); }
             self.emit(n->callee);
             self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
             self._fn_value_args(n, fv);
             self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
+            if never { self._cg->sink->spell(n->range, ", " + LowerTargets::clang_unreachable() + "())"); }
             return;
         }
         if callee == &null {
@@ -2407,6 +2428,14 @@ class EmitIR {
         var t = canon_unqual(c->type_);
         if (t == &null) || (!isa::<FunctionPointerType>(t)) { return &null; }
         return cast::<FunctionPointerType>(t);
+    }
+
+    /// True when \p f is `fn(...) -> !`.
+    priv fn _returns_never(self, f: *FunctionPointerType) -> bool {
+        if (f->return_type == &null) || (f->return_type->canonical == &null) { return false; }
+        var r = canon_unqual(f->return_type->canonical);
+        if (r == &null) || (r->kind != TypeKind::BuiltinType) { return false; }
+        return cast::<BuiltinType>(r)->builtin == BuiltinKind::Never;
     }
 
     /// Arguments of a call through a `fn` value, each as its parameter in
