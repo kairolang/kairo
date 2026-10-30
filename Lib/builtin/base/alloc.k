@@ -1,14 +1,15 @@
-/// --- The Kairo Project ---------------------------- Lib/builtin/alloc.k --- ///
+/// --- The Kairo Project ---------------------- Lib/builtin/base/alloc.k --- ///
 ///
-///   \brief The allocator model: the Allocator interfaces, typed uninitialized
-///          storage, the allocation front end, the OOM hook, and the two
-///          allocators the language ships with (System and Arena).
+///   \brief The allocator model: the allocator interfaces, typed uninitialized
+///          storage, the allocation front end, the OOM hook, and the default
+///          global allocator (System).
 ///
 ///   \detail
 ///     Three layers, each knowing only about the one below it:
 ///       - an allocator hands out bytes (alloc / free) and never sees a type;
-///       - Uninit<T> / UninitSlice<T> is storage typed as T that is not yet
-///         a T: the only way to get a *T from it is to construct into it;
+///       - Uninitialized<T> / UninitializedSlice<T> is storage typed as T that
+///         is not yet a T: the only way to get a *T from it is to construct
+///         into it;
 ///       - @create / @destroy are mem::create / mem::destroy with the
 ///         allocator in effect (@A) filled in by the compiler.
 ///     Contract every allocator can rely on (the front end guarantees it):
@@ -18,10 +19,7 @@
 ///       - a failed resize / realloc leaves the original block untouched.
 ///     Contract every allocator must keep:
 ///       - failure is &null: no abort, no panic (OOM policy is the front end's);
-///       - a global allocator is thread-safe; a scoped one is used by one
-///         thread only;
-///       - a scoped allocator returns only pointers inside range() for as
-///         long as the scope is open.
+///       - a global allocator is thread-safe.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -49,7 +47,6 @@ pub interface Resizer derives Allocator {
 }
 
 /// Grows or shrinks a block, moving it if it has to. &null: nothing changed.
-/// Worth having only where a move is cheaper than alloc + copy + free.
 pub interface Reallocator derives Allocator {
     static fn realloc(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8
 }
@@ -59,14 +56,24 @@ pub interface ZeroAllocator derives Allocator {
     static fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8
 }
 
-/// What @mem::set_scoped_allocator takes. enter() runs on scope entry,
-/// leave(mark) on every exit, unwinding included.
+/// Used with AllocatorScope (and later @mem::set_scoped_allocator). enter()
+/// returns a token that leave() takes back (a u64 for now: a witness cast of
+/// a `-> usize` static is emitted as `decltype(*)(sizeof(0))()`, which clang
+/// rejects, so this is `usize` once that is fixed); range() is the address range
+/// every block it hands out lies in while the scope is open.
 pub interface ScopedAllocator derives Allocator {
-    type Mark
-    static fn enter() -> Self::Mark
-    static fn leave(mark: Self::Mark)
+    static fn enter() -> u64
+    static fn leave(mark: u64)
     static fn range() -> (unsafe *u8, unsafe *u8)
 }
+
+/// What the front end and @mem::set_allocator take, until eval if can test a
+/// capability per instantiation; then the front end takes Allocator and
+/// falls back where a capability is missing.
+pub interface FullAllocator derives Resizer + Reallocator + ZeroAllocator { }
+
+/// What AllocatorScope takes.
+pub interface ScopedFullAllocator derives ScopedAllocator + FullAllocator { }
 
 // --- helpers ----------------------------------------------------------------
 
@@ -77,302 +84,433 @@ pub inline fn align_up(v: usize, align: usize) -> usize { return (v + align - 1)
 /// A non-null, aligned pointer that owns nothing: what a zero-size request gets.
 pub inline fn dangling(align: usize) -> unsafe *u8 { unsafe { return align as unsafe *u8 } }
 
+/// p + n bytes. Goes through usize until the compiler has '+' on raw pointers;
+/// replace the body with `return p + n` then.
+inline fn byte_offset(p: unsafe *u8, n: usize) -> unsafe *u8 {
+    unsafe { return ((p as usize) + n) as unsafe *u8 }
+}
+
+/// realloc for an allocator with no faster path: alloc, copy, free.
+pub fn <A impl Allocator> realloc_by_copy(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
+    var unsafe *n = A::alloc(new_size, align)
+    if n == &null { return &null }
+    __builtin_copy(n, ptr, if old_size < new_size => old_size else => new_size)
+    A::free(ptr, old_size, align)
+    return n
+}
+
 // --- out of memory ----------------------------------------------------------
 
 static oom_handler: fn(usize, usize) -> ! = default_oom
 
 fn default_oom(size: usize, align: usize) -> ! {
     var msg = "kairo: out of memory"
-    __builtin_crash(msg.data, msg.lenz, 134)
+    __builtin_crash(msg.as_ptr(), msg.length(), 134)
 }
 
-/// Replaces what @create does when the allocator returns &null.
+/// Replaces what create does when the allocator returns &null.
 pub fn set_oom_handler(h: fn(usize, usize) -> !) { oom_handler = h }
 
-pub fn oom(size: usize, align: usize) -> ! { oom_handler(size, align) }
+/// The handler is typed -> !, but a function pointer cannot carry that into
+/// C++, and a handler that returns anyway must not fall through.
+pub fn oom(size: usize, align: usize) -> ! {
+    oom_handler(size, align)
+    __builtin_abort()
+}
 
 // --- typed uninitialized storage --------------------------------------------
 
 /// Storage for one T that holds no T. Move-only. Turn it into an object with
 /// construct, or give it back with mem::release.
-pub struct <T> Uninit {
+pub class <T> Uninitialized {
     priv var ptr: unsafe *u8
 
+    /// Wraps raw bytes. The caller vouches for size and alignment.
+    pub inline fn Uninitialized(self, ptr: unsafe *u8) { self.ptr = ptr }
+
+    @move
+    pub fn Uninitialized(self, other: Self) = default
+
     /// Builds a T in the storage. The only safe way to a *T.
-    pub fn <...A> construct(move self, ...args: A) -> *T {
+    pub inline fn <...A> construct(self, ...args: A) -> *T {
         return __builtin_construct_at<T>(self.ptr, args...)
     }
 
     /// For a T whose bytes have all been written through as_bytes. Only for
-    /// types that come into being when their bytes are written.
-    pub fn assume_init(move self) -> *T
-        requires __builtin_is_trivially_copyable<T>() && __builtin_is_trivially_destructible<T>()
-    {
-        unsafe { return __builtin_launder(self.ptr as unsafe *T) as *T }
+    /// types that come into being when their bytes are written (trivially
+    /// copyable and destructible). Not enforced by a requires clause: a
+    /// generic call written <T> inside a generic body loses its arguments.
+    pub inline fn assume_init(self) -> *T {
+        unsafe { return __builtin_launder(self.ptr as unsafe *T as *T) }
     }
 
-    pub fn as_bytes(const self) -> unsafe *u8 { return self.ptr }
+    pub inline fn as_bytes(const self) -> unsafe *u8 { return self.ptr }
+
+    /// True when the allocation failed.
+    pub inline fn is_null(const self) -> bool { return self.ptr == &null }
 
     /// Reinterprets the storage for a U of the same or smaller size and
     /// alignment. Nothing lives in it either way.
-    pub fn <U> retype(move self) -> Uninit<U>
-        requires sizeof U <= sizeof T && alignof U <= alignof T
-    {
-        return Uninit<U> { ptr: self.ptr }
+    pub fn <U> retype(self) -> Uninitialized<U>
+      requires sizeof U <= sizeof T && alignof U <= alignof T {
+        return Uninitialized<U>(self.ptr)
     }
-
-    /// Wraps raw bytes. The caller vouches for size and alignment.
-    pub unsafe fn from_bytes(ptr: unsafe *u8) -> Uninit<T> { return Uninit<T> { ptr: ptr } }
 }
 
 /// Runs the destructor and hands the storage back.
-pub fn <T> uninit_from(move p: *T) -> Uninit<T> {
+pub inline fn <T> uninitialized_from(p: *T) -> Uninitialized<T> {
     __builtin_destruct_at(p)
-    unsafe { return Uninit<T> { ptr: p as unsafe *u8 } }
+    unsafe { return Uninitialized<T>(p as unsafe *u8) }
 }
 
-/// Storage for cap Ts, of which [0, len) are live. Unwinding or dropping it
-/// destroys only the live prefix; the storage itself goes back via release.
-pub struct <T> UninitSlice {
+/// Storage for cap Ts, of which [0, len) are live. Dropping it destroys only
+/// the live prefix; the storage itself goes back via release_slice.
+pub class <T> UninitializedSlice {
     priv var ptr: unsafe *u8
     priv var cap: usize
     priv var len: usize
 
-    pub fn size(const self) -> usize { return self.len }
-    pub fn capacity(const self) -> usize { return self.cap }
+    pub inline fn UninitializedSlice(self, ptr: unsafe *u8, cap: usize) {
+        self.ptr = ptr
+        self.cap = cap
+        self.len = 0
+    }
 
-    pub fn <...A> push(self, ...args: A) {
+    @move
+    pub inline fn UninitializedSlice(self, other: Self) {
+        self.ptr  = other.ptr
+        self.cap  = other.cap
+        self.len  = other.len
+        other.ptr = &null
+        other.cap = 0
+        other.len = 0
+    }
+
+    pub inline fn size(const self) -> usize { return self.len }
+    pub inline fn capacity(const self) -> usize { return self.cap }
+    pub inline fn as_bytes(const self) -> unsafe *u8 { return self.ptr }
+
+    /// True when the allocation failed.
+    pub inline fn is_null(const self) -> bool { return self.ptr == &null }
+
+    pub inline fn <...A> push(self, ...args: A) {
         if __builtin_expect(self.len == self.cap, false) { __builtin_trap() }
-        unsafe { __builtin_construct_at<T>(self.ptr + self.len * sizeof T, args...) }
+        __builtin_construct_at<T>(byte_offset(self.ptr, self.len * sizeof T), args...)
         self.len += 1
     }
 
-    /// Every slot is live: the slice is now a slice of T.
-    pub fn finish(move self) -> [*T] {
+    /// Every slot is live: ownership of the cap Ts moves to the caller, who
+    /// destroys them and frees capacity() * sizeof T bytes.
+    pub inline fn finish(self) -> *T {
         if self.len != self.cap { __builtin_trap() }
-        var p = self.ptr
-        self.len = 0                            // ownership moves to the result
-        unsafe { return (p as unsafe *T)[0..self.cap] }
+        self.len = 0
+        unsafe { return self.ptr as unsafe *T as *T }
     }
 
-    pub fn as_bytes(const self) -> unsafe *u8 { return self.ptr }
-
-    fn op delete(self) {
-        var i: usize = self.len
-        while i > 0 {
-            i -= 1
-            unsafe { __builtin_destruct_at((self.ptr as unsafe *T) + i) }
+    /// Destroys the live prefix, last first. Idempotent.
+    pub fn clear(self) {
+        while self.len > 0 {
+            self.len -= 1
+            unsafe {
+                __builtin_destruct_at(byte_offset(self.ptr, self.len * sizeof T) as unsafe *T as *T)
+            }
         }
     }
+
+    fn op delete(self) { self.clear() }
 }
 
 // --- the front end ----------------------------------------------------------
-// Allocators implement only what they can do well; everything else is done
-// here once, chosen at compile time. Zero-size requests never reach them.
+// Zero-size requests never reach an allocator.
 
-pub fn <A impl Allocator> alloc_bytes(size: usize, align: usize) -> unsafe *u8 {
+pub inline fn <A impl Allocator> alloc_bytes(size: usize, align: usize) -> unsafe *u8 {
+    assert is_pow2(align), "alignment must be a power of two"
     if size == 0 { return dangling(align) }
     return A::alloc(size, align)
 }
 
-pub fn <A impl Allocator> free_bytes(ptr: unsafe *u8, size: usize, align: usize) {
+pub inline fn <A impl Allocator> free_bytes(ptr: unsafe *u8, size: usize, align: usize) {
     if size == 0 { return }
     A::free(ptr, size, align)
 }
 
-pub fn <A impl Allocator> alloc_zeroed(size: usize, align: usize) -> unsafe *u8 {
+pub inline fn <A impl FullAllocator> alloc_zeroed(size: usize, align: usize) -> unsafe *u8 {
+    assert is_pow2(align), "alignment must be a power of two"
     if size == 0 { return dangling(align) }
-    eval if A impl ZeroAllocator { return A::alloc_zeroed(size, align) }
-    var p = A::alloc(size, align)
-    if p != &null { __builtin_set_mem(p, 0, size) }
-    return p
+    return A::alloc_zeroed(size, align)
 }
 
 /// In place if the allocator can, else move. &null: nothing changed.
-pub fn <A impl Allocator> resize_bytes(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
-    if old_size == 0 { return alloc_bytes<A>(new_size, align) }
-    if new_size == 0 { A::free(ptr, old_size, align); return dangling(align) }
-    eval if A impl Resizer {
-        if A::resize(ptr, old_size, new_size, align) { return ptr }
+pub inline fn <A impl FullAllocator> resize_bytes(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
+    // alloc_bytes<A> is spelled out: <A> written inside a generic body is
+    // dropped when nothing in the arguments deduces it.
+    if new_size == 0 {
+        if old_size != 0 { A::free(ptr, old_size, align) }
+        return dangling(align)
     }
-    eval if A impl Reallocator {
-        return A::realloc(ptr, old_size, new_size, align)
-    }
-    var n = A::alloc(new_size, align)
-    if n == &null { return &null }
-    __builtin_copy(n, ptr, if old_size < new_size { old_size } else { new_size })
-    A::free(ptr, old_size, align)
-    return n
+    if old_size == 0 { return A::alloc(new_size, align) }
+    if A::resize(ptr, old_size, new_size, align) { return ptr }
+    return A::realloc(ptr, old_size, new_size, align)
 }
 
 /// Grows only without moving. For containers holding objects that are not
 /// trivially relocatable.
-pub fn <A impl Allocator> try_resize_in_place(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool {
-    eval if A impl Resizer { return A::resize(ptr, old_size, new_size, align) }
-    return false
+pub inline fn <A impl FullAllocator> try_resize_in_place(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool {
+    if old_size == 0 || new_size == 0 { return false }
+    return A::resize(ptr, old_size, new_size, align)
 }
 
-pub fn <T, A impl Allocator> alloc() -> Uninit<T>? {
-    var p = alloc_bytes<A>(sizeof T, alignof T)
-    if p == &null { return null }
-    return Uninit<T> { ptr: p }
+/// Storage for one T. is_null() on failure.
+pub inline fn <T, A impl Allocator> alloc_in() -> Uninitialized<T> {
+    if sizeof T == 0 { return Uninitialized<T>(dangling(alignof T)) }
+    return Uninitialized<T>(A::alloc(sizeof T, alignof T))
 }
 
-pub fn <T, A impl Allocator> alloc_slice(n: usize) -> UninitSlice<T>? {
+/// Storage for n Ts. is_null() on failure, including when n * sizeof T overflows.
+pub inline fn <T, A impl Allocator> create_slice_in(n: usize) -> UninitializedSlice<T> {
     var bytes: usize = 0
-    if __builtin_mul_overflow(n, sizeof T, &bytes) { return null }
-    var p = alloc_bytes<A>(bytes, alignof T)
-    if p == &null { return null }
-    return UninitSlice<T> { ptr: p, cap: n, len: 0 }
+    if __builtin_mul_overflow(n, sizeof T, &bytes) { return UninitializedSlice<T>(&null, 0) }
+    if bytes == 0 { return UninitializedSlice<T>(dangling(alignof T), n) }
+    return UninitializedSlice<T>(A::alloc(bytes, alignof T), n)
 }
 
-pub fn <T, A impl Allocator> release(move u: Uninit<T>) {
-    free_bytes<A>(u.as_bytes(), sizeof T, alignof T)
+pub inline fn <T, A impl Allocator> release_in(@move u: Uninitialized<T>) {
+    if sizeof T == 0 { return }
+    A::free(u.as_bytes(), sizeof T, alignof T)
 }
 
 /// Destroys what is live, then frees the storage.
-pub fn <T, A impl Allocator> release_slice(move s: UninitSlice<T>) {
-    var p = s.as_bytes()
-    var c = s.capacity()
-    delete s
-    free_bytes<A>(p, c * sizeof T, alignof T)
+pub inline fn <T, A impl Allocator> destroy_slice_in(@move s: UninitializedSlice<T>) {
+    s.clear()
+    var bytes = s.capacity() * sizeof T
+    if bytes == 0 { return }
+    A::free(s.as_bytes(), bytes, alignof T)
 }
 
-/// @create T(args...): allocate, construct, give the storage back if the
-/// constructor throws. The compiler passes the allocator in effect as A.
-pub fn <T, A impl Allocator, ...Args> create(...args: Args) -> *T {
-    var u = alloc<T, A>()
-    if __builtin_expect(u == null, false) { oom(sizeof T, alignof T) }
-    var s = unwrap!(u)
-    try {
-        return s.construct(args...)
-    } catch {
-        release<T, A>(s)
-        rethrow
+/// T(args...) from A. Constructors never panic, so construction cannot fail
+/// once the storage exists.
+pub inline fn <T, A impl Allocator, ...Args> create_in(...args: Args) -> *T {
+    var u = Uninitialized<T>(dangling(alignof T))
+    if sizeof T != 0 { u = Uninitialized<T>(A::alloc(sizeof T, alignof T)) }
+    if __builtin_expect(u.is_null(), false) { oom(sizeof T, alignof T) }
+    return u.construct(args...)
+}
+
+/// T(args...) from A, or &null instead of the OOM hook. std wraps this as
+/// `-> *T?` once nullables are available.
+pub inline fn <T, A impl Allocator, ...Args> try_create_in(...args: Args) -> unsafe *T {
+    var u = Uninitialized<T>(dangling(alignof T))
+    if sizeof T != 0 { u = Uninitialized<T>(A::alloc(sizeof T, alignof T)) }
+    if u.is_null() { return &null }
+    unsafe { return u.construct(args...) as unsafe *T }
+}
+
+/// Destruct, then free to A, as one step.
+pub inline fn <T, A impl Allocator> destroy_in(p: *T) {
+    var u = uninitialized_from(p)
+    if sizeof T == 0 { return }
+    A::free(u.as_bytes(), sizeof T, alignof T)
+}
+
+// --- the global allocator ---------------------------------------------------
+
+/// The program's global allocator. Fixed until @mem::set_allocator exists. A
+/// freestanding target links its own malloc / free / realloc / calloc /
+/// posix_memalign, or uses the *_in family with an allocator of its own.
+pub type Global = System
+
+// --- scoped allocation: runtime dispatch ------------------------------------
+// A function cannot be emitted once per caller's allocator, so the active
+// scoped allocator is runtime state: a per-thread stack of frames living on
+// the stacks of the functions that opened them. Allocation goes to the top
+// frame; freeing goes to the frame whose range holds the address, so a block
+// from the global heap freed inside a scope still goes back to the global heap.
+
+/// One active scope. Holds the allocator's static functions as pointers and
+/// the range snapshot taken when it opened.
+pub struct ScopeFrame {
+    var alloc:   fn(usize, usize) -> unsafe *u8
+    var free:    fn(unsafe *u8, usize, usize)
+    var resize:  fn(unsafe *u8, usize, usize, usize) -> bool
+    var realloc: fn(unsafe *u8, usize, usize, usize) -> unsafe *u8
+    var lo:      unsafe *u8
+    var hi:      unsafe *u8
+    var prev:    unsafe *ScopeFrame
+}
+
+// Hosted targets have threads, so the stack is per thread. A target with no OS
+// has no thread-local storage and, in practice, one thread.
+eval if defined!(__linux__) || defined!(_WIN32) || defined!(__APPLE__)
+     || defined!(__FreeBSD__) || defined!(__NetBSD__) || defined!(__OpenBSD__)
+     || defined!(__ANDROID__) || defined!(__wasi__) || defined!(__EMSCRIPTEN__) {
+    thread scope_top: unsafe *ScopeFrame = &null
+} else {
+    static scope_top: unsafe *ScopeFrame = &null
+}
+
+/// The innermost open scope whose range holds ptr; &null means the global heap.
+inline fn owner_of(ptr: unsafe *u8) -> unsafe *ScopeFrame {
+    // Through usize until the compiler has '<' on raw pointers, as byte_offset.
+    var a = ptr as usize
+    var unsafe *f = scope_top
+    while f != &null {
+        unsafe {
+            if a >= (f->lo as usize) && a < (f->hi as usize) { return f }
+            f = f->prev
+        }
+    }
+    return &null
+}
+
+// BLOCKED (Explicit generic arguments are
+// dropped"): AllocatorScope needs `scope_alloc<A>` as a function VALUE, and the
+// emitted C++ drops <A>. Everything else in this file works without it;
+//
+// // The frame stores A's static functions as pointers; A::alloc written as a
+// // value inside a generic class is emitted against the interface, not the
+// // witness, so each goes through a trampoline.
+// fn <A impl ScopedFullAllocator> scope_alloc(size: usize, align: usize) -> unsafe *u8 { return A::alloc(size, align) }
+// fn <A impl ScopedFullAllocator> scope_free(ptr: unsafe *u8, size: usize, align: usize) { A::free(ptr, size, align) }
+// fn <A impl ScopedFullAllocator> scope_resize(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool { return A::resize(ptr, old_size, new_size, align) }
+// fn <A impl ScopedFullAllocator> scope_realloc(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 { return A::realloc(ptr, old_size, new_size, align) }
+//
+// /// Opens a scoped allocator for the rest of the enclosing block: every
+// /// allocation through the non-_in family, in this function and everything it
+// /// calls on this thread, comes from A until the guard is destroyed. Pinned in
+// /// place, since the frame stack points into it.
+// pub class <A impl ScopedFullAllocator> AllocatorScope {
+//     priv var mark:   u64
+//     priv var active: bool
+//     priv var frame:  ScopeFrame
+//
+//     pub fn AllocatorScope(self) {
+//         self.mark = A::enter()
+//         self.active = true
+//         var r = A::range()
+//         self.frame = ScopeFrame {
+//             alloc: scope_alloc<A>, free: scope_free<A>, resize: scope_resize<A>, realloc: scope_realloc<A>,
+//             lo: r.0, hi: r.1, prev: scope_top,
+//         }
+//         scope_top = unsafe &self.frame
+//     }
+//
+//     @copy
+//     pub fn AllocatorScope(self, const other: Self) = delete
+//     @move
+//     pub fn AllocatorScope(self, other: Self) = delete
+//
+//     /// Idempotent. Scopes close in reverse order of opening.
+//     fn op delete(self) {
+//         if !self.active { return }
+//         self.active = false
+//         assert scope_top == unsafe &self.frame, "allocator scopes must close in reverse order"
+//         scope_top = self.frame.prev
+//         A::leave(self.mark)
+//     }
+// }
+
+// --- the current-allocator family -------------------------------------------
+
+/// size bytes from the allocator in effect. &null on failure.
+pub inline fn alloc_raw(size: usize, align: usize) -> unsafe *u8 {
+    assert is_pow2(align), "alignment must be a power of two"
+    if size == 0 { return dangling(align) }
+    var unsafe *f = scope_top
+    if __builtin_expect(f == &null, true) { return Global::alloc(size, align) }
+    unsafe { return f->alloc(size, align) }
+}
+
+/// Gives a block back to whichever allocator it came from.
+pub inline fn free_raw(ptr: unsafe *u8, size: usize, align: usize) {
+    if size == 0 { return }
+    var unsafe *f = owner_of(ptr)
+    if f == &null { Global::free(ptr, size, align); return }
+    unsafe { f->free(ptr, size, align) }
+}
+
+/// Resizes with the allocator the block came from. &null: nothing changed.
+pub fn resize_raw(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
+    if new_size == 0 { free_raw(ptr, old_size, align); return dangling(align) }
+    if old_size == 0 { return alloc_raw(new_size, align) }
+    var unsafe *f = owner_of(ptr)
+    if f == &null {
+        if Global::resize(ptr, old_size, new_size, align) { return ptr }
+        return Global::realloc(ptr, old_size, new_size, align)
+    }
+    unsafe {
+        if f->resize(ptr, old_size, new_size, align) { return ptr }
+        return f->realloc(ptr, old_size, new_size, align)
     }
 }
 
-/// @try_create T(args...): null instead of the OOM hook.
-pub fn <T, A impl Allocator, ...Args> try_create(...args: Args) -> *T? {
-    var u = alloc<T, A>()
-    if u == null { return null }
-    var s = unwrap!(u)
-    try {
-        return s.construct(args...)
-    } catch {
-        release<T, A>(s)
-        rethrow
-    }
+/// A T from the allocator in effect. Runs the OOM hook on failure.
+pub inline fn <T, ...Args> create(...args: Args) -> *T {
+    var u = Uninitialized<T>(alloc_raw(sizeof T, alignof T))
+    if __builtin_expect(u.is_null(), false) { oom(sizeof T, alignof T) }
+    return u.construct(args...)
 }
 
-/// @destroy p: destruct, then free, as one step.
-pub fn <T, A impl Allocator> destroy(move p: *T) {
-    release<T, A>(uninit_from(p))
+/// A T from the allocator in effect, or &null.
+pub inline fn <T, ...Args> try_create(...args: Args) -> unsafe *T {
+    var u = Uninitialized<T>(alloc_raw(sizeof T, alignof T))
+    if u.is_null() { return &null }
+    unsafe { return u.construct(args...) as unsafe *T }
+}
+
+/// Destroys *p and gives its storage back to the allocator it came from.
+pub inline fn <T> destroy(p: *T) {
+    var u = uninitialized_from(p)
+    free_raw(u.as_bytes(), sizeof T, alignof T)
+}
+
+/// Storage for n Ts from the allocator in effect. is_null() on failure.
+pub inline fn <T> create_slice(n: usize) -> UninitializedSlice<T> {
+    var bytes: usize = 0
+    if __builtin_mul_overflow(n, sizeof T, &bytes) { return UninitializedSlice<T>(&null, 0) }
+    var unsafe *p = alloc_raw(bytes, alignof T)
+    if p == &null { return UninitializedSlice<T>(&null, 0) }
+    return UninitializedSlice<T>(p, n)
+}
+
+/// Destroys what is live and gives the storage back to its allocator.
+pub inline fn <T> destroy_slice(@move s: UninitializedSlice<T>) {
+    s.clear()
+    free_raw(s.as_bytes(), s.capacity() * sizeof T, alignof T)
 }
 
 // --- System: the default global allocator -----------------------------------
 // The platform's malloc, so memory that crosses into C++ and every sanitizer
 // and heap profiler see the same heap.
 
-eval const MAX_ALIGN: usize = kairo_rt_malloc_align()
+/// What every supported malloc guarantees: 8 on 32-bit, 16 on 64-bit.
+eval MAX_ALIGN: usize = 2 * sizeof usize
 
-pub class System {
-    static fn alloc(size: usize, align: usize) -> unsafe *u8 {
+pub class System impl FullAllocator {
+    static inline fn alloc(size: usize, align: usize) -> unsafe *u8 {
         if __builtin_expect(align <= MAX_ALIGN, true) { return kairo_rt_malloc(size) }
-        return kairo_rt_aligned_alloc(align_up(size, align), align)
+        return kairo_rt_aligned_alloc(size, align)
     }
 
-    static fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 {
+    static inline fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 {
         if __builtin_expect(align <= MAX_ALIGN, true) { return kairo_rt_calloc(size) }
-        var p = kairo_rt_aligned_alloc(align_up(size, align), align)
-        if p != &null { __builtin_set_mem(p, 0, size) }
+        var unsafe *p = kairo_rt_aligned_alloc(size, align)
+        if p != &null { __builtin_set_mem(p, 0u8 as byte, size) }
         return p
+    }
+
+    static inline fn free(ptr: unsafe *u8, size: usize, align: usize) {
+        if __builtin_expect(align <= MAX_ALIGN, true) { kairo_rt_free(ptr, size); return }
+        kairo_rt_aligned_free(ptr, size, align)
+    }
+
+    /// malloc cannot grow in place; a shrink keeps the block, and free
+    /// ignores the size, so it is always valid.
+    static inline fn resize(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool {
+        return new_size <= old_size
     }
 
     static fn realloc(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
         if __builtin_expect(align <= MAX_ALIGN, true) { return kairo_rt_realloc(ptr, new_size) }
-        var n = kairo_rt_aligned_alloc(align_up(new_size, align), align)
-        if n == &null { return &null }
-        __builtin_copy(n, ptr, if old_size < new_size { old_size } else { new_size })
-        kairo_rt_aligned_free(ptr, old_size, align)
-        return n
-    }
-
-    static fn free(ptr: unsafe *u8, size: usize, align: usize) {
-        if __builtin_expect(align <= MAX_ALIGN, true) { kairo_rt_free(ptr, size); return }
-        kairo_rt_aligned_free(ptr, size, align)
-    }
-}
-
-// --- Arena: the default scoped allocator ------------------------------------
-// A bump allocator over one per-thread address-space reservation. Pages are
-// committed as the cursor reaches them. leave() rewinds to the mark; nothing
-// is returned to the OS until the thread ends.
-
-eval const ARENA_RESERVE: usize = if __builtin_target_info().is_wasm() =>
-    1 << 24 // 16 MiB, taken up front
-else if __builtin_target_info().is_64bit() =>
-    1 << 32
-else =>
-    1 << 26 // 64 MiB on 32-bit
-
-eval const ARENA_COMMIT: usize = 1 << 16          // a multiple of every page size: 4K, 16K (Apple arm64), 64K (some aarch64 kernels)
-
-pub class Arena {
-    thread_local static var base:      unsafe *u8 = &null
-    thread_local static var cur:       unsafe *u8 = &null
-    thread_local static var committed: unsafe *u8 = &null
-
-    type Mark = unsafe *u8
-
-    static fn range() -> (unsafe *u8, unsafe *u8) {
-        return (Arena::base, Arena::base + ARENA_RESERVE)
-    }
-
-    static fn enter() -> Self::Mark {
-        if __builtin_expect(Arena::base == &null, false) {
-            Arena::base      = kairo_rt_reserve(ARENA_RESERVE)
-            Arena::cur       = Arena::base
-            Arena::committed = Arena::base
-        }
-        return Arena::cur
-    }
-
-    static fn leave(mark: Self::Mark) { Arena::cur = mark }
-
-    static fn alloc(size: usize, align: usize) -> unsafe *u8 {
-        if __builtin_expect(Arena::base == &null, false) { return &null }
-        var p = align_up(Arena::cur as usize, align) as unsafe *u8
-        if !Arena::reach(p + size) { return &null }
-        Arena::cur = p + size
-        return __builtin_assume_aligned(p, align)
-    }
-
-    static fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 {
-        var p = Arena::alloc(size, align)
-        if p != &null { __builtin_set_mem(p, 0, size) }     // rewound memory is not fresh
-        return p
-    }
-
-    /// Only the newest block moves the cursor; the rest wait for leave().
-    static fn free(ptr: unsafe *u8, size: usize, align: usize) {
-        if ptr + size == Arena::cur { Arena::cur = ptr }
-    }
-
-    /// The newest block grows or shrinks in place; any other block can only shrink.
-    static fn resize(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool {
-        if ptr + old_size != Arena::cur { return new_size <= old_size }
-        if !Arena::reach(ptr + new_size) { return false }
-        Arena::cur = ptr + new_size
-        return true
-    }
-
-    priv static fn reach(end: unsafe *u8) -> bool {
-        if __builtin_expect(end <= Arena::committed, true) { return true }
-        if end > Arena::base + ARENA_RESERVE { return false }
-        var to = (Arena::base as usize + align_up(end - Arena::base, ARENA_COMMIT)) as unsafe *u8
-        if !kairo_rt_commit(Arena::committed, to - Arena::committed) { return false }
-        Arena::committed = to
-        return true
+        return realloc_by_copy<System>(ptr, old_size, new_size, align)
     }
 }
