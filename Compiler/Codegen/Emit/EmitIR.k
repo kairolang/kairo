@@ -1775,6 +1775,9 @@ class EmitIR {
         var w = dyn_cast::<FunctionPointerType>(canon_unqual(want->canonical));
         var h = dyn_cast::<FunctionPointerType>(canon_unqual(e->type_));
         if (w == &null) || (h == &null) || (w == h) || (w->panic_result == &null) { return false; }
+        // A raw target holds no lambda to wrap the value in (P231 leaves a
+        // raw panicking `fn` to plain conversion).
+        if w->is_raw { return false; }
         if h->panic_result == w->panic_result { return false; }
         var rw = self._spell._type(w->panic_result);
         var ps = "";
@@ -2693,6 +2696,12 @@ class EmitIR {
         head += " -> " + ret;
 
         var wrap = "::" + LowerTargets::fn_value() + "<" + self._spell.fn_signature(fp) + ">";
+        // A raw closure (it captures nothing: ControlTyping::type_closure)
+        // is the function pointer `+[]` gives, with no `fn` value around it.
+        if fp->is_raw {
+            if caps.size() > 0 { self._ice(n->range, "EmitIR: a raw closure with captures; ControlTyping and ClosureCaptures disagree"); }
+            wrap = "";
+        }
         if caps.size() == 0 {
             self._cg->sink->spell(n->range, wrap + "(+" + head);
         } else {

@@ -39,7 +39,11 @@ fn main() -> i32 {
     println(f"map: {map3(data, fn (x: i32) -> i32 { return x * 2 })}")
     println(f"generic: {apply_g(triple, 4)} {apply_g(fn (s: f64) -> f64 = s / 2.0, 3.0)}")
     println(f"generic body: {add_to(40, 2)}")
-    var plain: fn(i32) -> i32 = twice
+    // A C function pointer parameter is the raw `unsafe fn` (P231): a
+    // named function and a closure that captures nothing go there, and so
+    // does a variable declared raw. A `fn` value does not (it may hold a
+    // capturing closure): see Sema/Check/raw_fn_conversions.k.
+    var plain: unsafe fn(i32) -> i32 = twice
     println(f"c: {c_apply(twice, 4)} {c_apply(fn (v: i32) -> i32 { return v + 1 }, 4)} {c_apply(plain, 10)}")
     return 0
 }

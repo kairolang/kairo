@@ -508,9 +508,10 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             case TypeKind::PointerType         { return out; }
             // A `fn` value may own a capturing closure, which it copies and
             // frees with itself (CXXSpell: `::__kairo_fn`), so it is not the
-            // bits of an address: a record holding one is not trivial.
+            // bits of an address: a record holding one is not trivial. A
+            // raw `unsafe fn` is the address alone.
             case TypeKind::FunctionPointerType {
-                if cast::<FunctionPointerType>(t)->is_unprototyped { return out; }
+                if cast::<FunctionPointerType>(t)->is_unprototyped || cast::<FunctionPointerType>(t)->is_raw { return out; }
                 out.trivially_copyable = LifecycleTri::No;
                 out.trivial_dtor       = LifecycleTri::No;
                 return out;

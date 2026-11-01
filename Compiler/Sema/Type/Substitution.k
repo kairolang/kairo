@@ -338,7 +338,7 @@ class Substitution {
                 // past P10 too), so its set is concrete.
                 var pset = vec::<*Type>();
                 for var i: usize = 0; i < f->panic_set.size(); ++i { pset.push_back(f->panic_set[i]); }
-                return self.sc->types->func(&ps, &ms, r, f->canon_panics, &pset);
+                return self.sc->types->func(&ps, &ms, r, f->canon_panics, &pset, f->is_raw);
             } case TypeKind::QualifiedType {
                 var q = cast::<QualifiedType>(t);
                 var i = self.substitute(q->inner);
@@ -524,7 +524,7 @@ class Substitution {
                 }
                 var pset = vec::<*Type>();
                 for var i: usize = 0; i < f->panic_set.size(); ++i { pset.push_back(f->panic_set[i]); }
-                return (t) if (!changed) else (self.sc->types->func(&ps, &ms, r, f->canon_panics, &pset));
+                return (t) if (!changed) else (self.sc->types->func(&ps, &ms, r, f->canon_panics, &pset, f->is_raw));
             } case TypeKind::AssocType {
                 // `Self::Node` read through a receiver: only the BASE is
                 // Self (the interface instance stays the interface), and once

@@ -655,8 +655,14 @@ class CanonicalTypeStore {
     /// its set. The caller passes the set CANONICAL (EffectPropagation's
     /// canonical_set: each type once, in the one order): the store only
     /// compares it element by element, it cannot spell types to sort them.
+    ///
+    /// And so is \p raw: `unsafe fn(A) -> R` is the plain function pointer
+    /// `R(*)(A)`, one word, which a capturing closure cannot be; `fn(A) ->
+    /// R` is the `__kairo_fn` value, three words, which holds either. Two
+    /// canonicals, because the C++ spelling (an ABI) differs; a raw one
+    /// widens to the value implicitly, never back (Conversion's fn rung).
     fn func(self, params: *vec::<*Type>, modes: *vec::<ParamMode>, ret: *Type,
-            panics: bool = false, pset: *vec::<*Type> = &null) -> *Type {
+            panics: bool = false, pset: *vec::<*Type> = &null, raw: bool = false) -> *Type {
         var n: usize = 0;
         if params != &null { n = params->size(); }
         ICE_IF(((modes != &null) && (modes->size() != n)),
@@ -673,9 +679,10 @@ class CanonicalTypeStore {
         }
         h = canon_hash_u64(h, (u64(1)) if (panics) else (u64(0)));
         for var i: usize = 0; i < ns; ++i { h = canon_hash_ptr(h, reinterpret_cast::<*void>((*pset)[i])); }
+        h = canon_hash_u64(h, (u64(1)) if (raw) else (u64(0)));
 
         var lock = std::LockGuard(self._mu);
-        var hit = self._probe_func(h, params, modes, n, ret, panics, pset, ns);
+        var hit = self._probe_func(h, params, modes, n, ret, panics, pset, ns, raw);
         if hit != &null { return hit; }
 
         var ft = self._alloc::<FunctionPointerType>();
@@ -683,6 +690,7 @@ class CanonicalTypeStore {
         ft->range           = SourceRange::invalid();
         ft->return_type     = ret;
         ft->is_unprototyped = false;
+        ft->is_raw          = raw;
         ft->init_annotations(&(self._arena));
         ft->init_spans(&(self._arena));
 
@@ -710,7 +718,9 @@ class CanonicalTypeStore {
 
         var ty = static_cast::<*Type>(ft);
         ty->canonical  = ty;
-        ty->size_bits  = self._ptr_bits;
+        // The value is `__kairo_fn`'s three pointers (__f, __o, __t); the
+        // raw one is the function pointer alone.
+        ty->size_bits  = (self._ptr_bits) if (raw) else (self._ptr_bits * 3);
         ty->align_bits = self._ptr_bits;
         if ret != &null { self._absorb_flags(ty, ret); }
         for var i: usize = 0; i < n; ++i { self._absorb_flags(ty, (*params)[i]); }
@@ -1071,8 +1081,26 @@ class CanonicalTypeStore {
         return &null;
     }
 
+    /// \p t's twin with \p raw set: the same signature and effect, the
+    /// other spelling. \p t itself when it is not a canonical `fn` type or
+    /// already is that kind.
+    fn fn_with_raw(self, t: *Type, raw: bool) -> *Type {
+        if (t == &null) || (t->kind != TypeKind::FunctionPointerType) { return t; }
+        var f = cast::<FunctionPointerType>(t);
+        if f->is_unprototyped || (f->is_raw == raw) { return t; }
+        var ps = vec::<*Type>();
+        var ms = vec::<ParamMode>();
+        for var i: usize = 0; i < f->params.size(); ++i {
+            ps.push_back(f->params[i]);
+            ms.push_back(f->modes[i]);
+        }
+        var pset = vec::<*Type>();
+        for var i: usize = 0; i < f->panic_set.size(); ++i { pset.push_back(f->panic_set[i]); }
+        return self.func(&ps, &ms, f->return_type, f->canon_panics, &pset, raw);
+    }
+
     priv fn _probe_func(self, h: u64, params: *vec::<*Type>, modes: *vec::<ParamMode>,
-                        n: usize, ret: *Type, panics: bool, pset: *vec::<*Type>, ns: usize) -> *Type {
+                        n: usize, ret: *Type, panics: bool, pset: *vec::<*Type>, ns: usize, raw: bool) -> *Type {
         var b = self._bucket(h);
         if b == &null { return &null; }
         for var i: usize = 0; i < b->size(); ++i {
@@ -1082,6 +1110,7 @@ class CanonicalTypeStore {
             if f->return_type != ret { continue; }
             if f->params.size() != n { continue; }
             if f->canon_panics != panics { continue; }
+            if f->is_raw != raw { continue; }
             if f->panic_set.size() != ns { continue; }
             var same = true;
             for var j: usize = 0; j < n; ++j {

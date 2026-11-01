@@ -883,7 +883,9 @@ class ExprTyper
         // PanicEffectChecking rejects such a function used as a value.
         var pset = vec::<*Type>();
         if f->is_panic() { canonical_set(&(self.tu), &(panic_home(f)->panic_set), &pset); }
-        return self.sc->types->func(&ps, &ms, r, f->is_panic(), &pset);
+        // A named function is a function pointer: the raw `unsafe fn`, which
+        // widens to a `fn` value wherever one is wanted (Conversion).
+        return self.sc->types->func(&ps, &ms, r, f->is_panic(), &pset, true);
     }
 
     // === outcomes ===========================================================
@@ -985,6 +987,21 @@ class ExprTyper
             var o = self.flow.read_value(e, true);
             if o == NULL_READ_REFUSED() { return false; }
             if o == NULL_READ_NARROWED() { return true; }
+        }
+
+        // `fn` -> `unsafe fn`: no conversion, and the reason is the capture.
+        var ffp = dyn_cast::<FunctionPointerType>(canon_unqual(from));
+        var tfp = dyn_cast::<FunctionPointerType>(canon_unqual(to));
+        if (ffp != &null) && (tfp != &null) && tfp->is_raw && (!ffp->is_raw) {
+            var what = "a 'fn' value may hold a capturing closure, which has no function pointer";
+            if isa::<ClosureExpr>(self.tu.strip_parens(e)) { what = "this closure captures, so it has no function pointer"; }
+            var b = self.sc->diag->report(DiagID::SC001E, e->range.start,
+                f"cannot convert '{self.tu.str(from)}' to the raw '{self.tu.str(to)}': {what}");
+            b.first(e->range);
+            b.note(e->range.start, "only a named function or a closure that captures nothing is a raw 'unsafe fn\x27");
+            b.emit();
+            e->poison();
+            return false;
         }
 
         var hint = "";

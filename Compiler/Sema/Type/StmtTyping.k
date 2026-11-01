@@ -249,6 +249,29 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         return (v->type_) if ((t != &null) && v->nullable_shorthand) else (t);
     }
 
+    /// The inferred slot of `var g = f` (a named function) or `var g = fn
+    /// (...) {...}` (a closure that captures nothing): the `fn` value, not
+    /// the raw `unsafe fn` the expression is typed as (ExprTyper::
+    /// fn_pointer_type, ControlTyping::type_closure). Nobody wrote `unsafe`,
+    /// and `g = <a capturing closure>` later must still be legal. A value
+    /// that IS raw by its declaration (a C struct's callback field, an
+    /// `unsafe fn` variable) keeps its type.
+    priv fn _fn_value_decay(self, init: *Expr, t: *Type) -> *Type {
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<FunctionPointerType>(c)) || (!cast::<FunctionPointerType>(c)->is_raw) { return t; }
+        var e = dyn()->tu.strip_parens(init);
+        var names_fn = isa::<ClosureExpr>(e);
+        var ni = dyn_cast::<NamedIdentExpr>(e);
+        if (ni != &null) && (ni->resolved_decl != &null) && isa::<FunctionDecl>(ni->resolved_decl) { names_fn = true; }
+        var ch = dyn_cast::<ChainExpr>(e);
+        if (ch != &null) && (ch->steps.size() > 0) {
+            var last = ch->steps.get(ch->steps.size() - 1);
+            if (last->resolved_decl != &null) && isa::<FunctionDecl>(last->resolved_decl) { names_fn = true; }
+        }
+        if !names_fn { return t; }
+        return dyn()->sc->types->fn_with_raw(c, false);
+    }
+
     /// The inferred slot of `var x = e` / `var x? = e`. The shorthand wraps
     /// ONE level and never a second: `typeof(e)` is already the nullable
     /// when `e` is one (`var b? = find()` with `find() -> i32?` is `i32?`,
@@ -771,7 +794,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
                 ).first(n->range).emit();
                 n->poison(); ok = false;
             } else {
-                n->type_ = self._shorthand_type(n, t);   // inferred slot := the value's type (a copy has no cv), `?` applied.
+                n->type_ = self._shorthand_type(n, self._fn_value_decay(n->init, t));   // inferred slot := the value's type (a copy has no cv), `?` applied.
             }
         } else if n->init->is_poisoned() {
             ok = false;

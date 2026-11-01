@@ -1110,6 +1110,11 @@ class LowerTargets {
     static fn fn_value() -> string        { return "__kairo_fn"; }
     static fn fn_value_own() -> string    { return "own"; }
     static fn fn_value_guard() -> string  { return "__KAIRO_FN_HELPERS"; }
+    /// `template <class S> using __kairo_raw_fn = S*;`: a raw `unsafe fn(A)
+    /// -> R` spelled `__kairo_raw_fn<R(A...)>`, the plain `R(*)(A...)` as a
+    /// type that reads as one name, so it declares a variable, a parameter
+    /// or a function's result with no declarator around the name (P231).
+    static fn raw_fn() -> string          { return "__kairo_raw_fn"; }
 
     // --- const fields in a constructor (writers: InterfaceEmitter, EmitIR) ------
     /// The preamble helpers: `__kairo_slot<T>`, a value S_pre fills that does

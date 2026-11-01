@@ -1108,7 +1108,7 @@ class TypeUtil {
             // a syntax TupleType falls to the default and prints its canonical.
             case TypeKind::FunctionPointerType {
                 var f = cast::<FunctionPointerType>(t);
-                var s = "fn (";
+                var s = ("unsafe fn (") if (f->is_raw) else ("fn (");
                 for var i: usize = 0; i < f->params.size(); ++i {
                     if i > 0 { s += ", "; }
                     // the mode is in the canonical, so it is in the spelling:

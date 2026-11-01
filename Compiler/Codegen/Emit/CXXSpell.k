@@ -1028,6 +1028,9 @@ class CXXSpell {
             case TypeKind::FunctionPointerType {
                 var f = cast::<FunctionPointerType>(t);
                 if f->is_unprototyped { return self.decl(f->return_type, f"(*{name})()", subst, scope); }
+                // `unsafe fn(A) -> R` is the plain `R(*)(A)` (P231): one word,
+                // called directly, what a C callee or field holds.
+                if f->is_raw { return self._join("::" + LowerTargets::raw_fn() + "<" + self.fn_signature(f, subst, scope) + ">", name); }
                 return self._join("::" + LowerTargets::fn_value() + "<" + self.fn_signature(f, subst, scope) + ">", name);
             }
             case TypeKind::GenericParamType {

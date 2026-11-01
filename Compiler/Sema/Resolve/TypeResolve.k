@@ -1092,7 +1092,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             var tu = TypeUtil(self.sc);
             canonical_set(&tu, &(n->panic_set), &pset);
         }
-        n->canonical = self.sc->types->func(&params, &modes, ret, n->is_panic(), &pset);
+        n->canonical = self.sc->types->func(&params, &modes, ret, n->is_panic(), &pset, n->is_raw);
     }
 
     priv fn _resolve_opaque(self, n: *OpaqueFFIType) {

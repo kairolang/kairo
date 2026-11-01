@@ -735,6 +735,12 @@ class FunctionPointerType derives Type {
     pub var params:         FrozenList::<*Type>;
     pub var return_type:    *Type;
     pub var is_unprototyped: bool; ///< True for C-style no-proto fn imports.
+    /// `unsafe fn(A) -> R`: the plain function pointer `R(*)(A)`, which no
+    /// capturing closure can be, instead of the `fn` value (`__kairo_fn`)
+    /// that holds either. In the canonical key (CanonicalTypeStore::func).
+    /// Imported C/C++ function pointers are raw (TypeImport), and so are the
+    /// `fn` parameters and result of an `ffi "c"` function (TypeResolve).
+    pub var is_raw: bool;
     /// Per-parameter passing mode, PARALLEL to `params` (same count, same
     /// order). In the canonical key: `fn(@inout i32)` and `fn(i32)` are two
     /// canonicals (CanonicalTypeStore::func). Populated by whoever populates
@@ -773,6 +779,7 @@ class FunctionPointerType derives Type {
         node->init_spans(&(ctx->ast_alloc));
         node->return_type     = return_type;
         node->is_unprototyped = false;
+        node->is_raw          = false;
         if return_type != &null {
             propagate_flags(node, return_type);
         }
@@ -789,6 +796,7 @@ class FunctionPointerType derives Type {
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_spans(&(ctx->ast_alloc));
         node->is_unprototyped = true;
+        node->is_raw          = false;
         return node;
     }
 
@@ -800,6 +808,7 @@ class FunctionPointerType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::FunctionPointerType;
         node->range         = range;
+        node->is_raw        = false;
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_spans(&(ctx->ast_alloc));
         return node;

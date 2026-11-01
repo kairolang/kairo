@@ -2986,6 +2986,9 @@ class InterfaceEmitter {
         if header { self._cg->sink->directive(at, "#define " + LowerTargets::fn_value_guard()); }
         self._cg->sink->spell(at, "template <class S> class " + fv + ";");
         self._cg->sink->brk();
+        // A raw `unsafe fn` (P231): the plain function pointer, as one name.
+        self._cg->sink->spell(at, "template <class S> using " + LowerTargets::raw_fn() + " = S*;");
+        self._cg->sink->brk();
         // The call path is a Kairo frame: noexcept unless -funwind, as the
         // closures it holds are.
         var nx = (("") if (self._cg->opts.unwind) else (" noexcept"));

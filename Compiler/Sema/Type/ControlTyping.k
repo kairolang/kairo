@@ -39,6 +39,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Check::EffectPropagation::*;
+import Sema::Check::CaptureAnalysis::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Substitution::*;
@@ -492,7 +493,30 @@ class <T> ControlTyping {
         var panics = (static_cast::<u16>(n->modifiers) & static_cast::<u16>(FnModifier::IsPanic)) != 0;
         var pset = vec::<*Type>();
         if panics { canonical_set(&(dyn()->tu), &(n->panic_set), &pset); }
-        return dyn()->sc->types->func(&params, &modes, canon_unqual(ret), panics, &pset);
+        // A closure that captures nothing IS a function: its type is the raw
+        // `unsafe fn`, so it goes where a C function pointer is wanted, and
+        // widens to a `fn` value anywhere else (Conversion's fn rung). A
+        // `var` it initializes is a `fn` value (StmtTyping::_fn_value_decay).
+        var raw = self._captures_nothing(n);
+        return dyn()->sc->types->func(&params, &modes, canon_unqual(ret), panics, &pset, raw);
+    }
+
+    /// \p n's free bindings (FreeVarScan, the scan ClosureCaptures decides
+    /// from) hold no local, parameter or `self` of a function around it:
+    /// the lambda would have an empty capture list.
+    priv fn _captures_nothing(self, n: *ClosureExpr) -> bool {
+        var scan = FreeVarScan();
+        scan.run_closure(n);
+        for var i: usize = 0; i < scan.free.size(); ++i {
+            var d = scan.free[i];
+            if isa::<ParamDecl>(d) { return false; }
+            var v = dyn_cast::<VariableDecl>(d);
+            if (v == &null) || v->is_static() { continue; }
+            var dc = reinterpret_cast::<*DeclContext>(v->semantic_dc);
+            if dc == &null { return false; }
+            if dc->is_function() || (dc->dc_kind == DeclContextKind::Block) || (dc->dc_kind == DeclContextKind::Lambda) { return false; }
+        }
+        return true;
     }
 
     // === initializers =======================================================

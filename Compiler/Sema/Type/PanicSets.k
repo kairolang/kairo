@@ -171,7 +171,9 @@ class PanicTypeIds derives PackSetOrder {
                 var f = cast::<FunctionPointerType>(c);
                 var r = ("void") if (f->return_type == &null) else (self.spelling(f->return_type));
                 if r.size() == 0 { return ""; }
-                var s = "::" + LowerTargets::fn_value() + "<" + r + "(";
+                // A raw `unsafe fn` is `::__kairo_raw_fn<R(A...)>` (CXXSpell).
+                var fv = (LowerTargets::raw_fn()) if (f->is_raw) else (LowerTargets::fn_value());
+                var s = "::" + fv + "<" + r + "(";
                 for var i: usize = 0; i < f->params.size(); ++i {
                     var p = self.spelling(f->params[i]);
                     if p.size() == 0 { return ""; }

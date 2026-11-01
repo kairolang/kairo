@@ -382,7 +382,8 @@ class EnumLayoutQuery {
         }
         if isa::<PointerType>(c) { return 1; }
         if isa::<FunctionPointerType>(c) {
-            return (1) if (cast::<FunctionPointerType>(c)->is_unprototyped) else (0);
+            // A raw pointer's null is free; a `fn` value is a record.
+            return (1) if (cast::<FunctionPointerType>(c)->is_unprototyped || cast::<FunctionPointerType>(c)->is_raw) else (0);
         }
         if isa::<RecordType>(c) {
             if c->is_dependent() || c->is_instantiation_dependent() { return niche_unknown(); }
@@ -445,7 +446,7 @@ class EnumLayoutQuery {
         if c == &null { return -1; }
         if isa::<NullableType>(c) { return self.trivial(cast::<NullableType>(c)->inner); }
         if isa::<BuiltinType>(c) || isa::<PointerType>(c) { return 1; }
-        if isa::<FunctionPointerType>(c) { return (1) if (cast::<FunctionPointerType>(c)->is_unprototyped) else (0); }
+        if isa::<FunctionPointerType>(c) { return (1) if (cast::<FunctionPointerType>(c)->is_unprototyped || cast::<FunctionPointerType>(c)->is_raw) else (0); }
         if isa::<FixedArrayType>(c) { return self.trivial(cast::<FixedArrayType>(c)->element); }
         if c->is_dependent() || c->is_instantiation_dependent() { return -1; }
         if isa::<RecordType>(c) {

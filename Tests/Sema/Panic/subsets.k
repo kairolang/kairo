@@ -70,8 +70,8 @@ fn through(f: fn() panic(F) -> i32) panic(E) -> i32 {
 // CHECK: subsets.k:39:19: error [SC001E]: 'F' is not in the panic set of 'Source::next', which this implements; a conforming method's set must be a subset of it
 // CHECK-NEXT: fix-it:"{{.*}}subsets.k":{34:26-34:26}:", F"
 // CHECK-NEXT: subsets.k:34:5: note [SC001N]: 'Source::next' is declared here
-// CHECK: subsets.k:52:35: error [SC028E]: cannot convert 'fn () panic(E, F) -> i32' to 'fn () panic(E) -> i32'
-// CHECK: subsets.k:53:26: error [SC028E]: cannot convert 'fn () panic(E) -> i32' to 'fn () -> i32'
+// CHECK: subsets.k:52:35: error [SC028E]: cannot convert 'unsafe fn () panic({{E, F|F, E}}) -> i32' to 'fn () panic(E) -> i32'
+// CHECK: subsets.k:53:26: error [SC028E]: cannot convert 'unsafe fn () panic(E) -> i32' to 'fn () -> i32'
 // CHECK: subsets.k:54:13: error [SC001E]: 'inferred' is used as a value, but its panic set is inferred: a 'fn' value's type carries the set, so 'inferred' must declare it
 // CHECK-NEXT: fix-it:"{{.*}}subsets.k":{45:15-45:20}:"panic(F)"
 // CHECK-NEXT: subsets.k:45:1: note [SC001N]: 'inferred' is declared here

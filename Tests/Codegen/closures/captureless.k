@@ -2,7 +2,9 @@
 // List): a block body and an expression body, an inferred return type, the
 // explicit empty list `||`, called directly, stored and called later, and
 // called on the spot. It is a plain function inside its `fn` value: the
-// lambda is converted with unary `+`, and no heap object is made.
+// lambda is converted with unary `+`, and no heap object is made. The
+// closure itself is the raw `unsafe fn` (P231); the `var` it initializes is
+// the `fn` value, which the pointer is converted to.
 
 import std::io::println
 
@@ -46,5 +48,5 @@ fn main() -> i32 {
 // OUT-NEXT: on the spot: 4
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: ::__kairo_fn<signed int(signed int, signed int)> add = ::__kairo_fn<signed int(signed int, signed int)>(+[](signed int a, signed int b) noexcept->signed int {
+// CXX: ::__kairo_fn<signed int(signed int, signed int)> add = static_cast< ::__kairo_fn<signed int(signed int, signed int)>>((+[](signed int a, signed int b) noexcept->signed int {
 // CXX-NOT: own(

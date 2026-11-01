@@ -362,8 +362,17 @@ class Conversion {
         // whose set is S' only when S is a subset of S'; one that does not
         // panic converts to any panicking `fn` type. The effect is in the
         // canonical, so only the effect can differ here.
+        //
+        // A raw `unsafe fn` widens to the `fn` value of its signature (a
+        // function pointer is one of the things a `fn` value holds); a `fn`
+        // value never narrows to raw, since it may hold a capturing closure
+        // that has no function pointer to give (ExprTyper::check_convertible
+        // says so, SC001E).
         if isa::<FunctionPointerType>(fu) && isa::<FunctionPointerType>(tq) {
-            return (ImplicitRank::Converted) if (self._fn_effect_widens(cast::<FunctionPointerType>(fu), cast::<FunctionPointerType>(tq)))
+            var ff = cast::<FunctionPointerType>(fu);
+            var tf = cast::<FunctionPointerType>(tq);
+            if tf->is_raw && (!ff->is_raw) { return ImplicitRank::None; }
+            return (ImplicitRank::Converted) if (self._fn_effect_widens(ff, tf))
                    else (ImplicitRank::None);
         }
 

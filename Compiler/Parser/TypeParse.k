@@ -380,6 +380,11 @@ class <T> TypeParse {
         if (ty->kind == TypeKind::PointerType) && (ty->is_unsafe()) {
             cast::<PointerType>(ty)->is_unsafe = true;
         }
+        // Likewise `unsafe fn(A) -> R`: the raw function pointer, a canonical
+        // of its own (CanonicalTypeStore::func), not the `fn` value.
+        if (ty->kind == TypeKind::FunctionPointerType) && (ty->is_unsafe()) {
+            cast::<FunctionPointerType>(ty)->is_raw = true;
+        }
 
         dyn()->exit_depth();
         return ty;

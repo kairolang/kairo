@@ -181,8 +181,10 @@ emitters use the same instance; a declaration and a body cannot disagree.
   `fn(A) -> R` is the value type `::__kairo_fn<R(A...)>` (§5, §6
   Closures; `fn_signature(f)` spells `R(A...)`), never `R(*)(A...)`:
   closures.md gives a closure the `fn` type, and a lambda that captures
-  has no function pointer. Only a C no-prototype pointer
-  (`is_unprototyped`) stays raw. Structural
+  has no function pointer. A raw `unsafe fn(A) -> R` (`is_raw`, P231)
+  is `::__kairo_raw_fn<R(A...)>`, an alias of `R(*)(A...)` that reads as
+  one name in any declarator; so is a C no-prototype pointer
+  (`is_unprototyped`, spelled `R(*)()`). Structural
   containers are gone (builtin records); a tuple canonical ICEs naming
   TypeResolve. `T?` stays a NullableType canonical (Sema's later passes
   ask it), and is spelled -- and planned, EmitPlan `_nullable_record` --
@@ -766,6 +768,17 @@ heap-allocated lambda with its call / copy / destroy operations.
     captures nothing   ::__kairo_fn<R(A)>(+[](A a) -> R { body })
     captures           ::__kairo_fn<R(A)>::own(new auto([caps](A a) mutable -> R { body }))
 
+- Raw functions (P231). A named function, and a closure that captures
+  nothing (ControlTyping::type_closure runs FreeVarScan), are typed as the
+  raw `unsafe fn`; imported C/C++ function pointers are raw (TypeImport),
+  and so are an `ffi "c"` function's `fn` parameters and result
+  (TypeResolve::_ffi_c_raw_fns, P66). A raw closure is emitted as the bare
+  `+[](...){...}` pointer. Raw widens to the `fn` value implicitly
+  (`static_cast<::__kairo_fn<...>>(e)`, _needs_cast); a `fn` value never
+  narrows to raw (Conversion, SC001E). A `var` initialized from a function
+  or a captureless closure is the `fn` value (StmtTyping::_fn_value_decay).
+  The canonical's size is one pointer when raw, three (`__f`, `__o`,
+  `__t`) otherwise.
 - A named function converts to the value by its function-pointer
   constructor. That constructor and the default one are constexpr, so a
   global `fn` initialized from a function or a captureless closure is

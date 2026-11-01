@@ -327,10 +327,10 @@ pub type Global = System
 /// One active scope. Holds the allocator's static functions as pointers and
 /// the range snapshot taken when it opened.
 pub struct ScopeFrame {
-    var alloc:   fn(usize, usize) -> unsafe *u8
-    var free:    fn(unsafe *u8, usize, usize)
-    var resize:  fn(unsafe *u8, usize, usize, usize) -> bool
-    var realloc: fn(unsafe *u8, usize, usize, usize) -> unsafe *u8
+    var alloc:   unsafe fn(usize, usize) -> unsafe *u8
+    var free:    unsafe fn(unsafe *u8, usize, usize)
+    var resize:  unsafe fn(unsafe *u8, usize, usize, usize) -> bool
+    var realloc: unsafe fn(unsafe *u8, usize, usize, usize) -> unsafe *u8
     var lo:      unsafe *u8
     var hi:      unsafe *u8
     var prev:    unsafe *ScopeFrame

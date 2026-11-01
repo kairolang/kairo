@@ -20,4 +20,4 @@ fn main() -> i32 {
 // RUN: not %kairo %s --type-check-only --diag-show-ids 2> %t.err
 // RUN: %FileCheck %s < %t.err
 // CHECK: panicking_fn_to_c_pointer.k:16:12: error [SC063E]: no matching overload for call to 'apply'
-// CHECK: guard.hh:{{[0-9]+}}:1: note [I900N]: candidate not viable: cannot convert argument of type 'fn (i32) panic(Negative) -> i32' to parameter 'f' of type 'fn (i32) -> i32'
+// CHECK: guard.hh:{{[0-9]+}}:1: note [I900N]: candidate not viable: cannot convert argument of type 'unsafe fn (i32) panic(Negative) -> i32' to parameter 'f' of type 'unsafe fn (i32) -> i32'

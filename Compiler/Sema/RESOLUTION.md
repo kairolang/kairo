@@ -373,6 +373,17 @@ What T decides:
   carries its DECLARED set (ExprTyper::fn_pointer_type), a closure's its
   written one. Whether an element can be panicked at all is
   PanicEffectChecking's.
+- **Raw `fn` types** [DONE, P231]: `unsafe fn(A) -> R` sets
+  `FunctionPointerType::is_raw` (the parser, from the `unsafe` qualifier),
+  and the bit is in the canonical key: the raw function pointer and the
+  `fn` value are two types, raw widening to the value (Conversion's fn
+  rung) and never back (SC001E, ExprTyper::check_convertible). A named
+  function's value type and a non-capturing closure's are raw
+  (fn_pointer_type; type_closure via FreeVarScan); imported C/C++ function
+  pointers are raw (TypeImport); after an `ffi "c"` function's signature
+  resolves, its `fn` parameters and result are made raw
+  (`_ffi_c_raw_fns`). `var g = f` / `var g = fn (...) {...}` infers the
+  `fn` value, not the raw type (StmtTyping::_fn_value_decay).
 - **#68 refinement**; **enum underlying** must be a builtin integer;
   **`extend` target** resolved first; a record target becomes Self.
 

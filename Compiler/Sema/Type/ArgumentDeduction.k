@@ -218,6 +218,8 @@ class Deduction derives Substitution {
             } case TypeKind::FunctionPointerType {
                 var pf = cast::<FunctionPointerType>(param); var af = cast::<FunctionPointerType>(arg);
                 if pf->params.size() != af->params.size() { return ImplicitRank::None; }
+                // A `fn` value never narrows to a raw `unsafe fn` (Conversion).
+                if pf->is_raw && (!af->is_raw) { return ImplicitRank::None; }
                 for var i: usize = 0; i < pf->params.size(); ++i {
                     if self.unify(pf->params[i], af->params[i], false) == ImplicitRank::None { return ImplicitRank::None; }
                 }

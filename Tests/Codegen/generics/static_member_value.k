@@ -54,13 +54,13 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // RUN: { %kairo %s --print-ir 2>/dev/null || true; } | %FileCheck %s --check-prefix=IR
-// IR-DAG: f = {{ ?}}::{{.*}}::I_witness<A>::make;
+// IR-DAG: f = {{.*}}::I_witness<A>::make{{\)?}};
 // IR-DAG: z = {{ ?}}::{{.*}}::I_witness<A>::template sized<signed long>;
 // IR-DAG: g = {{ ?}}::{{.*}}::tramp<A>;
-// IR-DAG: h = {{ ?}}::{{.*}}::H<A>::get;
-// IR-DAG: s = {{ ?}}::{{.*}}::G<A>::twice;
+// IR-DAG: h = {{.*}}::H<A>::get{{\)?}};
+// IR-DAG: s = {{.*}}::G<A>::twice{{\)?}};
 // IR-DAG: g ={{ ?}}::{{.*}}::tramp<{{ ?}}::{{.*}}::M>;
-// IR-DAG: h = {{ ?}}::{{.*}}::H<{{ ?}}::{{.*}}::M>::get;
+// IR-DAG: h = {{.*}}::H<{{ ?}}::{{.*}}::M>::get{{\)?}};
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
