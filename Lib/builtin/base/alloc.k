@@ -31,6 +31,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import builtin::base::intrinsics::*;
+import builtin::Nullable;   // circular with module.k; allowed, warns R001W
 ffi "c++" import "rt/alloc.h"
 
 // --- interfaces -------------------------------------------------------------
@@ -146,9 +147,6 @@ pub class <T> Uninitialized {
 
     pub inline fn as_bytes(const self) -> unsafe *u8 { return self.ptr }
 
-    /// True when the allocation failed.
-    pub inline fn is_null(const self) -> bool { return self.ptr == &null }
-
     /// Reinterprets the storage for a U of the same or smaller size and
     /// alignment. Nothing lives in it either way.
     pub fn <U> retype(self) -> Uninitialized<U>
@@ -176,6 +174,9 @@ pub class <T> UninitializedSlice {
         self.len = 0
     }
 
+    /// Leaves other empty (&null, 0, 0) so its drop destroys nothing. A null
+    /// ptr here only ever marks a moved-from source: failure is a null
+    /// UninitializedSlice<T>?, never a slice holding &null.
     @move
     pub inline fn UninitializedSlice(self, other: Self) {
         self.ptr  = other.ptr
@@ -189,9 +190,6 @@ pub class <T> UninitializedSlice {
     pub inline fn size(const self) -> usize { return self.len }
     pub inline fn capacity(const self) -> usize { return self.cap }
     pub inline fn as_bytes(const self) -> unsafe *u8 { return self.ptr }
-
-    /// True when the allocation failed.
-    pub inline fn is_null(const self) -> bool { return self.ptr == &null }
 
     pub inline fn <...A> push(self, ...args: A) {
         if __builtin_expect(self.len == self.cap, false) { __builtin_trap() }
@@ -260,18 +258,22 @@ pub inline fn <A impl FullAllocator> try_resize_in_place(ptr: unsafe *u8, old_si
     return A::resize(ptr, old_size, new_size, align)
 }
 
-/// Storage for one T. is_null() on failure.
-pub inline fn <T, A impl Allocator> alloc_in() -> Uninitialized<T> {
+/// Storage for one T, or null.
+pub inline fn <T, A impl Allocator> alloc_in() -> Uninitialized<T>? {
     if sizeof T == 0 { return Uninitialized<T>(dangling(alignof T)) }
-    return Uninitialized<T>(A::alloc(sizeof T, alignof T))
+    var unsafe *p = A::alloc(sizeof T, alignof T)
+    if p == &null { return null }
+    return Uninitialized<T>(p)
 }
 
-/// Storage for n Ts. is_null() on failure, including when n * sizeof T overflows.
-pub inline fn <T, A impl Allocator> create_slice_in(n: usize) -> UninitializedSlice<T> {
+/// Storage for n Ts, or null (including when n * sizeof T overflows).
+pub inline fn <T, A impl Allocator> create_slice_in(n: usize) -> UninitializedSlice<T>? {
     var bytes: usize = 0
-    if __builtin_mul_overflow(n, sizeof T, &bytes) { return UninitializedSlice<T>(&null, 0) }
+    if __builtin_mul_overflow(n, sizeof T, &bytes) { return null }
     if bytes == 0 { return UninitializedSlice<T>(dangling(alignof T), n) }
-    return UninitializedSlice<T>(A::alloc(bytes, alignof T), n)
+    var unsafe *p = A::alloc(bytes, alignof T)
+    if p == &null { return null }
+    return UninitializedSlice<T>(p, n)
 }
 
 pub inline fn <T, A impl Allocator> release_in(@move u: Uninitialized<T>) {
@@ -290,19 +292,18 @@ pub inline fn <T, A impl Allocator> destroy_slice_in(@move s: UninitializedSlice
 /// T(args...) from A. Constructors never panic, so construction cannot fail
 /// once the storage exists.
 pub inline fn <T, A impl Allocator, ...Args> create_in(...args: Args) -> *T {
-    var u = Uninitialized<T>(dangling(alignof T))
-    if sizeof T != 0 { u = Uninitialized<T>(A::alloc(sizeof T, alignof T)) }
-    if __builtin_expect(u.is_null(), false) { oom(sizeof T, alignof T) }
-    return u.construct(args...)
+    var unsafe *p = dangling(alignof T)
+    if sizeof T != 0 { p = A::alloc(sizeof T, alignof T) }
+    if __builtin_expect(p == &null, false) { oom(sizeof T, alignof T) }
+    return Uninitialized<T>(p).construct(args...)
 }
 
-/// T(args...) from A, or &null instead of the OOM hook. std wraps this as
-/// `-> *T?` once nullables are available.
-pub inline fn <T, A impl Allocator, ...Args> try_create_in(...args: Args) -> unsafe *T {
-    var u = Uninitialized<T>(dangling(alignof T))
-    if sizeof T != 0 { u = Uninitialized<T>(A::alloc(sizeof T, alignof T)) }
-    if u.is_null() { return &null }
-    unsafe { return u.construct(args...) as unsafe *T }
+/// T(args...) from A, or null instead of the OOM hook.
+pub inline fn <T, A impl Allocator, ...Args> try_create_in(...args: Args) -> *T? {
+    var unsafe *p = dangling(alignof T)
+    if sizeof T != 0 { p = A::alloc(sizeof T, alignof T) }
+    if p == &null { return null }
+    return Uninitialized<T>(p).construct(args...)
 }
 
 /// Destruct, then free to A, as one step.
@@ -445,16 +446,16 @@ pub fn resize_raw(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usiz
 
 /// A T from the allocator in effect. Runs the OOM hook on failure.
 pub inline fn <T, ...Args> create(...args: Args) -> *T {
-    var u = Uninitialized<T>(alloc_raw(sizeof T, alignof T))
-    if __builtin_expect(u.is_null(), false) { oom(sizeof T, alignof T) }
-    return u.construct(args...)
+    var unsafe *p = alloc_raw(sizeof T, alignof T)
+    if __builtin_expect(p == &null, false) { oom(sizeof T, alignof T) }
+    return Uninitialized<T>(p).construct(args...)
 }
 
-/// A T from the allocator in effect, or &null.
-pub inline fn <T, ...Args> try_create(...args: Args) -> unsafe *T {
-    var u = Uninitialized<T>(alloc_raw(sizeof T, alignof T))
-    if u.is_null() { return &null }
-    unsafe { return u.construct(args...) as unsafe *T }
+/// A T from the allocator in effect, or null.
+pub inline fn <T, ...Args> try_create(...args: Args) -> *T? {
+    var unsafe *p = alloc_raw(sizeof T, alignof T)
+    if p == &null { return null }
+    return Uninitialized<T>(p).construct(args...)
 }
 
 /// Destroys *p and gives its storage back to the allocator it came from.
@@ -463,12 +464,12 @@ pub inline fn <T> destroy(p: *T) {
     free_raw(u.as_bytes(), sizeof T, alignof T)
 }
 
-/// Storage for n Ts from the allocator in effect. is_null() on failure.
-pub inline fn <T> create_slice(n: usize) -> UninitializedSlice<T> {
+/// Storage for n Ts from the allocator in effect, or null.
+pub inline fn <T> create_slice(n: usize) -> UninitializedSlice<T>? {
     var bytes: usize = 0
-    if __builtin_mul_overflow(n, sizeof T, &bytes) { return UninitializedSlice<T>(&null, 0) }
+    if __builtin_mul_overflow(n, sizeof T, &bytes) { return null }
     var unsafe *p = alloc_raw(bytes, alignof T)
-    if p == &null { return UninitializedSlice<T>(&null, 0) }
+    if p == &null { return null }
     return UninitializedSlice<T>(p, n)
 }
 
