@@ -83,10 +83,9 @@ pub inline fn align_up(v: usize, align: usize) -> usize { return (v + align - 1)
 /// A non-null, aligned pointer that owns nothing: what a zero-size request gets.
 pub inline fn dangling(align: usize) -> unsafe *u8 { unsafe { return align as unsafe *u8 } }
 
-/// p + n bytes. Goes through usize until the compiler has '+' on raw pointers;
-/// replace the body with `return p + n` then.
+/// p + n bytes.
 inline fn byte_offset(p: unsafe *u8, n: usize) -> unsafe *u8 {
-    unsafe { return ((p as usize) + n) as unsafe *u8 }
+    return p + n
 }
 
 /// realloc for an allocator with no faster path: alloc, copy, free.
@@ -349,12 +348,10 @@ eval if defined!(__linux__) || defined!(_WIN32) || defined!(__APPLE__)
 
 /// The innermost open scope whose range holds ptr; &null means the global heap.
 inline fn owner_of(ptr: unsafe *u8) -> unsafe *ScopeFrame {
-    // Through usize until the compiler has '<' on raw pointers, as byte_offset.
-    var a = ptr as usize
     var unsafe *f = scope_top
     while f != &null {
         unsafe {
-            if a >= (f->lo as usize) && a < (f->hi as usize) { return f }
+            if ptr >= f->lo && ptr < f->hi { return f }
             f = f->prev
         }
     }

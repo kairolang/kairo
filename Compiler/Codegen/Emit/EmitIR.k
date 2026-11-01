@@ -3796,6 +3796,17 @@ class EmitIR {
         if (want != &null) && (want->canonical != &null) && isa::<CXXLValueRefType>(want->canonical) {
             want = cast::<CXXLValueRefType>(want->canonical)->referee;
         }
+        // `p += n` on a pointer: n is the integer offset C++ scales by
+        // sizeof T (OperatorTyping::_type_pointer_op), never a value of the
+        // pointer's type, so it is not converted to it.
+        if (n->op_token.kind != TokenKind::OpEqual) && (want != &null) && (want->canonical != &null) && isa::<PointerType>(canon_unqual(want->canonical)) {
+            self._cg->sink->spell(n->range, "(");
+            self.emit(n->lhs);
+            self._cg->sink->create(n->op_token);
+            self.emit(n->rhs);
+            self._cg->sink->spell(n->range, ")");
+            return;
+        }
         self._cg->sink->spell(n->range, "(");
         self.emit(n->lhs);
         self._cg->sink->create(n->op_token);

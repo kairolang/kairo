@@ -1,11 +1,6 @@
 // Offset arithmetic on a safe pointer, in units of the pointee (pointers.mdx,
 // Pointer Arithmetic, On safe pointers: `*(p + 1)`, `p = p - 1`).
-//
-// XFAIL: *
-// Ticket "[Sema] Safe pointer arithmetic `*T + int` is SC066E"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today `p + 1` is SC066E "no
-// operator '+' for operands '*i32' and 'i32'". When it XPASSes, delete the
-// XFAIL -- the run below is already the real assertion.
+// P104: the offset is scaled by sizeof T, so `p + 3` lands on arr[3].
 
 fn main() -> i32 {
     var arr: [i32; 4] = [10, 20, 30, 40]

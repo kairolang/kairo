@@ -704,6 +704,16 @@ class <T> OperatorTyping {
             }
             return dyn()->tu.builtin(BuiltinKind::Bool);
         }
+        // Pointer arithmetic and ordering (pointers.mdx, Pointer Arithmetic)
+        // are builtin, and ahead of the dependent deferral: `p + n` on an
+        // `unsafe *T` is a pointer whatever T is, and C++ scales the offset
+        // by sizeof T itself, so a generic body needs no instantiation to
+        // type it. Any other shape falls through untouched.
+        if (dyn()->tu.pointee(lt) != &null) && (self._is_arith(k) || self._is_relational(k)) {
+            var claimed = false;
+            var pt = self._type_pointer_op(n, k, lt, rt, &claimed);
+            if claimed { return pt; }
+        }
         var own_op = (k != TokenKind::OpQuestionQuestion) && (k != TokenKind::OpEqualEqualEqual) && (k != TokenKind::KwIn);
         var bounded = own_op && self._bounded(lt);
         if (self._is_dependent(lt) || self._is_dependent(rt)) && (!bounded) {
@@ -1000,6 +1010,63 @@ class <T> OperatorTyping {
         var en = dyn_cast::<EnumDecl>(decl_pattern(d));
         if (en == &null) || (!en->is_adt) { return &null; }
         return en;
+    }
+
+    /// \p a and \p b are one pointer type up to the pointee's cv: the
+    /// same kind (safe or raw) and the same pointee. What C++ takes for
+    /// `<` and `-` on pointers (the composite pointer type), so `*const T`
+    /// orders against `*T`; a safe pointer never meets a raw one silently.
+    priv fn _same_pointer(self, a: *Type, b: *Type) -> bool {
+        var pa = dyn()->tu.pointee(a);
+        var pb = dyn()->tu.pointee(b);
+        if (pa == &null) || (pb == &null) { return false; }
+        if dyn()->tu.is_unsafe_ptr(a) != dyn()->tu.is_unsafe_ptr(b) { return false; }
+        return canon_unqual(pa) == canon_unqual(pb);
+    }
+
+    /// The builtin operators on a pointer left operand \p lt (P104, P223):
+    ///   `p + n`, `p - n`  any integer n, the pointer moved n * sizeof T --
+    ///                     C++'s own pointer arithmetic, so `unsafe *u8 +
+    ///                     usize` is byte arithmetic. Both pointer kinds
+    ///                     (Tether bounds-checks the safe one's offset).
+    ///   `p - q`           isize, the distance in Ts; raw pointers only. A
+    ///                     safe pointer's provenance is one allocation and
+    ///                     Tether checks an offset, never a difference, so
+    ///                     pointers.mdx sends `p1 - p2` to `unsafe *T`.
+    ///   `<` `<=` `>` `>=` bool, two pointers of one type, either kind.
+    /// \p claimed false leaves the pair to the paths after (a dependent or
+    /// record right operand). EmitIR spells all of them as C++'s operator:
+    /// no pointer type has a wrap form (EmitIR::_wraps).
+    priv fn _type_pointer_op(self, n: *BinaryOperatorExpr, k: TokenKind, lt: *Type, rt: *Type, claimed: *bool) -> *Type {
+        var plus_minus = (k == TokenKind::OpPlus) || (k == TokenKind::OpMinus);
+        var r_ptr = dyn()->tu.pointee(rt) != &null;
+        if plus_minus && dyn()->tu.is_integer(rt) {
+            (*claimed) = true;
+            if dyn()->tu.is_void(dyn()->tu.pointee(lt)) {
+                dyn()->fail(n, DiagID::SC067E, f"pointer arithmetic moves in units of the pointee, and '{dyn()->tu.str(lt)}' points to void; cast it to a typed pointer first");
+                return &null;
+            }
+            return canon_unqual(lt);
+        }
+        if (k == TokenKind::OpMinus) && r_ptr {
+            (*claimed) = true;
+            if (!dyn()->tu.is_unsafe_ptr(lt)) || (!dyn()->tu.is_unsafe_ptr(rt)) {
+                dyn()->fail(n, DiagID::SC067E, f"the difference of two pointers is defined on raw pointers only, not '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}'; a safe pointer takes an integer offset, so convert both with 'as unsafe *T' for a distance");
+                return &null;
+            }
+            if dyn()->tu.is_void(dyn()->tu.pointee(lt)) {
+                dyn()->fail(n, DiagID::SC067E, f"a pointer difference counts pointees, and '{dyn()->tu.str(lt)}' points to void; cast both to a typed pointer first");
+                return &null;
+            }
+            if !self._same_pointer(lt, rt) { self._unify_error(static_cast::<*Expr>(n), lt, rt); return &null; }
+            return dyn()->tu.builtin(BuiltinKind::ISize);
+        }
+        if self._is_relational(k) && r_ptr {
+            (*claimed) = true;
+            if !self._same_pointer(lt, rt) { self._unify_error(static_cast::<*Expr>(n), lt, rt); return &null; }
+            return dyn()->tu.builtin(BuiltinKind::Bool);
+        }
+        return &null;
     }
 
     priv fn _unify_error(self, n: *Expr, lt: *Type, rt: *Type) {
@@ -1682,6 +1749,16 @@ class <T> OperatorTyping {
             var nr = dyn()->read_value(n->rhs);
             if nr == &null { dyn()->poison_only(n); return &null; }
             rt = dyn()->tu.as_value(nr);
+        }
+        // `p += n` / `p -= n`: the binary rule's pointer offset, written
+        // back (_type_pointer_op). Ahead of the deferral for the same reason.
+        if (dyn()->tu.pointee(lt) != &null) && ((base == TokenKind::OpPlus) || (base == TokenKind::OpMinus)) && dyn()->tu.is_integer(rt) {
+            if dyn()->tu.is_void(dyn()->tu.pointee(lt)) {
+                dyn()->fail(n, DiagID::SC067E, f"pointer arithmetic moves in units of the pointee, and '{dyn()->tu.str(lt)}' points to void; cast it to a typed pointer first");
+                return &null;
+            }
+            n->value_category = Expr::ValueCategory::LValue;
+            return lt;
         }
         // A bounded parameter on the left binds through its bounds, as in
         // the binary case; any other dependent operand defers.
