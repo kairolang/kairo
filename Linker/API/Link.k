@@ -23,6 +23,7 @@ import Linker::API::Text::*;
 import Linker::API::FS::*;
 import Linker::API::LinkDiag::*;
 import Linker::API::LinkJob::*;
+import Linker::API::LinkABI::*;
 import Linker::API::Toolchain::*;
 import Linker::API::Flavor::ELF::*;
 import Linker::API::Flavor::MachO::*;
@@ -63,6 +64,12 @@ class Link {
                 f"cannot create the output directory {parent}"));
             return false;
         }
+
+        // The objects' ABI notes, before lld spends a link on objects that
+        // cannot be combined (LinkABI).
+        var errs_abi = LinkDiag::error_count(res.messages);
+        LinkABI::check(job, res.messages);
+        if LinkDiag::error_count(res.messages) != errs_abi { return false; }
 
         var run = LLDRunner::run(argv, job.kld_path, job.out_of_process);
         if !run.spawn_error.empty() {

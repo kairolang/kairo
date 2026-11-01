@@ -1226,6 +1226,13 @@ class LowerTargets {
     static fn attr_preserve_most() -> string       { return "__attribute__((preserve_most)) "; }
     static fn attr_preserve_all() -> string        { return "__attribute__((preserve_all)) "; }
     static fn attr_preserve_none() -> string       { return "__attribute__((preserve_none)) "; }
+    /// The object ABI note (EmitIR::_abi_note, read back by Linker::API::
+    /// LinkABI): a used, internal byte array in its own section. The ELF and
+    /// COFF name is a C identifier, so no `.note` prefix makes ELF give it
+    /// note semantics it does not have.
+    static fn abi_note_section() -> string         { return "__kairo_abi"; }
+    static fn abi_note_section_macho() -> string   { return "__DATA,__kairo_abi"; }
+    static fn abi_note_symbol() -> string          { return "__kairo_abi_note"; }
     static fn clang_malloc() -> string             { return "__builtin_malloc"; }
     static fn clang_free() -> string               { return "__builtin_free"; }
     static fn clang_atomic_fetch_add() -> string   { return "__atomic_fetch_add"; }

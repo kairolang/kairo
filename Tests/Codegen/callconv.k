@@ -1,6 +1,7 @@
 // `@preserve_most`, `@preserve_all` and `@preserve_none` are LLVM's
 // preserve_mostcc / preserve_allcc / preserve_nonecc on every declaration
-// and call.
+// and call, and a TU that defines or calls one carries the ABI note kld
+// reads (format 1, the convention bitset, the LLVM major).
 //
 // What preserve_most buys: `hot_most` keeps six integers live across a
 // call. Against a callee that preserves the argument registers, they stay
@@ -50,6 +51,8 @@ fn main() -> i32 {
 // CXX-DAG: __attribute{{(__)?}}((preserve_most)){{.*}}slow_most(
 // CXX-DAG: __attribute{{(__)?}}((preserve_all)){{.*}}slow_fp(
 // CXX-DAG: __attribute{{(__)?}}((preserve_none)){{.*}}dispatch(
+// CXX-DAG: gnu::section("__kairo_abi"){{.*}}__kairo_abi_note[] = {
+// CXX-DAG: 0x7f, 0x4b, 0x41, 0x42, 0x49, 1, 7, {{[1-9][0-9]*}}
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
@@ -62,6 +65,7 @@ fn main() -> i32 {
 // IR-DAG: define {{.*}}preserve_nonecc {{.*}}dispatch
 // IR-DAG: call preserve_mostcc {{.*}}slow_most
 // IR-DAG: call preserve_nonecc {{.*}}dispatch
+// IR-DAG: __kairo_abi_note{{[^ ]*}} = internal constant [8 x i8] c"\7FKABI\01\07{{.*}}", section "__kairo_abi"
 
 // RUN: %kairo %s --emit=asm -O2 -c --target=x86_64-linux-gnu -o %t.x86.s --cache-dir %t.d/x86s
 // RUN: %FileCheck %s --check-prefix=X86 < %t.x86.s
