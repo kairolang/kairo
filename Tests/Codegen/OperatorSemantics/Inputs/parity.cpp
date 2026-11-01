@@ -2,6 +2,15 @@
 // EmitIR (and SequenceLowering) writes for the same Kairo code. parity.py
 // compiles both at -O1..-O3 for x86_64 and aarch64 and requires the same
 // instruction count, except the allowlisted pairs (semantic differences).
+// a duck generic's `a + b` (C++ linkage: a template), instantiated below
+template <class T> T dep_add(T a, T b) {
+    return ({ auto&& __kairo_a0 = (a); auto&& __kairo_b0 = (b); [&]() {
+        using __kairo_T0 = __remove_cvref(decltype(__kairo_a0));
+        if constexpr (__is_integral(__kairo_T0) && (!__is_same(__kairo_T0, bool))) {
+            using __kairo_U0 = decltype(static_cast<__make_unsigned(__kairo_T0)>(0) + 0u);
+            return static_cast<__kairo_T0>(static_cast<__kairo_U0>(__kairo_a0) + static_cast<__kairo_U0>(__kairo_b0));
+        } else { return __kairo_a0 + __kairo_b0; } }(); });
+}
 extern "C" {
 [[noreturn, gnu::cold]] void kairo_rt_div_zero() noexcept;
 int f() noexcept; int g() noexcept; int h(int, int) noexcept; unsigned long idx() noexcept;
@@ -63,6 +72,14 @@ int ref_seq_sub() { int a = f(); return a - g(); }
 int k_seq_sub() { return ({ const int __kairo_s0 = f(); static_cast<int>(static_cast<unsigned>(__kairo_s0) - static_cast<unsigned>(g())); }); }
 int ref_seq_call() { int a = f(); return h(a, g()); }
 int k_seq_call() { return ({ const int __kairo_s0 = f(); h(__kairo_s0, g()); }); }
+
+// a duck generic's `a + b` at int, long long and double
+int ref_dep32(int a, int b) { return a + b; }
+int k_dep32(int a, int b) { return dep_add(a, b); }
+long long ref_dep64(long long a, long long b) { return a + b; }
+long long k_dep64(long long a, long long b) { return dep_add(a, b); }
+double ref_depf(double a, double b) { return a + b; }
+double k_depf(double a, double b) { return dep_add(a, b); }
 
 // no_wrap IV: C++'s own ++ and +
 void ref_iv(int* p, int n, int k) { for (int i = 0; i < n; ++i) p[i + k] = 0; }

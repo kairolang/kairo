@@ -3072,6 +3072,153 @@ class EmitIR {
 
     priv fn _sc(self, at: SourceRange, ty: string) { self._cg->sink->spell(at, "static_cast<" + ty + ">("); }
 
+    // --- dependent operands (a duck `<T: type>` body) ---------------------------
+    //
+    // Whether T is an integer is decided at instantiation: the operands are
+    // bound, and a lambda chooses with `if constexpr` between the wrap form
+    // on T's carrier (`__make_unsigned(T)` promoted to at least `unsigned`)
+    // and T's own operator. Clang folds the choice away; the lambda is local
+    // and unnamed, so no helper symbol exists.
+
+    /// \p t is a generic parameter (or a witness's member type) of the body:
+    /// its arithmetic is decided per instance.
+    priv fn _dependent_arith(self, t: *Type) -> bool {
+        if (t == &null) || (t->canonical == &null) { return false; }
+        var c = canon_unqual(t->canonical);
+        return (c != &null) && ((c->kind == TypeKind::GenericParamType) || (c->kind == TypeKind::AssocType));
+    }
+
+    /// `using T = ...; if constexpr (T is a non-bool integer) { using U = ...;`
+    /// opened inside the lambda; \p a names the bound operand T is read off.
+    priv fn _dep_open(self, at: SourceRange, a: string, d: u32) {
+        var tt = LowerTargets::wrap_tmp("T", d);
+        var uu = LowerTargets::wrap_tmp("U", d);
+        var s  = self._cg->sink;
+        s->spell(at, "using " + tt + " = __remove_cvref(decltype(" + a + ")); ");
+        s->spell(at, "if constexpr (__is_integral(" + tt + ") && (!__is_same(" + tt + ", bool))) { ");
+        // `__make_unsigned(T){}` does not parse as an operand; a cast does.
+        s->spell(at, "using " + uu + " = decltype(static_cast<__make_unsigned(" + tt + ")>(0) + 0u); ");
+    }
+
+    priv fn _scs(self, ty: string, x: string) -> string { return "static_cast<" + ty + ">(" + x + ")"; }
+
+    /// The integer arm's value of op \p k on bound operands \p a and \p b (the
+    /// lambda's T and U at depth \p d), returned.
+    priv fn _dep_int_arm(self, at: SourceRange, k: TokenKind, a: string, b: string, d: u32) {
+        var tt = LowerTargets::wrap_tmp("T", d);
+        var uu = LowerTargets::wrap_tmp("U", d);
+        var s  = self._cg->sink;
+        if (k == TokenKind::OpSlash) || (k == TokenKind::OpPercent) {
+            var rem = k == TokenKind::OpPercent;
+            s->spell(at, "if (__builtin_expect(" + b + " == 0, 0)) ::" + LowerTargets::div_zero_fn() + "(); ");
+            s->spell(at, "if constexpr (__is_signed(" + tt + ")) { if (" + b + " == " + self._scs(tt, "-1") + ") { return ");
+            if rem { s->spell(at, self._scs(tt, "0")); } else { s->spell(at, self._scs(tt, self._scs(uu, "0") + " - " + self._scs(uu, a))); }
+            s->spell(at, "; } } return " + self._scs(tt, a + ((" % ") if (rem) else (" / ")) + b) + "; ");
+            return;
+        }
+        if (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater) {
+            var mask = "(" + self._scs(uu, b) + " & " + self._scs(uu, "sizeof(" + tt + ") * 8 - 1") + ")";
+            s->spell(at, "return static_cast<" + tt + ">(");
+            if k == TokenKind::OpLessLess { s->spell(at, self._scs(uu, a)); s->punct(at, clang::tok::lessless); }
+            else { s->spell(at, "(" + a + ")"); s->punct(at, clang::tok::greatergreater); }
+            s->spell(at, mask + "); ");
+            return;
+        }
+        var sym = ("+") if (k == TokenKind::OpPlus) else ((("-") if (k == TokenKind::OpMinus) else ("*")));
+        s->spell(at, "return " + self._scs(tt, self._scs(uu, a) + " " + sym + " " + self._scs(uu, b)) + "; ");
+    }
+
+    /// T's own op \p k on \p a and \p b, as text (shifts are punctuators).
+    priv fn _dep_native(self, at: SourceRange, k: TokenKind, a: string, b: string) {
+        var s = self._cg->sink;
+        if k == TokenKind::OpLessLess { s->spell(at, a); s->punct(at, clang::tok::lessless); s->spell(at, b); return; }
+        if k == TokenKind::OpGreaterGreater { s->spell(at, a); s->punct(at, clang::tok::greatergreater); s->spell(at, b); return; }
+        var sym = "+";
+        if k == TokenKind::OpMinus   { sym = "-"; }
+        if k == TokenKind::OpStar    { sym = "*"; }
+        if k == TokenKind::OpSlash   { sym = "/"; }
+        if k == TokenKind::OpPercent { sym = "%"; }
+        s->spell(at, a + " " + sym + " " + b);
+    }
+
+    /// `a OP b` on dependent operands: both bound, then the lambda.
+    priv fn _dep_binary(self, at: SourceRange, k: TokenKind, a: fn(), b: fn()) {
+        var d  = self._bind_depth;
+        self._bind_depth += 1;
+        var ta = LowerTargets::wrap_tmp("a", d);
+        var tb = LowerTargets::wrap_tmp("b", d);
+        var s  = self._cg->sink;
+        self._form_open(at);
+        s->spell(at, "auto&& " + ta + " = ("); a(); s->spell(at, "); ");
+        s->spell(at, "auto&& " + tb + " = ("); b(); s->spell(at, "); ");
+        self._form_value(at);
+        s->spell(at, "[&]() { ");
+        self._dep_open(at, ta, d);
+        self._dep_int_arm(at, k, ta, tb, d);
+        s->spell(at, "} else { return ");
+        self._dep_native(at, k, ta, tb);
+        s->spell(at, "; } }();");
+        self._form_close(at);
+        self._bind_depth = d;
+    }
+
+    /// A dependent place written by op \p k (`+=`, or `++`/`--` with \p v
+    /// null): `({ auto& p = (place); [&]() { <int: p = wrap(p OP v)> else
+    /// <p OP= v> }(); p; })`, the old value kept for a postfix that is read.
+    priv fn _dep_update(self, at: SourceRange, n: *Expr, place: *Expr, k: TokenKind, v: *Expr, incdec: bool, postfix: bool) {
+        var d  = self._bind_depth;
+        self._bind_depth += 1;
+        var p  = LowerTargets::wrap_tmp("p", d);
+        var tb = LowerTargets::wrap_tmp("b", d);
+        var o  = LowerTargets::wrap_tmp("o", d);
+        var s  = self._cg->sink;
+        var stmt = self._stmt_node == n;
+        var old  = postfix && (!stmt);
+        var as_place = (!old) && (!stmt) && (n->value_category == Expr::ValueCategory::LValue);
+        if as_place { s->spell(at, "(*"); }
+        self._form_open(at);
+        s->spell(at, "auto& " + p + " = (");
+        self.emit(place);
+        s->spell(at, "); ");
+        if !incdec { s->spell(at, "auto&& " + tb + " = ("); self.emit(v); s->spell(at, "); "); }
+        if old { s->spell(at, "auto " + o + " = " + p + "; "); }
+        s->spell(at, "[&]() { ");
+        self._dep_open(at, p, d);
+        var uu = LowerTargets::wrap_tmp("U", d);
+        var one = "static_cast<" + uu + ">(1)";
+        if incdec {
+            var sym = ("+") if (k == TokenKind::OpPlus) else ("-");
+            s->spell(at, p + " = static_cast<" + LowerTargets::wrap_tmp("T", d) + ">(static_cast<" + uu + ">(" + p + ") " + sym + " " + one + "); } else { ");
+            s->spell(at, (("++") if (k == TokenKind::OpPlus) else ("--")) + p + "; } }();");
+        } else {
+            // The integer arm returns the new value; the lambda stores it.
+            s->spell(at, p + " = [&]() { ");
+            self._dep_int_arm(at, k, p, tb, d);
+            s->spell(at, "}(); } else { ");
+            s->spell(at, p + " " + self._compound_text(k) + " " + tb + "; } }();");
+        }
+        if !stmt {
+            s->spell(at, " ");
+            self._form_value(at);
+            if old { s->spell(at, o + ";"); }
+            else { s->spell(at, ((("&") if (as_place) else ("")) + p + ";")); }
+        }
+        self._form_close(at);
+        if as_place { s->spell(at, ")"); }
+        self._bind_depth = d;
+    }
+
+    /// `+=` for op `+`, and so on: the spelling T's own compound operator has.
+    priv fn _compound_text(self, k: TokenKind) -> string {
+        if k == TokenKind::OpMinus   { return "-="; }
+        if k == TokenKind::OpStar    { return "*="; }
+        if k == TokenKind::OpSlash   { return "/="; }
+        if k == TokenKind::OpPercent { return "%="; }
+        if k == TokenKind::OpLessLess { return "<<="; }
+        if k == TokenKind::OpGreaterGreater { return ">>="; }
+        return "+=";
+    }
+
     /// A binding form's brackets: a statement expression, or at namespace
     /// scope (_ns_init) a lambda called on the spot, whose value is
     /// returned (_form_value).
@@ -3270,11 +3417,37 @@ class EmitIR {
         var negnot = n->is_prefix() && ((k == TokenKind::OpMinus) || (k == TokenKind::OpTilde));
         if n->no_wrap && ((!(incdec || negnot)) || (!self._wraps(n->operand->type_))) { self._ice(n->range, "EmitIR: no_wrap on an operator that has no wrap form"); }
         if (!n->no_wrap) && incdec && self._wraps(n->operand->type_) { self._incdec_form(n); return; }
+        if (!n->no_wrap) && incdec && self._dependent_arith(n->operand->type_) {
+            self._dep_update(n->range, static_cast::<*Expr>(n), n->operand, (TokenKind::OpPlus) if (k == TokenKind::OpPlusPlus) else (TokenKind::OpMinus), &null, true, n->is_postfix());
+            return;
+        }
         // `-L` on a literal cannot overflow (the one that could, the minimum,
         // was _negated_int_lit's): C++'s own `-`.
         var lit_opnd = n->operand;
         while (lit_opnd != &null) && isa::<ParenExpr>(lit_opnd) { lit_opnd = cast::<ParenExpr>(lit_opnd)->inner; }
         var neg_of_lit = (k == TokenKind::OpMinus) && (lit_opnd != &null) && isa::<IntegerLiteralExpr>(lit_opnd);
+        if (!n->no_wrap) && negnot && self._dependent_arith(n->operand->type_) {
+            // `-a` is `0 - a` on the carrier; `~a` is its own (an integer's
+            // `~` promotes, so the arm casts it back).
+            var d  = self._bind_depth;
+            self._bind_depth += 1;
+            var ta = LowerTargets::wrap_tmp("a", d);
+            var tt = LowerTargets::wrap_tmp("T", d);
+            var uu = LowerTargets::wrap_tmp("U", d);
+            var s  = self._cg->sink;
+            self._form_open(n->range);
+            s->spell(n->range, "auto&& " + ta + " = (");
+            self.emit(n->operand);
+            s->spell(n->range, "); ");
+            self._form_value(n->range);
+            s->spell(n->range, "[&]() { ");
+            self._dep_open(n->range, ta, d);
+            if k == TokenKind::OpMinus { s->spell(n->range, "return static_cast<" + tt + ">(static_cast<" + uu + ">(0) - static_cast<" + uu + ">(" + ta + ")); } else { return -" + ta + "; } }();"); }
+            else { s->spell(n->range, "return static_cast<" + tt + ">(~static_cast<" + uu + ">(" + ta + ")); } else { return ~" + ta + "; } }();"); }
+            self._form_close(n->range);
+            self._bind_depth = d;
+            return;
+        }
         if (!n->no_wrap) && negnot && (!neg_of_lit) && self._wraps(n->type_) && self._wraps(n->operand->type_) {
             var ts = self._spell._type(CXXSpell::strip_ref(n->type_));
             var u  = self._spell.wrap_carrier(n->type_);
@@ -3304,6 +3477,10 @@ class EmitIR {
             if !nw_ok { self._ice(n->range, "EmitIR: no_wrap on an operator that has no wrap form"); }
         } else if ints && self._has_wrap_form(k, n->type_) {
             self._op_form(n->range, k, fn () { self.emit(n->lhs); }, fn () { self.emit(n->rhs); }, n->type_);
+            return;
+        } else if self._dependent_arith(n->lhs->type_) && (shift || self._dependent_arith(n->rhs->type_))
+               && ((k == TokenKind::OpPlus) || (k == TokenKind::OpMinus) || (k == TokenKind::OpStar) || (k == TokenKind::OpSlash) || (k == TokenKind::OpPercent) || shift) {
+            self._dep_binary(n->range, k, fn () { self.emit(n->lhs); }, fn () { self.emit(n->rhs); });
             return;
         }
         self._cg->sink->spell(n->range, "(");
@@ -3359,6 +3536,10 @@ class EmitIR {
             var cshift = (ck == TokenKind::OpLessLess) || (ck == TokenKind::OpGreaterGreater);
             if (ck != TokenKind::TkUnknown) && self._wraps(n->lhs->type_) && (cshift || self._wraps(n->rhs->type_)) {
                 self._compound_form(n, ck);
+                return;
+            }
+            if (ck != TokenKind::TkUnknown) && self._dependent_arith(n->lhs->type_) && (cshift || self._dependent_arith(n->rhs->type_)) {
+                self._dep_update(n->range, static_cast::<*Expr>(n), n->lhs, ck, n->rhs, false, false);
                 return;
             }
         }

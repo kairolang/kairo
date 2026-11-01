@@ -677,6 +677,34 @@ layout, explicit instantiation of its own generics).
 - FinallyLowering's guard record is implicit and stays in the body
   (`_local_record`): it holds the body's locals by address.
 
+### Integer arithmetic and evaluation order
+
+Kairo's integer arithmetic wraps at the node's type and is evaluated left
+to right; C++ promotes, overflows into UB, and leaves operands unsequenced.
+Neither is asked of clang: the forms are spelled inline, and the order is
+written into the tree. Imported C++ keeps C++ semantics.
+
+- Pure forms (EmitIR `_op_form`): `+ - *`, unary `-` / `~`, shifts and
+  `& | ^` narrower than int cast through `CXXSpell::wrap_carrier` (unsigned,
+  never narrower than `unsigned int`): `SC<T>(SC<U>(a) + SC<U>(b))`. A shift
+  count is masked to the width. `-L` on a literal and `no_wrap` nodes
+  (IterLowering's index steps) print C++'s operator.
+- Binding forms: `/` and `%` bind their operands and crash through
+  `kairo_rt_div_zero` (the prelude declares it) on zero, `MIN / -1 == MIN`,
+  `MIN % -1 == 0`; a compound assignment or `++` / `--` on a non-local place
+  binds it once with `auto&`, the trailing value left out in statement
+  position. At namespace scope (`_ns_init`) a binding form is a capture-less
+  lambda called on the spot, since no statement expression may be there.
+- A duck `<T: type>` operand (`_dep_binary`, `_dep_update`): both bound, and a
+  lambda picks with `if constexpr` between the wrap form on
+  `__make_unsigned(T)` and T's own operator, so a record keeps its `++`.
+- Order (SequenceLowering): before the last effectful operand, every operand
+  that has an effect or reads state it could change is bound in order; a
+  place as `auto&&` (VariableDecl::place_ref), a value copied (`auto` where
+  Kairo cannot spell the type, VariableDecl::auto_copy).
+- Proof: Tests/Codegen/OperatorSemantics (constant-evaluated forms, run
+  values, spellings, instruction parity at -O1..-O3 on x86_64 and aarch64).
+
 ### Closures
 
 A closure is a C++ lambda inside the `fn` value its type is. closures.md

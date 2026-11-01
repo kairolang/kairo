@@ -20,10 +20,13 @@ LEVELS = ["-O1", "-O2", "-O3"]
 
 
 def counts(clang, src, target, level):
-    asm = subprocess.run(
+    r = subprocess.run(
         [clang, "--driver-mode=g++", "-std=c++2c", "--target=" + target, level, "-S",
          "-fno-asynchronous-unwind-tables", "-o", "-", src],
-        check=True, capture_output=True, text=True).stdout
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"parity: {target} {level}: clang failed\n{r.stderr}")
+    asm = r.stdout
     out = {}
     name = None
     for line in asm.splitlines():
