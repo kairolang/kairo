@@ -337,6 +337,9 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         }
         var head = NamedIdentExpr::create(self.ctx, st->range, tok);
         head->resolved_decl = static_cast::<*Decl>(f);
+        // The step's written generic arguments go with it: a dependent call
+        // has no instance, and they are all EmitIR has to spell (P127).
+        head->generic_args = st->generic_args;
         return static_cast::<*Expr>(head);
     }
 

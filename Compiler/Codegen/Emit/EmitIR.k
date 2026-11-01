@@ -1853,7 +1853,34 @@ class EmitIR {
             return;
         }
         if self._is_local(d) { self._name(n->name); return; }
-        self._cg->sink->spell(n->range, self._spell.qual_name(d));
+        // `f<A>` with no instance to spell (the call or value is dependent,
+        // P127/P222) keeps the arguments it was written with: they are A
+        // itself, and clang substitutes them per instance. Dropped, a
+        // non-deducible `size_of_a<A>()` is "couldn't infer template
+        // argument". A generic extension member's C++ arguments are not the
+        // written ones (`<ext args..., member args...>`), so it is left out.
+        var wa = "";
+        if !self._is_extension_member(d) {
+            var gl = &(n->generic_args);
+            wa = self._written_args_str(d, gl);
+        }
+        self._cg->sink->spell(n->range, self._spell.qual_name(d) + wa);
+    }
+
+    /// `<A, B>` from the generic arguments \p gl a reference to \p d was
+    /// written with, or "" when \p d is no generic function or none were
+    /// written. For a reference with no instance only: one with an instance
+    /// is spelled from it (every argument, the deduced ones too).
+    priv fn _written_args_str(self, d: *Decl, gl: *FrozenList::<ChainType::GenericArg>) -> string {
+        var f = dyn_cast::<FunctionDecl>(d);
+        if (f == &null) || (f->generic_params.size() == 0) || (gl == &null) || (gl->size() == 0) { return ""; }
+        var v = vec::<*Type>();
+        for var i: usize = 0; i < gl->size(); ++i {
+            var ga = gl->get(i);
+            if (ga->ty == &null) || (ga->ty->canonical == &null) { self._ice(f->range, "EmitIR: a written generic argument with no type"); }
+            v.push_back(ga->ty->canonical);
+        }
+        return self._spell.args_str(&v);
     }
 
     /// `self` as C++ has it: `this` in a method, the receiver parameter in an
@@ -1918,12 +1945,19 @@ class EmitIR {
             var pt: *Type = &null;
             if k > 0 { pt = n->steps.get(k - 1)->resolved_type; }
             var pr = (dyn_cast::<RecordType>(canon_unqual(pt->canonical))) if ((pt != &null) && (pt->canonical != &null)) else (&null);
+            // `G<A>::f<B>` / `ns::f<B>` with no instance (a dependent call or
+            // a function value, P127/P222): the written arguments, behind
+            // `template` when the qualifier is dependent.
+            var wa = "";
+            if k + 1 == n->steps.size() { wa = self._written_args_str(st->resolved_decl, &(st->generic_args)); }
             if st->through != &null {
-                self._cg->sink->spell(st->range, self._spell._type(st->through, &null) + "::" + self._spell.leaf(st->resolved_decl));
+                var tk = ("template ") if ((wa.size() > 0) && st->through->is_dependent()) else ("");
+                self._cg->sink->spell(st->range, self._spell._type(st->through, &null) + "::" + tk + self._spell.leaf(st->resolved_decl) + wa);
             } else if (pr != &null) && (pr->outer != &null) {
-                self._cg->sink->spell(st->range, self._spell._type(pt, &null) + "::" + self._spell.leaf(st->resolved_decl));
+                var tk = ("template ") if ((wa.size() > 0) && pt->is_dependent()) else ("");
+                self._cg->sink->spell(st->range, self._spell._type(pt, &null) + "::" + tk + self._spell.leaf(st->resolved_decl) + wa);
             } else {
-                self._cg->sink->spell(st->range, self._spell.qual_name(st->resolved_decl));
+                self._cg->sink->spell(st->range, self._spell.qual_name(st->resolved_decl) + wa);
             }
             is_ptr = self._type_is_pointer(st->resolved_type);
             i = k + 1;
@@ -2252,28 +2286,28 @@ class EmitIR {
         } else if n->witness_iface != &null {
             // `::ring::Scalable_witness<T>::scale(`: the receiver is argument
             // zero already, in the form the witness member takes it.
-            var wi = canon_unqual(n->witness_iface);
-            if (!isa::<RecordType>(wi)) { self._ice(n->range, "EmitIR: a witness that is not an interface instance"); }
-            var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(wi)->decl)));
-            var s = self._spell.witness_name(idecl) + self._spell.witness_args(self._spell._type(n->witness_self), wi);
-            s += "::";
             // A generic requirement's arguments, when the call has concrete
             // ones, spelled with `template`: the witness is a dependent type.
-            // A dependent call (no instance) leaves them to deduction.
-            if (f->generic_params.size() > 0) && (inst != &null) {
-                s += "template " + self._spell.witness_member_name(f) + self._spell.args_str(&(inst->args));
-            } else {
-                s += self._spell.witness_member_name(f);
-            }
-            self._cg->sink->spell(n->callee->range, s);
+            // A dependent call (no instance) has the written ones (P127):
+            // `A::f<B>()` cannot deduce B, and they are what clang substitutes.
+            var ta = "";
+            if (f->generic_params.size() > 0) && (inst != &null) { ta = self._spell.args_str(&(inst->args)); }
+            else if inst == &null { ta = self._written_args_str(callee, self._written_list(n->callee)); }
+            self._cg->sink->spell(n->callee->range, self._witness_member(n->witness_iface, n->witness_self, f, ta));
         } else if n->qualifier != &null {
             // A default thunk of a generic type's method: a static member of a
             // class template, named through the receiver's record so the
             // owner's arguments are spelled.
             var s = self._spell._type(n->qualifier) + "::";
+            var wq = ("") if (inst != &null) else (self._written_args_str(callee, self._written_list(n->callee)));
             if (inst != &null) && (f != &null) && (f->generic_params.size() > 0) {
                 if n->qualifier->is_dependent() { s += "template "; }
                 s += self._spell.leaf(callee) + self._spell.args_str(&(inst->args));
+            } else if wq.size() > 0 {
+                // `G<A>::f<B>()` in a generic body (P127): no instance, so
+                // the written arguments.
+                if n->qualifier->is_dependent() { s += "template "; }
+                s += self._spell.leaf(callee) + wq;
             } else {
                 s += self._spell.leaf(callee);
             }
@@ -2378,6 +2412,29 @@ class EmitIR {
             else if s != name { return ""; }
         }
         return name;
+    }
+
+    /// The generic-argument list written on a callee's name: a bare name's,
+    /// or a chain's last step's; null for any other callee.
+    priv fn _written_list(self, c: *Expr) -> *FrozenList::<ChainType::GenericArg> {
+        if isa::<NamedIdentExpr>(c) { return &(cast::<NamedIdentExpr>(c)->generic_args); }
+        var ch = dyn_cast::<ChainExpr>(c);
+        if (ch != &null) && (ch->steps.size() > 0) { return &(ch->steps.get(ch->steps.size() - 1)->generic_args); }
+        return &null;
+    }
+
+    /// `::ns::I_witness<Self, A...>::m`, requirement \p f of interface
+    /// instance \p wi through its witness, Self spelled from \p me; with
+    /// \p targs (`<B>`) it is `::template m<B>`, the witness being a
+    /// dependent type. One spelling for a witness call and a witness member
+    /// used as a value.
+    priv fn _witness_member(self, wi0: *Type, me: *Type, f: *FunctionDecl, targs: string) -> string {
+        var wi = canon_unqual(wi0);
+        if (wi == &null) || (!isa::<RecordType>(wi)) { self._ice(f->range, "EmitIR: a witness that is not an interface instance"); }
+        var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(wi)->decl)));
+        var s = self._spell.witness_name(idecl) + self._spell.witness_args(self._spell._type(me), wi) + "::";
+        if targs.size() > 0 { return s + "template " + self._spell.witness_member_name(f) + targs; }
+        return s + self._spell.witness_member_name(f);
     }
 
     /// The generic arguments written on a plain callee (`f<A>` or

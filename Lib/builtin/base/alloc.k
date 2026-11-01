@@ -139,9 +139,9 @@ pub class <T> Uninitialized {
 
     /// For a T whose bytes have all been written through as_bytes. Only for
     /// types that come into being when their bytes are written (trivially
-    /// copyable and destructible). Not enforced by a requires clause: a
-    /// generic call written <T> inside a generic body loses its arguments.
-    pub inline fn assume_init(self) -> *T {
+    /// copyable and destructible).
+    pub inline fn assume_init(self) -> *T
+      requires __builtin_is_trivially_copyable<T>() && __builtin_is_trivially_destructible<T>() {
         unsafe { return __builtin_launder(self.ptr as unsafe *T as *T) }
     }
 
