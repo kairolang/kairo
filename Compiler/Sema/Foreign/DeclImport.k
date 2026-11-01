@@ -464,7 +464,9 @@ class DeclImport {
             }
             case clang::Decl::Field {
                 var f = llvm::cast::<clang::FieldDecl>(nd);
-                out = static_cast::<*Decl>(FieldDecl::create(t->ctx, at, name, StorageClass::Var, &null, f->getFieldIndex()));
+                var fd = FieldDecl::create(t->ctx, at, name, StorageClass::Var, &null, f->getFieldIndex());
+                fd->is_bitfield = f->isBitField();
+                out = static_cast::<*Decl>(fd);
             }
             case clang::Decl::EnumConstant {
                 var ec = llvm::cast::<clang::EnumConstantDecl>(nd);

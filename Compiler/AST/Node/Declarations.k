@@ -988,6 +988,10 @@ class FieldDecl derives Decl {
     pub var fold_pin:     u8   = 0;
     pub var fold_pin_neg: bool = false;
     pub var fold_pin_mag: u64  = 0;
+    /// An imported C / C++ bit-field (DeclImport): no reference can bind it,
+    /// so a place written through it is re-read through its object instead
+    /// (EmitIR's compound forms, SequenceLowering). Kairo declares none.
+    pub var is_bitfield:  bool = false;
     /// `type_` is the record type of an anonymous UnionDecl (`is_anonymous`),
     /// and this field is that union's one and only declaration: C++ gets
     /// `union { ... };` in its place, with no name. Unlike C++, the union's

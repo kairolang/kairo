@@ -3036,13 +3036,78 @@ class EmitIR {
     }
 
     /// `x`, a local or parameter (parens aside): evaluating it twice is
-    /// free and does nothing, so its compound forms bind nothing.
+    /// free and does nothing, so its compound forms bind nothing. So is a
+    /// bit-field off an object without effects (`b.f`, `p->f`), which no
+    /// `auto&` could bind.
     priv fn _is_local_place(self, e: *Expr) -> bool {
         var x = e;
         while (x != &null) && isa::<ParenExpr>(x) { x = cast::<ParenExpr>(x)->inner; }
+        if (x != &null) && (self._bitfield_chain(x) != &null) && self._simple_object(cast::<ChainExpr>(x)->base) { return true; }
         if (x == &null) || (!isa::<NamedIdentExpr>(x)) { return false; }
         var d = cast::<NamedIdentExpr>(x)->resolved_decl;
         return (d != &null) && self._is_local(d);
+    }
+
+    /// \p e names an object with no effect to repeat: a name, a field path
+    /// off one, or a dereference of one.
+    priv fn _simple_object(self, e: *Expr) -> bool {
+        var x = self._strip(e);
+        if x == &null { return false; }
+        if isa::<NamedIdentExpr>(x) { return true; }
+        if isa::<ChainExpr>(x) {
+            var c = cast::<ChainExpr>(x);
+            for var i: usize = 0; i < c->steps.size(); ++i {
+                var st = c->steps.get(i);
+                if st->is_operator() || (!isa::<FieldDecl>(st->resolved_decl)) { return false; }
+            }
+            return self._simple_object(c->base);
+        }
+        var u = dyn_cast::<UnaryOperatorExpr>(x);
+        if (u != &null) && (u->op_token.kind == TokenKind::OpStar) && (u->resolved_op == &null) { return self._simple_object(u->operand); }
+        return false;
+    }
+
+    /// \p e is `obj.f` (one step or more) with f a bit-field: the chain, else null.
+    priv fn _bitfield_chain(self, e: *Expr) -> *ChainExpr {
+        var c = dyn_cast::<ChainExpr>(e);
+        if (c == &null) || (c->steps.size() == 0) { return &null; }
+        var fd = dyn_cast::<FieldDecl>(c->steps.get(c->steps.size() - 1)->resolved_decl);
+        if (fd == &null) || (!fd->is_bitfield) { return &null; }
+        return c;
+    }
+
+    /// A bit-field place whose object has an effect: the object is bound
+    /// once and the field re-read through it, `({ auto&& o = (obj); o.f =
+    /// <o.f OP v>; o.f; })`. The store truncates to the field's width, which
+    /// is the wrap at that width ([conv.integral]); the re-read returns it.
+    priv fn _bitfield_form(self, n: *Expr, place: *ChainExpr, k: TokenKind, v: fn(), t: *Type, postfix_old: bool) {
+        if place->steps.size() != 1 { self._ice(n->range, "EmitIR: a bit-field written through a multi-step chain whose object has an effect; bind the object first"); }
+        var at = n->range;
+        var s  = self._cg->sink;
+        var d  = self._bind_depth;
+        self._bind_depth += 1;
+        var o   = LowerTargets::wrap_tmp("p", d);
+        var old = LowerTargets::wrap_tmp("o", d);
+        var fd = cast::<FieldDecl>(place->steps.get(0)->resolved_decl);
+        var bt = place->base->type_;
+        var arrow = (bt != &null) && (bt->canonical != &null) && isa::<PointerType>(canon_unqual(bt->canonical));
+        var mem = o + (("->") if (arrow) else (".")) + self._spell.leaf(static_cast::<*Decl>(fd));
+        var stmt = self._stmt_node == n;
+        self._form_open(at);
+        s->spell(at, "auto&& " + o + " = (");
+        self.emit(place->base);
+        s->spell(at, "); ");
+        if postfix_old && (!stmt) { s->spell(at, "auto " + old + " = " + mem + "; "); }
+        s->spell(at, mem + " = ");
+        self._op_form(at, k, fn () { s->spell(at, mem); }, v, t);
+        s->spell(at, ";");
+        if !stmt {
+            s->spell(at, " ");
+            self._form_value(at);
+            s->spell(at, ((old) if (postfix_old) else (mem)) + ";");
+        }
+        self._form_close(at);
+        self._bind_depth = d;
     }
 
     /// The op a compound assignment applies, TkUnknown when it has no wrap form
@@ -3068,6 +3133,13 @@ class EmitIR {
             return CXXSpell::int_width(t) < u32(32);
         }
         return false;
+    }
+
+    /// \p e, parens aside.
+    priv fn _strip(self, e: *Expr) -> *Expr {
+        var x = e;
+        while (x != &null) && isa::<ParenExpr>(x) { x = cast::<ParenExpr>(x)->inner; }
+        return x;
     }
 
     priv fn _sc(self, at: SourceRange, ty: string) { self._cg->sink->spell(at, "static_cast<" + ty + ">("); }
@@ -3317,6 +3389,11 @@ class EmitIR {
             s->spell(at, ")");
             return;
         }
+        var bf = self._bitfield_chain(self._strip(n->lhs));
+        if bf != &null {
+            self._bitfield_form(static_cast::<*Expr>(n), bf, k, fn () { if shift { self.emit(n->rhs); } else { self._value(n->rhs, t); } }, t, false);
+            return;
+        }
         var d = self._bind_depth;
         self._bind_depth += 1;
         var p = LowerTargets::wrap_tmp("p", d);
@@ -3357,6 +3434,11 @@ class EmitIR {
             s->spell(at, " = ");
             self._op_form(at, k, fn () { self.emit(n->operand); }, fn () { s->spell(at, "1"); }, t);
             s->spell(at, ")");
+            return;
+        }
+        var bf = self._bitfield_chain(self._strip(n->operand));
+        if bf != &null {
+            self._bitfield_form(static_cast::<*Expr>(n), bf, k, fn () { s->spell(at, "1"); }, t, n->is_postfix());
             return;
         }
         var d = self._bind_depth;

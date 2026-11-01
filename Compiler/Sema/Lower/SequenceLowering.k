@@ -376,6 +376,7 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
             var e = (*ops)[i];
             var st = (self._place_moves(e)) if ((*places)[i]) else (self._reads_state(e));
             var h = (!LowerSynth::pure(e)) || st;
+            if h && (*places)[i] && self._bitfield(e) { return false; }   // C++'s order, rather than a reference that cannot bind.
             if h && (e->type_ == &null) { return false; }   // no type to declare its local with.
             (*hoist)[i] = h;
             if h { any = true; }
@@ -501,7 +502,7 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
             mk->operand = self._hoist(mk->operand, stmts, false, true);
             return e;
         }
-        if place && e->is_lvalue() && (!self._materialized(e)) && (e->type_ != &null) {
+        if place && e->is_lvalue() && (!self._materialized(e)) && (e->type_ != &null) && (!self._bitfield(e)) {
             // `auto&& p = (e);`: the place itself, its cv and its reference
             // type kept (an imported `T&` return, a const field), and a
             // prvalue C++ sees (a by-value receiver) extended to the block.
@@ -525,6 +526,15 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         var use = self._bind(e, stmts);
         if consumed { return self._moved(use); }
         return use;
+    }
+
+    /// \p e is a field step that is an imported bit-field: no reference binds
+    /// it, so it is never hoisted as a place (_plan leaves its node alone).
+    priv fn _bitfield(self, e: *Expr) -> bool {
+        var c = dyn_cast::<ChainExpr>(self.tu.strip_parens(e));
+        if (c == &null) || (c->steps.size() == 0) { return false; }
+        var fd = dyn_cast::<FieldDecl>(c->steps.get(c->steps.size() - 1)->resolved_decl);
+        return (fd != &null) && fd->is_bitfield;
     }
 
     /// `*__kairo_tmp(p)` / `__kairo_tmp(p)`: _bind's own case, never bound by
