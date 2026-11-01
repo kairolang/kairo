@@ -336,14 +336,14 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
             var v = n->fields.get(i)->value;
             if v == &null { continue; }
             if v->type_ == &null { return out; }
-            if !LowerSynth::pure(v) { impure = true; }
+            if !self.synth.pure_read(v) { impure = true; }
         }
         if !impure { return out; }
         var stmts = self.list_builder::<*Stmt>();
         for var i: usize = 0; i < n->fields.size(); ++i {
             var f = n->fields.get(i);
             if f->value == &null { continue; }
-            if LowerSynth::pure(f->value) && (!self._reads_state(f->value)) { continue; }
+            if self.synth.pure_read(f->value) && (!self._reads_state(f->value)) { continue; }
             f->value = self._hoist(f->value, &stmts, true, false);
         }
         stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, n->range, static_cast::<*Expr>(n))));
@@ -368,14 +368,14 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
             hoist->push_back(false);
             var e = (*ops)[i];
             if e == &null { return false; }
-            if !LowerSynth::pure(e) { last = i; impure += 1; }
+            if !self.synth.pure_read(e) { last = i; impure += 1; }
         }
         if last == usize(-1) { return false; }
         var any = false;
         for var i: usize = 0; i < last; ++i {
             var e = (*ops)[i];
             var st = (self._place_moves(e)) if ((*places)[i]) else (self._reads_state(e));
-            var h = (!LowerSynth::pure(e)) || st;
+            var h = (!self.synth.pure_read(e)) || st;
             if h && (*places)[i] && self._bitfield(e) { return false; }   // C++'s order, rather than a reference that cannot bind.
             if h && (e->type_ == &null) { return false; }   // no type to declare its local with.
             (*hoist)[i] = h;
@@ -434,6 +434,14 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
                 var s = cast::<SubscriptExpr>(e);
                 if (s->base->type_ == &null) || (!isa::<FixedArrayType>(canon_unqual(s->base->type_))) { return true; }
                 return self._reads_state(s->base) || self._reads_state(s->index);
+            }
+            case ExprKind::CallExpr {
+                // A pure accessor (PureAccessors) reads its object and only
+                // that: as stateful as the object, and anything it reaches
+                // through a pointer is memory anything may write.
+                var r = self.synth.accessor_receiver(e);
+                if r == &null { return true; }
+                return self._pointer_typed(r) || self._reads_state(r);
             }
             default { return true; }
         }
@@ -579,7 +587,7 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         var impure   = false;
         for var i: usize = 0; i < count; ++i {
             if usize(n->source_order[i]) != i { in_order = false; }
-            if !LowerSynth::pure(n->fields[i]) { impure = true; }
+            if !self.synth.pure_read(n->fields[i]) { impure = true; }
         }
         if in_order || (!impure) { return out; }
         // Every field must have a type to declare its local with.

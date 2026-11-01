@@ -225,6 +225,8 @@ class LangMembers {
     /// reads a message.
     static fn string_as_ptr() -> string { return "as_ptr"; }
     static fn string_length() -> string { return "length"; }
+    static fn string_codepoints() -> string { return "codepoints"; }
+    static fn string_capacity() -> string   { return "capacity"; }
     /// Yield<T> methods (coro/generator.k): the generator protocol IterLowering drives.
     static fn yield_next() -> string    { return "next"; }
     static fn yield_current() -> string { return "current"; }
@@ -235,6 +237,37 @@ class LangMembers {
     /// calls by name on a type it did not declare, an f-string hole's
     /// conversion (LiteralTyping::_string_conv, preferred over `op as`).
     static fn repr() -> string { return "repr"; }
+}
+
+/// \class PureAccessors
+/// \brief Lang-item getters that read their object and write nothing, so a
+///        call of one is no effect to order (LowerSynth::pure_read; it still
+///        READS state, so it is never moved past a write). Each was read
+///        before it was listed:
+///
+///          string.k   as_ptr / length / codepoints / capacity: `return
+///                     self.<field>`, const self.
+///          Nullable   is_null / __value (both): EnumLayoutLowering's
+///                     IsNull / ValueRef / ValueCref roles, which
+///                     InterfaceEmitter renders as a tag or niche test and a
+///                     reference to the payload. `__value()` is unchecked;
+///                     the desugars call it only where non-null is proven.
+///          ADT layout `__kairo_which()` (AdtRole::Which), EnumLayoutLowering's
+///                     on every ADT record: InterfaceEmitter renders it
+///                     `const`, returning the tag or the niche tests' answer.
+///
+///        Matched by declaration, never by spelling: string's are looked up
+///        in the String lang item's own scope (these names), Nullable's by
+///        AdtRole (the Nullable roles only that lang item's record carries). Slice has no
+///        getters: its `data` / `len` are fields, a plain read already.
+class PureAccessors {
+    static fn string_count() -> usize { return 4; }
+    static fn string_member(i: usize) -> string {
+        if i == 0 { return LangMembers::string_as_ptr(); }
+        if i == 1 { return LangMembers::string_length(); }
+        if i == 2 { return LangMembers::string_codepoints(); }
+        return LangMembers::string_capacity();
+    }
 }
 
 /// \class WellKnownDecls

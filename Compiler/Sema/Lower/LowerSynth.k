@@ -39,6 +39,7 @@ import AST::Node::Declarations::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::Kind::ExprKind::*;
+import AST::Context::SymbolTable::*;
 import Lexer::Immediate::*;
 import Location::SourceManager::*;
 import Location::SourceRange::*;
@@ -442,7 +443,71 @@ class LowerSynth {
     /// another operand changes nothing. Conservative: anything not listed is
     /// impure. SequenceLowering orders by it; OperatorLowering decides by it
     /// whether a compound assignment's left side is bound once first.
-    static fn pure(e: *Expr) -> bool {
+    static fn pure(e: *Expr) -> bool { return LowerSynth::_pure(e, &null); }
+
+    /// pure(), except that a call of a pure accessor (PureAccessors: a
+    /// lang item's getter that writes nothing) on a pure receiver counts as
+    /// no effect. For binding decisions only (SequenceLowering, its post-pass
+    /// check): such a call still READS state, so it is never moved past a
+    /// write (SequenceLowering::_reads_state stays true for it). Not for a
+    /// pass that re-evaluates a "pure" path at a later time (IterLowering's
+    /// array base, CoalesceLowering's second read): `__value()` is unchecked.
+    fn pure_read(self, e: *Expr) -> bool { return LowerSynth::_pure(e, &self); }
+
+    /// \p e is `recv.m()` with m a pure accessor (is_pure_accessor) and no
+    /// arguments; null otherwise, else the receiver.
+    fn accessor_receiver(self, e: *Expr) -> *Expr {
+        var c = dyn_cast::<CallExpr>(e);
+        if (c == &null) || (c->args.size() != 0) || (c->callee == &null) { return &null; }
+        var ch = dyn_cast::<ChainExpr>(c->callee);
+        if (ch == &null) || (ch->base == &null) || (ch->steps.size() != 1) { return &null; }
+        var st = ch->steps.get(0);
+        if (st->access_kind != ChainExpr::AccessKind::Dot) && (st->access_kind != ChainExpr::AccessKind::Arrow) { return &null; }
+        if !self.is_pure_accessor(st->resolved_decl) { return &null; }
+        return ch->base;
+    }
+
+    /// \p d is one of the pure accessors (PureAccessors), by identity: the
+    /// Nullable layout's IsNull / ValueRef / ValueCref members (roles only
+    /// that lang item's record carries, AdtRole), any ADT layout's
+    /// `__kairo_which()` (AdtRole::Which), or one of string's
+    /// PureAccessors::string_member, looked up once in the String lang item.
+    fn is_pure_accessor(self, d: *Decl) -> bool {
+        var f = dyn_cast::<FunctionDecl>(d);
+        if f == &null { return false; }
+        if (f->adt_role == AdtRole::IsNull) || (f->adt_role == AdtRole::ValueRef) || (f->adt_role == AdtRole::ValueCref) { return true; }
+        if f->adt_role == AdtRole::Which { return true; }
+        if !self._acc_ready { self._resolve_accessors(); }
+        for var i: usize = 0; i < self._acc.size(); ++i { if self._acc[i] == d { return true; } }
+        return false;
+    }
+
+    priv var _acc: vec::<*Decl>;
+    priv var _acc_ready: bool = false;
+
+    priv fn _resolve_accessors(self) {
+        self._acc_ready = true;
+        if (self.sc == &null) || (self.sc->well_known == &null) { return; }
+        var sd = self.sc->well_known->get(WellKnownType::String);
+        if sd == &null { return; }
+        var tu = TypeUtil(self.sc);
+        var dc = NameLookup::context_of(tu.pattern_of(NameLookup::representative(sd)));
+        if dc == &null { return; }
+        for var i: usize = 0; i < PureAccessors::string_count(); ++i {
+            var nm   = PureAccessors::string_member(i);
+            var imm  = self.sc->imm_table()->intern_ident_copy(nm);
+            var cell = self.sc->lookup.in_context(dc, DeclName::ident(imm), nm);
+            if !cell.found() { continue; }
+            for var k: usize = 0; k < cell.cell->size(); ++k {
+                var m = dyn_cast::<FunctionDecl>(cell.cell->get(k));
+                if (m != &null) && m->is_method() { self._acc.push_back(cell.cell->get(k)); }
+            }
+        }
+    }
+
+    /// The one walk behind pure() and pure_read(): \p acc null is the
+    /// strict test, non-null admits its pure accessors.
+    priv static fn _pure(e: *Expr, acc: *LowerSynth) -> bool {
         if e == &null { return true; }
         switch e->kind {
             case ExprKind::IntegerLiteralExpr   { return true; }
@@ -455,9 +520,9 @@ class LowerSynth {
             case ExprKind::SizeOfExpr           { return true; }
             case ExprKind::AlignOfExpr          { return true; }
             case ExprKind::TypeTraitExpr        { return true; }
-            case ExprKind::ParenExpr            { return LowerSynth::pure(cast::<ParenExpr>(e)->inner); }
-            case ExprKind::UnsafeExpr           { return LowerSynth::pure(cast::<UnsafeExpr>(e)->operand); }
-            case ExprKind::ImplicitBoundaryCastExpr { return LowerSynth::pure(cast::<ImplicitBoundaryCastExpr>(e)->original); }
+            case ExprKind::ParenExpr            { return LowerSynth::_pure(cast::<ParenExpr>(e)->inner, acc); }
+            case ExprKind::UnsafeExpr           { return LowerSynth::_pure(cast::<UnsafeExpr>(e)->operand, acc); }
+            case ExprKind::ImplicitBoundaryCastExpr { return LowerSynth::_pure(cast::<ImplicitBoundaryCastExpr>(e)->original, acc); }
             case ExprKind::ChainExpr {
                 // A field path off a pure base. An operator step is a call
                 // (only as a callee, which never reaches here as an operand).
@@ -468,41 +533,46 @@ class LowerSynth {
                     if (st->access_kind == ChainExpr::AccessKind::QuestionDot)
                     || (st->access_kind == ChainExpr::AccessKind::QuestionArrow) { return false; }
                 }
-                return LowerSynth::pure(c->base);
+                return LowerSynth::_pure(c->base, acc);
             }
             case ExprKind::UnaryOperatorExpr {
                 var u = cast::<UnaryOperatorExpr>(e);
                 if u->resolved_op != &null { return false; }
                 var k = u->op_token.kind;
                 if (k == TokenKind::OpPlusPlus) || (k == TokenKind::OpMinusMinus) { return false; }
-                return LowerSynth::pure(u->operand);
+                return LowerSynth::_pure(u->operand, acc);
             }
             case ExprKind::BinaryOperatorExpr {
                 var b = cast::<BinaryOperatorExpr>(e);
                 if b->resolved_op != &null { return false; }
-                return LowerSynth::pure(b->lhs) && LowerSynth::pure(b->rhs);
+                return LowerSynth::_pure(b->lhs, acc) && LowerSynth::_pure(b->rhs, acc);
             }
             case ExprKind::SubscriptExpr {
                 var s = cast::<SubscriptExpr>(e);
                 if s->resolved_op != &null { return false; }
-                return LowerSynth::pure(s->base) && LowerSynth::pure(s->index);
+                return LowerSynth::_pure(s->base, acc) && LowerSynth::_pure(s->index, acc);
             }
             case ExprKind::TypeCastExpr {
                 var c = cast::<TypeCastExpr>(e);
                 if (c->resolved_op != &null) || (c->resolved_ctor != &null) { return false; }
-                return LowerSynth::pure(c->operand);
+                return LowerSynth::_pure(c->operand, acc);
             }
             case ExprKind::ListLiteralExpr {
                 var l = cast::<ListLiteralExpr>(e);
-                for var i: usize = 0; i < l->elements.size(); ++i { if !LowerSynth::pure(l->elements[i]) { return false; } }
+                for var i: usize = 0; i < l->elements.size(); ++i { if !LowerSynth::_pure(l->elements[i], acc) { return false; } }
                 return true;
             }
             case ExprKind::VariantInitExpr {
                 // As pure as its fields: a variant without a payload runs
                 // nothing.
                 var v = cast::<VariantInitExpr>(e);
-                for var i: usize = 0; i < v->fields.size(); ++i { if !LowerSynth::pure(v->fields[i]) { return false; } }
+                for var i: usize = 0; i < v->fields.size(); ++i { if !LowerSynth::_pure(v->fields[i], acc) { return false; } }
                 return true;
+            }
+            case ExprKind::CallExpr {
+                if acc == &null { return false; }
+                var r = acc->accessor_receiver(e);
+                return (r != &null) && LowerSynth::_pure(r, acc);
             }
             default { return false; }   // calls, assignment, if-expr, closures, ...
         }

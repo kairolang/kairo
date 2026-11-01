@@ -75,27 +75,19 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:      return(((!a.is_null()) &&(!b.is_null())) &&({
-// CXX-NEXT: auto __kairo_ord0 =(a.__value());
-// CXX-NEXT: Eqable_witness<T>::__kairo_op_eq(__kairo_ord0, b.__value());
-// Two `__value()` calls are ordered like any two calls (SequenceLowering).
-// CXX:      (((!a.is_null()) &&(!b.is_null())) &&({
-// CXX-NEXT: signed int __kairo_ord{{[0-9]+}} = a.__value();
-// CXX-NEXT: (__kairo_ord{{[0-9]+}} == b.__value());
+// CXX:      return(((!a.is_null()) &&(!b.is_null())) && {{.*}}Eqable_witness<T>::__kairo_op_eq(a.__value(), b.__value()));
+// `__value()` is a pure accessor (PureAccessors): two of them bind nothing.
+// CXX:      (((!a.is_null()) &&(!b.is_null())) &&(a.__value() == b.__value()));
 // CXX:      ((!a.is_null()) &&(a.__value() == 4));
 // CXX:      ((!s.is_null()) &&(s.__value() == 7));
-// CXX:      (((!p.is_null()) &&(!q.is_null())) &&({
-// CXX:      .operator ==(
-// CXX:      (((!d1.is_null()) &&(!d2.is_null())) &&({
-// CXX-NEXT: auto __kairo_ord{{[0-9]+}} =(d1.__value().__kairo_t.__kairo_tag);
-// CXX-NEXT: (__kairo_ord{{[0-9]+}} == d2.__value().__kairo_t.__kairo_tag);
-// CXX:      (((!pi.is_null()) &&(!pj.is_null())) &&({
-// CXX-NEXT: signed int __kairo_ord{{[0-9]+}} =(* pi.__value());
-// CXX-NEXT: (__kairo_ord{{[0-9]+}} ==(* pj.__value()));
+// CXX:      (((!p.is_null()) &&(!q.is_null())) && p.__value().operator ==(q.__value()));
+// A record literal against one still binds the accessor's place first.
+// CXX:      ((!p.is_null()) &&({
+// CXX-NEXT: auto && __kairo_ord{{[0-9]+}} =(p.__value());
+// CXX:      (((!d1.is_null()) &&(!d2.is_null())) &&(d1.__value().__kairo_t.__kairo_tag == d2.__value().__kairo_t.__kairo_tag));
+// CXX:      (((!pi.is_null()) &&(!pj.is_null())) &&((* pi.__value()) ==(* pj.__value())));
 // CXX:      ((!pi.is_null()) &&((* pi.__value()) ==(* raw)));
-// CXX:      (((!__kairo_coal{{[0-9]+}}.is_null()) &&(!__kairo_coal{{[0-9]+}}.is_null())) &&({
-// CXX-NEXT: signed int __kairo_ord{{[0-9]+}} = static_cast<signed int &&>(__kairo_coal{{[0-9]+}}.__value());
-// CXX-NEXT: (__kairo_ord{{[0-9]+}} == static_cast<signed int &&>(__kairo_coal{{[0-9]+}}.__value()));
+// CXX:      (((!__kairo_coal{{[0-9]+}}.is_null()) &&(!__kairo_coal{{[0-9]+}}.is_null())) &&(static_cast<signed int &&>(__kairo_coal{{[0-9]+}}.__value()) == static_cast<signed int &&>(__kairo_coal{{[0-9]+}}.__value())));
 // CXX-NOT:  {{[^=]}}==={{[^=]}}
 
 // REQUIRES: clang
