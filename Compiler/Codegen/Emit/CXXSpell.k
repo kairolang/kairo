@@ -880,8 +880,8 @@ class CXXSpell {
         return "";
     }
 
-    /// The C++ attributes of `@hot_path` / `@cold_path` / `@pure` / `const fn`,
-    /// each with a trailing space, or "". The declaration (InterfaceEmitter)
+    /// The C++ attributes of `@hot_path` / `@cold_path` / `@pure` / `const fn`
+    /// and the calling convention, each with a trailing space, or "". The declaration (InterfaceEmitter)
     /// and the definition (EmitIR) both call this, so the two heads agree.
     /// Either redecl may carry the Kairo attribute, so the chain's canonical
     /// is asked too, as c_linkage does. `const` implies the weaker `pure`.
@@ -896,6 +896,13 @@ class CXXSpell {
         } else if f->is_pure || ((c != &null) && c->is_pure) {
             s += LowerTargets::attr_pure();
         }
+        // The convention, from whichever link wrote it: RedeclMerge holds
+        // the chain to one value, so either answers.
+        var cc = f->call_conv;
+        if (cc == 0) && (c != &null) { cc = c->call_conv; }
+        if cc == 1      { s += LowerTargets::attr_preserve_most(); }
+        else if cc == 2 { s += LowerTargets::attr_preserve_all(); }
+        else if cc == 3 { s += LowerTargets::attr_preserve_none(); }
         return s;
     }
 

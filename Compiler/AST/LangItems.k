@@ -1219,6 +1219,13 @@ class LowerTargets {
     static fn attr_cold() -> string                { return "[[gnu::cold]] "; }
     static fn attr_pure() -> string                { return "[[gnu::pure]] "; }
     static fn attr_const() -> string               { return "[[gnu::const]] "; }
+    /// The calling conventions (FunctionDecl::call_conv), on every C++
+    /// declaration of the function (CXXSpell::fn_attrs). The GNU spelling,
+    /// not `[[clang::preserve_most]]`: a C++11 attribute may not follow
+    /// `static` or `virtual`, which a method's head puts first.
+    static fn attr_preserve_most() -> string       { return "__attribute__((preserve_most)) "; }
+    static fn attr_preserve_all() -> string        { return "__attribute__((preserve_all)) "; }
+    static fn attr_preserve_none() -> string       { return "__attribute__((preserve_none)) "; }
     static fn clang_malloc() -> string             { return "__builtin_malloc"; }
     static fn clang_free() -> string               { return "__builtin_free"; }
     static fn clang_atomic_fetch_add() -> string   { return "__atomic_fetch_add"; }
