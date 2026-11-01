@@ -1215,10 +1215,12 @@ class LowerTargets {
     static fn clang_assume() -> string             { return "__builtin_assume"; }
     /// The C++ attributes of `@hot_path`, `@cold_path`, `@pure` and `const fn`
     /// (CXXSpell::fn_attrs), each with its trailing space.
-    static fn attr_hot() -> string                 { return "[[gnu::hot]] "; }
-    static fn attr_cold() -> string                { return "[[gnu::cold]] "; }
-    static fn attr_pure() -> string                { return "[[gnu::pure]] "; }
-    static fn attr_const() -> string               { return "[[gnu::const]] "; }
+    // GNU spelling, not [[gnu::...]]: a C++11 attribute cannot follow
+    // `static` / `virtual` in a member's head, and these lead it.
+    static fn attr_hot() -> string                 { return "__attribute__((hot)) "; }
+    static fn attr_cold() -> string                { return "__attribute__((cold)) "; }
+    static fn attr_pure() -> string                { return "__attribute__((pure)) "; }
+    static fn attr_const() -> string               { return "__attribute__((const)) "; }
     /// The calling conventions (FunctionDecl::call_conv), on every C++
     /// declaration of the function (CXXSpell::fn_attrs). The GNU spelling,
     /// not `[[clang::preserve_most]]`: a C++11 attribute may not follow
