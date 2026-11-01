@@ -3,15 +3,10 @@
 // function C linkage; closures.mdx: closures share the `fn` pointer type).
 // The C side here (caller.c) passes `twice` to kairo_apply.
 //
-// XFAIL: *
-// Ticket "[Codegen] `ffi \"c\"` Kairo function with a `fn` parameter"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Since cdcc738f a Kairo
-// `fn(A) -> R` parameter is `::__kairo_fn<R(A...)>`, a class, also under
-// `extern "C"`: the C caller's raw function pointer is read as that class,
-// so the program segfaults. Passes once an `ffi "c"` function's
-// `fn` parameters (and return) are spelled `R(*)(A...)` and converted at the
-// boundary. When it XPASSes, delete the XFAIL -- the run below is already
-// the real assertion.
+// An `ffi "c"` function's `fn` parameters and result are the raw `unsafe
+// fn` (P66, P231): its C declaration takes `int (*)(int)`, so the C caller's
+// function pointer is what arrives. Until then a Kairo `fn(A) -> R` was the
+// `::__kairo_fn<R(A...)>` class there too, and the program segfaulted.
 
 ffi "c" import "caller.h"
 

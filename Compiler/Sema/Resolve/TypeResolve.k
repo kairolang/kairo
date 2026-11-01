@@ -1095,6 +1095,24 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         n->canonical = self.sc->types->func(&params, &modes, ret, n->is_panic(), &pset, n->is_raw);
     }
 
+    /// An `ffi "c"` function's `fn` parameters and result are raw (P66): a
+    /// C caller passes, and expects back, `R(*)(A)`, never a `__kairo_fn`
+    /// object. Written `fn(A) -> R` or `unsafe fn(A) -> R`, the canonical
+    /// is the raw one, so its body calls through the pointer and a Kairo
+    /// caller's capturing closure is SC001E at the call (ExprTyper).
+    priv fn _ffi_c_raw_fns(self, n: *FunctionDecl) {
+        var c = n->canonical_decl();
+        if (!n->is_ffi_c()) && ((c == &null) || (!c->is_ffi_c())) { return; }
+        for var i: usize = 0; i < n->params.size(); ++i {
+            var p = n->params[i];
+            if (p == &null) || (p->type_ == &null) || (p->type_->canonical == &null) { continue; }
+            p->type_->canonical = self.sc->types->fn_with_raw(p->type_->canonical, true);
+        }
+        if (n->return_type != &null) && (n->return_type->canonical != &null) {
+            n->return_type->canonical = self.sc->types->fn_with_raw(n->return_type->canonical, true);
+        }
+    }
+
     priv fn _resolve_opaque(self, n: *OpaqueFFIType) {
         n->canonical = self.sc->types->opaque(n->name);
     }
@@ -3000,6 +3018,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if n->is_eval() { self._eval_fns += 1; }
         var out = RecursiveASTVisitor::<TypeResolution>::traverse_function_decl(n);
         if n->is_eval() { self._eval_fns -= 1; }
+        self._ffi_c_raw_fns(n);
 
         self._refine_spec_kind(static_cast::<*Decl>(n), n->generic_params, n->spec_args);
 
