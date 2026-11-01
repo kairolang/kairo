@@ -3182,6 +3182,7 @@ class InterfaceEmitter {
         if (!is_method) && (!is_ctor) && !is_dtor { s += "static "; }
         if (m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || (m->body_kind == FnBodyKind::Virtual) { s += "virtual "; }
         if m->is_noreturn { s += "[[noreturn]] "; }
+        s += CXXSpell::fn_attrs(m);
         // EVAL.md 1.1: an eval fn runs at compile time only. `consteval` is
         // implicitly inline, so EmitPlan makes its body visible as it does
         // an `inline` one's.
@@ -3232,6 +3233,7 @@ class InterfaceEmitter {
         // The attribute leads the decl-specifiers; between `static` and the
         // type it is ill-formed.
         if f->is_noreturn { s += "[[noreturn]] "; }
+        s += CXXSpell::fn_attrs(f);
         // A panic result is the error (PANIC.md §4.6): a C++ caller that drops
         // it drops the error with it.
         if f->panic_result != &null { s += "[[nodiscard]] "; }

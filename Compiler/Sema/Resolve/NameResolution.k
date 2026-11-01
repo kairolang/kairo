@@ -536,6 +536,17 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             xd->canonical_decl()->lowers_to_expect = true;
         }
 
+        // `__builtin_assume` (what `@assume(c)` parses to) is clang's builtin
+        // at every call for the same reason: through the library function the
+        // assumption would hold inside that function and tell the caller
+        // nothing.
+        self._bind_lang(root, WellKnownType::Assume);
+        var ad = dyn_cast::<FunctionDecl>(self.sc->well_known->get(WellKnownType::Assume));
+        if (ad != &null) && (reinterpret_cast::<*DeclContext>(ad->semantic_dc) == static_cast::<*DeclContext>(self.sc->tu)) {
+            ad->lowers_to_assume = true;
+            ad->canonical_decl()->lowers_to_assume = true;
+        }
+
         // `byte` is spelled as the Byte enum, so a TU that uses it must
         // declare that enum. Codegen has no route to well_known, but every
         // `byte` it walks IS this one build-wide singleton: record it there.

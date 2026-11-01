@@ -633,6 +633,22 @@ class FunctionDecl
     /// One writer, NameResolution::fill_lang_items, on the canonical decl;
     /// codegen has no route to the lang item table, so it reads this.
     pub var lowers_to_expect: bool = false;
+    /// The Assume lang item (`__builtin_assume`, base/intrinsics.k): every
+    /// call is clang's builtin, spelled at the call site (EmitIR::_call).
+    /// One writer, NameResolution::fill_lang_items, as for lowers_to_expect.
+    pub var lowers_to_assume: bool = false;
+    /// Function attributes (attributes.mdx, "Function hints"). Writer: the
+    /// parser (apply_annotations_to_decl), where every decl's annotations
+    /// land; codegen reads the fields so it never re-resolves attribute
+    /// names, and the declaration and definition heads agree on them.
+    pub var hot_path:  bool = false;   ///< `@hot_path`: `[[gnu::hot]]`.
+    pub var cold_path: bool = false;   ///< `@cold_path`: `[[gnu::cold]]`.
+    pub var is_pure:   bool = false;   ///< `@pure`: `[[gnu::pure]]`; FnPurityCheck.
+    pub var fast_call: bool = false;   ///< `@fast_call`: reserved, no C++ spelling yet.
+    /// Written `const fn f()` at file or module scope: reads only its own
+    /// inputs, `[[gnu::const]]`; FnPurityCheck enforces it. NOT the same as
+    /// is_const(), which is `const self` on a method.
+    pub var is_const_fn: bool = false;
     /// A function EnumLayoutLowering minted for an ADT's layout record, or
     /// None. It has no Kairo body and never a requires_clause: InterfaceEmitter
     /// writes its C++ from adt_role and adt_form, constraints included.
@@ -686,6 +702,12 @@ class FunctionDecl
         node->ci_index    = 0;
         node->ci_cut      = false;
         node->lowers_to_expect = false;
+        node->lowers_to_assume = false;
+        node->hot_path    = false;
+        node->cold_path   = false;
+        node->is_pure     = false;
+        node->fast_call   = false;
+        node->is_const_fn = false;
         return node;
     }
 
@@ -701,6 +723,12 @@ class FunctionDecl
         node->adt_form    = AdtForm::Trivial;
         node->adt_variant = 0;
         node->lowers_to_expect = false;
+        node->lowers_to_assume = false;
+        node->hot_path    = false;
+        node->cold_path   = false;
+        node->is_pure     = false;
+        node->fast_call   = false;
+        node->is_const_fn = false;
         return node;
     }
 

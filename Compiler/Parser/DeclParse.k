@@ -344,6 +344,8 @@ class <T> DeclParse {
         var is_final: bool;
         var any:      bool;     ///< true if any modifier was consumed.
         var fn_mods:  FnModifier;  ///< leading `inline`/`eval`, folded into fd->modifiers.
+        var is_const_fn: bool;     ///< leading `const` before `fn`: FunctionDecl::is_const_fn.
+        var const_range: SourceRange;  ///< that `const`, for the fix-it that removes it.
         var range:    SourceRange;
     }
 
@@ -396,7 +398,8 @@ class <T> DeclParse {
             var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
             if (k == TokenKind::KwStatic) || (k == TokenKind::KwVirtual)
             || (k == TokenKind::KwOverride) || (k == TokenKind::KwFinal)
-            || (k == TokenKind::KwInline) || (k == TokenKind::KwEval) {
+            || (k == TokenKind::KwInline) || (k == TokenKind::KwEval)
+            || (k == TokenKind::KwConst) {
                 dyn()->advance(T::SkipNL::After);
                 continue;
             }
@@ -427,6 +430,7 @@ class <T> DeclParse {
         m.is_final = false;
         m.any      = false;
         m.fn_mods  = FnModifier::None;
+        m.is_const_fn = false;
 
         var start = dyn()->current_ptr()->range;
         m.range   = start;
@@ -451,6 +455,13 @@ class <T> DeclParse {
             }
             if dyn()->check(TokenKind::KwEval) && to_fn {
                 m.fn_mods |= FnModifier::IsEval; m.any = true; dyn()->advance(); continue;
+            }
+            // `const fn`: only a `fn` head after it makes `const` a modifier;
+            // `const x = 1` and `const static` stay bindings (to_fn is false).
+            if dyn()->check(TokenKind::KwConst) && to_fn {
+                m.is_const_fn = true; m.any = true;
+                m.const_range = dyn()->current_ptr()->range;
+                dyn()->advance(); continue;
             }
             break;
         }
@@ -1331,6 +1342,18 @@ class <T> DeclParse {
         // leading `inline` / `eval` land in the same bitset as their trailing
         // spellings (`fn f() inline`), so downstream sees one form.
         fd->modifiers |= lead->fn_mods;
+        fd->is_const_fn = lead->is_const_fn;
+        if lead->is_const_fn && in_type_scope && (dyn()->mode == T::ParseMode::Full) {
+            // `const self` is how a method promises not to change its object;
+            // `const fn` promises something else (it reads only its inputs),
+            // and one spelling for two promises would misread both.
+            var cr = lead->const_range;
+            var b = dyn()->diag->report(DiagID::SC001E, cr.start,
+                "a method cannot be const; 'const self\x27 is how a method promises not to change its object");
+            b.first(cr);
+            b.remove(cr, "remove 'const\x27");
+            b.emit();
+        }
 
         // optional generics or specialization introducer:
         //   `fn <T> name(...)`  -> type params

@@ -512,7 +512,7 @@ class ASTParse
     priv fn _routes_to_decl(self, k: TokenKind) -> bool {
         if k == TokenKind::KwConst {
             return self.check_peek(TokenKind::KwStatic) || self.check_peek(TokenKind::KwThread)
-                || self.check_peek(TokenKind::KwEval);
+                || self.check_peek(TokenKind::KwEval) || self._mods_lead_to_fn();
         }
         // `thread n: T` is a declaration, `thread work()` a spawn expression.
         if k == TokenKind::KwThread { return self._storage_binding_ahead(); }
@@ -2064,6 +2064,44 @@ class ASTParse
         // guard dtor rolls back unconditionally (never commit)
     }
 
+    /// \brief what attribute, if any, sits between a branch's `}` and the
+    ///        `else` that follows it: 0 none, 1 `@likely`, 2 `@unlikely`,
+    ///        3 any other name.
+    ///
+    /// \details `} @unlikely else {`, with the attribute and `else` possibly
+    ///          on lines of their own. Only an attribute that IS followed by
+    ///          `else` counts: `@x` before anything else belongs to the next
+    ///          statement, so it must be left unconsumed. The guard rolls back
+    ///          unconditionally; the caller consumes what this found.
+    pub fn _else_attr_kind(self) -> u32 {
+        var t = TentativeGuard(&self);
+        if (self.nl_depth == 0) && self.check(TokenKind::TkNewLine) { self.advance(SkipNL::Only); }
+        if !self.check(TokenKind::OpAt) { return 0; }
+        self.advance();                           // `@`
+        if !self.check(TokenKind::LitIdentifier) { return 0; }
+        var name = self.ctx->hoisted->intern_tok(self.current());
+        self.advance(SkipNL::After);              // the name, and any newlines
+        if !self.check(TokenKind::KwElse) { return 0; }
+        if name == self.ctx->hoisted->intern(LangAttrs::likely())   { return 1; }
+        if name == self.ctx->hoisted->intern(LangAttrs::unlikely()) { return 2; }
+        return 3;
+        // guard dtor rolls back unconditionally (never commit)
+    }
+
+    /// \brief true at `@assume (`: the free-standing `@assume(cond)`
+    ///        statement (StmtParse::_parse_assume), which takes no part in
+    ///        the attribute buffer. The guard rolls back unconditionally.
+    pub fn _assume_ahead(self) -> bool {
+        var t = TentativeGuard(&self);
+        if !self.check(TokenKind::OpAt) { return false; }
+        self.advance();                           // `@`
+        if !self.check(TokenKind::LitIdentifier) { return false; }
+        if self.ctx->hoisted->intern_tok(self.current()) != self.ctx->hoisted->intern(LangAttrs::assume()) { return false; }
+        self.advance();                           // `assume`
+        return self.check(TokenKind::OpLParen);
+        // guard dtor rolls back unconditionally (never commit)
+    }
+
     /// \brief consumes doc-comments, @attributes, and visibility keywords
     ///        before a production into a PendingAnnotations buffer.
     ///
@@ -2275,6 +2313,55 @@ class ASTParse
             b.emit();
         }
 
+        // `@hot_path` / `@cold_path` / `@pure` / `@fast_call`: stamped on the
+        // function, which is what codegen and FnPurityCheck read (never the
+        // attribute list). On anything else the attribute means nothing, and
+        // ignoring it silently would let a reader believe a variable or a
+        // type had been given a hint.
+        var k_hot  = self.ctx->hoisted->intern(LangAttrs::hot_path());
+        var k_cold = self.ctx->hoisted->intern(LangAttrs::cold_path());
+        var k_pure = self.ctx->hoisted->intern(LangAttrs::pure_fn());
+        var k_fast = self.ctx->hoisted->intern(LangAttrs::fast_call());
+        var fnd = dyn_cast::<FunctionDecl>(decl);
+        var hot_seen  = false;
+        var cold_at   = SourceRange();
+        var cold_seen = false;
+        for var i: usize = 0; i < annot->entries.size(); ++i {
+            var e = &annot->entries[i];
+            if e->kind != AnnotationKind::Attribute { continue; }
+            var fa = "";
+            if      e->name == k_hot  { fa = LangAttrs::hot_path();  }
+            else if e->name == k_cold { fa = LangAttrs::cold_path(); }
+            else if e->name == k_pure { fa = LangAttrs::pure_fn();   }
+            else if e->name == k_fast { fa = LangAttrs::fast_call(); }
+            if fa.size() == 0 { continue; }
+            if fnd != &null {
+                if      e->name == k_hot  { fnd->hot_path = true; hot_seen = true; }
+                else if e->name == k_cold { fnd->cold_path = true; cold_seen = true; cold_at = e->range; }
+                else if e->name == k_pure { fnd->is_pure = true; }
+                else                      { fnd->fast_call = true; }
+                continue;
+            }
+            if self.mode != ParseMode::Full { continue; }   // the Full parse reports it once.
+            var an = "\x27@" + fa + "\x27";
+            var b = self.diag->report(DiagID::SC001E, e->range.start,
+                an + " applies only to a function");
+            b.first(e->range);
+            b.note(decl->range.start, "the attribute is on this declaration");
+            b.remove(e->range, "remove " + an);
+            b.emit();
+        }
+        if hot_seen && cold_seen && (self.mode == ParseMode::Full) {
+            // One function cannot be both the path to optimize for and the
+            // path to keep out of the way.
+            var b = self.diag->report(DiagID::SC001E, cold_at.start,
+                "\x27@hot_path\x27 and \x27@cold_path\x27 contradict each other");
+            b.first(cold_at);
+            b.note(decl->range.start, "both are on this function");
+            b.remove(cold_at, "remove \x27@cold_path\x27");
+            b.emit();
+        }
+
         if annot->visibility != VisibilityKind::None {
             decl->set_visibility(annot->visibility, annot->vis_range);
         }
@@ -2304,9 +2391,28 @@ class ASTParse
     pub fn apply_annotations_to_node(self, node: *Stmt, annot: *PendingAnnotations) {
         if annot->empty() { return; }
         self._diag_vis_on_non_decl(annot, "a statement");
+        var k_hot  = self.ctx->hoisted->intern(LangAttrs::hot_path());
+        var k_cold = self.ctx->hoisted->intern(LangAttrs::cold_path());
+        var k_pure = self.ctx->hoisted->intern(LangAttrs::pure_fn());
+        var k_fast = self.ctx->hoisted->intern(LangAttrs::fast_call());
         for var i: usize = 0; i < annot->entries.size(); ++i {
             var e = &annot->entries[i];
             node->add_annotation(e->kind, e->name, e->range, e->args);
+            // The function attributes name a function; a statement is none.
+            if (e->kind != AnnotationKind::Attribute) || (self.mode != ParseMode::Full) { continue; }
+            var fa = "";
+            if      e->name == k_hot  { fa = LangAttrs::hot_path();  }
+            else if e->name == k_cold { fa = LangAttrs::cold_path(); }
+            else if e->name == k_pure { fa = LangAttrs::pure_fn();   }
+            else if e->name == k_fast { fa = LangAttrs::fast_call(); }
+            if fa.size() == 0 { continue; }
+            var an = "\x27@" + fa + "\x27";
+            var b = self.diag->report(DiagID::SC001E, e->range.start,
+                an + " applies only to a function");
+            b.first(e->range);
+            b.note(node->range.start, "the attribute is on this statement");
+            b.remove(e->range, "remove " + an);
+            b.emit();
         }
     }
 

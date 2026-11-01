@@ -107,6 +107,10 @@ enum WellKnownType derives u8 {
     /// where the branch it guards can take the weight; behind a call the
     /// hint lands on the callee's return, and the branch keeps none (P230).
     Expect,
+    /// `__builtin_assume(cond)` (base/intrinsics.k), which `@assume(cond)`
+    /// parses to: clang's builtin at the call site
+    /// (FunctionDecl::lowers_to_assume), where it can inform the optimizer.
+    Assume,
 
     COUNT,      ///< keep last.
 }
@@ -154,6 +158,7 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::IsTuple { return "__builtin_is_tuple"; }
         case WellKnownType::TupleArity { return "__builtin_tuple_arity"; }
         case WellKnownType::Expect     { return "__builtin_expect"; }
+        case WellKnownType::Assume     { return "__builtin_assume"; }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";
@@ -500,6 +505,15 @@ class LangAttrs {
     /// on the then-branch (EmitIR::_if).
     static fn likely() -> string   { return "likely"; }
     static fn unlikely() -> string { return "unlikely"; }
+    /// `@assume(cond)`: a statement of its own, parsed to a call of the
+    /// Assume lang item (StmtParse::_try_parse_assume).
+    static fn assume() -> string   { return "assume"; }
+    /// Function attributes (FunctionDecl::hot_path / cold_path / is_pure /
+    /// fast_call), stamped by ASTParse::apply_annotations_to_decl.
+    static fn hot_path() -> string  { return "hot_path"; }
+    static fn cold_path() -> string { return "cold_path"; }
+    static fn pure_fn() -> string   { return "pure"; }
+    static fn fast_call() -> string { return "fast_call"; }
 }
 
 /// \class LangIntrinsics
@@ -1179,6 +1193,14 @@ class LowerTargets {
     static fn clang_bit_cast() -> string           { return "__builtin_bit_cast"; }
     /// What a call of the Expect lang item is spelled as (EmitIR::_call).
     static fn clang_expect() -> string             { return "__builtin_expect"; }
+    /// What a call of the Assume lang item is spelled as (EmitIR::_call).
+    static fn clang_assume() -> string             { return "__builtin_assume"; }
+    /// The C++ attributes of `@hot_path`, `@cold_path`, `@pure` and `const fn`
+    /// (CXXSpell::fn_attrs), each with its trailing space.
+    static fn attr_hot() -> string                 { return "[[gnu::hot]] "; }
+    static fn attr_cold() -> string                { return "[[gnu::cold]] "; }
+    static fn attr_pure() -> string                { return "[[gnu::pure]] "; }
+    static fn attr_const() -> string               { return "[[gnu::const]] "; }
     static fn clang_malloc() -> string             { return "__builtin_malloc"; }
     static fn clang_free() -> string               { return "__builtin_free"; }
     static fn clang_atomic_fetch_add() -> string   { return "__atomic_fetch_add"; }

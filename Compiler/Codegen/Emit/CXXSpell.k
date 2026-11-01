@@ -880,6 +880,27 @@ class CXXSpell {
         return "";
     }
 
+    /// The C++ attributes of `@hot_path` / `@cold_path` / `@pure` / `const fn`,
+    /// each with a trailing space, or "". The declaration (InterfaceEmitter)
+    /// and the definition (EmitIR) both call this, so the two heads agree.
+    /// Either redecl may carry the Kairo attribute, so the chain's canonical
+    /// is asked too, as c_linkage does. `const` implies the weaker `pure`.
+    static fn fn_attrs(f: *FunctionDecl) -> string {
+        if f == &null { return ""; }
+        var c = f->canonical_decl();
+        var s = "";
+        if f->hot_path  || ((c != &null) && c->hot_path)  { s += LowerTargets::attr_hot(); }
+        if f->cold_path || ((c != &null) && c->cold_path) { s += LowerTargets::attr_cold(); }
+        if f->is_const_fn || ((c != &null) && c->is_const_fn) {
+            s += LowerTargets::attr_const();
+        } else if f->is_pure || ((c != &null) && c->is_pure) {
+            s += LowerTargets::attr_pure();
+        }
+        // TODO(fast_call): FunctionDecl::fast_call is parsed and validated;
+        // its C++ spelling is undecided, so nothing is emitted for it yet.
+        return s;
+    }
+
     /// `[thread_local] T const name` for a namespace-scope variable: the one
     /// spelling the interface's `extern` declaration and EmitIR's definition
     /// both use, because C++ rejects a redeclaration whose type differs.

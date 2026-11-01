@@ -204,6 +204,65 @@ class <T> StmtParse {
 
     //  Top-level statement dispatch
 
+    /// \brief parses `@assume(cond)`.
+    ///  Grammar:  '@' 'assume' '(' expr ')'   then a newline, `;`, `}` or EOF
+    ///
+    /// \details builds the call `__builtin_assume(cond)` in an ExpressionStmt;
+    ///          name resolution binds it to the Assume lang item, which codegen
+    ///          spells as clang's builtin. It attaches to nothing: what follows
+    ///          on its line is an error (an attribute reading as if it
+    ///          applied to `foo()` would hide that it does not), and the rest
+    ///          of the line is skipped so it cannot cascade.
+    priv fn _parse_assume(self) -> *Stmt {
+        var at_r = dyn()->current_ptr()->range;
+        dyn()->advance();                                  // `@`
+        var name_r = dyn()->current_ptr()->range;
+        dyn()->advance();                                  // `assume`
+        var lparen = dyn()->current_ptr()->range;
+        dyn()->advance(T::SkipNL::After);                  // `(`
+        dyn()->nl_push();
+        var args: std::StackBuf::<*Expr, 8>;
+        if !dyn()->check(TokenKind::OpRParen) {
+            dyn()->_parse_call_args(&args, lparen);
+        }
+        dyn()->nl_pop();
+        if !dyn()->check(TokenKind::OpRParen) {
+            dyn()->diag->report(DiagID::S051E, lparen.start,
+                "expected ')' to close '@assume\x27"
+            ).first(lparen).emit();
+            return self._error_stmt(at_r | dyn()->prev().range);
+        }
+        var rparen = dyn()->current_ptr()->range;
+        dyn()->advance_raw();                              // `)`; the terminator stays
+
+        var full = at_r | rparen;
+        if args.size() != 1 {
+            dyn()->diag->report(DiagID::S001E, at_r.start,
+                "'@assume' takes exactly one condition"
+            ).first(full).emit();
+            return self._error_stmt(full);
+        }
+
+        if (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) && (!dyn()->_is_terminator_tok(dyn()->current_ptr())) {
+            var nxt = dyn()->current_ptr()->range;
+            var b = dyn()->diag->report(DiagID::SC001E, at_r.start,
+                "@assume is a statement of its own; it does not attach to what follows on its line");
+            b.first(full);
+            b.insert(nxt.start, "\n", "put the next statement on its own line");
+            b.emit();
+            self._sync_stmt(StmtSyncCtx::Block, 0);
+        }
+
+        var nt = Token();
+        nt.kind  = TokenKind::LitIdentifier;
+        nt.range = name_r;
+        nt.imm   = dyn()->ctx->hoisted->intern(to_string(WellKnownType::Assume));
+        var callee = NamedIdentExpr::create(dyn()->ctx, name_r, nt);
+        var ce = CallExpr::create(dyn()->ctx, full, static_cast::<*Expr>(callee));
+        ce->args.from_buf(args.data(), args.size(), dyn()->ctx);
+        return static_cast::<*Stmt>(ExpressionStmt::create(dyn()->ctx, full, static_cast::<*Expr>(ce)));
+    }
+
     /// \brief parses a single statement.
     ///  Grammar (dispatch):
     ///    block | if | while | loop | for | match | return | break | continue
@@ -216,6 +275,10 @@ class <T> StmtParse {
     ///          current token. Returns null only at EOF.
     fn parse_stmt(self) -> *Stmt {
         if dyn()->is_eof() { return &null; }
+
+        // `@assume(cond)` is a statement of its own, so it is taken before
+        // the annotation pass, which would stamp it on the NEXT statement.
+        if dyn()->check(TokenKind::OpAt) && dyn()->_assume_ahead() { return self._parse_assume(); }
 
         var annot: typename!(T::PendingAnnotations);
         dyn()->consume_leading_annotations(&annot, true);
@@ -411,6 +474,16 @@ class <T> StmtParse {
         }
 
         // -- var / const: plain decl, destructuring decl --------------
+        // `const fn f()`: a (local) function declaration, not a binding.
+        if (k == TokenKind::KwConst) && dyn()->_mods_lead_to_fn() {
+            var d = dyn()->parse_decl(true);
+            if d != &null {
+                if dyn()->is_fatal_decl(d) { return dyn()->fatal_ptr::<Stmt>(); }
+                self._attach_local_decl(d);
+                return static_cast::<*Stmt>(DeclStmt::create(dyn()->ctx, d->range, d));
+            }
+        }
+
         if (k == TokenKind::KwVar) || (k == TokenKind::KwConst) {
             return self._parse_var_or_destructure();
         }
@@ -987,12 +1060,33 @@ class <T> StmtParse {
 
         var else_: *Stmt = &null;
 
+        // `} @unlikely else`: a branch hint for the else branch. It is only
+        // taken when `else` follows it (_else_attr_kind looks ahead), so an
+        // attribute that opens the next statement is left alone.
+        var else_hint: u8 = 0;
+        var hint_kind = dyn()->_else_attr_kind();
+        if hint_kind != 0 {
+            if (dyn()->nl_depth == 0) && dyn()->check(TokenKind::TkNewLine) { dyn()->advance(T::SkipNL::Only); }
+            var at_r = dyn()->current_ptr()->range;
+            dyn()->advance();                         // `@`
+            dyn()->advance(T::SkipNL::After);         // the name, then up to `else`
+            if hint_kind == 3 {
+                var b = dyn()->diag->report(DiagID::S001E, at_r.start,
+                    "only @likely / @unlikely may precede 'else\x27");
+                b.first(at_r);
+                b.remove(at_r | dyn()->prev().range, "remove the attribute");
+                b.emit();
+            } else {
+                else_hint = static_cast::<u8>(hint_kind);
+            }
+        }
+
         // `else` may sit on its own line after the then-branch's closing `}`:
         //     if      c { ... }
         //     else if d { ... }
         // `else` cannot begin a statement, so a newline in front of it is never
         // ambiguous with the start of a new one.
-        if (dyn()->nl_depth == 0) && ((dyn()->ig_kind()) == TokenKind::TkNewLine) {
+        if (hint_kind == 0) && (dyn()->nl_depth == 0) && ((dyn()->ig_kind()) == TokenKind::TkNewLine) {
             if (dyn()->peek_past_nl_kind()) == TokenKind::KwElse {
                 dyn()->advance(T::SkipNL::Only);
             }
@@ -1018,6 +1112,7 @@ class <T> StmtParse {
         var end = (else_->range) if (else_ != &null) else (then_->range);
         var node = ConditionalStmt::create(dyn()->ctx, start_range | end, cond, then_, else_);
         node->is_eval = is_eval;
+        node->else_hint = else_hint;
         dyn()->exit_depth();
         return static_cast::<*Stmt>(node);
     }

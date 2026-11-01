@@ -615,6 +615,11 @@ class ConditionalStmt derives Stmt {
     /// type fact: E left it in place for EvalIfLateFolding (EVAL.md 4.2b).
     /// One writer: EvalIfFolding.
     pub var eval_deferred: bool;
+    /// `@likely` / `@unlikely` written between the previous branch's `}` and
+    /// the `else` of this statement's else_ (0 none, 1 likely, 2 unlikely):
+    /// the hint for the else branch, as the statement's own attribute is for
+    /// the then branch. EmitIR::_if reads it.
+    pub var else_hint: u8;
 
     static fn create(
         ctx:   *ASTContext,
@@ -632,6 +637,7 @@ class ConditionalStmt derives Stmt {
         node->else_ = else_;
         node->is_eval = false;
         node->eval_deferred = false;
+        node->else_hint = 0;
         return node;
     }
 
@@ -641,6 +647,7 @@ class ConditionalStmt derives Stmt {
         node->recovery_kind = StmtKind::ConditionalStmt;
         node->is_eval       = false;
         node->eval_deferred = false;
+        node->else_hint     = 0;
         node->range         = range;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;

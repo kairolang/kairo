@@ -481,6 +481,9 @@ class EmitIR {
         // Spelled on the definition too, not left to the interface's
         // declaration: the definition alone must say what symbol it is.
         if (ext == &null) && (!is_main) { head += CXXSpell::c_linkage(n); }
+        // As the interface's declaration (a definition with no earlier
+        // declaration is the function's first).
+        if !is_main { head += CXXSpell::fn_attrs(n); }
         // `inline` puts the body in the interface (EmitPlan::visible_bodies):
         // every TU that declares it defines it, its own TU included, with the
         // same text, and the linker keeps one.
@@ -512,6 +515,7 @@ class EmitIR {
 
         var head = self._owner_template_head(owner);
         head += self._spell.template_head(static_cast::<*Decl>(m));
+        head += CXXSpell::fn_attrs(m);
         // Out of line, so the class definition stays the same bytes in every
         // TU (invariant 11); see _free_fn.
         if m->is_inline() { head += "inline "; }
@@ -1365,7 +1369,12 @@ class EmitIR {
         if hint.size() > 0 { self._cg->sink->spell(n->cond->range, hint); }
         self.emit_block(n->then_);
         if n->else_ != &null {
-            self._cg->sink->spell(n->else_->range, "else");
+            // `} @unlikely else`: C++20 puts the attribute on the else
+            // substatement, so it weighs the else branch itself.
+            var eh = "else";
+            if n->else_hint == 1 { eh = "else [[likely]]"; }
+            else if n->else_hint == 2 { eh = "else [[unlikely]]"; }
+            self._cg->sink->spell(n->else_->range, eh);
             self.emit(n->else_);   // a ConditionalStmt (else-if) or a CompoundStmt.
         }
     }
@@ -2288,6 +2297,15 @@ class EmitIR {
             self._cg->sink->spell(n->callee->range, "static_cast<bool>(" + LowerTargets::clang_expect() + "(");
             self._args(n, f, false, inst);
             self._cg->sink->spell(n->range, "))");
+            return;
+        }
+        // `__builtin_assume(c)` (what `@assume(c)` parses to) is likewise
+        // clang's builtin at the call: behind a library call the assumption
+        // would hold only inside that function.
+        if (f != &null) && (f->lowers_to_assume || ((xf != &null) && xf->lowers_to_assume)) && (n->args.size() == 1) {
+            self._cg->sink->spell(n->callee->range, LowerTargets::clang_assume() + "(");
+            self._args(n, f, false, inst);
+            self._cg->sink->spell(n->range, ")");
             return;
         }
         // `T::Node(args)`: the callee is the requirement, the type is the
