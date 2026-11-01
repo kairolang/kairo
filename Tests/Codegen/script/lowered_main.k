@@ -28,6 +28,7 @@ b = a + b + K
 // LOW-NEXT:     b           @ 14:1     -> var b @ 13:1  [scope <tu>]
 // LOW-NEXT:     a           @ 14:5     -> var a @ 12:1  [scope <tu>]
 // LOW-NEXT:     .__value    @ 14:5     -> fn __value @ {{[0-9]+:[0-9]+}}
+// LOW-NEXT:     __kairo_ord0 @ 14:5     -> var __kairo_ord0 @ 14:5  [scope <tu>]
 // LOW-NEXT:     b           @ 14:9     -> var b @ 13:1  [scope <tu>]
 // LOW-NEXT:     .__value    @ 14:9     -> fn __value @ {{[0-9]+:[0-9]+}}
 // LOW-NEXT:     K           @ 14:13    -> var K @ 11:1  [scope <tu>]
@@ -45,10 +46,12 @@ b = a + b + K
 // LOW-NEXT:     AssignOperatorExpr      @ 14:1     : i32?
 // LOW-NEXT:     NamedIdentExpr          @ 14:1     : i32?
 // LOW-NEXT:     BinaryOperatorExpr      @ 14:5     : i32
-// LOW-NEXT:     BinaryOperatorExpr      @ 14:5     : i32
+// LOW-NEXT:     StmtExpr                @ 14:5     : i32
 // LOW-NEXT:     CallExpr                @ 14:5     : i32
 // LOW-NEXT:     ChainExpr               @ 14:5     : <no type: callable/type/module>
 // LOW-NEXT:     NamedIdentExpr          @ 14:5     : i32?
+// LOW-NEXT:     BinaryOperatorExpr      @ 14:5     : i32
+// LOW-NEXT:     NamedIdentExpr          @ 14:5     : i32
 // LOW-NEXT:     CallExpr                @ 14:9     : i32
 // LOW-NEXT:     ChainExpr               @ 14:9     : <no type: callable/type/module>
 // LOW-NEXT:     NamedIdentExpr          @ 14:9     : i32?

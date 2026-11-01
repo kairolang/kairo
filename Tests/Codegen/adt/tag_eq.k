@@ -79,7 +79,8 @@ fn main() -> i32 {
 // IR-DAG:    this->b.__kairo_tag == other.b.__kairo_tag
 // IR-DAG:    a.__kairo_tag != n.__kairo_tag
 // IR-DAG:    ).__kairo_t.__kairo_tag == e.__kairo_t.__kairo_tag
-// IR-DAG:    next().__kairo_tag == {{.*}}next().__kairo_tag
+// IR-DAG:    auto __kairo_ord{{[0-9]+}} =({{ ?}}{{.*}}next().__kairo_tag);
+// IR-DAG:    (__kairo_ord{{[0-9]+}} == {{.*}}next().__kairo_tag);
 // IR-DAG:    __kairo_ext_Cell::__kairo_op_eq(f, f)
 
 // REQUIRES: clang

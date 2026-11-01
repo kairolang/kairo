@@ -104,6 +104,10 @@ fn main() -> i32 {
 // CXX-NEXT:     ::{{[A-Za-z0-9_]+}}::Plain q = ::{{[A-Za-z0-9_]+}}::Plain {
 // CXX-NEXT:         .p = 2
 // CXX-NEXT:     };
-// CXX-NEXT:     return static_cast<signed int>(static_cast<unsigned int>(static_cast<signed int>(static_cast<unsigned int>(v.peek()) + static_cast<unsigned int>(v.pick(1)))) + static_cast<unsigned int>(q.p));
+// CXX-NEXT:     return static_cast<signed int>(static_cast<unsigned int>(({
+// CXX-NEXT:         signed int __kairo_ord0 = v.peek();
+// CXX-NEXT:         static_cast<signed int>(static_cast<unsigned int>(__kairo_ord0) + static_cast<unsigned int>(v.pick(1)));
+// CXX-NEXT:     }
+// CXX-NEXT:     )) + static_cast<unsigned int>(q.p));
 // CXX-NEXT: }
 // END-GENERATED-CHECKS(CXX)

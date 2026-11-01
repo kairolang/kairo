@@ -23,9 +23,8 @@ fn main() -> i32 {
 // Receiver before argument: `make` runs first (trace 12, not 21). The
 // receiver is bound by value and passed by address.
 // CXX: int main() noexcept {
-// CXX: ::sequence::C __kairo_arg{{[0-9]+}} = ::sequence::make((& trace), 3);
-// CXX-NEXT: signed int __kairo_arg{{[0-9]+}} = ::sequence::arg((& trace), 4);
-// CXX-NEXT: __kairo_ext_C::add((& __kairo_arg{{[0-9]+}}), __kairo_arg{{[0-9]+}});
+// CXX: ::sequence::C __kairo_ord{{[0-9]+}} = ::sequence::make((& trace), 3);
+// CXX-NEXT: __kairo_ext_C::add((& __kairo_ord{{[0-9]+}}), ::sequence::arg((& trace), 4));
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

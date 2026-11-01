@@ -40,7 +40,10 @@ fn main() -> i32 {
 // CXX: inline void operator +=( ::operators::Num & __kairo_a0, signed int __kairo_a1) noexcept {
 // CXX: inline signed int operator++( ::operators::Num & __kairo_a0, int __kairo_a1) noexcept {
 // CXX: int main() noexcept {
-// CXX: __kairo_ext_Num::__kairo_op_eq(a, ::operators::mk(3))
+// `a` is snapshotted before `mk(3)` runs: its address escapes into `p`, so
+// the call could change it (SequenceLowering).
+// CXX: ::operators::Num __kairo_ord{{[0-9]+}} = a;
+// CXX-NEXT: __kairo_ext_Num::__kairo_op_eq(static_cast< ::operators::Num &&>(__kairo_ord{{[0-9]+}}), ::operators::mk(3))
 // CXX: __kairo_ext_Num::__kairo_op_minus((* ::__kairo_tmp( ::operators::mk(4))))
 // CXX: __kairo_ext_Num::__kairo_op_minus((* p))
 // CXX: __kairo_ext_Num::__kairo_op_postinc(a, 0)

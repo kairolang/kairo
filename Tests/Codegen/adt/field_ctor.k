@@ -95,7 +95,7 @@ fn main() -> i32 {
 // IR:        ::Inst {
 // IR-NEXT:   ::__kairo_vt<1> {
 // IR-NEXT:   }
-// IR-NEXT:   , __kairo_arg1, __kairo_arg2, __kairo_arg0
+// IR-NEXT:   , __kairo_ord1, __kairo_ord2, __kairo_ord0
 // IR:        ::Inst x ={{.*}}::Inst( ::__kairo_vt<2> {
 // IR-NEXT:   }
 // IR-NEXT:   ,[&]() noexcept->

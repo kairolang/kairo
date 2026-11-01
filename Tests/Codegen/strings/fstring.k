@@ -70,7 +70,7 @@ fn main() -> i32 {
 // The shape: one FmtBuf per f-string, straight-line puts, the holes' locals
 // in source order, no f-string left.
 // RUN: { %kairo %s --print-lowered 2>&1 || true; } | %FileCheck %s --check-prefix=LOW
-// LOW: __kairo_arg0
+// LOW: __kairo_ord0
 // LOW: __kairo_fmt
 // LOW: put_i32
 // LOW: put_str

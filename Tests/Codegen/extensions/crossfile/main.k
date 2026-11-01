@@ -33,8 +33,8 @@ fn main() -> i32 {
 // CXX: struct __kairo_ext_Point {
 // CXX: peek(const::point::Point * self, ::point::Box::Inner i) noexcept;
 // CXX: ::point::__kairo_ext_Point::sum((& p))
-// CXX-SAME: ::drawable::__kairo_ext_point__Point::draw((& p))
-// CXX-SAME: ::drawable::__kairo_ext_shape__Point::draw((& q))
+// CXX: ::drawable::__kairo_ext_point__Point::draw((& p))
+// CXX: ::drawable::__kairo_ext_shape__Point::draw((& q))
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

@@ -40,7 +40,8 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-NOT: internal compiler error
 // CXX: signed int total(C c) noexcept {
-// CXX-NEXT: return static_cast<signed int>(static_cast<unsigned int>(static_cast<signed int>(static_cast<unsigned int>(static_cast<signed int>(static_cast<unsigned int>( ::bound_call_chain::Fancy_witness<C, signed int>::wrap((& c)).w) +
+// CXX: signed int __kairo_ord0 = ::bound_call_chain::Fancy_witness<C, signed int>::wrap((& c)).w;
+// CXX-NEXT: static_cast<signed int>(static_cast<unsigned int>(__kairo_ord0) + static_cast<unsigned int>( ::bound_call_chain::Fancy_witness<C, signed int>::shine( ::__kairo_tmp( ::bound_call_chain::Fancy_witness<C, signed int>::me((& c))))));
 // CXX: E first(C c, E z) noexcept {
 // CXX-NEXT: return::bound_call_chain::Fancy_witness<C, E>::wrap( ::__kairo_tmp( ::bound_call_chain::Fancy_witness<C, E>::me((& c)))).w;
 

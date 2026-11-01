@@ -136,7 +136,7 @@ fn main() -> i32 {
 // IR:      A::__kairo_init_c() {
 // IR-NEXT: return{{ ?}}::field_init::seven();
 // IR:      signed int A::__kairo_init_d() {
-// IR:      __kairo_arg
+// IR:      __kairo_ord
 // IR:      template<class T> T G<T>::__kairo_init_v() {
 
 // REQUIRES: clang

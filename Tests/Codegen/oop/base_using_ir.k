@@ -183,7 +183,19 @@ fn main() -> i32 {
 // CXX-NEXT:     ::{{[A-Za-z0-9_]+}}::GD g = ::{{[A-Za-z0-9_]+}}::GD();
 // CXX-NEXT:     ::{{[A-Za-z0-9_]+}}::LR lr = ::{{[A-Za-z0-9_]+}}::LR();
 // CXX-NEXT:     signed int i = 1;
-// CXX-NEXT:     return static_cast<signed int>(static_cast<unsigned int>(static_cast<signed int>(static_cast<unsigned int>(static_cast<signed int>(static_cast<unsigned int>(d.k()) + static_cast<unsigned int>(d.f(i)))) + static_cast<unsigned int>(g.g(i)))) + static_cast<unsigned int>(lr.m()));
+// CXX-NEXT:     return({
+// CXX-NEXT:         signed int __kairo_ord2 =({
+// CXX-NEXT:             signed int __kairo_ord1 =({
+// CXX-NEXT:                 signed int __kairo_ord0 = d.k();
+// CXX-NEXT:                 static_cast<signed int>(static_cast<unsigned int>(__kairo_ord0) + static_cast<unsigned int>(d.f(i)));
+// CXX-NEXT:             }
+// CXX-NEXT:             );
+// CXX-NEXT:             static_cast<signed int>(static_cast<unsigned int>(__kairo_ord1) + static_cast<unsigned int>(g.g(i)));
+// CXX-NEXT:         }
+// CXX-NEXT:         );
+// CXX-NEXT:         static_cast<signed int>(static_cast<unsigned int>(__kairo_ord2) + static_cast<unsigned int>(lr.m()));
+// CXX-NEXT:     }
+// CXX-NEXT:     );
 // CXX-NEXT: }
 // CXX: template class::{{[A-Za-z0-9_]+}}::G<signed int>;
 // END-GENERATED-CHECKS(CXX)

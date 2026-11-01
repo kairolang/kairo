@@ -27,7 +27,7 @@ fn main() -> i32 {
 // CXX: struct __kairo_ext_Vec2 {
 // CXX: int main() noexcept {
 // CXX: ::statics::__kairo_ext_Point::one()
-// CXX-SAME: ::statics::__kairo_ext_Vec2::one()
+// CXX: ::statics::__kairo_ext_Vec2::one()
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

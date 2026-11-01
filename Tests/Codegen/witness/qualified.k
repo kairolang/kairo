@@ -37,7 +37,7 @@ fn main() -> i32 {
 // CXX-NOT: template<> struct Scalable_witness<{{ ?}}::{{.*}}::Own>
 // CXX: Scalable_witness<T>::scale((& a), 2);
 // CXX: Scalable_witness<{{ ?}}::{{.*}}::Metric>::scale((& m), 4)
-// CXX-SAME: Scalable_witness<{{ ?}}::{{.*}}::Own>::scale((& o), 10)
+// CXX: Scalable_witness<{{ ?}}::{{.*}}::Own>::scale((& o), 10)
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

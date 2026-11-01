@@ -55,9 +55,9 @@ fn main() -> i32 {
 // CXX: __kairo_ext_Foo::bump_ret( ::__kairo_tmp( ::receivers::make(10)), 5)
 // CXX: __kairo_ext_Foo::get( ::__kairo_tmp( ::receivers::make(9)))
 // CXX: __kairo_ext_In::win( ::__kairo_tmp( ::receivers::make(2).inner))
-// CXX: ::receivers::Foo __kairo_arg{{[0-9]+}} = ::receivers::make(3);
-// CXX-NOT: Foo * __kairo_arg
-// CXX: __kairo_ext_Foo::bump_ret((& __kairo_arg{{[0-9]+}}), __kairo_arg{{[0-9]+}});
+// CXX: ::receivers::Foo __kairo_ord{{[0-9]+}} = ::receivers::make(3);
+// CXX-NOT: Foo * __kairo_ord
+// CXX: __kairo_ext_Foo::bump_ret((& __kairo_ord{{[0-9]+}}), {{.*}}__kairo_ext_Foo::get( ::__kairo_tmp( ::receivers::make(4))));
 
 // After Lower, every call to an extension member is a plain call: its callee
 // is the member's name, never a chain. One `[materialized]` per prvalue

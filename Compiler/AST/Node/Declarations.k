@@ -852,6 +852,15 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
     /// so nothing is built on the path that never fills it. Only
     /// PanicLowering's `try` slots; never written by the user.
     pub var raw_slot: bool = false;
+    /// A place bound once (SequenceLowering): EmitIR declares it `auto&&`, a
+    /// reference to the object whatever its cv and value category, so the
+    /// name reads and writes the place itself. `type_` is the object's Kairo
+    /// type, for the uses. Never written by the user.
+    pub var place_ref: bool = false;
+    /// A value copied once (SequenceLowering) whose type C++ deduces: EmitIR
+    /// declares it `auto`. For a type Kairo cannot spell where the copy is
+    /// made (an enum nested in a generic pattern, a dependent type).
+    pub var auto_copy: bool = false;
     /// `static const x` / `const static x` (or `thread const`): the binding
     /// of a Static-storage variable is const. `storage` stays the storage
     /// keyword so every is_static() reader is unchanged; is_const() folds

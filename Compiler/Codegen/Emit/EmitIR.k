@@ -1075,6 +1075,17 @@ class EmitIR {
             self._name(n->name);
             return;
         }
+        // SequenceLowering's bound place (a forwarding reference to it) or
+        // deduced copy.
+        if n->place_ref || n->auto_copy {
+            if n->init == &null { self._ice(n->range, "EmitIR: a bound place with no initializer; SequenceLowering always gives one"); }
+            self._cg->sink->spell(n->name.range, ("auto&&") if (n->place_ref) else ("auto"));
+            self._name(n->name);
+            self._cg->sink->spell(n->name.range, " = (");
+            self.emit(n->init);
+            self._cg->sink->spell(n->name.range, ")");
+            return;
+        }
         switch n->storage {
             case StorageClass::Const  { self._cg->sink->kw_const(n->name);     }
             case StorageClass::Static { self._cg->sink->kw_static(n->name);    }
@@ -1090,7 +1101,12 @@ class EmitIR {
         if n->const_binding { self._cg->sink->kw_const(n->name); }
         var c: *Type = &null;
         if (n->type_ != &null) && (n->type_->canonical != &null) { c = canon_unqual(n->type_->canonical); }
-        if (c != &null) && (c->kind == TypeKind::FixedArrayType) {
+        // A pointer to an array is `T (*name)[N]` (SequenceLowering binds an
+        // array place by address): the name is inside that declarator too.
+        var ptr_to_array = (c != &null) && (c->kind == TypeKind::PointerType)
+                        && (canon_unqual(cast::<PointerType>(c)->pointee) != &null)
+                        && (canon_unqual(cast::<PointerType>(c)->pointee)->kind == TypeKind::FixedArrayType);
+        if (c != &null) && ((c->kind == TypeKind::FixedArrayType) || ptr_to_array) {
             // `T name[N]`: the name sits inside the declarator.
             var nm = self._spell.imm_name(n->name.imm, self._owning_fid());
             self._cg->sink->spell(n->name.range, self._spell.decl(n->type_, nm));

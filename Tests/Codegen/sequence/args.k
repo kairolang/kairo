@@ -19,18 +19,19 @@ fn main() -> i32 {
 // DIAG-NOT: error
 
 // Two calls are rewritten, in source order: the one in the branch (which is
-// never evaluated -- the block sits where the call sat) and `seq`'s. `one`
+// never evaluated -- the block sits where the call sat) and `seq`'s. Only
+// the first impure argument is bound: the last one stays in place. `one`
 // has a single impure argument, so there is no order to write down and no
 // local is minted.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // The builtins print first and mint locals of their own: anchor on this
 // file's section, the last one.
 // IR: CODEGEN C++: {{.*}}sequence/args.k
-// IR: __kairo_arg0
-// IR: __kairo_arg1
-// IR: __kairo_arg2
-// IR: __kairo_arg3
-// IR-NOT: __kairo_arg4
+// IR: __kairo_ord0 = {{.*}}g(n);
+// IR-NEXT: f(__kairo_ord0, {{.*}}g(n));
+// IR: __kairo_ord1 = {{.*}}g(n);
+// IR-NEXT: f(__kairo_ord1, {{.*}}g(n));
+// IR-NOT: __kairo_ord2
 
 // REQUIRES: clang
 // `-o` names a DIRECTORY: the entry TU's object plus one per builtin TU.

@@ -45,7 +45,9 @@ fn main() -> i32 {
 // EmitIR refuses.
 // RUN: { %kairo %s --builtins-dir=%t/builtin --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-NOT: Internal Compiler Error
-// CXX: (v.operator[](i) = static_cast<signed int>(static_cast<unsigned int>(v.operator[](i)) + static_cast<unsigned int>(1)));
+// The place is evaluated first, bound once (SequenceLowering).
+// CXX: auto && __kairo_ord0 =(v.operator[](i));
+// CXX-NEXT: (__kairo_ord0 = static_cast<signed int>(static_cast<unsigned int>(v.operator[](i)) + static_cast<unsigned int>(1)));
 // CXX: unsigned char b = s.operator[](1);
 
 // REQUIRES: clang
