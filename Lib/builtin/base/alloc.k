@@ -113,7 +113,6 @@ pub fn set_oom_handler(h: fn(usize, usize) -> !) { oom_handler = h }
 /// C++, and a handler that returns anyway must not fall through.
 pub fn oom(size: usize, align: usize) -> ! {
     oom_handler(size, align)
-    __builtin_abort()
 }
 
 // --- typed uninitialized storage --------------------------------------------
