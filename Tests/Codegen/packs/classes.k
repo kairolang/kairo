@@ -37,10 +37,10 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX: template<class K, class ... T> class Holder: public::classes::Base<T ...> {
-// CXX: template<class ... T>::classes::Holder<signed int, T ...> wrap(T ... xs) noexcept;
+// CXX: template<class ... T>::classes::Holder<signed int, T ...> wrap(T && ... xs) noexcept;
 // CXX: template<class ... T> Base<T ...>::Base() noexcept {
 // CXX: template<class K, class ... T> Holder<K, T ...>::Holder(K k) noexcept {
-// CXX: template<class K, class ... T> template<class ... U> signed int Holder<K, T ...>::takes(U ... us) noexcept {
+// CXX: template<class K, class ... T> template<class ... U> signed int Holder<K, T ...>::takes(U && ... us) noexcept {
 // CXX: return::classes::Holder<signed int, T ...>(7);
 // CXX: ::classes::Holder<signed int, double, signed int> w = ::classes::wrap<double, signed int>(1.0, 2);
 // CXX: template class::classes::Holder<signed int, double, bool>;

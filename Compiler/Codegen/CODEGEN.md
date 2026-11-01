@@ -613,8 +613,14 @@ initializer of an eval field or of an array-typed field FieldInitLowering
 did not take element by element (FeatureGateCheck rejects it first,
 SC116E: no eval constant is emitted yet, and a C++ function cannot
 return an array). A one-type pack is spelled as its `Slice<E>`
-(`ParamDecl::pack_type`); a type pack as `T... xs`, under an instance its
-elements, and a canonical pack parameter in an argument list as `E...`.
+(`ParamDecl::pack_type`); a type pack as `T&&... xs` (`const T... xs` for
+a `const` pack; an `@inout` pack's elements are the pointers its call
+passes), under an instance its elements as `E&&`, and a canonical pack
+parameter in an argument list as `E...`. A forwarding pack's expansion is
+`static_cast<T&&>(xs)...`, and an lvalue argument a call puts into one is
+`static_cast<E>(x)`, the copy a by-value parameter makes (`static_cast<E&&>`
+for `@move`): a temporary or a moved value crosses every layer uncopied
+(P225). `for x in xs` binds each element as an `auto&` lvalue.
 
 ## 6. EmitIR — the core
 

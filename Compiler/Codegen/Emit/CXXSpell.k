@@ -1157,16 +1157,25 @@ class CXXSpell {
         if param_is_type_pack(p) {
             var g = param_type_pack_param(p);
             var cq = ("const ") if (p->is_const) else ("");
+            // A by-value (or `@move`) pack is `T&&... xs` (P225): each layer
+            // binds its caller's object instead of copying it, and an
+            // expansion forwards it on (EmitIR::_pack_expansion). The
+            // instance's elements are value types, so under one each is
+            // `E&&` and the caller hands it an rvalue (EmitIR::_args).
+            var rr = ("&&") if (CXXSpell::forwarding_pack(p)) else ("");
             var els = vec::<*Type>();
             if self.subst_pack(g, subst, &els) {
                 var ps = "";
                 for var i: usize = 0; i < els.size(); ++i {
                     if i > 0 { ps += ", "; }
-                    ps += cq + self._type(els[i], &null, scope);
+                    var e = canon_unqual(els[i]);
+                    var er = rr;
+                    if (e != &null) && (isa::<CXXLValueRefType>(e) || isa::<CXXRValueRefType>(e)) { er = ""; }
+                    ps += cq + self._type(els[i], &null, scope) + er;
                 }
                 return ps;
             }
-            return cq + self._gparam(g, &null);
+            return cq + self._gparam(g, &null, rr);
         }
         if p->is_pack {
             if (p->pack_type == &null) { self._ice(p->range, "CXXSpell: pack parameter with no slice type; CallLowering stamps it"); }
@@ -2011,7 +2020,29 @@ class CXXSpell {
         return (s) if (dependent) else ("");
     }
 
-    priv fn _gparam(self, g: *GenericParamType, subst: *InstanceEntry) -> string {
+    /// A Kairo type pack parameter that lowers to `T&&... xs` (param_type):
+    /// by value or `@move`, not `const` (`const T&&` binds no lvalue, so a
+    /// const pack stays `const T... xs`), not `@inout` (its elements are the
+    /// pointers the call passes). An imported C++ pack is spelled by clang's
+    /// own pattern, never here: its type is a reference to the pack.
+    static fn forwarding_pack(p: *ParamDecl) -> bool {
+        if (p == &null) || p->is_const || (p->mode == ParamMode::Inout) { return false; }
+        if (!param_is_type_pack(p)) || (p->type_ == &null) || (p->type_->canonical == &null) { return false; }
+        return isa::<GenericParamType>(canon_unqual(p->type_->canonical));
+    }
+
+    /// The C++ name of type pack \p g's template parameter, without the
+    /// `...` _gparam appends: `static_cast<T&&>(xs)...` (P225).
+    fn pack_param_name(self, g: *GenericParamType) -> string {
+        var owner = CXXSpell::rep(g->owner);
+        var gps = decl_generic_params(owner);
+        if (static_cast::<usize>(g->param_index) >= gps.size()) { self._ice(owner->range, "CXXSpell: generic param index out of range"); }
+        return self.tparam_name(gps[static_cast::<usize>(g->param_index)], owner);
+    }
+
+    /// \p sigil goes between an unsubstituted pack's name and its `...`
+    /// (`T&&...`, param_type).
+    priv fn _gparam(self, g: *GenericParamType, subst: *InstanceEntry, sigil: string = "") -> string {
         ICE_IF(g->owner == &null, "CXXSpell: canonical generic param with no owner");
         var owner = CXXSpell::rep(g->owner);
         // A pack is only ever spelled expanded: a canonical pack parameter
@@ -2041,6 +2072,6 @@ class CXXSpell {
         if (!g->is_pack) && (self.void_unit_owner != &null) && (CXXSpell::rep(self.void_unit_owner) == owner) {
             return "::" + LowerTargets::void_unit() + "<" + nm + ">";
         }
-        return (nm + "...") if (g->is_pack) else (nm);
+        return (nm + sigil + "...") if (g->is_pack) else (nm);
     }
 }

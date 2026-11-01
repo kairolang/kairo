@@ -1644,10 +1644,7 @@ class EmitIR {
             }
             // `xs...` (or `...xs`): C++'s own pack expansion, in an argument
             // list.
-            case ExprKind::PackExpansionExpr {
-                self.emit(cast::<PackExpansionExpr>(e)->operand);
-                self._cg->sink->spell(e->range, "...");
-            }
+            case ExprKind::PackExpansionExpr { self._pack_expansion(cast::<PackExpansionExpr>(e)); }
             case ExprKind::ListLiteralExpr      { self._ice(e->range, "EmitIR: list literal; ListLiteralLowering owns it"); }
             case ExprKind::InitListExpr         { self._init_list(cast::<InitListExpr>(e), false); }
             case ExprKind::VariantInitExpr      { self._variant_init(cast::<VariantInitExpr>(e)); }
@@ -1668,6 +1665,28 @@ class EmitIR {
             case ExprKind::VerbatimExpr         { self._ice(e->range, "EmitIR: verbatim span; tooling-only node"); }
             default { self._ice(e->range, f"EmitIR: expression kind {to_string(e->kind)} is not in the core"); }
         }
+    }
+
+    /// `xs...` of a forwarding pack (`T&&... xs`, CXXSpell::forwarding_pack)
+    /// is `static_cast<T&&>(xs)...` (P225): a named `T&&` is an lvalue, and
+    /// as one it would copy into the next layer's `E&&` (or not bind at
+    /// all, for a MOVE element). With T an rvalue element the cast is a
+    /// move; a reference element collapses to its own kind. A `const` or
+    /// `@inout` pack goes on as it is.
+    priv fn _pack_expansion(self, n: *PackExpansionExpr) {
+        var opnd = n->operand;
+        while (opnd != &null) && isa::<ParenExpr>(opnd) { opnd = cast::<ParenExpr>(opnd)->inner; }
+        var p: *ParamDecl = &null;
+        if (opnd != &null) && isa::<NamedIdentExpr>(opnd) { p = dyn_cast::<ParamDecl>(cast::<NamedIdentExpr>(opnd)->resolved_decl); }
+        if CXXSpell::forwarding_pack(p) {
+            var g = cast::<GenericParamType>(canon_unqual(p->type_->canonical));
+            self._cg->sink->spell(n->range, "static_cast<" + self._spell.pack_param_name(g) + "&&>(");
+            self.emit(n->operand);
+            self._cg->sink->spell(n->range, ")...");
+            return;
+        }
+        self.emit(n->operand);
+        self._cg->sink->spell(n->range, "...");
     }
 
     /// Emit \p e where a value of \p want is required: the exactness cast
@@ -2487,13 +2506,33 @@ class EmitIR {
             if skip_object && (i == 0) { continue; }
             var first: usize = (1) if (skip_object) else (0);
             if i > first { self._cg->sink->synth_at_end(n->args[i - 1]->range, clang::tok::comma); }
-            if (pk != usize(-1)) && (i >= pk) && (i < pk + run) { self.emit(a); continue; }
+            if (pk != usize(-1)) && (i >= pk) && (i < pk + run) { self._pack_arg(a, params[pk], inst, i - pk); continue; }
             var p: *ParamDecl = &null;
             var pi = i;
             if (pk != usize(-1)) && (i >= pk + run) { pi = (i + 1) - run; }
             if pi < params.size() { p = params[pi]; }
             self._arg(a, p, inst);
         }
+    }
+
+    /// Element \p k of a type pack's run. Under an instance a forwarding
+    /// pack's parameter is `E&&` (CXXSpell::param_type), which an lvalue
+    /// does not bind: a by-value pack gets `static_cast<E>(x)`, the one copy
+    /// any `x: T` parameter makes, and `@move` gets `static_cast<E&&>(x)`.
+    /// A prvalue, a moved MOVE value (CopyMoveLowering's xvalue cast) and an
+    /// expansion bind as they are, so they reach the last layer without a
+    /// copy. With no instance (a dependent call) C++ deduces each element,
+    /// and an lvalue binds as `E&`.
+    priv fn _pack_arg(self, a: *Expr, p: *ParamDecl, inst: *InstanceEntry, k: usize) {
+        if (!CXXSpell::forwarding_pack(p)) || (!a->is_lvalue()) || isa::<PackExpansionExpr>(a) { self.emit(a); return; }
+        var els = vec::<*Type>();
+        if (!self._spell.subst_pack(param_type_pack_param(p), inst, &els)) || (k >= els.size()) { self.emit(a); return; }
+        var e = canon_unqual(els[k]);
+        if (e == &null) || isa::<CXXLValueRefType>(e) || isa::<CXXRValueRefType>(e) || (e->kind == TypeKind::FixedArrayType) { self.emit(a); return; }
+        var rr = ("&&") if (p->mode == ParamMode::Move) else ("");
+        self._cg->sink->spell(a->range, "static_cast<" + self._spell._type(els[k]) + rr + ">(");
+        self.emit(a);
+        self._cg->sink->spell(a->range, ")");
     }
 
     priv fn _arg(self, a: *Expr, p: *ParamDecl, inst: *InstanceEntry) {
