@@ -513,6 +513,20 @@ class LangAttrs {
     static fn hot_path() -> string  { return "hot_path"; }
     static fn cold_path() -> string { return "cold_path"; }
     static fn pure_fn() -> string   { return "pure"; }
+    /// The calling conventions (FunctionDecl::call_conv), stamped by
+    /// ASTParse::apply_annotations_to_decl; at most one per function.
+    static fn preserve_most() -> string { return "preserve_most"; }
+    static fn preserve_all() -> string  { return "preserve_all"; }
+    static fn preserve_none() -> string { return "preserve_none"; }
+    /// The attribute a FunctionDecl::call_conv value is written as, without
+    /// the `@`; "" for the default convention. The one place a diagnostic
+    /// or the ABI note turns the number back into a name.
+    static fn call_conv_name(cc: u8) -> string {
+        if cc == 1 { return LangAttrs::preserve_most(); }
+        if cc == 2 { return LangAttrs::preserve_all(); }
+        if cc == 3 { return LangAttrs::preserve_none(); }
+        return "";
+    }
 }
 
 /// \class LangIntrinsics

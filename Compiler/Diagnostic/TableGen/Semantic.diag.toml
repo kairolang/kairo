@@ -3091,3 +3091,28 @@ group = "type-check"
     specialization to declare once per member set: `class <T> Holder<T> requires <condition>`,
     with that set as its body.
     """
+
+[SC133]
+brief = "two calling conventions on one function"
+group = "calling-convention"
+
+    [SC133.E]
+    explain = """
+    # one function, two calling conventions
+
+    `@preserve_most`, `@preserve_all` and `@preserve_none` each choose how the function is called:
+    which registers a call may clobber. a function is called one way, so at most one of them may
+    be on it.
+
+    ```kairo
+    @preserve_most @preserve_all     // error: pick one
+    priv fn slow_path(n: usize) { }
+    ```
+
+    ## how to fix
+
+    keep the one that says what the function needs: `@preserve_all` when the callers keep
+    floating-point or vector values live across the call, `@preserve_most` when they keep only
+    integers.
+    """
+

@@ -4934,6 +4934,7 @@ enum DiagID derives u32 {
   SC131N = compute_hash::<r"SC131N">(),
   SC132E = compute_hash::<r"SC132E">(),
   SC132N = compute_hash::<r"SC132N">(),
+  SC133E = compute_hash::<r"SC133E">(),
   S001W = compute_hash::<r"S001W">(),
   S001I = compute_hash::<r"S001I">(),
   S001R = compute_hash::<r"S001R">(),

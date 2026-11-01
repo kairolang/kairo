@@ -644,6 +644,13 @@ class FunctionDecl
     pub var hot_path:  bool = false;   ///< `@hot_path`: `[[gnu::hot]]`.
     pub var cold_path: bool = false;   ///< `@cold_path`: `[[gnu::cold]]`.
     pub var is_pure:   bool = false;   ///< `@pure`: `[[gnu::pure]]`; FnPurityCheck.
+    /// The calling convention (functions-declarations.mdx, "Calling
+    /// conventions"): 0 the default (C), 1 `@preserve_most`, 2
+    /// `@preserve_all`, 3 `@preserve_none` (LangAttrs::call_conv_name).
+    /// Writer: the parser, as for hot_path. Every C++ declaration spells it
+    /// (CXXSpell::fn_attrs); CallConvCheck says where it may stand, and
+    /// RedeclMerge holds a chain to one value.
+    pub var call_conv: u8 = 0;
     /// Written `const fn f()` at file or module scope: reads only its own
     /// inputs, `[[gnu::const]]`; FnPurityCheck enforces it. NOT the same as
     /// is_const(), which is `const self` on a method.
@@ -705,6 +712,7 @@ class FunctionDecl
         node->hot_path    = false;
         node->cold_path   = false;
         node->is_pure     = false;
+        node->call_conv   = 0;
         node->is_const_fn = false;
         return node;
     }
@@ -725,6 +733,7 @@ class FunctionDecl
         node->hot_path    = false;
         node->cold_path   = false;
         node->is_pure     = false;
+        node->call_conv   = 0;
         node->is_const_fn = false;
         return node;
     }

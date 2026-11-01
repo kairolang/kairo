@@ -2348,6 +2348,48 @@ class ASTParse
             b.remove(e->range, "remove " + an);
             b.emit();
         }
+        // `@preserve_most` / `@preserve_all` / `@preserve_none`: the calling
+        // convention, stamped like the hints above. A function has one
+        // convention, so a second, different one is an error naming both;
+        // where a convention may stand at all is CallConvCheck's (it needs
+        // types: a generator is known only once its return is resolved).
+        var k_pm = self.ctx->hoisted->intern(LangAttrs::preserve_most());
+        var k_pa = self.ctx->hoisted->intern(LangAttrs::preserve_all());
+        var k_pn = self.ctx->hoisted->intern(LangAttrs::preserve_none());
+        for var i: usize = 0; i < annot->entries.size(); ++i {
+            var e = &annot->entries[i];
+            if e->kind != AnnotationKind::Attribute { continue; }
+            var cc: u8 = 0;
+            if      e->name == k_pm { cc = 1; }
+            else if e->name == k_pa { cc = 2; }
+            else if e->name == k_pn { cc = 3; }
+            if cc == 0 { continue; }
+            var an = "\x27@" + LangAttrs::call_conv_name(cc) + "\x27";
+            if fnd == &null {
+                if self.mode != ParseMode::Full { continue; }
+                var b = self.diag->report(DiagID::SC001E, e->range.start,
+                    an + " applies only to a function");
+                b.first(e->range);
+                b.note(decl->range.start, "the attribute is on this declaration");
+                b.remove(e->range, "remove " + an);
+                b.emit();
+                continue;
+            }
+            if (fnd->call_conv != 0) && (fnd->call_conv != cc) {
+                if self.mode == ParseMode::Full {
+                    var pn = "\x27@" + LangAttrs::call_conv_name(fnd->call_conv) + "\x27";
+                    var b = self.diag->report(DiagID::SC133E, e->range.start,
+                        pn + " and " + an + " cannot both be on one function; a function has one calling convention");
+                    b.first(e->range);
+                    b.note(decl->range.start, "both are on this function");
+                    b.remove(e->range, "remove " + an);
+                    b.emit();
+                }
+                continue;
+            }
+            fnd->call_conv = cc;
+        }
+
         if hot_seen && cold_seen && (self.mode == ParseMode::Full) {
             // One function cannot be both the path to optimize for and the
             // path to keep out of the way.
@@ -2400,6 +2442,9 @@ class ASTParse
             if      e->name == k_hot  { fa = LangAttrs::hot_path();  }
             else if e->name == k_cold { fa = LangAttrs::cold_path(); }
             else if e->name == k_pure { fa = LangAttrs::pure_fn();   }
+            else if e->name == self.ctx->hoisted->intern(LangAttrs::preserve_most()) { fa = LangAttrs::preserve_most(); }
+            else if e->name == self.ctx->hoisted->intern(LangAttrs::preserve_all())  { fa = LangAttrs::preserve_all();  }
+            else if e->name == self.ctx->hoisted->intern(LangAttrs::preserve_none()) { fa = LangAttrs::preserve_none(); }
             if fa.size() == 0 { continue; }
             var an = "\x27@" + fa + "\x27";
             var b = self.diag->report(DiagID::SC001E, e->range.start,
