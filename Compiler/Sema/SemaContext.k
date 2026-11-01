@@ -238,6 +238,11 @@ class SemaContext {
     pub var diag:      obs::<BufferedDiagSink>;
     pub var opts:      SemaOptions;
     pub var phase:     SemaPhase = SemaPhase::Parsed;
+    /// SequenceLowering has run (Sema.k sets it after SequenceCheck): from
+    /// here on Kairo's evaluation order is written into the tree, and a pass
+    /// that mints a call with two effectful operands ICEs at the mint
+    /// (LowerSynth::_mint_check) unless it says the order is unobservable.
+    pub var sequenced: bool = false;
     pub var instances: obs::<InstantiationRegistry> = &null;
     /// Fills instances of IMPORTED class templates from clang (MemberLookup's
     /// trigger). Build-wide, owned by CompilerInstance and wired by the driver

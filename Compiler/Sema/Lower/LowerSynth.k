@@ -40,6 +40,7 @@ import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::Kind::ExprKind::*;
 import AST::Context::SymbolTable::*;
+import Codegen::CodegenICE::*;
 import Lexer::Immediate::*;
 import Location::SourceManager::*;
 import Location::SourceRange::*;
@@ -206,7 +207,10 @@ class LowerSynth {
     /// `recv.<method>(args)` typed \p ty. An operator method (`op as`) gets
     /// an Operator step spelled from the decl; a named one a Name step whose
     /// token spells the name in this file. Same shape OperatorLowering mints.
-    fn member_call(self, range: SourceRange, recv: *Expr, method: *Decl, args: *ListBuilder::<*Expr>, ty: *Type) -> *Expr {
+    ///
+    /// \p ordered: the caller knows the order of the operands is
+    /// unobservable (see _mint_check); only read once SequenceLowering ran.
+    fn member_call(self, range: SourceRange, recv: *Expr, method: *Decl, args: *ListBuilder::<*Expr>, ty: *Type, ordered: bool = false) -> *Expr {
         var tu = TypeUtil(self.sc);
         var f  = dyn_cast::<FunctionDecl>(method);
         ICE_IF(f == &null, "LowerSynth::member_call: method is not a function");
@@ -236,27 +240,52 @@ class LowerSynth {
         args->freeze_into(&(call->args));
         call->type_          = ty;
         call->value_category = Expr::ValueCategory::RValue;
+        if !ordered { self._mint_check(call, recv, "member_call"); }
         return static_cast::<*Expr>(call);
     }
 
     /// A constructor call typed \p ty. The callee names the ctor decl; EmitIR
     /// spells the TYPE from the call's own canonical, never from this token.
-    fn ctor_call(self, range: SourceRange, ctor: *Decl, name: string, args: *ListBuilder::<*Expr>, ty: *Type) -> *Expr {
+    /// \p ordered as member_call's.
+    fn ctor_call(self, range: SourceRange, ctor: *Decl, name: string, args: *ListBuilder::<*Expr>, ty: *Type, ordered: bool = false) -> *Expr {
         var callee = NamedIdentExpr::create(self.sc->ctx, range, self.ident(range, name));
         callee->resolved_decl = ctor;
         var call = CallExpr::create(self.sc->ctx, range, static_cast::<*Expr>(callee));
         args->freeze_into(&(call->args));
         call->type_          = ty;
         call->value_category = Expr::ValueCategory::RValue;
+        if !ordered { self._mint_check(call, &null, "ctor_call"); }
         return static_cast::<*Expr>(call);
+    }
+
+    /// The mint-time half of the evaluation-order invariant (CODEGEN.md,
+    /// "Integer arithmetic and evaluation order"). SequenceLowering wrote
+    /// Kairo's left-to-right order into the tree; a pass after it that
+    /// mints a call whose arguments C++ leaves unsequenced, two or more of
+    /// them with an effect, would undo that silently. Judged on the node
+    /// being built only -- the operands as they are now -- so it has no
+    /// false positives; a caller whose operands cannot observe each other
+    /// (fresh locals, say) passes `ordered` and says why. Before
+    /// SequenceLowering it checks nothing: that pass orders what is minted
+    /// ahead of it.
+    priv fn _mint_check(self, call: *CallExpr, recv: *Expr, who: string) {
+        if (self.sc == &null) || (!self.sc->sequenced) { return; }
+        var effects: u32 = 0;
+        if (recv != &null) && (!self.pure_read(recv)) { effects += 1; }
+        for var i: usize = 0; i < call->args.size(); ++i {
+            if !self.pure_read(call->args[i]) { effects += 1; }
+        }
+        if effects < u32(2) { return; }
+        var msg = f"LowerSynth::{who}: a call minted after SequenceLowering has {effects} operands with an effect, in an order C++ leaves unspecified; bind them in order first, or pass `ordered` where the order cannot be observed";
+        codegen_ice(self.sc->ctx, call->range, msg);   // I003E at the call, then the ICE.
     }
 
     /// `f(args)`, a call of the free function \p f (a lang item a lowering
     /// calls) typed \p ty: the node shape of ctor_call, the callee naming
     /// \p f by its own name.
-    fn free_call(self, range: SourceRange, f: *Decl, args: *ListBuilder::<*Expr>, ty: *Type) -> *Expr {
+    fn free_call(self, range: SourceRange, f: *Decl, args: *ListBuilder::<*Expr>, ty: *Type, ordered: bool = false) -> *Expr {
         var tu = TypeUtil(self.sc);
-        return self.ctor_call(range, f, tu.decl_name(f), args, ty);
+        return self.ctor_call(range, f, tu.decl_name(f), args, ty, ordered);
     }
 
     /// `unwrap_failed("<text>", <len>)`, typed `!`: the crash family's one

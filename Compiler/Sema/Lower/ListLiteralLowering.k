@@ -241,18 +241,12 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
         return static_cast::<*Expr>(c);
     }
 
-    /// A constructor call typed \p ty. The callee names the ctor decl; EmitIR
-    /// spells the type from the call's own canonical, never from this token.
+    /// A constructor call typed \p ty: LowerSynth's, so its post-
+    /// SequenceLowering order check sees it. `Slice(data, len)` has at most
+    /// one operand with an effect (data; len is a literal), a Vector's one
+    /// argument is the Slice, so the check never fires here.
     priv fn _ctor_call(self, at: SourceRange, ctor: *Decl, name: string,
                        args: *ListBuilder::<*Expr>, ty: *Type) -> *Expr {
-        var callee = NamedIdentExpr::create(self.ctx, at, self.synth.ident(at, name));
-        callee->resolved_decl = ctor;
-
-        var call = CallExpr::create(self.ctx, at, static_cast::<*Expr>(callee));
-        args->freeze_into(&(call->args));
-        call->type_          = ty;
-        call->value_category = Expr::ValueCategory::RValue;
-        return static_cast::<*Expr>(call);
+        return self.synth.ctor_call(at, ctor, name, args, ty);
     }
 }
-

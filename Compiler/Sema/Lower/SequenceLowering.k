@@ -32,14 +32,22 @@
 ///     an extension call after ExtensionLowering. A place is bound as
 ///     `auto&&` (VariableDecl::place_ref), a value by value.
 ///
+///   \par Results
+///     A record prvalue leaves the block by C++17's guaranteed elision (no
+///     copy or move is asked of the type); an lvalue result (an imported
+///     `T&` return) leaves it as its address, dereferenced, so the node is
+///     still the place. Only an xvalue result keeps C++'s order.
+///
 ///   \par Not rewritten
-///     A call whose result is an lvalue (an imported `T&` return) or a record
-///     value: a statement expression yields a prvalue, which would change the
-///     category or force a copy the type may not have. Those calls keep C++'s
-///     order. A panic result is the exception: it is always movable, so a
-///     panicking call's arguments are ordered too. An integer compound
-///     assignment is EmitIR's: its wrap form binds the place before it reads
-///     the value.
+///     An integer `+= -= *= /= %= <<= >>=` is EmitIR's: its wrap form binds
+///     the place before it reads the value (wrap_ordered). A pure accessor
+///     call (LowerSynth::pure_read) is no effect, but reads state.
+///
+///   \par Checked
+///     SequenceCheck, at the end of this file, runs right after this pass
+///     and ICEs on any node it left with two effectful operands in an order
+///     C++ does not fix; after it, LowerSynth's call minters ICE on minting
+///     one (SemaContext::sequenced).
 ///
 ///   \par Variant payloads
 ///     An enum variant's payload is built from a braced list, which C++
@@ -82,6 +90,9 @@ import AST::Node::Casting::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Kind::ExprKind::*;
 import AST::Kind::TypeKind::*;
+import AST::Context::TranslationUnit::*;
+import AST::Node::Program::*;
+import Codegen::CodegenICE::*;
 import Token::Token::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
@@ -182,7 +193,7 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         // Children first: an inner call `f(g(h(), k()))` is sequenced on its
         // own, and this call then sees it as one impure argument.
         var out = ASTWriter::<SequenceLowering>::transform_call_expr(n);
-        if n->is_poisoned() || n->is_instantiation_dependent() { return out; }
+        if n->is_poisoned() || SequenceLowering::dependent_result(n) { return out; }
         if !self._result_sequenceable(n) { return out; }
 
         // The receiver of `x.m(...)` is operand zero; an extension call's is
@@ -256,7 +267,11 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         var out = ASTWriter::<SequenceLowering>::transform_binary_operator_expr(n);
         var k = n->op_token.kind;
         if (k == TokenKind::OpAmpAmp) || (k == TokenKind::OpPipePipe) { return out; }
-        if n->is_poisoned() || n->is_instantiation_dependent() || (n->type_ == &null) { return out; }
+        // A dependent operand (a generic body) is ordered too: its local is
+        // `auto` (_hoist), and the operator C++ resolves per instance runs
+        // after it, typed or not (a duck `t.f() + t.g()` has no type until
+        // an instance does; the statement expression needs none).
+        if n->is_poisoned() || ((n->type_ == &null) && (!n->is_instantiation_dependent())) { return out; }
         var ops = vec::<*Expr>();
         ops.push_back(n->lhs);
         ops.push_back(n->rhs);
@@ -271,16 +286,30 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         return self.synth.stmt_expr(static_cast::<*Expr>(n), &stmts, n->type_);
     }
 
+    /// A compound assignment EmitIR orders itself: an integer `+= -= *= /=
+    /// %= <<= >>=`, whose wrap form (EmitIR::_compound_op / _compound_form)
+    /// binds the place before it reads the value. `&= |= ^=` have no wrap
+    /// form and print C++'s own operator, which evaluates the value first:
+    /// those are ordered here like `=`. SequenceCheck reads the same rule.
+    static fn wrap_ordered(n: *AssignOperatorExpr, tu: *TypeUtil) -> bool {
+        var k = n->op_token.kind;
+        if (k == TokenKind::OpEqual) || (!tu->is_integer(n->lhs->type_)) { return false; }
+        return (k == TokenKind::OpPlusEqual) || (k == TokenKind::OpMinusEqual) || (k == TokenKind::OpStarEqual)
+            || (k == TokenKind::OpSlashEqual) || (k == TokenKind::OpPercentEqual)
+            || (k == TokenKind::OpLessLessEqual) || (k == TokenKind::OpGreaterGreaterEqual);
+    }
+
     ///   a[i()] = v()   ->   ({ auto&& __kairo_ord0 = (a[i()]); __kairo_ord0 = v(); })
     ///
     /// The place first, then the value, then the store: C++17 evaluates the
-    /// right side of `=` and `op=` first. A compound assignment on an
-    /// integer EmitIR orders itself (its wrap form binds the place before
-    /// the value is read), so only `=` and the other compounds come here.
+    /// right side of `=` and `op=` first. A compound assignment EmitIR
+    /// orders itself (wrap_ordered) is left to it.
     fn transform_assign_operator_expr(self, n: *AssignOperatorExpr) -> *Expr {
         var out = ASTWriter::<SequenceLowering>::transform_assign_operator_expr(n);
-        if n->is_poisoned() || n->is_instantiation_dependent() || (n->lhs->type_ == &null) { return out; }
-        if (n->op_token.kind != TokenKind::OpEqual) && self.tu.is_integer(n->lhs->type_) { return out; }
+        if n->is_poisoned() || (n->lhs->type_ == &null) { return out; }
+        if SequenceLowering::wrap_ordered(n, &(self.tu)) { return out; }
+        // A duck-generic compound: EmitIR::_dep_update binds the place first.
+        if (n->op_token.kind != TokenKind::OpEqual) && SequenceLowering::dependent_type(n->lhs->type_) { return out; }
         var ops = vec::<*Expr>();
         ops.push_back(n->lhs);
         ops.push_back(n->rhs);
@@ -297,7 +326,7 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
     ///   p()[i()]   ->   (*({ T* __kairo_ord0 = p(); &__kairo_ord0[i()]; }))
     fn transform_subscript_expr(self, n: *SubscriptExpr) -> *Expr {
         var out = ASTWriter::<SequenceLowering>::transform_subscript_expr(n);
-        if n->is_poisoned() || n->is_instantiation_dependent() || (n->type_ == &null) { return out; }
+        if n->is_poisoned() || (n->type_ == &null) { return out; }
         if n->resolved_op != &null { return out; }
         var ops = vec::<*Expr>();
         ops.push_back(n->base);
@@ -398,8 +427,6 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
             var e = (*ops)[i];
             var st = (self._place_moves(e)) if ((*places)[i]) else (self._reads_state(e));
             var h = (!self.synth.pure_read(e)) || st;
-            if h && (*places)[i] && self._bitfield(e) { return false; }   // C++'s order, rather than a reference that cannot bind.
-            if h && (e->type_ == &null) { return false; }   // no type to declare its local with.
             (*hoist)[i] = h;
             if h { any = true; }
         }
@@ -532,6 +559,23 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
             mk->operand = self._hoist(mk->operand, stmts, false, true);
             return e;
         }
+        // A bit-field place: no reference binds it, so its OBJECT is bound
+        // (a place, or the pointer it is reached through) and the field is
+        // stepped to again from that.
+        if place && self._bitfield(e) {
+            var bc = cast::<ChainExpr>(self.tu.strip_parens(e));
+            bc->base = self._hoist(bc->base, stmts, false, bc->base->is_lvalue() && (!self._pointer_typed(bc->base)));
+            return e;
+        }
+        // No type: a generic body's duck call, typed only per instance. Its
+        // local is deduced -- `auto&&` for a place, an `auto` copy (the
+        // snapshot) for a value -- which is what C++ gives it in each instance.
+        if (e->type_ == &null) && (!self._materialized(e)) {
+            var nv = self.synth.local(e->range, "ord", &null, e);
+            if place { nv->place_ref = true; } else { nv->auto_copy = true; }
+            stmts->push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, e->range, static_cast::<*Decl>(nv))));
+            return self.synth.use_of(nv, e->range, Expr::ValueCategory::LValue);
+        }
         if place && e->is_lvalue() && (!self._materialized(e)) && (e->type_ != &null) && (!self._bitfield(e)) {
             // `auto&& p = (e);`: the place itself, its cv and its reference
             // type kept (an imported `T&` return, a const field), and a
@@ -639,22 +683,50 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         return self.synth.stmt_expr(static_cast::<*Expr>(n), &stmts, n->type_);
     }
 
-    /// A statement expression is a prvalue of its last statement's type. A
-    /// call that yields an lvalue, or a record (the copy out of the block may
-    /// not exist), keeps C++'s order rather than a changed meaning.
-    priv fn _result_sequenceable(self, n: *CallExpr) -> bool {
-        if n->value_category == Expr::ValueCategory::LValue { return false; }
+    /// A call whose result is a reference (an lvalue or xvalue: an
+    /// imported `T&` / `T&&` return). This pass leaves its arguments in
+    /// C++'s order (_result_sequenceable), and SequenceCheck skips it: the reference may name an
+    /// argument, and an argument bound ahead of the call dies with the
+    /// statement expression. The one known hole in the invariant; ordering
+    /// these needs the bound arguments to live to the end of the enclosing
+    /// full-expression (TICKETS.TXT).
+    /// A call in a generic body whose own result C++ decides per instance
+    /// (no type, or a dependent one: a duck member call, an imported
+    /// template's): left in C++'s order, since a statement expression would
+    /// turn a reference result into a copy. One with a known result (a
+    /// witness `==`'s bool) is ordered like any call. SequenceCheck exempts
+    /// exactly these.
+    static fn dependent_result(n: *CallExpr) -> bool {
+        if !n->is_instantiation_dependent() { return false; }
         var t = n->type_;
-        if t == &null { return true; }                  // void-typed calls have no slot to read.
-        if isa::<CXXLValueRefType>(t) || isa::<CXXRValueRefType>(t) { return false; }
-        var c = canon_unqual(t);
-        // A panic result (PanicLowering's held call, `var __kairo_p = f(..)`)
-        // is always movable -- its payloads must be (PANIC.md §1.5) -- and is
-        // moved out of the block once: the order of its arguments is worth
-        // that, and it is the one record result PanicLowering mints a call for.
-        if (c != &null) && (c->kind == TypeKind::RecordType) {
-            return PanicSets(self.sc).is_panic(cast::<RecordType>(c)->decl);
-        }
+        return (t == &null) || t->is_dependent() || t->is_instantiation_dependent();
+    }
+
+    /// \p t is a generic parameter or a witness's member type.
+    static fn dependent_type(t: *Type) -> bool {
+        if (t == &null) || (t->canonical == &null) { return false; }
+        var c = canon_unqual(t->canonical);
+        return (c != &null) && ((c->kind == TypeKind::GenericParamType) || (c->kind == TypeKind::AssocType));
+    }
+
+    static fn ref_result(n: *CallExpr) -> bool {
+        if (n->value_category == Expr::ValueCategory::LValue) || (n->value_category == Expr::ValueCategory::XValue) { return true; }
+        var t = n->type_;
+        return (t != &null) && (isa::<CXXLValueRefType>(t) || isa::<CXXRValueRefType>(t));
+    }
+
+    /// A statement expression is a prvalue of its last statement's type.
+    /// A record prvalue is fine: the block's last expression initializes
+    /// the block's result, and that the object it initializes, both from a
+    /// prvalue of the same type, so C++17's guaranteed elision builds the
+    /// record straight in its destination -- clang accepts it for a type
+    /// with deleted copy and move. A reference result (an imported `T&` /
+    /// `T&&` return) keeps C++'s order: it may name an argument (`std::min`
+    /// returns one of its `const T&` parameters), and a bound argument is a
+    /// local of the block, dead once the block yields the reference.
+    /// SequenceCheck exempts exactly these (ref_result).
+    priv fn _result_sequenceable(self, n: *CallExpr) -> bool {
+        if SequenceLowering::ref_result(n) { return false; }
         return true;
     }
 
@@ -711,5 +783,144 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         if (n->type_ == &null) || (!self.tu.is_slice(n->type_)) { return; }
         n->storage = ListStorage::Extended;
         for var i: usize = 0; i < n->elements.size(); ++i { self._mark_extended(n->elements[i]); }
+    }
+}
+
+/// The post-pass half of the evaluation-order invariant, run once over the
+/// whole tree right after SequenceLowering (Sema.k): every node whose
+/// operands C++ evaluates in an unspecified order -- a binary operator's
+/// two, an assignment's place and value (C++17 even runs the value first),
+/// a call's arguments, a designated or variant initializer written out of
+/// declaration order -- has at most one operand with an effect left, the
+/// rest bound ahead of it in order. Two or more is an ordering bug
+/// SequenceLowering let through: an ICE (I003E) at the node.
+///
+/// "Effect" is LowerSynth::pure_read, SequenceLowering's own test, so a
+/// pure accessor counts as none. Not checked, because C++ already orders
+/// them as Kairo does: `&&` / `||`, shifts and a builtin subscript (C++17
+/// sequences the left operand first), a braced initializer in declaration
+/// order, a call's receiver against its arguments (the postfix expression
+/// is sequenced first; `recv_last` is the one exception, checked), and the
+/// compound assignments EmitIR orders itself (SequenceLowering::
+/// wrap_ordered; a duck-generic place, which EmitIR::_dep_update binds
+/// first). Two known holes are exempt too, because a statement expression
+/// cannot order them without changing them: a call with a reference result
+/// (SequenceLowering::ref_result) and a generic call whose result C++
+/// decides per instance (dependent_result).
+class SequenceCheck derives RecursiveASTVisitor::<SequenceCheck> {
+    pub var sc: *SemaContext;
+    priv var tu: TypeUtil;
+    priv var synth: LowerSynth;
+
+    fn SequenceCheck(self, sc: *SemaContext) {
+        self.sc    = sc;
+        self.tu    = TypeUtil(sc);
+        self.synth = LowerSynth(sc);
+    }
+
+    fn run(self) {
+        var tu = self.sc->tu;
+        if (tu == &null) || (tu->program == &null) { return; }
+        var items = &(tu->program->items);
+        for var i: usize = 0; i < items->size(); ++i {
+            var item = *(items->get(i));
+            switch item.get_kind() {
+                case TopLevelKind::Decl { self.dyn()->dispatch_decl(item.as_decl()); }
+                case TopLevelKind::Stmt { self.dyn()->dispatch_stmt(item.as_stmt()); }
+                case TopLevelKind::Expr { self.dyn()->dispatch_expr(item.as_expr()); }
+            }
+        }
+    }
+
+    priv fn _fx(self, e: *Expr) -> u32 {
+        if (e == &null) || self.synth.pure_read(e) { return u32(0); }
+        return u32(1);
+    }
+
+    priv fn _skip(self, n: *Expr) -> bool { return (n == &null) || n->is_poisoned(); }
+
+    priv fn _fail(self, n: *Expr, what: string, k: u32) {
+        codegen_ice(self.sc->ctx, n->range,
+            f"SequenceCheck: {what} has {k} operands with an effect in an order C++ leaves unspecified, and SequenceLowering left them unbound (Kairo evaluates left to right)");
+    }
+
+    fn visit_binary_operator_expr(self, n: *BinaryOperatorExpr) -> bool {
+        if self._skip(static_cast::<*Expr>(n)) { return true; }
+        var k = n->op_token.kind;
+        if (k == TokenKind::OpAmpAmp) || (k == TokenKind::OpPipePipe) { return true; }
+        if (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater) { return true; }
+        var c = self._fx(n->lhs) + self._fx(n->rhs);
+        if c >= u32(2) { self._fail(static_cast::<*Expr>(n), "a binary operator", c); }
+        return true;
+    }
+
+    fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
+        if self._skip(static_cast::<*Expr>(n)) || (n->lhs == &null) || (n->lhs->type_ == &null) { return true; }
+        if SequenceLowering::wrap_ordered(n, &(self.tu)) { return true; }
+        if (n->op_token.kind != TokenKind::OpEqual) && SequenceLowering::dependent_type(n->lhs->type_) { return true; }
+        var c = self._fx(n->lhs) + self._fx(n->rhs);
+        if c >= u32(2) { self._fail(static_cast::<*Expr>(n), "an assignment", c); }
+        return true;
+    }
+
+    fn visit_call_expr(self, n: *CallExpr) -> bool {
+        if self._skip(static_cast::<*Expr>(n)) { return true; }
+        if SequenceLowering::ref_result(n) || SequenceLowering::dependent_result(n) { return true; }
+        var c: u32 = 0;
+        for var i: usize = 0; i < n->args.size(); ++i { c += self._fx(n->args[i]); }
+        if n->recv_last {
+            var ch = dyn_cast::<ChainExpr>(n->callee);
+            if (ch != &null) && (ch->base != &null) { c += self._fx(ch->base); }
+        }
+        if c >= u32(2) { self._fail(static_cast::<*Expr>(n), "a call", c); }
+        return true;
+    }
+
+    fn visit_named_initializer_expr(self, n: *NamedInitializerExpr) -> bool {
+        if self._skip(static_cast::<*Expr>(n)) || (n->type_ == &null) { return true; }
+        if !self._out_of_order(n) { return true; }
+        var c: u32 = 0;
+        for var i: usize = 0; i < n->fields.size(); ++i { c += self._fx(n->fields.get(i)->value); }
+        if c >= u32(2) { self._fail(static_cast::<*Expr>(n), "an initializer written out of declaration order", c); }
+        return true;
+    }
+
+    fn visit_variant_init_expr(self, n: *VariantInitExpr) -> bool {
+        if self._skip(static_cast::<*Expr>(n)) { return true; }
+        var in_order = true;
+        for var i: usize = 0; i < n->source_order.size(); ++i { if usize(n->source_order[i]) != i { in_order = false; } }
+        if in_order { return true; }
+        var c: u32 = 0;
+        for var i: usize = 0; i < n->fields.size(); ++i { c += self._fx(n->fields[i]); }
+        if c >= u32(2) { self._fail(static_cast::<*Expr>(n), "a variant payload written out of declaration order", c); }
+        return true;
+    }
+
+    /// SequenceLowering::transform_named_initializer_expr's test: the
+    /// fields' declaration positions do not rise in written order. False
+    /// when that cannot be told (no record, a field not found).
+    priv fn _out_of_order(self, n: *NamedInitializerExpr) -> bool {
+        var rt = dyn_cast::<RecordType>(canon_unqual(n->type_));
+        if (rt == &null) || (rt->decl == &null) { return false; }
+        var rd = rt->decl;
+        var decl_fields: *FrozenList::<*FieldDecl> = &null;
+        if isa::<StructDecl>(rd)     { decl_fields = &(cast::<StructDecl>(rd)->fields); }
+        else if isa::<ClassDecl>(rd) { decl_fields = &(cast::<ClassDecl>(rd)->fields); }
+        if decl_fields == &null { return false; }
+        var prev: usize = 0;
+        var any = false;
+        for var i: usize = 0; i < n->fields.size(); ++i {
+            var nm = self.sc->ctx->get_spelling(n->fields.get(i)->name);
+            var at = usize(-1);
+            for var j: usize = 0; j < decl_fields->size(); ++j {
+                var fd = (*decl_fields)[j];
+                if (fd != &null) && (self.sc->ctx->get_spelling(fd->name) == nm) { at = j; break; }
+            }
+            if at == usize(-1) { return false; }
+            if any && (at < prev) { return true; }
+            prev = at;
+            any = true;
+        }
+        return false;
     }
 }

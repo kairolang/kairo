@@ -49,9 +49,11 @@ fn main() -> i32 {
 // CXX: template<class U> static signed int __kairo_op_plus(const{{ ?}}::{{.*}}::Grid & self, U u) {
 // CXX-NEXT: return{{ ?}}::{{.*}}::__kairo_ext_Grid::__kairo_op_plus<U>(self, static_cast<decltype(u) &&>(u));
 // CXX-NOT: template<> struct Lookup_witness<{{ ?}}::{{.*}}::Table>
-// CXX: Lookup_witness<T>::template __kairo_op_index<signed int>(t, 1)
-// CXX-SAME: Lookup_witness<T>::template __kairo_op_index<bool>(t, true)
-// CXX-SAME: Lookup_witness<T>::template __kairo_op_plus<double>(t, 2.5)
+// The three calls are bound in order (SequenceLowering), the generic body's
+// operands as any other's.
+// CXX: signed int __kairo_ord0 = {{.*}}Lookup_witness<T>::template __kairo_op_index<signed int>(t, 1);
+// CXX-NEXT: (__kairo_ord0) + {{.*}}Lookup_witness<T>::template __kairo_op_index<bool>(t, true)
+// CXX: (__kairo_ord1) + {{.*}}Lookup_witness<T>::template __kairo_op_plus<double>(t, 2.5)
 // CXX: Lookup_witness<T>::__kairo_op_index(t, v);
 // CXX-NOT: template {{.*}}__kairo_op_index<
 // CXX-NOT: template {{.*}}Lookup_witness

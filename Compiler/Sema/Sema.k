@@ -657,6 +657,14 @@ class Sema {
         // before ListLiteralLowering (a hoisted slice literal is marked
         // Extended here and gets its backing there).
         { var _p = TimeRegion("SequenceLowering"); SequenceLowering(&self.sc).run(); }
+        // The order is in the tree now: no node C++ evaluates in an
+        // unspecified order has two effectful operands (an ICE otherwise),
+        // and from here a pass that mints one ICEs at the mint
+        // (LowerSynth::_mint_check). The passes below mint only calls with
+        // at most one effectful operand: ListLiteralLowering's Slice /
+        // Vector constructors and StringLowering's string constructor.
+        { var _p = TimeRegion("SequenceCheck"); SequenceCheck(&self.sc).run(); }
+        self.sc.sequenced = true;
         // After OperatorLowering: a list literal can be an operand of a user
         // operator, and this pass builds constructor calls that must not be
         // re-read as operator nodes.

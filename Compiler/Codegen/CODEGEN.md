@@ -701,7 +701,35 @@ written into the tree. Imported C++ keeps C++ semantics.
 - Order (SequenceLowering): before the last effectful operand, every operand
   that has an effect or reads state it could change is bound in order; a
   place as `auto&&` (VariableDecl::place_ref), a value copied (`auto` where
-  Kairo cannot spell the type, VariableDecl::auto_copy).
+  Kairo cannot spell the type, VariableDecl::auto_copy). "Effect" is
+  LowerSynth::pure_read: a lang item's pure accessor (LangItems.k
+  PureAccessors: string's `as_ptr` / `length` / `codepoints` / `capacity`,
+  Nullable's `is_null` / `__value`) is none, though it still reads its
+  object. A record prvalue result is ordered too (guaranteed elision out
+  of the statement expression); a reference result (an imported `T&` /
+  `T&&` return) is not, since it may name a bound argument that dies with
+  the block. `x in xs` through a user `op in` is `xs.op_in(x)`, receiver
+  first in C++: the call is `recv_last` and `x` is bound first.
+- The invariant, checked twice. SequenceCheck runs right after
+  SequenceLowering and ICEs (I003E) on any node C++ evaluates in an
+  unspecified order -- a binary operator, an assignment (C++17 runs the
+  value first), a call's arguments, an initializer written out of
+  declaration order -- left with two effectful operands. Exempt: what C++
+  already orders as Kairo does (`&&`, `||`, shifts, a builtin subscript, a
+  receiver against its arguments, an in-order braced initializer), the
+  compounds EmitIR orders itself, and reference-result calls (above).
+  After it SemaContext::sequenced is set and LowerSynth's call minters
+  (`ctor_call`, `member_call`, `free_call`) ICE on minting a call with two
+  effectful operands unless the caller passes `ordered`. The passes after
+  SequenceLowering and what they mint:
+  - ListLiteralLowering: InitListExpr (C++ orders a braced list),
+    `Slice(data, len)` and `Vector(slice)` constructor calls through
+    LowerSynth::ctor_call (at most one effectful operand: `data`), casts,
+    and a `__kairo_tmp` backing DeclStmt.
+  - StringLowering: the string constructor call, three literal arguments.
+  - EnumLayoutQuery::sweep: no tree.
+  - EmitIR mints no nodes; its binding forms (`_div_form`, `_dep_binary`,
+    `_dep_update`, `_compound_form`, `_incdec_form`) bind in order.
 - Proof: Tests/Codegen/OperatorSemantics (constant-evaluated forms, run
   values, spellings, instruction parity at -O1..-O3 on x86_64 and aarch64).
 
