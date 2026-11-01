@@ -2964,7 +2964,7 @@ class InterfaceEmitter {
 
     /// `::__kairo_fn<R(A...)>`, the C++ type of a Kairo `fn(A) -> R` value
     /// (CXXSpell, CODEGEN.md §6 Closures). One of:
-    ///   - empty (a default-constructed `fn` local);
+    ///   - empty (a default-constructed `fn` local, constexpr);
     ///   - a plain function pointer `__f`: a named function, or a closure
     ///     that captures nothing (`+[](...){...}`);
     ///   - a heap lambda `__o` with its three operations `__t`: a closure
@@ -3002,8 +3002,14 @@ class InterfaceEmitter {
         t += " void* __o = nullptr;";
         t += " const __ops* __t = nullptr;";
         t += " public:";
-        t += " " + fv + "() noexcept {}";
-        t += " " + fv + "(__ptr f) noexcept : __f(f) {}";
+        // constexpr, so a namespace-scope `fn` value initialized from a
+        // function (or a captureless closure) is constant-initialized: no
+        // constructor call at startup, and no static-init order hazard for
+        // another TU's initializer that calls through it. The destructor
+        // stays a runtime one (it may delete a heap lambda), so C++ still
+        // registers it at exit; that is the only startup work left.
+        t += " constexpr " + fv + "() noexcept {}";
+        t += " constexpr " + fv + "(__ptr f) noexcept : __f(f) {}";
         t += " template <class F> static " + fv + " " + LowerTargets::fn_value_own() + "(F* o) noexcept { " + fv + " r; r.__o = o; r.__t = &__ops_of<F>; return r; }";
         t += " " + fv + "(const " + fv + "& o) : __f(o.__f), __o(o.__o ? o.__t->copy(o.__o) : nullptr), __t(o.__t) {}";
         t += " " + fv + "(" + fv + "&& o) noexcept : __f(o.__f), __o(o.__o), __t(o.__t) { o.__o = nullptr; }";

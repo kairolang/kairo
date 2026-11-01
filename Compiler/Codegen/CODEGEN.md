@@ -767,7 +767,10 @@ heap-allocated lambda with its call / copy / destroy operations.
     captures           ::__kairo_fn<R(A)>::own(new auto([caps](A a) mutable -> R { body }))
 
 - A named function converts to the value by its function-pointer
-  constructor; a `fn` value converts back to `R(*)(A...)` for a C callee
+  constructor. That constructor and the default one are constexpr, so a
+  global `fn` initialized from a function or a captureless closure is
+  constant-initialized (only its destructor's atexit registration runs at
+  startup). A `fn` value converts back to `R(*)(A...)` for a C callee
   or field, and that conversion traps on a capturing closure (it has no
   function to give). C++ does both implicitly, so a foreign call needs
   no arm here.
