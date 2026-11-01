@@ -210,6 +210,13 @@ class InterfaceEmitter {
             self._cg->sink->spell(self._tu_at(),
                 "template <class T> inline void " + LowerTargets::destroy_at() + "(T* p) noexcept { p->~T(); }");
             self._cg->sink->brk();
+            // An integer division's zero-divisor crash (EmitIR::_div_form).
+            // Cold and noreturn: the check is one predicted branch, and in a
+            // constant expression the call makes it non-constant, so an eval
+            // division by zero is a compile error.
+            self._cg->sink->spell(self._tu_at(),
+                "extern \x22" + "C\x22 [[noreturn, gnu::cold]] void " + LowerTargets::div_zero_fn() + "() noexcept;");
+            self._cg->sink->brk();
 
             if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
             self._cg->sink->unanchored(false);

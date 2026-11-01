@@ -798,6 +798,11 @@ class UnaryOperatorExpr derives Expr {
     /// `::__kairo_tmp(e)`. Written by ExtensionLowering only. SequenceLowering
     /// binds `e`, never the pointer.
     pub var materialize: bool = false;
+    /// `++`/`--`/`-`/`~` on an integer whose overflow is proven impossible
+    /// (IterLowering's induction variable): EmitIR prints C++'s own operator,
+    /// whose UB is then unreachable, instead of the wrapping form. Never
+    /// inferred by the emitter.
+    pub var no_wrap: bool = false;
 
     /// The user operator overload resolution selected, or null for a builtin
     /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),
@@ -825,6 +830,7 @@ class UnaryOperatorExpr derives Expr {
         node->fix      = fix;
         node->is_mode_marker = false;
         node->materialize    = false;
+        node->no_wrap        = false;
         node->resolved_op    = &null;
         node->op_via_free    = false;
         node->op_instance    = &null;
@@ -843,6 +849,7 @@ class UnaryOperatorExpr derives Expr {
         node->operand       = &null;
         node->is_mode_marker = false;
         node->materialize    = false;
+        node->no_wrap        = false;
         node->resolved_op    = &null;
         node->op_via_free    = false;
         node->op_instance    = &null;
@@ -893,6 +900,9 @@ class BinaryOperatorExpr derives Expr {
     /// into a builtin compare of the two tag fields. One writer: X
     /// (OperatorTyping).
     pub var tag_eq:      bool  = false;
+    /// `+`/`-`/`*` whose overflow is proven impossible: C++'s own operator,
+    /// not the wrapping form (see UnaryOperatorExpr::no_wrap).
+    pub var no_wrap:     bool  = false;
     /// The registry entry of a GENERIC free operator's instance, written by X
     /// with resolved_op. `*InstanceEntry`; stored as `*void` for the same
     /// stage0 reason as Decl::semantic_dc. OperatorLowering copies it onto the
@@ -916,6 +926,7 @@ class BinaryOperatorExpr derives Expr {
         node->op_via_free = false;
         node->op_rewrite  = OpRewrite::None;
         node->tag_eq      = false;
+        node->no_wrap     = false;
         node->op_instance = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
@@ -935,6 +946,7 @@ class BinaryOperatorExpr derives Expr {
         node->op_via_free   = false;
         node->op_rewrite    = OpRewrite::None;
         node->tag_eq        = false;
+        node->no_wrap       = false;
         node->op_instance   = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;

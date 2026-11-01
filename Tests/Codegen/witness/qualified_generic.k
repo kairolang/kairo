@@ -66,13 +66,13 @@ fn main() -> i32 {
 // CXX: static __kairo_Self clone(const __kairo_Self * self)
 // CXX: template<> struct Cloner_witness<{{ ?}}::{{.*}}::Flag, signed int> {
 // CXX-NEXT: static{{ ?}}::{{.*}}::Flag clone(const{{ ?}}::{{.*}}::Flag * self)
-// CXX: Container_witness<{{ ?}}::{{.*}}::Box, signed int>::get(self, 1) * 2
+// CXX: Container_witness<{{ ?}}::{{.*}}::Box, signed int>::get(self, 1)) * static_cast<unsigned int>(2)
 // CXX: Cloner_witness<C, signed int>::clone((& c))
-// CXX: Sub_witness<C, signed int>::get((& c), 0) +{{ ?}}::{{.*}}::Sub_witness<C, signed int>::size((& c))
-// CXX: Sink_witness<C, signed int>::take((& c), 1) +{{ ?}}::{{.*}}::Sink_witness<C, bool>::take((& c), true)
+// CXX: Sub_witness<C, signed int>::get((& c), 0)) + static_cast<unsigned int>({{ ?}}::{{.*}}::Sub_witness<C, signed int>::size((& c)))
+// CXX: Sink_witness<C, signed int>::take((& c), 1)) + static_cast<unsigned int>({{ ?}}::{{.*}}::Sink_witness<C, bool>::take((& c), true))
 // CXX: signed int a = {{ ?}}::{{.*}}::Container_witness<{{ ?}}::{{.*}}::Box, signed int>::get((& b), 3);
 // CXX: Container_witness<{{ ?}}::{{.*}}::Box, signed int>::put((& b), 4);
-// CXX: Container_witness<{{ ?}}::{{.*}}::Box, signed int>::get((& b), 0) +{{ ?}}::{{.*}}::Sub_witness<{{ ?}}::{{.*}}::Box, signed int>::size((& b))
+// CXX: Container_witness<{{ ?}}::{{.*}}::Box, signed int>::get((& b), 0)) + static_cast<unsigned int>({{ ?}}::{{.*}}::Sub_witness<{{ ?}}::{{.*}}::Box, signed int>::size((& b)))
 // CXX: Container_witness<{{ ?}}::{{.*}}::Flag, bool>::get((& f), 0)
 // CXX: Flag f3 = {{ ?}}::{{.*}}::Cloner_witness<{{ ?}}::{{.*}}::Flag, signed int>::clone((& f2));
 

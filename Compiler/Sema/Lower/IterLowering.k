@@ -266,8 +266,11 @@ class IterLowering derives ASTWriter::<IterLowering> {
 
         var last = self._local(pre, at, "last", t, self._use(hi, at));
         var dec = self.list_builder::<*Stmt>();
-        dec.push(self._expr_stmt(self._assign(at, self._use(last, at),
-                 self._arith(at, self._use(hi, at), self.synth.int_literal(at, 1, tb->builtin), TokenKind::OpMinus, t))));
+        // `hi - 1` runs only when the range is non-empty (i < hi), so it
+        // cannot underflow: no_wrap.
+        var hm1 = self._arith(at, self._use(hi, at), self.synth.int_literal(at, 1, tb->builtin), TokenKind::OpMinus, t);
+        if isa::<BinaryOperatorExpr>(hm1) { cast::<BinaryOperatorExpr>(hm1)->no_wrap = true; }
+        dec.push(self._expr_stmt(self._assign(at, self._use(last, at), hm1)));
         var keep = self.list_builder::<*Stmt>();
         var excl = self.list_builder::<*Stmt>();
         excl.push(static_cast::<*Stmt>(ConditionalStmt::create(self.ctx, at, self._use(inc, at),
@@ -586,6 +589,12 @@ class IterLowering derives ASTWriter::<IterLowering> {
                                           UnaryOperatorExpr::Fix::Prefix);
         u->type_          = e->type_;
         u->value_category = Expr::ValueCategory::LValue;
+        // Every loop here steps only while the index is short of its bound
+        // (`i < hi`, `i != last`, `k < n`), so an integer index never
+        // overflows: C++'s own `++`, which keeps clang's induction-variable
+        // reasoning (EmitIR's wrap forms would lose it).
+        var b = dyn_cast::<BuiltinType>(canon_unqual(e->type_));
+        u->no_wrap = (b != &null) && b->info()->is_integer();
         return static_cast::<*Expr>(u);
     }
 

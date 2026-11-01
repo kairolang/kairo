@@ -153,6 +153,35 @@ class CXXSpell {
         return v;
     }
 
+    /// \p t canonical and unqualified, through a C++ reference to its
+    /// referee: an imported `operator[]` returning `int&` is an int to the
+    /// arithmetic on it.
+    static fn strip_ref(t: *Type) -> *Type {
+        if (t == &null) || (t->canonical == &null) { return &null; }
+        var c = canon_unqual(t->canonical);
+        if (c != &null) && isa::<CXXLValueRefType>(c) { c = canon_unqual(cast::<CXXLValueRefType>(c)->referee->canonical); }
+        if (c != &null) && isa::<CXXRValueRefType>(c) { c = canon_unqual(cast::<CXXRValueRefType>(c)->referee->canonical); }
+        return c;
+    }
+
+    /// Bits of integer \p t (through a reference); the target's for
+    /// usize / isize.
+    static fn int_width(t: *Type) -> u32 {
+        var c = CXXSpell::strip_ref(t);
+        if c == &null { return u32(0); }
+        return static_cast::<u32>(c->size_bits);
+    }
+
+    /// The unsigned type EmitIR does integer \p t's arithmetic in (the wrap
+    /// forms): never narrower than `unsigned int`, or `unsigned short *
+    /// unsigned short` promotes to int and overflows there.
+    fn wrap_carrier(self, t: *Type) -> string {
+        var w = CXXSpell::int_width(t);
+        if w <= u32(32) { return builtin_info(BuiltinKind::U32)->cxx; }
+        if w <= u32(64) { return builtin_info(BuiltinKind::U64)->cxx; }
+        return builtin_info(BuiltinKind::U128)->cxx;
+    }
+
     /// cxx_vis with the default applied: what C++ will see.
     fn cxx_access(self, d: *Decl) -> u8 {
         var v = self.cxx_vis(d);

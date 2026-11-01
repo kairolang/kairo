@@ -29,7 +29,7 @@ println(f"sum {a + b + K} {twice()}")
 // CXX:      ::builtin::Nullable<signed int> b =
 // CXX:      int main() {
 // CXX:      init_order::a = static_cast<{{ ?}}::builtin::Nullable<signed int>>({{ ?}}::init_order::trace(1)));
-// CXX:      init_order::b = static_cast<{{ ?}}::builtin::Nullable<signed int>>({{ ?}}::init_order::trace(({{ ?}}::init_order::a.__value() + 1))));
+// CXX:      init_order::b = static_cast<{{ ?}}::builtin::Nullable<signed int>>({{ ?}}::init_order::trace(static_cast<signed int>(static_cast<unsigned int>({{ ?}}::init_order::a.__value()) + static_cast<unsigned int>(1)))));
 // CXX:      return 0;
 //
 // REQUIRES: clang

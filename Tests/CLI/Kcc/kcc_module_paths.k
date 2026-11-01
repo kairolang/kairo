@@ -40,6 +40,6 @@ fn main() -> i32 { return 0 }
 // RUN: cd %S/Inputs/modpath && %kairo sub/prog.k --print-ir -o %t.d/p_ir --cache-dir %t.d/c_ir 2>&1 | %FileCheck %s --check-prefix=MAINIR
 // MAINIR: CODEGEN C++: {{.*}}sub/prog.k
 // MAINIR: {{^}}int main() noexcept {
-// MAINIR-NEXT: return( ::sub::prog::helper() + 4);
+// MAINIR-NEXT: return static_cast<signed int>(static_cast<unsigned int>( ::sub::prog::helper()) + static_cast<unsigned int>(4));
 // RUN: cd %S/Inputs/modpath && %kcc sub/prog.k -o %t.d/prog && %t.d/prog; test $? -eq 7
 // RUN: cd %S/Inputs/modpath && %kcc -c sub/prog.k -o %t.d/prog.o && %kcc %t.d/prog.o -o %t.d/prog2 && %t.d/prog2; test $? -eq 7

@@ -25,9 +25,10 @@
 // CHECK-DAG: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306332 to ptr)
 
 // Display::show: all off (seg SET, digit CLR), then segment CLR, then digit SET.
+// Only its own two stores are checked: at -Oz `off()` stays a call, since a
+// shift count is taken modulo 32 (`& 31`), which ARMv6-M pays for (it
+// shifts by the register's low byte) and which tips the size heuristic.
 // CHECK-LABEL: define {{.*}}Display4showEjj(
-// CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306348 to ptr)
-// CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306344 to ptr)
 // CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306344 to ptr)
 // CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306348 to ptr)
 // CHECK: ret void

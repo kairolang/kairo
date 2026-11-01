@@ -16,7 +16,7 @@ return
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      int main() {
-// CXX:      return({{ ?}}::top_level_return::code.__value() - 1);
+// CXX:      return static_cast<signed int>(static_cast<unsigned int>({{ ?}}::top_level_return::code.__value()) - static_cast<unsigned int>(1));
 // CXX:      return 0;
 // CXX-NEXT: return 0;
 //

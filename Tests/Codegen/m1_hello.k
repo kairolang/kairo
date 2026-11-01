@@ -19,9 +19,10 @@ fn main() -> i32 {
 //   [fid:off, len) -- THE Kairo span, file-relative.
 //   spelling  -- what clang actually receives.
 //
-// Tokens 0-124 are the per-TU preamble (the `__kairo_array` alias, the
+// Tokens 0-141 are the per-TU preamble (the `__kairo_array` alias, the
 // `__kairo_tmp` helper, the `__kairo_vt` variant tag and the
-// `__kairo_construct_at` / `__kairo_destroy_at` helpers). It is synthesized
+// `__kairo_construct_at` / `__kairo_destroy_at` helpers, and the
+// division-by-zero crash's declaration). It is synthesized
 // and has no Kairo bytes, so it is emitted unanchored (EmitSink::unanchored):
 // every token is an arena token with a location of its own, and none of them
 // takes a byte of this file. Its fid prints as the invalid sentinel;
@@ -39,11 +40,11 @@ fn main() -> i32 {
 // 7. `4` is a
 // borrowed LITERAL: CreateString gives it an expansion location of its own,
 // so it is unique to clang whatever span it shows, and it does not claim its
-// byte. Kairo elides the statement `;`, so token 133 is synthesized; it
+// byte. Kairo elides the statement `;`, so token 150 is synthesized; it
 // anchors on the `4` and takes that byte (30). `}` lands on its own (32).
 
 // CHECK: CODEGEN TOKEN STREAM: {{.*}}m1_hello.k
-// CHECK-NEXT: -- 136 token(s), 125 divergent --
+// CHECK-NEXT: -- 153 token(s), 142 divergent --
 // CHECK-NEXT: 0  template  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "template"
 // CHECK-NEXT: 1  less  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "<"
 // CHECK-NEXT: 2  class  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "class"
@@ -169,16 +170,33 @@ fn main() -> i32 {
 // CHECK-NEXT: 122  r_paren  DIVERGENT  [{{[0-9]+}}:     ?, 1)  ")"
 // CHECK-NEXT: 123  semi  DIVERGENT  [{{[0-9]+}}:     ?, 1)  ";"
 // CHECK-NEXT: 124  r_brace  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "}"
-// CHECK-NEXT: 125  int  borrowed   [0:4, 3)  "int"
-// CHECK-NEXT: 126  identifier  borrowed   [0:3, 4)  "main"
-// CHECK-NEXT: 127  l_paren  borrowed   [0:5, 2)  "("
-// CHECK-NEXT: 128  r_paren  borrowed   [0:6, 1)  ")"
-// CHECK-NEXT: 129  noexcept  borrowed   [0:7, 1)  "noexcept"
-// CHECK-NEXT: 130  l_brace  borrowed   [0:17, 1)  "{"
-// CHECK-NEXT: 131  return  borrowed   [0:23, 6)  "return"
-// CHECK-NEXT: 132  numeric_constant  borrowed   [0:30, 1)  "4"
-// CHECK-NEXT: 133  semi  borrowed   [0:30, 1)  ";"
-// CHECK-NEXT: 134  r_brace  borrowed   [0:32, 1)  "}"
+// CHECK-NEXT: 125  extern  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "extern"
+// CHECK-NEXT: 126  string_literal  DIVERGENT  [{{[0-9]+}}:     ?, 1)  ""C""
+// CHECK-NEXT: 127  l_square  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "["
+// CHECK-NEXT: 128  l_square  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "["
+// CHECK-NEXT: 129  identifier  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "noreturn"
+// CHECK-NEXT: 130  comma  DIVERGENT  [{{[0-9]+}}:     ?, 1)  ","
+// CHECK-NEXT: 131  identifier  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "gnu"
+// CHECK-NEXT: 132  coloncolon  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "::"
+// CHECK-NEXT: 133  identifier  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "cold"
+// CHECK-NEXT: 134  r_square  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "]"
+// CHECK-NEXT: 135  r_square  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "]"
+// CHECK-NEXT: 136  void  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "void"
+// CHECK-NEXT: 137  identifier  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "kairo_rt_div_zero"
+// CHECK-NEXT: 138  l_paren  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "("
+// CHECK-NEXT: 139  r_paren  DIVERGENT  [{{[0-9]+}}:     ?, 1)  ")"
+// CHECK-NEXT: 140  noexcept  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "noexcept"
+// CHECK-NEXT: 141  semi  DIVERGENT  [{{[0-9]+}}:     ?, 1)  ";"
+// CHECK-NEXT: 142  int  borrowed   [0:4, 3)  "int"
+// CHECK-NEXT: 143  identifier  borrowed   [0:3, 4)  "main"
+// CHECK-NEXT: 144  l_paren  borrowed   [0:5, 2)  "("
+// CHECK-NEXT: 145  r_paren  borrowed   [0:6, 1)  ")"
+// CHECK-NEXT: 146  noexcept  borrowed   [0:7, 1)  "noexcept"
+// CHECK-NEXT: 147  l_brace  borrowed   [0:17, 1)  "{"
+// CHECK-NEXT: 148  return  borrowed   [0:23, 6)  "return"
+// CHECK-NEXT: 149  numeric_constant  borrowed   [0:30, 1)  "4"
+// CHECK-NEXT: 150  semi  borrowed   [0:30, 1)  ";"
+// CHECK-NEXT: 151  r_brace  borrowed   [0:32, 1)  "}"
 
 // eof anchors at ksize-1, so its offset tracks the length of THIS FILE --
 // including these comments. Wildcarded on purpose: an exact value would make
@@ -186,4 +204,4 @@ fn main() -> i32 {
 // every edit below would break it. Length 0 is the part that matters (it can
 // never be confused with a real token) along with it resolving inside the
 // file at all, which _loc already ICEs on.
-// CHECK-NEXT: 135  eof  borrowed   [0:{{[0-9]+}}, 0)  ""
+// CHECK-NEXT: 152  eof  borrowed   [0:{{[0-9]+}}, 0)  ""

@@ -105,6 +105,14 @@ void kairo_rt_crash(const unsigned char *msg, size_t len) {
     kairo_rt_crash_die_();
 }
 
+/* An integer `/` or `%` by zero (EmitIR's division form): a crash, never a
+ * panic. Declared by every TU's prelude, not crash.h: the prelude's C++
+ * declaration is noexcept, which a C header's would contradict. */
+__attribute__((noreturn, cold)) void kairo_rt_div_zero(void) {
+    static const unsigned char msg[] = "kairo: division by zero";
+    kairo_rt_crash(msg, sizeof(msg) - 1);
+}
+
 /* `__builtin_crash`: the message, then _Exit with the caller's code: no
  * atexit handlers, no stdio flush, as for a crash. */
 void kairo_rt_crash_exit(const unsigned char *msg, size_t len, int code) {

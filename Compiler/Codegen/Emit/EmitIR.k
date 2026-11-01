@@ -128,6 +128,19 @@ class EmitIR {
     /// the runtime loops opened inside the innermost copy: a `break` /
     /// `continue` with none is the eval for's own (the copy's `return`).
     priv var _ef_depth: u32 = 0;
+    /// Nesting depth of the binding operator forms (a division, a compound
+    /// assignment to a place, a postfix's old value), for temporaries no
+    /// inner form shadows: saved and restored around each, as _ef_depth is.
+    priv var _bind_depth: u32 = 0;
+    /// The expression that is a whole statement (an ExpressionStmt's, a C
+    /// for's update): a binding form there leaves its trailing value out,
+    /// which clang warns is unused.
+    priv var _stmt_node: *Expr = &null;
+    /// A namespace-scope initializer is being emitted in place: no statement
+    /// expression is allowed there, so a binding form is the body of a
+    /// lambda called on the spot instead (no capture: nothing at namespace
+    /// scope needs one).
+    priv var _ns_init: bool = false;
     priv var _ef_loops: u32 = 0;
     /// Eval generator iterables in the function, for unique names.
     priv var _ef_gens: usize = 0;
@@ -916,7 +929,10 @@ class EmitIR {
             case StmtKind::ReturnStmt      { self._return(cast::<ReturnStmt>(s)); }
             case StmtKind::ExpressionStmt {
                 var n = cast::<ExpressionStmt>(s);
+                var saved_stmt = self._stmt_node;
+                self._stmt_node = n->expr;
                 self.emit(n->expr);
+                self._stmt_node = saved_stmt;
                 self._cg->sink->synth_at_end(n->range, clang::tok::semi);
             }
             case StmtKind::DeclStmt        { self._decl(cast::<DeclStmt>(s)); }
@@ -1183,7 +1199,10 @@ class EmitIR {
             return;
         }
         self._cg->sink->spell(at, head + self._spell.global_var(n));
+        var saved_ns = self._ns_init;
+        self._ns_init = true;
         self._var_init(n, c);
+        self._ns_init = saved_ns;
         self._cur_global = saved;
         self._cg->sink->synth_at_end(n->range, clang::tok::semi);
         // EVAL.md 4.2b: an `eval if` was decided on this constant's value as
@@ -1525,7 +1544,12 @@ class EmitIR {
         self._cg->sink->spell(n->range, ";");
         if n->cond != &null { self.emit(n->cond); }
         self._cg->sink->spell(n->range, ";");
-        if n->update != &null { self.emit(n->update); }
+        if n->update != &null {
+            var saved_stmt = self._stmt_node;
+            self._stmt_node = n->update;
+            self.emit(n->update);
+            self._stmt_node = saved_stmt;
+        }
         self._cg->sink->spell(n->range, ")");
         self.emit_block(n->body);
     }
@@ -2965,6 +2989,251 @@ class EmitIR {
         return !isa::<InterfaceDecl>(d);
     }
 
+    // --- Integer arithmetic: the wrap forms ---------------------------------------
+    //
+    // Kairo's integer `+ - *`, unary `-` and `~`, `++`/`--`, shifts and the
+    // matching compound assignments compute modulo 2^width of the node's
+    // type, and no C++ promotion is observable. Each is spelled inline in an
+    // unsigned carrier never narrower than `unsigned int` (CXXSpell::
+    // wrap_carrier), which clang compiles to the instructions of the plain
+    // operator wherever that one has no UB. Division and remainder check a
+    // zero divisor (a crash) and `MIN / -1`. A form that needs an operand
+    // twice, or must evaluate a place once, binds it in a statement
+    // expression. Imported C++ keeps C++ semantics; floats, pointers, enums
+    // and records are untouched. `no_wrap` (proven not to overflow) prints
+    // C++'s operator.
+
+    /// Integer arithmetic on \p t wraps: a builtin integer or `char`,
+    /// through a C++ reference (an imported `operator[]`'s `int&`). Not bool.
+    priv fn _wraps(self, t: *Type) -> bool {
+        var c = CXXSpell::strip_ref(t);
+        if (c == &null) || (!isa::<BuiltinType>(c)) { return false; }
+        var b = cast::<BuiltinType>(c);
+        if b->builtin == BuiltinKind::Char { return true; }
+        return b->info()->is_integer();
+    }
+
+    priv fn _signed_int(self, t: *Type) -> bool {
+        var c = CXXSpell::strip_ref(t);
+        if (c == &null) || (!isa::<BuiltinType>(c)) { return false; }
+        return cast::<BuiltinType>(c)->info()->is_signed();
+    }
+
+    /// `x`, a local or parameter (parens aside): evaluating it twice is
+    /// free and does nothing, so its compound forms bind nothing.
+    priv fn _is_local_place(self, e: *Expr) -> bool {
+        var x = e;
+        while (x != &null) && isa::<ParenExpr>(x) { x = cast::<ParenExpr>(x)->inner; }
+        if (x == &null) || (!isa::<NamedIdentExpr>(x)) { return false; }
+        var d = cast::<NamedIdentExpr>(x)->resolved_decl;
+        return (d != &null) && self._is_local(d);
+    }
+
+    /// The op a compound assignment applies, TkUnknown when it has no wrap form
+    /// (`&= |= ^=` are native: defined, a truncating store).
+    priv fn _compound_op(self, k: TokenKind) -> TokenKind {
+        if k == TokenKind::OpPlusEqual           { return TokenKind::OpPlus; }
+        if k == TokenKind::OpMinusEqual          { return TokenKind::OpMinus; }
+        if k == TokenKind::OpStarEqual           { return TokenKind::OpStar; }
+        if k == TokenKind::OpSlashEqual          { return TokenKind::OpSlash; }
+        if k == TokenKind::OpPercentEqual        { return TokenKind::OpPercent; }
+        if k == TokenKind::OpLessLessEqual       { return TokenKind::OpLessLess; }
+        if k == TokenKind::OpGreaterGreaterEqual { return TokenKind::OpGreaterGreater; }
+        return TokenKind::TkUnknown;
+    }
+
+    /// Binary op \p k on integer type \p t has a wrap form (\p t is the
+    /// node's type): `+ - * / % << >>`, and `& | ^` narrower than int.
+    priv fn _has_wrap_form(self, k: TokenKind, t: *Type) -> bool {
+        if (k == TokenKind::OpPlus) || (k == TokenKind::OpMinus) || (k == TokenKind::OpStar) { return true; }
+        if (k == TokenKind::OpSlash) || (k == TokenKind::OpPercent) { return true; }
+        if (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater) { return true; }
+        if (k == TokenKind::OpAmp) || (k == TokenKind::OpPipe) || (k == TokenKind::OpCaret) {
+            return CXXSpell::int_width(t) < u32(32);
+        }
+        return false;
+    }
+
+    priv fn _sc(self, at: SourceRange, ty: string) { self._cg->sink->spell(at, "static_cast<" + ty + ">("); }
+
+    /// A binding form's brackets: a statement expression, or at namespace
+    /// scope (_ns_init) a lambda called on the spot, whose value is
+    /// returned (_form_value).
+    priv fn _form_open(self, at: SourceRange) {
+        if self._ns_init { self._cg->sink->spell(at, "[]() { "); } else { self._cg->sink->spell(at, "({ "); }
+    }
+    priv fn _form_value(self, at: SourceRange) {
+        if self._ns_init { self._cg->sink->spell(at, "return "); }
+    }
+    priv fn _form_close(self, at: SourceRange) {
+        if self._ns_init { self._cg->sink->spell(at, " }()"); } else { self._cg->sink->spell(at, " })"); }
+    }
+
+    /// The value of op \p k (a wrap-form binary op) on T = \p t, the
+    /// operands emitted by \p a and \p b. A division binds its operands
+    /// (_div_form); every other form is pure (an operand once).
+    priv fn _op_form(self, at: SourceRange, k: TokenKind, a: fn(), b: fn(), t: *Type) {
+        if (k == TokenKind::OpSlash) || (k == TokenKind::OpPercent) { self._div_form(at, k == TokenKind::OpPercent, a, b, t); return; }
+        var ts = self._spell._type(CXXSpell::strip_ref(t));
+        var u  = self._spell.wrap_carrier(t);
+        var s  = self._cg->sink;
+        if (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater) {
+            // The count modulo the width: `& (W - 1)`, free on x86 and arm,
+            // which mask a shift count themselves. `>>` shifts the value as
+            // is (arithmetic on a signed one, C++20); `<<` the carrier.
+            var w   = CXXSpell::int_width(t) - u32(1);
+            var wm1 = f"{w}";
+            self._sc(at, ts);
+            if k == TokenKind::OpLessLess { self._sc(at, u); a(); s->spell(at, ")"); s->punct(at, clang::tok::lessless); }
+            else { s->spell(at, "("); a(); s->spell(at, ")"); s->punct(at, clang::tok::greatergreater); }
+            s->spell(at, "(");
+            self._sc(at, u); b(); s->spell(at, ")");
+            s->spell(at, " & ");
+            self._sc(at, u); s->spell(at, wm1 + ")");
+            s->spell(at, "))");
+            return;
+        }
+        var sym = "+";
+        if k == TokenKind::OpMinus { sym = "-"; }
+        if k == TokenKind::OpStar  { sym = "*"; }
+        if (k == TokenKind::OpAmp) || (k == TokenKind::OpPipe) || (k == TokenKind::OpCaret) {
+            // Narrow bitwise: defined in int already; the cast keeps the
+            // result at T instead of the promoted int.
+            sym = ("&") if (k == TokenKind::OpAmp) else ((("|") if (k == TokenKind::OpPipe) else ("^")));
+            self._sc(at, ts);
+            s->spell(at, "("); a(); s->spell(at, ") " + sym + " ("); b(); s->spell(at, "))");
+            return;
+        }
+        self._sc(at, ts);
+        self._sc(at, u); a(); s->spell(at, ") " + sym + " ");
+        self._sc(at, u); b(); s->spell(at, "))");
+    }
+
+    /// `a / b`, `a % b`: the operands bound in order (which is their
+    /// sequencing too), a zero divisor the runtime's crash, `MIN / -1` the
+    /// wrapped `MIN` and `MIN % -1` zero. A constant divisor folds both
+    /// checks away.
+    priv fn _div_form(self, at: SourceRange, rem: bool, a: fn(), b: fn(), t: *Type) {
+        var ts = self._spell._type(CXXSpell::strip_ref(t));
+        var u  = self._spell.wrap_carrier(t);
+        var d  = self._bind_depth;
+        self._bind_depth += 1;
+        var ta = LowerTargets::wrap_tmp("a", d);
+        var tb = LowerTargets::wrap_tmp("b", d);
+        var s  = self._cg->sink;
+        var sym = ("%") if (rem) else ("/");
+        self._form_open(at);
+        s->spell(at, ts + " " + ta + " = ("); a(); s->spell(at, "); ");
+        s->spell(at, ts + " " + tb + " = ("); b(); s->spell(at, "); ");
+        s->spell(at, "if (__builtin_expect(" + tb + " == 0, 0)) ::" + LowerTargets::div_zero_fn() + "(); ");
+        self._form_value(at);
+        if self._signed_int(t) {
+            if rem { s->spell(at, "(" + tb + " == -1) ? static_cast<" + ts + ">(0) : "); }
+            else   { s->spell(at, "(" + tb + " == -1) ? static_cast<" + ts + ">(static_cast<" + u + ">(0) - static_cast<" + u + ">(" + ta + ")) : "); }
+        }
+        s->spell(at, "static_cast<" + ts + ">(" + ta + " " + sym + " " + tb + ");");
+        self._form_close(at);
+        self._bind_depth = d;
+    }
+
+    /// `place OP= v` with OP a wrap-form op (_compound_op). A local place
+    /// is `(x = <x OP v>)`; any other is bound once, `auto&` so its cv
+    /// stays: `({ auto& p = (place); p = <p OP v>; p; })`, the trailing
+    /// value dropped in statement position and its address taken where the
+    /// node is used as a place. The place is evaluated before the value.
+    priv fn _compound_form(self, n: *AssignOperatorExpr, k: TokenKind) {
+        var t  = n->lhs->type_;
+        var at = n->range;
+        var s  = self._cg->sink;
+        var shift = (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater);
+        if self._is_local_place(n->lhs) {
+            s->spell(at, "(");
+            self.emit(n->lhs);
+            s->spell(at, " = ");
+            self._op_form(at, k, fn () { self.emit(n->lhs); }, fn () { if shift { self.emit(n->rhs); } else { self._value(n->rhs, t); } }, t);
+            s->spell(at, ")");
+            return;
+        }
+        var d = self._bind_depth;
+        self._bind_depth += 1;
+        var p = LowerTargets::wrap_tmp("p", d);
+        var as_place = (n->value_category == Expr::ValueCategory::LValue) && (self._stmt_node != static_cast::<*Expr>(n));
+        if as_place { s->spell(at, "(*"); }
+        self._form_open(at);
+        s->spell(at, "auto& " + p + " = (");
+        self.emit(n->lhs);
+        s->spell(at, "); " + p + " = ");
+        self._op_form(at, k, fn () { s->spell(at, p); }, fn () { if shift { self.emit(n->rhs); } else { self._value(n->rhs, t); } }, t);
+        s->spell(at, ";");
+        if self._stmt_node != static_cast::<*Expr>(n) {
+            s->spell(at, " ");
+            self._form_value(at);
+            s->spell(at, ((("&") if (as_place) else ("")) + p + ";"));
+        }
+        self._form_close(at);
+        if as_place { s->spell(at, ")"); }
+        self._bind_depth = d;
+    }
+
+    /// `++` / `--` on an integer place. A local's prefix form (and its
+    /// postfix one in statement position) is `(i = <i + 1>)`; a postfix
+    /// whose value is read keeps the old value in a temporary; any other
+    /// place is bound once, as _compound_form binds it.
+    priv fn _incdec_form(self, n: *UnaryOperatorExpr) {
+        var t  = n->operand->type_;
+        var at = n->range;
+        var s  = self._cg->sink;
+        var k  = (TokenKind::OpPlus) if (n->op_token.kind == TokenKind::OpPlusPlus) else (TokenKind::OpMinus);
+        var ts = self._spell._type(CXXSpell::strip_ref(t));
+        var stmt = self._stmt_node == static_cast::<*Expr>(n);
+        var old  = n->is_postfix() && (!stmt);
+        var u    = self._spell.wrap_carrier(t);
+        if self._is_local_place(n->operand) && (!old) {
+            s->spell(at, "(");
+            self.emit(n->operand);
+            s->spell(at, " = ");
+            self._op_form(at, k, fn () { self.emit(n->operand); }, fn () { s->spell(at, "1"); }, t);
+            s->spell(at, ")");
+            return;
+        }
+        var d = self._bind_depth;
+        self._bind_depth += 1;
+        var o = LowerTargets::wrap_tmp("o", d);
+        var as_place = (!old) && (!stmt) && (n->value_category == Expr::ValueCategory::LValue);
+        if as_place { s->spell(at, "(*"); }
+        self._form_open(at);
+        var p = LowerTargets::wrap_tmp("p", d);
+        if self._is_local_place(n->operand) {
+            // A local's postfix whose value is read: no place to bind.
+            s->spell(at, ts + " " + o + " = ");
+            self.emit(n->operand);
+            s->spell(at, "; ");
+            self.emit(n->operand);
+            s->spell(at, " = ");
+            self._op_form(at, k, fn () { self.emit(n->operand); }, fn () { s->spell(at, "1"); }, t);
+            s->spell(at, "; ");
+            self._form_value(at);
+            s->spell(at, o + ";");
+        } else {
+            s->spell(at, "auto& " + p + " = (");
+            self.emit(n->operand);
+            s->spell(at, "); ");
+            if old { s->spell(at, ts + " " + o + " = " + p + "; "); }
+            s->spell(at, p + " = ");
+            self._op_form(at, k, fn () { s->spell(at, p); }, fn () { s->spell(at, "1"); }, t);
+            s->spell(at, ";");
+            if !stmt {
+                s->spell(at, " ");
+                self._form_value(at);
+                if old { s->spell(at, o + ";"); }
+                else { s->spell(at, ((("&") if (as_place) else ("")) + p + ";")); }
+            }
+        }
+        self._form_close(at);
+        if as_place { s->spell(at, ")"); }
+        self._bind_depth = d;
+    }
+
     priv fn _unary(self, n: *UnaryOperatorExpr) {
         if n->is_mode_marker { self.emit(n->operand); return; }
         if n->materialize {
@@ -2981,6 +3250,26 @@ class EmitIR {
         var k = n->op_token.kind;
         var addr_or_deref = (k == TokenKind::OpAmp) || (k == TokenKind::OpStar);
         if (self._record_operand(n->operand) && (!addr_or_deref)) { self._ice(n->range, "EmitIR: user operator; OperatorLowering must rewrite it into a call"); }
+        var incdec = (k == TokenKind::OpPlusPlus) || (k == TokenKind::OpMinusMinus);
+        var negnot = n->is_prefix() && ((k == TokenKind::OpMinus) || (k == TokenKind::OpTilde));
+        if n->no_wrap && ((!(incdec || negnot)) || (!self._wraps(n->operand->type_))) { self._ice(n->range, "EmitIR: no_wrap on an operator that has no wrap form"); }
+        if (!n->no_wrap) && incdec && self._wraps(n->operand->type_) { self._incdec_form(n); return; }
+        // `-L` on a literal cannot overflow (the one that could, the minimum,
+        // was _negated_int_lit's): C++'s own `-`.
+        var lit_opnd = n->operand;
+        while (lit_opnd != &null) && isa::<ParenExpr>(lit_opnd) { lit_opnd = cast::<ParenExpr>(lit_opnd)->inner; }
+        var neg_of_lit = (k == TokenKind::OpMinus) && (lit_opnd != &null) && isa::<IntegerLiteralExpr>(lit_opnd);
+        if (!n->no_wrap) && negnot && (!neg_of_lit) && self._wraps(n->type_) && self._wraps(n->operand->type_) {
+            var ts = self._spell._type(CXXSpell::strip_ref(n->type_));
+            var u  = self._spell.wrap_carrier(n->type_);
+            self._sc(n->range, ts);
+            if k == TokenKind::OpMinus { self._sc(n->range, u); self._cg->sink->spell(n->range, "0) - "); }
+            else { self._cg->sink->spell(n->range, "~"); }
+            self._sc(n->range, u);
+            self.emit(n->operand);
+            self._cg->sink->spell(n->range, "))");
+            return;
+        }
         self._cg->sink->spell(n->range, "(");
         if n->is_prefix() { self._cg->sink->create(n->op_token); }
         self.emit(n->operand);
@@ -2991,6 +3280,16 @@ class EmitIR {
     priv fn _binary(self, n: *BinaryOperatorExpr) {
         if (n->op_token.kind == TokenKind::OpEqualEqualEqual) { self._ice(n->range, "EmitIR: `===`; CoalesceLowering owns it"); }
         if (self._record_operand(n->lhs) || self._record_operand(n->rhs)) { self._ice(n->range, "EmitIR: user operator; OperatorLowering must rewrite it into a call"); }
+        var k = n->op_token.kind;
+        var shift = (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater);
+        var ints = self._wraps(n->type_) && self._wraps(n->lhs->type_) && (shift || self._wraps(n->rhs->type_));
+        if n->no_wrap {
+            var nw_ok = ints && ((k == TokenKind::OpPlus) || (k == TokenKind::OpMinus) || (k == TokenKind::OpStar));
+            if !nw_ok { self._ice(n->range, "EmitIR: no_wrap on an operator that has no wrap form"); }
+        } else if ints && self._has_wrap_form(k, n->type_) {
+            self._op_form(n->range, k, fn () { self.emit(n->lhs); }, fn () { self.emit(n->rhs); }, n->type_);
+            return;
+        }
         self._cg->sink->spell(n->range, "(");
         self.emit(n->lhs);
         self._cg->sink->create(n->op_token);
@@ -3040,6 +3339,12 @@ class EmitIR {
         // decides which. Compound assignment on a record is a user operator.
         if (n->op_token.kind != TokenKind::OpEqual) {
             if (self._record_operand(n->lhs) || self._record_operand(n->rhs)) { self._ice(n->range, "EmitIR: compound assignment on a record; OperatorLowering owns it"); }
+            var ck = self._compound_op(n->op_token.kind);
+            var cshift = (ck == TokenKind::OpLessLess) || (ck == TokenKind::OpGreaterGreater);
+            if (ck != TokenKind::TkUnknown) && self._wraps(n->lhs->type_) && (cshift || self._wraps(n->rhs->type_)) {
+                self._compound_form(n, ck);
+                return;
+            }
         }
         // Through a C++ reference (`v[0] = x` of an imported container,
         // whose `operator[]` returns `T&`) the value written is a T: a

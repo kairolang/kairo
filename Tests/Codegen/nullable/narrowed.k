@@ -124,9 +124,9 @@ fn main() -> i32 {
 // CXX-NEXT:     return t.__value();
 // CXX:      return(* p.__value());
 // CXX:      return p.__value()->get();
-// CXX:      return( ::narrowed::g.__value() + 2);
-// CXX:      (r += a.__value());
-// CXX:      (b.__value() += a.__value());
+// CXX:      return static_cast<signed int>(static_cast<unsigned int>( ::narrowed::g.__value()) + static_cast<unsigned int>(2));
+// CXX:      (r = static_cast<signed int>(static_cast<unsigned int>(r) + static_cast<unsigned int>(a.__value())));
+// CXX:      auto & __kairo_p0 =(b.__value());
 // CXX:      (f.__value().v = 6);
 // CXX:      (o.cache.__value().v = 9);
 // CXX:      (o.mid.__value().inner.__value().w = 11);

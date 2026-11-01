@@ -54,12 +54,12 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}generic_static_field.k
-// IR:      ( ::generic_static_field::Box<T>::made += 1);
+// IR:      auto & __kairo_p0 =( ::generic_static_field::Box<T>::made);
 // IR:      return{{ ?}}::generic_static_field::Box<T>::made;
 // IR:      signed int r = ::generic_static_field::Box<signed int>::count;
 // IR-NEXT: ( ::generic_static_field::Box<signed int>::count = 7);
-// IR-NEXT: ( ::generic_static_field::Box<signed long{{( long)?}}>::count += 10);
-// IR:      ( ::generic_static_field::Outer<signed int>::Inner::hits += 1);
+// IR:      auto & __kairo_p0 =( ::generic_static_field::Box<signed long{{( long)?}}>::count);
+// IR:      auto & __kairo_p0 =( ::generic_static_field::Outer<signed int>::Inner::hits);
 // IR:      ::generic_static_field::Pair<signed int, signed char>::width
 // IR:      ::generic_static_field::Plain::n
 // IR-NOT:  Box::count

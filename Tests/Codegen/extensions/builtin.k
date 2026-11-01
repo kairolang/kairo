@@ -19,8 +19,8 @@ fn main() -> i32 {
 // is `(*self)`, never the pointer, or `self * 2` is pointer arithmetic.
 // CXX: struct __kairo_ext_i32 {
 // CXX: __kairo_ext_i32::twice(const signed int * self) noexcept {
-// CXX-NEXT: return((* self) * 2);
-// CXX: ((* self) += 1);
+// CXX-NEXT: return static_cast<signed int>(static_cast<unsigned int>((* self)) * static_cast<unsigned int>(2));
+// CXX: ((* self) = static_cast<signed int>(static_cast<unsigned int>((* self)) + static_cast<unsigned int>(1)));
 // CXX: int main() noexcept {
 // CXX: __kairo_ext_i32::bump((& x));
 // CXX: __kairo_ext_i32::twice( ::__kairo_tmp(21))

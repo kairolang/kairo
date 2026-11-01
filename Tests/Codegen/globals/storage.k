@@ -52,7 +52,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=DEF
 // DEF-LABEL: CODEGEN C++: {{.*}}storage.k
 // DEF: {{^ *}}signed int const BASE = 10;
-// DEF: {{^ *}}signed int const NEXT ={{.*}}::storage::BASE + 1
+// DEF: {{^ *}}signed int const NEXT = static_cast<signed int>(static_cast<unsigned int>({{.*}}::storage::BASE) + static_cast<unsigned int>(1))
 // DEF: {{^ *}}signed int counter = 5;
 // DEF: {{^ *}}signed int total = 0;
 // DEF-NOT: namespace {
