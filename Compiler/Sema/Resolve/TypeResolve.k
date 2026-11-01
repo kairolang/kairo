@@ -1092,7 +1092,8 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             var tu = TypeUtil(self.sc);
             canonical_set(&tu, &(n->panic_set), &pset);
         }
-        n->canonical = self.sc->types->func(&params, &modes, ret, n->is_panic(), &pset, n->is_raw);
+        // A convention makes the type raw (FunctionPointerType::call_conv).
+        n->canonical = self.sc->types->func(&params, &modes, ret, n->is_panic(), &pset, n->is_raw || (n->call_conv != 0), n->call_conv);
     }
 
     /// An `ffi "c"` function's `fn` parameters and result are raw (P66): a

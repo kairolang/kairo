@@ -1273,6 +1273,22 @@ class <T> TypeParse {
             self._sync_type(TypeSyncCtx::Paren, 1, 0, 0, true);
         }
 
+        // `fn(A) @preserve_most -> R`: the calling convention, right after
+        // the parameter list (FunctionPointerType::call_conv). Only the three
+        // convention names are taken; any other `@x` here is not this type's
+        // and is left where it is.
+        var fn_cc: u8 = 0;
+        if dyn()->check(TokenKind::OpAt) && dyn()->check_peek(TokenKind::LitIdentifier) {
+            var an = dyn()->ctx->hoisted->intern_tok(dyn()->peek());
+            if      an == dyn()->ctx->hoisted->intern(LangAttrs::preserve_most()) { fn_cc = 1; }
+            else if an == dyn()->ctx->hoisted->intern(LangAttrs::preserve_all())  { fn_cc = 2; }
+            else if an == dyn()->ctx->hoisted->intern(LangAttrs::preserve_none()) { fn_cc = 3; }
+            if fn_cc != 0 {
+                dyn()->advance();   // `@`
+                dyn()->advance();   // the name
+            }
+        }
+
         // trailing qualifiers: fn(T) const panic async -> U. A `(` right
         // after `panic`, on its line, is the declared set (PANIC.md §2.2):
         // nothing else can follow a qualifier here, so the set is never a
@@ -1320,6 +1336,7 @@ class <T> TypeParse {
         // they are parallel at zero.
         fpt->modes.from_buf(param_modes.data(), param_modes.size(), dyn()->ctx);
         fpt->panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
+        fpt->call_conv = fn_cc;
         for var i: usize = 0; i < pset.size(); ++i { propagate_flags(fpt, pset[i]); }
         dyn()->apply_quals(fpt, &fn_quals);
         dyn()->apply_quals(fpt, &more_quals);

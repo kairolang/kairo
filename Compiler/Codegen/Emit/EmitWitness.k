@@ -565,7 +565,9 @@ class EmitWitness {
             ps += self._spell->param_decl(p, self._pname(m, p), subst);
         }
         if CXXSpell::op_is_postfix(m) { ps += ", int " + LowerTargets::witness_postfix(); }
-        var s = self._spell->template_head(static_cast::<*Decl>(m)) + "static " + self._ret(m, subst) + " " + self._spell->witness_member_name(m) + "(" + ps;
+        // The requirement's convention is the thunk's own, so a call through
+        // the bound reaches the conformer with no extra hop of another one.
+        var s = self._spell->template_head(static_cast::<*Decl>(m)) + "static " + CXXSpell::call_conv_attr(m->call_conv) + self._ret(m, subst) + " " + self._spell->witness_member_name(m) + "(" + ps;
         s += ")";
         self._spell->self_iface    = saved_i;
         self._spell->self_spelling = saved_s;
@@ -602,7 +604,9 @@ class EmitWitness {
         // first `(` made `decltype(*)(sizeof(0))()` (P221) -- and a return
         // that is itself a function pointer has no prefix form at all.
         var star = ("(*)") if (owner.size() == 0) else ("(" + owner + "::*)");
-        return "auto " + star + self._member_params(m, subst, me) + " -> " + self._member_ret(m, subst, me);
+        // The requirement's calling convention is part of the member's type;
+        // clang takes it leading the whole type-id.
+        return CXXSpell::call_conv_attr(m->call_conv) + "auto " + star + self._member_params(m, subst, me) + " -> " + self._member_ret(m, subst, me);
     }
 
     priv fn _ret(self, m: *FunctionDecl, subst: *InstanceEntry) -> string {

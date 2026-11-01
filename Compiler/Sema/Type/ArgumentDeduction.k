@@ -220,6 +220,7 @@ class Deduction derives Substitution {
                 if pf->params.size() != af->params.size() { return ImplicitRank::None; }
                 // A `fn` value never narrows to a raw `unsafe fn` (Conversion).
                 if pf->is_raw && (!af->is_raw) { return ImplicitRank::None; }
+                if pf->call_conv != af->call_conv { return ImplicitRank::None; }
                 for var i: usize = 0; i < pf->params.size(); ++i {
                     if self.unify(pf->params[i], af->params[i], false) == ImplicitRank::None { return ImplicitRank::None; }
                 }

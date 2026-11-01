@@ -900,10 +900,17 @@ class CXXSpell {
         // the chain to one value, so either answers.
         var cc = f->call_conv;
         if (cc == 0) && (c != &null) { cc = c->call_conv; }
-        if cc == 1      { s += LowerTargets::attr_preserve_most(); }
-        else if cc == 2 { s += LowerTargets::attr_preserve_all(); }
-        else if cc == 3 { s += LowerTargets::attr_preserve_none(); }
+        s += CXXSpell::call_conv_attr(cc);
         return s;
+    }
+
+    /// The C++ attribute of a FunctionDecl::call_conv / FunctionPointerType::
+    /// call_conv value, with its trailing space, or "" for the default.
+    static fn call_conv_attr(cc: u8) -> string {
+        if cc == 1 { return LowerTargets::attr_preserve_most(); }
+        if cc == 2 { return LowerTargets::attr_preserve_all(); }
+        if cc == 3 { return LowerTargets::attr_preserve_none(); }
+        return "";
     }
 
     /// `[thread_local] T const name` for a namespace-scope variable: the one
@@ -1035,7 +1042,9 @@ class CXXSpell {
                 if f->is_unprototyped { return self.decl(f->return_type, f"(*{name})()", subst, scope); }
                 // `unsafe fn(A) -> R` is the plain `R(*)(A)` (P231): one word,
                 // called directly, what a C callee or field holds.
-                if f->is_raw { return self._join("::" + LowerTargets::raw_fn() + "<" + self.fn_signature(f, subst, scope) + ">", name); }
+                // A convention leads the signature: inside a type-id clang takes
+                // `__attribute__((preserve_most)) R(A)`, not a trailing one.
+                if f->is_raw { return self._join("::" + LowerTargets::raw_fn() + "<" + CXXSpell::call_conv_attr(f->call_conv) + self.fn_signature(f, subst, scope) + ">", name); }
                 return self._join("::" + LowerTargets::fn_value() + "<" + self.fn_signature(f, subst, scope) + ">", name);
             }
             case TypeKind::GenericParamType {

@@ -1133,6 +1133,11 @@ class InterfaceEmitter {
     priv fn _friend_fn_text(self, f: *FunctionDecl, qualified: bool) -> string {
         var s = self._spell->template_head(static_cast::<*Decl>(f));
         s += "friend ";
+        // The calling convention is no attribute in that sense: it is part
+        // of the function's type, so every redeclaration must repeat it.
+        var cc = f->call_conv;
+        if (cc == 0) && (f->canonical_decl() != &null) { cc = f->canonical_decl()->call_conv; }
+        s += CXXSpell::call_conv_attr(cc);
         if f->is_eval() { s += "consteval "; }
         s += self._ret(f);
         s += " ";

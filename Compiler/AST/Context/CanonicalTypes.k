@@ -662,7 +662,7 @@ class CanonicalTypeStore {
     /// canonicals, because the C++ spelling (an ABI) differs; a raw one
     /// widens to the value implicitly, never back (Conversion's fn rung).
     fn func(self, params: *vec::<*Type>, modes: *vec::<ParamMode>, ret: *Type,
-            panics: bool = false, pset: *vec::<*Type> = &null, raw: bool = false) -> *Type {
+            panics: bool = false, pset: *vec::<*Type> = &null, raw: bool = false, cc: u8 = 0) -> *Type {
         var n: usize = 0;
         if params != &null { n = params->size(); }
         ICE_IF(((modes != &null) && (modes->size() != n)),
@@ -680,9 +680,10 @@ class CanonicalTypeStore {
         h = canon_hash_u64(h, (u64(1)) if (panics) else (u64(0)));
         for var i: usize = 0; i < ns; ++i { h = canon_hash_ptr(h, reinterpret_cast::<*void>((*pset)[i])); }
         h = canon_hash_u64(h, (u64(1)) if (raw) else (u64(0)));
+        h = canon_hash_u64(h, u64(cc));
 
         var lock = std::LockGuard(self._mu);
-        var hit = self._probe_func(h, params, modes, n, ret, panics, pset, ns, raw);
+        var hit = self._probe_func(h, params, modes, n, ret, panics, pset, ns, raw, cc);
         if hit != &null { return hit; }
 
         var ft = self._alloc::<FunctionPointerType>();
@@ -691,6 +692,7 @@ class CanonicalTypeStore {
         ft->return_type     = ret;
         ft->is_unprototyped = false;
         ft->is_raw          = raw;
+        ft->call_conv       = cc;
         ft->init_annotations(&(self._arena));
         ft->init_spans(&(self._arena));
 
@@ -1087,7 +1089,8 @@ class CanonicalTypeStore {
     fn fn_with_raw(self, t: *Type, raw: bool) -> *Type {
         if (t == &null) || (t->kind != TypeKind::FunctionPointerType) { return t; }
         var f = cast::<FunctionPointerType>(t);
-        if f->is_unprototyped || (f->is_raw == raw) { return t; }
+        // A convention's type is always raw: it has no `fn` value twin.
+        if f->is_unprototyped || (f->is_raw == raw) || (f->call_conv != 0) { return t; }
         var ps = vec::<*Type>();
         var ms = vec::<ParamMode>();
         for var i: usize = 0; i < f->params.size(); ++i {
@@ -1096,11 +1099,11 @@ class CanonicalTypeStore {
         }
         var pset = vec::<*Type>();
         for var i: usize = 0; i < f->panic_set.size(); ++i { pset.push_back(f->panic_set[i]); }
-        return self.func(&ps, &ms, f->return_type, f->canon_panics, &pset, raw);
+        return self.func(&ps, &ms, f->return_type, f->canon_panics, &pset, raw, f->call_conv);
     }
 
     priv fn _probe_func(self, h: u64, params: *vec::<*Type>, modes: *vec::<ParamMode>,
-                        n: usize, ret: *Type, panics: bool, pset: *vec::<*Type>, ns: usize, raw: bool) -> *Type {
+                        n: usize, ret: *Type, panics: bool, pset: *vec::<*Type>, ns: usize, raw: bool, cc: u8) -> *Type {
         var b = self._bucket(h);
         if b == &null { return &null; }
         for var i: usize = 0; i < b->size(); ++i {
@@ -1111,6 +1114,7 @@ class CanonicalTypeStore {
             if f->params.size() != n { continue; }
             if f->canon_panics != panics { continue; }
             if f->is_raw != raw { continue; }
+            if f->call_conv != cc { continue; }
             if f->panic_set.size() != ns { continue; }
             var same = true;
             for var j: usize = 0; j < n; ++j {

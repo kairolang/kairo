@@ -232,6 +232,11 @@ class CallConvCheck derives RecursiveASTVisitor::<CallConvCheck> {
     /// a function local to another, keeps it in its TU.
     priv fn _crosses_boundary(self, f: *FunctionDecl) -> bool {
         if f->has_ffi_linkage() { return true; }
+        // A requirement is no C++ function: its witness thunk is, inside the
+        // witness the conformance emits, and the conformer is checked here
+        // in its own right.
+        var fdc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (fdc != &null) && (fdc->dc_kind == DeclContextKind::Interface) { return false; }
         var d = static_cast::<*Decl>(f);
         while d != &null {
             var v = d->visibility;

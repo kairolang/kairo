@@ -1457,6 +1457,9 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     priv fn _signature_matches(self, f: *FunctionDecl, m: *FunctionDecl, x: *Type, iface: *Type, idecl: *InterfaceDecl) -> bool {
         if f->is_method() != m->is_method() { return false; }
         if f->is_method() && (f->is_const() != m->is_const()) { return false; }
+        // The convention is part of the signature: the witness is called as
+        // the requirement says.
+        if f->call_conv != m->call_conv { return false; }
         if f->generic_params.size() != m->generic_params.size() { return false; }
         if f->params.size() != m->params.size() { return false; }
         for var i: usize = 0; i < f->params.size(); ++i {

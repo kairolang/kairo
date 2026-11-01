@@ -18,6 +18,7 @@
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import AST::Context::ASTContext::*;
+import AST::LangItems::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::CanonicalTypes::*;
@@ -1108,7 +1109,9 @@ class TypeUtil {
             // a syntax TupleType falls to the default and prints its canonical.
             case TypeKind::FunctionPointerType {
                 var f = cast::<FunctionPointerType>(t);
-                var s = ("unsafe fn (") if (f->is_raw) else ("fn (");
+                // A convention implies raw, so its type is written without
+                // `unsafe`: `fn (u64) @preserve_most -> u64`.
+                var s = ("unsafe fn (") if (f->is_raw && (f->call_conv == 0)) else ("fn (");
                 for var i: usize = 0; i < f->params.size(); ++i {
                     if i > 0 { s += ", "; }
                     // the mode is in the canonical, so it is in the spelling:
@@ -1117,6 +1120,7 @@ class TypeUtil {
                     s += self.str(f->params[i]);
                 }
                 s += ")";
+                if f->call_conv != 0 { s += " @" + LangAttrs::call_conv_name(f->call_conv); }
                 // The effect is part of the type: `fn () panic(E1, E2)`.
                 if f->canon_panics {
                     s += " panic";

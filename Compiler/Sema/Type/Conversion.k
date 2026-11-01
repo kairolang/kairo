@@ -372,6 +372,8 @@ class Conversion {
             var ff = cast::<FunctionPointerType>(fu);
             var tf = cast::<FunctionPointerType>(tq);
             if tf->is_raw && (!ff->is_raw) { return ImplicitRank::None; }
+            // A calling convention converts only to itself, either way.
+            if tf->call_conv != ff->call_conv { return ImplicitRank::None; }
             return (ImplicitRank::Converted) if (self._fn_effect_widens(ff, tf))
                    else (ImplicitRank::None);
         }

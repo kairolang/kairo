@@ -2289,6 +2289,9 @@ class EmitIR {
         // type's; an operand that names a function is a plain call below.
         var fv = self._fn_value_type(n->callee, callee);
         if fv != &null {
+            // A call through a convention's pointer is a call with it: the
+            // type spells the attribute, and the object's ABI note records it.
+            if fv->call_conv != 0 { self._cc_bits |= (u32(1) << (u32(fv->call_conv) - u32(1))); }
             // `fn(...) -> !` lowers to `__kairo_fn<void(...)>`: C++ cannot
             // put noreturn on that call, so a function whose last act is
             // the call (`oom`) would fall off its end under [[noreturn]]

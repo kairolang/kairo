@@ -384,6 +384,16 @@ What T decides:
   resolves, its `fn` parameters and result are made raw
   (`_ffi_c_raw_fns`). `var g = f` / `var g = fn (...) {...}` infers the
   `fn` value, not the raw type (StmtTyping::_fn_value_decay).
+- **Calling conventions in `fn` types** [DONE]: `fn(A) @preserve_most -> R`
+  sets `FunctionPointerType::call_conv` (the parser, right after the
+  parameter list), in the canonical key beside the raw bit. A type with a
+  convention is always raw (a closure cannot carry one, CallConvCheck), so
+  `fn_with_raw` never gives it a `fn` value twin and `_fn_value_decay`
+  keeps it. A named function's value type carries its FunctionDecl::
+  call_conv (fn_pointer_type). Conversion and deduction take a convention
+  only to itself, either way; check_convertible says so (SC028E, both
+  conventions in the note). Structural conformance compares it
+  (ConformanceChecking::_signature_matches).
 - **#68 refinement**; **enum underlying** must be a builtin integer;
   **`extend` target** resolved first; a record target becomes Self.
 

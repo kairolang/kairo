@@ -100,6 +100,7 @@ import Sema::Type::PatternTyping::*;
 import Sema::Type::NullnessFlow::*;
 import Sema::Check::EffectPropagation::*;
 import AST::Context::ASTContext::*;
+import AST::LangItems::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::SymbolTable::*;
@@ -885,7 +886,11 @@ class ExprTyper
         if f->is_panic() { canonical_set(&(self.tu), &(panic_home(f)->panic_set), &pset); }
         // A named function is a function pointer: the raw `unsafe fn`, which
         // widens to a `fn` value wherever one is wanted (Conversion).
-        return self.sc->types->func(&ps, &ms, r, f->is_panic(), &pset, true);
+        // Its calling convention is part of that type (either link of the
+        // chain may carry it; RedeclMerge holds them to one).
+        var cc = f->call_conv;
+        if (cc == 0) && (f->canonical_decl() != &null) { cc = f->canonical_decl()->call_conv; }
+        return self.sc->types->func(&ps, &ms, r, f->is_panic(), &pset, true, cc);
     }
 
     // === outcomes ===========================================================
@@ -992,6 +997,23 @@ class ExprTyper
         // `fn` -> `unsafe fn`: no conversion, and the reason is the capture.
         var ffp = dyn_cast::<FunctionPointerType>(canon_unqual(from));
         var tfp = dyn_cast::<FunctionPointerType>(canon_unqual(to));
+        // Across calling conventions, either way: a caller through the
+        // target type would save the wrong registers (Conversion).
+        if (ffp != &null) && (tfp != &null) && (ffp->call_conv != tfp->call_conv) {
+            var fs = self.tu.str(from);
+            var ts = self.tu.str(to);
+            var fc = LangAttrs::call_conv_name(ffp->call_conv);
+            var tc = LangAttrs::call_conv_name(tfp->call_conv);
+            var fcs = ("the default calling convention") if (fc.size() == 0) else ("\x27@" + fc + "\x27");
+            var tcs = ("the default calling convention") if (tc.size() == 0) else ("\x27@" + tc + "\x27");
+            var b = self.sc->diag->report(DiagID::SC028E, e->range.start,
+                f"cannot convert '{fs}' to '{ts}': the calling conventions differ");
+            b.first(e->range);
+            b.note(e->range.start, f"the value has {fcs}; the target type has {tcs}");
+            b.emit();
+            e->poison();
+            return false;
+        }
         if (ffp != &null) && (tfp != &null) && tfp->is_raw && (!ffp->is_raw) {
             var what = "a 'fn' value may hold a capturing closure, which has no function pointer";
             if isa::<ClosureExpr>(self.tu.strip_parens(e)) { what = "this closure captures, so it has no function pointer"; }

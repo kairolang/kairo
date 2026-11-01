@@ -741,6 +741,11 @@ class FunctionPointerType derives Type {
     /// Imported C/C++ function pointers are raw (TypeImport), and so are the
     /// `fn` parameters and result of an `ffi "c"` function (TypeResolve).
     pub var is_raw: bool;
+    /// `fn(A) @preserve_most -> R`: the calling convention, as
+    /// FunctionDecl::call_conv (0 the default). In the canonical key, and a
+    /// type with one is always raw: a closure cannot carry a convention, so
+    /// only a named function can be its value.
+    pub var call_conv: u8;
     /// Per-parameter passing mode, PARALLEL to `params` (same count, same
     /// order). In the canonical key: `fn(@inout i32)` and `fn(i32)` are two
     /// canonicals (CanonicalTypeStore::func). Populated by whoever populates
@@ -780,6 +785,7 @@ class FunctionPointerType derives Type {
         node->return_type     = return_type;
         node->is_unprototyped = false;
         node->is_raw          = false;
+        node->call_conv       = 0;
         if return_type != &null {
             propagate_flags(node, return_type);
         }
@@ -797,6 +803,7 @@ class FunctionPointerType derives Type {
         node->init_spans(&(ctx->ast_alloc));
         node->is_unprototyped = true;
         node->is_raw          = false;
+        node->call_conv       = 0;
         return node;
     }
 
@@ -809,6 +816,7 @@ class FunctionPointerType derives Type {
         node->recovery_kind = TypeKind::FunctionPointerType;
         node->range         = range;
         node->is_raw        = false;
+        node->call_conv     = 0;
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_spans(&(ctx->ast_alloc));
         return node;
