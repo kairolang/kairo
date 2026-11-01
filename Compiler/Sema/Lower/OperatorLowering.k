@@ -152,10 +152,14 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
             default { 0; }
         }
 
-        // `x in xs`: xs is the receiver, x the argument.
+        // `x in xs`: xs is the receiver, x the argument -- operands out of
+        // source order, which the call records for SequenceLowering (C++
+        // evaluates the receiver first; Kairo evaluates x first).
         if k == TokenKind::KwIn {
             args.push_back(n->lhs);
-            return self._call(static_cast::<*Expr>(n), n->rhs, n->op_token, f, n->op_via_free, &args, n->op_instance);
+            var c = self._call(static_cast::<*Expr>(n), n->rhs, n->op_token, f, n->op_via_free, &args, n->op_instance);
+            if isa::<CallExpr>(c) { cast::<CallExpr>(c)->recv_last = true; }
+            return c;
         }
 
         // `a + b` from `op +=`: copy, mutate, yield. Guarded on the base:

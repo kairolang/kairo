@@ -124,6 +124,12 @@ class CallExpr derives Expr {
     /// typed `R`. Null on every other call.
     pub var safe_result: *Type = &null;
 
+    /// `x in xs` through a user `op in`: the call's operand zero (`xs`, the
+    /// receiver, or a free operator's first argument) is the source's RIGHT
+    /// operand, evaluated after the other. Written by OperatorLowering;
+    /// SequenceLowering binds `x` first when the order is observable.
+    pub var recv_last: bool = false;
+
     static fn create(
         ctx:    *ASTContext,
         range:  SourceRange,
@@ -143,6 +149,7 @@ class CallExpr derives Expr {
         node->witness_row   = &null;
         node->dep_args      = create_empty_frozen_list::<*Type>();
         node->safe_result   = &null;
+        node->recv_last     = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -165,6 +172,7 @@ class CallExpr derives Expr {
         node->witness_self  = &null;
         node->witness_row   = &null;
         node->dep_args      = create_empty_frozen_list::<*Type>();
+        node->recv_last     = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

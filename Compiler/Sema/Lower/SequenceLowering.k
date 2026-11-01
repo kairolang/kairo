@@ -200,7 +200,9 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         if recv != &null { ops.push_back(recv->base); places.push_back(recv->base->is_lvalue() && (!self._pointer_typed(recv->base))); }
         for var i: usize = 0; i < n->args.size(); ++i { ops.push_back(n->args[i]); places.push_back(false); }
         var hoist = vec::<bool>();
-        if !self._plan(&ops, &hoist, &places) { return out; }
+        var planned = self._plan(&ops, &hoist, &places);
+        if n->recv_last && (ops.size() == 2) && (hoist.size() == 2) { planned = self._plan_recv_last(&ops, &hoist, &places); }
+        if !planned { return out; }
 
         var stmts = self.list_builder::<*Stmt>();
         var k: usize = 0;
@@ -224,6 +226,26 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         se->value_category = Expr::ValueCategory::RValue;
         se->expr_flags     = n->expr_flags;
         return static_cast::<*Expr>(se);
+    }
+
+    /// `x in xs` through a user `op in`: the call is `xs.op_in(x)` (or
+    /// `op_in(xs, x)`), operand zero the source's RIGHT operand, and C++
+    /// evaluates a receiver before the arguments. \p ops is that pair, C++
+    /// order; Kairo evaluates `x` first. `x` is bound ahead of the call
+    /// when the two can observe each other: one has an effect and the other
+    /// has one or reads state. `xs` stays in place, evaluated after the
+    /// local.
+    priv fn _plan_recv_last(self, ops: *vec::<*Expr>, hoist: *vec::<bool>, places: *vec::<bool>) -> bool {
+        var late  = (*ops)[0];
+        var early = (*ops)[1];
+        var late_fx  = !self.synth.pure_read(late);
+        var early_fx = !self.synth.pure_read(early);
+        var late_st  = late_fx || ((self._place_moves(late)) if ((*places)[0]) else (self._reads_state(late)));
+        var early_st = early_fx || self._reads_state(early);
+        var need = (late_fx && early_st) || (early_fx && late_st);
+        (*hoist)[0] = false;
+        (*hoist)[1] = need && (early->type_ != &null);
+        return (*hoist)[1];
     }
 
     ///   f() - g()   ->   ({ T __kairo_ord0 = f(); __kairo_ord0 - g(); })
