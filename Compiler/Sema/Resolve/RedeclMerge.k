@@ -203,6 +203,7 @@ import Token::Token::*;
 import Token::TokenKind::*;
 import Diagnostic::Registry::*;
 import AST::ParamMode::*;
+import AST::LangItems::*;
 
 ///
 /// \class RedeclMerge
@@ -1171,6 +1172,34 @@ class RedeclMerge {
         cur->poison();
     }
 
+    /// The calling convention is part of what a call through any of the
+    /// chain's declarations does: a caller that saw one declaration saves
+    /// the registers ITS convention says the callee clobbers, so a chain
+    /// that disagrees miscompiles every call made through the other one.
+    /// Not part of _same_signature: a convention alone never makes two
+    /// declarations distinct overloads (C++ cannot overload on it either),
+    /// so a same-signature pair that differs only here lands in this check.
+    priv fn _check_conv_agrees(self, name: string, prev: *FunctionDecl,
+                               cur: *FunctionDecl) {
+        if prev->call_conv == cur->call_conv { return; }
+        var now    = self._conv_phrase(cur->call_conv);
+        var before = self._conv_phrase(prev->call_conv);
+        self.sc->diag->report(DiagID::R039E, cur->range.start,
+            f"'{name}' redeclared with {now}; the "
+            + "parameter types are identical, so this is one function"
+        ).first(cur->range)
+         .note(DiagID::R039N, prev->range.start,
+            f"previously declared here with {before}")
+         .first(prev->range).emit();
+        cur->poison();
+    }
+
+    /// `'@preserve_most'`, or the default convention, for a message.
+    priv fn _conv_phrase(self, cc: u8) -> string {
+        if cc == 0 { return "the default calling convention"; }
+        return "\x27@" + LangAttrs::call_conv_name(cc) + "\x27";
+    }
+
     // === linking ==========================================================
 
     /// Two same-signature declarations of one function: link them, make
@@ -1228,6 +1257,7 @@ class RedeclMerge {
         self._check_defaults_once(prev, cur);
         self._check_linkage_agrees(name, prev, cur);
         self._check_modifiers_agree(name, prev, cur);
+        self._check_conv_agrees(name, prev, cur);
 
         if prev->has_body() && cur->has_body() {
             self.sc->diag->report(DiagID::R029E, cur->range.start,

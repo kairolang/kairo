@@ -3116,3 +3116,104 @@ group = "calling-convention"
     integers.
     """
 
+[SC134]
+brief = "calling convention on a function that cannot have one"
+group = "calling-convention"
+
+    [SC134.E]
+    explain = """
+    # a calling convention cannot be set here
+
+    a calling convention must be known to every caller. constructors, destructors (`op delete`),
+    operators, `main`, generators, `async` functions, closures and `eval fn`s are called by code
+    Kairo does not write -- C++ object lifetime, the C runtime, the coroutine machinery, a
+    lambda's call operator, the constant evaluator -- which always calls with the C convention.
+
+    ```kairo
+    class Buffer {
+        @preserve_most          // error: a constructor
+        fn Buffer(self) { }
+    }
+    ```
+
+    ## how to fix
+
+    move the slow work into a `priv` free function that carries the convention, and call it from
+    the constructor, operator or closure.
+    """
+
+[SC135]
+brief = "override disagrees with the calling convention of the method it overrides"
+group = "calling-convention"
+
+    [SC135.E]
+    explain = """
+    # a calling convention must agree across an override set
+
+    a call through a base reference uses the base method's convention, whichever override it
+    reaches. every method in one override set therefore needs the same convention: the base, each
+    override, and the default when none is written.
+
+    ```kairo
+    class Base {
+        @preserve_most virtual fn tick(self) { }
+    }
+    class Derived derives Base {
+        override fn tick(self) { }     // error: the base has '@preserve_most'
+    }
+    ```
+
+    ## how to fix
+
+    write the same convention on every method of the set, or on none of them.
+    """
+
+    [SC135.N]
+    explain = "Points at the overridden method, and names the calling convention it has."
+
+[SC136]
+brief = "calling convention on a function C or C++ can see"
+group = "calling-convention"
+
+    [SC136.E]
+    explain = """
+    # a calling convention cannot cross the C/C++ boundary
+
+    GCC has no spelling for `preserve_most`, `preserve_all` or `preserve_none`, so a C or C++
+    translation unit compiled by it cannot call such a function correctly. a function that is
+    declared `ffi "c"` / `ffi "c++"`, or that is not `priv` (and is therefore in the module's
+    emitted C++ header and its `#include "x.k"` interface), is visible to such code, so it cannot
+    carry one.
+
+    ```kairo
+    @preserve_most
+    fn grow(n: usize) { }           // error: pub by default, so it is in the header
+
+    @preserve_most
+    priv fn grow_slow(n: usize) { } // fine: stays in this file
+    ```
+
+    ## how to fix
+
+    make the function `priv`, or give the public entry point the default convention and have it
+    call a `priv` function that carries the convention.
+    """
+
+[SC137]
+brief = "calling convention not available on the target"
+group = "calling-convention"
+
+    [SC137.E]
+    explain = """
+    # the target has no such calling convention
+
+    LLVM implements `preserve_most`, `preserve_all` and `preserve_none` on x86-64 and AArch64
+    only (any operating system). on any other target clang would drop the attribute with a
+    warning and call the function with the C convention, which changes what every caller may
+    assume, so Kairo makes it an error instead.
+
+    ## how to fix
+
+    remove the attribute, or keep the declaration that carries it in code built only for x86-64
+    and AArch64.
+    """

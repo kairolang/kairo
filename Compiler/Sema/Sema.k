@@ -59,6 +59,7 @@ import Sema::Check::MoveCheck::*;
 import Sema::Check::PatternChecking::*;
 import Sema::Check::ReturnPathCheck::*;
 import Sema::Check::FnPurityCheck::*;
+import Sema::Check::CallConvCheck::*;
 import Sema::Check::ControlFlowAnalysis::*;
 import Sema::Check::WhereGuardCheck::*;
 import Sema::Check::OperatorSignatureCheck::*;
@@ -403,6 +404,11 @@ class Sema {
         // Before every lowering, so a user operator or a lowered call is
         // never mistaken for something the user wrote.
         { var _p = TimeRegion("FnPurity"); FnPurityCheck(&self.sc).run(); }
+
+        // Where a calling convention may stand. REQUIRES ExprTyper (X writes
+        // is_generator); before every lowering, which mints functions (thunks,
+        // a lowered closure's operator) that carry none.
+        { var _p = TimeRegion("CallConv"); CallConvCheck(&self.sc).run(); }
 
         // Unreachable code (SC003W), on the same divergence rule as
         // ReturnPath (FallThrough). Same REQUIRES; before every lowering, so

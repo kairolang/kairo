@@ -79,6 +79,7 @@ import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Check::ClassLifecycle::*;
+import Sema::Check::CallConvCheck::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::DeclContext::*;
@@ -209,6 +210,9 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
 
     fn visit_attributed_expr(self, n: *AttributedExpr) -> bool {
         var nm = self.sc->ctx->get_spelling(n->name);
+        // A calling convention on a closure is an error of its own, with
+        // its reason (CallConvCheck), not a feature still to come.
+        if (n->operand != &null) && isa::<ClosureExpr>(n->operand) && (call_conv_of_attr(nm) != 0) { return true; }
         self._gate(SourceRange::from_bounds(n->range.start, u32(1)) | n->name.range,
             f"the expression attribute '@{nm}\x27");
         return true;
