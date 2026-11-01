@@ -805,6 +805,12 @@ class LowerTargets {
     /// The runtime's division-by-zero crash (Lib/rt/crash.c), declared by the
     /// prelude: noreturn and cold, so the check costs one predicted branch.
     static fn div_zero_fn() -> string { return "kairo_rt_div_zero"; }
+    /// clang's infinity and quiet NaN for a float, by its builtins' type
+    /// tag (`f`, `l`, `f16`, `f128`, "" for double): the primitive limits
+    /// `f32::INFINITY` / `f32::NAN` (PrimitiveLimits::float_cxx), which no
+    /// literal spells. Both are constant expressions to clang.
+    static fn float_inf(tag: string) -> string { return "__builtin_inf" + tag; }
+    static fn float_nan(tag: string) -> string { return "__builtin_nan" + tag; }
 
     /// The checked downcast's pointer, the parameter of the lambda EmitIR
     /// wraps `dynamic_cast` in to map its null onto the null nullable

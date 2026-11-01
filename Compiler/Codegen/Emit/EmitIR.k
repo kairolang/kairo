@@ -84,6 +84,7 @@ import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
 import AST::LangItems::*;
+import AST::PrimitiveLimits::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
 import AST::Node::Declarations::*;
@@ -2824,6 +2825,15 @@ class EmitIR {
     /// An unsuffixed f64 literal with no separator keeps its own bytes.
     priv fn _float_lit(self, n: *FloatingLiteralExpr) {
         var t = n->token;
+        // A primitive's limit (`f32::MAX`, `f64::NAN`): no digits behind it.
+        if n->limit != u8(0) {
+            var c0 = canon_unqual(n->type_);
+            if (c0 == &null) || (!isa::<BuiltinType>(c0)) { self._ice(t.range, "EmitIR: a primitive limit literal is not typed as its builtin"); }
+            var text = PrimitiveLimits::float_cxx(cast::<BuiltinType>(c0)->builtin, static_cast::<PrimLimit>(n->limit));
+            if text == "" { self._ice(t.range, "EmitIR: a primitive limit literal names no float limit"); }
+            self._cg->sink->spell(t.range, text);
+            return;
+        }
         var tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid());
         var d: *Immediate::FloatData = &null;
         if tbl != &null { d = tbl->get::<Immediate::FloatData>(t.imm); }

@@ -515,6 +515,11 @@ class IntegerLiteralExpr derives Expr {
     pub var token: Token;
     pub var imm: *Immediate::IntData = &null; ///< pointer to the immediate table entry
     pub var ctx: *ASTContext;
+    /// A BuiltinKind the literal IS, as a suffix would make it, or 255: a
+    /// literal minted with no source text behind it (PrimitiveLimitDesugar's
+    /// `u64::MAX`), which has no suffix to read. Stored as u8 because
+    /// CanonicalNodes sits above this file. One writer: the minting pass.
+    pub var pinned_kind: u8 = 255;
     
     static fn create(
         ctx:   *ASTContext,
@@ -527,6 +532,7 @@ class IntegerLiteralExpr derives Expr {
         node->token = token;
         node->ctx   = ctx;
         node->imm   = ctx->get_imm_table()->get::<Immediate::IntData>(token.imm);
+        node->pinned_kind = 255;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -539,6 +545,7 @@ class IntegerLiteralExpr derives Expr {
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::IntegerLiteralExpr;
         node->range         = range;
+        node->pinned_kind   = 255;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -554,6 +561,8 @@ class IntegerLiteralExpr derives Expr {
     fn get_spelling(self) -> string {
         return self.ctx->get_spelling(self.token);
     }
+
+    fn is_pinned(self) -> bool { return self.pinned_kind != 255; }
 
     fn get_body_range(self) -> SourceRange {
         assert((self.imm != &null) && r"IntegerLiteralExpr::get_body_range: imm pointer is null");
@@ -651,6 +660,13 @@ class FloatingLiteralExpr derives Expr {
     pub var token: Token;
     pub var ctx: *ASTContext; ///< for TokenText::get_name()
     pub var imm: *Immediate::FloatData = &null; ///< pointer to the immediate table entry
+    /// As IntegerLiteralExpr::pinned_kind: the float type a minted literal
+    /// is, or 255.
+    pub var pinned_kind: u8 = 255;
+    /// The PrimLimit (AST/PrimitiveLimits.k) a minted literal stands for,
+    /// or 0: `f32::MAX`, `f64::NAN`. EmitIR spells it from the limit, since
+    /// no source digits exist and INFINITY / NAN have none at all.
+    pub var limit: u8 = 0;
 
     static fn create(
         ctx:   *ASTContext,
@@ -666,6 +682,8 @@ class FloatingLiteralExpr derives Expr {
         // node asserts on a null imm, so the table entry is attached at
         // construction, not on first use.
         node->imm   = ctx->get_imm_table()->get::<Immediate::FloatData>(token.imm);
+        node->pinned_kind = 255;
+        node->limit       = 0;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -679,6 +697,8 @@ class FloatingLiteralExpr derives Expr {
         node->recovery_kind = ExprKind::FloatingLiteralExpr;
         node->range         = range;
         node->ctx           = ctx;
+        node->pinned_kind   = 255;
+        node->limit         = 0;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -725,6 +745,8 @@ class FloatingLiteralExpr derives Expr {
         return self.ctx->get_spelling(self.get_suffix_range());
     }
     
+    fn is_pinned(self) -> bool { return self.pinned_kind != 255; }
+
     fn get_bits(self) -> u32 {
         assert((self.imm != &null) && r"FloatingLiteralExpr::get_bits: imm pointer is null");
         return self.imm->bits;

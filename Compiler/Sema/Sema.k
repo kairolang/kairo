@@ -40,6 +40,7 @@ import Sema::Resolve::RedeclMerge::*;
 import Sema::Resolve::AccessCheck::*;
 import Sema::Expand::RequiresDesugar::*;
 import Sema::Expand::EvalIfFolding::*;
+import Sema::Expand::PrimitiveLimitDesugar::*;
 import Sema::Verify::LoopContextCheck::*;
 import Sema::Verify::ArmOrderCheck::*;
 import Sema::Verify::JumpLabelCheck::*;
@@ -242,6 +243,9 @@ class Sema {
         // The exception is a declaration-scope one on a type fact: it is
         // deferred, V, N, T and RedeclMerge see all of its branches, and
         // EvalIfLateFolding decides it in the T stage (EVAL.md 4.2b).
+        // Before it: `eval if i32::MAX > N` folds a literal, as every later
+        // pass reads one.
+        { var _p = TimeRegion("PrimitiveLimits"); PrimitiveLimitDesugar(&self.sc).run(); }
         { var _p = TimeRegion("EvalIfFolding"); EvalIfFolding(&self.sc).run(); }
         // TODO(sema): MacroExpansion(&self.sc).run();
         var desugar = RequiresDesugar(self.sc.ctx);

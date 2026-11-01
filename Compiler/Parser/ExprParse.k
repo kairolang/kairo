@@ -2249,6 +2249,9 @@ class <T> ExprParse {
             return is_annotation(k);
         }) && (((dyn()->ig_peek_kind()) == TokenKind::OpLParen)
             || ((dyn()->ig_peek_kind()) == TokenKind::OpColonColon)) {
+            if ((dyn()->ig_peek_kind()) == TokenKind::OpColonColon) && (dyn()->tu != &null) {
+                dyn()->tu->has_prim_member = true;   // PrimitiveLimitDesugar mints it.
+            }
             return self._parse_ident_expr();
         }
 

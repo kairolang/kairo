@@ -108,7 +108,18 @@ overlay on a table miss (`_reexported_cell`). Wildcards fold re-exports.
 
 ### 2.3 E Expand [PARTIAL]
 
-`EvalIfFolding` runs first (EVAL.md §4): every `eval if` whose condition
+`PrimitiveLimitDesugar` runs first: every `<primitive>::NAME` that is one
+of the primitives' associated constants (`i32::MAX`, `f64::NAN`,
+`u8::BITS`; primitives.md, Limits) becomes the literal it is, pinned to its
+type as a suffix would pin it (`IntegerLiteralExpr::pinned_kind`); a float
+one carries its limit for EmitIR to spell (`FloatingLiteralExpr::limit`).
+Nothing in it needs a name: a primitive keyword is in no table, and every
+value follows from the builtin table and the target. A generic argument
+`Buf<u8::BITS>`, which parses as a type, becomes the TypeExpr of a value
+argument. A limit the type lacks (`f8e4m3::INFINITY`) is R024E with a note
+here; a name that is no limit is left for ChainBinding's R024E.
+
+`EvalIfFolding` runs next (EVAL.md §4), and sees those literals: every `eval if` whose condition
 folds is replaced by its taken branch, the declarations of the others are
 discarded, and each scope it folded in gets a NEW frozen table without
 them (the parser indexed every branch; invariant #1 holds -- no table is

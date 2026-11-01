@@ -224,6 +224,9 @@ class TranslationUnit derives DeclContext {
     /// The parser met an `eval for` (InterfaceEmitter writes the eval
     /// helpers, EVAL.md §5). One writer: the parser.
     pub var has_eval_for:   bool = false;
+    /// The parser met `<primitive>::NAME` (`i32::MAX`), so
+    /// PrimitiveLimitDesugar has something to mint. One writer: the parser.
+    pub var has_prim_member: bool = false;
     /// StringLowering spelled a string literal C++ reads at compile time
     /// (EVAL.md 2a), so InterfaceEmitter writes `__kairo_estr`. One writer:
     /// StringLowering.

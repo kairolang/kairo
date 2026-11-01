@@ -163,7 +163,19 @@ class EmitSink {
 
             if self._is_digit(c) {
                 var j = i + 1;
-                while (j < n) && (self._is_ident_char(text[j]) || (text[j] == '.')) { j += 1; }
+                // A float's exponent sign is the literal's own: `0x1p-126f`,
+                // `1e+5`. Hex reads only `p`, since its `e` is a digit.
+                var hex = (j < n) && ((text[j] == 'x') || (text[j] == 'X')) && (c == '0');
+                while j < n {
+                    var cj = text[j];
+                    if self._is_ident_char(cj) || (cj == '.') { j += 1; continue; }
+                    if ((cj == '+') || (cj == '-')) && (j + 1 < n) && self._is_digit(text[j + 1]) {
+                        var pc = text[j - 1];
+                        var expo = (pc == 'p') || (pc == 'P') || ((!hex) && ((pc == 'e') || (pc == 'E')));
+                        if expo { j += 1; continue; }
+                    }
+                    break;
+                }
                 var lit = text.subslice(i, j - i);
                 self.create_int(at, lit);
                 after_operator = false;

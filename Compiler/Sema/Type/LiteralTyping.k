@@ -173,6 +173,9 @@ class <T> LiteralTyping {
 
     fn type_int_literal(self, n: *IntegerLiteralExpr, expected: *Type, negative: bool) -> *Type {
         if n->imm == &null { dyn()->fail(n, DiagID::SC073E, "integer literal has no immediate data"); return &null; }
+        // Minted (`u64::MAX`): its type is fixed, and its value is right by
+        // construction, the magnitude of a MIN under its `-` included.
+        if n->is_pinned() { return dyn()->tu.builtin(static_cast::<BuiltinKind>(n->pinned_kind)); }
         var pb = dyn()->tu.builtin(BuiltinKind::USize)->size_bits;
 
         // suffixed: typed at the literal.
@@ -254,6 +257,7 @@ class <T> LiteralTyping {
 
     fn type_float_literal(self, n: *FloatingLiteralExpr, expected: *Type) -> *Type {
         if n->imm == &null { dyn()->fail(n, DiagID::SC073E, "float literal has no immediate data"); return &null; }
+        if n->is_pinned() { return dyn()->tu.builtin(static_cast::<BuiltinKind>(n->pinned_kind)); }
         if n->has_suffix() {
             // From the text, not the lexer's width: an unknown suffix left
             // that at its f64 default, so `1.5bf16` and `1.5xyz` were f64.
