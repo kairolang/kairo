@@ -1,7 +1,8 @@
 // ref_X: plain C++ on inputs where it has no UB. k_X: the exact spelling
 // EmitIR (and SequenceLowering) writes for the same Kairo code. parity.py
-// compiles both at -O1..-O3 for x86_64 and aarch64 and requires the same
-// instruction count, except the allowlisted pairs (semantic differences).
+// compiles both at -O1..-O3 for x86_64 and aarch64 (the sh_ pairs on its
+// SHIFT_TARGETS at -O1 -O2 -Os -Oz) and requires the same instruction
+// count, except the allowlisted pairs (semantic differences).
 // a duck generic's `a + b` (C++ linkage: a template), instantiated below
 template <class T> T dep_add(T a, T b) {
     return ({ auto&& __kairo_a0 = (a); auto&& __kairo_b0 = (b); [&]() {
@@ -22,22 +23,51 @@ PAIR_BIN(add8, signed char, unsigned, +)  PAIR_BIN(sub8, signed char, unsigned, 
 PAIR_BIN(add16, short, unsigned, +)       PAIR_BIN(sub16, short, unsigned, -)       PAIR_BIN(mul16, short, unsigned, *)
 PAIR_BIN(add32, int, unsigned, +)         PAIR_BIN(sub32, int, unsigned, -)         PAIR_BIN(mul32, int, unsigned, *)
 PAIR_BIN(add64, long long, unsigned long long, +) PAIR_BIN(sub64, long long, unsigned long long, -) PAIR_BIN(mul64, long long, unsigned long long, *)
+#ifdef __SIZEOF_INT128__
 PAIR_BIN(add128, __int128, unsigned __int128, +)  PAIR_BIN(sub128, __int128, unsigned __int128, -)  PAIR_BIN(mul128, __int128, unsigned __int128, *)
+#endif
 
 #define PAIR_NEG(N, T, U) \
     T ref_##N(T a) { return -a; } \
     T k_##N(T a) { return static_cast<T>(static_cast<U>(0) - static_cast<U>(a)); }
 PAIR_NEG(neg8, signed char, unsigned) PAIR_NEG(neg16, short, unsigned) PAIR_NEG(neg32, int, unsigned)
-PAIR_NEG(neg64, long long, unsigned long long) PAIR_NEG(neg128, __int128, unsigned __int128)
+PAIR_NEG(neg64, long long, unsigned long long)
+#ifdef __SIZEOF_INT128__
+PAIR_NEG(neg128, __int128, unsigned __int128)
+#endif
 
-int ref_shl32(int a, int b) { return a << b; }
-int k_shl32(int a, int b) { return static_cast<int>(static_cast<unsigned>(a) << (static_cast<unsigned>(b) & static_cast<unsigned>(31))); }
-long long ref_shl64(long long a, long long b) { return a << b; }
-long long k_shl64(long long a, long long b) { return static_cast<long long>(static_cast<unsigned long long>(a) << (static_cast<unsigned long long>(b) & static_cast<unsigned long long>(63))); }
-int ref_shr32(int a, int b) { return a >> b; }
-int k_shr32(int a, int b) { return static_cast<int>((a) >> (static_cast<unsigned>(b) & static_cast<unsigned>(31))); }
-long long ref_shr64(long long a, long long b) { return a >> b; }
-long long k_shr64(long long a, long long b) { return static_cast<long long>((a) >> (static_cast<unsigned long long>(b) & static_cast<unsigned long long>(63))); }
+// --- shifts (SHIFT spec §8.3): parity.py runs these on its SHIFT_TARGETS ---
+// sh_* plain C++ where it has no UB (a count in [0, W)) against the masked
+// form (count mod R); allowlisted where ARM32 pays for the mask.
+#define SH_PAIR(N, ST, UT, U, RT, RM1) \
+    ST ref_sh_shl##N(ST a, int b) { return static_cast<ST>(a << b); } \
+    ST k_sh_shl##N(ST a, int b) { return static_cast<ST>(static_cast<U>(a) << (static_cast<U>(b) & static_cast<U>(RM1))); } \
+    UT ref_sh_lshr##N(UT a, int b) { return static_cast<UT>(a >> b); } \
+    UT k_sh_lshr##N(UT a, int b) { return static_cast<UT>(static_cast<U>(a) >> (static_cast<U>(b) & static_cast<U>(RM1))); } \
+    ST ref_sh_ashr##N(ST a, int b) { return static_cast<ST>(a >> b); } \
+    ST k_sh_ashr##N(ST a, int b) { return static_cast<ST>(static_cast<RT>(a) >> (static_cast<U>(b) & static_cast<U>(RM1))); }
+SH_PAIR(8, signed char, unsigned char, unsigned, int, 31)
+SH_PAIR(32, int, unsigned, unsigned, int, 31)
+SH_PAIR(64, long long, unsigned long long, unsigned long long, long long, 63)
+#ifdef __SIZEOF_INT128__
+SH_PAIR(128, __int128, unsigned __int128, unsigned __int128, __int128, 127)
+#endif
+
+// a constant count, and a count proven in range (no_wrap): no mask
+int ref_sh_const(int a) { return a << 5; }
+int k_sh_const(int a) { return static_cast<int>(static_cast<unsigned>(a) << static_cast<unsigned>(5)); }
+unsigned ref_sh_rangeloop(unsigned x) { unsigned m = 0; for (int i = 0; i < 32; ++i) { m ^= x << i; } return m; }
+unsigned k_sh_rangeloop(unsigned x) { unsigned m = 0; for (int i = 0; (i < 32); (++i)) { (m ^= static_cast<unsigned>(static_cast<unsigned>(x) << static_cast<unsigned>(i))); } return m; }
+int ref_sh_masked(int a, int b) { return a << (b & 31); }
+int k_sh_masked(int a, int b) { return static_cast<int>(static_cast<unsigned>(a) << static_cast<unsigned>(b & 31)); }
+
+// a runtime count over a loop: the mask is hoisted, paid once per entry
+void ref_sh_loop(unsigned* p, int n, int c) { for (int i = 0; i < n; ++i) p[i] = p[i] << c; }
+void k_sh_loop(unsigned* p, int n, int c) { for (int i = 0; (i < n); (++i)) { (p[i] = static_cast<unsigned>(static_cast<unsigned>(p[i]) << (static_cast<unsigned>(c) & static_cast<unsigned>(31)))); } }
+
+// p[idx()] <<= n: the place bound once, the count masked
+void ref_sh_place(int* p, int n) { p[idx()] <<= n; }
+void k_sh_place(int* p, int n) { ({ auto& __kairo_p0 = (p[idx()]); __kairo_p0 = static_cast<int>(static_cast<unsigned>(__kairo_p0) << (static_cast<unsigned>(n) & static_cast<unsigned>(31))); }); }
 
 // p[idx()] += x
 void ref_place(int* p, int x) { p[idx()] += x; }
