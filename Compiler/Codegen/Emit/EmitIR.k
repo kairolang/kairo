@@ -3985,15 +3985,22 @@ class EmitIR {
         // one cast that takes it, whatever the pointee's cv (CastTyping lets
         // only usize through, so the target always holds the whole address).
         if self._type_is_pointer(n->operand->type_) && self._type_is_builtin_int(n->target) { kind = "reinterpret_cast"; }
+        // `as unsafe *B` between a class and its base (CastTyping's
+        // base_adjust): the base subobject's address, which only
+        // static_cast computes. A reinterpret is right for a first base at
+        // offset 0 and silently wrong for every other one.
+        if n->base_adjust { kind = "static_cast"; }
         // reinterpret_cast cannot cast away qualifiers, and `as unsafe *` is
         // the one Kairo spelling that drops them (the written cast already
         // passed the unsafe-context check). A C-style cast is the one C++
-        // cast that both retypes and drops cv. Between two classes it would
-        // pick static_cast and move the pointer to a base at a nonzero
-        // offset, which `as unsafe *` never does, so that pair goes through
-        // `const volatile void *` first: from there only the bits survive.
+        // cast that both retypes and drops cv. Between two UNRELATED classes
+        // it would pick reinterpret_cast anyway, but the pair still goes
+        // through `const volatile void *` first so the bits are all that
+        // survive whatever clang decides relates them.
         if (n->mode == CastMode::Unsafe) && self._drops_quals(n->operand->type_, n->target) {
-            var bridge = self._record_pointee(n->operand->type_) && self._record_pointee(n->target);
+            // Unless the two are related (base_adjust): then the C-style
+            // cast's static_cast is exactly the adjustment wanted.
+            var bridge = self._record_pointee(n->operand->type_) && self._record_pointee(n->target) && (!n->base_adjust);
             self._cg->sink->spell(n->operand->range, "(" + self._spell._type(n->target, &null) + ")(");
             if bridge { self._cg->sink->spell(n->operand->range, "(const volatile void *)("); }
             self.emit(n->operand);

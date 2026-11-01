@@ -4,10 +4,11 @@
 // `*const i32` written through as `unsafe *i32`. A cast that only adds
 // qualifiers keeps reinterpret_cast.
 //
-// Between two classes a C-style cast is a static_cast, which moves the
-// pointer to a base at a nonzero offset. `as unsafe *` reinterprets with or
-// without a drop, so that pair goes through `const volatile void *`: both
-// casts to B below read D's first word, A's field.
+// Between a class and its base `as unsafe *` moves the pointer to the base
+// subobject, with or without a drop (Codegen/raw_pointer_base_cast.k): the
+// C-style cast's static_cast is that adjustment, and without a drop it is a
+// plain static_cast. Both casts to B below read B's own field, at a nonzero
+// offset in D.
 
 ffi "c" import "stdlib.h"
 
@@ -54,11 +55,11 @@ fn main() -> i32 {
 // IR-NOT:  reinterpret_cast
 // IR:      (w ={{ ?}}(signed int *)(q));
 // IR-NOT:  reinterpret_cast
-// IR:      (bc ={{ ?}}({{ ?}}::const_drop::B *)((const volatile void *)(pc)));
-// IR:      (bm ={{ ?}}reinterpret_cast<const{{ ?}}::const_drop::B *>(pm));
+// IR:      (bc ={{ ?}}({{ ?}}::const_drop::B *)(pc));
+// IR:      (bm ={{ ?}}static_cast<const{{ ?}}::const_drop::B *>(pm));
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %kairo %s -c --cache-dir %t.d/k
 // RUN: %clangxx %t.d/k/*.o %t.d/k/builtin/*.o %t.d/k/kairo/*.o -o %t.exe
-// RUN: %t.exe; test $? -eq 81
+// RUN: %t.exe; test $? -eq 92

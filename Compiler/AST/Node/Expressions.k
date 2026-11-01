@@ -2009,6 +2009,14 @@ class TypeCastExpr derives Expr {
     /// checked there, at compile time); OperatorLowering builds the check.
     pub var enum_check: *Decl = &null;
 
+    /// `p as unsafe *B` between two record pointees one of which derives
+    /// from the other: the address moves to (or back from) the base
+    /// subobject, as an implicit upcast already does. A reinterpret there
+    /// is right only for a first base at offset 0; through any other base
+    /// it reads the wrong fields. Written by CastTyping; EmitIR spells it
+    /// as static_cast (a C-style cast when it also drops a qualifier).
+    pub var base_adjust: bool = false;
+
     static fn create(
         ctx:       *ASTContext,
         range:     SourceRange,
@@ -2027,6 +2035,7 @@ class TypeCastExpr derives Expr {
         node->resolved_op = &null;
         node->op_via_free = false;
         node->resolved_ctor = &null;
+        node->base_adjust = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -2039,6 +2048,7 @@ class TypeCastExpr derives Expr {
         node->resolved_op   = &null;
         node->op_via_free   = false;
         node->resolved_ctor = &null;
+        node->base_adjust   = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

@@ -154,6 +154,22 @@ class <T> CastTyping {
                 n->poison();
                 return &null;
             }
+            // Between related records the address is a base subobject's,
+            // not the same bits: C++'s static_cast moves it, a reinterpret
+            // does not, and only a first base sits at offset 0. Either
+            // direction -- the downcast is the unchecked one the spelling
+            // asks for, but still to the right address.
+            var rsp = dyn()->tu.pointee(src);
+            var rtp = dyn()->tu.pointee(target);
+            if (rsp != &null) && (rtp != &null) {
+                var rsd = dyn()->tu.record_decl(rsp);
+                var rtd = dyn()->tu.record_decl(rtp);
+                if (rsd != &null) && (rtd != &null) && (rsd != rtd) {
+                    if Substitution(dyn()->sc).derives_from(rsp, rtp) || Substitution(dyn()->sc).derives_from(rtp, rsp) {
+                        n->base_adjust = true;
+                    }
+                }
+            }
             return target;
         }
 
