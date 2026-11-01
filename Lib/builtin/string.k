@@ -46,20 +46,17 @@ pub class string {
         self.cap  = 0
     }
 
-    @move fn string(self, other: Self) {
-        self.data = other.data
-        self.len  = other.len
-        self.cps  = other.cps
-        self.cap  = other.cap
+    /// TEMPORARY (2026-11-01): copy-only, a shallow copy, until the owning
+    /// API lands; it replaced the `@move` constructor (a class declares one
+    /// transfer, SC057E). Defaulted, so it stays constexpr for eval
+    /// strings. Shares `data`, owned or not: sound only while
+    /// string has no destructor. Move-only, every lowering that spills a
+    /// string by value (f-string holes, match binders, captures) emitted a
+    /// deleted C++ copy; see TICKETS.TXT.
+    @copy fn string(self, const other: Self) = default
 
-        other.data = &EMPTY[0]
-        other.len  = 0
-        other.cps  = 0
-        other.cap  = 0
-    }
-
-    fn as_ptr(const self) -> *const u8 { return self.data }
-    fn length(const self) -> usize     { return self.len }
-    fn codepoints(const self) -> usize { return self.cps }
-    fn capacity(const self) -> usize   { return self.cap }
+    inline fn as_ptr(const self) -> *const u8 { return self.data }
+    inline fn length(const self) -> usize     { return self.len }
+    inline fn codepoints(const self) -> usize { return self.cps }
+    inline fn capacity(const self) -> usize   { return self.cap }
 }

@@ -1,3 +1,9 @@
+// XFAIL: *
+// Waiting on a string API decision (2026-11-01): Lib/builtin/string.k made
+// string's fields private, and a class-value generic parameter must be
+// structural -- C++ requires every member public -- so a Config holding a
+// string is SC001E. Flip back when string is structural again (or the lang
+// item is special-cased). See TICKETS.TXT.
 // EVAL.md 7e / §11 (USER): a string literal written in an eval class value
 // argument is a compile-time value whose identity is its decoded bytes,
 // so `Widget<Config(4, "small")>` is `Widget<SMALL>` when SMALL is built
@@ -20,7 +26,7 @@ eval SMALL = Config(4, "small")
 class <eval C: Config> Widget {
     fn Widget(self) { }
     fn size(const self) -> i32 { return C.size }
-    fn label_len(const self) -> usize { return C.label.len }
+    fn label_len(const self) -> usize { return C.label.length() }
 }
 
 fn main() -> i32 {

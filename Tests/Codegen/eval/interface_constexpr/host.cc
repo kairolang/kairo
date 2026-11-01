@@ -4,7 +4,7 @@
 
 static_assert(::lib::N == 8);
 static_assert(::lib::NEXT == 9);
-static_assert(::lib::TAG.len == 3);
+static_assert(::lib::TAG.length() == 3);
 static int arr[::lib::N];
 
 int main() { return (sizeof(arr) / sizeof(arr[0]) == 8) ? 42 : 1; }

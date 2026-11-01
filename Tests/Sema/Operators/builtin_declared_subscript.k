@@ -33,7 +33,7 @@ fn main() -> i32 {
 // RUN: cp -r %S/../../../Lib/builtin %t/builtin
 // RUN: cp -r %S/../../../Lib/rt %t/rt
 // RUN: python3 %S/Inputs/patch_builtin.py %t/builtin 'pub struct <T> Vector' %S/Inputs/vector_subscript.members
-// RUN: python3 %S/Inputs/patch_builtin.py %t/builtin 'pub struct string' %S/Inputs/string_subscript.members
+// RUN: python3 %S/Inputs/patch_builtin.py %t/builtin 'pub class string' %S/Inputs/string_subscript.members
 
 // RUN: { %kairo %s --builtins-dir=%t/builtin --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: {{error|warning}}

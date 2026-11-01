@@ -23,7 +23,7 @@ fn num(v: i32) -> i32? = v
 fn score(i: Inst) -> i32 = match i {
     case .Const(var value)    => value
     case .Binary(var lhs)     => lhs
-    case .Text(const s)       => s.len as i32
+    case .Text(const s)       => s.length() as i32
     case .Nop                 => 0
 }
 

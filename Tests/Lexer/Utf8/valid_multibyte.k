@@ -8,5 +8,5 @@
 fn main() -> i32 {
     var a = "📣"
     var b = "�"
-    return (a.cp_len + b.cp_len) as i32
+    return (a.codepoints() + b.codepoints()) as i32
 }

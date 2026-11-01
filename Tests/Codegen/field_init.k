@@ -73,7 +73,7 @@ fn main() -> i32 {
     n += chk(payload(a.s) == -1)
     n += chk(payload(a.t) == -1)
     n += chk(payload(a.u) == 3)
-    n += chk(a.str.len == 2)
+    n += chk(a.str.length() == 2)
     n += chk(a.c == 7)
     n += chk((a.d == 12) && (calls == 2))    // tick(1) before tick(2)
 

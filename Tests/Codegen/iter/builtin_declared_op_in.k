@@ -13,8 +13,8 @@
 extend string {
     fn op in (self) -> yield u8 {
         var i: usize = 0
-        while i < self.len {
-            var b = self.data[i]
+        while i < self.length() {
+            var b = self.as_ptr()[i]
             yield b
             i = i + 1
         }

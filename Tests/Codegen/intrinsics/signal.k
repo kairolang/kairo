@@ -3,7 +3,7 @@
 
 fn main() -> i32 {
     var m = "sig"
-    __builtin_signal(m.data, m.len, SIGNAL::SIGTERM)
+    __builtin_signal(m.as_ptr(), m.length(), SIGNAL::SIGTERM)
 }
 
 // --- lit wiring -----------------------------------------------------------

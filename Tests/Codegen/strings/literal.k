@@ -10,7 +10,7 @@ fn main() -> i32 {
     var u = "\x27\n\U0001F4E3"            // 1 + 1 + 4 bytes, 3 codepoints
     var r = r"\n"                         // 2 raw bytes
     // 18 + 15 + 2 + 6 + 3 + 2 + 1 == 47
-    return ((s.len + s.cp_len + t.len + u.len + u.cp_len + r.len) as i32) + chk(s.cap == 0)
+    return ((s.length() + s.codepoints() + t.length() + u.length() + u.codepoints() + r.length()) as i32) + chk(s.capacity() == 0)
 }
 
 // --- lit wiring -----------------------------------------------------------

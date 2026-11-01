@@ -2,7 +2,7 @@
 
 fn main() -> i32 {
     var m = "boom"
-    __builtin_crash(m.data, m.len, 42)
+    __builtin_crash(m.as_ptr(), m.length(), 42)
 }
 
 // --- lit wiring -----------------------------------------------------------

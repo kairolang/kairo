@@ -109,8 +109,8 @@ fn main() -> i32 {
 // IR-DAG: signed int __kairo_m0_s = code;
 // IR-DAG: default: __builtin_trap();
 // IR-DAG: case 300 ... 399: goto __kairo_m0_t{{[0-9]+}};
-// IR-DAG: switch(__kairo_m0_s.len) {
-// IR-DAG: __builtin_memcmp(static_cast<const void *>(__kairo_m0_s.data), static_cast<const void *>("abc"), 3) == 0
+// IR-DAG: switch(__kairo_m0_s.length()) {
+// IR-DAG: __builtin_memcmp(static_cast<const void *>(__kairo_m0_s.as_ptr()), static_cast<const void *>("abc"), 3) == 0
 // IR-DAG: goto __kairo_brk{{[0-9]+}}_outer;
 // IR-DAG: goto __kairo_cont{{[0-9]+}}_outer;
 // IR-DAG: __kairo_brk{{[0-9]+}}_outer:;

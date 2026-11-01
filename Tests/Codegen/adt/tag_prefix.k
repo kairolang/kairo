@@ -18,7 +18,7 @@ fn sum(p: Pair) -> i32 = match p {
 }
 
 fn named(n: Named) -> i32 = match n {
-    case .Called(const s) => s.len as i32
+    case .Called(const s) => s.length() as i32
     case .Anon            => -1
 }
 

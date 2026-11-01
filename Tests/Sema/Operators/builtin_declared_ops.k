@@ -7,12 +7,12 @@
 // builtin_declared_subscript.k declares one in a fixture builtin root.
 
 extend string {
-    fn op == (self, o: string) -> bool { return self.len == o.len }
-    fn op + (self, o: string) -> i32 { return (self.len + o.len) as i32 }
+    fn op == (self, o: string) -> bool { return self.length() == o.length() }
+    fn op + (self, o: string) -> i32 { return (self.length() + o.length()) as i32 }
     fn op in (self, b: u8) -> bool {
         var i: usize = 0
-        while i < self.len {
-            if self.data[i] == b { return true }
+        while i < self.length() {
+            if self.as_ptr()[i] == b { return true }
             i = i + 1
         }
         return false

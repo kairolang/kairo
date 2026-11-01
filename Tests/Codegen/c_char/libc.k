@@ -17,12 +17,12 @@ fn main() -> i32 {
     var n: usize = 0
     var r = 0
     unsafe {
-        var unsafe *cs = s.data as unsafe *const c_char
+        var unsafe *cs = s.as_ptr() as unsafe *const c_char
         n = strlen(cs)
         puts(cs)                                        // writes the line itself
-        if strcmp(cs, "hi there".data as unsafe *const c_char) == 0 { r += 1 }
-        if (strncmp(cs, "hi".data as unsafe *const c_char, 2) == 0) && (cs[3] == 116) { r += 2 }   // 't'
-        var unsafe *nope = getenv("KAIRO_N1_SURELY_UNSET_VAR".data as unsafe *const c_char)
+        if strcmp(cs, "hi there".as_ptr() as unsafe *const c_char) == 0 { r += 1 }
+        if (strncmp(cs, "hi".as_ptr() as unsafe *const c_char, 2) == 0) && (cs[3] == 116) { r += 2 }   // 't'
+        var unsafe *nope = getenv("KAIRO_N1_SURELY_UNSET_VAR".as_ptr() as unsafe *const c_char)
         if nope == &null { r += 4 }
     }
     println(f"n {n}")

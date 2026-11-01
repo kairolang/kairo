@@ -16,7 +16,7 @@ fn value_of(r: LookupResult<i32, string>) -> string = match r {
 }
 
 fn score(const r: LookupResult<i32, string>) -> i32 = match r {
-    case .Found(const key, const value) where key > 10 => key + (value.len as i32)
+    case .Found(const key, const value) where key > 10 => key + (value.length() as i32)
     case .Found(var key)    => key
     case .NotFound(var key) => -key
     case .Empty             => 100
@@ -26,7 +26,7 @@ fn score(const r: LookupResult<i32, string>) -> i32 = match r {
 fn tally(r: LookupResult<i32, string>) -> i32 {
     var acc: i32 = 0
     match r {
-        case .Found(const value) where value.len == 0 { acc = 1; }
+        case .Found(const value) where value.length() == 0 { acc = 1; }
         case .Found(var key)                          { key += 1; acc = key; }
         case .Empty                                   { acc = 7; }
         default                                       { acc = 9; }
@@ -52,7 +52,7 @@ fn main() -> i32 {
     var z: LookupResult<i32, string> = .Empty
     var r = 0
     if (score(f) == 23) && (score(g) == 3) && (score(n) == -4) && (score(z) == 100) && (score(e) == 0) { r += 1 }
-    if (value_of(f).len == 3) && (value_of(e).len == 4) && (value_of(z).len == 4) { r += 2 }
+    if (value_of(f).length() == 3) && (value_of(e).length() == 4) && (value_of(z).length() == 4) { r += 2 }
     if (tally(LookupResult<i32, string>::Found { key: 5, value: "" }) == 1) && (tally(f) == 21) { r += 4 }
     if (tally(z) == 7) && (tally(n) == 9) && (tally(e) == 9) { r += 8 }
     if rebind() { r += 16 }

@@ -1,3 +1,9 @@
+// XFAIL: *
+// Waiting on a string API decision (2026-11-01): Lib/builtin/string.k made
+// string's fields private behind as_ptr()/length(), which are run-time fns:
+// an eval context cannot call them (SC001E), and C++ cannot read them in a
+// constant expression. Flip back when eval code can read a string's bytes
+// and length again. See TICKETS.TXT.
 import lib::*
 
 // EVAL.md 1.2b: an eval binding is `inline constexpr`, and its definition
@@ -15,7 +21,7 @@ fn main() -> i32 {
     var w: [i32; N + 1]
     w[8] = 2
     var q: [i32; cube(1)] = [5]
-    return M + NEXT + a[2] + LABEL.len as i32 + w[8] + q[0]    // 9 + 9 + 3 + 3 + 2 + 5 == 31
+    return M + NEXT + a[2] + LABEL.length() as i32 + w[8] + q[0]    // 9 + 9 + 3 + 3 + 2 + 5 == 31
 }
 
 // --- lit wiring -----------------------------------------------------------

@@ -6,8 +6,8 @@
 fn chk(c: bool) -> i32 { if c { return 1 } return 0 }
 
 fn starts_with(const s: string, const p: string) -> bool {
-    if s.len < p.len { return false }
-    for var i: usize = 0; i < p.len; ++i { if s.data[i] != p.data[i] { return false } }
+    if s.length() < p.length() { return false }
+    for var i: usize = 0; i < p.length(); ++i { if s.as_ptr()[i] != p.as_ptr()[i] { return false } }
     return true
 }
 
@@ -55,11 +55,11 @@ fn main() -> i32 {
     // 51 + 35 + 2 + 11 + 4 == 103
     // Accumulated: a newline ends a statement, so a `+` leading the next
     // line would start a new, unreachable one.
-    var n = (s.len + t.len + o.len + u.len) as i32
+    var n = (s.length() + t.length() + o.length() + u.length()) as i32
     n += chk(c == 12)
     n += chk(starts_with(ps, "i32 @ 0x"))
     n += chk(starts_with(bs, "Bare @ 0x"))
-    n += chk((ns.len == 5) && starts_with(ns, "&null"))
+    n += chk((ns.length() == 5) && starts_with(ns, "&null"))
     return n
 }
 

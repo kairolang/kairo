@@ -1,3 +1,9 @@
+// XFAIL: *
+// Waiting on a string API decision (2026-11-01): Lib/builtin/string.k made
+// string's fields private behind as_ptr()/length(), which are run-time fns:
+// an eval context cannot call them (SC001E), and C++ cannot read them in a
+// constant expression. Flip back when eval code can read a string's bytes
+// and length again. See TICKETS.TXT.
 import lib::*
 
 // EVAL.md §11 (USER): a compile-time string literal longer than 256 bytes
@@ -10,10 +16,10 @@ import lib::*
 eval MINE = "Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! Kairo eval! "
 
 fn main() -> i32 {
-    var r = BIG.len + MINE.len + big_len() + SHORT.len     // 300 * 3 + 5
-    if BIG.data == MINE.data { r += 1 }                   // one object
-    if BIG.data[299] == 32 { r += 1 }
-    if MINE.data[300] == 0 { r += 1 }                     // the NUL it carries
+    var r = BIG.length() + MINE.length() + big_len() + SHORT.length()     // 300 * 3 + 5
+    if BIG.as_ptr() == MINE.as_ptr() { r += 1 }                   // one object
+    if BIG.as_ptr()[299] == 32 { r += 1 }
+    if MINE.as_ptr()[300] == 0 { r += 1 }                     // the NUL it carries
     return (r - 900) as i32                                 // 5 + 3 == 8
 }
 

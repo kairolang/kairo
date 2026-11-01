@@ -65,8 +65,8 @@ fn main() -> i32 {
     var c: Num? = null
     if !same(a, b)                { r += 16 }
     if same(a, c)                 { r += 32 }
-    if shown(one).len != 5        { r += 64 }
-    if text(Tag { v: 0 }).len != 3 { r += 128 }
+    if shown(one).length() != 5        { r += 64 }
+    if text(Tag { v: 0 }).length() != 3 { r += 128 }
     if (pick(one, 1) != 1) || (pick(5, 0) != 2) { r += 256 }
     return r
 }

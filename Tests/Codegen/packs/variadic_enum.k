@@ -21,7 +21,7 @@ enum <T, ...E> Outcome {
 
 fn describe(o: Outcome<i32, string, f64>) -> i32 = match o {
     case .Ok(var value)          => value
-    case .Err(var error: string) => error.len as i32
+    case .Err(var error: string) => error.length() as i32
     case .Err(var error: f64)    => 100
 }
 

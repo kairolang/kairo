@@ -18,14 +18,15 @@ import string::*
 
 /// `s` and a newline to stdout.
 pub fn println(const s: string) {
-    if s.len < 4096 {
+    const n = s.length()
+    if n < 4096 {
         var buf: [u8; 4096]                       // never initialized; only the bytes written are read
-        for var i: usize = 0; i < s.len; ++i { buf[i] = s.data[i] }
-        buf[s.len] = 10
-        write_all_(1, &buf[0], s.len + 1)
+        for var i: usize = 0; i < n; ++i { buf[i] = s.as_ptr()[i] }
+        buf[n] = 10
+        write_all_(1, &buf[0], n + 1)
         return
     }
-    write_all_(1, s.data, s.len)
+    write_all_(1, s.as_ptr(), n)
     var nl: [u8; 1]
     nl[0] = 10
     write_all_(1, &nl[0], 1)

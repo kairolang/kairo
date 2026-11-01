@@ -9,7 +9,7 @@ enum Note { Text { s: string, n: i32 }, Code { c: i32 }, Blank }
 enum Point { At { x: i32, y: i32 }, Origin }
 
 fn weight(const x: Note) -> i32 = match x {
-    case .Text(const s, const n) => (s.len as i32) * 10 + n
+    case .Text(const s, const n) => (s.length() as i32) * 10 + n
     case .Code(const c)          => c
     case .Blank                  => 0
 }

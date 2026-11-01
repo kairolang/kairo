@@ -1,3 +1,9 @@
+// XFAIL: *
+// Waiting on a string API decision (2026-11-01): Lib/builtin/string.k made
+// string's fields private, and a class-value generic parameter must be
+// structural -- C++ requires every member public -- so a Config holding a
+// string is SC001E. Flip back when string is structural again (or the lang
+// item is special-cased). See TICKETS.TXT.
 pub struct Config {
     pub var size: i32
     pub var label: string

@@ -27,7 +27,7 @@ fn get(o: Opt<i32>) -> i32 = match o {
 }
 
 fn size_of(m: Msg) -> i32 = match m {
-    case .Text(var s) => s.len as i32
+    case .Text(var s) => s.length() as i32
     case .Num(var n) => n
 }
 
