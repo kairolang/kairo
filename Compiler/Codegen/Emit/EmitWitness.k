@@ -10,7 +10,7 @@
 ///
 ///       template <class __kairo_Self> struct Scalable_witness {        primary
 ///           static signed int scale(const __kairo_Self* self, signed int f)
-///               requires requires { static_cast<signed int (__kairo_Self::*)(signed int) const>(&__kairo_Self::scale); }
+///               requires requires { static_cast<auto (__kairo_Self::*)(signed int) const -> signed int>(&__kairo_Self::scale); }
 ///           { return self->scale(static_cast<decltype(f)&&>(f)); }
 ///       };
 ///       template <class __kairo_Self> concept Scalable_c = requires (...) { ... };
@@ -256,10 +256,26 @@ class EmitWitness {
     /// `R (P1, P2) const` of a member, as the member pointer cast spells it,
     /// with \p m's bare Self spelled \p self_s (empty: \p m has none).
     priv fn _member_sig(self, m: *FunctionDecl, subst: *InstanceEntry, self_s: string) -> string {
+        return self._member_ret(m, subst, self_s) + " " + self._member_params(m, subst, self_s);
+    }
+
+    /// \p m's return type as _member_sig spells it, Self read as \p self_s.
+    priv fn _member_ret(self, m: *FunctionDecl, subst: *InstanceEntry, self_s: string) -> string {
         var saved_i = self._spell->self_iface;
         var saved_s = self._spell->self_spelling;
         if self_s.size() > 0 { self._self_as(m, self_s); }
-        var s = self._ret(m, subst) + " (";
+        var r = self._ret(m, subst);
+        self._spell->self_iface    = saved_i;
+        self._spell->self_spelling = saved_s;
+        return r;
+    }
+
+    /// `(params) [const]`, the rest of _member_sig after the return type.
+    priv fn _member_params(self, m: *FunctionDecl, subst: *InstanceEntry, self_s: string) -> string {
+        var saved_i = self._spell->self_iface;
+        var saved_s = self._spell->self_spelling;
+        if self_s.size() > 0 { self._self_as(m, self_s); }
+        var s = "(";
         var k: usize = 0;
         for var i: usize = 0; i < m->params.size(); ++i {
             var p = m->params[i];
@@ -306,7 +322,6 @@ class EmitWitness {
             var m = ms[i];
             if (m == &null) || m->is_poisoned() || decl_is_ctor_requirement(m) { continue; }
             if self._names_assoc(m) { continue; }   // the specializations' alone.
-            var sig  = self._member_sig(m, subs[i], me);
             var decl = self._member_decl(m, subs[i], me);
             var leaf = self._spell->leaf(static_cast::<*Decl>(m));
             var targs = self._own_args(m);
@@ -320,7 +335,7 @@ class EmitWitness {
                 // A static requirement is gated on a plain function pointer: a
                 // static member's address is not a pointer to member.
                 var owner = (me) if (m->is_method()) else ("");
-                gate = "requires requires { static_cast<" + self._pointer_to_member(sig, owner) + ">(&" + me + "::" + leaf + "); }";
+                gate = "requires requires { static_cast<" + self._pointer_to_member(m, subs[i], me, owner) + ">(&" + me + "::" + leaf + "); }";
             }
             var call = self._member_call(m, me, LowerTargets::witness_receiver_name(), (("template " + leaf + targs) if (targs.size() > 0) else (leaf)));
             self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(m)), decl + " " + gate + " { return " + call + "; }");
@@ -577,22 +592,17 @@ class EmitWitness {
         return s + self_s + (("&") if (m->is_operator) else ("*"));
     }
 
-    /// `R (S::*)(P...) const` from `R (P...) const`; `R (*)(P...)` when
-    /// \p self_s is empty (a static member).
-    priv fn _pointer_to_member(self, sig: string, self_s: string) -> string {
-        // MIGRATE(raw_string): string(sig.raw_string().substr(0, open)) once
-        // the compiler builds against a string that has raw_string(); Stage 0's
-        // has neither it nor substr, so the split is a char loop until then.
-        var out = "";
-        var done = false;
-        for var i: usize = 0; i < sig.size(); ++i {
-            if (!done) && (sig[i] == '(') {
-                out += ("(*)") if (self_s.size() == 0) else ("(" + self_s + "::*)");
-                done = true;
-            }
-            out += sig[i];
-        }
-        return out;
+    /// `auto (S::*)(P...) const -> R` for \p m with Self spelled \p me, S
+    /// being \p owner; `auto (*)(P...) -> R` when \p owner is empty (a
+    /// static member).
+    priv fn _pointer_to_member(self, m: *FunctionDecl, subst: *InstanceEntry, me: string, owner: string) -> string {
+        // The return type goes TRAILING: spliced in front of the declarator,
+        // a return spelled with parentheses of its own split at the wrong
+        // one -- `-> usize` is `decltype(sizeof(0))`, and cutting at the
+        // first `(` made `decltype(*)(sizeof(0))()` (P221) -- and a return
+        // that is itself a function pointer has no prefix form at all.
+        var star = ("(*)") if (owner.size() == 0) else ("(" + owner + "::*)");
+        return "auto " + star + self._member_params(m, subst, me) + " -> " + self._member_ret(m, subst, me);
     }
 
     priv fn _ret(self, m: *FunctionDecl, subst: *InstanceEntry) -> string {

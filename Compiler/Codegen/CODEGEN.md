@@ -1265,7 +1265,7 @@ in module `ring`:
     namespace ring {
         template <class __kairo_Self> struct Scalable_witness {
             static signed int scale(const __kairo_Self* self, signed int factor)
-                requires requires { static_cast<signed int (__kairo_Self::*)(signed int) const>(&__kairo_Self::scale); }
+                requires requires { static_cast<auto (__kairo_Self::*)(signed int) const -> signed int>(&__kairo_Self::scale); }
             { return self->scale(static_cast<decltype(factor)&&>(factor)); }
         };
         template <class __kairo_Self> concept Scalable_c =

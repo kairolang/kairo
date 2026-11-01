@@ -58,13 +58,11 @@ pub interface ZeroAllocator derives Allocator {
 }
 
 /// Used with AllocatorScope (and later @mem::set_scoped_allocator). enter()
-/// returns a token that leave() takes back (a u64 for now: a witness cast of
-/// a `-> usize` static is emitted as `decltype(*)(sizeof(0))()`, which clang
-/// rejects, so this is `usize` once that is fixed); range() is the address range
+/// returns a token that leave() takes back; range() is the address range
 /// every block it hands out lies in while the scope is open.
 pub interface ScopedAllocator derives Allocator {
-    static fn enter() -> u64
-    static fn leave(mark: u64)
+    static fn enter() -> usize
+    static fn leave(mark: usize)
     static fn range() -> (unsafe *u8, unsafe *u8)
 }
 
@@ -376,7 +374,7 @@ fn <A impl ScopedFullAllocator> scope_realloc(ptr: unsafe *u8, old_size: usize, 
 /// calls on this thread, comes from A until the guard is destroyed. Pinned in
 /// place, since the frame stack points into it.
 pub class <A impl ScopedFullAllocator> AllocatorScope {
-    priv var mark:   u64
+    priv var mark:   usize
     priv var active: bool
     priv var frame:  ScopeFrame
 

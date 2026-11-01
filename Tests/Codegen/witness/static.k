@@ -31,7 +31,7 @@ fn main() -> i32 {
 // CXX: concept Makeable_c = requires(const __kairo_Self * __kairo_r1) {
 // CXX-NEXT: Makeable_witness<__kairo_Self>::make();
 // CXX: static __kairo_Self make() requires requires {
-// CXX-NEXT: static_cast<__kairo_Self(*)()>(& __kairo_Self::make);
+// CXX-NEXT: static_cast<auto(*)()->__kairo_Self>(& __kairo_Self::make);
 // CXX: return __kairo_Self::make();
 // CXX: template<> struct Makeable_witness<{{ ?}}::{{.*}}::Seven> {
 // CXX-NEXT: static{{ ?}}::{{.*}}::Seven make() {

@@ -58,7 +58,7 @@ fn main() -> i32 {
 // CXX-NOT: internal compiler error
 // CXX: template<class __kairo_Self, class T> struct Fancy_witness {
 // CXX-NEXT: static T get(const __kairo_Self * self, signed int i) requires requires {
-// CXX-NEXT: static_cast<T(__kairo_Self::*)(signed int) const>(& __kairo_Self::get);
+// CXX-NEXT: static_cast<auto(__kairo_Self::*)(signed int) const->T>(& __kairo_Self::get);
 // CXX: template<class __kairo_Self, class U> struct Deep_witness {
 // CXX-NEXT: static U get(const __kairo_Self * self, signed int i) requires requires {
 // CXX: template<class __kairo_Self, class V> struct Wrapped_witness {

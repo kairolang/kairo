@@ -32,7 +32,7 @@ fn main() -> i32 {
 // CXX-NEXT: Scalable_witness<__kairo_Self>::scale(__kairo_r0, __kairo_a0);
 // CXX: template<class __kairo_Self> struct Scalable_witness {
 // CXX-NEXT: static signed int scale(const __kairo_Self * self, signed int factor) requires requires {
-// CXX-NEXT: static_cast<signed int(__kairo_Self::*)(signed int) const>(& __kairo_Self::scale);
+// CXX-NEXT: static_cast<auto(__kairo_Self::*)(signed int) const->signed int>(& __kairo_Self::scale);
 // CXX: return self->scale(static_cast<decltype(factor) &&>(factor));
 // Metric's row: after the scope it forwards to.
 // CXX: struct __kairo_ext_Metric {
