@@ -628,6 +628,11 @@ class FunctionDecl
     pub var where_group:  FrozenList::<*FunctionDecl>;
     pub var ffi_builtin_id: u32 = 0;              ///< clang builtin ID; 0 for every other function.
     pub var ffi_ice_mask:   u32 = 0;              ///< bit i: parameter i takes an integer constant.
+    /// The Expect lang item (`__builtin_expect`, base/intrinsics.k): every
+    /// call is clang's builtin, spelled at the call site (EmitIR::_call).
+    /// One writer, NameResolution::fill_lang_items, on the canonical decl;
+    /// codegen has no route to the lang item table, so it reads this.
+    pub var lowers_to_expect: bool = false;
     /// A function EnumLayoutLowering minted for an ADT's layout record, or
     /// None. It has no Kairo body and never a requires_clause: InterfaceEmitter
     /// writes its C++ from adt_role and adt_form, constraints included.
@@ -680,6 +685,7 @@ class FunctionDecl
         node->ci_split    = 0;
         node->ci_index    = 0;
         node->ci_cut      = false;
+        node->lowers_to_expect = false;
         return node;
     }
 
@@ -694,6 +700,7 @@ class FunctionDecl
         node->adt_role    = AdtRole::None;
         node->adt_form    = AdtForm::Trivial;
         node->adt_variant = 0;
+        node->lowers_to_expect = false;
         return node;
     }
 

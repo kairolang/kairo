@@ -525,6 +525,16 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._bind_lang(root, WellKnownType::IsStruct);
         self._bind_lang(root, WellKnownType::IsTuple);
         self._bind_lang(root, WellKnownType::TupleArity);
+        self._bind_lang(root, WellKnownType::Expect);
+
+        // `__builtin_expect` is clang's builtin at every call (P230), and
+        // codegen, which emits the call, cannot ask well_known: mark the
+        // decl, only from the TU that declares it, before any codegen.
+        var xd = dyn_cast::<FunctionDecl>(self.sc->well_known->get(WellKnownType::Expect));
+        if (xd != &null) && (reinterpret_cast::<*DeclContext>(xd->semantic_dc) == static_cast::<*DeclContext>(self.sc->tu)) {
+            xd->lowers_to_expect = true;
+            xd->canonical_decl()->lowers_to_expect = true;
+        }
 
         // `byte` is spelled as the Byte enum, so a TU that uses it must
         // declare that enum. Codegen has no route to well_known, but every

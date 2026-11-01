@@ -102,6 +102,11 @@ enum WellKnownType derives u8 {
     IsStruct,        ///< `__builtin_is_struct<T>()` (a tuple is not one)
     IsTuple,         ///< `__builtin_is_tuple<T>()`
     TupleArity,      ///< `__builtin_tuple_arity<T>()`: 0 for a non-tuple.
+    /// `__builtin_expect(cond, expected)` (base/intrinsics.k): a call is
+    /// clang's own builtin at the call site (FunctionDecl::lowers_to_expect),
+    /// where the branch it guards can take the weight; behind a call the
+    /// hint lands on the callee's return, and the branch keeps none (P230).
+    Expect,
 
     COUNT,      ///< keep last.
 }
@@ -148,6 +153,7 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::IsStruct { return "__builtin_is_struct"; }
         case WellKnownType::IsTuple { return "__builtin_is_tuple"; }
         case WellKnownType::TupleArity { return "__builtin_tuple_arity"; }
+        case WellKnownType::Expect     { return "__builtin_expect"; }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";
@@ -490,6 +496,10 @@ class LangAttrs {
     /// meaning -- a parameter, not a constructor -- so it is its own row.
     static fn param_inout() -> string { return "inout"; }
     static fn param_move() -> string  { return "move"; }
+    /// `@likely if` / `@unlikely if`: the C++ `[[likely]]` / `[[unlikely]]`
+    /// on the then-branch (EmitIR::_if).
+    static fn likely() -> string   { return "likely"; }
+    static fn unlikely() -> string { return "unlikely"; }
 }
 
 /// \class LangIntrinsics
@@ -1167,6 +1177,8 @@ class LowerTargets {
     static fn clang_memcmp() -> string             { return "__builtin_memcmp"; }
     static fn clang_addressof() -> string          { return "__builtin_addressof"; }
     static fn clang_bit_cast() -> string           { return "__builtin_bit_cast"; }
+    /// What a call of the Expect lang item is spelled as (EmitIR::_call).
+    static fn clang_expect() -> string             { return "__builtin_expect"; }
     static fn clang_malloc() -> string             { return "__builtin_malloc"; }
     static fn clang_free() -> string               { return "__builtin_free"; }
     static fn clang_atomic_fetch_add() -> string   { return "__atomic_fetch_add"; }

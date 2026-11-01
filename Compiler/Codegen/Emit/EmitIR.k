@@ -1337,6 +1337,20 @@ class EmitIR {
         self._cg->sink->spell(n->range, ")) ::kairo_rt_crash_exit(reinterpret_cast<const unsigned char*>(" + lit + "), sizeof(" + lit + ") - 1, 134);");
     }
 
+    /// `[[likely]]` / `[[unlikely]]` for an `if` written `@likely` /
+    /// `@unlikely` (LangAttrs), else "". An `eval if` has no branch to
+    /// weigh.
+    priv fn _branch_hint(self, n: *ConditionalStmt) -> string {
+        if n->is_eval || (!n->has_attribute()) { return ""; }
+        var tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid());
+        if tbl == &null { return ""; }
+        var kl = tbl->find_ident(LangAttrs::likely());
+        var ku = tbl->find_ident(LangAttrs::unlikely());
+        if (kl != u32(-1)) && n->has_attribute_named(kl) { return "[[likely]]"; }
+        if (ku != u32(-1)) && n->has_attribute_named(ku) { return "[[unlikely]]"; }
+        return "";
+    }
+
     priv fn _if(self, n: *ConditionalStmt) {
         var own = isa::<BinaryOperatorExpr>(n->cond);   // `(a == b)` brings its own parens; a second pair is C786W.
         // An `eval if` EvalIfFolding could not fold (a function body only):
@@ -1345,6 +1359,10 @@ class EmitIR {
         self._cg->sink->spell(SourceRange::from_bounds(n->range.start, u32(2)), (kw) if (own) else (kw + " ("));
         self.emit(n->cond);
         if !own { self._cg->sink->spell(n->cond->range, ")"); }
+        // `@likely if` / `@unlikely if`: C++'s attribute on the then-branch,
+        // which clang turns into the branch's weights (P230).
+        var hint = self._branch_hint(n);
+        if hint.size() > 0 { self._cg->sink->spell(n->cond->range, hint); }
         self.emit_block(n->then_);
         if n->else_ != &null {
             self._cg->sink->spell(n->else_->range, "else");
@@ -2261,6 +2279,17 @@ class EmitIR {
         var f = dyn_cast::<FunctionDecl>(callee);
         if n->ctor_decl != &null { f = dyn_cast::<FunctionDecl>(n->ctor_decl); }
         var inst  = reinterpret_cast::<*InstanceEntry>(n->instance);
+        // `__builtin_expect(c, e)` (the Expect lang item) is clang's builtin
+        // here, at the call (P230): through the library function the hint
+        // weighted that function's return, and the branch the caller tests
+        // kept no weight. Its `long` result goes back to Kairo's `bool`.
+        var xf = dyn_cast::<FunctionDecl>(CXXSpell::rep(static_cast::<*Decl>(f)));
+        if (f != &null) && (f->lowers_to_expect || ((xf != &null) && xf->lowers_to_expect)) && (n->args.size() == 2) {
+            self._cg->sink->spell(n->callee->range, "static_cast<bool>(" + LowerTargets::clang_expect() + "(");
+            self._args(n, f, false, inst);
+            self._cg->sink->spell(n->range, "))");
+            return;
+        }
         // `T::Node(args)`: the callee is the requirement, the type is the
         // witness's member type, constructed as any type is (CallTyping
         // admitted it through a constructor bound).

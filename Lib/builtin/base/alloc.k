@@ -189,7 +189,7 @@ pub class <T> UninitializedSlice {
     pub inline fn as_bytes(const self) -> unsafe *u8 { return self.ptr }
 
     pub inline fn <...A> push(self, ...args: A) {
-        if __builtin_expect(self.len == self.cap, false) { __builtin_trap() }
+        @unlikely if self.len == self.cap { __builtin_trap() }
         __builtin_construct_at<T>(byte_offset(self.ptr, self.len * sizeof T), args...)
         self.len += 1
     }
@@ -291,7 +291,7 @@ pub inline fn <T, A impl Allocator> destroy_slice_in(@move s: UninitializedSlice
 pub inline fn <T, A impl Allocator, ...Args> create_in(...args: Args) -> *T {
     var unsafe *p = dangling(alignof T)
     if sizeof T != 0 { p = A::alloc(sizeof T, alignof T) }
-    if __builtin_expect(p == &null, false) { oom(sizeof T, alignof T) }
+    @unlikely if p == &null { oom(sizeof T, alignof T) }
     return Uninitialized<T>(p).construct(args...)
 }
 
@@ -408,7 +408,7 @@ pub inline fn alloc_raw(size: usize, align: usize) -> unsafe *u8 {
     assert is_pow2(align), "alignment must be a power of two"
     if size == 0 { return dangling(align) }
     var unsafe *f = scope_top
-    if __builtin_expect(f == &null, true) { return Global::alloc(size, align) }
+    @likely if f == &null { return Global::alloc(size, align) }
     unsafe { return f->alloc(size, align) }
 }
 
@@ -438,7 +438,7 @@ pub fn resize_raw(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usiz
 /// A T from the allocator in effect. Runs the OOM hook on failure.
 pub inline fn <T, ...Args> create(...args: Args) -> *T {
     var unsafe *p = alloc_raw(sizeof T, alignof T)
-    if __builtin_expect(p == &null, false) { oom(sizeof T, alignof T) }
+    @unlikely if p == &null { oom(sizeof T, alignof T) }
     return Uninitialized<T>(p).construct(args...)
 }
 
@@ -479,19 +479,19 @@ eval MAX_ALIGN: usize = 2 * sizeof usize
 
 pub class System impl FullAllocator {
     static inline fn alloc(size: usize, align: usize) -> unsafe *u8 {
-        if __builtin_expect(align <= MAX_ALIGN, true) { return kairo_rt_malloc(size) }
+        @likely if align <= MAX_ALIGN { return kairo_rt_malloc(size) }
         return kairo_rt_aligned_alloc(size, align)
     }
 
     static inline fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 {
-        if __builtin_expect(align <= MAX_ALIGN, true) { return kairo_rt_calloc(size) }
+        @likely if align <= MAX_ALIGN { return kairo_rt_calloc(size) }
         var unsafe *p = kairo_rt_aligned_alloc(size, align)
         if p != &null { __builtin_set_mem(p, 0u8 as byte, size) }
         return p
     }
 
     static inline fn free(ptr: unsafe *u8, size: usize, align: usize) {
-        if __builtin_expect(align <= MAX_ALIGN, true) { kairo_rt_free(ptr, size); return }
+        @likely if align <= MAX_ALIGN { kairo_rt_free(ptr, size); return }
         kairo_rt_aligned_free(ptr, size, align)
     }
 
@@ -502,7 +502,7 @@ pub class System impl FullAllocator {
     }
 
     static fn realloc(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
-        if __builtin_expect(align <= MAX_ALIGN, true) { return kairo_rt_realloc(ptr, new_size) }
+        @likely if align <= MAX_ALIGN { return kairo_rt_realloc(ptr, new_size) }
         return realloc_by_copy<System>(ptr, old_size, new_size, align)
     }
 }
