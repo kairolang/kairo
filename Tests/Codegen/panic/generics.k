@@ -205,5 +205,5 @@ fn main() -> i32 {
 // instance Sema saw is pinned to the canonical type it predicted, and its
 // explicit instantiation spells that type. At T = A the two elements are one.
 // CXX: ::__kairo_pset< ::builtin::errors::panic_result::Panic, signed int, ::generics::A, T> pick(T x, bool flag) noexcept;
-// CXX-DAG: static_assert(__is_same(::__kairo_pset<::builtin::errors::panic_result::Panic, signed int,::generics::A,::generics::A>,::builtin::errors::panic_result::Panic<signed int,::generics::A>), "{{[^"]*}}");
-// CXX-DAG: template::builtin::errors::panic_result::Panic<signed int,::generics::A>(::generics::pick<::generics::A>)(::generics::A, bool);
+// CXX-DAG: static_assert(__is_same( ::__kairo_pset< ::builtin::errors::panic_result::Panic, signed int, ::generics::A, ::generics::A>, ::builtin::errors::panic_result::Panic<signed int, ::generics::A>), "{{[^"]*}}");
+// CXX-DAG: template::builtin::errors::panic_result::Panic<signed int, ::generics::A>( ::generics::pick< ::generics::A>)( ::generics::A, bool);

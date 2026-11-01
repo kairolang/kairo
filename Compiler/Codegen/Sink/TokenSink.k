@@ -350,6 +350,21 @@ class TokenSink derives EmitSink {
     ///          claims again from its own anchor. Without that, "member is
     ///          declared here" landed wherever the name's walk ended, lines
     ///          away from the field, and moved whenever the file did.
+    ///
+    ///          A walker is a TENANT of the bytes it lands on, past its own
+    ///          anchor: a later token anchored on one of them takes it back
+    ///          (_stray_at, then _steal), and the walker walks on. First come
+    ///          made a token's byte depend on how much C++ was emitted before
+    ///          it, not on its node: a few functions' signatures and
+    ///          `namespace` wrappers, each anchored on a short name, ran
+    ///          through the next functions' bytes, and a later body's `.`
+    ///          found its own byte held by a parameter type from three lines
+    ///          up -- clang's "member reference base type" landed on the
+    ///          closing brace below it. A hoisted generic body, emitted
+    ///          ahead of source order, only made the run longer. Now a token
+    ///          whose anchor holds a free-or-stray byte gets it however late
+    ///          it is emitted; only tokens anchored on the same bytes still
+    ///          go first come.
     priv fn _claim(self, loc: SourceLocation, len: u32, exact: bool = false) -> SourceLocation {
         return self._claim_for(loc, len, exact, self._tokens.size());
     }
@@ -367,7 +382,15 @@ class TokenSink derives EmitSink {
         }
         for var i: usize = from; i < avail; ++i {
             var at  = loc.advance(i);
-            if !self._used.insert(static_cast::<u64>(at.raw())).second { continue; }
+            if !self._used.insert(static_cast::<u64>(at.raw())).second {
+                // A byte of this token's own anchor, held by a token that
+                // walked onto it from somewhere else: it is this one's.
+                if (!exact) && (i < static_cast::<usize>(len)) && self._stray_at(at) && self._steal(at) {
+                    self._hold(at, tok, loc, len);
+                    return at;
+                }
+                continue;
+            }
             if !exact { self._hold(at, tok, loc, len); }
             return at;
         }
@@ -386,6 +409,20 @@ class TokenSink derives EmitSink {
             return loc;
         }
         return SourceLocation::invalid();
+    }
+
+    /// The byte \p at is held (an inexact token's, so _steal can move it)
+    /// by a token whose own anchor does not cover it: one that walked there
+    /// because its anchor's bytes were taken. A token at home in its anchor
+    /// is never a stray, so two tokens anchored on one span cannot take a
+    /// byte back and forth.
+    priv fn _stray_at(self, at: SourceLocation) -> bool {
+        var it = self._held.find(static_cast::<u64>(at.raw()));
+        if it == self._held.end() { return false; }
+        var h = self._held_list[static_cast::<usize>(it->second)];
+        var lo = h.anchor.raw();
+        var r  = at.raw();
+        return (r < lo) || ((r - lo) >= h.len);
     }
 
     priv fn _hold(self, at: SourceLocation, tok: usize, anchor: SourceLocation, len: u32) {

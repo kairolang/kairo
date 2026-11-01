@@ -84,7 +84,10 @@ class TokenStreamPrinter {
 
     priv static fn _is_word(sink: *TokenSink, i: usize) -> bool {
         var t = sink->get_token(i);
-        if sink->is_divergent(i) { return true; }
+        // A divergent literal or name is a word; a punctuator moved to the
+        // arena for its location (TokenSink::_claim) is still punctuation,
+        // or `< ::ns::T` prints as `<::ns::T`.
+        if sink->is_divergent(i) && (clang::tok::getPunctuatorSpelling(t->getKind()) == &null) { return true; }
         return (t->getKind() == clang::tok::identifier) || t->isLiteral()
             || (clang::tok::getKeywordSpelling(t->getKind()) != &null);
     }
