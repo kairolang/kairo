@@ -909,7 +909,10 @@ class BinaryOperatorExpr derives Expr {
     /// (OperatorTyping).
     pub var tag_eq:      bool  = false;
     /// `+`/`-`/`*` whose overflow is proven impossible: C++'s own operator,
-    /// not the wrapping form (see UnaryOperatorExpr::no_wrap).
+    /// not the wrapping form (see UnaryOperatorExpr::no_wrap). On `<<` /
+    /// `>>`: the count is proven in [0, W), so EmitIR leaves its mask out
+    /// (SHIFT spec §4); X sets it for a constant or masked count,
+    /// IterLowering for a range loop's binder.
     pub var no_wrap:     bool  = false;
     /// The registry entry of a GENERIC free operator's instance, written by X
     /// with resolved_op. `*InstanceEntry`; stored as `*void` for the same
@@ -998,6 +1001,10 @@ class AssignOperatorExpr derives Expr {
     /// so S_pre spells it `init_at(k, e)` on f's slot, not an assignment.
     /// One writer: CtorInitCheck. Read by EmitIR.
     pub var ci_elem_init: bool = false;
+    /// `<<=` / `>>=` whose count is proven in [0, W) (SHIFT spec §4): EmitIR
+    /// leaves the count mask out (see BinaryOperatorExpr::no_wrap). Written by
+    /// X (OperatorTyping, a constant or masked count) and IterLowering.
+    pub var no_wrap: bool = false;
 
     static fn create(
         ctx:      *ASTContext,
@@ -1016,6 +1023,7 @@ class AssignOperatorExpr derives Expr {
         node->op_token = op_token;
         node->resolved_op = &null;
         node->op_via_free = false;
+        node->no_wrap     = false;
         node->op_instance = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
@@ -1033,6 +1041,7 @@ class AssignOperatorExpr derives Expr {
         node->rhs           = &null;
         node->resolved_op   = &null;
         node->op_via_free   = false;
+        node->no_wrap       = false;
         node->op_instance   = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;

@@ -18,7 +18,9 @@
 ///       a variant of the same enum declared ABOVE the one being defined,
 ///       whose value StmtTyping has already written.
 ///
-///     Arithmetic is exact. Values are IntConst (AST/Node/Declarations.k):
+///     Arithmetic is exact, except a shift typed at an integer of at most
+///     64 bits, which is the run-time shift (shift_in: the count modulo the
+///     register width, the result truncated to the type). Values are IntConst (AST/Node/Declarations.k):
 ///     sign-magnitude over u64, so every value of every 64-bit type has one
 ///     representation, and a result whose magnitude needs a 65th bit sets
 ///     `overflow` instead of wrapping. Nothing is checked against a type
@@ -483,9 +485,32 @@ class ConstEval {
         if (k == TokenKind::OpPipe)  || (k == TokenKind::KwBitor)  { return self.bitop(l, r, u8(0)); }
         if (k == TokenKind::OpAmp)   || (k == TokenKind::KwBitand) { return self.bitop(l, r, u8(1)); }
         if (k == TokenKind::OpCaret) || (k == TokenKind::KwXor)    { return self.bitop(l, r, u8(2)); }
+        // A typed shift is the run-time one (SHIFT spec §1, §6): the count
+        // modulo the register width, computed in it, truncated to T. Exact
+        // shifting would call `0xFFu8 << 4` a 4080 that does not fit, where
+        // the program computes 0xF0.
+        var st = self.tu.as_value(b->type_);
+        if (st != &null) && self.tu.is_integer(st) && (self.tu.int_bits(st) > 0) && (self.tu.int_bits(st) <= 64) {
+            return self.shift_in(k == TokenKind::OpLessLess, l, r, self.tu.int_bits(st), self.tu.is_signed_int(st));
+        }
         if r.neg { return self._fail(b->rhs, "a shift count cannot be negative"); }
         if k == TokenKind::OpLessLess { return self.shl(l, r); }
         return self.shr(l, r);
+    }
+
+    /// `a << n` / `a >> n` in an integer type of \p bits (at most 64), as
+    /// EmitIR's forms compute it: n, converted modulo 2^64 (a negative count
+    /// is a large unsigned one), taken modulo R (32 up to 32 bits, else
+    /// 64); `<<` keeps the low bits; `>>` is arithmetic when \p signed.
+    fn shift_in(self, left: bool, a0: IntConst, n: IntConst, bits: usize, signed: bool) -> IntConst {
+        if a0.overflow || n.overflow { return self.too_wide(); }
+        var rw: u64 = (u64(32)) if (bits <= 32) else (u64(64));
+        var nlow = ((u64(0) - n.mag)) if (n.neg) else (n.mag);
+        var c = nlow & (rw - u64(1));
+        var a = self.wrap(a0, bits, signed);
+        if !left { return self.shr(a, self.make(false, c)); }
+        var low = ((u64(0) - a.mag)) if (a.neg) else (a.mag);
+        return self.wrap(self.make(false, low << c), bits, signed);
     }
 
     /// `~x` in the type of `x`. Without an integer builtin there is no width

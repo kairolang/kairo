@@ -85,6 +85,7 @@ import Sema::Type::Substitution::*;
 import Sema::Type::NullnessFlow::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
+import Sema::Check::ConstEval::*;
 import Sema::Resolve::NameLookup::*;
 import AST::Context::SymbolTable::*;
 import AST::Context::DeclContext::*;
@@ -121,6 +122,56 @@ class <T> OperatorTyping {
     priv fn _is_shift(self, k: TokenKind) -> bool {
         return (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater);
     }
+    // === shift counts (SHIFT spec §1, §4) ====================================
+
+    /// The count of a builtin shift on integer \p lt, checked once its
+    /// operands are typed. A count that evaluates at compile time must be in
+    /// [0, W): past the width it is SC001E here, though at run time it would
+    /// be taken modulo the register width -- a constant that large is a
+    /// mistake, not a request for the modulo. Returns whether the count is
+    /// proven in [0, W), which the caller records as no_wrap so EmitIR
+    /// leaves the mask out: a constant, or `e & K` (0 <= K < W), or
+    /// `e % K` (1 <= K <= W, e unsigned). Never reports on a poisoned node.
+    priv fn _shift_count(self, n: *Expr, rhs: *Expr, lt: *Type) -> bool {
+        var lv = dyn()->tu.as_value(lt);
+        if (lv == &null) || (!dyn()->tu.is_integer(lv)) || lv->is_dependent() { return false; }
+        var w = dyn()->tu.int_bits(lv);
+        if (w == 0) || (rhs == &null) || rhs->is_poisoned() { return false; }
+        var ce = ConstEval(dyn()->sc);
+        var c  = ce.eval_int(rhs);
+        if c.ok {
+            if (!c.neg) && (!c.overflow) && (c.mag < static_cast::<u64>(w)) { return true; }
+            var tn = dyn()->tu.str(lv);
+            var val = ce.str(c);
+            var msg = f"shift count {val} is not below the width of '{tn}\x27 ({w} bits)";
+            if c.neg { msg = f"shift count {val} is negative; a constant count of a '{tn}\x27 shift must be in 0..{w}"; }
+            var b = dyn()->sc->diag->report(DiagID::SC001E, rhs->range.start, msg);
+            b.first(rhs->range, f"this count is {val}");
+            var named = dyn_cast::<NamedIdentExpr>(dyn()->tu.strip_parens(rhs));
+            if (named != &null) && (named->resolved_decl != &null) && named->resolved_decl->range.is_valid() {
+                b.note(named->resolved_decl->range.start, f"'{dyn()->tu.decl_name(named->resolved_decl)}\x27 is declared here");
+            }
+            b.emit();
+            n->poison();
+            return false;
+        }
+        var m = dyn_cast::<BinaryOperatorExpr>(dyn()->tu.strip_parens(rhs));
+        if (m == &null) || (m->resolved_op != &null) { return false; }
+        var mk = m->op_token.kind;
+        if (mk == TokenKind::OpAmp) || (mk == TokenKind::KwBitand) {
+            var kr = ConstEval(dyn()->sc).eval_int(m->rhs);
+            if (!kr.ok) { kr = ConstEval(dyn()->sc).eval_int(m->lhs); }
+            return kr.ok && (!kr.neg) && (!kr.overflow) && (kr.mag < static_cast::<u64>(w));
+        }
+        if mk == TokenKind::OpPercent {
+            var et = dyn()->tu.as_value(m->lhs->type_);
+            if (et == &null) || (!dyn()->tu.is_integer(et)) || dyn()->tu.is_signed_int(et) { return false; }
+            var kp = ConstEval(dyn()->sc).eval_int(m->rhs);
+            return kp.ok && (!kp.neg) && (!kp.overflow) && (kp.mag >= u64(1)) && (kp.mag <= static_cast::<u64>(w));
+        }
+        return false;
+    }
+
     priv fn _is_logical(self, k: TokenKind) -> bool {
         return (k == TokenKind::OpAmpAmp) || (k == TokenKind::OpPipePipe)
             || (k == TokenKind::KwAnd) || (k == TokenKind::KwOr);
@@ -807,6 +858,8 @@ class <T> OperatorTyping {
                 dyn()->fail(n, DiagID::SC067E, "shift operands must be integers");
                 return &null;
             }
+            n->no_wrap = self._shift_count(static_cast::<*Expr>(n), n->rhs, lt);
+            if n->is_poisoned() { return &null; }
             return lt;
         }
         if self._is_bitwise(k) {
@@ -1652,6 +1705,8 @@ class <T> OperatorTyping {
             if (!dyn()->tu.is_integer(lt)) || (!dyn()->tu.is_integer(rt)) {
                 dyn()->fail(n, DiagID::SC067E, "shift-assignment operands must be integers"); return &null;
             }
+            n->no_wrap = self._shift_count(static_cast::<*Expr>(n), n->rhs, lt);
+            if n->is_poisoned() { return &null; }
         } else if self._is_bitwise(base) {
             var ok = (dyn()->tu.is_integer(lt) && dyn()->tu.is_integer(rt))
                   || (dyn()->tu.is_bool(lt) && dyn()->tu.is_bool(rt))

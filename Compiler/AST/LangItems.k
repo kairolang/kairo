@@ -799,8 +799,11 @@ class LowerTargets {
     static fn tmp_addr() -> string { return "__kairo_tmp"; }
 
     /// The temporaries of EmitIR's binding operator forms, by kind (`a` / `b`
-    /// a division's operands, `p` a place, `o` a postfix's old value) and
-    /// nesting depth, so a form inside another never shadows it.
+    /// a division's operands, `p` a place, `o` a postfix's old value; in a
+    /// duck generic's integer arm `T` the operand type, `U` its carrier, `R`
+    /// a shift's register width and `S` the signed carrier an arithmetic
+    /// `>>` sign-extends to) and nesting depth, so a form inside another
+    /// never shadows it.
     static fn wrap_tmp(kind: string, depth: u32) -> string { return f"__kairo_{kind}{depth}"; }
     /// The runtime's division-by-zero crash (Lib/rt/crash.c), declared by the
     /// prelude: noreturn and cold, so the check costs one predicted branch.

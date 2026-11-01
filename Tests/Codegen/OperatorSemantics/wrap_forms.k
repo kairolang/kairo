@@ -41,7 +41,7 @@ fn main() -> i32 { return 0 }
 // CXX: unsigned short y = static_cast<unsigned short>(static_cast<unsigned int>(p) * static_cast<unsigned int>(q));
 // CXX: unsigned char m = static_cast<unsigned char>(~static_cast<unsigned int>(flags));
 // CXX: s = static_cast<signed long{{( long)?}}>(static_cast<unsigned long{{( long)?}}>(v) <<(static_cast<unsigned long{{( long)?}}>(n) & static_cast<unsigned long{{( long)?}}>(63)));
-// CXX: t = static_cast<signed long{{( long)?}}>((v) >>(static_cast<unsigned long{{( long)?}}>(n) & static_cast<unsigned long{{( long)?}}>(63)));
+// CXX: t = static_cast<signed long{{( long)?}}>(static_cast<signed long{{( long)?}}>(v) >>(static_cast<unsigned long{{( long)?}}>(n) & static_cast<unsigned long{{( long)?}}>(63)));
 // CXX: unsigned char narrow = static_cast<unsigned char>((flags) &((static_cast<unsigned char>(3))));
 //
 // A local place binds nothing; any other is bound once, `auto&`, and in

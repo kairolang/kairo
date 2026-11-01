@@ -16,12 +16,15 @@ fn main() -> i32 {
     var neg1: i8 = -1
     var minv: i32 = -2147483647 - 1
     var z: u8 = 0
+    var c33: i32 = 33           // a runtime count: a constant one this large is an error
+    var c9: i32 = 9
+    var one8: u8 = 1
     println(f"add {mx + 1}")                 // ADD: add -2147483648
     println(f"mul {p * p}")                  // MUL: mul 1
     println(f"div {m / neg1}")               // DIV: div -128
     println(f"rem {minv % -1}")              // REM: rem 0
-    println(f"shl {1i32 << 33}")             // SHL: shl 2
-    println(f"shr {-8i32 >> 33}")            // SHR: shr -4
+    println(f"shl {1i32 << c33} {one8 << c9} {one8 << c33}")   // SHL: shl 2 0 2
+    println(f"shr {-8i32 >> c33} {m >> c9}")                   // SHR: shr -4 -1
     println(f"not {~z}")                     // NOT: not 255
     println(f"neg {-minv}")                  // NEG: neg -2147483648
 

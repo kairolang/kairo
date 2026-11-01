@@ -179,7 +179,36 @@ class CXXSpell {
         var w = CXXSpell::int_width(t);
         if w <= u32(32) { return builtin_info(BuiltinKind::U32)->cxx; }
         if w <= u32(64) { return builtin_info(BuiltinKind::U64)->cxx; }
-        return builtin_info(BuiltinKind::U128)->cxx;
+        if w <= u32(128) { return builtin_info(BuiltinKind::U128)->cxx; }
+        // `_BitInt` widths: their own unsigned twin. `unsigned __int128`
+        // here truncated a u256 / u512 sum to its low 128 bits.
+        if w <= u32(256) { return builtin_info(BuiltinKind::U256)->cxx; }
+        return builtin_info(BuiltinKind::U512)->cxx;
+    }
+
+    /// R, the register width a shift on integer \p t is computed in: 32 for
+    /// up to 32 bits, 64 up to 64, 128 up to 128, a wider `_BitInt`'s own
+    /// width -- wrap_carrier's thresholds, so
+    /// the count mask `R - 1` is what the carrier's own shift instruction
+    /// already applies on every target that masks (x86, AArch64, RISC-V).
+    static fn reg_width(t: *Type) -> u32 {
+        var w = CXXSpell::int_width(t);
+        if w <= u32(32) { return u32(32); }
+        if w <= u32(64) { return u32(64); }
+        if w <= u32(128) { return u32(128); }
+        return w;   // a `_BitInt` is shifted in its own width.
+    }
+
+    /// R_T, the signed integer of width reg_width(\p t): a signed `>>`
+    /// sign-extends its left operand to it, so a narrow `i8 >> 9` fills
+    /// with the sign rather than shifting zeros in from bit 8.
+    fn reg_signed(self, t: *Type) -> string {
+        var r = CXXSpell::reg_width(t);
+        if r == u32(32) { return "int"; }
+        if r == u32(64) { return builtin_info(BuiltinKind::I64)->cxx; }
+        if r == u32(128) { return builtin_info(BuiltinKind::I128)->cxx; }
+        if r == u32(256) { return builtin_info(BuiltinKind::I256)->cxx; }
+        return builtin_info(BuiltinKind::I512)->cxx;
     }
 
     /// cxx_vis with the default applied: what C++ will see.

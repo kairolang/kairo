@@ -46,6 +46,11 @@ class EmitOptions {
     /// -funwind: closures and `__kairo_fn`'s call path are not `noexcept`
     /// (a function's own spelling is FunctionDecl::no_unwind, decided in X).
     pub var unwind: bool = false;
+    /// -Wshift-count-unproven: EmitIR names every shift that pays for its
+    /// count mask, on an ARM32 target (the only ones it costs on).
+    pub var warn_unproven_shift: bool = false;
+    /// The triple the C++ is compiled for; "" before the driver resolved it.
+    pub var target_triple: string = "";
 
     fn EmitOptions(self) { }
 }
@@ -83,6 +88,10 @@ class CodegenContext {
         self.phase     = CodegenPhase::Ready;
         if sink != &null { sink->ice_ctx = ctx; }
         if (ctx->ci != &null) && (ctx->ci->lang.unwind == 1) { self.opts.unwind = true; }
+        if ctx->ci != &null {
+            self.opts.warn_unproven_shift = ctx->ci->diag.Wshift_count_unproven;
+            self.opts.target_triple       = ctx->ci->target.effective_triple;
+        }
     }
 
     fn require_phase(self, min: CodegenPhase) {

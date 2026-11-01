@@ -83,6 +83,8 @@ import Sema::Type::TypeUtil::*;
 import Sema::Lower::LowerSynth::*;
 import Sema::Lower::OperatorLowering::*;
 import AST::Visitor::ASTWriter::*;
+import AST::Visitor::RecursiveASTVisitor::*;
+import Sema::Check::ConstEval::*;
 import AST::ASTSupport::*;
 import AST::LangItems::*;
 import AST::Context::SymbolTable::*;
@@ -99,6 +101,73 @@ import AST::Kind::TypeKind::*;
 import Token::Token::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
+
+/// The shifts in a range loop's body whose count is the loop's binder, and
+/// whether the body could change the binder (SHIFT spec §4): an assignment
+/// or `++`/`--` to it, its address (`&x`, an `inout` marker), or a closure
+/// naming it. The binder is a per-iteration copy and may be writable, so a
+/// write anywhere voids the range fact for every shift.
+class ShiftBinderScan derives RecursiveASTVisitor::<ShiftBinderScan> {
+    pub var binder:  *Decl = &null;
+    pub var written: bool  = false;
+    pub var shifts:  vec::<*BinaryOperatorExpr>;
+    pub var assigns: vec::<*AssignOperatorExpr>;
+    priv var _closures: u32 = 0;
+
+    fn ShiftBinderScan(self) { }
+
+    /// \p e is the binder, parens aside.
+    priv fn _is_binder(self, e: *Expr) -> bool {
+        var x = e;
+        while (x != &null) && isa::<ParenExpr>(x) { x = cast::<ParenExpr>(x)->inner; }
+        return (x != &null) && isa::<NamedIdentExpr>(x) && (cast::<NamedIdentExpr>(x)->resolved_decl == self.binder);
+    }
+
+    /// The local a write through \p e reaches: `x`, `x.f`, `x[i]`.
+    priv fn _root_is_binder(self, e: *Expr) -> bool {
+        var x = e;
+        while x != &null {
+            if isa::<ParenExpr>(x) { x = cast::<ParenExpr>(x)->inner; continue; }
+            if isa::<ChainExpr>(x) { x = cast::<ChainExpr>(x)->base; continue; }
+            if isa::<SubscriptExpr>(x) { x = cast::<SubscriptExpr>(x)->base; continue; }
+            break;
+        }
+        return self._is_binder(x);
+    }
+
+    priv fn _shift(self, k: TokenKind) -> bool { return (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater); }
+
+    fn visit_binary_operator_expr(self, n: *BinaryOperatorExpr) -> bool {
+        if self._shift(n->op_token.kind) && (n->resolved_op == &null) && self._is_binder(n->rhs) { self.shifts.push_back(n); }
+        return true;
+    }
+
+    fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
+        if self._root_is_binder(n->lhs) { self.written = true; }
+        var k = n->op_token.kind;
+        var sh = (k == TokenKind::OpLessLessEqual) || (k == TokenKind::OpGreaterGreaterEqual);
+        if sh && (n->resolved_op == &null) && self._is_binder(n->rhs) { self.assigns.push_back(n); }
+        return true;
+    }
+
+    fn visit_unary_operator_expr(self, n: *UnaryOperatorExpr) -> bool {
+        var k = n->op_token.kind;
+        if ((k == TokenKind::OpAmp) || (k == TokenKind::OpPlusPlus) || (k == TokenKind::OpMinusMinus)) && self._root_is_binder(n->operand) { self.written = true; }
+        return true;
+    }
+
+    fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
+        if (self._closures > 0) && (n->resolved_decl == self.binder) { self.written = true; }
+        return true;
+    }
+
+    fn traverse_closure_expr(self, n: *ClosureExpr) -> *ClosureExpr {
+        self._closures += 1;
+        var r = RecursiveASTVisitor::<ShiftBinderScan>::traverse_closure_expr(n);
+        self._closures -= 1;
+        return r;
+    }
+}
 
 class IterLowering derives ASTWriter::<IterLowering> {
     pub var sc: *SemaContext;
@@ -211,6 +280,7 @@ class IterLowering derives ASTWriter::<IterLowering> {
         var at = n->range;
         ICE_IF(t == &null, "IterLowering: range with no element type");
 
+        self._prove_binder_shifts(n, r);
         var lo = self._local(pre, at, "lo", t, r->begin);
         var hi = self._local(pre, at, "hi", t, r->end);
         var i  = self._local(pre, at, "i",  t, self._use(lo, at));
@@ -233,6 +303,40 @@ class IterLowering derives ASTWriter::<IterLowering> {
         body.push(static_cast::<*Stmt>(ConditionalStmt::create(self.ctx, at, self._use(more, at), self._block(at, &step), &null)));
         body.push(static_cast::<*Stmt>(n->body));
         return self._while(at, self._use(more, at), &body);
+    }
+
+    /// A shift in the body of `for x in lo..hi` whose count is `x` has its
+    /// count proven in [lo, hi) (SHIFT spec §4): with lo a constant >= 0 and
+    /// hi a constant at most the shifted type's width, it is no_wrap, and
+    /// EmitIR leaves its mask out -- `for i in 0..32 { m |= 1 << i }` costs
+    /// nothing on ARM32. `..=hi` bounds it by hi + 1. One plain binder only,
+    /// and none if the body could write it (ShiftBinderScan).
+    priv fn _prove_binder_shifts(self, n: *RangedForStmt, r: *RangeExpr) {
+        if n->bindings.size() != 1 { return; }
+        var b = n->bindings.get(0);
+        if (b == &null) || b->is_discard || (b->type_ != &null) || (b->decl == &null) { return; }
+        if static_cast::<u8>(b->shorthand) != u8(0) { return; }
+        var ce = ConstEval(self.sc);
+        var lo = ce.eval_int(r->begin);
+        if (!lo.ok) || lo.neg || lo.overflow { return; }
+        var hi = ConstEval(self.sc).eval_int(r->end);
+        if (!hi.ok) || hi.neg || hi.overflow { return; }
+        var bound = hi.mag;
+        if r->is_inclusive { bound = bound + u64(1); }
+        var scan = ShiftBinderScan();
+        scan.binder = b->decl;
+        scan.dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body));
+        if scan.written { return; }
+        for var i: usize = 0; i < scan.shifts.size(); ++i {
+            var sh = scan.shifts[i];
+            var w  = self.tu.int_bits(self.tu.as_value(sh->type_));
+            if (w != 0) && (bound <= static_cast::<u64>(w)) { sh->no_wrap = true; }
+        }
+        for var i: usize = 0; i < scan.assigns.size(); ++i {
+            var asg = scan.assigns[i];
+            var w   = self.tu.int_bits(self.tu.as_value(asg->lhs->type_));
+            if (w != 0) && (bound <= static_cast::<u64>(w)) { asg->no_wrap = true; }
+        }
     }
 
     /// A Range value: `inclusive` is read at run time. One loop serves both,

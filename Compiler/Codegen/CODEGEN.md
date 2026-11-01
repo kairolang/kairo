@@ -686,9 +686,22 @@ written into the tree. Imported C++ keeps C++ semantics.
 
 - Pure forms (EmitIR `_op_form`): `+ - *`, unary `-` / `~`, shifts and
   `& | ^` narrower than int cast through `CXXSpell::wrap_carrier` (unsigned,
-  never narrower than `unsigned int`): `SC<T>(SC<U>(a) + SC<U>(b))`. A shift
-  count is masked to the width. `-L` on a literal and `no_wrap` nodes
-  (IterLowering's index steps) print C++'s operator.
+  never narrower than `unsigned int`): `SC<T>(SC<U>(a) + SC<U>(b))`. `-L` on
+  a literal and `no_wrap` nodes (IterLowering's index steps) print C++'s
+  operator.
+- Shifts (`_shift_form`): the count, converted to U, is taken modulo R, the
+  register width (`CXXSpell::reg_width`: 32 up to 32 bits, 64, 128), and the
+  shift is done in R bits and truncated: `SC<T>(SC<U>(a) << (SC<U>(n) &
+  SC<U>(R-1)))`; a signed `>>` shifts `SC<R_T>(a)` (`reg_signed`), so a
+  narrow one fills with the sign. `u8 << 9` is 0, `u8 << 33` is `x << 1`.
+  The mask is the hardware's own on x86, AArch64 and RISC-V (free); ARM32
+  shifts by the count's low byte and pays +1 instruction (+2 on ARMv6-M).
+  A `no_wrap` shift (count proven in [0, W): a constant or `e & K` / `e % K`
+  count, OperatorTyping; a range loop's binder, IterLowering) drops the
+  mask and is free everywhere. A constant count outside [0, W) is SC001E in
+  OperatorTyping. `-Wshift-count-unproven` names each masked shift on ARM32.
+  The duck form computes R from `sizeof(T)` and sign-extends through
+  `__make_signed(U)`.
 - Binding forms: `/` and `%` bind their operands and crash through
   `kairo_rt_div_zero` (the prelude declares it) on zero, `MIN / -1 == MIN`,
   `MIN % -1 == 0`; a compound assignment or `++` / `--` on a non-local place
@@ -731,7 +744,9 @@ written into the tree. Imported C++ keeps C++ semantics.
   - EmitIR mints no nodes; its binding forms (`_div_form`, `_dep_binary`,
     `_dep_update`, `_compound_form`, `_incdec_form`) bind in order.
 - Proof: Tests/Codegen/OperatorSemantics (constant-evaluated forms, run
-  values, spellings, instruction parity at -O1..-O3 on x86_64 and aarch64).
+  values, spellings, instruction parity at -O1..-O3 on x86_64 and aarch64;
+  shifts: shift_run.k runs the spec's table on six targets at four levels
+  under QEMU, parity.py pins each target's exact mask cost).
 
 ### Closures
 

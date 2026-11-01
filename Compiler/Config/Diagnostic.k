@@ -45,6 +45,9 @@ class DiagnosticOptions {
     pub var Wall:               bool   = false;
     pub var Wextra:             bool   = false;
     pub var Wpedantic:          bool   = false;
+    /// -Wshift-count-unproven: a shift on ARM32 whose count mask costs an
+    /// instruction (EmitIR::_warn_unproven_shift). Off by default.
+    pub var Wshift_count_unproven: bool = false;
 
 
     static fn from_args(args: ref!(ParsedArgs)) -> DiagnosticOptions {
@@ -66,6 +69,7 @@ class DiagnosticOptions {
         (o.warnings_as_errors) = args.get_bool("Werror");
         (o.suppress_warnings)  = args.get_bool("nowarn");
         (o.Wall)               = args.get_bool("Wall");
+        (o.Wshift_count_unproven) = args.get_bool("Wshift-count-unproven");
         (o.Wextra)             = args.get_bool("Wextra");
         (o.Wpedantic)          = args.get_bool("Wpedantic");
         for s in (args.get_list("warn"))   { (o.warn_list.push_back(s)); }

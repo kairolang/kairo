@@ -26,8 +26,8 @@ enum Evaluates {
 
 enum Fits derives u8 {
     Shifted = 1 << 8,
-// DIAG:      enum_discriminant_err.k:[[@LINE-1]]:15: error [SC128E]: an enum discriminant must be an integer constant that fits 'u8'; it is 256, which does not fit
-// DIAG-NEXT: enum_discriminant_err.k:[[@LINE-3]]:19: note [I900N]: the underlying type is declared here
+// A u8 shift by 8: a constant count past the width, not a 256 that does not fit.
+// DIAG:      enum_discriminant_err.k:[[@LINE-2]]:20: error [SC001E]: shift count 8 is not below the width of 'u8' (8 bits)
     Literal = 256,
 // DIAG:      enum_discriminant_err.k:[[@LINE-1]]:15: error [SC075E]: literal '256' does not fit in 'u8'
     Top = 255,
@@ -45,8 +45,9 @@ enum Unsigned {
 enum Signed derives i8 {
     Low  = 0 - 127 - 1,
     High = 1 << 7,
-// DIAG:      enum_discriminant_err.k:[[@LINE-1]]:12: error [SC128E]: an enum discriminant must be an integer constant that fits 'i8'; it is 128, which does not fit
-// DIAG-NEXT: enum_discriminant_err.k:[[@LINE-4]]:21: note [I900N]: the underlying type is declared here
+// DIAG:      enum_discriminant_err.k:[[@LINE-1]]:5: error [SC130E]: 'High' has the same value as 'Low' (-128)
+// DIAG-NEXT: enum_discriminant_err.k:[[@LINE-3]]:5: note [SC130N]: 'Low' is declared here
+// A shift is computed at its type (SHIFT spec §6): `1 << 7` in an i8 is -128.
 }
 
 // --- lit wiring -----------------------------------------------------------

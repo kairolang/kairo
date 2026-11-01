@@ -100,6 +100,8 @@ import AST::Kind::ExprKind::*;
 import AST::Kind::TypeKind::*;
 import AST::ParamMode::*;
 import Location::SourceRange::*;
+import Location::SourceManager::*;
+import Location::FullSourceLocation::*;
 import Codegen::CodegenICE::*;
 import Token::TokenKind::*;
 import Token::TokenText::*;
@@ -3199,10 +3201,28 @@ class EmitIR {
             return;
         }
         if (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater) {
-            var mask = "(" + self._scs(uu, b) + " & " + self._scs(uu, "sizeof(" + tt + ") * 8 - 1") + ")";
-            s->spell(at, "return static_cast<" + tt + ">(");
-            if k == TokenKind::OpLessLess { s->spell(at, self._scs(uu, a)); s->punct(at, clang::tok::lessless); }
-            else { s->spell(at, "(" + a + ")"); s->punct(at, clang::tok::greatergreater); }
+            // _shift_form per instance (SHIFT spec §3.3): R from T's size,
+            // as CXXSpell::reg_width computes it, and a signed `>>` through
+            // S, U's signed twin (U is already promoted to at least
+            // `unsigned`, so S is at least `int`: the sign-extension).
+            var rr = LowerTargets::wrap_tmp("R", d);
+            var ss = LowerTargets::wrap_tmp("S", d);
+            var bits = "sizeof(" + tt + ") * 8";
+            s->spell(at, "constexpr auto " + rr + " = (" + bits + " > 128) ? " + bits + " : ((" + bits + " > 64) ? 128 : ((" + bits + " < 32) ? 32 : " + bits + ")); ");
+            var mask = "(" + self._scs(uu, b) + " & " + self._scs(uu, rr + " - 1") + ")";
+            if k == TokenKind::OpLessLess {
+                s->spell(at, "return static_cast<" + tt + ">(" + self._scs(uu, a));
+                s->punct(at, clang::tok::lessless);
+                s->spell(at, mask + "); ");
+                return;
+            }
+            s->spell(at, "if constexpr (__is_signed(" + tt + ")) { ");
+            s->spell(at, "using " + ss + " = __make_signed(" + uu + "); ");
+            s->spell(at, "return static_cast<" + tt + ">(" + self._scs(ss, a));
+            s->punct(at, clang::tok::greatergreater);
+            s->spell(at, mask + "); } ");
+            s->spell(at, "return static_cast<" + tt + ">(" + self._scs(uu, a));
+            s->punct(at, clang::tok::greatergreater);
             s->spell(at, mask + "); ");
             return;
         }
@@ -3322,22 +3342,7 @@ class EmitIR {
         var ts = self._spell._type(CXXSpell::strip_ref(t));
         var u  = self._spell.wrap_carrier(t);
         var s  = self._cg->sink;
-        if (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater) {
-            // The count modulo the width: `& (W - 1)`, free on x86 and arm,
-            // which mask a shift count themselves. `>>` shifts the value as
-            // is (arithmetic on a signed one, C++20); `<<` the carrier.
-            var w   = CXXSpell::int_width(t) - u32(1);
-            var wm1 = f"{w}";
-            self._sc(at, ts);
-            if k == TokenKind::OpLessLess { self._sc(at, u); a(); s->spell(at, ")"); s->punct(at, clang::tok::lessless); }
-            else { s->spell(at, "("); a(); s->spell(at, ")"); s->punct(at, clang::tok::greatergreater); }
-            s->spell(at, "(");
-            self._sc(at, u); b(); s->spell(at, ")");
-            s->spell(at, " & ");
-            self._sc(at, u); s->spell(at, wm1 + ")");
-            s->spell(at, "))");
-            return;
-        }
+        if (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater) { self._shift_form(at, k, a, b, t, false); return; }
         var sym = "+";
         if k == TokenKind::OpMinus { sym = "-"; }
         if k == TokenKind::OpStar  { sym = "*"; }
@@ -3352,6 +3357,79 @@ class EmitIR {
         self._sc(at, ts);
         self._sc(at, u); a(); s->spell(at, ") " + sym + " ");
         self._sc(at, u); b(); s->spell(at, "))");
+    }
+
+    /// `a << b` / `a >> b` on integer T = \p t (SHIFT spec §1, §3.1): the
+    /// count, converted to the carrier U, is taken modulo R, the register
+    /// width (CXXSpell::reg_width: 32 below 32 bits), and the shift is done
+    /// in R bits and truncated to T. `& (R - 1)` is the mask the carrier's
+    /// shift instruction applies itself on x86, AArch64 and RISC-V, so it
+    /// is free there; ARM32 shifts by the count's low byte and pays one
+    /// instruction for it (two on ARMv6-M, which must load the 31). A narrow
+    /// T masks by 31, not W - 1, for the same reason: `u8 << 9` is 0.
+    /// `<<` and a logical `>>` shift the carrier; an arithmetic `>>` the
+    /// left operand sign-extended to R_T (C++20 defines it). \p proven is
+    /// the node's no_wrap (§4): the count is known to be in [0, W), so the
+    /// mask is left out, and the shift is still UB-free.
+    priv fn _shift_form(self, at: SourceRange, k: TokenKind, a: fn(), b: fn(), t: *Type, proven: bool) {
+        var ts = self._spell._type(CXXSpell::strip_ref(t));
+        var u  = self._spell.wrap_carrier(t);
+        var s  = self._cg->sink;
+        var arith = (k == TokenKind::OpGreaterGreater) && self._signed_int(t);
+        if !proven { self._warn_unproven_shift(at, t); }
+        self._sc(at, ts);
+        self._sc(at, (self._spell.reg_signed(t)) if (arith) else (u));
+        a();
+        s->spell(at, ")");
+        if k == TokenKind::OpLessLess { s->punct(at, clang::tok::lessless); } else { s->punct(at, clang::tok::greatergreater); }
+        if proven {
+            self._sc(at, u); b(); s->spell(at, "))");
+            return;
+        }
+        var rm1 = CXXSpell::reg_width(t) - u32(1);
+        s->spell(at, "(");
+        self._sc(at, u); b(); s->spell(at, ")");
+        s->spell(at, " & ");
+        self._sc(at, u); s->spell(at, f"{rm1}" + ")");
+        s->spell(at, "))");
+    }
+
+    /// \p at lies in a file under the builtins or std root.
+    priv fn _in_lib_root(self, at: SourceRange) -> bool {
+        var ctx = self._cg->ctx;
+        if (ctx->sm == &null) || (ctx->ci == &null) || (!at.start.is_valid()) { return false; }
+        var full: FullSourceLocation = ctx->sm->get_line_col(at.start);
+        var path = full.path.full_path();
+        var b = ctx->ci->pp.builtins_dir;
+        var d = ctx->ci->pp.std_dir;
+        if (!b.empty()) && path.starts_with(b) { return true; }
+        return (!d.empty()) && path.starts_with(d);
+    }
+
+    /// -Wshift-count-unproven (SHIFT spec §5): a shift whose count is not
+    /// proven below the width costs its mask on ARM32 only, so the warning
+    /// is for an embedded build that wants every such instruction named.
+    /// Off unless asked for, and silent on every target that masks free.
+    priv fn _warn_unproven_shift(self, at: SourceRange, t: *Type) {
+        if !self._cg->opts.warn_unproven_shift { return; }
+        // Only the user's own code: a library body emitted into this TU (a
+        // builtin's inline or generic body), or Lib/builtin and Lib/std
+        // compiled as TUs of their own, are not theirs to change.
+        if self._owning_fid() != self._cg->tu->fid { return; }
+        if self._in_lib_root(at) { return; }
+        var tr = self._cg->opts.target_triple;
+        // ARM32 only: `arm64` is AArch64, which masks free.
+        var arm32 = tr.starts_with("thumb") || (tr.starts_with("arm") && (!tr.starts_with("arm64")));
+        if !arm32 { return; }
+        var ct = CXXSpell::strip_ref(t);
+        var tn = self._spell._type(ct);
+        if (ct != &null) && isa::<BuiltinType>(ct) { tn = builtin_info(cast::<BuiltinType>(ct)->builtin)->spelling; }
+        var wm1 = CXXSpell::int_width(t) - u32(1);
+        var b = self._cg->ctx->diag_sink.report(DiagCode(DiagID::SC001W), at.start,
+            f"shift count is not proven below the width of '{tn}\x27; masking costs an instruction on this target");
+        b.first(at, "this shift masks its count");
+        b.note(at.start, f"mask it yourself (n & {wm1}) or bound it in a range loop to remove the cost");
+        b.emit();
     }
 
     /// `a / b`, `a % b`: the operands bound in order (which is their
@@ -3395,7 +3473,8 @@ class EmitIR {
             s->spell(at, "(");
             self.emit(n->lhs);
             s->spell(at, " = ");
-            self._op_form(at, k, fn () { self.emit(n->lhs); }, fn () { if shift { self.emit(n->rhs); } else { self._value(n->rhs, t); } }, t);
+            if shift { self._shift_form(at, k, fn () { self.emit(n->lhs); }, fn () { self.emit(n->rhs); }, t, n->no_wrap); }
+            else { self._op_form(at, k, fn () { self.emit(n->lhs); }, fn () { self._value(n->rhs, t); }, t); }
             s->spell(at, ")");
             return;
         }
@@ -3413,7 +3492,8 @@ class EmitIR {
         s->spell(at, "auto& " + p + " = (");
         self.emit(n->lhs);
         s->spell(at, "); " + p + " = ");
-        self._op_form(at, k, fn () { s->spell(at, p); }, fn () { if shift { self.emit(n->rhs); } else { self._value(n->rhs, t); } }, t);
+        if shift { self._shift_form(at, k, fn () { s->spell(at, p); }, fn () { self.emit(n->rhs); }, t, n->no_wrap); }
+        else { self._op_form(at, k, fn () { s->spell(at, p); }, fn () { self._value(n->rhs, t); }, t); }
         s->spell(at, ";");
         if self._stmt_node != static_cast::<*Expr>(n) {
             s->spell(at, " ");
@@ -3564,6 +3644,17 @@ class EmitIR {
         var k = n->op_token.kind;
         var shift = (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater);
         var ints = self._wraps(n->type_) && self._wraps(n->lhs->type_) && (shift || self._wraps(n->rhs->type_));
+        if n->no_wrap && ints && shift {
+            // A count proven in [0, W) (SHIFT spec §4): no mask. A constant
+            // count past the width is Sema's error, so reaching here with
+            // one is a setter's bug.
+            var cnt = dyn_cast::<IntegerLiteralExpr>(self._strip(n->rhs));
+            if (cnt != &null) && ((cnt->get_value_hi() != u64(0)) || (cnt->get_value_lo() >= static_cast::<u64>(CXXSpell::int_width(n->type_)))) {
+                self._ice(n->range, "EmitIR: no_wrap on a shift with an out-of-range constant count");
+            }
+            self._shift_form(n->range, k, fn () { self.emit(n->lhs); }, fn () { self.emit(n->rhs); }, n->type_, true);
+            return;
+        }
         if n->no_wrap {
             var nw_ok = ints && ((k == TokenKind::OpPlus) || (k == TokenKind::OpMinus) || (k == TokenKind::OpStar));
             if !nw_ok { self._ice(n->range, "EmitIR: no_wrap on an operator that has no wrap form"); }

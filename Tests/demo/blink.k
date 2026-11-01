@@ -1,10 +1,14 @@
 // REQUIRES: llvm-objdump, llvm-nm
 // RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Os -c %s -o %t.os.ll --emit llvm-ir
-// RUN: %FileCheck %s --input-file=%t.os.ll
+// RUN: %FileCheck %s --input-file=%t.os.ll --check-prefixes=CHECK,OS
 // RUN: %FileCheck %s --input-file=%t.os.ll --check-prefix=NOCTOR
 // RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Oz -c %s -o %t.oz.ll --emit llvm-ir
-// RUN: %FileCheck %s --input-file=%t.oz.ll
+// RUN: %FileCheck %s --input-file=%t.oz.ll --check-prefixes=CHECK,OZ
 // RUN: %FileCheck %s --input-file=%t.oz.ll --check-prefix=NOCTOR
+// RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Oz -c %s -o %t.v6.o
+// RUN: %objdump -d --no-show-raw-insn %t.v6.o | %FileCheck %s --check-prefix=V6
+// RUN: %kairo_bare --target thumbv7m-none-eabi -mcpu=cortex-m3 -Oz -c %s -o %t.v7.o
+// RUN: %objdump -d --no-show-raw-insn %t.v7.o | %FileCheck %s --check-prefix=V7
 // RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Os -ffunction-sections -c %s -o %t.o
 // RUN: %objdump -h %t.o | %FileCheck %s --check-prefix=SECT
 // RUN: test -z "$(%nm --undefined-only %t.o)"
@@ -25,13 +29,29 @@
 // CHECK-DAG: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306332 to ptr)
 
 // Display::show: all off (seg SET, digit CLR), then segment CLR, then digit SET.
-// Only its own two stores are checked: at -Oz `off()` stays a call, since a
-// shift count is taken modulo 32 (`& 31`), which ARMv6-M pays for (it
-// shifts by the register's low byte) and which tips the size heuristic.
+// A shift count is taken modulo 32 (`& 31`, SHIFT spec §1), and nothing here
+// proves `self.seg_first` below 32, so the mask stays. At -Os `off()` is
+// inlined (its two stores first); at -Oz it stays a call, the mask's cost
+// tipping the size heuristic.
 // CHECK-LABEL: define {{.*}}Display4showEjj(
+// OS: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306348 to ptr)
+// OS: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306344 to ptr)
+// OZ: call void @{{.*}}Display3offEv(
+// CHECK: [[SEG:%.+]] = and i32 %{{.*}}, 31
+// CHECK-NEXT: shl i32 %pattern, [[SEG]]
 // CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306344 to ptr)
 // CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306348 to ptr)
 // CHECK: ret void
+//
+// The mask's price for `pattern << self.seg_first`, pinned: two instructions
+// on ARMv6-M (no AND-immediate: the 31 is loaded first), one on ARMv7-M.
+// V6-LABEL: Display4showEjj>:
+// V6: movs [[K:r[0-9]+]], #0x1f
+// V6-NEXT: ands [[C:r[0-9]+]], [[K]]
+// V6-NEXT: lsls {{r[0-9]+}}, [[C]]
+// V7-LABEL: Display4showEjj>:
+// V7: and [[C:r[0-9]+]], {{r[0-9]+}}, #0x1f
+// V7-NEXT: lsl.w {{r[0-9]+}}, {{r[0-9]+}}, [[C]]
 
 // RgbLed::set: clear all three, then raise one.
 // CHECK-LABEL: define {{.*}}RgbLed3setE{{.*}}(

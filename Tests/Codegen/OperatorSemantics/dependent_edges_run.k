@@ -1,8 +1,9 @@
 // OperatorSemantics: a duck `<T: type>` operand's integer arm keeps every
 // check the concrete forms have, pinned at T = i32 and at narrow types:
 // `/` and `%` test the zero divisor and `MIN / -1` inside the integral
-// branch, and a shift masks its count with `sizeof(T) * 8 - 1` (so a u8
-// shifts by 9 as by 1, an i64 by 65 as by 1).
+// branch, and a shift masks its count to the register width R, computed
+// from sizeof(T): 32 below 32 bits, so a u8 shifted by 9 is 0 and an i8 by
+// 9 fills with its sign; an i64 by 65 is by 1 (SHIFT spec §3.3).
 
 import std::io::*
 
@@ -22,7 +23,7 @@ fn main() -> i32 {
     println(f"{shl(one32, 33)} {shr(imin, 33)}")                          // I32SH: 2 -1073741824
     var one8: u8 = 1
     var hi8: i8 = -128
-    println(f"{shl(one8, 9)} {shr(hi8, 9)} {shl(one8, 7)}")              // I8SH: 2 -64 128
+    println(f"{shl(one8, 9)} {shr(hi8, 9)} {shl(one8, 7)} {shl(one8, 33)}")   // I8SH: 0 -1 128 2
     var one64: i64 = 1
     println(f"{shl(one64, 65)}")                                           // I64SH: 2
     return 0
@@ -33,7 +34,7 @@ fn main() -> i32 {
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s --check-prefixes=I32DIV,I8DIV,I32SH,I8SH,I64SH
-// The checks sit inside the integral arm, and the mask is the width's.
+// The checks sit inside the integral arm, and the mask is R's.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}dependent_edges_run.k
 // CXX: template<class T> T quot(T a, T b) noexcept {
@@ -43,4 +44,5 @@ fn main() -> i32 {
 // CXX-NEXT: if constexpr(__is_signed(__kairo_T0)) {
 // CXX-NEXT: if(__kairo_b0 == static_cast<__kairo_T0>(- 1)) {
 // CXX: template<class T> T shl(T a, signed int n) noexcept {
-// CXX: (static_cast<__kairo_U0>(__kairo_b0) & static_cast<__kairo_U0>(sizeof(__kairo_T0) * 8 - 1))
+// CXX: constexpr auto __kairo_R0 =
+// CXX: (static_cast<__kairo_U0>(__kairo_b0) & static_cast<__kairo_U0>(__kairo_R0 - 1))

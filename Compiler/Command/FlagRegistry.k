@@ -346,6 +346,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>      ("Wall",               "",  "Wall",               "forwarded to clang for the generated C++; no Kairo diagnostic is gated",  false);
     cmd->define::<FlagKind::Bool>      ("Wextra",             "",  "Wextra",             "forwarded to clang for the generated C++; no Kairo diagnostic is gated",  false);
     cmd->define::<FlagKind::Bool>      ("Wpedantic",          "",  "Wpedantic",          "forwarded to clang for the generated C++; no Kairo diagnostic is gated",  false);
+    cmd->define::<FlagKind::Bool>      ("Wshift-count-unproven", "", "Wshift-count-unproven", "warn on an ARM32 shift whose count is not proven below the width (its mask costs an instruction)", false);
     cmd->define::<FlagKind::Bool>      ("Werror",             "",  "Werror",             "treat all warnings as errors",                                         false);
     cmd->define::<FlagKind::Bool>      ("nowarn",             "w", "",                   "suppress all warnings",                                                false);
     cmd->define::<FlagKind::StringList>("warn",               "W", "",                   "enable a diagnostic by code, e.g. R020E; overrides an earlier -A (repeatable)");
