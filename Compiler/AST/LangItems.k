@@ -508,12 +508,11 @@ class LangAttrs {
     /// `@assume(cond)`: a statement of its own, parsed to a call of the
     /// Assume lang item (StmtParse::_try_parse_assume).
     static fn assume() -> string   { return "assume"; }
-    /// Function attributes (FunctionDecl::hot_path / cold_path / is_pure /
-    /// fast_call), stamped by ASTParse::apply_annotations_to_decl.
+    /// Function attributes (FunctionDecl::hot_path / cold_path / is_pure),
+    /// stamped by ASTParse::apply_annotations_to_decl.
     static fn hot_path() -> string  { return "hot_path"; }
     static fn cold_path() -> string { return "cold_path"; }
     static fn pure_fn() -> string   { return "pure"; }
-    static fn fast_call() -> string { return "fast_call"; }
 }
 
 /// \class LangIntrinsics

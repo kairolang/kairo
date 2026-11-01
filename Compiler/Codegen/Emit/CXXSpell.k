@@ -896,8 +896,6 @@ class CXXSpell {
         } else if f->is_pure || ((c != &null) && c->is_pure) {
             s += LowerTargets::attr_pure();
         }
-        // TODO(fast_call): FunctionDecl::fast_call is parsed and validated;
-        // its C++ spelling is undecided, so nothing is emitted for it yet.
         return s;
     }
 

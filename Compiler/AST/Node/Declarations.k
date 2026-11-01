@@ -644,7 +644,6 @@ class FunctionDecl
     pub var hot_path:  bool = false;   ///< `@hot_path`: `[[gnu::hot]]`.
     pub var cold_path: bool = false;   ///< `@cold_path`: `[[gnu::cold]]`.
     pub var is_pure:   bool = false;   ///< `@pure`: `[[gnu::pure]]`; FnPurityCheck.
-    pub var fast_call: bool = false;   ///< `@fast_call`: reserved, no C++ spelling yet.
     /// Written `const fn f()` at file or module scope: reads only its own
     /// inputs, `[[gnu::const]]`; FnPurityCheck enforces it. NOT the same as
     /// is_const(), which is `const self` on a method.
@@ -706,7 +705,6 @@ class FunctionDecl
         node->hot_path    = false;
         node->cold_path   = false;
         node->is_pure     = false;
-        node->fast_call   = false;
         node->is_const_fn = false;
         return node;
     }
@@ -727,7 +725,6 @@ class FunctionDecl
         node->hot_path    = false;
         node->cold_path   = false;
         node->is_pure     = false;
-        node->fast_call   = false;
         node->is_const_fn = false;
         return node;
     }

@@ -2313,7 +2313,7 @@ class ASTParse
             b.emit();
         }
 
-        // `@hot_path` / `@cold_path` / `@pure` / `@fast_call`: stamped on the
+        // `@hot_path` / `@cold_path` / `@pure`: stamped on the
         // function, which is what codegen and FnPurityCheck read (never the
         // attribute list). On anything else the attribute means nothing, and
         // ignoring it silently would let a reader believe a variable or a
@@ -2321,7 +2321,6 @@ class ASTParse
         var k_hot  = self.ctx->hoisted->intern(LangAttrs::hot_path());
         var k_cold = self.ctx->hoisted->intern(LangAttrs::cold_path());
         var k_pure = self.ctx->hoisted->intern(LangAttrs::pure_fn());
-        var k_fast = self.ctx->hoisted->intern(LangAttrs::fast_call());
         var fnd = dyn_cast::<FunctionDecl>(decl);
         var hot_seen  = false;
         var cold_at   = SourceRange();
@@ -2333,13 +2332,11 @@ class ASTParse
             if      e->name == k_hot  { fa = LangAttrs::hot_path();  }
             else if e->name == k_cold { fa = LangAttrs::cold_path(); }
             else if e->name == k_pure { fa = LangAttrs::pure_fn();   }
-            else if e->name == k_fast { fa = LangAttrs::fast_call(); }
             if fa.size() == 0 { continue; }
             if fnd != &null {
                 if      e->name == k_hot  { fnd->hot_path = true; hot_seen = true; }
                 else if e->name == k_cold { fnd->cold_path = true; cold_seen = true; cold_at = e->range; }
-                else if e->name == k_pure { fnd->is_pure = true; }
-                else                      { fnd->fast_call = true; }
+                else                      { fnd->is_pure = true; }
                 continue;
             }
             if self.mode != ParseMode::Full { continue; }   // the Full parse reports it once.
@@ -2394,7 +2391,6 @@ class ASTParse
         var k_hot  = self.ctx->hoisted->intern(LangAttrs::hot_path());
         var k_cold = self.ctx->hoisted->intern(LangAttrs::cold_path());
         var k_pure = self.ctx->hoisted->intern(LangAttrs::pure_fn());
-        var k_fast = self.ctx->hoisted->intern(LangAttrs::fast_call());
         for var i: usize = 0; i < annot->entries.size(); ++i {
             var e = &annot->entries[i];
             node->add_annotation(e->kind, e->name, e->range, e->args);
@@ -2404,7 +2400,6 @@ class ASTParse
             if      e->name == k_hot  { fa = LangAttrs::hot_path();  }
             else if e->name == k_cold { fa = LangAttrs::cold_path(); }
             else if e->name == k_pure { fa = LangAttrs::pure_fn();   }
-            else if e->name == k_fast { fa = LangAttrs::fast_call(); }
             if fa.size() == 0 { continue; }
             var an = "\x27@" + fa + "\x27";
             var b = self.diag->report(DiagID::SC001E, e->range.start,

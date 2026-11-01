@@ -18,15 +18,11 @@ fn peek() -> i32 { return counter }
 const fn square(x: f64) -> f64 { return x * x }
 const fn hyp2(a: f64, b: f64) -> f64 { return square(a) + square(b) }
 
-@fast_call
-fn quick(x: i32) -> i32 { return x * 2 }
-
 fn main() -> i32 {
     if hot(1) != 2 { return 1 }
     if cold(1) != 0 { return 2 }
     if peek() != 3 { return 3 }
     if hyp2(3.0, 4.0) != 25.0 { return 4 }
-    if quick(4) != 8 { return 5 }
     return 0
 }
 
