@@ -1950,7 +1950,12 @@ class EmitIR {
             // `template` when the qualifier is dependent.
             var wa = "";
             if k + 1 == n->steps.size() { wa = self._written_args_str(st->resolved_decl, &(st->generic_args)); }
-            if st->through != &null {
+            if st->witness_iface != &null {
+                // `A::make` as a VALUE, A bounded (P222): the witness's static
+                // member, as a `::` call spells it (_call); the requirement
+                // itself is no C++ function.
+                self._cg->sink->spell(st->range, self._witness_member(st->witness_iface, st->witness_self, cast::<FunctionDecl>(st->resolved_decl), wa));
+            } else if st->through != &null {
                 var tk = ("template ") if ((wa.size() > 0) && st->through->is_dependent()) else ("");
                 self._cg->sink->spell(st->range, self._spell._type(st->through, &null) + "::" + tk + self._spell.leaf(st->resolved_decl) + wa);
             } else if (pr != &null) && (pr->outer != &null) {

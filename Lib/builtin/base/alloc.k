@@ -363,52 +363,48 @@ inline fn owner_of(ptr: unsafe *u8) -> unsafe *ScopeFrame {
     return &null
 }
 
-// BLOCKED (Explicit generic arguments are
-// dropped"): AllocatorScope needs `scope_alloc<A>` as a function VALUE, and the
-// emitted C++ drops <A>. Everything else in this file works without it;
-//
-// // The frame stores A's static functions as pointers; A::alloc written as a
-// // value inside a generic class is emitted against the interface, not the
-// // witness, so each goes through a trampoline.
-// fn <A impl ScopedFullAllocator> scope_alloc(size: usize, align: usize) -> unsafe *u8 { return A::alloc(size, align) }
-// fn <A impl ScopedFullAllocator> scope_free(ptr: unsafe *u8, size: usize, align: usize) { A::free(ptr, size, align) }
-// fn <A impl ScopedFullAllocator> scope_resize(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool { return A::resize(ptr, old_size, new_size, align) }
-// fn <A impl ScopedFullAllocator> scope_realloc(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 { return A::realloc(ptr, old_size, new_size, align) }
-//
-// /// Opens a scoped allocator for the rest of the enclosing block: every
-// /// allocation through the non-_in family, in this function and everything it
-// /// calls on this thread, comes from A until the guard is destroyed. Pinned in
-// /// place, since the frame stack points into it.
-// pub class <A impl ScopedFullAllocator> AllocatorScope {
-//     priv var mark:   u64
-//     priv var active: bool
-//     priv var frame:  ScopeFrame
-//
-//     pub fn AllocatorScope(self) {
-//         self.mark = A::enter()
-//         self.active = true
-//         var r = A::range()
-//         self.frame = ScopeFrame {
-//             alloc: scope_alloc<A>, free: scope_free<A>, resize: scope_resize<A>, realloc: scope_realloc<A>,
-//             lo: r.0, hi: r.1, prev: scope_top,
-//         }
-//         scope_top = unsafe &self.frame
-//     }
-//
-//     @copy
-//     pub fn AllocatorScope(self, const other: Self) = delete
-//     @move
-//     pub fn AllocatorScope(self, other: Self) = delete
-//
-//     /// Idempotent. Scopes close in reverse order of opening.
-//     fn op delete(self) {
-//         if !self.active { return }
-//         self.active = false
-//         assert scope_top == unsafe &self.frame, "allocator scopes must close in reverse order"
-//         scope_top = self.frame.prev
-//         A::leave(self.mark)
-//     }
-// }
+// The frame stores A's static functions as pointers; A::alloc written as a
+// value inside a generic class is emitted against the interface, not the
+// witness, so each goes through a trampoline.
+fn <A impl ScopedFullAllocator> scope_alloc(size: usize, align: usize) -> unsafe *u8 { return A::alloc(size, align) }
+fn <A impl ScopedFullAllocator> scope_free(ptr: unsafe *u8, size: usize, align: usize) { A::free(ptr, size, align) }
+fn <A impl ScopedFullAllocator> scope_resize(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool { return A::resize(ptr, old_size, new_size, align) }
+fn <A impl ScopedFullAllocator> scope_realloc(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 { return A::realloc(ptr, old_size, new_size, align) }
+
+/// Opens a scoped allocator for the rest of the enclosing block: every
+/// allocation through the non-_in family, in this function and everything it
+/// calls on this thread, comes from A until the guard is destroyed. Pinned in
+/// place, since the frame stack points into it.
+pub class <A impl ScopedFullAllocator> AllocatorScope {
+    priv var mark:   u64
+    priv var active: bool
+    priv var frame:  ScopeFrame
+
+    pub fn AllocatorScope(self) {
+        self.mark = A::enter()
+        self.active = true
+        var r = A::range()
+        self.frame = ScopeFrame {
+            alloc: scope_alloc<A>, free: scope_free<A>, resize: scope_resize<A>, realloc: scope_realloc<A>,
+            lo: r.0, hi: r.1, prev: scope_top,
+        }
+        scope_top = unsafe &self.frame
+    }
+
+    @copy
+    pub fn AllocatorScope(self, const other: Self) = delete
+    @move
+    pub fn AllocatorScope(self, other: Self) = delete
+
+    /// Idempotent. Scopes close in reverse order of opening.
+    fn op delete(self) {
+        if !self.active { return }
+        self.active = false
+        assert scope_top == unsafe &self.frame, "allocator scopes must close in reverse order"
+        scope_top = self.frame.prev
+        A::leave(self.mark)
+    }
+}
 
 // --- the current-allocator family -------------------------------------------
 

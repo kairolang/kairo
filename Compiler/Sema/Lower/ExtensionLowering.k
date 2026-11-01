@@ -195,7 +195,7 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         var me   = self._object_type(obj, via_ptr);
         ICE_IF(me == &null, "ExtensionLowering: an untyped receiver for a requirement call; ExprTyper gate failure");
         n->witness_self  = me;
-        n->witness_iface = self._declaring_iface(me, f, n);
+        n->witness_iface = self._declaring_iface(me, f);
         var args = self.list_builder::<*Expr>();
         args.push(self._witness_receiver(obj, f, via_ptr));
         for var i: usize = 0; i < n->args.size(); ++i { args.push(n->args[i]); }
@@ -214,23 +214,49 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         // CallTyping's qualifier, not a witness: a form left unrewritten
         // must still reach EmitIR's ICE rather than spell a Self-less one.
         n->witness_iface = &null;
-        if f->is_method() || (ch->base == &null) { return; }
-        var me: *Type = &null;
+        if f->is_method() { return; }
+        var me = self._static_self(ch);
+        if me == &null { return; }
+        n->callee        = self._head(st, f);
+        n->witness_self  = me;
+        n->witness_iface = self._declaring_iface(me, f);
+    }
+
+    /// The dependent Self a static requirement is named through as the LAST
+    /// step of \p ch: a bounded parameter (`T::make`) or an associated type
+    /// (`T::Item::make`); null for any other head.
+    priv fn _static_self(self, ch: *ChainExpr) -> *Type {
+        if ch->base == &null { return &null; }
         var k = ch->steps.size();
         if k == 1 {
             var q = dyn_cast::<NamedIdentExpr>(self.tu.strip_parens(ch->base));
-            if q == &null { return; }
+            if q == &null { return &null; }
             var gp = dyn_cast::<GenericParamDecl>(q->resolved_decl);
-            if (gp == &null) || (gp->owner == &null) { return; }
-            me = self.sc->types->generic_param(NameLookup::representative(gp->owner), gp->index, gp->is_pack);
-        } else {
-            var prev = ch->steps.get(k - 2);
-            if (prev == &null) || (prev->resolved_type == &null) || (!isa::<AssocType>(canon_unqual(prev->resolved_type))) { return; }
-            me = canon_unqual(prev->resolved_type);
+            if (gp == &null) || (gp->owner == &null) { return &null; }
+            return self.sc->types->generic_param(NameLookup::representative(gp->owner), gp->index, gp->is_pack);
         }
-        n->callee        = self._head(st, f);
-        n->witness_self  = me;
-        n->witness_iface = self._declaring_iface(me, f, n);
+        var prev = ch->steps.get(k - 2);
+        if (prev == &null) || (prev->resolved_type == &null) || (!isa::<AssocType>(canon_unqual(prev->resolved_type))) { return &null; }
+        return canon_unqual(prev->resolved_type);
+    }
+
+    /// `A::make` used as a VALUE (P222), A bounded: the step records the
+    /// witness a `::` call would get (_static_witness), so the function it
+    /// denotes is the witness's member, not the requirement -- which has no
+    /// C++ definition, and named as `I::make` is the interface's. A call's
+    /// callee comes through here too, first; the call then replaces it.
+    fn transform_chain_expr(self, n: *ChainExpr) -> *Expr {
+        ASTWriter::<ExtensionLowering>::transform_chain_expr(n);
+        if n->is_poisoned() || (n->steps.size() == 0) { return static_cast::<*Expr>(n); }
+        var st = n->steps.get(n->steps.size() - 1);
+        if st->access_kind != ChainExpr::AccessKind::ColonColon { return static_cast::<*Expr>(n); }
+        var f = dyn_cast::<FunctionDecl>(st->resolved_decl);
+        if (self._requirement_of(f) == &null) || f->is_method() { return static_cast::<*Expr>(n); }
+        var me = self._static_self(n);
+        if me == &null { return static_cast::<*Expr>(n); }
+        st->witness_self  = me;
+        st->witness_iface = self._declaring_iface(me, f);
+        return static_cast::<*Expr>(n);
     }
 
     /// `I::m(a, x)`, the qualified form of a requirement call: `self` is
@@ -246,7 +272,7 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         if isa::<GenericParamType>(me) || isa::<AssocType>(me) {
             // The bound ConformanceChecking chose by the qualifier; the first
             // bound with the requirement serves only a call that named none.
-            if n->witness_iface == &null { n->witness_iface = self._declaring_iface(me, f, n); }
+            if n->witness_iface == &null { n->witness_iface = self._declaring_iface(me, f); }
         } else {
             var row = reinterpret_cast::<*ConformanceRow>(n->witness_row);
             ICE_IF(row == &null, "ExtensionLowering: a qualified requirement call on a concrete type with no row; ConformanceChecking records it");
@@ -281,7 +307,7 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
     /// parameter, or an associated type (`x.show()` on `x: T::Item` is
     /// `Display_witness<typename Store_witness<T>::Item>`) -- and its bounds
     /// are Substitution::bound_ifaces', the one list every reader shares.
-    priv fn _declaring_iface(self, me: *Type, f: *FunctionDecl, at: *CallExpr) -> *Type {
+    priv fn _declaring_iface(self, me: *Type, f: *FunctionDecl) -> *Type {
         ICE_IF((!isa::<GenericParamType>(me)) && (!isa::<AssocType>(me)),
             "ExtensionLowering: a requirement call on a receiver that is neither a bounded generic parameter nor an associated type; witness Self must be dependent");
         var bs = Substitution(self.sc).bound_ifaces(me);

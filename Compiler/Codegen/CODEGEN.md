@@ -1156,7 +1156,11 @@ Built, end to end (`Tests/Codegen/witness/`):
   bounds alone), so OperatorLowering mints the call and the same arm takes
   it; an operator the bounds do not declare still defers. EmitIR spells the callee
   `::N::I_witness<Self, A...>::m`. A requirement callee with no recorded
-  witness is an ICE naming ExtensionLowering.
+  witness is an ICE naming ExtensionLowering. The same static requirement
+  used as a VALUE (`var f: fn(usize) -> usize = A::alloc`) has no call to
+  carry the witness, so ExtensionLowering records it on the `::` step
+  (`ChainExpr::Step::witness_iface` / `witness_self`) and EmitIR names the
+  witness's static member, a plain function (P222).
 - **Emission.** EmitPlan keeps `WitnessPiece`s beside its ExtScopes: an
   interface's primary + concept (tier-0 forward declaration, tier-1
   definition; admitted by a requirement use and by a bounded generic's

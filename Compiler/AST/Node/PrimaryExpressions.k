@@ -386,6 +386,14 @@ class ChainExpr derives Expr {
         /// and EmitPlan admits it Complete.
         pub var through: *Type = &null;
 
+        /// A `::` step naming a STATIC requirement through a bounded head
+        /// (`A::make` as a value, A impl I): the declaring interface's
+        /// canonical instance and Self, as CallExpr::witness_iface /
+        /// witness_self are for a call. The requirement is no C++ function;
+        /// EmitIR spells the witness's member. One writer: ExtensionLowering.
+        pub var witness_iface: *Type = &null;
+        pub var witness_self:  *Type = &null;
+
         fn is_operator(self) -> bool {
             return self.target == StepTarget::Operator;
         }

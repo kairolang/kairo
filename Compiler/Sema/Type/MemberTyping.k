@@ -347,6 +347,9 @@ class <T> MemberTyping {
             // -- named step --
             var d = st->resolved_decl;
             if (d == &null) && (st->candidate_cell != &null) {
+                // `Box<T>::f` names the pattern's overloads; the instance
+                // (or the dependent pattern) is what spells them (P222).
+                st->through = self._instance_through(st, cur_kind, cur_type);
                 info->callable_cands.clear();
                 for var j: usize = 0; j < st->candidate_cell->size(); ++j { info->callable_cands.push_back(st->candidate_cell->get(j)); }
                 cur_kind = 3;
@@ -405,6 +408,10 @@ class <T> MemberTyping {
                     if is_last { last_variant = cast::<EnumVariantDecl>(d); }
                 }
                 case DeclKind::FunctionDecl {
+                    // `H<A>::get` / `Self::get` as a value: without it the
+                    // member is spelled `H::get`, the template with no
+                    // arguments (P222). A call has CallExpr::qualifier too.
+                    st->through = self._instance_through(st, cur_kind, cur_type);
                     info->callable_cands.clear();
                     info->callable_cands.push_back(d);
                     cur_kind = 3;
