@@ -895,6 +895,37 @@ class CXXSpell {
         return self.decl(v->type_, LowerTargets::global_init_thunk(self.leaf(static_cast::<*Decl>(v))) + "()");
     }
 
+    /// A `thread` global whose initializer is a literal of a scalar type
+    /// (P229). Without `constinit` an importer's `extern thread_local`
+    /// cannot know the definition needs no dynamic initialization, so clang
+    /// reaches every access through the TLS wrapper, which tests the weak
+    /// `_ZTH` init function (cmp, je, call). C++ wants `constinit` on the
+    /// initializing declaration whenever any declaration has it, so the
+    /// answer is a function of the decl alone and global_var spells it on
+    /// both. Literal-only on purpose: a false yes is a clang error, and
+    /// anything EmitIR spells as a wrap form or a thunk call stays dynamic.
+    /// Never `eval`, whose definition is already `inline constexpr`.
+    static fn thread_constinit(v: *VariableDecl) -> bool {
+        if (v == &null) || (!v->is_thread) || v->is_eval() { return false; }
+        if (v->type_ == &null) || (v->type_->canonical == &null) || (v->init == &null) { return false; }
+        var t = canon_unqual(v->type_->canonical);
+        var e = v->init;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        if e == &null { return false; }
+        if isa::<PointerType>(t) {
+            return isa::<NullLiteralExpr>(e) && cast::<NullLiteralExpr>(e)->is_ref;
+        }
+        if !isa::<BuiltinType>(t) { return false; }
+        var u = dyn_cast::<UnaryOperatorExpr>(e);
+        if (u != &null) && (u->op_token.kind == TokenKind::OpMinus) {
+            e = u->operand;
+            while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+            return (e != &null) && (isa::<IntegerLiteralExpr>(e) || isa::<FloatingLiteralExpr>(e));
+        }
+        return isa::<IntegerLiteralExpr>(e) || isa::<FloatingLiteralExpr>(e)
+            || isa::<BooleanLiteralExpr>(e) || isa::<CharacterLiteralExpr>(e);
+    }
+
     fn global_var(self, v: *VariableDecl) -> string {
         var nm = self.leaf(static_cast::<*Decl>(v));
         var c = (v->type_->canonical) if (v->type_ != &null) else (&null);
@@ -902,6 +933,7 @@ class CXXSpell {
                    && ((cast::<QualifiedType>(c)->quals & QUAL_CONST()) != 0);
         if (v->is_const() || v->is_eval()) && (!already) { nm = "const " + nm; }
         var s = ("thread_local ") if (v->is_thread) else ("");
+        if CXXSpell::thread_constinit(v) { s = "constinit " + s; }
         return s + self.decl(v->type_, nm);
     }
 
