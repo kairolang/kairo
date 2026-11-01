@@ -218,10 +218,13 @@ class LangMembers {
     /// Slice<T> fields (containers/slice.k): IterLowering walks a slice by them.
     static fn slice_data() -> string { return "data"; }
     static fn slice_len() -> string  { return "len"; }
-    /// string fields (string.k): MatchLowering compares a string head's
-    /// bytes, LiteralTyping sizes an f-string's buffer.
-    static fn string_data() -> string { return "data"; }
-    static fn string_len() -> string  { return "len"; }
+    /// string accessors (string.k), not its fields: the fields are private,
+    /// and the emitted C++ enforces that even where Kairo's AccessCheck does
+    /// not look (synthesized trees). MatchLowering compares a string head's
+    /// bytes, LiteralTyping sizes an f-string's buffer, the kcc panic view
+    /// reads a message.
+    static fn string_as_ptr() -> string { return "as_ptr"; }
+    static fn string_length() -> string { return "length"; }
     /// Yield<T> methods (coro/generator.k): the generator protocol IterLowering drives.
     static fn yield_next() -> string    { return "next"; }
     static fn yield_current() -> string { return "current"; }

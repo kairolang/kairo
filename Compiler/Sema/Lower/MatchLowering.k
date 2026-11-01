@@ -984,7 +984,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
             }
             cases.push_back(c);
         }
-        out->push_back(self._dispatch(self._string_field(n.occ, LangMembers::string_len(), self._usize()), &cases, n.other, false));
+        out->push_back(self._dispatch(self._string_call(n.occ, LangMembers::string_length(), self._usize()), &cases, n.other, false));
 
         for var j: usize = 0; j < lens.size(); ++j {
             if lens[j] == 0 { continue; }
@@ -1039,7 +1039,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         if (t != &null) && self.tu.is_string(t) {
             var b = vec::<u8>();
             ICE_IF(!pattern_string_bytes(self.sc, p, &b), "MatchLowering: a string head with no bytes; PatternCompilation gate failure");
-            var len = self._eq(self._string_field(occ, LangMembers::string_len(), self._usize()),
+            var len = self._eq(self._string_call(occ, LangMembers::string_length(), self._usize()),
                                self.synth.int_literal(self._at, u64(b.size()), BuiltinKind::USize));
             if b.size() == 0 { return len; }
             return self._and(len, self._memcmp_eq(occ, &b));
@@ -1071,20 +1071,22 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         return &null;
     }
 
-    /// `__builtin_memcmp(s.data, "<bytes>", n) == 0`.
+    /// `__builtin_memcmp(s.as_ptr(), "<bytes>", n) == 0`.
     priv fn _memcmp_eq(self, occ: u32, bytes: *vec::<u8>) -> *Expr {
         var f = self._builtin(LowerTargets::clang_memcmp());
         var pu8 = self.sc->types->pointer(self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST()));
         var args = self.list_builder::<*Expr>();
-        args.push(self._string_field(occ, LangMembers::string_data(), pu8));
+        args.push(self._string_call(occ, LangMembers::string_as_ptr(), pu8));
         args.push(self.synth.bytes_literal(self._at, bytes, pu8));
         args.push(self.synth.int_literal(self._at, u64(bytes->size()), BuiltinKind::USize));
         var call = self._call(f, &args);
         return self._eq(call, self.synth.int_literal(self._at, 0, BuiltinKind::I32));
     }
 
-    priv fn _string_field(self, occ: u32, name: string, ty: *Type) -> *Expr {
-        return self.synth.field_of(self._at, self._occ(occ), self._lang_member(WellKnownType::String, name), ty);
+    /// `s.name()`, a no-argument string accessor.
+    priv fn _string_call(self, occ: u32, name: string, ty: *Type) -> *Expr {
+        var none = self.list_builder::<*Expr>();
+        return self.synth.member_call(self._at, self._occ(occ), self._lang_member(WellKnownType::String, name), &none, ty);
     }
 
     /// Key \p key of \p d as a literal of type \p t: the bias undone, a

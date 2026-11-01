@@ -780,8 +780,16 @@ fn EmitPlan::run() {
     self._collect_own_globals();
     if self._mode == PlanMode::Preamble { self._collect_own_locals(); }
     if self._mode == PlanMode::Preamble { self._collect_uses(); }
-    self._walk_visible();
-    self._close();
+    // To a fixed point: closing can make a record Complete whose inline
+    // bodies the walk has not seen (a kcc include's string, reached only
+    // through a signature), and those are emitted, so what they name must
+    // be planned too. Re-walking is idempotent; the set only grows.
+    var planned = usize(-1);
+    while planned != self._set.size() {
+        planned = self._set.size();
+        self._walk_visible();
+        self._close();
+    }
     self._order();
 
     // The one writer of is_empty. Foreign entries alone do not count: they

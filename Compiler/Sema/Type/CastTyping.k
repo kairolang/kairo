@@ -432,7 +432,11 @@ class <T> CastTyping {
                     var ctors = vec::<*Decl>();
                     for var i: usize = 0; i < cell.cell->size(); ++i {
                         var f = dyn_cast::<FunctionDecl>(cell.cell->get(i));
-                        if f == &null { continue; }
+                        // A @copy/@move ctor takes the target itself: never a
+                        // conversion from another type, and on a dependent
+                        // source it would turn 5e's bound diagnostic into a
+                        // bare "no matching overload".
+                        if (f == &null) || (f->transfer != TransferKind::NotTransfer) { continue; }
                         // exactly one non-self parameter, and not C++ `explicit`:
                         // this rung IS the converting-constructor rule, and
                         // `explicit` is a header's own statement that a ctor

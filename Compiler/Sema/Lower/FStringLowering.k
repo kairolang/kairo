@@ -164,7 +164,8 @@ class FStringLowering derives ASTWriter::<FStringLowering> {
         self._collect_text(n, &text, &bound);   // adds every literal byte to the bound too.
         var cap: *Expr = self.synth.int_literal(n->range, bound, BuiltinKind::USize);
         for var i: usize = 0; i < lens.size(); ++i {
-            var len = self.synth.field_of(n->range, self.synth.use_of(lens[i], n->range, Expr::ValueCategory::LValue), n->fmt_len, usize_t);
+            var none = self.list_builder::<*Expr>();
+            var len  = self.synth.member_call(n->range, self.synth.use_of(lens[i], n->range, Expr::ValueCategory::LValue), n->fmt_len, &none, usize_t);
             var sum = BinaryOperatorExpr::create(self.ctx, n->range, cap, len, self.synth.punct(n->range, TokenKind::OpPlus));
             sum->type_          = usize_t;
             sum->value_category = Expr::ValueCategory::RValue;

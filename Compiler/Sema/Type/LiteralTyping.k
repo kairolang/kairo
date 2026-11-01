@@ -508,7 +508,7 @@ class <T> LiteralTyping {
         n->fmt_ctor   = self._lang_ctor(WellKnownType::FmtBuf, 1, false);
         n->fmt_text   = self._lang_method(WellKnownType::FmtBuf, LangMembers::fmtbuf_text());
         n->fmt_finish = self._lang_method(WellKnownType::FmtBuf, LangMembers::fmtbuf_finish());
-        n->fmt_len    = self._lang_field(WellKnownType::String, LangMembers::string_len());
+        n->fmt_len    = self._lang_method(WellKnownType::String, LangMembers::string_length());
         if (n->fmt_ctor == &null) || (n->fmt_text == &null) || (n->fmt_finish == &null) || (n->fmt_len == &null) {
             dyn()->missing_lang_item(n, to_string(WellKnownType::FmtBuf));
             return false;
@@ -691,19 +691,6 @@ class <T> LiteralTyping {
             if (f != &null) && f->is_method() { return cell.cell->get(i); }
         }
         return &null;
-    }
-
-    priv fn _lang_field(self, k: WellKnownType, name: string) -> *Decl {
-        var d = dyn()->sc->well_known->get(k);
-        if d == &null { return &null; }
-        var body = dyn()->tu.pattern_of(NameLookup::representative(d));
-        var dc   = NameLookup::context_of(body);
-        if dc == &null { return &null; }
-        var imm  = dyn()->sc->imm_table()->intern_ident_copy(name);
-        var cell = dyn()->sc->lookup.in_context(dc, DeclName::ident(imm), name);
-        if !cell.found() { return &null; }
-        var fd = dyn_cast::<FieldDecl>(cell.first());
-        return static_cast::<*Decl>(fd);
     }
 
     // === format specs =======================================================

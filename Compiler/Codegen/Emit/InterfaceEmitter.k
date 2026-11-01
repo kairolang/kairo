@@ -1854,8 +1854,8 @@ class InterfaceEmitter {
             var drp = LowerTargets::panic_api_drop();
             var th  = LowerTargets::panic_api_throw();
             var nm  = "::" + LowerTargets::type_id_trait() + "<E>::" + LowerTargets::type_id_name();
-            var sd  = LangMembers::string_data();
-            var sl  = LangMembers::string_len();
+            var sd  = LangMembers::string_as_ptr() + "()";
+            var sl  = LangMembers::string_length() + "()";
             // No `: ::name` anywhere: a header's text sink writes no space
             // between tokens, and `:::` lexes as `::` `:`. The base is
             // default-built in the copy (std::exception holds nothing).

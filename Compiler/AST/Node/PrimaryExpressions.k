@@ -809,7 +809,7 @@ class StringLiteralExpr derives Expr {
     pub var fmt_ctor:    *Decl = &null;   ///< FmtBuf(cap).            Format literals.
     pub var fmt_text:    *Decl = &null;   ///< FmtBuf::text.
     pub var fmt_finish:  *Decl = &null;   ///< FmtBuf::finish.
-    pub var fmt_len:     *Decl = &null;   ///< string::len, the FieldDecl (the capacity sum reads it).
+    pub var fmt_len:     *Decl = &null;   ///< string::length, the method (the capacity sum calls it).
     pub var fmt_holes:   FrozenList::<FormatHole>;
     /// C++ reads this literal at compile time (EVAL.md 2a): it stands in an
     /// eval context, or in an argument of an eval call made from run-time
