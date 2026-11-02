@@ -13,7 +13,7 @@ interface Movable {
     fn Movable(self, other: Self)
 }
 pub struct P { pub var n: i32 = 1 }
-@move
+
 pub class M {
     pub var n: i32 = 4
     fn M(self) { }

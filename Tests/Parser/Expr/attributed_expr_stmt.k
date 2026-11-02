@@ -83,3 +83,9 @@ fn f(p: *T) {
 // GATE: attributed_expr_stmt.k:20:5: error [SC116E]: the expression attribute '@create' is not yet supported
 // GATE: attributed_expr_stmt.k:21:5: error [SC116E]: the expression attribute '@a' is not yet supported
 // GATE: attributed_expr_stmt.k:21:8: error [SC116E]: the expression attribute '@b' is not yet supported
+// The statement and declaration attributes no compiler rule knows are
+// AttributeCheck's (unknown attribute); `@deprecated` and `@likely` are known.
+// GATE: attributed_expr_stmt.k:23:5: error [SC001E]: unknown attribute '@repeat'
+// GATE: attributed_expr_stmt.k:25:5: error [SC001E]: unknown attribute '@always_inline'
+// GATE: attributed_expr_stmt.k:27:5: error [SC001E]: unknown attribute '@note'
+// GATE: attributed_expr_stmt.k:29:5: error [SC001E]: unknown attribute '@lbl'

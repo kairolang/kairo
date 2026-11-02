@@ -4,11 +4,13 @@
 // indirect call with `size` and `align` moved into the argument registers.
 // As `fn` values (`__kairo_fn`, three words) the same call loaded the
 // object word, branched on it, and spilled both arguments to the stack to
-// pass their addresses (`A&&...`) to the ops table.
+// pass their addresses (`A&&...`) to the ops table. `through_frame` is
+// never called here, so -O2 keeps its body as written; it needs no
+// `@noinline` (no such attribute exists, and an unknown one is an error).
 
 import builtin::base::alloc::ScopeFrame
 
-@noinline fn through_frame(f: unsafe *ScopeFrame, size: usize, align: usize) -> unsafe *u8 {
+fn through_frame(f: unsafe *ScopeFrame, size: usize, align: usize) -> unsafe *u8 {
     unsafe { return f->alloc(size, align) }
 }
 

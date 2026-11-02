@@ -36,6 +36,16 @@ class BufferedDiagSink derives DiagEngineVBase {
     priv var _error_count:   u32 = 0;
     priv var _suppress_depth: u32 = 0;
     priv var _warn_count: u32 = 0;
+    /// `@no_warn(CODE)` scopes (AttributeCheck::register_suppressions): a
+    /// warning whose code is `key` (diag_policy_key) and whose location is
+    /// inside `scope` is dropped at emit, before it is counted. Warnings
+    /// only: an error is never suppressed by a source attribute, as `-A`
+    /// never drops one.
+    struct QuietScope {
+        var key:   u32;
+        var scope: SourceRange;
+    }
+    priv var _quiet: vec::<QuietScope>;
 
     fn BufferedDiagSink(self) {
         self._diags.reserve(16);
@@ -72,9 +82,31 @@ class BufferedDiagSink derives DiagEngineVBase {
         if self._suppress_depth > 0 { self._suppress_depth -= 1; }
     }
 
+    /// Drop warnings with policy key \p key located inside \p scope.
+    fn quiet_in(self, key: u32, scope: SourceRange) {
+        var q = QuietScope{};
+        q.key   = key;
+        q.scope = scope;
+        self._quiet.push_back(q);
+    }
+
+    priv fn _quieted(self, diag: *Diagnostic) -> bool {
+        if (self._quiet.size() == 0) || (!diag->has_loc) { return false; }
+        if diag->code.severity() != DiagSeverity::Warning { return false; }
+        var key = diag_policy_key(diag->code.category(), diag->code.number());
+        for var i: usize = 0; i < self._quiet.size(); ++i {
+            if (self._quiet[i].key == key) && self._quiet[i].scope.contains(diag->loc) { return true; }
+        }
+        return false;
+    }
+
     // --- emit: called by DiagBuilder::emit() --------------------------------
     fn emit(self, diag: *Diagnostic) {
         if self._suppress_depth > 0 {
+            std::destroy(diag);
+            return;
+        }
+        if self._quieted(diag) {
             std::destroy(diag);
             return;
         }

@@ -7,7 +7,7 @@
 // closure, so a later read of it is use-after-move (SC052E). A generic
 // closure is not compiled yet (SC116E). The `ok_*` functions have none.
 
-@move class Handle {
+class Handle {
     pub var id: i32 = 0
     fn Handle(self, id: i32) { self.id = id }
     @move fn Handle(self, other: Self) { self.id = other.id; other.id = 0 }

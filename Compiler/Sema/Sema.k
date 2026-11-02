@@ -64,6 +64,7 @@ import Sema::Check::ControlFlowAnalysis::*;
 import Sema::Check::WhereGuardCheck::*;
 import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Check::FeatureGateCheck::*;
+import Sema::Check::AttributeCheck::*;
 import Sema::Check::EvalUsageChecking::*;
 import Sema::Check::FlagGates::*;
 import Sema::Check::InitCheck::*;
@@ -241,6 +242,10 @@ class Sema {
         if self._already(SemaPhase::Expanded) { return true; }
         var _t = TimeRegion("Expand");
         self.sc.require_phase(SemaPhase::ImportsResolved);
+        // `@no_warn(CODE)` scopes, before every pass that can warn: a
+        // warning inside the declaration is dropped at the sink whichever
+        // pass reports it. The codes are validated by AttributeCheck::run.
+        { var _p = TimeRegion("NoWarnScopes"); AttributeCheck(&self.sc).register_suppressions(); }
         // First: no later pass may see an untaken `eval if` branch (EVAL.md §4).
         // The exception is a declaration-scope one on a type fact: it is
         // deferred, V, N, T and RedeclMerge see all of its branches, and
@@ -352,6 +357,13 @@ class Sema {
         var _t = TimeRegion("Checks");
         self.sc.require_phase(SemaPhase::TypesResolved);
 
+        // Every attribute means something where it is written, or is an
+        // error (unknown, misplaced, a bad argument, not yet supported).
+        // Before X: an error here is reported beside, not after, the
+        // diagnostics typing produces, and nothing reads an attribute it
+        // has rejected (AttrFacts treats a bad `@align` as absent).
+        { var _p = TimeRegion("AttributeCheck"); AttributeCheck(&self.sc).run(); }
+
         // Layout acyclicity. Runs before anything that needs a size:
         // LayoutPass will not terminate on a recursive type, and EmitPlan's
         // `complete` topological sort asserts on a cycle rather than
@@ -454,6 +466,10 @@ class Sema {
         // The emitted C++ is all public, so this is the only check.
         // REQUIRES X's selections (the overload, the constructor).
         { var _p = TimeRegion("AccessCheck"); AccessCheck(&self.sc).run(); }
+
+        // `@deprecated`: a warning at every use. REQUIRES X's selections
+        // (the overload, the constructor, the operator), as AccessCheck.
+        { var _p = TimeRegion("DeprecatedUses"); AttributeCheck(&self.sc).run_uses(); }
 
         { var _p = TimeRegion("InitCheck"); InitCheck(&self.sc).run(); }
 

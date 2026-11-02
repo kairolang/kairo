@@ -18,7 +18,7 @@ pub class C {
     fn C(self) { }
     @copy fn C(self, const other: C) { self.n = other.n }
 }
-@move
+
 pub class M {
     pub var n: i32 = 4
     fn M(self) { }

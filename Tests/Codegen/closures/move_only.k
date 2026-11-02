@@ -10,7 +10,7 @@ import std::io::println
 
 var live: i32 = 0
 
-@move class Handle {
+class Handle {
     pub var id: i32 = 0
     fn Handle(self, id: i32) { self.id = id; live += 1 }
     @move fn Handle(self, other: Self) { self.id = other.id; other.id = 0 }

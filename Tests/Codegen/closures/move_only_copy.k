@@ -3,7 +3,7 @@
 // the copy traps at run time (CODEGEN.md §6, Closures). Pinned so a
 // change to that choice is deliberate.
 
-@move class Handle {
+class Handle {
     pub var id: i32 = 0
     fn Handle(self, id: i32) { self.id = id }
     @move fn Handle(self, other: Self) { self.id = other.id; other.id = 0 }
