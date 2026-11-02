@@ -2270,7 +2270,12 @@ DEPENDENT use (`Store<*P>`: an extension's receiver, a partial's own Self,
 which TypeResolve spells through the primary) selects the same way at
 lookup (`SemaContext::record_body`), its parameters opaque. A partial
 selected by `requires` is refused (SC001E): requires-dispatch is M2's and
-not built. An instance of an
+not built. A partial whose pattern holds a pack expansion
+(`Traits<Box<T>, Args...>`) is refused too, SC116E at the pack
+(TypeResolve::_register_type_spec, P138): `_match` binds one type per
+parameter, so it could never be selected, while clang selects it per
+instance -- dropped silently, Sema typed the primary's body where C++ had
+the partial's. An instance of an
 IMPORTED template is filled by clang, not M2: the first lookup into it
 calls `ForeignInstantiate::fill` (IMPORTS.md §5), after which it is
 `instantiated` and walks its own table like any filled instance. A failed

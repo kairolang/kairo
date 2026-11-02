@@ -4377,6 +4377,18 @@ class EmitIR {
         }
         // `a as [T;]` on an array: the same view an implicit site gets.
         if self._array_view(n->operand, n->target, &null) { return; }
+        // `f as fn(...)`: CastTyping's rung 5b'' accepted it as the implicit
+        // conversion, so it lowers as one -- an effect-widening wrap where
+        // the panic results differ, the exactness static_cast otherwise.
+        if (n->mode != CastMode::Unsafe) && (n->target != &null) && (n->target->canonical != &null) && (n->operand->type_ != &null)
+        && isa::<FunctionPointerType>(canon_unqual(n->operand->type_)) {
+            var tfn = self._nullable_inner(canon_unqual(n->target->canonical));
+            if tfn == &null { tfn = canon_unqual(n->target->canonical); }
+            if isa::<FunctionPointerType>(tfn) {
+                self._value(n->operand, n->target);
+                return;
+            }
+        }
         var src_rec = self._record_operand(n->operand);
         if (src_rec && (!self._type_is_pointer(n->operand->type_))) { self._ice(n->range, "EmitIR: `as` on a record value; OperatorLowering owns op as / ctor casts"); }
         var kind = "static_cast";

@@ -3638,6 +3638,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         var args  = vec::<*Type>();
         var ok    = true;
         var dep   = false;
+        var pack_reported = false;
         for var i: usize = 0; i < sargs.size(); ++i {
             var a = sargs[i];
             if a == &null { ok = false; continue; }
@@ -3646,8 +3647,23 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             // `Traits<Box<T>, Args...>`: the registry never matches a pack
             // pattern (InstantiationRegistry::_match), so the partial could
             // never be selected here while C++ would select it per instance.
-            // Dropped, as it was before `Args...` had a canonical (ticketed).
-            if isa::<PackExpansionType>(a) { ok = false; continue; }
+            // Refused rather than dropped (P138): dropped, Sema typed every
+            // instance through the primary's body while clang picked the
+            // partial's, so a member the two disagree on was a false error
+            // in Kairo or a different type in C++. Once per specialization
+            // (instantiated_from above is the cross-call mark).
+            if isa::<PackExpansionType>(a) {
+                if !pack_reported {
+                    pack_reported = true;
+                    var pb = self.sc->diag->report(DiagID::SC116E, a->range.start,
+                        "a partial specialization whose pattern holds a pack expansion is not yet supported");
+                    pb.first(a->range, "pack expansion in the pattern");
+                    pb.note(DiagID::SC116N, d->range.start, "this partial specialization is never selected; write one without the pack, or an explicit specialization per argument list").first(d->range);
+                    pb.emit();
+                }
+                ok = false;
+                continue;
+            }
             if a->is_dependent() || a->is_instantiation_dependent() { dep = true; }
             args.push_back(a->canonical);
         }

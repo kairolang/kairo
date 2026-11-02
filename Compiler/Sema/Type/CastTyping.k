@@ -395,6 +395,20 @@ class <T> CastTyping {
         // 5b'. `[T; N] as [T;]`: the view an implicit site takes, written out.
         if dyn()->conv.array_views_as(src, canon_unqual(target)) { return target; }
 
+        // 5b''. a function as a `fn` value, written out: a named function is
+        //       its raw `unsafe fn` pointer and widens to the `fn` value of
+        //       its signature implicitly (type-system.mdx), as does a `fn`
+        //       into a wider panic effect. The cast is that same conversion,
+        //       so it is the implicit rule's verdict and EmitIR lowers it as
+        //       the implicit site does (_value). Without this rung the one
+        //       explicit spelling of an accepted conversion was SC027E.
+        var tfn = canon_unqual(dyn()->tu.strip_nullable(target));
+        if (tfn != &null) && isa::<FunctionPointerType>(tfn) && isa::<FunctionPointerType>(canon_unqual(src))
+        && (dyn()->conv.implicit(src, target) != ImplicitRank::None) {
+            self._lint_widening(n, src, target, expected);
+            return target;
+        }
+
         // 5c. `fn op as (self) -> T` on the source
         //     A bounds-checked parameter's `op as` is its bounds' (MONO.md
         //     D0): looked up in them, and absent there is the error below,
