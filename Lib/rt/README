@@ -58,6 +58,29 @@ helper one file calls in another is kairo_rt_<area>_<name>_ (the trailing
 underscore marks it internal: declared in <area>_impl.h, never in a public
 header); a helper used in one file stays `static`.
 
+ABI
+---
+
+Two layouts here are fixed across compiler versions, because objects built
+by different Kairo releases (and hand-written C) meet at them. The user-
+facing statement is allocators.mdx, "The global allocator ABI".
+
+  - The kairo_global_* symbols (global_alloc.h): five C-linkage functions,
+    their names, argument order and types. global_alloc.c defines them
+    weakly as System; the file that writes @set_global_allocator(A)
+    defines them strongly as forwarders to A (the compiler writes those).
+  - ScopeFrame (Lib/builtin/base/alloc.k): one open scoped allocator,
+    seven pointer-sized fields in this order, no padding:
+        alloc    unsigned char *(*)(size_t size, size_t align)
+        free     void (*)(unsigned char *ptr, size_t size, size_t align)
+        resize   bool (*)(unsigned char *ptr, size_t old, size_t new, size_t align)
+        realloc  unsigned char *(*)(unsigned char *ptr, size_t old, size_t new, size_t align)
+        lo, hi   unsigned char *: the allocator's range() when the scope opened
+        prev     ScopeFrame *: the frame below, or null
+    linked from the per-thread scope_top (a plain global where there are
+    no threads). Reordering, removing or retyping a field breaks every
+    object built against the old layout.
+
 Portability
 -----------
 
