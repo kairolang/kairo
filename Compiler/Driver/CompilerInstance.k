@@ -2016,6 +2016,73 @@ class CompilerInstance {
         }
     }
 
+    /// A program has one global allocator: a second file of the link that
+    /// writes `@set_global_allocator` is an error at it, with a note at the
+    /// first (TUResult::global_alloc_at). kld would refuse the link anyway
+    /// (both define the kairo_global_* symbols strongly), but naming the
+    /// two lines beats naming two objects. Objects built apart still reach
+    /// kld, which _global_alloc_clash words the same way.
+    priv fn _reject_second_global_allocator(self, result: ref!(BatchResult)) {
+        var first: isize = -1;
+        for var i: usize = 0; i < result.tu_results.size(); ++i {
+            var r = result.tu_results[i];
+            if !r.global_alloc_at.is_valid() { continue; }
+            if first < 0 { first = static_cast::<isize>(i); continue; }
+            var p = result.tu_results[static_cast::<usize>(first)];
+            // Two inputs that import one module that sets it: one file.
+            if p.global_alloc_file == r.global_alloc_file { continue; }
+            var a = Path(p.global_alloc_file).filename();
+            var b = Path(r.global_alloc_file).filename();
+            var d = self._diag->report(DiagID::SC001E, r.global_alloc_at.start,
+                f"two files set the global allocator: '{b}' and '{a}'; a program has one");
+            d.first(r.global_alloc_at);
+            d.note(DiagID::SC001N, p.global_alloc_at.start, f"'{a}' sets it here").first(p.global_alloc_at);
+            d.emit();
+        }
+    }
+
+    /// kld's duplicate-symbol errors for the kairo_global_* symbols (one per
+    /// symbol, five in all) as ONE error saying what they mean: two of the
+    /// linked objects were built from files that set the global allocator.
+    /// The objects are named as kld names them (LinkDiag::definers), and
+    /// each as its source file when this run compiled it. Every other
+    /// message passes through unchanged.
+    priv fn _global_alloc_clash(self, result: ref!(BatchResult), msgs: ref!(vec::<LinkMessage>)) {
+        var out  = vec::<LinkMessage>();
+        var said = false;
+        var sym  = LowerTargets::global_alloc_symbol_prefix();
+        for m: LinkMessage in msgs {
+            var hit = (m.severity == LinkSeverity::Error)
+                && (LinkText::find(m.text, "duplicate symbol: ", 0) < m.text.size())
+                && (LinkText::find(m.text, sym, 0) < m.text.size());
+            if !hit { out.push_back(m); continue; }
+            if said { continue; }
+            said = true;
+            var who = LinkDiag::definers(m.text);
+            var names = vec::<string>();
+            for o: string in who { names.push_back(self._object_module(o)); }
+            var text = "the global allocator is set twice (@set_global_allocator)";
+            if names.size() >= 2 { text = text + f": by {names[0]} and by {names[1]}"; }
+            text = text + "; a program has one, so exactly one linked file may set it";
+            out.push_back(LinkDiag::make(LinkSeverity::Error, text));
+        }
+        msgs = out;
+    }
+
+    /// An object kld named, as the module it was built from when this run
+    /// built it: <object dir>/a/b.o is module `a::b` (each module's object
+    /// sits at its path under the object dir). Any other object, as given.
+    priv fn _object_module(self, o: string) -> string {
+        var dir = self.object_dir();
+        if dir.empty() || (!LinkText::starts_with(o, dir + "/")) || (!LinkText::ends_with(o, ".o")) { return o; }
+        var rel = LinkText::slice(o, dir.size() + 1, o.size() - 2);
+        var m = "";
+        for var i: usize = 0; i < rel.size(); ++i {
+            if (rel[i] == '/') || (rel[i] == '\\') { m += "::"; } else { m += rel[i]; }
+        }
+        return f"module '{m}' ({o})";
+    }
+
     /// Plans, echoes under -v, runs. The object list is exactly what this
     /// run emitted, never a directory glob: a reused --cache-dir can hold
     /// objects from modules that no longer exist.
@@ -2077,6 +2144,7 @@ class CompilerInstance {
 
         var res = LinkResult{};
         Link::execute(job, argv, res);
+        self._global_alloc_clash(result, res.messages);
         self._report_link(res.messages);
         if !res.stdout_text.empty() { std::print(res.stdout_text); }
         if res.ok { Logger::info(Logger::Stage::Driver, f"linked {self._link_out}"); }
@@ -2319,6 +2387,7 @@ class CompilerInstance {
         // reject as a duplicate symbol naming neither file. Only a link joins
         // them, so `-c` and --type-check-only of several scripts stay legal.
         if !self._link_out.empty() { self._reject_second_script(result); }
+        if !self._link_out.empty() { self._reject_second_global_allocator(result); }
 
         // C/C++ inputs follow the run's action (_compile_sources); the
         // runtime compiles to objects, and only when Kairo objects were
@@ -3910,6 +3979,26 @@ fn FrontendAction::_sema_group(fids: *vec::<u32>, effects: *EffectTable, print_s
         ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);
         // Kept past `sem`: the batch rejects two scripts in one link.
         if sem->sc.script_at.is_valid() { self.result.script_at = sem->sc.script_at; }
+        // Likewise two global allocators. One action compiles every module
+        // its input imports, so the second may be in this same loop: that
+        // one is reported here, the batch compares actions.
+        if (sem->sc.tu != &null) && sem->sc.tu->global_alloc_at.is_valid() {
+            var here  = sem->sc.tu->global_alloc_at;
+            var hfile = ctx->sm->get_filename(here.start);
+            if !self.result.global_alloc_at.is_valid() {
+                self.result.global_alloc_at   = here;
+                self.result.global_alloc_file = hfile;
+            } else if self.result.global_alloc_file != hfile {
+                var first = self.result.global_alloc_at;
+                var a = Path(self.result.global_alloc_file).filename();
+                var b = Path(hfile).filename();
+                var d = self._ci->diag()->report(DiagID::SC001E, here.start,
+                    f"two files set the global allocator: '{b}' and '{a}'; a program has one");
+                d.first(here);
+                d.note(DiagID::SC001N, first.start, f"'{a}' sets it here").first(first);
+                d.emit();
+            }
+        }
 
         // Dump INSIDE the loop: SemaDump reads sc.phase / sc.well_known, which
         // live on this fid's SemaContext and die with the arena.

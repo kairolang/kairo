@@ -32,6 +32,13 @@ class TUResult {
     /// into `main` (SemaContext::script_at); invalid when it compiled no
     /// script. The batch reads it to reject two scripts in one link.
     pub var script_at:    SourceRange = SourceRange::invalid();
+    /// The file's `@set_global_allocator(A)` (TranslationUnit::
+    /// global_alloc_at); invalid when it sets none. The batch reads it to
+    /// reject two in one link before kld would.
+    pub var global_alloc_at: SourceRange = SourceRange::invalid();
+    /// The file global_alloc_at is in: this action's input, or a module it
+    /// imported (one action compiles both).
+    pub var global_alloc_file: string;
 
     fn TUResult(self) {
         self.path        = "";

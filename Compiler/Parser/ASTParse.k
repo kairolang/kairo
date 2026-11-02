@@ -309,8 +309,19 @@ class ASTParse
             }
 
             var annot: PendingAnnotations;
-            self.consume_leading_annotations(&annot, true);
+            self.consume_leading_annotations(&annot, true, true);
             if self.is_eof() { break; }
+
+            // `@set_global_allocator(A)` is a property of the program, not an
+            // attribute of what follows it: taken here, before the routing
+            // below could stamp it on the next declaration.
+            if self._global_alloc_ahead() {
+                self._parse_global_allocator(program, &annot);
+                while self._is_terminator_tok(self._current) {
+                    self.advance_raw();
+                }
+                continue;
+            }
 
             // A leading comment binds to the NEXT construct, but the PP deletes
             // imports/ffi-imports before parsing so a comment written directly
@@ -2095,6 +2106,123 @@ class ASTParse
         // guard dtor rolls back unconditionally (never commit)
     }
 
+    /// \brief true at `@set_global_allocator (`. The guard rolls back
+    ///        unconditionally.
+    pub fn _global_alloc_ahead(self) -> bool {
+        var t = TentativeGuard(&self);
+        if !self.check(TokenKind::OpAt) { return false; }
+        self.advance();                           // `@`
+        if !self.check(TokenKind::LitIdentifier) { return false; }
+        if self.ctx->hoisted->intern_tok(self.current()) != self.ctx->hoisted->intern(LangAttrs::set_global_allocator()) { return false; }
+        self.advance();                           // `set_global_allocator`
+        return self.check(TokenKind::OpLParen);
+        // guard dtor rolls back unconditionally (never commit)
+    }
+
+    /// \brief `@set_global_allocator(A)` at file scope: A as a private
+    ///        TypeAliasDecl of the file (LowerTargets::global_allocator_alias),
+    ///        recorded as TranslationUnit::global_alloc.
+    ///
+    /// \details An alias rather than a field holding a Type, so N and T
+    ///          resolve A where it is written, with every diagnostic a
+    ///          written type gets, and EmitPlan lays A out like any type the
+    ///          file names. The argument is a TYPE, parsed by the type parser
+    ///          (`a::Arena<4096>`), not the call-argument grammar the
+    ///          annotation buffer uses. A file sets it once; a link, once
+    ///          (CompilerInstance::_reject_second_global_allocator, and kld
+    ///          for objects built apart). \p annot is what stood before it:
+    ///          nothing there has a declaration to apply to.
+    priv fn _parse_global_allocator(self, program: *Program, annot: *PendingAnnotations) {
+        var at = self._current->range;
+        self.advance();                           // `@`
+        self.advance();                           // `set_global_allocator`
+        var lparen = self._current->range;
+        self.advance(SkipNL::After);              // `(`
+        var ty = self.parse_type();
+        var end = self._prev->range;
+        if self.check(TokenKind::OpRParen) {
+            end = self._current->range;
+            self.advance_raw();
+        } else {
+            self.diag->report(DiagID::S051E, lparen.start,
+                "expected ')' to close '@set_global_allocator(\x27"
+            ).first(lparen).emit();
+            while (!self.is_eof()) && (!self._is_terminator_tok(self._current)) && (!self.check(TokenKind::OpRParen)) {
+                self.advance_raw();
+            }
+            if self.check(TokenKind::OpRParen) { self.advance_raw(); }
+        }
+        var whole = at | end;
+        if self.mode != ParseMode::Full { return; }
+
+        for var i: usize = 0; i < annot->entries.size(); ++i {
+            var e = &annot->entries[i];
+            if e->kind != AnnotationKind::Attribute { continue; }
+            var b = self.diag->report(DiagID::SC001E, e->range.start,
+                "an attribute cannot be applied to '@set_global_allocator'; it declares nothing");
+            b.first(e->range);
+            b.remove(e->range, "remove the attribute");
+            b.emit();
+        }
+        if annot->visibility != VisibilityKind::None {
+            self.diag->report(DiagID::S048E, annot->vis_range.start,
+                "a visibility modifier cannot be applied to '@set_global_allocator\x27"
+            ).first(annot->vis_range).emit();
+        }
+
+        if (ty == &null) || is_recovery(ty) {
+            self.diag->report(DiagID::S052E, lparen.start,
+                "expected the allocator type: '@set_global_allocator(MyAllocator)\x27"
+            ).first(whole).emit();
+            return;
+        }
+        if self.tu->global_alloc != &null {
+            var b = self.diag->report(DiagID::SC001E, at.start,
+                "the global allocator is already set in this file; a program has one");
+            b.first(whole);
+            b.note(DiagID::SC001N, self.tu->global_alloc_at.start, "set here first").first(self.tu->global_alloc_at);
+            b.remove(whole, "remove the second '@set_global_allocator\x27");
+            b.emit();
+            return;
+        }
+        var imms = self.ctx->get_imm_table();
+        if imms == &null { return; }
+
+        var tok   = Token{};
+        tok.kind  = TokenKind::LitIdentifier;
+        tok.range = whole;
+        tok.imm   = imms->intern_ident_copy(LowerTargets::global_allocator_alias());
+        var ta = TypeAliasDecl::create(self.ctx, whole, tok, ty);
+        var d  = static_cast::<*Decl>(ta);
+        // Private: the alias is this file's, never part of its module's
+        // interface, so two modules that each name one cannot collide.
+        var vis: PendingAnnotations;
+        vis.set_visibility(VisibilityKind::Private, whole);
+        self.apply_annotations_to_decl(d, &vis);
+
+        self.tu->add_decl(d);
+        program->add_item(TopLevelItem::from_decl(d));
+        self.tu->global_alloc    = d;
+        self.tu->global_alloc_at = whole;
+    }
+
+    /// \brief SC001E for an `@set_global_allocator` the annotation buffer
+    ///        took (not at file scope, or after another attribute's
+    ///        target): it applies to nothing there, and dropping it would
+    ///        leave the program on System without a word.
+    priv fn _reject_global_alloc_attr(self, annot: *PendingAnnotations) {
+        if self.mode != ParseMode::Full { return; }
+        var k = self.ctx->hoisted->intern(LangAttrs::set_global_allocator());
+        for var i: usize = 0; i < annot->entries.size(); ++i {
+            var e = &annot->entries[i];
+            if (e->kind != AnnotationKind::Attribute) || (e->name != k) { continue; }
+            var b = self.diag->report(DiagID::SC001E, e->range.start,
+                "'@set_global_allocator' stands on a line of its own at file scope; it is not an attribute of a declaration or statement");
+            b.first(e->range);
+            b.emit();
+        }
+    }
+
     /// \brief true at `@assume (`: the free-standing `@assume(cond)`
     ///        statement (StmtParse::_parse_assume), which takes no part in
     ///        the attribute buffer. The guard rolls back unconditionally.
@@ -2122,7 +2250,10 @@ class ASTParse
     ///        file scope), where an `@name` may instead open an expression
     ///        statement: _attr_opens_expr_stmt decides, and when it does the
     ///        `@` is left for the expression parser (AttributedExpr).
-    pub fn consume_leading_annotations(self, out: *PendingAnnotations, stmt_pos: bool = false) {
+    ///
+    /// \param file_scope the top-level loop: `@set_global_allocator(` stops
+    ///        the buffer there, for _parse_global_allocator to take.
+    pub fn consume_leading_annotations(self, out: *PendingAnnotations, stmt_pos: bool = false, file_scope: bool = false) {
         out->clear();
 
         var prev_flag = self._no_comment_skip;
@@ -2145,6 +2276,9 @@ class ASTParse
 
             // -- @attribute ( args? ) ------------------------------------
             if (resolved.kind == TokenKind::OpAt) && stmt_pos && self._attr_opens_expr_stmt() {
+                break;
+            }
+            if (resolved.kind == TokenKind::OpAt) && file_scope && self._global_alloc_ahead() {
                 break;
             }
             if resolved.kind == TokenKind::OpAt {
@@ -2272,6 +2406,7 @@ class ASTParse
     /// \brief transfers annotations and visibility to a declaration.
     pub fn apply_annotations_to_decl(self, decl: *Decl, annot: *PendingAnnotations) {
         if annot->empty() { return; }
+        self._reject_global_alloc_attr(annot);
 
         for var i: usize = 0; i < annot->entries.size(); ++i {
             var e = &annot->entries[i];
@@ -2436,6 +2571,7 @@ class ASTParse
     /// \brief transfers annotations to a statement node.
     pub fn apply_annotations_to_node(self, node: *Stmt, annot: *PendingAnnotations) {
         if annot->empty() { return; }
+        self._reject_global_alloc_attr(annot);
         self._diag_vis_on_non_decl(annot, "a statement");
         var k_hot  = self.ctx->hoisted->intern(LangAttrs::hot_path());
         var k_cold = self.ctx->hoisted->intern(LangAttrs::cold_path());

@@ -244,6 +244,37 @@ class EmitIR {
         for var i: usize = 0; i < vis.size(); ++i { if !self._compile_time(vis[i]) { self._visible_body(vis[i]); } }
         self._panic_sites(tu);
         self._abi_note(tu);
+        self._global_allocator(tu);
+    }
+
+    /// `@set_global_allocator(A)` (TranslationUnit::global_alloc): the five
+    /// symbols the builtin's Global calls, defined here as forwarders to A's
+    /// static functions. Strong definitions; the runtime's are weak and
+    /// forward to System (Lib/rt/global_alloc.c), so this file's win the
+    /// link and a second file's are a duplicate-symbol error kld names both
+    /// objects in. Signatures are the ABI rt/global_alloc.h declares, which
+    /// is in every TU through the builtin's alloc.h: they must agree to the
+    /// noexcept. Global scope, after everything: A is complete here.
+    priv fn _global_allocator(self, tu: *TranslationUnit) {
+        if tu->global_alloc == &null { return; }
+        var ta = dyn_cast::<TypeAliasDecl>(tu->global_alloc);
+        if (ta == &null) || (ta->aliased == &null) || (ta->aliased->canonical == &null) { return; }
+        var a   = self._spell._type(ta->aliased->canonical);
+        var at  = tu->global_alloc_at;
+        var pre = "extern \"C\" ";
+        var sym = LowerTargets::global_alloc_symbol_prefix();
+        var sz  = "decltype(sizeof(0))";
+        var p   = "unsigned char * ";
+        self._cg->sink->spell(at, pre + p + sym + "alloc(" + sz + " size, " + sz + " align) noexcept { return " + a + "::alloc(size, align); }");
+        self._cg->sink->brk();
+        self._cg->sink->spell(at, pre + "void " + sym + "free(" + p + "ptr, " + sz + " size, " + sz + " align) noexcept { " + a + "::free(ptr, size, align); }");
+        self._cg->sink->brk();
+        self._cg->sink->spell(at, pre + "bool " + sym + "resize(" + p + "ptr, " + sz + " old_size, " + sz + " new_size, " + sz + " align) noexcept { return " + a + "::resize(ptr, old_size, new_size, align); }");
+        self._cg->sink->brk();
+        self._cg->sink->spell(at, pre + p + sym + "realloc(" + p + "ptr, " + sz + " old_size, " + sz + " new_size, " + sz + " align) noexcept { return " + a + "::realloc(ptr, old_size, new_size, align); }");
+        self._cg->sink->brk();
+        self._cg->sink->spell(at, pre + p + sym + "alloc_zeroed(" + sz + " size, " + sz + " align) noexcept { return " + a + "::alloc_zeroed(size, align); }");
+        self._cg->sink->brk();
     }
 
     /// Records \p f's calling convention, if it has one, for the ABI note.

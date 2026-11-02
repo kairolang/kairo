@@ -18,6 +18,10 @@
 #include <cstddef>
 #include <cstdlib>
 
+// The global allocator's symbols (Global calls them): declared here so the
+// builtin reaches them through the header it already imports.
+#include "rt/global_alloc.h"
+
 #if defined(_WIN32)
   #ifndef WIN32_LEAN_AND_MEAN
     #define WIN32_LEAN_AND_MEAN

@@ -269,6 +269,15 @@ class TranslationUnit derives DeclContext {
     /// vanish.
     pub var pin_extra_range: SourceRange = SourceRange::invalid();
 
+    /// `@set_global_allocator(A)`: the private TypeAliasDecl the parser made
+    /// of it (ASTParse::_parse_global_allocator), so A resolves as any
+    /// written type does; null when the file sets none. EmitIR writes the
+    /// strong `kairo_global_*` forwarders from it, and the driver rejects a
+    /// second file of one link that sets one too. `global_alloc_at` spans
+    /// the attribute.
+    pub var global_alloc:    *Decl       = &null;
+    pub var global_alloc_at: SourceRange = SourceRange::invalid();
+
     fn TranslationUnit(self, ctx: *ASTContext, fid: u32, scope: *DisambigTable, g_scope: *GlobalDisambigTable) {
         self.init_dc(DeclContextKind::TranslationUnit, ctx, &null, &null);
         self.ctx          = ctx;
@@ -286,5 +295,7 @@ class TranslationUnit derives DeclContext {
         self.import_overlay = &null;
         self.import_edges.set_allocator(&(ctx->pp_alloc), 16);
         self.pin_segments.set_allocator(&(ctx->pp_alloc), 4);
+        self.global_alloc    = &null;
+        self.global_alloc_at = SourceRange::invalid();
     }
 }

@@ -540,6 +540,11 @@ class LangAttrs {
     static fn preserve_most() -> string { return "preserve_most"; }
     static fn preserve_all() -> string  { return "preserve_all"; }
     static fn preserve_none() -> string { return "preserve_none"; }
+    /// `@set_global_allocator(A)` on a line of its own at file scope: the
+    /// program's Global is A (allocators.mdx). Not a declaration attribute:
+    /// ASTParse::_parse_global_allocator takes it before the annotation
+    /// buffer sees it, and the buffer refuses it anywhere else.
+    static fn set_global_allocator() -> string { return "set_global_allocator"; }
     /// The attribute a FunctionDecl::call_conv value is written as, without
     /// the `@`; "" for the default convention. The one place a diagnostic
     /// or the ABI note turns the number back into a name.
@@ -1333,6 +1338,17 @@ class LowerTargets {
     static fn abi_note_section() -> string         { return "__kairo_abi"; }
     static fn abi_note_section_macho() -> string   { return "__DATA,__kairo_abi"; }
     static fn abi_note_symbol() -> string          { return "__kairo_abi_note"; }
+    /// `@set_global_allocator(A)`: the file's private alias for A (the
+    /// parser's TypeAliasDecl, so N and T resolve A like any written type),
+    /// and the five C symbols the builtin's Global calls. The runtime
+    /// defines each weakly as System (Lib/rt/global_alloc.c); the file that
+    /// sets the allocator defines each strongly as a forwarder to A
+    /// (EmitIR::_global_allocator). The symbol names and signatures are ABI
+    /// (Lib/rt/global_alloc.h); the order here is the order they are written.
+    /// The alias is spelled with an `@` so no source can name it, and it
+    /// never reaches C++ (EmitIR emits no alias; the forwarders spell A).
+    static fn global_allocator_alias() -> string   { return "@global_allocator"; }
+    static fn global_alloc_symbol_prefix() -> string { return "kairo_global_"; }
     static fn clang_malloc() -> string             { return "__builtin_malloc"; }
     static fn clang_free() -> string               { return "__builtin_free"; }
     static fn clang_atomic_fetch_add() -> string   { return "__atomic_fetch_add"; }

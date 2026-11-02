@@ -147,6 +147,56 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         // What the instances this TU uses reach, to the fixpoint: their
         // nonconformance is this TU's to report, beside its own.
         self.discover();
+        self._check_global_allocator();
+    }
+
+    /// `@set_global_allocator(A)`: A is a class or struct with the five
+    /// static functions the strong `kairo_global_*` forwarders call
+    /// (EmitIR::_global_allocator), each found by name. Their signatures
+    /// are clang's to check against the forwarders for now: the interface
+    /// they make up (FullAllocator) lives in the builtin, which this TU
+    /// cannot name from here. Without this, a missing one is a clang error
+    /// in generated code.
+    priv fn _check_global_allocator(self) {
+        var tu = self.sc->tu;
+        if (tu == &null) || (tu->global_alloc == &null) { return; }
+        var ta = dyn_cast::<TypeAliasDecl>(tu->global_alloc);
+        if (ta == &null) || (ta->aliased == &null) || ta->aliased->is_poisoned() { return; }
+        var at = tu->global_alloc_at;
+        var c = canon_unqual(ta->aliased->canonical);
+        if c == &null { return; }   // T reported the name.
+        var rd = (cast::<RecordType>(c)->decl) if (isa::<RecordType>(c)) else (&null);
+        if (rd == &null) || ((!isa::<ClassDecl>(rd)) && (!isa::<StructDecl>(rd))) {
+            var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"'{self.tu.str(c)}' cannot be the global allocator: only a class or struct with static allocator functions can");
+            b.first(ta->aliased->range);
+            b.emit();
+            return;
+        }
+        var names = vec::<string>();
+        names.push_back("alloc");
+        names.push_back("free");
+        names.push_back("resize");
+        names.push_back("realloc");
+        names.push_back("alloc_zeroed");
+        var imms = self.sc->ctx->get_imm_table();
+        if imms == &null { return; }
+        for var i: usize = 0; i < names.size(); ++i {
+            var cands = vec::<*Decl>();
+            self.ml.lookup(c, DeclName::ident(imms->intern_ident_copy(names[i])), &cands);
+            var found = false;
+            for var j: usize = 0; j < cands.size(); ++j {
+                var f = dyn_cast::<FunctionDecl>(cands[j]);
+                if (f != &null) && (!f->is_method()) { found = true; break; }
+            }
+            if found { continue; }
+            var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"'{self.tu.str(c)}' cannot be the global allocator: it has no static function '{names[i]}\x27");
+            b.first(ta->aliased->range);
+            b.note(DiagID::SC001N, rd->range.start,
+                "the global allocator needs static alloc, free, resize, realloc and alloc_zeroed (FullAllocator)").first(rd->range);
+            b.emit();
+        }
     }
 
     fn visit_expr(self, e: *Expr) -> bool {

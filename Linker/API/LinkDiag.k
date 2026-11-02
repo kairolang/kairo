@@ -78,6 +78,31 @@ class LinkDiag {
         if have { out.push_back(cur); }
     }
 
+    /// The inputs a "duplicate symbol" message says define the symbol, in
+    /// its order: each `>>> defined at|in X` entry, X replaced by the object
+    /// path of the continuation line after it (`>>>   /tmp/a.o:(sym)`) when
+    /// lld names a source location first (an object with debug info).
+    /// Mach-O's lld names the object directly. Empty when the text has no
+    /// such entries (COFF's one-line form).
+    static fn definers(text: string) -> vec::<string> {
+        var out = vec::<string>();
+        for line: string in LinkText::split_lines(text) {
+            if !LinkText::starts_with(line, ">>>") { continue; }
+            var rest = LinkText::trim(LinkText::slice(line, 3, line.size()));
+            var fresh = false;
+            if LinkText::starts_with(rest, "defined at ") || LinkText::starts_with(rest, "defined in ") {
+                rest  = LinkText::trim(LinkText::slice(rest, 11, rest.size()));
+                fresh = true;
+            }
+            var obj = LinkText::find(rest, ":(", 0);
+            var have_obj = obj < rest.size();
+            if have_obj { rest = LinkText::slice(rest, 0, obj); }
+            if fresh { out.push_back(rest); continue; }
+            if have_obj && (out.size() > 0) { out[out.size() - 1] = rest; }
+        }
+        return out;
+    }
+
     /// The earliest marker wins, so a warning whose text quotes ": error: "
     /// stays a warning.
     priv static fn _classify(line: string) -> LinkMessage {
