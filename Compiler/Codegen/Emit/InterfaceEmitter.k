@@ -886,6 +886,13 @@ class InterfaceEmitter {
             self._derived_assign(d);
         }
 
+        // `__builtin_dynamic_size` / `_align`'s hidden virtual: last, so the
+        // `public:` it needs changes no other member's access.
+        if is_class && CXXSpell::has_virtual_dtor(d) {
+            cur_access = self._access(cur_access, VIS_PUB(), false, at);
+            self._layout_virtual(d, at);
+        }
+
         self._friends(d);
 
         self._cg->sink->spell(at, "};");
@@ -895,6 +902,22 @@ class InterfaceEmitter {
             self._cg->sink->spell(at, "inline constexpr " + self._spell->leaf(d) + " " + LowerTargets::null_constant() + "{};");
         }
         self._cg->sink->brk();
+    }
+
+    /// `virtual const size_t* __kairo_layout() const noexcept`, in every class
+    /// with a virtual destructor (CXXSpell::has_virtual_dtor): the most
+    /// derived class's {sizeof, alignof}, which `__builtin_dynamic_size` /
+    /// `_align` read (EmitIR::_dynamic_layout_body) so that `destroy<Base>`
+    /// gives a sized allocator the size it allocated. A pointer to a
+    /// constant pair rather than a struct, so no helper type has to be
+    /// declared ahead of the class, and every override has the same return
+    /// type. Defined in the class: it is the same text in every TU.
+    priv fn _layout_virtual(self, d: *Decl, at: SourceRange) {
+        var sz = "decltype(sizeof(0))";
+        var me = self._spell->leaf(d);
+        var ov = (" override") if (CXXSpell::layout_overrides(d)) else ("");
+        self._cg->sink->spell(at, "virtual const " + sz + "* " + LowerTargets::layout_virtual()
+            + "() const noexcept" + ov + " { static constexpr " + sz + " l[2] = { sizeof(" + me + "), alignof(" + me + ") }; return l; }");
     }
 
     /// `using B::m;` for every method name \p d declares that a direct base

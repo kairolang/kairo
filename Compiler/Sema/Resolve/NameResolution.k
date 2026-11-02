@@ -553,6 +553,22 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._bind_lang(root, WellKnownType::IsTriviallyCopyable);
         self._bind_lang(root, WellKnownType::IsTriviallyDestructible);
 
+        // `__builtin_dynamic_size` / `_align`: EmitIR writes their bodies
+        // (they read T's hidden `__kairo_layout()` when it has one), and it
+        // cannot ask well_known either.
+        self._bind_lang(root, WellKnownType::DynamicSize);
+        self._bind_lang(root, WellKnownType::DynamicAlign);
+        var dsz = dyn_cast::<FunctionDecl>(self.sc->well_known->get(WellKnownType::DynamicSize));
+        if (dsz != &null) && (reinterpret_cast::<*DeclContext>(dsz->semantic_dc) == static_cast::<*DeclContext>(self.sc->tu)) {
+            dsz->dynamic_layout = 1;
+            dsz->canonical_decl()->dynamic_layout = 1;
+        }
+        var dal = dyn_cast::<FunctionDecl>(self.sc->well_known->get(WellKnownType::DynamicAlign));
+        if (dal != &null) && (reinterpret_cast::<*DeclContext>(dal->semantic_dc) == static_cast::<*DeclContext>(self.sc->tu)) {
+            dal->dynamic_layout = 2;
+            dal->canonical_decl()->dynamic_layout = 2;
+        }
+
         // `byte` is spelled as the Byte enum, so a TU that uses it must
         // declare that enum. Codegen has no route to well_known, but every
         // `byte` it walks IS this one build-wide singleton: record it there.

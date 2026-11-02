@@ -648,6 +648,10 @@ class FunctionDecl
     /// call is clang's builtin, spelled at the call site (EmitIR::_call).
     /// One writer, NameResolution::fill_lang_items, as for lowers_to_expect.
     pub var lowers_to_assume: bool = false;
+    /// The DynamicSize (1) / DynamicAlign (2) lang item, else 0: EmitIR
+    /// writes its body (EmitIR::_dynamic_layout_body), reading T's hidden
+    /// `__kairo_layout()` when T has one. One writer, as for lowers_to_expect.
+    pub var dynamic_layout: u8 = 0;
     /// Function attributes (attributes.mdx, "Function hints"). Writer: the
     /// parser (apply_annotations_to_decl), where every decl's annotations
     /// land; codegen reads the fields so it never re-resolves attribute
@@ -720,6 +724,7 @@ class FunctionDecl
         node->ci_cut      = false;
         node->lowers_to_expect = false;
         node->lowers_to_assume = false;
+        node->dynamic_layout = 0;
         node->hot_path    = false;
         node->cold_path   = false;
         node->is_pure     = false;
@@ -741,6 +746,7 @@ class FunctionDecl
         node->adt_variant = 0;
         node->lowers_to_expect = false;
         node->lowers_to_assume = false;
+        node->dynamic_layout = 0;
         node->hot_path    = false;
         node->cold_path   = false;
         node->is_pure     = false;

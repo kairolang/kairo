@@ -66,6 +66,12 @@ fn main() -> i32 {
 // CXX-NEXT:         signed int only_base() noexcept;
 // CXX-NEXT:         A() noexcept;
 // CXX-NEXT:         virtual ~A() noexcept;
+// CXX-NEXT:         virtual const decltype(sizeof(0)) * __kairo_layout() const noexcept {
+// CXX-NEXT:             static constexpr decltype(sizeof(0)) l[2] = {
+// CXX-NEXT:                 sizeof(A), alignof(A)
+// CXX-NEXT:             };
+// CXX-NEXT:             return l;
+// CXX-NEXT:         }
 // CXX-NEXT:     };
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
@@ -77,6 +83,12 @@ fn main() -> i32 {
 // CXX-NEXT:         virtual ~D() noexcept override;
 // CXX-NEXT:         using::{{[A-Za-z0-9_]+}}::A::k;
 // CXX-NEXT:         using::{{[A-Za-z0-9_]+}}::A::f;
+// CXX-NEXT:         virtual const decltype(sizeof(0)) * __kairo_layout() const noexcept override {
+// CXX-NEXT:             static constexpr decltype(sizeof(0)) l[2] = {
+// CXX-NEXT:                 sizeof(D), alignof(D)
+// CXX-NEXT:             };
+// CXX-NEXT:             return l;
+// CXX-NEXT:         }
 // CXX-NEXT:     };
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {

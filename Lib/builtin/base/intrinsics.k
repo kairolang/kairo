@@ -98,6 +98,12 @@ pub inline fn __builtin_assume_aligned(ptr: unsafe *u8, align: usize) -> unsafe 
 
 pub eval fn <T> __builtin_size_of() -> usize { return sizeof T }
 pub eval fn <T> __builtin_align_of() -> usize { return alignof T }
+/// The size / alignment of the object p points at, which may be a class
+/// derived from T: read through T's hidden virtual when T has a virtual
+/// destructor, sizeof T / alignof T when T is not polymorphic. Read it
+/// before the destructor runs. The compiler writes the bodies.
+pub inline fn <T> __builtin_dynamic_size(p: *T) -> usize { return sizeof T }
+pub inline fn <T> __builtin_dynamic_align(p: *T) -> usize { return alignof T }
 
 // --- traits: shape, layout and declaration facts, expression probes --------
 // C++ answers each (clang's type traits); the Kairo-only ones are module.k's.

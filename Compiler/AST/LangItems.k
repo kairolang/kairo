@@ -117,6 +117,12 @@ enum WellKnownType derives u8 {
     /// on a concrete instance (P235).
     IsTriviallyCopyable,
     IsTriviallyDestructible,
+    /// `__builtin_dynamic_size<T>(p)` / `__builtin_dynamic_align<T>(p)`
+    /// (base/intrinsics.k): the size / alignment of the object p points at.
+    /// EmitIR writes the body (FunctionDecl::dynamic_layout); a T that is
+    /// polymorphic with no virtual destructor is ConformanceChecking's error.
+    DynamicSize,
+    DynamicAlign,
 
     COUNT,      ///< keep last.
 }
@@ -167,6 +173,8 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::Assume     { return "__builtin_assume"; }
         case WellKnownType::IsTriviallyCopyable     { return "__builtin_is_trivially_copyable"; }
         case WellKnownType::IsTriviallyDestructible { return "__builtin_is_trivially_destructible"; }
+        case WellKnownType::DynamicSize  { return "__builtin_dynamic_size"; }
+        case WellKnownType::DynamicAlign { return "__builtin_dynamic_align"; }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";
@@ -1266,6 +1274,10 @@ class LowerTargets {
     static fn clang_expect() -> string             { return "__builtin_expect"; }
     /// What a call of the Assume lang item is spelled as (EmitIR::_call).
     static fn clang_assume() -> string             { return "__builtin_assume"; }
+    /// The hidden virtual of a class with a virtual destructor, returning
+    /// its {size, align} (InterfaceEmitter::_layout_virtual), and the
+    /// dynamic-layout intrinsics' body that reads it (EmitIR).
+    static fn layout_virtual() -> string           { return "__kairo_layout"; }
     /// The C++ attributes of `@hot_path`, `@cold_path`, `@pure` and `const fn`
     /// (CXXSpell::fn_attrs), each with its trailing space.
     // GNU spelling, not [[gnu::...]]: a C++11 attribute cannot follow

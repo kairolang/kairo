@@ -660,6 +660,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     /// unioned into the instance's program-wide list (add_rows, D7).
     priv fn _check_bounds(self, e: *InstanceEntry) -> bool {
         self._check_selection(e);
+        self._check_dynamic_layout(e);
         var rows = vec::<*ConformanceRow>();
         var ok = self._bound_rows(e, e->use_at, e, &rows);
         if !ok {
@@ -796,6 +797,31 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             self.chain_notes(&b, e);
             b.emit();
         }
+    }
+
+    /// `__builtin_dynamic_size<T>` / `_align<T>` at a T that is polymorphic
+    /// with no virtual destructor: what p points at may be a larger derived
+    /// class, and nothing at run time says which (only a virtual destructor
+    /// gives T the hidden `__kairo_layout()`, InterfaceEmitter). Deleting
+    /// through such a base is already undefined. Reported at the use, with
+    /// its chain -- usually `destroy<T>`'s caller. A fact still Unknown is
+    /// left to the intrinsic's C++ static_assert.
+    priv fn _check_dynamic_layout(self, e: *InstanceEntry) {
+        if (e == &null) || (e->primary == &null) || (!isa::<FunctionDecl>(e->primary)) { return; }
+        if (!self._is_lang(e->primary, WellKnownType::DynamicSize)) && (!self._is_lang(e->primary, WellKnownType::DynamicAlign)) { return; }
+        if (!e->use_at.start.is_valid()) || (e->args.size() != 1) { return; }
+        var t = self._canon(e->args[0]);
+        if (t == &null) || (!isa::<RecordType>(t)) || t->is_dependent() || t->is_instantiation_dependent() { return; }
+        var f = lifecycle_of(self.sc)->facts_of_type_concrete(t, "ConformanceChecking");
+        if (f.polymorphic != LifecycleTri::Yes) || (f.virtual_dtor != LifecycleTri::No) { return; }
+        var ts = self.tu.str(t);
+        var b = self.sc->diag->report(DiagID::SC001E, e->use_at.start,
+            f"'{self._inst_name(e)}' needs the layout of what a '*{ts}' points at, but '{ts}' is polymorphic and has no virtual destructor");
+        b.first(e->use_at);
+        var rd = cast::<RecordType>(t)->decl;
+        if rd != &null { b.note(DiagID::SC001N, rd->range.start, f"declare 'virtual fn op delete(self)' in '{ts}\x27").first(rd->range); }
+        self.chain_notes(&b, e);
+        b.emit();
     }
 
     priv fn _check_facts(self, e: *InstanceEntry) {

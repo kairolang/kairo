@@ -1643,6 +1643,48 @@ class CXXSpell {
         return (k == SpecKind::Primary) || (k == SpecKind::None);
     }
 
+    /// Kairo class \p d0 has a virtual destructor: its own `virtual` /
+    /// `override fn op delete`, or a Kairo base's (C++ makes the derived one
+    /// virtual then, written or not). Such a class carries the hidden
+    /// `__kairo_layout()` (InterfaceEmitter::_layout_virtual) that
+    /// `__builtin_dynamic_size` / `_align` read. An imported base is not
+    /// looked into: it has no `__kairo_layout()` to override, and the
+    /// intrinsic's body refuses a polymorphic T without one.
+    static fn has_virtual_dtor(d0: *Decl, depth: u32 = 0) -> bool {
+        if (d0 == &null) || (depth > 64) { return false; }
+        var cd = dyn_cast::<ClassDecl>(CXXSpell::rep(decl_pattern(CXXSpell::rep(d0))));
+        if (cd == &null) || decl_is_imported(static_cast::<*Decl>(cd)) { return false; }
+        for var i: usize = 0; i < cd->methods.size(); ++i {
+            var m = cd->methods[i];
+            if (m == &null) || (!m->is_operator) || (m->op_token.size() == 0) { continue; }
+            if m->op_token[0].kind != TokenKind::KwDelete { continue; }
+            if (m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) { return true; }
+        }
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var e = cd->derives_list.get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            var bc = canon_unqual(e->base->canonical);
+            if !isa::<RecordType>(bc) { continue; }
+            if CXXSpell::has_virtual_dtor(cast::<RecordType>(bc)->decl, depth + 1) { return true; }
+        }
+        return false;
+    }
+
+    /// A Kairo base of \p d0 has a virtual destructor, so \p d0's
+    /// `__kairo_layout()` overrides that base's and says so.
+    static fn layout_overrides(d0: *Decl) -> bool {
+        if d0 == &null { return false; }
+        var cd = dyn_cast::<ClassDecl>(CXXSpell::rep(decl_pattern(CXXSpell::rep(d0))));
+        if cd == &null { return false; }
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var e = cd->derives_list.get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            var bc = canon_unqual(e->base->canonical);
+            if isa::<RecordType>(bc) && CXXSpell::has_virtual_dtor(cast::<RecordType>(bc)->decl, u32(1)) { return true; }
+        }
+        return false;
+    }
+
     /// `static_assert(::ns::I_c<A, ...>, "...");` for each interface bound
     /// requires_clause kept off primary record \p d's head, at instance
     /// \p ie: written beside the home's explicit instantiation, where the

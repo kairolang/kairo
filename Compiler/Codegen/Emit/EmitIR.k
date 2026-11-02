@@ -953,6 +953,8 @@ class EmitIR {
         // its mem-initializers (_mem_inits).
         var from: usize = 0;
         if self._is_ctor(f) { from = self._lead_base_inits(&(b->body)); }
+        var dl = self._dynamic_layout_of(f);
+        if dl != 0 { self._dynamic_layout_body(f, dl, b); from = b->body.size(); }
         for var i: usize = from; i < b->body.size(); ++i { self.emit(b->body[i]); }
         // A function is a coroutine only when its body holds a coroutine
         // keyword, and a generator with no `yield` (or only a bare `return`
@@ -964,6 +966,38 @@ class EmitIR {
         self._cg->sink->synth_at_end(b->range, clang::tok::r_brace);
         self._cur_fn  = saved_fn;
         self._cur_ext = saved_ext;
+    }
+
+    /// 1 for the DynamicSize lang item, 2 for DynamicAlign, else 0
+    /// (FunctionDecl::dynamic_layout, on the decl or its representative).
+    priv fn _dynamic_layout_of(self, f: *FunctionDecl) -> u8 {
+        if f == &null { return 0; }
+        if f->dynamic_layout != 0 { return f->dynamic_layout; }
+        var xf = dyn_cast::<FunctionDecl>(CXXSpell::rep(static_cast::<*Decl>(f)));
+        if xf != &null { return xf->dynamic_layout; }
+        return 0;
+    }
+
+    /// `__builtin_dynamic_size<T>(p)` / `_align`'s body, in place of the
+    /// library's `sizeof T` / `alignof T`: the dynamic type's {size, align}
+    /// through T's hidden `__kairo_layout()` when it has one (a Kairo class
+    /// with a virtual destructor, InterfaceEmitter::_layout_virtual), else
+    /// T's own. A polymorphic T without one would answer for the base, as a
+    /// delete through it already destroys only the base: refused, here as
+    /// in ConformanceChecking.
+    priv fn _dynamic_layout_body(self, f: *FunctionDecl, which: u8, b: *CompoundStmt) {
+        if (f->params.size() != 1) || (f->generic_params.size() != 1) || (f->params[0] == &null) {
+            self._ice(f->range, "EmitIR: a dynamic-layout intrinsic is not fn <T>(p: *T)");
+        }
+        var p = self._spell.imm_name(f->params[0]->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(f)));
+        var t = self._spell.tparam_name(f->generic_params[0], CXXSpell::rep(static_cast::<*Decl>(f)));
+        var lv = LowerTargets::layout_virtual();
+        var k = ("0") if (which == 1) else ("1");
+        var kw = ("sizeof") if (which == 1) else ("alignof");
+        var nm = self._spell.leaf(static_cast::<*Decl>(f));
+        self._cg->sink->spell(b->range, "if constexpr (requires { " + p + "->" + lv + "(); }) { return " + p + "->" + lv + "()[" + k + "]; }"
+            + " else { static_assert(!__is_polymorphic(" + t + "), \x22" + nm + ": T is polymorphic but has no virtual destructor, so the size of what p points at is unknown\x22);"
+            + " return " + kw + "(" + t + "); }");
     }
 
     priv fn _unsupported_body(self, f: *FunctionDecl) {
