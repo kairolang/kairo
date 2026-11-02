@@ -235,6 +235,13 @@ class NamedIdentExpr derives Expr {
     /// on it, NarrowedAccessLowering, which makes the use `x.__value()`.
     pub var narrowed_from: *Type = &null;
 
+    /// This use names a variable an enclosing closure captures by pointer
+    /// (`|*x|`, `|*|`), so it is typed as that pointer (ExprTyper::
+    /// _capture_view): the name is the pointer, no nullness place, and `*x`
+    /// is the place of the variable it points at (null_place_of, NULLABLE.md
+    /// 3.7). One writer: X (ExprTyper::_type_ident).
+    pub var capture_ptr: bool = false;
+
     fn is_bound(self)    -> bool { return self.resolved_decl != &null; }
     fn is_deferred(self) -> bool {
         return (self.resolved_decl == &null) && (self.candidate_cell != &null);
@@ -252,6 +259,7 @@ class NamedIdentExpr derives Expr {
         node->ctx   = ctx;
         node->variant_decl = &null;
         node->narrowed_from = &null;
+        node->capture_ptr   = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

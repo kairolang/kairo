@@ -822,6 +822,12 @@ class UnaryOperatorExpr derives Expr {
     /// stage0 reason as Decl::semantic_dc. OperatorLowering copies it onto the
     /// call it mints, and EmitIR spells the instance's arguments from it.
     pub var op_instance: *void = &null;
+    /// A narrowed `*x` (NULLABLE.md 3.7, §4): `x` is a closure's pointer
+    /// capture of a `T?` the nullness analysis proved non-null here, so the
+    /// dereference is typed `T` and this holds the `T?` it was. Null for
+    /// every other use. One writer: X (NullnessFlow::read_value); one
+    /// reader, NarrowedAccessLowering, which makes it `(*x).__value()`.
+    pub var narrowed_from: *Type = &null;
 
     static fn create(
         ctx:      *ASTContext,
@@ -846,6 +852,7 @@ class UnaryOperatorExpr derives Expr {
         node->resolved_op    = &null;
         node->op_via_free    = false;
         node->op_instance    = &null;
+        node->narrowed_from  = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -865,6 +872,7 @@ class UnaryOperatorExpr derives Expr {
         node->resolved_op    = &null;
         node->op_via_free    = false;
         node->op_instance    = &null;
+        node->narrowed_from  = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

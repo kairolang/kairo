@@ -4584,6 +4584,81 @@ class <T> DeclParse {
         }
     }
 
+    /// \brief index mode: walks EVERY branch of an `eval if` chain and lands
+    ///        the declarations written in them in \p out, so the hoist
+    ///        recursion (ASTParse::_index_hoist_decl, EvalBlockDecl) puts
+    ///        them in the disambig table as if hoisted.
+    ///
+    /// \details EvalIfFolding (phase E) hoists the taken branch's
+    ///          declarations, so an importer's Sema sees them; but the table
+    ///          built here is what the importer's PARSER asks whether
+    ///          `name<T>` is generic, and is frozen long before the fold. A
+    ///          branch that hoisted nothing left `pick<i32> + 1` a chain of
+    ///          comparisons in every importer. Which branch is taken is not
+    ///          known here, so all of them are indexed, like an overload set:
+    ///          a generic in any branch makes the name generic, the same
+    ///          over-approximation the full-mode symbol index makes
+    ///          (ASTParse::_index_eval_branches). The header and the
+    ///          condition are crossed as _index_skip_eval_stmt crosses them.
+    priv fn _index_eval_if_branches(self, out: *std::StackBuf::<*Decl, 8>) {
+        while !dyn()->is_eof() {
+            var depth: u32 = 0;
+            while !dyn()->is_eof() {
+                var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+                if (depth == 0) && (k == TokenKind::OpLBrace) { break; }
+                if (depth == 0) && (k == TokenKind::OpRBrace) { return; }
+                if (k == TokenKind::OpLParen) || (k == TokenKind::OpLSquare) {
+                    depth += 1;
+                } else if (k == TokenKind::OpRParen) || (k == TokenKind::OpRSquare) {
+                    if depth > 0 { depth -= 1; }
+                }
+                dyn()->advance_raw();
+            }
+            if dyn()->is_eof() { return; }
+            dyn()->advance_raw();          // `{`
+
+            // The branch body: the loop of _index_walk_body, into \p out. A
+            // nested `eval if` is a decl lead-in, so it recurses through
+            // _parse_eval_stmt_decl and is hoisted from its own carrier.
+            var prev_idx: usize = 0;
+            var have_prev = false;
+            while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
+                if have_prev && (dyn()->c_idx == prev_idx) {
+                    dyn()->advance();
+                    continue;
+                }
+                prev_idx  = dyn()->c_idx;
+                have_prev = true;
+
+                if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
+                    dyn()->advance();
+                    continue;
+                }
+
+                var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+                if self._starts_decl_here(k) {
+                    var d = self.parse_decl();
+                    if d == &null {
+                        dyn()->_index_skip_stmt();
+                    } else if !self.is_fatal_decl(d) {
+                        out->push_back(d);
+                    }
+                } else {
+                    dyn()->_index_skip_stmt();
+                }
+            }
+            if dyn()->is_eof() { return; }
+            dyn()->advance_raw();          // `}`
+
+            if (dyn()->nl_depth == 0) && ((dyn()->ig_kind()) == TokenKind::TkNewLine)
+            && ((dyn()->peek_past_nl_kind()) == TokenKind::KwElse) {
+                dyn()->advance(T::SkipNL::Only);
+            }
+            if !dyn()->check(TokenKind::KwElse) { return; }
+            dyn()->advance_raw();          // `else`
+        }
+    }
+
     /// \brief an `eval if` / `eval for` written directly in a module or class
     ///        body, carried by an EvalBlockDecl whose `stmt` is the statement.
     ///  Grammar:  'eval' ( if_stmt | for_stmt )
@@ -4597,12 +4672,21 @@ class <T> DeclParse {
     ///          semantics, not the parser's: here the branches' declarations
     ///          stay branch-local (eval_branch_dc keeps a module body from
     ///          absorbing them), and FeatureGateCheck reports the form as not
-    ///          yet supported. Index mode skips it: a branch hoists nothing.
+    ///          yet supported. Index mode walks an `eval if`'s branches into
+    ///          the carrier's `body` (_index_eval_if_branches) and skips an
+    ///          `eval for`, whose body hoists nothing.
     priv fn _parse_eval_stmt_decl(self) -> *Decl {
         var start = self._cur_range();
         var eb = EvalBlockDecl::create(dyn()->ctx, start);
 
         if dyn()->mode == T::ParseMode::Index {
+            if dyn()->check_peek(TokenKind::KwIf) {
+                var decls: std::StackBuf::<*Decl, 8>;
+                self._index_eval_if_branches(&decls);
+                eb->body.from_buf(decls.data(), decls.size(), dyn()->ctx);
+                eb->range = start | dyn()->prev().range;
+                return static_cast::<*Decl>(eb);
+            }
             self._index_skip_eval_stmt();
             eb->range = start | dyn()->prev().range;
             return static_cast::<*Decl>(eb);

@@ -100,8 +100,11 @@
 ///     starts (_closure_entry) with its by-copy captures in the state they
 ///     had where it was made, less what the body assigns them (the copy
 ///     persists between calls); a by-pointer capture is the pointer there
-///     (ExprTyper::_capture_view types `x` as `*T`) and nothing is known of
-///     `*x`, which is no place.
+///     (ExprTyper::_capture_view types `x` as `*T`, marking the name
+///     capture_ptr), so `x` is no place and `*x` is the variable's: a
+///     place rooted at its decl, which starts Maybe and is `global`
+///     (_shared), since anything holding a pointer to the variable may
+///     write it during any call.
 ///
 ///   Phase: TYPE (the analysis, driven by ExprTyper); the classifier is
 ///   also called by LOWER (NullTestLowering).
@@ -487,15 +490,31 @@ fn null_root_decl(e: *Expr) -> *Decl {
 }
 
 /// The place \p e names, or an empty one: a local, parameter or global
-/// (VariableDecl / ParamDecl), then any number of `.` steps naming
-/// instance fields. Syntactic over bound steps; an unbound step (one the
-/// typer has not reached yet) ends it.
+/// (VariableDecl / ParamDecl), or `*x` where `x` is a closure's pointer
+/// capture of one (3.7: the dereference is the variable, so its place is
+/// the variable's decl; the name `x` itself is the pointer, no place),
+/// then any number of `.` steps naming instance fields. Syntactic over
+/// bound steps; an unbound step (one the typer has not reached yet) ends
+/// it, and so does a capture the typer has not marked yet (capture_ptr).
 fn null_place_of(e: *Expr) -> vec::<*Decl> {
     var out = vec::<*Decl>();
     var x = null_flow_strip_parens(e);
     if x == &null { return out; }
     if isa::<NamedIdentExpr>(x) {
-        var d = cast::<NamedIdentExpr>(x)->resolved_decl;
+        var n = cast::<NamedIdentExpr>(x);
+        if n->capture_ptr { return out; }
+        var d = n->resolved_decl;
+        if (d != &null) && (isa::<VariableDecl>(d) || isa::<ParamDecl>(d)) { out.push_back(d); }
+        return out;
+    }
+    if isa::<UnaryOperatorExpr>(x) {
+        var u = cast::<UnaryOperatorExpr>(x);
+        if (!u->is_prefix()) || (u->op_token.kind != TokenKind::OpStar) || (u->resolved_op != &null) { return out; }
+        var o = null_flow_strip_parens(u->operand);
+        if (o == &null) || (!isa::<NamedIdentExpr>(o)) { return out; }
+        var on = cast::<NamedIdentExpr>(o);
+        if !on->capture_ptr { return out; }
+        var d = on->resolved_decl;
         if (d != &null) && (isa::<VariableDecl>(d) || isa::<ParamDecl>(d)) { out.push_back(d); }
         return out;
     }
@@ -1634,7 +1653,7 @@ class NullnessFlow {
         var f = NullFact{};
         f.place = *place;
         if place->size() == 0 { return f; }
-        f.global = null_flow_is_global((*place)[0]);
+        f.global = self._shared((*place)[0]);
         if self.env.dead { f.state = Nullness::NonNull; return f; }
         var i = null_env_find(&(self.env), place);
         if i >= 0 { return self.env.facts[usize(i)]; }
@@ -1667,7 +1686,7 @@ class NullnessFlow {
             f.place  = *place;
             f.why    = why;
             f.at     = at;
-            f.global = null_flow_is_global((*place)[0]);
+            f.global = self._shared((*place)[0]);
             self.env.facts.push_back(f);
         }
     }
@@ -1962,6 +1981,15 @@ class NullnessFlow {
             var e = &(self._escapes[i]);
             null_env_weaken_under(&(self.env), &(e->place), false, NullWhy::Escaped, e->at);
         }
+        // A copy of a pointer capture (`var p = x; *p = v`) is no carrier, so
+        // the write may land in `*x`.
+        for var i: usize = 0; i < self.env.facts.size(); ++i {
+            var f = &(self.env.facts[i]);
+            if (f->place.size() == 0) || (f->state == Nullness::Maybe) { continue; }
+            if !self._ptr_captured(f->place[0]) { continue; }
+            f->state = Nullness::Maybe;
+            f->why   = NullWhy::None;   // no site to name: the note says what the place is.
+        }
     }
 
     /// A call ran: it may have written any global (3.8), and any place a
@@ -2039,7 +2067,7 @@ class NullnessFlow {
     priv fn _set(self, f_in: NullFact) {
         if self.env.dead { return; }
         var f = f_in;
-        f.global = null_flow_is_global(f.place[0]);
+        f.global = self._shared(f.place[0]);
         null_env_kill_under(&(self.env), &(f.place));
         if (f.state == Nullness::Maybe) && (f.why == NullWhy::None) { return; }
         self.env.facts.push_back(f);
@@ -2069,7 +2097,7 @@ class NullnessFlow {
             yes.state  = Nullness::NonNull;
             yes.why    = NullWhy::Tested;
             yes.at     = x->range;
-            yes.global = null_flow_is_global(place[0]);
+            yes.global = self._shared(place[0]);
             var no = yes;
             no.state = Nullness::Null;
             if nt.present {
@@ -2120,7 +2148,7 @@ class NullnessFlow {
         f.state  = state;
         f.why    = NullWhy::Tested;
         f.at     = at;
-        f.global = null_flow_is_global(place[0]);
+        f.global = self._shared(place[0]);
         null_env_put(env, f);
     }
 
@@ -2135,7 +2163,7 @@ class NullnessFlow {
         f.state  = Nullness::NonNull;
         f.why    = NullWhy::Tested;
         f.at     = at;
-        f.global = null_flow_is_global(place[0]);
+        f.global = self._shared(place[0]);
         null_env_put(&(self.env), f);
     }
 
@@ -2330,6 +2358,9 @@ class NullnessFlow {
         if f.state == Nullness::NonNull {
             if isa::<NamedIdentExpr>(x) {
                 cast::<NamedIdentExpr>(x)->narrowed_from = x->type_;
+            } else if isa::<UnaryOperatorExpr>(x) {
+                // `*x` through a pointer capture (note_read only records it).
+                cast::<UnaryOperatorExpr>(x)->narrowed_from = x->type_;
             } else if isa::<ChainExpr>(x) {
                 var c = cast::<ChainExpr>(x);
                 var st = c->steps.get(c->steps.size() - 1);
@@ -2416,11 +2447,17 @@ class NullnessFlow {
 
     // --- the access errors (4.2) ------------------------------------------------
 
-    /// `a`, `o.cache`: how a place is written.
+    /// `a`, `o.cache`, `(*x).cache`: how a place is written. A place rooted
+    /// at a pointer capture is the dereference, parenthesized so the
+    /// suggested `if (*x)?` tests the value and not the pointer.
     fn place_name(self, place: *vec::<*Decl>) -> string {
         var s = "";
         for var i: usize = 0; i < place->size(); ++i {
             if i > 0 { s = s + "."; }
+            if (i == 0) && self._ptr_captured((*place)[0]) {
+                s = s + "(*" + self.tu->decl_name((*place)[0]) + ")";
+                continue;
+            }
             s = s + self.tu->decl_name((*place)[i]);
         }
         return s;
@@ -2484,6 +2521,9 @@ class NullnessFlow {
             }
             case NullWhy::Called {
                 n.msg = f"'{nm}' is global: this call may change it, which ends the check before it";
+                if (f.place.size() > 0) && self._ptr_captured(f.place[0]) {
+                    n.msg = f"'{nm}' is reached through a pointer the closure captured: this call may change it, which ends the check before it";
+                }
                 return n;
             }
             case NullWhy::Looped {
@@ -2525,6 +2565,10 @@ class NullnessFlow {
             return n;
         }
         n.at = root->range.start;
+        if self._ptr_captured(root) {
+            n.msg = f"'{nm}' is reached through a pointer the closure captured: anything holding that pointer may change it, so it may be null on entry";
+            return n;
+        }
         if self._captured(root) {
             n.msg = f"'{nm}' is captured by the closure: inside it, '{nm}' is as it was where the closure was made, less what the closure assigns it";
             return n;
@@ -2545,6 +2589,42 @@ class NullnessFlow {
         var at = d->range.start.id;
         var inside = (at >= c->range.start.id) && (at < c->range.end.id);
         return !inside;
+    }
+
+    /// \p d is a variable a closure around this body captures by pointer,
+    /// so the place rooted at it is `*x` (null_place_of). The walk is
+    /// ExprTyper::_capture_view's: an inner closure that copies an outer
+    /// one's pointer capture holds the pointer too.
+    priv fn _ptr_captured(self, d: *Decl) -> bool {
+        if d == &null { return false; }
+        var at = d->range.start.id;
+        var i = self._frames.size();
+        while i > 0 {
+            i = i - 1;
+            var c = self._frames[i].closure;
+            if c == &null { return false; }
+            if (at >= c->range.start.id) && (at < c->range.end.id) { return false; }
+            for var k: usize = 0; k < c->captures.size(); ++k {
+                var cap = c->captures.get(k);
+                if !cap->by_ptr { continue; }
+                if cap->name != &null {
+                    if cap->name->resolved_decl == d { return true; }
+                    continue;
+                }
+                if null_flow_is_global(d) || (isa::<ParamDecl>(d) && cast::<ParamDecl>(d)->is_self) { continue; }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// A place rooted at \p d may be written by code the analysis does not
+    /// see, at any call: a global or static (3.8), or `*x` through a pointer
+    /// capture, whose variable anything holding a pointer to it may write
+    /// while the closure runs (3.7). Such a fact is `global`: every call
+    /// makes it Maybe, and a loop or a `try` drops it at its head.
+    priv fn _shared(self, d: *Decl) -> bool {
+        return null_flow_is_global(d) || self._ptr_captured(d);
     }
 
     // --- the 4.1 trap -------------------------------------------------------------

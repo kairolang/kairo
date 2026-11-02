@@ -621,7 +621,7 @@ class ExprTyper
                 var t = self.param_value_type(p);
                 if t == &null { self.mark_unknown(n); return &null; }
                 var pv = self._capture_view(d, t);
-                if pv != &null { return pv; }
+                if pv != &null { n->capture_ptr = true; return pv; }
                 self._note_place_read(n, d, t);
                 self.flow.note_use(static_cast::<*Expr>(n), d);
                 return t;
@@ -634,7 +634,7 @@ class ExprTyper
                 else if v->is_const() { t = self.sc->types->qualified(t, QUAL_CONST()); }
                 if t != &null {
                     var pv = self._capture_view(d, t);
-                    if pv != &null { return pv; }
+                    if pv != &null { n->capture_ptr = true; return pv; }
                     self._note_place_read(n, d, t);
                     self.flow.note_use(static_cast::<*Expr>(n), d);
                 }

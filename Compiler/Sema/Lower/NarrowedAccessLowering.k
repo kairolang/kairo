@@ -12,9 +12,12 @@
 ///       a narrowed field path    o.cache   (T)   ->  o.cache.__value()
 ///       a path read through it   o.cache.v       ->  o.cache.__value().v
 ///       a pointer through it     p->m()          ->  p.__value()->m()
+///       a pointer capture's      *x  (|*x|)      ->  (*x).__value()
 ///
-///     A mark sits on a NamedIdentExpr (narrowed_from) or on the chain step
-///     that ends the narrowed path (ChainExpr::Step::narrowed_from); a step
+///     A mark sits on a NamedIdentExpr (narrowed_from), on a dereference of
+///     a closure's pointer capture (UnaryOperatorExpr::narrowed_from), or
+///     on the chain step that ends the narrowed path
+///     (ChainExpr::Step::narrowed_from); a step
 ///     in the middle of a chain splits it there, and the rest of the chain
 ///     continues from the call. Each mark holds the `T?` the place has, so
 ///     the receiver is put back to it and the call is the `T`.
@@ -94,6 +97,23 @@ class NarrowedAccessLowering derives ASTWriter::<NarrowedAccessLowering> {
         e->type_         = n->narrowed_from;
         n->narrowed_from = &null;
         return self._value_of(e, t, e->range);
+    }
+
+    /// `*x` through a closure's pointer capture (NULLABLE.md 3.7): the
+    /// dereference is the place, so it is the receiver, `(*x).__value()`.
+    fn transform_unary_operator_expr(self, n: *UnaryOperatorExpr) -> *Expr {
+        var out = ASTWriter::<NarrowedAccessLowering>::transform_unary_operator_expr(n);
+        if (n->narrowed_from == &null) || n->is_poisoned() { return out; }
+        var t = n->type_;
+        var e = static_cast::<*Expr>(n);
+        e->type_         = n->narrowed_from;
+        n->narrowed_from = &null;
+        // Parenthesized whatever the emitter does: `*x.__value()` would be
+        // the call on the pointer.
+        var p = ParenExpr::create(self.ctx, e->range, e);
+        p->type_          = e->type_;
+        p->value_category = Expr::ValueCategory::LValue;
+        return self._value_of(static_cast::<*Expr>(p), t, e->range);
     }
 
     /// The base first (it may be a narrowed name), then the first marked

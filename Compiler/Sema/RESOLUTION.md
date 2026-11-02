@@ -123,7 +123,10 @@ here; a name that is no limit is left for ChainBinding's R024E.
 folds is replaced by its taken branch, the declarations of the others are
 discarded, and each scope it folded in gets a NEW frozen table without
 them (the parser indexed every branch; invariant #1 holds -- no table is
-mutated, one is replaced, as `_bind_cxx` does). It must run before V and
+mutated, one is replaced, as `_bind_cxx` does). The parse-time
+DisambigTable also holds every branch's names (P110), and keeps them: an
+importer's `<` disambiguation reads it long before any fold, so a generic
+in any branch makes the name generic there, as an overload would. It must run before V and
 N, which may not see an untaken branch, and after I, so a condition can
 read an imported `eval` constant and clang's macro table is joined.
 Being before T, it cannot answer a type fact: `sizeof`, `alignof`,

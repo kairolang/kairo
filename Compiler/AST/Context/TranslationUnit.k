@@ -280,6 +280,14 @@ class TranslationUnit derives DeclContext {
 
     fn TranslationUnit(self, ctx: *ASTContext, fid: u32, scope: *DisambigTable, g_scope: *GlobalDisambigTable) {
         self.init_dc(DeclContextKind::TranslationUnit, ctx, &null, &null);
+        // init_dc puts a scope's decl list in ast_alloc, which is right for
+        // every scope but this one: the TU lives in pp_alloc and SURVIVES
+        // release_from(Parsing) / reset_for_reparse, which reset ast_alloc.
+        // The list's chunk table and slabs would dangle into the reset arena
+        // and the reparse's first push would write into whatever the new AST
+        // put there (GH #71). Its storage lives as long as the TU; its
+        // CONTENTS are the parse's, dropped by ASTParse::parse.
+        self.dc_decls.set_allocator(&(ctx->pp_alloc), 64);
         self.ctx          = ctx;
         self.fid          = fid;
         self.scope        = scope;

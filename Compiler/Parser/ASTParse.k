@@ -290,6 +290,11 @@ class ASTParse
     ///          After the loop, _wire_scopes connects named DeclContexts to
     ///          their hoisted DisambigNodes so sema lookup_local works.
     fn parse(self) -> *TranslationUnit {
+        // A reparse of a PP-built TU (release_from(Parsing), then parse_one)
+        // reuses it: its decl list still names the previous parse's decls,
+        // which died with ast_alloc. Its storage is the TU's (pp_alloc, GH
+        // #71), so clearing it is safe, and this parse refills it.
+        self.tu->dc_decls.clear();
         var program = self.ctx->alloc_init::<Program>(self.ctx->fid, self.ctx);
         self.tu->program = program;
         self.scope.push(ScopeKind::Block, self.tu);

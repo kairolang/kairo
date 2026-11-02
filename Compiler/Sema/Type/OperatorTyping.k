@@ -1505,6 +1505,12 @@ class <T> OperatorTyping {
                 }
                 if dyn()->tu.is_void(p) { dyn()->fail(n, DiagID::SC070E, "cannot dereference '*void\x27"); return &null; }
                 n->value_category = Expr::ValueCategory::LValue;
+                // `*x` through a closure's pointer capture is the captured
+                // variable's place (NULLABLE.md 3.7): a use of it, as a name is.
+                if null_flow_type_is_nullable(p) {
+                    var dp = null_place_of(static_cast::<*Expr>(n));
+                    if dp.size() > 0 { dyn()->flow.note_read(static_cast::<*Expr>(n), &dp); }
+                }
                 return p;
             }
             case TokenKind::OpPlusPlus   { return self._incdec(n, ot); }

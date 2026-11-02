@@ -105,16 +105,25 @@ class K {
 // TREE-NEXT:           `-Step .a
 // TREE: -- 0 error(s), 0 warning(s) --
 //
-// Index pass - the branches hoist nothing (no `g`, `LIMIT`, `y`, `get`), and
-// the members after each form, an `else` on its own line and a C-style
-// header included, are still indexed where they belong.
+// Index pass - every branch of an `eval if` is indexed where the branch
+// sits (P110: Sema hoists the taken one, but `<` disambiguation is decided
+// before Sema knows which, so `g` from both branches, `LIMIT` and the class
+// body's `y` / `get` are all in), an `eval for` body hoists nothing, and the
+// members after each form, an `else` on its own line and a C-style header
+// included, are still indexed where they belong.
 // RUN: { %kairo %s --syntax-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=INDEX
 // INDEX-LABEL: [fid=0]
 // INDEX-NEXT: === DisambigTable Dump ===
 // INDEX-NEXT: ├── K  [class]
 // INDEX-NEXT: ├── m/
+// INDEX-NEXT: │   ├── g  (overloaded x2)
+// INDEX-NEXT: │   │   ├── [fn]
+// INDEX-NEXT: │   │   └── [fn]
+// INDEX-NEXT: │   ├── LIMIT  [var]
 // INDEX-NEXT: │   └── after  [fn]
 // INDEX-NEXT: └── K/
 // INDEX-NEXT:     ├── a  [var]
+// INDEX-NEXT:     ├── y  [var]
+// INDEX-NEXT:     ├── get  [fn]
 // INDEX-NEXT:     └── b  [fn]
 // INDEX-NEXT: =========================
