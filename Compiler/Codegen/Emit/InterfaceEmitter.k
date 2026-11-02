@@ -149,6 +149,9 @@ class InterfaceEmitter {
     /// (IncludeEmitter prunes tier 3): their type-id specializations are
     /// still the host's to see.
     pub var pruned_insts: vec::<*InstanceEntry>;
+    /// The value-parameter templates tier 1 has forward-declared
+    /// (_vp_fwd_decls), each once.
+    priv var _vp_declared: vec::<*Decl>;
 
     fn InterfaceEmitter(self, cg: *CodegenContext, plan: *EmitPlan) {
         self._cg    = cg;
@@ -379,7 +382,7 @@ class InterfaceEmitter {
                 } else if !self._plan->value_param_record(f->decl, &null) {
                     // A template over a class-typed value parameter (EVAL.md
                     // 7e) cannot be declared before that class is complete:
-                    // its definition, ordered after the class, declares it.
+                    // tier 1 declares it right after the class (_vp_fwd_decls).
                     self._fwd_decl(f->decl);
                 }
                 i += 1;
@@ -441,7 +444,11 @@ class InterfaceEmitter {
         }
 
         // tier 1
+        var t0_end: usize = 0;
+        while (t0_end < n) && (self._plan->entries[t0_end].tier == PlanTier::FwdDecls) { t0_end += 1; }
+        self._vp_declared.clear();
         while (i < n) && (self._plan->entries[i].tier == PlanTier::Definitions) {
+            self._vp_fwd_decls(t0_end, i, header);
             var e = &(self._plan->entries[i]);
             i += 1;
             if header && (!e->own) { continue; }   // its header was included.
@@ -493,6 +500,9 @@ class InterfaceEmitter {
             var pe = dyn_cast::<EnumDecl>(e->decl);
             if (pe != &null) && enum_has_niche_trait(pe) { self._enum_niche_trait(pe); }
         }
+        // Any left (its class is not defined in this stream): declared
+        // before the functions, which may name it.
+        self._vp_fwd_decls(t0_end, i, header);
 
         // tier 2
         while (i < n) && (self._plan->entries[i].tier == PlanTier::Functions) {
@@ -669,6 +679,42 @@ class InterfaceEmitter {
         // On the decl's first byte, not its name: the name's byte goes to
         // the definition's name token (TokenSink::_claim).
         self._cg->sink->spell(self._fwd_at(d), s);
+    }
+
+    /// The tier-0 forward declarations of templates over a class-typed
+    /// value parameter (EVAL.md 7e, EmitPlan::value_param_record), each
+    /// written as soon as every such class is defined: entries [0, \p
+    /// t0_end) are tier 0, and tier 1 has written its entries before \p at.
+    /// C++ needs the class complete at every declaration of the template,
+    /// so tier 0 leaves these out, and a record that names `*Widget<...>`
+    /// ahead of Widget's definition needs one (EmitPlan::_needs_complete
+    /// orders that record after the class, so it follows this too). P160.
+    priv fn _vp_fwd_decls(self, t0_end: usize, at: usize, header: bool) {
+        for var k: usize = 0; k < t0_end; ++k {
+            var f = &(self._plan->entries[k]);
+            if (f->scope != &null) || (f->witness != &null) { continue; }
+            if !self._plan->value_param_record(f->decl, &null) { continue; }
+            if header && (!f->own) && (f->need == PlanNeed::Complete) { continue; }   // included.
+            var done = false;
+            for var j: usize = 0; j < self._vp_declared.size(); ++j { if self._vp_declared[j] == f->decl { done = true; break; } }
+            if done { continue; }
+            if self._vp_class_pending(f->decl, at) { continue; }
+            self._vp_declared.push_back(f->decl);
+            var fd = f->decl;
+            self._wrapped(fd, fn () { self._fwd_decl(fd); });
+        }
+    }
+
+    /// One of \p d's value-parameter classes is defined by tier 1 at or
+    /// after entry \p at: not yet written.
+    priv fn _vp_class_pending(self, d: *Decl, at: usize) -> bool {
+        for var j: usize = at; j < self._plan->entries.size(); ++j {
+            var e = &(self._plan->entries[j]);
+            if e->tier != PlanTier::Definitions { break; }
+            if (e->scope != &null) || (e->witness != &null) || (e->eval_item != &null) { continue; }
+            if self._plan->value_param_record(d, e->decl) { return true; }
+        }
+        return false;
     }
 
     priv fn _fwd_at(self, d: *Decl) -> SourceRange {
@@ -860,7 +906,15 @@ class InterfaceEmitter {
             var m = methods[i];
             if m == &null { continue; }
             cur_access = self._access(cur_access, self._cxx_vis(static_cast::<*Decl>(m)), false, at);
-            self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
+            // A constructor defined out of line (EmitIR::_method) is declared
+            // on its first byte, not its name, as _fwd_decl declares a type:
+            // only one exact token gets the name's byte (TokenSink::_claim),
+            // and the definition is where clang reports what the constructor
+            // fails to initialize. On the name, the definition's walked lines
+            // away (P145).
+            var mat = self._at(static_cast::<*Decl>(m));
+            if self._is_ctor(m, d) && m->has_body() && (m->body_kind == FnBodyKind::Block) && (m->ci_split == 0) { mat = self._fwd_at(static_cast::<*Decl>(m)); }
+            self._cg->sink->spell(mat, self._method_decl(m, d));
         }
         if is_class { cur_access = self._base_usings(cast::<ClassDecl>(d), cur_access, at); }
         if is_class { cur_access = self._edge_narrowing(cast::<ClassDecl>(d), cur_access, at); }

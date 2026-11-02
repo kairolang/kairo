@@ -1040,9 +1040,13 @@ a value gets no `template class` / `extern template` line: it may be the
 specialization another spelling names (`Buf<twice(1)>` is `Buf<2>`), and
 C++ rejects two explicit instantiations of one; it is instantiated
 implicitly where used. A template with a value parameter of class type
-(7e) is not forward-declared (C++ needs the class complete at every
-declaration of the template); its definition follows the class
-(`EmitPlan::value_param_record`).
+(7e) is not forward-declared in tier 0 (C++ needs the class complete at
+every declaration of the template); its definition follows the class
+(`EmitPlan::value_param_record`), and tier 1 forward-declares it right
+after the last such class is defined (`InterfaceEmitter::_vp_fwd_decls`).
+A record that names the template anywhere, through a pointer too, is
+ordered after the class (`EmitPlan::_names_vp_template`), so it follows
+that declaration.
 
 A string literal C++ reads at compile time (`StringLiteralExpr::
 const_eval`, set by EvalUsageChecking, EVAL.md 2a) passes its bytes as

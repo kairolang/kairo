@@ -45,12 +45,13 @@ pub fn sum_burst(f: Frame<i32>) -> i32 = match f {
 //
 // `guard` has an imported type with no default constructor: the error is
 // clang's, not Kairo's (TypeUtil::why_no_default leaves C++ types to clang).
-// The error itself is at the constructor's out-of-line definition, whose
-// name byte its in-class declaration holds, so it walks on too and its line
-// is not checked (TICKETS.TXT, "a definition's name shares its
-// declaration's byte").
+// The error itself is at the constructor's out-of-line definition. Its
+// in-class declaration and its qualifier (`Batch::Batch`) both spell the
+// name exactly, and only one exact token gets the name's byte, so the
+// definition's walked on to 38:72, a comment. Both now sit on the
+// declaration's first byte, and the error lands on the name (P145).
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s -c -o %t.o 2>&1 || true; } | %FileCheck %s
-// CHECK: member_note_location.k:{{[0-9]+}}:{{[0-9]+}}: error [CL001E]: constructor for '{{.*}}Batch' must explicitly initialize the member 'guard'
+// CHECK: member_note_location.k:15:12: error [CL001E]: constructor for '{{.*}}Batch' must explicitly initialize the member 'guard'
 // CHECK: member_note_location.k:12:13: note [{{[A-Z0-9]+}}]: member is declared here

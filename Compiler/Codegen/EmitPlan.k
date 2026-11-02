@@ -595,6 +595,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _early_close(self, seeds: *vec::<*Decl>, kind: u8, out: *vec::<*Decl>);
     fn _decl_type_items(self, d: *Decl, out: *vec::<*Decl>);
     fn _type_items(self, t: *Type, out: *vec::<*Decl>);
+    fn _type_items_walk(self, t: *Type, n: *EarlyNeeds, depth: u32);
     fn _eo_add(self, who: *Decl, dep: *Decl);
     fn _eo_has(self, who: *Decl, dep: *Decl) -> bool;
     fn _layout_key(self, d: *Decl) -> *Decl;
@@ -675,6 +676,8 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _entry_needs(self, who: *PlanEntry, dep: *PlanEntry) -> bool;
     fn _needs_complete(self, who: *Decl, dep: *Decl) -> bool;
     fn value_param_record(self, who: *Decl, dep: *Decl) -> bool;
+    fn _names_vp_template(self, who: *Decl, dep: *Decl) -> bool;
+    fn _type_names_vp(self, t: *Type, dep: *Decl, depth: u32) -> bool;
     fn _plannable(self, d: *Decl) -> bool;
     fn _is_requirement(self, d: *Decl) -> bool;
     fn _member_of_template(self, d: *Decl) -> bool;
@@ -1948,8 +1951,37 @@ fn EmitPlan::_decl_type_items(d: *Decl, out: *vec::<*Decl>) {
 fn EmitPlan::_type_items(t: *Type, out: *vec::<*Decl>) {
     if t == &null { return; }
     var n = EarlyNeeds();
-    n.rec_type(t);
+    self._type_items_walk(t, &n, u32(0));
     for var i: usize = 0; i < n.items.size(); ++i { EarlyNeeds::_once(out, n.items[i]); }
+}
+
+/// _type_items' walk: EarlyNeeds::rec_type on \p t, and on every type
+/// written inside it, through pointers, references and arguments too. A
+/// computed value behind a pointer (`*Widget<Pt(2, 3)>`) is evaluated
+/// where the declaration is written all the same (P160), though its
+/// record is not needed complete -- only the items are read from \p n.
+fn EmitPlan::_type_items_walk(t: *Type, n: *EarlyNeeds, depth: u32) {
+    if (t == &null) || (depth > u32(16)) { return; }
+    var c = t->canonical;
+    if c == &null { c = t; }
+    var d1 = depth + u32(1);
+    switch c->kind {
+        case TypeKind::QualifiedType    { self._type_items_walk(cast::<QualifiedType>(c)->inner, n, d1); }
+        case TypeKind::PointerType      { self._type_items_walk(cast::<PointerType>(c)->pointee, n, d1); }
+        case TypeKind::CXXLValueRefType { self._type_items_walk(cast::<CXXLValueRefType>(c)->referee, n, d1); }
+        case TypeKind::CXXRValueRefType { self._type_items_walk(cast::<CXXRValueRefType>(c)->referee, n, d1); }
+        case TypeKind::FunctionPointerType {
+            var fp = cast::<FunctionPointerType>(c);
+            for var i: usize = 0; i < fp->params.size(); ++i { self._type_items_walk(*(fp->params.get(i)), n, d1); }
+            self._type_items_walk(fp->return_type, n, d1);
+        }
+        case TypeKind::RecordType {
+            n->rec_type(c);
+            var r = cast::<RecordType>(c);
+            for var i: usize = 0; i < r->args.size(); ++i { self._type_items_walk(*(r->args.get(i)), n, d1); }
+        }
+        default { n->rec_type(c); }
+    }
 }
 
 fn EmitPlan::_eo_add(who: *Decl, dep: *Decl) {
@@ -2520,6 +2552,13 @@ fn EmitPlan::_expand(d: *Decl, need: PlanNeed) {
     // A bounded record's head carries its concepts, and even its tier-0
     // forward declaration is a head: at any strength.
     self._witness_bounds(d);
+    // So is a value parameter's class (EVAL.md 7e): C++ needs it complete
+    // at the forward declaration too (InterfaceEmitter::_vp_fwd_decls).
+    var vgps = decl_generic_params(d);
+    for var i: usize = 0; i < vgps.size(); ++i {
+        var gp = vgps[i];
+        if (gp != &null) && gp->is_const_param && (gp->value_type != &null) && self.value_param_record(d, &null) { self._admit_type(gp->value_type, PlanNeed::Complete); }
+    }
     if need != PlanNeed::Complete { return; }
     self._expand_type(d);
 }
@@ -3196,6 +3235,9 @@ fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
     // A value parameter of class type (`<eval C: Config>`, EVAL.md 7e): C++
     // needs the class complete wherever the template is declared.
     if self.value_param_record(who, dep) { return true; }
+    // And where it names such a template at all, through a pointer too:
+    // the template's forward declaration follows the class (P160).
+    if self._names_vp_template(who, dep) { return true; }
     var probe = LayoutSpine(&self, dep);
     var rec   = self.adt_record(who);
     switch rec->kind {
@@ -3232,6 +3274,89 @@ fn EmitPlan::value_param_record(who: *Decl, dep: *Decl) -> bool {
         if !isa::<RecordType>(c) { continue; }
         if dep == &null { return true; }
         if CXXSpell::rep(cast::<RecordType>(c)->decl) == dep { return true; }
+    }
+    return false;
+}
+
+/// \p who's definition names a template over a value parameter of class
+/// \p dep (value_param_record), in any position -- a field's type through
+/// pointers and arguments, a base, a method signature. That template is
+/// declared only once \p dep is complete (InterfaceEmitter::_vp_fwd_decls),
+/// so \p who's definition follows \p dep's even where its layout does not.
+fn EmitPlan::_names_vp_template(who: *Decl, dep: *Decl) -> bool {
+    if (who == &null) || (dep == &null) { return false; }
+    var rec = self.adt_record(who);
+    var fields: *FrozenList::<*FieldDecl> = &null;
+    var methods: *FrozenList::<*FunctionDecl> = &null;
+    switch rec->kind {
+        case DeclKind::ClassDecl {
+            var n = cast::<ClassDecl>(rec);
+            for var i: usize = 0; i < n->derives_list.size(); ++i {
+                var e = n->derives_list.get(i);
+                if (e != &null) && self._type_names_vp(e->base, dep, 0) { return true; }
+            }
+            fields = &(n->fields);
+            methods = &(n->methods);
+        } case DeclKind::StructDecl {
+            fields = &(cast::<StructDecl>(rec)->fields);
+            methods = &(cast::<StructDecl>(rec)->methods);
+        } case DeclKind::UnionDecl {
+            fields = &(cast::<UnionDecl>(rec)->fields);
+            methods = &(cast::<UnionDecl>(rec)->methods);
+        } default { return false; }
+    }
+    for var i: usize = 0; i < fields->size(); ++i {
+        var f = *(fields->get(i));
+        if (f != &null) && self._type_names_vp(f->type_, dep, 0) { return true; }
+    }
+    for var i: usize = 0; i < methods->size(); ++i {
+        var m = *(methods->get(i));
+        if m == &null { continue; }
+        if self._type_names_vp(m->return_type, dep, 0) { return true; }
+        for var j: usize = 0; j < m->params.size(); ++j {
+            var p = *(m->params.get(j));
+            if (p != &null) && (!p->is_self) && self._type_names_vp(p->type_, dep, 0) { return true; }
+        }
+    }
+    return false;
+}
+
+fn EmitPlan::_type_names_vp(t: *Type, dep: *Decl, depth: u32) -> bool {
+    if (t == &null) || (depth > u32(16)) { return false; }
+    var c = t->canonical;
+    if c == &null { c = t; }
+    var d1 = depth + u32(1);
+    switch c->kind {
+        case TypeKind::QualifiedType    { return self._type_names_vp(cast::<QualifiedType>(c)->inner, dep, d1); }
+        case TypeKind::PointerType      { return self._type_names_vp(cast::<PointerType>(c)->pointee, dep, d1); }
+        case TypeKind::CXXLValueRefType { return self._type_names_vp(cast::<CXXLValueRefType>(c)->referee, dep, d1); }
+        case TypeKind::CXXRValueRefType { return self._type_names_vp(cast::<CXXRValueRefType>(c)->referee, dep, d1); }
+        case TypeKind::NullableType     { return self._type_names_vp(cast::<NullableType>(c)->lowered, dep, d1); }
+        case TypeKind::FixedArrayType   { return self._type_names_vp(cast::<FixedArrayType>(c)->element, dep, d1); }
+        case TypeKind::TupleType {
+            var tp = cast::<TupleType>(c);
+            for var i: usize = 0; i < tp->elements.size(); ++i {
+                if self._type_names_vp(*(tp->elements.get(i)), dep, d1) { return true; }
+            }
+            return false;
+        }
+        case TypeKind::FunctionPointerType {
+            var fp = cast::<FunctionPointerType>(c);
+            for var i: usize = 0; i < fp->params.size(); ++i {
+                if self._type_names_vp(*(fp->params.get(i)), dep, d1) { return true; }
+            }
+            return self._type_names_vp(fp->return_type, dep, d1);
+        }
+        case TypeKind::RecordType {
+            var r = cast::<RecordType>(c);
+            var d = CXXSpell::rep(r->decl);
+            if (d != &null) && self.value_param_record(CXXSpell::rep(decl_pattern(d)), dep) { return true; }
+            for var i: usize = 0; i < r->args.size(); ++i {
+                if self._type_names_vp(*(r->args.get(i)), dep, d1) { return true; }
+            }
+            return false;
+        }
+        default { return false; }
     }
     return false;
 }

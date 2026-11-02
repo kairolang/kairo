@@ -622,7 +622,18 @@ class EmitIR {
         var is_conv = m->is_operator && (m->op_token[0].kind == TokenKind::KwAs);
         var qual = self._owner_qual(owner);
         if is_ctor {
-            head += qual + "::" + self._spell.leaf(owner);
+            // The qualifier spells the class's name, which is the
+            // constructor's too: on the name it would take the byte the
+            // constructor's own name is anchored on (TokenSink::_claim, one
+            // exact token per byte), so the head up to it goes on the decl's
+            // first byte, as the in-class declaration does
+            // (InterfaceEmitter::_record_def). Clang's "constructor for 'X'
+            // must explicitly initialize" lands on the name (P145).
+            head += qual + "::";
+            var hat = at;
+            if m->range.is_valid() { hat = SourceRange::from_bounds(m->range.start, u32(1)); }
+            self._cg->sink->spell(hat, head);
+            head = self._spell.leaf(owner);
         } else if (nm[0] == '~') || is_conv {
             // A destructor or conversion definition takes no return type, and
             // leaf() has already spelled the `~` / `operator T`.
@@ -1377,10 +1388,20 @@ class EmitIR {
 
     /// The `return` keyword borrows the statement's first six bytes; correct
     /// only because Kairo spells it `return` too. TODO(ast): retain the token.
+    /// A `return` the parser synthesized for an expression body (`fn f() = 7`)
+    /// has the expression's range, which can be shorter than six bytes: the
+    /// borrow is clipped to it, or a lone literal near the end of its file
+    /// reads past the buffer (TokenSink::_bytes ICEs).
+    priv fn _return_kw_at(self, n: *ReturnStmt) -> SourceRange {
+        var len = n->range.size();
+        if len > u32(6) { len = u32(6); }
+        return SourceRange::from_bounds(n->range.start, len);
+    }
+
     priv fn _return(self, n: *ReturnStmt) {
         // In a closure: the lambda's own return, to the closure's type.
         if self._closure != &null {
-            self._cg->sink->synth(SourceRange::from_bounds(n->range.start, u32(6)), clang::tok::kw_return);
+            self._cg->sink->synth(self._return_kw_at(n), clang::tok::kw_return);
             var crt = self._closure->return_type;
             if self._closure->panic_result != &null { crt = self._closure->panic_result; }
             if n->value != &null { self._value(n->value, crt); }
@@ -1415,7 +1436,7 @@ class EmitIR {
             self._cg->sink->synth_at_end(n->range, clang::tok::semi);
             return;
         }
-        self._cg->sink->synth(SourceRange::from_bounds(n->range.start, u32(6)), clang::tok::kw_return);
+        self._cg->sink->synth(self._return_kw_at(n), clang::tok::kw_return);
         if n->value != &null {
             var rt: *Type = &null;
             if self._cur_fn != &null { rt = self._cur_fn->return_type; }
