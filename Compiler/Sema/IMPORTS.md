@@ -504,8 +504,13 @@ sets become a multi-scope `Module` anchor; `::` searches every scope.
 Same TU, `module Util { }` written twice: one entity, N scopes, linked as a
 redecl ring by N(a). Three rules make the ring behave as one block:
 - **Not a redefinition.** Every module block is a definition; N(a)'s
-  two-definitions check skips modules (`_reopenable`). Two reopenings
-  declaring the same MEMBER twice is item 13a's question, at M2.
+  two-definitions check skips modules (`_reopenable`). A type member
+  declared in two blocks is judged as one cell would be
+  (`_judge_reopenings`, after the ring links): a forward declaration in
+  one block chains to its definition in another, and two definitions or
+  two record keywords are R029E / R001E as within one block. Functions
+  across blocks, and a variable beside a type, are still item 13a's
+  question, at M2.
 - **Unqualified sees the ring.** `NameLookup::unqualified`, on a miss in a
   module scope, tries every other block of its ring (`module_scopes`), so
   `a` declared in block 1 is in scope in block 2 -- and block 2's names in

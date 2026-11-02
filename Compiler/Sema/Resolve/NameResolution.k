@@ -456,7 +456,110 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
 
     priv fn _validate_decls(self, tu: *TranslationUnit) {
         self._validate_context(static_cast::<*DeclContext>(tu));
+        // After every cell: the walk above links each module's blocks into
+        // one ring, and only a linked ring says which blocks to compare.
+        self._judge_reopenings(static_cast::<*DeclContext>(tu));
         self._attach_out_of_line(tu);
+    }
+
+    /// The type kinds whose declarations chain into one entity: one per
+    /// _judge_group case that links rather than reports.
+    priv fn _redeclarable(self, d: *Decl) -> bool {
+        return isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d)
+            || isa::<InterfaceDecl>(d) || isa::<EnumDecl>(d) || isa::<ModuleDecl>(d);
+    }
+
+    /// One module written as several `module m { }` blocks in this file is
+    /// one scope (IMPORTS.md, "as if one block"), but each block keeps its
+    /// own table, so _validate_cell never sees `union Payload` in one block
+    /// beside `union Payload { }` in another. Unlinked, the two were two
+    /// entities and every use of the name was R028E ambiguous. Judge each
+    /// name the blocks share as one cell would be: link the forward
+    /// declaration to its definition, and report two definitions or two
+    /// record keywords exactly as within one block.
+    ///
+    /// Only the redeclarable type kinds: two functions across blocks are
+    /// RedeclMerge's (they need signatures), and a variable beside a type
+    /// is the cross-reopening redefinition question still open at M2
+    /// (IMPORTS.md item 13a).
+    priv fn _judge_reopenings(self, dc: *DeclContext) {
+        if dc == &null { return; }
+        var type_body = dc->is_type_scope();
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var d = *(dc->dc_decls.get(i));
+            if d == &null { continue; }
+            if type_body && isa::<VisibilityGroupDecl>(d) { continue; }
+            self._judge_reopenings_of(d);
+        }
+    }
+
+    priv fn _judge_reopenings_of(self, d: *Decl) {
+        if d == &null { return; }
+        if isa::<VisibilityGroupDecl>(d) {
+            var g = cast::<VisibilityGroupDecl>(d);
+            for var i: usize = 0; i < g->members.count; ++i { self._judge_reopenings_of(g->members[i]); }
+            return;
+        }
+        if isa::<EvalBlockDecl>(d) {
+            var b = cast::<EvalBlockDecl>(d);
+            for var i: usize = 0; i < b->body.count; ++i { self._judge_reopenings_of(b->body[i]); }
+            return;
+        }
+        if isa::<FFIBlockDecl>(d) {
+            var b = cast::<FFIBlockDecl>(d);
+            for var i: usize = 0; i < b->body.count; ++i { self._judge_reopenings_of(b->body[i]); }
+            return;
+        }
+        var own = NameLookup::context_of(d);
+        if isa::<ModuleDecl>(d) {
+            var scopes = vec::<*DeclContext>();
+            NameLookup::module_scopes(d, scopes);
+            // Once per ring, from its first block. A nested module's blocks
+            // link only here, at the enclosing ring, so the recursion below
+            // reaches them already linked.
+            if (scopes.size() > 1) && (scopes[0] == own) { self._judge_across(&scopes); }
+        }
+        self._judge_reopenings(own);
+    }
+
+    priv fn _judge_across(self, scopes: *vec::<*DeclContext>) {
+        // Tables are keyed by their own TU's imms (hard invariant #2); a ring
+        // reaching into a header's namespace is Foreign's, not this file's.
+        for var k: usize = 0; k < scopes->size(); ++k {
+            var s = (*scopes)[k];
+            if (s->dc_symbols == &null) || (NameLookup::tu_of(s) != self.sc->tu) { return; }
+        }
+        for var k: usize = 0; k < scopes->size(); ++k {
+            var rows = vec::<SymbolTable::Entry>();
+            (*scopes)[k]->dc_symbols->collect_entries(rows);
+            for var r: usize = 0; r < rows.size(); ++r {
+                var e = rows[r];
+                // Judged once, from the first block that declares the name.
+                var earlier = false;
+                for var j: usize = 0; j < k; ++j {
+                    if (*scopes)[j]->lookup_symbol(e.name) != &null { earlier = true; break; }
+                }
+                if earlier { continue; }
+                var group = vec::<*Decl>();
+                var blocks: usize = 0;
+                for var j: usize = k; j < scopes->size(); ++j {
+                    var cell = (*scopes)[j]->lookup_symbol(e.name);
+                    if cell == &null { continue; }
+                    var took = false;
+                    for var c: usize = 0; c < cell->size(); ++c {
+                        var d = cell->get(c);
+                        if d == &null { continue; }
+                        // Already reported within its own block.
+                        if d->is_poisoned() { continue; }
+                        if (!self._redeclarable(d)) || NameLookup::is_specialization(d) { continue; }
+                        group.push_back(d);
+                        took = true;
+                    }
+                    if took { blocks += 1; }
+                }
+                if blocks > 1 { self._judge_group((*scopes)[k], e, &group); }
+            }
+        }
     }
 
     /// Fill the build's lang-item table from THIS TU, which must be the builtin

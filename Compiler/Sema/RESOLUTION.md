@@ -170,7 +170,13 @@ T on canonical spec args (#12). Function chains are R's (§2.6a).
 **Modules reopen**: every `module Foo { }` block is a definition, so two
 defining links is legal for a ModuleDecl ring (`_reopenable`) and a
 redefinition for the five type kinds. `unqualified` treats a module scope
-as its whole ring (IMPORTS.md §4.3).
+as its whole ring (IMPORTS.md §4.3). Each block keeps its own table, so
+after the walk links the rings `_judge_reopenings` gathers every type-kind
+name two blocks of one ring share and hands it to `_judge_group` as one
+cell: a forward declaration in one block chains to its definition in
+another (unlinked, every use was R028E ambiguous). Same-TU rings only;
+functions across blocks stay R's, and a variable beside a type is item
+13a.
 
 (b) Binding: every `NamedIdentExpr` head gets `resolved_decl` or
 `candidate_cell`. Order: lexical locals stack (innermost first) ->
