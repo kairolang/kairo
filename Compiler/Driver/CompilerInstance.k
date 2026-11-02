@@ -4989,6 +4989,25 @@ fn FrontendAction::_codegen() -> bool {
     }
     var obj_dir = self._ci->object_dir();
 
+    // Every TU loads the same headers: the whole graph's sets, in graph
+    // order, as one PCH (CodegenPCH). Built once here, before the first TU.
+    var graph_sets = vec::<*HeaderSet>();
+    for other: u32 in self._graph {
+        var sctx = self._global_scope->get_context(other);
+        if sctx == &null { continue; }
+        var stu = reinterpret_cast::<*TranslationUnit>(sctx->tu);
+        if (stu == &null) || (stu->header_set == &null) { continue; }
+        var hs  = reinterpret_cast::<*HeaderSet>(stu->header_set);
+        var dup = false;
+        for var j: usize = 0; j < graph_sets.size(); ++j { if graph_sets[j] == hs { dup = true; break; } }
+        if !dup { graph_sets.push_back(hs); }
+    }
+    var merged: *CodegenPCH = &null;
+    if (graph_sets.size() > 1) && (self._ci->headers() != &null) {
+        self._ci->headers()->wait_all();
+        merged = self._ci->headers()->codegen_pch(graph_sets);
+    }
+
     for fid: u32 in own {
         var ctx = self._global_scope->get_context(fid);
         if ctx == &null {
@@ -5031,9 +5050,9 @@ fn FrontendAction::_codegen() -> bool {
         if fe.print_ir { print_mode |= 1; }
         cg.set_print_cg(print_mode, self._ci->sm()->get_filename(fid));
 
-        // Phase B loads phase A's PCHs instead of re-parsing the headers.
-        // THIS TU's set goes first: it is the one that becomes the implicit
-        // PCH (see CodegenBackend::run for the one-PCH limitation).
+        // Phase B loads phase A's PCHs instead of re-parsing the headers:
+        // the merged one when it built, else one per set (CodegenBackend::
+        // run), where only the first loads as a PCH and the rest are text.
         var sets = vec::<*HeaderSet>();
         var own_tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
         if (own_tu != &null) && (own_tu->header_set != &null) {
@@ -5051,7 +5070,23 @@ fn FrontendAction::_codegen() -> bool {
             for var j: usize = 0; j < sets.size(); ++j { if sets[j] == hs { dup = true; break; } }
             if !dup { sets.push_back(hs); }
         }
+        // Per-set fallback: the set that is costliest to re-parse goes first,
+        // as the PCH. Headers are include-guarded and each set stands alone,
+        // so only which one loads as the PCH changes, not what is declared.
+        // Without this a builtin TU loaded its small rt/fmt.h set and parsed
+        // libc++'s <coroutine> as text, every TU (4.7x on a small program).
+        var big: usize = 0;
+        for var j: usize = 1; j < sets.size(); ++j {
+            if (!sets[j]->ok) { continue; }
+            if (!sets[big]->ok) || (sets[j]->files.size() > sets[big]->files.size()) { big = j; }
+        }
+        if big > 0 {
+            var b = sets[big];
+            sets.erase(sets.begin() + big);
+            sets.insert(sets.begin(), b);
+        }
         cg.set_header_sets(sets);
+        cg.set_codegen_pch(merged);
 
         var ok = true;
         var outs = vec::<string>();

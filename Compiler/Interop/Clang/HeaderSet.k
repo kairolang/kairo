@@ -265,6 +265,27 @@ class HeaderSet {
         return "";
     }
 
+    /// Phase B's replay of this set's imports, one `#include` per line in the
+    /// order phase A wrote them, the C ones inside extern "C". Without the FP
+    /// pragmas: whoever wraps the text puts them around it once.
+    fn replay_lines(self) -> string {
+        var w = "";
+        for var e: usize = 0; e < self.headers.size(); ++e {
+            var line = self.replay_include(self.headers[e]);
+            if line.size() == 0 { continue; }
+            var c = (e < self.c_linkage.size()) && self.c_linkage[e];
+            // Two literals: Stage 0 copies escapes into C++ verbatim, where
+            // \x is greedy, so one literal's `\x22` then `C` lexes as the
+            // single char U+022C and the wrapper opened with garbage instead
+            // of the quote.
+            if c { w += "extern \x22"; w += "C\x22 {\n"; }
+            w += line;
+            w += "\n";
+            if c { w += "}\n"; }
+        }
+        return w;
+    }
+
     fn has_c_linkage(self) -> bool {
         for var i: usize = 0; i < self.c_linkage.size(); ++i { if self.c_linkage[i] { return true; } }
         return false;
@@ -526,6 +547,108 @@ class HeaderSet {
 }
 
 ///
+/// \class CodegenPCHAction
+/// \brief Writes CodegenPCH's bytes. A plain prefix parse: nothing walks the
+///        AST afterwards, so no callbacks and no instance kept alive.
+///
+class CodegenPCHAction derives clang::ASTFrontendAction {
+    pub var _buf: libcxx::shared_ptr::<clang::PCHBuffer>;
+
+    override fn CreateASTConsumer(self, ci: ref!(clang::CompilerInstance), in_file: llvm::StringRef)
+            -> libcxx::unique_ptr::<clang::ASTConsumer>;
+    override fn getTranslationUnitKind(self) -> clang::TranslationUnitKind;
+}
+
+///
+/// \class CodegenPCH
+/// \brief Phase B's one implicit PCH: every header set a TU's emission
+///        needs, in one parse.
+///
+/// clang loads one implicit PCH per TU, so with a PCH per set every set but
+/// the first was `#include`d as text by every TU. The first was the TU's
+/// own set -- for builtin's TUs the small rt/fmt.h one -- so libc++'s
+/// <coroutine> (153 files, concept-heavy) was re-parsed by 22 of a
+/// hello-sized program's 23 TUs: about 28 of each TU's 30 ms of backend time
+/// (private/spikes/codegen-par). A PCH of all of them loads in about 1.5 ms.
+///
+/// Built from the same text phase B's textual wrappers replay, so it parses
+/// what the TUs used to; a failed build leaves `ok` false and the TUs fall
+/// back to that path.
+///
+class CodegenPCH {
+    pub var pch:  libcxx::shared_ptr::<clang::PCHBuffer>;
+    pub var ok:   bool = false;
+    pub var path: string;
+    /// The backend's VFS holds the bytes at `path`. Driver thread only.
+    pub var mounted: bool = false;
+    priv var _text: libcxx::string;   ///< the injected buffer; must outlive the parse.
+
+    fn CodegenPCH(self) {
+        self.pch = libcxx::make_shared::<clang::PCHBuffer>();
+    }
+
+    fn build(self, be: *ClangBackend, sets: ref!(vec::<*HeaderSet>)) {
+        var _t = TimeRegion("CodegenPCHBuild");
+        self.ok = false;
+        if !be->ready() { return; }
+        // A failed set already reported its errors; the fallback replays it.
+        for var i: usize = 0; i < sets.size(); ++i { if !sets[i]->ok { return; } }
+
+        var fp_open  = vec::<string>();
+        var fp_close = vec::<string>();
+        be->header_fp_pragmas(&fp_open, &fp_close);
+        var text = "";
+        for l: string in fp_open { text += l; text += "\n"; }
+        for var i: usize = 0; i < sets.size(); ++i { text += sets[i]->replay_lines(); }
+        for l: string in fp_close { text += l; text += "\n"; }
+        self._text = text.std_string();
+
+        // A COPY of the backend's invocation, as for every phase-A set: the
+        // PCH reader rejects one whose options differ from the TU's.
+        var inv = libcxx::make_shared::<clang::CompilerInvocation>(*(be->invocation()));
+        var buf = llvm::MemoryBuffer::getMemBuffer(
+            llvm::StringRef(self._text.data(), self._text.size()), r"<kairo-codegen-hdrs>", false);
+        var fe = &(inv->getFrontendOpts());
+        fe->Inputs.clear();
+        fe->Inputs.push_back(clang::FrontendInputFile(
+            buf->getMemBufferRef(), clang::InputKind(clang::Language::CXX)));
+        fe->DisableFree = false;                          // nothing outlives the parse.
+        inv->getPreprocessorOpts().Includes.clear();      // the buffer IS the includes.
+
+        var ci = std::create::<clang::CompilerInstance>(inv);
+        var ok = self._parse(ci, be, fe->Inputs[0]);
+        std::destroy(ci);
+        self.ok = ok;
+        Logger::info(Logger::Stage::Driver,
+            f"CodegenPCH: {sets.size()} set(s), {self.pch->Data.size()} bytes, ok={self.ok}");
+    }
+
+    /// The errors are the per-set builds' to report, and they already have:
+    /// this parse only says whether the merged text holds together.
+    priv fn _parse(self, ci: *clang::CompilerInstance, be: *ClangBackend, input: clang::FrontendInputFile) -> bool {
+        ci->setVirtualFileSystem(be->vfs());
+        ci->createDiagnostics(std::create::<clang::IgnoringDiagConsumer>(), true);
+        if !ci->hasDiagnostics() { return false; }
+        ci->setTarget(clang::TargetInfo::CreateTargetInfo(
+            ci->getDiagnostics(), ci->getInvocation().getTargetOpts()));
+        if !ci->hasTarget() { return false; }
+        ci->getTarget().adjust(ci->getDiagnostics(), ci->getLangOpts(), &null);
+
+        var act = CodegenPCHAction();
+        act._buf = self.pch;
+        if !act.BeginSourceFile(*ci, input) { return false; }
+        // llvm::Error: bool(err) is TRUE ON FAILURE, and an unconsumed Error
+        // asserts on destruction.
+        var err = act.Execute();
+        var failed = bool(err);
+        if failed { llvm::consumeError(libcxx::move(err)); }
+        var errors = ci->getDiagnostics().getNumErrors();
+        act.EndSourceFile();
+        return (!failed) && (errors == 0) && self.pch->IsComplete;
+    }
+}
+
+///
 /// \class HeaderSetCache
 /// \brief key -> HeaderSet, one per build. Owned by CompilerInstance.
 ///
@@ -534,6 +657,8 @@ class HeaderSetCache {
     /// Minted from the parallel wave, so neither map nor `id` order is
     /// stable; all() sorts by key on the way out.
     priv var _sets: llvm::StringMap::<*HeaderSet>;
+    /// ordered set ids -> phase B's merged PCH of them (codegen_pch).
+    priv var _codegen: llvm::StringMap::<*CodegenPCH>;
     priv var _mu:   std::Mutex;
     priv var _be:   obs::<ClangBackend>;
     priv var _pool: obs::<ThreadPool>;
@@ -546,6 +671,8 @@ class HeaderSetCache {
     fn op delete (self) {
         for var it = self._sets.begin(); it != self._sets.end(); ++it { std::destroy(it->second); }
         self._sets.clear();
+        for var it = self._codegen.begin(); it != self._codegen.end(); ++it { std::destroy(it->second); }
+        self._codegen.clear();
     }
 
     /// The language is part of the key: one header imported as C and as C++
@@ -615,6 +742,25 @@ class HeaderSetCache {
         var sets: vec::<*HeaderSet>;
         self.all(sets);
         for var i: usize = 0; i < sets.size(); ++i { sets[i]->drain_diags(engine, sm); }
+    }
+
+    /// \brief phase B's one PCH for \p sets, in that order; built on first
+    ///        request, then shared by every TU that asks for the same list.
+    ///
+    /// Driver thread, after wait_all(): it reads every set's includes. The
+    /// cache owns it because the backend's VFS mounts its bytes without a
+    /// copy, so they must live as long as the backend does.
+    fn codegen_pch(self, sets: ref!(vec::<*HeaderSet>)) -> *CodegenPCH {
+        var key = "";
+        for var i: usize = 0; i < sets.size(); ++i { key += f"{sets[i]->id}-"; }
+        var lock = std::LockGuard(self._mu);
+        var it = self._codegen.find(sref(key));
+        if it != self._codegen.end() { return it->second; }
+        var p = std::create::<CodegenPCH>();
+        p->path = f"{HeaderSet::vfs_root()}/pch/codegen-{self._codegen.size()}.pch";
+        self._codegen.try_emplace(sref(key), p);
+        p->build(self._be, sets);
+        return p;
     }
 
     fn release_all(self) {
@@ -700,4 +846,19 @@ fn HeaderSetAction::BeginSourceFileAction(ci: ref!(clang::CompilerInstance)) -> 
     cb->csm = &(ci.getSourceManager());
     ci.getPreprocessor().addPPCallbacks(libcxx::move(cb));
     return true;
+}
+fn CodegenPCHAction::CreateASTConsumer(ci: ref!(clang::CompilerInstance), in_file: llvm::StringRef)
+        -> libcxx::unique_ptr::<clang::ASTConsumer> {
+    // Same generator and arguments as HeaderSetAction's (ASTWriter.h:1015).
+    return libcxx::make_unique::<clang::PCHGenerator>(
+        ci.getPreprocessor(), ci.getModuleCache(),
+        llvm::StringRef(r"<kairo-codegen-hdrs>.pch"), llvm::StringRef(r""),
+        self._buf,
+        ci.getCodeGenOpts(),
+        ci.getFrontendOpts().ModuleFileExtensions,
+        false, false);
+}
+
+fn CodegenPCHAction::getTranslationUnitKind() -> clang::TranslationUnitKind {
+    return clang::TU_Prefix;
 }

@@ -87,7 +87,8 @@ class CodegenBackend derives TokenFiller {
     priv var _ksize: u32 = 0;
     priv var _print: u8 = 0;   ///< bit 0: print-cg, bit 1: print-ir
     priv var _path:  string;         ///< for the printer header
-    priv var _sets:  vec::<*HeaderSet>;  ///< header sets this TU's graph requested, main file's first
+    priv var _sets:  vec::<*HeaderSet>;  ///< header sets this TU's graph requested, the implicit PCH's first
+    priv var _merged: *CodegenPCH = &null; ///< all of _sets in one PCH; null or !ok -> per-set path
     priv var _psym:      obs::<PreprocessorSymbolTable>;  ///< module_base segments -> namespace names
     priv var _instances: obs::<InstantiationRegistry>;    ///< tier 3 of the plan
 
@@ -108,9 +109,14 @@ class CodegenBackend derives TokenFiller {
         self._path  = path;
     }
 
-    /// Header sets whose PCHs this TU's emission loads. The MAIN file's set
-    /// must be first: it is the one that becomes the implicit PCH.
+    /// Header sets whose PCHs this TU's emission loads. Without a merged
+    /// PCH the first becomes the implicit PCH and the rest are re-parsed as
+    /// text, so the driver puts the biggest first.
     fn set_header_sets(self, sets: vec::<*HeaderSet>) { self._sets = sets; }
+
+    /// The one PCH holding every set (HeaderSetCache::codegen_pch). When it
+    /// built, it replaces the per-set path outright.
+    fn set_codegen_pch(self, p: *CodegenPCH) { self._merged = p; }
 
     /// M2 filler: emitter dispatch over the TU's top-level items.
     ///
@@ -186,17 +192,17 @@ class CodegenBackend derives TokenFiller {
         }
         cfe->OutputFile    = out_obj.std_string();
 
-        // Phase B: the headers were parsed once already (HeaderSet). Mount
-        // each set's PCH bytes in the backend's in-memory VFS -- once per set
-        // for the build -- and hand clang the MAIN file's set as the implicit
-        // PCH, so emission starts from phase A's AST instead of re-parsing.
+        // Phase B: the headers were parsed once already (HeaderSet). Each TU
+        // loads them as ONE implicit PCH, clang's limit: the merged PCH of
+        // every set when it built (CodegenPCH), so nothing is re-parsed.
         //
-        // LIMITATION: one PCH per clang TU. A Kairo TU whose import graph
-        // spans two header sets uses the main file's; every other set's
-        // headers are `#include`d textually through a wrapper in Includes,
-        // each spelled so it resolves to what phase A found (HeaderSet::
-        // replay_include). Correct -- same headers, same order within each
-        // set -- just re-parsed.
+        // Fallback, one PCH per set: mount each set's bytes in the backend's
+        // in-memory VFS -- once per set for the build -- and load the FIRST
+        // as the implicit PCH; every other set's headers are `#include`d
+        // textually through a wrapper in Includes, each spelled so it
+        // resolves to what phase A found (HeaderSet::replay_include).
+        // Correct -- same headers, same order within each set -- just
+        // re-parsed.
         //
         // The invocation is shared by every TU's run: restore what this one
         // changed, or the next TU inherits this TU's PCH.
@@ -207,7 +213,14 @@ class CodegenBackend derives TokenFiller {
             ppo->ImplicitPCHInclude = saved_pch;
             ppo->Includes           = saved_inc;
         }
-        if self._sets.size() > 0 {
+        if (self._merged != &null) && self._merged->ok {
+            if !self._merged->mounted {
+                self._be->mount_pch(self._merged->path, &(self._merged->pch->Data));
+                self._merged->mounted = true;
+            }
+            ppo->Includes.clear();
+            ppo->ImplicitPCHInclude = self._merged->path.std_string();
+        } else if self._sets.size() > 0 {
             for var i: usize = 0; i < self._sets.size(); ++i {
                 var s = self._sets[i];
                 if s->mounted || (!s->ok) { continue; }
@@ -233,21 +246,7 @@ class CodegenBackend derives TokenFiller {
                 var s = self._sets[i];
                 var w = "";
                 for l: string in fp_open { w += l; w += "\n"; }
-                // The set's imports in the order phase A wrote them; how each
-                // is spelled is HeaderSet::replay_include's call.
-                for var e: usize = 0; e < s->headers.size(); ++e {
-                    var line = s->replay_include(s->headers[e]);
-                    if line.size() == 0 { continue; }
-                    var c = (e < s->c_linkage.size()) && s->c_linkage[e];
-                    // Two literals: Stage 0 copies escapes into C++
-                    // verbatim, where \x is greedy, so one literal's
-                    // `\x22` then `C` lexes as the single char U+022C and
-                    // the wrapper opened with garbage instead of the quote.
-                    if c { w += "extern \x22"; w += "C\x22 {\n"; }
-                    w += line;
-                    w += "\n";
-                    if c { w += "}\n"; }
-                }
+                w += s->replay_lines();
                 for l: string in fp_close { w += l; w += "\n"; }
                 self._be->mount_text(s->wrap_path(), w);
                 ppo->Includes.push_back(s->wrap_path().std_string());
