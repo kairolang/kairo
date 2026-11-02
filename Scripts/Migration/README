@@ -380,3 +380,15 @@ passes -fduck-generics: Compiler/ leans on `<T: type>` (CRTP mixins calling
 without the flag (MONO.md D1). Nothing else gets the flag: a user program
 and Lib/ (builtin, std, which use no `: type`) build without it. The flag
 goes away once the mixin migration bounds those parameters with interfaces.
+
+
+api_surface.py -- what the runtime must provide
+-----------------------------------------------
+
+Not a migration: a read-only audit. It runs Stage 0 and clang as
+cast_facts.py does and lists every member call, operator and constructor
+Compiler/ makes on Stage 0's string (std::String::basic<unsigned char>),
+vec, map, set and unordered_map, with counts and .k sites. That is the API
+Stage 1's builtin string and containers must provide for the self-host.
+
+    python3 Scripts/Migration/api_surface.py /tmp/api   # -> /tmp/api/api.json
