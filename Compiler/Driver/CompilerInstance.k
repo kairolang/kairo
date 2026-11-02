@@ -160,6 +160,7 @@ import Sema::Foreign::ForeignInstantiate::*;
 import Sema::Foreign::BuiltinImport::*;
 import Diagnostic::ClangDiagLookup::*;
 import Linker::API::Link::*;
+import Linker::API::HostSystem::*;
 import Linker::API::LinkJob::*;
 import Linker::API::LinkDiag::*;
 import Linker::API::Toolchain::*;
@@ -667,11 +668,13 @@ class CompilerInstance {
     }
 
     /// The triple compiled for without --target: the host's arch and OS with
-    /// the C library the compiler ships, not whichever the host was built
-    /// against. The default install bundles only MinGW-w64 and musl (with
-    /// libc++), so Windows is <arch>-pc-windows-gnu, never msvc, and Linux is
-    /// <arch>-unknown-linux-musl on every arch (the eabi/eabihf float ABI kept on
-    /// 32-bit ARM), never glibc. Any other host keeps its own triple.
+    /// a C library the compiler ships. Windows is <arch>-pc-windows-gnu,
+    /// never msvc. Linux follows the C library the HOST runs (its dynamic
+    /// loader, HostSystem::host_libc): <arch>-unknown-linux-gnu on a glibc
+    /// host, built against the bundled glibc 2.31 sysroot (the floor, so the
+    /// program runs on any glibc since), and <arch>-unknown-linux-musl
+    /// otherwise; the eabi/eabihf float ABI is kept on 32-bit ARM. Any other
+    /// host keeps its own triple. --native uses the same triple.
     fn get_default_target_triple(self) -> string {
         var triple = llvm::Triple(llvm::Triple::normalize(sref(self.get_target_triple())));
         if triple.isOSWindows() {
@@ -684,14 +687,19 @@ class CompilerInstance {
             // x86_64-pc-linux-musl names no directory any of them ships, so
             // every clang that is handed kairo's target -- the tests' link
             // driver, a user's build system -- misses libclang_rt.builtins.
+            // The same rule holds for the glibc default: x86_64-unknown-linux-gnu.
             triple.setVendor(llvm::Triple::UnknownVendor);
             var env = triple.getEnvironment();
-            if (env == llvm::Triple::GNUEABIHF) || (env == llvm::Triple::MuslEABIHF) {
-                triple.setEnvironment(llvm::Triple::MuslEABIHF);
-            } else if (env == llvm::Triple::GNUEABI) || (env == llvm::Triple::MuslEABI) {
-                triple.setEnvironment(llvm::Triple::MuslEABI);
+            var hf  = (env == llvm::Triple::GNUEABIHF) || (env == llvm::Triple::MuslEABIHF);
+            var eabi = (env == llvm::Triple::GNUEABI) || (env == llvm::Triple::MuslEABI);
+            var an: llvm::StringRef = triple.getArchName();
+            var glibc = HostSystem::host_libc(Toolchain::canon_arch(string(an.data(), an.size())), hf) == "glibc";
+            if hf {
+                triple.setEnvironment((llvm::Triple::GNUEABIHF) if (glibc) else (llvm::Triple::MuslEABIHF));
+            } else if eabi {
+                triple.setEnvironment((llvm::Triple::GNUEABI) if (glibc) else (llvm::Triple::MuslEABI));
             } else {
-                triple.setEnvironment(llvm::Triple::Musl);
+                triple.setEnvironment((llvm::Triple::GNU) if (glibc) else (llvm::Triple::Musl));
             }
         }
         return string(triple.getTriple());
@@ -828,6 +836,13 @@ class CompilerInstance {
     /// \return false if a match was malformed (already reported).
     priv fn _use_bundled_sysroot(self) -> bool {
         var tg = &(self.invocation().target);
+        // --native: the host is the sysroot. The bundle for the host's C
+        // library is still found, by _apply_host_system, for its libc++ and
+        // compiler-rt only.
+        if tg->native {
+            if tg->sysroot.empty() { (tg->sysroot) = "/"; }
+            return true;
+        }
         var want = self._sysroot_target();
         if want.empty() { return true; }
         var dir = self._bundled_sysroot_dir(want);
@@ -859,6 +874,7 @@ class CompilerInstance {
     /// -m32/-m64.
     priv fn _sysroot_target(self) -> string {
         var tg = &(self.invocation().target);
+        if tg->native { return ""; }
         var want = tg->triple;
         if want.empty() {
             if !tg->sysroot.empty() { return ""; }
@@ -1388,12 +1404,50 @@ class CompilerInstance {
         // arguments).
         var rt_root = self._runtime_root();
         if !rt_root.empty() { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(rt_root); }
+        // The env search paths, where clang's driver puts them (Kairo's line
+        // is built by hand, so nothing else would): CPATH as -I after every
+        // command-line -I, C_INCLUDE_PATH / CPLUS_INCLUDE_PATH as the
+        // per-language system groups, which clang searches after -isystem
+        // and before -idirafter -- the sysroot's headers still win. Not in a
+        // hermetic build, and not on a C/C++ input's driver line, where
+        // clang's driver adds them itself (ClangJobs drops them when
+        // hermetic).
+        (bcfg.strip_env) = tgt.host_mode.empty();
+        if !tgt.host_mode.empty() {
+            for d: string in HostSystem::env_list("CPATH")              { bcfg.extra_cc1.push_back("-I");           bcfg.extra_cc1.push_back(d); }
+            for d: string in HostSystem::env_list("C_INCLUDE_PATH")     { bcfg.extra_cc1.push_back("-c-isystem");   bcfg.extra_cc1.push_back(d); }
+            for d: string in HostSystem::env_list("CPLUS_INCLUDE_PATH") { bcfg.extra_cc1.push_back("-cxx-isystem"); bcfg.extra_cc1.push_back(d); }
+        }
         // The two header-search roots, exactly as given: no discovery. With
         // neither, clang searches no system headers at all (see the model in
         // ClangBackend::_startup_locked), which is the honest answer.
         (bcfg.sysroot)      = tgt.sysroot;
         (bcfg.resource_dir) = tgt.resource_dir;
         self._sysroot_header_roots(bcfg);
+        // The host's system headers. Default ("floor"): after every sysroot
+        // root, as -idirafter, so <stdio.h> is always the floor's and only a
+        // header it lacks (zlib.h, curl/curl.h) is the host's. --native:
+        // clang's native order -- the bundled libc++, the builtins, then the
+        // host's dirs as the C library's -- with no sysroot at all.
+        if tgt.host_mode == "floor" {
+            for d: string in tgt.host_include_dirs { bcfg.after_dirs.push_back(d); }
+        } else if tgt.host_mode == "native" {
+            (bcfg.sysroot) = "";
+            bcfg.cxx_include_dirs.clear();
+            bcfg.include_dirs.clear();
+            bcfg.defines.clear();
+            if !tgt.native_bundle.empty() {
+                var nb = ClangBackendConfig{};
+                (nb.triple)  = bcfg.triple;
+                (nb.sysroot) = tgt.native_bundle;
+                self._sysroot_header_roots(nb);
+                for d: string in nb.cxx_include_dirs { bcfg.cxx_include_dirs.push_back(d); }
+                for d: string in nb.defines          { bcfg.defines.push_back(d); }
+            } else if LinkFS::is_dir("/usr/include/c++/v1") {
+                bcfg.cxx_include_dirs.push_back("/usr/include/c++/v1");
+            }
+            for d: string in tgt.host_include_dirs { bcfg.include_dirs.push_back(d); }
+        }
         // One optimization level for the whole build: ClangBackend applies
         // it to the invocation every compile copies.
         var cgo = self.invocation().codegen;
@@ -3260,6 +3314,112 @@ class CompilerInstance {
         }
     }
 
+    /// --native's own rules, before any root is resolved: it cannot be
+    /// combined with --target (one names this machine, the other a triple
+    /// built hermetically), and it is only wired for Linux hosts.
+    priv fn _check_host_flags(self) -> bool {
+        var tg = &(self.invocation().target);
+        if !tg->native { return true; }
+        if !tg->triple.empty() {
+            self._diag->report(DiagID::U001E,
+                f"--native and --target={tg->triple} cannot be combined").emit();
+            self._diag->report(DiagID::U001N,
+                "--native builds for this machine against its own C library, headers and libraries; --target builds hermetically for the named triple against its bundled sysroot. Drop one of them").emit();
+            return false;
+        }
+        var host = llvm::Triple(llvm::Triple::normalize(sref(self.get_target_triple())));
+        if !host.isOSLinux() {
+            self._diag->report(DiagID::U001E,
+                "--native is only implemented for Linux hosts so far").emit();
+            self._diag->report(DiagID::U001N,
+                "build without it (the default) to use the bundled sysroot, or name the system root with --sysroot (on macOS, --macos-sdk)").emit();
+            return false;
+        }
+        return true;
+    }
+
+    /// \brief decides how much of the host system this build sees
+    ///        (TargetOptions::host_mode) and finds those dirs. Once, here; the backend config and the link only
+    ///        read the result.
+    ///
+    /// \details "floor" is the default on a Linux host compiling for its own
+    ///          arch with no --target, --sysroot or --freestanding: the
+    ///          bundled sysroot is the C library, and the host's system dirs
+    ///          come after it. --native is "native". Anything else is
+    ///          hermetic: no host dirs and no host env search paths, so a
+    ///          cross build is the same on every machine.
+    ///
+    ///          The env search paths are read where clang's driver would add
+    ///          them (CPATH and friends in _backend_config, LIBRARY_PATH
+    ///          here), and NIX_CFLAGS_COMPILE / NIX_LDFLAGS as Zig reads them:
+    ///          on Nix the system dirs are not where the defaults look.
+    ///
+    /// \return false after reporting.
+    priv fn _apply_host_system(self, sysroot_given: bool) -> bool {
+        var inv = &(self.invocation());
+        var tg  = &(inv->target);
+        var host = llvm::Triple(llvm::Triple::normalize(sref(self.get_target_triple())));
+        var eff  = llvm::Triple(llvm::Triple::normalize(sref(self._effective_triple())));
+        var freestanding = inv->lang.freestanding || inv->linker.freestanding;
+        var mode = "";
+        if tg->native {
+            mode = "native";
+        } else if tg->triple.empty() && (!sysroot_given) && (!freestanding)
+               && host.isOSLinux() && eff.isOSLinux() && (host.getArch() == eff.getArch()) {
+            mode = "floor";
+        }
+        (tg->host_mode) = mode;
+
+        if !mode.empty() {
+            var an: llvm::StringRef = eff.getArchName();
+            var arch = Toolchain::canon_arch(string(an.data(), an.size()));
+            var en: llvm::StringRef = eff.getEnvironmentName();
+            var env  = string(en.data(), en.size());
+            var is64 = eff.isArch64Bit();
+
+            var inc  = vec::<string>();
+            var seen = vec::<string>();
+            var nixc = HostSystem::split_words(LinkFS::env("NIX_CFLAGS_COMPILE"));
+            for var i: usize = 0; (i + 1) < nixc.size(); ++i {
+                if (nixc[i] == "-isystem") || (nixc[i] == "-idirafter") {
+                    HostSystem::add_dir(inc, seen, nixc[i + 1]);
+                    i += 1;
+                }
+            }
+            for d: string in HostSystem::include_dirs(arch, env) { HostSystem::add_dir(inc, seen, d); }
+            (tg->host_include_dirs) = inc;
+
+            var libs  = vec::<string>();
+            var seenl = vec::<string>();
+            var nixl = HostSystem::split_words(LinkFS::env("NIX_LDFLAGS"));
+            for var i: usize = 0; i < nixl.size(); ++i {
+                var w = nixl[i];
+                if ((w == "-L") || (w == "-rpath")) && ((i + 1) < nixl.size()) {
+                    if w == "-L" { HostSystem::add_dir(libs, seenl, nixl[i + 1]); }
+                    else         { inv->linker.rpath.push_back(nixl[i + 1]); }
+                    i += 1;
+                } else if LinkText::starts_with(w, "-L") {
+                    HostSystem::add_dir(libs, seenl, LinkText::slice(w, 2, w.size()));
+                }
+            }
+            for d: string in HostSystem::lib_dirs(arch, env, is64) { HostSystem::add_dir(libs, seenl, d); }
+            (tg->host_lib_dirs) = libs;
+            (tg->env_lib_dirs)  = HostSystem::env_list("LIBRARY_PATH");
+
+            if mode == "native" {
+                var t = string(eff.getTriple());
+                (tg->native_bundle) = self._bundled_sysroot_dir(t);
+                if tg->native_bundle.empty() {
+                    self._queue_root_warning(
+                        f"--native: no bundled sysroot for \x27{t}\x27 to take libc++ and compiler-rt from",
+                        "the build uses whatever C++ runtime the host has (-lc++, libgcc)");
+                }
+            }
+        }
+
+        return true;
+    }
+
     priv fn _queue_root_warning(self, msg: string, note: string) {
         self._root_warnings.push_back(msg);
         self._root_warnings.push_back(note);
@@ -3405,6 +3565,14 @@ class CompilerInstance {
             }
         }
 
+        // Before _use_bundled_sysroot fills it: whether the user named the
+        // root, which keeps a default build off the host's dirs.
+        var sysroot_given = !self.invocation().target.sysroot.empty();
+        if !self._check_host_flags() {
+            self.invocation().ok = false;
+            return;
+        }
+
         // After the consumers are set up, so a malformed sysroot reports in
         // the format asked for.
         if !self._use_bundled_sysroot() {
@@ -3436,6 +3604,14 @@ class CompilerInstance {
         var ppo = &(self.invocation().pp);
         if !ppo->builtins_dir.empty() { (ppo->builtins_dir) = LinkFS::real(ppo->builtins_dir); }
         if !ppo->std_dir.empty()      { (ppo->std_dir)      = LinkFS::real(ppo->std_dir); }
+
+        // The host system: which mode and its dirs. After the
+        // roots are final, before anything (the backend config, the link,
+        // --print-clang-args) reads them.
+        if !self._apply_host_system(sysroot_given) {
+            self.invocation().ok = false;
+            return;
+        }
 
         // Pointer width for usize/isize, off the effective triple. -m32/-m64
         // are applied as arch-variant rewrites first, matching clang: they

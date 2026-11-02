@@ -121,6 +121,14 @@ class Toolchain {
     pub var crt_dir:        string;
     pub var gcc_dir:        string;
     pub var toolchain_lib:  string;         ///< libc++ outside the system dirs, or ""
+    /// The host's dirs, searched AFTER lib_dirs: LIBRARY_PATH, then the
+    /// system defaults (TargetOptions::host_lib_dirs). Kept apart from
+    /// lib_dirs so crt and libc lookups (find_lib_file) never take the
+    /// host's crt1.o or libc.so over the sysroot's.
+    pub var host_lib_dirs:  vec::<string>;
+    /// --native: the bundled sysroot whose libc++, libunwind and compiler-rt
+    /// are linked by path (never by -L: its libc would win over the host's).
+    pub var native_bundle:  string;
 
     pub var rtlib:          string;         ///< compiler-rt | libgcc | vcruntime
     pub var unwindlib:      string;         ///< libunwind | libgcc | none | libsystem | seh
@@ -168,6 +176,7 @@ class Toolchain {
         self.env    = t->env_name;
         self.is64   = (t->pointer_width == 0) || (t->pointer_width == 64);
         self.libc   = Toolchain::libc_of(self.os, self.env);
+        if t->host_mode == "native" { self.native_bundle = t->native_bundle; }
 
         if darwin {
             self.libc        = "libsystem";
@@ -253,7 +262,13 @@ class Toolchain {
         } else if self.rtlib == "compiler-rt" {
             self._find_compiler_rt(t, msgs);
         }
-        self._find_toolchain_lib(t);
+        if self.native_bundle.empty() { self._find_toolchain_lib(t); }
+
+        // After the sysroot's own dirs are known, so a host dir that IS one
+        // of them (--native, where the sysroot is the host) is not searched
+        // twice.
+        for d: string in t->env_lib_dirs  { self._add_host_dir(d); }
+        for d: string in t->host_lib_dirs { self._add_host_dir(d); }
 
         if darwin {
             self._darwin_versions(o, msgs);
@@ -561,6 +576,9 @@ class Toolchain {
 
         var rt = o->rtlib;
         if rt.empty() && self.has_manifest { rt = self.manifest.rtlib; }
+        // --native keeps the bundled compiler-rt over the host's libgcc: the
+        // bundled libc++ and libunwind were built against it.
+        if rt.empty() && (!self.native_bundle.empty()) { rt = "compiler-rt"; }
         if rt.empty() {
             rt = ("libgcc") if (((self.libc == "glibc") || (self.libc == "mingw")) && (!self.gcc_dir.empty())) else ("compiler-rt");
         }
@@ -586,6 +604,7 @@ class Toolchain {
 
     priv fn _rt_roots(self, t: *TargetOptions) -> vec::<string> {
         var roots = vec::<string>();
+        if !self.native_bundle.empty() { roots.push_back(LinkText::join(self.native_bundle, "compiler-rt")); }
         if self.has_manifest && (!self.manifest.resource_dir.empty()) {
             roots.push_back(LinkText::join(self.sysroot, self.manifest.resource_dir));
         }
@@ -852,6 +871,16 @@ class Toolchain {
         self.lib_dirs.push_back(d);
     }
 
+    /// A host dir, unless it is (by real path) already a lib_dir or a host
+    /// dir.
+    priv fn _add_host_dir(self, d: string) {
+        if !LinkFS::is_dir(d) { return; }
+        var r = LinkFS::real(d);
+        for s: string in self._real_dirs { if s == r { return; } }
+        self._real_dirs.push_back(r);
+        self.host_lib_dirs.push_back(d);
+    }
+
     priv fn _has_dir(self, d: string) -> bool {
         var r = LinkFS::real(d);
         for s: string in self._real_dirs { if s == r { return true; } }
@@ -933,8 +962,13 @@ class Toolchain {
             out.push_back(f"emulation:       {Toolchain::or_none(self.emulation)}");
             out.push_back(f"dynamic linker:  {Toolchain::or_none(self.dynamic_linker)}");
         }
+        if !self.native_bundle.empty() { out.push_back(f"native bundle:   {self.native_bundle}"); }
         out.push_back("library search:");
         for d: string in self.lib_dirs { out.push_back(f"  {d}"); }
+        if !self.host_lib_dirs.empty() {
+            out.push_back("host library search (after the sysroot):");
+            for d: string in self.host_lib_dirs { out.push_back(f"  {d}"); }
+        }
         return out;
     }
 

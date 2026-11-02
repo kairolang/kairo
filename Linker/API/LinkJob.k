@@ -35,6 +35,12 @@ class LinkJob {
     pub var opt_level:      i32  = 0;        ///< the -O level the objects were compiled at; lld's LTO must match it
     pub var kld_path:       string;          ///< out-of-process fallback; "" disables it
     pub var out_of_process: bool = false;    ///< force kld even when in-process is healthy
+    /// Filled by the plan, read after the link (Link::execute): the shared
+    /// libraries this link takes from outside the sysroot, and the sysroot's
+    /// glibc ("floor" mode only; "" otherwise), which their GLIBC_ version
+    /// needs are checked against.
+    pub var host_shared:    vec::<string>;
+    pub var glibc_floor:    string;
 
     fn LinkJob(self, target: *TargetOptions, opts: *LinkerOptions) {
         self.target = target;

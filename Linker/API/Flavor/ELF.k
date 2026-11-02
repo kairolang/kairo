@@ -34,6 +34,8 @@ import Linker::API::Text::*;
 import Linker::API::LinkDiag::*;
 import Linker::API::LinkJob::*;
 import Linker::API::Toolchain::*;
+import Linker::API::HostSystem::*;
+import Linker::API::FS::*;
 
 class ELFArgs {
     static fn build(job: ref!(LinkJob), tc: ref!(Toolchain),
@@ -147,6 +149,9 @@ class ELFArgs {
         if !tc.toolchain_lib.empty() { argv.push_back(f"-L{tc.toolchain_lib}"); }
         if !tc.gcc_dir.empty()       { argv.push_back(f"-L{tc.gcc_dir}"); }
         for d: string in tc.lib_dirs { argv.push_back(f"-L{d}"); }
+        // The host's dirs last: a library the sysroot has (libc, libm) is
+        // always the sysroot's, and only what it lacks is the host's.
+        for d: string in tc.host_lib_dirs { argv.push_back(f"-L{d}"); }
 
         // A static image has no dynamic section to carry a DT_RUNPATH, and lld
         // would leave an unused one in a static PIE; say so instead of emitting
@@ -165,6 +170,17 @@ class ELFArgs {
                 f"added -rpath {tc.toolchain_lib}: libc++ is linked from outside the system library directories"));
         }
         for r: string in o->rpath_link { argv.push_back("-rpath-link"); argv.push_back(r); }
+
+        // --- host libraries (the default build's glibc floor) ----------------
+        if (job.target->host_mode == "floor") && (tc.libc == "glibc") && tc.has_manifest {
+            job.glibc_floor = tc.manifest.glibc_version;
+            ELFArgs::_scan_host_libs(job, tc, want_stat, msgs);
+            // A host shared library was linked against the host's glibc, and
+            // the floor's libc.so stubs lack its newer symbol versions; lld
+            // would reject them. What that means for the program is said
+            // after the link (Link::execute), from the library's VERNEED.
+            if !job.host_shared.empty() { argv.push_back("--allow-shlib-undefined"); }
+        }
 
         // --- behavior -------------------------------------------------------
         if o->export_dynamic { argv.push_back("--export-dynamic"); }
@@ -217,6 +233,62 @@ class ELFArgs {
         }
 
         return LinkDiag::error_count(msgs) == errs0;
+    }
+
+    /// The libraries this link takes from outside the sysroot: each -l
+    /// resolved as lld will resolve it (the -L order above), and each shared
+    /// object named as an input. Shared ones go into job.host_shared; a
+    /// static archive from a host dir is warned about, since what it needs
+    /// from glibc is invisible once it is linked in.
+    priv static fn _scan_host_libs(job: ref!(LinkJob), tc: ref!(Toolchain), want_stat: bool,
+                                   msgs: ref!(vec::<LinkMessage>)) {
+        var o    = job.opts;
+        var dirs = vec::<string>();
+        for d: string in o->lib_dirs { dirs.push_back(d); }
+        if !tc.toolchain_lib.empty() { dirs.push_back(tc.toolchain_lib); }
+        if !tc.gcc_dir.empty()       { dirs.push_back(tc.gcc_dir); }
+        for d: string in tc.lib_dirs      { dirs.push_back(d); }
+        for d: string in tc.host_lib_dirs { dirs.push_back(d); }
+
+        var found = vec::<string>();
+        for spec: string in o->link_libs {
+            var name = spec;
+            var stat = want_stat;
+            if LinkText::starts_with(spec, "static:") {
+                name = LinkText::slice(spec, 7, spec.size());
+                stat = true;
+            } else if LinkText::starts_with(spec, "dynamic:") {
+                name = LinkText::slice(spec, 8, spec.size());
+            }
+            if name.empty() { continue; }
+            if LinkText::contains(name, "/") || LinkText::ends_with(name, ".a")
+            || LinkText::ends_with(name, ".o") || LinkText::ends_with(name, ".so") {
+                if LinkFS::is_file(name) { found.push_back(name); }
+                continue;
+            }
+            var p = HostSystem::find_lib(name, dirs, stat);
+            if !p.empty() { found.push_back(p); }
+        }
+        for obj: string in job.objects {
+            if HostSystem::is_shared(obj) && LinkFS::is_file(obj) { found.push_back(obj); }
+        }
+
+        for p: string in found {
+            if HostSystem::under(p, tc.sysroot) { continue; }
+            if HostSystem::is_shared(p) {
+                var dup = false;
+                for h: string in job.host_shared { if h == p { dup = true; } }
+                if !dup { job.host_shared.push_back(p); }
+                continue;
+            }
+            if !LinkText::ends_with(p, ".a") { continue; }
+            var host_dir = false;
+            var pdir = LinkFS::real(LinkFS::parent(p));
+            for d: string in tc.host_lib_dirs { if LinkFS::real(d) == pdir { host_dir = true; } }
+            if !host_dir { continue; }
+            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
+                f"{p} is a static archive from the host system: it was built against the host's glibc, and linking it can silently raise the glibc this program needs above the floor ({job.glibc_floor}); link its shared library instead, or build it against the floor"));
+        }
     }
 
     priv static fn _crt(tc: ref!(Toolchain), name: string,
@@ -282,6 +354,15 @@ class ELFArgs {
             }
             cxx  = tc.manifest.libcxx_link;
             libc = tc.manifest.libc_link;
+        } else if !tc.native_bundle.empty() {
+            // --native: the bundled libc++ by path, never by -L (that dir's
+            // libc would win over the host's), and the host's libc.
+            var nb = LinkText::join(tc.native_bundle, "lib");
+            cxx.push_back(LinkText::join(nb, "libc++.a"));
+            cxx.push_back(LinkText::join(nb, "libc++abi.a"));
+            if tc.libc == "glibc" { libc.push_back("-lpthread"); }
+            libc.push_back("-lc");
+            libm = true;
         } else {
             cxx.push_back("-lc++");
             cxx.push_back("-lc++abi");
@@ -299,7 +380,9 @@ class ELFArgs {
         // A manifest's libcxx_link already names its unwinder.
         var uw = vec::<string>();
         if !tc.has_manifest {
-            if tc.unwindlib == "libunwind" { uw.push_back("-lunwind"); }
+            var nb_uw = LinkText::join(LinkText::join(tc.native_bundle, "lib"), "libunwind.a");
+            if (tc.unwindlib == "libunwind") && (!tc.native_bundle.empty()) && LinkFS::is_file(nb_uw) { uw.push_back(nb_uw); }
+            else if tc.unwindlib == "libunwind" { uw.push_back("-lunwind"); }
             else if tc.unwindlib == "libgcc" { uw.push_back(("-lgcc_eh") if (want_stat) else ("-lgcc_s")); }
         }
 

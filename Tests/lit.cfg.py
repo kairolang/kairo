@@ -362,6 +362,13 @@ else:
 config.substitutions.append(("%datamodel", "-DCLONG=i%d -DCULONG=u%d '-DCXX_I64=%s'"
                              % (_long, _long, _cxx_i64)))
 
+# --- The default build's host system ------------------------------------------
+# `default-glibc`: a bare `kairo` builds for <arch>-unknown-linux-gnu against
+# the bundled glibc floor with the host's system dirs after it (a glibc Linux
+# host).
+if _dt.endswith("-linux-gnu") or "-linux-gnueabi" in _dt:
+    config.available_features.add("default-glibc")
+
 # --- Host facts as lit features ---------------------------------------------
 # For tests whose expectations are the HOST's ABI (f80 on x86, `long` int64_t,
 # size_t == uint64_t): `REQUIRES: host-x86_64`, `REQUIRES: host-linux`, so an
@@ -504,6 +511,33 @@ def _bundled_default_target():
         return None
     return facts["target"], sysroot, manifest
 
+def _bundle_rt_dir(rd, triple, mtriple):
+    """The resource dir clang should get for a bundle's compiler-rt.
+
+    clang looks for crtbegin and the builtins only under lib/<its normalized
+    triple>. The musl bundles name that dir x86_64-unknown-linux-musl, which
+    is what clang looks for; the glibc ones name it vendorless
+    (x86_64-linux-gnu), which no clang spelling of the default
+    x86_64-unknown-linux-gnu finds. For those, a shim resource dir under the
+    build tree whose lib/<triple> links to the bundle's own."""
+    want = os.path.join(rd, "lib", triple)
+    have = os.path.join(rd, "lib", mtriple)
+    if os.path.isdir(want) or not mtriple or not os.path.isdir(have):
+        return rd
+    shim = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(kairo_bin))),
+                        "lit-compiler-rt", os.path.basename(os.path.dirname(rd)))
+    link = os.path.join(shim, "lib", triple)
+    try:
+        if not os.path.isdir(link):
+            os.makedirs(os.path.dirname(link), exist_ok=True)
+            try:
+                os.symlink(have, link, target_is_directory=True)
+            except OSError:
+                shutil.copytree(have, link)
+    except OSError:
+        return rd
+    return shim
+
 def _clangxx_for_bundle(clangxx, triple, sysroot, m):
     root = os.path.normpath(os.path.join(sysroot, m.get("sysroot", ".")))
     flags = ["--target=" + triple, "--sysroot=" + _sh(root)]
@@ -522,7 +556,8 @@ def _clangxx_for_bundle(clangxx, triple, sysroot, m):
     # rtlib/unwinder come from the bundle; clang looks for the builtins
     # archive under its resource dir, so point that at the bundle's.
     if m.get("resource_dir"):
-        flags.append("-resource-dir=" + _sh(os.path.join(root, m["resource_dir"])))
+        flags.append("-resource-dir=" + _sh(_bundle_rt_dir(
+            os.path.join(root, m["resource_dir"]), triple, m.get("triple", ""))))
     for key, flag in (("rtlib", "-rtlib="), ("unwindlib", "-unwindlib=")):
         if m.get(key):
             flags.append(flag + m[key])

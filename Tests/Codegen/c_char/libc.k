@@ -39,5 +39,7 @@ fn main() -> i32 {
 // BUILD-NOT: {{error|warning}}
 // RUN: %t.exe > %t.out; test $? -eq 7
 // RUN: %FileCheck %s --check-prefix=OUT --match-full-lines < %t.out
-// OUT:      hi there
-// OUT-NEXT: n 8
+// In either order: puts goes through C stdio, which a glibc build buffers
+// until exit when stdout is a file, and println does not.
+// OUT-DAG: hi there
+// OUT-DAG: n 8

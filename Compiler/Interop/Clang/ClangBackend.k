@@ -100,6 +100,15 @@ struct ClangBackendConfig {
     var cxx_include_dirs: vec::<string>;
     var include_dirs:     vec::<string>;
     var framework_dirs:   vec::<string>;   ///< -iframework (Apple: System/Library/Frameworks)
+    /// The host's system include dirs in the default build (TargetOptions::
+    /// host_mode "floor"): -idirafter, so they are searched after every
+    /// sysroot root and only supply headers the sysroot lacks.
+    var after_dirs:       vec::<string>;
+    /// Hermetic (--target): the C/C++ input driver line drops the dirs
+    /// clang's driver takes from CPATH, C_INCLUDE_PATH and
+    /// CPLUS_INCLUDE_PATH itself (ClangJobs), as Kairo's own line never
+    /// adds them.
+    var strip_env:        bool = false;
     /// Macros a SYSROOT.toml's cc_defines requires (-D<name>): the ones its
     /// prebuilt libc++ was compiled with, which the TU must match to link.
     var defines:          vec::<string>;
@@ -570,6 +579,7 @@ class ClangBackend {
             if !rd.empty() { o.push_back("-isystem"); o.push_back(f"{rd}/include"); }
             if !sr.empty() { o.push_back("-isystem"); o.push_back(f"{sr}/include"); }
         }
+        for d: string in self._cfg.after_dirs { o.push_back("-idirafter"); o.push_back(d); }
         for d: string in self._cfg.framework_dirs { o.push_back("-iframework"); o.push_back(d); }
         if !sr.empty() { o.push_back("-isysroot"); o.push_back(sr); }
         // The driver also anchors its toolchain search (crt, gcc install
@@ -587,6 +597,9 @@ class ClangBackend {
 
     /// The effective target triple every compile in this build uses.
     fn triple(self) -> string { return self._cfg.triple; }
+
+    /// Whether host env search paths are dropped from driver lines.
+    fn strip_env(self) -> bool { return self._cfg.strip_env; }
 
     /// The printer clang's own diagnostics go to (C/C++ inputs have no Kairo
     /// fid, so they are reported in clang's format). Null before startup().

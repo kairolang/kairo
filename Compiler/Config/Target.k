@@ -39,6 +39,36 @@ class TargetOptions {
     pub var pic_level: i32    = 0;
     pub var m32:       bool   = false;
     pub var m64:       bool   = false;
+    pub var native:    bool   = false;  ///< --native: the host's own libc, headers and libraries
+
+    /// \brief How much of the host system a build may see. DERIVED by
+    ///        CompilerInstance::_apply_host_system, once, from --target and
+    ///        --native; every consumer reads this instead of re-asking.
+    ///
+    /// \details ""        hermetic: --target (or --sysroot, --freestanding)
+    ///                    given. The bundled sysroot only, no host paths, no
+    ///                    host env search paths: a cross build is
+    ///                    reproducible.
+    ///          "floor"   the default on a Linux host: the bundled sysroot is
+    ///                    the C library (glibc 2.31 on a glibc host), and the
+    ///                    host's system dirs come AFTER it, so only what the
+    ///                    floor lacks (zlib.h, libcurl.so) is the host's.
+    ///          "native"  --native: the host's libc, headers and libraries in
+    ///                    clang's native order; the bundled libc++ and
+    ///                    compiler-rt (native_bundle) on top.
+    pub var host_mode: string = "";
+    /// Host system include dirs, existing ones only, already deduplicated:
+    /// -idirafter in "floor" mode, -isystem in "native" mode.
+    pub var host_include_dirs: vec::<string>;
+    /// Host system library dirs, searched after the sysroot's (-L).
+    pub var host_lib_dirs:     vec::<string>;
+    /// LIBRARY_PATH (and NIX_LDFLAGS -L): link search after the sysroot's
+    /// dirs and before the host's defaults, as clang adds it.
+    pub var env_lib_dirs:      vec::<string>;
+    /// --native: the bundled sysroot for the host's C library flavour; its
+    /// libc++ headers and archives and its compiler-rt are linked, its libc
+    /// never is. "" otherwise.
+    pub var native_bundle:     string = "";
 
     /// \brief Pointer width in bits. DERIVED, not parsed: a width that
     ///        disagrees with the triple is not a target, so there is no flag.
@@ -193,6 +223,7 @@ class TargetOptions {
         (o.mfeatures)  = args.get_string("mfeatures");
         (o.m32)        = args.get_bool("m32");
         (o.m64)        = args.get_bool("m64");
+        (o.native)     = args.get_bool("native");
         (o.cxx_std)    = args.get_string("cxx-std");
         (o.cxx_std_set) = args.is_set("cxx-std");
         (o.c_std)      = args.get_string("c-std");

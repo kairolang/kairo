@@ -68,6 +68,7 @@ import Diagnostic::BufferedDiagSink::*;
 import Diagnostic::ClangDiagAdapter::*;
 import Interop::Clang::ClangBackend::*;
 import Interop::Clang::KairoInclude::*;
+import Linker::API::HostSystem::*;
 
 class ClangJobs {
     priv var _be:        obs::<ClangBackend>;
@@ -148,7 +149,11 @@ class ClangJobs {
                 self.error = f"this input needs the external tool '{exe}\x27, which kairo does not run";
                 return false;
             }
-            for var k: usize = 1; k < n; ++k { cc1.push_back(cmd->getArguments()[k]); }
+            var drop = ClangJobs::_env_drops(cmd, self._be->strip_env());
+            for var k: usize = 1; k < n; ++k {
+                if drop[k] != 0 { continue; }
+                cc1.push_back(cmd->getArguments()[k]);
+            }
             if !execute {
                 var line = "clang -cc1";
                 for var k: usize = 0; k < cc1.size(); ++k { line = line + " " + string(cc1[k]); }
@@ -158,6 +163,41 @@ class ClangJobs {
             if !self._cc1(&cc1) { return false; }
         }
         return true;
+    }
+
+    /// Which words of \p cmd's cc1 line came from CPATH, C_INCLUDE_PATH or
+    /// CPLUS_INCLUDE_PATH, when \p strip (a hermetic --target build): clang's
+    /// driver reads them from the environment itself, and a cross build
+    /// must not see the build machine's header dirs. CPATH is clang's
+    /// combined -I<dir>, after the command line's own -I, so its LAST match
+    /// is the one removed; the others are -c-isystem / -cxx-isystem pairs,
+    /// which nothing else in a Kairo line spells.
+    priv static fn _env_drops(cmd: *clang::driver::Command, strip: bool) -> vec::<u8> {
+        var n = cmd->getArguments().size();
+        var drop = vec::<u8>();
+        for var k: usize = 0; k < n; ++k { drop.push_back(0); }
+        if !strip { return drop; }
+        var sys = vec::<string>();
+        for d: string in HostSystem::env_list("C_INCLUDE_PATH")     { sys.push_back(d); }
+        for d: string in HostSystem::env_list("CPLUS_INCLUDE_PATH") { sys.push_back(d); }
+        for d: string in HostSystem::env_list("OBJC_INCLUDE_PATH")  { sys.push_back(d); }
+        for var k: usize = 1; k < n; ++k {
+            var a = string(cmd->getArguments()[k]);
+            var pair = (a == "-c-isystem") || (a == "-cxx-isystem") || (a == "-objc-isystem") || (a == "-objcxx-isystem");
+            if pair && ((k + 1) < n) {
+                var v = string(cmd->getArguments()[k + 1]);
+                for d: string in sys { if d == v { drop[k] = 1; drop[k + 1] = 1; } }
+            }
+        }
+        for d: string in HostSystem::env_list("CPATH") {
+            var want = "-I" + d;
+            var at: usize = 0;
+            for var k: usize = 1; k < n; ++k {
+                if string(cmd->getArguments()[k]) == want { at = k; }
+            }
+            if at != 0 { drop[at] = 1; }
+        }
+        return drop;
     }
 
     /// One `clang -cc1` job, in-process.

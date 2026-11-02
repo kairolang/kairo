@@ -172,6 +172,10 @@ class SysrootManifest {
     pub var triple:       string;
     pub var llvm_version: string;
     pub var family:       string;
+    /// glibc_version: the glibc the sysroot's libc is (its "floor"), "" for
+    /// any other C library. A host shared library that needs a newer
+    /// GLIBC_ symbol version raises what the program needs to run.
+    pub var glibc_version: string;
     pub var sysroot:      string = ".";
     pub var resource_dir: string;
     pub var rtlib:        string;
@@ -221,6 +225,7 @@ class SysrootManifest {
         if key == "triple"       { return self._str(key, v, self.triple);       }
         if key == "llvm_version" { return self._str(key, v, self.llvm_version); }
         if key == "family"       { return self._str(key, v, self.family);       }
+        if key == "glibc_version" { return self._str(key, v, self.glibc_version); }
         if key == "sysroot"      { return self._str(key, v, self.sysroot);      }
         if key == "resource_dir" { return self._str(key, v, self.resource_dir); }
         if key == "rtlib"        { return self._str(key, v, self.rtlib);        }
