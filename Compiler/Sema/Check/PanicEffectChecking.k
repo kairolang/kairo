@@ -682,6 +682,18 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             var t = f->panic_set[i];
             if (t != &null) && (t->canonical != &null) { self._check_payload(t->canonical, t->range, "panicked"); }
         }
+        // Two elements with one type id cannot share the set (PANIC.md
+        // §1.3): two builtins that are one C++ type (`usize` and `u64` where
+        // size_t is uint64_t), or a hash collision. Here, so the error stops
+        // the schedule before PanicLowering forms the result it cannot.
+        var fs = vec::<*Type>();
+        if panic_set_of_fn(&(self._tu), f, &fs) == PanicKnown::Set {
+            var args = vec::<*Type>();
+            args.push_back(self.sc->builtin(BuiltinKind::Void));
+            for var i: usize = 0; i < fs.size(); ++i { args.push_back(fs[i]); }
+            var ps = PanicSets(self.sc);
+            if ps.canonicalize(&args) && (!ps.check_collisions(at, &args)) { return; }
+        }
         if f->has_panic_set() { return; }
 
         // A bare `panic` where the set is a contract (§2.2): an interface

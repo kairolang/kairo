@@ -518,6 +518,12 @@ class LabelIntrinsicStmt derives Stmt {
 ///
 class JumpIntrinsicStmt derives Stmt {
     pub var target: Token;
+    /// The target is outside the `eval for` / pack `for` copy this jump
+    /// sits in (PanicLowering, a delivery to a `try` around the loop): a
+    /// copy is a C++ lambda, which no goto leaves, so EmitIR stops the
+    /// copy's fold instead, and the jump PanicLowering placed after the
+    /// expansion, on the flag this one's site set, goes on.
+    pub var ef_leave: bool = false;
 
     static fn create(ctx: *ASTContext, range: SourceRange, target: Token) -> *JumpIntrinsicStmt {
         var node    = ctx->alloc::<JumpIntrinsicStmt>();
@@ -525,6 +531,7 @@ class JumpIntrinsicStmt derives Stmt {
         node->range  = range;
         node->init_annotations(&(ctx->ast_alloc));;
         node->target = target;
+        node->ef_leave = false;
         return node;
     }
 
@@ -534,6 +541,7 @@ class JumpIntrinsicStmt derives Stmt {
         node->recovery_kind = StmtKind::JumpIntrinsicStmt;
         node->range         = range;
         node->init_annotations(&(ctx->ast_alloc));;
+        node->ef_leave      = false;
         return node;
     }
 

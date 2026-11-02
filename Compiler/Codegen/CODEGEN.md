@@ -1011,8 +1011,12 @@ f(3)]` as a field, `Buf<twice(1)>` in a signature, a namespace-scope
 `var g: [i32; f(1)]`; EVAL.md §11, USER), and C++ evaluates it where the
 declaration stands, in the interface. Those items, and everything they
 read transitively, are the plan's EARLY items (`EmitPlan::early`,
-`_early`): every free one is declared at the start of tier 1, and each is
-defined by a tier-1 entry of its own (`PlanEntry::eval_item`), which
+`_early`): every free one is declared at the start of tier 1 (except one
+whose own signature computes from another early item, `eval fn f(a: [i32;
+g(1)])`: C++ evaluates `g(1)` where f is declared, so f is declared right
+after the last such item is defined, `InterfaceEmitter::_late_decls`, and
+every item that calls f is ordered after them, `EmitPlan::sig_items`), and
+each is defined by a tier-1 entry of its own (`PlanEntry::eval_item`), which
 InterfaceEmitter hands to the shared EmitIR (`EmitIR::early`; the
 backends construct one EmitIR and give it to the interface). The
 toposort places each after the records its definition needs complete

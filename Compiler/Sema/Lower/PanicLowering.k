@@ -132,6 +132,17 @@ struct PanicTarget {
     var slot:  *VariableDecl = &null;
     var type_: *Type = &null;          ///< the slot's type, or the function's result.
     var label: Token;                  ///< the `try`'s dispatch.
+    /// Set by a site inside an `eval for` copy that delivers here: the
+    /// `try`'s flag, `var __kairo_efjK = false`, declared ahead of its body
+    /// (_to_slot); null while none has.
+    var efj:   *VariableDecl = &null;
+}
+
+/// A `try` target (an index into _targets) that a site inside the copy loop
+/// _copy_bars[copy] delivers to from outside it.
+struct PanicCopyExit {
+    var copy:   usize = 0;
+    var target: usize = 0;
 }
 
 /// A catch arm's binding, and the panic result its error is held in: what
@@ -170,6 +181,11 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
     priv var q:     EnumLayoutQuery;
 
     priv var _targets: vec::<PanicTarget>;   ///< innermost last; empty in a body that cannot panic, outside a `try`.
+    /// Per enclosing `eval for` / pack `for` (a copy loop: EmitIR expands its
+    /// body into one C++ lambda per copy), innermost last: _targets.size()
+    /// at its entry. A target below that is outside the copy.
+    priv var _copy_bars: vec::<usize>;
+    priv var _copy_exits: vec::<PanicCopyExit>;
     priv var _holders: vec::<PanicHolder>;
     /// The bindings of C++ exception arms: `panic e` of one panics a copy of
     /// the caught object (its arm's type, what the set holds), from here.
@@ -423,6 +439,8 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         var sv = self._fn_t;
         var sc = self._cur;
         var sd = self._deps;
+        var sb = self._copy_bars;
+        var se = self._copy_exits;
         self._cur = n;
         self._deps.clear();
         self._dep(r);
@@ -436,6 +454,8 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         self._fn_t = sv;
         self._cur = sc;
         self._deps = sd;
+        self._copy_bars = sb;
+        self._copy_exits = se;
         return out;
     }
 
@@ -445,6 +465,8 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         var sh = self._holders;
         var sr = self._fn_r;
         var sv = self._fn_t;
+        var sb = self._copy_bars;
+        var se = self._copy_exits;
         self._enter(r, self._value_type(n->return_type));
         var out = ASTWriter::<PanicLowering>::transform_closure_expr(n);
         if r != &null { self._end_void(n->body_block); }
@@ -452,12 +474,16 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         self._holders = sh;
         self._fn_r = sr;
         self._fn_t = sv;
+        self._copy_bars = sb;
+        self._copy_exits = se;
         return out;
     }
 
     priv fn _enter(self, r: *Type, t: *Type) {
         self._targets.clear();
         self._holders.clear();
+        self._copy_bars.clear();   // a body's own copies: a closure's lambda is no copy of the loop around it.
+        self._copy_exits.clear();
         self._fn_r = r;
         self._fn_t = t;
         if r != &null {
@@ -542,8 +568,7 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
             out.push_back(static_cast::<*Stmt>(ReturnStmt::create(self.ctx, at, v)));
             return out;
         }
-        out.push_back(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, self._slot_put(at, tg.slot, v))));
-        out.push_back(static_cast::<*Stmt>(JumpIntrinsicStmt::create(self.ctx, at, tg.label)));
+        self._to_slot(at, self._targets.size() - 1, v, &out);
         return out;
     }
 
@@ -734,8 +759,82 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
             out->push_back(static_cast::<*Stmt>(ReturnStmt::create(self.ctx, at, v)));
             return;
         }
+        self._to_slot(at, self._targets.size() - 1, v, out);
+    }
+
+    /// \p v into the slot of the `try` target \p t, then a jump to its
+    /// dispatch. From inside a copy loop opened since that `try` (EmitIR's
+    /// lambda per copy, which no goto leaves) the jump stops the copy
+    /// instead (JumpIntrinsicStmt::ef_leave), after setting the `try`'s
+    /// flag; each copy loop it leaves is followed by a jump on that flag
+    /// (transform_ranged_for_stmt), the outermost one's the real goto. A
+    /// delivery to the function's return needs none of this: a `return`
+    /// in a copy already goes out through EmitIR's flag and value slot.
+    priv fn _to_slot(self, at: SourceRange, t: usize, v: *Expr, out: *vec::<*Stmt>) {
+        var tg = self._targets[t];
         out->push_back(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, self._slot_put(at, tg.slot, v))));
-        out->push_back(static_cast::<*Stmt>(JumpIntrinsicStmt::create(self.ctx, at, tg.label)));
+        var j = JumpIntrinsicStmt::create(self.ctx, at, tg.label);
+        var crossed = false;
+        for var c: usize = 0; c < self._copy_bars.size(); ++c {
+            if self._copy_bars[c] <= t { continue; }
+            crossed = true;
+            var have = false;
+            for var k: usize = 0; k < self._copy_exits.size(); ++k {
+                if (self._copy_exits[k].copy == c) && (self._copy_exits[k].target == t) { have = true; break; }
+            }
+            if !have {
+                var ex = PanicCopyExit();
+                ex.copy   = c;
+                ex.target = t;
+                self._copy_exits.push_back(ex);
+            }
+        }
+        if crossed {
+            if self._targets[t].efj == &null {
+                self._targets[t].efj = self.synth.local(at, "efj", self.sc->builtin(BuiltinKind::Bool), self.synth.bool_literal(at, false));
+            }
+            var flag = self.synth.use_of(self._targets[t].efj, at, Expr::ValueCategory::LValue);
+            var put = AssignOperatorExpr::create(self.ctx, at, flag, self.synth.bool_literal(at, true), self.synth.punct(at, TokenKind::OpEqual));
+            put->type_          = flag->type_;
+            put->value_category = Expr::ValueCategory::LValue;
+            out->push_back(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, static_cast::<*Expr>(put))));
+            j->ef_leave = true;
+        }
+        out->push_back(static_cast::<*Stmt>(j));
+    }
+
+    /// An `eval for`, or a `for` over a pack: EmitIR expands the body into a
+    /// C++ lambda per copy, so a delivery inside it to a `try` outside it
+    /// cannot jump there (_to_slot). After the expansion, for each such
+    /// `try`: `if flag { jump }` -- the goto to its dispatch when the `try`
+    /// is right outside this loop, else (another copy around this one, also
+    /// inside the `try`) the stop of that copy, which repeats this.
+    fn transform_ranged_for_stmt(self, n: *RangedForStmt) -> vec::<*Stmt> {
+        if (!n->is_eval) && (n->iter_kind != IterKind::Pack) { return ASTWriter::<PanicLowering>::transform_ranged_for_stmt(n); }
+        // The iterable is computed outside the copies (a pack's elements are
+        // the lambda's arguments, an eval for's values are constants).
+        if n->iterable != &null { n->iterable = self.transform_expr(n->iterable); }
+        var c = self._copy_bars.size();
+        self._copy_bars.push_back(self._targets.size());
+        n->body = cast::<CompoundStmt>(self.transform_stmt_scalar(static_cast::<*Stmt>(n->body)));
+        self._copy_bars.pop_back();
+        var out = vec::<*Stmt>();
+        out.push_back(static_cast::<*Stmt>(n));
+        var keep = vec::<PanicCopyExit>();
+        for var k: usize = 0; k < self._copy_exits.size(); ++k {
+            var ex = self._copy_exits[k];
+            if ex.copy != c { keep.push_back(ex); continue; }
+            var tg = self._targets[ex.target];
+            var at = n->range;
+            var j = JumpIntrinsicStmt::create(self.ctx, at, tg.label);
+            for var b: usize = 0; b < self._copy_bars.size(); ++b { if self._copy_bars[b] > ex.target { j->ef_leave = true; } }
+            var jv = vec::<*Stmt>();
+            jv.push_back(static_cast::<*Stmt>(j));
+            var cond = self.synth.use_of(tg.efj, at, Expr::ValueCategory::LValue);
+            out.push_back(static_cast::<*Stmt>(ConditionalStmt::create(self.ctx, at, cond, self._block(at, &jv), &null)));
+        }
+        self._copy_exits = keep;
+        return out;
     }
 
     priv fn _holder_of(self, d: *Decl) -> *VariableDecl {
@@ -817,7 +916,10 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         if cxx.size() > 0 { self._cxx_depth += 1; }
         var body = self.transform_stmt_scalar(static_cast::<*Stmt>(n->try_body));
         if cxx.size() > 0 { self._cxx_depth -= 1; }
+        var efj = self._targets[self._targets.size() - 1].efj;
         self._targets.pop_back();
+        // A copy loop's flag (_to_slot), ahead of the body and the label.
+        if efj != &null { lb.push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, at, static_cast::<*Decl>(efj)))); }
         // The C++ `try` holds the body only; a failing site's jump to the
         // dispatch leaves it (a goto out of a C++ try block is legal).
         if cxx.size() > 0 { body = self._cxx_try(at, body, &cxx, &null); }
@@ -890,7 +992,9 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
             if cxx.size() > 0 { self._cxx_depth += 1; }
             var v = self.transform_expr(n->try_expr);
             if cxx.size() > 0 { self._cxx_depth -= 1; }
+            var efj = self._targets[self._targets.size() - 1].efj;
             self._targets.pop_back();
+            if efj != &null { lb.push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, at, static_cast::<*Decl>(efj)))); }
             var bv = vec::<*Stmt>();
             if res != &null { bv.push_back(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, self._slot_put(at, res, v)))); }
             else { bv.push_back(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, v))); }

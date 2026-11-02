@@ -1142,9 +1142,16 @@ class EmitIR {
             }
             case StmtKind::JumpIntrinsicStmt {
                 var n = cast::<JumpIntrinsicStmt>(s);
-                self._cg->sink->spell(n->range, "goto");
-                self._name(n->target);
-                self._cg->sink->synth_at_end(n->range, clang::tok::semi);
+                // Out of an `eval for` copy (a lambda no goto leaves): stop
+                // the fold; the jump after the expansion takes it on.
+                if n->ef_leave {
+                    if (self._ef_depth == 0) { self._ice(n->range, "EmitIR: a jump out of an eval for copy outside one; PanicLowering marks only those"); }
+                    self._cg->sink->spell(n->range, "return false;");
+                } else {
+                    self._cg->sink->spell(n->range, "goto");
+                    self._name(n->target);
+                    self._cg->sink->synth_at_end(n->range, clang::tok::semi);
+                }
             }
             case StmtKind::SwitchDispatchStmt { self._switch_dispatch(cast::<SwitchDispatchStmt>(s)); }
             case StmtKind::InlineBlockStmt        { self._ice(s->range, "EmitIR: inline foreign block; not emitted yet"); }

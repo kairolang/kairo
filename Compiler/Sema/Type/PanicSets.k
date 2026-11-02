@@ -102,12 +102,48 @@ class PanicTypeIds derives PackSetOrder {
     pub var psym:       *PreprocessorSymbolTable = &null;
     pub var well_known: *WellKnownDecls = &null;
     pub var id_bits:    i32 = 32;
+    /// The fixed-width builtin `usize` / `isize` IS in C++ on this target
+    /// (size_types), or COUNT where it is a C++ type of its own.
+    pub var usize_as:   BuiltinKind = BuiltinKind::U64;
+    pub var isize_as:   BuiltinKind = BuiltinKind::I64;
 
     fn PanicTypeIds(self) { }
     fn PanicTypeIds(self, psym: *PreprocessorSymbolTable, wk: *WellKnownDecls, bits: i32) {
         self.psym       = psym;
         self.well_known = wk;
         self.id_bits    = bits;
+    }
+
+    /// Which builtin `usize` and `isize` are one C++ type with, from the
+    /// target: size_t / ptrdiff_t are the fixed-width integer of the pointer
+    /// width wherever the target says so (target.usize_is_fixed, as
+    /// RedeclMerge::_cxx_lowered reads it), and a type of their own on
+    /// Darwin. \p pw 0 is a hand-built invocation: the 64-bit host.
+    fn size_types(self, pw: usize, usize_fixed: bool, isize_fixed: bool) {
+        var w = (pw) if (pw != usize(0)) else (usize(64));
+        self.usize_as = BuiltinKind::COUNT;
+        self.isize_as = BuiltinKind::COUNT;
+        if usize_fixed {
+            if w == usize(16) { self.usize_as = BuiltinKind::U16; }
+            if w == usize(32) { self.usize_as = BuiltinKind::U32; }
+            if w == usize(64) { self.usize_as = BuiltinKind::U64; }
+        }
+        if isize_fixed {
+            if w == usize(16) { self.isize_as = BuiltinKind::I16; }
+            if w == usize(32) { self.isize_as = BuiltinKind::I32; }
+            if w == usize(64) { self.isize_as = BuiltinKind::I64; }
+        }
+    }
+
+    /// Order among elements whose spelling, and so id and key, is one: two
+    /// builtins that are one C++ type (`usize` and `u64` on Linux). C++ sees
+    /// one pack either way; this keeps Kairo's two orders of it one type, by
+    /// the builtin's kind. 0 for anything else, which never ties.
+    fn tie(self, t: *Type) -> u32 {
+        if (t == &null) || (t->canonical == &null) { return 0; }
+        var c = canon_unqual(t->canonical);
+        if (c == &null) || (!isa::<BuiltinType>(c)) { return 0; }
+        return u32(static_cast::<u8>(cast::<BuiltinType>(c)->builtin)) + u32(1);
     }
 
     /// The Panic lang item's enum, by identity (never by name), or null.
@@ -145,6 +181,12 @@ class PanicTypeIds derives PackSetOrder {
             case TypeKind::BuiltinType {
                 var b = cast::<BuiltinType>(c);
                 if (b->builtin == BuiltinKind::Never) { return ""; }
+                // One C++ type, one spelling, one id: `usize` is spelled
+                // `decltype(sizeof(0))`, which on most targets IS `u64`'s
+                // `unsigned long`, and two spellings of it would be two
+                // `__kairo_tid` specializations of one type, a redefinition.
+                if (b->builtin == BuiltinKind::USize) && (self.usize_as != BuiltinKind::COUNT) { return builtin_info(self.usize_as)->cxx; }
+                if (b->builtin == BuiltinKind::ISize) && (self.isize_as != BuiltinKind::COUNT) { return builtin_info(self.isize_as)->cxx; }
                 return b->cxx_emission();
             }
             case TypeKind::PointerType {
@@ -246,26 +288,32 @@ class PanicTypeIds derives PackSetOrder {
         var els  = vec::<*Type>();
         var ids  = vec::<u32>();
         var kys  = vec::<u64>();
+        var tis  = vec::<u32>();
         for var i: usize = at; i < args->size(); ++i {
             var e = (*args)[i];
             var s = self.spelling(e);
             if s.size() == 0 { return; }
             var id = panic_id_of(s, self.id_bits);
             var ky = panic_fnv64(s);
+            var ti = self.tie(e);
             // Insertion sort: a set is a handful of types.
             var k = els.size();
             els.push_back(e);
             ids.push_back(id);
             kys.push_back(ky);
-            while (k > 0) && ((ids[k - 1] > id) || ((ids[k - 1] == id) && (kys[k - 1] > ky))) {
+            tis.push_back(ti);
+            while (k > 0) && ((ids[k - 1] > id) || ((ids[k - 1] == id) && (kys[k - 1] > ky))
+                              || ((ids[k - 1] == id) && (kys[k - 1] == ky) && (tis[k - 1] > ti))) {
                 els[k] = els[k - 1];
                 ids[k] = ids[k - 1];
                 kys[k] = kys[k - 1];
+                tis[k] = tis[k - 1];
                 k -= 1;
             }
             els[k] = e;
             ids[k] = id;
             kys[k] = ky;
+            tis[k] = ti;
         }
         for var i: usize = 0; i < els.size(); ++i { (*args)[at + i] = els[i]; }
     }
@@ -283,6 +331,8 @@ class PanicSets {
         var ps: *PreprocessorSymbolTable = &null;
         if sc->foreign != &null { ps = sc->foreign->psym; }
         self.ids = PanicTypeIds(ps, sc->well_known, sc->opts.test_panic_id_bits);
+        var ci = sc->ctx->ci;
+        if ci != &null { self.ids.size_types(ci->target.pointer_width, ci->target.usize_is_fixed, ci->target.isize_is_fixed); }
     }
 
     fn panic_enum(self) -> *EnumDecl { return self.ids.panic_enum(); }
@@ -322,8 +372,14 @@ class PanicSets {
             var an = self.tu.str(a);
             var bn = self.tu.str(b);
             var hx = hex32(ia);
+            // Two builtins that are one C++ type (`usize` and `u64` where
+            // size_t is uint64_t) share a spelling, so an id: not a hash
+            // collision, and a different message says so.
+            var sp = self.spelling(a);
+            var why = f"both have type id 0x{hx}";
+            if sp == self.spelling(b) { why = f"on this target both are the C++ type '{sp}', so their tags are one"; }
             var bld = self.sc->diag->report(DiagID::SC001E, at.start,
-                f"'{an}' and '{bn}' cannot be in one panic set: both have type id 0x{hx}");
+                f"'{an}' and '{bn}' cannot be in one panic set: {why}");
             bld.first(at, "the panic set formed here");
             var da = self.tu.record_decl(a);
             var db = self.tu.record_decl(b);

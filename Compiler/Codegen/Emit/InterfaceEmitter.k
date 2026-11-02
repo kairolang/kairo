@@ -416,7 +416,18 @@ class InterfaceEmitter {
         // The early items (EmitPlan::early, EVAL.md §11) are defined among
         // the records below; declared first, so a body may call one defined
         // after it, and read an eval binding whose definition follows. A
-        // method is declared by its class.
+        // method is declared by its class. One whose own signature computes
+        // from another early item (`eval fn f(a: [i32; g(1)])`) evaluates
+        // that item where it is declared: it is declared once those are
+        // defined instead (_late_decls), and EmitPlan::_early puts every
+        // item that calls it after them too.
+        var late   = vec::<*FunctionDecl>();
+        var late_d = vec::<*Decl>();
+        var todo   = vec::<*Decl>();   // the early items tier 1 below still defines.
+        for var j: usize = i; (j < n) && (self._plan->entries[j].tier == PlanTier::Definitions); ++j {
+            var te = &(self._plan->entries[j]);
+            if (te->eval_item != &null) && ((!header) || te->own) { todo.push_back(te->eval_item); }
+        }
         for var j: usize = i; (j < n) && (self._plan->entries[j].tier == PlanTier::Definitions); ++j {
             var ee = &(self._plan->entries[j]);
             if (ee->eval_item == &null) || (header && (!ee->own)) { continue; }
@@ -430,8 +441,12 @@ class InterfaceEmitter {
             var fdc = reinterpret_cast::<*DeclContext>(ef->semantic_dc);
             if (fdc != &null) && fdc->is_type_scope() { continue; }
             if self._spell->is_main(ee->eval_item) { continue; }
+            var sig = vec::<*Decl>();
+            self._plan->sig_items(ef, &sig);
+            if sig.size() > 0 { late.push_back(ef); late_d.push_back(ee->decl); continue; }
             self._wrapped(ee->decl, fn () { self._free_fn_decl(ef, &null); });
         }
+        self._late_decls(&late, &late_d, &todo);
 
         // The functions a record's friend line names qualified
         // (EmitPlan::friend_early), declared ahead of every record. A header
@@ -459,6 +474,10 @@ class InterfaceEmitter {
                     var local_ir = EmitIR(self._cg);
                     local_ir.early(e->eval_item);
                 }
+                var left = vec::<*Decl>();
+                for var k: usize = 0; k < todo.size(); ++k { if todo[k] != e->eval_item { left.push_back(todo[k]); } }
+                todo = left;
+                self._late_decls(&late, &late_d, &todo);
                 continue;
             }
             if e->scope != &null {
@@ -599,6 +618,32 @@ class InterfaceEmitter {
         // has no bytes of its own.
         for var i: u32 = 0; i < n; ++i { self._cg->sink->spell(self._tu_at(), "}"); }
         if n > 0 { self._cg->sink->brk(); }
+    }
+
+    /// The early fns held back from the declarations ahead of tier 1 (their
+    /// signature computes from another early item), each declared once no
+    /// item its signature needs is still in \p todo; one defined meanwhile
+    /// needs no declaration. Taken off \p late either way.
+    priv fn _late_decls(self, late: *vec::<*FunctionDecl>, late_d: *vec::<*Decl>, todo: *vec::<*Decl>) {
+        var keep   = vec::<*FunctionDecl>();
+        var keep_d = vec::<*Decl>();
+        for var k: usize = 0; k < late->size(); ++k {
+            var f = (*late)[k];
+            var fd = static_cast::<*Decl>(f);
+            var defined = true;
+            for var t: usize = 0; t < todo->size(); ++t { if (*todo)[t] == fd { defined = false; break; } }
+            if defined { continue; }
+            var sig = vec::<*Decl>();
+            self._plan->sig_items(f, &sig);
+            var ready = true;
+            for var a: usize = 0; (a < sig.size()) && ready; ++a {
+                for var t: usize = 0; t < todo->size(); ++t { if (*todo)[t] == sig[a] { ready = false; break; } }
+            }
+            if !ready { keep.push_back(f); keep_d.push_back((*late_d)[k]); continue; }
+            self._wrapped((*late_d)[k], fn () { self._free_fn_decl(f, &null); });
+        }
+        (*late)   = keep;
+        (*late_d) = keep_d;
     }
 
     priv fn _wrapped(self, d: *Decl, body: fn()) {

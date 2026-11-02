@@ -600,6 +600,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _eo_has(self, who: *Decl, dep: *Decl) -> bool;
     fn _layout_key(self, d: *Decl) -> *Decl;
     fn is_early(self, d: *Decl) -> bool;
+    fn sig_items(self, f: *FunctionDecl, out: *vec::<*Decl>);
     fn _collect_uses(self);
     fn friend_scopes_of(self, d: *Decl, out: *vec::<*ExtScope>);
     fn file_friends(self, d: *Decl, out: *FileFriends);
@@ -1860,6 +1861,33 @@ fn EmitPlan::_early() {
         var cl = vec::<*Decl>();
         self._early_close(&defs, u8(0), &cl);
         for var i: usize = 0; i < cl.size(); ++i { if cl[i] != x { self._eo_add(x, cl[i]); } }
+        // An early fn x names whose signature computes from other items is
+        // declared only once those are defined (InterfaceEmitter): x's
+        // definition follows them, so that declaration precedes it.
+        for var i: usize = 0; i < self._en_key.size(); ++i {
+            if (self._en_key[i] != x) || (self._en_kind[i] != u8(0)) { continue; }
+            var y = dyn_cast::<FunctionDecl>(self._en_val[i]);
+            if (y == &null) || (static_cast::<*Decl>(y) == x) { continue; }
+            var sig = vec::<*Decl>();
+            self.sig_items(y, &sig);
+            for var k: usize = 0; k < sig.size(); ++k { if sig[k] != x { self._eo_add(x, sig[k]); } }
+        }
+    }
+}
+
+/// The early items \p f's own signature computes from (`eval fn f(a: [i32;
+/// g(1)])`, a computed return type): C++ evaluates them where f is
+/// DECLARED, so f is declared only after they are defined. Never f itself.
+fn EmitPlan::sig_items(f: *FunctionDecl, out: *vec::<*Decl>) {
+    if f == &null { return; }
+    var all = vec::<*Decl>();
+    for var p: usize = 0; p < f->params.size(); ++p {
+        var pd = f->params[p];
+        if (pd != &null) && (!pd->is_self) { self._type_items(pd->type_, &all); }
+    }
+    self._type_items(f->return_type, &all);
+    for var i: usize = 0; i < all.size(); ++i {
+        if (all[i] != static_cast::<*Decl>(f)) && self.is_early(all[i]) { EarlyNeeds::_once(out, all[i]); }
     }
 }
 

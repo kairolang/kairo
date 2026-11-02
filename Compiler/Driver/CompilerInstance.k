@@ -1579,6 +1579,7 @@ class CompilerInstance {
         // (PANIC.md §1.3): one stateless orderer for the build's type store
         // and registry, before any Sema pass forms one.
         self._ptids = std::create::<PanicTypeIds>(self._finst->psym, self._g_scope->well_known(), self.invocation().lang.test_panic_id_bits);
+        self._ptids->size_types(self.invocation().target.pointer_width, self.invocation().target.usize_is_fixed, self.invocation().target.isize_is_fixed);
         self._g_scope->types()->pack_order     = static_cast::<*PackSetOrder>(self._ptids);
         self._g_scope->instances()->pack_order = static_cast::<*PackSetOrder>(self._ptids);
     }
