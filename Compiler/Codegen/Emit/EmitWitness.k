@@ -569,6 +569,10 @@ class EmitWitness {
         // the bound reaches the conformer with no extra hop of another one.
         var s = self._spell->template_head(static_cast::<*Decl>(m)) + "static " + CXXSpell::call_conv_attr(m->call_conv) + self._ret(m, subst) + " " + self._spell->witness_member_name(m) + "(" + ps;
         s += ")";
+        // A Kairo frame, noexcept as the conformer's own function is: a
+        // static thunk's address goes into an `unsafe fn` (ScopeFrame's
+        // A::alloc), whose pointer type is noexcept.
+        if !self._cg->opts.unwind { s += " noexcept"; }
         self._spell->self_iface    = saved_i;
         self._spell->self_spelling = saved_s;
         return s;

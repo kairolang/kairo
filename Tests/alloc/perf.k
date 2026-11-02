@@ -62,3 +62,63 @@ fn main() -> i32 {
 // TLS-NOT: __tls_get_addr
 // TLS-LABEL: <main>:
 
+// Item 2 (no EH landing pads after indirect calls): with the function-
+// pointer types noexcept, no k_* function and no `oom` references
+// __clang_call_terminate, and each hot path is pinned whole. Counts, with no
+// scope open: k_create 13 (the push/pop pair is the stack alignment for the
+// non-tail call to malloc, not a TLS spill), k_destroy 4, k_create_in 9,
+// k_destroy_in 1, k_create_bump 11 with no call, k_scope_open_close 0.
+// RUN: %FileCheck %s --check-prefix=EH < %t.asm
+// EH-LABEL: alloc3oomEmm>:
+// EH-NOT: __clang_call_terminate
+// EH: callq {{.*}}<_ZNK10__kairo_fnIFvmmEEclEmm>
+// EH-NEXT: {{: (nop|int3)}}
+// EH-LABEL: <_ZNK10__kairo_fnIFvmmEEclEmm>:
+// EH-NOT: __clang_call_terminate
+// EH: jmpq *%rax
+// EH-LABEL: 8k_createEv>:
+// EH-NEXT: pushq %rax
+// EH-NEXT: movq $-{{0x[0-9a-f]+}}, %rax
+// EH-NEXT: movq %fs:(%rax), %rax
+// EH-NEXT: movl $0x10, %edi
+// EH-NEXT: testq %rax, %rax
+// EH-NEXT: jne
+// EH-NEXT: callq {{.*}}<malloc>
+// EH-NEXT: testq %rax, %rax
+// EH-NEXT: je
+// EH-NEXT: movq $0x1, (%rax)
+// EH-NEXT: movq $0x2, 0x8(%rax)
+// EH-NEXT: popq %rcx
+// EH-NEXT: retq
+// EH-NOT: __clang_call_terminate
+// EH-LABEL: 9k_destroyEP{{.*}}>:
+// EH-NEXT: movq $-{{0x[0-9a-f]+}}, %rax
+// EH-NEXT: movq %fs:(%rax), %rax
+// EH-NEXT: testq %rax, %rax
+// EH-NEXT: je {{.*}}<free>
+// EH-NOT: {{pushq|popq|__clang_call_terminate}}
+// EH-LABEL: 11k_create_inEv>:
+// EH-NEXT: pushq %rax
+// EH-NEXT: movl $0x10, %edi
+// EH-NEXT: callq {{.*}}<malloc>
+// EH-NEXT: testq %rax, %rax
+// EH-NEXT: je
+// EH-NEXT: movq $0x1, (%rax)
+// EH-NEXT: movq $0x2, 0x8(%rax)
+// EH-NEXT: popq %rcx
+// EH-NEXT: retq
+// EH-NOT: __clang_call_terminate
+// EH-LABEL: 12k_destroy_inEP{{.*}}>:
+// EH-NEXT: jmp {{.*}}<free>
+// EH-LABEL: 13k_create_bumpEv>:
+// EH-NOT: call
+// EH: retq
+// EH-LABEL: 18k_scope_open_closeEv>:
+// EH-NEXT: retq
+// EH-LABEL: 11k_alloc_rawEm>:
+// EH-NOT: {{pushq|__clang_call_terminate}}
+// EH: jmpq *%rax
+// EH-LABEL: 10k_free_rawEPhm>:
+// EH-NOT: {{pushq|__clang_call_terminate}}
+// EH: jmpq *%rax
+// EH-LABEL: <main>:

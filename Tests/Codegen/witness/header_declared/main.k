@@ -21,16 +21,16 @@ fn main() -> i32 {
 // RUN: cat %t.h/lib.hh | %FileCheck %s --check-prefix=HDR
 // HDR: #ifndef __KAIRO_W_{{.*}}Scalable_witness___lib__Metric_
 // HDR: template<> struct Scalable_witness<{{ ?}}::lib::Metric> {
-// HDR-NEXT: static signed int scale(const{{ ?}}::lib::Metric{{ ?}}* self, signed int factor) {
+// HDR-NEXT: static signed int scale(const{{ ?}}::lib::Metric{{ ?}}* self, signed int factor) noexcept {
 // HDR-NEXT: return{{ ?}}::lib::__kairo_ext_Metric::scale(self,
 // HDR: template<> struct Scalable_witness<{{ ?}}::lib::Gauge> {
 // HDR-NOT: struct Scalable_witness<{{ ?}}::lib::Metric>
 // HDR-NOT: struct Scalable_witness<{{ ?}}::lib::Own>
 // HDR: template<class E> struct Scalable_witness<{{ ?}}::lib::Wrap<E>> {
-// HDR-NEXT: static signed int scale(const{{ ?}}::lib::Wrap<E>{{ ?}}* self, signed int factor) {
+// HDR-NEXT: static signed int scale(const{{ ?}}::lib::Wrap<E>{{ ?}}* self, signed int factor) noexcept {
 // HDR-NEXT: return{{ ?}}::lib::__kairo_ext_Wrap::scale<E>(self,
 // HDR: template<class T> struct Scalable_witness<{{ ?}}::lib::Pod<T>> {
-// HDR-NEXT: static signed int scale(const{{ ?}}::lib::Pod<T>{{ ?}}* self, signed int factor) {
+// HDR-NEXT: static signed int scale(const{{ ?}}::lib::Pod<T>{{ ?}}* self, signed int factor) noexcept {
 // HDR-NEXT: return{{ ?}}::lib::__kairo_ext_Pod::scale<T>(self,
 // HDR: signed int twice(T a) noexcept;
 

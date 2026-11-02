@@ -27,7 +27,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}witness/generic_extension.k
 // CXX: template<> struct Scalable_witness<{{ ?}}::{{.*}}::Wrap<signed int>> {
-// CXX-NEXT: static signed int scale(const{{ ?}}::{{.*}}::Wrap<signed int> * self, signed int factor) {
+// CXX-NEXT: static signed int scale(const{{ ?}}::{{.*}}::Wrap<signed int> * self, signed int factor) noexcept {
 // CXX-NEXT: return{{ ?}}::{{.*}}::__kairo_ext_Wrap::scale<signed int>(self,
 
 // REQUIRES: clang

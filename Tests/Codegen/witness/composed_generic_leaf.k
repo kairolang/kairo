@@ -21,7 +21,7 @@ fn main() -> i32 { return f(B { v: 4 }) }
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}witness/composed_generic_leaf.k
 // CXX: concept IntBox_c = requires(const __kairo_Self * __kairo_r0, const __kairo_Self * __kairo_r1) {
-// CXX: static signed int get(const __kairo_Self * self) requires requires {
+// CXX: static signed int get(const __kairo_Self * self) noexcept requires requires {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

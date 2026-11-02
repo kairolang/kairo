@@ -1085,7 +1085,15 @@ class CXXSpell {
                 // called directly, what a C callee or field holds.
                 // A convention leads the signature: inside a type-id clang takes
                 // `__attribute__((preserve_most)) R(A)`, not a trailing one.
-                if f->is_raw { return self._join("::" + LowerTargets::raw_fn() + "<" + CXXSpell::call_conv_attr(f->call_conv) + self.fn_signature(f, subst, scope) + ">", name); }
+                // `noexcept` unless -funwind: every Kairo function is, so the
+                // indirect call (`f->alloc(...)`) is a call, not an invoke
+                // whose landing pad calls __clang_call_terminate. An imported
+                // C++ function that is not noexcept does not convert to it.
+                if f->is_raw {
+                    var nx = "";
+                    if (self._cg == &null) || (!self._cg->opts.unwind) { nx = " noexcept"; }
+                    return self._join("::" + LowerTargets::raw_fn() + "<" + CXXSpell::call_conv_attr(f->call_conv) + self.fn_signature(f, subst, scope) + nx + ">", name);
+                }
                 return self._join("::" + LowerTargets::fn_value() + "<" + self.fn_signature(f, subst, scope) + ">", name);
             }
             case TypeKind::GenericParamType {

@@ -4,9 +4,10 @@
 // indirect call with `size` and `align` moved into the argument registers.
 // As `fn` values (`__kairo_fn`, three words) the same call loaded the
 // object word, branched on it, and spilled both arguments to the stack to
-// pass their addresses (`A&&...`) to the ops table. `through_frame` is
-// never called here, so -O2 keeps its body as written; it needs no
-// `@noinline` (no such attribute exists, and an unknown one is an error).
+// pass their addresses (`A&&...`) to the ops table. The pointer type is
+// noexcept, so with no landing pad to keep the frame the call is a tail
+// jump. `through_frame` is never called here, so -O2 keeps its body as
+// written.
 
 import builtin::base::alloc::ScopeFrame
 
@@ -26,8 +27,9 @@ fn main() -> i32 { return 0 }
 // ASM: through_frame
 // ASM-NOT: (%rsp)
 // ASM-NOT: test
-// ASM: movq %rsi, %rdi
+// ASM: movq (%rdi), %rax
+// ASM-NEXT: movq %rsi, %rdi
 // ASM-NEXT: movq %rdx, %rsi
-// ASM-NEXT: callq *(%rax)
+// ASM-NEXT: jmpq *%rax
 // ASM-NOT: (%rsp)
-// ASM-NOT: callq *
+// ASM-NOT: __clang_call_terminate

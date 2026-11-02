@@ -57,16 +57,16 @@ fn main() -> i32 {
 // CXX-LABEL: CODEGEN C++: {{.*}}witness/composed_dependent_leaf.k
 // CXX-NOT: internal compiler error
 // CXX: template<class __kairo_Self, class T> struct Fancy_witness {
-// CXX-NEXT: static T get(const __kairo_Self * self, signed int i) requires requires {
+// CXX-NEXT: static T get(const __kairo_Self * self, signed int i) noexcept requires requires {
 // CXX-NEXT: static_cast<auto(__kairo_Self::*)(signed int) const->T>(& __kairo_Self::get);
 // CXX: template<class __kairo_Self, class U> struct Deep_witness {
-// CXX-NEXT: static U get(const __kairo_Self * self, signed int i) requires requires {
+// CXX-NEXT: static U get(const __kairo_Self * self, signed int i) noexcept requires requires {
 // CXX: template<class __kairo_Self, class V> struct Wrapped_witness {
-// CXX-NEXT: static::composed_dependent_leaf::Wrap<V> get(const __kairo_Self * self, signed int i) requires requires {
+// CXX-NEXT: static::composed_dependent_leaf::Wrap<V> get(const __kairo_Self * self, signed int i) noexcept requires requires {
 // CXX: template<> struct Deep_witness< ::composed_dependent_leaf::Ext, signed long> {
-// CXX-NEXT: static signed long get(const::composed_dependent_leaf::Ext * self, signed int i) {
+// CXX-NEXT: static signed long get(const::composed_dependent_leaf::Ext * self, signed int i) noexcept {
 // CXX: template<> struct Wrapped_witness< ::composed_dependent_leaf::WB, signed int> {
-// CXX-NEXT: static::composed_dependent_leaf::Wrap<signed int> get(const::composed_dependent_leaf::WB * self, signed int i) {
+// CXX-NEXT: static::composed_dependent_leaf::Wrap<signed int> get(const::composed_dependent_leaf::WB * self, signed int i) noexcept {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

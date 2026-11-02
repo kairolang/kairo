@@ -3028,7 +3028,10 @@ class InterfaceEmitter {
         // closures it holds are.
         var nx = (("") if (self._cg->opts.unwind) else (" noexcept"));
         var t = "template <class R, class... A> class " + fv + "<R(A...)> {";
-        t += " using __ptr = R (*)(A...);";
+        // The plain function it holds is a Kairo one (every Kairo function
+        // is noexcept), so the pointer type says so: a call through it is
+        // a call, not an invoke with a terminate landing pad.
+        t += " using __ptr = R (*)(A...)" + nx + ";";
         t += " struct __ops { R (*call)(void*, A&&...)" + nx + "; void* (*copy)(const void*); void (*drop)(void*) noexcept; };";
         t += " template <class F> static R __call(void* o, A&&... a)" + nx + " { return (*static_cast<F*>(o))(static_cast<A&&>(a)...); }";
         t += " template <class F> static void* __copy(const void* o) {";
@@ -3048,6 +3051,15 @@ class InterfaceEmitter {
         // registers it at exit; that is the only startup work left.
         t += " constexpr " + fv + "() noexcept {}";
         t += " constexpr " + fv + "(__ptr f) noexcept : __f(f) {}";
+        // A C++ function that is not noexcept (a host's `int f(int)`, kcc's
+        // #include "x.k" callers) still becomes a `fn` value: it is held as
+        // the noexcept pointer. Nothing it throws could be caught on the
+        // Kairo side anyway, whose frames are noexcept; the throw ends in
+        // terminate either way. A template, so the exact-match constructor
+        // above wins for every Kairo function.
+        if nx.size() > 0 {
+            t += " template <class = void> " + fv + "(R (*f)(A...)) noexcept : __f(reinterpret_cast<__ptr>(f)) {}";
+        }
         t += " template <class F> static " + fv + " " + LowerTargets::fn_value_own() + "(F* o) noexcept { " + fv + " r; r.__o = o; r.__t = &__ops_of<F>; return r; }";
         t += " " + fv + "(const " + fv + "& o) : __f(o.__f), __o(o.__o ? o.__t->copy(o.__o) : nullptr), __t(o.__t) {}";
         t += " " + fv + "(" + fv + "&& o) noexcept : __f(o.__f), __o(o.__o), __t(o.__t) { o.__o = nullptr; }";

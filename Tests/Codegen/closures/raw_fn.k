@@ -45,11 +45,11 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}raw_fn.k
 // CXX: template<class S> using __kairo_raw_fn = S *;
-// CXX: ::__kairo_raw_fn<signed int(signed int)> f {
-// CXX: ::__kairo_raw_fn<signed int(signed int)> pick() noexcept;
-// CXX: signed int take( ::__kairo_raw_fn<signed int(signed int)> f) noexcept;
-// CXX: ::__kairo_raw_fn<signed int(signed int)> global_raw = ::{{.*}}::twice;
-// CXX: ::__kairo_raw_fn<signed int(signed int)> h =(+[](signed int v) noexcept->signed int {
+// CXX: ::__kairo_raw_fn<signed int(signed int) noexcept> f {
+// CXX: ::__kairo_raw_fn<signed int(signed int) noexcept> pick() noexcept;
+// CXX: signed int take( ::__kairo_raw_fn<signed int(signed int) noexcept> f) noexcept;
+// CXX: ::__kairo_raw_fn<signed int(signed int) noexcept> global_raw = ::{{.*}}::twice;
+// CXX: ::__kairo_raw_fn<signed int(signed int) noexcept> h =(+[](signed int v) noexcept->signed int {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

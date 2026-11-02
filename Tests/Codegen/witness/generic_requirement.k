@@ -41,10 +41,10 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}witness/generic_requirement.k
 // CXX: concept Sink_c = true;
-// CXX: template<class U> static signed int put(__kairo_Self * self, U u) requires requires {
+// CXX: template<class U> static signed int put(__kairo_Self * self, U u) noexcept requires requires {
 // CXX-NEXT: self->template put<U>(static_cast<decltype(u) &&>(u));
 // CXX: template<> struct Sink_witness<{{ ?}}::{{.*}}::Counter> {
-// CXX-NEXT: template<class U> static signed int put({{ ?}}::{{.*}}::Counter * self, U u) {
+// CXX-NEXT: template<class U> static signed int put({{ ?}}::{{.*}}::Counter * self, U u) noexcept {
 // CXX-NEXT: return{{ ?}}::{{.*}}::__kairo_ext_Counter::put<U>(self, static_cast<decltype(u) &&>(u));
 // CXX-NOT: template<> struct Sink_witness<{{ ?}}::{{.*}}::Tally>
 // CXX: Sink_witness<T>::put((& c), v);

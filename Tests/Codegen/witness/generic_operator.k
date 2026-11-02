@@ -38,15 +38,15 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}witness/generic_operator.k
 // CXX: concept Lookup_c = true;
-// CXX: template<class K> static signed int __kairo_op_index(const __kairo_Self & self, K k) requires requires {
+// CXX: template<class K> static signed int __kairo_op_index(const __kairo_Self & self, K k) noexcept requires requires {
 // CXX-NEXT: self.template operator[]<K>(static_cast<decltype(k) &&>(k));
-// CXX: template<class U> static signed int __kairo_op_plus(const __kairo_Self & self, U u) requires requires {
+// CXX: template<class U> static signed int __kairo_op_plus(const __kairo_Self & self, U u) noexcept requires requires {
 // CXX-NEXT: self.template operator +<U>(static_cast<decltype(u) &&>(u));
 // CXX-NOT: template<> struct Lookup_witness<{{ ?}}::{{.*}}::Table>
 // CXX: template<> struct Lookup_witness<{{ ?}}::{{.*}}::Grid> {
-// CXX-NEXT: template<class K> static signed int __kairo_op_index(const{{ ?}}::{{.*}}::Grid & self, K k) {
+// CXX-NEXT: template<class K> static signed int __kairo_op_index(const{{ ?}}::{{.*}}::Grid & self, K k) noexcept {
 // CXX-NEXT: return self.operator[]<K>(static_cast<decltype(k) &&>(k));
-// CXX: template<class U> static signed int __kairo_op_plus(const{{ ?}}::{{.*}}::Grid & self, U u) {
+// CXX: template<class U> static signed int __kairo_op_plus(const{{ ?}}::{{.*}}::Grid & self, U u) noexcept {
 // CXX-NEXT: return{{ ?}}::{{.*}}::__kairo_ext_Grid::__kairo_op_plus<U>(self, static_cast<decltype(u) &&>(u));
 // CXX-NOT: template<> struct Lookup_witness<{{ ?}}::{{.*}}::Table>
 // The three calls are bound in order (SequenceLowering), the generic body's

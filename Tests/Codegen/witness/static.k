@@ -30,11 +30,11 @@ fn main() -> i32 {
 // CXX-LABEL: CODEGEN C++: {{.*}}witness/static.k
 // CXX: concept Makeable_c = requires(const __kairo_Self * __kairo_r1) {
 // CXX-NEXT: Makeable_witness<__kairo_Self>::make();
-// CXX: static __kairo_Self make() requires requires {
+// CXX: static __kairo_Self make() noexcept requires requires {
 // CXX-NEXT: static_cast<auto(*)()->__kairo_Self>(& __kairo_Self::make);
 // CXX: return __kairo_Self::make();
 // CXX: template<> struct Makeable_witness<{{ ?}}::{{.*}}::Seven> {
-// CXX-NEXT: static{{ ?}}::{{.*}}::Seven make() {
+// CXX-NEXT: static{{ ?}}::{{.*}}::Seven make() noexcept {
 // CXX-NEXT: return{{ ?}}::{{.*}}::__kairo_ext_Seven::make();
 // CXX: T t = {{ ?}}::{{.*}}::Makeable_witness<T>::make();
 

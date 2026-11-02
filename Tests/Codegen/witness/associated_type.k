@@ -36,7 +36,7 @@ fn main() -> i32 {
 // CXX-NEXT: typename::associated_type::Graph_witness<__kairo_Self>::Node;
 // CXX: template<> struct Graph_witness< ::associated_type::Road> {
 // CXX-NEXT: using Node = signed long;
-// CXX-NEXT: static Node first(const::associated_type::Road * self) {
+// CXX-NEXT: static Node first(const::associated_type::Road * self) noexcept {
 // CXX: typename::associated_type::Graph_witness<G>::Node n = ::associated_type::Graph_witness<G>::first((& g));
 
 // REQUIRES: clang
