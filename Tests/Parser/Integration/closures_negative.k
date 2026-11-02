@@ -108,11 +108,16 @@
 // AST-NEXT: | `-VariableDecl var bad_unclosed_paren
 // AST-NEXT: |   `-ClosureExpr
 // AST-NEXT: |     |-ParamDecl x: i32
-// AST-NEXT: |     `-ClosureExpr
-// AST-NEXT: |       |-Capture *x
-// AST-NEXT: |       `-CompoundStmt (1)
-// AST-NEXT: |         `-ReturnStmt
-// AST-NEXT: |           `-IntegerLiteralExpr 0
+// AST-NEXT: |     `-CompoundStmt (1)
+// AST-NEXT: |       `-ReturnStmt
+// AST-NEXT: |         `-IntegerLiteralExpr 0
+// AST-NEXT: |-DeclStmt
+// AST-NEXT: | `-VariableDecl var bad_trailing_comma
+// AST-NEXT: |   `-ClosureExpr
+// AST-NEXT: |     |-Capture *x
+// AST-NEXT: |     `-CompoundStmt (1)
+// AST-NEXT: |       `-ReturnStmt
+// AST-NEXT: |         `-IntegerLiteralExpr 0
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var bad_const_no_ident
 // AST-NEXT: |   `-BinaryOperatorExpr |

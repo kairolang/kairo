@@ -1959,7 +1959,7 @@ class <T> DeclParse {
             );
 
             // Only synchronize to TopLevel if we are not at a capture list or body block
-            if !dyn()->check(TokenKind::OpPipe) && !dyn()->check(TokenKind::OpPipePipe) && !dyn()->check(TokenKind::OpLBrace) {
+            if (!dyn()->check(TokenKind::OpPipe)) && (!dyn()->check(TokenKind::OpPipePipe)) && (!dyn()->check(TokenKind::OpLBrace)) {
                 self._sync_decl(DeclSyncCtx::TopLevel);
             }
         }
@@ -2006,7 +2006,7 @@ class <T> DeclParse {
                 dyn()->advance(); // consume `const`
 
                 // Recovery: ensure 'const' is followed by a valid next token
-                if !dyn()->check(TokenKind::OpStar) && !dyn()->check_is_ident() {
+                if (!dyn()->check(TokenKind::OpStar)) && (!dyn()->check_is_ident()) {
                     dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                         "expected '*' or identifier after 'const' in capture list"
                     );
@@ -2086,7 +2086,7 @@ class <T> DeclParse {
                 dyn()->advance(); // consume `const`
 
                 // Recovery: ensure valid structural capture token follows
-                if !dyn()->check(TokenKind::OpStar) && !dyn()->check_is_ident() {
+                if (!dyn()->check(TokenKind::OpStar)) && (!dyn()->check_is_ident()) {
                     dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                         "expected '*' or identifier after 'const' in capture list"
                     );
