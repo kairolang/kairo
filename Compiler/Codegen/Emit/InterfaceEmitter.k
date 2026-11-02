@@ -1525,10 +1525,16 @@ class InterfaceEmitter {
         var head  = self._spell->leaf(d) + "& operator=(";
         var bare  = head + self._spell->param_decl(other, "", &null, d) + ")";
         var named = head + self._spell->param_decl(other, "o", &null, d) + ")";
+        // The constructor's own requires-clause, if it has one: the record's
+        // explicit instantiation (`template class V<X>;`) instantiates every
+        // unconstrained member, so an `op =` that rebuilds through a copy
+        // constructor X's clause removed would fail for that X even though
+        // nothing assigns one (`[MoveOnly]`'s constrained @copy).
+        var xreq  = self._spell->member_requires(x, d);
         switch form {
-            case AssignForm::Default { self._cg->sink->spell(xat, bare + " = default;"); }
+            case AssignForm::Default { self._cg->sink->spell(xat, bare + xreq + " = default;"); }
             case AssignForm::Deleted { self._cg->sink->spell(xat, bare + " = delete;"); }
-            case AssignForm::Body    { self._cg->sink->spell(xat, named + self._rebuild(d, x)); }
+            case AssignForm::Body    { self._cg->sink->spell(xat, named + xreq + self._rebuild(d, x)); }
             case AssignForm::Constrained {
                 // Exactly one is viable in an instance, as with a generic
                 // ADT's special members; the deleted one leaves an instance
