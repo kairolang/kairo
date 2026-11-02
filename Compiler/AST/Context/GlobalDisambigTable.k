@@ -203,7 +203,7 @@ class GlobalDisambigTable {
     fn lookup_in(self, fid: u32, name: string) -> LookupResult {
         var scope = self.get_scope(fid);
         if scope == &null { return LookupResult::not_found(); }
-        return scope->lookup(name);
+        return scope->lookup_existing(name);
     }
 
     /// Cross-file qualified lookup. Caller resolves the fid from ImportProcessor,
@@ -216,7 +216,7 @@ class GlobalDisambigTable {
     fn lookup_in(self, fid: u32, segments: *vec::<string>) -> LookupResult {
         var scope = self.get_scope(fid);
         if scope == &null { return LookupResult::not_found(); }
-        return scope->lookup(segments);
+        return scope->lookup_existing(segments);
     }
 
     fn all_fids(self) -> vec::<u32> {

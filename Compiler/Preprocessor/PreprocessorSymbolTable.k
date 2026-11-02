@@ -16,7 +16,12 @@ type SymbolID = u32;
 
 class PreprocessorSymbolTable {
     var table:   map::<string, SymbolID>; ///< identifier name -> symbolId
-    var symbols: vec::<string>;           ///< symbolId -> identifier name
+    /// symbolId -> identifier name. Each name lives in its own allocation:
+    /// resolve() hands out a pointer and drops the lock, and the wave tasks
+    /// intern concurrently, so a `vec::<string>` regrowing under a writer
+    /// moved the string out from under a reader mid-copy (the fuzzer's
+    /// bad_alloc in _walk_one: a garbage length read from a freed slot).
+    var symbols: vec::<*string>;
     var _mu:     std::SharedMutex;      ///< mutex for synchronizing access
 
     fn intern(self, name: string) -> SymbolID {
@@ -35,8 +40,8 @@ class PreprocessorSymbolTable {
         }
 
         var id: SymbolID = symbols.size();
-        symbols.emplace_back(name);
-        table.emplace(symbols.back(), id);
+        symbols.push_back(std::create::<string>(name));
+        table.emplace(name, id);
 
         return id;
     }
@@ -45,7 +50,7 @@ class PreprocessorSymbolTable {
         var rlock = std::SharedLock(self._mu);
 
         if id < symbols.size() {
-            return &(symbols[id]);
+            return symbols[id];
         }
 
         return &null;
@@ -62,7 +67,8 @@ class PreprocessorSymbolTable {
     fn op as (self) -> string {
         var repr = "PreprocessorSymbolTable(\n";
         for i in usize(0) .. usize(self.symbols.size()) {
-            repr += f"  {i}: '{self.symbols[i]}'\n";
+            var nm = *self.symbols[i];
+            repr += f"  {i}: '{nm}'\n";
         }
         repr += ")";
         return repr;
@@ -74,6 +80,9 @@ class PreprocessorSymbolTable {
 
     fn clear(self) {
         self.table.clear();
+        for var i: usize = 0; i < self.symbols.size(); ++i {
+            std::destroy(self.symbols[i]);
+        }
         self.symbols.clear();
     }
 

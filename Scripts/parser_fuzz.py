@@ -277,11 +277,17 @@ def _crash_sig(out: str) -> str:
     return _norm("\n".join(out.splitlines()[-3:]))[:400]
 
 
+# A sanitizer that catches the fatal signal itself exits with ITS exitcode
+# (1 by default), not the signal: without this a UBSan SEGV read as an
+# "rc=1 has_error=False" invariant instead of the crash it is.
+_SANITIZER = re.compile(r"Sanitizer:DEADLYSIGNAL|==\d+==ERROR: \w+Sanitizer|SUMMARY: \w+Sanitizer")
+
+
 def classify(text: str, r: Result) -> list[Finding]:
     f: list[Finding] = []
     if r.rc is None:
         return [Finding("hang", "timeout", f"no exit after {r.secs:.1f}s")]
-    if r.rc < 0 or r.rc not in (0, 1):
+    if r.rc < 0 or r.rc not in (0, 1) or _SANITIZER.search(r.out):
         sig = f"rc={r.rc}\n" + _crash_sig(r.out)
         return [Finding("crash", sig, f"exit {r.rc}")]
 

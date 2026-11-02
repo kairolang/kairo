@@ -1,18 +1,18 @@
-// RUN: { %kairo %s --type-check-only --cmax-macro-expansions=200 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
-// XFAIL: *
+// RUN: { %kairo %s --type-check-only --cmax-macro-expansions=200 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not=budget
 //
-// BUG: mutual recursion is not detected as cyclic either -- same cause as
-// self_recursion.k (the invocation chain arrives empty, so `_expand`'s cycle
-// check never matches). It falls through to the expansion budget.
+// Mutual recursion is detected as CYCLIC, not left to exhaust the expansion
+// budget.
 //
 // This is the case the chain actually matters for: `pp!` never sees ITSELF in
 // one step, only `qq!`, so detecting it needs the chain to carry both hops.
-// A fix that special-cases direct self-recursion will pass self_recursion.k
-// and leave this one failing.
+// Both bodies are a single tail invocation, so `pp!`'s frame is exhausted and
+// popped before `qq!`'s body is walked: the live frame stack (`inv.chain`)
+// holds only `qq` when `pp!` comes round again. `_expand` also checks the
+// origin chain captured at detection (`inv.parent_chain`), which keeps popped
+// ancestors. Tests/Preprocessor/tail_mutual_recursion.k is the uncapped
+// variant (the fuzzer's hang).
 //
-// The budget cap in the RUN line keeps the test fast; see self_recursion.k.
-//
-// Today, with the cap: "macro expansion budget exhausted".
+// The budget cap in the RUN line keeps the failure mode fast if it regresses.
 // DIAG: error [R008E]: cyclic expansion of macro 'pp!'
 // DIAG: recursion occurs here, in the macro body
 

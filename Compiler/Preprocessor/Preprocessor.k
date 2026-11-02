@@ -1058,6 +1058,19 @@ class PPWalker
             if s == entry->name_sym { cyclic = true; break; }
         }
 
+        // `inv.chain` is the LIVE frame stack, and a tail-position invocation
+        // outlives its parent: `ping!` ending in `pong!(x)` has its frame
+        // exhausted and popped (by the depth() check above) before pong's
+        // body is walked, so pong's `ping!` saw a stack without ping and the
+        // pair expanded forever -- each hop copying a chain one longer, so
+        // the budget took minutes to trip. The origin chain captured at
+        // detection keeps every ancestor, popped or not.
+        if !cyclic {
+            for var i: usize = 0; i < inv.parent_chain.size(); ++i {
+                if inv.parent_chain[i].name == entry->name_sym { cyclic = true; break; }
+            }
+        }
+
         if cyclic {
             self._report_expand_err(DiagID::R008E, &inv,
                 f"cyclic expansion of macro '{self._sym_name(inv.name_sym)}!\x27",

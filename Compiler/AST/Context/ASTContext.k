@@ -783,6 +783,37 @@ class DisambigTable {
         return self._lookup_in(&self._root, key);
     }
 
+    /// Non-mutating twins of lookup(string) / lookup(segments), for a probe
+    /// from ANOTHER file's parse (GlobalDisambigTable::lookup_in). The
+    /// string overloads intern their key, i.e. write this file's imm table
+    /// from a thread that does not own it while the owner's parser interns
+    /// too -- two unsynchronized writers on `synth_names` and the ident hash.
+    /// A spelling the table has never seen cannot key an entry, so a find
+    /// miss answers not-found exactly as an intern would have.
+    fn lookup_existing(self, name: string) -> LookupResult {
+        var key = self._tbl()->find_ident(name);
+        if key == u32(-1) { return LookupResult::not_found(); }
+        return self._lookup_in(&self._root, key);
+    }
+
+    fn lookup_existing(self, segments: *vec::<string>) -> LookupResult {
+        if segments->empty() { return LookupResult::not_found(); }
+
+        var tbl  = self._tbl();
+        var node = &self._root;
+        for var i: usize = 0; i < segments->size() - 1; ++i {
+            var k = tbl->find_ident((*segments)[i]);
+            if k == u32(-1) { return LookupResult::not_found(); }
+            var next = node->get_child(k);
+            if next == &null { return LookupResult::not_found(); }
+            node = next;
+        }
+
+        var last = tbl->find_ident(segments->back());
+        if last == u32(-1) { return LookupResult::not_found(); }
+        return self._lookup_in(node, last);
+    }
+
     /// Walks a qualified name chain and returns the final entry.
     /// \p segments is the sequence of names from a parsed \c ChainExpr,
     /// e.g. ["foo", "bar", "Baz"] for foo::bar::Baz.
