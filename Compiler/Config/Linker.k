@@ -141,8 +141,21 @@ class LinkerOptions {
         (o.entry)           = args.get_string("entry");
         (o.cache_dir)       = args.get_string("cache-dir");
         (o.save_temps)      = args.get_bool("save-temps");
+        // `--emit obj,asm -o app` still links app: with more than one kind
+        // listed, -o cannot be any one of them, so it is the executable and
+        // the kinds are written beside it (CompilerInstance::_plan_outputs).
+        // One kind other than obj is what -o names, and the run stops there.
+        var emit = args.get_string("emit");
+        var n_emit: usize = 0;
+        var run: usize = 0;
+        for var i: usize = 0; i < emit.size(); ++i {
+            if emit[i] == ',' { if run > 0 { n_emit += 1; } run = 0; continue; }
+            run += 1;
+        }
+        if run > 0 { n_emit += 1; }
+        var emit_links = (n_emit > 1) && (!args.get_string("output").empty());
         (o.compile_only)    = args.get_bool("compile-only") || args.get_bool("emit-asm")
-                           || (args.get_string("emit") != "obj");
+                           || ((emit != "obj") && (!emit_links));
         (o.emit_scope)      = args.get_string("emit-scope");
         (o.kairo_lib)       = args.get_bool("kairo-lib");
         (o.print_ld_args)   = args.get_bool("print-ld-args");

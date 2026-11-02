@@ -344,6 +344,11 @@ class CompilerInstance {
     priv var _link_out:    string = "";   ///< executable/library path; "" = this run does not link
     priv var _obj_dir:     string = "";   ///< where objects go; always set by _plan_outputs
     priv var _obj_tmp:     bool   = false;///< _obj_dir is a temp dir this run owns and removes
+    /// A linking run whose --emit lists more than the object: the entry
+    /// TUs' outputs are the user's, so they go beside the executable rather
+    /// than into a temp _obj_dir (emit_beside).
+    priv var _emit_beside: bool   = false;
+    priv var _obj_listed:  bool   = true; ///< --emit named obj itself (an _emit_beside run forces it on)
     priv var _kairo_inputs: usize = 0;    ///< Kairo (non-native, non-linker) inputs; set by _plan_outputs
     priv var _source_inputs: usize = 0;   ///< C/C++/ObjC/IR inputs clang compiles; set by _plan_outputs
     priv var _header_inputs: usize = 0;   ///< headers clang precompiles (one .pch each); set by _plan_outputs
@@ -1796,6 +1801,8 @@ class CompilerInstance {
         self._link_out = "";
         self._obj_dir  = lk->cache_dir;
         self._obj_tmp  = false;
+        self._emit_beside = false;
+        self._obj_listed  = true;
 
         // Classified and counted here, before any TU runs: -o under -c names
         // the one USER translation unit, and codegen of the first input must
@@ -1914,6 +1921,16 @@ class CompilerInstance {
         }
 
         self._link_out = (out) if (!out.empty()) else ("a.out");
+        // `--emit obj,asm -o app` (Linker.k's compile_only): the link needs
+        // objects whether or not obj was listed, and the listed kinds are
+        // outputs. Under --cache-dir they are kept there with everything
+        // else; otherwise the object dir may be a temp one, and the entry
+        // TUs write beside the executable instead (emit_beside).
+        if fe->emit_asm || fe->emit_llvm_ir || fe->emit_llvm_bc {
+            self._obj_listed = fe->emit_obj;
+            (fe->emit_obj) = true;
+            self._emit_beside = self._obj_dir.empty();
+        }
         if !self._obj_dir.empty() { return true; }
         if lk->save_temps {
             self._obj_dir = self._link_out + ".kobj";
@@ -1936,6 +1953,33 @@ class CompilerInstance {
     /// this run links (-o is the executable then) or there is no -o. Valid
     /// only if the build emits exactly one object; each emitter checks.
     fn kairo_input_count(self) -> usize { return self._kairo_inputs + self._source_inputs; }
+
+    /// \brief the path, minus its extension, an entry TU of input stem
+    ///        \p stem writes its --emit outputs to in a linking run that
+    ///        listed more kinds than the object, or "" to use the object dir.
+    ///
+    /// \details `kairo app.k --emit obj,asm -o out/app` writes out/app.o and
+    ///          out/app.s, named after the executable; with several Kairo
+    ///          inputs each is named after its own stem, in -o's directory.
+    ///          Imported modules and the prelude stay in the object dir:
+    ///          they are link inputs, not what the user asked to see.
+    fn emit_beside(self, stem: string) -> string {
+        if (!self._emit_beside) || self._link_out.empty() { return ""; }
+        var dir = Path::parent_of(self._link_out);
+        var name = (Path::stem_of(self._link_out)) if (self._kairo_inputs == 1) else (self.kairo_object_stem(stem));
+        if dir.empty() { return name; }
+        return dir + "/" + name;
+    }
+
+    /// False when the objects of an emit_beside run are only link inputs:
+    /// --emit did not list obj, so they stay in the object dir, unprinted.
+    fn obj_listed(self) -> bool { return self._obj_listed; }
+
+    /// True when this run links and --emit listed kinds beyond the object.
+    fn emits_beside_link(self) -> bool {
+        var fe = &(self.invocation().frontend);
+        return (!self._link_out.empty()) && (fe->emit_asm || fe->emit_llvm_ir || fe->emit_llvm_bc);
+    }
 
     fn single_object(self) -> string {
         if !self._link_out.empty() { return ""; }
@@ -4444,6 +4488,7 @@ fn FrontendAction::_codegen() -> bool {
         // same leaf name do not collide. A pathless TU (outside every search
         // dir) is named by its file stem instead.
         var stem = "";
+        var obj_stem = "";       // the object dir's name for it, whatever `stem` became
         var to_single = (!single_obj.empty()) && (fid == self._file_id) && (!self.discovered);
         if !to_single {
             var ocg  = CodegenContext(ctx, &null, psym, insts);
@@ -4460,6 +4505,9 @@ fn FrontendAction::_codegen() -> bool {
             if rel.size() == 0 { rel = self._ci->kairo_object_stem(self.path.stem()); }
             else if segs.size() == 1 { rel = self._ci->kairo_object_stem(rel); }
             stem = obj_dir + "/" + rel;
+            obj_stem = stem;
+            var beside = ("") if (self.discovered || (fid != self._file_id)) else (self._ci->emit_beside(self.path.stem()));
+            if !beside.empty() { stem = beside; }
         }
 
         var sink    = BufferedDiagSink{};
@@ -4499,6 +4547,8 @@ fn FrontendAction::_codegen() -> bool {
             var _tr = TimeRegion("Backend");
             for var k: usize = 0; k < kinds.size(); ++k {
                 var out = (single_obj) if (to_single) else (stem + exts[k]);
+                // An object nobody listed is a link input only.
+                if (!to_single) && (kinds[k] == EmitKind::Obj) && (!self._ci->obj_listed()) { out = obj_stem + exts[k]; }
                 self._ensure_parent_dir(out);
                 // Every run re-fills the same stream; print it once.
                 if k > 0 { cg.set_print_cg(0, self._ci->sm()->get_filename(fid)); }
@@ -4524,6 +4574,14 @@ fn FrontendAction::_codegen() -> bool {
         for var k: usize = 0; k < outs.size(); ++k {
             Logger::info(Logger::Stage::Driver, f"emitted {outs[k]}");
             if kinds[k] == EmitKind::Obj { self.result.objects.push_back(outs[k]); }
+        }
+        // A linking run's extra outputs are named, as the executable is not:
+        // the user asked for them and could not have known where they went.
+        if self._ci->emits_beside_link() && (!self.discovered) && (fid == self._file_id) {
+            for var k: usize = 0; k < outs.size(); ++k {
+                if (kinds[k] == EmitKind::Obj) && (!self._ci->obj_listed()) { continue; }
+                std::eprintln(f"kairo: wrote {outs[k]}");
+            }
         }
     }
 
