@@ -1,16 +1,18 @@
 /// --- The Kairo Project -------------------- Linker/API/HostSystem.k ----- ///
 ///
 ///   \brief What the build machine itself has: its C library flavour, its
-///          system include and library dirs, and pkg-config.
+///          system include and library dirs, pkg-config, and the glibc
+///          symbol versions a host shared library needs.
 ///
 ///   \detail
 ///     A default build on a Linux host compiles against the bundled glibc
 ///     2.31 sysroot (the "floor") and only then searches the host's system
 ///     dirs, so a header or library the floor lacks (zlib.h, libcurl.so)
 ///     comes from the host while <stdio.h> and libc never do. A host shared
-///     library was built against the host's own, newer glibc, whose symbol
-///     versions the floor's libc.so stubs lack; a link that takes one is
-///     told so (--allow-shlib-undefined).
+///     library was built against the host's own, newer glibc; after the link
+///     its DT_VERNEED says which glibc the program now needs to run, which is
+///     what glibc_needs reads (a small in-process ELF reader: section
+///     headers, .gnu.version_r, .dynamic).
 ///
 ///     Only what EXISTS is returned, deduplicated by real path: on a merged-
 ///     /usr host /lib, /lib64 and /usr/lib64 are all /usr/lib, and a
@@ -31,6 +33,13 @@ import Linker::API::Toolchain::*;
 
 ffi "c++" import "llvm/ADT/StringRef.h";
 ffi "c++" import "llvm/Support/Program.h";
+
+/// What glibc_needs found in one shared library.
+struct HostLibNeeds {
+    var ok:       bool = false;   ///< an ELF shared object that could be read
+    var soname:   string;         ///< DT_SONAME, else the file's real basename
+    var max_glibc: string;        ///< highest GLIBC_<v> it needs, "" for none
+}
 
 class HostSystem {
     // --- The host's C library --------------------------------------------
@@ -272,6 +281,17 @@ class HostSystem {
         return LinkText::starts_with(p, r + "/");
     }
 
+    // --- DT_VERNEED --------------------------------------------------------
+
+    /// The highest GLIBC_<version> \p path needs and its soname. A linker
+    /// script (libc.so is one) or any non-ELF file comes back !ok; so does a
+    /// truncated one, rather than reading past its end.
+    static fn glibc_needs(path: string) -> HostLibNeeds {
+        var r = HostLibNeeds{};
+        var real = LinkFS::real(path);
+        (r.soname) = LinkFS::filename(real);
+        var d = "";
+        if !LinkFS::read(real, d) { return r; }
         if d.size() < 64 { return r; }
         if (static_cast::<u32>(static_cast::<u8>(d[0])) != 127) || (d[1] != 'E') || (d[2] != 'L') || (d[3] != 'F') {
             return r;
@@ -376,5 +396,4 @@ class HostSystem {
         }
         return s;
     }
-}
 }

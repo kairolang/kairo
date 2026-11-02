@@ -1,0 +1,2 @@
+/* Stands in for a libc.so.6 that defines a GLIBC_2.34 symbol version. */
+GLIBC_2.34 { global: floor_new_api; local: *; };

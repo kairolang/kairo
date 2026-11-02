@@ -640,6 +640,9 @@ if clang_bin:
         if sdk:
             clangxx += " -isysroot " + sdk
     config.substitutions.append(("%clangxx", clangxx))
+    # The bare clang driver, for building native fixtures (a shared library
+    # with a crafted version need) with no kairo roots in the way.
+    config.substitutions.append(("%clang_c", _sh(clang_bin)))
 else:
     # Leave a substitution that explains itself, in case a test forgets
     # `REQUIRES: clang` and runs anyway.

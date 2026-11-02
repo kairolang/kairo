@@ -31,6 +31,7 @@ import Linker::API::Flavor::MinGW::*;
 import Linker::API::Flavor::COFF::*;
 import Linker::API::Flavor::Wasm::*;
 import Linker::API::LLDRunner::*;
+import Linker::API::HostSystem::*;
 
 struct LinkResult {
     var ok:          bool = false;
@@ -95,7 +96,25 @@ class Link {
         }
 
         res.ok = (run.ret == 0) && (LinkDiag::error_count(res.messages) == errs0);
+        if res.ok { Link::_check_glibc_floor(job, res.messages); }
         return res.ok;
+    }
+
+    /// After a link against the glibc floor: each host shared library that
+    /// needs a newer GLIBC_ symbol version than the floor raises the glibc
+    /// the program needs to run, which is what the floor exists to pin. Said
+    /// once per library, at its highest version; the link itself is fine.
+    priv static fn _check_glibc_floor(job: ref!(LinkJob), msgs: ref!(vec::<LinkMessage>)) {
+        var floor = job.glibc_floor;
+        if floor.empty() { return; }
+        for p: string in job.host_shared {
+            var n = HostSystem::glibc_needs(p);
+            if (!n.ok) || n.max_glibc.empty() { continue; }
+            if !Toolchain::version_less(floor, n.max_glibc) { continue; }
+            var v = n.max_glibc;
+            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
+                f"\x27{n.soname}\x27 needs GLIBC_{v}, so this program needs glibc {v} or newer to run (the floor is {floor})"));
+        }
     }
 
     static fn link(job: ref!(LinkJob)) -> LinkResult {
