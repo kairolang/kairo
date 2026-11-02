@@ -26,6 +26,10 @@
 #                        redundant_parens.py --help before passing this
 #   --log-bail           forwarded: redundant_parens lists every pair it kept
 #                        because it could not parse the interior
+#   --cast-facts FILE    forwarded: cpp_casts' clang table (cast_facts.py);
+#                        without it cpp_casts rewrites nothing
+#   --log                forwarded: cpp_casts lists every reported cast, and
+#                        raw_pointers every `name: *` it left alone
 #   --check-idempotent   run the pipeline a second time over its own output
 #                        and list every file that changes again
 #   --selftest           run each pass's own --selftest table, touch nothing
@@ -55,7 +59,17 @@ class Pass:
 
 
 PIPELINE = [
-    # inline C++ retirement first: both produce Kairo code from C++ strings,
+    # Pointers and C++ casts first. cpp_casts pairs each cast with clang's
+    # verdict on it by ORDER and by LINE in the Stage 0 file, so nothing that
+    # moves code or deletes lines (template_alias_macros, ternary_to_if) may
+    # run before it; raw_pointers only inserts text within a line.
+    Pass("raw_pointers",
+         "*T -> unsafe *T in type positions; before cpp_casts so cast targets are already raw"),
+    Pass("cpp_casts",
+         "static_cast/reinterpret_cast/const_cast::<T>(x) -> `as`, by clang's cast kind; "
+         "needs --cast-facts FACTS.json (cast_facts.py); before anything that moves lines"),
+
+    # inline C++ retirement next: both produce Kairo code from C++ strings,
     # and every later pass should see that code as code.
     Pass("template_alias_macros",
          "expands `#define B_T B<T>` into Kairo types before anything reads them"),
@@ -264,7 +278,7 @@ def main():
         return selftest(passes)
 
     roots = [a for a in args if not a.startswith("--")
-             and a not in {opt(args, f) for f in ("--only", "--passes", "--skip", "--from", "--to")}]
+             and a not in {opt(args, f) for f in ("--only", "--passes", "--skip", "--from", "--to", "--cast-facts")}]
     if len(roots) != 1:
         # The header comment IS the usage text.
         with open(__file__, encoding="utf-8") as fh:
@@ -291,8 +305,12 @@ def main():
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write(new)
         if "--check-idempotent" in args:
+            # A pass that keeps totals (cpp_casts' summary) must not count
+            # the re-run.
+            os.environ["KAIRO_MIGRATE_RECHECK"] = "1"
             if run_pipeline(passes, new, rel, {}) != new:
                 unstable.append(rel)
+            del os.environ["KAIRO_MIGRATE_RECHECK"]
 
     print(f"{'pass':26s} {'sites':>7s} {'files':>6s}")
     for p in passes:

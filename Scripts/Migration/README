@@ -178,6 +178,125 @@ when Stage 1 chokes on file 40 you need to know which rule to suspect, and you
 need to re-run one rule against a fresh copy.
 
 
+Pointers and C++ casts
+----------------------
+
+raw_pointers.py           *T -> unsafe *T in TYPE positions only, for
+                          self-hosting: a Stage 0 pointer is C++'s T* with
+                          no rules, which is Stage 1's raw pointer.
+                          `*const T` and Stage 0's `const *T` (C++ const T*)
+                          both become `unsafe *const T`; `**T` is
+                          `unsafe *unsafe *T`. A type is found only where one
+                          must start -- after `name:` in a var / let / const
+                          / static / eval / for binding or inside a `fn`
+                          signature's parentheses, after `) ->`, in a `::<>`
+                          list, after `as`, after `type X =` -- and walked
+                          from there through generic arguments, arrays,
+                          tuples and fn types. Deref and multiply are never
+                          touched; a `name: *` anywhere else (a case label, a
+                          named argument) is left and counted (--log lists
+                          them). Idempotent. --selftest.
+
+cpp_casts.py              static_cast / reinterpret_cast / const_cast::<T>(x)
+cast_facts.py             -> Stage 1 `as`. Correct by construction: the
+                          spelling depends on the OPERAND's type, so every
+                          site is classified by clang, never by the lexer.
+
+    python3 Scripts/Migration/cast_facts.py --out /tmp/facts.json --keep /tmp/facts.d
+    python3 Scripts/Migration/migrate.py <copy> --cast-facts /tmp/facts.json [--log]
+    python3 Scripts/Migration/cpp_casts.py <copy> --cast-facts /tmp/facts.json [--log]
+
+  cast_facts.py runs on the Stage 0 tree (not the copy). Stage 0 compiles
+  Compiler/Driver/Kairo.k far enough to write its cache .cxx (a flag clang
+  rejects stops it there; --emit-ir is no use, it is one token per line and
+  breaks every #include). That .cxx carries `#line N __$FILE_k__` markers back
+  to the .k files; they become comments and the mapping is kept on the side,
+  so every cast keeps a unique physical location. The in-tree clang dumps the
+  AST (-fsyntax-only -Xclang -ast-dump, about 2 GB for Compiler/, streamed:
+  only cast nodes, their operand chain and the namespace / record / enum
+  declarations are kept). The kind is the cast's own plus the implicit steps
+  clang marks part_of_explicit_cast -- static_cast<B *>(d) is a NoOp over a
+  DerivedToBase. Stage 0's own `op as` dispatch casts
+  (operator$cast(static_cast<T *>(nullptr))) and verbatim inline C++ (one
+  space between tokens, not Stage 0's two) are told apart and left out.
+  About a minute end to end; --cxx reuses a kept .cxx.
+
+  cpp_casts.py pairs the k-th cast of each keyword in a file's CODE with the
+  k-th in Stage 0's C++, checking that each pair agrees on the target's
+  identifiers and pointer depth and that clang's line is not after the
+  source's (#line names the line a statement STARTS on, so it can only
+  trail). When the counts differ -- a Windows `eval if` branch is compiled out
+  on this host -- pairs are made only on equal lines, every clang site must
+  find its line, and the unseen sites are reported. Otherwise the file is
+  reported whole and not touched. A generic body is dumped once per instance
+  at one location; it is rewritten only when every instance agrees.
+
+  The rules, T being the source's target with pointers raw:
+
+    same type, same spelling              (x)
+    int -> int; bool -> int               (x as T)  -- also clang's NoOp
+                                          between u64 and usize, one C++
+                                          type and two Kairo ones
+    literal that does not fit T           (x as I as T), I the Kairo type of
+                                          clang's operand type: a literal
+                                          takes the cast's type in Stage 1,
+                                          so `-1 as u32` is SC075E where
+                                          static_cast<u32>(-1) wrapped
+    enum -> int                           (x as U as T), U the enum's own
+                                          `derives`; (x as T) when U is T
+    int -> enum                           (x as E) only for @open E; a
+                                          closed enum is REPORTED: Stage 1
+                                          checks it and crashes on a value
+                                          that is no variant (flag ORs)
+    float <-> int, float -> float         (x as T)
+    int -> bool, pointer -> bool          ((x) != 0), ((x) != &null)
+    DerivedToBase / BaseToDerived (ptr)   (unsafe (x as unsafe *T))
+    pointer bitcast, const_cast           (unsafe (x as unsafe *T))
+    `&null` -> pointer                    (unsafe (&null as unsafe *T))
+    pointer -> int (64-bit targets only)  (x as usize), (x as usize as T)
+    int -> pointer                        (unsafe (n as unsafe *T))
+    C char target, anything else          REPORTED
+
+  The unsafe forms are parenthesized whole: `unsafe (e)->f = v` parses as
+  `unsafe ((e)->f) = v`, an rvalue.
+
+  DEPENDENCY: the DerivedToBase / BaseToDerived rule is right only with
+  Stage 1 lowering `unsafe *C as unsafe *B` between related classes as
+  static_cast (Tests/Codegen/raw_pointer_base_cast.k). Before that it
+  reinterpreted, and through a non-first base read the wrong fields.
+
+  Checked by type-checking every file of the full pipeline's output with and
+  without cpp_casts (Stage 1, -fduck-generics): no cast diagnostic (SC023E,
+  SC024E-SC026E, SC030E, SC091E, SC092E) appears, the literal rule above
+  came out of that run, and SC031W "redundant cast" fires on the two-step
+  literal and `&null` forms. The run is shallow -- most files stop at parse
+  or import errors before ExprTyper sees a cast. Most of its new S052E /
+  S054E are a Stage 1 parser bug the rewrites expose, not a bad rewrite:
+  inside brackets a parenthesized operand ends the expression at a newline,
+  so `g((x as u8)\n & (y as u8))` fails where `g(x\n & y)` parses
+  (private/IMPORTANT/TICKETS.TXT).
+
+  Pipeline: raw_pointers, then cpp_casts, FIRST -- before template_alias_macros
+  (deletes lines) and ternary_to_if (moves code), because the pairing is by
+  order and line. Re-running on its own output changes nothing (the rewritten
+  sites no longer pair, so the file is reported and left).
+
+  On Compiler/ (2026-11-01, on a copy; facts from Compiler/Driver/Kairo.k):
+  raw_pointers 14257 sites in 231 files. cpp_casts 3837 casts: 3593
+  rewritten in 185 files, 244 reported; idempotent.
+
+    base <-> derived 2110   int -> int 618   pointer bitcast 380 (+23 rep.)
+    enum -> int 332 (+1)    pointer -> int 76   null -> pointer 34
+    float 25   const_cast 8   same type 7   pointer same 2 (+7)   to bool 1
+
+  Reported: 77 int -> closed enum, 53 generic (49 only ever dependent, 4
+  instances disagree), 25 C char targets, 25 in compiled-out branches, 30
+  std::ConstPtr<T> / alias targets (the alias is not unfolded), 15 integral
+  casts on a clang enum or C char operand, 17 in the 5 files Kairo.k never
+  reaches (KairoWatch, Kcc, ClangLocMapTest, ParseOnceTest,
+  ParseThroughputTest), 1 enum with no `derives`, 1 array-to-pointer decay.
+
+
 Other
 -----
 
