@@ -21,6 +21,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import host_sysroot  # Scripts/, beside this file
+
 HOST = platform.system()  # Linux | Darwin | Windows
 
 
@@ -231,6 +233,35 @@ def linux_preflight(env: dict) -> None:
         die("clang++ cannot compile/link against libc++ (LLVM_ENABLE_LIBCXX=ON needs it)\n"
             "Arch:   sudo pacman -S libc++\n"
             "Debian: apt install libc++-dev libc++abi-dev")
+
+
+def linux_sysroot_args(root: Path, dry: bool) -> list[str]:
+    # Opt-in ($KAIRO_HOST_SYSROOT, see host_sysroot.py): configure against an
+    # old-glibc sysroot so libLLVM / libclang-cpp / clang carry its floor, not
+    # the build host's. Appended only when set: the default cmake_args, and
+    # with them the configure hash, stay byte-identical, so an unset build
+    # never reconfigures (or rebuilds) LLVM.
+    gaps = host_sysroot.missing(root)
+    for m in gaps:
+        log(f"host sysroot missing: {m}")
+    if gaps and not dry:
+        die(f"host sysroot {root} cannot build the toolchain ({len(gaps)} missing, above)\n"
+            f"unset {host_sysroot.ENV} to build against the host glibc")
+    cxx = shlex.join(host_sysroot.cflags(root))
+    # The C side wants the same isolation without the C++ flags.
+    c = shlex.join(host_sysroot.cflags(root, cxx=False))
+    ld = shlex.join(host_sysroot.ldflags(root))
+    return [
+        f"-DCMAKE_SYSROOT={root}",
+        f"-DCMAKE_C_FLAGS={c}",
+        f"-DCMAKE_CXX_FLAGS={cxx}",
+        f"-DCMAKE_EXE_LINKER_FLAGS={ld}",
+        f"-DCMAKE_SHARED_LINKER_FLAGS={ld}",
+        f"-DCMAKE_MODULE_LINKER_FLAGS={ld}",
+        # libedit drags in the host's libedit + libncursesw (glibc 2.42 here),
+        # and the sysroot has neither. Only the line editor in llvm tools uses it.
+        "-DLLVM_ENABLE_LIBEDIT=OFF",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -612,6 +643,10 @@ def main() -> None:
         plat = darwin_args(brew)
     else:
         plat = linux_args()
+        root = host_sysroot.sysroot()
+        if root:
+            log(f"host sysroot: {root} (glibc {host_sysroot.glibc_version(root)})")
+            plat += linux_sysroot_args(root, a.dry_run)
 
     cmake_args = ["-S", str(LLVM_SRC / "llvm"), "-B", str(LLVM_BUILD), "-G", "Ninja",
                   *COMMON_ARGS, *plat]

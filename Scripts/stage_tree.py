@@ -38,7 +38,8 @@
 # depends on where it was built. Per host:
 #   Linux    ELF: deps from ldd (glibc and musl both ship one), RUNPATH via
 #            patchelf -> $ORIGIN/../lib (bin/), $ORIGIN (lib/); reports the
-#            glibc symbol-version floor.
+#            glibc symbol-version floor, and gates it under --glibc-floor
+#            (implied by $KAIRO_HOST_SYSROOT, see host_sysroot.py).
 #   macOS    Mach-O: deps from otool -L, install names -> @rpath/<name>,
 #            rpaths -> @loader_path/../lib (bin/), @loader_path (lib/), then
 #            an ad-hoc re-sign. build_llvm.stage_darwin() already did this for
@@ -65,8 +66,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import host_sysroot  # Scripts/, beside this file
+
 HOST = platform.system()  # Linux | Darwin | Windows
 EXE  = ".exe" if HOST == "Windows" else ""
+GLIBC_FLOOR: str | None = None  # main() sets it; see --glibc-floor
 
 
 def log(msg: str = "") -> None:
@@ -449,11 +453,30 @@ def bundle_linux(tree: Path, lib: Path) -> list[str]:
             if not p.startswith("$ORIGIN"):
                 fails.append(f"bad RUNPATH '{':'.join(paths)}' in {f.relative_to(tree)}")
                 break
-        versions |= set(re.findall(r"GLIBC_([0-9.]+)", run_out([str(OBJDUMP), "-T", str(f)])))
-    # Numeric, not lexical: 2.6 sorts above 2.44 as text.
-    floor = max(versions, key=lambda v: tuple(int(x) for x in v.split(".") if x), default=None)
-    log(f"glibc floor: {'GLIBC_' + floor if floor else 'none (no GLIBC_ symbol versions: musl or static)'}")
+        # Required versions only: an *UND* row is a symbol this file needs
+        # from glibc. A defined GLIBC_ row is glibc's own (a bundled libc
+        # never ships here, but a version node is not a requirement).
+        need = {}
+        for m in re.finditer(r"\*UND\*\s+\S+\s+(?:Base\s+)?\(?GLIBC_([0-9.]+)\)?\s+(\S+)",
+                             run_out([str(OBJDUMP), "-T", str(f)])):
+            need.setdefault(m.group(1), []).append(m.group(2))
+        versions |= set(need)
+        if GLIBC_FLOOR:
+            over = sorted((v for v in need if vtuple(v) > vtuple(GLIBC_FLOOR)), key=vtuple)
+            if over:
+                syms = sorted({s for v in over for s in need[v]})
+                more = f" (+{len(syms) - 6} more)" if len(syms) > 6 else ""
+                fails.append(f"{f.relative_to(tree)} needs GLIBC_{over[-1]}, above the "
+                             f"GLIBC_{GLIBC_FLOOR} floor: {', '.join(syms[:6])}{more}")
+    floor = max(versions, key=vtuple, default=None)
+    gate = f" (gate: <= GLIBC_{GLIBC_FLOOR})" if GLIBC_FLOOR else ""
+    log(f"glibc floor: {'GLIBC_' + floor if floor else 'none (no GLIBC_ symbol versions: musl or static)'}{gate}")
     return fails
+
+
+def vtuple(v: str) -> tuple[int, ...]:
+    # Numeric, not lexical: 2.6 sorts above 2.44 as text.
+    return tuple(int(x) for x in v.split(".") if x)
 
 
 # --- macOS ------------------------------------------------------------------
@@ -641,7 +664,19 @@ def main() -> None:
     ap.add_argument("--all", action="store_true", help="stage both the debug and the release tree")
     ap.add_argument("--copy", action="store_true", help="copy Lib/ trees even into a debug tree")
     ap.add_argument("--no-bundle", action="store_true", help="stage only; skip bundling and its gates")
+    ap.add_argument("--glibc-floor", metavar="X.Y",
+                    help="fail (Linux) if any staged binary needs a glibc newer than X.Y "
+                         "(default: $KAIRO_GLIBC_FLOOR, else the glibc_version of $KAIRO_HOST_SYSROOT)")
     a = ap.parse_args()
+
+    # No floor by default: a tree built against the host glibc (every build
+    # until LLVM is configured against a host sysroot) would fail it, and the
+    # edit loop must not. A release built for distribution sets the sysroot,
+    # and with it the floor, so that tree cannot ship needing more.
+    global GLIBC_FLOOR
+    root = host_sysroot.sysroot()
+    GLIBC_FLOOR = (a.glibc_floor or os.environ.get("KAIRO_GLIBC_FLOOR")
+                   or (host_sysroot.glibc_version(root) if root else None))
 
     if a.trees:
         trees = [Path(t).resolve() for t in a.trees]

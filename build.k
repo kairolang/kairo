@@ -446,9 +446,27 @@ fn llvm_libs(t: ref!(Target), llvm_build: string, out_lib: string) {
     }
 }
 
+// Opt-in: KAIRO_HOST_SYSROOT names an old-glibc sysroot (Scripts/host_sysroot.py)
+// to build against, so the shipped binaries need that glibc rather than the
+// build host's. It only holds if LLVM was configured against the same
+// sysroot (build_llvm.py reads the same variable), and stage_tree.py then
+// gates the tree on its glibc_version. Unset: nothing changes.
+fn host_sysroot_glue(t: ref!(Target)) {
+    var root = env("KAIRO_HOST_SYSROOT");
+    if !root.has_value() { return; }
+    // A sysroot that cannot build the toolchain fails here, naming what it
+    // lacks, not as a missing header deep in the compile.
+    var script  = project_root() + "/Scripts/host_sysroot.py";
+    run_or_fail(["python3", script, "--check"]);
+    var cflags  = run_or_fail(["python3", script, "--cflags"]);
+    var ldflags = run_or_fail(["python3", script, "--ldflags"]);
+    t.passthrough(cflags.stdout_str).passthrough(ldflags.stdout_str);
+}
+
 fn platform_glue(t: ref!(Target)) {
     if platform() == "linux" {
         t.passthrough("\\\x27-Wl,-rpath,\\$ORIGIN/../lib\\\x27");
+        host_sysroot_glue(t);
     }
     if platform() == "macos" {
         t.passthrough("\\\x27-Wl,-rpath,\\@loader_path/../lib\\\x27");
