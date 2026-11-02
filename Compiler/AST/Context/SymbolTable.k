@@ -282,8 +282,15 @@ class SymbolTable {
                              spelling: string) -> *OverloadCell {
         if (tbl == &null) || (src_imms == &null) { return &null; }
         var src_imm = src_imms->find_ident(spelling);
-        if src_imm == static_cast::<u32>(-1) { return &null; }  // absent in source
-        return tbl->lookup_ident(src_imm);
+        if src_imm != static_cast::<u32>(-1) { return tbl->lookup_ident(src_imm); }
+        // `#name` is the escape for a foreign name that is a Kairo keyword:
+        // `cxx::std::#thread`. Only on a miss, so a Kairo name declared with
+        // the `#` keeps it, and a C or C++ name can never contain one.
+        if (spelling.size() > 1) && (spelling[0] == '#') {
+            src_imm = src_imms->find_ident(spelling.subslice(1, spelling.size() - 1));
+            if src_imm != static_cast::<u32>(-1) { return tbl->lookup_ident(src_imm); }
+        }
+        return &null;   // absent in source
     }
 
     fn has(self, name: DeclName) -> bool {
