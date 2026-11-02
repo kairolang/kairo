@@ -62,6 +62,7 @@ import Sema::Check::ReturnPathCheck::*;
 import Sema::Check::FnPurityCheck::*;
 import Sema::Check::CallConvCheck::*;
 import Sema::Check::ScopeEscapeCheck::*;
+import Sema::Check::ClassAllocatorCheck::*;
 import Sema::Check::ControlFlowAnalysis::*;
 import Sema::Check::WhereGuardCheck::*;
 import Sema::Check::OperatorSignatureCheck::*;
@@ -380,6 +381,10 @@ class Sema {
         // compound-assignment pairing assume shapes this pass has already
         // rejected (a compound operator with a result, both halves of a pair).
         { var _p = TimeRegion("OperatorSignature"); OperatorSignatureCheck(&self.sc).run(); }
+        // `op new` / static `op delete`, a class's own allocator (P215):
+        // static, in a type, Allocator's signatures, both present. Before
+        // ExprTyper, which routes create / destroy of the class to them.
+        { var _p = TimeRegion("ClassAllocator"); ClassAllocatorCheck(&self.sc).run(); }
 
         // Where a type pack, a pack parameter and a pack-expanded variant may
         // appear. Before X: it reads only N's names and T's types, and an

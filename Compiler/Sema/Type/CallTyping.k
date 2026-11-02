@@ -66,6 +66,7 @@ import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
 import AST::ParamMode::*;
+import AST::LangItems::*;
 import AST::Node::Base::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Expressions::*;
@@ -459,9 +460,12 @@ class <T> CallTyping {
                 var cands = vec::<*Decl>();
                 for var i: usize = 0; i < id->candidate_cell->size(); ++i { cands.push_back(id->candidate_cell->get(i)); }
                 self._set_explicit(&(id->generic_args));
-                var rt = self._call_candidates(n, &cands, false, &null, dyn()->sc->ctx->get_spelling(id->name),
+                var routed = self._class_alloc_route(id, &cands);
+                var cname = (routed) if (routed != "") else (dyn()->sc->ctx->get_spelling(id->name));
+                var rt = self._call_candidates(n, &cands, false, &null, cname,
                                              id, &null, true);
                 dyn()->ovl.explicit_args.clear();
+                if routed == "" { self._class_alloc_unrouted(n, id); }
                 return rt;
             }
             // `u32(x)`: the parser admits a primitive before `(`, but Kairo
@@ -484,8 +488,11 @@ class <T> CallTyping {
                 var cands = vec::<*Decl>();
                 cands.push_back(d);
                 self._set_explicit(&(id->generic_args));
-                var rt = self._call_candidates(n, &cands, false, &null, dyn()->sc->ctx->get_spelling(id->name), id, &null, true);
+                var routed = self._class_alloc_route(id, &cands);
+                var cname = (routed) if (routed != "") else (dyn()->sc->ctx->get_spelling(id->name));
+                var rt = self._call_candidates(n, &cands, false, &null, cname, id, &null, true);
                 dyn()->ovl.explicit_args.clear();
+                if routed == "" { self._class_alloc_unrouted(n, id); }
                 return rt;
             }
             if dyn()->tu.is_type_decl(d) {
@@ -533,6 +540,82 @@ class <T> CallTyping {
         var t = dyn()->type_of(callee, &null);
         if callee->is_poisoned() { dyn()->poison_only(n); return &null; }
         return self._call_through(n, t);
+    }
+
+    // --- a class's own allocator (P215) ---------------------------------------
+
+    /// `create<T>(...)`, `try_create<T>(...)` or `destroy<T>(p)` of alloc.k,
+    /// with T a class that declares `op new` / `op delete`: the call is its
+    /// `_in<T, T>` form instead, T the allocator (the parser declared the pair
+    /// as T's `alloc` / `free`; ClassAllocatorCheck vouched for them). So a
+    /// class-allocated object is created and freed by its class, whatever
+    /// allocator is in effect -- as C++'s class-specific operator new is.
+    /// Rewrites \p cands and the explicit arguments in place, and unbinds
+    /// the name so the winner is written back to it; returns the new name,
+    /// or "" when the call is not one of these.
+    priv fn _class_alloc_route(self, id: *NamedIdentExpr, cands: *vec::<*Decl>) -> string {
+        if (cands->size() == 0) || (dyn()->ovl.explicit_args.size() != 1) { return ""; }
+        if dyn()->sc->g == &null { return ""; }
+        var f = dyn_cast::<FunctionDecl>((*cands)[0]);
+        if f == &null { return ""; }
+        var nm = dyn()->tu.decl_name(static_cast::<*Decl>(f));
+        if (nm != AllocNames::create()) && (nm != AllocNames::try_create()) && (nm != AllocNames::destroy()) { return ""; }
+        if !dyn()->sc->g->is_builtin_fid(dyn()->tu.fid_of(static_cast::<*Decl>(f))) { return ""; }
+        var t = dyn()->ovl.explicit_args[0];
+        if !self._has_class_alloc(t) { return ""; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if dc == &null { return ""; }
+        var in_nm = nm + AllocNames::in_suffix();
+        var imm  = dyn()->sc->imm_table()->intern_ident_copy(in_nm);
+        var cell = dyn()->sc->lookup.in_context(dc, DeclName::ident(imm), in_nm);
+        if !cell.found() { return ""; }
+        cands->clear();
+        for var i: usize = 0; i < cell.cell->size(); ++i { cands->push_back(cell.cell->get(i)); }
+        dyn()->ovl.explicit_args.push_back(t);
+        id->resolved_decl  = &null;
+        id->candidate_cell = &null;
+        return in_nm;
+    }
+
+    /// \p t is a class with its own allocator: an `alloc` the parser made
+    /// from `op new`.
+    priv fn _has_class_alloc(self, t: *Type) -> bool {
+        var u = canon_unqual(t);
+        if (u == &null) || (!isa::<RecordType>(u)) { return false; }
+        var rd = cast::<RecordType>(u)->decl;
+        if rd == &null { return false; }
+        var dc = NameLookup::context_of(dyn()->tu.pattern_of(rd));
+        if dc == &null { return false; }
+        var am   = AllocNames::alloc_member();
+        var imm  = dyn()->sc->imm_table()->intern_ident_copy(am);
+        var cell = dyn()->sc->lookup.in_context(dc, DeclName::ident(imm), am);
+        if !cell.found() { return false; }
+        for var i: usize = 0; i < cell.cell->size(); ++i {
+            var m = dyn_cast::<FunctionDecl>(cell.cell->get(i));
+            if (m != &null) && (m->class_alloc_op == 1) { return true; }
+        }
+        return false;
+    }
+
+    /// `destroy(p)` with T deduced from p cannot be routed before p is typed,
+    /// and freeing a class-allocated object to the allocator in effect
+    /// corrupts both heaps: so it is an error that asks for T, never a
+    /// silent mismatch.
+    priv fn _class_alloc_unrouted(self, n: *CallExpr, id: *NamedIdentExpr) {
+        if n->is_poisoned() || (dyn()->sc->g == &null) || (!id->generic_args.is_empty()) { return; }
+        var d = dyn_cast::<FunctionDecl>(id->resolved_decl);
+        if (d == &null) || (n->args.size() != 1) { return; }
+        if dyn()->tu.decl_name(static_cast::<*Decl>(d)) != AllocNames::destroy() { return; }
+        if !dyn()->sc->g->is_builtin_fid(dyn()->tu.fid_of(static_cast::<*Decl>(d))) { return; }
+        var a = n->args.get(0);
+        if (a == &null) || ((*a) == &null) { return; }
+        var pt = dyn()->tu.pointee((*a)->type_);
+        if (pt == &null) || (!self._has_class_alloc(pt)) { return; }
+        var tn = dyn()->tu.decl_name(cast::<RecordType>(canon_unqual(pt))->decl);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            f"'{tn}' has its own allocator ('op new' / 'op delete'), so its destroy names it: write 'destroy<{tn}>(p)' or '@destroy<{tn}>(p)\x27");
+        b.first(n->range);
+        b.emit();
     }
 
     /// `x?.f(args)` whose call typed \p r: the expression is `if x? =>

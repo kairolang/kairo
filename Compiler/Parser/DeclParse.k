@@ -47,6 +47,7 @@ import Token::Token::*;
 import Token::TokenKind::*;
 import Parser::LexicalScope::*;
 import AST::ParamMode::*;
+import AST::LangItems::*;
 
 class <T> DeclParse {
     /// \enum DeclSyncCtx
@@ -1370,11 +1371,31 @@ class <T> DeclParse {
         // name | `op <operator>` | qualified `Class::method`
         if dyn()->check(TokenKind::KwOp) {
             dyn()->advance(); // consume `op`
-            fd->is_operator = true;
-            var ops: std::StackBuf::<Token, 2>;
-            self._parse_and_validate_op_spelling(&ops);
-            fd->op_token.from_buf(ops.data(), ops.size(), dyn()->ctx);
-            fd->name = Token();
+            // A class's own allocator (P215): `op new` (any storage; a
+            // non-static one is ClassAllocatorCheck's error) and a STATIC
+            // `op delete`, which a destructor never is. Both are declared
+            // under the Allocator interface's member names, decided here at
+            // the head because the index pass hoists from the head alone.
+            var alloc_op: u8 = 0;
+            if dyn()->check(TokenKind::LitIdentifier) && (dyn()->ctx->get_spelling(dyn()->current()) == AllocNames::op_new_word()) {
+                alloc_op = 1;
+            } else if dyn()->check(TokenKind::KwDelete) && (lead->abi == AbiKind::Static) {
+                alloc_op = 2;
+            }
+            if alloc_op != 0 {
+                var at = dyn()->current();
+                at.kind = TokenKind::LitIdentifier;
+                at.imm  = dyn()->ctx->hoisted->intern((AllocNames::alloc_member()) if (alloc_op == 1) else (AllocNames::free_member()));
+                fd->name = at;
+                fd->class_alloc_op = alloc_op;
+                dyn()->advance(T::SkipNL::After);
+            } else {
+                fd->is_operator = true;
+                var ops: std::StackBuf::<Token, 2>;
+                self._parse_and_validate_op_spelling(&ops);
+                fd->op_token.from_buf(ops.data(), ops.size(), dyn()->ctx);
+                fd->name = Token();
+            }
         } else if dyn()->check(TokenKind::LitIdentifier) || dyn()->check(TokenKind::KwSelf) {
             var name_tok = dyn()->current();
             dyn()->advance();

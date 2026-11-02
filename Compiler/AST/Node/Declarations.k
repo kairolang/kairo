@@ -652,6 +652,13 @@ class FunctionDecl
     /// writes its body (EmitIR::_dynamic_layout_body), reading T's hidden
     /// `__kairo_layout()` when T has one. One writer, as for lowers_to_expect.
     pub var dynamic_layout: u8 = 0;
+    /// A class's own allocator (P215): 1 `static fn op new(size, align) ->
+    /// unsafe *u8`, 2 `static fn op delete(ptr, size, align)`, 0 anything
+    /// else. The parser names them `alloc` / `free` (AllocNames), the
+    /// Allocator interface's members, so `create_in<T, T>` reaches them;
+    /// this says what was written, for ClassAllocatorCheck's messages and
+    /// CallTyping's routing. One writer: the parser.
+    pub var class_alloc_op: u8 = 0;
     /// Function attributes (attributes.mdx, "Function hints"). Writer: the
     /// parser (apply_annotations_to_decl), where every decl's annotations
     /// land; codegen reads the fields so it never re-resolves attribute
@@ -725,6 +732,7 @@ class FunctionDecl
         node->lowers_to_expect = false;
         node->lowers_to_assume = false;
         node->dynamic_layout = 0;
+        node->class_alloc_op = 0;
         node->hot_path    = false;
         node->cold_path   = false;
         node->is_pure     = false;
@@ -747,6 +755,7 @@ class FunctionDecl
         node->lowers_to_expect = false;
         node->lowers_to_assume = false;
         node->dynamic_layout = 0;
+        node->class_alloc_op = 0;
         node->hot_path    = false;
         node->cold_path   = false;
         node->is_pure     = false;
