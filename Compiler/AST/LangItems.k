@@ -1174,6 +1174,16 @@ class LowerTargets {
     static fn panic_call_as() -> string              { return "__kairo_pcall"; }
     static fn panic_wrapped() -> string              { return "__kairo_w"; }
     static fn panic_wrap_arg(i: usize) -> string     { return f"__kairo_a{i}"; }
+    /// A member call through a `<T: type>` parameter (EmitIR::_call): only
+    /// the instance knows the callee, so only C++ can tell it returns a
+    /// panic result, which a duck body cannot handle (MONO.md D1).
+    /// `(::__kairo_nopanic(), t.f())`: the tag's `operator,` static_asserts
+    /// that the value is no Panic instance (`__kairo_is_panic`) and yields
+    /// it; a `void` call takes the builtin comma.
+    static fn nopanic_call() -> string              { return "__kairo_nopanic"; }
+    static fn nopanic_tag() -> string               { return "__kairo_nopanic_t"; }
+    static fn nopanic_trait() -> string             { return "__kairo_is_panic"; }
+    static fn nopanic_guard() -> string             { return "__KAIRO_NO_PANIC"; }
     /// The per-TU panic site table (PANIC.md §1.4): one record per site, a
     /// `__kairo_panic_site` named `__kairo_ps_<key>` (key: the 64-bit hash
     /// of the site's path and offset), in the linker-collected section.

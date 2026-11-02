@@ -65,6 +65,7 @@ class IncludedDecls {
     pub var site_type:  bool = false;    ///< InterfaceEmitter::have_site_type
     pub var panic_api:  bool = false;    ///< InterfaceEmitter::have_panic_api
     pub var raw_slot:   bool = false;    ///< InterfaceEmitter::have_raw_slot
+    pub var nopanic:    bool = false;    ///< InterfaceEmitter::have_nopanic
     pub var tid_seen:   vec::<u64>;      ///< InterfaceEmitter::tid_seen
     pub var estr_seen:  vec::<u64>;      ///< InterfaceEmitter::estr_seen
     /// A decl or instance with its tier in the low bits (nodes are 8-aligned):
@@ -276,6 +277,7 @@ class IncludeEmitter {
         ie.have_site_type = seen->site_type;
         ie.have_panic_api = seen->panic_api;
         ie.have_raw_slot  = seen->raw_slot;
+        ie.have_nopanic  = seen->nopanic;
         // The C++ view's throwing half needs the host's exceptions on: clang
         // rejects a `throw` in a template it only defines.
         ie.cxx_exceptions = static_cast::<bool>(ci->getLangOpts().CXXExceptions);
@@ -303,6 +305,7 @@ class IncludeEmitter {
         seen->site_type = ie.have_site_type;
         seen->panic_api = ie.have_panic_api;
         seen->raw_slot  = ie.have_raw_slot;
+        seen->nopanic  = ie.have_nopanic;
         seen->tid_seen.clear();
         for var k: usize = 0; k < ie.tid_seen.size(); ++k { seen->tid_seen.push_back(ie.tid_seen[k]); }
         seen->estr_seen.clear();

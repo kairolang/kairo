@@ -147,9 +147,14 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
     /// Every call's callee expression met so far (a call is visited before
     /// its callee): a function named there is called, not used as a value.
     priv var _callees: llvm::DenseSet::<u64>;
-    /// Overrides and conformers already held to their base's set: a
-    /// method can be reached through a visibility group and the list.
-    priv var _subset_done: llvm::DenseSet::<u64>;
+    /// Every (method, base method or requirement, where it is met) pair
+    /// held so far (_met): a method can be reached through a visibility
+    /// group and the list, and can meet several.
+    priv var _met_fn:  vec::<*FunctionDecl>;
+    priv var _met_sup: vec::<*FunctionDecl>;
+    priv var _met_at:  vec::<*Type>;
+    /// Methods already reported meeting two different sets.
+    priv var _two_done: llvm::DenseSet::<u64>;
     priv var _scratch: vec::<*Type>;
     /// The functions whose bodies the traversal is inside, innermost last:
     /// a closure's enclosing function (a `<T: type>` gate reaches it).
@@ -678,6 +683,20 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             self._gate(at, "an 'async' 'panic' function");
             return;
         }
+        // A requirement's panic result is spelled outside the witness (its
+        // conformers return it, PanicLowering::_result_of), where `Self` has
+        // no C++ type: codegen stops on the interface (I003E). Reported at
+        // the declaration, which every conformer and every call through a
+        // bound -- operator form or method form -- goes through.
+        if self._in_interface(f) && self._result_names_self(f) {
+            var b = self.sc->diag->report(DiagID::SC116E, at.start,
+                f"a panicking interface requirement whose result names 'Self' ('{nm}') is not yet supported");
+            b.first(at);
+            var rt = (f->return_type->range) if (f->return_type != &null) else (self._name_range(f));
+            b.note(DiagID::SC116N, rt.start, "its result names 'Self' here").first(rt);
+            b.emit();
+            return;
+        }
         for var i: usize = 0; i < f->panic_set.size(); ++i {
             var t = f->panic_set[i];
             if (t != &null) && (t->canonical != &null) { self._check_payload(t->canonical, t->range, "panicked"); }
@@ -786,11 +805,13 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         if (cd == &null) || cd->is_poisoned() || decl_is_imported(static_cast::<*Decl>(cd)) { return true; }
         for var i: usize = 0; i < cd->methods.size(); ++i {
             var m = cd->methods[i];
-            if (m == &null) || m->is_poisoned() || (m->abi != AbiKind::Override) || (!m->is_panic()) { continue; }
+            // Every override, a non-panicking one too: it may also meet a
+            // requirement whose set differs from its base's (_met).
+            if (m == &null) || m->is_poisoned() || (m->abi != AbiKind::Override) { continue; }
             var bt: *Type = &null;
             var base = panic_overridden_at(&(self._tu), cd, m, &bt);
             if base == &null { continue; }
-            self._subset(m, base, bt, "overrides", "an override");
+            self._met(m, base, bt, "overrides", "an override");
         }
         self._conformances(static_cast::<*Decl>(cd));
         return true;
@@ -822,7 +843,7 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
                 if decl_is_imported(static_cast::<*Decl>(w)) { continue; }
                 // Only where the conformer is written: its own TU reports it.
                 if self._tu.fid_of(static_cast::<*Decl>(w)) != self.sc->ctx->fid { continue; }
-                self._subset(w, q, row->iface, "implements", "a conforming method");
+                self._met(w, q, row->iface, "implements", "a conforming method");
             }
         }
     }
@@ -834,9 +855,6 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
     /// set is read at its arguments (P10), `B<i32>`'s `panic(T)` is
     /// `panic(i32)`.
     priv fn _subset(self, sub: *FunctionDecl, sup: *FunctionDecl, through: *Type, verb: string, what: string) {
-        var key = reinterpret_cast::<u64>(sub);
-        if self._subset_done.contains(key) { return; }
-        self._subset_done.insert(key);
         var a = vec::<*Type>();
         var b = vec::<*Type>();
         var ka = panic_set_of_fn(&(self._tu), sub, &a);
@@ -871,6 +889,86 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         if sup->has_panic_set() && sup->panic_range.is_valid() && (!decl_is_imported(static_cast::<*Decl>(sup))) && (!generic_sup) {
             d.insert(sup->panic_range.end.with_offset(-1), ", " + pset_spelling(&(self._tu), &out), f"add it to the set of '{sn}\x27");
         }
+        d.emit();
+    }
+
+    /// \p w overrides or implements \p sup, met through \p through: its set
+    /// is held to \p sup's, once per pair (a method meeting two -- two
+    /// interfaces, or an override that is also a conformer -- is held to
+    /// each), and against every other it meets (_two_sets).
+    priv fn _met(self, w: *FunctionDecl, sup: *FunctionDecl, through: *Type, verb: string, what: string) {
+        for var i: usize = 0; i < self._met_fn.size(); ++i {
+            if (self._met_fn[i] == w) && (self._met_sup[i] == sup) && self._same_at(self._met_at[i], through) { return; }
+        }
+        for var i: usize = 0; i < self._met_fn.size(); ++i {
+            if self._met_fn[i] == w { self._two_sets(w, self._met_sup[i], self._met_at[i], sup, through); }
+        }
+        self._met_fn.push_back(w);
+        self._met_sup.push_back(sup);
+        self._met_at.push_back(through);
+        self._subset(w, sup, through, verb, what);
+    }
+
+    /// \p f's result or a type in its declared set names `Self` (the type,
+    /// a pointer to it, an argument of a record).
+    priv fn _result_names_self(self, f: *FunctionDecl) -> bool {
+        if (f->return_type != &null) && self._names_self(f->return_type->canonical, 0) { return true; }
+        for var i: usize = 0; i < f->panic_set.size(); ++i {
+            var t = f->panic_set[i];
+            if (t != &null) && self._names_self(t->canonical, 0) { return true; }
+        }
+        return false;
+    }
+
+    priv fn _names_self(self, t: *Type, depth: u32) -> bool {
+        if (t == &null) || (depth > 16) { return false; }
+        var c = canon_unqual(t);
+        if c == &null { return false; }
+        if c->kind == TypeKind::SelfType { return true; }
+        if c->kind == TypeKind::PointerType { return self._names_self(cast::<PointerType>(c)->pointee, depth + 1); }
+        if c->kind != TypeKind::RecordType { return false; }
+        var d = self._tu.record_decl(c);
+        if (d != &null) && isa::<InterfaceDecl>(d) { return true; }
+        var args = self._tu.record_args(c);
+        for var i: usize = 0; i < args.size(); ++i { if self._names_self(args[i], depth + 1) { return true; } }
+        return false;
+    }
+
+    /// One record a requirement is met through (`Src<A>`), or both none.
+    priv fn _same_at(self, x: *Type, y: *Type) -> bool {
+        if (x == &null) || (y == &null) { return x == y; }
+        return canon_unqual(x) == canon_unqual(y);
+    }
+
+    /// A method returns ONE C++ type, and PanicLowering gives one that
+    /// meets a panicking requirement or base method that one's result
+    /// (`Panic<T, E...>` over ITS set; plain T when it does not panic): the
+    /// witness and the vtable name it exactly. Meeting two whose sets differ
+    /// needs a result per requirement -- a thunk -- which does not exist
+    /// yet, so it is reported here rather than failing in C++. Equal sets
+    /// form one result, and are fine.
+    priv fn _two_sets(self, w: *FunctionDecl, a_fn: *FunctionDecl, a_at: *Type, b_fn: *FunctionDecl, b_at: *Type) {
+        var key = reinterpret_cast::<u64>(w);
+        if self._two_done.contains(key) { return; }
+        var a = vec::<*Type>();
+        var b = vec::<*Type>();
+        var ka = panic_set_through(&(self._tu), a_fn, a_at, &a);
+        var kb = panic_set_through(&(self._tu), b_fn, b_at, &b);
+        if (ka == PanicKnown::Unknown) || (ka == PanicKnown::Unbound) || (kb == PanicKnown::Unknown) || (kb == PanicKnown::Unbound) { return; }
+        var same = a.size() == b.size();
+        for var i: usize = 0; same && (i < a.size()); ++i { if !pset_has(&b, a[i]) { same = false; } }
+        if same { return; }
+        self._two_done.insert(key);
+        var an = self._qual_name(a_fn);
+        var bn = self._qual_name(b_fn);
+        var at = self._name_range(w);
+        var d = self.sc->diag->report(DiagID::SC116E, at.start,
+            f"a method meeting both '{an}' and '{bn}', whose panic sets differ, is not yet supported");
+        d.first(at);
+        var ad = ("does not panic") if (a.size() == 0) else ("panics with " + pset_names(&(self._tu), &a));
+        var bd = ("does not panic") if (b.size() == 0) else ("panics with " + pset_names(&(self._tu), &b));
+        d.note(DiagID::SC116N, a_fn->range.start, f"'{an}' {ad}").first(self._name_range(a_fn));
+        d.note(DiagID::SC116N, b_fn->range.start, f"'{bn}' {bd}").first(self._name_range(b_fn));
         d.emit();
     }
 
@@ -1061,13 +1159,23 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             self._gate(w->unbound_at[i], f"a call of '{self._fn_name(w->unbound_fn[i])}', whose panic set names a generic parameter this call does not bind,");
         }
 
-        // A panicking operator is called through the operator's own syntax,
-        // which OperatorLowering derives other operators from (`!=` from
-        // `==`, `+=` from `+`) with the declared result: not lowered yet.
+        // A panicking operator written as an operator is lowered to its held
+        // call by PanicLowering, derived forms included. Not yet: the call a
+        // `for` loop makes of `op in`, a place operator (`op []` giving a
+        // `*T`, which C++ declares returning `T&`, not a panic result), an
+        // `op as` (a C++ conversion function, whose result is its target
+        // type), and `===`'s `==` (CoalesceLowering's).
         for var i: usize = 0; i < w->sites.size(); ++i {
             var s = &(w->sites[i]);
             var cf = dyn_cast::<FunctionDecl>(s->callee);
-            if (cf != &null) && cf->is_operator { self._gate(s->range, "a call of a panicking operator"); }
+            if (cf == &null) || (!cf->is_operator) { continue; }
+            if s->via_for { self._gate(s->range, "a 'for' loop over a panicking 'op in\x27"); }
+            else if OperatorFacts::is_place(cf) { self._gate(s->range, "a call of a panicking place operator ('op []' returning a pointer)"); }
+            else if OperatorFacts::op_kind(cf) == TokenKind::KwAs { self._gate(s->range, "a call of a panicking 'op as\x27"); }
+            else if (s->op_node != &null) && isa::<BinaryOperatorExpr>(s->op_node)
+                    && (cast::<BinaryOperatorExpr>(s->op_node)->op_token.kind == TokenKind::OpEqualEqualEqual) {
+                self._gate(s->range, "'===' through a panicking 'op ==\x27");
+            }
         }
 
         if kind == PanicBody::Global {

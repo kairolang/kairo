@@ -2470,11 +2470,27 @@ class EmitIR {
             // decision (MONO.md D1). It goes out as written, receiver chain
             // and arguments untouched, and clang resolves and checks it in
             // each instance. No parameter to convert to, no arity to check.
+            // Nor a panic set: only the instance can tell the callee returns
+            // a panic result, which the body cannot handle (its panics are
+            // SC116E) and a discarded call would drop. The wrapper stops
+            // that instance (LowerTargets::nopanic_call).
             if self._dependent_member_call(n) {
+                // The wrapper has no Kairo bytes: its tokens are unanchored,
+                // as five on the call's first byte would walk on into the
+                // call's own and take the `.` clang places a member-access
+                // error on. Only the `,` -- the expression a failed instance
+                // is "requested" at -- sits on the call's first byte.
+                self._cg->sink->unanchored(true);
+                self._cg->sink->spell(n->range, "(::" + LowerTargets::nopanic_call() + "()");
+                self._cg->sink->unanchored(false);
+                self._cg->sink->synth_at_start(n->range, clang::tok::comma);
                 self.emit(n->callee);
                 self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
                 self._args(n, &null, true, &null);
                 self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
+                self._cg->sink->unanchored(true);
+                self._cg->sink->spell(n->range, ")");
+                self._cg->sink->unanchored(false);
                 return;
             }
             self._ice(n->range, "EmitIR: unbound callee reached codegen; ExprTyper gate failure");

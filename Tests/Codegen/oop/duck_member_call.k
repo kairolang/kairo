@@ -39,7 +39,7 @@ fn main() -> i32 {
 // IR-DAG: p->twice()
 // IR-DAG: t.template pick<
 // IR-DAG: T::classof(n)
-// IR-DAG: t.inner().w
+// IR-DAG: ( ::__kairo_nopanic(), t.inner()).w
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

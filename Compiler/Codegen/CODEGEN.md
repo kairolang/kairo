@@ -1691,6 +1691,15 @@ import set (the extension-visibility rule), an unparameterized bound on a
 generic interface. An extension member reached from a `: type` body is
 nobody's Kairo error: the call is emitted as a member call and clang
 rejects the instance (MONO.md D1; there is no per-instance re-check).
+For the same reason Sema cannot see that such a member call panics, so
+EmitIR::_call spells every member call through a `: type` parameter as
+`(::__kairo_nopanic(), t.f(a))`: the tag's `operator,` static_asserts
+that the value is no Panic instance (`__kairo_is_panic`, specialized for
+the Panic lang item beside the C++ view) and yields it as it came, a
+reference as a reference; a `void` call cannot bind `T&&` and takes the
+builtin comma. A discarded panicking call would otherwise drop its error
+(P184). InterfaceEmitter writes the tag wherever EmitPlan::needs_nopanic
+(a function under a `: type` parameter) or Panic is defined.
 Codegen keeps ICEs, each naming its owner: a requirement
 callee with no recorded witness (ExtensionLowering); an instance whose
 bound binds no table row (ConformanceChecking); a row with no decl for

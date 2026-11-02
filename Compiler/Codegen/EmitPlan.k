@@ -515,6 +515,10 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     /// put in a slot. The preamble must define `::__kairo_raw`, which it
     /// otherwise writes with the Panic lang item's helpers.
     pub var needs_raw_slot: bool = false;
+    /// A function under a `<T: type>` parameter: its body's member calls
+    /// through T go out wrapped in `(::__kairo_nopanic(), call)`, and the
+    /// preamble must define the tag (InterfaceEmitter::_nopanic_helpers).
+    pub var needs_nopanic: bool = false;
     /// Compile-time string literals too long for `__kairo_estr<...>`
     /// (LowerTargets::eval_str_inline_max, EVAL.md §11), once each by
     /// content: InterfaceEmitter defines each as a named `inline constexpr`
@@ -2299,6 +2303,23 @@ fn EmitPlan::visit_type(t: *Type) -> bool {
     return true;
 }
 
+/// \p d_in, or a declaration enclosing it, has a `<T: type>` parameter
+/// (Sema's panic_in_duck): the C++-checked regime, whose member calls
+/// through T EmitIR wraps (LowerTargets::nopanic_call).
+fn plan_under_duck(d_in: *Decl) -> bool {
+    var d = d_in;
+    for var depth: u32 = 0; (d != &null) && (depth < 64); ++depth {
+        var gps = decl_generic_params(d);
+        for var i: usize = 0; i < gps.size(); ++i {
+            if (gps[i] != &null) && (gps[i]->kind_bound == GenericParamKindBound::Duck) { return true; }
+        }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        if dc == &null { return false; }
+        d = dc->owner_decl();
+    }
+    return false;
+}
+
 /// Declared types are LAYOUT positions: Complete, weakened by the shape.
 fn EmitPlan::visit_decl(d: *Decl) -> bool {
     if d == &null { return true; }
@@ -2315,6 +2336,7 @@ fn EmitPlan::visit_decl(d: *Decl) -> bool {
         case DeclKind::FunctionDecl  {
             self._admit_type(cast::<FunctionDecl>(d)->return_type, PlanNeed::Complete);
             self._admit_type(cast::<FunctionDecl>(d)->panic_result, PlanNeed::Complete);   // PANIC.md §4.1: what C++ returns.
+            if (!self.needs_nopanic) && plan_under_duck(d) { self.needs_nopanic = true; }
         }
         case DeclKind::TypeAliasDecl { self._admit_type(cast::<TypeAliasDecl>(d)->aliased, PlanNeed::Complete); }
         default { break; }

@@ -37,6 +37,10 @@
 ///     and the nullable trio lowers it. After this pass no operator node has
 ///     a record operand; EmitIR ICEs if one does.
 ///
+///     A PANICKING operator arrives already a call: PanicLowering, which
+///     runs first, rewrote it through lower_one to hold the call (a derived
+///     form's inner one), and this pass meets a plain call.
+///
 ///     The rewritten call carries the original node's sema facts through
 ///     adopt_sema, the Operator step carries `resolved_decl` so codegen
 ///     spells the operator from the decl, and `instance` carries a generic
@@ -84,10 +88,40 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
     /// `*T` (importers' X reads it), but CXXSpell declares it `T&`.
     priv var _place_fn: *FunctionDecl = &null;
 
+    /// lower_one's calls, in the order built: when set, each call
+    /// _call_tokens builds is kept on `made`.
+    priv var _record: bool = false;
+    pub var made: vec::<*CallExpr>;
+
+    fn OperatorLowering(self) {
+        self.sc  = &null;
+        self.ctx = &null;
+    }
+
     fn OperatorLowering(self, sc: *SemaContext) {
         self.sc    = sc;
         self.ctx   = sc->ctx;
         self.synth = LowerSynth(sc);
+    }
+
+    /// One operator node's rewrite with its operands as they stand, none of
+    /// them walked; every call it builds is on `made` afterwards. For
+    /// PanicLowering, which lowers a PANICKING operator ahead of this pass
+    /// so it can hold the call itself -- the derived forms test the result
+    /// of the inner call, not of the node -- and has already rewritten the
+    /// operands with its own walk. The pass, run later, meets the calls
+    /// this built as calls and leaves them. One instance serves a whole
+    /// PanicLowering run: the names it mints stay unique within it.
+    pub fn lower_one(self, e: *Expr) -> *Expr {
+        self.made.clear();
+        self._record = true;
+        var out = e;
+        if isa::<BinaryOperatorExpr>(e) { out = self._binary(cast::<BinaryOperatorExpr>(e), e); }
+        else if isa::<UnaryOperatorExpr>(e) { out = self._unary(cast::<UnaryOperatorExpr>(e), e); }
+        else if isa::<AssignOperatorExpr>(e) { out = self._assign(cast::<AssignOperatorExpr>(e), e); }
+        else if isa::<SubscriptExpr>(e) { out = self._subscript(cast::<SubscriptExpr>(e), e); }
+        self._record = false;
+        return out;
     }
 
     fn run(self) {
@@ -139,6 +173,10 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
 
     fn transform_binary_operator_expr(self, n: *BinaryOperatorExpr) -> *Expr {
         var out = ASTWriter::<OperatorLowering>::transform_binary_operator_expr(n);
+        return self._binary(n, out);
+    }
+
+    priv fn _binary(self, n: *BinaryOperatorExpr, out: *Expr) -> *Expr {
         // Before the builtin test: a tag `==` binds no operator either.
         if n->tag_eq { return self._tag_eq(n); }
         if n->resolved_op == &null { return out; }   // builtin (`===` is CoalesceLowering's, gone by now).
@@ -174,6 +212,10 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
 
     fn transform_unary_operator_expr(self, n: *UnaryOperatorExpr) -> *Expr {
         var out = ASTWriter::<OperatorLowering>::transform_unary_operator_expr(n);
+        return self._unary(n, out);
+    }
+
+    priv fn _unary(self, n: *UnaryOperatorExpr, out: *Expr) -> *Expr {
         if n->resolved_op == &null { return out; }
         var f = self._fn(n->resolved_op);
         var args = vec::<*Expr>();
@@ -185,6 +227,10 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
 
     fn transform_assign_operator_expr(self, n: *AssignOperatorExpr) -> *Expr {
         var out = ASTWriter::<OperatorLowering>::transform_assign_operator_expr(n);
+        return self._assign(n, out);
+    }
+
+    priv fn _assign(self, n: *AssignOperatorExpr, out: *Expr) -> *Expr {
         if n->resolved_op == &null { return out; }
         var f = self._fn(n->resolved_op);
         var args = vec::<*Expr>();
@@ -199,6 +245,10 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
 
     fn transform_subscript_expr(self, n: *SubscriptExpr) -> *Expr {
         var out = ASTWriter::<OperatorLowering>::transform_subscript_expr(n);
+        return self._subscript(n, out);
+    }
+
+    priv fn _subscript(self, n: *SubscriptExpr, out: *Expr) -> *Expr {
         if n->resolved_op == &null { return out; }
         // `op []` is two tokens; the receiver's own range anchors the step.
         var args = vec::<*Expr>();
@@ -235,6 +285,11 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         }
         if n->resolved_ctor != &null { return self._ctor_cast(n); }
         if n->resolved_op == &null { return out; }
+        return self._op_cast(n);
+    }
+
+    /// `x as T` through the type's `op as` -> `x.op as()`.
+    priv fn _op_cast(self, n: *TypeCastExpr) -> *Expr {
         var f = self._fn(n->resolved_op);
         ICE_IF(!f->is_operator, "OperatorLowering: a converting constructor arrives through resolved_ctor, not resolved_op");
         var args = vec::<*Expr>();
@@ -602,6 +657,7 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         all.freeze_into(&(call->args));
         call->adopt_sema(orig);            // type, value category, dependence, poison.
         call->instance = inst;
+        if self._record { self.made.push_back(call); }
         return static_cast::<*Expr>(call);
     }
 

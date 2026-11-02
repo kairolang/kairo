@@ -54,9 +54,9 @@ fn main() -> i32 {
 // RUN: { %kairo %s -fduck-generics --print-ir 2>/dev/null || true; } | %FileCheck %s --check-prefix=IR
 // IR-DAG: ::size_of_a<A>()
 // IR-DAG: HasF_witness<A>::template f<B>()
-// IR-DAG: return A::template f<B>();
+// IR-DAG: return( ::__kairo_nopanic(), A::template f<B>());
 // IR-DAG: HasF_witness<T>::template m<B>((& x))
-// IR-DAG: return x.template m<B>();
+// IR-DAG: return( ::__kairo_nopanic(), x.template m<B>());
 // IR-DAG: G<A>::template f<B>()
 // IR-DAG: static_assert({{ ?}}::{{.*}}::small<A>(),
 // IR-DAG: static_assert({{ ?}}::{{.*}}::__builtin_is_trivially_copyable<A>(),

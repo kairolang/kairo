@@ -128,6 +128,7 @@ class InterfaceEmitter {
     pub var have_site_type: bool = false;
     pub var have_panic_api: bool = false;
     pub var have_raw_slot: bool = false;
+    pub var have_nopanic: bool = false;
     /// The host C++ TU compiles with exceptions (a kcc include: its
     /// LangOptions), so it gets the throwing half of the C++ view
     /// (_panic_api). A header decides with `#if __cpp_exceptions`; an
@@ -329,6 +330,13 @@ class InterfaceEmitter {
         if (!self.have_raw_slot) && self._plan->needs_raw_slot {
             self._cg->sink->unanchored(true);
             self._raw_slot_helpers(header);
+            self._cg->sink->unanchored(false);
+        }
+
+        // The duck-call wrapper's tag (EmitPlan::needs_nopanic).
+        if (!self.have_nopanic) && self._plan->needs_nopanic {
+            self._cg->sink->unanchored(true);
+            self._nopanic_helpers();
             self._cg->sink->unanchored(false);
         }
 
@@ -1477,6 +1485,10 @@ class InterfaceEmitter {
             if (m == &null) || (!m->is_operator) || (!m->is_method()) { continue; }
             if OperatorFacts::op_kind(m) != TokenKind::OpLessEqualGreater { continue; }
             if self._spell->template_head(static_cast::<*Decl>(m)).size() > 0 { continue; }
+            // A panicking one returns a panic result, which no comparison
+            // against 0 can read. Kairo's own `<` holds and tests the call
+            // (PanicLowering); a C++ caller gets the `<=>` alone.
+            if m->panic_result != &null { continue; }
             var other: *ParamDecl = &null;
             for var j: usize = 0; j < m->params.size(); ++j {
                 var p = m->params[j];
@@ -2057,6 +2069,44 @@ class InterfaceEmitter {
             self._cg->sink->brk();
             if header { self._cg->sink->directive(at, "#endif"); }
         }
+        // A Panic instance is what a duck call must not return (MONO.md D1,
+        // EmitIR::_call): the trait's one true case, after its primary.
+        self._nopanic_helpers();
+        self._cg->sink->spell(at, "template <class T, class... E> struct " + LowerTargets::nopanic_trait() + "<" + pt + "> { static constexpr bool value = true; };");
+        self._cg->sink->brk();
+        if header { self._cg->sink->directive(at, "#endif"); }
+    }
+
+    /// `(::__kairo_nopanic(), t.f())` (LowerTargets::nopanic_call): a member
+    /// call through a `<T: type>` parameter, whose callee only the instance
+    /// knows. A panicking one would hand the duck body a panic result it
+    /// cannot handle (its sites are SC116E, MONO.md D1), and a discarded
+    /// one would drop the error. The tag's `operator,` stops it at the
+    /// instance and yields the value as it came (a reference stays one); a
+    /// `void` call cannot bind `T&&` and takes the builtin comma, whose
+    /// left operand is a call so it is no unused value. `__kairo_is_panic`
+    /// is false but for a Panic instance (_panic_api specializes it). Once
+    /// per C++ TU (a header: under its own guard): a duck body needs it whether or not
+    /// its TU defines Panic.
+    priv fn _nopanic_helpers(self) {
+        if self.have_nopanic { return; }
+        self.have_nopanic = true;
+        var at = self._tu_at();
+        var tg = LowerTargets::nopanic_tag();
+        var ip = LowerTargets::nopanic_trait();
+        var header = (self._plan->mode() == PlanMode::Header);
+        if header { self._cg->sink->directive(at, "#ifndef " + LowerTargets::nopanic_guard()); }
+        if header { self._cg->sink->directive(at, "#define " + LowerTargets::nopanic_guard()); }
+        self._cg->sink->spell(at, "template <class T> struct " + ip + " { static constexpr bool value = false; };");
+        self._cg->sink->spell(at, "template <class T> struct " + ip + "<T&> : " + ip + "<T> {};");
+        self._cg->sink->spell(at, "template <class T> struct " + ip + "<T&&> : " + ip + "<T> {};");
+        self._cg->sink->spell(at, "template <class T> struct " + ip + "<const T> : " + ip + "<T> {};");
+        self._cg->sink->spell(at, "struct " + tg + " {};");
+        self._cg->sink->spell(at, "constexpr " + tg + " " + LowerTargets::nopanic_call() + "() noexcept { return {}; }");
+        self._cg->sink->spell(at, "template <class T> constexpr T&& operator,(" + tg + ", T&& v) noexcept { "
+            + "static_assert(!" + ip + "<T>::value, \"a call through a '<T: type>' parameter that may panic is not yet supported (C++-checked generics)\"); "
+            + "return static_cast<T&&>(v); }");
+        self._cg->sink->brk();
         if header { self._cg->sink->directive(at, "#endif"); }
     }
 

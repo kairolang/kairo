@@ -17,6 +17,9 @@
 ///                                (__kairo_p.value as T&&) })
 ///       return g()        ->  return fwd_all<R>(g())   (tail: g's value
 ///                             type is ours and no `try` is open)
+///       a + b (op + may panic) -> OperatorLowering::lower_one's call(s),
+///                             each held as f(a) is: `a != b` from `op ==`
+///                             is `!(held a.op==(b))` (_op_call)
 ///
 ///     The statement expression sits where the call sat, so evaluation
 ///     order is the tree's and a call under `&&`, `||` or an `if` arm runs
@@ -102,6 +105,8 @@ import Sema::Resolve::MemberLookup::*;
 import Sema::Check::EffectPropagation::*;
 import Sema::Lower::LowerSynth::*;
 import Sema::Lower::EnumLayoutLowering::*;
+import Sema::Lower::OperatorLowering::*;
+import AST::OperatorFacts::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
@@ -203,6 +208,11 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
     /// names so far (_dep): its FunctionDecl::panic_deps.
     priv var _cur: *FunctionDecl = &null;
     priv var _deps: vec::<*Type>;
+    /// Lowers a panicking operator to its call ahead of OperatorLowering
+    /// (_op_call); made on the first one. One for the run: the names it
+    /// mints stay unique.
+    priv var _ol: OperatorLowering;
+    priv var _ol_ready: bool = false;
 
     fn PanicLowering(self, sc: *SemaContext) {
         self.sc    = sc;
@@ -638,6 +648,105 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         var pc = self._as_call(static_cast::<*Expr>(n));
         if pc.call == &null { return out; }
         return self._held(pc);
+    }
+
+    // === a panicking operator (§4.3) ==============================================
+
+    // `a + b` is a call of `op +`, but OperatorLowering, which makes the tree
+    // say so, runs after this pass. A panicking operator is lowered to its
+    // call here instead, its operands already lowered, and each call it
+    // makes is held. A derived form tests the call it is made of, not the
+    // node: `a != b` from a panicking `op ==` is `!(held a.op==(b))`, `a < b`
+    // from `op <=>` `(held a.op<=>(b)) as i8 < 0`, and `a += b` from `op +`
+    // `a = held a.op+(b)`. OperatorLowering then meets plain calls.
+
+    fn transform_binary_operator_expr(self, n: *BinaryOperatorExpr) -> *Expr {
+        var out = ASTWriter::<PanicLowering>::transform_binary_operator_expr(n);
+        // A tag `==` binds no operator; `===`'s `==` is CoalesceLowering's
+        // (PanicEffectChecking reports a panicking one).
+        if (out != static_cast::<*Expr>(n)) || n->tag_eq || (n->op_token.kind == TokenKind::OpEqualEqualEqual) { return out; }
+        return self._op_call(out, n->resolved_op);
+    }
+
+    fn transform_unary_operator_expr(self, n: *UnaryOperatorExpr) -> *Expr {
+        var out = ASTWriter::<PanicLowering>::transform_unary_operator_expr(n);
+        if out != static_cast::<*Expr>(n) { return out; }
+        return self._op_call(out, n->resolved_op);
+    }
+
+    fn transform_assign_operator_expr(self, n: *AssignOperatorExpr) -> *Expr {
+        var out = ASTWriter::<PanicLowering>::transform_assign_operator_expr(n);
+        if out != static_cast::<*Expr>(n) { return out; }
+        return self._op_call(out, n->resolved_op);
+    }
+
+    fn transform_subscript_expr(self, n: *SubscriptExpr) -> *Expr {
+        var out = ASTWriter::<PanicLowering>::transform_subscript_expr(n);
+        if out != static_cast::<*Expr>(n) { return out; }
+        return self._op_call(out, n->resolved_op);
+    }
+
+    /// \p e, an operator node bound to \p d, as its call(s) held when \p d
+    /// returns a panic result; else \p e. A place operator (`op []` giving a
+    /// `*T`, which C++ declares returning `T&`) stays the node, and an `op
+    /// as` is not met here (a C++ conversion function returns its target):
+    /// PanicEffectChecking reports a panicking one.
+    priv fn _op_call(self, e: *Expr, d: *Decl) -> *Expr {
+        if (d == &null) || (!isa::<FunctionDecl>(d)) { return e; }
+        var f = cast::<FunctionDecl>(d);
+        if OperatorFacts::is_place(f) || (self._result_of(f) == &null) { return e; }
+        if !self._ol_ready {
+            self._ol = OperatorLowering(self.sc);
+            self._ol_ready = true;
+        }
+        var r = self._ol.lower_one(e);
+        var made = self._ol.made;
+        for var i: usize = 0; i < made.size(); ++i {
+            var c = static_cast::<*Expr>(made[i]);
+            var pc = self._as_call(c);
+            if pc.call == &null { continue; }
+            var h = self._held(pc);
+            var found = self._swap_in(&r, c, h);
+            ICE_IF(!found, "PanicLowering: an operator call OperatorLowering made is not where its shapes put one");
+        }
+        return r;
+    }
+
+    /// \p from, in the tree at \p slot, replaced by \p to. Searched only
+    /// through what OperatorLowering builds around the calls it makes:
+    /// parentheses, a builtin unary, binary or cast over the call, an
+    /// assignment, a statement expression's statements. False when it is
+    /// not there.
+    priv fn _swap_in(self, slot: * *Expr, from: *Expr, to: *Expr) -> bool {
+        var e = (*slot);
+        if e == &null { return false; }
+        if e == from {
+            (*slot) = to;
+            return true;
+        }
+        if isa::<ParenExpr>(e) { return self._swap_in(&(cast::<ParenExpr>(e)->inner), from, to); }
+        if isa::<UnaryOperatorExpr>(e) { return self._swap_in(&(cast::<UnaryOperatorExpr>(e)->operand), from, to); }
+        if isa::<TypeCastExpr>(e) { return self._swap_in(&(cast::<TypeCastExpr>(e)->operand), from, to); }
+        if isa::<BinaryOperatorExpr>(e) {
+            var b = cast::<BinaryOperatorExpr>(e);
+            if self._swap_in(&(b->lhs), from, to) { return true; }
+            return self._swap_in(&(b->rhs), from, to);
+        }
+        if isa::<AssignOperatorExpr>(e) { return self._swap_in(&(cast::<AssignOperatorExpr>(e)->rhs), from, to); }
+        if isa::<StmtExpr>(e) {
+            var body = cast::<StmtExpr>(e)->body;
+            if body == &null { return false; }
+            for var i: usize = 0; i < body->body.size(); ++i {
+                var st = body->body[i];
+                if isa::<ExpressionStmt>(st) {
+                    if self._swap_in(&(cast::<ExpressionStmt>(st)->expr), from, to) { return true; }
+                } else if isa::<DeclStmt>(st) {
+                    var vd = dyn_cast::<VariableDecl>(cast::<DeclStmt>(st)->decl);
+                    if (vd != &null) && self._swap_in(&(vd->init), from, to) { return true; }
+                }
+            }
+        }
+        return false;
     }
 
     /// A statement that IS a panicking call: the held result is tested and

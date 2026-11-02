@@ -663,6 +663,12 @@ class PanicSite {
     pub var raise:  *PanicStmt = &null;     ///< the `panic` statement; null for a call.
     pub var all:    vec::<*Type>;           ///< everything it may panic with.
     pub var left:   vec::<*Type>;           ///< what no enclosing `try` discharges.
+    /// The operator node the call is written as (`a + b`, `-a`, `a[i]`,
+    /// `a as T`), or null; PanicLowering lowers it, and PanicEffectChecking
+    /// reports the forms it cannot.
+    pub var op_node: *Expr = &null;
+    /// The call of `op in` a `for` loop makes over a record.
+    pub var via_for: bool = false;
     fn PanicSite(self) { }
 }
 
@@ -704,6 +710,10 @@ class PanicWalk derives RecursiveASTVisitor::<PanicWalk> {
     priv var _arm_try:  vec::<usize>;
     priv var _arm_bare: vec::<bool>;
     priv var _depth: u32 = 0;
+    /// What the call being recorded is written as (PanicSite::op_node,
+    /// via_for); set around one _call.
+    priv var _op_node: *Expr = &null;
+    priv var _via_for: bool = false;
 
     fn PanicWalk(self, sc: *SemaContext) {
         self.sc = sc;
@@ -796,23 +806,23 @@ class PanicWalk derives RecursiveASTVisitor::<PanicWalk> {
     }
 
     fn visit_unary_operator_expr(self, n: *UnaryOperatorExpr) -> bool {
-        self._op(n->range, n->resolved_op, self._type_of(n->operand));
+        self._op(static_cast::<*Expr>(n), n->resolved_op, self._type_of(n->operand));
         return true;
     }
     fn visit_binary_operator_expr(self, n: *BinaryOperatorExpr) -> bool {
-        self._op(n->range, n->resolved_op, self._type_of(n->lhs));
+        self._op(static_cast::<*Expr>(n), n->resolved_op, self._type_of(n->lhs));
         return true;
     }
     fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
-        self._op(n->range, n->resolved_op, self._type_of(n->lhs));
+        self._op(static_cast::<*Expr>(n), n->resolved_op, self._type_of(n->lhs));
         return true;
     }
     fn visit_subscript_expr(self, n: *SubscriptExpr) -> bool {
-        self._op(n->range, n->resolved_op, self._type_of(n->base));
+        self._op(static_cast::<*Expr>(n), n->resolved_op, self._type_of(n->base));
         return true;
     }
     fn visit_type_cast_expr(self, n: *TypeCastExpr) -> bool {
-        self._op(n->range, n->resolved_op, self._type_of(n->operand));
+        self._op(static_cast::<*Expr>(n), n->resolved_op, self._type_of(n->operand));
         return true;
     }
 
@@ -820,7 +830,9 @@ class PanicWalk derives RecursiveASTVisitor::<PanicWalk> {
     fn visit_ranged_for_stmt(self, n: *RangedForStmt) -> bool {
         if (n->iter_op != &null) && isa::<FunctionDecl>(n->iter_op) {
             var r = (n->iterable->range) if (n->iterable != &null) else (n->range);
+            self._via_for = true;
             self._call(r, cast::<FunctionDecl>(n->iter_op), &null, self._type_of(n->iterable));
+            self._via_for = false;
         }
         return true;
     }
@@ -830,9 +842,11 @@ class PanicWalk derives RecursiveASTVisitor::<PanicWalk> {
         return panic_recv_value(&(self.tu), e->type_);
     }
 
-    priv fn _op(self, at: SourceRange, d: *Decl, recv: *Type) {
+    priv fn _op(self, n: *Expr, d: *Decl, recv: *Type) {
         if (d == &null) || (!isa::<FunctionDecl>(d)) { return; }
-        self._call(at, cast::<FunctionDecl>(d), &null, recv);
+        self._op_node = n;
+        self._call(n->range, cast::<FunctionDecl>(d), &null, recv);
+        self._op_node = &null;
     }
 
     /// One call of \p f: its set as this call reads it (P10). A set naming
@@ -896,6 +910,10 @@ class PanicWalk derives RecursiveASTVisitor::<PanicWalk> {
             ps.raise  = raise;
             ps.all    = all;
             ps.left   = left;
+            if callee != &null {
+                ps.op_node = self._op_node;
+                ps.via_for = self._via_for;
+            }
             self.sites.push_back(ps);
         }
     }
