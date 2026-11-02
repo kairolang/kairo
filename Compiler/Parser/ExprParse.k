@@ -1164,6 +1164,18 @@ class <T> ExprParse {
         return AlignOfExpr::create(dyn()->ctx, kw_range | dyn()->prev().range, ty);
     }
 
+    /// The operand of `typeof` with no parentheses: one prefix-level
+    /// expression, never a binary one. In a type position a whole
+    /// expression ran on through the initializer: `var y: typeof x = 100`
+    /// parsed as `typeof (x = 100)` with no initializer at all (P113).
+    fn parse_typeof_operand(self, stop: ExprStopKind = ExprStopKind::Default) -> *Expr {
+        if dyn()->is_eof() { return &null; }
+        if !dyn()->enter_expr_depth() { return &null; }
+        var e = self._parse_unary_expr(stop);
+        dyn()->exit_expr_depth();
+        return e;
+    }
+
     inline fn _parse_typeof_expr(self) -> *Expr {
         var kw_range = dyn()->current_ptr()->range;
         dyn()->advance(); // consume `typeof`
@@ -1171,7 +1183,12 @@ class <T> ExprParse {
         var has_paren = dyn()->check(TokenKind::OpLParen);
         if has_paren { dyn()->advance(T::SkipNL::After); }
 
-        var operand = self.parse_expr(ExprStopKind::StopParen);
+        // Unparenthesized, the operand is a prefix-level one (operators.mdx:
+        // `typeof` binds as a unary operator), so `typeof x == i32` compares
+        // the type and `typeof x + 1` is not `typeof (x + 1)`.
+        var operand: *Expr = &null;
+        if has_paren { operand = self.parse_expr(ExprStopKind::StopParen); }
+        else         { operand = self.parse_typeof_operand(); }
         if operand == &null {
             dyn()->diag->report(DiagID::S052E, kw_range.start,
                 "expected expression after 'typeof\x27"

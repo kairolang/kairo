@@ -218,7 +218,10 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// when a use precedes its declaration in walk order.
     fn var_type(self, v: *VariableDecl) -> *Type {
         if v == &null { return &null; }
-        if v->type_ != &null { return v->type_->canonical; }
+        if v->type_ != &null {
+            if v->type_->canonical == &null { return self.resolve_typeof_type(v->type_); }
+            return v->type_->canonical;
+        }
         if v->init == &null { return &null; }
         if dyn()->tu.is_foreign(static_cast::<*Decl>(v)) { return v->init->type_; }
         var st = dyn()->sc->rstate.decl_state(static_cast::<*Decl>(v));
@@ -242,11 +245,86 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         dyn()->flow.enter();
         var t = dyn()->type_of(v->init, &null);
         dyn()->flow.leave();
+        if t == &null { self._reject_typeof_value(v); }
         dyn()->mark_list_storage(v->init);
         self._reject_array_copy(v, t);
         if t != &null { v->type_ = self._shorthand_type(v, t); }
         dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(v), t != &null);
         return (v->type_) if ((t != &null) && v->nullable_shorthand) else (t);
+    }
+
+    /// A written `typeof e` (P113): the type of \p e as `var y = e` would
+    /// infer it (a copy: top-level cv and a C++ reference dropped), with the
+    /// cv written on the typeof itself. T cannot do this -- it runs before
+    /// any expression has a type -- so the node leaves T with no canonical
+    /// and is filled here, where the declaration it types is typed (the
+    /// walk, or a use that demands the variable first). Only a variable's
+    /// whole declared type comes here; anywhere else is _check_typeof_types.
+    /// \return the canonical, or null (reported, poisoned).
+    fn resolve_typeof_type(self, t: *Type) -> *Type {
+        if t == &null { return &null; }
+        if t->canonical != &null { return t->canonical; }
+        if t->is_poisoned() || (!isa::<TypeOfType>(t)) { return &null; }
+        var tt = cast::<TypeOfType>(t);
+        var st = dyn()->sc->rstate.type_state(t);
+        if st == ResolveState::InProgress {
+            // `var x: typeof x`: the operand needs the type it is to name.
+            dyn()->sc->diag->report(DiagID::SC043E, t->range.start,
+                "cannot take 'typeof' of an expression whose type depends on this declaration\x27s own type"
+            ).first(t->range).emit();
+            t->poison();
+            return &null;
+        }
+        if tt->expr == &null { t->poison(); return &null; }
+        dyn()->sc->rstate.set_type_state(t, ResolveState::InProgress);
+        // The operand is never evaluated, and its type is the declared one:
+        // no nullness fact of the surrounding body narrows it.
+        dyn()->flow.enter();
+        var et = dyn()->type_of(tt->expr, &null);
+        dyn()->flow.leave();
+        if t->is_poisoned() { dyn()->sc->rstate.set_type_state(t, ResolveState::Errored); return &null; }
+        if (et == &null) || tt->expr->is_poisoned() {
+            if !tt->expr->is_poisoned() {
+                dyn()->sc->diag->report(DiagID::U001E, t->range.start,
+                    "the type of this expression is not known until the generic is instantiated; 'typeof' of it is not supported yet, write the type out"
+                ).first(t->range).emit();
+            }
+            t->poison();
+            dyn()->sc->rstate.set_type_state(t, ResolveState::Errored);
+            return &null;
+        }
+        var c = self._cxx_referee(canon_unqual(et));
+        var q: u8 = 0;
+        if t->is_const()    { q = q | QUAL_CONST();    }
+        if t->is_volatile() { q = q | QUAL_VOLATILE(); }
+        if q != 0 { c = dyn()->sc->types->qualified(c, q); }
+        t->canonical = c;
+        tt->resolved = c;
+        // T marked the node instantiation-dependent while its type was
+        // unknown; a concrete answer is not, or a non-generic body would
+        // carry a "dependent" declaration into template-only paths.
+        if !(c->is_dependent() || c->is_instantiation_dependent()) {
+            t->type_flags = static_cast::<Type::TypeFlags>(
+                static_cast::<u8>(t->type_flags)
+              & (~static_cast::<u8>(Type::TypeFlags::IsInstantiationDependent)));
+        }
+        dyn()->sc->rstate.set_type_state(t, ResolveState::Resolved);
+        return c;
+    }
+
+    /// `var info = typeof x`: in an expression position `typeof` is a
+    /// TypeInfo value (type-system.mdx), and TypeInfo does not exist yet.
+    /// The operand is typed and the expression is type-denoting, so without
+    /// this the variable reached codegen with no type. \return reported.
+    priv fn _reject_typeof_value(self, v: *VariableDecl) -> bool {
+        if (v == &null) || (v->init == &null) || v->init->is_poisoned() { return false; }
+        var e = dyn()->tu.strip_parens(v->init);
+        if (e == &null) || (!isa::<TypeOfExpr>(e)) { return false; }
+        dyn()->sc->diag->report(DiagID::U001E, e->range.start,
+            "'typeof' as a value is a 'TypeInfo', which is not implemented yet; as a type ('var y: typeof x') it is supported"
+        ).first(e->range).emit();
+        v->poison();
+        return true;
     }
 
     /// The inferred slot of `var g = f` (a named function) or `var g = fn
@@ -759,6 +837,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if n->is_poisoned() { return n; }
         var declared: *Type = &null;
         if n->type_ != &null {
+            if n->type_->canonical == &null { self.resolve_typeof_type(n->type_); }
             if n->type_->is_poisoned() { if n->init != &null { dyn()->type_of(n->init, &null); } return n; }
             declared = n->type_->canonical;
         }
@@ -796,6 +875,8 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             } else {
                 n->type_ = self._shorthand_type(n, self._fn_value_decay(n->init, t));   // inferred slot := the value's type (a copy has no cv), `?` applied.
             }
+        } else if self._reject_typeof_value(n) {
+            ok = false;
         } else if n->init->is_poisoned() {
             ok = false;
         }

@@ -1680,7 +1680,15 @@ every arm must then convert to the join. Closures type as their fn-pointer
 canonical; params must be annotated; return declared or inferred through
 a frame. `a..b` -> `Range<elem>`; `await` on `Future<T>` -> `T`; `spawn`/
 `thread` -> `Future<T>`; `sizeof`/`alignof` -> usize; `typeof x` is
-type-denoting; `unsafe e` bumps the unsafe depth; `delete p` needs a
+type-denoting (as a value it would be a TypeInfo, which does not exist:
+`var i = typeof x` is U001E). A `typeof e` TYPE leaves T with no canonical
+(nothing is typed yet; T files it in `SemaContext::typeof_types`); a
+variable's whole declared type is filled where the variable is typed
+(`StmtTyping::resolve_typeof_type`: `e`'s type as `var y = e` infers it,
+plus the cv written on the typeof; `var x: typeof x` is SC043E). Any other
+one left without a canonical after typing -- nested (`*typeof x`), or in a
+parameter, return, field or cast type -- is U001E at the end of
+ExprTyper::run, never an unresolved type in codegen (P113); `unsafe e` bumps the unsafe depth; `delete p` needs a
 pointer. `({ s...; e })` types its leading statements in order, then `e`
 against the expected type; the result is a prvalue of `e`'s type with
 references and top-level cv dropped, and a fixed array is an error. Named initializer: fields by name in the record's table, values

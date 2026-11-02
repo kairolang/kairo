@@ -273,7 +273,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             case TypeKind::OpaqueFFIType         { self._resolve_opaque(cast::<OpaqueFFIType>(t));            }
             case TypeKind::QualifiedType         { 0; }   // canonical by construction.
             case TypeKind::InferredType          { 0; }   // TypeInference owns; no canonical here.
-            case TypeKind::TypeOfType            { self._mark_inst_dependent(t); }   // needs expr typing.
+            case TypeKind::TypeOfType            { self._mark_inst_dependent(t); self.sc->typeof_types.push_back(t); }   // needs expr typing (StmtTyping::resolve_typeof_type).
             case TypeKind::TypeExpr              { self._resolve_value_arg(cast::<TypeExpr>(t)); }
             default                              { 0; }
         }

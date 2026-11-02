@@ -516,7 +516,10 @@ class <T> TypeParse {
 
         dyn()->advance(); // consume `typeof`
 
-        var inner = dyn()->parse_expr();
+        // A prefix-level operand: the `=` of `var y: typeof x = 100` is the
+        // declaration's, not an assignment inside the typeof. No struct
+        // literal: the `{` of `-> typeof x { ... }` opens the body.
+        var inner = dyn()->parse_typeof_operand(T::ExprStopKind::NoStructLiteral);
         if inner == &null {
             dyn()->diag->report(DiagID::S053E, start_range.start,
                 "expected type after 'typeof\x27"

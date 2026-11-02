@@ -9,6 +9,7 @@
 // AST-NEXT:     |   `-IntegerLiteralExpr 42
 // AST-NEXT:     `-DeclStmt
 // AST-NEXT:       `-VariableDecl var y: typeof(...)
+// AST-NEXT:         `-IntegerLiteralExpr 100
 // AST: -- 0 error(s), 0 warning(s) --
 // END-GENERATED-CHECKS(AST)
 

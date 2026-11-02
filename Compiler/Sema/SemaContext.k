@@ -326,6 +326,13 @@ class SemaContext {
     /// and RedeclMerge (sibling branches never conflict) and the late fold.
     pub var eval_branches: EvalBranchTable;
 
+    /// Every `typeof e` written in a type position, in the order T met
+    /// them. T cannot resolve one (no expression has a type yet); a
+    /// variable's whole declared type is resolved by StmtTyping::
+    /// resolve_typeof_type, and one left without a canonical after typing
+    /// is reported by ExprTyper (P113) instead of reaching codegen.
+    pub var typeof_types: vec::<*Type>;
+
     /// Each `<T: type>` parameter a member step went through, with the first
     /// such step's range, in the order ChainBinding met them. One writer,
     /// ChainBinding (the `: type` branch of a dependent step); one reader,

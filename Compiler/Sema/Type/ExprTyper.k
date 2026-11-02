@@ -340,9 +340,28 @@ class ExprTyper
             self.check_closed_enum_cast(c, self.closed_enum_of(c));
         }
         self._enum_casts.clear();
+        self._check_typeof_types();
 
         var v = ExprBodyVerifier(self.sc, &(self.tu));
         v.run();
+    }
+
+    /// A `typeof e` type that typing left without a canonical: one nested
+    /// in another type (`*typeof x`), or in a parameter, return, field or
+    /// cast type. Only a variable's whole declared type is resolved so far
+    /// (StmtTyping::resolve_typeof_type); the rest would reach codegen as
+    /// an unresolved type (P113).
+    priv fn _check_typeof_types(self) {
+        var ts = &(self.sc->typeof_types);
+        for var i: usize = 0; i < ts->size(); ++i {
+            var t = (*ts)[i];
+            if (t == &null) || (t->canonical != &null) || t->is_poisoned() { continue; }
+            self.sc->diag->report(DiagID::U001E, t->range.start,
+                "'typeof' is supported only as the whole declared type of a variable ('var y: typeof x'); write this type out"
+            ).first(t->range).emit();
+            t->poison();
+        }
+        ts->clear();
     }
 
     fn panic_sites(self) -> *vec::<*Expr> { return &(self._panics); }

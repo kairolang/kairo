@@ -1118,8 +1118,13 @@ class <T> CallTyping {
         } else {
             r = dyn()->ovl.resolve(&cands, &args, true, n->range, dyn()->tu.decl_name(d), rec);
         }
-        if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
-        if r.outcome == OvlOutcome::Deferred {
+        // An argument only the instance types -- `Sink(args...)`, a pack
+        // expansion -- leaves the constructor undecided, but not the type:
+        // a constructor call is its record whichever one wins. Typed as
+        // Deferred is, ctor_decl null, and clang picks per instance from
+        // the emitted `Sink(args...)` (P238). Left unknown, codegen ICEd on
+        // the untyped constructor call; a function call has no such need.
+        if (r.outcome == OvlOutcome::Dependent) || (r.outcome == OvlOutcome::Deferred) {
             if !ok { dyn()->poison_only(n); return &null; }
             self._finish_args_unselected(&args);
             n->value_category = Expr::ValueCategory::RValue;
