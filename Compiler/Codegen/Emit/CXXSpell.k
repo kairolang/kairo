@@ -892,6 +892,7 @@ class CXXSpell {
         var c = f->canonical_decl();
         var s = "";
         if f->hot_path  || ((c != &null) && c->hot_path)  { s += LowerTargets::attr_hot(); }
+        if f->no_inline || ((c != &null) && c->no_inline) { s += LowerTargets::attr_noinline(); }
         if f->cold_path || ((c != &null) && c->cold_path) { s += LowerTargets::attr_cold(); }
         if f->is_const_fn || ((c != &null) && c->is_const_fn) {
             s += LowerTargets::attr_const();

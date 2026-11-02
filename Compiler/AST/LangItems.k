@@ -535,6 +535,9 @@ class LangAttrs {
     static fn hot_path() -> string  { return "hot_path"; }
     static fn cold_path() -> string { return "cold_path"; }
     static fn pure_fn() -> string   { return "pure"; }
+    /// `@no_inline`: never inlined (FunctionDecl::no_inline); a benchmark's
+    /// kernel keeps its own symbol and its own instruction count.
+    static fn no_inline() -> string { return "no_inline"; }
     /// The calling conventions (FunctionDecl::call_conv), stamped by
     /// ASTParse::apply_annotations_to_decl; at most one per function.
     static fn preserve_most() -> string { return "preserve_most"; }
@@ -598,6 +601,7 @@ class LangAttrs {
             case 21 { return LangAttrs::create(); }
             case 22 { return LangAttrs::destroy(); }
             case 23 { return LangAttrs::set_global_allocator(); }
+            case 24 { return LangAttrs::no_inline(); }
             default { return ""; }
         }
         return "";
@@ -1325,6 +1329,7 @@ class LowerTargets {
     // `static` / `virtual` in a member's head, and these lead it.
     static fn attr_hot() -> string                 { return "__attribute__((hot)) "; }
     static fn attr_cold() -> string                { return "__attribute__((cold)) "; }
+    static fn attr_noinline() -> string            { return "__attribute__((noinline)) "; }
     static fn attr_pure() -> string                { return "__attribute__((pure)) "; }
     static fn attr_const() -> string               { return "__attribute__((const)) "; }
     /// The calling conventions (FunctionDecl::call_conv), on every C++

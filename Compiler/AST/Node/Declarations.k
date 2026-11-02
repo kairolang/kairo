@@ -664,6 +664,7 @@ class FunctionDecl
     /// land; codegen reads the fields so it never re-resolves attribute
     /// names, and the declaration and definition heads agree on them.
     pub var hot_path:  bool = false;   ///< `@hot_path`: `[[gnu::hot]]`.
+    pub var no_inline: bool = false;   ///< `@no_inline`: `__attribute__((noinline))`.
     pub var cold_path: bool = false;   ///< `@cold_path`: `[[gnu::cold]]`.
     pub var is_pure:   bool = false;   ///< `@pure`: `[[gnu::pure]]`; FnPurityCheck.
     /// The calling convention (functions-declarations.mdx, "Calling
@@ -734,6 +735,7 @@ class FunctionDecl
         node->dynamic_layout = 0;
         node->class_alloc_op = 0;
         node->hot_path    = false;
+        node->no_inline   = false;
         node->cold_path   = false;
         node->is_pure     = false;
         node->call_conv   = 0;
@@ -757,6 +759,7 @@ class FunctionDecl
         node->dynamic_layout = 0;
         node->class_alloc_op = 0;
         node->hot_path    = false;
+        node->no_inline   = false;
         node->cold_path   = false;
         node->is_pure     = false;
         node->call_conv   = 0;

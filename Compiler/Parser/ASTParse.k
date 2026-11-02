@@ -2463,6 +2463,7 @@ class ASTParse
         var k_hot  = self.ctx->hoisted->intern(LangAttrs::hot_path());
         var k_cold = self.ctx->hoisted->intern(LangAttrs::cold_path());
         var k_pure = self.ctx->hoisted->intern(LangAttrs::pure_fn());
+        var k_noin = self.ctx->hoisted->intern(LangAttrs::no_inline());
         var fnd = dyn_cast::<FunctionDecl>(decl);
         var hot_seen  = false;
         var cold_at   = SourceRange();
@@ -2474,10 +2475,12 @@ class ASTParse
             if      e->name == k_hot  { fa = LangAttrs::hot_path();  }
             else if e->name == k_cold { fa = LangAttrs::cold_path(); }
             else if e->name == k_pure { fa = LangAttrs::pure_fn();   }
+            else if e->name == k_noin { fa = LangAttrs::no_inline(); }
             if fa.size() == 0 { continue; }
             if fnd != &null {
                 if      e->name == k_hot  { fnd->hot_path = true; hot_seen = true; }
                 else if e->name == k_cold { fnd->cold_path = true; cold_seen = true; cold_at = e->range; }
+                else if e->name == k_noin { fnd->no_inline = true; }
                 else                      { fnd->is_pure = true; }
                 continue;
             }
@@ -2585,6 +2588,7 @@ class ASTParse
             if      e->name == k_hot  { fa = LangAttrs::hot_path();  }
             else if e->name == k_cold { fa = LangAttrs::cold_path(); }
             else if e->name == k_pure { fa = LangAttrs::pure_fn();   }
+            else if e->name == self.ctx->hoisted->intern(LangAttrs::no_inline()) { fa = LangAttrs::no_inline(); }
             else if e->name == self.ctx->hoisted->intern(LangAttrs::preserve_most()) { fa = LangAttrs::preserve_most(); }
             else if e->name == self.ctx->hoisted->intern(LangAttrs::preserve_all())  { fa = LangAttrs::preserve_all();  }
             else if e->name == self.ctx->hoisted->intern(LangAttrs::preserve_none()) { fa = LangAttrs::preserve_none(); }

@@ -357,7 +357,7 @@ class AttributeCheck derives RecursiveASTVisitor::<AttributeCheck> {
         // Reported where they are stamped (see the file header).
         if (nm == LangAttrs::open_enum()) || (nm == LangAttrs::hot_path()) || (nm == LangAttrs::cold_path())
         || (nm == LangAttrs::pure_fn()) || (nm == LangAttrs::preserve_most()) || (nm == LangAttrs::preserve_all())
-        || (nm == LangAttrs::preserve_none()) {
+        || (nm == LangAttrs::preserve_none()) || (nm == LangAttrs::no_inline()) {
             return;
         }
         if nm == LangAttrs::implicit_conversion() {
@@ -413,7 +413,8 @@ class AttributeCheck derives RecursiveASTVisitor::<AttributeCheck> {
         }
         // ASTParse reports the function attributes on a statement.
         if is_stmt && ((nm == LangAttrs::hot_path()) || (nm == LangAttrs::cold_path()) || (nm == LangAttrs::pure_fn())
-        || (nm == LangAttrs::preserve_most()) || (nm == LangAttrs::preserve_all()) || (nm == LangAttrs::preserve_none())) {
+        || (nm == LangAttrs::preserve_most()) || (nm == LangAttrs::preserve_all()) || (nm == LangAttrs::preserve_none())
+        || (nm == LangAttrs::no_inline())) {
             return;
         }
         var place = "a type";
