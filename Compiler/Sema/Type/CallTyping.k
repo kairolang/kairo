@@ -423,6 +423,152 @@ class <T> CallTyping {
         return true;
     }
 
+    /// \p f's `impl` bounds where the call binds one of its parameters to a
+    /// bounds-checked parameter of the CALLER (`one(x)` with `x: T` inside
+    /// `fn <T> fwd`), a forwarded pack's elements included (`print_all(
+    /// args...)`). The caller's body is checked once, against its own bounds
+    /// (generics.mdx), so the bound must be one of them: left to the
+    /// instance, `fwd` compiled whatever it was given, and a non-conforming
+    /// argument failed in C++ or not at all. A concrete argument is
+    /// ConformanceChecking's, at the instance; a `: type` caller is C++'s.
+    priv fn _check_forwarded_bounds(self, n: *CallExpr, f: *FunctionDecl, r: *OvlResult) {
+        if (f == &null) || (f->generic_params.size() == 0) { return; }
+        var sc = dyn()->sc;
+        var it = sc->bounds.find(reinterpret_cast::<u64>(static_cast::<*Decl>(f)));
+        if it == sc->bounds.end() {
+            it = sc->bounds.find(reinterpret_cast::<u64>(NameLookup::representative(static_cast::<*Decl>(f))));
+            if it == sc->bounds.end() { return; }
+        }
+        var _set = &(it->second);
+        for var i: usize = 0; i < _set->impl_constraints.size(); ++i {
+            var k = _set->impl_constraints[i];
+            var id = dyn_cast::<NamedIdentExpr>(k->lhs);
+            if (id == &null) || (k->rhs == &null) || (k->rhs->canonical == &null) { continue; }
+            var gp = dyn_cast::<GenericParamDecl>(id->resolved_decl);
+            if gp == &null { continue; }
+            var xs = vec::<*Type>();
+            if gp->is_pack {
+                if !r->ded.pack_elems(static_cast::<*Decl>(f), gp->index, &xs) { continue; }
+            } else {
+                var b = r->ded.lookup(static_cast::<*Decl>(f), gp->index);
+                if b != &null { xs.push_back(b); }
+            }
+            var iface = canon_unqual(k->rhs->canonical);
+            if iface->is_dependent() {
+                var s = r->ded.substitute(iface);
+                if s != &null { iface = canon_unqual(s); }
+            }
+            for var j: usize = 0; j < xs.size(); ++j {
+                var x = canon_unqual(xs[j]);
+                if (x != &null) && isa::<PackExpansionType>(x) { x = canon_unqual(cast::<PackExpansionType>(x)->pattern); }
+                if (x != &null) && isa::<VariadicPackType>(x) { x = canon_unqual(static_cast::<*Type>(cast::<VariadicPackType>(x)->param)); }
+                var cgp = dyn()->tu.op_checked_param(x);
+                if cgp == &null { continue; }
+                if self._param_meets(x, iface) { continue; }
+                self._report_forwarded(n, f, k, cgp, x, iface);
+                return;
+            }
+        }
+    }
+
+    /// `print_all(args...)`: a pack forwarded whole has no type of its own
+    /// (ExprTyper leaves the expansion unknown), so the call resolves as
+    /// Dependent and _check_forwarded_bounds never sees it. With ONE
+    /// candidate, the expansion fills its type pack, and each `impl` bound
+    /// of that pack must be one of the forwarded pack's own, as for a
+    /// single `T`. Overloads are left to the instance: which one the
+    /// expansion selects is not known here.
+    priv fn _check_forwarded_pack(self, n: *CallExpr, all: *vec::<*Decl>, args: *vec::<ArgInfo>) {
+        if all->size() != 1 { return; }
+        var f = dyn_cast::<FunctionDecl>((*all)[0]);
+        if (f == &null) || (f->generic_params.size() == 0) { return; }
+        var pg: *GenericParamType = &null;
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var tp = param_type_pack_param(f->params[i]);
+            if tp != &null { pg = tp; }
+        }
+        if pg == &null { return; }
+        var x: *Type = &null;
+        for var i: usize = 0; i < args->size(); ++i {
+            var pe = dyn_cast::<PackExpansionExpr>(dyn()->tu.strip_parens((*args)[i].expr));
+            if pe == &null { continue; }
+            var id = dyn_cast::<NamedIdentExpr>(dyn()->tu.strip_parens(pe->operand));
+            if id == &null { continue; }
+            var pd = dyn_cast::<ParamDecl>(id->resolved_decl);
+            if pd == &null { continue; }
+            var cp = param_type_pack_param(pd);
+            if cp != &null { x = static_cast::<*Type>(cp); break; }
+        }
+        if x == &null { return; }
+        var cgp = dyn()->tu.op_checked_param(x);
+        if cgp == &null { return; }
+        var sc = dyn()->sc;
+        var it = sc->bounds.find(reinterpret_cast::<u64>(static_cast::<*Decl>(f)));
+        if it == sc->bounds.end() {
+            it = sc->bounds.find(reinterpret_cast::<u64>(NameLookup::representative(static_cast::<*Decl>(f))));
+            if it == sc->bounds.end() { return; }
+        }
+        var _set = &(it->second);
+        for var i: usize = 0; i < _set->impl_constraints.size(); ++i {
+            var k = _set->impl_constraints[i];
+            var kid = dyn_cast::<NamedIdentExpr>(k->lhs);
+            if (kid == &null) || (k->rhs == &null) || (k->rhs->canonical == &null) { continue; }
+            var gp = dyn_cast::<GenericParamDecl>(kid->resolved_decl);
+            if (gp == &null) || (gp->index != pg->param_index) { continue; }
+            var iface = canon_unqual(k->rhs->canonical);
+            if self._param_meets(x, iface) { continue; }
+            self._report_forwarded(n, f, k, cgp, x, iface);
+            return;
+        }
+    }
+
+    /// Whether the caller's parameter type \p x promises \p iface through
+    /// its bounds: the interface itself (at any arguments: a dependent
+    /// mismatch is the instance's), or one deriving it. A `derives` bound is
+    /// taken on trust: whether the base conforms is not read here.
+    priv fn _param_meets(self, x: *Type, iface: *Type) -> bool {
+        if dyn()->tu.bound_bases(x).size() > 0 { return true; }
+        var want = (cast::<RecordType>(iface)->decl) if (isa::<RecordType>(iface)) else (&null);
+        if want == &null { return true; }
+        var bis = dyn()->tu.bound_ifaces(x);
+        var subst = Substitution(dyn()->sc);
+        for var i: usize = 0; i < bis.size(); ++i {
+            var bi = canon_unqual(bis[i]);
+            if bi == &null { continue; }
+            if bi == iface { return true; }
+            if isa::<RecordType>(bi) && (NameLookup::representative(cast::<RecordType>(bi)->decl) == NameLookup::representative(want)) { return true; }
+            if subst.derives_from(bi, iface) { return true; }
+        }
+        return false;
+    }
+
+    /// R051E for an unbounded \p cgp (with the fix-it adding the bound),
+    /// R025E when it has bounds and none is \p iface: ExprTyper::needs_bound's
+    /// split, for a call instead of an operator.
+    priv fn _report_forwarded(self, n: *CallExpr, f: *FunctionDecl, k: *ConstraintExpr, cgp: *GenericParamDecl,
+                              xt: *Type, iface: *Type) {
+        var pname = dyn()->tu.decl_name(static_cast::<*Decl>(cgp));
+        var fname = dyn()->tu.decl_name(static_cast::<*Decl>(f));
+        var is = dyn()->tu.str(iface);
+        var x = cgp->range;
+        var bounded = (dyn()->tu.bound_ifaces(xt).size() > 0);
+        var msg = f"'{fname}' needs '{pname}' to implement '{is}\x27";
+        if bounded {
+            var b = dyn()->sc->diag->report(DiagID::R025E, n->range.start, f"{msg}; none of the bounds of '{pname}' does");
+            b.first(n->range);
+            b.note(k->range.start, "required by this bound").first(k->range);
+            b.note(x.start, f"'{pname}' is declared here; bound it 'impl {is}' too, or by an interface that derives it").first(x);
+            b.emit();
+        } else {
+            var b = dyn()->sc->diag->report(DiagID::R051E, n->range.start, msg);
+            b.first(n->range);
+            b.note(k->range.start, "required by this bound").first(k->range);
+            b.note(DiagID::R051N, x.start, f"'{pname}' is declared with no bound").first(x);
+            b.insert(x.end, f" impl {is}", f"bound '{pname}' by '{is}\x27");
+            b.emit();
+        }
+    }
+
     /// \p owner's deduced arguments, appended to \p out in parameter order,
     /// a type pack flat (its elements, as InstanceEntry::args keeps them);
     /// false on an unbound or still-dependent binding.
@@ -824,7 +970,11 @@ class <T> CallTyping {
 
         if !self._narrow_args(&all, &args, has_receiver, recv) { dyn()->poison_only(n); return &null; }
         var r = dyn()->ovl.resolve(&all, &args, has_receiver, n->range, name, recv, qual);
-        if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
+        if r.outcome == OvlOutcome::Dependent {
+            self._check_forwarded_pack(n, &all, &args);
+            dyn()->mark_unknown(n);
+            return &null;
+        }
         if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
         if !ok { dyn()->poison_only(n); return &null; }
         if (step != &null) && self._static_through_value(n, step, r.decl, recv) { dyn()->poison_only(n); return &null; }
@@ -859,6 +1009,7 @@ class <T> CallTyping {
         if !self._check_constant_args(r.decl, &args, &r) { dyn()->poison_only(n); return &null; }
         self._warn_unmarked(&args, &r);
         self._write_arg_map(n, r.decl, &args, &r);
+        self._check_forwarded_bounds(n, r.decl, &r);
         var rt = self.call_result_type(r.decl, &r);
         n->instance = reinterpret_cast::<*void>(r.instance);
         if (r.instance == &null) && (r.dep_args.size() > 0) {

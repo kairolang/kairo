@@ -1819,9 +1819,27 @@ class EmitIR {
                 self.emit(cast::<ParenExpr>(e)->inner);
                 self._cg->sink->spell(e->range, ")");
             }
-            case ExprKind::UnaryOperatorExpr    { self._unary(cast::<UnaryOperatorExpr>(e)); }
-            case ExprKind::BinaryOperatorExpr   { self._binary(cast::<BinaryOperatorExpr>(e)); }
-            case ExprKind::AssignOperatorExpr   { self._assign(cast::<AssignOperatorExpr>(e)); }
+            case ExprKind::UnaryOperatorExpr {
+                var un = cast::<UnaryOperatorExpr>(e);
+                var uw = self._duck_unary(un);
+                if uw { self._nopanic_open(e->range); }
+                self._unary(un);
+                if uw { self._nopanic_close(e->range); }
+            }
+            case ExprKind::BinaryOperatorExpr {
+                var bn = cast::<BinaryOperatorExpr>(e);
+                var bw = self._duck_operand(bn->lhs) || self._duck_operand(bn->rhs);
+                if bw { self._nopanic_open(e->range); }
+                self._binary(bn);
+                if bw { self._nopanic_close(e->range); }
+            }
+            case ExprKind::AssignOperatorExpr {
+                var an = cast::<AssignOperatorExpr>(e);
+                var aw = self._duck_compound(an);
+                if aw { self._nopanic_open(e->range); }
+                self._assign(an);
+                if aw { self._nopanic_close(e->range); }
+            }
             case ExprKind::TypeCastExpr         { self._cast(cast::<TypeCastExpr>(e)); }
             case ExprKind::ImplicitBoundaryCastExpr {
                 var n = cast::<ImplicitBoundaryCastExpr>(e);
@@ -2490,12 +2508,17 @@ class EmitIR {
         // by the set's one C++ name, and clang resolves it per instance.
         var dset = self._dependent_imported_set(n->callee);
         if dset.size() > 0 {
+            // Under `<T: type>` the overload only the instance picks may be
+            // a Kairo function that panics, as a duck member call's may.
+            var dw = (self._cur_fn != &null) && plan_under_duck(static_cast::<*Decl>(self._cur_fn));
+            if dw { self._nopanic_open(n->range); }
             var wa = self._written_targs(n->callee);
             if wa.size() > 0 { dset += self._spell.args_str(&wa); }
             self._cg->sink->spell(n->callee->range, dset);
             self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
             self._args(n, &null, true, &null);
             self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
+            if dw { self._nopanic_close(n->range); }
             return;
         }
         var callee = self._callee_decl(n->callee);
@@ -2531,22 +2554,12 @@ class EmitIR {
             // SC116E) and a discarded call would drop. The wrapper stops
             // that instance (LowerTargets::nopanic_call).
             if self._dependent_member_call(n) {
-                // The wrapper has no Kairo bytes: its tokens are unanchored,
-                // as five on the call's first byte would walk on into the
-                // call's own and take the `.` clang places a member-access
-                // error on. Only the `,` -- the expression a failed instance
-                // is "requested" at -- sits on the call's first byte.
-                self._cg->sink->unanchored(true);
-                self._cg->sink->spell(n->range, "(::" + LowerTargets::nopanic_call() + "()");
-                self._cg->sink->unanchored(false);
-                self._cg->sink->synth_at_start(n->range, clang::tok::comma);
+                self._nopanic_open(n->range);
                 self.emit(n->callee);
                 self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
                 self._args(n, &null, true, &null);
                 self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
-                self._cg->sink->unanchored(true);
-                self._cg->sink->spell(n->range, ")");
-                self._cg->sink->unanchored(false);
+                self._nopanic_close(n->range);
                 return;
             }
             self._ice(n->range, "EmitIR: unbound callee reached codegen; ExprTyper gate failure");
@@ -2727,6 +2740,63 @@ class EmitIR {
         self._cg->sink->spell(last->range, (("->") if (is_ptr) else (".")) + "template ");
         self._name(last->name->name);
         self._cg->sink->spell(last->range, ta);
+    }
+
+    /// `(::__kairo_nopanic(), ` before a site whose callee only a `<T: type>`
+    /// instance knows (LowerTargets::nopanic_call), `)` after it. The
+    /// wrapper has no Kairo bytes: its tokens are unanchored, as five on the
+    /// site's first byte would walk on into the site's own and take the `.`
+    /// clang places a member-access error on. Only the `,` -- the
+    /// expression a failed instance is "requested" at -- sits on the
+    /// site's first byte.
+    priv fn _nopanic_open(self, at: SourceRange) {
+        self._cg->sink->unanchored(true);
+        self._cg->sink->spell(at, "(::" + LowerTargets::nopanic_call() + "()");
+        self._cg->sink->unanchored(false);
+        self._cg->sink->synth_at_start(at, clang::tok::comma);
+    }
+
+    priv fn _nopanic_close(self, at: SourceRange) {
+        self._cg->sink->unanchored(true);
+        self._cg->sink->spell(at, ")");
+        self._cg->sink->unanchored(false);
+    }
+
+    /// \p e has a `<T: type>` parameter's type: an operator on it is
+    /// whatever the instance's type declares, a panicking user operator
+    /// included, which the duck body cannot handle (P261, as P184 for a
+    /// member call).
+    priv fn _duck_operand(self, e: *Expr) -> bool {
+        if (e == &null) || (e->type_ == &null) { return false; }
+        var c = canon_unqual(e->type_);
+        if (c == &null) || (!isa::<GenericParamType>(c)) { return false; }
+        var g = cast::<GenericParamType>(c);
+        if g->owner == &null { return false; }
+        var gps = decl_generic_params(g->owner);
+        if static_cast::<usize>(g->param_index) >= gps.size() { return false; }
+        var gp = gps[static_cast::<usize>(g->param_index)];
+        return (gp != &null) && (gp->kind_bound == GenericParamKindBound::Duck);
+    }
+
+    /// A unary operator on a duck operand that is an operator call in the
+    /// instance: not `&` / `*` (C++'s own on any T), not a mode marker or a
+    /// materialized temporary, and not `++` / `--`, whose dependent form
+    /// wraps T's own operator inside its lambda (_dep_update).
+    priv fn _duck_unary(self, n: *UnaryOperatorExpr) -> bool {
+        if n->is_mode_marker || n->materialize { return false; }
+        var k = n->op_token.kind;
+        if (k == TokenKind::OpAmp) || (k == TokenKind::OpStar) { return false; }
+        if (k == TokenKind::OpPlusPlus) || (k == TokenKind::OpMinusMinus) { return false; }
+        return self._duck_operand(n->operand);
+    }
+
+    /// A compound assignment on a duck operand that is not _dep_update's,
+    /// which wraps T's own operator inside its lambda: `n += t` with an
+    /// integer place. Plain `=` is a copy or a move, which never panics.
+    priv fn _duck_compound(self, n: *AssignOperatorExpr) -> bool {
+        if n->op_token.kind == TokenKind::OpEqual { return false; }
+        if self._dependent_arith(n->lhs->type_) { return false; }
+        return self._duck_operand(n->rhs);
     }
 
     /// \p n calls a member Sema left unbound because its receiver is
@@ -3805,6 +3875,10 @@ class EmitIR {
         var stmt = self._stmt_node == n;
         var old  = postfix && (!stmt);
         var as_place = (!old) && (!stmt) && (n->value_category == Expr::ValueCategory::LValue);
+        // T's own operator in the non-integer arm is a duck instance's
+        // user operator when T is `: type`, and its result is discarded
+        // here: wrapped as a duck member call is (P261).
+        var duck = self._duck_operand(place) || ((v != &null) && self._duck_operand(v));
         if as_place { s->spell(at, "(*"); }
         self._form_open(at);
         s->spell(at, "auto& " + p + " = (");
@@ -3819,13 +3893,17 @@ class EmitIR {
         if incdec {
             var sym = ("+") if (k == TokenKind::OpPlus) else ("-");
             s->spell(at, p + " = static_cast<" + LowerTargets::wrap_tmp("T", d) + ">(static_cast<" + uu + ">(" + p + ") " + sym + " " + one + "); } else { ");
-            s->spell(at, (("++") if (k == TokenKind::OpPlus) else ("--")) + p + "; } }();");
+            var incop = (("++") if (k == TokenKind::OpPlus) else ("--")) + p;
+            if duck { incop = "(::" + LowerTargets::nopanic_call() + "(), " + incop + ")"; }
+            s->spell(at, incop + "; } }();");
         } else {
             // The integer arm returns the new value; the lambda stores it.
             s->spell(at, p + " = [&]() { ");
             self._dep_int_arm(at, k, p, tb, d);
             s->spell(at, "}(); } else { ");
-            s->spell(at, p + " " + self._compound_text(k) + " " + tb + "; } }();");
+            var cop = p + " " + self._compound_text(k) + " " + tb;
+            if duck { cop = "(::" + LowerTargets::nopanic_call() + "(), " + cop + ")"; }
+            s->spell(at, cop + "; } }();");
         }
         if !stmt {
             s->spell(at, " ");

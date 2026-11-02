@@ -1727,10 +1727,15 @@ For the same reason Sema cannot see that such a member call panics, so
 EmitIR::_call spells every member call through a `: type` parameter as
 `(::__kairo_nopanic(), t.f(a))`: the tag's `operator,` static_asserts
 that the value is no Panic instance (`__kairo_is_panic`, specialized for
-the Panic lang item beside the C++ view) and yields it as it came, a
-reference as a reference; a `void` call cannot bind `T&&` and takes the
-builtin comma. A discarded panicking call would otherwise drop its error
-(P184). InterfaceEmitter writes the tag wherever EmitPlan::needs_nopanic
+the Panic lang item beside the C++ view) and yields it: an lvalue as an
+lvalue, an rvalue by value (one move; as `T&&` a prvalue's temporary
+died with the wrapper's full-expression and an `auto&&` operand binding
+dangled); a `void` call cannot bind `T&&` and takes the builtin comma. A
+discarded panicking call would otherwise drop its error (P184). An
+operator with a `: type` operand (`a + b`, `-a`, `n += t`, and T's own
+operator inside _dep_update's lambda) and an unbound free call
+(_dependent_imported_set, under a `: type` parameter) are wrapped the
+same way (P261). InterfaceEmitter writes the tag wherever EmitPlan::needs_nopanic
 (a function under a `: type` parameter) or Panic is defined.
 Codegen keeps ICEs, each naming its owner: a requirement
 callee with no recorded witness (ExtensionLowering); an instance whose

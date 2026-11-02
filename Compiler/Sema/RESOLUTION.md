@@ -747,6 +747,17 @@ composite for patterns and `==`: its variants are its pattern's
 (PatternTyping::dependent_adt, PatternSpace::domain_of), a binder reads
 through the instance, and the tag is read through `__kairo_which()`.
 
+**A checked parameter passed to a bounded generic** [DONE, P259]. A
+call whose deduction binds a callee's `impl`-bounded parameter to the
+caller's `op_checked_param` (`one(x)` with `x: T` in `fn <T>`, or a pack
+forwarded with `args...`, per element) is checked at the call, in
+CallTyping (`_check_forwarded_bounds`), against the caller's bounds: the
+callee's interface (at any arguments; a dependent mismatch is the
+instance's) or one deriving it meets it, and any `derives` bound is taken
+on trust. None is R051E (unbounded: a fix-it adds ` impl I`) or R025E at
+the call, never left to the instance. A concrete argument is still
+ConformanceChecking's, at the instance; a `: type` caller is C++'s.
+
 **Operators on `<T derives B>`** [DONE, 2026-10-28]. A `derives`-bounded
 parameter is out of `checked_param` (its conversions, f-string holes and
 patterns read only `bound_ifaces`, so those still defer), but its

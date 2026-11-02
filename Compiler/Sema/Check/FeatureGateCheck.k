@@ -261,6 +261,10 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
     /// lowering builds once: an instance shares its pattern's record, and a
     /// redeclaration is its representative's.
     fn visit_enum_decl(self, n: *EnumDecl) -> bool {
+        if (!n->is_adt) && (!n->is_poisoned()) && (n->generic_params.size() > 0) {
+            self._generic_plain_enum(n);
+            return true;
+        }
         if (!n->is_adt) || n->is_poisoned() || (n->generic_params.size() > 0) { return true; }
         var d = static_cast::<*Decl>(n);
         if decl_is_instance(d) || (NameLookup::representative(d) != d) { return true; }
@@ -348,6 +352,29 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
         b.note(gp->range.start, f"'{gn}' is declared here; a local declaration is emitted outside the generic function, where '{gn}' is not in scope -- declare it at file scope with its own '<{gn}>\x27");
         b.emit();
         return true;
+    }
+
+    /// `enum <T> Plain { A, B }`: enums-plain.mdx says a plain enum cannot be
+    /// generic -- no variant carries a payload for T to type. Not a gate but
+    /// the rule, reported here because nothing earlier rejects it: the parser
+    /// takes generic parameters on any enum, and without this the C++ was a
+    /// `template` head on an `enum class`, which clang refuses (six CL001E
+    /// in generated code). Once per declaration: an instance shares its
+    /// pattern's, and a redeclaration is its representative's.
+    priv fn _generic_plain_enum(self, n: *EnumDecl) {
+        var d = static_cast::<*Decl>(n);
+        if decl_is_instance(d) || (NameLookup::representative(d) != d) { return; }
+        var first = n->generic_params[0];
+        var last  = n->generic_params[n->generic_params.size() - 1];
+        if (first == &null) || (last == &null) { return; }
+        var params = SourceRange(first->range.start, last->range.end);
+        var nm = self.sc->ctx->get_spelling(n->name);
+        var b = self.sc->diag->report(DiagID::SC001E, params.start,
+            f"plain enum '{nm}' cannot be generic: no variant carries a payload for a type parameter to type");
+        b.first(params);
+        b.note(DiagID::SC001N, n->name.range.start,
+            "give a variant a payload to make it an ADT enum, or remove the generic parameters").first(n->name.range);
+        b.emit();
     }
 
     priv fn _gate(self, at: SourceRange, what: string) {

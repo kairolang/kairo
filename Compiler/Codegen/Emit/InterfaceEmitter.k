@@ -2069,8 +2069,14 @@ class InterfaceEmitter {
     /// call through a `<T: type>` parameter, whose callee only the instance
     /// knows. A panicking one would hand the duck body a panic result it
     /// cannot handle (its sites are SC116E, MONO.md D1), and a discarded
-    /// one would drop the error. The tag's `operator,` stops it at the
-    /// instance and yields the value as it came (a reference stays one); a
+    /// one would drop the error. Operators on a `: type` operand and an
+    /// unbound free call go the same way (P261). The tag's `operator,`
+    /// stops it at the instance and yields the value as it came: an lvalue
+    /// stays one (T is `X&`), and an rvalue comes back BY VALUE (T is `X`),
+    /// at the cost of one move -- returned as `T&&`, a prvalue's temporary
+    /// died with the wrapper's full-expression, and EmitIR binds operands
+    /// with `auto&&` (_dep_binary), which then dangled. Elided, the move
+    /// would need the site spelled twice (once in a decltype); a
     /// `void` call cannot bind `T&&` and takes the builtin comma, whose
     /// left operand is a call so it is no unused value. `__kairo_is_panic`
     /// is false but for a Panic instance (_panic_api specializes it). Once
@@ -2091,7 +2097,7 @@ class InterfaceEmitter {
         self._cg->sink->spell(at, "template <class T> struct " + ip + "<const T> : " + ip + "<T> {};");
         self._cg->sink->spell(at, "struct " + tg + " {};");
         self._cg->sink->spell(at, "constexpr " + tg + " " + LowerTargets::nopanic_call() + "() noexcept { return {}; }");
-        self._cg->sink->spell(at, "template <class T> constexpr T&& operator,(" + tg + ", T&& v) noexcept { "
+        self._cg->sink->spell(at, "template <class T> constexpr T operator,(" + tg + ", T&& v) noexcept { "
             + "static_assert(!" + ip + "<T>::value, \"a call through a '<T: type>' parameter that may panic is not yet supported (C++-checked generics)\"); "
             + "return static_cast<T&&>(v); }");
         self._cg->sink->brk();
