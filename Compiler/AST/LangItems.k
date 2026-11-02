@@ -524,6 +524,12 @@ class LangAttrs {
     /// `@assume(cond)`: a statement of its own, parsed to a call of the
     /// Assume lang item (StmtParse::_try_parse_assume).
     static fn assume() -> string   { return "assume"; }
+    /// `@create<T>(args)` / `@create T(args)` and `@destroy(p)` / `@destroy
+    /// p`: sugar for a call of Lib/builtin/base/alloc.k's `create<T>(args)`
+    /// / `destroy(p)`, spelled with the attribute's own word
+    /// (AllocSugarDesugar). The attribute and the function share it.
+    static fn create() -> string  { return "create"; }
+    static fn destroy() -> string { return "destroy"; }
     /// Function attributes (FunctionDecl::hot_path / cold_path / is_pure),
     /// stamped by ASTParse::apply_annotations_to_decl.
     static fn hot_path() -> string  { return "hot_path"; }

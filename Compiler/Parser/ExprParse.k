@@ -818,6 +818,50 @@ class <T> ExprParse {
         dyn()->advance(); // consume the name
         var head = at_range | name_tok.range;
 
+        // `@create` / `@destroy` are sugar for alloc.k's create / destroy
+        // (AllocSugarDesugar rewrites them before N). The generic form,
+        // `@create<T>(args)` / `@destroy<T>(p)`, already names the library
+        // call, so it parses AS that call: the operand is `create<T>(args)`,
+        // its callee spelled with the attribute's own token. Without this the
+        // `<` would be read as the operand and fail as "expected an
+        // expression".
+        var attr_nm  = dyn()->ctx->get_spelling(name_tok);
+        var is_alloc = (attr_nm == LangAttrs::create()) || (attr_nm == LangAttrs::destroy());
+        if is_alloc { dyn()->tu->has_alloc_sugar = true; }
+        if is_alloc && dyn()->check(TokenKind::OpLess) {
+            var callee = NamedIdentExpr::create(dyn()->ctx, name_tok.range, name_tok);
+            var gargs: std::StackBuf::<ChainType::GenericArg, 4>;
+            dyn()->_parse_generic_args(&gargs);
+            if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
+            callee->generic_args.from_buf(gargs.data(), gargs.size(), dyn()->ctx);
+            callee->range = name_tok.range | dyn()->prev().range;
+            if !dyn()->check(TokenKind::OpLParen) {
+                dyn()->diag->report(DiagID::S052E, head.start,
+                    f"expected '(' after '@{attr_nm}<...>'; the generic form is a call: '@{attr_nm}<T>(...)\x27"
+                ).first(head | callee->range).emit();
+                return AttributedExpr::create_error(dyn()->ctx, head | callee->range);
+            }
+            var lp = dyn()->current_ptr()->range;
+            dyn()->advance(T::SkipNL::After); // consume `(`
+            dyn()->nl_push();
+            var cargs: std::StackBuf::<*Expr, 8>;
+            if !dyn()->check(TokenKind::OpRParen) { self._parse_call_args(&cargs, lp); }
+            dyn()->nl_pop();
+            var end_r = lp;
+            if dyn()->check(TokenKind::OpRParen) {
+                end_r = dyn()->current_ptr()->range;
+                dyn()->advance_raw();
+            } else {
+                dyn()->diag->report(DiagID::S051E, lp.start,
+                    "expected ')' to close the argument list"
+                ).first(lp).emit();
+            }
+            var call = CallExpr::create(dyn()->ctx, callee->range | end_r, static_cast::<*Expr>(callee));
+            call->args.from_buf(cargs.data(), cargs.size(), dyn()->ctx);
+            var gae = AttributedExpr::create(dyn()->ctx, head | end_r, name_tok, static_cast::<*Expr>(call));
+            return static_cast::<*Expr>(gae);
+        }
+
         var args: std::StackBuf::<*Expr, 8>;
         var has_args = false;
         if dyn()->check(TokenKind::OpLParen) {
@@ -847,6 +891,13 @@ class <T> ExprParse {
                 || dyn()->check(TokenKind::OpRParen) || dyn()->check(TokenKind::OpRSquare)
                 || dyn()->check(TokenKind::OpRBrace) || dyn()->check(TokenKind::OpComma);
         if !ends { operand = self._parse_unary_expr(stop); }
+        // `@destroy(p)`: the parenthesized spelling of `@destroy p`. The one
+        // argument is the operand; there is no attribute argument list.
+        if (operand == &null) && is_alloc && (attr_nm == LangAttrs::destroy()) && has_args && (args.size() == 1) {
+            operand  = args[0];
+            has_args = false;
+            args.clear();
+        }
         if operand == &null {
             var nm = dyn()->ctx->get_spelling(name_tok);
             dyn()->diag->report(DiagID::S052E, head.start,

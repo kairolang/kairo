@@ -39,9 +39,12 @@
 ///       - `var {a, b} = s`, destructuring a struct by field name.
 ///         TupleLowering renders the positional form only; a struct's
 ///         reaching EmitIR is its ICE.
-///       - an attribute applied to an expression (`@create T(args)`,
+///       - an attribute applied to an expression (`@align(16) x`,
 ///         AttributedExpr): it parses, but no attribute has an expression
-///         meaning yet. X leaves the node and its operand untyped.
+///         meaning yet. X leaves the node and its operand untyped. The
+///         exception is `@create` / `@destroy` in their call shapes, which
+///         AllocSugarDesugar rewrote to alloc.k calls before N; one left
+///         here (`@create Point{ x: 1 }`) is gated like any other.
 ///       - an `eval for` directly in a module or class body
 ///         (EvalBlockDecl::stmt): it parses, but nothing unrolls it there.
 ///         (An `eval if` there is folded away by EvalIfFolding.)

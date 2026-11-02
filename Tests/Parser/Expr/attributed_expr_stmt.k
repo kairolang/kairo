@@ -76,16 +76,22 @@ fn f(p: *T) {
 // TREE-NEXT:         `-CompoundStmt (0)
 // TREE: -- 0 error(s), 0 warning(s) --
 //
-// The expression attributes, and only those, are gated.
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=GATE --implicit-check-not="error [" --implicit-check-not="warning ["
-// GATE: attributed_expr_stmt.k:16:1: error [SC116E]: the expression attribute '@create' is not yet supported
-// GATE: attributed_expr_stmt.k:19:5: error [SC116E]: the expression attribute '@destroy' is not yet supported
-// GATE: attributed_expr_stmt.k:20:5: error [SC116E]: the expression attribute '@create' is not yet supported
-// GATE: attributed_expr_stmt.k:21:5: error [SC116E]: the expression attribute '@a' is not yet supported
-// GATE: attributed_expr_stmt.k:21:8: error [SC116E]: the expression attribute '@b' is not yet supported
+// The expression attributes, and only those, are gated. `@create` and
+// `@destroy` are not among them: they are calls of alloc.k's create /
+// destroy (P91, AllocSugarDesugar), and with no alloc.k imported each
+// callee is undeclared, which stops the schedule before the gate. So the
+// gate is checked with those three lines removed.
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=SUGAR --implicit-check-not="error [" --implicit-check-not="warning ["
+// SUGAR: attributed_expr_stmt.k:16:2: error [R020E]: use of undeclared identifier 'create'
+// SUGAR: attributed_expr_stmt.k:19:6: error [R020E]: use of undeclared identifier 'destroy'
+// SUGAR: attributed_expr_stmt.k:20:6: error [R020E]: use of undeclared identifier 'create'
+// RUN: sed -e '/^@create/d' -e '/    @destroy p/d' -e '/    @create T()/d' %s > %t.k
+// RUN: { %kairo %t.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=GATE --implicit-check-not="error [" --implicit-check-not="warning ["
+// GATE: :18:5: error [SC116E]: the expression attribute '@a' is not yet supported
+// GATE: :18:8: error [SC116E]: the expression attribute '@b' is not yet supported
 // The statement and declaration attributes no compiler rule knows are
 // AttributeCheck's (unknown attribute); `@deprecated` and `@likely` are known.
-// GATE: attributed_expr_stmt.k:23:5: error [SC001E]: unknown attribute '@repeat'
-// GATE: attributed_expr_stmt.k:25:5: error [SC001E]: unknown attribute '@always_inline'
-// GATE: attributed_expr_stmt.k:27:5: error [SC001E]: unknown attribute '@note'
-// GATE: attributed_expr_stmt.k:29:5: error [SC001E]: unknown attribute '@lbl'
+// GATE: :20:5: error [SC001E]: unknown attribute '@repeat'
+// GATE: :22:5: error [SC001E]: unknown attribute '@always_inline'
+// GATE: :24:5: error [SC001E]: unknown attribute '@note'
+// GATE: :26:5: error [SC001E]: unknown attribute '@lbl'

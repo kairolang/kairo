@@ -41,6 +41,7 @@ import Sema::Resolve::AccessCheck::*;
 import Sema::Expand::RequiresDesugar::*;
 import Sema::Expand::EvalIfFolding::*;
 import Sema::Expand::PrimitiveLimitDesugar::*;
+import Sema::Expand::AllocSugarDesugar::*;
 import Sema::Verify::LoopContextCheck::*;
 import Sema::Verify::ArmOrderCheck::*;
 import Sema::Verify::JumpLabelCheck::*;
@@ -254,6 +255,10 @@ class Sema {
         // Before it: `eval if i32::MAX > N` folds a literal, as every later
         // pass reads one.
         { var _p = TimeRegion("PrimitiveLimits"); PrimitiveLimitDesugar(&self.sc).run(); }
+        // `@create` / `@destroy` are calls of alloc.k's create / destroy
+        // (P91): rewritten before N, so the minted callee binds as a written
+        // one does and no later pass meets the attribute.
+        { var _p = TimeRegion("AllocSugar"); AllocSugarDesugar(&self.sc).run(); }
         { var _p = TimeRegion("EvalIfFolding"); EvalIfFolding(&self.sc).run(); }
         // TODO(sema): MacroExpansion(&self.sc).run();
         var desugar = RequiresDesugar(self.sc.ctx);

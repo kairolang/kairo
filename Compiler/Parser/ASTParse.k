@@ -2028,11 +2028,17 @@ class ASTParse
     ///          `a::b` attribute path. The guard rolls back unconditionally.
     pub fn _attr_opens_expr_stmt(self) -> bool {
         var t = TentativeGuard(&self);
+        var destroy_call = false;
         while self.check(TokenKind::OpAt) {
             self.advance();                       // `@`
             if !self.check(TokenKind::LitIdentifier) { return false; }
+            // `@destroy(p)` is the whole expression: nothing follows it, and
+            // without this the newline would make it a statement attribute
+            // on the NEXT line's statement.
+            destroy_call = self.ctx->get_spelling(self.current()) == LangAttrs::destroy();
             self.advance();                       // the name
             if self.check(TokenKind::OpColonColon) { return false; }
+            if !self.check(TokenKind::OpLParen) { destroy_call = false; }
             if self.check(TokenKind::OpLParen) {
                 var depth: u32 = 0;
                 while !self.is_eof() {
@@ -2046,8 +2052,9 @@ class ASTParse
                 }
             }
         }
-        if self.is_eof() || self._is_terminator_tok(self._current) { return false; }
+        if self.is_eof() || self._is_terminator_tok(self._current) { return destroy_call; }
         var k = self.resolve_kind_deep(self._current);
+        if destroy_call && (k == TokenKind::OpRBrace) { return true; }
         if (k == TokenKind::OpLBrace) || (k == TokenKind::OpRBrace) { return false; }
         if self._starts_decl_here(k) { return false; }
         if (k == TokenKind::KwIf)     || (k == TokenKind::KwWhile)   || (k == TokenKind::KwLoop)

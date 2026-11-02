@@ -227,6 +227,9 @@ class TranslationUnit derives DeclContext {
     /// The parser met `<primitive>::NAME` (`i32::MAX`), so
     /// PrimitiveLimitDesugar has something to mint. One writer: the parser.
     pub var has_prim_member: bool = false;
+    /// The parser met `@create` or `@destroy` in expression position, so
+    /// AllocSugarDesugar has something to rewrite. One writer: the parser.
+    pub var has_alloc_sugar: bool = false;
     /// StringLowering spelled a string literal C++ reads at compile time
     /// (EVAL.md 2a), so InterfaceEmitter writes `__kairo_estr`. One writer:
     /// StringLowering.

@@ -1,13 +1,9 @@
 // Heap allocation with `@create T(args)` in expression position
-// (attributes.mdx; modules.mdx: `var *p = @create i32(42)`).
-//
-// XFAIL: *
-// Ticket "[Sema/Codegen] Expression attributes (`@create T(args)`) are
-// SC116E" (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today: SC116E "the
-// expression attribute '@create' is not yet supported" (8b68415b parses it
-// and gates it; Sema/Check/attributed_expr_gate.k pins the gate, and changes
-// when this lands). When it XPASSes, delete the XFAIL -- the run below is
-// already the real assertion.
+// (attributes.mdx; modules.mdx: `var *p = @create i32(42)`). The sugar is a
+// call of alloc.k's create (P91, Sema/Expand/AllocSugarDesugar.k), so alloc.k
+// must be visible: the builtin prelude does not re-export it.
+
+import builtin::base::alloc::*
 
 fn main() -> i32 {
     var *p = @create i32(42)
