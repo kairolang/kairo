@@ -127,6 +127,27 @@ class SavedDeclScope {
     fn SavedDeclScope(self) { }
 }
 
+/// The first pack expansion anywhere under a partial's written pattern
+/// argument: top level (`Traits<Box<T>, Args...>`) or nested in a record's
+/// arguments (`Traits<Tup<T...>>`). Either way the registry cannot select
+/// the partial (InstantiationRegistry::_match binds one type per parameter
+/// and refuses a pack parameter), so _register_type_spec refuses it.
+class PatternPackFinder derives RecursiveASTVisitor::<PatternPackFinder> {
+    pub var found: *Type = &null;
+
+    fn PatternPackFinder(self) { }
+
+    fn visit_type(self, n: *Type) -> bool {
+        if (n == &null) || (self.found != &null) { return false; }
+        if isa::<PackExpansionType>(n) {
+            self.found = n;
+            self.stop  = true;
+            return false;
+        }
+        return true;
+    }
+}
+
 ///
 /// \class TypeResolution
 /// \brief The T pass. One instance per TU per run.
@@ -3644,20 +3665,26 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             if a == &null { ok = false; continue; }
             self.dispatch_type(a);                    // memoized; the main walk's dispatch is then a no-op.
             if a->is_poisoned() || (a->canonical == &null) { ok = false; continue; }
-            // `Traits<Box<T>, Args...>`: the registry never matches a pack
-            // pattern (InstantiationRegistry::_match), so the partial could
-            // never be selected here while C++ would select it per instance.
-            // Refused rather than dropped (P138): dropped, Sema typed every
-            // instance through the primary's body while clang picked the
-            // partial's, so a member the two disagree on was a false error
-            // in Kairo or a different type in C++. Once per specialization
-            // (instantiated_from above is the cross-call mark).
-            if isa::<PackExpansionType>(a) {
+            // `Traits<Box<T>, Args...>`, or nested, `Traits<Tup<T...>>`: the
+            // registry never matches a pack pattern (InstantiationRegistry::
+            // _match), so the partial could never be selected here while C++
+            // would select it per instance. Refused rather than dropped
+            // (P138): dropped, Sema typed every instance through the
+            // primary's body while clang picked the partial's, so a member
+            // the two disagree on was a false error in Kairo or a different
+            // type in C++. A nested pack was still dropped -- registered,
+            // then never matched -- until the walk looked below the top
+            // level. Once per specialization (instantiated_from above is the
+            // cross-call mark).
+            var pf = PatternPackFinder();
+            pf.dispatch_type(a);
+            var pk = pf.found;
+            if pk != &null {
                 if !pack_reported {
                     pack_reported = true;
-                    var pb = self.sc->diag->report(DiagID::SC116E, a->range.start,
+                    var pb = self.sc->diag->report(DiagID::SC116E, pk->range.start,
                         "a partial specialization whose pattern holds a pack expansion is not yet supported");
-                    pb.first(a->range, "pack expansion in the pattern");
+                    pb.first(pk->range, "pack expansion in the pattern");
                     pb.note(DiagID::SC116N, d->range.start, "this partial specialization is never selected; write one without the pack, or an explicit specialization per argument list").first(d->range);
                     pb.emit();
                 }
