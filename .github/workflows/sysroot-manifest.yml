@@ -1,0 +1,45 @@
+name: Sysroot manifest URLs
+
+# Every URL in the published kairo-sysroots manifest.json must resolve.
+# The v2-llvm22 manifest went out naming v1-llvm22 for every target, each one
+# a 404, and nothing fetched them until a user did. Daily, because the
+# manifest is published from another repo and can break with no push here.
+
+on:
+    schedule:
+        - cron: "17 6 * * *"
+    workflow_dispatch:
+        inputs:
+            manifest:
+                description: "Manifest path or URL (default: the latest kairo-sysroots release)"
+                required: false
+                type: string
+    push:
+        paths:
+            - Scripts/check_manifest_urls.py
+            - .github/workflows/sysroot-manifest.yml
+    pull_request:
+        paths:
+            - Scripts/check_manifest_urls.py
+            - .github/workflows/sysroot-manifest.yml
+
+permissions:
+    contents: read
+
+jobs:
+    check:
+        name: Check manifest URLs
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+
+            - name: Check every manifest URL resolves
+              env:
+                  MANIFEST: ${{ inputs.manifest }}
+              run: python3 Scripts/check_manifest_urls.py ${MANIFEST:+"$MANIFEST"}
