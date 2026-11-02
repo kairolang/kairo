@@ -622,7 +622,11 @@ parameter in an argument list as `E...`. A forwarding pack's expansion is
 `static_cast<T&&>(xs)...`, and an lvalue argument a call puts into one is
 `static_cast<E>(x)`, the copy a by-value parameter makes (`static_cast<E&&>`
 for `@move`): a temporary or a moved value crosses every layer uncopied
-(P225). `for x in xs` binds each element as an `auto&` lvalue.
+(P225). `for x in xs` binds each element as an `auto&` lvalue. A bounded
+pack's head is a fold, `requires ((I_c<T> && ...))`, and a witness call on
+an element names it by its own type, `I_witness<__remove_cvref(decltype(x))>`:
+clang refuses the bare pack `T` in a declaration's initializer, which a
+statement-expression lowering puts the call in (P141).
 
 ## 6. EmitIR — the core
 

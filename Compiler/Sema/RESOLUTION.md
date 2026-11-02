@@ -505,9 +505,10 @@ Clang builtins: `R057E` (N), `SC108E`/`SC109E` (X).
 of `Sema/Type/` is on `SC001E`/`SC001W`; a later sweep triages it. Anything
 still on a placeholder must not ship in a stable release.
 
-    [PARTIAL] `Foo<i32>::Inner` (concrete args) is marked IsDependent, not
-    merely instantiation-dependent; ChainBinding then refuses
-    `Foo<i32>::Inner::make()`.
+    [DONE, GH#73 via GH#91 caa05a67] `Foo<i32>::Inner` (concrete args) in
+    type position steps into the instance (`_kairo_instance_of`) and is
+    not dependent; only a genuinely dependent chain (`Foo<T>::Inner`,
+    `T::Item`) breaks to Dependent. Sema/Types/nested_instance_concrete.k.
     [PARTIAL] `_register_specs_in` descends type and module scopes only.
 
 ### 2.6a R RedeclMerge [DONE]
@@ -734,7 +735,11 @@ and an f-string hole bind ONLY to the bounds' requirements (`op ==`,
 never a deferral. The parameter is never nullable (`t?`, `t == null`,
 `unwrap!(t)` get the non-nullable errors), and a pattern on it other than
 a binder or `_` is SC001E (PatternTyping); its match is analysed with an
-Opaque domain. A generic ADT at dependent arguments (`Rep<T>`) is no
+Opaque domain. A pack element (the binding of `for x in xs` over
+`...xs: T`) has the pack's type and is the same checked parameter, held to
+the bounds every element meets (P141): `x as string` through a bound's
+`op as` is a witness call per element, and with no bound R051E. A generic
+ADT at dependent arguments (`Rep<T>`) is no
 composite for patterns and `==`: its variants are its pattern's
 (PatternTyping::dependent_adt, PatternSpace::domain_of), a binder reads
 through the instance, and the tag is read through `__kairo_which()`.
@@ -2580,7 +2585,7 @@ Non-blocking, same subsystem:
 Name/type residue:
 
     a. Split ImportResolution's shared R015E                 diag table
-    b. `Foo<i32>::Inner` dependence flag (§2.6 PARTIAL)      small
+    b. `Foo<i32>::Inner` dependence flag (§2.6)              DONE (GH#73)
     c. `NameLookup::qualified_step` spelled overload         small
     d. Lang items by fid+path; containers as builtin records DONE (design);
        (§2.5, §2.6)                                           code: items 2-9 of

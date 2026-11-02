@@ -223,8 +223,10 @@ class TypeUtil {
     }
 
     /// The declaration of \p t when it is a generic parameter whose body is
-    /// checked against its bounds (MONO.md D0): a bare, non-pack parameter,
-    /// no `: type` (the C++-checked regime, D1), and no `derives` bound
+    /// checked against its bounds (MONO.md D0): a bare parameter, a pack's
+    /// included (an element `for x in xs` binds has the pack's type, and is
+    /// held to the bounds every element meets: P141), no `: type` (the
+    /// C++-checked regime, D1), and no `derives` bound
     /// (its conversions, f-string holes and patterns would need the base's
     /// members as well as bound_ifaces, which those paths do not read yet;
     /// its OPERATORS do, see op_checked_param). Null for anything else,
@@ -247,7 +249,7 @@ class TypeUtil {
         var c = canon_unqual(t);
         if (c == &null) || (!isa::<GenericParamType>(c)) { return &null; }
         var g = cast::<GenericParamType>(c);
-        if g->is_pack || (g->owner == &null) { return &null; }
+        if g->owner == &null { return &null; }
         var gps = decl_generic_params(g->owner);
         if static_cast::<usize>(g->param_index) >= gps.size() { return &null; }
         var gp = gps[static_cast::<usize>(g->param_index)];

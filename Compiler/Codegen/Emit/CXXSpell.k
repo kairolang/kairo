@@ -1661,7 +1661,11 @@ class CXXSpell {
             var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(rhs)->decl)));
             if !isa::<InterfaceDecl>(idecl) { continue; }
             s += (" requires (") if (s.size() == 0) else (" && ");
-            s += self.concept_name(idecl) + self.witness_args(self.tparam_name(gp, CXXSpell::rep(gp->owner)), rhs);
+            var conj = self.concept_name(idecl) + self.witness_args(self.tparam_name(gp, CXXSpell::rep(gp->owner)), rhs);
+            // A pack's bound holds of every element: a fold, since a
+            // constraint naming the pack unexpanded is ill-formed (P141).
+            if gp->is_pack { conj = "(" + conj + " && ...)"; }
+            s += conj;
         }
         // A record's VALUE predicates (`class <T> B requires sizeof T <= 128`)
         // as C++ constraints, so clang rejects a bad instance where it is

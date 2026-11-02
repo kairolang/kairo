@@ -152,6 +152,11 @@ class EmitIR {
     /// scope needs one).
     priv var _ns_init: bool = false;
     priv var _ef_loops: u32 = 0;
+    /// The type packs whose `for x in xs` bodies are open, innermost last,
+    /// with each one's binding name: a pack element's witness Self
+    /// (_witness_member).
+    priv var _pe_gp: vec::<*Type>;
+    priv var _pe_name: vec::<string>;
     /// Eval generator iterables in the function, for unique names.
     priv var _ef_gens: usize = 0;
     priv var _eval_done: vec::<*FunctionDecl>;
@@ -1678,6 +1683,13 @@ class EmitIR {
         }
         var nm = (self._spell.imm_name(vd->name.imm, self._owning_fid())) if (vd != &null) else (LowerTargets::eval_for_unused());
         self._cg->sink->spell(at, "(... && [&]([[maybe_unused]] auto& " + nm + ") -> bool {");
+        // The element's type, for a witness call through its bound
+        // (_witness_member): the pack's canonical, matched against Self.
+        var pt: *Type = &null;
+        var pd = dyn_cast::<ParamDecl>(pk->resolved_decl);
+        if (pd != &null) && (pd->type_ != &null) && (pd->type_->canonical != &null) { pt = canon_unqual(pd->type_->canonical); }
+        self._pe_gp.push_back(pt);
+        self._pe_name.push_back(nm);
         var sd = self._ef_depth;
         var sl = self._ef_loops;
         self._ef_depth += 1;
@@ -1685,6 +1697,8 @@ class EmitIR {
         for var i: usize = 0; i < n->body->body.size(); ++i { self.emit(n->body->body[i]); }
         self._ef_depth = sd;
         self._ef_loops = sl;
+        self._pe_gp.pop_back();
+        self._pe_name.pop_back();
         self._cg->sink->spell(at, "return true; }(");
         self.emit(n->iterable);
         self._cg->sink->spell(at, "));");
@@ -2698,7 +2712,22 @@ class EmitIR {
         var wi = canon_unqual(wi0);
         if (wi == &null) || (!isa::<RecordType>(wi)) { self._ice(f->range, "EmitIR: a witness that is not an interface instance"); }
         var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(wi)->decl)));
-        var s = self._spell.witness_name(idecl) + self._spell.witness_args(self._spell._type(me), wi) + "::";
+        // A pack element (`for x in xs` over `...xs: T`) as Self is the
+        // element's own type, read off the binding _pack_for opened
+        // (`__remove_cvref(decltype(x))`). Not `T...`, the type speller's
+        // expansion, and not a bare `T` either: the fold would expand that
+        // in step with `xs`, but clang refuses an unexpanded pack in a
+        // declaration's initializer, which a statement-expression lowering
+        // of the call puts it in (P141).
+        var subj = "";
+        var mc = canon_unqual(me);
+        var k = self._pe_gp.size();
+        while k > 0 {
+            k -= 1;
+            if (mc != &null) && (self._pe_gp[k] == mc) { subj = "__remove_cvref(decltype(" + self._pe_name[k] + "))"; break; }
+        }
+        if subj.size() == 0 { subj = self._spell._type(me); }
+        var s = self._spell.witness_name(idecl) + self._spell.witness_args(subj, wi) + "::";
         if targs.size() > 0 { return s + "template " + self._spell.witness_member_name(f) + targs; }
         return s + self._spell.witness_member_name(f);
     }
