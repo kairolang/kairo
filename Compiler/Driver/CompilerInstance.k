@@ -145,6 +145,7 @@ import Token::TokenPrinter::*;
 import Sema::Type::PanicSets::*;
 import Sema::Sema::*;
 import Sema::Resolve::ImportResolution::*;
+import Sema::Resolve::NameLookup::*;
 import Sema::SemaDump::*;
 import Sema::SemaContext::*;
 import Sema::Check::EffectPropagation::*;
@@ -4386,8 +4387,25 @@ fn FrontendAction::_sema_group(fids: *vec::<u32>, effects: *EffectTable, print_s
         effects->solve();
     }
 
+    // The TU that declares the Nullable lang item lowers first: every `T?`
+    // in another TU is lowered through its layout, which that TU's
+    // EnumLayoutLowering builds. Import order already puts the builtin root
+    // ahead of what imports it, except around a cycle: a builtin file the
+    // root imports that itself imports alloc.k (which names `T?`) put
+    // alloc.k first, and NullTestLowering ICEd on the missing layout.
+    var order = vec::<usize>();
     for var i: usize = 0; i < sems.size(); ++i {
-        var sem = sems[i];
+        var en = sems[i]->sc.nullable_enum();
+        var home = (NameLookup::tu_of(reinterpret_cast::<*DeclContext>(en->semantic_dc))) if (en != &null) else (&null);
+        if (home != &null) && (home == sems[i]->sc.tu) { order.push_back(i); break; }
+    }
+    for var i: usize = 0; i < sems.size(); ++i {
+        if (order.size() > 0) && (order[0] == i) { continue; }
+        order.push_back(i);
+    }
+
+    for var oi: usize = 0; oi < order.size(); ++oi {
+        var sem = sems[order[oi]];
         var ctx: *ASTContext = sem->sc.ctx;
         // Through L, not just the checks: OperatorLowering rewrites every user
         // operator into the call it is, and codegen ICEs on any operator node
