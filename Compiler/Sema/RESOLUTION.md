@@ -1551,7 +1551,13 @@ instance the bound reaches it through (TypeResolve::_declaring_through,
 one a default (`interface D derives G { type Node = i64 }`): that line is
 G's Node, not a second one (`Self::Node` in D names G's), InterfaceComposition
 merges it into G's requirement as its default, and assoc_witness takes it
-from the interface a conformer declares (`_derived_default`); restating it
+from the interface a conformer declares (`_derived_default`). A derived
+GENERIC interface's default is over its OWN parameters (`interface <U>
+Wrapped derives Source<U> { type Item = U }`), which G's instance never
+binds: `_read_derived_default` reads it for the conformer, Self first, then
+through the instance the conformer declares (`Wrapped<N>` read at its
+arguments, whose bases bind every interface between), and two defaults are
+compared as read (`A<i32>`'s `U` and `B<i32>`'s `V` agree); restating it
 without a default, adding bounds, or changing a default G gives is SC001E at
 the redeclaration. A conformer whose declared interfaces give one inherited
 requirement two DIFFERENT defaults takes neither (which would depend on the

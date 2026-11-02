@@ -893,6 +893,9 @@ class Substitution {
     /// Every distinct default \p x's declared interfaces give requirement
     /// \p req other than its own: the canonical into \p tys, the written
     /// default (for its range) into \p nodes, the interface into \p ins.
+    /// Each is read for x (_read_derived_default), so two interfaces giving
+    /// the same type over their own parameters (`A<i32>`'s `U`, `B<i32>`'s
+    /// `V`) agree and `A<i32>`, `B<i64>` do not.
     fn derived_defaults(self, x: *Type, req: *Decl, ml: *MemberLookup, tys: *vec::<*Type>,
                         nodes: *vec::<*Type>, ins: *vec::<*Decl>) {
         var ifaces = vec::<*Type>();
@@ -922,6 +925,7 @@ class Substitution {
                 if (r->default_ty == &null) || (r->default_ty->canonical == &null) { continue; }
                 if (td != &null) && (r->default_ty == td->aliased) { continue; }   // req's own default: the caller's.
                 var c = canon_unqual(r->default_ty->canonical);
+                if c->is_dependent() { c = self._read_derived_default(x, c, static_cast::<*Decl>(id), ifaces[i]); }
                 var seen = false;
                 for var k: usize = 0; k < tys->size(); ++k { if (*tys)[k] == c { seen = true; } }
                 if seen { continue; }
@@ -930,6 +934,37 @@ class Substitution {
                 ins->push_back(static_cast::<*Decl>(id));
             }
         }
+    }
+
+    /// Derived default \p c, written in interface \p id, as conformer \p x
+    /// reads it through \p edge, the instance of \p id it declares. The
+    /// default is over id's OWN parameters (`interface <U> Wrapped derives
+    /// Source<U> { type Item = U }`), which the requirement's instance
+    /// (`Source<i32>`) never binds; the edge (`Wrapped<N>`, read through
+    /// x's arguments) does, its bases every interface between. Self first,
+    /// as assoc_witness does: a generic interface's Self is `I<U>` over its
+    /// own parameters, which the substitution would turn into an instance
+    /// that no longer reads as Self.
+    priv fn _read_derived_default(self, x: *Type, c: *Type, id: *Decl, edge: *Type) -> *Type {
+        var homes = vec::<*Decl>();
+        self._iface_closure(id, &homes, 0);
+        var s = Substitution(self.sc);
+        var d = c;
+        for var i: usize = 0; i < homes.size(); ++i { d = s.replace_self(d, homes[i], x, true); }
+        if !d->is_dependent() { return canon_unqual(d); }
+        var e = edge;
+        if e->is_dependent() && isa::<RecordType>(x) {
+            var sx = Substitution(self.sc);
+            sx.bind_own(x);
+            sx.keep_unbound = true;
+            var se = sx.substitute(e);
+            if se != &null { e = canon_unqual(se); }
+        }
+        var sb = Substitution(self.sc);
+        sb.bind_from_record(e);
+        sb.keep_unbound = true;   // a generic associated type's own parameters: the caller's.
+        var r = sb.substitute(d);
+        return (canon_unqual(r)) if (r != &null) else (canon_unqual(d));
     }
 
     priv fn _impl_list_into(self, d: *Decl, out: *vec::<*Type>) {
