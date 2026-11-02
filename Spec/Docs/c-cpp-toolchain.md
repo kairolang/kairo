@@ -42,7 +42,7 @@ The same applies to the C++ standard library. A program that uses libc++ must li
 
 ### Cross-compilation
 
-Both `kairo` and `kcc` are full native cross-compilers. Targets are selected by triple, and system libraries come from **curated sysroots** hosted for download rather than from the host machine:
+Both `kairo` and `kcc` are full native cross-compilers. Targets are selected by triple, and system libraries come from **curated sysroots** hosted for download rather than from the host machine. A `--target` build is hermetic; a build without one also searches the host's system directories, after the sysroot (see [Host headers and libraries](#host-headers-and-libraries)):
 
 ```sh
 kcc --target=x86_64-pc-windows-msvc foo.cc
@@ -58,6 +58,78 @@ How `--target` finds its sysroot:
 - `-m32` / `-m64` look up the architecture they switch to: `--target=x86_64-linux-musl -m32` uses `i686-linux-musl`.
 - A bundled sysroot takes precedence over `--sysroot`. With no matching folder, `--sysroot` is used if given; otherwise there are no system headers.
 - A matching folder without a loadable `SYSROOT.toml` is an error: [P007E](/docs/language/diagnostics/#p007e-bundled-sysroot-for-the-target-is-malformed) "bundled sysroot for the target is malformed".
+
+### Host headers and libraries
+
+A build sees the machine it runs on in one of three ways, decided by the flags:
+
+| Mode | Flags | C library | Host headers and libraries |
+|---|---|---|---|
+| Default | no `--target`, no `--sysroot` | The bundled sysroot for this host (glibc 2.31 on a glibc Linux host, musl on a musl host) | Searched **after** the sysroot |
+| Native | `--native` | The host's own | Searched as clang does natively |
+| Hermetic | `--target=<triple>` (or `--sysroot`) | The bundled sysroot for the triple | Never |
+
+**Default.** On a glibc Linux host a plain `kairo main.k` builds for `<arch>-unknown-linux-gnu` against the bundled glibc 2.31 sysroot, the *glibc floor*. The program then runs on any Linux with glibc 2.31 or newer. On top of the floor, the host's system directories are searched last:
+
+- Headers: the bundled libc++, then Clang's builtin headers, then the floor's glibc headers, and only then the host's `/usr/local/include`, `/usr/include/<multiarch>` and `/usr/include` (as `-idirafter`). `<stdio.h>` always comes from the floor. Only a header the floor lacks, such as `zlib.h` or `curl/curl.h`, comes from the host.
+- Libraries: the sysroot's library directory, then the host's `/usr/local/lib`, `/usr/lib/<multiarch>`, `/usr/lib64`, `/usr/lib`, `/lib/<multiarch>`, `/lib64` and `/lib`. `libc` and `libm` always come from the floor.
+
+So installed C libraries work without extra flags beyond naming them:
+
+```kairo
+ffi "c" import "curl/curl.h"
+
+fn main() -> i32 {
+    var unsafe *v = curl_version()
+    return 0
+}
+```
+
+```sh
+kairo main.k --pkg-config libcurl -o main
+```
+
+`kairo --print-clang-args main.k` shows the header search order, and `kairo --print-dirs main.k` the library search order (the host's directories are listed under `host library search`).
+
+**What raises the floor.** A host library was built against the host's glibc, which is usually newer than 2.31. Linking one can make the program need that newer glibc:
+
+- A host **shared** library is linked with `--allow-shlib-undefined`, because the floor's `libc.so` lacks the newer symbol versions it uses. After the link, Kairo reads the library's version needs and warns when one is above the floor:
+  `warning [L001W]: 'libcurl.so.4' needs GLIBC_2.43, so this program needs glibc 2.43 or newer to run (the floor is 2.31)`.
+  The program runs on this machine. To run it on an older one, ship it with that library (or one built against an older glibc).
+- A host **static** archive (`.a`) from a host directory gets a warning too: once it is linked in, nothing can see what it needs from glibc, so it can raise the floor silently.
+
+The floor is Linux-only. On macOS and Windows the default build uses the bundled SDK or MinGW-w64 sysroot as before.
+
+**Native: `--native`.** Builds against the host's own C library, headers and libraries, in Clang's normal native search order, like Zig's native mode. There is no sysroot. The bundled libc++, libunwind and compiler-rt are still used (linked by path, so the host's `libc` is the one linked). The program needs the host's glibc version, with no floor. `--native` cannot be combined with `--target`: one names this machine, the other a triple built hermetically. `--native` is implemented for Linux hosts so far.
+
+**Hermetic: `--target`.** A `--target` build uses the bundled sysroot only. No host directory and no host environment search path is ever consulted, so a cross build gives the same result on every machine. Naming a root with `--sysroot`, or building `--freestanding`, is hermetic too.
+
+#### `--pkg-config`
+
+`--pkg-config <name>` (repeatable) runs `pkg-config --cflags --libs <name>` and applies the result:
+
+- `-I`, `-isystem`, `-D` and `-U` go to Clang, for `ffi` headers and C/C++ inputs.
+- `-L`, `-l`, `-pthread` and `-Wl,...` go to the link.
+- A `-I` or `-L` naming a host system directory is dropped, because those are already searched after the sysroot. As a `-I` it would come before the sysroot, and `-I/usr/include` ahead of libc++ breaks `<cstring>`.
+
+pkg-config reads `PKG_CONFIG_PATH`, `PKG_CONFIG_LIBDIR` and `PKG_CONFIG_SYSROOT_DIR` itself, and `PKG_CONFIG` names a different program. A missing pkg-config, or a package it does not know, is an error naming the package. With `--target`, `--pkg-config` is an error unless `PKG_CONFIG_SYSROOT_DIR` or `PKG_CONFIG_LIBDIR` is set, because the host's `.pc` files describe the host, not the target.
+
+#### Environment variables
+
+In the default and native modes, Kairo honors the variables Clang's driver reads, in the same positions:
+
+| Variable | Effect |
+|---|---|
+| `CPATH` | Like `-I`, after the command line's own `-I` |
+| `C_INCLUDE_PATH`, `CPLUS_INCLUDE_PATH` | System include directories for C and C++, searched after the sysroot's headers |
+| `LIBRARY_PATH` | Library directories, after the sysroot's and before the host's defaults |
+| `NIX_CFLAGS_COMPILE`, `NIX_LDFLAGS` | Their `-isystem` / `-idirafter`, `-L` and `-rpath` words, as on Nix |
+
+A `--target` build ignores all of them.
+
+#### C++ libraries from the host
+
+Kairo links its own libc++. A host C++ library built against GCC's libstdc++ is not ABI-compatible with it wherever `std::` types cross the boundary (`std::string`, containers, exceptions). Host C libraries are fine. For a C++ library, build it with the toolchain (`kcc`) or use its C API.
 
 > [!NOTE]
 > Cross-compiling to a GCC or MSVC target does not mean invoking GCC or MSVC. `kairo` and `kcc` produce object code for those platforms' ABIs directly, using the pinned Clang and the curated sysroot.
@@ -142,6 +214,31 @@ The distinction matters because the fix differs. Category 2 means *drop the flag
 ### Exceptions
 
 C++ exceptions are on in a Kairo translation unit's C++ on a hosted target, and off on a freestanding one (no OS in the triple, `--freestanding`, kernel mode) unless `-fexceptions` is given; `-fno-exceptions` turns them off. Separately, `-funwind` / `-fno-unwind` (the default) decide whether Kairo functions are `noexcept`: see [Exceptions & Panics](/docs/language/c-cpp-exceptions/#c-exceptions-through-kairo-frames). Use one `-funwind` setting for every Kairo module and `kcc` host in a program.
+
+### Hardening, symbol and code-model flags
+
+These use Clang's names. A toggle is `-f<name>` / `-fno-<name>`, and a setting with a value is `--<name>=<value>`. Each one applies to Kairo code and to the C/C++ compiled with it, and `kcc` translates the Clang spelling for you.
+
+| Kairo | Clang | Values |
+|---|---|---|
+| `--stack-protector=` | `-fstack-protector`, `-fstack-protector-strong`, `-fstack-protector-all` | `none`, `basic`, `strong`, `all` |
+| `-f[no-]stack-protector` | the same | shorthand for `basic` / `none`; `--stack-protector=` wins |
+| `--cf-protection=` | `-fcf-protection=` | `none`, `branch`, `return`, `full` (x86 CET) |
+| `--zero-call-used-regs=` | `-fzero-call-used-regs=` | `skip`, `used-gpr-arg`, `used-gpr`, `used-arg`, `used`, `all-gpr-arg`, `all-gpr`, `all-arg`, `all` |
+| `--trivial-auto-var-init=` | `-ftrivial-auto-var-init=` | `uninitialized`, `zero`, `pattern` |
+| `-f[no-]delete-null-pointer-checks` | the same | on by default |
+| `--tls-model=` | `-ftls-model=` | `global-dynamic`, `local-dynamic`, `initial-exec`, `local-exec` |
+| `--visibility=` | `-fvisibility=` | `default`, `hidden`, `protected` |
+| `-f[no-]visibility-inlines-hidden` | the same | off by default |
+| `-f[no-]plt` | the same | on by default |
+| `-f[no-]red-zone` | `-m[no-]red-zone` | on where the ABI has one |
+| `--mcmodel=` | `-mcmodel=` | `tiny`, `small`, `kernel`, `medium`, `large` |
+
+Without `--tls-model`, each `thread` global gets a TLS model of its own. Builtin and std globals are `initial-exec`. Your globals are `local-exec` when they link into an executable, and general-dynamic in a `--shared` library or a `-c` object. `--tls-model` sets the model for your globals; builtin and std globals stay `initial-exec`.
+
+### No passthrough with `--`
+
+`kairo` has no raw Clang passthrough. After a bare `--`, every word is an input file, so `kairo main.k -- -ftls-model=initial-exec` is an error that names the Kairo spelling. To pass a Clang flag to the C and C++ inputs alone, use `--cxx-flags=<flag>` (repeatable). Kairo's own code never sees those flags.
 
 ## See also
 
