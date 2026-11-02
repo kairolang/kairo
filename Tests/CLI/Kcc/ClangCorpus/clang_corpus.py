@@ -101,10 +101,11 @@ def _run(cmd, timeout=60):
 
 
 # What a bare `clang -cc1` assumes and clang's driver does not: no error
-# limit (the driver stops at 19, and a test's later expectations go unseen)
-# and no exceptions (a RUN line that wants them says -fcxx-exceptions, which
-# comes after these).
-_CC1_DEFAULTS = ["-ferror-limit=0", "-fno-exceptions"]
+# limit (the driver stops at 19, and a test's later expectations go unseen),
+# no exceptions (a RUN line that wants them says -fcxx-exceptions, which
+# comes after these) and no math errno (the driver turns it on for glibc
+# targets, and a libm call then stops being `const`).
+_CC1_DEFAULTS = ["-ferror-limit=0", "-fno-exceptions", "-fno-math-errno"]
 
 
 def _cc1_defaults(path):
@@ -131,8 +132,10 @@ def _norm(out):
     return b"\n".join(l.rstrip() for l in out.splitlines() if l.strip())
 
 
-def _kcc_pp(kcc, path, flags):
-    cmd = kcc + ["-E", "-P", "-ferror-limit=0"]
+def _kcc_pp(kcc, target, path, flags):
+    # The reference clang's target, spelled out: kcc's own default is the
+    # host's glibc floor, whose predefined macros (-dM) are not musl's.
+    cmd = kcc + ["--target=" + target, "-E", "-P", "-ferror-limit=0"]
     for f in _expand(flags, path):
         cmd += ["-Xclang", f]
     return _run(cmd + [path])
@@ -179,7 +182,7 @@ def cmd_gen(a):
             k = _kcc_verify(kcc, p, fl)
             return rel, fl, ("ok" if k[0] == 0 else "kcc-fails")
         c = _clang_pp(a.clang, a.target, a.sysroot, p, fl)
-        k = _kcc_pp(kcc, p, fl)
+        k = _kcc_pp(kcc, a.target, p, fl)
         if c[0] != 0:
             return rel, fl, "clang-fails"
         same = (k[0] == c[0]) and (_norm(k[1]) == _norm(c[1]))
@@ -215,7 +218,7 @@ def cmd_run(a):
         if a.mode == "verify":
             k = _kcc_verify(kcc, p, fl)
             return rel, k[0] == 0, k[2]
-        k = _kcc_pp(kcc, p, fl)
+        k = _kcc_pp(kcc, a.target, p, fl)
         c = _clang_pp(a.clang, a.target, a.sysroot, p, fl)
         same = (k[0] == c[0]) and (_norm(k[1]) == _norm(c[1]))
         return rel, same, k[2]

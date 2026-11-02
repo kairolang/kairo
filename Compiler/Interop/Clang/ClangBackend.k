@@ -580,6 +580,10 @@ class ClangBackend {
             if !sr.empty() { o.push_back("-isystem"); o.push_back(f"{sr}/include"); }
         }
         for d: string in self._cfg.after_dirs { o.push_back("-idirafter"); o.push_back(d); }
+        // Those dirs sit beside a sysroot on purpose; clang reads any
+        // /usr/include next to a --sysroot as a cross-compile accident and
+        // says so under -Weverything (-Wpoison-system-directories).
+        if !self._cfg.after_dirs.empty() { o.push_back("-Wno-poison-system-directories"); }
         for d: string in self._cfg.framework_dirs { o.push_back("-iframework"); o.push_back(d); }
         if !sr.empty() { o.push_back("-isysroot"); o.push_back(sr); }
         // The driver also anchors its toolchain search (crt, gcc install
