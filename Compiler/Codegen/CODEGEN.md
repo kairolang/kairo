@@ -318,7 +318,11 @@ else as a call of the member function it made of the initializer,
 `T d = __kairo_init_d();`, so the expression is a body like any other;
 an array field's list literal as one such call per element,
 `E a[2] = {__kairo_init0_a(), __kairo_init1_a()};`, since no function
-returns an array; a field with NO initializer whose type has a default
+returns an array -- an array of arrays one call per LEAF, braced per
+dimension of the field's type (`int g[2][2] = {{t0(), t1()}, {t2(),
+t3()}};`, `_elems_braced`; flat when a length is a value parameter, which
+brace elision reads row-major), and a static array field's out-of-line
+definition the same list over its static thunks; a field with NO initializer whose type has a default
 and no constructor of its own -- a number, a pointer, a plain enum, a
 type parameter, a union, an array of those -- gets `{}`
 (`_zero_by_default`), so every constructor, the implicit one and a user

@@ -2,9 +2,9 @@
 // members must agree on more than a plain group's do: the generic
 // parameters' names (the guards move into the dispatcher, which declares
 // the first member's), and the bounds (one set of constraints). Two
-// unguarded members are two fallbacks. A member whose type parameter no
-// parameter mentions cannot be forwarded to without spelling its arguments,
-// which the dispatcher does not do yet.
+// unguarded members are two fallbacks. A method's candidates are called
+// through `self` with no generic arguments written, so a method whose type
+// parameter no parameter mentions is not supported yet.
 pub interface A { fn a(const self) -> i32 }
 pub interface B { fn b(const self) -> i32 }
 
@@ -21,8 +21,8 @@ fn <T> twice(x: T, n: i32) -> i32 where n > 0 { return 1 }
 fn <T> twice(x: T, n: i32) -> i32 { return 2 }
 fn <T> twice(x: T, n: i32) -> i32 { return 3 }
 
-fn <T> hidden(n: i32) -> i32 where n > 0 { return 1 }
-fn <T> hidden(n: i32) -> i32 { return 2 }
+class H { fn <T> hidden(self, n: i32) -> i32 where n > 0 { return 1 }
+          fn <T> hidden(self, n: i32) -> i32 { return 2 } }
 
 fn main() -> i32 { return 0 }
 
@@ -34,5 +34,5 @@ fn main() -> i32 { return 0 }
 // CHECK: where_generic_errors.k:18:1: error [SC001E]: every overload in the 'where' dispatch of 'ret' must have the same return type; C++ sees them as one function
 // CHECK: where_generic_errors.k:22:1: error [R029E]: redefinition of 'twice'
 // CHECK-NEXT: where_generic_errors.k:21:1: note [R029N]: previous definition of 'twice' is here
-// CHECK: where_generic_errors.k:24:1: error [SC116E]: 'where' dispatch on a generic function whose parameter 'T' is not deduced from its arguments is not yet supported
-// CHECK: where_generic_errors.k:25:1: error [SC116E]: 'where' dispatch on a generic function whose parameter 'T' is not deduced from its arguments is not yet supported
+// CHECK: where_generic_errors.k:24:11: error [SC116E]: 'where' dispatch on a generic method whose parameter 'T' is not deduced from its arguments is not yet supported
+// CHECK: where_generic_errors.k:25:11: error [SC116E]: 'where' dispatch on a generic method whose parameter 'T' is not deduced from its arguments is not yet supported

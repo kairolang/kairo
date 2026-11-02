@@ -61,7 +61,7 @@
 ///   \par What is NOT emitted (each an ICE naming its owner)
 ///     Named unions (later; an anonymous one is written inline as the field
 ///     that declares it), interfaces (no entity; witnesses MISSING), the
-///     initializer of an eval or array-typed field (FeatureGateCheck
+///     initializer of an eval array-typed field (FeatureGateCheck
 ///     rejects it), packs in expansion position, structural containers (the
 ///     container migration). Parameter defaults are not declared:
 ///     CallLowering's thunks supply them at every call.
@@ -2930,23 +2930,61 @@ class InterfaceEmitter {
             case FieldFold::False { return " = false"; }
             case FieldFold::Null  { return " = nullptr"; }
             case FieldFold::Thunk { return " = " + self._spell->leaf(f->init_thunk) + "()"; }
-            // An array, element by element (FieldInitLowering, Arrays).
+            // An array, leaf element by leaf element (FieldInitLowering,
+            // Arrays), braced per dimension of the field's type.
             case FieldFold::Elems {
-                var s = " = {";
-                for var i: usize = 0; i < f->init_elems.size(); ++i {
-                    if i > 0 { s += ", "; }
-                    s += self._spell->leaf(f->init_elems[i]) + "()";
+                var at = canon_unqual(f->type_->canonical);
+                // A length that is a value parameter is not known here: the
+                // flat list, which C++ brace elision reads row-major.
+                if self._param_extent(at) {
+                    var flat = " = {";
+                    for var i: usize = 0; i < f->init_elems.size(); ++i {
+                        if i > 0 { flat += ", "; }
+                        flat += self._spell->leaf(f->init_elems[i]) + "()";
+                    }
+                    return flat + "}";
                 }
-                return s + "}";
+                var next: usize = 0;
+                var s = " = " + self._elems_braced(f, at, &next);
+                if next != f->init_elems.size() { self._ice(f->name.range, "InterfaceEmitter: an array field's element thunks do not fill its type"); }
+                return s;
             }
             default { 0; }
         }
-        // An initializer still on the field is one FeatureGateCheck rejects
-        // (an array-typed field) and FieldInitLowering leaves.
+        // An initializer still on the field is one FieldInitLowering leaves
+        // (an eval array field), which FeatureGateCheck rejects.
         if f->init != &null {
             self._ice(f->name.range, "InterfaceEmitter: initializer of an array-typed field reached codegen; FeatureGateCheck rejects it");
         }
         return "";
+    }
+
+    /// Some dimension of array type \p t has a value parameter's length.
+    priv fn _param_extent(self, t: *Type) -> bool {
+        var a = dyn_cast::<FixedArrayType>(t);
+        if a == &null { return false; }
+        if a->extent_param != &null { return true; }
+        return self._param_extent(canon_unqual(a->element));
+    }
+
+    /// `{t0(), t1()}` for array type \p at, each leaf the next of \p f's
+    /// element thunks (row-major, FieldInitLowering), an inner array its own
+    /// braces: `{{t0(), t1()}, {t2(), t3()}}`. Brace elision would accept
+    /// the flat list too; the nesting says what the Kairo literal said.
+    priv fn _elems_braced(self, f: *FieldDecl, at: *Type, next: *usize) -> string {
+        var a  = dyn_cast::<FixedArrayType>(at);
+        if a == &null { self._ice(f->name.range, "InterfaceEmitter: an element-lowered field whose type is no array"); return ""; }
+        var el = canon_unqual(a->element);
+        var inner = (el != &null) && isa::<FixedArrayType>(el);
+        var s = "{";
+        for var i: u64 = 0; i < static_cast::<u64>(a->size_bits); ++i {
+            if i > 0 { s += ", "; }
+            if inner { s += self._elems_braced(f, el, next); continue; }
+            if (*next) >= f->init_elems.size() { self._ice(f->name.range, "InterfaceEmitter: an array field has fewer element thunks than its type has elements"); return ""; }
+            s += self._spell->leaf(f->init_elems[*next]) + "()";
+            (*next) += 1;
+        }
+        return s + "}";
     }
 
     /// True when \p f, a field with no initializer, is value-initialized

@@ -436,6 +436,9 @@ class <T> LiteralTyping {
         for var i: usize = 0; i < n->elements.size(); ++i {
             var t = dyn()->type_of(n->elements[i], elem_expected);
             if t == &null { if hole == &null { hole = n->elements[i]; } continue; }
+            // An array element is an array initialized from this element:
+            // a list literal, never a copy (reject_array_copy).
+            if (elem_expected != &null) && self.reject_array_copy(n->elements[i], elem_expected) { continue; }
             if elem_expected != &null { dyn()->check_convertible(n->elements[i], elem_expected); continue; }
             var j = dyn()->conv.join(elem, t);
             if j == &null {

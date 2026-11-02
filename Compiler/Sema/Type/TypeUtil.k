@@ -949,21 +949,66 @@ class TypeUtil {
         return &null;
     }
 
-    /// The list literal an instance array field is initialized with, when
-    /// FieldInitLowering lowers it one element at a time (a thunk each);
-    /// null for every other initializer, which keeps the SC116E gate: a
-    /// static (defined out of the class, where no element list helps), an
-    /// array of arrays (an element cannot be initialized from an array),
-    /// anything but a list literal.
+    /// The list literal an array field is initialized with, when
+    /// FieldInitLowering lowers it one leaf element at a time (a thunk
+    /// each): an instance or static field, its element an array again
+    /// (`[[i32; 2]; 2]`) as long as every nested element is a list literal
+    /// too. Null for every other initializer: an eval field's (SC116E: its
+    /// consteval definition waits on a single thunk, EVAL.md 1.2), and one
+    /// that copies an array (SC083E, reject_array_copy; the typer has
+    /// already said so).
     fn array_field_list(self, f: *FieldDecl) -> *ListLiteralExpr {
-        if (f == &null) || (f->init == &null) || f->is_static() || (f->type_ == &null) { return &null; }
+        if (f == &null) || (f->init == &null) || f->is_eval() || (f->type_ == &null) { return &null; }
         var c = canon_unqual(f->type_->canonical);
         if (c == &null) || (!isa::<FixedArrayType>(c)) { return &null; }
-        var el = canon_unqual(cast::<FixedArrayType>(c)->element);
-        if (el == &null) || (el->kind == TypeKind::FixedArrayType) { return &null; }
         var e = self.strip_parens(f->init);
         if (e == &null) || (!isa::<ListLiteralExpr>(e)) { return &null; }
+        if !self._nested_lists(cast::<ListLiteralExpr>(e), c) { return &null; }
         return cast::<ListLiteralExpr>(e);
+    }
+
+    /// Every element of \p lit whose type \p at says is an array is a
+    /// list literal of its own, to the innermost level.
+    priv fn _nested_lists(self, lit: *ListLiteralExpr, at: *Type) -> bool {
+        var el = canon_unqual(cast::<FixedArrayType>(at)->element);
+        if (el == &null) || (!isa::<FixedArrayType>(el)) { return true; }
+        for var i: usize = 0; i < lit->elements.size(); ++i {
+            var e = self.strip_parens(lit->elements[i]);
+            if (e == &null) || (!isa::<ListLiteralExpr>(e)) { return false; }
+            if !self._nested_lists(cast::<ListLiteralExpr>(e), el) { return false; }
+        }
+        return true;
+    }
+
+    /// The leaf elements of an array field's list literal (array_field_list
+    /// said yes), in row-major order, appended to \p out; the innermost
+    /// element type is the return.
+    fn array_field_leaves(self, lit: *ListLiteralExpr, at: *Type, out: *vec::<*Expr>) -> *Type {
+        var el = canon_unqual(cast::<FixedArrayType>(at)->element);
+        if (el == &null) || (!isa::<FixedArrayType>(el)) {
+            for var i: usize = 0; i < lit->elements.size(); ++i { out->push_back(lit->elements[i]); }
+            return cast::<FixedArrayType>(at)->element;
+        }
+        var leaf: *Type = &null;
+        for var i: usize = 0; i < lit->elements.size(); ++i {
+            leaf = self.array_field_leaves(cast::<ListLiteralExpr>(self.strip_parens(lit->elements[i])), el, out);
+        }
+        return leaf;
+    }
+
+    /// Some list literal in \p e, an array initializer, or one nested in
+    /// it, was rejected already (SC083E on a copied element, say): the
+    /// typer has spoken, and no gate needs to.
+    fn array_init_poisoned(self, e_in: *Expr) -> bool {
+        var e = self.strip_parens(e_in);
+        if e == &null { return false; }
+        if e->is_poisoned() { return true; }
+        if !isa::<ListLiteralExpr>(e) { return false; }
+        var lit = cast::<ListLiteralExpr>(e);
+        for var i: usize = 0; i < lit->elements.size(); ++i {
+            if self.array_init_poisoned(lit->elements[i]) { return true; }
+        }
+        return false;
     }
 
     // === expr helpers =======================================================

@@ -794,11 +794,16 @@ extension, operator, constructor, out-of-line, forward-declared,
 generator, `async`, defaulted and variadic members are SC116E (`where` on
 an `eval` fn is EvalUsageChecking's SC001E). A GENERIC group [DONE, MONO.md
 G12]: RedeclMerge groups generic overloads equal up to their parameters'
-names (`_alpha_same`, Substitution::bind_alpha) when one is guarded; the
-members must also agree on those names and on their bounds (SC001E), two
-unguarded ones are R029E here, and a value/pack parameter or a type
-parameter no parameter's type mentions is SC116E (the dispatcher's calls
-leave the arguments to C++ deduction). Every guard is a run-time `if`,
+names (`_alpha_same`, Substitution::bind_alpha, which compares value
+parameters by their declared types' canonicals, as bind_redecl does) when
+one is guarded; the members must also agree on those names and on their
+bounds (SC001E), and two unguarded ones are R029E here. A free dispatcher
+writes its own parameters as each candidate's generic arguments, so a type
+parameter only the return type mentions and a value parameter forward
+as they are (P207). Still SC116E: a pack parameter (bind_alpha does not
+compare packs), and on a method a value parameter or a type parameter no
+parameter's type mentions (the call through `self` writes no arguments,
+and C++ must deduce them). Every guard is a run-time `if`,
 also one on a type alone (`sizeof T > 8`): under D0 every candidate is
 valid for every argument the shared bounds admit.
 Guards that are conjunctions of integer-parameter-vs-constant comparisons

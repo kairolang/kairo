@@ -36,8 +36,8 @@ class Gated {
     pub static n: i32 = 4
     pub eval e: i32 = 5
     pub var arr: [i32; 2] = [1, 2]
-    pub static sarr: [i32; 2] = [1, 2]
-// DIAG: field_init_order.k:[[@LINE-1]]:33: error [SC116E]: an initializer on a static array-typed field is not yet supported
+    pub eval sarr: [i32; 2] = [1, 2]
+// DIAG: field_init_order.k:[[@LINE-1]]:31: error [SC116E]: an initializer on an eval array-typed field is not yet supported
 }
 
 // --- lit wiring -----------------------------------------------------------

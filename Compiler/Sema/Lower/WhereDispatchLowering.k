@@ -61,7 +61,10 @@
 ///     reads only the parameters' types (`sizeof T > 8`). Under D0 every
 ///     candidate is well-formed for every argument its (shared) bounds
 ///     admit, so testing a per-instance constant at run time is correct,
-///     and clang folds it; no `if constexpr`, no prediction to pin.
+///     and clang folds it; no `if constexpr`, no prediction to pin. A free
+///     dispatcher writes its own parameters as each candidate's arguments
+///     (`return __kairo_where_f_0<T, N>(n)`), so a type parameter only the
+///     return type mentions, and a value parameter, need no deduction.
 ///
 ///   Phase: LOWER, right after ExprBodyDesugar (so every candidate's body
 ///   is a block, and the dispatcher is a block for every pass after it)
@@ -80,6 +83,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Resolve::NameLookup::*;
 import Sema::Check::ClassLifecycle::*;
 import Sema::Lower::LowerSynth::*;
 import AST::Visitor::ASTWriter::*;
@@ -285,9 +289,11 @@ class WhereDispatchLowering derives ASTWriter::<WhereDispatchLowering> {
         // A generic member's candidate is a template of its own: it takes
         // the member's parameter list and clause (shared with the lead's
         // dispatcher for the lead's candidate: the same names, the same
-        // entities its parameter types already point at), and the
-        // dispatcher calls it with nothing written, C++ deducing the
-        // arguments (WhereGuardCheck refused a group where it could not).
+        // entities its parameter types already point at). A free
+        // dispatcher calls it with the dispatcher's parameters written as
+        // its arguments (_write_args); a method's call through `self`
+        // leaves them to C++ deduction (WhereGuardCheck refused a method
+        // group where that cannot work).
         // It keeps the member's visibility: wherever the dispatcher's
         // template is instantiated, a module header included, the candidate
         // must be declared (MONO.md G12).
@@ -363,6 +369,7 @@ class WhereDispatchLowering derives ASTWriter::<WhereDispatchLowering> {
         var call: *Expr = &null;
         if recv != &null { call = self.synth.member_call(at, recv, static_cast::<*Decl>(c), &args, rt); }
         else             { call = self.synth.free_call(at, static_cast::<*Decl>(c), &args, rt); }
+        if (recv == &null) && (c->generic_params.size() > 0) { self._write_args(lead, call); }
 
         var out = vec::<*Stmt>();
         if self.tu.is_void(rt) || self.tu.is_never(rt) {
@@ -372,6 +379,31 @@ class WhereDispatchLowering derives ASTWriter::<WhereDispatchLowering> {
             out.push_back(static_cast::<*Stmt>(ReturnStmt::create(self.ctx, at, call)));
         }
         return out;
+    }
+
+    /// The candidate's generic arguments written on \p call's callee: the
+    /// dispatcher's own parameters, in order (`__kairo_where_f_1<T, N>(n)`
+    /// inside `template <class T, int N> f`). The call has no instance, so
+    /// EmitIR spells these as written (_written_args_str), and nothing is
+    /// left for C++ to deduce: a type parameter no parameter's type
+    /// mentions, and a value parameter, forward as they are. The members
+    /// share the lead's parameter names (WhereGuardCheck), so the lead's
+    /// spell the candidate's too.
+    priv fn _write_args(self, lead: *FunctionDecl, call: *Expr) {
+        var ce = cast::<CallExpr>(call);
+        var id = dyn_cast::<NamedIdentExpr>(ce->callee);
+        ICE_IF(id == &null, "WhereDispatchLowering: a free candidate call whose callee is no name");
+        var rep = NameLookup::representative(static_cast::<*Decl>(lead));
+        var v = vec::<ChainType::GenericArg>();
+        for var i: usize = 0; i < lead->generic_params.size(); ++i {
+            var gp = lead->generic_params[i];
+            var a = ChainType::GenericArg{};
+            a.name       = &null;
+            a.name_range = SourceRange::invalid();
+            a.ty         = self.sc->types->generic_param(rep, gp->index, gp->is_pack);
+            v.push_back(a);
+        }
+        id->generic_args.from_vec(&v, self.ctx);
     }
 
     /// A read of the dispatcher's parameter \p p, typed as X types one.

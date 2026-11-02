@@ -100,8 +100,10 @@ class Substitution {
     /// over \p to's: two same-shape generic declarations compared up to the
     /// names of their parameters (a generic `where` group, MONO.md G12).
     /// False when the lists differ in length or a position differs in kind
-    /// (`: class` against none, a value parameter, a pack: none of those is
-    /// compared, so none is alpha-equal).
+    /// (`: class` against none, a type against a value parameter). Value
+    /// parameters are alpha-equal when their declared types are one
+    /// canonical (`<eval N: usize>` against `<eval M: usize>`), as in
+    /// bind_redecl. A pack is not compared, so none is alpha-equal.
     fn bind_alpha(self, to: *Decl, from: *Decl) -> bool {
         var tp = decl_generic_params(to);
         var fp = decl_generic_params(from);
@@ -112,8 +114,15 @@ class Substitution {
             var a = tp[i];
             var b = fp[i];
             if (a == &null) || (b == &null) { return false; }
-            if a->is_pack || b->is_pack || a->is_const_param || b->is_const_param { return false; }
+            if a->is_pack || b->is_pack { return false; }
+            if a->is_const_param != b->is_const_param { return false; }
             if a->kind_bound != b->kind_bound { return false; }
+            if a->is_const_param {
+                if (a->value_type == &null) || (b->value_type == &null) { return false; }
+                var va = a->value_type->canonical;
+                var vb = b->value_type->canonical;
+                if (va == &null) || (vb == &null) || (canon_unqual(va) != canon_unqual(vb)) { return false; }
+            }
             if !self.bind(fr, u32(i), self.sc->types->generic_param(tr, u32(i), false)) { return false; }
         }
         return true;

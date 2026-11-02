@@ -86,12 +86,21 @@
 ///         fn __kairo_init0_a(self) -> Frame { return .Idle }
 ///         fn __kairo_init1_a(self) -> Frame { return .Busy }
 ///
+///     An array of arrays is lowered to its LEAVES, in row-major order (a
+///     thunk returns no array either): `[[1, 2], [3, 4]]` is four thunks,
+///     and InterfaceEmitter writes `= {{t0(), t1()}, {t2(), t3()}}` from the
+///     field's type. A static array field is lowered the same way, its
+///     thunks static, and the list is its out-of-line definition's
+///     initializer (Statics).
+///
 ///   \par Not lowered
-///     Any other array-typed field keeps `init` (TypeUtil::array_field_list:
-///     a static one, one whose element is an array, one whose initializer is
-///     not a list literal). FeatureGateCheck rejects those initializers
-///     (SC116E) before this pass runs, so reaching one here is a hole in the
-///     gate, and InterfaceEmitter ICEs on it.
+///     An eval array field keeps `init` (TypeUtil::array_field_list): its
+///     definition is `constexpr`, written after ONE consteval thunk's body
+///     (EmitIR::_eval_field_def), and an element list would need it after
+///     the last of several. FeatureGateCheck rejects it (SC116E) before this
+///     pass runs. An initializer that copies an array (anything but a list
+///     literal, at any level) is SC083E in the typer. Reaching either here
+///     is a hole in those checks, and InterfaceEmitter ICEs on it.
 ///
 ///   Phase: LOWER, after ExprBodyDesugar and before every other pass that
 ///   rewrites a body, so each of them meets the initializer as an ordinary
@@ -262,15 +271,18 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
         return th;
     }
 
-    /// One thunk per element of an array field's list literal (file header,
-    /// Arrays), appended in element order and stamped on the field.
+    /// One thunk per LEAF element of an array field's list literal (file
+    /// header, Arrays), appended in row-major order and stamped on the
+    /// field: an array of arrays is flat here, and the emitter re-nests the
+    /// braces from the field's type.
     priv fn _mint_elems(self, f: *FieldDecl, rw: *ListRewriter::<*FunctionDecl>) {
-        var lit = self.tu.array_field_list(f);
-        var el  = cast::<FixedArrayType>(canon_unqual(f->type_->canonical))->element;
-        var nm  = self.tu.decl_name(static_cast::<*Decl>(f));
-        var out = self.list_builder::<*Decl>();
-        for var i: usize = 0; i < lit->elements.size(); ++i {
-            var e  = lit->elements[i];
+        var lit    = self.tu.array_field_list(f);
+        var leaves = vec::<*Expr>();
+        var el     = self.tu.array_field_leaves(lit, canon_unqual(f->type_->canonical), &leaves);
+        var nm     = self.tu.decl_name(static_cast::<*Decl>(f));
+        var out    = self.list_builder::<*Decl>();
+        for var i: usize = 0; i < leaves.size(); ++i {
+            var e  = leaves[i];
             var th = self._thunk(f, e, LowerTargets::field_init_elem_thunk(nm, i), el);
             rw->append(th);
             out.push(static_cast::<*Decl>(th));

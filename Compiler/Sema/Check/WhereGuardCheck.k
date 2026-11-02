@@ -31,10 +31,13 @@
 ///   \par Not yet supported (SC116E)
 ///     A guarded `virtual` / `override` method (a dispatcher in a vtable has
 ///     no rule yet), a generic
-///     function with a value or pack parameter, or one whose type parameter
-///     no parameter's type mentions (the dispatcher's calls leave the
-///     arguments to C++ deduction; a generic group is otherwise folded,
-///     MONO.md G12, and must agree on its parameters' names and bounds),
+///     function with a pack parameter, a generic method with a value
+///     parameter or a type parameter no parameter's type mentions (its
+///     candidates are called through `self`, where no generic arguments
+///     are written, so C++ must deduce them; a free dispatcher writes its
+///     own parameters as the arguments, and a generic group is otherwise
+///     folded, MONO.md G12, and must agree on its parameters' names and
+///     bounds),
 ///     an extension member (ExtensionLowering rewrites its
 ///     receiver; not yet tried with a dispatcher), a default argument
 ///     (the dispatcher would have to carry the right one), a guarded
@@ -283,8 +286,9 @@ class WhereGuardCheck derives RecursiveASTVisitor::<WhereGuardCheck> {
 
         var gate = "";
         if (f->abi == AbiKind::Virtual) || (f->abi == AbiKind::Override) { gate = "a 'virtual' or 'override' method"; }
-        else if self._value_param(f)  { gate = "a generic function with a value or pack parameter"; }
-        else if self._undeduced(f).size() > 0 { gate = f"a generic function whose parameter '{self._undeduced(f)}' is not deduced from its arguments"; }
+        else if self._pack_param(f)   { gate = "a generic function with a pack parameter"; }
+        else if self._has_self(f) && self._value_param(f) { gate = "a generic method with a value parameter"; }
+        else if self._has_self(f) && (self._undeduced(f).size() > 0) { gate = f"a generic method whose parameter '{self._undeduced(f)}' is not deduced from its arguments"; }
         else if decl_extension_of(static_cast::<*Decl>(f)) != &null { gate = "an extension member"; }
         else if f->is_operator     { gate = "an operator"; }
         else if self._is_ctor(f)   { gate = "a constructor"; }
@@ -304,15 +308,35 @@ class WhereGuardCheck derives RecursiveASTVisitor::<WhereGuardCheck> {
         return false;
     }
 
-    /// A generic member's dispatcher forwards to each candidate with no
-    /// template arguments written (WhereDispatchLowering): C++ deduces them
-    /// from the dispatcher's parameters, so every type parameter must occur
-    /// in a parameter's type, and a value or pack parameter (not compared
-    /// by Substitution::bind_alpha) is not supported. True for the latter.
+    /// A generic member's dispatcher forwards to each candidate with its own
+    /// generic parameters written as the arguments (WhereDispatchLowering
+    /// _forward), so a type parameter no parameter's type mentions and a
+    /// value parameter need nothing deduced. Two shapes still do: a pack (it
+    /// is not compared by Substitution::bind_alpha, and its forwarding would
+    /// be an expansion), and a method called through its receiver, where
+    /// EmitIR writes no generic arguments on a `.` step, so the candidate's
+    /// must be deduced from the forwarded parameters.
+    priv fn _pack_param(self, f: *FunctionDecl) -> bool {
+        for var i: usize = 0; i < f->generic_params.size(); ++i {
+            var g = f->generic_params[i];
+            if (g != &null) && g->is_pack { return true; }
+        }
+        return false;
+    }
+
     priv fn _value_param(self, f: *FunctionDecl) -> bool {
         for var i: usize = 0; i < f->generic_params.size(); ++i {
             var g = f->generic_params[i];
-            if (g != &null) && (g->is_pack || g->is_const_param) { return true; }
+            if (g != &null) && g->is_const_param { return true; }
+        }
+        return false;
+    }
+
+    /// \p f takes a receiver: its candidates are called through it.
+    priv fn _has_self(self, f: *FunctionDecl) -> bool {
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var p = f->params[i];
+            if (p != &null) && p->is_self { return true; }
         }
         return false;
     }

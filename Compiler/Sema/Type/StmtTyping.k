@@ -701,7 +701,10 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             dyn()->type_of(n->init, ft);
             dyn()->pop_null_target();
             dyn()->reject_slice_literal(n->init, "used as a field default");
-            if ft != &null { dyn()->check_convertible(n->init, ft); }
+            // An array field is initialized from a list literal, as a `var`
+            // is (collections.mdx: an array is not copyable).
+            var copied = (ft != &null) && dyn()->reject_array_copy(n->init, ft);
+            if (ft != &null) && (!copied) { dyn()->check_convertible(n->init, ft); }
             dyn()->flow.leave();
         }
         return n;
