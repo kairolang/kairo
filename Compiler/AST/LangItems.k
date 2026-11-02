@@ -590,6 +590,33 @@ class LangAttrs {
     }
 }
 
+/// \class AllocNames
+/// \brief Lib/builtin/base/alloc.k's names that the compiler reads (P91,
+///        P215, P226). Not lang items: alloc.k is not re-exported by the
+///        builtin root, so each is matched by spelling AND by the builtin
+///        fid of the declaration found, never by spelling alone.
+class AllocNames {
+    /// `static fn op new(size, align) -> unsafe *u8` / `static fn op
+    /// delete(ptr, size, align)` on a class: its own allocator. The parser
+    /// declares them under the Allocator interface's member names, so the
+    /// class is an Allocator by them and `create_in<T, T>` reaches them.
+    static fn op_new_word() -> string { return "new"; }
+    static fn alloc_member() -> string { return "alloc"; }
+    static fn free_member() -> string  { return "free"; }
+    /// The library calls a class allocator reroutes (CallTyping), each to
+    /// its `_in` form with the class as the allocator.
+    static fn create() -> string       { return "create"; }
+    static fn try_create() -> string   { return "try_create"; }
+    static fn destroy() -> string      { return "destroy"; }
+    static fn in_suffix() -> string    { return "_in"; }
+    /// What ScopeEscapeCheck tracks: the scope guard, and the calls whose
+    /// result comes from the allocator in effect.
+    static fn scope_guard() -> string  { return "AllocatorScope"; }
+    static fn create_slice() -> string { return "create_slice"; }
+    static fn alloc_raw() -> string    { return "alloc_raw"; }
+    static fn resize_raw() -> string   { return "resize_raw"; }
+}
+
 /// \class LangIntrinsics
 /// \brief The `name!(...)` forms the PARSER owns although they are spelled
 ///        like macro calls. The preprocessor recognizes them by the same

@@ -60,6 +60,7 @@ import Sema::Check::PatternChecking::*;
 import Sema::Check::ReturnPathCheck::*;
 import Sema::Check::FnPurityCheck::*;
 import Sema::Check::CallConvCheck::*;
+import Sema::Check::ScopeEscapeCheck::*;
 import Sema::Check::ControlFlowAnalysis::*;
 import Sema::Check::WhereGuardCheck::*;
 import Sema::Check::OperatorSignatureCheck::*;
@@ -421,6 +422,12 @@ class Sema {
         // is_generator); before every lowering, which mints functions (thunks,
         // a lowered closure's operator) that carry none.
         { var _p = TimeRegion("CallConv"); CallConvCheck(&self.sc).run(); }
+
+        // A pointer from an open AllocatorScope that visibly outlives it
+        // (P226, SC001W). REQUIRES ExprTyper: resolved callees and the types
+        // of initializers. Before every lowering, so `@create` is the call it
+        // stands for and nothing minted is mistaken for user code.
+        { var _p = TimeRegion("ScopeEscape"); ScopeEscapeCheck(&self.sc).run(); }
 
         // Unreachable code (SC003W), on the same divergence rule as
         // ReturnPath (FallThrough). Same REQUIRES; before every lowering, so
