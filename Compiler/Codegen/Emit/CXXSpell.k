@@ -85,6 +85,14 @@ class CXXSpell {
     /// adt_void_unit, the Panic lang item): that enum, whose own non-pack
     /// parameters spell as `::__kairo_nv<T>` there. Null everywhere else.
     pub var void_unit_owner: *Decl = &null;
+    /// While set (EmitPlan's instance key, P256): `usize` / `isize` spell
+    /// as the fixed-width builtin they ARE in C++ on this target
+    /// (size_fold), so two Kairo instances that are one C++ entity spell
+    /// alike. sizes_folded counts the spellings that changed. Never set
+    /// while emitting: the emitted spelling stays `decltype(sizeof(0))`,
+    /// which is right on every target.
+    pub var fold_sizes:   bool = false;
+    pub var sizes_folded: u32  = 0;
     /// While set, the template parameters of this decl are spelled
     /// `__kairo_ft<i>` (LowerTargets::friend_tparam), head, signature and
     /// requires-clause alike: a friend declaration of a generic function or
@@ -1060,6 +1068,10 @@ class CXXSpell {
             case TypeKind::BuiltinType {
                 var b = cast::<BuiltinType>(t);
                 if b->builtin == BuiltinKind::Never { return self._join("void", name); }
+                if self.fold_sizes {
+                    var fk = self.size_fold(b->builtin);
+                    if fk != b->builtin { self.sizes_folded += 1; return self._join(builtin_info(fk)->cxx, name); }
+                }
                 return self._join(b->cxx_emission(), name);
             }
             case TypeKind::RecordType {
@@ -1345,6 +1357,29 @@ class CXXSpell {
     }
 
     /// `<a, b>` from an instance's args or a pattern's own params.
+    /// The fixed-width builtin \p k IS in C++ on this target: `usize` /
+    /// `isize` become the integer of the pointer width where the target
+    /// says size_t / ptrdiff_t is it (target.usize_is_fixed, as RedeclMerge
+    /// and PanicTypeIds read it); \p k itself otherwise, and on Darwin,
+    /// where they are C++ types of their own. An unfilled invocation is the
+    /// 64-bit host.
+    fn size_fold(self, k: BuiltinKind) -> BuiltinKind {
+        if (k != BuiltinKind::USize) && (k != BuiltinKind::ISize) { return k; }
+        var sgn = k == BuiltinKind::ISize;
+        var fixed = true;
+        var pw: usize = 64;
+        var ci = self._cg->ctx->ci;
+        if ci != &null {
+            fixed = (ci->target.isize_is_fixed) if (sgn) else (ci->target.usize_is_fixed);
+            if ci->target.pointer_width != usize(0) { pw = ci->target.pointer_width; }
+        }
+        if !fixed { return k; }
+        if pw == usize(16) { return (BuiltinKind::I16) if (sgn) else (BuiltinKind::U16); }
+        if pw == usize(32) { return (BuiltinKind::I32) if (sgn) else (BuiltinKind::U32); }
+        if pw == usize(64) { return (BuiltinKind::I64) if (sgn) else (BuiltinKind::U64); }
+        return k;
+    }
+
     fn args_str(self, args: *vec::<*Type>, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
         var s = "<";
         for var i: usize = 0; i < args->size(); ++i {
@@ -1675,7 +1710,9 @@ class CXXSpell {
         // a constant or function it named would not be declared yet. The
         // rest are static_asserts in the record's body (body_predicates). A
         // function's predicates are its body's static_asserts (EmitIR::_body).
-        if isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) {
+        // An enum's are its ADT record's (P254): the record is written under
+        // the enum's own head (InterfaceEmitter::_adt_def).
+        if isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) || isa::<EnumDecl>(d) {
             var vps = vec::<*Expr>();
             CXXSpell::value_predicates(decl_requires_clause(d), &vps);
             for var i: usize = 0; i < vps.size(); ++i {
@@ -1796,13 +1833,14 @@ class CXXSpell {
     /// template head cannot carry (_pred_text is "": one naming an eval
     /// constant or fn, which the head -- written in tier 0, before any of
     /// them is declared -- cannot name). They are static_asserts in the
-    /// record's body instead (InterfaceEmitter::_record_def), evaluated per
+    /// record's body instead (InterfaceEmitter::_record_def; an ADT enum's
+    /// in its record, _adt_def), evaluated per
     /// instance once the items are defined (EmitPlan::_decl_type_items puts
     /// them ahead of the record). Not on a specialization: its clause
     /// selects, and an assert would turn a non-match into an error.
     fn body_predicates(self, d: *Decl) -> vec::<*Expr> {
         var out = vec::<*Expr>();
-        if !(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d)) { return out; }
+        if !(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) || isa::<EnumDecl>(d)) { return out; }
         if (CXXSpell::template_params(d).size() == 0) || CXXSpell::is_record_spec(d) { return out; }
         var vps = vec::<*Expr>();
         CXXSpell::value_predicates(decl_requires_clause(d), &vps);

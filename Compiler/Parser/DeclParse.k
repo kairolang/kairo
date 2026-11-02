@@ -3737,7 +3737,7 @@ class <T> DeclParse {
     //  Enum
 
     /// \brief parses an enum declaration.
-    ///  Grammar:  'enum' generics? name ('derives' int_type)? '{' variant* '}'
+    ///  Grammar:  'enum' generics? name ('derives' int_type)? ('requires' expr)? '{' variant* '}'
     ///    variant := name ('=' const_expr)?                  (plain)
     ///             | name '{' field (',' field)* '}'         (ADT payload)
     priv fn _parse_enum(self) -> *Decl {
@@ -3790,6 +3790,16 @@ class <T> DeclParse {
                 en->underlying = uty;
             }
         }
+
+        // `enum <T> Compact requires sizeof T <= 8 { ... }` (requires.mdx,
+        // Requires on Types), on its own line too, as a class's. Without it
+        // the clause parsed as a stray expression and took the body with it.
+        if self._peek_past_nl(TokenKind::KwRequires) {
+            dyn()->advance(T::SkipNL::After);
+            var req = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
+            if (req != &null) && (!is_recovery(req)) { en->requires_clause = req; }
+        }
+        self._reject_where_on_type("enum");
 
         // forward decl: `enum Foo derives u8` with no body.
         if !dyn()->check(TokenKind::OpLBrace) {

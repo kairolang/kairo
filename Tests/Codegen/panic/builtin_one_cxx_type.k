@@ -3,9 +3,9 @@
 // one C++ type, so one id, or the TU holding both sets would define
 // `__kairo_tid<unsigned long>` twice. Two sets with one each get one
 // specialization; one set with both is the type id collision error, which
-// says why. Not run: `Panic<i32, usize>` and `Panic<i32, u64>` are then one
-// C++ type explicitly instantiated twice, as any `Box<usize>` beside a
-// `Box<u64>` is (its own ticket).
+// says why. `Panic<i32, usize>` and `Panic<i32, u64>` are then one C++
+// type too, explicitly instantiated once (P256, as `Box<usize>` beside a
+// `Box<u64>` is: Codegen/generics/size_type_one_instance.k).
 fn fu(n: i32) panic(usize) -> i32 { if n == 1 { panic 7 as usize }  return n }
 fn fw(n: i32) panic(u64) -> i32 { if n == 2 { panic 9 as u64 }  return n }
 fn main() -> i32 {
@@ -28,3 +28,8 @@ fn main() -> i32 {
 // SET: builtin_one_cxx_type_set.k:{{[0-9]+}}:{{[0-9]+}}: error [SC001E]: 'u64' and 'usize' cannot be in one panic set: on this target both are the C++ type 'unsigned long', so their tags are one
 
 // REQUIRES: host-linux, host-x86_64
+
+// REQUIRES: clang
+// RUN: rm -rf %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
+// RUN: %t.exe; test $? -eq 123

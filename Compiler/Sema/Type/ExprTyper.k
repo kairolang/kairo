@@ -841,6 +841,48 @@ class ExprTyper
         return it->second;
     }
 
+    /// \p e, already typed, names a type (`P`, `ns::P`, `T`, `(P)`) or is
+    /// `typeof x` where a VALUE is required: an initializer, an argument,
+    /// an operand, a converted value (P252). A type-denoting expression has
+    /// no type by design (finish: the callee or member base that reads it
+    /// takes it from the side table), so every value consumer saw "unknown"
+    /// and let it through untyped to codegen. Reported here, \p e poisoned,
+    /// so the consumer propagates. \return reported (or already poisoned
+    /// by this).
+    fn reject_type_value(self, e: *Expr) -> bool {
+        if (e == &null) || e->is_poisoned() || (e->type_ != &null) { return false; }
+        var x = self.tu.strip_parens(e);
+        if x == &null { return false; }
+        if isa::<TypeOfExpr>(x) {
+            // TypeInfo (type-system.mdx) is the value form; it does not exist
+            // yet. An operand that left typeof unknown is the generic's.
+            if x->is_instantiation_dependent() && (self._typeexp.find(reinterpret_cast::<u64>(x)) == self._typeexp.end()) { return false; }
+            self.sc->diag->report(DiagID::U001E, x->range.start,
+                "'typeof' as a value is a 'TypeInfo', which is not implemented yet; as a type ('var y: typeof x') it is supported"
+            ).first(x->range).emit();
+            e->poison();
+            return true;
+        }
+        var it = self._typeexp.find(reinterpret_cast::<u64>(e));
+        if it == self._typeexp.end() { return false; }
+        var t = it->second;
+        var text = self.sc->ctx->get_spelling(e->range);
+        var b = self.sc->diag->report(DiagID::SC094E, e->range.start,
+            f"'{text}' is a type, not a value");
+        b.first(e->range, "a type is used here where a value is required");
+        // A Kairo record's name is one `()` away from its default-constructed
+        // value, which is the likely intent (`var p = P` for `var p = P()`).
+        // Anything else (a builtin, a pointer, a parameter T) has no single
+        // obvious edit.
+        var c = canon_unqual(t);
+        if (c != &null) && isa::<RecordType>(c) && (!isa::<InterfaceDecl>(cast::<RecordType>(c)->decl)) {
+            b.insert(e->range.end, "()", f"construct a '{text}\x27");
+        }
+        b.emit();
+        e->poison();
+        return true;
+    }
+
     fn denotes_module(self, e: *Expr) -> bool {
         if e == &null { return false; }
         return self._modexp.contains(reinterpret_cast::<u64>(e));
@@ -990,7 +1032,7 @@ class ExprTyper
         if (e == &null) || (to == &null) { return true; }
         if e->is_poisoned() { return false; }
         var from = e->type_;
-        if from == &null { return true; }   // unknown: nothing to check here.
+        if from == &null { return !self.reject_type_value(e); }   // unknown: nothing to check here; a type is no value (P252).
         if to->is_dependent() {
             // `return t` from a `T?` into a `T` in a generic body: the same
             // read of the value as below, decidable before instantiation.

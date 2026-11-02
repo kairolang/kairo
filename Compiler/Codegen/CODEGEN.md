@@ -1615,6 +1615,18 @@ instance Sema homed is explicitly instantiated, so each is checked. The
 items it names are early items of the record (`EmitPlan::_decl_type_items`),
 declared at the start of tier 1 and defined ahead of it, as a computed
 field type's are. Not on a partial specialization, whose clause selects.
+An ADT enum's predicates (`enum <T> Compact requires sizeof T <= 8`) take
+the same split on the record it is written as (`_adt_def`, under the enum's
+own head; P254). A generic PLAIN enum is written as an `enum class`,
+which C++ cannot template: its own ticket, clause or not.
+
+Two Kairo instances can be one C++ entity: `usize` is its own type, but
+where the target says size_t IS the fixed-width integer
+(`target.usize_is_fixed`, Linux), `Box<usize>` and `Box<u64>` are one C++
+class. Tier 3 keys every instance by its arguments spelled with usize /
+isize folded (`CXXSpell::fold_sizes` / `size_fold`) and lists one line per
+key, the home one when either is (P256); otherwise clang reports a
+duplicate explicit instantiation.
 
 ### 7b.8 Monomorphization and explicit instantiation
 

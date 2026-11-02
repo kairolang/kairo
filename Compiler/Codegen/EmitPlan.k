@@ -1974,9 +1974,12 @@ fn EmitPlan::_decl_type_items(d: *Decl, out: *vec::<*Decl>) {
     // _record_def): the items they name are declared, and defined, ahead of
     // the template, as a computed field type's are. EvalUsageChecking::
     // _check_record has refused an item that needs the record back.
-    if CXXSpell::template_params(rec).size() > 0 {
+    // An ADT enum's clause is the enum's, not its layout record's (P254).
+    var rq = decl_requires_clause(d);
+    if rq == &null { rq = decl_requires_clause(rec); }
+    if (CXXSpell::template_params(rec).size() > 0) || (CXXSpell::template_params(d).size() > 0) {
         var vps = vec::<*Expr>();
-        CXXSpell::value_predicates(decl_requires_clause(rec), &vps);
+        CXXSpell::value_predicates(rq, &vps);
         for var i: usize = 0; i < vps.size(); ++i {
             var n = EarlyNeeds();
             n.dispatch_expr(vps[i]);
@@ -3134,7 +3137,48 @@ fn EmitPlan::_order() {
         t3.push_back(e);
     }
     self._sort(&t3);
-    for var i: usize = 0; i < t3.size(); ++i { self.entries.push_back(t3[i]); }
+    // Two Kairo instances can be one C++ entity: `usize` is its own type to
+    // Kairo, but on Linux size_t IS `unsigned long`, so `Box<usize>` beside
+    // `Box<u64>` (or `Panic<i32, usize>` beside `Panic<i32, u64>`) would be
+    // `template struct Box<unsigned long>;` twice, clang's "duplicate
+    // explicit instantiation" (P256). Key each instance by its arguments
+    // spelled with usize / isize folded to what the target says they are
+    // (CXXSpell::size_fold, P146's facts), and list one per key: the home
+    // one when either is, since a definition after an `extern template`
+    // is fine and the reverse is not.
+    var keys   = vec::<string>();
+    var folded = vec::<bool>();
+    var drop   = vec::<bool>();
+    for var i: usize = 0; i < t3.size(); ++i {
+        // An instance over a value C++ computes writes no line at all
+        // (InterfaceEmitter::_instantiation); nothing to collide.
+        var computed = false;
+        var ia = &(t3[i].inst->args);
+        for var k: usize = 0; k < ia->size(); ++k {
+            var v = dyn_cast::<TypeExpr>((*ia)[k]);
+            if (v != &null) && v->is_value && (!v->is_exact()) { computed = true; break; }
+        }
+        if computed { keys.push_back(""); folded.push_back(false); drop.push_back(false); continue; }
+        self._spell.fold_sizes   = true;
+        self._spell.sizes_folded = 0;
+        keys.push_back(self._spell.args_str(&(t3[i].inst->args)));
+        folded.push_back(self._spell.sizes_folded > 0);
+        self._spell.fold_sizes = false;
+        drop.push_back(false);
+    }
+    // Only a pair with a folded side can collide: the unfolded spellings of
+    // two distinct instances already differ.
+    for var i: usize = 0; i < t3.size(); ++i {
+        if (!folded[i]) || drop[i] { continue; }
+        for var j: usize = 0; j < t3.size(); ++j {
+            if (j == i) || drop[j] || (t3[j].decl != t3[i].decl) || (keys[j] != keys[i]) { continue; }
+            var keep_i = (t3[i].is_home && (!t3[j].is_home)) || ((t3[i].is_home == t3[j].is_home) && (i < j));
+            if keep_i { drop[j] = true; continue; }
+            drop[i] = true;
+            break;
+        }
+    }
+    for var i: usize = 0; i < t3.size(); ++i { if !drop[i] { self.entries.push_back(t3[i]); } }
 }
 
 fn EmitPlan::_same_root(a: u32, b: u32) -> bool {

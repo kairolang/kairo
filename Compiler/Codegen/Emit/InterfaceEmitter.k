@@ -847,21 +847,7 @@ class InterfaceEmitter {
             if is_class { line = "public: " + line + " private:"; }
             self._cg->sink->spell(at, line);
         }
-        // The value predicates the template head cannot carry
-        // (CXXSpell::body_predicates), asserted per instance: every instance
-        // Sema homed is explicitly instantiated, so each is checked, as a
-        // function's are by its body's asserts (EmitIR::_body).
-        var bps = self._spell->body_predicates(d);
-        if bps.size() > 0 {
-            var pir = self.ir;
-            var own_ir = EmitIR(self._cg);
-            if pir == &null { pir = &own_ir; }
-            for var i: usize = 0; i < bps.size(); ++i {
-                self._cg->sink->spell(bps[i]->range, "static_assert(");
-                pir->emit(bps[i]);
-                self._cg->sink->spell(bps[i]->range, ", \"requires clause of \x27" + self._spell->leaf(d) + "\x27 not satisfied\");");
-            }
-        }
+        self._body_predicate_asserts(d);
         // An ADT payload is built inside its union by `new (&member) P(...)`,
         // which must not depend on the TU including <new>: this placement
         // form, found in the class before any global one, is what it calls.
@@ -2235,6 +2221,25 @@ class InterfaceEmitter {
         return self._spell->cxx_vis(d);
     }
 
+    /// The value predicates generic record \p d's template head cannot
+    /// carry (CXXSpell::body_predicates), as static_asserts at the top of
+    /// its body, asserted per instance: every instance Sema homed is
+    /// explicitly instantiated, so each is checked, as a function's are by
+    /// its body's asserts (EmitIR::_body). An ADT enum's go in the record it
+    /// is written as (_adt_def, P254).
+    priv fn _body_predicate_asserts(self, d: *Decl) {
+        var bps = self._spell->body_predicates(d);
+        if bps.size() == 0 { return; }
+        var pir = self.ir;
+        var own_ir = EmitIR(self._cg);
+        if pir == &null { pir = &own_ir; }
+        for var i: usize = 0; i < bps.size(); ++i {
+            self._cg->sink->spell(bps[i]->range, "static_assert(");
+            pir->emit(bps[i]);
+            self._cg->sink->spell(bps[i]->range, ", \"requires clause of \x27" + self._spell->leaf(d) + "\x27 not satisfied\");");
+        }
+    }
+
     priv fn _enum_def(self, en: *EnumDecl) {
         // An ADT is written as the record EnumLayoutLowering built for it; a
         // plain enum, an ADT's tag enum included, as an `enum class`.
@@ -2300,6 +2305,7 @@ class InterfaceEmitter {
             return;
         }
         self._cg->sink->spell(at, self._spell->template_head(d) + "struct " + nm + " {");
+        self._body_predicate_asserts(d);
 
         // A struct: public unless marked. Only the two helpers the special
         // members call are private. The tag must stay public: `==` on an ADT

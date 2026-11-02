@@ -245,7 +245,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         dyn()->flow.enter();
         var t = dyn()->type_of(v->init, &null);
         dyn()->flow.leave();
-        if t == &null { self._reject_typeof_value(v); }
+        if t == &null { self._reject_type_value(v); }
         dyn()->mark_list_storage(v->init);
         self._reject_array_copy(v, t);
         if t != &null { v->type_ = self._shorthand_type(v, t); }
@@ -312,17 +312,13 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         return c;
     }
 
-    /// `var info = typeof x`: in an expression position `typeof` is a
-    /// TypeInfo value (type-system.mdx), and TypeInfo does not exist yet.
-    /// The operand is typed and the expression is type-denoting, so without
-    /// this the variable reached codegen with no type. \return reported.
-    priv fn _reject_typeof_value(self, v: *VariableDecl) -> bool {
+    /// `var i = P` / `var info = typeof x`: an initializer that names a
+    /// type (P252; typeof as a value is a TypeInfo, P113) types to nothing
+    /// by design, so the variable would reach codegen with no type.
+    /// ExprTyper::reject_type_value reports it. \return reported.
+    priv fn _reject_type_value(self, v: *VariableDecl) -> bool {
         if (v == &null) || (v->init == &null) || v->init->is_poisoned() { return false; }
-        var e = dyn()->tu.strip_parens(v->init);
-        if (e == &null) || (!isa::<TypeOfExpr>(e)) { return false; }
-        dyn()->sc->diag->report(DiagID::U001E, e->range.start,
-            "'typeof' as a value is a 'TypeInfo', which is not implemented yet; as a type ('var y: typeof x') it is supported"
-        ).first(e->range).emit();
+        if !dyn()->reject_type_value(v->init) { return false; }
         v->poison();
         return true;
     }
@@ -878,7 +874,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             } else {
                 n->type_ = self._shorthand_type(n, self._fn_value_decay(n->init, t));   // inferred slot := the value's type (a copy has no cv), `?` applied.
             }
-        } else if self._reject_typeof_value(n) {
+        } else if self._reject_type_value(n) {
             ok = false;
         } else if n->init->is_poisoned() {
             ok = false;
@@ -970,7 +966,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             return n;
         }
         // inferring
-        if t == &null { return n; }
+        if t == &null { dyn()->reject_type_value(n->value); return n; }
         var j = dyn()->conv.join(fr->inferred, t);
         if j == &null {
             dyn()->sc->diag->report(DiagID::SC039E, n->range.start,

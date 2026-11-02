@@ -618,6 +618,10 @@ class <T> OperatorTyping {
             lt = dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, lhs_down));
             rt = dyn()->type_of(n->rhs, self.cast_operand_expected(n->rhs, (lt) if (numeric_ctx && (pass_down == &null)) else (self._coalesce_down(k, lt, pass_down))));
         }
+        // `1 + P`: a type is no operand (P252); both sides are reported.
+        var tl = dyn()->reject_type_value(n->lhs);
+        var tr = dyn()->reject_type_value(n->rhs);
+        if tl || tr { dyn()->poison_only(n); return &null; }
         if dyn()->propagate(n, n->lhs) || dyn()->propagate(n, n->rhs) { return &null; }
         if (lt == &null) || (rt == &null) { return &null; }
         // Every builtin result below is a prvalue; the user-operator path
@@ -1260,6 +1264,9 @@ class <T> OperatorTyping {
     priv fn _type_pow(self, n: *BinaryOperatorExpr, expected: *Type) -> *Type {
         var lt = dyn()->type_of(n->lhs, expected);
         var rt = dyn()->type_of(n->rhs, &null);
+        var tl = dyn()->reject_type_value(n->lhs);
+        var tr = dyn()->reject_type_value(n->rhs);
+        if tl || tr { dyn()->poison_only(n); return &null; }
         if dyn()->propagate(n, n->lhs) || dyn()->propagate(n, n->rhs) { return &null; }
         if (lt == &null) || (rt == &null) { return &null; }
         lt = dyn()->tu.as_value(lt);
@@ -1386,6 +1393,7 @@ class <T> OperatorTyping {
         }
 
         var ot = dyn()->type_of(n->operand, self.cast_operand_expected(n->operand, (expected) if ((k == TokenKind::OpMinus) || (k == TokenKind::OpPlus) || (k == TokenKind::OpTilde)) else (&null)));
+        if (ot == &null) && dyn()->reject_type_value(n->operand) { dyn()->poison_only(n); return &null; }
         if dyn()->propagate(n, n->operand) { return &null; }
         if ot == &null { return &null; }
         // `v.at(i)` is `i32&`; every arm below classifies the value it names,
@@ -1748,6 +1756,7 @@ class <T> OperatorTyping {
         // operand only (§6).
         var base = OperatorFacts::compound_base(k);
         var rt   = dyn()->type_of(n->rhs, lt);
+        if (rt == &null) && dyn()->reject_type_value(n->rhs) { dyn()->poison_only(n); return &null; }
         if dyn()->propagate(n, n->rhs) { return &null; }
         if rt == &null { return &null; }
         rt = dyn()->tu.as_value(rt);

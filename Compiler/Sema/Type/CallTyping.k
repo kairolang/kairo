@@ -136,6 +136,8 @@ class <T> CallTyping {
         if dyn()->literal_shape(e, &a) { return a; }
         if dyn()->dotted_variant_shape(e, &a) { return a; }
         a.ty = dyn()->type_of(e, &null);
+        // `take(P)`: a type is no argument (P252), not an unknown one.
+        if a.ty == &null { dyn()->reject_type_value(e); }
         if (a.ty == &null) && (!e->is_poisoned()) { a.dependent = true; }
         a.cat      = e->value_category;          // set by the typer's finish (paren copies its inner).
         a.is_const = self._const_lvalue(e);

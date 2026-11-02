@@ -498,6 +498,7 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
 
     fn visit_class_decl(self, n: *ClassDecl) -> bool { self._check_requires(n->requires_clause); return true; }
     fn visit_struct_decl(self, n: *StructDecl) -> bool { self._check_requires(n->requires_clause); return true; }
+    fn visit_enum_decl(self, n: *EnumDecl) -> bool { self._check_requires(n->requires_clause); return true; }
 
     /// A `requires` VALUE predicate (not a `T impl I` / `T derives B`
     /// conjunct) is an eval context: one that reads a run-time value -- a

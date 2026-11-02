@@ -1190,6 +1190,11 @@ the one reader of the three slots.
 `type_` null, not poisoned: dependent, foreign, or a hole a later pass
 owns -- consumers skip checks on it); type/module-denoting (recorded in the
 typer's side tables; only a callee or initializer head may read it).
+Where a VALUE is required -- an initializer, an argument, an operand, a
+converted or returned value -- a type-denoting expression is SC094E "'P'
+is a type, not a value" (`ExprTyper::reject_type_value`, with a `()`
+fix-it on a record's name; `typeof x` there is the TypeInfo U001E), never
+an unknown let through to codegen (P252).
 
 An expression is unknown only when its type cannot be NAMED. A dependent
 type that can be named is a type: `Cell<T>{ x: v, n: 0 }` in a generic body
