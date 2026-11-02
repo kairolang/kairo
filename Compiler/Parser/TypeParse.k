@@ -1728,7 +1728,9 @@ class <T> TypeParse {
 
         var angle_depth: u32 = 1;
 
-        while !dyn()->is_eof() && angle_depth > 0 {
+        // `(!a) && b`: Stage 0 reads `!a && b` as `!(a && b)` (see the sync
+        // loop below for what that costs).
+        while (!dyn()->is_eof()) && (angle_depth > 0) {
             if  dyn()->check(TokenKind::TkCodeComplete) {
                 dyn()->maybe_complete(CompletionContextKind::TypeRef);
                 dyn()->advance(T::SkipNL::After);
@@ -1889,11 +1891,17 @@ class <T> TypeParse {
     /// \param angle_depth  current nesting depth of angle brackets.
     inline fn _sync_generic_args(self, angle_depth: u32) {
         var depth = angle_depth;
-        var tokens_consumed: u32 = 0;
-        const var MAX_SYNC: u32 = 64;
 
-        while !dyn()->is_eof() && tokens_consumed < MAX_SYNC {
-            ++tokens_consumed;
+        // No token budget: the scan ends at the closer, at a statement-level
+        // delimiter or at EOF, which is all it has ever done. The old loop
+        // was `while !eof && consumed < 64`, which Stage 0 reads as
+        // `!(eof && consumed < 64)`: the cap never stopped it, and once
+        // reached at EOF (where advance() no longer moves) it spun forever
+        // (P279: `X < <` followed by 64 tokens to end of file). Making the
+        // cap live instead is not safe: it parks the cursor mid-construct,
+        // and a caller loop then makes no progress (a 30-deep `A<A<...>>`
+        // list followed by a second one hangs that way).
+        while !dyn()->is_eof() {
             var k = dyn()->ig_kind();
 
             if k == TokenKind::OpLess {
