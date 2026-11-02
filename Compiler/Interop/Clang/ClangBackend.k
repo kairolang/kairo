@@ -132,11 +132,6 @@ struct ClangBackendConfig {
     /// driver makes of one (-target-cpu plus a -target-feature per implied
     /// extension) is only right per architecture.
     var driver_words:  vec::<string>;
-    /// The clang driver words after `--` (CompilerInvocation::
-    /// clang_passthrough). Driver spellings, so they reach cc1 as what the
-    /// driver makes of them: _driver_target_args runs the probe with and
-    /// without them and keeps the difference (FlagTranslator::cc1_delta).
-    var passthrough:   vec::<string>;
 }
 
 class ClangBackend {
@@ -166,7 +161,6 @@ class ClangBackend {
 
     priv var _target_args:  vec::<string>;  ///< see _driver_target_args
     priv var _target_known: bool = false;
-    priv var _passthrough_cc1: vec::<string>;  ///< see ClangBackendConfig::passthrough
     /// The driver's C++ FP defaults for this target, which probe_filter
     /// drops (Kairo's line has its own): what an ffi header region is
     /// restored to (header_fp_pragmas).
@@ -463,9 +457,9 @@ class ClangBackend {
     ///          lldb elsewhere, standalone info kind on Darwin.
     ///          --mcpu still wins: extra_cc1 comes later and cc1 takes the
     ///          last -target-cpu.
-    /// The driver's cc1 line for this target and the build's driver words,
-    /// plus \p extra (the words after `--`). Empty when the driver gives none.
-    priv fn _probe_cc1(self, extra: ref!(vec::<string>)) -> vec::<string> {
+    /// The driver's cc1 line for this target and the build's driver words.
+    /// Empty when the driver gives none.
+    priv fn _probe_cc1(self) -> vec::<string> {
         var owned: llvm::BumpPtrAllocator;   ///< argv bytes, for this call (see _owned).
         var dargv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
         var words = vec::<string>();
@@ -477,7 +471,6 @@ class ClangBackend {
                                                       self._cfg.debug_macros, self._cfg.embed_source) {
             words.push_back(w);
         }
-        for w: string in extra { words.push_back(w); }
         words.push_back("-fsyntax-only");
         words.push_back("-x");
         words.push_back("c++");
@@ -499,19 +492,7 @@ class ClangBackend {
         if self._target_known { return self._target_args; }
         self._target_known = true;
 
-        var none = vec::<string>();
-        var cc1 = self._probe_cc1(none);
-        // The words after `--` are driver words: what they change on the
-        // driver's own cc1 line is what Kairo's line gets, after its own.
-        if !self._cfg.passthrough.empty() {
-            var more = self._probe_cc1(self._cfg.passthrough);
-            if more.empty() {
-                Logger::error(Logger::Stage::Driver,
-                    f"ClangBackend: clang\x27s driver gave no cc1 line for the words after --; they reach C/C++ inputs only");
-            } else {
-                self._passthrough_cc1 = FlagTranslator::cc1_delta(cc1, more);
-            }
-        }
+        var cc1 = self._probe_cc1();
         if cc1.empty() {
             Logger::error(Logger::Stage::Driver,
                 f"ClangBackend: clang\x27s driver gave no cc1 line for {self._cfg.triple} (a bad --march fails this probe); compiling without target defaults");
@@ -670,9 +651,6 @@ class ClangBackend {
         for a: string in self._cfg.wargs {
             self._arg(argv, a);
         }
-        // The words after `--`, as the driver lowered them: last, so they
-        // win over everything Kairo chose (cc1 takes the last of a flag).
-        for a: string in self._passthrough_cc1 { self._arg(argv, a); }
     }
 
     /// \brief hands the invocation's -mllvm words to LLVM's option parser.

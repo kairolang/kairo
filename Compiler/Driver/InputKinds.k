@@ -206,6 +206,12 @@ fn classify_input(path: string, xlang: string) -> InputKind {
         (k.why) = (f"unknown input type '.{ext}\x27; name its language with -x <lang>")
                   if (!ext.empty()) else
                   ("input has no extension; name its language with -x <lang>");
+        // Only reachable after a bare `--`, where every word is an input.
+        // There is no clang passthrough: Kairo has its own spelling for the
+        // codegen flags, and --cxx-flags carries clang words to C/C++ inputs.
+        if (path.size() > 1) && (path[0] == '-') {
+            (k.why) = f"'{path}\x27 after -- is an input, not a flag: give the kairo spelling before --, or --cxx-flags={path} for C/C++ inputs";
+        }
     }
     return k;
 }

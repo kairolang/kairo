@@ -100,6 +100,19 @@ class CodeGenOptions {
     pub var f_split_stack:         i32 = -1;
     pub var f_trap_unreachable:    i32 = -1;
     pub var f_soft_float:          i32 = -1;
+    pub var f_plt:                 i32 = -1;
+    pub var f_red_zone:            i32 = -1;
+    pub var f_delete_null_checks:  i32 = -1;
+    pub var f_vis_inlines_hidden:  i32 = -1;
+    /// The value flags below are "" when not given: the target's or the
+    /// driver's own choice stands, and nothing is forwarded.
+    pub var tls_model:             string = "";
+    pub var visibility:            string = "";
+    pub var stack_protector:       string = "";   ///< wins over f_stack_protector
+    pub var cf_protection:         string = "";
+    pub var auto_var_init:         string = "";
+    pub var mcmodel:               string = "";
+    pub var zero_call_used_regs:   string = "";
 
     // -- instrumentation feature toggles -----------------------------------
     pub var f_coverage:            i32 = -1;
@@ -220,6 +233,17 @@ class CodeGenOptions {
         (o.f_split_stack)        = args.get_feature("split-stack");
         (o.f_trap_unreachable)   = args.get_feature("trap-unreachable");
         (o.f_soft_float)         = args.get_feature("soft-float");
+        (o.f_plt)                = args.get_feature("plt");
+        (o.f_red_zone)           = args.get_feature("red-zone");
+        (o.f_delete_null_checks) = args.get_feature("delete-null-pointer-checks");
+        (o.f_vis_inlines_hidden) = args.get_feature("visibility-inlines-hidden");
+        (o.tls_model)            = args.get_string("tls-model");
+        (o.visibility)           = args.get_string("visibility");
+        (o.stack_protector)      = args.get_string("stack-protector");
+        (o.cf_protection)        = args.get_string("cf-protection");
+        (o.auto_var_init)        = args.get_string("trivial-auto-var-init");
+        (o.mcmodel)              = args.get_string("mcmodel");
+        (o.zero_call_used_regs)  = args.get_string("zero-call-used-regs");
 
         // -- instrumentation feature toggles -------------------------------
         (o.f_coverage)           = args.get_feature("coverage");

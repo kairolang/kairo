@@ -60,14 +60,6 @@ class CompilerInvocation {
     /// classify by extension). May be SHORTER than input_files on the
     /// programmatic path; input_lang() treats a missing entry as "".
     pub var input_langs:    vec::<string>;
-    /// How many of input_files were given before a bare `--` (-1: none).
-    /// The words after it are a clang command line: CompilerInstance keeps
-    /// its inputs there and moves the rest to clang_passthrough.
-    pub var dashdash_at:    i64 = -1;
-    /// The clang words after `--`, verbatim and in order: every C/C++ input
-    /// gets them last, and Kairo's own TUs get what clang's driver makes of
-    /// them on their cc1 line (ClangBackend::_driver_target_args).
-    pub var clang_passthrough: vec::<string>;
     pub var include_dirs:   vec::<string>;
     pub var ffi_includes:   vec::<string>;
     pub var cxx_includes:   vec::<string>;
@@ -135,7 +127,6 @@ class CompilerInvocation {
 
         (inv.input_files)    = (args.files);
         (inv.input_langs)    = (args.file_langs);
-        (inv.dashdash_at)    = (args.dashdash_at);
         (inv.working_dir)    = (args.get_string("working-dir"));
         (inv.input_encoding) = (args.get_string("input-encoding"));
 

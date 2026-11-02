@@ -58,6 +58,8 @@ class EmitOptions {
     /// The target's objects are ELF, the one format whose TLS models the
     /// tls_model attribute picks between.
     pub var elf: bool = false;
+    /// --tls-model, "" when not given (CXXSpell::tls_model picks per global).
+    pub var tls_model: string = "";
 
     fn EmitOptions(self) { }
 }
@@ -100,6 +102,7 @@ class CodegenContext {
             self.opts.target_triple       = ctx->ci->target.effective_triple;
             self.opts.exe_link            = (!ctx->ci->linker.shared) && (!ctx->ci->linker.compile_only);
             self.opts.elf                 = ctx->ci->target.object_format == "ELF";
+            self.opts.tls_model           = ctx->ci->codegen.tls_model;
         }
     }
 

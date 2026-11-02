@@ -1372,7 +1372,6 @@ class CompilerInstance {
         // --march is a DRIVER spelling (cc1 has none): the probe turns it
         // into -target-cpu and the -target-feature pairs its extensions imply.
         for a: string in FlagTranslator::march_driver(tgt) { bcfg.driver_words.push_back(a); }
-        for a: string in self.invocation().clang_passthrough { bcfg.passthrough.push_back(a); }
         // (bcfg.c_std stays c17: compile_native builds only Lib/rt, Kairo's
         // own runtime; --c-std is for the user's C inputs.)
         // Every flag word below is spelled by FlagTranslator, the one home
@@ -3534,49 +3533,6 @@ class CompilerInstance {
     /// Maps invocation fields to live subsystem setters. Called once after
     /// the invocation is built. Fields whose subsystem does not yet exist are
     /// silently accepted stored in the invocation for future use.
-    /// \brief the words after a bare `--`: a clang command line. Its inputs
-    ///        stay inputs; every other word goes to clang verbatim, in
-    ///        order (CompilerInvocation::clang_passthrough): last on each
-    ///        C/C++ input's driver line (as --cxx-flags), and through the
-    ///        driver to Kairo's own cc1 line. Before this every one of them
-    ///        was an input: `-- -ftls-model=initial-exec` was U001E "input
-    ///        has no extension". --print-from-clang reads the raw words
-    ///        itself, so they are left alone for it.
-    ///
-    /// \return false after reporting a word clang's table rejects.
-    priv fn _split_passthrough(self) -> bool {
-        var at = self.invocation().dashdash_at;
-        if at < 0 { return true; }
-        if self.invocation().args.get_bool("print-from-clang") { return true; }
-        var files = self.invocation().input_files;
-        var langs = self.invocation().input_langs;
-        var cut = static_cast::<usize>(at);
-        if cut > files.size() { return true; }
-        var tail = vec::<string>();
-        for var i: usize = cut; i < files.size(); ++i { tail.push_back(files[i]); }
-        var is_input = vec::<u8>();
-        var err = "";
-        if !FlagTranslator::split_passthrough(tail, &is_input, &err) {
-            self._diag->report(DiagID::U001E, err).emit();
-            return false;
-        }
-        var nf = vec::<string>();
-        var nl = vec::<string>();
-        for var i: usize = 0; i < files.size(); ++i {
-            var lang = (langs[i]) if (i < langs.size()) else ("");
-            if (i >= cut) && (is_input[i - cut] == u8(0)) {
-                self.invocation().clang_passthrough.push_back(files[i]);
-                self.invocation().codegen.cxx_flags.push_back(files[i]);
-                continue;
-            }
-            nf.push_back(files[i]);
-            nl.push_back(lang);
-        }
-        self.invocation().input_files = nf;
-        self.invocation().input_langs = nl;
-        return true;
-    }
-
     priv fn _apply_invocation(self) {
         var d  = self.invocation().diag;
         var fe = self.invocation().frontend;
@@ -3602,11 +3558,6 @@ class CompilerInstance {
             // Flag-parse diagnostics (U005W, -D shape errors) are already in
             // the pretty buffer; carry them over or basic mode never shows them.
             self._pretty->drain_into(self._basic);
-        }
-
-        if !self._split_passthrough() {
-            self.invocation().ok = false;
-            return;
         }
 
         self._basic->set_absolute_paths(d.absolute_paths);

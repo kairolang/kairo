@@ -979,6 +979,8 @@ class CXXSpell {
     ///   - the user's otherwise (--shared, -c): none, so general-dynamic. A
     ///     dlopen'd library's TLS has no static offset, and an object built
     ///     with -c may end up in one.
+    /// --tls-model overrides the user's (the toolchain's stay initial-exec,
+    /// which is valid in any image those objects are linked into).
     /// ELF only: elsewhere the attribute either means nothing (Mach-O,
     /// wasm) or is not the mechanism (COFF).
     fn tls_model(self, v: *VariableDecl) -> string {
@@ -990,6 +992,7 @@ class CXXSpell {
             if (segs.size() > 1) && (segs[0] == "kairo") && (segs[1] == std_root_spelling()) { toolchain = true; }
         }
         if toolchain { return LowerTargets::attr_tls_model("initial-exec"); }
+        if !self._cg->opts.tls_model.empty() { return LowerTargets::attr_tls_model(self._cg->opts.tls_model); }
         if self._cg->opts.exe_link { return LowerTargets::attr_tls_model("local-exec"); }
         return "";
     }

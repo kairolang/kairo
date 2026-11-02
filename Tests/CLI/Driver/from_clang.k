@@ -40,9 +40,15 @@ fn main() -> i32 { return 0 }
 // ACT: kairo: --preprocess a.c -x c++ b.txt -x none c.cc
 
 // Anything kairo has no flag for is kept, rendered as clang renders it.
-// RUN: %kairo --print-from-clang -- -fvisibility=hidden -pthread -include foo.h a.cc | %FileCheck %s --check-prefix=RESID
+// RUN: %kairo --print-from-clang -- -fno-common -pthread -include foo.h a.cc | %FileCheck %s --check-prefix=RESID
 // RESID:      kairo: a.cc
-// RESID-NEXT: clang-only: -fvisibility=hidden -pthread -include foo.h
+// RESID-NEXT: clang-only: -fno-common -pthread -include foo.h
+
+// The hardening, symbol and code-model flags have kairo spellings; clang's
+// three stack-protector words are levels of the one --stack-protector.
+// RUN: %kairo --print-from-clang -- -fstack-protector-strong -fstack-protector-all -fcf-protection -fcf-protection=branch -ftls-model=initial-exec -fvisibility=hidden -fno-plt -mno-red-zone -mcmodel=large -ftrivial-auto-var-init=zero -fzero-call-used-regs=used-gpr -fno-delete-null-pointer-checks -fvisibility-inlines-hidden | %FileCheck %s --check-prefix=HARD
+// HARD:      kairo: --stack-protector=strong --stack-protector=all --cf-protection=full --cf-protection=branch --tls-model=initial-exec --visibility=hidden -fno-plt -fno-red-zone --mcmodel=large --trivial-auto-var-init=zero --zero-call-used-regs=used-gpr -fno-delete-null-pointer-checks -fvisibility-inlines-hidden
+// HARD-NEXT: clang-only:{{$}}
 
 // A standard kairo has no choice for stays clang's (the C/C++ inputs get it).
 // RUN: %kairo --print-from-clang -- -fpic -std=c++17 -std=c18 -std=c++23 | %FileCheck %s --check-prefix=STD

@@ -210,7 +210,24 @@ fn _fx_reverse_rows() -> vec::<RevRow> {
     _fx_row(&r, "-fsplit-stack",         "-fsplit-stack",         RevShape::Flag);
     _fx_row(&r, "-fstack-protector",     "-fstack-protector",     RevShape::Flag);
     _fx_row(&r, "-fno-stack-protector",  "-fno-stack-protector",  RevShape::Flag);
+    _fx_row(&r, "-fstack-protector-strong", "--stack-protector=strong", RevShape::Flag);
+    _fx_row(&r, "-fstack-protector-all",    "--stack-protector=all",    RevShape::Flag);
     _fx_row(&r, "-fstack-clash-protection", "--stack-clash",      RevShape::Flag);
+    _fx_row(&r, "-fcf-protection=",      "--cf-protection=",      RevShape::Value);
+    _fx_row(&r, "-fcf-protection",       "--cf-protection=full",  RevShape::Flag);
+    _fx_row(&r, "-fzero-call-used-regs=","--zero-call-used-regs=",RevShape::Value);
+    _fx_row(&r, "-ftrivial-auto-var-init=", "--trivial-auto-var-init=", RevShape::Value);
+    _fx_row(&r, "-fdelete-null-pointer-checks",    "-fdelete-null-pointer-checks",    RevShape::Flag);
+    _fx_row(&r, "-fno-delete-null-pointer-checks", "-fno-delete-null-pointer-checks", RevShape::Flag);
+    _fx_row(&r, "-ftls-model=",          "--tls-model=",          RevShape::Value);
+    _fx_row(&r, "-fvisibility=",         "--visibility=",         RevShape::Value);
+    _fx_row(&r, "-fvisibility-inlines-hidden",    "-fvisibility-inlines-hidden",    RevShape::Flag);
+    _fx_row(&r, "-fno-visibility-inlines-hidden", "-fno-visibility-inlines-hidden", RevShape::Flag);
+    _fx_row(&r, "-fplt",                 "-fplt",                 RevShape::Flag);
+    _fx_row(&r, "-fno-plt",              "-fno-plt",              RevShape::Flag);
+    _fx_row(&r, "-mred-zone",            "-fred-zone",            RevShape::Flag);
+    _fx_row(&r, "-mno-red-zone",         "-fno-red-zone",         RevShape::Flag);
+    _fx_row(&r, "-mcmodel=",             "--mcmodel=",            RevShape::Value);
     _fx_row(&r, "-fPIC",                 "--pic-level=2",         RevShape::Flag);
     _fx_row(&r, "-fpic",                 "--pic-level=1",         RevShape::Flag);   // small-GOT PIC, not -fPIC
     _fx_row(&r, "-fno-PIC",              "-fno-pic",              RevShape::Flag);
@@ -463,10 +480,47 @@ class FlagTranslator {
         }
 
         // -- hardening / code model ----------------------------------------
-        if cgo.f_stack_protector == 1 {
-            if cc1 { _fx_push2(&o, "-stack-protector", "1"); } else { _fx_push(&o, "-fstack-protector"); }
+        // --stack-protector is the one setting behind clang's three
+        // spellings (-fstack-protector, -strong, -all); -f[no-]stack-
+        // protector is its basic|none shorthand, and the explicit level wins.
+        var sp_level = cgo.stack_protector;
+        if sp_level.empty() {
+            if cgo.f_stack_protector == 1 { sp_level = "basic"; }
+            if cgo.f_stack_protector == 0 { sp_level = "none"; }
         }
-        if (!cc1) && (cgo.f_stack_protector == 0) { _fx_push(&o, "-fno-stack-protector"); }
+        if sp_level == "basic" {
+            if cc1 { _fx_push2(&o, "-stack-protector", "1"); } else { _fx_push(&o, "-fstack-protector"); }
+        } else if sp_level == "strong" {
+            if cc1 { _fx_push2(&o, "-stack-protector", "2"); } else { _fx_push(&o, "-fstack-protector-strong"); }
+        } else if sp_level == "all" {
+            if cc1 { _fx_push2(&o, "-stack-protector", "3"); } else { _fx_push(&o, "-fstack-protector-all"); }
+        } else if (!cc1) && (sp_level == "none") {
+            // cc1 has none unless told; the driver may default it on.
+            _fx_push(&o, "-fno-stack-protector");
+        }
+        if !cgo.cf_protection.empty() { _fx_push(&o, f"-fcf-protection={cgo.cf_protection}"); }
+        if !cgo.zero_call_used_regs.empty() {
+            _fx_push(&o, f"-fzero-call-used-regs={cgo.zero_call_used_regs}");
+        }
+        if !cgo.auto_var_init.empty() { _fx_push(&o, f"-ftrivial-auto-var-init={cgo.auto_var_init}"); }
+        if cgo.f_delete_null_checks == 0 { _fx_push(&o, "-fno-delete-null-pointer-checks"); }
+        // cc1 deletes them unless told; only the driver has the "on" word.
+        if (!cc1) && (cgo.f_delete_null_checks == 1) { _fx_push(&o, "-fdelete-null-pointer-checks"); }
+
+        // -- symbols / code model ------------------------------------------
+        // A `thread` global also carries its model as an attribute
+        // (CXXSpell::tls_model), which follows --tls-model; the flag is for
+        // the C++ thread_locals the ffi headers bring.
+        if !cgo.tls_model.empty()  { _fx_push(&o, f"-ftls-model={cgo.tls_model}"); }
+        if !cgo.visibility.empty() { _fx_push(&o, f"-fvisibility={cgo.visibility}"); }
+        if cgo.f_vis_inlines_hidden == 1 { _fx_push(&o, "-fvisibility-inlines-hidden"); }
+        if (!cc1) && (cgo.f_vis_inlines_hidden == 0) { _fx_push(&o, "-fno-visibility-inlines-hidden"); }
+        if cgo.f_plt == 0 { _fx_push(&o, "-fno-plt"); }
+        if (!cc1) && (cgo.f_plt == 1) { _fx_push(&o, "-fplt"); }
+        if cgo.f_red_zone == 0 {
+            if cc1 { _fx_push(&o, "-disable-red-zone"); } else { _fx_push(&o, "-mno-red-zone"); }
+        }
+        if (!cc1) && (cgo.f_red_zone == 1) { _fx_push(&o, "-mred-zone"); }
         if cgo.stack_clash        { _fx_push(&o, "-fstack-clash-protection"); }
         if cgo.f_split_stack == 1 { _fx_push(&o, "-fsplit-stack"); }
         // --pic-level is the explicit spelling and wins; -f[no-]pic only
@@ -501,6 +555,8 @@ class FlagTranslator {
                 if tri.isX86() { _fx_push(&o, "-mno-sse"); }
             }
         }
+        // After --kernel-mode's own -mcmodel=kernel: the last one wins.
+        if !cgo.mcmodel.empty() { _fx_push(&o, f"-mcmodel={cgo.mcmodel}"); }
 
         // -- language-level C++ switches (Config::Language) -----------------
         // Exceptions are ON by default on a hosted target: a Kairo TU's C++
@@ -1002,95 +1058,5 @@ class FlagTranslator {
             ++it;
         }
         return true;
-    }
-
-    /// \brief which words of the clang command line after a bare `--` are
-    ///        its inputs, by clang's own driver table, so an option's
-    ///        separate value (`-include x.h`, `-mllvm -foo`) is never taken
-    ///        for an input. The rest go to clang verbatim, untranslated.
-    ///
-    /// \param is_input one entry per word of \p argv: 1 for an input.
-    /// \return false when clang's table reports a missing value; \p error
-    ///         says which.
-    static fn split_passthrough(argv: ref!(vec::<string>), is_input: *vec::<u8>,
-                                error: *string) -> bool {
-        var cargv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
-        for var i: usize = 0; i < argv.size(); ++i {
-            cargv.push_back(argv[i].c_str());
-            is_input->push_back(u8(0));
-        }
-        var missing_idx: u32 = 0;
-        var missing_cnt: u32 = 0;
-        var table = &(clang::getDriverOptTable());
-        var vis   = llvm::opt::Visibility(clang::options::ClangOption);
-        var args  = table->ParseArgs(cargv, missing_idx, missing_cnt, vis);
-        if missing_cnt > 0 {
-            var w = argv[static_cast::<usize>(missing_idx)];
-            (*error) = f"clang option '{w}\x27 after -- is missing its value";
-            return false;
-        }
-        var it  = args.begin();
-        var end = args.end();
-        while it != end {
-            var a = *it;
-            if a->getOption().getKind() == llvm::opt::Option::InputClass {
-                var ix = static_cast::<usize>(a->getIndex());
-                if ix < is_input->size() { (*is_input)[ix] = u8(1); }
-            }
-            ++it;
-        }
-        return true;
-    }
-
-    /// One key per option of the cc1 line \p words: the option's words as
-    /// cc1 renders them, joined by newlines (cc1_delta).
-    static fn cc1_keys(words: ref!(vec::<string>)) -> vec::<string> {
-        var out = vec::<string>();
-        var cargv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
-        for var i: usize = 0; i < words.size(); ++i { cargv.push_back(words[i].c_str()); }
-        var missing_idx: u32 = 0;
-        var missing_cnt: u32 = 0;
-        var table = &(clang::getDriverOptTable());
-        var vis   = llvm::opt::Visibility(clang::options::CC1Option);
-        var args  = table->ParseArgs(cargv, missing_idx, missing_cnt, vis);
-        var it  = args.begin();
-        var end = args.end();
-        while it != end {
-            var a = *it;
-            var rendered: llvm::opt::ArgStringList;
-            a->render(args, rendered);
-            var key = "";
-            for var k: usize = 0; k < rendered.size(); ++k {
-                if k > 0 { key += "\n"; }
-                key += string(rendered[k]);
-            }
-            out.push_back(key);
-            ++it;
-        }
-        return out;
-    }
-
-    /// \brief the cc1 options of \p more that \p base does not have, in
-    ///        \p more's order: what the driver words after `--` add to the
-    ///        driver's cc1 line for the same target. Compared per option,
-    ///        not per word, so a value that changed (`-mrelocation-model
-    ///        pic` for `static`) comes through whole; cc1 takes the last.
-    static fn cc1_delta(base: ref!(vec::<string>), more: ref!(vec::<string>)) -> vec::<string> {
-        var have = FlagTranslator::cc1_keys(base);
-        var out  = vec::<string>();
-        for key: string in FlagTranslator::cc1_keys(more) {
-            var seen = false;
-            for h: string in have {
-                if h == key { seen = true; break; }
-            }
-            if seen { continue; }
-            var cur = "";
-            for var k: usize = 0; k < key.size(); ++k {
-                if key[k] == '\n' { out.push_back(cur); cur = ""; }
-                else { cur += key[k]; }
-            }
-            out.push_back(cur);
-        }
-        return out;
     }
 }

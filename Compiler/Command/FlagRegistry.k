@@ -64,6 +64,52 @@ fn _fp_contract_choices() -> vec::<string> {
     return c;
 }
 
+fn _tls_model_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("global-dynamic"); c.push_back("local-dynamic");
+    c.push_back("initial-exec");   c.push_back("local-exec");
+    return c;
+}
+
+fn _visibility_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("default"); c.push_back("hidden"); c.push_back("protected");
+    return c;
+}
+
+fn _stack_protector_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("none"); c.push_back("basic"); c.push_back("strong"); c.push_back("all");
+    return c;
+}
+
+fn _cf_protection_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("none"); c.push_back("branch"); c.push_back("return"); c.push_back("full");
+    return c;
+}
+
+fn _auto_var_init_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("uninitialized"); c.push_back("zero"); c.push_back("pattern");
+    return c;
+}
+
+fn _mcmodel_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("tiny"); c.push_back("small"); c.push_back("kernel");
+    c.push_back("medium"); c.push_back("large");
+    return c;
+}
+
+fn _zero_call_used_regs_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("skip");
+    c.push_back("used-gpr-arg"); c.push_back("used-gpr"); c.push_back("used-arg"); c.push_back("used");
+    c.push_back("all-gpr-arg");  c.push_back("all-gpr");  c.push_back("all-arg");  c.push_back("all");
+    return c;
+}
+
 fn _thread_model_choices() -> vec::<string> {
     var c: vec::<string>;
     c.push_back("posix"); c.push_back("single");
@@ -301,6 +347,10 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("split-stack",        "segmented stack (for green-thread runtimes)");
     cmd->define::<FlagKind::Feature>("trap-unreachable",   "lower unreachable to a hardware trap instruction rather than UB");
     cmd->define::<FlagKind::Feature>("soft-float",         "software floating point ABI (for targets without FPU)");
+    cmd->define::<FlagKind::Feature>("plt",                "call external functions through the PLT (on); -fno-plt loads their address from the GOT");
+    cmd->define::<FlagKind::Feature>("red-zone",           "use the stack red zone below the stack pointer (on where the ABI has one)");
+    cmd->define::<FlagKind::Feature>("delete-null-pointer-checks", "let the optimizer drop null checks after a dereference (on)");
+    cmd->define::<FlagKind::Feature>("visibility-inlines-hidden",  "give inline C++ functions hidden visibility");
 
     // instrumentation
     cmd->define::<FlagKind::Feature>("coverage",           "source-level coverage instrumentation");
@@ -570,6 +620,22 @@ fn register_kairo_flags(cmd: *Command) {
     // Repeatable and comma-separated; each item is checked against the list.
     cmd->define(FlagDef::list_c("hardening", "", "hardening", "runtime checks the optimizer may not assume away: enum-tags (an ADT match traps on a tag no variant has)",
                                 _hardening_choices()));
+    // Empty defaults: unset means the target's (or the driver's) own choice,
+    // which is not any one of the values.
+    cmd->define(FlagDef::str_c("tls-model", "", "tls-model", "TLS model for `thread` globals and C++ thread_locals: global-dynamic|local-dynamic|initial-exec|local-exec (default: picked per global, see the docs)",
+                               "", _tls_model_choices(), ""));
+    cmd->define(FlagDef::str_c("visibility", "", "visibility", "default symbol visibility: default|hidden|protected (default: default)",
+                               "", _visibility_choices(), ""));
+    cmd->define(FlagDef::str_c("stack-protector", "", "stack-protector", "stack canaries: none|basic|strong|all (wins over -f[no-]stack-protector, which is basic|none)",
+                               "", _stack_protector_choices(), ""));
+    cmd->define(FlagDef::str_c("cf-protection", "", "cf-protection", "x86 CET control-flow protection: none|branch|return|full",
+                               "", _cf_protection_choices(), ""));
+    cmd->define(FlagDef::str_c("trivial-auto-var-init", "", "trivial-auto-var-init", "fill uninitialized locals of the emitted C++: uninitialized|zero|pattern",
+                               "", _auto_var_init_choices(), ""));
+    cmd->define(FlagDef::str_c("mcmodel", "", "mcmodel", "code model: tiny|small|kernel|medium|large (default: per target, small on x86_64)",
+                               "", _mcmodel_choices(), ""));
+    cmd->define(FlagDef::str_c("zero-call-used-regs", "", "zero-call-used-regs", "zero registers on function return: skip|used-gpr-arg|used-gpr|used-arg|used|all-gpr-arg|all-gpr|all-arg|all",
+                               "", _zero_call_used_regs_choices(), ""));
     cmd->define(FlagDef::str_c("unwind-tables", "", "unwind-tables", "unwind table emission: none|sync|async (default: per target; async on x86_64)",
                                "", _unwind_tables_choices(), ""));
     cmd->define::<FlagKind::String>("rtlib",                 "", "rtlib",                  "compiler runtime library: compiler-rt|libgcc (default: the sysroot's, else libgcc on a glibc host with GCC)", "");
