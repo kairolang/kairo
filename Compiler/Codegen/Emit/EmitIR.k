@@ -116,6 +116,9 @@ class EmitIR {
     /// The function whose body is being emitted. Decides what `self` means.
     priv var _cur_fn:  *FunctionDecl  = &null;
     priv var _cur_ext: *ExtensionDecl = &null;   ///< non-null inside an extension member.
+    /// The method _body writes went out with its `requires` as a trailing
+    /// clause (CXXSpell::member_requires, P235): no static_asserts for it.
+    priv var _req_in_head: bool = false;
     /// A split constructor whose slots are live (file header), and whether
     /// this is its S_pre, where there is no object and `self.x` is a slot.
     priv var _ci_fn:  *FunctionDecl = &null;
@@ -585,10 +588,16 @@ class EmitIR {
         head += ")";
         if m->is_method() && m->is_const() { head += " const"; }
         if m->no_unwind { head += " noexcept"; }
+        // The same clause as the in-class declaration's (InterfaceEmitter::
+        // _method_decl), which C++ requires of an out-of-line definition.
+        var mreq = self._spell.member_requires(m, owner);
+        head += mreq;
         self._cg->sink->spell(at, head);
         if is_ctor { self._mem_inits(m, owner, &(m->body_block->body), true); }
 
+        self._req_in_head = mreq.size() > 0;
         self._body(m, &null);
+        self._req_in_head = false;
         self._eval_field_def(m, owner, at);
         self._close_ns(m->range, wrap);
     }
@@ -925,7 +934,7 @@ class EmitIR {
         // E10): asserted where C++ can evaluate them, per instance in a
         // template. EvalUsageChecking already refused a run-time one.
         var vps = vec::<*Expr>();
-        CXXSpell::value_predicates(f->requires_clause, &vps);
+        if !self._req_in_head { CXXSpell::value_predicates(f->requires_clause, &vps); }
         for var i: usize = 0; i < vps.size(); ++i {
             self._cg->sink->spell(vps[i]->range, "static_assert(");
             self.emit(vps[i]);

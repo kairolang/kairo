@@ -111,6 +111,12 @@ enum WellKnownType derives u8 {
     /// parses to: clang's builtin at the call site
     /// (FunctionDecl::lowers_to_assume), where it can inform the optimizer.
     Assume,
+    /// `__builtin_is_trivially_copyable<T>()` / `..._destructible<T>()`
+    /// (base/intrinsics.k): C++ answers them, but ConformanceChecking reads
+    /// them as ClassLifecycle's facts to check a member `requires` at a call
+    /// on a concrete instance (P235).
+    IsTriviallyCopyable,
+    IsTriviallyDestructible,
 
     COUNT,      ///< keep last.
 }
@@ -159,6 +165,8 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::TupleArity { return "__builtin_tuple_arity"; }
         case WellKnownType::Expect     { return "__builtin_expect"; }
         case WellKnownType::Assume     { return "__builtin_assume"; }
+        case WellKnownType::IsTriviallyCopyable     { return "__builtin_is_trivially_copyable"; }
+        case WellKnownType::IsTriviallyDestructible { return "__builtin_is_trivially_destructible"; }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";

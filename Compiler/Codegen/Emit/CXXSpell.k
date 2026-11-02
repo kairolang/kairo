@@ -39,6 +39,7 @@ import AST::Node::CanonicalNodes::*;
 import AST::Node::Declarations::*;
 import AST::Node::Expressions::*;
 import AST::Node::PrimaryExpressions::*;
+import AST::Node::Statements::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
@@ -1682,6 +1683,90 @@ class CXXSpell {
         out->push_back(e);
     }
 
+    /// The value predicates of method \p m's `requires` as a C++20 trailing
+    /// requires-clause (` requires (...)`), or "" when they stay its body's
+    /// static_asserts (EmitIR::_body). Every home of a generic record writes
+    /// its explicit instantiation (`template class B<X>;`), which
+    /// instantiates every member body: an assert there failed each X the
+    /// predicate rejects, whether or not anything called the member (P235).
+    /// As a clause, C++ leaves the member out for that X, and only a call is
+    /// an error (ConformanceChecking reports it first, in Kairo's words).
+    /// Only a non-template, non-virtual member of a generic record -- a
+    /// member template is never instantiated by the record's, and a virtual
+    /// function cannot be constrained -- and only when every predicate
+    /// spells (_pred_text): the declaration and the out-of-line definition
+    /// must carry the same clause, so it is all or none.
+    fn member_requires(self, m: *FunctionDecl, owner: *Decl) -> string {
+        if (m == &null) || (owner == &null) || (m->requires_clause == &null) { return ""; }
+        if m->generic_params.size() > 0 { return ""; }
+        if (m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || (m->body_kind == FnBodyKind::Virtual) { return ""; }
+        if decl_generic_params(CXXSpell::rep(owner)).size() == 0 { return ""; }
+        var vps = vec::<*Expr>();
+        CXXSpell::value_predicates(m->requires_clause, &vps);
+        if vps.size() == 0 { return ""; }
+        var s = "";
+        for var i: usize = 0; i < vps.size(); ++i {
+            var t = self._pred_text(vps[i]);
+            if t.size() == 0 { return ""; }
+            s += (" requires (") if (s.size() == 0) else (" && ");
+            s += "(" + t + ")";
+        }
+        return s + ")";
+    }
+
+    /// A call of an `eval fn` whose whole body is `return f<P...>()` with f
+    /// imported (`__builtin_is_trivially_copyable<T>()`, whose body is
+    /// `return kairo_rt_is_trivially_copyable<T>()`): f at the call's
+    /// written arguments, or "". The eval fn is declared after every record,
+    /// so a clause inside one cannot name it; the runtime header declaring f
+    /// comes before all of them.
+    priv fn _pred_call(self, c: *CallExpr) -> string {
+        if (c == &null) || (c->args.size() != 0) || (c->callee == &null) { return ""; }
+        var ce = c->callee;
+        while (ce != &null) && isa::<ParenExpr>(ce) { ce = cast::<ParenExpr>(ce)->inner; }
+        var ni = dyn_cast::<NamedIdentExpr>(ce);
+        if (ni == &null) || (ni->resolved_decl == &null) { return ""; }
+        var f = dyn_cast::<FunctionDecl>(CXXSpell::rep(ni->resolved_decl));
+        if (f == &null) || (!f->is_eval()) || (f->generic_params.size() == 0) { return ""; }
+        if ni->generic_args.size() != f->generic_params.size() { return ""; }
+        var b = f->body_block;
+        if (b == &null) || (b->body.size() != 1) { return ""; }
+        var rs = dyn_cast::<ReturnStmt>(b->body[0]);
+        if (rs == &null) || (rs->value == &null) { return ""; }
+        var ie = rs->value;
+        while (ie != &null) && isa::<ParenExpr>(ie) { ie = cast::<ParenExpr>(ie)->inner; }
+        var ic = dyn_cast::<CallExpr>(ie);
+        if (ic == &null) || (ic->args.size() != 0) || (ic->callee == &null) { return ""; }
+        var ini = dyn_cast::<NamedIdentExpr>(ic->callee);
+        if (ini == &null) || (ini->resolved_decl == &null) { return ""; }
+        var target = CXXSpell::rep(ini->resolved_decl);
+        if !decl_is_imported(target) { return ""; }
+        var s = "";
+        for var i: usize = 0; i < ini->generic_args.size(); ++i {
+            var ga = ini->generic_args.get(i);
+            if (ga->ty == &null) || (ga->ty->canonical == &null) { return ""; }
+            var c0 = ga->ty->canonical;
+            while isa::<QualifiedType>(c0) { c0 = cast::<QualifiedType>(c0)->inner; }
+            var arg = "";
+            if isa::<GenericParamType>(c0) {
+                // The eval fn's own parameter: the call's argument for it.
+                var g = cast::<GenericParamType>(c0);
+                if (g->owner == &null) || (CXXSpell::rep(g->owner) != static_cast::<*Decl>(f)) { return ""; }
+                var k = static_cast::<usize>(g->param_index);
+                if k >= ni->generic_args.size() { return ""; }
+                var wa = ni->generic_args.get(k);
+                if (wa->ty == &null) || (wa->ty->canonical == &null) { return ""; }
+                arg = self._type(wa->ty);
+            } else {
+                if c0->is_dependent() { return ""; }
+                arg = self._type(ga->ty);
+            }
+            if arg.size() == 0 { return ""; }
+            s += (arg) if (i == 0) else (", " + arg);
+        }
+        return self.qual_name(target) + "<" + s + ">()";
+    }
+
     /// C++ text of a self-contained predicate (requires_clause), or "".
     priv fn _pred_text(self, e0: *Expr) -> string {
         if e0 == &null { return ""; }
@@ -1694,6 +1779,13 @@ class CXXSpell {
             return f"{lit->get_value_lo()}";
         }
         if isa::<BooleanLiteralExpr>(e) { return (("true") if (cast::<BooleanLiteralExpr>(e)->value) else ("false")); }
+        if isa::<CallExpr>(e) { return self._pred_call(cast::<CallExpr>(e)); }
+        if isa::<TypeTraitExpr>(e) {
+            var tt = cast::<TypeTraitExpr>(e);
+            var bi = type_trait_cxx(tt->fact);
+            if (bi.size() == 0) || (tt->type_arg == &null) || (tt->type_arg->canonical == &null) { return ""; }
+            return bi + "(" + self._type(tt->type_arg) + ")";
+        }
         if isa::<SizeOfExpr>(e) {
             var t = cast::<SizeOfExpr>(e)->type_arg;
             if (t == &null) || (t->canonical == &null) { return ""; }

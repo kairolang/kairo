@@ -547,6 +547,12 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             ad->canonical_decl()->lowers_to_assume = true;
         }
 
+        // The trivially-copyable / -destructible traits, read by
+        // ConformanceChecking at a call that meets a member `requires`
+        // (P235).
+        self._bind_lang(root, WellKnownType::IsTriviallyCopyable);
+        self._bind_lang(root, WellKnownType::IsTriviallyDestructible);
+
         // `byte` is spelled as the Byte enum, so a TU that uses it must
         // declare that enum. Codegen has no route to well_known, but every
         // `byte` it walks IS this one build-wide singleton: record it there.

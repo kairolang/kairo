@@ -3211,6 +3211,9 @@ class InterfaceEmitter {
         s += ")";
         if is_method && m->is_const() { s += " const"; }
         if m->no_unwind { s += " noexcept"; }
+        // P235: a generic record's member `requires`, so the record's
+        // explicit instantiation leaves the member out where it fails.
+        s += self._spell->member_requires(m, owner);
         if m->abi == AbiKind::Override { s += " override"; }
         s += self._body_suffix(m);
         s += ";";

@@ -1,8 +1,8 @@
 // A special member declared `= default` or `= delete` is declared that way
 // in the class, and gets no definition out of line: C++ generates the
 // defaulted one, and a deleted one has none. A `requires` written on a
-// member is Kairo's to check and never reaches the C++, so Cell's get() is
-// declared without one.
+// member of a generic record is the member's C++ trailing requires-clause,
+// on its declaration and its definition alike (P235).
 
 class Pair {
     pub var a: i32
@@ -59,8 +59,7 @@ fn main() -> i32 {
 // CXX-NEXT:  Pinned({{.*}}Pinned&& other) noexcept = delete;
 // CXX:       template<class T> class Cell {
 // CXX:       Cell({{.*}}Cell<T>& other) noexcept = default;
-// CXX-NEXT:  T get() const noexcept;
-// CXX-NOT:   requires
+// CXX-NEXT:  T get() const noexcept requires({{.*}}sizeof(T){{.*}}8{{.*}});
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}special_members.k
@@ -71,7 +70,7 @@ fn main() -> i32 {
 // IR-NOT:   Pinned::Pinned({{.*}}other)
 // IR:       Cell<T>::Cell(T v) noexcept {
 // IR-NOT:   Cell<T>::Cell({{.*}}other)
-// IR:       Cell<T>::get() const noexcept {
+// IR:       Cell<T>::get() const noexcept requires({{.*}}sizeof(T){{.*}}8{{.*}}) {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d && mkdir -p %t.d

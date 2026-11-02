@@ -77,6 +77,7 @@ import AST::Node::PrimaryExpressions::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Kind::ExprKind::*;
+import AST::LangItems::*;
 import AST::Kind::TypeKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Token::TokenKind::*;
@@ -159,7 +160,192 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         var ie = reinterpret_cast::<*InstanceEntry>(c->instance);
         if ie != &null { self._check_instance(ie, c->range); }
         self._check_qualified(c);
+        self._check_member_requires(c);
         return true;
+    }
+
+    // === a generic record's member `requires` at a call (P235) ===============
+
+    /// A call of a generic record's method whose `requires` has value
+    /// predicates, on a concrete instance: each predicate at the receiver's
+    /// arguments, and a false one is the error here, in Kairo's words.
+    /// Codegen spells the predicates as the member's trailing C++ clause
+    /// (CXXSpell::member_requires), which is what refuses a call this
+    /// cannot decide -- a record's layout, a trait only C++ answers.
+    priv fn _check_member_requires(self, c: *CallExpr) {
+        var f = dyn_cast::<FunctionDecl>(self._callee_of(c));
+        if f == &null { return; }
+        var fr = dyn_cast::<FunctionDecl>(NameLookup::representative(static_cast::<*Decl>(f)));
+        if fr != &null { f = fr; }
+        if (f->requires_clause == &null) || (f->generic_params.size() > 0) || (!f->is_method()) { return; }
+        var ch = dyn_cast::<ChainExpr>(self.tu.strip_parens(c->callee));
+        if (ch == &null) || (ch->steps.size() == 0) { return; }
+        var rt: *Type = &null;
+        if ch->steps.size() >= 2 { rt = ch->steps.get(ch->steps.size() - 2)->resolved_type; }
+        else if ch->base != &null { rt = ch->base->type_; }
+        var rec = self._receiver_record(rt);
+        if rec == &null { return; }
+        var d = Deduction(self.sc, &null);
+        d.bind_from_record(rec);
+        var vps = vec::<*Expr>();
+        self._value_preds(f->requires_clause, &vps);
+        for var i: usize = 0; i < vps.size(); ++i {
+            var v = self._vp(vps[i], &d, 0);
+            if (!v.known) || (v.v != 0) { continue; }
+            var rs = self.tu.str(rec);
+            var fname = self.tu.decl_name(static_cast::<*Decl>(f));
+            var b = self.sc->diag->report(DiagID::SC001E, c->range.start,
+                f"'{fname}' cannot be called on '{rs}': its 'requires' clause does not hold");
+            b.first(c->range);
+            b.note(DiagID::SC001N, vps[i]->range.start, f"this is false for '{rs}\x27").first(vps[i]->range);
+            b.emit();
+            return;
+        }
+    }
+
+    /// The concrete record a method is called on, through pointers,
+    /// references and `?`; null for anything else or a dependent one.
+    priv fn _receiver_record(self, t: *Type) -> *Type {
+        var c = self._canon(t);
+        var n: u32 = 0;
+        while (c != &null) && (n < 8) {
+            n += 1;
+            if isa::<PointerType>(c)             { c = self._canon(cast::<PointerType>(c)->pointee); continue; }
+            if isa::<CXXLValueRefType>(c)        { c = self._canon(cast::<CXXLValueRefType>(c)->referee); continue; }
+            if isa::<CXXRValueRefType>(c)        { c = self._canon(cast::<CXXRValueRefType>(c)->referee); continue; }
+            if isa::<NullableType>(c)            { c = self._canon(cast::<NullableType>(c)->inner); continue; }
+            break;
+        }
+        if (c == &null) || (!isa::<RecordType>(c)) || c->is_dependent() || c->is_instantiation_dependent() { return &null; }
+        return c;
+    }
+
+    /// The value conjuncts of clause \p e (not `impl` / `derives`).
+    priv fn _value_preds(self, e: *Expr, out: *vec::<*Expr>) {
+        if e == &null { return; }
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if (b != &null) && ((b->op_token.kind == TokenKind::OpAmpAmp) || (b->op_token.kind == TokenKind::KwAnd)) {
+            self._value_preds(b->lhs, out);
+            self._value_preds(b->rhs, out);
+            return;
+        }
+        if isa::<ConstraintExpr>(e) { return; }
+        out->push_back(e);
+    }
+
+    /// Predicate \p e under \p d: literals, `!` `&&` `||`, comparisons and
+    /// integer arithmetic, `sizeof` / `alignof` of a builtin or a pointer,
+    /// and the trivially-copyable / -destructible facts (`is_..!(T)` and the
+    /// `__builtin_is_...<T>()` lang items), from ClassLifecycle. Anything
+    /// else is unknown (InstantiationRegistry::requires_holds is the same
+    /// shape for a partial's clause).
+    priv fn _vp(self, e: *Expr, d: *Deduction, depth: u32) -> PartialPredValue {
+        var out = PartialPredValue{};
+        if (e == &null) || (depth > 64) { return out; }
+        if isa::<ParenExpr>(e) { return self._vp(cast::<ParenExpr>(e)->inner, d, depth + 1); }
+        if isa::<BooleanLiteralExpr>(e) { out.known = true; out.v = (1) if (cast::<BooleanLiteralExpr>(e)->value) else (0); return out; }
+        if isa::<IntegerLiteralExpr>(e) {
+            var il = cast::<IntegerLiteralExpr>(e);
+            if (il->get_value_hi() != 0) || (il->get_value_lo() > u64(9223372036854775807)) { return out; }
+            out.known = true; out.v = i64(il->get_value_lo()); return out;
+        }
+        if isa::<SizeOfExpr>(e) || isa::<AlignOfExpr>(e) {
+            var is_size = isa::<SizeOfExpr>(e);
+            var ta = (cast::<SizeOfExpr>(e)->type_arg) if (is_size) else (cast::<AlignOfExpr>(e)->type_arg);
+            var s = self._subst(ta, d);
+            if (s == &null) || ((!isa::<BuiltinType>(s)) && (!isa::<PointerType>(s))) { return out; }
+            if isa::<BuiltinType>(s) && (cast::<BuiltinType>(s)->lang_decl != &null) { return out; }
+            if (s->size_bits == 0) || (s->align_bits == 0) || ((s->size_bits % 8) != 0) { return out; }
+            out.known = true;
+            out.v = i64((s->size_bits / 8) if (is_size) else (s->align_bits / 8));
+            return out;
+        }
+        if isa::<TypeTraitExpr>(e) {
+            var tt = cast::<TypeTraitExpr>(e);
+            return self._trait(self._subst(tt->type_arg, d), tt->fact == TypeTraitKind::TriviallyCopyable);
+        }
+        if isa::<CallExpr>(e) {
+            var c = cast::<CallExpr>(e);
+            var callee = self._callee_of(c);
+            if (callee == &null) || (c->args.size() != 0) { return out; }
+            var copyable = self._is_lang(callee, WellKnownType::IsTriviallyCopyable);
+            if (!copyable) && (!self._is_lang(callee, WellKnownType::IsTriviallyDestructible)) { return out; }
+            var ni = dyn_cast::<NamedIdentExpr>(self.tu.strip_parens(c->callee));
+            if (ni == &null) || (ni->generic_args.size() != 1) { return out; }
+            return self._trait(self._subst(ni->generic_args.get(0)->ty, d), copyable);
+        }
+        if isa::<UnaryOperatorExpr>(e) {
+            var u = cast::<UnaryOperatorExpr>(e);
+            var x = self._vp(u->operand, d, depth + 1);
+            if !x.known { return out; }
+            var k = u->op_token.kind;
+            if (k == TokenKind::OpExclaim) || (k == TokenKind::KwNot) { out.known = true; out.v = (1) if (x.v == 0) else (0); return out; }
+            if k == TokenKind::OpMinus { out.known = true; out.v = i64(0) - x.v; return out; }
+            if k == TokenKind::OpPlus  { return x; }
+            return out;
+        }
+        if isa::<BinaryOperatorExpr>(e) {
+            var bn = cast::<BinaryOperatorExpr>(e);
+            var k = bn->op_token.kind;
+            var l = self._vp(bn->lhs, d, depth + 1);
+            if (k == TokenKind::OpAmpAmp) || (k == TokenKind::KwAnd) {
+                if l.known && (l.v == 0) { out.known = true; out.v = 0; return out; }
+                var r = self._vp(bn->rhs, d, depth + 1);
+                if r.known && (r.v == 0) { out.known = true; out.v = 0; return out; }
+                if l.known && r.known { out.known = true; out.v = 1; }
+                return out;
+            }
+            if (k == TokenKind::OpPipePipe) || (k == TokenKind::KwOr) {
+                if l.known && (l.v != 0) { out.known = true; out.v = 1; return out; }
+                var r = self._vp(bn->rhs, d, depth + 1);
+                if r.known && (r.v != 0) { out.known = true; out.v = 1; return out; }
+                if l.known && r.known { out.known = true; out.v = 0; }
+                return out;
+            }
+            var r = self._vp(bn->rhs, d, depth + 1);
+            if (!l.known) || (!r.known) { return out; }
+            out.known = true;
+            if k == TokenKind::OpLess           { out.v = (1) if (l.v <  r.v) else (0); return out; }
+            if k == TokenKind::OpLessEqual      { out.v = (1) if (l.v <= r.v) else (0); return out; }
+            if k == TokenKind::OpGreater        { out.v = (1) if (l.v >  r.v) else (0); return out; }
+            if k == TokenKind::OpGreaterEqual   { out.v = (1) if (l.v >= r.v) else (0); return out; }
+            if k == TokenKind::OpEqualEqual     { out.v = (1) if (l.v == r.v) else (0); return out; }
+            if k == TokenKind::OpExclaimEqual   { out.v = (1) if (l.v != r.v) else (0); return out; }
+            if k == TokenKind::OpPlus           { out.v = l.v + r.v; return out; }
+            if k == TokenKind::OpMinus          { out.v = l.v - r.v; return out; }
+            if k == TokenKind::OpStar           { out.v = l.v * r.v; return out; }
+            out.known = false;
+            return out;
+        }
+        return out;
+    }
+
+    /// \p t with \p d's bindings, canonical, or null while still dependent.
+    priv fn _subst(self, t: *Type, d: *Deduction) -> *Type {
+        if (t == &null) || (t->canonical == &null) { return &null; }
+        var s = d->substitute(t->canonical);
+        if s == &null { return &null; }
+        var c = self._canon(s);
+        if (c == &null) || c->is_dependent() || c->is_instantiation_dependent() { return &null; }
+        return c;
+    }
+
+    /// A triviality fact of concrete \p t, from ClassLifecycle.
+    priv fn _trait(self, t: *Type, copyable: bool) -> PartialPredValue {
+        var out = PartialPredValue{};
+        if t == &null { return out; }
+        var f = lifecycle_of(self.sc)->facts_of_type_concrete(t, "ConformanceChecking");
+        var x = (f.trivially_copyable) if (copyable) else (f.trivial_dtor);
+        if x == LifecycleTri::Unknown { return out; }
+        out.known = true;
+        out.v = (1) if (x == LifecycleTri::Yes) else (0);
+        return out;
+    }
+
+    priv fn _is_lang(self, d: *Decl, k: WellKnownType) -> bool {
+        if (d == &null) || (self.sc->well_known == &null) { return false; }
+        var ld = self.sc->well_known->get(k);
+        return (ld != &null) && (NameLookup::representative(d) == NameLookup::representative(ld));
     }
 
     fn visit_type(self, t: *Type) -> bool {
