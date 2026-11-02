@@ -719,8 +719,100 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             self.sc->instances->mark_failed(e);
         }
         self.sc->instances->add_rows(e, &rows);
-        if ok { self._check_facts(e); }
+        if ok { self._check_facts(e); self._check_reuse(e); }
         return ok;
+    }
+
+    /// A generic body's transfer of a `T` value (or a `xs...` expansion)
+    /// that a later read of the binding follows (FunctionDecl::
+    /// move_reuse_site, MoveCheck): the pattern leaves it a copy, since one
+    /// C++ template serves every instance and the category is the
+    /// instance's. At an instance whose value cannot be copied it is a use
+    /// after move (Doc: Ownership) -- reported here, at the instance's use
+    /// with its chain (MONO.md D6), not left to clang as a deleted copy
+    /// constructor. A record instance asks each of its methods.
+    priv fn _check_reuse(self, e: *InstanceEntry) {
+        if (e == &null) || (e->primary == &null) || (!e->use_at.start.is_valid()) { return; }
+        var prim = e->primary;
+        if isa::<FunctionDecl>(prim) {
+            var h = self._reuse_home(cast::<FunctionDecl>(prim));
+            if h->move_reuse_site.size() == 0 { return; }
+            var d = Deduction(self.sc, &null);
+            self._bind_instance(&d, e, prim);
+            self._reuse_in(e, h, &d, prim);
+            return;
+        }
+        if e->decl == &null { return; }
+        var ms = self._methods_of(prim);
+        var rt = self.sc->types->record(e->decl, &(e->args));
+        for var k: usize = 0; k < ms.size(); ++k {
+            if ms[k] == &null { continue; }
+            var h = self._reuse_home(ms[k]);
+            if h->move_reuse_site.size() == 0 { continue; }
+            var d = Deduction(self.sc, &null);
+            if rt != &null { d.bind_from_record(rt); }
+            self._reuse_in(e, h, &d, &null);
+        }
+    }
+
+    priv fn _reuse_home(self, f: *FunctionDecl) -> *FunctionDecl {
+        var d = f->definition();
+        return (d) if (d != &null) else (f);
+    }
+
+    /// \p h's demoted transfers at instance \p e (\p d its bindings;
+    /// \p prim the generic function, whose pack's elements are \p e's
+    /// trailing arguments, or null for a record's method).
+    priv fn _reuse_in(self, e: *InstanceEntry, h: *FunctionDecl, d: *Deduction, prim: *Decl) {
+        for var i: usize = 0; (i < h->move_reuse_site.size()) && (i < h->move_reuse_read.size()); ++i {
+            var site = h->move_reuse_site[i];
+            var read = h->move_reuse_read[i];
+            if (site == &null) || (read == &null) { continue; }
+            var bad: *Type = &null;
+            if isa::<PackExpansionExpr>(site) {
+                bad = self._reuse_pack_element(e, cast::<PackExpansionExpr>(site), prim);
+            } else if site->type_ != &null {
+                var t = d->substitute(canon_unqual(site->type_));
+                if (t != &null) && (!t->is_dependent()) && (!t->is_instantiation_dependent()) {
+                    if lifecycle_of(self.sc)->facts_of_type(t).copyable == LifecycleTri::No { bad = canon_unqual(t); }
+                }
+            }
+            if bad == &null { continue; }
+            var nm   = self.sc->ctx->get_spelling(read->range);
+            var ts   = self.tu.str(bad);
+            var inst = self._inst_name(e);
+            var b = self.sc->diag->report(DiagID::SC052E, e->use_at.start,
+                f"'{nm}' is used after being moved in '{inst}': '{ts}' cannot be copied, so the transfer moves it");
+            b.first(e->use_at, f"'{inst}' is instantiated here");
+            b.note(site->range.start, f"'{nm}' was moved here, as a '{ts}\x27").first(site->range);
+            b.note(read->range.start, "and used again here").first(read->range);
+            self.chain_notes(&b, e);
+            b.emit();
+        }
+    }
+
+    /// The first element of the pack \p x expands that cannot be copied
+    /// at instance \p e, or null. Only a pack parameter of \p prim's own
+    /// (`...xs: T`, its one trailing variadic): its elements are \p e's
+    /// arguments from the type pack's position on (instance args are flat).
+    priv fn _reuse_pack_element(self, e: *InstanceEntry, x: *PackExpansionExpr, prim: *Decl) -> *Type {
+        if prim == &null { return &null; }
+        var opd = self.tu.strip_parens(x->operand);
+        if (opd == &null) || (!isa::<NamedIdentExpr>(opd)) { return &null; }
+        var pd = dyn_cast::<ParamDecl>(cast::<NamedIdentExpr>(opd)->resolved_decl);
+        if (pd == &null) || (!pd->is_pack) { return &null; }
+        var gps = decl_generic_params(prim);
+        var k = usize(-1);
+        for var i: usize = 0; i < gps.size(); ++i { if (gps[i] != &null) && gps[i]->is_pack { k = i; } }
+        if k == usize(-1) { return &null; }
+        var xd = decl_extension_of(prim);
+        if xd != &null { k += decl_generic_params(static_cast::<*Decl>(xd)).size(); }
+        for var j: usize = k; j < e->args.size(); ++j {
+            var a = e->args[j];
+            if (a == &null) || a->is_dependent() { continue; }
+            if lifecycle_of(self.sc)->facts_of_type(a).copyable == LifecycleTri::No { return canon_unqual(a); }
+        }
+        return &null;
     }
 
     /// Instances another TU (or an earlier use here) made live, already

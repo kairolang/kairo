@@ -861,7 +861,13 @@ they move only if no later read of the binding follows on any path (a
 loop's next iteration included); otherwise they stay copies (GH#90, P239).
 They mark nothing moved-from, since the pattern cannot know the instance
 is MOVE, and a binding whose address is taken anywhere in the body (`&x`,
-a pointer capture, a C++ `T&` / `@inout` argument) never takes one. A `for` binding is a fresh binding each iteration. Bindings and
+a pointer capture, a C++ `T&` / `@inout` argument) never takes one. A
+pending transfer a later read demotes is kept on the function, with that
+read (`FunctionDecl::move_reuse_site` / `move_reuse_read`, one per
+binding); ConformanceChecking asks each live instance whether the value --
+the site's type at its arguments, or a pack's elements -- can be copied,
+and one that cannot is SC052E at the instance's use with its chain
+(MONO.md D6), not clang's deleted copy constructor. A `for` binding is a fresh binding each iteration. Bindings and
 field paths under them (`p.a`) are
 tracked; pointers and `self` are not. A closure's captures are reads of
 the bindings where it is made, and a MOVE value captured by copy is moved

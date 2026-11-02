@@ -286,6 +286,14 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     /// address of an element makes the iterated binding aliased too.
     priv var _for_bind: vec::<*Decl>;
     priv var _for_over: vec::<*Decl>;
+    /// The current function body's demoted pending moves, one per binding:
+    /// the transfer, the read that followed it, and the binding. Written to
+    /// the function (FunctionDecl::move_reuse_site) when its walk ends, for
+    /// each instance to judge: the pattern does not know whether the value
+    /// can be copied, an instance does.
+    priv var _reuse_site: vec::<*Expr>;
+    priv var _reuse_read: vec::<*Expr>;
+    priv var _reuse_decl: vec::<*Decl>;
 
     fn MoveCheck(self, sc: *SemaContext) {
         self.sc  = sc;
@@ -341,9 +349,15 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         var saved_st    = self._st;
         var saved_loops = self._loops;
         var saved_blocks = self._blocks;
+        var saved_rs = self._reuse_site;
+        var saved_rr = self._reuse_read;
+        var saved_rd = self._reuse_decl;
         self._st    = MoveState{};
         self._loops = vec::<LoopFrame>();
         self._blocks = vec::<vec::<*FinallyStmt>>();
+        self._reuse_site.clear();
+        self._reuse_read.clear();
+        self._reuse_decl.clear();
         var out = RecursiveASTVisitor::<MoveCheck>::traverse_function_decl(n);
         // `fn f(p: Pair) -> Str = p.a` is `{ return p.a }` (ExprBodyDesugar,
         // which keeps the node and reads the same written-signature test),
@@ -353,9 +367,16 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
             self._return_value(n->body_expr);
         }
         ICE_IF(!self._blocks.empty(), "MoveCheck: a block frame outlived its body");
+        if self._reuse_site.size() > 0 {
+            n->move_reuse_site.from_vec(&(self._reuse_site), self.sc->ctx);
+            n->move_reuse_read.from_vec(&(self._reuse_read), self.sc->ctx);
+        }
         self._st    = saved_st;
         self._loops = saved_loops;
         self._blocks = saved_blocks;
+        self._reuse_site = saved_rs;
+        self._reuse_read = saved_rr;
+        self._reuse_decl = saved_rd;
         return out;
     }
 
@@ -1130,9 +1151,10 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     /// `T&&` when nothing reads the binding again (PendingMove), which moves
     /// a MOVE instance and, at a COPY instance's last use, moves where the
     /// copy could not be observed (Doc: Ownership, COPY types). Left a copy
-    /// when it is read again: a MOVE instance then fails in C++ as the
-    /// use-after-move it is, which the pattern cannot report -- it does not
-    /// know the category (ClassLifecycle, Unknown) -- so it marks nothing.
+    /// when it is read again. The pattern does not know the category
+    /// (ClassLifecycle, Unknown), so it marks nothing; the read is kept with
+    /// the site (_demote_pending) and an instance that cannot copy the value
+    /// reports the use after move (ConformanceChecking::_check_reuse).
     /// Bindings only: a part of `self` or of a pointee is never moved from.
     priv fn _dependent_transfer(self, e: *Expr) {
         if (e->type_ == &null) || self._st.dead { return; }
@@ -1167,11 +1189,20 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
 
     /// A read of \p path under \p d: every pending transfer out of storage
     /// it overlaps was not the last use, so it stays a copy.
-    priv fn _demote_pending(self, d: *Decl, path: string) {
+    /// \p at is the read, kept with the site for the instance check
+    /// (_reuse_site): at a MOVE instance the read is a use after move.
+    priv fn _demote_pending(self, d: *Decl, path: string, at: *Expr) {
         var k: usize = 0;
         while k < self._st.pend.size() {
             var pm = self._st.pend[k];
             if (pm.d != d) || (!path_overlaps(pm.path, path)) { k += 1; continue; }
+            var seen = false;
+            for var r: usize = 0; r < self._reuse_decl.size(); ++r { if self._reuse_decl[r] == d { seen = true; } }
+            if (!seen) && (at != &null) {
+                self._reuse_site.push_back(pm.site);
+                self._reuse_read.push_back(at);
+                self._reuse_decl.push_back(d);
+            }
             if pm.is_pack { cast::<PackExpansionExpr>(pm.site)->reread = true; }
             else          { self._demoted.insert(reinterpret_cast::<u64>(pm.site)); }
             self._st.pend.erase(self._st.pend.begin() + k);
@@ -1302,7 +1333,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     /// whole binding while a part of it is gone.
     priv fn _read_part(self, n: *NamedIdentExpr, d: *Decl, path: string) {
         if self._st.dead { return; }                         // unreachable: nothing to say.
-        self._demote_pending(d, path);
+        self._demote_pending(d, path, static_cast::<*Expr>(n));
         // One error per USE as well: a loop body's second pass, or a finally
         // body walked once per exit of its block, reaches the same node again
         // after a redeclaration re-armed the binding's report.

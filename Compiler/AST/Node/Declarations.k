@@ -595,6 +595,15 @@ class FunctionDecl
     /// them once the body is lowered.
     pub var panic_arms:    FrozenList::<*Type>;
     pub var panic_arm_at:  FrozenList::<SourceRange>;
+    /// A generic body's transfers whose binding is read again after them
+    /// (MoveCheck, a demoted pending move): `move_reuse_site[i]` -- a
+    /// transfer of a dependent value, or a `xs...` expansion -- is followed
+    /// by the read `move_reuse_read[i]`, parallel. The pattern leaves each a
+    /// copy; an instance at which the value cannot be copied is the
+    /// use-after-move the pattern could not see (ConformanceChecking::
+    /// _check_reuse). Recorded at the definition, in its own TU.
+    pub var move_reuse_site: FrozenList::<*Expr>;
+    pub var move_reuse_read: FrozenList::<*Expr>;
     pub var body_kind:     FnBodyKind = FnBodyKind::None;
     pub var body_block:   *CompoundStmt = &null;  ///< when body_kind == Block.
     pub var body_expr:    *Expr         = &null;  ///< when body_kind == Expr.

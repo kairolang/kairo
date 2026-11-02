@@ -69,8 +69,9 @@
 ///     body (MONO.md D0). The memo below is the side table: keyed by the
 ///     instance decl, which is one per registry entry. An imported
 ///     template's instance keeps clang's facts (ensure_filled), except that
-///     an owning one over an element that cannot be copied cannot be copied
-///     either (_imported_elements, GH#87).
+///     one HOLDING a value that cannot be copied (a `value_type`, field or
+///     base) cannot be copied either (_imported_elements, GH#87); one that
+///     only points at its argument (`shared_ptr<Mv>`) keeps clang's COPY.
 ///
 ///     The rules a generic class's declaration skipped on an Unknown --
 ///     rule 5, rule 6 and the virtual-destructor rule -- are asked again of
@@ -416,28 +417,77 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
     /// copied (GH#87). Clang's facts say `std::vector<Mv>` copies: its copy
     /// constructor is declared and not deleted, and only instantiating its
     /// body would find Mv's deleted one -- a hard error in clang, never a
-    /// fact Sema can read. So the instance reads COPY, every transfer of it
-    /// stays a copy, and the copy fails in clang. An owning template (one
-    /// clang does not call trivially copyable) whose type argument is not
-    /// copyable is taken as not copyable either: the category falls to MOVE,
-    /// and a transfer moves it. A trivially copyable instance (a span, a
-    /// reference_wrapper) copies only the address and keeps clang's answer.
+    /// fact Sema can read (phase A's stand-in for Mv copies; TypeExport).
+    /// So the instance read COPY, every transfer of it stayed a copy, and
+    /// the copy failed in clang. An instance (one clang does not call
+    /// trivially copyable) that HOLDS a value it cannot copy is taken as not
+    /// copyable either: the category falls to MOVE, and a transfer moves it.
+    ///
+    /// Holding is read off what the instance declares, never off a list of
+    /// template names: a `value_type` member type that cannot be copied
+    /// (the standard's container requirement: a container's copy copies
+    /// each `value_type` element -- vector, deque, list, map's
+    /// `pair<const K, V>`, optional), or a field or base that cannot be.
+    /// A template that only points at its argument declares neither
+    /// (`shared_ptr<Mv>` / `weak_ptr<Mv>` hold an `element_type *` and a
+    /// control block), so it keeps clang's COPY, as a trivially copyable
+    /// one (a span, a reference_wrapper) does: copying it copies no Mv.
     priv fn _imported_elements(self, d: *Decl, f: *LifecycleFacts) {
         if (self.sc->instances == &null) || (f->copyable != LifecycleTri::Yes) { return; }
         if f->trivially_copyable == LifecycleTri::Yes { return; }
         var e = self.sc->instances->entry_of(d);
         if e == &null { return; }
+        var elem = false;
         for var i: usize = 0; i < e->args.size(); ++i {
             var a = e->args[i];
             if (a == &null) || a->is_dependent() || a->is_instantiation_dependent() { continue; }
-            var af = self.facts_of_type(a);
-            if af.copyable != LifecycleTri::No { continue; }
-            f->copyable         = LifecycleTri::No;
-            f->why_not_copyable = f"its element type '{self._tu.str(a)}' is not copyable";
-            f->category         = self._folded_category(f);
-            self._settle_non_transfer(f);
-            return;
+            if self.facts_of_type(a).copyable == LifecycleTri::No { elem = true; break; }
         }
+        if !elem { return; }
+        var held = self._held_uncopyable(d);
+        if held.size() == 0 { return; }
+        f->copyable         = LifecycleTri::No;
+        f->why_not_copyable = held;
+        f->category         = self._folded_category(f);
+        self._settle_non_transfer(f);
+    }
+
+    /// Why imported instance \p d holds a value it cannot copy (see
+    /// _imported_elements), or "" when it declares none.
+    priv fn _held_uncopyable(self, d: *Decl) -> string {
+        var dc = NameLookup::context_of(d);
+        if dc != &null {
+            var vt = "value_type";
+            var im = self.sc->imm_table()->find_ident(vt);
+            var r  = self.sc->lookup.in_context(dc, DeclName::ident(im), vt);
+            if r.found() && (r.cell->size() == 1) && isa::<TypeAliasDecl>(r.cell->get(0)) {
+                var a = cast::<TypeAliasDecl>(r.cell->get(0))->aliased;
+                if (a != &null) && (!a->is_dependent()) && (self.facts_of_type(a).copyable == LifecycleTri::No) {
+                    return f"its element type '{self._tu.str(canon_unqual(a))}' is not copyable";
+                }
+            }
+        }
+        var fs = self._fields(d);
+        for var i: usize = 0; i < fs.size(); ++i {
+            var fd = fs[i];
+            if (fd == &null) || fd->is_static() || (fd->type_ == &null) || fd->type_->is_dependent() { continue; }
+            if self.facts_of_type(fd->type_).copyable == LifecycleTri::No {
+                return f"its field of type '{self._tu.str(canon_unqual(fd->type_))}' is not copyable";
+            }
+        }
+        if isa::<ClassDecl>(d) {
+            var c = cast::<ClassDecl>(d);
+            for var i: usize = 0; i < c->derives_list.size(); ++i {
+                var be = c->derives_list.get(i);
+                if (be == &null) || (be->base == &null) || (be->base->canonical == &null) { continue; }
+                var bt = be->base->canonical;
+                if bt->is_dependent() { continue; }
+                if self.facts_of_type(bt).copyable == LifecycleTri::No {
+                    return f"its base '{self._tu.str(canon_unqual(bt))}' is not copyable";
+                }
+            }
+        }
+        return "";
     }
 
     /// Drop every memoized fact. EvalIfLateFolding calls it after a round
