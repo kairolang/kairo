@@ -1636,6 +1636,10 @@ class ASTParse
     ///          wrapper owns the parser policy: emit I002F on a truncated
     ///          chain and degrade to TkUnknown.
     inline pub fn resolve_deep(self, tok: *Token) -> Token {
+        // The cursor is null once recovery runs off the stream; callers
+        // switch on the result, so EOF is the answer, not a null deref.
+        if tok == &null { return Token(SourceRange::invalid(), TokenKind::TkEof); }
+
         // The cap is a malformed-chain backstop, NOT --cmax-macro-depth: that
         // flag belongs to the preprocessor (it reports R008E itself). Reusing
         // it here made a low value truncate every tail-position chain the
