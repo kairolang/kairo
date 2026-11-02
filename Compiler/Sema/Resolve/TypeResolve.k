@@ -871,8 +871,10 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     /// decoded). False when an escape does not decode.
     priv fn _vx_string_bytes(self, sl: *StringLiteralExpr, out: *vec::<u8>) -> bool {
         var synth = LowerSynth(self.sc);
-        var tcm = self.sc->ctx->tcm;
-        var tbl = (tcm->get_imm_table_for_fid(self.sc->ctx->sm->get_fid(sl->range))) if (tcm != &null) else (self.sc->imm_table());
+        // The writing file's table: sl->range is the invocation for a
+        // literal from a macro body, which may be another file's.
+        var tbl = self.sc->imm_table();
+        if sl->ctx != &null { tbl = sl->ctx->get_payload_table(sl->token); }
         var seg = sl->imm;
         var raw = sl->is_raw();
         while seg != &null {

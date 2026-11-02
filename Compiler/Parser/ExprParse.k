@@ -1485,6 +1485,7 @@ class <T> ExprParse {
         result.resolved_decl = &null;
 
         var sep_range = dyn()->current_ptr()->range;
+        var sep_raw   = *(dyn()->current_ptr());       // wrapped as is: _tuple_index_gap reads where it was written.
         var sep_kind  = dyn()->resolve_kind_deep(dyn()->current_ptr());
 
         // determine access kind from separator token
@@ -1542,8 +1543,8 @@ class <T> ExprParse {
         // tuple element is a member, never a scope-qualified name.
         if dyn()->check(TokenKind::LitInt)
         && (result.access_kind != ChainExpr::AccessKind::ColonColon) {
-            var idx_tok   = dyn()->resolve_deep(dyn()->current_ptr());
-            var idx_range = idx_tok.range;
+            var idx_raw   = *(dyn()->current_ptr());
+            var idx_range = idx_raw.range;
 
             // Adjacency. `t.0` is an index; `t. 0` is not. Whitespace here is
             // always a mistake, and permitting it makes macro-expanded synthetic
@@ -1559,8 +1560,9 @@ class <T> ExprParse {
             // through to the identifier path is what makes that report the
             // honest "expected identifier or tuple index after '.\x27" instead of
             // inventing a whitespace rule about two different lines.
-            if idx_range.start != sep_range.end {
-                if !dyn()->ctx->sm->is_multiline(sep_range | idx_range) {
+            var gap = self._tuple_index_gap(sep_raw, idx_raw);
+            if gap != 0 {
+                if gap == 1 {
                     dyn()->diag->report(DiagID::S054E, sep_range.start,
                         "no whitespace allowed between the access operator and a tuple index"
                     ).first(sep_range | idx_range).emit();
@@ -1573,11 +1575,11 @@ class <T> ExprParse {
             } else {
                 var idx_val: u32 = 0;
                 var too_large    = false;
-                if !self._read_tuple_index(idx_tok, &idx_val, &too_large) {
+                if !self._read_tuple_index(idx_raw, &idx_val, &too_large) {
                     if too_large {
                         // Name the offending value. Truncating it silently is
                         // the one outcome worse than any message here.
-                        var spelling = dyn()->ctx->sm->get_text(idx_range);
+                        var spelling = dyn()->ctx->sm->get_text(dyn()->ctx->written_range(idx_raw));
                         dyn()->diag->report(DiagID::S054E, idx_range.start,
                             f"tuple index {spelling} is too large; the largest addressable element is 4294967295"
                         ).first(idx_range).emit();
@@ -1655,9 +1657,50 @@ class <T> ExprParse {
     ///                  prefixes and separators. Never cleared here   the
     ///                  caller initialises it.
     /// \returns false if the token is not a valid tuple index.
-    priv fn _read_tuple_index(self, tok: Token, out: *u32, too_large: *bool) -> bool {
-        var imm_tbl = dyn()->ctx->get_imm_table();
+    /// \brief what separates a tuple index from its access operator: 0
+    ///        nothing (`t.0`), 1 whitespace on one line (S054E), 2 a line
+    ///        break (not an index; the caller's identifier path reports).
+    ///
+    /// \details both tokens of a macro body (`t.1` in an imported macro)
+    ///          carry the invocation's range, so their ranges said "spaced"
+    ///          for every expanded index. A wrapped token is judged where it
+    ///          was written. An operator and an index written in two places
+    ///          (the body's `.`, the argument's `1`; or two files) had no
+    ///          spacing written between them, and are adjacent.
+    priv fn _tuple_index_gap(self, sep: Token, idx: Token) -> u8 {
+        var ctx = dyn()->ctx;
+        var wrapped = (static_cast::<u32>(sep.kind) == static_cast::<u32>(TokenKind::TkMacroExpand))
+                   || (static_cast::<u32>(idx.kind) == static_cast::<u32>(TokenKind::TkMacroExpand));
+        if (!wrapped) {
+            if idx.range.start == sep.range.end { return 0; }
+            if ctx->sm->is_multiline(sep.range | idx.range) { return 2; }
+            return 1;
+        }
+        var s = ctx->written_range(sep);
+        var i = ctx->written_range(idx);
+        if i.start == s.end { return 0; }
+        if ctx->sm->get_fid(s.start) != ctx->sm->get_fid(i.start) { return 0; }
+        if i.start < s.end { return 0; }
+        var between = ctx->sm->get_text(SourceRange::from_bounds(s.end, i.start));
+        var len  = between.length();
+        var data = between.raw();
+        var nl   = false;
+        for var k: usize = 0; k < len; ++k {
+            var c = data[k];
+            if (c == '\n') || (c == '\r') { nl = true; continue; }
+            if (c != ' ') && (c != '\t') { return 0; }
+        }
+        if nl { return 2; }
+        return 1;
+    }
+
+    /// \p tok is the index token as the stream holds it, wrapped or not: a
+    /// wrapped one's imm is its expansion record, and its payload is in the
+    /// table of the file that wrote the literal (ASTContext::get_payload_table).
+    priv fn _read_tuple_index(self, raw: Token, out: *u32, too_large: *bool) -> bool {
+        var imm_tbl = dyn()->ctx->get_payload_table(raw);
         if imm_tbl == &null { return false; }
+        var tok = dyn()->ctx->unwrap_token(raw);
 
         // `imm_tbl` is dependent inside this CRTP mixin, so the member template
         // needs an explicit `template` keyword   not expressible in Kairo yet.
@@ -2892,6 +2935,9 @@ class <T> ExprParse {
         }
 
         var parts: std::StackBuf::<*Expr, 8>;
+        // A string another file wrote (an imported macro's body): its holes
+        // are that file's raw tokens, whose imms index its tables, not ours.
+        var foreign = imm_tbl != dyn()->ctx->get_imm_table();
 
         for var i: usize = 0; i < sdata->exprs.size(); ++i {
             var hole_buf   = libcxx::get::<0>(sdata->exprs[i]);
@@ -2909,6 +2955,7 @@ class <T> ExprParse {
                 var t_ptr = hole_buf->get(k);
                 if t_ptr != &null {
                     flat_tokens[k] = *t_ptr;
+                    if foreign { flat_tokens[k] = dyn()->ctx->wrap_foreign_token(*t_ptr, tok); }
                 }
             }
 

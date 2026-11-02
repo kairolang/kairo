@@ -471,6 +471,66 @@ class ASTContext {
         return tbl;
     }
 
+    /// \brief where a token was WRITTEN: a macro-wrapped token's innermost
+    ///        definition-site range (a body token in the macro's body, a
+    ///        substituted argument at the invocation); any other token's own.
+    ///
+    /// \details a wrapped token's range is the invocation, so two wrapped
+    ///          tokens of one body (`t.1`) share a start, and a spacing rule
+    ///          read off those ranges reports whitespace that was never
+    ///          written. Spacing questions about wrapped tokens ask this.
+    fn written_range(self, tok: Token) -> SourceRange {
+        if self.tcm == &null { return tok.range; }
+        if static_cast::<u32>(tok.kind) != static_cast::<u32>(TokenKind::TkMacroExpand) { return tok.range; }
+        var u = unwrap_expansion(tok, self.tcm);
+        if u.is_sentinel || u.hit_limit || (u.depth == 0) { return tok.range; }
+        return u.def_range;
+    }
+
+    /// \brief \p tok, a raw token another file lexed, wrapped as a macro
+    ///        expansion at \p site so it reads against ITS file's tables.
+    ///
+    /// \details an f-string's holes are token buffers the lexer kept on the
+    ///          literal's StringData, unwrapped: a hole's identifier or
+    ///          literal indexes the table of the file that wrote the string.
+    ///          When that string came out of an imported macro's body, the
+    ///          parser of THIS file read those indices against its own
+    ///          tables (R020E on the body's names, or a different name or
+    ///          literal of this file). The record goes in this file's table,
+    ///          at \p site's range (where the expansion is reported), and its
+    ///          def_range is the token's own, so unwrap_expansion finds the
+    ///          payload table from it exactly as for a token the
+    ///          preprocessor wrapped. EVERY token is wrapped, as the
+    ///          preprocessor wraps every body token: an unwrapped `(` or `)`
+    ///          keeps its range in the other file, and a node spanning a
+    ///          wrapped name and that paren (`helper_fn(40)`) then runs from
+    ///          this file into that one (TokenSink I003E). The buffer's end
+    ///          marker stays as it is.
+    fn wrap_foreign_token(self, tok: Token, site: Token) -> Token {
+        var tbl = self.get_imm_table();
+        if (tbl == &null) || (self.tcm == &null) { return tok; }
+        if static_cast::<u32>(tok.kind) == static_cast::<u32>(TokenKind::TkEof) { return tok; }
+        if static_cast::<u32>(tok.kind) == static_cast::<u32>(TokenKind::TkMacroExpand) { return tok; }
+        // The invocation's macro name, for the "in expansion of" chain.
+        var name = u32(-1);
+        if static_cast::<u32>(site.kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
+            var rec_tbl = self.tcm->get_imm_table_for_token(site);
+            if rec_tbl != &null {
+                var outer = rec_tbl->get::<Immediate::MacroExpansionInfo>(site.imm);
+                if outer != &null { name = outer->macro_name; }
+            }
+        }
+        var idx  = tbl->create::<Immediate::MacroExpansionInfo>();
+        var info = tbl->get::<Immediate::MacroExpansionInfo>(idx);
+        info->invoke_range  = site.range;
+        info->def_range     = tok.range;
+        info->original_kind = tok.kind;
+        info->original_imm  = tok.imm;
+        info->macro_name    = name;
+        info->parent_idx    = u32(-1);
+        return Token(site.range, TokenKind::TkMacroExpand, idx);
+    }
+
     fn get_token_text(self, tok: Token) -> TokenText {
         return TokenText::resolve(tok, self.tcm);
     }

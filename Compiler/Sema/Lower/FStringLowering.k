@@ -50,6 +50,7 @@ import Sema::Type::TypeUtil::*;
 import Sema::Lower::LowerSynth::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
+import AST::Context::ASTContext::*;
 import AST::LangItems::*;
 import AST::Node::Base::*;
 import AST::Node::Expressions::*;
@@ -268,7 +269,7 @@ class FStringLowering derives ASTWriter::<FStringLowering> {
         var last = n->parts.size() - 1;
         self._decode(n, self._range(self._close(n, last) + 1, n->imm->body.end.raw()), out);
 
-        var tbl = self.sc->imm_table();
+        var tbl = self._chain_table(n);
         var idx = n->imm->next;
         while idx != u32(-1) {
             var seg = tbl->get::<Immediate::StringData>(idx);
@@ -283,6 +284,13 @@ class FStringLowering derives ASTWriter::<FStringLowering> {
         n->imm->next = u32(-1);
     }
 
+    /// The table that holds n->imm and its chained parts: the file that
+    /// wrote the literal (an imported macro's body is not this file).
+    priv fn _chain_table(self, n: *StringLiteralExpr) -> *ImmediateTable {
+        if n->ctx != &null { return n->ctx->get_payload_table(n->token); }
+        return self.sc->imm_table();
+    }
+
     priv fn _decode(self, n: *StringLiteralExpr, r: SourceRange, out: *vec::<u8>) {
         ICE_IF(!self.synth.decode_text(r, n->is_raw(), out), "FStringLowering: escape the lexer accepted but the decoder does not know; keep Lexer::is_valid_escape and LowerSynth::decode_text in step");
     }
@@ -294,7 +302,7 @@ class FStringLowering derives ASTWriter::<FStringLowering> {
         // _text_after consumes the chain; count it without consuming here.
         var last = n->parts.size() - 1;
         self._decode(n, self._range(self._close(n, last) + 1, n->imm->body.end.raw()), scratch);
-        var tbl = self.sc->imm_table();
+        var tbl = self._chain_table(n);
         var idx = n->imm->next;
         while idx != u32(-1) {
             var seg = tbl->get::<Immediate::StringData>(idx);

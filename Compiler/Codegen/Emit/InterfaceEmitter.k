@@ -3092,8 +3092,10 @@ class InterfaceEmitter {
 
     // --- Const fields in a constructor ----------------------------------------------
 
-    /// True when some record the plan defines has a split constructor.
+    /// True when some record the plan defines has a split constructor, or
+    /// a body returns out of an expansion copy (EmitPlan::needs_ef_slot).
     priv fn _needs_ctor_slots(self) -> bool {
+        if self._plan->needs_ef_slot { return true; }
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
             var e = &(self._plan->entries[i]);
             if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) || (e->eval_item != &null) { continue; }

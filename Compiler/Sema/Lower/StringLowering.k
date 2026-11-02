@@ -43,6 +43,7 @@ import Sema::Type::TypeUtil::*;
 import Sema::Lower::LowerSynth::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
+import AST::Context::ASTContext::*;
 import AST::LangItems::*;
 import AST::Node::Base::*;
 import AST::Node::Expressions::*;
@@ -111,7 +112,12 @@ class StringLowering derives ASTWriter::<StringLowering> {
     /// The literal's decoded bytes: its own body, then every chained part.
     /// A segment with owned text (stringify!, file!) is already decoded.
     priv fn _collect(self, n: *StringLiteralExpr, out: *vec::<u8>) {
+        // The chain lives in the table that holds n->imm: the file that
+        // wrote the literal, which for an imported macro's body is not this
+        // one (the parser found it through get_payload_table). Following
+        // `next` in ours read some other literal, or past the end (null).
         var tbl = self.sc->imm_table();
+        if n->ctx != &null { tbl = n->ctx->get_payload_table(n->token); }
         var seg = n->imm;
         var raw = n->is_raw();
         while seg != &null {

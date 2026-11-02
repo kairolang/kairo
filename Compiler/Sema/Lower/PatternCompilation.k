@@ -202,6 +202,7 @@ fn pattern_string_bytes(sc: *SemaContext, p: *Pattern, out: *vec::<u8>) -> bool 
     // still in the tree, and StringLowering lowers it later.
     var synth = LowerSynth(sc);
     var tbl = sc->imm_table();
+    if lit->ctx != &null { tbl = lit->ctx->get_payload_table(lit->token); }   // the writing file's (StringLowering::_collect).
     var seg = lit->imm;
     var raw = lit->is_raw();
     while seg != &null {

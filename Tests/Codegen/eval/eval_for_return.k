@@ -1,7 +1,8 @@
 // A `return` out of an `eval for` copy (EVAL.md §5): the copy sets the
 // function's flag and value slot and stops the fold; an inner expansion
 // stops its enclosing copy, and the code after the outermost one returns.
-// A `void` function's return carries no value.
+// A `void` function's return carries no value. The slot is empty storage
+// (`__kairo_slot`) the returning copy builds the value in.
 fn find(target: i32) -> i32 {
     eval for i in 0..4 {
         eval for j in 0..4 {
@@ -31,13 +32,13 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}eval_for_return.k
 // IR:     bool __kairo_efr = false;
-// IR-NEXT: signed int __kairo_efv {
+// IR-NEXT: ::__kairo_slot<signed int> __kairo_efv;
 // IR:     __kairo_efr = true;
-// IR-NEXT: __kairo_efv =
+// IR-NEXT: __kairo_efv.init(
 // IR:     if(__kairo_efr) {
 // IR-NEXT:    return false;
 // IR:     if(__kairo_efr) {
-// IR-NEXT:    return __kairo_efv;
+// IR-NEXT:    return __kairo_efv.take();
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

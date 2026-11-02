@@ -1425,12 +1425,14 @@ class EmitIR {
         if self._ef_depth > 0 {
             self._cg->sink->spell(n->range, "{ " + LowerTargets::eval_for_ret_flag() + " = true;");
             if n->value != &null {
-                self._cg->sink->spell(n->range, LowerTargets::eval_for_ret_val() + " =");
+                // Built in place, once: a copy's `return` stops every fold
+                // out to the function, so no slot is filled twice.
+                self._cg->sink->spell(n->range, LowerTargets::eval_for_ret_val() + "." + LowerTargets::ctor_slot_init() + "(");
                 var vrt: *Type = &null;
                 if self._cur_fn != &null { vrt = self._cur_fn->return_type; }
                 if (self._cur_fn != &null) && (self._cur_fn->panic_result != &null) { vrt = self._cur_fn->panic_result; }
                 self._value(n->value, vrt);
-                self._cg->sink->spell(n->range, ";");
+                self._cg->sink->spell(n->range, ");");
             }
             self._cg->sink->spell(n->range, "return false; }");
             return;
@@ -1583,7 +1585,7 @@ class EmitIR {
         self._cg->sink->spell(at, "{");
         if outer {
             self._cg->sink->spell(at, "bool " + LowerTargets::eval_for_ret_flag() + " = false;");
-            if has_val { self._cg->sink->spell(at, self._spell._type(rt) + " " + LowerTargets::eval_for_ret_val() + "{};"); }
+            if has_val { self._cg->sink->spell(at, self._ef_slot_decl(rt)); }
         }
 
         var gk: usize = 0;
@@ -1647,7 +1649,7 @@ class EmitIR {
 
         var flag = LowerTargets::eval_for_ret_flag();
         if outer {
-            if has_val { self._cg->sink->spell(at, "if (" + flag + ") { return " + LowerTargets::eval_for_ret_val() + "; }"); }
+            if has_val { self._cg->sink->spell(at, "if (" + flag + ") { return " + LowerTargets::eval_for_ret_val() + "." + LowerTargets::ctor_slot_take() + "(); }"); }
             else       { self._cg->sink->spell(at, "if (" + flag + ") { return; }"); }
         } else {
             self._cg->sink->spell(at, "if (" + flag + ") { return false; }");
@@ -1679,7 +1681,7 @@ class EmitIR {
         self._cg->sink->spell(at, "{");
         if outer {
             self._cg->sink->spell(at, "bool " + LowerTargets::eval_for_ret_flag() + " = false;");
-            if has_val { self._cg->sink->spell(at, self._spell._type(rt) + " " + LowerTargets::eval_for_ret_val() + "{};"); }
+            if has_val { self._cg->sink->spell(at, self._ef_slot_decl(rt)); }
         }
         var nm = (self._spell.imm_name(vd->name.imm, self._owning_fid())) if (vd != &null) else (LowerTargets::eval_for_unused());
         self._cg->sink->spell(at, "(... && [&]([[maybe_unused]] auto& " + nm + ") -> bool {");
@@ -1705,12 +1707,23 @@ class EmitIR {
 
         var flag = LowerTargets::eval_for_ret_flag();
         if outer {
-            if has_val { self._cg->sink->spell(at, "if (" + flag + ") { return " + LowerTargets::eval_for_ret_val() + "; }"); }
+            if has_val { self._cg->sink->spell(at, "if (" + flag + ") { return " + LowerTargets::eval_for_ret_val() + "." + LowerTargets::ctor_slot_take() + "(); }"); }
             else       { self._cg->sink->spell(at, "if (" + flag + ") { return; }"); }
         } else {
             self._cg->sink->spell(at, "if (" + flag + ") { return false; }");
         }
         self._cg->sink->spell(at, "}");
+    }
+
+    /// The function's return slot for a `return` out of an expansion copy:
+    /// a `__kairo_slot<R>` (the constructor slots' helper), empty storage a
+    /// returning copy builds the value in and the code after the expansion
+    /// moves it out of. A plain `R slot{}` asked R for a default
+    /// constructor whether or not any copy returns, which a panicking
+    /// function's Panic result and many records lack (clang: "no matching
+    /// constructor"). EmitPlan::needs_ef_slot has the preamble define it.
+    priv fn _ef_slot_decl(self, rt: *Type) -> string {
+        return "::" + LowerTargets::ctor_slot() + "<" + self._spell._type(rt) + "> " + LowerTargets::eval_for_ret_val() + ";";
     }
 
     priv fn tu_is_void(self, t: *Type) -> bool {

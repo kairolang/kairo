@@ -2039,7 +2039,12 @@ class <T> StmtParse {
     /// \brief maps an inline-block language string token to FFILang.
     /// \details recognizes "asm", "c", "c++". Unrecognized strings are reported
     ///          with a diagnostic; sema makes the final call.
-    pub fn parse_ffi_lang(self, tok: Token, rng: SourceRange) -> FFILang {
+    pub fn parse_ffi_lang(self, raw: Token, rng: SourceRange) -> FFILang {
+        // Through the wrapper: from a macro body the string is TkMacroExpand
+        // (check(LitString) looks through it, so the callers pass it), its
+        // imm the expansion record, and its payload in the table of the file
+        // that wrote it (ASTContext::get_payload_table).
+        var tok = dyn()->ctx->unwrap_token(raw);
         if tok.kind != TokenKind::LitString {
             dyn()->diag->report(DiagID::S060E, rng.start,
                 "expected a string literal for the inline foreign language"
@@ -2047,7 +2052,8 @@ class <T> StmtParse {
             return FFILang::Cpp;
         }
 
-        var imm = dyn()->ctx->get_imm_table()->get::<Immediate::StringData>(tok.imm);
+        var tbl = dyn()->ctx->get_payload_table(raw);
+        var imm = tbl->get::<Immediate::StringData>(tok.imm);
 
         // owned-text strings (synthesized by the PP) have no source range
         var spelling = string();

@@ -622,6 +622,15 @@ by element; the slot is `set` once all N are (CtorInitCheck guarantees
 every path builds every element, and S_pre cannot panic or return, so a
 partly built array is never destroyed).
 
+The same slot is the return slot of an `eval for` / pack `for` (EVAL.md
+§5): in a function that returns a value, the outermost expansion declares
+`::__kairo_slot<R> __kairo_efv;` (R the Panic result in a panicking
+function), a copy's `return v` is `__kairo_efv.init(v)` and stops the
+folds, and the code after the expansion is `return __kairo_efv.take();`.
+A plain `R __kairo_efv{}` asked R for a default constructor whether or not
+a copy returned, which a Panic result has none of (P257). EmitPlan sets
+`needs_ef_slot` for such a function so the preamble writes the helpers.
+
 V1 refusals (each an ICE naming its owner): named unions, interfaces, the
 initializer of an eval field or of an array-typed field FieldInitLowering
 did not take element by element (FeatureGateCheck rejects it first,

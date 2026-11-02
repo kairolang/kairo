@@ -149,6 +149,39 @@ class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
         return f"'{self._tu.decl_name(static_cast::<*Decl>(f))}\x27";
     }
 
+    /// The call a block ends in (`f(x)` as its last statement, through nested
+    /// blocks); null when its last statement is anything else.
+    priv fn _tail_call(self, body: *CompoundStmt) -> *CallExpr {
+        var b = body;
+        while b != &null {
+            var s: *Stmt = &null;
+            for var i: usize = b->body.size(); i > 0; --i {
+                if b->body[i - 1] != &null { s = b->body[i - 1]; break; }
+            }
+            if s == &null { return &null; }
+            if s->kind == StmtKind::CompoundStmt { b = cast::<CompoundStmt>(s); continue; }
+            if s->kind != StmtKind::ExpressionStmt { return &null; }
+            var e = self._tu.strip_parens(cast::<ExpressionStmt>(s)->expr);
+            return dyn_cast::<CallExpr>(e);
+        }
+        return &null;
+    }
+
+    /// The function a call names directly (`f(x)`, `a::f(x)`, `o.f(x)`);
+    /// null for a call through a value.
+    priv fn _callee_decl(self, call: *CallExpr) -> *FunctionDecl {
+        if call == &null { return &null; }
+        var c = self._tu.strip_parens(call->callee);
+        if c == &null { return &null; }
+        if isa::<NamedIdentExpr>(c) { return dyn_cast::<FunctionDecl>(cast::<NamedIdentExpr>(c)->resolved_decl); }
+        if isa::<ChainExpr>(c) {
+            var ce = cast::<ChainExpr>(c);
+            if ce->steps.size() == 0 { return &null; }
+            return dyn_cast::<FunctionDecl>(ce->steps.get(ce->steps.size() - 1)->resolved_decl);
+        }
+        return &null;
+    }
+
     /// \p f is the function, or null for a closure; it names the subject.
     priv fn _check(self, body: *CompoundStmt, ret: *Type, noreturn: bool,
                    decl_at: SourceRange, f: *FunctionDecl) {
@@ -175,6 +208,23 @@ class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
             b.note(DiagID::SC105N, decl_at.start,
                 "declared '-> !' here; end the body with a 'panic', a call to another '-> !' function, or an infinite loop"
             ).first(decl_at);
+            // A body that ENDS in a call to a header function reads as if it
+            // ended the path; it does not, because the header never said the
+            // function does not return (an imported decl is `-> !` only when
+            // clang's isNoReturn() says so, DeclImport). Name that, in
+            // Kairo's terms, rather than leave the user to wonder why the
+            // call is not '!', or reach for the C++ to find out.
+            var call = self._tail_call(body);
+            var ff   = self._callee_decl(call);
+            if (ff != &null) && ff->is_imported() && (!ff->is_noreturn) {
+                var nm = self._tu.decl_name(static_cast::<*Decl>(ff));
+                b.note(DiagID::SC001N, call->range.start,
+                    f"'{nm}' is a C/C++ function its header does not declare '[[noreturn]]', so in Kairo this call returns and does not end the path"
+                ).first(call->range);
+                b.note(DiagID::SC001N, ff->range.start,
+                    f"'{nm}' declared here; only a '-> !' function or a C/C++ function declared '[[noreturn]]' (or '_Noreturn') has type '!\x27"
+                ).first(ff->range);
+            }
             b.emit();
             return;
         }

@@ -519,6 +519,13 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     /// through T go out wrapped in `(::__kairo_nopanic(), call)`, and the
     /// preamble must define the tag (InterfaceEmitter::_nopanic_helpers).
     pub var needs_nopanic: bool = false;
+    /// A function that returns a value holds an `eval for` or a `for` over
+    /// a pack: a `return` out of one of its copies is built into a
+    /// `::__kairo_slot<R>` (EmitIR::_ef_slot_decl), so the preamble must
+    /// define the constructor slot helpers. Only then, so other TUs keep
+    /// their text. `_ef_value_fn` is the walk's current function's answer.
+    pub var needs_ef_slot: bool = false;
+    priv var _ef_value_fn: bool = false;
     /// Compile-time string literals too long for `__kairo_estr<...>`
     /// (LowerTargets::eval_str_inline_max, EVAL.md §11), once each by
     /// content: InterfaceEmitter defines each as a named `inline constexpr`
@@ -643,6 +650,8 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn note_eval_str(self, p: std::ConstPtr::<u8>, n: usize);
     fn visit_type(self, t: *Type) -> bool;
     fn visit_decl(self, d: *Decl) -> bool;
+    fn visit_function_decl(self, n: *FunctionDecl) -> bool;
+    fn visit_ranged_for_stmt(self, n: *RangedForStmt) -> bool;
     fn _admit_use(self, d: *Decl);
     fn _admit_cell(self, cell: *OverloadCell);
     fn _member_owner(self, d: *Decl) -> *Decl;
@@ -2321,6 +2330,31 @@ fn plan_under_duck(d_in: *Decl) -> bool {
         d = dc->owner_decl();
     }
     return false;
+}
+
+/// Whether a `return` from this function's expansion copies carries a
+/// value: EmitIR::_eval_for's has_val, read before its body is walked.
+fn EmitPlan::visit_function_decl(n: *FunctionDecl) -> bool {
+    if n == &null { return true; }
+    var rt: *Type = &null;
+    if !n->is_noreturn { rt = n->return_type; }
+    if n->panic_result != &null { rt = n->panic_result; }
+    var val = (rt != &null) && (rt->canonical != &null);
+    if val {
+        var c = canon_unqual(rt->canonical);
+        if (c != &null) && isa::<BuiltinType>(c) {
+            var k = cast::<BuiltinType>(c)->builtin;
+            if (k == BuiltinKind::Void) || (k == BuiltinKind::Never) { val = false; }
+        }
+    }
+    self._ef_value_fn = val;
+    return true;
+}
+
+fn EmitPlan::visit_ranged_for_stmt(n: *RangedForStmt) -> bool {
+    if n == &null { return true; }
+    if (n->is_eval || (n->iter_kind == IterKind::Pack)) && self._ef_value_fn { self.needs_ef_slot = true; }
+    return true;
 }
 
 /// Declared types are LAYOUT positions: Complete, weakened by the shape.
