@@ -2189,6 +2189,14 @@ no candidate, so `d.k()` on an override is D's, not an SC064E tie.
 An IMPORTED class hides as C++ does: a name its own table answers stops
 the walk at it, unless the header merges the base's back with a
 using-declaration (`ClassDecl::ffi_usings`, DeclImport).
+A NAMESPACE-scope using-declaration (`namespace std { using ::sqrt; }`,
+libc++'s <cmath>) is not a lookup rule but a binding: HeaderIndex::
+walk_declare hands each such UsingShadowDecl to DeclImport::declare_using,
+which binds the target's one Kairo decl in the namespace's table as well
+as its home's, so `cxx::std::sqrt` finds `::sqrt` (P179). Class-scope
+shadows stay ffi_usings only; binding them too would tie overloads.
+File-scope shadows are skipped too (HeaderIndex::walk_declare), pending
+the untyped-float-literal-vs-f32/f64-overloads ticket (2026-11-02).
 The interfaces an `impl` clause names are NOT walked: an interface has no
 default bodies, so each requirement is met by a member the walk already
 finds, and offering the bodiless requirement beside it made every direct

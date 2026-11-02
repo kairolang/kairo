@@ -248,8 +248,10 @@ class HeaderIndex {
     /// ClassTemplateSpecializationDecl the same way.
     fn walk_declare(self, dc: *clang::DeclContext, di: *DeclImport, out: ref!(vec::<(*void, *Decl)>)) {
         for d in dc->decls() {
-            if d->isImplicit() && (!llvm::isa::<clang::CXXMethodDecl>(d)) { continue; }
             var kind = d->getKind();
+            // clang marks every UsingShadowDecl implicit (its using-declaration
+            // is the written decl), so the shadow is let through by kind.
+            if d->isImplicit() && (!llvm::isa::<clang::CXXMethodDecl>(d)) && (kind != clang::Decl::UsingShadow) { continue; }
 
             // Transparent containers: recurse, no node.
             if (kind == clang::Decl::LinkageSpec) || (kind == clang::Decl::Export) {
@@ -306,6 +308,28 @@ class HeaderIndex {
                 if (fr != &null) && llvm::isa::<clang::FunctionDecl>(fr) && (!fr->isTemplated()) {
                     var kf = di->declare_friend(fr, dc);
                     if kf != &null { out.push_back((reinterpret_cast::<*void>(fr), kf)); }
+                }
+                continue;
+            }
+
+            // `using ::sqrt;` in a namespace: the target is bound there too
+            // (DeclImport::declare_using). Not in a class: `using B::g;` is
+            // ClassDecl::ffi_usings, and MemberLookup continues into B for
+            // it; binding B's g in the derived table as well would hand
+            // overload resolution the same candidate twice. Not at file
+            // scope either, for now: libc++'s <math.h> does `using
+            // std::__math::sqrt;` there, and its f32 / long double overloads
+            // beside the C `sqrt` make a plain `sqrt(2.0)` SC064E (an untyped
+            // float literal ranks every float parameter alike).
+            if kind == clang::Decl::UsingShadow {
+                var rdc = dc->getRedeclContext();
+                if rdc->isFileContext() && (!rdc->isTranslationUnit()) {
+                    var sh = llvm::cast::<clang::UsingShadowDecl>(d);
+                    var before = di->n_declared;
+                    var kt = di->declare_using(sh);
+                    if (kt != &null) && (di->n_declared != before) {
+                        out.push_back((reinterpret_cast::<*void>(sh->getTargetDecl()), kt));
+                    }
                 }
                 continue;
             }

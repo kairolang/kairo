@@ -118,6 +118,10 @@ class DeclImport {
     pub var fill_scopes: vec::<*DeclContext>;     ///< every table the fill created; the fill freezes them.
     /// declare_friend only: the class whose table the friend's NAME goes in.
     priv var _friend_scope: *clang::DeclContext = &null;
+    /// declare_using only: the namespace whose table the target's NAME also
+    /// goes in. Kept apart from _friend_scope, which also changes the C++
+    /// spelling _stamp gives a freshly minted decl.
+    priv var _using_scope: *clang::DeclContext = &null;
 
     pub var n_declared: usize = 0;
     pub var n_defined:  usize = 0;
@@ -386,6 +390,27 @@ class DeclImport {
         return kd;
     }
 
+    /// A namespace-scope using-declaration: `namespace std { using ::sqrt; }`,
+    /// which is how libc++'s <cmath>, <cstdlib>, <cstring> put the C library
+    /// in std. C++ finds the target under the shadow's namespace as well as
+    /// its own, so the target's Kairo decl is bound in both tables: one
+    /// entity, two names, and EmitIR keeps spelling it by its home (`::sqrt`).
+    /// Without this `cxx::std::sqrt` was "no member named 'sqrt'" (R025E).
+    /// Returns the target's decl; n_declared tells the caller whether it was
+    /// minted here and so still needs its pass-2 define.
+    fn declare_using(self, sh: *clang::UsingShadowDecl) -> *Decl {
+        var tgt = sh->getTargetDecl();
+        if tgt == &null { return &null; }
+        var kd = self.declare(tgt);       // the registry answers an already-imported target.
+        if kd == &null { return &null; }
+        var t = self.target_of(sh);
+        if t == &null { return kd; }
+        self._using_scope = sh->getDeclContext();
+        self._bind_named(t, tgt, kd);
+        self._using_scope = &null;
+        return kd;
+    }
+
     priv fn _anon_with_typedef(self, nd: const_obs::<clang::NamedDecl>) -> bool {
         var tag = llvm::dyn_cast::<clang::TagDecl>(nd);
         if tag == &null { return false; }
@@ -563,8 +588,9 @@ class DeclImport {
         // Kairo `class <> Box<[T]>`, which _stmt_decl_imm declines to declare.
         if llvm::isa::<clang::ClassTemplatePartialSpecializationDecl>(nd) { return; }
         var dc: *DeclContext = &null;
-        if self._friend_scope != &null { dc = self.scope_for(t, self._friend_scope); }
-        else                           { dc = self.scope_for(t, nd->getDeclContext()); }
+        if self._friend_scope != &null     { dc = self.scope_for(t, self._friend_scope); }
+        else if self._using_scope != &null { dc = self.scope_for(t, self._using_scope); }
+        else                               { dc = self.scope_for(t, nd->getDeclContext()); }
         if dc == &null { return; }
         // getAsFunction, not a FunctionDecl cast: a FunctionTemplateDecl is
         // not one, and took the ident path below, so every operator template
@@ -607,8 +633,10 @@ class DeclImport {
         }
         self.bind(t, dc, self._ident_key(t, dc, self._display_name(nd)), kd);
         // An UNSCOPED enumerator is also visible in the enum's enclosing scope.
+        // Not for a using-declared enumerator: `using E::A` names A alone,
+        // and its enum's scope is not the using's to write into.
         var ec = llvm::dyn_cast::<clang::EnumConstantDecl>(nd);
-        if ec != &null {
+        if (ec != &null) && (self._using_scope == &null) {
             var ed = llvm::dyn_cast::<clang::EnumDecl>(ec->getDeclContext());
             if (ed != &null) && (!ed->isScoped()) {
                 var outer = self.scope_for(t, ed->getDeclContext());
