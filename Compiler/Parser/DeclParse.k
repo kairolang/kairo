@@ -1342,16 +1342,19 @@ class <T> DeclParse {
         // leading `inline` / `eval` land in the same bitset as their trailing
         // spellings (`fn f() inline`), so downstream sees one form.
         fd->modifiers |= lead->fn_mods;
-        fd->is_const_fn = lead->is_const_fn;
-        if lead->is_const_fn && in_type_scope && (dyn()->mode == T::ParseMode::Full) {
-            // `const self` is how a method promises not to change its object;
-            // `const fn` promises something else (it reads only its inputs),
-            // and one spelling for two promises would misread both.
+        fd->is_const_fn = lead->is_const_fn && (!in_type_scope);
+        if lead->is_const_fn && (dyn()->mode == T::ParseMode::Full) {
+            // A const function is spelled after its parameters, where the
+            // other specifiers go: `fn f(x: f64) const -> f64`. A leading
+            // `const` reads as a binding (`const x = 1`). Still parsed as
+            // const, so nothing after it cascades. On a method neither
+            // spelling exists: `const self` is its promise.
             var cr = lead->const_range;
-            var b = dyn()->diag->report(DiagID::SC001E, cr.start,
-                "a method cannot be const; 'const self\x27 is how a method promises not to change its object");
+            var b = dyn()->diag->report(DiagID::S047E, cr.start,
+                (("a method cannot be const; 'const self' is how a method promises not to change its object") if (in_type_scope)
+                 else ("a const function is spelled 'fn name(...) const', after the parameters, not with a leading 'const\x27")));
             b.first(cr);
-            b.remove(cr, "remove 'const\x27");
+            b.remove(cr, "remove the leading 'const\x27");
             b.emit();
         }
 
@@ -2156,10 +2159,18 @@ class <T> DeclParse {
         }
 
         if recv == &null {
-            dyn()->diag->report(DiagID::S047E, c_range.start,
-                "a trailing 'const' is not valid here; only a method can be const, "
-                "and it is spelled on the receiver as 'const self\x27"
-            ).first(c_range).remove(c_range, "remove the trailing 'const\x27").emit();
+            // `fn f(x: f64) const -> f64`: a function that reads only its
+            // inputs (FunctionDecl::is_const_fn). A method has no such form:
+            // `const self` is its promise, and a static one has no receiver
+            // to make that promise about.
+            var dc = fd->parent_context();
+            if (dc != &null) && dc->is_type_scope() {
+                dyn()->diag->report(DiagID::S047E, c_range.start,
+                    "a method cannot be const; 'const self' is how a method promises not to change its object"
+                ).first(c_range).remove(c_range, "remove the trailing 'const\x27").emit();
+                return;
+            }
+            fd->is_const_fn = true;
             return;
         }
 

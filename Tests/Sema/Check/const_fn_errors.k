@@ -1,4 +1,4 @@
-// A `const fn` reads only its inputs: no global or static, nothing through
+// A const function (`fn f(...) const`) reads only its inputs: no global or static, nothing through
 // a pointer, and it calls only other const fns, eval fns and the compiler
 // intrinsics. `@pure` may read memory but changes none: no write to a
 // global or through a pointer, and it calls only const, @pure and eval fns.
@@ -7,13 +7,13 @@ var g: i32 = 1
 eval LIMIT: i32 = 10
 
 fn plain(x: i32) -> i32 { return x }
-const fn ok_const(x: i32) -> i32 { return x + LIMIT }
+fn ok_const(x: i32) const -> i32 { return x + LIMIT }
 eval fn twice(x: i32) -> i32 { return x * 2 }
 
-const fn reads_global() -> i32 { return g }
-const fn derefs(p: unsafe *i32) -> i32 { unsafe { return *p } }
-const fn calls_plain(x: i32) -> i32 { return plain(x) }
-const fn fine(x: i32) -> i32 { return ok_const(x) + twice(3) }
+fn reads_global() const -> i32 { return g }
+fn derefs(p: unsafe *i32) const -> i32 { unsafe { return *p } }
+fn calls_plain(x: i32) const -> i32 { return plain(x) }
+fn fine(x: i32) const -> i32 { return ok_const(x) + twice(3) }
 
 @pure
 fn pure_reads(p: unsafe *i32) -> i32 { unsafe { return *p + g } }

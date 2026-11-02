@@ -1,6 +1,7 @@
 // A const method is spelled on the receiver: `fn f(const self)`. The C++-style
 // trailing `fn f(self) const` is a hard error with a fix-it moving the const
-// onto the receiver; recovery still marks the method const.
+// onto the receiver; recovery still marks the method const. On a free
+// function the same trailing `const` makes it a const function.
 //
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s
 
@@ -21,6 +22,8 @@ fn free_fn() const -> i32 { return 5 }
 // CHECK:      FunctionDecl  plain(self) -> i32
 // CHECK-NEXT: ParamDecl self
 // CHECK:      FunctionDecl  free_fn() -> i32
-// CHECK: const_self_method.k:9:{{[0-9]+}}: error [S047E]: a const method is spelled 'fn name(const self)'
-// CHECK: const_self_method.k:10:{{[0-9]+}}: error [S047E]: a trailing 'const' is not valid; the receiver is already 'const self'
-// CHECK: const_self_method.k:14:{{[0-9]+}}: error [S047E]: a trailing 'const' is not valid here; only a method can be const
+// CHECK: const_self_method.k:10:{{[0-9]+}}: error [S047E]: a const method is spelled 'fn name(const self)'
+// CHECK: const_self_method.k:11:{{[0-9]+}}: error [S047E]: a trailing 'const' is not valid; the receiver is already 'const self'
+// A free function's trailing `const` is the const function spelling
+// (FnPurityCheck holds it to reading only its inputs), not an error.
+// CHECK-NOT: const_self_method.k:15:

@@ -1,6 +1,6 @@
 // Function-level hints: `@hot_path` / `@cold_path` are GNU `hot` / `cold`,
 // `@pure` is `pure` (no side effects; may read
-// memory), and a `const fn` is `const` (reads only its inputs). A
+// memory), and a const function (`fn f(...) const`) is `const` (reads only its inputs). A
 // declaration and its definition carry the same attribute, and clang's IR
 // shows what each told the optimizer.
 
@@ -15,8 +15,8 @@ fn cold(x: i32) -> i32 { return x - 1 }
 @pure
 fn peek() -> i32 { return counter }
 
-const fn square(x: f64) -> f64 { return x * x }
-const fn hyp2(a: f64, b: f64) -> f64 { return square(a) + square(b) }
+fn square(x: f64) const -> f64 { return x * x }
+fn hyp2(a: f64, b: f64) const -> f64 { return square(a) + square(b) }
 
 // On members too, where the attribute follows `static` in the C++ head.
 class Box {
