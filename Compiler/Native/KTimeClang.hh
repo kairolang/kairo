@@ -24,8 +24,9 @@
 ///   that ordering is what tells them apart.
 ///
 ///   WHY THE JSON. TimeTraceProfiler keeps its entries private; the only
-///   public way out is timeTraceProfilerWrite. Parsing it back costs a few
-///   hundred microseconds per TU, and only under --time-passes.
+///   public way out is timeTraceProfilerWrite. It is read back by a scanner
+///   (detail::scan_trace), not llvm::json::parse: the big TU's document has
+///   ~13k events, and building its DOM was ~70 ms of --time-passes' cost.
 ///
 ///   THREADING. The profiler instance is thread_local, so only the thread
 ///   running ExecuteAction records; HeaderSet builds on pool workers see no
@@ -48,15 +49,110 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 
 #include <llvm/ADT/SmallString.h>
 #include <llvm/Support/Error.h>
-#include <llvm/Support/JSON.h>
 #include <llvm/Support/TimeProfiler.h>
 #include <llvm/Support/raw_ostream.h>
 
 namespace kairo {
+
+namespace detail {
+
+/// \brief calls \p f(name, ts, dur) for every complete ("ph":"X") event in
+///        a timeTraceProfilerWrite() document.
+///
+/// \details A scanner, not llvm::json::parse: the document of one big TU at
+///          granularity 0 holds ~13k events (every pass on every function),
+///          and building the DOM for it cost ~70 ms where reading the four
+///          names that matter costs ~1 ms -- most of what --time-passes
+///          added to a build. It only needs what the writer emits: one array
+///          of flat event objects, whose "args" (an object) is skipped. Keys
+///          are matched in any order. Malformed input stops the scan; the
+///          rows then miss what came after, nothing worse.
+template <typename F>
+inline void scan_trace(llvm::StringRef doc, F &&f) {
+    const char *p = doc.data();
+    const char *e = p + doc.size();
+    auto ws  = [&] { while (p < e && (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t' || *p == ',')) { ++p; } };
+    // A string at p (p on its opening quote); its raw bytes, escapes kept.
+    auto str = [&](llvm::StringRef &out) -> bool {
+        if (p >= e || *p != '"') { return false; }
+        const char *b = ++p;
+        while (p < e && *p != '"') { p += (*p == '\\') ? 2 : 1; }
+        if (p >= e) { return false; }
+        out = llvm::StringRef(b, size_t(p - b));
+        ++p;
+        return true;
+    };
+    // Any value that is not read: a string, number, literal, or a nested
+    // object / array (balanced, strings honoured).
+    auto skip = [&]() -> bool {
+        if (p >= e) { return false; }
+        if (*p == '"') { llvm::StringRef s; return str(s); }
+        if (*p == '{' || *p == '[') {
+            int depth = 0;
+            while (p < e) {
+                char c = *p;
+                if (c == '"') { llvm::StringRef s; if (!str(s)) { return false; } continue; }
+                if (c == '{' || c == '[') { ++depth; }
+                if (c == '}' || c == ']') { if (--depth == 0) { ++p; return true; } }
+                ++p;
+            }
+            return false;
+        }
+        while (p < e && *p != ',' && *p != '}' && *p != ']') { ++p; }
+        return true;
+    };
+    auto num = [&](int64_t &out) -> bool {
+        bool neg = (p < e && *p == '-');
+        if (neg) { ++p; }
+        if (p >= e || *p < '0' || *p > '9') { return skip(); }
+        int64_t v = 0;
+        while (p < e && *p >= '0' && *p <= '9') { v = v * 10 + (*p - '0'); ++p; }
+        if (p < e && (*p == '.' || *p == 'e' || *p == 'E')) { skip(); }
+        out = neg ? -v : v;
+        return true;
+    };
+
+    size_t at = doc.find("\"traceEvents\"");
+    if (at == llvm::StringRef::npos) { return; }
+    p += at + 13;
+    while (p < e && *p != '[') { ++p; }
+    if (p >= e) { return; }
+    ++p;
+    for (;;) {
+        ws();
+        if (p >= e || *p == ']') { return; }
+        if (*p != '{') { return; }
+        ++p;
+        llvm::StringRef name, ph;
+        int64_t ts = -1, dur = -1;
+        for (;;) {
+            ws();
+            if (p >= e) { return; }
+            if (*p == '}') { ++p; break; }
+            llvm::StringRef key;
+            if (!str(key)) { return; }
+            ws();
+            if (p >= e || *p != ':') { return; }
+            ++p;
+            ws();
+            bool ok = true;
+            if      (key == "name") { ok = str(name); }
+            else if (key == "ph")   { ok = str(ph); }
+            else if (key == "ts")   { ok = num(ts); }
+            else if (key == "dur")  { ok = num(dur); }
+            else                    { ok = skip(); }
+            if (!ok) { return; }
+        }
+        if (ph == "X") { f(name, ts, dur); }
+    }
+}
+
+} // namespace detail
 
 /// What begin() hands end(). Plain data so the Kairo side can hold it in a
 /// `var` across the ExecuteAction call.
@@ -72,7 +168,10 @@ inline KClangTimeCapture ktime_clang_begin() {
     if (!TimeReport::enabled() || llvm::timeTraceProfilerEnabled()) { return c; }
 
     // Granularity 0: a scope shorter than the threshold is dropped, and at
-    // -O0 a small TU's whole optimizer run is well under any useful one.
+    // -O0 a small TU's whole optimizer run is well under any useful one --
+    // and so is most "CodeGen Function", which IRGen's row sums. A nonzero
+    // one also breaks telling the two "Frontend" scopes apart (end(), by
+    // order), since either may be the one dropped.
     llvm::timeTraceProfilerInitialize(0, "kairo");
 
     // The profiler's `ts` is microseconds since its own construction, on the
@@ -96,15 +195,6 @@ inline void ktime_clang_end(const KClangTimeCapture &c) {
     }
     llvm::timeTraceProfilerCleanup();
 
-    llvm::Expected<llvm::json::Value> doc = llvm::json::parse(buf.str());
-    if (!doc) {
-        llvm::consumeError(doc.takeError());
-        return;
-    }
-    const llvm::json::Object *root   = doc->getAsObject();
-    const llvm::json::Array  *events = root ? root->getArray("traceEvents") : nullptr;
-    if (events == nullptr) { return; }
-
     struct Span {
         uint64_t ts;
         uint64_t dur;
@@ -113,22 +203,14 @@ inline void ktime_clang_end(const KClangTimeCapture &c) {
 
     // Exact names only: the profiler also writes a "Total <name>" summary per
     // name at ts 0, which would double every row.
-    for (const llvm::json::Value &v : *events) {
-        const llvm::json::Object *o = v.getAsObject();
-        if (o == nullptr) { continue; }
-        auto ph = o->getString("ph");
-        if (!ph || *ph != "X") { continue; }
-        auto name = o->getString("name");
-        auto ts   = o->getInteger("ts");
-        auto dur  = o->getInteger("dur");
-        if (!name || !ts || !dur || *ts < 0 || *dur < 0) { continue; }
-
-        Span s{uint64_t(*ts), uint64_t(*dur)};
-        if      (*name == "Emission")         { fe.push_back(s);  }
-        else if (*name == "CodeGen Function") { fn.push_back(s);  }
-        else if (*name == "Optimizer")        { opt.push_back(s); }
-        else if (*name == "CodeGenPasses")    { mc.push_back(s);  }
-    }
+    detail::scan_trace(buf.str(), [&](llvm::StringRef name, int64_t ts, int64_t dur) {
+        if (ts < 0 || dur < 0) { return; }
+        Span s{uint64_t(ts), uint64_t(dur)};
+        if      (name == "Frontend" || name == "Emission") { fe.push_back(s);  }
+        else if (name == "CodeGen Function")               { fn.push_back(s);  }
+        else if (name == "Optimizer")                      { opt.push_back(s); }
+        else if (name == "CodeGenPasses")                  { mc.push_back(s);  }
+    });
 
     auto by_ts = [](const Span &a, const Span &b) { return a.ts < b.ts; };
     libcxx::sort(fe.begin(), fe.end(), by_ts);
