@@ -760,7 +760,7 @@ class <T> StmtParse {
         result.is_discard  = false;
         result.shorthand   = BindingShorthand::None;
 
-        var start = dyn()->current_ptr()->range;
+        var start = dyn()->current_range(); // `for ` may end the file
 
         // per-element override
         if dyn()->check(TokenKind::KwVar) {

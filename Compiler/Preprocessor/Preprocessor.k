@@ -904,6 +904,9 @@ class PPWalker
             var arg_start = n + 1; // first token inside `(`
             var m = arg_start;
             while true {
+                // Out of tokens: no invocation. Inside a splice the frame's end
+                // is the end (cross-frame lookahead is refused), not TkEof.
+                if self._src->peek_leaves_frame(m) { result.found = false; return result; }
                 var t = self._src->peek(m);
                 if t.kind == TokenKind::TkEof    { result.found = false; return result; }
                 if t.kind == TokenKind::OpLParen { depth += 1; }

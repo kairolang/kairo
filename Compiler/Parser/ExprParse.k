@@ -2181,6 +2181,10 @@ class <T> ExprParse {
             }
         }
 
+        // the rejected keywords above may have been the last tokens (`[ panic`):
+        // same contract as the EOF check on entry, the caller reports it.
+        if cur_ptr == &null { return &null; }
+
         // -- integer literal -----------------------------------------
         if dyn()->check(TokenKind::LitInt) {
             var tok = dyn()->current();
@@ -3384,6 +3388,10 @@ class <T> ExprParse {
     ///        stepped over too: the cursor never rests on one, so neither may
     ///        the lookahead.
     pub fn _peek_kind_past_nl(self, skip: usize = 0) -> TokenKind {
+        // Past EOF c_idx still names the last token, which was consumed: a
+        // scan from it answered `}` after `{ { }` ran off the end, and the
+        // caller then took the null cursor as that brace.
+        if dyn()->current_ptr() == &null { return TokenKind::TkEof; }
         var i    = dyn()->c_idx;
         var left = skip;
         while i < dyn()->span.size() {
@@ -3484,7 +3492,7 @@ class <T> ExprParse {
     ///        cursor; then the value is parsed as if it were there, so a lone
     ///        forgotten `=>` costs one diagnostic and no cascade.
     pub fn _expect_arrow_recover(self, after: string, stop: ExprStopKind) -> *Expr {
-        var at = dyn()->current_ptr()->range;
+        var at = dyn()->current_range(); // the arm may be missing at EOF
         var b  = dyn()->diag->report(DiagID::S074E, at.start, f"expected '=>' after {after}");
         b.first(at);
         b.insert(at.start, "=> ", "insert '=>\x27");

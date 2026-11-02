@@ -351,6 +351,17 @@ class TokenSource {
         return self._ring[n];
     }
 
+    /// \brief true when `peek(n)` would look past the end of the active
+    ///        splice frame, where it answers TkUnknown forever.
+    /// \details a scan that stops only on TkEof never ends inside a frame:
+    ///          an unclosed `m!(` in a macro body spun _detect_invocation.
+    fn peek_leaves_frame(self, n: usize) -> bool {
+        self._pop_dead();
+        if self._frames.size() == 0 { return false; }
+        var top = &self._frames.back();
+        return (top->cursor + n) >= top->tokens->size();
+    }
+
     fn next(self) -> Token {
         self._pop_dead();
 

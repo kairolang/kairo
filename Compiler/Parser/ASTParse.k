@@ -1498,6 +1498,19 @@ class ASTParse
     inline pub fn prev_ptr(self)    -> *Token { return self._prev; }
     inline pub fn peek_ptr(self)    -> *Token { return self._peek; }
 
+    /// \brief the range of the current token, or past EOF a one-byte range
+    ///        just after the last token consumed.
+    /// \details for diagnostics that report "expected X here": the cursor is
+    ///          null once the parser steps off the last token, and
+    ///          `current_ptr()->range` there is a null load (fuzzer finds on
+    ///          `if if main`, `for `). Anchoring on the previous token keeps
+    ///          the error on the line the input actually stopped at.
+    inline pub fn current_range(self) -> SourceRange {
+        if self._current != &null { return self._current->range; }
+        if self._prev    != &null { return SourceRange::single(self._prev->range.end); }
+        return SourceRange::invalid();
+    }
+
     //  Cursor movement
 
     /// \enum SkipNL
@@ -1636,9 +1649,11 @@ class ASTParse
     ///          wrapper owns the parser policy: emit I002F on a truncated
     ///          chain and degrade to TkUnknown.
     inline pub fn resolve_deep(self, tok: *Token) -> Token {
-        // The cursor is null once recovery runs off the stream; callers
-        // switch on the result, so EOF is the answer, not a null deref.
-        if tok == &null { return Token(SourceRange::invalid(), TokenKind::TkEof); }
+        // Past EOF the cursor is null; answer TkEof like ig_kind does rather
+        // than load through it. resolve_kind_shallow has the same guard.
+        if tok == &null {
+            return Token(SourceRange::invalid(), TokenKind::TkEof, 0);
+        }
 
         // The cap is a malformed-chain backstop, NOT --cmax-macro-depth: that
         // flag belongs to the preprocessor (it reports R008E itself). Reusing
@@ -2833,6 +2848,9 @@ class ASTParse
 
     /// \brief resolved kind of the next non-newline token, without moving.
     inline pub fn peek_past_nl_kind(self) -> TokenKind {
+        // c_idx stays on the last token when the cursor steps off the end, so
+        // scanning from it would report that (already consumed) token again.
+        if self._current == &null { return TokenKind::TkEof; }
         var i = self.c_idx;
         while i < self.span.size() {
             var t = self.span.get(i);
