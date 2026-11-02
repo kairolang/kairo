@@ -5,14 +5,12 @@
 // Inputs/macro_int_literal: main.k (the input) imports user.k, which
 // imports defs.k and returns `defs::seven!()`, a macro whose body is `7`.
 //
-// XFAIL: *
-// Ticket "[Preprocessor/Sema] SC073E \"integer literal has no immediate
-// data\" for a macro from another file expanding to an integer literal"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-24). Today: SC073E at user.k's
-// `defs::seven!()` -- the literal token's immediate lives in defs.k's
-// table, and user.k's lookup does not find it. qualified_macro.k steps
-// around it with `bool` macros. When it XPASSes, delete the XFAIL -- the
-// runs below are already the real assertion.
+// It was SC073E "integer literal has no immediate data" at user.k's
+// `defs::seven!()`: the literal reached the parser macro-wrapped, its imm
+// the expansion record, and IntegerLiteralExpr read that index against
+// user.k's literal list instead of the payload in defs.k's table. The run
+// also covers EmitIR, which borrowed the invocation's bytes (`seven!()`)
+// as the numeric constant.
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: cd %S/Inputs/macro_int_literal && { %kairo main.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty

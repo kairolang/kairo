@@ -1982,13 +1982,18 @@ class <T> DeclParse {
     /// \details Implements the updated grammar:
     ///            '|' capture (',' capture)* '|'
     ///            capture := 'const'? '*'? identifier | '*'
-    pub fn _parse_capture_list(self, out: *std::StackBuf::<ClosureExpr::Capture, 4>) -> void {
+    /// \returns true only for a list SPELLED empty (`| |`). An entry that
+    ///          failed to parse (S047E) also leaves `out` empty, and keying
+    ///          "captures nothing" on the count read `|3|` as `||`: the
+    ///          closure then drew a follow-on "not captured" error for every
+    ///          free name after the syntax error.
+    pub fn _parse_capture_list(self, out: *std::StackBuf::<ClosureExpr::Capture, 4>) -> bool {
         dyn()->advance(T::SkipNL::After); // consume opening `|`
 
-        // empty capture list `||`
+        // empty capture list `| |`
         if dyn()->check(TokenKind::OpPipe) {
             dyn()->advance(); // consume closing `|`
-            return;
+            return true;
         }
 
         // first capture, handled separately to avoid comma-before-first logic
@@ -2021,7 +2026,7 @@ class <T> DeclParse {
                     capture.by_ptr   = true;
                     capture.is_const = is_const;
                     out->push_back(capture);
-                    return;
+                    return false;
                 }
 
                 if !dyn()->check_is_ident() {
@@ -2061,11 +2066,11 @@ class <T> DeclParse {
                 dyn()->advance(T::SkipNL::After);
                 if dyn()->check(TokenKind::OpPipe) {
                     dyn()->advance(); // handle trailing comma before closing `|`
-                    return;
+                    return false;
                 }
             } else {
                 if dyn()->check(TokenKind::OpPipe) { dyn()->advance(); }
-                return;
+                return false;
             }
         }
 
@@ -2130,6 +2135,7 @@ class <T> DeclParse {
             );
             self._sync_decl(DeclSyncCtx::TopLevel);
         }
+        return false;
     }
 
     priv fn _sync_to_closure_milestone(self) {
@@ -4770,10 +4776,11 @@ class <T> DeclParse {
         dyn()->closure_cap_range = SourceRange::invalid();
         if dyn()->check(TokenKind::OpPipe) {
             var cap_start = self._cur_range();
-            self._parse_capture_list(&captures);
+            var spelled_empty = self._parse_capture_list(&captures);
             dyn()->closure_cap_range = cap_start | dyn()->prev_ptr()->range;
             // `| |` is the empty list spelled apart: no captures, as `||` is.
-            if captures.size() == 0 { explicit_no_capture = true; }
+            // Keyed on the tokens, not on captures.size(): see the callee.
+            explicit_no_capture = spelled_empty;
         } else if dyn()->check(TokenKind::OpPipePipe) {
             dyn()->closure_cap_range = self._cur_range();
             dyn()->advance(); // consume `||`

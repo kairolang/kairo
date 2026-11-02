@@ -2836,7 +2836,9 @@ class <T> ExprParse {
             return self._error_expr(tok.range);
         }
 
-        var imm_tbl = dyn()->ctx->get_imm_table();
+        // the payload's table, not this file's: a string from an imported
+        // macro's body indexes the defining file's literals.
+        var imm_tbl = dyn()->ctx->get_payload_table(tok);
         if imm_tbl == &null {
             // no imm table: bare plain node so the null-imm accessors are never hit.
             return static_cast::<*Expr>(

@@ -3079,9 +3079,22 @@ class EmitIR {
             return;
         }
 
-        var tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid());
-        if (tbl == &null) { self._ice(t.range, "EmitIR: no immediate table for the file that owns this body"); }
-        var d = tbl->get::<Immediate::IntData>(t.imm);
+        // A literal from a macro body (or a literal macro argument) is a
+        // wrapped token: its imm is the expansion record and its range the
+        // invocation, so neither indexes the payload nor covers the digits
+        // (`seven!()` borrowed as a numeric constant). The node's own imm,
+        // attached from the writing file's table at parse, is the payload;
+        // the digits are spelled from the value.
+        var wrapped = static_cast::<u32>(t.kind) == static_cast::<u32>(TokenKind::TkMacroExpand);
+        var d: *Immediate::IntData = &null;
+        if wrapped {
+            d = n->imm;
+        } else {
+            var tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid());
+            if (tbl == &null) { self._ice(t.range, "EmitIR: no immediate table for the file that owns this body"); }
+            d = tbl->get::<Immediate::IntData>(t.imm);
+        }
+        if (d == &null) && wrapped { self._ice(t.range, "EmitIR: a macro-expanded integer literal has no immediate data"); }
         if d == &null { self._cg->sink->synth(t, clang::tok::numeric_constant); return; }
         // IntData flag bit 3: a Kairo suffix (`0xFFu8`).
         var suffixed = (d->flags & 8) != 0;
@@ -3089,7 +3102,7 @@ class EmitIR {
             self._cg->sink->spell(t.range, self._int_text(n->type_, 0, d->value_lo, false));
             return;
         }
-        if (!d->body.is_valid()) || suffixed || ((d->value_lo >> 63) != 0) || (!self._int_bytes_are_cxx(d)) {
+        if wrapped || (!d->body.is_valid()) || suffixed || ((d->value_lo >> 63) != 0) || (!self._int_bytes_are_cxx(d)) {
             var cxx = self._int_text(&null, 0, d->value_lo, false);
             self._cg->sink->create_int(t.range, cxx);
             return;
@@ -3184,9 +3197,18 @@ class EmitIR {
             self._cg->sink->spell(t.range, text);
             return;
         }
-        var tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid());
+        // A macro-wrapped literal: payload from the node, digits rebuilt from
+        // the body below (never borrowed from the invocation's range), as in
+        // _int_lit.
+        var wrapped = static_cast::<u32>(t.kind) == static_cast::<u32>(TokenKind::TkMacroExpand);
         var d: *Immediate::FloatData = &null;
-        if tbl != &null { d = tbl->get::<Immediate::FloatData>(t.imm); }
+        if wrapped {
+            d = n->imm;
+            if (d == &null) || (!d->body.is_valid()) { self._ice(t.range, "EmitIR: a macro-expanded float literal has no immediate data"); }
+        } else {
+            var tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid());
+            if tbl != &null { d = tbl->get::<Immediate::FloatData>(t.imm); }
+        }
         if (d == &null) || (!d->body.is_valid()) { self._cg->sink->synth(t, clang::tok::numeric_constant); return; }
 
         var k = BuiltinKind::COUNT;
@@ -3208,7 +3230,7 @@ class EmitIR {
             digits += ch;
         }
         var suffixed = (d->flags & 16) != 0;
-        if (!suffixed) && (!sep) && ((k == BuiltinKind::F64) || (k == BuiltinKind::COUNT)) {
+        if (!wrapped) && (!suffixed) && (!sep) && ((k == BuiltinKind::F64) || (k == BuiltinKind::COUNT)) {
             self._cg->sink->synth(t, clang::tok::numeric_constant);
             return;
         }

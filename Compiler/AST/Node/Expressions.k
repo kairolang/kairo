@@ -834,7 +834,11 @@ class UnaryOperatorExpr derives Expr {
         node->kind     = ExprKind::UnaryOperatorExpr;
         node->range    = range;
         node->operand  = operand;
-        node->op_token = op_token;
+        // Unwrapped: an operator from a macro body arrives as TkMacroExpand,
+        // and every reader of op_token.kind (Sema's operator typing, the
+        // printer, EmitIR) wants the operator. The range stays the wrapped
+        // token's, so diagnostics still point at the invocation.
+        node->op_token = ctx->unwrap_token(op_token);
         node->fix      = fix;
         node->is_mode_marker = false;
         node->materialize    = false;
@@ -932,7 +936,8 @@ class BinaryOperatorExpr derives Expr {
         node->range    = range;
         node->lhs      = lhs;
         node->rhs      = rhs;
-        node->op_token = op_token;
+        // Unwrapped, as in UnaryOperatorExpr::create.
+        node->op_token = ctx->unwrap_token(op_token);
         node->resolved_op = &null;
         node->op_via_free = false;
         node->op_rewrite  = OpRewrite::None;
@@ -1013,14 +1018,15 @@ class AssignOperatorExpr derives Expr {
         rhs:      *Expr,
         op_token: Token
     ) -> *AssignOperatorExpr {
-        ICE_IF(op_token.kind == TokenKind::OpColon,
+        ICE_IF(ctx->unwrap_token(op_token).kind == TokenKind::OpColon,
             "AssignOperatorExpr: `:` is not an assignment; a named argument is a NamedArgExpr");
         var node       = ctx->alloc::<AssignOperatorExpr>();
         node->kind     = ExprKind::AssignOperatorExpr;
         node->range    = range;
         node->lhs      = lhs;
         node->rhs      = rhs;
-        node->op_token = op_token;
+        // Unwrapped, as in UnaryOperatorExpr::create.
+        node->op_token = ctx->unwrap_token(op_token);
         node->resolved_op = &null;
         node->op_via_free = false;
         node->no_wrap     = false;
@@ -1654,7 +1660,8 @@ class ConstraintExpr derives Expr {
         node->range    = range;
         node->lhs      = lhs;
         node->rhs      = rhs;
-        node->op_token = op_token;
+        // Unwrapped, as in UnaryOperatorExpr::create.
+        node->op_token = ctx->unwrap_token(op_token);
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

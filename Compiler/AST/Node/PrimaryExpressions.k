@@ -539,7 +539,10 @@ class IntegerLiteralExpr derives Expr {
         node->range = range;
         node->token = token;
         node->ctx   = ctx;
-        node->imm   = ctx->get_imm_table()->get::<Immediate::IntData>(token.imm);
+        // A literal from a macro body (or a literal argument substituted
+        // into one) is wrapped: its imm is the expansion record, and its
+        // payload sits in the table of the file that wrote it.
+        node->imm   = ctx->get_payload_table(token)->get::<Immediate::IntData>(ctx->unwrap_token(token).imm);
         node->pinned_kind = 255;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
@@ -689,7 +692,7 @@ class FloatingLiteralExpr derives Expr {
         // Same as the integer literal above: every get_* accessor on this
         // node asserts on a null imm, so the table entry is attached at
         // construction, not on first use.
-        node->imm   = ctx->get_imm_table()->get::<Immediate::FloatData>(token.imm);
+        node->imm   = ctx->get_payload_table(token)->get::<Immediate::FloatData>(ctx->unwrap_token(token).imm);
         node->pinned_kind = 255;
         node->limit       = 0;
         node->init_annotations(&(ctx->ast_alloc));;

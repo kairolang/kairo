@@ -435,6 +435,42 @@ class ASTContext {
         return u.imm;
     }
 
+    /// \brief a macro-wrapped token's ORIGINAL kind and imm, kept at the
+    ///        wrapped token's (invocation-site) range; any other token as is.
+    ///
+    /// \details for nodes that store a token and later read its KIND: an
+    ///          operator from a macro body is TkMacroExpand until unwrapped,
+    ///          and Sema's operator switch on that kind found no `+` (SC066E
+    ///          "not defined on primitives" for `a + b` in any macro body).
+    ///          Sentinels stay wrapped: their identity IS the wrapper.
+    fn unwrap_token(self, tok: Token) -> Token {
+        if self.tcm == &null { return tok; }
+        if static_cast::<u32>(tok.kind) != static_cast::<u32>(TokenKind::TkMacroExpand) { return tok; }
+        var u = unwrap_expansion(tok, self.tcm);
+        if u.is_sentinel || u.hit_limit || (u.depth == 0) { return tok; }
+        return Token(tok.range, u.kind, u.imm);
+    }
+
+    /// \brief the table that owns a literal token's payload (IntData,
+    ///        FloatData, StringData), unwrapping any macro chain first.
+    ///
+    /// \details pair it with unwrap_token(tok).imm. A wrapped token's own imm
+    ///          is its MacroExpansionInfo record, not a payload index, and the
+    ///          payload lives in the file that WROTE the literal (an imported
+    ///          macro's body: the defining file; a literal argument: the
+    ///          invoking file). Reading the record index against this file's
+    ///          literal list was SC073E when it ran off the end and, worse, a
+    ///          different literal of this file when it did not.
+    fn get_payload_table(self, tok: Token) -> *ImmediateTable {
+        var tbl = self.get_imm_table();
+        if self.tcm == &null { return tbl; }
+        if static_cast::<u32>(tok.kind) != static_cast::<u32>(TokenKind::TkMacroExpand) { return tbl; }
+        var u = unwrap_expansion(tok, self.tcm);
+        if u.is_sentinel || u.hit_limit || (u.depth == 0) || (u.tbl == &null) { return tbl; }
+        tbl = u.tbl;
+        return tbl;
+    }
+
     fn get_token_text(self, tok: Token) -> TokenText {
         return TokenText::resolve(tok, self.tcm);
     }
