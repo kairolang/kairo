@@ -41,31 +41,46 @@
 #endif
 
 #define KAIRO_RT_INL __attribute__((always_inline)) inline
+#ifndef KAIRO_RT_NOEXCEPT
+/* Every Kairo function is noexcept, so a call from one into a runtime
+ * function that is not gets a landing pad that calls std::terminate. Under
+ * C (the runtime's own .c files) there is nothing to say. */
+#ifdef __cplusplus
+#define KAIRO_RT_NOEXCEPT noexcept
+#else
+#define KAIRO_RT_NOEXCEPT
+#endif
+#endif
 
 /// What every malloc on every supported target guarantees. Not alignof(max_align_t):
 /// that overstates msvcrt on i686 and understates MSVC on x64.
-consteval std::size_t kairo_rt_malloc_align() { return 2 * sizeof(void*); }
+consteval std::size_t kairo_rt_malloc_align() KAIRO_RT_NOEXCEPT { return 2 * sizeof(void*); }
 
-KAIRO_RT_INL unsigned char* kairo_rt_malloc(std::size_t n) {
+KAIRO_RT_INL unsigned char* kairo_rt_malloc(std::size_t n) KAIRO_RT_NOEXCEPT {
     return static_cast<unsigned char*>(std::malloc(n));
 }
-KAIRO_RT_INL unsigned char* kairo_rt_calloc(std::size_t n) {
+KAIRO_RT_INL unsigned char* kairo_rt_calloc(std::size_t n) KAIRO_RT_NOEXCEPT {
     return static_cast<unsigned char*>(std::calloc(1, n));
 }
-KAIRO_RT_INL unsigned char* kairo_rt_realloc(unsigned char* p, std::size_t n) {
+KAIRO_RT_INL unsigned char* kairo_rt_realloc(unsigned char* p, std::size_t n) KAIRO_RT_NOEXCEPT {
     return static_cast<unsigned char*>(std::realloc(p, n));
 }
-KAIRO_RT_INL void kairo_rt_free(unsigned char* p, std::size_t) { std::free(p); }
+KAIRO_RT_INL void kairo_rt_free(unsigned char* p, std::size_t) KAIRO_RT_NOEXCEPT { std::free(p); }
 
-KAIRO_RT_INL unsigned char* kairo_rt_aligned_alloc(std::size_t n, std::size_t a) {
+KAIRO_RT_INL unsigned char* kairo_rt_aligned_alloc(std::size_t n, std::size_t a) KAIRO_RT_NOEXCEPT {
 #if defined(_WIN32)
     return static_cast<unsigned char*>(_aligned_malloc(n, a));
 #else
     void* p = nullptr;
-    return posix_memalign(&p, a, n) == 0 ? static_cast<unsigned char*>(p) : nullptr;
+    // Called as noexcept: musl declares it without one (glibc's __THROW is
+    // one), and clang knows malloc / free as nothrow builtins but not this,
+    // so every noexcept caller it inlines into got a terminate landing pad.
+    // It is C; it cannot throw.
+    using memalign_fn = int (*)(void**, std::size_t, std::size_t) noexcept;
+    return reinterpret_cast<memalign_fn>(&posix_memalign)(&p, a, n) == 0 ? static_cast<unsigned char*>(p) : nullptr;
 #endif
 }
-KAIRO_RT_INL void kairo_rt_aligned_free(unsigned char* p, std::size_t, std::size_t) {
+KAIRO_RT_INL void kairo_rt_aligned_free(unsigned char* p, std::size_t, std::size_t) KAIRO_RT_NOEXCEPT {
 #if defined(_WIN32)
     _aligned_free(p);
 #else
@@ -74,7 +89,7 @@ KAIRO_RT_INL void kairo_rt_aligned_free(unsigned char* p, std::size_t, std::size
 }
 
 /// Address space for an arena. Committed lazily where the target can do it.
-KAIRO_RT_INL unsigned char* kairo_rt_reserve(std::size_t n) {
+KAIRO_RT_INL unsigned char* kairo_rt_reserve(std::size_t n) KAIRO_RT_NOEXCEPT {
 #if defined(_WIN32)
     return static_cast<unsigned char*>(VirtualAlloc(nullptr, n, MEM_RESERVE, PAGE_NOACCESS));
 #elif defined(__wasi__)
@@ -89,7 +104,7 @@ KAIRO_RT_INL unsigned char* kairo_rt_reserve(std::size_t n) {
 #endif
 }
 
-KAIRO_RT_INL bool kairo_rt_commit(unsigned char* p, std::size_t n) {
+KAIRO_RT_INL bool kairo_rt_commit(unsigned char* p, std::size_t n) KAIRO_RT_NOEXCEPT {
 #if defined(_WIN32)
     return VirtualAlloc(p, n, MEM_COMMIT, PAGE_READWRITE) != nullptr;
 #elif defined(__wasi__)
@@ -100,7 +115,7 @@ KAIRO_RT_INL bool kairo_rt_commit(unsigned char* p, std::size_t n) {
 #endif
 }
 
-KAIRO_RT_INL void kairo_rt_unreserve(unsigned char* p, std::size_t n) {
+KAIRO_RT_INL void kairo_rt_unreserve(unsigned char* p, std::size_t n) KAIRO_RT_NOEXCEPT {
 #if defined(_WIN32)
     (void)n;
     VirtualFree(p, 0, MEM_RELEASE);

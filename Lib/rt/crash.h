@@ -35,6 +35,17 @@
 
 #include <stddef.h>
 
+#ifndef KAIRO_RT_NOEXCEPT
+/* Every Kairo function is noexcept, so a call from one into a runtime
+ * function that is not gets a landing pad that calls std::terminate. Under
+ * C (the runtime's own .c files) there is nothing to say. */
+#ifdef __cplusplus
+#define KAIRO_RT_NOEXCEPT noexcept
+#else
+#define KAIRO_RT_NOEXCEPT
+#endif
+#endif
+
 /* The longest message written, in bytes; the rest is dropped. A corrupt
  * length must not turn the crash into a scan through memory. */
 #define KAIRO_RT_CRASH_MAX 4096
@@ -44,11 +55,11 @@ extern "C" {
 #endif
 
 /* See above. Never returns. */
-__attribute__((noreturn)) void kairo_rt_crash(const unsigned char *msg, size_t len);
+__attribute__((noreturn)) void kairo_rt_crash(const unsigned char *msg, size_t len) KAIRO_RT_NOEXCEPT;
 /* `__builtin_crash`: the same message, then _Exit(code). */
-__attribute__((noreturn)) void kairo_rt_crash_exit(const unsigned char *msg, size_t len, int code);
+__attribute__((noreturn)) void kairo_rt_crash_exit(const unsigned char *msg, size_t len, int code) KAIRO_RT_NOEXCEPT;
 /* `__builtin_signal`: the same message, then raise(sig) at its default action. */
-__attribute__((noreturn)) void kairo_rt_signal(const unsigned char *msg, size_t len, int sig);
+__attribute__((noreturn)) void kairo_rt_signal(const unsigned char *msg, size_t len, int sig) KAIRO_RT_NOEXCEPT;
 
 #ifdef __cplusplus
 }

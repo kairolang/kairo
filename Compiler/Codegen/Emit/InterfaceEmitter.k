@@ -3032,9 +3032,14 @@ class InterfaceEmitter {
         // is noexcept), so the pointer type says so: a call through it is
         // a call, not an invoke with a terminate landing pad.
         t += " using __ptr = R (*)(A...)" + nx + ";";
-        t += " struct __ops { R (*call)(void*, A&&...)" + nx + "; void* (*copy)(const void*); void (*drop)(void*) noexcept; };";
+        // copy too: it builds a Kairo lambda, whose captures copy with
+        // Kairo (noexcept) constructors. A throwing pointer would put a
+        // terminate landing pad in every Kairo function that copies a `fn`
+        // value (set_oom_handler); noexcept moves the one `new` can need
+        // into __copy, out of line.
+        t += " struct __ops { R (*call)(void*, A&&...)" + nx + "; void* (*copy)(const void*)" + nx + "; void (*drop)(void*) noexcept; };";
         t += " template <class F> static R __call(void* o, A&&... a)" + nx + " { return (*static_cast<F*>(o))(static_cast<A&&>(a)...); }";
-        t += " template <class F> static void* __copy(const void* o) {";
+        t += " template <class F> static void* __copy(const void* o)" + nx + " {";
         t +=   " if constexpr (requires (const F& f) { F(f); }) { return new F(*static_cast<const F*>(o)); }";
         t +=   " else { " + LowerTargets::clang_trap() + "(); } }";
         t += " template <class F> static void __drop(void* o) noexcept { delete static_cast<F*>(o); }";
@@ -3061,13 +3066,19 @@ class InterfaceEmitter {
             t += " template <class = void> " + fv + "(R (*f)(A...)) noexcept : __f(reinterpret_cast<__ptr>(f)) {}";
         }
         t += " template <class F> static " + fv + " " + LowerTargets::fn_value_own() + "(F* o) noexcept { " + fv + " r; r.__o = o; r.__t = &__ops_of<F>; return r; }";
-        t += " " + fv + "(const " + fv + "& o) : __f(o.__f), __o(o.__o ? o.__t->copy(o.__o) : nullptr), __t(o.__t) {}";
+        t += " " + fv + "(const " + fv + "& o)" + nx + " : __f(o.__f), __o(o.__o ? o.__t->copy(o.__o) : nullptr), __t(o.__t) {}";
         t += " " + fv + "(" + fv + "&& o) noexcept : __f(o.__f), __o(o.__o), __t(o.__t) { o.__o = nullptr; }";
         t += " " + fv + "& operator=(" + fv + " o) noexcept {";
         t +=   " __ptr f = __f; void* p = __o; const __ops* q = __t;";
         t +=   " __f = o.__f; __o = o.__o; __t = o.__t; o.__f = f; o.__o = p; o.__t = q; return *this; }";
         t += " ~" + fv + "() { if (__o) { __t->drop(__o); } }";
-        t += " R operator()(A... a) const" + nx + " { if (__o) { return __t->call(__o, static_cast<A&&>(a)...); } return __f(static_cast<A&&>(a)...); }";
+        // Always inline: out of line it is a call to a wrapper that spills
+        // every argument (the heap lambda's path takes them as A&&) before
+        // the indirect call it exists to make. Inlined, the caller makes the
+        // indirect call itself, and a `-> !` call site's unreachable
+        // (EmitIR::_call) follows it rather than the wrapper's call, so the
+        // wrapper's own return path is gone too.
+        t += " " + LowerTargets::attr_always_inline() + "R operator()(A... a) const" + nx + " { if (__o) { return __t->call(__o, static_cast<A&&>(a)...); } return __f(static_cast<A&&>(a)...); }";
         t += " operator __ptr() const noexcept { if (__o) { " + LowerTargets::clang_trap() + "(); } return __f; }";
         t += " };";
         self._cg->sink->spell(at, t);

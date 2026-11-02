@@ -38,22 +38,30 @@
 
 #include <stddef.h>
 
-#ifdef __cplusplus
+#ifndef KAIRO_RT_NOEXCEPT
 /* Every Kairo function is noexcept, the forwarders included; a C++
- * declaration must say so too, or the two conflict in a TU that has both. */
-#define KAIRO_RT_GLOBAL_NOEXCEPT noexcept
+ * declaration must say so too, or the two conflict in a TU that has both,
+ * and a call from a Kairo function into one that is not gets a landing pad
+ * that calls std::terminate. */
+#ifdef __cplusplus
+#define KAIRO_RT_NOEXCEPT noexcept
+#else
+#define KAIRO_RT_NOEXCEPT
+#endif
+#endif
+
+#ifdef __cplusplus
 #define KAIRO_RT_GLOBAL_BOOL bool
 extern "C" {
 #else
-#define KAIRO_RT_GLOBAL_NOEXCEPT
 #define KAIRO_RT_GLOBAL_BOOL _Bool
 #endif
 
-unsigned char       *kairo_global_alloc(size_t size, size_t align) KAIRO_RT_GLOBAL_NOEXCEPT;
-void                 kairo_global_free(unsigned char *ptr, size_t size, size_t align) KAIRO_RT_GLOBAL_NOEXCEPT;
-KAIRO_RT_GLOBAL_BOOL kairo_global_resize(unsigned char *ptr, size_t old_size, size_t new_size, size_t align) KAIRO_RT_GLOBAL_NOEXCEPT;
-unsigned char       *kairo_global_realloc(unsigned char *ptr, size_t old_size, size_t new_size, size_t align) KAIRO_RT_GLOBAL_NOEXCEPT;
-unsigned char       *kairo_global_alloc_zeroed(size_t size, size_t align) KAIRO_RT_GLOBAL_NOEXCEPT;
+unsigned char       *kairo_global_alloc(size_t size, size_t align) KAIRO_RT_NOEXCEPT;
+void                 kairo_global_free(unsigned char *ptr, size_t size, size_t align) KAIRO_RT_NOEXCEPT;
+KAIRO_RT_GLOBAL_BOOL kairo_global_resize(unsigned char *ptr, size_t old_size, size_t new_size, size_t align) KAIRO_RT_NOEXCEPT;
+unsigned char       *kairo_global_realloc(unsigned char *ptr, size_t old_size, size_t new_size, size_t align) KAIRO_RT_NOEXCEPT;
+unsigned char       *kairo_global_alloc_zeroed(size_t size, size_t align) KAIRO_RT_NOEXCEPT;
 
 #ifdef __cplusplus
 }

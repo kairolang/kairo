@@ -139,20 +139,20 @@ typedef struct {
 /* ===================================================================== */
 
 /* fmt_dragonbox32.c / fmt_dragonbox64.c. Nonzero finite only. */
-db_dec kairo_rt_fmt_db32_to_decimal_(uint32_t bits);
-db_dec kairo_rt_fmt_db64_to_decimal_(uint64_t bits);
+db_dec kairo_rt_fmt_db32_to_decimal_(uint32_t bits) KAIRO_RT_NOEXCEPT;
+db_dec kairo_rt_fmt_db64_to_decimal_(uint64_t bits) KAIRO_RT_NOEXCEPT;
 
 /* fmt_exact.c */
-int kairo_rt_fmt_exact_shortest_(const fval *v, unsigned char *digits, int *k_out, exact_ws *w);
-int kairo_rt_fmt_exact_fixed_(const fval *v, int ndig, unsigned char *digits, int *k_out, exact_ws *w);
+int kairo_rt_fmt_exact_shortest_(const fval *v, unsigned char *digits, int *k_out, exact_ws *w) KAIRO_RT_NOEXCEPT;
+int kairo_rt_fmt_exact_fixed_(const fval *v, int ndig, unsigned char *digits, int *k_out, exact_ws *w) KAIRO_RT_NOEXCEPT;
 
 /* fmt_decode.c */
-fclass kairo_rt_fmt_decode_ieee_(uint64_t hi, uint64_t lo, int mant_bits, int exp_bits, int finite_only);
-fclass kairo_rt_fmt_decode_x87_(uint64_t mant, unsigned se);
+fclass kairo_rt_fmt_decode_ieee_(uint64_t hi, uint64_t lo, int mant_bits, int exp_bits, int finite_only) KAIRO_RT_NOEXCEPT;
+fclass kairo_rt_fmt_decode_x87_(uint64_t mant, unsigned se) KAIRO_RT_NOEXCEPT;
 
 /* fmt_layout.c */
-int kairo_rt_fmt_write_shortest_(unsigned char *out, size_t cap, db_dec d, unsigned char conv, int p);
+int kairo_rt_fmt_write_shortest_(unsigned char *out, size_t cap, db_dec d, unsigned char conv, int p) KAIRO_RT_NOEXCEPT;
 int kairo_rt_fmt_format_float_(unsigned char *out, size_t cap, const fclass *f, uint64_t bits, int fast,
-                               int max_digits, int prec, unsigned char conv);
+                               int max_digits, int prec, unsigned char conv) KAIRO_RT_NOEXCEPT;
 
 #endif

@@ -20,13 +20,24 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef KAIRO_RT_NOEXCEPT
+/* Every Kairo function is noexcept, so a call from one into a runtime
+ * function that is not gets a landing pad that calls std::terminate. Under
+ * C (the runtime's own .c files) there is nothing to say. */
+#ifdef __cplusplus
+#define KAIRO_RT_NOEXCEPT noexcept
+#else
+#define KAIRO_RT_NOEXCEPT
+#endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-unsigned char *kairo_rt_fmt_alloc(size_t n);
-unsigned char *kairo_rt_fmt_realloc(unsigned char *p, size_t n);
-void           kairo_rt_fmt_free(unsigned char *p);
+unsigned char *kairo_rt_fmt_alloc(size_t n) KAIRO_RT_NOEXCEPT;
+unsigned char *kairo_rt_fmt_realloc(unsigned char *p, size_t n) KAIRO_RT_NOEXCEPT;
+void           kairo_rt_fmt_free(unsigned char *p) KAIRO_RT_NOEXCEPT;
 
 /* |v| as text into out[0..cap): the sign bit is ignored, the caller owns
  * the sign. No NUL. Returns the bytes written, at most cap.
@@ -51,14 +62,14 @@ void           kairo_rt_fmt_free(unsigned char *p);
  * on a target without one (binary64 or binary128), so the symbol always
  * links; TypeResolution has already refused `f80` there anyway.
  */
-int kairo_rt_fmt_f16   (unsigned char *out, size_t cap, uint16_t    bits, int prec, unsigned char conv);
-int kairo_rt_fmt_bf16  (unsigned char *out, size_t cap, uint16_t    bits, int prec, unsigned char conv);
-int kairo_rt_fmt_f8e4m3(unsigned char *out, size_t cap, uint8_t     bits, int prec, unsigned char conv);
-int kairo_rt_fmt_f8e5m2(unsigned char *out, size_t cap, uint8_t     bits, int prec, unsigned char conv);
-int kairo_rt_fmt_f32   (unsigned char *out, size_t cap, float       v,    int prec, unsigned char conv);
-int kairo_rt_fmt_f64   (unsigned char *out, size_t cap, double      v,    int prec, unsigned char conv);
-int kairo_rt_fmt_f80   (unsigned char *out, size_t cap, long double v,    int prec, unsigned char conv);
-int kairo_rt_fmt_f128  (unsigned char *out, size_t cap, uint64_t hi, uint64_t lo, int prec, unsigned char conv);
+int kairo_rt_fmt_f16   (unsigned char *out, size_t cap, uint16_t    bits, int prec, unsigned char conv) KAIRO_RT_NOEXCEPT;
+int kairo_rt_fmt_bf16  (unsigned char *out, size_t cap, uint16_t    bits, int prec, unsigned char conv) KAIRO_RT_NOEXCEPT;
+int kairo_rt_fmt_f8e4m3(unsigned char *out, size_t cap, uint8_t     bits, int prec, unsigned char conv) KAIRO_RT_NOEXCEPT;
+int kairo_rt_fmt_f8e5m2(unsigned char *out, size_t cap, uint8_t     bits, int prec, unsigned char conv) KAIRO_RT_NOEXCEPT;
+int kairo_rt_fmt_f32   (unsigned char *out, size_t cap, float       v,    int prec, unsigned char conv) KAIRO_RT_NOEXCEPT;
+int kairo_rt_fmt_f64   (unsigned char *out, size_t cap, double      v,    int prec, unsigned char conv) KAIRO_RT_NOEXCEPT;
+int kairo_rt_fmt_f80   (unsigned char *out, size_t cap, long double v,    int prec, unsigned char conv) KAIRO_RT_NOEXCEPT;
+int kairo_rt_fmt_f128  (unsigned char *out, size_t cap, uint64_t hi, uint64_t lo, int prec, unsigned char conv) KAIRO_RT_NOEXCEPT;
 
 #ifdef __cplusplus
 }

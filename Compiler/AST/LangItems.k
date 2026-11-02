@@ -1332,6 +1332,8 @@ class LowerTargets {
     static fn attr_noinline() -> string            { return "__attribute__((noinline)) "; }
     static fn attr_pure() -> string                { return "__attribute__((pure)) "; }
     static fn attr_const() -> string               { return "__attribute__((const)) "; }
+    /// `__kairo_fn`'s call operator (InterfaceEmitter::_fn_value_helper).
+    static fn attr_always_inline() -> string       { return "__attribute__((always_inline)) "; }
     /// The calling conventions (FunctionDecl::call_conv), on every C++
     /// declaration of the function (CXXSpell::fn_attrs). The GNU spelling,
     /// not `[[clang::preserve_most]]`: a C++11 attribute may not follow

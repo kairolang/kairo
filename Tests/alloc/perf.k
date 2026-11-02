@@ -35,51 +35,59 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // The allocator's hot paths, linked -O2 for x86_64-linux-musl. Item 1 (TLS
-// model): `scope_top` (a builtin `thread` global) is initial-exec, so every
-// read is a GOT-free `%fs:` load once the linker relaxes it -- never a
-// `__tls_get_addr` call with the register saves around it.
+// model): this is an executable link, so the user TU spells `scope_top` (a
+// builtin `thread` global) local-exec at its extern declaration, and every
+// read in a k_* function is one `%fs:<off>` operand -- no `__tls_get_addr`,
+// and no `mov $off,%rax` first as initial-exec costs even once relaxed. The
+// builtin's own TU stays initial-exec (its objects serve --shared links too).
 // REQUIRES: clang, llvm-objdump, sysroot-x86_64-linux-musl
 // RUN: rm -rf %t.d
 // RUN: %kairo %s --target=x86_64-linux-musl -O2 -o %t.exe --cache-dir %t.d
 // RUN: %t.exe
 // RUN: %objdump -d --no-show-raw-insn %t.exe > %t.asm
 // RUN: %FileCheck %s --check-prefix=TLS < %t.asm
+// TLS-LABEL: 11free_scopedEPhmm>:
+// TLS-NEXT: movq $-{{0x[0-9a-f]+}}, %rax
+// TLS-NEXT: movq %fs:(%rax), %rax
 // TLS-LABEL: 8k_createEv>:
-// TLS-NOT: __tls_get_addr
-// TLS: movq %fs:(%rax), %rax
-// TLS-NOT: __tls_get_addr
+// TLS-NOT: {{__tls_get_addr|%fs:\(}}
+// TLS: movq %fs:-{{0x[0-9a-f]+}}, %rax
+// TLS-NOT: {{__tls_get_addr|%fs:\(}}
 // TLS-LABEL: 9k_destroyEP{{.*}}>:
-// TLS-NOT: __tls_get_addr
-// TLS: movq %fs:(%rax), %rax
-// TLS-NOT: __tls_get_addr
+// TLS-NOT: {{__tls_get_addr|%fs:\(}}
+// TLS: cmpq $0x0, %fs:-{{0x[0-9a-f]+}}
+// TLS-NOT: {{__tls_get_addr|%fs:\(}}
 // TLS-LABEL: 11k_alloc_rawEm>:
-// TLS-NOT: __tls_get_addr
-// TLS: movq %fs:(%rax), %rax
-// TLS-NOT: __tls_get_addr
+// TLS-NOT: {{__tls_get_addr|%fs:\(}}
+// TLS: movq %fs:-{{0x[0-9a-f]+}}, %rax
+// TLS-NOT: {{__tls_get_addr|%fs:\(}}
 // TLS-LABEL: 10k_free_rawEPhm>:
-// TLS-NOT: __tls_get_addr
-// TLS: movq %fs:(%rax), %rax
-// TLS-NOT: __tls_get_addr
+// TLS-NOT: {{__tls_get_addr|%fs:\(}}
+// TLS: cmpq $0x0, %fs:-{{0x[0-9a-f]+}}
+// TLS-NOT: {{__tls_get_addr|%fs:\(}}
 // TLS-LABEL: <main>:
 
-// Item 2 (no EH landing pads after indirect calls): with the function-
-// pointer types noexcept, no k_* function and no `oom` references
-// __clang_call_terminate, and each hot path is pinned whole. Counts, with no
-// scope open: k_create 13 (the push/pop pair is the stack alignment for the
-// non-tail call to malloc, not a TLS spill), k_destroy 4, k_create_in 9,
-// k_destroy_in 1, k_create_bump 11 with no call, k_scope_open_close 0.
+// Item 2 (no EH landing pads): the runtime headers' declarations are
+// noexcept (KAIRO_RT_NOEXCEPT), posix_memalign is called as noexcept, and
+// `__kairo_fn`'s call operator is always-inline and noexcept, so nothing in
+// the program references __clang_call_terminate at all -- which also keeps
+// libc++abi's catch machinery out of the link. `oom` makes the handler's
+// indirect call itself (one per representation: heap lambda, plain
+// function), no out-of-line wrapper. Counts, with no scope open: k_create
+// 12 (the push/pop pair is the stack alignment for the non-tail call to
+// malloc, not a TLS spill), k_destroy 3, k_create_in 9, k_destroy_in 1,
+// k_create_bump 11 with no call.
+// RUN: { ! grep -q __clang_call_terminate %t.asm; }
 // RUN: %FileCheck %s --check-prefix=EH < %t.asm
 // EH-LABEL: alloc3oomEmm>:
-// EH-NOT: __clang_call_terminate
-// EH: callq {{.*}}<_ZNK10__kairo_fnIFvmmEEclEmm>
-// EH-NEXT: {{: (nop|int3)}}
-// EH-LABEL: <_ZNK10__kairo_fnIFvmmEEclEmm>:
-// EH-NOT: __clang_call_terminate
-// EH: jmpq *%rax
+// EH-NOT: callq {{.*}}<
+// EH: callq *(%rcx)
+// EH-NEXT: callq *(%rcx)
+// EH-NEXT: {{nop|int3}}
+// EH-NOT: _ZNK10__kairo_fn
 // EH-LABEL: 8k_createEv>:
 // EH-NEXT: pushq %rax
-// EH-NEXT: movq $-{{0x[0-9a-f]+}}, %rax
-// EH-NEXT: movq %fs:(%rax), %rax
+// EH-NEXT: movq %fs:-{{0x[0-9a-f]+}}, %rax
 // EH-NEXT: movl $0x10, %edi
 // EH-NEXT: testq %rax, %rax
 // EH-NEXT: jne
@@ -90,13 +98,11 @@ fn main() -> i32 {
 // EH-NEXT: movq $0x2, 0x8(%rax)
 // EH-NEXT: popq %rcx
 // EH-NEXT: retq
-// EH-NOT: __clang_call_terminate
 // EH-LABEL: 9k_destroyEP{{.*}}>:
-// EH-NEXT: movq $-{{0x[0-9a-f]+}}, %rax
-// EH-NEXT: movq %fs:(%rax), %rax
-// EH-NEXT: testq %rax, %rax
-// EH-NEXT: je {{.*}}<free>
-// EH-NOT: {{pushq|popq|__clang_call_terminate}}
+// EH-NEXT: cmpq $0x0, %fs:-{{0x[0-9a-f]+}}
+// EH-NEXT: jne
+// EH-NEXT: jmp {{.*}}<free>
+// EH-NOT: {{pushq|popq}}
 // EH-LABEL: 11k_create_inEv>:
 // EH-NEXT: pushq %rax
 // EH-NEXT: movl $0x10, %edi
@@ -107,18 +113,15 @@ fn main() -> i32 {
 // EH-NEXT: movq $0x2, 0x8(%rax)
 // EH-NEXT: popq %rcx
 // EH-NEXT: retq
-// EH-NOT: __clang_call_terminate
 // EH-LABEL: 12k_destroy_inEP{{.*}}>:
 // EH-NEXT: jmp {{.*}}<free>
 // EH-LABEL: 13k_create_bumpEv>:
 // EH-NOT: call
 // EH: retq
-// EH-LABEL: 18k_scope_open_closeEv>:
-// EH-NEXT: retq
 // EH-LABEL: 11k_alloc_rawEm>:
-// EH-NOT: {{pushq|__clang_call_terminate}}
+// EH-NOT: pushq
 // EH: jmpq *%rax
 // EH-LABEL: 10k_free_rawEPhm>:
-// EH-NOT: {{pushq|__clang_call_terminate}}
-// EH: jmpq *%rax
+// EH-NOT: pushq
+// EH: jmp {{.*}}<{{.*}}free_scoped
 // EH-LABEL: <main>:
