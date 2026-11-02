@@ -286,6 +286,8 @@ eval DEFAULT = Config("default")
 
 An f-string is not a compile-time value: it formats into a buffer allocated at run time.
 
+The primitives' [limits](/docs/language/primitives/#limits) are compile-time values too: `eval BIG = u32::MAX`, `eval TINY = f64::MIN_POSITIVE`, and `eval if usize::BITS == 64 { ... }`.
+
 ### Fixed-size arrays
 
 ```kairo

@@ -92,6 +92,11 @@ A module that defines nothing (only comments, or only [`pub import` re-exports](
 | `@inout x: T`, `@move x: T` | `T&`, `T&&` |
 | `type Name = T` inside a class | `using Name = T;` member, under the same access level |
 | `@no_unwind fn f()` | `void f() noexcept` |
+| `f: fn(i32) -> i32` | `::__kairo_fn<std::int32_t(std::int32_t)>`, a function or closure value |
+| `f: unsafe fn(i32) -> i32` | `std::int32_t (*)(std::int32_t)`, a plain function pointer |
+| `ffi "c" fn apply(f: fn(i32) -> i32, x: i32) -> i32` | `extern "C" std::int32_t apply(std::int32_t (*f)(std::int32_t), std::int32_t x)` |
+
+An `ffi "c"` function's `fn` parameters and result are raw function pointers whether or not they are written `unsafe fn`, because C passes and expects a plain function pointer. A Kairo caller can pass a named function or a closure that captures nothing; passing a capturing closure is a compile error.
 
 Extension methods are not C++ member functions. Kairo keeps a class's C++ definition identical everywhere it appears, so a method added by [`extend`](/docs/language/extends/), even in the same file, is a free function taking the receiver as its first parameter. Call it as `geo::vec::len(&v)`.
 

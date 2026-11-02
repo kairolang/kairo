@@ -9,6 +9,7 @@ Every object produced by `kairo` or `kcc` carries an ABI note section recording:
 - the set of ABI-affecting settings that were in effect, canonicalized and sorted
 - a hash of that set, for fast comparison
 - a format version
+- the calling conventions the object defines or calls (`@preserve_most`, `@preserve_all`, `@preserve_none`), and, when it uses any, the LLVM major that generated it. LLVM does not keep these conventions stable across releases, so `kld` rejects a link in which two objects that use them were built by different LLVM majors (see [Calling conventions](/docs/language/functions-declarations/#calling-conventions)). Objects that use none of them never take part in this check.
 
 At link time, `kld` compares hashes. A mismatch is a clean link error naming the specific flag:
 

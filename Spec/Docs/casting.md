@@ -122,6 +122,8 @@ The bound may also reach the source through a chain of bases (`X derives Stmts<X
 
 Casting to `unsafe *T` reinterprets the pointer with no type checking equivalent to C++'s `reinterpret_cast`. The compiler performs no validation.
 
+The one exception is a cast between a class and one of its bases, in either direction (`unsafe *Derived as unsafe *Base`, or back). There the cast moves the pointer to the base subobject, exactly as the implicit upcast does, and compiles to C++'s `static_cast`. A first base usually sits at offset 0, so a plain reinterpret would happen to work for it; for any other base it would point into the wrong fields. The downcast is still unchecked: the caller vouches that the object really is the derived class.
+
 Casting a safe pointer to a raw pointer `*T as unsafe *U` requires an [`unsafe` block](/docs/language/unsafe/#unsafe-blocks). This is the point where [Tether](/docs/language/tether-bounds/#provenance-and-epochs) loses provenance: after the cast the compiler can no longer relate the pointer to the allocation it came from, so the loss is made visible at the source:
 
 ```kairo
@@ -133,7 +135,7 @@ unsafe {
 }
 ```
 
-Casting between `unsafe *T` types needs no `unsafe` block there is no provenance left to lose. The result is the same pointer value with a different type no runtime check, no adjustment.
+Casting between `unsafe *T` types needs no `unsafe` block there is no provenance left to lose. The result is the same pointer value with a different type no runtime check, and no adjustment unless the two pointees are a class and its base (above).
 
 > [!CAUTION]
 > Raw pointer casts bypass Tether's safety guarantees. Casting to `unsafe *void` erases type information permanently the compiler cannot verify the correctness of a subsequent cast back. Use only for [C/C++ interop](/docs/language/c-cpp/), custom allocators, and other low-level scenarios.
@@ -185,6 +187,7 @@ Every pointer cast is classified by what it does to *provenance* the compiler's 
 | `n as *T` | **Compile error** | | Safe pointers require provenance an integer cannot supply |
 | `*T as unsafe *U` | Allowed, requires `unsafe` block | Lost | The provenance-loss point keep it visible |
 | `unsafe *T as unsafe *U` | Allowed, no `unsafe` | Already absent | Nothing left to lose |
+| `unsafe *Derived as unsafe *Base` (or back) | Allowed, as above | As above | Adjusted to the base subobject (`static_cast`), not reinterpreted |
 | `*Derived as *Base` | Implicit | Preserved | Same allocation, adjusted offset |
 | `*Base as *Derived` | Allowed, runtime check | Preserved | Vtable check, crashes (`as *Derived`) or yields null (`as *Derived?`) |
 | `&self as *X` in `class <X derives B<X>> B` | Allowed, no runtime check | Preserved | The `derives` bound proves the relation; compiled to `static_cast` |
@@ -341,6 +344,7 @@ If the source type declares `op as` for `T` and `T` also has a matching construc
 | Base-to-derived ptr (checked) | `ptr as *Derived?` | Runtime check | Returns null |
 | Safe to raw pointer | `ptr as unsafe *T` | Requires `unsafe` block | Provenance loss |
 | Raw to raw pointer | `raw as unsafe *T` | No check | Reinterpret |
+| Raw pointer between class and base | `raw as unsafe *Base` | No check | Offset adjusted, like the implicit upcast |
 | Pointer to `usize` | `ptr as usize` | Safe | Address value |
 | Pointer to narrower int | `ptr as u8` | Compile error | Use `ptr as usize as u8` |
 | Integer to pointer | `n as unsafe *T` | Requires `unsafe` block | Fabricated provenance |

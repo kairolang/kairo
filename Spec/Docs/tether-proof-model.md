@@ -35,7 +35,13 @@ Where:
 
 Each clause is a distinct **proof domain** with its own analysis. Tether discharges as many clauses as it can statically. The clauses that remain (the **residual**) determine what is generated. The mapping from a residual clause to a code-generation response is the entire specification of Tether's behavior, and it is given in [The Residual Table](#the-residual-table).
 
-The critical design point: the obligation is checked at the **dereference**, never at pointer arithmetic. Forming a pointer value (`var *q = p + i`) computes a new provenance fact and emits no code. Only `*q` discharges the obligation against that provenance. This lets Tether carry symbolic offset information through arbitrarily many SSA transformations and discharge or eliminate the obligation as late as possible (see [Pointer Arithmetic](/docs/language/tether-bounds/#pointer-arithmetic)).
+The obligation is split across formation and dereference. Forming a pointer value (`var *q = p + i`) carries one obligation of its own, the **formation range**:
+
+$$
+0 \le \operatorname{byte\_offset}(q) \le \operatorname{size}(\operatorname{alloc}(\operatorname{prov}(q)))
+$$
+
+that is, `q` lies in the allocation or exactly one past its end. A formation proven in range emits nothing; one statically out of range is a compile error; an unprovable one is a Tier R check at the arithmetic, discharged and hoisted by the same bounds machinery as C3. Because every safe pointer value satisfies the formation range, C2 holds for every formed pointer, and at `*q` only C3's extra `sizeof T` of room (and the other clauses) remain. Tether still carries symbolic offsets through SSA and discharges both obligations as late and as rarely as it can; adjacent formation and dereference checks fuse into one (see [Pointer Arithmetic](/docs/language/tether-bounds/#pointer-arithmetic)).
 
 ---
 
@@ -81,7 +87,21 @@ $$
 
 ordered componentwise. The product of finite-height lattices is itself a finite-height lattice; the height of $$L$$ is the sum of the component heights, which is a small constant (independent of program size). The transfer functions for each IR operation are **monotone** with respect to $$\sqsubseteq$$: an operation never increases the proof strength of a clause it has no evidence for, and joining facts at control-flow merge points takes the weaker (less proven) state.
 
-Monotone transfer functions over a finite-height lattice means the Kleene iteration reaches a fixed point in a bounded number of passes (bounded by the lattice height times the number of program points). **The analysis always terminates.** This is the only termination argument Tether needs; there is no widening, no heuristic iteration cap required for soundness. (A pass ceiling exists for *interprocedural* recursion, but it degrades precision, never soundness: hitting it demotes clauses to Residual, which is always safe. See [Summaries](/docs/language/tether-internals/#amt-summaries).)
+Monotone transfer functions over a finite-height lattice means the Kleene iteration over the classification reaches a fixed point in a bounded number of passes (bounded by the lattice height times the number of program points). (A pass ceiling exists for *interprocedural* recursion, but it degrades precision, never soundness: hitting it demotes clauses to Residual, which is always safe. See [Summaries](/docs/language/tether-internals/#amt-summaries).)
+
+This argument covers the classification lattice only. Deciding *which* state a clause is in needs the numeric facts underneath, and that domain is not finite-height.
+
+### The numeric domain
+
+Proving `0 <= i < 120` from a loop, or `loop_bound == allocation_count` from an allocation site, needs facts about integer values, not only proof states. Underneath the lattice, Tether keeps a relational numeric domain over SSA values:
+
+- **intervals** per integer value (`i ∈ [0, n)`)
+- **SSA equalities and symbolic offsets** (`n == count(a)`, `off(q) == off(p) + 4·k`)
+- **induction-variable recognition**: loops with a recognizable induction variable (`for i in 0..<n`, a pointer stepped by a constant until it reaches `end`) get their bounds from the loop's structure directly, without fixpoint iteration
+
+Intervals over loops that are *not* recognized structurally do not stabilize on their own, so the numeric domain uses **widening** at loop headers. Widening is sound (it only loses precision), and the result is what guarantees termination: the numeric iteration stabilizes after a bounded number of widening steps, and the classification above is then computed over its stable facts. A fact lost to widening makes the clause residual, never proven.
+
+Every invariant Tether relies on (a range at a loop header, an equality between a bound and an allocation count) must be **inductive**: it holds on loop entry and is preserved by one iteration of the body. Checking that a stated invariant is inductive is decidable and much simpler than inferring it, which is what lets the inference stay heuristic while the soundness claim rests only on the check.
 
 ### Classifying a dereference
 
@@ -105,6 +125,9 @@ A residual clause does not have a uniform response. Bounds falls back to a runti
 | Residual clause / condition                                  | Response                                              | Tier |
 |--------------------------------------------------------------|-------------------------------------------------------|------|
 | **C3 bounds**, range residual                                | hoisted or local bounds check, **both modes**        | R    |
+| **Formation range**, unprovable                              | hoisted or local check at the arithmetic, both modes  | R    |
+| **Formation range**, statically outside `[base, base+count]` | compile error, both modes                             | N    |
+| **Relational compare**, operands not provably same allocation| compile error, both modes                             | N    |
 | **C1 epoch (UAF)**, provenance intact                        | epoch comparison at deref, **both modes**            | R    |
 | **C1 epoch (UAF)**, provenance lost                          | hard error, both modes                                | N    |
 | **C4 nullability**                                           | compile error, both modes: check it in source         | N    |

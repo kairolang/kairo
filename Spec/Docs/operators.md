@@ -36,16 +36,13 @@ var d = 2 ^^ 0.5      // error: the exponent must be an integer
 
 ### Integer overflow
 
-Unsigned overflow wraps around (modular arithmetic). Signed overflow depends on the build mode:
-
-- **Debug:** crashes with a diagnostic.
-- **Release:** wraps around silently.
+Integer arithmetic wraps around, signed and unsigned, in every build: `+`, `-`, `*`, unary `-`, `~`, `++`, `--`, the shifts and their compound assignments compute modulo 2<sup>N</sup> of the operand's type. Overflow is never undefined behavior and never a crash. Division and remainder by zero crash the program.
 
 See [Primitives](/docs/language/primitives/#overflow-behavior) for full details on numeric type behavior.
 
 ### Floating-point overflow
 
-Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN` (e.g., `0.0 / 0.0`, `sqrt(-1.0)`) propagate `NaN` per IEEE 754 no crash, no trap. Check explicitly with `std::is_nan()`.
+Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN` (e.g., `0.0 / 0.0`, `sqrt(-1.0)`) propagate `NaN` per IEEE 754 no crash, no trap. Test for `NaN` with `x != x`; `x == f64::NAN` is always `false`. See [Primitives](/docs/language/primitives/#limits).
 
 ---
 
@@ -113,7 +110,31 @@ Short-circuit evaluation applies: `&&` does not evaluate the right operand if th
 | `<<` | Left shift | `a << 2` |
 | `>>` | Right shift | `a >> 2` |
 
-Right shift is arithmetic (sign-extending) for signed types and logical (zero-filling) for unsigned types.
+A shift's result has its left operand's type `T`, of width `W`. The count `n` may be any integer type; it is taken modulo the **register width** `R`, which is 32 for types up to 32 bits, 64 for 64-bit types and 128 for 128-bit types. A negative count counts as a large unsigned one, so `x << -1` is `x << (R - 1)`.
+
+| Operator | Result |
+|---|---|
+| `x << n` | `x` shifted left by `n mod R`, computed in `R` bits, truncated to `T` |
+| `x >> n`, unsigned `T` | logical (zero-filling) shift right by `n mod R` |
+| `x >> n`, signed `T` | arithmetic (sign-filling) shift right by `n mod R` |
+| `x <<= n`, `x >>= n` | the same, with `x` evaluated once |
+
+A type narrower than 32 bits shifts in 32 bits and then truncates, so a count from `W` up to 31 moves every bit out:
+
+```kairo
+var b: u8 = 1
+var n: i32 = 9
+var x = b << n          // 0: the bit left the byte
+var s: i8 = -127
+var y = s >> n          // -1: sign fill
+var m: i32 = 33
+var z = 1i32 << m       // 2: 33 mod 32 is 1
+var w = b << m          // 2
+```
+
+Every type, value and count has exactly one result, on every target, at every optimization level and in `eval`. A shift count that is a constant must be below the width: `x << 8` on a `u8`, `y >> 32` on an `i32` and `y << -1` are compile errors.
+
+**Cost.** x86, AArch64 and RISC-V take a shift count modulo the register width in hardware, so the rule costs nothing there. 32-bit ARM shifts by the count's low byte instead and pays one instruction per shift whose count is not known to be in range (two on ARMv6-M / ARMv8-M Baseline, which must load the 31 first); in a loop the mask is hoisted and paid once per loop entry. A shift costs nothing on any target when its count is a constant, is masked by the program itself (`n & 31`, or `n % 32` on an unsigned `n`), or is the variable of a range loop that stays below the width (`for i in 0..32 { m |= x << i }`). `-Wshift-count-unproven` names every shift that pays for its mask on an ARM32 target.
 
 ---
 
@@ -139,9 +160,7 @@ On primitives, `x op= y` behaves like `x = x op y` with `x` evaluated once. For 
 | `--x` | Prefix decrement | Decrements `x`, returns the new value |
 | `x--` | Postfix decrement | Returns the current value, then decrements `x` |
 
-> [!WARNING]
-> Expressions that modify a variable multiple times without a sequence point (e.g., `i = i++ + ++i`) are
-> **undefined behavior**. This is inherited from C++ evaluation order semantics. Avoid combining multiple side effects on the same variable in a single expression.
+Every operand is evaluated left to right (see [Evaluation Order](#evaluation-order)), so an expression that changes a variable more than once, such as `i = i++ + ++i`, has one defined result. It is still hard to read; prefer one change per statement.
 
 ---
 
@@ -354,10 +373,9 @@ Named arguments follow the same rule: they run in the order written, not paramet
 
 `&&` and `||` are also left to right, with short-circuiting. See [Control Flow](/docs/language/control-flow/#short-circuit-evaluation).
 
-The operands of a primitive operator follow C++ and their order is unspecified: in `a() + b()`, either call may run first.
+The same holds for every operator and every place: a binary operator's left operand runs before its right (`a() + b()` calls `a` first), a subscript's base before its index, and an initializer's fields in the order written. An assignment evaluates its target first, then the value, then stores: in `arr[i()] = v()`, `i()` runs before `v()`. A compound assignment evaluates its target once.
 
-> [!WARNING]
-> Do not rely on the order of operands with side effects. Split the side effects into separate statements.
+This order is guaranteed, not an implementation detail. Code inside an imported C or C++ header (an inline function or a macro) keeps C++'s own rules. Keeping one side effect per statement is still easier to read.
 
 ---
 

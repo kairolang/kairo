@@ -148,13 +148,16 @@ var p: *i32 = &arr[0]
 
 var second = *(p + 1)    // 20
 var third = *(p + 2)     // 30
-p = p - 1                // ok: reposition pointer
+p = p + 4                // ok: one past the end, may be compared but not dereferenced
+p = p - 1                // ok: back to the last element
 ```
+
+A safe pointer must always stay within its allocation or exactly one past its end. Forming one outside that range (`&arr[0] - 1`, `&arr[0] + 5`) is a compile error when Tether can see it statically, and a runtime check at the arithmetic when the offset is runtime data. See [Forming versus dereferencing](/docs/language/tether-bounds/#forming-versus-dereferencing-and-one-past-the-end).
 
 Pointer-to-pointer arithmetic (`p1 - p2`) is not permitted on safe pointers use `unsafe *T` for that.
 
 > [!CAUTION]
-> Safe pointer arithmetic is bounds-checked by [Tether](/docs/language/tether-bounds/#pointer-arithmetic) only when provenance is trackable. If the pointer originates from a context where Tether cannot determine the allocation bounds, the arithmetic compiles but bounds safety is not guaranteed. Prefer array/vector indexing over pointer arithmetic when possible.
+> Safe pointer arithmetic needs provenance [Tether](/docs/language/tether-bounds/#pointer-arithmetic) can track. A safe pointer whose allocation Tether cannot determine (for example, one that came from C++ untracked) cannot be offset or dereferenced in safe code; use an `unsafe` block. Prefer array/vector indexing over pointer arithmetic when possible.
 
 ### On raw pointers (`unsafe *T`)
 
@@ -285,6 +288,7 @@ See [Tether](/docs/language/tether/) for how allocation interacts with lifetime 
 |---|---|
 | `==` | Compares addresses do both pointers point to the same location? |
 | `!=` | Negation of `==` |
+| `<` `<=` `>` `>=` | Address order. On safe pointers, both operands must point into the same allocation (one-past included); otherwise it is a compile error |
 | `===` | Null-aware equality on nullable pointers (`*T?`): true when both are non-null and the values they point to are equal (one level: on `(**T)?` it compares the `*T` addresses) |
 
 ```kairo

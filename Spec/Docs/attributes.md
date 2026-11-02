@@ -15,6 +15,8 @@ Attributes are compile-time AST transformations. They modify the structure of de
 
 ## Defining Attributes
 
+> Attribute macros parse, but the compiler does not expand them yet: using one is rejected with [SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported) rather than doing nothing. See [Status](/docs/status/).
+
 Attributes are defined with the `macro` keyword followed by `@name` and a parameter list. The first parameter is always a pointer to the AST node being transformed:
 
 ```kairo
@@ -174,7 +176,18 @@ Kairo provides built-in attributes that are handled directly by the compiler:
 | Attribute | Description | Applies to |
 |---|---|---|
 | `@packed` | Remove padding between members | Classes, structs, unions |
-| `@align(N)` | Set minimum alignment to N bytes | Classes, structs, unions |
+| `@align(N)` | Set minimum alignment to N bytes | Classes, structs, unions, fields, variables |
+
+`@packed` lays the members out back to back at alignment 1, with no padding between them or at the end, as C's `__attribute__((packed))` does. `@align(N)` raises the alignment to N (it never lowers it below the natural alignment), and the size rounds up to a multiple of it. N is an integer literal, a power of two, at most 2^28; anything else is an error. On a field or a variable, `@align(N)` raises that member's or variable's alignment the same way. Together on one record, `@packed @align(N)` packs the members and aligns the whole to N, like `__attribute__((packed, aligned(N)))`.
+
+```kairo
+@packed struct P { var a: u8; var b: u32 }      // sizeof 5, alignof 1
+@align(16) struct Q { var a: u8 }               // sizeof 16, alignof 16
+@packed @align(4) struct PA { var a: u8; var b: u32 }   // sizeof 8, alignof 4
+struct F { var a: u8; @align(8) var b: u8 }     // b at offset 8; sizeof 16
+```
+
+The layout the compiler computes for `sizeof` and `alignof` in a declaration-scope `eval if` is the same one the generated C++ has, so a branch chosen on a record's size matches the size at run time. A heap allocation of an `@align(N)` type through `create` is N-aligned: it asks the allocator for `alignof T`.
 
 See [Classes](/docs/language/classes/#memory-layout-and-allocation) and [Structures](/docs/language/structures/#memory-layout) for layout details.
 
@@ -184,7 +197,23 @@ See [Classes](/docs/language/classes/#memory-layout-and-allocation) and [Structu
 |---|---|---|
 | `@likely` | Condition is expected to be true | `if` statements |
 | `@unlikely` | Condition is expected to be false | `if` statements |
-| `@unreachable` | Branch should never execute (UB if reached) | `match`/`if` branches |
+| `@unreachable` | Branch should never execute (UB if reached). Not implemented yet: rejected with [SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported) | `match`/`if` branches |
+| `@likely` / `@unlikely` before `else` | Hint for the `else` or `else if` branch that follows | `else`, `else if` |
+| `@assume(cond)` | The optimizer may take `cond` as true from here on (UB if it is false) | A statement of its own |
+
+`@likely` and `@unlikely` also go between a branch's closing `}` and the `else` after it; each hint is for the branch it precedes. `@assume(cond)` is not an attribute on anything: it is a statement on its own line.
+
+```kairo
+@likely if a {
+    fast()
+} @unlikely else if b {
+    rare()
+} @unlikely else {
+    rarer()
+}
+
+@assume(n > 0)
+```
 
 See [Control Flow](/docs/language/control-flow/#branch-hints) for branch prediction hints.
 
@@ -194,6 +223,22 @@ See [Control Flow](/docs/language/control-flow/#branch-hints) for branch predict
 |---|---|---|
 | `@no_warn(CODE)` | Suppress a specific compiler warning | Any declaration |
 | `@deprecated(msg)` | Mark a declaration as deprecated | Any declaration |
+
+`@deprecated` (with no argument) or `@deprecated("message")` makes every use of the declaration a warning that names it and the message, with a note at the attribute. The declaration itself is not reported, and neither is a use inside it.
+
+```kairo
+@deprecated("use read_all instead")
+fn read() -> i32 { return 0 }
+
+fn main() -> i32 { return read() }   // warning: 'read' is deprecated: use read_all instead
+```
+
+`@no_warn(CODE, ...)` drops those warnings wherever they are reported inside the declaration, by any stage of the compiler. Each code must be a warning code (`SC031W`): an unknown code is an error, and so is an error code, since an error cannot be suppressed.
+
+```kairo
+@no_warn(SC031W)
+fn f() -> i32 { var y: i32 = 1 as i32; return y }   // no redundant-cast warning
+```
 
 ### Unwinding
 
@@ -224,6 +269,41 @@ A closure cannot carry `@unwind` yet: written before a closure, it is an express
 
 See [Exceptions](/docs/language/c-cpp-exceptions/#exceptions) for how C++ exceptions move through Kairo code.
 
+### Function hints
+
+| Attribute | Description | C++ | Applies to |
+|---|---|---|---|
+| `@hot_path` | The function runs often: optimize it for speed and keep it close to other hot code | `[[gnu::hot]]` | Functions, methods |
+| `@cold_path` | The function runs rarely (error handling, setup): optimize it for size and keep it out of the way | `[[gnu::cold]]` | Functions, methods |
+| `@pure` | The function's result depends only on its inputs and memory it can read, and it writes nothing else | `[[gnu::pure]]` | Functions, methods |
+| `@no_inline` | Never inline the function: it keeps its own symbol and its own code, as for a benchmark kernel or a rarely taken path kept out of its caller | `__attribute__((noinline))` | Functions, methods |
+
+```kairo
+@hot_path fn next(state: *Rng) -> u64 { /* ... */ }
+@cold_path fn report_failure(code: i32) { /* ... */ }
+@pure fn length(v: *Vec3) -> f64 { return sqrt(v->x * v->x + v->y * v->y + v->z * v->z) }
+```
+
+Each is a promise to the optimizer, written on the function and checked where the compiler can. `@hot_path` together with `@cold_path` on one function is an error, and any of the three on something that is not a function ('`@hot_path` applies only to a function') is an error with a fix-it that removes it.
+
+`@pure` is checked. In its body the compiler reports:
+
+- a write to a global or `static` variable;
+- an assignment through a pointer (`*p = x`, `p->field = x`, `p[i] = x`);
+- a call to anything that is not a const function, another `@pure` function, an `eval fn` or a compiler intrinsic.
+
+Reading globals and reading through pointers is allowed; that is the difference between `@pure` and a [const function](/docs/language/functions-declarations/#const-functions), which may read only its own inputs. A `@pure` function whose result changes between calls with the same arguments because something else wrote the memory it reads is fine: the optimizer only merges calls when no write could have happened in between.
+
+### Calling conventions
+
+| Attribute | Description | C++ | Applies to |
+|---|---|---|---|
+| `@preserve_most` | The callee saves nearly every general-purpose register: for a rarely taken slow path called from hot integer code | `__attribute__((preserve_most))` | `priv` functions and methods |
+| `@preserve_all` | As `@preserve_most`, and the callee also saves the floating-point and vector registers | `__attribute__((preserve_all))` | `priv` functions and methods |
+| `@preserve_none` | The callee saves nothing: for tail-call-heavy dispatch, such as an interpreter's opcode handlers | `__attribute__((preserve_none))` | `priv` functions and methods |
+
+At most one per function, never on a function C or C++ can see, and only on x86-64 and AArch64. See [Calling conventions](/docs/language/functions-declarations/#calling-conventions) for the rules and the register table.
+
 ### Enums
 
 | Attribute | Description | Applies to |
@@ -244,9 +324,13 @@ See [Implicit `op as`](/docs/language/operator-overloading/#implicit-op-as) for 
 
 | Attribute | Description | Applies to |
 |---|---|---|
-| `@core::where_handler` | Custom handler for where-clause failures | Functions |
+| `@core::where_handler` | Custom handler for where-clause failures. Not implemented yet | Functions |
 
 See [Where Clauses](/docs/language/where/) for the where handler system.
+
+### Unknown and misplaced attributes
+
+An attribute is never accepted and ignored. An attribute name the compiler does not know is an error, `unknown attribute '@name'`, with a fix-it that removes it and a suggestion when the name is close to a built-in one (`@pakced`: did you mean `@packed`?). A built-in attribute written where it does not apply is an error that says where it does (`'@packed' applies only to a class, struct or union`), also with a fix-it that removes it. A [user-defined attribute](#defining-attributes) is rejected with [SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported) for now: attribute macros parse, but they are not expanded yet.
 
 ---
 

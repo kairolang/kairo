@@ -35,6 +35,8 @@ Tether operates on [safe pointers](/docs/language/pointers/#safe-pointers-t) (`*
 
 Where Tether places a value's destruction depends on whether the destructor is observable.
 
+A destructor is **timing-insensitive** if and only if it does nothing but free memory the value owns and run destructors that are themselves timing-insensitive (fields, bases, owned pointees). Everything else is **observable**: a destructor that touches a global or `thread` variable, does I/O, takes or releases a lock, changes a reference count, calls C or C++, or calls any function not known to be timing-insensitive. This is a different property from being trivially destructible: a destructor with a body that only frees an owned buffer is not trivial, but it is timing-insensitive. In the rest of this section, "trivial" means timing-insensitive.
+
 **Trivial destructors** (no observable side effect just memory to reclaim) run at **last use**. Tether places the `@destroy`/`@free` as early as the final use permits, since reclaiming memory after the last use is indistinguishable from reclaiming it at the scope brace:
 
 ```kairo
@@ -65,7 +67,7 @@ Arena memory is freed wholesale at scope end; see [Scoped allocator](/docs/langu
 
 ## Copy Elision
 
-For [COPY types](/docs/language/ownership/#copy-types), Tether may emit a move instead of a copy when it proves the source is unused after the transfer **and** the elision is unobservable. Elision means the source's destructor runs at the transfer point instead of at its own scope exit; Tether performs it only when the destructor's observable effects do not depend on that timing trivial destructors, or effects (a `free`, a refcount decrement) that produce identical observable behavior either way.
+For [COPY types](/docs/language/ownership/#copy-types), Tether may emit a move instead of a copy when it proves the source is unused after the transfer **and** the elision is unobservable. Elision means the source's destructor runs at the transfer point instead of at its own scope exit; Tether performs it only when the source's destructor is [timing-insensitive](#destruction-timing). A `Shared` source is never elided this way: its decrement can be the one that reaches zero and runs the pointee's destructor, so it counts as observable.
 
 If the destructor has timing-sensitive side effects a flush, a lock release, a log line Tether does not elide. The copy is preserved and the source is destroyed at its lexical scope exit as written. Elision is silent precisely because it is only applied where it cannot be observed. The programmer neither opts in nor controls it, and it is never applied if the move constructor is deleted.
 
@@ -88,6 +90,9 @@ The whole system, in one table maps each clause's residual to its response:
 | Residual                                         | Response                                     | Tier |
 |--------------------------------------------------|----------------------------------------------|------|
 | bounds (range)                                   | hoisted/local check, both modes              | R    |
+| formation range, unprovable                      | hoisted/local check at the arithmetic        | R    |
+| formation outside `[base, base+count]` (static)  | compile error                                | N    |
+| `<` across allocations / unprovable provenance   | compile error                                | N    |
 | UAF (provenance intact)                          | epoch compare, both modes                    | R    |
 | UAF (provenance lost)                            | hard error                                   | N    |
 | nullability                                      | compile error, both modes                    | N    |

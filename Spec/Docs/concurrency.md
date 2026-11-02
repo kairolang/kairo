@@ -15,7 +15,7 @@ Functions with a `yield T` return type are generators: they produce values coope
 
 ### `spawn`
 
-Launching concurrent work. Syntax and runtime model (green threads, OS threads, or event loop) are being finalized.
+`spawn f(args)` starts an `async` function as a concurrent task and returns its future. `await` on the future joins the task; a task whose future is never awaited is detached. The runtime model (green threads, OS threads, or event loop) is being finalized. See [Threading](/docs/language/tether-threading/) for how Tether analyzes what a task captures.
 
 ### Atomic Types (`atomic T`)
 
@@ -35,7 +35,8 @@ Classes can define `fn <T> op await(self, obj: std::forward<T>) -> T` to customi
 
 ```kairo
 await async_fn()       // syntax sugar for a state machine
-spawn some_async_fn()  // syntax sugar for detaching a thread
+var fut = spawn some_async_fn()  // start a concurrent task
+await fut                        // join it; never awaiting detaches it
 yield some_value       // syntax sugar for a coroutine, function must have yield on return type
 
 fn get_tokens() -> yield string {
@@ -47,7 +48,7 @@ fn get_tokens() -> yield string {
 `op await` is overloadable: `fn op await (self) -> T` for custom async types.
 
 - `await async_fn()` syntax sugar for state machine
-- `spawn some_async_fn()` syntax sugar for detaching a thread
+- `spawn some_async_fn()` starts a concurrent task and returns its future; never awaiting it detaches the task
 - `yield some_value` coroutine syntax, function must have `-> yield T` return type
 - `fn op await (self) -> T` overloadable for custom async types
 - `atomic T` thread-safe wrapper type

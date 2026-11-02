@@ -198,6 +198,25 @@ ffi "c++" {
 
 Declarations inside an `ffi` block are parsed normally but stamped with C/C++ linkage. See [C/C++ Interop](/docs/language/c-cpp-calling/#constraints-and-safety) for details on FFI constraints and capabilities.
 
+## Import Cycles
+
+Imports may form a cycle: `a` imports `b` while `b` imports `a`, a longer chain, or a file that imports itself. An import never needs to come "first", so the order of `import` lines and of files does not matter. Every module on a cycle sees the others' public declarations, so functions can call each other across it, a type can name a type from the other side, and a `pub import` re-exports through it:
+
+```kairo
+// node.k
+import tree::*
+pub struct Node { pub var owner: unsafe *Tree; pub var v: i32 }
+
+// tree.k
+pub import node::*
+pub struct Tree { pub var root: unsafe *Node; pub var n: i32 }
+
+// main.k
+import tree::*          // Node arrives too, through tree's pub import
+```
+
+A cycle compiles with a warning, [R001W](/docs/language/diagnostics/#r001w-import-cycle), on the import that closes it. The warning names the cycle and suggests moving the shared declarations into a third module. A file that imports itself gets the same warning, with a fix-it removing the import, since a file always sees its own declarations. `-fno-import-cycles` turns every cycle into the error R001E. See [Circular Dependencies](/docs/language/modules/#circular-dependencies).
+
 ## Import Reference
 
 | Form | Resolves to | Notes |
@@ -211,9 +230,13 @@ Declarations inside an `ffi` block are parsed normally but stamped with C/C++ li
 | `ffi "c++" import "h.hh"` | C++ header | Optional `as` namespace |
 | `ffi "c++" fn foo(...)` | Single decl with C++ linkage | |
 | `ffi "c++" { ... }` | Block of decls with C++ linkage | |
+
+Imports may form cycles; see [Import Cycles](#import-cycles).
+
 ## See also
 
 - [Modules](/docs/language/modules/)
+- [Circular Dependencies](/docs/language/modules/#circular-dependencies)
 - [Library Entry Files](/docs/language/modules/#library-entry-files)
 - [Module Visibility](/docs/language/modules/#module-visibility)
 - [C & C++ Interoperability](/docs/language/c-cpp/)

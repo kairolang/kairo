@@ -1,16 +1,26 @@
 # Threading
 
-Kairo owns its threading runtime. All [concurrency](/docs/language/concurrency/) flows through `thread` and `spawn`, and **only functions marked `async` may be threaded or spawned**. `await` operates on the result of a `thread` or `spawn` call and is the join point.
+Kairo owns its threading runtime. All [concurrency](/docs/language/concurrency/) in Kairo code flows through `spawn`, and **only functions marked `async` may be spawned**. `spawn f(args)` starts the task and returns its future; `await` on that future is the join point. A spawned task whose future is never awaited is **detached**. (`thread` is unrelated: it is the [thread-local storage class](/docs/language/variables/#thread-local-variables).)
 
-This is what makes static race-freedom tractable. Every concurrent edge in the program is a syntactic `thread`/`spawn` call site there are no hidden threads, no callbacks invoked from another thread, no library spawning work behind your back. Tether knows exactly where every thread boundary is, which is the precondition for proving the absence of races rather than checking for them at runtime.
+This is what makes static race-freedom tractable. Within Kairo code, every concurrent edge is a syntactic `spawn` site, so Tether knows exactly where every thread boundary Kairo creates is. That is the precondition for proving the absence of races rather than checking for them at runtime.
 
 > [!NOTE]
-> The precise distinction between `thread` and `spawn`, and the synchronization primitives that establish happens-before, depend on Kairo's concurrency runtime, which is not yet finalized. The
+> The synchronization primitives that establish happens-before depend on Kairo's concurrency runtime, which is not yet finalized. The
 > **analysis shape below is fixed**; the runtime seam is marked where it occurs. A synchronization primitive, when it lands, is anything that injects a happens-before edge Tether can observe; crossing one re-permits an otherwise-forbidden access.
+
+## Entry from C and C++
+
+Threads that C or C++ creates are invisible to Tether: `std::thread`, a thread pool, a networking library invoking a callback. Any Kairo function C++ can reach is therefore treated as **possibly entered from an unknown thread**. That covers:
+
+- a function [exposed to C/C++](/docs/language/c-cpp-exposing/)
+- a function value or closure passed out to C++
+- a method that overrides a C++ virtual
+
+For such an entry point, every global, `static`, and captured allocation it can reach is a shared allocation for the whole program, analyzed under the rules below with no `await` to end the extent. The alternative is to declare the function single-threaded as a stated contract (it is only ever entered from one thread). That contract is an assumption Tether cannot check: it is listed among the build's unchecked assumptions rather than proven.
 
 ## Strict mode
 
-Between a `thread`/`spawn` and its corresponding `await` (the task's **extent**), Tether enters a stricter analysis mode. Any allocation reachable by a pointer captured into the task is a **shared allocation** for that extent, and every access to it is analyzed under the rules below instead of the single-threaded rules.
+Between a `spawn` and its corresponding `await` (the task's **extent**), Tether enters a stricter analysis mode. Any allocation reachable by a pointer captured into the task is a **shared allocation** for that extent, and every access to it is analyzed under the rules below instead of the single-threaded rules.
 
 The defining rule of strict mode: **Tier R collapses into Tier N for shared mutable allocations.** A runtime check reads metadata the allocation's size, its epoch tag and in a threaded extent that metadata can be mutated by another thread, so the check *itself* races. You cannot check your way to safety across threads. A clause that would fall back to a runtime check in single-threaded code must instead be proven statically for a shared mutable allocation, or it is a hard error.
 
@@ -44,13 +54,13 @@ fn foo(a: *const i32) async -> i32 {
     return *a + 1
 }
 
-var fut = thread foo(&x)    // begins executing immediately
+var fut = spawn foo(&x)     // begins executing immediately
 var res = await fut         // join point, happens-before edge; x is read-only over the extent
 ```
 
 Here `x`'s allocation is shared read-only for the extent of `fut` (because `foo`'s parameter is `*const i32`), so the parent reading `x` during the extent is sound. Had `foo` taken `a: *i32` and written through it, `x` would be a shared *mutable* allocation and the parent touching `x` before the `await` would be a hard error under rule 2.
 
-The borrow is live from the `thread`/`spawn` call to the matching `await`. Parent access to a shared-*written* allocation inside that window is a hard error this is the core threading rule, and the single-writer and reader/writer rules are its consequences.
+The borrow is live from the `spawn` to the matching `await`. Parent access to a shared-*written* allocation inside that window is a hard error this is the core threading rule, and the single-writer and reader/writer rules are its consequences.
 
 ## See also
 

@@ -162,7 +162,7 @@ std::println(*q)   // 100 defined behavior
 ```
 
 > [!IMPORTANT]
-> This freedom is single-threaded only. The moment an allocation is shared across a thread boundary (captured into a [`spawn`](/docs/language/concurrency/#spawn)/`thread`), Tether switches to a stricter rule: one writer, or many readers, never both. Arbitrary mutable aliasing is permitted within one thread because a single-threaded race is impossible; across threads it is undefined behavior that no runtime check can rule out, so the rule tightens exactly at the boundary. See [Tether Threading](/docs/language/tether-threading/#threading).
+> This freedom is single-threaded only. The moment an allocation is shared across a thread boundary (captured into a [`spawn`](/docs/language/concurrency/#spawn)ed task), Tether switches to a stricter rule: one writer, or many readers, never both. Arbitrary mutable aliasing is permitted within one thread because a single-threaded race is impossible; across threads it is undefined behavior that no runtime check can rule out, so the rule tightens exactly at the boundary. See [Tether Threading](/docs/language/tether-threading/#threading).
 
 This applies uniformly regardless of `const`:
 
@@ -220,7 +220,7 @@ fn make() -> *i32 {
 A stack escape of a heap-promotable value is **debug-transformable / release-error** Tether can lift `x` to the heap, which turns the escape into a legal ownership transfer. A stack escape with *no value to lift* (a borrow with no owner, an escape into an opaque sink where Tether cannot establish the heap-allocation pattern) is a hard error in both modes there is nothing to transform. This is the split the [Tether Stack Pointers](/docs/language/tether-promotion/#stack-pointers) section details in full. Either way, the fix in release is to allocate explicitly or restructure.
 
 > [!NOTE]
-> **Data-race detection across threads** is enforced by Tether's strict threading mode. When an allocation is shared across a `spawn`/`thread` boundary, Tether requires a single writer (or read-only sharing) and treats a second writer, or any unsynchronized write+read, as a hard error. The synchronization primitives that discharge these obligations depend on Kairo's concurrency runtime, which is not yet finalized the analysis shape is fixed, the runtime seam is not. See [Tether Threading](/docs/language/tether-threading/#threading) and [Concurrency](/docs/language/concurrency/).
+> **Data-race detection across threads** is enforced by Tether's strict threading mode. When an allocation is shared across a `spawn` boundary, Tether requires a single writer (or read-only sharing) and treats a second writer, or any unsynchronized write+read, as a hard error. The synchronization primitives that discharge these obligations depend on Kairo's concurrency runtime, which is not yet finalized the analysis shape is fixed, the runtime seam is not. See [Tether Threading](/docs/language/tether-threading/#threading) and [Concurrency](/docs/language/concurrency/).
 
 ### What Tether does not enforce
 

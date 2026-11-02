@@ -32,6 +32,8 @@ A mismatch between Tether's promotion and the C++ signature is a compile error.
 
 C++ functions taking raw pointers (`T*`, `void*`) require an `unsafe` block; Tether does not track across the boundary. For raw FFI calls where the C++ source is visible via the imported header, Tether performs a **one-level** heuristic: if the function only dereferences the pointer without aliasing, storing, or forwarding it, the call may be classified safe without `unsafe`. The analysis does not recurse. If the body is not visible (forward-declared, compiled library), all raw-pointer parameters are opaque and `unsafe` is required.
 
+Reading a C++ body is outside what Tether can prove, so a call classified safe this way rests on an **assumption**, not a proof: the build records it in its [unchecked assumptions](#unchecked-assumptions) as "`foo` treated as non-retaining by body inspection".
+
 ---
 
 ## Generic Code
@@ -91,6 +93,16 @@ Tether makes a strong claim `PROVEN_STATIC` means an access is safe with no runt
 > If a dereference classifies as `PROVEN_STATIC`, then no clause of its obligation can fail at runtime for any execution.
 
 This is what licenses emitting a bare `mov`. The full proof belongs in the Tether paper, not here; the property to hold against is that the static classification is an under-approximation of safety the analysis only proves a clause when it is genuinely discharged, and every uncertainty is resolved toward residual (the monotone "take the weaker state at a merge" rule). Failing closed at every boundary interop, threads, summary gaps, non-convergent recursion is what keeps the under-approximation honest: optimism is what would make the property false, and Tether is never optimistic at a boundary.
+
+### Unchecked assumptions
+
+Some facts Tether uses cannot be proven from Kairo source. Each one is recorded in a list the build emits next to its output, so the soundness claim for a program is exactly "safe, given these assumptions" and the assumptions are visible:
+
+- a raw-pointer C++ call classified safe by the [one-level body heuristic](#raw-pointer-parameters-and-shallow-analysis)
+- a function [declared single-threaded](/docs/language/tether-threading/#entry-from-c-and-c) although C++ can reach it
+- an `assume`/launder that transfers responsibility for a tainted pointer to the programmer
+
+An empty list means the proof covers the whole program.
 
 ### Paranoid mode the empirical falsifier
 

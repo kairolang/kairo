@@ -19,7 +19,7 @@ add(3, 4)     // 7
 double(10)    // 20
 ```
 
-Closures have the same type as [function pointers](/docs/language/functions/#function-pointers) `fn(ParamTypes) -> ReturnType`. There is no separate closure type:
+Closures have the same type as [function pointers](/docs/language/functions/#function-pointers) `fn(ParamTypes) -> ReturnType`. There is no separate closure type. The one exception is the raw function pointer `unsafe fn(ParamTypes) -> ReturnType` (a plain C function pointer): a closure that captures nothing converts to it, and a closure that captures does not, since it has no function pointer to give. See [Function Types](/docs/language/type-system/#function-types).
 
 ```kairo
 var opr: fn(i32, i32) -> i32 = fn (a: i32, b: i32) -> i32 { return a + b }
@@ -258,7 +258,7 @@ If you need to reference enclosing variables by pointer, use a closure. If you d
 
 ## Passing Closures to Functions
 
-Since closures share the `fn` pointer type, they can be passed to any function expecting a function pointer:
+Since closures share the `fn` pointer type, they can be passed to any function expecting a function pointer. A parameter of the raw type `unsafe fn(...)`, such as a C callback, takes only a closure that captures nothing:
 
 ```kairo
 fn apply(f: fn(i32) -> i32, x: i32) -> i32 {

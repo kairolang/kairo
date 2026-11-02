@@ -66,10 +66,10 @@ These are what the [ownership annotations](#ownership-annotations-in-generated-h
 For code that wants Kairo's *own* allocations to follow C++'s allocation path, so that a global `operator new` override does apply to them, `core` provides `CxxNewAllocator`:
 
 ```kairo
-@mem::set_allocator(core::CxxNewAllocator)
+@set_global_allocator(core::CxxNewAllocator)
 ```
 
-This is the unusual case, not the default. The [intentional friction](/docs/language/allocators/#global-allocator) rule applies: the annotation must appear at the top of every file in the affected dependency graph.
+This is the unusual case, not the default. Like any [global allocator](/docs/language/allocators/#global-allocator) it is chosen once per program: one file sets it, and every file and library linked in follows.
 
 ### Ownership annotations in generated headers
 

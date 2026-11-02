@@ -460,7 +460,7 @@ fn main() -> i32 {
 }
 ```
 
-`crash!("why")` writes `why` and a newline to stderr, then aborts; `crash!()` writes nothing. The rest of the crash family ends the program the same way, each with a message the compiler builds (what failed and its `file:line:col`): `unwrap!` on null, a failed checked `as` into a closed enum, and a failed [asserting downcast](/docs/language/casting/#downcasting-base-to-derived) `p as *D`.
+`crash!("why")` writes `why` and a newline to stderr, then aborts; `crash!()` writes nothing. The rest of the crash family ends the program the same way, each with a message the compiler builds (what failed and its `file:line:col`): `unwrap!` on null, a failed checked `as` into a closed enum, and a failed [asserting downcast](/docs/language/casting/#downcasting-base-to-derived) `p as *D`. Integer division or remainder by zero crashes the same way, with the message `kairo: division by zero`.
 
 > [!NOTE]
 > A crash runs on a program that is already broken, so it does only what a signal handler may: one `write` of an already-built message (at most 4096 bytes) to stderr, then `abort()`, with any `SIGABRT` handler the program installed reset first. No allocation, no locks, no Kairo code runs. `crash!` is a macro defined in the builtin library ([what it may do](/docs/language/macros-builtin/)).
@@ -499,6 +499,7 @@ Some failures stop the program instead of producing an error value. None of them
 - `crash!()`.
 - [`unwrap!`](/docs/language/nullables/) on a null value.
 - A failing [asserting downcast](/docs/language/casting/#downcasting-base-to-derived), `p as *Derived`. The compiler warns on every asserting downcast and suggests the checked form `p as *Derived?`, which yields null instead.
+- Integer division or remainder by zero ([overflow behavior](/docs/language/primitives/#overflow-behavior)).
 
 A bad cast or a null unwrap is a programmer error, not a recoverable condition. Making it a panic would add an error type to every function that downcasts, and to every caller above it.
 

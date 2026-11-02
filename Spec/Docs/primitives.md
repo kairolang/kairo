@@ -47,12 +47,20 @@ The integer suffixes are `i8` `i16` `i32` `i64` `i128`, `u8` `u16` `u32` `u64` `
 
 ### Overflow behavior
 
-Unsigned integer overflow wraps around (modular arithmetic). Signed integer overflow behavior depends on the build mode:
+Integer arithmetic wraps around: `+`, `-`, `*`, unary `-`, `~`, `++`, `--`, the shifts and the matching compound assignments compute modulo 2<sup>N</sup> of the operand's type, two's complement, signed or not, in every build. The result has the operand's type, with no promotion: `~x` on a `u8` is a `u8`, and `a * b` on two `u16` values never overflows an `i32` on the way.
 
-- **Debug:** crashes with a diagnostic.
-- **Release:** wraps around silently.
+```kairo
+var a: i32 = 2147483647
+var b = a + 1           // -2147483648
+var p: u16 = 65535
+var q = p * p           // 1
+var z: u8 = 0
+var n = ~z              // 255
+```
 
-This matches Rust's overflow model and catches bugs during development without paying for checks in production.
+A shift count is taken modulo the register width: 32 for types up to 32 bits, else the type's width: with `n` a runtime 33, `1i32 << n` is `2`; with `n` a runtime 9, `1u8 << n` is `0`, since a narrow type shifts in 32 bits and then truncates. A constant count must be below the width. See [Bitwise operators](/docs/language/operators/#bitwise). Division and remainder by zero crash the program (like [`crash!()`](/docs/language/panic/#main-and-crash), not a panic). `MIN / -1` is `MIN` and `MIN % -1` is `0`.
+
+Overflow is never undefined behavior, and the checks cost nothing where the plain operator would not overflow: the compiled code is the same as C++'s for those inputs. Code imported from C or C++ keeps its own rules. Kairo code writing an imported value follows Kairo's: `++` on a C struct's `uint8_t` field, or `+=` on an `int&` returned by a C++ `operator[]`, wraps. A C bit-field wraps at the field's own width.
 
 ### Extended-width integers (u128-u512, i128-i512)
 
@@ -86,7 +94,7 @@ var b = 1.5bf16     // bf16
 
 The float suffixes are `f16`, `bf16`, `f32`, `f64`, `f80` and `f128` (`f80` and `f128` only where the target has them, see below), in lower or upper case. A literal is rounded once, to the type it is used at, from its decimal digits: `16777217.0f32` is `16777216.0` and `16777217.0f64` is exact, and `var q: f128 = 0.1` is `0.1` at `f128` precision, not the `f64` value `0.1` widened. An unknown float suffix (`1.5f8`, `1.5xyz`) is [SC074E](/docs/language/diagnostics/).
 
-Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN` (e.g., `0.0 / 0.0`, `sqrt(-1.0)`) propagate `NaN` per IEEE 754 no crash, no trap. Check for `NaN` explicitly with `std::is_nan()` when needed.
+Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN` (e.g., `0.0 / 0.0`, `sqrt(-1.0)`) propagate `NaN` per IEEE 754 no crash, no trap. Test for `NaN` with `x != x`: a `NaN` compares unequal to everything, itself included, so `x == f64::NAN` is always `false`. An infinity is an ordinary value to compare with: `x == f64::INFINITY`. See [Limits](#limits).
 
 > [!NOTE]
 > `f256` and `f512` are not natively supported on any current hardware and are implemented entirely in software, using SIMD instructions when available. Like extended-width integers, they are stack-allocated value types. Expect significantly lower performance compared to hardware-backed float types.
@@ -289,6 +297,104 @@ Arrays, slices, vectors, list literals, maps, sets, tuples and function pointers
 | 64-bit | 8 bytes |
 | 32-bit | 4 bytes |
 | 16-bit | 2 bytes |
+
+---
+
+## Limits
+
+Every numeric primitive has a fixed set of associated constants, the Kairo answer to C++'s `std::numeric_limits<T>` and C's `<limits.h>` / `<float.h>`. They are spelled like a class's `eval` members, `Type::NAME`:
+
+```kairo
+var lo  = i32::MIN               // -2147483648
+var hi  = u8::MAX                // 255
+var eps = f64::EPSILON           // 2.220446049250313e-16
+var inf = f32::INFINITY
+var buf: [u8; u16::MAX as usize + 1]   // a constant: legal in an array length
+```
+
+Each one is a constant of its own type, exactly as a suffixed literal is: `u64::MAX` is a `u64` in any context, `var x: u8 = i32::MAX` is the usual narrowing error ([SC028E](/docs/language/diagnostics/)), and `u8::MAX + 1` wraps to `0` like any `u8`. They are constants wherever a constant is needed: an array length, an `eval` binding, `eval if`, a generic value argument. The descriptive ones (`BITS`, `MANTISSA_DIGITS`, the exponents) are `u32` or `i32`, as listed.
+
+### Integers
+
+`u8` through `u128`, `i8` through `i128`, `usize`, `isize`:
+
+| Name | Type | Value |
+|---|---|---|
+| `MIN` | the type | the smallest value (`0` for unsigned) |
+| `MAX` | the type | the largest value |
+| `BITS` | `u32` | the width in bits |
+
+`usize` and `isize` take the target's width: `usize::MAX` on a 32-bit target is `4294967295`. `BITS` exists for the 256- and 512-bit integers too; their `MIN` and `MAX` are not supported yet.
+
+### Floating point
+
+`f8e4m3`, `f8e5m2`, `f16`, `bf16`, `f32`, `f64`, `f80`, `f128`:
+
+| Name | Type | Meaning | C++ |
+|---|---|---|---|
+| `MIN` | the type | most negative finite value (`-MAX`) | `lowest()` |
+| `MAX` | the type | largest finite value | `max()` |
+| `MIN_POSITIVE` | the type | smallest positive normal value | `min()` |
+| `MIN_SUBNORMAL` | the type | smallest positive subnormal value | `denorm_min()` |
+| `EPSILON` | the type | the next value after `1.0`, minus `1.0` | `epsilon()` |
+| `INFINITY` | the type | positive infinity | `infinity()` |
+| `NEG_INFINITY` | the type | negative infinity | `-infinity()` |
+| `NAN` | the type | a quiet `NaN` | `quiet_NaN()` |
+| `MANTISSA_DIGITS` | `u32` | significand bits, the implicit bit included | `digits` |
+| `DIGITS` | `u32` | decimal digits that survive text to float to text | `digits10` |
+| `MAX_DIGITS` | `u32` | decimal digits float to text to float needs | `max_digits10` |
+| `MIN_EXP` | `i32` | one more than the smallest normal binary exponent | `min_exponent` |
+| `MAX_EXP` | `i32` | one more than the largest binary exponent | `max_exponent` |
+| `MIN_10_EXP` | `i32` | smallest `n` with `10^n` normal | `min_exponent10` |
+| `MAX_10_EXP` | `i32` | largest `n` with `10^n` finite | `max_exponent10` |
+| `RADIX` | `u32` | always `2` | `radix` |
+| `BITS` | `u32` | storage width in bits | `sizeof(T) * CHAR_BIT` |
+
+> [!WARNING]
+> **`MIN` is not C++'s `min()`.** `std::numeric_limits<double>::min()` is the smallest positive normal value. Kairo's `f64::MIN` is the most negative finite value, spelled the same way as `i32::MIN`, so `T::MIN` is the bottom of the range for every numeric type. C++'s `min()` is `MIN_POSITIVE`.
+
+| | `MANTISSA_DIGITS` | `EPSILON` | `MAX` | `MIN_POSITIVE` | `MIN_SUBNORMAL` | `DIGITS` | `MAX_DIGITS` | `MIN_EXP` | `MAX_EXP` | `MIN_10_EXP` | `MAX_10_EXP` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `f8e4m3` | 4 | 2⁻³ | 448 | 2⁻⁶ | 2⁻⁹ | 0 | 3 | −5 | 9 | −1 | 2 |
+| `f8e5m2` | 3 | 2⁻² | 57344 | 2⁻¹⁴ | 2⁻¹⁶ | 0 | 2 | −13 | 16 | −4 | 4 |
+| `f16` | 11 | 2⁻¹⁰ | 65504 | 2⁻¹⁴ | 2⁻²⁴ | 3 | 5 | −13 | 16 | −4 | 4 |
+| `bf16` | 8 | 2⁻⁷ | ≈3.39·10³⁸ | 2⁻¹²⁶ | 2⁻¹³³ | 2 | 4 | −125 | 128 | −37 | 38 |
+| `f32` | 24 | 2⁻²³ | ≈3.40·10³⁸ | 2⁻¹²⁶ | 2⁻¹⁴⁹ | 6 | 9 | −125 | 128 | −37 | 38 |
+| `f64` | 53 | 2⁻⁵² | ≈1.80·10³⁰⁸ | 2⁻¹⁰²² | 2⁻¹⁰⁷⁴ | 15 | 17 | −1021 | 1024 | −307 | 308 |
+| `f80` | 64 | 2⁻⁶³ | ≈1.19·10⁴⁹³² | 2⁻¹⁶³⁸² | 2⁻¹⁶⁴⁴⁵ | 18 | 21 | −16381 | 16384 | −4931 | 4932 |
+| `f128` | 113 | 2⁻¹¹² | ≈1.19·10⁴⁹³² | 2⁻¹⁶³⁸² | 2⁻¹⁶⁴⁹⁴ | 33 | 36 | −16381 | 16384 | −4931 | 4932 |
+
+The values are the formats' own (IEEE 754 for `f16`, `f32`, `f64` and `f128`; bfloat16; x87 extended; OCP FP8 E4M3FN and E5M2), computed by the compiler from each format's layout, never read from the host's `<float.h>`. Every finite one is exact.
+
+Comparing with an infinity works as with any value; comparing with `NAN` never does, because a `NaN` is unequal to everything, itself included:
+
+```kairo
+if x == f64::INFINITY { }    // true for +infinity
+if x != x { }                // true exactly for a NaN
+if x == f64::NAN { }         // always false
+```
+
+### Limits a type does not have
+
+A limit a format does not have is not defined, and naming it is an error ([R024E](/docs/language/diagnostics/)), never a substitute value:
+
+- `f8e4m3` is the FN format: it has no infinity, and overflow saturates to 448. `f8e4m3::INFINITY` and `f8e4m3::NEG_INFINITY` are errors; it has a `NAN`.
+- `f80` exists only where the target's `long double` is x87 extended. Elsewhere, `f80::MAX` is the same [P003E](/docs/language/diagnostics/) as spelling `f80` at all.
+- `f256` and `f512` have no limits until they have a fixed representation.
+- The float limits (`EPSILON`, `INFINITY`, ...) are not defined on integers.
+
+### `char`, `byte`, `bool`
+
+| Type | Members |
+|---|---|
+| `char` | `MIN` = `'\0'`, `MAX` = `'\U0010FFFF'`, `BITS` = 32 |
+| `byte` | `BITS` = 8. No `MIN` or `MAX`: a byte is not a number. |
+| `bool` | none |
+
+`char::MAX` is the largest Unicode scalar value. The range between `MIN` and `MAX` is not contiguous (the surrogates U+D800 to U+DFFF are not `char`s); the constants name the ends.
+
+> [!NOTE]
+> `T::MAX` on a generic parameter `T` is not supported yet.
 
 ---
 

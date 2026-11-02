@@ -314,7 +314,25 @@ try {
 
 A function converts to a panicking function type when its own set is a subset of the type's; a function that doesn't panic converts to any of them. See [Declared Panic Sets](/docs/language/panic/#declared-panic-sets).
 
-No other modifiers (`const`, `async`, `eval`, `unsafe`) are valid on function pointer types. `const` is a property of methods (it constrains `self`), not of the function signature. `unsafe` selects a different overload namespace, not a different type. `async` and `eval` require named function declarations.
+`unsafe` before `fn` makes the type a **raw function pointer**: `unsafe fn(ParamTypes) -> ReturnType` is a plain C function pointer, one machine word, called directly. A `fn(...)` value can also hold a closure that captures variables; a raw one cannot, so only a named function or a closure that captures nothing converts to it:
+
+```kairo
+fn twice(x: i32) -> i32 { return x * 2 }
+
+var raw: unsafe fn(i32) -> i32 = twice                        // ok
+var lit: unsafe fn(i32) -> i32 = fn (x: i32) -> i32 { return x + 1 }   // ok: captures nothing
+
+var k = 3
+// var bad: unsafe fn(i32) -> i32 = fn (x: i32) -> i32 { return x * k }
+//     compile error: this closure captures, so it has no function pointer
+
+var f: fn(i32) -> i32 = raw    // ok: a raw pointer converts to a fn value
+// var back: unsafe fn(i32) -> i32 = f   // compile error: a fn value may hold a capturing closure
+```
+
+Function pointer types imported from C and C++ are raw, and so are the `fn` parameters and result of an [`ffi "c"` function](/docs/language/c-cpp-exposing/).
+
+No other modifiers (`const`, `async`, `eval`) are valid on function pointer types. `const` is a property of methods (it constrains `self`), not of the function signature. `async` and `eval` require named function declarations.
 
 See [Functions](/docs/language/functions/#function-pointers) and [Closures](/docs/language/closures/) for function pointer usage.
 

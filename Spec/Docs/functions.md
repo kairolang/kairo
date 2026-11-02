@@ -238,6 +238,14 @@ f = sub
 f(10, 3)  // 7
 ```
 
+A `fn(...)` value holds a function or a [closure](/docs/language/closures/), including one that captures variables. Where only a plain function pointer will do (a C callback, a table of functions called often), write the raw type `unsafe fn(ParamTypes) -> ReturnType`. It is one machine word and is called directly, and a named function or a closure that captures nothing converts to it. A raw pointer converts to a `fn(...)` value, but a `fn(...)` value does not convert back. See [Function Types](/docs/language/type-system/#function-types).
+
+```kairo
+struct Handlers {
+    var on_alloc: unsafe fn(usize, usize) -> unsafe *u8
+}
+```
+
 A function type for a function that may [panic](/docs/language/panic/) must declare its panic set: `fn(string) panic(IOError) -> i32`, not a bare `panic`, since a type has no body to infer the set from. A function converts to such a type when its own set is a subset of the declared one; a function that doesn't panic converts to any panicking function type. See [Declared Panic Sets](/docs/language/panic/#declared-panic-sets).
 
 Functions can be nested [inner functions](/docs/language/closures/#closures-vs-inner-functions) are scoped to the enclosing function:

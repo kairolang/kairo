@@ -315,6 +315,17 @@ The note points at the enum. When the enum is declared in the same file, a fix-i
 
 The fix-it removes the attribute.
 
+### SC001E: an unknown or misplaced attribute
+
+```
+unknown attribute '@fast_call'
+'@packed' applies only to a class, struct or union
+'@align' expects one integer literal that is a power of two, at most 268435456: '@align(16)'
+'@no_warn' 'SC001E' is an error; only a warning can be suppressed
+```
+
+No [attribute](/docs/language/attributes/#unknown-and-misplaced-attributes) is accepted and ignored: a name the compiler does not know, a built-in attribute where it does not apply, and a bad argument are errors. A note suggests a close built-in name; the fix-it removes the attribute.
+
 ### SC001E: a pack-expanded variant is malformed
 
 A [pack-expanded variant](/docs/language/enums-adt/#variadic-enums) `V { e: E }...` must have a payload that names the enum's type pack, must be the enum's last variant, and must be its only one. A pack named in a variant without `...` is the same error. The code is a placeholder until the error gets its own.
@@ -905,6 +916,7 @@ It is reported for:
 - a generic value parameter whose type is neither an integer nor an eval class (`<eval B: bool>`)
 - a generic record's field default that reads another field
 - an attribute applied to an expression, such as `@create T(args)` (`the expression attribute '@create' is not yet supported`)
+- `@unreachable`, and a user-defined attribute macro (`the attribute macro '@trace' is not yet supported: attribute macros are not expanded yet`)
 - building or matching a [pack-expanded variant](/docs/language/enums-adt/#variadic-enums) at a type that depends on a generic parameter, and a pack-expanded variant's field whose type is built from the pack (`e: *E`)
 - naming the panic result type `Panic<T, E...>` in source (`a panic result type cannot be named yet`): a panicking call's result is handled with `try` or propagated, not stored
 - keeping a panic result in a variable (`a stored panic result is not yet supported`), such as `var copy = e` for a bare `catch e`'s binding (re-panicking it with `panic e` is fine), and a function type whose panic set names a generic parameter
@@ -1239,6 +1251,89 @@ Messages:
 ##### how to fix
 
 delete the `=>`; the fix-it does this. to keep a nested `if` as the final arm on purpose, parenthesize it: `else => (if c => a else => b)`.
+
+## Calling Conventions
+
+The rules these enforce are in [Calling conventions](/docs/language/functions-declarations/#calling-conventions). A forward declaration or out-of-line definition whose convention differs from the other declaration is R039E (redeclared with a different qualifier), with the convention named in the error and the note.
+
+### SC133E: two calling conventions on one function
+
+```
+'@preserve_most' and '@preserve_all' cannot both be on one function; a function has one calling convention
+```
+
+```kairo
+@preserve_most @preserve_all     // error SC133E
+priv fn slow_path(n: usize) { }
+```
+
+**Fix:** keep one: `@preserve_all` when callers keep floating-point or vector values live across the call, `@preserve_most` when they keep only integers. The fix-it removes the second.
+
+### SC134E: a calling convention on a function that cannot have one
+
+```
+a calling convention cannot be set on {kind}
+```
+
+`{kind}` is a constructor, a destructor, an operator, `'main'`, a generator, an `'async'` function, a closure or an `'eval fn'`. Code Kairo does not write calls each of these (C++ object lifetime, the C runtime, the coroutine machinery, a lambda's call operator, the constant evaluator), and it always calls with the C convention.
+
+```kairo
+priv class Buffer {
+    @preserve_most          // error SC134E: a constructor
+    fn Buffer(self) { }
+}
+```
+
+**Fix:** move the slow work into a `priv` free function that carries the convention, and call it from here.
+
+### SC135E: an override disagrees with the convention of the method it overrides
+
+```
+'{m}' has {convention}, but the method it overrides has {convention}
+```
+
+A call through a base reference uses the base method's convention, whichever override it reaches, so every method of one override set needs the same convention (or none).
+
+```kairo
+priv class Base {
+    @preserve_most virtual fn tick(self) { }
+}
+priv class Derived derives Base {
+    override fn tick(self) { }     // error SC135E
+}
+```
+
+**Fix:** write the same convention on every method of the set, or on none.
+
+### SC136E: a calling convention cannot cross the C/C++ boundary
+
+```
+'@preserve_most' cannot cross the C/C++ boundary: GCC cannot call it
+```
+
+GCC has no spelling for these conventions. An `ffi "c"` / `ffi "c++"` declaration, or any function that is not `priv` (functions are `pub` by default), is in the module's emitted C++ header and its `#include "x.k"` interface, where code GCC compiled could call it.
+
+```kairo
+@preserve_most
+fn grow(n: usize) { }            // error SC136E: pub by default
+
+@preserve_most
+priv fn grow_slow(n: usize) { }  // fine
+```
+
+**Fix:** make the function `priv`, or give the public entry point the default convention and have it call a `priv` function that carries one.
+
+### SC137E: the calling convention is not available on the target
+
+```
+'@preserve_most' is not available on {triple}
+```
+
+LLVM implements the three conventions on x86-64 and AArch64 only (any operating system). Elsewhere clang would drop the attribute with a warning and call with the C convention, so Kairo makes it an error.
+
+**Fix:** remove the attribute, or keep the declaration that carries it in code built only for x86-64 and AArch64.
+
+---
 
 ## See also
 

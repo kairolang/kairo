@@ -283,6 +283,24 @@ fn main() {
 
 A `*const c_char` in an f-string prints as a pointer (`const c_char @ 0x...`), like any pointer: there is no C-string formatter yet. A `string.c_str()` method is planned.
 
+### Function pointers and callbacks
+
+A C or C++ function pointer type (`int (*)(int)`) imports as the raw Kairo type `unsafe fn(i32) -> i32`. A named Kairo function or a closure that captures nothing can be passed there. A closure that captures, or a `fn(...)` value (which may hold one), is a compile error, because C has nowhere to keep the captured variables:
+
+```kairo
+ffi "c" import "callbacks.h"     // int c_apply(int (*f)(int), int x);
+
+fn twice(x: i32) -> i32 { return x * 2 }
+
+fn main() -> i32 {
+    var k = 3
+    var a = c_apply(twice, 4)                                   // 8
+    var b = c_apply(fn (v: i32) -> i32 { return v + 1 }, 4)     // 5
+    // c_apply(fn (v: i32) -> i32 { return v * k }, 4)   // error: the closure captures 'k'
+    return a + b
+}
+```
+
 ---
 
 ## Templates and Concepts

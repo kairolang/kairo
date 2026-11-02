@@ -543,6 +543,55 @@ Kairo provides [attributes](/docs/language/attributes/#branch-hints) to communic
 | `@unlikely` | The condition is expected to be false in the common case |
 | `@unreachable` | The branch should never execute if it does, behavior is undefined |
 
+### Hints on `else` and `else if`
+
+The hint on the first `if` goes in front of it. A hint for a later branch goes in front of the `else` that opens it: each one is for the branch it precedes.
+
+```kairo
+@likely if a {
+    ...
+} @unlikely else if b {
+    ...
+} @unlikely else {
+    ...
+}
+```
+
+`@unlikely else if b` is the hint for the `else if` branch; `@unlikely else` is the hint for the final block. A newline may separate the `}` from the attribute, so this is the same chain:
+
+```kairo
+@likely if a {
+    ...
+}
+@unlikely else if b {
+    ...
+}
+@unlikely else {
+    ...
+}
+```
+
+Only `@likely` and `@unlikely` may precede `else`; any other attribute there is an error. An attribute that is not followed by `else` is not taken: it belongs to the next statement.
+
+### `@assume`
+
+`@assume(cond)` tells the optimizer that `cond` is true at that point, so it can drop checks and pick better code for everything after. It is a statement of its own, alone on its line (a trailing `;` is fine), and attaches to nothing.
+
+```kairo
+fn sum(xs: *i32, n: usize) -> i32 {
+    @assume(n > 0)          // the loop below runs at least once
+    var total = 0
+    for var i: usize = 0; i < n; ++i {
+        total += xs[i]
+    }
+    return total
+}
+```
+
+`@assume(x > y) foo()` on one line is an error, with a fix-it that puts `foo()` on its own line: the attribute form would suggest the assumption applies to `foo()`, and it does not. The condition must be a `bool`, and `@assume` takes exactly one.
+
+A false assumption is undefined behavior. The compiler does not check it and may build code that is wrong for every input that breaks it; use [`assert`](/docs/language/control-flow/) when you want a check that is verified at run time.
+
 `@unreachable` is a hard assertion to the optimizer that the marked branch is dead code. If execution reaches an `@unreachable` branch at runtime, the behavior is undefined the compiler is free to eliminate the branch entirely and may miscompile surrounding code under that assumption.
 
 ```kairo

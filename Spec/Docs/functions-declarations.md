@@ -18,7 +18,7 @@ fn background() async -> Data          { /* ... */ }
 
 | Modifier | Free functions | Methods | Description |
 |---|---|---|---|
-| `const` | | Yes | Method does not modify `self`. See [Variables](/docs/language/variables/#the-const-binding-rule) |
+| `const` | `fn f(...) const` (after the parameters) | `const self` | A method does not modify `self` (see [Variables](/docs/language/variables/#the-const-binding-rule)); a free const function reads only its inputs (see [Const functions](#const-functions)) |
 | `volatile` | Yes | Yes | Prevents certain compiler optimizations; for hardware interaction |
 | `unsafe` | Yes | Yes | [Separate overload namespace](/docs/language/unsafe/#unsafe-function-overloads) for alternative implementations |
 | `eval` | Yes | Yes | Must be evaluable at compile time. See [Eval](/docs/language/eval/) |
@@ -40,6 +40,37 @@ Every module that can see the declaration gets the definition and compiles it, s
 - An `inline` function must have a body, in the same file as its declaration (an in-class declaration may be defined out of line in that file). An `inline` declaration with no body is an error.
 - Every declaration of the function must agree on `inline`.
 - Unused `inline` bodies cost parse time only: no code is generated for one nothing calls.
+
+### Const functions
+
+A free function marked `const` after its parameters, `fn f(...) const`, reads strictly its inputs: no global memory, nothing through a pointer. It is a function in the mathematical sense, like `sin` or `abs`, and the compiler may merge two calls with the same arguments, hoist a call out of a loop, or drop one whose result is unused. In the generated C++ it is `[[gnu::const]]`.
+
+```kairo
+fn hypot(a: f64, b: f64) const -> f64 {
+    return __builtin_sqrt(a * a + b * b)
+}
+```
+
+Because the optimizer acts on the promise without looking, the compiler checks it. In the body of a const function these are errors:
+
+- reading or writing a global or `static` variable (an [`eval`](/docs/language/eval/) constant is a compile-time value, not memory, and is allowed);
+- dereferencing a pointer: `*p`, `p->field`, or indexing a pointer with `p[i]`;
+- calling a function that is not itself const, an `eval fn` or a compiler intrinsic.
+
+Each error carries a note on the function's head: `'hypot' is const: it may read only its own inputs`.
+
+A const function is a free function. A method says the weaker thing, that it does not change its object, with `const self`; a trailing `const` on a method is an error. The leading spelling `const fn f()` is an error too, with a fix-it: `const` before a name reads as a binding.
+
+```kairo
+class Vec2 {
+    var x: f64
+    var y: f64
+    fn len(const self) -> f64 { /* a const method: reads self, changes nothing */ }
+    // fn len2(self) const -> f64 { ... }   // error: write 'fn len2(const self)'
+}
+```
+
+A function that may read globals or pointed-to memory, but writes nothing, is [`@pure`](/docs/language/attributes/#function-hints) instead.
 
 ### Modifier compatibility
 
@@ -162,10 +193,74 @@ When a definition follows a forward declaration, the two must match exactly:
 - Parameter types, return type, and all function modifiers (`const`, `unsafe`, `panic`, `eval`, `async`, `inline`, `final`, `volatile`)
 - Visibility (`pub`, `priv`, `prot`)
 - ABI linkage (`ffi "c"`, `ffi "c++"`, `static`, `virtual`, `override`)
+- Calling convention (`@preserve_most`, `@preserve_all`, `@preserve_none`, or none); see [Calling conventions](#calling-conventions)
 
 Parameter names may differ; the definition's names are used in the body. So may the names of generic parameters: `fn <T impl Graph> g(x: T) -> i32` and a later `fn <U impl Graph> g(x: U) -> i32 { ... }` are one function. Their bounds may not: a declaration and its definition must name the same bounds for each generic parameter. (Two generic functions that both have bodies and differ only in their bounds are two overloads.) Defaults are not part of the match: each parameter's default may be written on any one declaration, and it applies to every call (see [Defaults apply to the whole function](/docs/language/functions-parameters/#defaults-apply-to-the-whole-function)).
 
 A mismatch in any other element is a compile error.
+
+## Calling conventions
+
+A calling convention decides which registers a call may clobber. Every function uses the platform's C convention unless it carries one of three attributes, each an LLVM calling convention:
+
+| Attribute | LLVM | clang |
+|---|---|---|
+| `@preserve_most` | `preserve_mostcc` | `[[clang::preserve_most]]` |
+| `@preserve_all` | `preserve_allcc` | `[[clang::preserve_all]]` |
+| `@preserve_none` | `preserve_nonecc` | `[[clang::preserve_none]]` |
+
+`@preserve_most` and `@preserve_all` pass arguments and return values exactly as the C convention does; only the set of registers the callee must save changes. `@preserve_none` also passes arguments in more registers than C does, which only matters to code that is not Kairo (and none can call it; see below).
+
+```kairo
+@preserve_most
+priv fn grow_slow(v: *Buffer, need: usize) { /* rare: reallocate and copy */ }
+
+fn push(v: *Buffer, x: u8) {
+    if v->len == v->cap { grow_slow(v, 1) }   // the hot caller keeps its registers
+    v->data[v->len] = x
+    v->len += 1
+}
+```
+
+### Who saves what
+
+| | x86-64 | AArch64 |
+|---|---|---|
+| C convention (callee saves) | `rbx`, `rbp`, `r12`-`r15` (Windows adds `rdi`, `rsi`, `xmm6`-`xmm15`) | `x19`-`x28`, `x29`, `x30`, low 64 bits of `v8`-`v15` |
+| `@preserve_most` | every general-purpose register except `r11` and the return registers; floating-point and vector registers stay caller-saved | every general-purpose register except `x0`-`x8` and `x16`-`x18` (adds `x9`-`x15` to C's set); floating-point and vector registers as in C |
+| `@preserve_all` | as `@preserve_most`, plus every XMM/YMM register | as `@preserve_most`, plus the floating-point and SIMD registers |
+| `@preserve_none` | nothing but `rsp` and `rbp` | nothing but the frame pointer, link register and `sp` |
+
+### When to use each
+
+- **`@preserve_most`**: a rarely taken slow path (growing a buffer, refilling a cache, reporting an error) called from hot integer code. The hot caller keeps its values in the registers they are already in instead of saving them around the call; the slow path pays for the saves instead.
+- **`@preserve_all`**: the same, when the hot caller also keeps floating-point or SIMD values live across the call.
+- **`@preserve_none`**: tail-call-heavy dispatch, such as an interpreter's opcode handlers, where each handler jumps to the next and nothing needs to survive a call.
+
+None of them changes inlining: the optimizer may still inline the function, and the convention then applies only to the calls that remain.
+
+### Rules
+
+- **One per function.** Two different conventions on one function is an error naming both ([SC133E](/docs/language/diagnostics/#sc133e)).
+- **Every declaration agrees.** A forward declaration and its definition, or an in-class declaration and its out-of-line definition, carry the same convention ([Signature matching](#signature-matching)). A convention alone never makes two declarations distinct overloads: the same signature with a different convention is a redeclaration error.
+- **Not on functions called by code Kairo does not write**: a constructor, a destructor (`op delete`), any operator, `main`, a generator, an `async` function, a closure or an `eval fn` ([SC134E](/docs/language/diagnostics/#sc134e)).
+- **One convention per override set.** A `virtual` or `override` method may carry a convention only if every method it overrides or is overridden by carries the same one ([SC135E](/docs/language/diagnostics/#sc135e)).
+- **Not across the C/C++ boundary.** GCC has no spelling for these conventions, so a function C or C++ can see may not carry one: an `ffi "c"` / `ffi "c++"` declaration, or any function that is not `priv` (it is in the module's emitted C++ header and its `#include "x.k"` interface). A `priv` or local function is fine ([SC136E](/docs/language/diagnostics/#sc136e)).
+- **x86-64 and AArch64 only**, on any operating system. On any other target the attribute is an error, never silently ignored ([SC137E](/docs/language/diagnostics/#sc137e)).
+
+### In a function type
+
+The convention is part of a function's type: `fn(usize, usize) @preserve_most -> unsafe *u8` (the attribute after the parameter list, before the modifiers and `->`). A function with a convention converts only to a `fn` type with the same convention, in either direction; converting to or from the default convention is a type mismatch. Because closures cannot have a convention, a value of such a type always holds a named function, and it is a plain function pointer, called directly. An interface requirement may carry a convention, and a conforming method must match it exactly.
+
+### Stability across LLVM versions
+
+LLVM documents these conventions as not stable across releases. Every object that defines or calls a function with one records which conventions it uses and the LLVM major that compiled it in its [ABI note](/docs/language/c-cpp-abi/#link-time-abi-verification), and `kld` refuses to link two such objects built by different LLVM majors:
+
+```
+error: '@preserve_most' is used by a.o (LLVM 22) and b.o (LLVM 23); this calling convention is not stable across LLVM versions; rebuild both
+```
+
+Objects that use none of the conventions are never compared.
 
 ## See also
 
