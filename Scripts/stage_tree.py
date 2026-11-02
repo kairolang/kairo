@@ -181,21 +181,35 @@ def symlink(target: str, link: Path) -> bool:
     return True
 
 
-def mirror(src: Path, dst: Path) -> int:
+# Vendored checkouts under Lib/, by their path in the staged lib/: only the
+# entries listed are copied. A submodule brings its .git file, tests, docs,
+# IDE projects and build scripts, and the runtime reads none of them --
+# Lib/rt/mimalloc.c includes mimalloc's src/static.c and its include/, and
+# the license must travel with the code. Debug trees symlink Lib/ whole.
+MIRROR_ONLY = {
+    "rt/mimalloc": {"src", "include", "LICENSE"},
+}
+
+
+def mirror(src: Path, dst: Path, rel: str = "") -> int:
     """Copies the tree src to dst; drops what src no longer has. A dst that
-    is a symlink (a debug tree turned release) is replaced by a real copy."""
+    is a symlink (a debug tree turned release) is replaced by a real copy.
+    rel is src's path in the staged lib/, for MIRROR_ONLY."""
     if dst.is_symlink() or dst.is_file():
         dst.unlink()
     dst.mkdir(parents=True, exist_ok=True)
     n = 0
     want = set()
+    only = MIRROR_ONLY.get(rel)
     for entry in sorted(src.iterdir()):
+        if only is not None and entry.name not in only:
+            continue
         want.add(entry.name)
         out = dst / entry.name
         if entry.is_dir() and not entry.is_symlink():
             if out.is_symlink() or out.is_file():
                 out.unlink()
-            n += mirror(entry, out)
+            n += mirror(entry, out, f"{rel}/{entry.name}" if rel else entry.name)
         elif copy_file(entry, out):
             n += 1
     for extra in dst.iterdir():
@@ -274,7 +288,7 @@ def stage_tree(tree: Path, link_lib: bool) -> None:
             symlink(rel, dst)
             log(f"{tree.name}: lib/{name} -> {rel}")
         else:
-            n = mirror(src, dst)
+            n = mirror(src, dst, name)
             log(f"{tree.name}: lib/{name} ({n} updated)")
 
     tools = stage_tools(tree / "bin", rd.name)

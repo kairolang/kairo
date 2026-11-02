@@ -1606,9 +1606,16 @@ class CompilerInstance {
             return false;
         }
         var dir = self.object_dir();
+        // The vendored mimalloc's headers, for rt/mimalloc.c alone: rt/alloc.h
+        // declares the mi_* entry points it calls itself, so neither Kairo
+        // TUs nor the user's C/C++ see mimalloc's include/ (its mimalloc.h
+        // would shadow a user's own copy).
+        var extra = vec::<string>();
+        extra.push_back("-I");
+        extra.push_back(Path::join_str(self._runtime_root(), "rt/mimalloc/include"));
         var ok = true;
         for src: InputKind in runtime {
-            ok = self._compile_one_native(src, dir + "/kairo/" + Path(src.path).stem() + ".o") && ok;
+            ok = self._compile_one_native(src, dir + "/kairo/" + Path(src.path).stem() + ".o", extra) && ok;
         }
         return ok;
     }
@@ -1785,9 +1792,9 @@ class CompilerInstance {
         return ok;
     }
 
-    priv fn _compile_one_native(self, src: InputKind, obj: string) -> bool {
+    priv fn _compile_one_native(self, src: InputKind, obj: string, extra: vec::<string>) -> bool {
         Path::make_parent_dirs(obj);
-        if !self._backend->compile_native(src.path, obj, src.type_name(), src.is_c_family_c()) { return false; }
+        if !self._backend->compile_native(src.path, obj, src.type_name(), src.is_c_family_c(), extra) { return false; }
         self._native_objs.push_back(obj);
         Logger::info(Logger::Stage::Driver, f"emitted object {obj}");
         return true;
@@ -1832,6 +1839,38 @@ class CompilerInstance {
 
         llvm::sort(out.begin(), out.end(),
             fn (const a: ref!(InputKind), const b: ref!(InputKind)) || -> bool = a.path < b.path);
+        return out;
+    }
+
+    /// \brief every file the runtime's sources include from the vendored
+    ///        mimalloc (<runtime root>/rt/mimalloc/{src,include}, recursive),
+    ///        for the library manifest.
+    ///
+    /// \details rt/mimalloc.c is one line of #include into the submodule:
+    ///          a submodule bump changes these and never mimalloc.c, so a
+    ///          manifest of _runtime_sources() alone would keep a cached
+    ///          runtime object built from the old mimalloc. Sorted, so the
+    ///          manifest does not follow readdir.
+    priv fn _runtime_deps(self) -> vec::<string> {
+        var out = vec::<string>();
+        var rroot = self._runtime_root();
+        if rroot.empty() { return out; }
+        var subs = vec::<string>();
+        subs.push_back("rt/mimalloc/src");
+        subs.push_back("rt/mimalloc/include");
+        for sub: string in subs {
+            var root = Path::join_str(rroot, sub);
+            var ec: libcxx::error_code;
+            var it  = llvm::sys::fs::recursive_directory_iterator(llvm::Twine(sref(root)), ec, true);
+            var end = llvm::sys::fs::recursive_directory_iterator();
+            for (; (!ec) && (it != end); it.increment(ec)) {
+                if Path::type_of_entry(*it) != FileType::regular_file { continue; }
+                var p = it->path();
+                out.push_back(string(p.data(), p.size()));
+            }
+        }
+        llvm::sort(out.begin(), out.end(),
+            fn (const a: ref!(string), const b: ref!(string)) || -> bool = a < b);
         return out;
     }
 
@@ -2841,6 +2880,7 @@ class CompilerInstance {
             man += f"src {LinkFS::mtime(p)} {p}\n";
         }
         for k: InputKind in self._runtime_sources() { man += f"src {LinkFS::mtime(k.path)} {k.path}\n"; }
+        for p: string in self._runtime_deps() { man += f"src {LinkFS::mtime(p)} {p}\n"; }
         if !LinkFS::write(tmp + "/manifest", man) { return false; }
 
         // A library already there is stale (_kairo_lib read it and refused

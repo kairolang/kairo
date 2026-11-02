@@ -23,3 +23,4 @@ module kairo::std
 
 pub import io
 pub import ctypes::*
+pub import mem::*

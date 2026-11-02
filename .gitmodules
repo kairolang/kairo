@@ -24,3 +24,7 @@
 	url = https://github.com/kairolang/lib-helix
 	shallow = true
 
+[submodule "Lib/rt/mimalloc"]
+	path = Lib/rt/mimalloc
+	url = https://github.com/microsoft/mimalloc
+	shallow = true

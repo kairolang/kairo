@@ -258,15 +258,31 @@ class ClangBackend {
     ///          FileTokenizer hook on this instance's Preprocessor; nothing
     ///          else about the shape changes.
     ///
+    ///          Only the runtime (Lib/rt) is built here; the user's C/C++
+    ///          inputs go through clang's driver (ClangJobs). \p extra is
+    ///          appended after the shared arguments: the runtime's own
+    ///          header roots (the vendored mimalloc's include/), which no
+    ///          other TU may see.
+    ///
     ///          Driver thread only. False on any failure, with clang's
     ///          diagnostics already printed.
-    fn compile_native(self, src: string, out: string, xlang: string, is_c: bool) -> bool {
+    fn compile_native(self, src: string, out: string, xlang: string, is_c: bool, extra: vec::<string>) -> bool {
         self.startup();
         if !self.ready() { return false; }
 
         var argv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
         // Lib/rt is C/C++ source: it keeps clang's C/C++ FP defaults.
         self._cc1_common(&argv, is_c, false);
+        // The runtime is the allocator (mimalloc) and every program's hot
+        // path: built at -O0 with the user's code, each allocation costs
+        // several times what it does at -O2. So -O2 at least; a higher
+        // level or a size level the user asked for is kept. cc1 takes the
+        // last -O. Debug info is unaffected (it comes with the target words).
+        if (self._cfg.opt_size == 0) && (self._cfg.opt_level < 2) {
+            var rt_fvec: i32 = (1) if (self._cfg.vectorize) else (0);
+            for a: string in FlagTranslator::optimization(2, 0, rt_fvec, ClangSpelling::CC1) { self._arg(&argv, a); }
+        }
+        for a: string in extra { self._arg(&argv, a); }
         // -std only for the languages it names: IR has none, and an ObjC or
         // OpenCL standard is not a C++ one.
         if (xlang == "c") || (xlang == "cpp-output") {
@@ -279,6 +295,11 @@ class ClangBackend {
         self._arg(&argv, src);
         self._arg(&argv, "-o");
         self._arg(&argv, out);
+        // The whole line under -v: nothing else shows what the runtime was
+        // built with (its -O is not the user's, see above).
+        var line = "cc1";
+        for var i: usize = 0; i < argv.size(); ++i { line += " " + string(argv[i]); }
+        Logger::info(Logger::Stage::Driver, line);
 
         var inv = libcxx::make_shared::<clang::CompilerInvocation>();
         if !clang::CompilerInvocation::CreateFromArgs(*(inv.get()), argv, *(self._diags0.get())) {

@@ -22,23 +22,6 @@
 // builtin reaches them through the header it already imports.
 #include "rt/global_alloc.h"
 
-#if defined(_WIN32)
-  #ifndef WIN32_LEAN_AND_MEAN
-    #define WIN32_LEAN_AND_MEAN
-  #endif
-  #ifndef NOMINMAX
-    #define NOMINMAX
-  #endif
-  #include <malloc.h>
-  #include <windows.h>
-#elif defined(__wasi__)
-  // no address-space reservation; see kairo_rt_reserve
-#else
-  #include <sys/mman.h>
-  #if !defined(MAP_ANONYMOUS) && defined(MAP_ANON)
-    #define MAP_ANONYMOUS MAP_ANON
-  #endif
-#endif
 
 #define KAIRO_RT_INL __attribute__((always_inline)) inline
 #ifndef KAIRO_RT_NOEXCEPT
@@ -53,76 +36,85 @@
 #endif
 
 /// What every malloc on every supported target guarantees. Not alignof(max_align_t):
-/// that overstates msvcrt on i686 and understates MSVC on x64.
+/// that is 16 on i686 glibc, whose malloc only promises 8 for small blocks.
 consteval std::size_t kairo_rt_malloc_align() KAIRO_RT_NOEXCEPT { return 2 * sizeof(void*); }
 
+/* The runtime's heap is mimalloc (rt/mimalloc.c). Declared here rather than
+ * by including mimalloc.h, so every TU that imports this header does not need
+ * the submodule on its include path. The signatures are mimalloc's own. */
+extern "C" {
+void* mi_malloc(std::size_t size) KAIRO_RT_NOEXCEPT;
+void* mi_malloc_small(std::size_t size) KAIRO_RT_NOEXCEPT;
+void* mi_zalloc(std::size_t size) KAIRO_RT_NOEXCEPT;
+void* mi_zalloc_small(std::size_t size) KAIRO_RT_NOEXCEPT;
+void* mi_realloc(void* p, std::size_t newsize) KAIRO_RT_NOEXCEPT;
+void  mi_free(void* p) KAIRO_RT_NOEXCEPT;
+void  mi_free_small_nonnull(void* p) KAIRO_RT_NOEXCEPT;
+void* mi_malloc_aligned(std::size_t size, std::size_t alignment) KAIRO_RT_NOEXCEPT;
+void* mi_zalloc_aligned(std::size_t size, std::size_t alignment) KAIRO_RT_NOEXCEPT;
+void* mi_realloc_aligned(void* p, std::size_t newsize, std::size_t alignment) KAIRO_RT_NOEXCEPT;
+}
+
+/// mimalloc's small-object limit (MI_SMALL_SIZE_MAX): 128 words. A block of
+/// at most this many bytes, at no more than kairo_rt_malloc_align(), comes
+/// from a small page, and is freed by the small-page path, which skips the
+/// page lookup. The size at a call is usually a constant, so the test folds.
+consteval std::size_t kairo_rt_small_max() KAIRO_RT_NOEXCEPT { return 128 * sizeof(void*); }
+
+/// The invariant the small free relies on: a block freed with a size at most
+/// kairo_rt_small_max() lives in a small page. kairo_rt_realloc keeps it by
+/// moving any block that would shrink from a large page into the small range
+/// (mimalloc's realloc shrinks in place), and System::resize refuses that
+/// shrink for the same reason.
+
 KAIRO_RT_INL unsigned char* kairo_rt_malloc(std::size_t n) KAIRO_RT_NOEXCEPT {
-    return static_cast<unsigned char*>(std::malloc(n));
+    return static_cast<unsigned char*>(n <= kairo_rt_small_max() ? mi_malloc_small(n) : mi_malloc(n));
 }
 KAIRO_RT_INL unsigned char* kairo_rt_calloc(std::size_t n) KAIRO_RT_NOEXCEPT {
-    return static_cast<unsigned char*>(std::calloc(1, n));
+    return static_cast<unsigned char*>(n <= kairo_rt_small_max() ? mi_zalloc_small(n) : mi_zalloc(n));
 }
-KAIRO_RT_INL unsigned char* kairo_rt_realloc(unsigned char* p, std::size_t n) KAIRO_RT_NOEXCEPT {
-    return static_cast<unsigned char*>(std::realloc(p, n));
+KAIRO_RT_INL void kairo_rt_free(unsigned char* p, std::size_t n) KAIRO_RT_NOEXCEPT {
+    if (n <= kairo_rt_small_max()) { mi_free_small_nonnull(p); return; }
+    mi_free(p);
 }
-KAIRO_RT_INL void kairo_rt_free(unsigned char* p, std::size_t) KAIRO_RT_NOEXCEPT { std::free(p); }
+KAIRO_RT_INL unsigned char* kairo_rt_realloc(unsigned char* p, std::size_t old_size, std::size_t n) KAIRO_RT_NOEXCEPT {
+    if (n <= kairo_rt_small_max() && old_size > kairo_rt_small_max()) {
+        void* q = mi_malloc_small(n);
+        if (q == nullptr) { return nullptr; }
+        __builtin_memcpy(q, p, n);
+        mi_free(p);
+        return static_cast<unsigned char*>(q);
+    }
+    return static_cast<unsigned char*>(mi_realloc(p, n));
+}
 
+/// Over-aligned blocks: never the small free, so any size is fine.
 KAIRO_RT_INL unsigned char* kairo_rt_aligned_alloc(std::size_t n, std::size_t a) KAIRO_RT_NOEXCEPT {
-#if defined(_WIN32)
-    return static_cast<unsigned char*>(_aligned_malloc(n, a));
-#else
-    void* p = nullptr;
-    // Called as noexcept: musl declares it without one (glibc's __THROW is
-    // one), and clang knows malloc / free as nothrow builtins but not this,
-    // so every noexcept caller it inlines into got a terminate landing pad.
-    // It is C; it cannot throw.
-    using memalign_fn = int (*)(void**, std::size_t, std::size_t) noexcept;
-    return reinterpret_cast<memalign_fn>(&posix_memalign)(&p, a, n) == 0 ? static_cast<unsigned char*>(p) : nullptr;
-#endif
+    return static_cast<unsigned char*>(mi_malloc_aligned(n, a));
+}
+KAIRO_RT_INL unsigned char* kairo_rt_aligned_calloc(std::size_t n, std::size_t a) KAIRO_RT_NOEXCEPT {
+    return static_cast<unsigned char*>(mi_zalloc_aligned(n, a));
+}
+KAIRO_RT_INL unsigned char* kairo_rt_aligned_realloc(unsigned char* p, std::size_t n, std::size_t a) KAIRO_RT_NOEXCEPT {
+    return static_cast<unsigned char*>(mi_realloc_aligned(p, n, a));
 }
 KAIRO_RT_INL void kairo_rt_aligned_free(unsigned char* p, std::size_t, std::size_t) KAIRO_RT_NOEXCEPT {
-#if defined(_WIN32)
-    _aligned_free(p);
-#else
-    std::free(p);
-#endif
+    mi_free(p);
 }
 
-/// Address space for an arena. Committed lazily where the target can do it.
-KAIRO_RT_INL unsigned char* kairo_rt_reserve(std::size_t n) KAIRO_RT_NOEXCEPT {
-#if defined(_WIN32)
-    return static_cast<unsigned char*>(VirtualAlloc(nullptr, n, MEM_RESERVE, PAGE_NOACCESS));
-#elif defined(__wasi__)
-    return static_cast<unsigned char*>(std::malloc(n));          // fresh wasm memory is zeroed
+/// Storage for the builtin's first scope chunk (alloc.k ScopeChunk), one per
+/// thread. Raw zeroed bytes declared here rather than a Kairo `thread`
+/// variable of class type: C++ gives a thread_local of class type a TLS init
+/// function, whose call is not noexcept and so puts a terminate landing pad
+/// (and libc++abi) into every function that opens a scope. A trivial
+/// thread_local array is constant-initialized: no init call, no guard.
+#define KAIRO_RT_SCOPE_FIRST_BYTES 1536
+#if defined(__linux__) || defined(_WIN32) || defined(__APPLE__) || defined(__FreeBSD__) \
+ || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__ANDROID__) || defined(__wasi__) \
+ || defined(__EMSCRIPTEN__)
+  #define KAIRO_RT_SCOPE_TLS thread_local
 #else
-    int flags = MAP_PRIVATE | MAP_ANONYMOUS;
-  #ifdef MAP_NORESERVE
-    flags |= MAP_NORESERVE;
-  #endif
-    void* p = mmap(nullptr, n, PROT_NONE, flags, -1, 0);
-    return p == MAP_FAILED ? nullptr : static_cast<unsigned char*>(p);
+  #define KAIRO_RT_SCOPE_TLS
 #endif
-}
-
-KAIRO_RT_INL bool kairo_rt_commit(unsigned char* p, std::size_t n) KAIRO_RT_NOEXCEPT {
-#if defined(_WIN32)
-    return VirtualAlloc(p, n, MEM_COMMIT, PAGE_READWRITE) != nullptr;
-#elif defined(__wasi__)
-    (void)p; (void)n;
-    return true;
-#else
-    return mprotect(p, n, PROT_READ | PROT_WRITE) == 0;
-#endif
-}
-
-KAIRO_RT_INL void kairo_rt_unreserve(unsigned char* p, std::size_t n) KAIRO_RT_NOEXCEPT {
-#if defined(_WIN32)
-    (void)n;
-    VirtualFree(p, 0, MEM_RELEASE);
-#elif defined(__wasi__)
-    (void)n;
-    std::free(p);
-#else
-    munmap(p, n);
-#endif
-}
+alignas(64) inline KAIRO_RT_SCOPE_TLS unsigned char kairo_rt_scope_first_buf[KAIRO_RT_SCOPE_FIRST_BYTES];
+KAIRO_RT_INL unsigned char* kairo_rt_scope_first() KAIRO_RT_NOEXCEPT { return kairo_rt_scope_first_buf; }

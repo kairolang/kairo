@@ -75,8 +75,10 @@ fn main() -> i32 {
 // indirect call itself (one per representation: heap lambda, plain
 // function), no out-of-line wrapper. Counts, with no scope open: k_create
 // 12 (the push/pop pair is the stack alignment for the non-tail call to
-// malloc, not a TLS spill), k_destroy 3, k_create_in 9, k_destroy_in 1,
-// k_create_bump 11 with no call.
+// mi_malloc_small, not a TLS spill), k_destroy 3, k_create_in 9,
+// k_destroy_in 1, k_create_bump 11 with no call. System is mimalloc
+// (rt/mimalloc.c): a 16-byte, 8-aligned block takes the small-object entry
+// points, mi_malloc_small and mi_free_small_nonnull, chosen at compile time.
 // RUN: { ! grep -q __clang_call_terminate %t.asm; }
 // RUN: %FileCheck %s --check-prefix=EH < %t.asm
 // EH-LABEL: alloc3oomEmm>:
@@ -91,7 +93,7 @@ fn main() -> i32 {
 // EH-NEXT: movl $0x10, %edi
 // EH-NEXT: testq %rax, %rax
 // EH-NEXT: jne
-// EH-NEXT: callq {{.*}}<malloc>
+// EH-NEXT: callq {{.*}}<mi_malloc_small>
 // EH-NEXT: testq %rax, %rax
 // EH-NEXT: je
 // EH-NEXT: movq $0x1, (%rax)
@@ -101,12 +103,12 @@ fn main() -> i32 {
 // EH-LABEL: 9k_destroyEP{{.*}}>:
 // EH-NEXT: cmpq $0x0, %fs:-{{0x[0-9a-f]+}}
 // EH-NEXT: jne
-// EH-NEXT: jmp {{.*}}<free>
+// EH-NEXT: jmp {{.*}}<mi_free_small_nonnull>
 // EH-NOT: {{pushq|popq}}
 // EH-LABEL: 11k_create_inEv>:
 // EH-NEXT: pushq %rax
 // EH-NEXT: movl $0x10, %edi
-// EH-NEXT: callq {{.*}}<malloc>
+// EH-NEXT: callq {{.*}}<mi_malloc_small>
 // EH-NEXT: testq %rax, %rax
 // EH-NEXT: je
 // EH-NEXT: movq $0x1, (%rax)
@@ -114,7 +116,7 @@ fn main() -> i32 {
 // EH-NEXT: popq %rcx
 // EH-NEXT: retq
 // EH-LABEL: 12k_destroy_inEP{{.*}}>:
-// EH-NEXT: jmp {{.*}}<free>
+// EH-NEXT: jmp {{.*}}<mi_free_small_nonnull>
 // EH-LABEL: 13k_create_bumpEv>:
 // EH-NOT: call
 // EH: retq

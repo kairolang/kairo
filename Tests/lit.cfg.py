@@ -584,6 +584,11 @@ def _clangxx_for_bundle(clangxx, triple, sysroot, m):
         flags.append("-nostdlib++")
         flags += list(m["libcxx_link"])
         flags.append("-lm")
+    # The runtime's mimalloc uses pthread keys and mutexes, and kairo's ELF
+    # link passes -lpthread; a glibc before 2.34 (the bundled floor) keeps
+    # them out of libc, so a link without it is undefined pthread_key_create.
+    if not any(k in triple for k in ("windows", "mingw", "darwin", "apple", "wasi", "wasm")):
+        flags.append("-pthread")
     # A static-only bundle may still carry import libs (libc++.dll.a), which
     # clang prefers, and the test exe then dies looking for libc++.dll.
     if m.get("static"):
