@@ -1660,9 +1660,11 @@ class EmitIR {
     /// `for x in xs` over a type pack (`...xs: T`): the body once per
     /// element, each copy a lambda the `&&` fold calls with that element,
     ///
-    ///   { (... && [&](auto& x) -> bool { body; return true; }(xs)); }
+    ///   { (void)(... && [&](auto& x) -> bool { body; return true; }(xs)); }
     ///
-    /// under `_eval_for`'s protocol, which this shares: `continue` is
+    /// (the `(void)` because an empty pack folds to a bare `true`, which as
+    /// a statement is clang's "expression result unused", C1119W at the
+    /// user's `for`) under `_eval_for`'s protocol, which this shares: `continue` is
     /// `return true` from a copy, `break` `return false`, a `return` sets
     /// the function's flag (and value slot) and stops the fold, and the
     /// code after the outermost expansion returns.
@@ -1684,7 +1686,7 @@ class EmitIR {
             if has_val { self._cg->sink->spell(at, self._ef_slot_decl(rt)); }
         }
         var nm = (self._spell.imm_name(vd->name.imm, self._owning_fid())) if (vd != &null) else (LowerTargets::eval_for_unused());
-        self._cg->sink->spell(at, "(... && [&]([[maybe_unused]] auto& " + nm + ") -> bool {");
+        self._cg->sink->spell(at, "(void)(... && [&]([[maybe_unused]] auto& " + nm + ") -> bool {");
         // The element's type, for a witness call through its bound
         // (_witness_member): the pack's canonical, matched against Self.
         var pt: *Type = &null;
@@ -2688,12 +2690,41 @@ class EmitIR {
         } else if (inst != &null) && (CXXSpell::template_params(callee).size() > 0) && self._plain_callee(n->callee) {
             // A generic extension member's instance is `<ext args..., member args...>`.
             self._cg->sink->spell(n->callee->range, self._spell.qual_name(callee) + self._spell.args_str(&(inst->args)));
+        } else if (last != &null) && (f != &null) && (f->generic_params.size() > 0) && (!f->is_operator) && (last->name != &null)
+               && (last->pack_index < 0) && ((last->access_kind == ChainExpr::AccessKind::Dot) || (last->access_kind == ChainExpr::AccessKind::Arrow)) {
+            // `c.m<i64>()` (P263): a generic method through its receiver
+            // spells its generic arguments, or C++ must deduce them, and a
+            // `T` no parameter mentions is "couldn't infer template
+            // argument". From the instance (all of them, the deduced ones
+            // too, as a free call's), else the written ones: a dependent
+            // call, or an imported template, whose instance args are not
+            // the C++ spelling (the imported-template branch above).
+            var ta = "";
+            if (inst != &null) && (!decl_is_imported(callee)) { ta = self._spell.args_str(&(inst->args)); }
+            else {
+                var wl = self._written_targs(n->callee);
+                if wl.size() > 0 { ta = self._spell.args_str(&wl); }
+            }
+            if ta.size() > 0 { self._generic_member_callee(ch, last, ta); }
+            else { self.emit(n->callee); }
         } else {
             self.emit(n->callee);
         }
         self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
         self._args(n, f, bound, inst);
         self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
+    }
+
+    /// The receiver chain \p ch up to its last step \p last, then that step
+    /// as `.template m<A...>`: `template` because the receiver's type may be
+    /// dependent (`self` in a generic record, a `where` dispatcher's
+    /// candidate call), where C++ would read the `<` as less-than; it is
+    /// allowed, and inert, on a known one.
+    priv fn _generic_member_callee(self, ch: *ChainExpr, last: *ChainExpr::Step, ta: string) {
+        var is_ptr = self._chain_prefix(ch, ch->steps.size() - 1);
+        self._cg->sink->spell(last->range, (("->") if (is_ptr) else (".")) + "template ");
+        self._name(last->name->name);
+        self._cg->sink->spell(last->range, ta);
     }
 
     /// \p n calls a member Sema left unbound because its receiver is

@@ -291,9 +291,8 @@ class WhereDispatchLowering derives ASTWriter::<WhereDispatchLowering> {
         // dispatcher for the lead's candidate: the same names, the same
         // entities its parameter types already point at). A free
         // dispatcher calls it with the dispatcher's parameters written as
-        // its arguments (_write_args); a method's call through `self`
-        // leaves them to C++ deduction (WhereGuardCheck refused a method
-        // group where that cannot work).
+        // its arguments (_write_args), and a method's call through `self`
+        // the same, on its `.` step (EmitIR spells them, P263).
         // It keeps the member's visibility: wherever the dispatcher's
         // template is instantiated, a module header included, the candidate
         // must be declared (MONO.md G12).
@@ -369,7 +368,7 @@ class WhereDispatchLowering derives ASTWriter::<WhereDispatchLowering> {
         var call: *Expr = &null;
         if recv != &null { call = self.synth.member_call(at, recv, static_cast::<*Decl>(c), &args, rt); }
         else             { call = self.synth.free_call(at, static_cast::<*Decl>(c), &args, rt); }
-        if (recv == &null) && (c->generic_params.size() > 0) { self._write_args(lead, call); }
+        if c->generic_params.size() > 0 { self._write_args(lead, call); }
 
         var out = vec::<*Stmt>();
         if self.tu.is_void(rt) || self.tu.is_never(rt) {
@@ -388,11 +387,14 @@ class WhereDispatchLowering derives ASTWriter::<WhereDispatchLowering> {
     /// left for C++ to deduce: a type parameter no parameter's type
     /// mentions, and a value parameter, forward as they are. The members
     /// share the lead's parameter names (WhereGuardCheck), so the lead's
-    /// spell the candidate's too.
+    /// spell the candidate's too. A method's candidate call (`self.m_1<T>()`)
+    /// carries them on its one `.` step, which EmitIR writes as
+    /// `this->template m_1<T>` (P263).
     priv fn _write_args(self, lead: *FunctionDecl, call: *Expr) {
         var ce = cast::<CallExpr>(call);
         var id = dyn_cast::<NamedIdentExpr>(ce->callee);
-        ICE_IF(id == &null, "WhereDispatchLowering: a free candidate call whose callee is no name");
+        var ch = dyn_cast::<ChainExpr>(ce->callee);
+        ICE_IF((id == &null) && ((ch == &null) || (ch->steps.size() != 1)), "WhereDispatchLowering: a candidate call whose callee is no name and no one-step member chain");
         var rep = NameLookup::representative(static_cast::<*Decl>(lead));
         var v = vec::<ChainType::GenericArg>();
         for var i: usize = 0; i < lead->generic_params.size(); ++i {
@@ -403,7 +405,8 @@ class WhereDispatchLowering derives ASTWriter::<WhereDispatchLowering> {
             a.ty         = self.sc->types->generic_param(rep, gp->index, gp->is_pack);
             v.push_back(a);
         }
-        id->generic_args.from_vec(&v, self.ctx);
+        if id != &null { id->generic_args.from_vec(&v, self.ctx); }
+        else { ch->steps.get(0)->generic_args.from_vec(&v, self.ctx); }
     }
 
     /// A read of the dispatcher's parameter \p p, typed as X types one.

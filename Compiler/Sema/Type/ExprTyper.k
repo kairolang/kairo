@@ -668,6 +668,10 @@ class ExprTyper
                 ci->callable_cands.push_back(d);
                 n->value_category = Expr::ValueCategory::RValue;    // as a value: the fn pointer.
                 if (!f->is_method()) && (f->generic_params.size() == 0) { return self.fn_pointer_type(f); }
+                // `pick<i32>`: one instance, a value as a plain function is.
+                // Short of that it stays a callable, which only a callee
+                // reads (propagate rejects it as an operand).
+                if !f->is_method() { return self.generic_fn_value_type(f, &(n->generic_args)); }
                 return &null;
             }
             case DeclKind::GenericParamDecl {
@@ -954,6 +958,75 @@ class ExprTyper
         return self.sc->types->func(&ps, &ms, r, f->is_panic(), &pset, true, cc);
     }
 
+    /// The fn-pointer canonical of generic \p f's instance at the arguments
+    /// \p gl names (`pick<i32>` as a value, P264): fn_pointer_type over the
+    /// signature with every parameter bound. Null, so the name stays a
+    /// callable, unless every generic parameter is given positionally and is
+    /// a type: a pack's or a value parameter's argument is not modelled
+    /// here, and a partial list leaves the rest to a call's deduction.
+    fn generic_fn_value_type(self, f: *FunctionDecl, gl: *FrozenList::<ChainType::GenericArg>) -> *Type {
+        if (gl == &null) || (gl->size() == 0) || (gl->size() != f->generic_params.size()) { return &null; }
+        var rep = NameLookup::representative(static_cast::<*Decl>(f));
+        var sub = Substitution(self.sc);
+        for var i: usize = 0; i < gl->size(); ++i {
+            var gp = f->generic_params[i];
+            var ga = gl->get(i);
+            if (gp == &null) || gp->is_pack || gp->is_const_param { return &null; }
+            if ga->name_range.start.is_valid() { return &null; }
+            if (ga->ty == &null) || (ga->ty->canonical == &null) { return &null; }
+            sub.bind(rep, gp->index, ga->ty->canonical);
+        }
+        var ps = vec::<*Type>();
+        var ms = vec::<ParamMode>();
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var p = f->params[i];
+            if (p == &null) || p->is_self { continue; }
+            if (p->type_ == &null) || (p->type_->canonical == &null) { return &null; }
+            var pt = sub.substitute(p->type_->canonical);
+            if pt == &null { return &null; }
+            ps.push_back(canon_unqual(pt));
+            ms.push_back(p->mode);
+        }
+        var r0 = self.fn_return_type(f);
+        if r0 == &null { return &null; }
+        var r = sub.substitute(r0);
+        if r == &null { return &null; }
+        var pset0 = vec::<*Type>();
+        var pset = vec::<*Type>();
+        if f->is_panic() { canonical_set(&(self.tu), &(panic_home(f)->panic_set), &pset0); }
+        for var i: usize = 0; i < pset0.size(); ++i {
+            var e = sub.substitute(pset0[i]);
+            if e == &null { return &null; }
+            pset.push_back(e);
+        }
+        var cc = f->call_conv;
+        if (cc == 0) && (f->canonical_decl() != &null) { cc = f->canonical_decl()->call_conv; }
+        return self.sc->types->func(&ps, &ms, r, f->is_panic(), &pset, true, cc);
+    }
+
+    /// \p child came back as a callable, not a value, where its parent needs
+    /// a value: an operand, a cast's source (P264). A callable has no type
+    /// by design (finish), and every such parent returned null with no
+    /// diagnostic, which finish() reported as an internal error. A function
+    /// with a type (a plain function, a generic one's instance) never gets
+    /// here. \return reported.
+    fn reject_callable_value(self, child: *Expr) -> bool {
+        if (child == &null) || child->is_poisoned() || (child->type_ != &null) || child->is_instantiation_dependent() { return false; }
+        var it = self._chains.find(reinterpret_cast::<u64>(child));
+        if (it == self._chains.end()) || (it->second->callable_cands.size() == 0) { return false; }
+        var text = self.sc->ctx->get_spelling(child->range);
+        var f = dyn_cast::<FunctionDecl>(it->second->callable_cands[0]);
+        var msg = f"'{text}' is a function, not a value here; call it";
+        if (it->second->callable_cands.size() == 1) && (f != &null) && (!f->is_method()) && (f->generic_params.size() > 0) {
+            msg = f"'{text}' is a generic function; it is a value only as one instance, with every generic argument written";
+        } else if it->second->callable_cands.size() > 1 {
+            msg = f"'{text}' names an overloaded function, not a value; call it";
+        }
+        self.sc->diag->report(DiagID::SC094E, child->range.start, msg).first(child->range).emit();
+        child->poison();
+        return true;
+    }
+
     // === outcomes ===========================================================
 
     fn fail(self, e: *Expr, id: DiagID, msg: string) {
@@ -1009,6 +1082,15 @@ class ExprTyper
     fn propagate(self, e: *Expr, child: *Expr) -> bool {
         if child == &null { return false; }
         if child->is_poisoned() { e->poison(); return true; }
+        // A callable read as a value (P264). A paren is no consumer: it is
+        // a callable too (a callee `(f)` is one), and its parent asks.
+        if isa::<ParenExpr>(e) {
+            var ci = self._chains.find(reinterpret_cast::<u64>(child));
+            if (child->type_ == &null) && (ci != self._chains.end()) && (ci->second->callable_cands.size() > 0) {
+                var info = ci->second;                 // before the insert below moves the buckets.
+                self._chains[reinterpret_cast::<u64>(e)] = info;
+            }
+        } else if self.reject_callable_value(child) { e->poison(); return true; }
         if (child->type_ == &null) && child->is_instantiation_dependent() {
             self.mark_unknown(e);
             return true;

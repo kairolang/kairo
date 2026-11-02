@@ -500,6 +500,11 @@ class <T> MemberTyping {
                         n->value_category = Expr::ValueCategory::RValue;
                         return dyn()->fn_pointer_type(f);
                     }
+                    // `ns::pick<i32>`: one instance (P264), as the bare name.
+                    if (f != &null) && (!f->is_method()) && (n->steps.size() > 0) {
+                        var gt = dyn()->generic_fn_value_type(f, &(n->steps.get(n->steps.size() - 1)->generic_args));
+                        if gt != &null { n->value_category = Expr::ValueCategory::RValue; return gt; }
+                    }
                 }
                 return &null;   // callable; CallTyping reads info.
             }

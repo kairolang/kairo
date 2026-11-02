@@ -1586,8 +1586,13 @@ through the receiver (LValue); variant -> the enum; method/set -> callable
 (no type; legal only as a callee); nested type/alias -> type-denoting;
 module -> nothing; `.0` -> the element; operator step -> callable via
 `op_name`. `?.` peels and re-wraps. Callable expressions have no type: a
-unique non-method function named as a value is its fn pointer; an overload
-set as a value is an error at the use.
+unique non-method function named as a value is its fn pointer, and so is a
+generic one named with every (type) argument written, `pick<i32>`, read
+over its signature with those bound (ExprTyper::generic_fn_value_type,
+P264). Any other callable as a value (a generic short of its arguments,
+an overload set, a method) is SC094E at the parent that needs a value
+(ExprTyper::propagate -> reject_callable_value); a paren passes it
+through as a callable.
 
 **Operators** (`OperatorTyping.k`). Builtins follow §6 exactly (`u32 + i32`
 is an error; shifts unify the right operand alone; compound assignment

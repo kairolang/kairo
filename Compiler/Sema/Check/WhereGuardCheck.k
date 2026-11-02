@@ -31,13 +31,10 @@
 ///   \par Not yet supported (SC116E)
 ///     A guarded `virtual` / `override` method (a dispatcher in a vtable has
 ///     no rule yet), a generic
-///     function with a pack parameter, a generic method with a value
-///     parameter or a type parameter no parameter's type mentions (its
-///     candidates are called through `self`, where no generic arguments
-///     are written, so C++ must deduce them; a free dispatcher writes its
-///     own parameters as the arguments, and a generic group is otherwise
-///     folded, MONO.md G12, and must agree on its parameters' names and
-///     bounds),
+///     function with a pack parameter (a dispatcher, free or a method,
+///     writes its own parameters as each candidate's arguments, P263, and
+///     a generic group is otherwise folded, MONO.md G12, and must agree
+///     on its parameters' names and bounds),
 ///     an extension member (ExtensionLowering rewrites its
 ///     receiver; not yet tried with a dispatcher), a default argument
 ///     (the dispatcher would have to carry the right one), a guarded
@@ -287,8 +284,6 @@ class WhereGuardCheck derives RecursiveASTVisitor::<WhereGuardCheck> {
         var gate = "";
         if (f->abi == AbiKind::Virtual) || (f->abi == AbiKind::Override) { gate = "a 'virtual' or 'override' method"; }
         else if self._pack_param(f)   { gate = "a generic function with a pack parameter"; }
-        else if self._has_self(f) && self._value_param(f) { gate = "a generic method with a value parameter"; }
-        else if self._has_self(f) && (self._undeduced(f).size() > 0) { gate = f"a generic method whose parameter '{self._undeduced(f)}' is not deduced from its arguments"; }
         else if decl_extension_of(static_cast::<*Decl>(f)) != &null { gate = "an extension member"; }
         else if f->is_operator     { gate = "an operator"; }
         else if self._is_ctor(f)   { gate = "a constructor"; }
@@ -311,56 +306,16 @@ class WhereGuardCheck derives RecursiveASTVisitor::<WhereGuardCheck> {
     /// A generic member's dispatcher forwards to each candidate with its own
     /// generic parameters written as the arguments (WhereDispatchLowering
     /// _forward), so a type parameter no parameter's type mentions and a
-    /// value parameter need nothing deduced. Two shapes still do: a pack (it
-    /// is not compared by Substitution::bind_alpha, and its forwarding would
-    /// be an expansion), and a method called through its receiver, where
-    /// EmitIR writes no generic arguments on a `.` step, so the candidate's
-    /// must be deduced from the forwarded parameters.
+    /// value parameter need nothing deduced, through a method's receiver
+    /// too (its `.` step carries them, P263). A pack still does: it is not
+    /// compared by Substitution::bind_alpha, and its forwarding would be an
+    /// expansion.
     priv fn _pack_param(self, f: *FunctionDecl) -> bool {
         for var i: usize = 0; i < f->generic_params.size(); ++i {
             var g = f->generic_params[i];
             if (g != &null) && g->is_pack { return true; }
         }
         return false;
-    }
-
-    priv fn _value_param(self, f: *FunctionDecl) -> bool {
-        for var i: usize = 0; i < f->generic_params.size(); ++i {
-            var g = f->generic_params[i];
-            if (g != &null) && g->is_const_param { return true; }
-        }
-        return false;
-    }
-
-    /// \p f takes a receiver: its candidates are called through it.
-    priv fn _has_self(self, f: *FunctionDecl) -> bool {
-        for var i: usize = 0; i < f->params.size(); ++i {
-            var p = f->params[i];
-            if (p != &null) && p->is_self { return true; }
-        }
-        return false;
-    }
-
-    /// The name of \p f's first type parameter no parameter's type
-    /// mentions, or "". Asked by substitution: every OTHER parameter is
-    /// bound to itself, so a parameter type that does not go through
-    /// names the one left unbound.
-    priv fn _undeduced(self, f: *FunctionDecl) -> string {
-        var rep = NameLookup::representative(static_cast::<*Decl>(f));
-        for var i: usize = 0; i < f->generic_params.size(); ++i {
-            var sub = Substitution(self.sc);
-            for var j: usize = 0; j < f->generic_params.size(); ++j {
-                if j != i { sub.bind(rep, u32(j), self.sc->types->generic_param(rep, u32(j), false)); }
-            }
-            var seen = false;
-            for var k: usize = 0; k < f->params.size(); ++k {
-                var p = f->params[k];
-                if (p == &null) || (p->type_ == &null) || (p->type_->canonical == &null) { continue; }
-                if sub.substitute(p->type_->canonical) == &null { seen = true; break; }
-            }
-            if !seen { return self.sc->ctx->get_spelling(f->generic_params[i]->name); }
-        }
-        return "";
     }
 
     /// \p b's bounds read over \p a's generic parameters equal \p a's:
