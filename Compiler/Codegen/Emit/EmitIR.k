@@ -1972,15 +1972,54 @@ class EmitIR {
     ///
     ///   ::__kairo_fn<R'(A)>::own(new auto([__kairo_w = ::__kairo_fn<R(A)>(e)]
     ///       (A __kairo_a0) noexcept -> R' { return ::__kairo_pcall<R'>(__kairo_w, a0); }))
+    ///
+    /// A `(fn ...)?` target is looked through (P167): the wrapper is the
+    /// `T` whose non-explicit `Nullable(T&&)` makes the Nullable at every
+    /// copy-initialization site. A `(fn ...)?` SOURCE as well keeps its
+    /// null: a parameter lambda (one with no capture-default, so it is valid
+    /// in a global's initializer too) tests it once and wraps only the
+    /// value, `__kairo_h.__value()`.
     priv fn _fn_effect_value(self, e: *Expr, want: *Type) -> bool {
         if (e == &null) || (want == &null) || (e->type_ == &null) || (want->canonical == &null) { return false; }
-        var w = dyn_cast::<FunctionPointerType>(canon_unqual(want->canonical));
-        var h = dyn_cast::<FunctionPointerType>(canon_unqual(e->type_));
+        var wt = self._nullable_inner(canon_unqual(want->canonical));
+        var ht = self._nullable_inner(canon_unqual(e->type_));
+        var w = dyn_cast::<FunctionPointerType>((wt) if (wt != &null) else (canon_unqual(want->canonical)));
+        var h = dyn_cast::<FunctionPointerType>((ht) if (ht != &null) else (canon_unqual(e->type_)));
         if (w == &null) || (h == &null) || (w == h) || (w->panic_result == &null) { return false; }
+        // A nullable source needs a nullable target to keep its null in;
+        // anything else is not this conversion.
+        if (ht != &null) && (wt == &null) { return false; }
         // A raw target holds no lambda to wrap the value in (P231 leaves a
         // raw panicking `fn` to plain conversion).
         if w->is_raw { return false; }
         if h->panic_result == w->panic_result { return false; }
+        var nx = ("") if (self._cg->opts.unwind) else (" noexcept");
+        if ht != &null {
+            var nt = self._spell._type(want);
+            var hv = LowerTargets::panic_wrap_src();
+            self._cg->sink->spell(e->range, "[](auto&& " + hv + ")" + nx + " -> " + nt + " { if (" + hv + "." + LowerTargets::nullable_is_null() + "()) { return " + nt + "(); } return ");
+            self._fn_effect_wrap(e, w, h, hv + "." + LowerTargets::nullable_value() + "()");
+            self._cg->sink->spell(e->range, "; }(");
+            self.emit(e);
+            self._cg->sink->spell(e->range, ")");
+            return true;
+        }
+        self._fn_effect_wrap(e, w, h, "");
+        return true;
+    }
+
+    /// \p t's inner canonical when \p t is a `T?`, else null.
+    priv fn _nullable_inner(self, t: *Type) -> *Type {
+        if (t == &null) || (!isa::<NullableType>(t)) { return &null; }
+        var inn = cast::<NullableType>(t)->inner;
+        if inn == &null { return &null; }
+        if inn->canonical != &null { inn = inn->canonical; }
+        return canon_unqual(inn);
+    }
+
+    /// _fn_effect_value's owned wrapper lambda of \p h as \p w, holding
+    /// \p e -- or, when \p src is not empty, that C++ text in its place.
+    priv fn _fn_effect_wrap(self, e: *Expr, w: *FunctionPointerType, h: *FunctionPointerType, src: string) {
         var rw = self._spell._type(w->panic_result);
         var ps = "";
         var fa = "";
@@ -1995,9 +2034,9 @@ class EmitIR {
         var fv = "::" + LowerTargets::fn_value();
         var wn = LowerTargets::panic_wrapped();
         self._cg->sink->spell(e->range, fv + "<" + self._spell.fn_signature(w) + ">::" + LowerTargets::fn_value_own() + "(new auto([" + wn + " = " + fv + "<" + self._spell.fn_signature(h) + ">(");
-        self.emit(e);
+        if src.size() > 0 { self._cg->sink->spell(e->range, src); }
+        else { self.emit(e); }
         self._cg->sink->spell(e->range, ")](" + ps + ") mutable" + nx + " -> " + rw + " { return ::" + LowerTargets::panic_call_as() + "<" + rw + ">(" + wn + fa + "); }))");
-        return true;
     }
 
     /// `[T; N]` where a record is wanted: Sema's array -> slice view

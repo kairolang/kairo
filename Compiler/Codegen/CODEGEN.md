@@ -517,7 +517,15 @@ A PanicOpExpr is spelled by EmitIR (`_panic_op`). A `fn` value converted
 to a `fn` type with a wider panic effect -- the one conversion with no
 node in the tree -- is wrapped where it is converted
 (`EmitIR::_fn_effect_value`): an owned lambda holding the value and
-returning `__kairo_pcall<R'>` of the call.
+returning `__kairo_pcall<R'>` of the call. A nullable target `(fn ...)?`
+takes the wrapper as its `T` (P167); a nullable source keeps its null
+through a parameter lambda that tests `is_null()` once and wraps only
+`__value()`. A witness specialization forwarding to a structural
+conformer whose result is not the requirement's (a smaller set, or no
+panic: P202) converts the same way, `__kairo_pcall<R>([&] { return
+self->m(...); })`; the primary's exact member-pointer gate is unchanged,
+since `needs_specialization` already gives every such row a
+specialization.
 
 A panic result whose set names a type parameter (a generic body, PANIC.md
 P10) is ONE template for every instance (MONO.md D2), so C++ orders its

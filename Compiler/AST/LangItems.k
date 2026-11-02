@@ -1184,6 +1184,8 @@ class LowerTargets {
     static fn nopanic_tag() -> string               { return "__kairo_nopanic_t"; }
     static fn nopanic_trait() -> string             { return "__kairo_is_panic"; }
     static fn nopanic_guard() -> string             { return "__KAIRO_NO_PANIC"; }
+    /// A nullable `fn` source's parameter in the null-keeping wrapper (P167).
+    static fn panic_wrap_src() -> string             { return "__kairo_h"; }
     /// The per-TU panic site table (PANIC.md §1.4): one record per site, a
     /// `__kairo_panic_site` named `__kairo_ps_<key>` (key: the 64-bit hash
     /// of the site's path and offset), in the linker-collected section.

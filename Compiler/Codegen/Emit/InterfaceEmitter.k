@@ -1862,9 +1862,11 @@ class InterfaceEmitter {
         self._cg->sink->brk();
         // A `fn` value converted to a `fn` type whose set is wider (P4's
         // conversion by subset): the call's result as R -- a panic result
-        // forwarded whole, a plain value (or nothing) as Ok.
+        // forwarded whole, a plain value (or nothing) as Ok. `F&&`: a
+        // witness forwarding to a structural conformer (P202) passes a
+        // temporary lambda; the wrapper's held value is an lvalue.
         var pc = LowerTargets::panic_call_as();
-        self._cg->sink->spell(at, "template <class R, class F, class... A> R " + pc + "(F& f, A&&... a)" + nx + " { "
+        self._cg->sink->spell(at, "template <class R, class F, class... A> R " + pc + "(F&& f, A&&... a)" + nx + " { "
             + "using V = decltype(f(static_cast<A&&>(a)...)); "
             + "if constexpr (requires { V::" + off + "; } && requires (V& v) { v." + site + "; }) { return " + fw + "<R, true>(f(static_cast<A&&>(a)...)); } "
             + "else if constexpr (__is_same(V, void)) { f(static_cast<A&&>(a)...); return R(" + vt + "<0>{}, [&]()" + nx + " -> typename R::" + okt + " { return {}; }); } "

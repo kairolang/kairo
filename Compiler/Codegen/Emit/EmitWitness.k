@@ -462,7 +462,20 @@ class EmitWitness {
             var decl = self._member_decl(m, (subs[i]) if (subs[i] != &null) else (subst), x);
             var ea = vec::<*Type>();
             row->ext_args_of(i, &ea);
-            self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(m)), decl + " { return " + self._target(w, m, x, &ea, row->conformer->is_dependent()) + "; }");
+            var call = self._target(w, m, x, &ea, row->conformer->is_dependent());
+            // A conformer met structurally keeps its own result (P202): a
+            // smaller set's panic result, or a plain value when it does not
+            // panic. A declared one returns the requirement's
+            // (PanicLowering::_requirement_of), but one method may meet many
+            // interfaces, so the witness converts instead, as a widened `fn`
+            // value does: `__kairo_pcall<R>` forwards a panic result whole
+            // and makes a plain value (or nothing) Ok.
+            var msub = (subs[i]) if (subs[i] != &null) else (subst);
+            if (m->panic_result != &null) && (self._member_ret(w, &null, "") != self._member_ret(m, msub, x)) {
+                var nx = ("") if (self._cg->opts.unwind) else (" noexcept");
+                call = "::" + LowerTargets::panic_call_as() + "<" + self._member_ret(m, msub, x) + ">([&]()" + nx + " { return " + call + "; })";
+            }
+            self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(m)), decl + " { return " + call + "; }");
         }
         self._cg->sink->spell(at, "};");
         self._cg->sink->brk();
