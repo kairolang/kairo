@@ -218,8 +218,14 @@ class ClangBackend {
     ///        After startup() only: the probe that fills the C++ defaults runs
     ///        there, under its mutex, and pool threads call this.
     fn header_fp_pragmas(self, open: *vec::<string>, close: *vec::<string>) {
+        // clang ignores float_control (C459W per region) on a target
+        // without strict FP support unless the experimental flag forces it.
+        var fc = true;
+        if (self._ci != &null) && self._ci->hasTarget() {
+            fc = self._ci->getTarget().hasStrictFP() || self._ci->getLangOpts().ExpStrictFP;
+        }
         FlagTranslator::header_fp_pragmas(self._cxx_contract, self._cxx_math_errno,
-                                          self._cfg.extra_cc1, open, close);
+                                          self._cfg.extra_cc1, fc, open, close);
     }
     fn mem_fs(self)     -> *llvm::vfs::InMemoryFileSystem { return self._mem.get(); }
 
@@ -450,7 +456,7 @@ class ClangBackend {
         var dargv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
         var words = vec::<string>();
         words.push_back("clang");
-        words.push_back(f"--target={self._cfg.triple}");
+        words.push_back("--target=" + FlagTranslator::clang_triple(self._cfg.triple));
         words.push_back(f"-std={self._cfg.cxx_std}");
         for w: string in self._cfg.driver_words { words.push_back(w); }
         for w: string in FlagTranslator::debug_driver(self._cfg.debug_info, self._cfg.dwarf_version,
@@ -574,7 +580,7 @@ class ClangBackend {
     ///    set, whose PCH must match it), as opposed to Lib/rt's C/C++.
     priv fn _cc1_common(self, argv: *libcxx::vector::<std::ConstPtr::<std::Legacy::char>>, is_c: bool, kairo: bool) {
         self._arg(argv, "-triple");
-        self._arg(argv, self._cfg.triple);
+        self._arg(argv, FlagTranslator::clang_triple(self._cfg.triple));
         for a: string in self._driver_target_args() { self._arg(argv, a); }
         // Kairo's i128 and f128 exist on every target. clang offers __int128
         // only at 64-bit pointer width unless told; the backend expands it

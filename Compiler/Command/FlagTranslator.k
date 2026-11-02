@@ -315,24 +315,56 @@ class FlagTranslator {
     ///          back on; it also sets contraction on, so the contract pragma
     ///          comes after it. The push/pop pair puts Kairo's state back for
     ///          everything after the headers.
+    ///
+    ///          \p float_control: the target honours `#pragma float_control`
+    ///          (clang's TargetInfo::hasStrictFP). Where it does not (wasm),
+    ///          clang ignores the pragma with a warning per header region,
+    ///          so none is written: errno cannot be restored there anyway,
+    ///          and with no push/pop the close line puts Kairo's contraction
+    ///          back by hand.
     static fn header_fp_pragmas(cxx_contract: string, cxx_math_errno: bool,
-                                user_cc1: ref!(vec::<string>),
+                                user_cc1: ref!(vec::<string>), float_control: bool,
                                 open: *vec::<string>, close: *vec::<string>) {
         var contract = cxx_contract;
+        var kairo_contract = "off";                    // kairo_fp_cc1's pin
         var fast = false;
         for w: string in user_cc1 {
-            if w.starts_with("-ffp-contract=") { contract = string(w.raw() + 14, w.size() - 14); }
+            if w.starts_with("-ffp-contract=") {
+                contract = string(w.raw() + 14, w.size() - 14);
+                kairo_contract = contract;
+            }
             if w == "-ffast-math" { fast = true; }
         }
         // `#pragma clang fp contract` takes on|off|fast; the honor-pragmas
         // variant only differs in how it treats pragmas like this one.
         if contract == "fast-honor-pragmas" { contract = "fast"; }
+        if kairo_contract == "fast-honor-pragmas" { kairo_contract = "fast"; }
         if contract.empty() { contract = "off"; }
+        if kairo_contract.empty() { kairo_contract = "off"; }
 
+        if !float_control {
+            open->push_back(f"#pragma clang fp contract({contract})");
+            close->push_back(f"#pragma clang fp contract({kairo_contract})");
+            return;
+        }
         open->push_back("#pragma float_control(push)");
         if cxx_math_errno && (!fast) { open->push_back("#pragma float_control(precise, on)"); }
         open->push_back(f"#pragma clang fp contract({contract})");
         close->push_back("#pragma float_control(pop)");
+    }
+
+    /// \brief the triple as clang is handed it, which is not always the
+    ///        spelling Kairo accepts and keys its sysroots on.
+    ///
+    /// \details clang 22 deprecates `wasm32-wasi` for `wasm32-wasip1` (the
+    ///          same target, a warning on every driver run). The user's
+    ///          spelling stays the build's triple, so `--target=wasm32-wasi`
+    ///          still finds the `wasm32-wasi` sysroot; only the words that
+    ///          reach clang (the -triple, the driver probe, C/C++ inputs'
+    ///          driver line) say wasip1.
+    static fn clang_triple(triple: string) -> string {
+        if triple.ends_with("-wasi") { return triple + "p1"; }
+        return triple;
     }
 
     /// \brief the code-generation flags: target ISA tuning, -f[no-] toggles,
@@ -718,7 +750,7 @@ class FlagTranslator {
         var o   = vec::<string>();
         var cgo = inv.codegen;
         var tgt = inv.target;
-        _fx_push(&o, f"--target={triple}");
+        _fx_push(&o, "--target=" + FlagTranslator::clang_triple(triple));
         for a: string in FlagTranslator::march_driver(tgt) { _fx_push(&o, a); }
         for a: string in FlagTranslator::target(tgt, ClangSpelling::Driver) { _fx_push(&o, a); }
         for a: string in FlagTranslator::language_std(tgt, lang, ClangSpelling::Driver) { _fx_push(&o, a); }
