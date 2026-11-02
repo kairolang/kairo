@@ -3049,6 +3049,27 @@ class PreProcessor {
             graph.add_edge(entry_fid, fi_fid);
         }
 
+        // `@create` / `@destroy` (P91): alloc.k's create / destroy, with no
+        // import written. The graph must reach alloc.k for sema to type it
+        // (and fill its lang items) before the file using the sugar; the
+        // edge binds no name -- the driver's matching ImportEdge is
+        // nameless too (AllocSugarDesugar). Before the macro-prelude block
+        // below, so alloc.k gets its own edge to the builtin root there.
+        if (!self._opts.no_prelude) && (self._opts.prelude_path.size() == 0) && (graph.alloc_sugar.size() > 0) {
+            var asegs = vec::<string>();
+            asegs.push_back(builtin_root_name());
+            asegs.push_back("base");
+            asegs.push_back("alloc");
+            var users = vec::<u32>();
+            for f in graph.alloc_sugar { users.push_back(f); }
+            var a_fid = scanner.add_module_dependency(asegs, &graph);
+            if (a_fid != 0) && (a_fid != u32(-1)) {
+                for var ui: usize = 0; ui < users.size(); ++ui {
+                    if users[ui] != a_fid { graph.add_edge(users[ui], a_fid); }
+                }
+            }
+        }
+
         // The macro prelude needs the builtin root WALKED before any file
         // that may expand one of its macros, and the graph above only has
         // the entry's edge to it. Every other file outside the builtin

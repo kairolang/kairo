@@ -558,6 +558,12 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         // cannot ask well_known either.
         self._bind_lang(root, WellKnownType::DynamicSize);
         self._bind_lang(root, WellKnownType::DynamicAlign);
+
+        // `@create` / `@destroy` (AllocSugarDesugar): bound only by alloc.k,
+        // the one builtin TU that declares them; every other builtin TU
+        // misses and writes nothing.
+        self._bind_lang(root, WellKnownType::Create);
+        self._bind_lang(root, WellKnownType::Destroy);
         var dsz = dyn_cast::<FunctionDecl>(self.sc->well_known->get(WellKnownType::DynamicSize));
         if (dsz != &null) && (reinterpret_cast::<*DeclContext>(dsz->semantic_dc) == static_cast::<*DeclContext>(self.sc->tu)) {
             dsz->dynamic_layout = 1;

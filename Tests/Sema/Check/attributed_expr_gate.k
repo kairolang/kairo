@@ -28,20 +28,16 @@ fn g() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: attributed_expr_gate.k:17:17: error [R020E]: use of undeclared identifier 'create'
-// DIAG: attributed_expr_gate.k:18:15: error [R020E]: use of undeclared identifier 'create'
-// DIAG: attributed_expr_gate.k:20:20: error [R020E]: use of undeclared identifier 'create'
-// DIAG: attributed_expr_gate.k:25:17: error [R020E]: use of undeclared identifier 'create'
 // DIAG: attributed_expr_gate.k:25:31: error [R020E]: use of undeclared identifier 'not_declared'
 
 // `@create T(args)` is no longer gated: it is a call of alloc.k's create
-// (P91, AllocSugarDesugar), so without alloc.k imported its callee is
-// undeclared, and that resolution error stops the schedule before the gate.
+// (P91, AllocSugarDesugar), bound with no import, so its lines report
+// nothing -- no SC037E for `i32(10)`, no overload mismatch at `take` --
+// and the gate runs over the rest of the file.
 // RUN: sed '/not_declared/d' %s > %t.c.k
 // RUN: { %kairo %t.c.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=SUGAR --implicit-check-not="error [" --implicit-check-not="warning ["
-// SUGAR: :17:17: error [R020E]: use of undeclared identifier 'create'
-// SUGAR: :18:15: error [R020E]: use of undeclared identifier 'create'
-// SUGAR: :20:20: error [R020E]: use of undeclared identifier 'create'
+// SUGAR: :19:13: error [SC116E]: the expression attribute '@align' is not yet supported
+// SUGAR: :21:12: error [SC116E]: the expression attribute '@keep' is not yet supported
 
 // The other expression attributes are gated as before.
 // RUN: sed -e '/not_declared/d' -e '/@create/d' %s > %t.k

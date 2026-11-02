@@ -2233,7 +2233,25 @@ class CompilerInstance {
         // the link, and no object's writer is still open when lld mmaps it.
         self._pool->wait_all();
 
-        var lk  = &(self.invocation().linker);
+        // MinGW's pthreads are not in its libc: a program whose Kairo code
+        // imports pthread.h links winpthread, as `-l winpthread` written by
+        // hand would (`pthread` is MinGW's alias for the same archive, so a
+        // hand-written one already covers it). A copy of the options, so
+        // the invocation stays what the user asked for.
+        var lk_eff = self.invocation().linker;
+        if self._backend != &null {
+            var wnorm = llvm::Triple::normalize(sref(self._backend->triple()));
+            var wants = false;
+            for tr: TUResult in result.tu_results { if tr.ffi_pthread { wants = true; } }
+            if wants && llvm::Triple(llvm::Twine(wnorm)).isWindowsGNUEnvironment() {
+                var have = false;
+                for l: string in lk_eff.link_libs {
+                    if LinkText::ends_with(l, "winpthread") || LinkText::ends_with(l, "pthread") { have = true; }
+                }
+                if !have { lk_eff.link_libs.push_back("winpthread"); }
+            }
+        }
+        var lk  = &lk_eff;
         var job = LinkJob(&(self.invocation().target), lk);
         job.output   = self._link_out;
         job.threads  = u32(self._pool->get_thread_count());
@@ -4556,6 +4574,24 @@ fn FrontendAction::_sema() -> bool {
         var bsym   = self._ci->pp()->get_symbol_table()->intern(builtin_root_name());
         var inject = !self._ci->invocation().pp.no_builtins;
         self._global_scope->mark_builtin_fid(bfid);   // the loop skips the root below.
+
+        // alloc.k (`builtin::base::alloc`), when the PP put it in the graph
+        // for a file that writes `@create` / `@destroy` (P91).
+        var afid = u32(-1);
+        {
+            var s_base  = self._ci->pp()->get_symbol_table()->intern("base");
+            var s_alloc = self._ci->pp()->get_symbol_table()->intern("alloc");
+            for var i: usize = 0; i < self._fids.size(); ++i {
+                var actx = self._global_scope->get_context(self._fids[i]);
+                if actx == &null { continue; }
+                var asg = &(actx->module_base.segments);
+                if asg->size() != 3 { continue; }
+                if ((*asg)[0].name == bsym) && ((*asg)[1].name == s_base) && ((*asg)[2].name == s_alloc) {
+                    afid = self._fids[i];
+                    break;
+                }
+            }
+        }
         {
             for var i: usize = 0; i < self._fids.size(); ++i {
                 var fid = self._fids[i];
@@ -4599,6 +4635,25 @@ fn FrontendAction::_sema() -> bool {
                 pedge.target_fid = bfid;
                 pedge.decl       = static_cast::<*Decl>(pid);
                 ptu->import_edges.push(pedge);
+
+                // `@create` / `@destroy` lower to alloc.k's create / destroy
+                // pre-bound (AllocSugarDesugar), so this TU must be typed
+                // AFTER alloc.k, whose N fills the lang item: an edge orders
+                // that (_import_order reads import_edges). The ImportDecl
+                // binds NO name -- plain, with no path segments, so phase I's
+                // _fold_plain has no handle to bind -- and a hand-written
+                // `create<T>()` with no import is still undeclared.
+                if (afid != u32(-1)) && (afid != fid) && ptu->has_alloc_sugar {
+                    var aid = ImportDecl::create(pctx, prng, ImportKind::Native);
+                    aid->is_prelude     = true;
+                    aid->resolved_fid   = afid;
+                    aid->file_seg_count = 1;
+                    ptu->imports.push(static_cast::<*Decl>(aid));
+                    var aedge = ImportEdge{};
+                    aedge.target_fid = afid;
+                    aedge.decl       = static_cast::<*Decl>(aid);
+                    ptu->import_edges.push(aedge);
+                }
             }
         }
     }
@@ -4836,11 +4891,14 @@ fn FrontendAction::_attach_ffi_edges(tu: *TranslationUnit, ctx: *ASTContext, hs:
         if slot == &null { continue; }
         var id = dyn_cast::<ImportDecl>(*slot);
         if (id == &null) || (!id->has_ffi_linkage()) { continue; }
+        // Before the stamp-once skip: each action reports it for its link.
+        var hdr = HeaderSet::unquote(ctx->get_spelling(id->header));
+        if hdr == "pthread.h" { self.result.ffi_pthread = true; }
         // A fid shared by two inputs' graphs reaches here twice; stamp once.
         if id->ffi_closure_fids.size() > 0 { continue; }
 
         var paths = vec::<string>();
-        hs->closure_of(HeaderSet::unquote(ctx->get_spelling(id->header)), paths);
+        hs->closure_of(hdr, paths);
         for var p: usize = 0; p < paths.size(); ++p {
             var k = hs->kfid_of_path(paths[p]);
             if k == 0 { continue; }
@@ -5240,7 +5298,12 @@ fn FrontendAction::_dump_overlays() {
             if pimp == &null { continue; }
             if !pimp->is_prelude { continue; }
             // One prelude: builtin's wildcard. std has none; it is imported
-            // by name (`import std::io`) like any other module.
+            // by name (`import std::io`) like any other module. A plain one
+            // is the nameless edge to alloc.k for `@create` (P91).
+            if !pimp->is_wildcard {
+                std::print(f"  <prelude> alloc edge for @create / @destroy (src=fid {pimp->resolved_fid})");
+                continue;
+            }
             std::print(f"  <prelude> import builtin::* (src=fid {pimp->resolved_fid})");
         }
 

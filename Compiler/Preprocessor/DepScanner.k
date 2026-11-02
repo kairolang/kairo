@@ -20,6 +20,7 @@ import Support::FileIO::Path::*;
 import Support::TimeReport::*;
 import Preprocessor::TokenSource::*;
 import Preprocessor::StreamCursor::*;
+import AST::LangItems::*;
 
 // FIXME: on a big project root with many files, DepScanner makes a lot of
 //        temporary allocations (178k with 280k files) which adds up to a
@@ -48,6 +49,11 @@ class DepGraph {
     /// importing the first (a self-import is one file). The edge from the
     /// last back to the first is NOT in deps -- see _scan_one_import.
     pub var cycles: vec::<vec::<u32>>;
+    /// Files that write `@create` / `@destroy` (P91). The sugar lowers to
+    /// alloc.k's create / destroy with no import written, so the
+    /// preprocessor adds alloc.k to the graph for each of them -- the scan
+    /// is the one place every token of every file is seen before the walk.
+    pub var alloc_sugar: set::<u32>;
 
     fn add_node(self, fid: u32, path: ModulePath) {
         if !self.all_fids.contains(fid) {
@@ -202,6 +208,16 @@ class DepScanner {
             if k == TokenKind::KwImport {
                 self._scan_one_import(&cur, fid, graph, depth);
                 continue;
+            }
+
+            // `@create` / `@destroy`: spelled as ExprParse matches them. A
+            // macro that expands to one is not seen here (the scan does not
+            // expand); such a file needs the import written.
+            if (k == TokenKind::OpAt) && (src.peek(1).kind == TokenKind::LitIdentifier) {
+                var an = TokenText::spelling(src.peek(1), self._tcm);
+                if (an == LangAttrs::create()) || (an == LangAttrs::destroy()) {
+                    graph->alloc_sugar.insert(fid);
+                }
             }
 
             src.next(); // everything else: skip

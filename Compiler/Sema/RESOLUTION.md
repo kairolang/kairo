@@ -277,6 +277,16 @@ being folded. `WellKnownDecls` lives on `GlobalDisambigTable`, filled once
 per build from the builtin fid between that fid's N and T, by qualified
 path; no TU walks its own root by name. `NameBindingVerifier` unchanged.
 
+`@create` / `@destroy` (P91) are the one sugar whose lang items live
+OUTSIDE the prelude: `Create` / `Destroy` are alloc.k's `create` /
+`destroy`, which the builtin root does not re-export. DepScanner records
+each file that writes the sugar and the PP folds `builtin::base::alloc`
+into its graph; the driver gives that TU a second `is_prelude` ImportDecl,
+plain with no path segments, whose only effect is the ImportEdge (alloc.k
+is typed, and its lang items filled, first) -- phase I binds no name from
+it. AllocSugarDesugar (E) mints the callee already bound to the lang item,
+so N skips it; a hand-written `create` with no import is still R020E.
+
 A deferred `eval if` (§2.3) is seen whole: two declarations in sibling
 branches of one are never a redefinition (`_validate_cell` judges each
 branch's declarations, with those outside every branch, apart from the

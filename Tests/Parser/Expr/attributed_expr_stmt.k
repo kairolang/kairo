@@ -78,13 +78,16 @@ fn f(p: *T) {
 //
 // The expression attributes, and only those, are gated. `@create` and
 // `@destroy` are not among them: they are calls of alloc.k's create /
-// destroy (P91, AllocSugarDesugar), and with no alloc.k imported each
-// callee is undeclared, which stops the schedule before the gate. So the
-// gate is checked with those three lines removed.
+// destroy (P91, AllocSugarDesugar), bound with no import, so they report
+// nothing and the gate runs over the whole file. It is checked again with
+// those three lines removed, as before the sugar needed no import.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=SUGAR --implicit-check-not="error [" --implicit-check-not="warning ["
-// SUGAR: attributed_expr_stmt.k:16:2: error [R020E]: use of undeclared identifier 'create'
-// SUGAR: attributed_expr_stmt.k:19:6: error [R020E]: use of undeclared identifier 'destroy'
-// SUGAR: attributed_expr_stmt.k:20:6: error [R020E]: use of undeclared identifier 'create'
+// SUGAR: attributed_expr_stmt.k:21:5: error [SC116E]: the expression attribute '@a' is not yet supported
+// SUGAR: attributed_expr_stmt.k:21:8: error [SC116E]: the expression attribute '@b' is not yet supported
+// SUGAR: attributed_expr_stmt.k:23:5: error [SC001E]: unknown attribute '@repeat'
+// SUGAR: attributed_expr_stmt.k:25:5: error [SC001E]: unknown attribute '@always_inline'
+// SUGAR: attributed_expr_stmt.k:27:5: error [SC001E]: unknown attribute '@note'
+// SUGAR: attributed_expr_stmt.k:29:5: error [SC001E]: unknown attribute '@lbl'
 // RUN: sed -e '/^@create/d' -e '/    @destroy p/d' -e '/    @create T()/d' %s > %t.k
 // RUN: { %kairo %t.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=GATE --implicit-check-not="error [" --implicit-check-not="warning ["
 // GATE: :18:5: error [SC116E]: the expression attribute '@a' is not yet supported

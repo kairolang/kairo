@@ -17,14 +17,20 @@
 ///       @destroy p            destroy(p)
 ///       @destroy(p)           destroy(p)
 ///
-///     The callee is the UNQUALIFIED name `create` / `destroy`, so it binds
-///     by ordinary lookup: alloc.k must be visible (`import
-///     builtin::base::alloc::*`). The builtin prelude does not re-export it,
-///     and `builtin::...` is not nameable in an expression, so there is no
-///     qualified spelling to mint; the spec's `std::create` is the target
-///     once a std module re-exports it. A class with its own allocator
-///     (`op new` / `op delete`, P215) is routed at the call by CallTyping,
-///     the same as a written `create<T>(...)`.
+///     The callee is alloc.k's own `create` / `destroy`, which C++ spells
+///     `::builtin::base::alloc::create<T>`, and it needs no import. A path
+///     cannot say that -- `builtin::...` is not nameable in an expression,
+///     and the builtin prelude does not re-export alloc.k -- so the callee
+///     is minted already BOUND to the lang item (WellKnownType::Create /
+///     Destroy), and N leaves a bound name alone. Two halves make the item
+///     exist: DepScanner puts alloc.k in the graph of a file that writes
+///     the sugar, and the driver gives that TU an import EDGE to it that
+///     binds no name (so alloc.k is typed first, and a hand-written
+///     `create<T>(...)` with no import is still R020E). With no lang item
+///     (`--no-prelude`, a custom builtins dir) the callee is left to
+///     ordinary lookup, as before. A class with its own allocator (`op
+///     new` / `op delete`, P215) is routed at the call by CallTyping, the
+///     same as a written `create<T>(...)`.
 ///
 ///     What is left alone: `@create Point{ x: 1 }` (an initializer, not a
 ///     call) and every other expression attribute. FeatureGateCheck
@@ -84,11 +90,15 @@ class AllocSugarDesugar derives ASTWriter::<AllocSugarDesugar> {
         if isa::<CallExpr>(opd) {
             var c = cast::<CallExpr>(opd);
             var cid = dyn_cast::<NamedIdentExpr>(c->callee);
-            if (cid != &null) && (cid->name.range == n->name.range) { return opd; }
+            if (cid != &null) && (cid->name.range == n->name.range) {
+                self._bind_callee(cid, is_create);
+                return opd;
+            }
         }
 
         if !is_create {
             var callee = NamedIdentExpr::create(self.sc->ctx, n->name.range, n->name);
+            self._bind_callee(callee, false);
             var dc = CallExpr::create(self.sc->ctx, n->range, static_cast::<*Expr>(callee));
             var one = self.sc->ctx->alloc_array::<*Expr>(1);
             one[0] = opd;
@@ -107,9 +117,21 @@ class AllocSugarDesugar derives ASTWriter::<AllocSugarDesugar> {
         ga[0].ty         = ty;
         var callee = NamedIdentExpr::create(self.sc->ctx, n->name.range, n->name);
         callee->generic_args.from_raw(ga, 1);
+        self._bind_callee(callee, true);
         var cc = CallExpr::create(self.sc->ctx, n->range, static_cast::<*Expr>(callee));
         cc->args = call->args;
         return static_cast::<*Expr>(cc);
+    }
+
+    /// Bind the minted (or parser-built) callee to alloc.k's create /
+    /// destroy. alloc.k was typed before this TU (the driver's edge), so
+    /// the lang item is filled by now; when it is not, the name stays
+    /// unbound and N looks it up as written.
+    priv fn _bind_callee(self, id: *NamedIdentExpr, is_create: bool) {
+        if (id == &null) || id->is_bound() || (self.sc->well_known == &null) { return; }
+        var d = self.sc->well_known->get((WellKnownType::Create) if (is_create) else (WellKnownType::Destroy));
+        if d == &null { return; }
+        id->resolved_decl = d;
     }
 
     /// The type a name, a `::` path or a generic application denotes, as

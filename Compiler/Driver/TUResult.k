@@ -39,6 +39,10 @@ class TUResult {
     /// The file global_alloc_at is in: this action's input, or a module it
     /// imported (one action compiles both).
     pub var global_alloc_file: string;
+    /// A file this action compiled imports `pthread.h` through `ffi "c"`
+    /// (or "c++"). MinGW's pthreads are a library of their own
+    /// (winpthread), so the batch adds it to a windows-gnu link.
+    pub var ffi_pthread: bool = false;
 
     fn TUResult(self) {
         self.path        = "";
@@ -48,5 +52,6 @@ class TUResult {
         self.warn_count  = 0;
         self.had_fatal   = false;
         self.elapsed_ms  = 0.0;
+        self.ffi_pthread = false;
     }
 }

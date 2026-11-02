@@ -123,6 +123,13 @@ enum WellKnownType derives u8 {
     /// polymorphic with no virtual destructor is ConformanceChecking's error.
     DynamicSize,
     DynamicAlign,
+    /// `create<T>(...args)` / `destroy<T>(p)` (base/alloc.k): what `@create`
+    /// / `@destroy` lower to (P91, AllocSugarDesugar). Bound from alloc.k's
+    /// own TU, which the dependency scan adds to the graph of any file that
+    /// writes the sugar, so the sugar needs no import and a user `create`
+    /// in scope cannot capture it.
+    Create,
+    Destroy,
 
     COUNT,      ///< keep last.
 }
@@ -175,6 +182,8 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::IsTriviallyDestructible { return "__builtin_is_trivially_destructible"; }
         case WellKnownType::DynamicSize  { return "__builtin_dynamic_size"; }
         case WellKnownType::DynamicAlign { return "__builtin_dynamic_align"; }
+        case WellKnownType::Create     { return "create"; }
+        case WellKnownType::Destroy    { return "destroy"; }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";
@@ -610,7 +619,8 @@ class LangAttrs {
 
 /// \class AllocNames
 /// \brief Lib/builtin/base/alloc.k's names that the compiler reads (P91,
-///        P215, P226). Not lang items: alloc.k is not re-exported by the
+///        P215, P226). Not lang items (only create / destroy are, for the
+///        sugar: WellKnownType::Create): alloc.k is not re-exported by the
 ///        builtin root, so each is matched by spelling AND by the builtin
 ///        fid of the declaration found, never by spelling alone.
 class AllocNames {
