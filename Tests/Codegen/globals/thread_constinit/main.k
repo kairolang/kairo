@@ -15,9 +15,9 @@ fn main() -> i32 {
 //
 // RUN: { %kairo %s --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=DECL
 // DECL-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}main.k
-// DECL-DAG: {{^ *}}extern constinit thread_local signed int hits;
-// DECL-DAG: {{^ *}}extern constinit thread_local signed int const LIMIT;
-// DECL-DAG: {{^ *}}extern thread_local signed int seeded;
+// DECL-DAG: {{^ *}}extern constinit thread_local signed int hits __attribute__((tls_model("local-exec")));
+// DECL-DAG: {{^ *}}extern constinit thread_local signed int const LIMIT __attribute__((tls_model("local-exec")));
+// DECL-DAG: {{^ *}}extern thread_local signed int seeded __attribute__((tls_model("local-exec")));
 //
 // REQUIRES: clang
 // RUN: rm -rf %t.ir

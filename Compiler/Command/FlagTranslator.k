@@ -827,7 +827,7 @@ class FlagTranslator {
     ///          no defaults of its own for any of these, and a table here
     ///          would drift from clang. See ClangBackend::_driver_target_args
     ///          for why each group is taken.
-    static fn probe_filter(cc1: ref!(libcxx::vector::<libcxx::string>)) -> vec::<string> {
+    static fn probe_filter(cc1: ref!(vec::<string>)) -> vec::<string> {
         var out = vec::<string>();
         // Flags taking their value as the next word.
         var paired = vec::<string>();
@@ -1002,5 +1002,95 @@ class FlagTranslator {
             ++it;
         }
         return true;
+    }
+
+    /// \brief which words of the clang command line after a bare `--` are
+    ///        its inputs, by clang's own driver table, so an option's
+    ///        separate value (`-include x.h`, `-mllvm -foo`) is never taken
+    ///        for an input. The rest go to clang verbatim, untranslated.
+    ///
+    /// \param is_input one entry per word of \p argv: 1 for an input.
+    /// \return false when clang's table reports a missing value; \p error
+    ///         says which.
+    static fn split_passthrough(argv: ref!(vec::<string>), is_input: *vec::<u8>,
+                                error: *string) -> bool {
+        var cargv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
+        for var i: usize = 0; i < argv.size(); ++i {
+            cargv.push_back(argv[i].c_str());
+            is_input->push_back(u8(0));
+        }
+        var missing_idx: u32 = 0;
+        var missing_cnt: u32 = 0;
+        var table = &(clang::getDriverOptTable());
+        var vis   = llvm::opt::Visibility(clang::options::ClangOption);
+        var args  = table->ParseArgs(cargv, missing_idx, missing_cnt, vis);
+        if missing_cnt > 0 {
+            var w = argv[static_cast::<usize>(missing_idx)];
+            (*error) = f"clang option '{w}\x27 after -- is missing its value";
+            return false;
+        }
+        var it  = args.begin();
+        var end = args.end();
+        while it != end {
+            var a = *it;
+            if a->getOption().getKind() == llvm::opt::Option::InputClass {
+                var ix = static_cast::<usize>(a->getIndex());
+                if ix < is_input->size() { (*is_input)[ix] = u8(1); }
+            }
+            ++it;
+        }
+        return true;
+    }
+
+    /// One key per option of the cc1 line \p words: the option's words as
+    /// cc1 renders them, joined by newlines (cc1_delta).
+    static fn cc1_keys(words: ref!(vec::<string>)) -> vec::<string> {
+        var out = vec::<string>();
+        var cargv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
+        for var i: usize = 0; i < words.size(); ++i { cargv.push_back(words[i].c_str()); }
+        var missing_idx: u32 = 0;
+        var missing_cnt: u32 = 0;
+        var table = &(clang::getDriverOptTable());
+        var vis   = llvm::opt::Visibility(clang::options::CC1Option);
+        var args  = table->ParseArgs(cargv, missing_idx, missing_cnt, vis);
+        var it  = args.begin();
+        var end = args.end();
+        while it != end {
+            var a = *it;
+            var rendered: llvm::opt::ArgStringList;
+            a->render(args, rendered);
+            var key = "";
+            for var k: usize = 0; k < rendered.size(); ++k {
+                if k > 0 { key += "\n"; }
+                key += string(rendered[k]);
+            }
+            out.push_back(key);
+            ++it;
+        }
+        return out;
+    }
+
+    /// \brief the cc1 options of \p more that \p base does not have, in
+    ///        \p more's order: what the driver words after `--` add to the
+    ///        driver's cc1 line for the same target. Compared per option,
+    ///        not per word, so a value that changed (`-mrelocation-model
+    ///        pic` for `static`) comes through whole; cc1 takes the last.
+    static fn cc1_delta(base: ref!(vec::<string>), more: ref!(vec::<string>)) -> vec::<string> {
+        var have = FlagTranslator::cc1_keys(base);
+        var out  = vec::<string>();
+        for key: string in FlagTranslator::cc1_keys(more) {
+            var seen = false;
+            for h: string in have {
+                if h == key { seen = true; break; }
+            }
+            if seen { continue; }
+            var cur = "";
+            for var k: usize = 0; k < key.size(); ++k {
+                if key[k] == '\n' { out.push_back(cur); cur = ""; }
+                else { cur += key[k]; }
+            }
+            out.push_back(cur);
+        }
+        return out;
     }
 }

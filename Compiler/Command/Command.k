@@ -814,7 +814,11 @@ class Command {
 
                 if elem[1] == '-' { // '--'
                     // bare '--' -> end of options
-                    if elen == 2 { gstate = GlobalState::PathsOnly; i += 1; continue; }
+                    if elen == 2 {
+                        gstate = GlobalState::PathsOnly;
+                        result.dashdash_at = i64(result.files.size());
+                        i += 1; continue;
+                    }
 
                     // '--flag' or '--flag=value'
                     var j: usize = 2;

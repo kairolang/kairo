@@ -18,7 +18,7 @@ println(f"{SQ} {T}")
 // CXX-NOT:  Nullable
 // CXX:      constexpr signed int const SQ = {{ ?}}::thread_and_eval::square(3);
 // CXX-NOT:  Nullable
-// CXX:      thread_local signed int T = {{ ?}}::thread_and_eval::seed();
+// CXX:      thread_local signed int T __attribute((tls_model("local-exec"))) = {{ ?}}::thread_and_eval::seed();
 // CXX-NOT:  Nullable
 // CXX:      int main() {
 // CXX-NOT:  thread_and_eval::T =

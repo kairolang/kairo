@@ -19,6 +19,9 @@ class ParsedArgs {
     /// by extension). Filled only when the Command tags positionals.
     pub var file_langs: vec::<string>;
     pub var ok:    bool = true;   ///< false if required fields missing / bounds violated
+    /// How many of `files` came before a bare `--`; -1 when there was none.
+    /// What follows it is a clang command line (CompilerInstance splits it).
+    pub var dashdash_at: i64 = -1;
 
     priv var _map: map::<string, FlagValue>;
 

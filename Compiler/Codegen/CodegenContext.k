@@ -51,6 +51,13 @@ class EmitOptions {
     pub var warn_unproven_shift: bool = false;
     /// The triple the C++ is compiled for; "" before the driver resolved it.
     pub var target_triple: string = "";
+    /// The objects are linked into an executable here (no --shared, no -c):
+    /// every Kairo TU lands in it, so a user `thread` global's offset from
+    /// the thread pointer is a link-time constant (CXXSpell::tls_model).
+    pub var exe_link: bool = false;
+    /// The target's objects are ELF, the one format whose TLS models the
+    /// tls_model attribute picks between.
+    pub var elf: bool = false;
 
     fn EmitOptions(self) { }
 }
@@ -91,6 +98,8 @@ class CodegenContext {
         if ctx->ci != &null {
             self.opts.warn_unproven_shift = ctx->ci->diag.Wshift_count_unproven;
             self.opts.target_triple       = ctx->ci->target.effective_triple;
+            self.opts.exe_link            = (!ctx->ci->linker.shared) && (!ctx->ci->linker.compile_only);
+            self.opts.elf                 = ctx->ci->target.object_format == "ELF";
         }
     }
 

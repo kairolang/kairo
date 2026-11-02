@@ -53,10 +53,10 @@ fn main() -> i32 {
 // DEF-LABEL: CODEGEN C++: {{.*}}thread_local.k
 // DEF: {{^ *}}public: static thread_local signed int uses;
 // DEF: {{^ *}}inline constinit thread_local signed int Pool::uses = 0;
-// DEF: {{^ *}}extern constinit thread_local signed int hits;
-// DEF: {{^ *}}extern constinit thread_local signed int const BASE;
-// DEF: {{^ *}}constinit thread_local signed int hits = 0;
-// DEF: {{^ *}}constinit thread_local signed int const BASE = 40;
+// DEF: {{^ *}}extern constinit thread_local signed int hits __attribute((tls_model("local-exec")));
+// DEF: {{^ *}}extern constinit thread_local signed int const BASE __attribute((tls_model("local-exec")));
+// DEF: {{^ *}}constinit thread_local signed int hits __attribute((tls_model("local-exec"))) = 0;
+// DEF: {{^ *}}constinit thread_local signed int const BASE __attribute((tls_model("local-exec"))) = 40;
 // DEF: {{^ *}}static thread_local signed int calls = 0;
 
 // REQUIRES: clang

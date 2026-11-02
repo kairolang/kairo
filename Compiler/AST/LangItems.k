@@ -1339,6 +1339,9 @@ class LowerTargets {
     static fn attr_preserve_most() -> string       { return "__attribute__((preserve_most)) "; }
     static fn attr_preserve_all() -> string        { return "__attribute__((preserve_all)) "; }
     static fn attr_preserve_none() -> string       { return "__attribute__((preserve_none)) "; }
+    /// A `thread` global's ELF TLS model (CXXSpell::tls_model), trailing
+    /// its declarator with a leading space: "local-exec" or "initial-exec".
+    static fn attr_tls_model(m: string) -> string  { return " __attribute__((tls_model(\x22" + m + "\x22)))"; }
     /// The object ABI note (EmitIR::_abi_note, read back by Linker::API::
     /// LinkABI): a used, internal byte array in its own section. The ELF and
     /// COFF name is a C identifier, so no `.note` prefix makes ELF give it

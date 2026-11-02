@@ -24,13 +24,13 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX-DAG: extern constinit thread_local signed int a;
-// CXX-DAG: extern constinit thread_local {{.*}} b;
-// CXX-DAG: extern constinit thread_local double c;
-// CXX-DAG: extern constinit thread_local bool d;
-// CXX-DAG: extern constinit thread_local char32_t e;
-// CXX-DAG: extern constinit thread_local signed int {{\*|\* }}f;
-// CXX-DAG: extern thread_local signed int g;
+// CXX-DAG: extern constinit thread_local signed int a __attribute((tls_model("local-exec")));
+// CXX-DAG: extern constinit thread_local {{.*}} b __attribute((tls_model("local-exec")));
+// CXX-DAG: extern constinit thread_local double c __attribute((tls_model("local-exec")));
+// CXX-DAG: extern constinit thread_local bool d __attribute((tls_model("local-exec")));
+// CXX-DAG: extern constinit thread_local char32_t e __attribute((tls_model("local-exec")));
+// CXX-DAG: extern constinit thread_local signed int {{\*|\* }}f __attribute((tls_model("local-exec")));
+// CXX-DAG: extern thread_local signed int g __attribute((tls_model("local-exec")));
 // CXX-NOT: constinit thread_local signed int g
 
 // REQUIRES: clang

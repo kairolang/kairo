@@ -962,6 +962,38 @@ class CXXSpell {
             || isa::<BooleanLiteralExpr>(e) || isa::<CharacterLiteralExpr>(e);
     }
 
+    /// The TLS model attribute of a `thread` global, or "". Every object is
+    /// compiled PIC, which on its own makes each access general-dynamic: a
+    /// `__tls_get_addr` call, so a leaf like `scope_top`'s reader saves and
+    /// restores registers around it even after the linker relaxes the call
+    /// away. The model is a function of the decl and the build, never of
+    /// the TU, so the interface's `extern` and the definition agree:
+    ///   - builtin / std (the toolchain's own, loaded at startup in every
+    ///     program): initial-exec, always. One GOT load, valid in a shared
+    ///     object too, and relaxed by the linker to a constant in an
+    ///     executable. Always, because --kairo-lib builds these objects once
+    ///     for every later link, executable or not.
+    ///   - the user's, linked into an executable: local-exec. Every Kairo TU
+    ///     of the build is in that executable, so the offset is a link-time
+    ///     constant for the extern declarations as well.
+    ///   - the user's otherwise (--shared, -c): none, so general-dynamic. A
+    ///     dlopen'd library's TLS has no static offset, and an object built
+    ///     with -c may end up in one.
+    /// ELF only: elsewhere the attribute either means nothing (Mach-O,
+    /// wasm) or is not the mechanism (COFF).
+    fn tls_model(self, v: *VariableDecl) -> string {
+        if (v == &null) || (!v->is_thread) || (self._cg == &null) || (!self._cg->opts.elf) { return ""; }
+        var segs = self.module_segments(CXXSpell::tu_of(static_cast::<*Decl>(v)));
+        var toolchain = false;
+        if segs.size() > 0 {
+            toolchain = (segs[0] == builtin_root_name()) || (segs[0] == std_root_name());
+            if (segs.size() > 1) && (segs[0] == "kairo") && (segs[1] == std_root_spelling()) { toolchain = true; }
+        }
+        if toolchain { return LowerTargets::attr_tls_model("initial-exec"); }
+        if self._cg->opts.exe_link { return LowerTargets::attr_tls_model("local-exec"); }
+        return "";
+    }
+
     fn global_var(self, v: *VariableDecl) -> string {
         var nm = self.leaf(static_cast::<*Decl>(v));
         var c = (v->type_->canonical) if (v->type_ != &null) else (&null);
@@ -973,7 +1005,10 @@ class CXXSpell {
         // `@align(N)`: on the `extern` declaration and the definition alike,
         // which C++ requires to agree.
         s = AttrFacts::decl_align_attr(static_cast::<*Decl>(v)) + s;
-        return s + self.decl(v->type_, nm);
+        // The TLS model goes after the declarator, so it binds to the
+        // variable whatever the type's shape (pointer, array), before an
+        // `= init` either way.
+        return s + self.decl(v->type_, nm) + self.tls_model(v);
     }
 
     // --- Types -------------------------------------------------------------------
