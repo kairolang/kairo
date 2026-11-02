@@ -29,6 +29,7 @@ import Codegen::CodegenContext::*;
 import Codegen::CodegenICE::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
+import AST::AttrFacts::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
@@ -968,6 +969,9 @@ class CXXSpell {
         if (v->is_const() || v->is_eval()) && (!already) { nm = "const " + nm; }
         var s = ("thread_local ") if (v->is_thread) else ("");
         if CXXSpell::thread_constinit(v) { s = "constinit " + s; }
+        // `@align(N)`: on the `extern` declaration and the definition alike,
+        // which C++ requires to agree.
+        s = AttrFacts::decl_align_attr(static_cast::<*Decl>(v)) + s;
         return s + self.decl(v->type_, nm);
     }
 

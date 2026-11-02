@@ -535,6 +535,51 @@ class LangAttrs {
         if cc == 3 { return LangAttrs::preserve_none(); }
         return "";
     }
+    /// `@packed` / `@align(N)` on a class, struct or union; `@align(N)` on a
+    /// field or variable too. AttrFacts reads them for the layout
+    /// (EnumLayoutQuery::_plain_record_size) and for the C++ spelling.
+    static fn packed() -> string { return "packed"; }
+    static fn align() -> string  { return "align"; }
+    /// `@deprecated` / `@deprecated(msg)` on any declaration: a warning at
+    /// every use (AttributeCheck::run_uses).
+    static fn deprecated() -> string { return "deprecated"; }
+    /// `@no_warn(CODE, ...)` on any declaration: those warnings are dropped
+    /// inside it (AttributeCheck::register_suppressions).
+    static fn no_warn() -> string { return "no_warn"; }
+    /// `@unreachable` on a branch: reserved, reported as not yet supported.
+    static fn unreachable() -> string { return "unreachable"; }
+
+    /// Every attribute name above, one per index, then "" past the last.
+    /// AttributeCheck's known-name test and its did-you-mean read this, so
+    /// an attribute is not "unknown" once its row is listed HERE: a new row
+    /// that is not added to this list is rejected as unknown.
+    static fn known(i: usize) -> string {
+        switch i {
+            case 0  { return LangAttrs::transfer_copy(); }
+            case 1  { return LangAttrs::transfer_move(); }
+            case 2  { return LangAttrs::open_enum(); }
+            case 3  { return LangAttrs::implicit_conversion(); }
+            case 4  { return LangAttrs::no_unwind(); }
+            case 5  { return LangAttrs::unwind(); }
+            case 6  { return LangAttrs::param_inout(); }
+            case 7  { return LangAttrs::likely(); }
+            case 8  { return LangAttrs::unlikely(); }
+            case 9  { return LangAttrs::assume(); }
+            case 10 { return LangAttrs::hot_path(); }
+            case 11 { return LangAttrs::cold_path(); }
+            case 12 { return LangAttrs::pure_fn(); }
+            case 13 { return LangAttrs::preserve_most(); }
+            case 14 { return LangAttrs::preserve_all(); }
+            case 15 { return LangAttrs::preserve_none(); }
+            case 16 { return LangAttrs::packed(); }
+            case 17 { return LangAttrs::align(); }
+            case 18 { return LangAttrs::deprecated(); }
+            case 19 { return LangAttrs::no_warn(); }
+            case 20 { return LangAttrs::unreachable(); }
+            default { return ""; }
+        }
+        return "";
+    }
 }
 
 /// \class LangIntrinsics

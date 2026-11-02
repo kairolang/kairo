@@ -140,6 +140,7 @@ import AST::ASTSupport::*;
 import AST::DeclFacts::*;
 import AST::LangItems::*;
 import AST::EnumNiche::*;
+import AST::AttrFacts::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::Mixin::Annotation::*;
 import AST::Context::DeclContext::*;
@@ -608,6 +609,14 @@ class EnumLayoutQuery {
             var m = (*methods)[i];
             if (m != &null) && ((m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || (m->body_kind == FnBodyKind::Virtual)) { return false; }
         }
+        // `@packed` / `@align(N)` (AttrFacts), as clang lays out the
+        // `__attribute__((packed, aligned(N)))` CXXSpell writes: a packed
+        // record's members sit at alignment 1 unless a member's own
+        // `@align` says otherwise; a member's `@align` raises its alignment
+        // (in a packed record it IS its alignment); the record's `@align`
+        // raises the whole, and the size rounds up to it.
+        var packed = AttrFacts::is_packed(d);
+        var want   = AttrFacts::align_of(d);
         var off: u64 = 0;
         var al:  u64 = 1;
         var any = false;
@@ -617,11 +626,15 @@ class EnumLayoutQuery {
             var fs: u64 = 0;
             var fa: u64 = 0;
             if !self.size_of(f->type_, &fs, &fa) { return false; }
+            var fal = AttrFacts::align_of(static_cast::<*Decl>(f));
+            if packed { fa = (fal) if (fal != 0) else (1); }
+            else if fal > fa { fa = fal; }
             off = self._round(off, fa) + fs;
             if fa > al { al = fa; }
             any = true;
         }
-        (*size)  = (self._round(off, al)) if (any) else (1);
+        if want > al { al = want; }
+        (*size)  = (self._round(off, al)) if (any) else (self._round(1, al));
         (*align) = al;
         return true;
     }

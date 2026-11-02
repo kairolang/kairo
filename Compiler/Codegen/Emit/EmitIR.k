@@ -82,6 +82,7 @@ import Codegen::CodegenContext::*;
 import Codegen::EmitPlan::*;
 import Codegen::Emit::CXXSpell::*;
 import AST::Context::DeclContext::*;
+import AST::AttrFacts::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
@@ -1145,6 +1146,9 @@ class EmitIR {
             self._cg->sink->spell(n->name.range, ")");
             return;
         }
+        // `@align(N)` on a local: GNU `aligned` leads the declaration.
+        var la = AttrFacts::decl_align_attr(static_cast::<*Decl>(n), self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid()));
+        if la.size() > 0 { self._cg->sink->spell(n->name.range, la); }
         switch n->storage {
             case StorageClass::Const  { self._cg->sink->kw_const(n->name);     }
             case StorageClass::Static { self._cg->sink->kw_static(n->name);    }

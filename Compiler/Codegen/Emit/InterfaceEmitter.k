@@ -84,6 +84,7 @@ import Codegen::Emit::CXXSpell::*;
 import Codegen::Emit::EmitWitness::*;
 import Codegen::Emit::EmitIR::*;
 import AST::Context::DeclContext::*;
+import AST::AttrFacts::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
@@ -710,17 +711,21 @@ class InterfaceEmitter {
         var s = self._spell->record_head(d);
         s += kw;
         s += " ";
-        s += self._spell->leaf(d);
-        s += self._spell->spec_suffix(d);
+        var name = self._spell->leaf(d) + self._spell->spec_suffix(d);
 
         // Only ever forward-declared (a nested `struct Cell;` whose body
         // lives elsewhere): a declaration, never an empty definition, which
         // would give it a layout it does not have. Sema has refused every
         // by-value use (TypeCycleCheck, TypeUtil::why_no_default).
         if decl_only_forward(d) {
-            self._cg->sink->spell(at, s + ";");
+            self._cg->sink->spell(at, s + name + ";");
             return;
         }
+        // `@packed` / `@align(N)`: on the definition only, between the
+        // class-key and the name, where C++ puts a record's attributes.
+        // Sema predicted the same layout (EnumLayoutQuery::_plain_record_size).
+        s += AttrFacts::record_attr(d);
+        s += name;
 
         if is_class {
             var n = cast::<ClassDecl>(d);
@@ -826,6 +831,8 @@ class InterfaceEmitter {
             // Before anything spells the field: it has no name.
             if f->is_anonymous_union { self._anon_union_field(f, d); continue; }
             var fs = "";
+            // `@align(N)` on the field: GNU `aligned` leads its declaration.
+            fs += AttrFacts::decl_align_attr(static_cast::<*Decl>(f));
             if f->is_static()  { fs += "static "; }
             if f->is_static() && f->is_thread { fs += "thread_local "; }
             if f->is_mutable   { fs += "mutable "; }
