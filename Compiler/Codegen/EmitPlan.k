@@ -1937,6 +1937,20 @@ fn EmitPlan::_decl_type_items(d: *Decl, out: *vec::<*Decl>) {
             self._type_items(m->return_type, out);
         }
     }
+    // A generic record's value predicates C++ cannot evaluate on the
+    // template head are its body's static_asserts (InterfaceEmitter::
+    // _record_def): the items they name are declared, and defined, ahead of
+    // the template, as a computed field type's are. EvalUsageChecking::
+    // _check_record has refused an item that needs the record back.
+    if CXXSpell::template_params(rec).size() > 0 {
+        var vps = vec::<*Expr>();
+        CXXSpell::value_predicates(decl_requires_clause(rec), &vps);
+        for var i: usize = 0; i < vps.size(); ++i {
+            var n = EarlyNeeds();
+            n.dispatch_expr(vps[i]);
+            for var k: usize = 0; k < n.items.size(); ++k { EarlyNeeds::_once(out, n.items[k]); }
+        }
+    }
     var dc = CXXSpell::dc_of(rec);
     if dc == &null { return; }
     for var i: usize = 0; i < dc->dc_decls.size(); ++i {

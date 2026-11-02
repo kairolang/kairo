@@ -167,7 +167,10 @@ class EvalNeeds derives RecursiveASTVisitor::<EvalNeeds> {
         switch c->kind {
             case TypeKind::RecordType {
                 var rt = cast::<RecordType>(c);
-                self.rec(rt->decl, r);
+                // An instance at dependent arguments names no one record:
+                // which it is, and so whether it closes a cycle, is per
+                // instance (_check_record).
+                if !c->is_dependent() { self.rec(rt->decl, r); }
                 for var i: usize = 0; i < rt->args.size(); ++i { self.values(*(rt->args.get(i)), r); }
             }
             case TypeKind::FixedArrayType {
@@ -500,7 +503,7 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
     /// conjunct) is an eval context: one that reads a run-time value -- a
     /// parameter, a variable -- is requires.mdx's hard error. The predicate
     /// itself is evaluated by C++ (EmitIR's static_assert for a function,
-    /// the template head for a record).
+    /// the template head or a body static_assert for a record).
     priv fn _check_requires(self, e: *Expr) {
         if (e == &null) || e->is_poisoned() { return; }
         var b = dyn_cast::<BinaryOperatorExpr>(e);
@@ -1307,36 +1310,75 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         }
     }
 
-    /// \p r's types name a value C++ computes from items that need \p r
-    /// complete (or a record that does): SC001E at the first such type.
+    /// \p r's types, or the value predicates of its `requires`, name a
+    /// value C++ computes from items that need \p r complete (or a record
+    /// that does): SC001E at the first one. A generic record is checked on
+    /// its primary: an instance its items name (`sizeof R<1>`) is mapped to
+    /// the pattern (EvalNeeds::rec), and every instance's definition
+    /// evaluates the same items, so a cycle through one is a cycle through
+    /// all. A dependent instance (`R<M + 1>` in a generic eval fn) is not a
+    /// need (EvalNeeds::rec_type): whether it closes a cycle depends on the
+    /// arguments, which is C++'s to report per instance.
     priv fn _check_record(self, r: *Decl) {
-        if decl_generic_params(r).size() > 0 { return; }   // a template's head reads its items per instance.
         var ts = vec::<*Type>();
         var ws = vec::<SourceRange>();
         self._member_types(r, &ts, &ws);
         for var t: usize = 0; t < ts.size(); ++t {
             var seeds = vec::<*Decl>();
             self._type_items(ts[t], &seeds);
-            if seeds.size() == 0 { continue; }
-            var cl = vec::<*Decl>();
-            self._closure(&seeds, &cl);
-            // The first item needing r, or a record that reaches r.
-            for var k: usize = 0; k < cl.size(); ++k {
-                for var i: usize = 0; i < self._nd_key.size(); ++i {
-                    if (self._nd_key[i] != cl[k]) || (self._nd_kind[i] != u8(1)) { continue; }
-                    var need = self._nd_val[i];
-                    var via: *Decl = &null;
-                    if need != r {
-                        var seen = vec::<*Decl>();
-                        seen.push_back(r);
-                        if !self._rec_reaches_from(need, r, &seen) { continue; }
-                        via = need;
-                    }
-                    self._report_cycle(r, ws[t], cl[k], via, self._nd_at[i]);
-                    return;
+            if self._check_seeds(r, &seeds, ws[t], "this type has a value C++ computes") { return; }
+        }
+        // A record's value predicates are checked inside its definition
+        // (InterfaceEmitter::_record_def's static_asserts), after the items
+        // they name (EmitPlan::_decl_type_items): the same order problem.
+        var vps = vec::<*Expr>();
+        EvalUsageChecking::_value_preds(decl_requires_clause(r), &vps);
+        for var i: usize = 0; i < vps.size(); ++i {
+            var n = EvalNeeds(&(self.tu));
+            n.dispatch_expr(vps[i]);
+            var seeds = vec::<*Decl>();
+            for var k: usize = 0; k < n.items.size(); ++k { seeds.push_back(n.items[k]); }
+            if self._check_seeds(r, &seeds, vps[i]->range, "this requires predicate is a value C++ computes") { return; }
+        }
+    }
+
+    /// The VALUE conjuncts of requires clause \p e (not `T impl I` / `T
+    /// derives B`), as _check_requires splits them.
+    static fn _value_preds(e: *Expr, out: *vec::<*Expr>) {
+        if (e == &null) || e->is_poisoned() { return; }
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if (b != &null) && ((b->op_token.kind == TokenKind::OpAmpAmp) || (b->op_token.kind == TokenKind::KwAnd)) {
+            EvalUsageChecking::_value_preds(b->lhs, out);
+            EvalUsageChecking::_value_preds(b->rhs, out);
+            return;
+        }
+        if isa::<ConstraintExpr>(e) { return; }
+        out->push_back(e);
+    }
+
+    /// Whether items \p seeds, read at \p at, reach one that needs \p r
+    /// complete (or a record that reaches \p r); reported when they do.
+    priv fn _check_seeds(self, r: *Decl, seeds: *vec::<*Decl>, at: SourceRange, what: string) -> bool {
+        if seeds->size() == 0 { return false; }
+        var cl = vec::<*Decl>();
+        self._closure(seeds, &cl);
+        // The first item needing r, or a record that reaches r.
+        for var k: usize = 0; k < cl.size(); ++k {
+            for var i: usize = 0; i < self._nd_key.size(); ++i {
+                if (self._nd_key[i] != cl[k]) || (self._nd_kind[i] != u8(1)) { continue; }
+                var need = self._nd_val[i];
+                var via: *Decl = &null;
+                if need != r {
+                    var seen = vec::<*Decl>();
+                    seen.push_back(r);
+                    if !self._rec_reaches_from(need, r, &seen) { continue; }
+                    via = need;
                 }
+                self._report_cycle(r, at, cl[k], via, self._nd_at[i], what);
+                return true;
             }
         }
+        return false;
     }
 
     /// _rec_reaches, with \p seen already holding the start record.
@@ -1353,13 +1395,13 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         return false;
     }
 
-    priv fn _report_cycle(self, r: *Decl, at: SourceRange, item: *Decl, via: *Decl, need_at: SourceRange) {
+    priv fn _report_cycle(self, r: *Decl, at: SourceRange, item: *Decl, via: *Decl, need_at: SourceRange, what: string) {
         var rn = self.tu.decl_name(r);
         var inn = self.tu.decl_name(item);
         var why = f"which needs '{rn}' complete";
         if via != &null { why = f"which needs '{self.tu.decl_name(via)}\x27 complete, and '{self.tu.decl_name(via)}\x27 needs '{rn}\x27"; }
         var b = self.sc->diag->report(DiagID::SC001E, at.start,
-            f"this type has a value C++ computes from '{inn}', {why}; inside its own definition '{rn}' is not complete yet, so no order of the C++ declarations can compute it");
+            f"{what} from '{inn}', {why}; inside its own definition '{rn}' is not complete yet, so no order of the C++ declarations can compute it");
         b.first(at);
         var nn = (rn) if (via == &null) else (self.tu.decl_name(via));
         if need_at.is_valid() {

@@ -458,7 +458,13 @@ the declaration (its early items, CODEGEN.md §7; EVAL.md §11). Where no
 order exists -- an item whose body needs the declaring record complete,
 directly or through a record that needs it, or an eval binding whose
 value reaches itself -- EvalUsageChecking reports it (SC001E,
-`_check_order`).
+`_check_order`). A record's `requires` value predicates are evaluated in
+its definition too (CODEGEN.md §7b.7) and are checked the same way. A
+generic record is checked on its primary (P198): an instance an item
+names (`sizeof R<1>`) is the pattern there, since every instance's
+definition evaluates the same items; an instance at dependent arguments
+(`R<M + 1>` in a generic eval fn) is not a need, its cycle being per
+instance and C++'s to report.
 A call of a non-eval function is SC001E with a fix-it. An eval class value
 (7e) enters the same way: an eval constructor call (`Grid<Pt(2, 3)>`) is
 a `Call` node naming the class, and an eval binding of one (`Widget<CFG>`)

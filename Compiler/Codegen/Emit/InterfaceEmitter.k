@@ -794,6 +794,21 @@ class InterfaceEmitter {
             if is_class { line = "public: " + line + " private:"; }
             self._cg->sink->spell(at, line);
         }
+        // The value predicates the template head cannot carry
+        // (CXXSpell::body_predicates), asserted per instance: every instance
+        // Sema homed is explicitly instantiated, so each is checked, as a
+        // function's are by its body's asserts (EmitIR::_body).
+        var bps = self._spell->body_predicates(d);
+        if bps.size() > 0 {
+            var pir = self.ir;
+            var own_ir = EmitIR(self._cg);
+            if pir == &null { pir = &own_ir; }
+            for var i: usize = 0; i < bps.size(); ++i {
+                self._cg->sink->spell(bps[i]->range, "static_assert(");
+                pir->emit(bps[i]);
+                self._cg->sink->spell(bps[i]->range, ", \"requires clause of \x27" + self._spell->leaf(d) + "\x27 not satisfied\");");
+            }
+        }
         // An ADT payload is built inside its union by `new (&member) P(...)`,
         // which must not depend on the TU including <new>: this placement
         // form, found in the class before any global one, is what it calls.

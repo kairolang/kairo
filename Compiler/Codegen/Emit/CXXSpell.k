@@ -1669,8 +1669,8 @@ class CXXSpell {
         // record's own parameters, literals and sizeof / alignof is
         // spelled: the head is written before every other declaration, and
         // a constant or function it named would not be declared yet. The
-        // rest stay unchecked until M2 (ticketed). A function's predicates
-        // are its body's static_asserts instead (EmitIR::_body).
+        // rest are static_asserts in the record's body (body_predicates). A
+        // function's predicates are its body's static_asserts (EmitIR::_body).
         if isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) {
             var vps = vec::<*Expr>();
             CXXSpell::value_predicates(decl_requires_clause(d), &vps);
@@ -1786,6 +1786,26 @@ class CXXSpell {
         }
         if isa::<ConstraintExpr>(e) { return; }
         out->push_back(e);
+    }
+
+    /// The value predicates of generic record \p d's `requires` that its
+    /// template head cannot carry (_pred_text is "": one naming an eval
+    /// constant or fn, which the head -- written in tier 0, before any of
+    /// them is declared -- cannot name). They are static_asserts in the
+    /// record's body instead (InterfaceEmitter::_record_def), evaluated per
+    /// instance once the items are defined (EmitPlan::_decl_type_items puts
+    /// them ahead of the record). Not on a specialization: its clause
+    /// selects, and an assert would turn a non-match into an error.
+    fn body_predicates(self, d: *Decl) -> vec::<*Expr> {
+        var out = vec::<*Expr>();
+        if !(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d)) { return out; }
+        if (CXXSpell::template_params(d).size() == 0) || CXXSpell::is_record_spec(d) { return out; }
+        var vps = vec::<*Expr>();
+        CXXSpell::value_predicates(decl_requires_clause(d), &vps);
+        for var i: usize = 0; i < vps.size(); ++i {
+            if self._pred_text(vps[i]).size() == 0 { out.push_back(vps[i]); }
+        }
+        return out;
     }
 
     /// The value predicates of method \p m's `requires` as a C++20 trailing

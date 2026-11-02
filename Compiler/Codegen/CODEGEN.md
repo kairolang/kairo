@@ -1584,6 +1584,18 @@ conjunct per interface bound, true for every instance Kairo enumerated
 (and a record's self-contained value predicates), and its title is
 "Kairo enumerates every instance it can see".
 
+A generic record's value predicate that names an eval fn or an eval
+constant (`class <eval N: i32> Ring requires is_pow2(N)`, `requires sizeof
+T <= LIMIT`) cannot go on the head: the head is the tier-0 forward
+declaration's too, written before any of them is declared. It is a
+`static_assert(<predicate>, "requires clause of 'Ring' not satisfied")` at
+the top of the record's body instead (`CXXSpell::body_predicates`,
+InterfaceEmitter::_record_def, P126), evaluated per instance; every
+instance Sema homed is explicitly instantiated, so each is checked. The
+items it names are early items of the record (`EmitPlan::_decl_type_items`),
+declared at the start of tier 1 and defined ahead of it, as a computed
+field type's are. Not on a partial specialization, whose clause selects.
+
 ### 7b.8 Monomorphization and explicit instantiation
 
 Witnesses add no registry entry and no tier-3 line: the members are inline,
