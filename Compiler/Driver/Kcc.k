@@ -141,6 +141,16 @@ fn _kcc_words(argc: i32, argv: *(*kairo::std::Legacy::char), out: *vec::<string>
     if !has_std { out->push_back("--cxx-std=c++23"); }
 
     for w: string in kw { out->push_back(w); }
+    // clang's -D is a C/C++ macro (--cxx-define); this one is the Kairo
+    // files' as well: the program sets its global allocator, which every
+    // Kairo TU must know (--global-allocator-set; CompilerInstance::
+    // _settle_global_allocator). Also reachable as -Xkairo --global-allocator-set.
+    for w: string in kw {
+        if (w == "--cxx-define=__KAIRO_GLOBAL_ALLOCATOR_SET") || w.starts_with("--cxx-define=__KAIRO_GLOBAL_ALLOCATOR_SET=") {
+            out->push_back("--global-allocator-set");
+            break;
+        }
+    }
     // clang's separate compilation: `-c y.k` writes y.o and nothing for what
     // y imports, and a link of such objects takes builtin, std and the
     // runtime from the toolchain's library.

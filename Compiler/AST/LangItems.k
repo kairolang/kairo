@@ -1360,6 +1360,13 @@ class LowerTargets {
     /// never reaches C++ (EmitIR emits no alias; the forwarders spell A).
     static fn global_allocator_alias() -> string   { return "@global_allocator"; }
     static fn global_alloc_symbol_prefix() -> string { return "kairo_global_"; }
+    /// Defined for every Kairo file of a program some file of which sets
+    /// the global allocator (PreprocessorOptions::global_allocator_set); the
+    /// builtin's Global tests it with `defined!`.
+    static fn global_alloc_set_macro() -> string   { return "__KAIRO_GLOBAL_ALLOCATOR_SET"; }
+    /// The ABI note's global-allocator record (EmitIR::_abi_note, LinkABI):
+    /// a used byte array beside the conventions record, in the same section.
+    static fn abi_alloc_note_symbol() -> string    { return "__kairo_abi_alloc"; }
     static fn clang_malloc() -> string             { return "__builtin_malloc"; }
     static fn clang_free() -> string               { return "__builtin_free"; }
     static fn clang_atomic_fetch_add() -> string   { return "__atomic_fetch_add"; }

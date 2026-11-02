@@ -2547,6 +2547,8 @@ class PreProcessor {
                                                        ///  whole compile. reserved
                                                        ///  up front so it never
                                                        ///  reallocates after that.
+    priv var _late_define_value: libcxx::string;     ///< define_late's one value
+    priv var _late_define_used:  bool = false;
 
     fn PreProcessor(self, sm: *SourceManager,       tcm:  *TokenCacheManager,
                     resolver: *ImportResolver,      pool: *ThreadPool, diag: *DiagEngine,
@@ -2607,16 +2609,37 @@ class PreProcessor {
             }
 
             self._define_storage.push_back(value.std_string());
-            var stored = &(self._define_storage[self._define_storage.size() - 1]);
+            self._register_define(name, &(self._define_storage[self._define_storage.size() - 1]));
+        }
+    }
 
+    /// \brief `NAME` as `-D NAME` would define it (to `1`), after
+    ///        construction: the driver's macros it decides on only once the
+    ///        inputs are loaded (__KAIRO_GLOBAL_ALLOCATOR_SET). Must run before
+    ///        any file is walked, as _register_defines does, or the files
+    ///        already walked never saw it. The value is a member of its own,
+    ///        never _define_storage, whose growth would dangle the buffers
+    ///        already handed to load_virtual; so this holds ONE such macro.
+    fn define_late(self, name: string) {
+        if self._late_define_used { return; }
+        self._late_define_used = true;
+        var one: string = "1";
+        self._late_define_value = one.std_string();
+        self._register_define(name, &(self._late_define_value));
+    }
+
+    /// One `-D NAME` whose value bytes are \p stored (kept alive by the
+    /// caller for the run): its own virtual file, lexed as a macro body.
+    priv fn _register_define(self, name: string, stored: *libcxx::string) {
+        {
             var fid = self._sm->load_virtual(
                 Path(f"<command-line>:{name}"),
                 reinterpret_cast::<std::ConstPtr::<u8>>(stored->data()),
-                value.size()
+                stored->size()
             );
 
             var lexer = self._tcm->open_stream(fid);
-            if lexer == &null { continue; }
+            if lexer == &null { return; }
             var imm = lexer->get_imm_tbl();
 
             var tcm_tokens    = std::create::<TokenBuffer::<512>>();

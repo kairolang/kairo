@@ -167,6 +167,7 @@ import Linker::API::Toolchain::*;
 import Linker::API::FS::*;
 import Linker::API::Text::*;
 import Linker::API::SysrootManifest::*;
+import Linker::API::LinkABI::*;
 
 ffi "c++" import "llvm/Support/FileSystem.h";
 ffi "c++" import "llvm/Support/Path.h";
@@ -2070,6 +2071,87 @@ class CompilerInstance {
         }
     }
 
+    /// Decides, before any file is walked, whether this program's Kairo
+    /// files are compiled with __KAIRO_GLOBAL_ALLOCATOR_SET: the builtin's
+    /// Global is System inlined without it, and the kairo_global_* symbols
+    /// (whatever file set them) with it. Every TU of one program must agree,
+    /// the builtin's too, or the ones that inlined System bypass the
+    /// program's allocator; so the answer is one bit for the run, settled
+    /// here rather than when the setting file is parsed, which may be after
+    /// the builtin and earlier inputs were already compiled.
+    ///
+    /// On with --global-allocator-set or a -D naming the macro (same
+    /// meaning), or when a linked object's ABI note says its file set it,
+    /// else when a file the inputs reach writes
+    /// `@set_global_allocator` at the start of a line (the parser takes it
+    /// nowhere else, so a comment or a doc line naming it does not count).
+    /// That scan reads the import graph the preprocessor would walk, which is
+    /// the whole program under --emit-scope=graph; under inputs (kcc -c) it
+    /// is only this run's share, and a file set apart needs the flag -- the
+    /// ABI note check at the link catches a build that forgot it.
+    priv fn _settle_global_allocator(self) {
+        var pp = &(self.invocation().pp);
+        var mac = LowerTargets::global_alloc_set_macro();
+        var hand = false;
+        for d: string in pp->defines { if (d == mac) || LinkText::starts_with(d, mac + "=") { hand = true; } }
+        if hand { (pp->global_allocator_set) = true; }
+        if (!pp->global_allocator_set) && (self._pp != &null) {
+            var nk: usize = 0;
+            for k: InputKind in self._inputs {
+                if (k.cls == InputClass::LinkInput) || (k.cls == InputClass::Source) || (k.cls == InputClass::Header) { continue; }
+                nk += 1;
+            }
+            // _kairo_order's fid-0 placeholder, which it can only add while
+            // nothing is loaded: loading the inputs here first must leave
+            // fid 0 where it would have been.
+            if (nk >= 2) && (self._sm->file_count() == 0) {
+                self._sm->load_virtual(Path(r"<kairo-batch>"),
+                    reinterpret_cast::<std::ConstPtr::<u8>>(self._fid0_text.raw()), self._fid0_text.size());
+            }
+            for k: InputKind in self._inputs {
+                if pp->global_allocator_set { break; }
+                // An object of a file that set it (its ABI note says so): a
+                // link of separately built objects needs the library built
+                // with the define as much as a graph build does.
+                if k.cls == InputClass::LinkInput {
+                    if LinkABI::sets_global_allocator(k.path) { (pp->global_allocator_set) = true; }
+                    continue;
+                }
+                if (k.cls == InputClass::Source) || (k.cls == InputClass::Header) { continue; }
+                if CompilerInstance::_file_sets_global_allocator(k.path) { (pp->global_allocator_set) = true; break; }
+                // A missing input is its action's error to report, once.
+                if !LinkFS::is_file(k.path) { continue; }
+                var f = static_cast::<u32>(self._sm->load_file(Path(k.path)));
+                if f == u32(-1) { continue; }
+                var r = self._pp->reach(f);
+                for g in r {
+                    if CompilerInstance::_file_sets_global_allocator(self._sm->get_filename(g)) { (pp->global_allocator_set) = true; break; }
+                }
+            }
+        }
+        // A -D the user wrote is registered already, by the constructor.
+        if pp->global_allocator_set && (!hand) && (self._pp != &null) { self._pp->define_late(mac); }
+    }
+
+    /// true when \p path's text has a line starting (after blanks) with
+    /// `@set_global_allocator`. An unreadable path (a virtual file) is false.
+    priv static fn _file_sets_global_allocator(path: string) -> bool {
+        var text = "";
+        if !LinkFS::read(path, text) { return false; }
+        var pat = "@" + LangAttrs::set_global_allocator();
+        var n = text.size();
+        var i: usize = 0;
+        while i < n {
+            while (i < n) && ((text[i] == ' ') || (text[i] == '\t')) { i += 1; }
+            var hit = (i + pat.size()) <= n;
+            for var j: usize = 0; hit && (j < pat.size()); ++j { if text[i + j] != pat[j] { hit = false; } }
+            if hit { return true; }
+            while (i < n) && (text[i] != '\n') { i += 1; }
+            i += 1;
+        }
+        return false;
+    }
+
     /// A program has one global allocator: a second file of the link that
     /// writes `@set_global_allocator` is an error at it, with a note at the
     /// first (TUResult::global_alloc_at). kld would refuse the link anyway
@@ -2385,6 +2467,8 @@ class CompilerInstance {
             result.aborted = true;
             return result;
         }
+        // Before the library: its objects are cached by this bit too.
+        self._settle_global_allocator();
         if (!self._link_out.empty()) && self.invocation().linker.kairo_lib {
             if !self._kairo_lib() {
                 result.aborted = true;
@@ -2640,6 +2724,9 @@ class CompilerInstance {
         for w: string in FlagTranslator::optimization(inv->codegen.opt_level, osz, inv->codegen.f_vectorize, ClangSpelling::Driver) { key += "\n" + w; }
         key += f"\ndebug={FlagTranslator::debug_on(inv->codegen)}";
         key += "\n" + self.invocation().pp.builtins_dir + "\n" + self.invocation().pp.std_dir;
+        // The one macro that does reach the library: the builtin's Global is
+        // System inlined, or the kairo_global_* symbols (_settle_global_allocator).
+        if self.invocation().pp.global_allocator_set { key += "\nglobal-allocator-set"; }
         var h = llvm::xxh3_64bits(sref(key));
         var hex = llvm::utohexstr(h);
         return root + "/lib/" + self._backend->triple() + "-" + string(hex);
@@ -4250,6 +4337,18 @@ fn FrontendAction::_sema_group(fids: *vec::<u32>, effects: *EffectTable, print_s
         if (sem->sc.tu != &null) && sem->sc.tu->global_alloc_at.is_valid() {
             var here  = sem->sc.tu->global_alloc_at;
             var hfile = ctx->sm->get_filename(here.start);
+            // Its forwarders would be strong kairo_global_* definitions in an
+            // object that inlined System for its own allocations: refused
+            // here rather than at the link. Only a split build gets here
+            // (_settle_global_allocator found it otherwise).
+            if (!self._ci->invocation().pp.global_allocator_set) && (!self._ci->invocation().frontend.stops_before_codegen()) {
+                var hname = Path(hfile).filename();
+                var mac   = LowerTargets::global_alloc_set_macro();
+                var d = self._ci->diag()->report(DiagID::SC001E, here.start,
+                    f"'{hname}' sets the global allocator, but this build does not define {mac}; pass --global-allocator-set when compiling the program's files separately");
+                d.first(here);
+                d.emit();
+            }
             if !self.result.global_alloc_at.is_valid() {
                 self.result.global_alloc_at   = here;
                 self.result.global_alloc_file = hfile;

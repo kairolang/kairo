@@ -1531,6 +1531,14 @@ fn EmitPlan::_witness_row(row: *ConformanceRow) {
         self._assoc_seen.push_back(row);
         for var i: usize = 0; i < row->assoc_rows.size(); ++i { self._witness_row(row->assoc_rows[i]); }
     }
+    // The conformer complete, whichever witness serves the row: the
+    // primary's members are `requires`-guarded on `&A::alloc` and the like,
+    // which an incomplete A fails, so a concept on a type this TU only
+    // names as a generic argument (`alloc_bytes<System>`) would be false
+    // and the call rejected. A specialization's _witness_dep below makes it
+    // complete too, but a row the primary serves never reaches that. A
+    // generic row's conformer is dependent: its template is handled there.
+    if !EmitWitness::is_generic_row(row) { self._admit_type(row->conformer, PlanNeed::Complete); }
     var iface = CXXSpell::rep(row->iface_decl);
     self._witness_primary(iface);
     var ew = EmitWitness(self._cg, &(self._spell));

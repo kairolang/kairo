@@ -297,13 +297,30 @@ class EmitIR {
     /// major is the LLVM this compiler links: its clang IS the code
     /// generator. (Not `__clang_major__`: the C++ goes to clang as tokens,
     /// and no preprocessor expands a macro among them.)
+    ///
+    /// Beside it, in the same section, the global-allocator record: the
+    /// magic, kind 2, and a flags byte -- 1 when this TU was compiled
+    /// without __KAIRO_GLOBAL_ALLOCATOR_SET (its Global is System, inlined),
+    /// 2 when it sets the global allocator (_global_allocator: the strong
+    /// kairo_global_* definitions). kld refuses a link holding both bits,
+    /// in one object or two: the first object's allocations would bypass
+    /// the allocator the second installs. Every TU writes one, so an object
+    /// that predates it is the only Kairo object without.
     priv fn _abi_note(self, tu: *TranslationUnit) {
-        if self._cc_bits == 0 { return; }
-        var major: u32 = static_cast::<u32>(LLVM_VERSION_MAJOR);
         var at  = self._cg->ctx->sm->get_range(tu->fid, 0, 1);
         var sec = LowerTargets::abi_note_section();
         var ci  = self._cg->ctx->ci;
         if (ci != &null) && (ci->target.object_format == "Mach-O") { sec = LowerTargets::abi_note_section_macho(); }
+        var flags: u32 = 0;
+        if (ci != &null) && (!ci->pp.global_allocator_set) { flags |= 1; }
+        if tu->global_alloc != &null { flags |= 2; }
+        if flags != 0 {
+            self._cg->sink->spell(at, "[[gnu::used, gnu::section(\"" + sec + "\")]] static const unsigned char "
+                + LowerTargets::abi_alloc_note_symbol() + "[] = { 0x7f, 0x4b, 0x41, 0x42, 0x49, 2, " + f"{flags}" + " };");
+            self._cg->sink->brk();
+        }
+        if self._cc_bits == 0 { return; }
+        var major: u32 = static_cast::<u32>(LLVM_VERSION_MAJOR);
         self._cg->sink->spell(at, "[[gnu::used, gnu::section(\"" + sec + "\")]] static const unsigned char "
             + LowerTargets::abi_note_symbol() + "[] = { 0x7f, 0x4b, 0x41, 0x42, 0x49, 1, "
             + f"{self._cc_bits}" + ", " + f"{major}" + " };");

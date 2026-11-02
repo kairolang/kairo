@@ -26,6 +26,14 @@ class PreprocessorOptions {
     pub var defines:            vec::<string>;      ///< -D flags
     // -- forced includes prepended before every source file ----------------
     pub var force_includes:     vec::<string>;      ///< --force-include
+    /// Some file of the program sets the global allocator, so every Kairo
+    /// file is compiled with __KAIRO_GLOBAL_ALLOCATOR_SET defined (the
+    /// builtin's Global goes through the kairo_global_* symbols). From
+    /// --global-allocator-set or a -D naming the macro; the driver also sets
+    /// it when a file it reaches writes `@set_global_allocator`
+    /// (CompilerInstance::_settle_global_allocator). EmitIR records its
+    /// absence in each object's ABI note.
+    pub var global_allocator_set: bool = false;
     // -- import / module limits --------------------------------------------
     pub var max_import_depth:   i32    = 512;       ///< --cmax-import-depth
     /// -fimport-cycles / -fno-import-cycles: -1 unset (= on), 0 off, 1 on.
@@ -102,6 +110,7 @@ class PreprocessorOptions {
 
         for s: string in args.get_list("define")        { o.defines.push_back(s); }
         for s: string in args.get_list("force-include") { o.force_includes.push_back(s); }
+        (o.global_allocator_set) = args.get_bool("global-allocator-set");
         return o;
     }
 }

@@ -1489,6 +1489,12 @@ that is the unnamed namespace, and only that TU can reach it).
   and Include modes by every pub interface root. The text is a pure
   function of the interface, the same in every TU and header (invariant
   11's reason).
+- **The conformer**, of every concrete row an instance binds, at Complete
+  whether or not the row needs a specialization: the primary's members
+  are `requires`-guarded on `&X::m`, which an incomplete X fails, so a TU
+  that names X only as a generic argument (`alloc_bytes<System>`, the
+  builtin's System from a user TU) would see the concept false and
+  reject the call.
 - **A specialization**, keyed on its ROW, at Complete after the primary,
   X at Complete, every extension scope it forwards to at Complete (a call
   into a static member needs the class), and its signatures' deps. It is
