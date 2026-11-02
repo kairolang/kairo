@@ -406,6 +406,11 @@ class ParamDecl derives Decl {
     /// with (`long` on LLP64 is i32, as `int` is). TypeImport::is_int_alias
     /// sets it; OverloadResolution's integer tiebreak reads it.
     pub var cxx_int_alias: bool = false;
+    /// Imported C++ param that is a pointer (or non-const lvalue reference)
+    /// to such an alias: `unsigned long*` on i686, where Kairo's `u32`
+    /// spells `unsigned int`. TypeImport::is_alias_indirect sets it; EmitIR
+    /// casts the argument to the parameter's C++ spelling.
+    pub var cxx_alias_ptr: bool = false;
 
     /// This parameter carries the `...`. Set by DeclParse on the marked
     /// parameter, which need not be the last one. `FunctionDecl::is_variadic`
@@ -461,6 +466,8 @@ class ParamDecl derives Decl {
         node->index  = index;
         node->unname = unname;
         node->is_pack      = false;
+        node->cxx_int_alias = false;
+        node->cxx_alias_ptr = false;
         node->keyword_only = false;
         node->default_thunk = &null;
         node->pack_type     = &null;
@@ -480,6 +487,8 @@ class ParamDecl derives Decl {
         node->is_self = true;
         node->index   = 0;
         node->is_pack      = false;
+        node->cxx_int_alias = false;
+        node->cxx_alias_ptr = false;
         node->keyword_only = false;
         node->default_thunk = &null;
         node->pack_type     = &null;
@@ -496,6 +505,8 @@ class ParamDecl derives Decl {
         node->mode       = ParamMode::Value;
         node->mode_range = SourceRange::invalid();
         node->is_pack      = false;
+        node->cxx_int_alias = false;
+        node->cxx_alias_ptr = false;
         node->keyword_only = false;
         node->default_thunk = &null;
         node->pack_type     = &null;

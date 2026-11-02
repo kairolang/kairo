@@ -322,6 +322,7 @@ class BuiltinImport {
             var kp = ParamDecl::create(ctx, pt.range, pt, ptys[i], static_cast::<u32>(i), true);
             kp->has_default = false;
             kp->cxx_int_alias = ti->is_int_alias(fpt->getParamType(static_cast::<u32>(i)));
+            kp->cxx_alias_ptr = ti->is_alias_indirect(fpt->getParamType(static_cast::<u32>(i)));
             fd->cxx_param_spellings.push_back(ti->spelling(fpt->getParamType(static_cast::<u32>(i))));
             params.push_back(kp);
         }

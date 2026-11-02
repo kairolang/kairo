@@ -2617,8 +2617,35 @@ class EmitIR {
             var pi = i;
             if (pk != usize(-1)) && (i >= pk + run) { pi = (i + 1) - run; }
             if pi < params.size() { p = params[pi]; }
+            var alias = self._alias_ptr_spelling(f, p, a);
+            if alias.size() > 0 { self._cg->sink->spell(a->range, "reinterpret_cast<" + alias + ">("); }
             self._arg(a, p, inst);
+            if alias.size() > 0 { self._cg->sink->spell(a->range, ")"); }
         }
+    }
+
+    /// The imported parameter's own C++ spelling when \p a must be cast to
+    /// it, or "". A C integer alias reached through a pointer
+    /// (ParamDecl::cxx_alias_ptr) imports as the Kairo integer of its width,
+    /// whose C++ spelling is the target's natural one: `&tid` is `unsigned
+    /// int*` and i686 `pthread_create` takes `unsigned long*`. Same object,
+    /// same width, and Sema already accepted the call, so the cast only
+    /// tells C++ what Kairo knows. Never on a null literal: nullptr has no
+    /// reinterpret_cast, and converts on its own.
+    priv fn _alias_ptr_spelling(self, f: *FunctionDecl, p: *ParamDecl, a: *Expr) -> string {
+        if (f == &null) || (p == &null) || (!p->cxx_alias_ptr) || p->is_self || p->is_pack { return ""; }
+        var e = a;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        if (e == &null) || isa::<NullLiteralExpr>(e) { return ""; }
+        // cxx_param_spellings holds the value parameters only.
+        var k: usize = 0;
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var q = f->params[i];
+            if q == p { break; }
+            if (q != &null) && (!q->is_self) { k += 1; }
+        }
+        if k >= f->cxx_param_spellings.size() { return ""; }
+        return f->cxx_param_spellings[k];
     }
 
     /// Element \p k of a type pack's run. Under an instance a forwarding

@@ -1124,6 +1124,7 @@ class DeclImport {
             kp->is_pack = is_pack;
             kp->has_default = p->hasDefaultArg();           // spec: new field; OverloadResolution reads it.
             kp->cxx_int_alias = ti->is_int_alias(p->getType());
+            kp->cxx_alias_ptr = ti->is_alias_indirect(p->getType());
             kf->cxx_param_spellings.push_back(ti->spelling(p->getType()));
             params.push_back(kp);
             idx += 1;

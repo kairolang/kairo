@@ -167,6 +167,8 @@ class TypeImport {
     fn _import(self, qt_in: clang::QualType) -> *Type {
         var ps = self._pointer_sized(qt_in);
         if ps != &null { return ps; }
+        var sg = self._sugared_indirect(qt_in);
+        if sg != &null { return sg; }
         var qt = qt_in.getCanonicalType();
         var t  = self._map(qt);
         if t != &null { return t; }
@@ -179,6 +181,8 @@ class TypeImport {
     fn try_import(self, qt_in: clang::QualType) -> *Type {
         var ps = self._pointer_sized(qt_in);
         if ps != &null { return ps; }
+        var sg = self._sugared_indirect(qt_in);
+        if sg != &null { return sg; }
         return self._map(qt_in.getCanonicalType());
     }
 
@@ -207,6 +211,41 @@ class TypeImport {
             }
             cur = tt->desugar();
         }
+        return &null;
+    }
+
+    /// A pointer or reference mapped with its pointee's sugar intact, or
+    /// null for any other type (the canonical path maps those).
+    ///
+    /// \details the canonical path reaches a pointee already canonical, so
+    ///          _pointer_sized never sees the typedef it names: on
+    ///          x86_64-windows-gnu `pthread_t` (`uintptr_t`) was `usize` as a
+    ///          variable's type and `unsafe *u64` as `pthread_t*`, and
+    ///          `pthread_create(unsafe &tid, ...)` was SC063E. One typedef is
+    ///          one Kairo type in every position only if every position reads
+    ///          it through the sugar, so the indirections are walked sugared
+    ///          here and the pointee goes back through _map_or_opaque (which
+    ///          recurses for `size_t**`). Function pointers, arrays and
+    ///          everything else keep the canonical path. A fill's pointer
+    ///          argument is still found by its canonical clang type first.
+    priv fn _sugared_indirect(self, qt: clang::QualType) -> *Type {
+        if qt.isNull() { return &null; }
+        var canon = qt.getCanonicalType();
+        var cty = canon.getTypePtr();
+        var pt = qt->getAs::<clang::PointerType>();
+        if pt != &null {
+            if pt->getPointeeType()->isFunctionType() { return &null; }
+            if !self._ptr_args.empty() {
+                var it = self._ptr_args.find(reinterpret_cast::<u64>(cty));
+                if it != self._ptr_args.end() { return self.store->qualified(it->second, TypeImport::quals_of(canon)); }
+            }
+            var inner = self._map_or_opaque(pt->getPointeeType());
+            return self.store->qualified(self.store->pointer(inner, true), TypeImport::quals_of(canon));
+        }
+        var lr = qt->getAs::<clang::LValueReferenceType>();
+        if lr != &null { return self.store->cxx_lref(self._map_or_opaque(lr->getPointeeType())); }
+        var rr = qt->getAs::<clang::RValueReferenceType>();
+        if rr != &null { return self.store->cxx_rref(self._map_or_opaque(rr->getPointeeType())); }
         return &null;
     }
 
@@ -367,6 +406,8 @@ class TypeImport {
     priv fn _map_or_opaque(self, qt: clang::QualType) -> *Type {
         var ps = self._pointer_sized(qt);
         if ps != &null { return ps; }
+        var sg = self._sugared_indirect(qt);
+        if sg != &null { return sg; }
         var t = self._map(qt.getCanonicalType());
         if t != &null { return t; }
         self.n_opaque += 1;
@@ -587,6 +628,22 @@ class TypeImport {
         var nat  = self.cctx->getIntTypeForBitwidth(bits, sgn);
         if nat.isNull() { return false; }
         return nat.getCanonicalType() != c;
+    }
+
+    /// Whether \p qt is a pointer, or a non-const lvalue reference, to a C
+    /// integer alias (is_int_alias). Kairo's integer is the target's natural
+    /// one, so the argument's C++ type is `unsigned int*` where the
+    /// parameter wants `unsigned long*` (i686 `pthread_t*`, any LLP64
+    /// `unsigned long*`): equal widths, but C++ converts no pointer between
+    /// them (CL001E). EmitIR casts such an argument to the parameter's own
+    /// spelling (ParamDecl::cxx_alias_ptr). A const reference binds through
+    /// a conversion and needs no cast.
+    fn is_alias_indirect(self, qt: clang::QualType) -> bool {
+        var pt = qt->getAs::<clang::PointerType>();
+        if pt != &null { return self.is_int_alias(pt->getPointeeType()); }
+        var lr = qt->getAs::<clang::LValueReferenceType>();
+        if (lr != &null) && (!lr->getPointeeType().isConstQualified()) { return self.is_int_alias(lr->getPointeeType()); }
+        return false;
     }
 
     // === builtins ===========================================================
