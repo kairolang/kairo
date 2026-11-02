@@ -1,8 +1,8 @@
 // Every operator a builtin type declares resolves through the ordinary
 // record path (RESOLUTION.md, "A builtin type's declared operator wins"):
 // binary, comparison and containment `in` on `string` and `[T]`, declared
-// here through extensions because Lib/builtin declares none and is not this
-// test's to change. builtin_ops_fallback.k covers a builtin that declares
+// here through extensions because Lib/builtin declares none of these and is
+// not this test's to change. builtin_ops_fallback.k covers a builtin that declares
 // nothing applicable; `op []` cannot be an extension member (SC055E), so
 // builtin_declared_subscript.k declares one in a fixture builtin root.
 
@@ -22,8 +22,8 @@ extend string {
 extend <T: type> [T] {
     fn op in (self, x: T) -> bool {
         var i: usize = 0
-        while i < self.len {
-            if self.data[i] == x { return true }
+        while i < self.size() {
+            if self[i] == x { return true }
             i = i + 1
         }
         return false

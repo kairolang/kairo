@@ -3,12 +3,8 @@
 // The IterKind::Vector / String shapes are only the fallback for a builtin
 // that declares no iteration form, and that fallback is still SC116E.
 //
-// Lib/builtin declares no operator on either type and is not this test's to
-// change, so the operators come from extensions in this file. string runs:
-// its literal constructor has a body. A vector has no constructor body yet
-// (Lib/builtin's API is unwritten), so `sum` is never called: it is still
-// compiled and linked, which is what proves the lowering, and its loop is
-// checked in the emitted C++.
+// Vector declares its `op in` in Lib/builtin (containers/vector.k); string
+// declares none, so its operator comes from an extension in this file.
 
 extend string {
     fn op in (self) -> yield u8 {
@@ -16,17 +12,6 @@ extend string {
         while i < self.length() {
             var b = self.as_ptr()[i]
             yield b
-            i = i + 1
-        }
-    }
-}
-
-extend <T> [T] {
-    fn op in (self) -> yield T {
-        var i: usize = 0
-        while i < self.len {
-            var e = self.data[i]
-            yield e
             i = i + 1
         }
     }
@@ -43,7 +28,7 @@ fn main() -> i32 {
     for c in "abcd" { n += (c as i32) - 96 }    // 1 + 2 + 3 + 4
     var s = "xy"
     for c in s { n += 1 }                       // an lvalue receiver
-    return n                                    // 12
+    return n + sum([1, 2, 3])                   // 12 + 6
 }
 
 // --- lit wiring -----------------------------------------------------------
@@ -53,11 +38,11 @@ fn main() -> i32 {
 // Both loops call the declared operator; neither is the built-in shape.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-NOT: Internal Compiler Error
-// CXX: Yield<signed int> __kairo_it{{[0-9]+}} = {{.*}}Vector::__kairo_iter<signed int>(v);
+// CXX: Yield<signed int> __kairo_it{{[0-9]+}} = v.__kairo_iter();
 // CXX: Yield<unsigned char> __kairo_it{{[0-9]+}} = {{.*}}string::__kairo_iter(__kairo_seq{{[0-9]+}});
 // CXX: Yield<unsigned char> __kairo_it{{[0-9]+}} = {{.*}}string::__kairo_iter(s);
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
-// RUN: %t.exe; test $? -eq 12
+// RUN: %t.exe; test $? -eq 18

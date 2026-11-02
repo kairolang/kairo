@@ -26,11 +26,12 @@ fn over_slice(xs: [i32;]) -> i32 {
 
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 //
-// Iterating a vector, set, map or string type-checks but has no lowering
-// yet. Each is reported as an error rather than reaching IterLowering. The
-// slice loop at line 23 is supported and stays quiet.
+// Iterating a set, map or string type-checks but has no lowering yet. Each
+// is reported as an error rather than reaching IterLowering. The slice loop
+// at line 23 is supported and stays quiet, and so is the vector loop at
+// line 3: Vector declares `op in` (Lib/builtin/containers/vector.k), which
+// makes the loop IterKind::User, never the gated fallback.
 //
-// DIAG:     feature_gate_iter.k:3:{{[0-9]+}}: error [SC116E]: iterating a vector is not yet supported
 // DIAG:     feature_gate_iter.k:8:{{[0-9]+}}: error [SC116E]: iterating a set is not yet supported
 // DIAG:     feature_gate_iter.k:13:{{[0-9]+}}: error [SC116E]: iterating a map is not yet supported
 // DIAG:     feature_gate_iter.k:18:{{[0-9]+}}: error [SC116E]: iterating a string is not yet supported

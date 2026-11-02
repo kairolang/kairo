@@ -22,12 +22,15 @@ pub struct <T> Slice {
         self.len  = len
     }
 
-    pub inline fn op [] (self, i: usize) -> *T {
+    /// Every subscript takes `const self`: a const view (a `const s: [T;]`
+    /// parameter) still indexes, and the view's constness is not its
+    /// elements'.
+    pub inline fn op [] (const self, i: usize) -> *T {
         return &self.data[i]
     }
 
     /// `s[a..b]`, `s[a..=b]`. A view: nothing is copied.
-    pub inline fn op [] (self, r: Range<usize>) -> [T;] {
+    pub inline fn op [] (const self, r: Range<usize>) -> [T;] {
         var hi = r.end
         if r.inclusive {
             if r.end >= self.len { __builtin_trap() }
@@ -38,13 +41,13 @@ pub struct <T> Slice {
     }
 
     /// `s[a..]`, and `s[..]`.
-    pub inline fn op [] (self, r: RangeFrom<usize>) -> [T;] {
+    pub inline fn op [] (const self, r: RangeFrom<usize>) -> [T;] {
         if r.begin > self.len { __builtin_trap() }
         return Slice<T>(&self.data[r.begin], self.len - r.begin)
     }
 
     /// `s[..b]`, `s[..=b]`.
-    pub inline fn op [] (self, r: RangeTo<usize>) -> [T;] {
+    pub inline fn op [] (const self, r: RangeTo<usize>) -> [T;] {
         var hi = r.end
         if r.inclusive {
             if r.end >= self.len { __builtin_trap() }

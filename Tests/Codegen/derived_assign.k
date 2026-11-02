@@ -147,6 +147,7 @@ fn main() -> i32 {
 // CXX:       Yield& operator=({{ ?}}::builtin::coro::generator::Yield<T>&& o) {
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}suspend.k
 // CXX-NOT:   #include <new>
+// CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}future.k
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}derived_assign.k
 // CXX-NEXT:  #include <new>
 // CXX:       class C {

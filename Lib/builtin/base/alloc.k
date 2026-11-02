@@ -41,7 +41,11 @@
 /// ------------------------------------------------------------------------ ///
 
 import builtin::base::intrinsics::*;
-import builtin::Nullable;   // circular with module.k; allowed, warns R001W
+// The string lang item, for the messages here; not the root (`import
+// builtin::Nullable`, which `T?` does not need): that closed a cycle,
+// module.k -> containers/vector.k -> alloc.k -> module.k, warning R001W on
+// every compile once a builtin the root imports allocates.
+import builtin::string::*;
 ffi "c++" import "rt/alloc.h"
 
 // --- interfaces -------------------------------------------------------------

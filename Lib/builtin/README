@@ -94,6 +94,23 @@ see an empty lang-item table and report the item missing from inside
 builtin itself. Imports are acyclic: two entities that name each other
 share a file (coro/generator.k).
 
+A container or string that owns memory imports base/alloc.k and allocates
+through its non-_in family (alloc_raw / free_raw / resize_raw: the
+allocator in effect), never mi_* or malloc. alloc.k does not import the
+root: `T?` binds Nullable without it, and the import closed a cycle
+(module.k -> containers/vector.k -> alloc.k -> module.k) that warned R001W
+on every compile.
+
+Vector (containers/vector.k) is the whole of `[T]`: layout, constructors,
+the deep @copy, the destructor, `op []`, `op in`, `op as [T;]` and every
+method Compiler/ calls on Stage 0's vec (private/IMPORTANT/api-surface.md).
+All of it is in the one file, not split into Lib/std: a record's members
+are one declaration, and `extend` can neither add constructors or the
+member-only operators nor reach a type in another file (extends.mdx).
+Members that copy or default-construct a T are constrained on it, because
+the explicit instantiation each home writes instantiates every member;
+vector.k's header has the ownership, COPY and relocation rules.
+
 Lang items
 ----------
 

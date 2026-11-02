@@ -18,8 +18,11 @@ fn main() -> i32 { return 0 }
 // REQUIRES: sysroot-arm64-macosx
 // REQUIRES: sysroot-x86_64-macosx
 // Darwin is LP64 and still spells int64_t `long long`, never a bare `long`.
-// RUN: { %kairo %s --target=arm64-apple-macosx --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LLONG
-// RUN: { %kairo %s --target=x86_64-apple-macosx --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LLONG
+// The triples carry an OS version: an unversioned macosx gets clang's
+// oldest deployment target, which has no thread_local, and the prelude's
+// allocator (base/alloc.k, rt/alloc.h) keeps its scope stack in one.
+// RUN: { %kairo %s --target=arm64-apple-macosx11.0 --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LLONG
+// RUN: { %kairo %s --target=x86_64-apple-macosx10.15 --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LLONG
 // LLONG-NOT: signed long x
 // LLONG: signed long long exp {
 // LLONG: signed long long f(signed long long x, unsigned long long y) noexcept;

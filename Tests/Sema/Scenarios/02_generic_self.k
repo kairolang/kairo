@@ -54,9 +54,6 @@
 // AST-NEXT:               |-NamedIdentExpr self
 // AST-NEXT:               `-Step .y
 // AST: -- 0 error(s), 0 warning(s) --
-//
-// -- diagnostics (order matches emission order) --
-// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R025E]:
 // END-GENERATED-CHECKS(AST)
 
 // EXPECT: 0 errors. `self.items` binds to field (dependent record still looks up).
