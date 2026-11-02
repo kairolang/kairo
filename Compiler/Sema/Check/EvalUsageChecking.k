@@ -602,6 +602,10 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
             if (m == &null) || (!m->is_operator) || (m->op_token.size() == 0) { continue; }
             if m->op_token[0].kind != TokenKind::KwDelete { continue; }
             if m->body_kind == FnBodyKind::Default { continue; }
+            // A constexpr destructor (the string lang item's; NameResolution::
+            // _literal_ctor_constexpr) runs in a constant expression, so a
+            // compile-time object of the type is constant-destructible.
+            if m->is_constexpr() { continue; }
             return m;
         }
         return &null;

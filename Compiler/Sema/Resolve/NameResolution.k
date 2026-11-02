@@ -694,15 +694,21 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._literal_ctor_constexpr();
     }
 
-    /// The string literal constructor, `string(data, len, cp_len)`, and the
-    /// empty one are C++ `constexpr` and inline (EVAL.md 2a): an eval
-    /// context builds strings from `__kairo_estr` bytes with the first, and
-    /// an eval constructor default-initializes a string field with the
-    /// second, so both must run in a constant expression, and so their
-    /// bodies must be in every TU that does. Kairo has no spelling for
-    /// "compile time and run time both", so they are marked here, by the
-    /// lang item; only by the TU that declares the record: the one writer,
-    /// before any TU's codegen reads the flags.
+    /// The string literal constructor, `string(data, len, cp_len)`, the
+    /// empty one, the copy constructor and the destructor are C++
+    /// `constexpr` and inline (EVAL.md 2a): an eval context builds strings
+    /// from `__kairo_estr` bytes with the first, an eval constructor
+    /// default-initializes a string field with the second, passing or
+    /// returning a string copies it, and an eval binding of one must be
+    /// constant-destructible. So all four must run in a constant expression,
+    /// and so their bodies must be in every TU that does. Sound because a
+    /// compile-time string is always borrowed (`cap == 0`): the copy's
+    /// allocation and the destructor's free are on branches a constant
+    /// expression never takes, which C++20 allows to call run-time code.
+    /// Kairo has no spelling for "compile time and run time both" (`eval fn`
+    /// is consteval, and would forbid every run-time copy), so they are
+    /// marked here, by the lang item; only by the TU that declares the
+    /// record: the one writer, before any TU's codegen reads the flags.
     priv fn _literal_ctor_constexpr(self) {
         var sd = self.sc->well_known->get(WellKnownType::String);
         if sd == &null { return; }
@@ -718,7 +724,16 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             for var p: usize = 0; p < m->params.size(); ++p {
                 if (m->params[p] != &null) && (!m->params[p]->is_self) { n += 1; }
             }
-            if (n != 0) && (n != 3) { continue; }   // the empty string and the literal.
+            var lit = (n == 0) || (n == 3);   // the empty string and the literal.
+            if (!lit) && (m->transfer != TransferKind::Copy) { continue; }
+            m->modifiers = m->modifiers | FnModifier::IsConstexpr | FnModifier::IsInline;
+        }
+        var cd = dyn_cast::<ClassDecl>(sd);
+        if cd == &null { return; }
+        for var i: usize = 0; i < cd->methods.size(); ++i {
+            var m = cd->methods[i];
+            if (m == &null) || (!m->is_operator) || (m->op_token.size() == 0) { continue; }
+            if m->op_token[0].kind != TokenKind::KwDelete { continue; }
             m->modifiers = m->modifiers | FnModifier::IsConstexpr | FnModifier::IsInline;
         }
     }
