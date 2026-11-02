@@ -595,6 +595,9 @@ class LangAttrs {
             case 18 { return LangAttrs::deprecated(); }
             case 19 { return LangAttrs::no_warn(); }
             case 20 { return LangAttrs::unreachable(); }
+            case 21 { return LangAttrs::create(); }
+            case 22 { return LangAttrs::destroy(); }
+            case 23 { return LangAttrs::set_global_allocator(); }
             default { return ""; }
         }
         return "";
