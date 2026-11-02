@@ -1,7 +1,7 @@
 /// --- The Kairo Project -------------------- Linker/API/HostSystem.k ----- ///
 ///
-///   \brief What the build machine itself has: its C library flavour and
-///          its system include and library dirs.
+///   \brief What the build machine itself has: its C library flavour, its
+///          system include and library dirs, and pkg-config.
 ///
 ///   \detail
 ///     A default build on a Linux host compiles against the bundled glibc
@@ -108,6 +108,90 @@ class HostSystem {
             }
         }
         return out;
+    }
+
+    // --- pkg-config --------------------------------------------------------
+
+    /// `pkg-config --cflags --libs <name>`, split into words. The child gets
+    /// this process's environment untouched: PKG_CONFIG_PATH,
+    /// PKG_CONFIG_LIBDIR and PKG_CONFIG_SYSROOT_DIR are pkg-config's to read.
+    /// $PKG_CONFIG names the program, as for autotools and meson.
+    ///
+    /// \return false with \p err set: no pkg-config, or it failed (an
+    ///         unknown package; its own first line of stderr is appended).
+    static fn pkg_config(name: string, words: ref!(vec::<string>), err: ref!(string)) -> bool {
+        var prog_name = LinkFS::env("PKG_CONFIG");
+        if prog_name.empty() { prog_name = "pkg-config"; }
+        var prog = prog_name;
+        if !LinkText::contains(prog_name, "/") {
+            var found = llvm::sys::findProgramByName(sref(prog_name));
+            if !found {
+                err = f"{prog_name} was not found on PATH";
+                return false;
+            }
+            prog = string(found.get());
+        } else if !LinkFS::is_file(prog_name) {
+            err = f"{prog_name} does not exist";
+            return false;
+        }
+
+        var out_path = LinkFS::temp_file("kairo-pkgconfig-out", "txt");
+        var err_path = LinkFS::temp_file("kairo-pkgconfig-err", "txt");
+        finally {
+            if !out_path.empty() { LinkFS::remove(out_path); }
+            if !err_path.empty() { LinkFS::remove(err_path); }
+        }
+        if out_path.empty() || err_path.empty() {
+            err = "cannot create a temporary file for pkg-config\x27s output";
+            return false;
+        }
+
+        var args = vec::<string>();
+        args.push_back(prog);
+        args.push_back("--cflags");
+        args.push_back("--libs");
+        args.push_back(name);
+        // Views of args' own bytes; args is not touched again while refs lives.
+        var refs: libcxx::vector::<llvm::StringRef>;
+        refs.reserve(args.size());
+        for var i: usize = 0; i < args.size(); ++i { refs.push_back(sref(args[i])); }
+
+        var nout = out_path.std_string();
+        var nerr = err_path.std_string();
+        var redir: libcxx::vector::<libcxx::optional::<llvm::StringRef>>;
+        redir.push_back(libcxx::nullopt);
+        redir.push_back(libcxx::optional::<llvm::StringRef>(llvm::StringRef(nout)));
+        redir.push_back(libcxx::optional::<llvm::StringRef>(llvm::StringRef(nerr)));
+
+        var emsg: libcxx::string;
+        var failed = false;
+        var rc = llvm::sys::ExecuteAndWait(
+            refs[0],
+            llvm::ArrayRef::<llvm::StringRef>(refs),
+            libcxx::nullopt,
+            llvm::ArrayRef::<libcxx::optional::<llvm::StringRef>>(redir),
+            0, 0, &emsg, &failed);
+        if failed {
+            err = f"cannot run {prog}: {string(emsg)}";
+            return false;
+        }
+
+        var text = "";
+        if rc != 0 {
+            LinkFS::read(err_path, text);
+            var lines = LinkText::split_lines(text);
+            var why = "";
+            for l: string in lines {
+                var t = LinkText::trim(l);
+                if !t.empty() { why = t; break; }
+            }
+            err = f"pkg-config does not know the package \x27{name}\x27";
+            if !why.empty() { err = err + f" ({why})"; }
+            return false;
+        }
+        LinkFS::read(out_path, text);
+        words = HostSystem::split_words(text);
+        return true;
     }
 
     /// Shell-style words: whitespace separates, a backslash escapes the next

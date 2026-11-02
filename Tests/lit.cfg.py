@@ -365,9 +365,20 @@ config.substitutions.append(("%datamodel", "-DCLONG=i%d -DCULONG=u%d '-DCXX_I64=
 # --- The default build's host system ------------------------------------------
 # `default-glibc`: a bare `kairo` builds for <arch>-unknown-linux-gnu against
 # the bundled glibc floor with the host's system dirs after it (a glibc Linux
-# host).
+# host). `pkg-config`, `pkg-<name>`: pkg-config is installed and knows <name>,
+# so a test of --pkg-config against a real host library is UNSUPPORTED, not
+# failed, on a machine without that library's development files.
 if _dt.endswith("-linux-gnu") or "-linux-gnueabi" in _dt:
     config.available_features.add("default-glibc")
+_pkgconfig = shutil.which("pkg-config")
+if _pkgconfig:
+    config.available_features.add("pkg-config")
+    for _pkg in ("zlib", "libcurl"):
+        try:
+            if subprocess.call([_pkgconfig, "--exists", _pkg], timeout=30) == 0:
+                config.available_features.add("pkg-" + _pkg)
+        except (OSError, subprocess.SubprocessError):
+            pass
 
 # --- Host facts as lit features ---------------------------------------------
 # For tests whose expectations are the HOST's ABI (f80 on x86, `long` int64_t,

@@ -196,6 +196,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("m32",            "",  "m32",            "force 32-bit code generation: --target becomes its 32-bit variant (x86_64 -> i386)", false);
     cmd->define::<FlagKind::Bool>  ("m64",            "",  "m64",            "force 64-bit code generation",                                                      false);
     cmd->define::<FlagKind::Bool>  ("native",         "",  "native",         "build against this machine's own C library, headers and libraries (clang's native search order), with the bundled libc++ and compiler-rt; cannot be combined with --target", false);
+    cmd->define::<FlagKind::StringList>("pkg-config", "",  "pkg-config",     "run pkg-config --cflags --libs <name> and apply it: -I/-isystem/-D/-U to clang, -L/-l/-Wl to the link (repeatable); with --target only when PKG_CONFIG_SYSROOT_DIR or PKG_CONFIG_LIBDIR is set");
     cmd->define(FlagDef::str_c("cxx-std", "", "cxx-std", "C++ standard for interop: c++20|c++23|c++26, or the gnu++ spelling of each (default: c++23)",
                                "c++23", _cxx_std_choices(), "c++23"));
     cmd->define(FlagDef::str_c("c-std", "", "c-std", "C standard for C inputs: c89|c99|c11|c17|c23, or the gnu spelling of each (default: c17)",

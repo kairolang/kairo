@@ -40,6 +40,9 @@ class TargetOptions {
     pub var m32:       bool   = false;
     pub var m64:       bool   = false;
     pub var native:    bool   = false;  ///< --native: the host's own libc, headers and libraries
+    /// --pkg-config names, in order. Run by the driver (_apply_host_system),
+    /// whose output lands in the ordinary -I/-D/-L/-l lists.
+    pub var pkg_config: vec::<string>;
 
     /// \brief How much of the host system a build may see. DERIVED by
     ///        CompilerInstance::_apply_host_system, once, from --target and
@@ -224,6 +227,7 @@ class TargetOptions {
         (o.m32)        = args.get_bool("m32");
         (o.m64)        = args.get_bool("m64");
         (o.native)     = args.get_bool("native");
+        for s in args.get_list("pkg-config") { o.pkg_config.push_back(s); }
         (o.cxx_std)    = args.get_string("cxx-std");
         (o.cxx_std_set) = args.is_set("cxx-std");
         (o.c_std)      = args.get_string("c-std");

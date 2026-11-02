@@ -3339,7 +3339,8 @@ class CompilerInstance {
     }
 
     /// \brief decides how much of the host system this build sees
-    ///        (TargetOptions::host_mode) and finds those dirs. Once, here; the backend config and the link only
+    ///        (TargetOptions::host_mode), finds those dirs, and applies
+    ///        --pkg-config. Once, here; the backend config and the link only
     ///        read the result.
     ///
     /// \details "floor" is the default on a Linux host compiling for its own
@@ -3354,7 +3355,7 @@ class CompilerInstance {
     ///          here), and NIX_CFLAGS_COMPILE / NIX_LDFLAGS as Zig reads them:
     ///          on Nix the system dirs are not where the defaults look.
     ///
-    /// \return false after reporting.
+    /// \return false after reporting (a failed --pkg-config).
     priv fn _apply_host_system(self, sysroot_given: bool) -> bool {
         var inv = &(self.invocation());
         var tg  = &(inv->target);
@@ -3417,7 +3418,95 @@ class CompilerInstance {
             }
         }
 
-        return true;
+        if tg->pkg_config.empty() { return true; }
+        if (!tg->triple.empty()) && LinkFS::env("PKG_CONFIG_SYSROOT_DIR").empty() && LinkFS::env("PKG_CONFIG_LIBDIR").empty() {
+            self._diag->report(DiagID::U001E,
+                f"--pkg-config cannot be used with --target={tg->triple} as is: this machine\x27s .pc files describe this machine, not the target").emit();
+            self._diag->report(DiagID::U001N,
+                "point PKG_CONFIG_SYSROOT_DIR or PKG_CONFIG_LIBDIR at the target\x27s pkg-config tree").emit();
+            return false;
+        }
+        var ok = true;
+        for name: string in tg->pkg_config {
+            var words = vec::<string>();
+            var err   = "";
+            if !HostSystem::pkg_config(name, words, err) {
+                self._diag->report(DiagID::U001E, f"--pkg-config {name}: {err}").emit();
+                ok = false;
+                continue;
+            }
+            self._apply_pkg_words(name, words);
+        }
+        return ok;
+    }
+
+    /// One package's pkg-config words, into the lists the flags of the same
+    /// spelling fill: -I/-isystem/-idirafter as --ffi-include, -D/-U as
+    /// --cxx-define/--cxx-undefine, -L/-l/-pthread and -Wl, to the link. A
+    /// -I or -L naming a host system dir is dropped: those are already
+    /// searched after the sysroot, and as a -I/-L they would come before it
+    /// (-I/usr/include ahead of libc++ is how <cstring> breaks).
+    priv fn _apply_pkg_words(self, name: string, words: ref!(vec::<string>)) {
+        var inv = &(self.invocation());
+        var tg  = &(inv->target);
+        var i: usize = 0;
+        while i < words.size() {
+            var w   = words[i];
+            var nxt = "";
+            if (i + 1) < words.size() { nxt = words[i + 1]; }
+            var kind = "";
+            var val  = "";
+            var step: usize = 1;
+            if (w == "-I") || (w == "-isystem") || (w == "-idirafter") { kind = "I"; val = nxt; step = 2; }
+            else if LinkText::starts_with(w, "-isystem")   { kind = "I"; val = LinkText::slice(w, 8, w.size()); }
+            else if LinkText::starts_with(w, "-idirafter") { kind = "I"; val = LinkText::slice(w, 10, w.size()); }
+            else if w == "-D" { kind = "D"; val = nxt; step = 2; }
+            else if w == "-U" { kind = "U"; val = nxt; step = 2; }
+            else if w == "-L" { kind = "L"; val = nxt; step = 2; }
+            else if w == "-l" { kind = "l"; val = nxt; step = 2; }
+            else if w == "-pthread" { kind = "l"; val = "pthread"; }
+            else if LinkText::starts_with(w, "-Wl,") { kind = "Wl"; val = LinkText::slice(w, 4, w.size()); }
+            else if LinkText::starts_with(w, "-I") { kind = "I"; val = LinkText::slice(w, 2, w.size()); }
+            else if LinkText::starts_with(w, "-D") { kind = "D"; val = LinkText::slice(w, 2, w.size()); }
+            else if LinkText::starts_with(w, "-U") { kind = "U"; val = LinkText::slice(w, 2, w.size()); }
+            else if LinkText::starts_with(w, "-L") { kind = "L"; val = LinkText::slice(w, 2, w.size()); }
+            else if LinkText::starts_with(w, "-l") { kind = "l"; val = LinkText::slice(w, 2, w.size()); }
+            else if LinkText::starts_with(w, "/") && (LinkText::ends_with(w, ".a") || HostSystem::is_shared(w)) { kind = "l"; val = w; }
+            i += step;
+
+            if kind.empty() {
+                self._diag->report(DiagID::U001W,
+                    f"--pkg-config {name}: ignoring \x27{w}\x27, which kairo has no place for").emit();
+                continue;
+            }
+            if val.empty() { continue; }
+            if kind == "I" {
+                var sys = false;
+                var rv  = LinkFS::real(val);
+                for d: string in tg->host_include_dirs { if LinkFS::real(d) == rv { sys = true; } }
+                if !sys { inv->ffi_includes.push_back(val); }
+            } else if kind == "L" {
+                var sys = false;
+                var rv  = LinkFS::real(val);
+                for d: string in tg->host_lib_dirs { if LinkFS::real(d) == rv { sys = true; } }
+                if !sys { inv->linker.lib_dirs.push_back(val); }
+            } else if kind == "D" {
+                inv->cxx_defines.push_back(val);
+            } else if kind == "U" {
+                inv->cxx_undefines.push_back(val);
+            } else if kind == "l" {
+                inv->linker.link_libs.push_back(val);
+            } else {
+                var b: usize = 0;
+                for var k: usize = 0; k <= val.size(); ++k {
+                    if (k == val.size()) || (val[k] == ',') {
+                        var part = LinkText::slice(val, b, k);
+                        if !part.empty() { inv->linker.ld_flags.push_back(part); }
+                        b = k + 1;
+                    }
+                }
+            }
+        }
     }
 
     priv fn _queue_root_warning(self, msg: string, note: string) {
@@ -3605,7 +3694,7 @@ class CompilerInstance {
         if !ppo->builtins_dir.empty() { (ppo->builtins_dir) = LinkFS::real(ppo->builtins_dir); }
         if !ppo->std_dir.empty()      { (ppo->std_dir)      = LinkFS::real(ppo->std_dir); }
 
-        // The host system: which mode and its dirs. After the
+        // The host system: which mode, its dirs, --pkg-config. After the
         // roots are final, before anything (the backend config, the link,
         // --print-clang-args) reads them.
         if !self._apply_host_system(sysroot_given) {
