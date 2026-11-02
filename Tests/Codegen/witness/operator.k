@@ -25,7 +25,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX: static bool __kairo_op_eq(const __kairo_Self & self, __kairo_Self other) noexcept requires requires {
 // CXX: template<> struct Same_witness<{{ ?}}::{{.*}}::P> {
-// CXX: Same_witness<T>::__kairo_op_eq(a, b)
+// CXX: Same_witness<T>::__kairo_op_eq(a, static_cast<T &&>(b))
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

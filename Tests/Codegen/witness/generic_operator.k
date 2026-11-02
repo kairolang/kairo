@@ -54,7 +54,7 @@ fn main() -> i32 {
 // CXX: signed int __kairo_ord0 = {{.*}}Lookup_witness<T>::template __kairo_op_index<signed int>(t, 1);
 // CXX-NEXT: (__kairo_ord0) + {{.*}}Lookup_witness<T>::template __kairo_op_index<bool>(t, true)
 // CXX: (__kairo_ord1) + {{.*}}Lookup_witness<T>::template __kairo_op_plus<double>(t, 2.5)
-// CXX: Lookup_witness<T>::__kairo_op_index(t, v);
+// CXX: Lookup_witness<T>::__kairo_op_index(t, static_cast<V &&>(v));
 // CXX-NOT: template {{.*}}__kairo_op_index<
 // CXX-NOT: template {{.*}}Lookup_witness
 

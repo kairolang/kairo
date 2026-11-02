@@ -15,7 +15,21 @@
 ///         `const T&` borrows; a const value cannot be moved from; a
 ///         temporary is moved by C++ on its own. Each transfer is recorded in
 ///         SemaContext::move_sites, and CopyMoveLowering casts exactly those
-///         to `T&&`: what C++ moves is what this pass counts.
+///         to `T&&`: what C++ moves is what this pass counts. A user
+///         operator's operands are its arguments -- binary, compound
+///         assignment and subscript alike -- and an expression body's value
+///         is returned.
+///
+///     (b') Pending. Two transfers move only if the binding is not read
+///         again (PendingMove): one of a value whose category its generic
+///         instance decides (`var y = x`, `x: T`), and an expansion `xs...`
+///         of a forwarding pack (P225). A later read on any path, the next
+///         iteration of a loop included, leaves the earlier one a copy.
+///         Neither marks the binding moved-from: the pattern does not know
+///         whether the instance is MOVE. Neither moves a binding whose
+///         address is taken anywhere in the body (`&x`, `&x.f`, a pointer
+///         capture, a C++ `T&` or `@inout` argument, `&a` of a `for` binding
+///         over it): a read through that pointer is no read of the binding.
 ///
 ///     (c) Use after move. A moved bare local or parameter, or a part of one
 ///         (`p.a`, `p.a.b`), is MOVED-FROM from that point: a later READ that
@@ -108,6 +122,19 @@ class MovedPart {
     fn MovedPart(self) { }
 }
 
+/// A transfer that moves only if nothing reads the binding again: a value
+/// whose type is a generic parameter's (its category is the instance's,
+/// ClassLifecycle Unknown), or an expansion `xs...` of a forwarding pack.
+/// A later read of the binding on any path makes the site a copy -- the
+/// expression left as it is -- and a site never read again moves.
+class PendingMove {
+    pub var d:       *Decl;
+    pub var path:    string = "";
+    pub var site:    *Expr;
+    pub var is_pack: bool = false;   ///< site is a PackExpansionExpr.
+    fn PendingMove(self) { }
+}
+
 /// \p inner is \p outer or a part of it.
 fn path_within(inner: string, outer: string) -> bool {
     if (outer.size() == 0) || (inner == outer) { return true; }
@@ -131,7 +158,16 @@ class MoveState {
     /// to prevent. Travels with the flow state -- so a reassignment (clear)
     /// re-arms it, a join unions it, and a loop's back edge carries it.
     pub var reported: vec::<*Decl>;
+    /// Transfers still waiting to learn whether a read follows (PendingMove).
+    pub var pend: vec::<PendingMove>;
     fn MoveState(self) { }
+
+    fn add_pending(self, p: PendingMove) {
+        for var i: usize = 0; i < self.pend.size(); ++i {
+            if self.pend[i].site == p.site { return; }
+        }
+        self.pend.push_back(p);
+    }
 
     fn was_reported(self, d: *Decl) -> bool {
         for var i: usize = 0; i < self.reported.size(); ++i {
@@ -177,6 +213,16 @@ class MoveState {
             }
             i += 1;
         }
+        // A pending transfer out of the old value is that value's last use:
+        // the new one is not the storage it read.
+        var k: usize = 0;
+        while k < self.pend.size() {
+            if (self.pend[k].d == d) && path_within(self.pend[k].path, path) {
+                self.pend.erase(self.pend.begin() + k);
+                continue;
+            }
+            k += 1;
+        }
     }
 }
 
@@ -191,6 +237,8 @@ fn move_join(a: MoveState, b: MoveState) -> MoveState {
     for var i: usize = 0; i < b.reported.size(); ++i {
         if !out.was_reported(b.reported[i]) { out.reported.push_back(b.reported[i]); }
     }
+    // Pending on either path: a read after the join demotes it either way.
+    for var i: usize = 0; i < b.pend.size(); ++i { out.add_pending(b.pend[i]); }
     return out;
 }
 
@@ -219,6 +267,25 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     priv var _pending_label:     Token;
     pub var n_moves:   usize = 0;
     pub var n_errored: usize = 0;
+    /// Every non-pack PendingMove site seen, in order, and the ones a later
+    /// read demoted. What is left once every body is walked moves (run).
+    priv var _tentative: vec::<*Expr>;
+    priv var _demoted:   llvm::DenseSet::<u64>;
+    priv var _tentative_decl: vec::<*Decl>;   ///< parallel to _tentative: the binding moved from.
+    /// Every forwarding-pack expansion seen, and its pack.
+    priv var _pack_sites: vec::<*Expr>;
+    priv var _pack_decl:  vec::<*Decl>;
+    /// Bindings whose address is taken somewhere (`&x`, `&x.f`, `&x[i]`, a
+    /// pointer capture, a C++ `T&` / `@inout` argument). A pending move out
+    /// of one stays a copy whatever the order: a pointer taken before the
+    /// transfer and read after it is no read of the BINDING, so the
+    /// last-use test cannot see it. Decided at the end of run, over the
+    /// whole body.
+    priv var _addr: llvm::DenseSet::<u64>;
+    /// `for a in xs`: the binding (a) and what it iterates (xs), so an
+    /// address of an element makes the iterated binding aliased too.
+    priv var _for_bind: vec::<*Decl>;
+    priv var _for_over: vec::<*Decl>;
 
     fn MoveCheck(self, sc: *SemaContext) {
         self.sc  = sc;
@@ -243,6 +310,27 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                 case TopLevelKind::Expr { self.dispatch_expr(item.as_expr()); }
             }
         }
+
+        // Decided only now: a loop's second pass, or a read in a later
+        // branch, can still demote a site recorded early, and an address
+        // taken anywhere in the body demotes every pending move out of it.
+        for var i: usize = 0; i < self._for_bind.size(); ++i {
+            if self._addr.count(reinterpret_cast::<u64>(self._for_bind[i])) != 0 {
+                self._addr.insert(reinterpret_cast::<u64>(self._for_over[i]));
+            }
+        }
+        for var i: usize = 0; i < self._pack_sites.size(); ++i {
+            if self._addr.count(reinterpret_cast::<u64>(self._pack_decl[i])) != 0 {
+                cast::<PackExpansionExpr>(self._pack_sites[i])->reread = true;
+            }
+        }
+        for var i: usize = 0; i < self._tentative.size(); ++i {
+            var key = reinterpret_cast::<u64>(self._tentative[i]);
+            if self._addr.count(reinterpret_cast::<u64>(self._tentative_decl[i])) != 0 { continue; }
+            if (self._demoted.count(key) != 0) || (self.sc->move_sites.count(key) != 0) { continue; }
+            self.sc->move_sites.insert(key);
+            self.n_moves += 1;
+        }
     }
 
     // === bodies ==============================================================
@@ -257,6 +345,13 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         self._loops = vec::<LoopFrame>();
         self._blocks = vec::<vec::<*FinallyStmt>>();
         var out = RecursiveASTVisitor::<MoveCheck>::traverse_function_decl(n);
+        // `fn f(p: Pair) -> Str = p.a` is `{ return p.a }` (ExprBodyDesugar,
+        // which keeps the node and reads the same written-signature test),
+        // so its value is transferred out exactly as that return's is.
+        if (n->body_kind == FnBodyKind::Expr) && (n->body_expr != &null)
+        && (!n->is_noreturn) && (n->return_type != &null) {
+            self._return_value(n->body_expr);
+        }
         ICE_IF(!self._blocks.empty(), "MoveCheck: a block frame outlived its body");
         self._st    = saved_st;
         self._loops = saved_loops;
@@ -279,6 +374,12 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                 var at = n->cap_uses[i];
                 if (m == CaptureMode::Self) || (at == &null) { continue; }
                 self._read(at);
+            }
+            for var i: usize = 0; i < n->cap_decls.size(); ++i {
+                var cm = n->cap_modes[i];
+                if ((cm == CaptureMode::Ptr) || (cm == CaptureMode::ConstPtr)) && (n->cap_decls[i] != &null) {
+                    self._addr.insert(reinterpret_cast::<u64>(n->cap_decls[i]));
+                }
             }
             for var i: usize = 0; i < n->cap_decls.size(); ++i {
                 if n->cap_modes[i] != CaptureMode::Move { continue; }
@@ -305,7 +406,11 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         self._blocks = vec::<vec::<*FinallyStmt>>();
         for var i: usize = 0; i < n->params.size(); ++i { self.dyn()->dispatch_decl(*(n->params.get(i))); }
         if n->body_block != &null { self.dyn()->traverse_block(n->body_block); }
-        if n->body_expr  != &null { self.dispatch_expr(n->body_expr); }
+        if n->body_expr  != &null {
+            self.dispatch_expr(n->body_expr);
+            // ExprBodyDesugar's closure test: the resolved return type.
+            if (!n->is_noreturn) && (!self._is_void(n->return_type)) { self._return_value(n->body_expr); }
+        }
         ICE_IF(!self._blocks.empty(), "MoveCheck: a block frame outlived its body");
         self._st    = saved_st;
         self._loops = saved_loops;
@@ -391,7 +496,10 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                     self._transfer(asn->rhs, f"into '{self._spelled(asn->lhs)}\x27");
                     return e;
                 }
-                return RecursiveASTVisitor::<MoveCheck>::dispatch_expr(e);
+                // `acc += s` through a user `op +=` is a call taking `s`.
+                var cout = RecursiveASTVisitor::<MoveCheck>::dispatch_expr(e);
+                if asn->resolved_op != &null { self._operator_operands(asn->resolved_op, asn->op_via_free, asn->lhs, asn->rhs); }
+                return cout;
             }
             case ExprKind::BinaryOperatorExpr {
                 var bo = cast::<BinaryOperatorExpr>(e);
@@ -405,7 +513,41 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                     return e;
                 }
                 var out = RecursiveASTVisitor::<MoveCheck>::dispatch_expr(e);
-                if bo->resolved_op != &null { self._operator_operands(bo); }
+                if bo->resolved_op != &null { self._operator_operands(bo->resolved_op, bo->op_via_free, bo->lhs, bo->rhs); }
+                return out;
+            }
+            case ExprKind::UnaryOperatorExpr {
+                var u = cast::<UnaryOperatorExpr>(e);
+                if (u->op_token.kind == TokenKind::OpAmp) && (u->operand != &null) { self._mark_addr(u->operand); }
+                return RecursiveASTVisitor::<MoveCheck>::dispatch_expr(e);
+            }
+            case ExprKind::SubscriptExpr {
+                var sx  = cast::<SubscriptExpr>(e);
+                var out = RecursiveASTVisitor::<MoveCheck>::dispatch_expr(e);
+                if sx->resolved_op != &null { self._operator_operands(sx->resolved_op, sx->op_via_free, sx->base, sx->index); }
+                return out;
+            }
+            case ExprKind::PackExpansionExpr {
+                // `xs...` of a pack parameter forwards each element
+                // (EmitIR::_pack_expansion, P225), which moves it: pending,
+                // so a later read of the pack -- a second expansion, a `for`
+                // over it, the same expansion on a loop's next iteration --
+                // leaves this one a plain copy (P239).
+                var out = RecursiveASTVisitor::<MoveCheck>::dispatch_expr(e);
+                var x = self._tu.strip_parens(cast::<PackExpansionExpr>(e)->operand);
+                if (x != &null) && isa::<NamedIdentExpr>(x) {
+                    var d = cast::<NamedIdentExpr>(x)->resolved_decl;
+                    if (d != &null) && isa::<ParamDecl>(d) && self._tracked(d) && (!self._st.dead) {
+                        var pm = PendingMove{};
+                        pm.d       = d;
+                        pm.path    = "";
+                        pm.site    = e;
+                        pm.is_pack = true;
+                        self._st.add_pending(pm);
+                        self._pack_sites.push_back(e);
+                        self._pack_decl.push_back(d);
+                    }
+                }
                 return out;
             }
             case ExprKind::CallExpr { self._call(cast::<CallExpr>(e)); return e; }
@@ -549,24 +691,36 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
             }
             case StmtKind::WhileLoopStmt {
                 var n = cast::<WhileLoopStmt>(s);
-                self._loop(n->cond, n->body, &null, !self._is_true_literal(n->cond));
+                self._loop(n->cond, n->body, &null, !self._is_true_literal(n->cond), &null);
                 return s;
             }
             case StmtKind::LoopStmt {
                 var n = cast::<LoopStmt>(s);
-                self._loop(&null, n->body, &null, false);
+                self._loop(&null, n->body, &null, false, &null);
                 return s;
             }
             case StmtKind::RangedForStmt {
                 var n = cast::<RangedForStmt>(s);
-                if n->iterable != &null { self.dispatch_expr(n->iterable); }
-                self._loop(&null, n->body, &null, true);
+                if n->iterable != &null {
+                    self.dispatch_expr(n->iterable);
+                    // An element's address is an address into what is iterated.
+                    var it = self._tu.strip_parens(n->iterable);
+                    if (it != &null) && isa::<NamedIdentExpr>(it) && (cast::<NamedIdentExpr>(it)->resolved_decl != &null) {
+                        for var i: usize = 0; i < n->bindings.size(); ++i {
+                            var bd = n->bindings.get(i)->decl;
+                            if bd == &null { continue; }
+                            self._for_bind.push_back(bd);
+                            self._for_over.push_back(cast::<NamedIdentExpr>(it)->resolved_decl);
+                        }
+                    }
+                }
+                self._loop(&null, n->body, &null, true, n);
                 return s;
             }
             case StmtKind::IndexedForStmt {
                 var n = cast::<IndexedForStmt>(s);
                 if n->init != &null { self.dispatch_stmt(n->init); }
-                self._loop(n->cond, n->body, n->update, (n->cond != &null) && (!self._is_true_literal(n->cond)));
+                self._loop(n->cond, n->body, n->update, (n->cond != &null) && (!self._is_true_literal(n->cond)), &null);
                 return s;
             }
             case StmtKind::MatchStmt {
@@ -601,10 +755,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                 var n = cast::<ReturnStmt>(s);
                 if n->value != &null {
                     self.dispatch_expr(n->value);
-                    // C++ already moves a returned local or parameter, and a
-                    // cast there would cost it the elision. Anything else --
-                    // a field, a dereference -- is a copy unless cast.
-                    if !isa::<NamedIdentExpr>(self._tu.strip_parens(n->value)) { self._transfer(n->value, "out of the function"); }
+                    self._return_value(n->value);
                 }
                 self._run_finallys_to(0);
                 self._st.dead = true;
@@ -659,7 +810,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     /// left only by a `break`, so its exit is the join of the breaks alone:
     /// neither the entry state nor the back edge reaches past it, and with
     /// no break the code after it is dead.
-    priv fn _loop(self, cond: *Expr, body: *CompoundStmt, update: *Expr, finite: bool) {
+    priv fn _loop(self, cond: *Expr, body: *CompoundStmt, update: *Expr, finite: bool, rf: *RangedForStmt) {
         var entry = self._st;
         // The body CompoundStmt is dispatched next and lands at exactly this
         // index: cond and update are expressions, an IndexedForStmt init a
@@ -671,10 +822,10 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         self._pending_has_label = false;
         self._loops.push_back(frame);
 
-        var exit1 = self._loop_pass(cond, body, update);
+        var exit1 = self._loop_pass(cond, body, update, rf);
         self._st = move_join(entry, exit1);
         var head = self._st;
-        var exit2 = self._loop_pass(cond, body, update);
+        var exit2 = self._loop_pass(cond, body, update, rf);
 
         var fr = self._loops[self._loops.size() - 1];
         self._loops.pop_back();
@@ -733,10 +884,19 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
 
     /// One walk of cond -> body -> update, from the current state; returns
     /// the back-edge state (body exit joined with every `continue`).
-    priv fn _loop_pass(self, cond: *Expr, body: *CompoundStmt, update: *Expr) -> MoveState {
+    priv fn _loop_pass(self, cond: *Expr, body: *CompoundStmt, update: *Expr, rf: *RangedForStmt) -> MoveState {
         var top = self._loops.size() - 1;
         self._loops[top].continues.clear();
         if cond != &null { self.dispatch_expr(cond); }
+        // A `for` binding is a new binding each iteration, bound to the next
+        // element: last iteration's move out of it says nothing about this
+        // one, as a `var` in the body says nothing (traverse_variable_decl).
+        if rf != &null {
+            for var i: usize = 0; i < rf->bindings.size(); ++i {
+                var bd = rf->bindings.get(i)->decl;
+                if bd != &null { self._st.clear(bd, ""); }
+            }
+        }
         self.dyn()->traverse_block(body);
         var back = self._st;
         for var i: usize = 0; i < self._loops[top].continues.size(); ++i {
@@ -826,24 +986,47 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     /// forwarding reference deduces `T&`; _transfer passes over it.
     priv fn _pass(self, e: *Expr, p: *ParamDecl, mode: ParamMode) {
         if mode == ParamMode::Move { self._move_arg(e); return; }
+        if mode == ParamMode::Inout { self._mark_addr(e); return; }
         if mode != ParamMode::Value { return; }
-        if (p != &null) && self._lref_param(p) { return; }
+        // A receiver passed as written (`Scalable::scale(a, 2)`) is the
+        // object the method runs on, by address: nothing leaves it.
+        if (p != &null) && p->is_self { return; }
+        if (p != &null) && self._lref_param(p) { self._mark_addr(e); return; }
         var rref = (p != &null) && self._rref_param(p);
         self._transfer(e, ("into a '@move' parameter") if (rref) else ("into a by-value parameter"));
     }
 
-    /// A user binary operator is a call: its operands are its arguments,
-    /// the left one the receiver when the operator is a member.
-    priv fn _operator_operands(self, n: *BinaryOperatorExpr) {
-        var f = dyn_cast::<FunctionDecl>(n->resolved_op);
+    /// The value a function returns, already walked. C++ already moves a
+    /// returned local or parameter, and a cast there would cost it the
+    /// elision. Anything else -- a field, a dereference -- is a copy unless
+    /// cast.
+    priv fn _return_value(self, v: *Expr) {
+        if !isa::<NamedIdentExpr>(self._tu.strip_parens(v)) { self._transfer(v, "out of the function"); }
+    }
+
+    /// No return type at all, or `void` / `!` (ExprBodyDesugar::_is_void).
+    priv fn _is_void(self, t: *Type) -> bool {
+        if (t == &null) || (t->canonical == &null) { return true; }
+        var c = canon_unqual(t->canonical);
+        if (c == &null) || (!isa::<BuiltinType>(c)) { return false; }
+        var k = cast::<BuiltinType>(c)->builtin;
+        return (k == BuiltinKind::Void) || (k == BuiltinKind::Never);
+    }
+
+    /// A user operator is a call: its operands are its arguments, the left
+    /// one the receiver when the operator is a member. Binary operators,
+    /// compound assignments (`acc += s`) and subscripts (`acc[t]`, the base
+    /// the left operand) alike.
+    priv fn _operator_operands(self, opd: *Decl, via_free: bool, lhs: *Expr, rhs: *Expr) {
+        var f = dyn_cast::<FunctionDecl>(opd);
         if f == &null { return; }
         var view = vec::<*ParamDecl>();
         for var i: usize = 0; i < f->params.size(); ++i {
             if (f->params[i] != &null) && (!f->params[i]->is_self) { view.push_back(f->params[i]); }
         }
         var ops = vec::<*Expr>();
-        if n->op_via_free || (!f->is_method()) { ops.push_back(n->lhs); }
-        ops.push_back(n->rhs);
+        if via_free || (!f->is_method()) { ops.push_back(lhs); }
+        ops.push_back(rhs);
         for var i: usize = 0; (i < ops.size()) && (i < view.size()); ++i {
             if ops[i] != &null { self._pass(ops[i], view[i], view[i]->mode); }
         }
@@ -929,13 +1112,100 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     /// binding, or the part of it, is moved-from.
     priv fn _transfer(self, e: *Expr, how: string) {
         if (e == &null) || e->is_poisoned() { return; }
-        if !moves_on_pass(self.sc, e->type_) { return; }
+        if !moves_on_pass(self.sc, e->type_) {
+            self._dependent_transfer(e);
+            return;
+        }
         var x = self._tu.strip_parens(e);
         if (x == &null) || (x->value_category != Expr::ValueCategory::LValue) { return; }
-        if self._const_place(x) { return; }
+        if self._const_place(x) || self._const_root(e) { return; }
         self.sc->move_sites.insert(reinterpret_cast::<u64>(e));
         self.n_moves += 1;
         self._mark(e, how);
+    }
+
+    /// A transfer of a value whose category its generic instance decides
+    /// (`var y = x` with `x: T`): MOVE for `relay<Str>`, COPY for
+    /// `relay<i32>`, and one C++ template body serves both. It is cast to
+    /// `T&&` when nothing reads the binding again (PendingMove), which moves
+    /// a MOVE instance and, at a COPY instance's last use, moves where the
+    /// copy could not be observed (Doc: Ownership, COPY types). Left a copy
+    /// when it is read again: a MOVE instance then fails in C++ as the
+    /// use-after-move it is, which the pattern cannot report -- it does not
+    /// know the category (ClassLifecycle, Unknown) -- so it marks nothing.
+    /// Bindings only: a part of `self` or of a pointee is never moved from.
+    priv fn _dependent_transfer(self, e: *Expr) {
+        if (e->type_ == &null) || self._st.dead { return; }
+        var x = self._tu.strip_parens(e);
+        if (x == &null) || isa::<PackExpansionExpr>(x) { return; }
+        if x->value_category != Expr::ValueCategory::LValue { return; }
+        if self._const_place(x) { return; }
+        var c = canon_unqual(e->type_);
+        if (c == &null) || ((!c->is_dependent()) && (!c->is_instantiation_dependent())) { return; }
+        // An element of a pack (`for a in args`): EmitIR's per-element
+        // lambda has no `T` to spell a `T&&` with.
+        if c->contains_unexpanded_pack() || e->type_->contains_unexpanded_pack() { return; }
+        if lifecycle_of(self.sc)->facts_of_type(c).category != LifecycleCategory::Unknown { return; }
+        var path = "";
+        var d    = self._place_root(e, &path);
+        if d == &null { return; }
+        // Only storage this body owns: not a part of a const binding, and
+        // not a parameter that refers to the caller's object.
+        if self._const_root(e) { return; }
+        if isa::<ParamDecl>(d) {
+            var pd = cast::<ParamDecl>(d);
+            if (pd->mode != ParamMode::Value) && (pd->mode != ParamMode::Move) { return; }
+        }
+        var pm  = PendingMove{};
+        pm.d    = d;
+        pm.path = path;
+        pm.site = e;
+        self._st.add_pending(pm);
+        self._tentative.push_back(e);
+        self._tentative_decl.push_back(d);
+    }
+
+    /// A read of \p path under \p d: every pending transfer out of storage
+    /// it overlaps was not the last use, so it stays a copy.
+    priv fn _demote_pending(self, d: *Decl, path: string) {
+        var k: usize = 0;
+        while k < self._st.pend.size() {
+            var pm = self._st.pend[k];
+            if (pm.d != d) || (!path_overlaps(pm.path, path)) { k += 1; continue; }
+            if pm.is_pack { cast::<PackExpansionExpr>(pm.site)->reread = true; }
+            else          { self._demoted.insert(reinterpret_cast::<u64>(pm.site)); }
+            self._st.pend.erase(self._st.pend.begin() + k);
+        }
+    }
+
+    /// \p e is a part of a const binding (`other.v` in a copy constructor's
+    /// `const other`): its fields are not typed const, but C++ makes them
+    /// so, and a `T&&` cast of one does not compile.
+    priv fn _const_root(self, e: *Expr) -> bool {
+        var path = "";
+        var d    = self._place_root(e, &path);
+        if d == &null { return false; }
+        if isa::<VariableDecl>(d) { return cast::<VariableDecl>(d)->is_const(); }
+        if isa::<ParamDecl>(d)    { return cast::<ParamDecl>(d)->is_const; }
+        return false;
+    }
+
+    /// \p e, or the binding it is a part of (`x`, `x.f`, `x[i]`, through
+    /// any steps), has its address taken: see _addr.
+    priv fn _mark_addr(self, e: *Expr) {
+        var x = self._tu.strip_parens(e);
+        while x != &null {
+            if isa::<UnaryOperatorExpr>(x) && cast::<UnaryOperatorExpr>(x)->is_mode_marker {
+                x = self._tu.strip_parens(cast::<UnaryOperatorExpr>(x)->operand);
+                continue;
+            }
+            if isa::<ChainExpr>(x)     { x = self._tu.strip_parens(cast::<ChainExpr>(x)->base); continue; }
+            if isa::<SubscriptExpr>(x) { x = self._tu.strip_parens(cast::<SubscriptExpr>(x)->base); continue; }
+            break;
+        }
+        if (x == &null) || (!isa::<NamedIdentExpr>(x)) { return; }
+        var d = cast::<NamedIdentExpr>(x)->resolved_decl;
+        if d != &null { self._addr.insert(reinterpret_cast::<u64>(d)); }
     }
 
     /// A const binding, or a place typed const.
@@ -1032,6 +1302,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     /// whole binding while a part of it is gone.
     priv fn _read_part(self, n: *NamedIdentExpr, d: *Decl, path: string) {
         if self._st.dead { return; }                         // unreachable: nothing to say.
+        self._demote_pending(d, path);
         // One error per USE as well: a loop body's second pass, or a finally
         // body walked once per exit of its block, reaches the same node again
         // after a redeclaration re-armed the binding's report.

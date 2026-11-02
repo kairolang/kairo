@@ -41,7 +41,7 @@ fn main() -> i32 {
 // CXX: requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T> && {{ ?}}::{{.*}}::Bumpable_c<U>) signed int both(T a, U b) noexcept;
 // CXX: Bumpable_witness<U>::bump((& c));
 // CXX: Scalable_witness<T>::scale((& a), 2);
-// CXX: Scalable_witness<T>::scale({{ ?}}::__kairo_tmp({{.*}}::same(a)), 3);
+// CXX: Scalable_witness<T>::scale({{ ?}}::__kairo_tmp({{.*}}::same(static_cast<T &&>(a))), 3);
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

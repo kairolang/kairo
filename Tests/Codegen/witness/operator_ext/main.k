@@ -17,8 +17,8 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}operator_ext/same.k
-// CXX: if((!{{ ?}}::{{.*}}::Same_witness<T>::__kairo_op_eq(a, b)))
-// CXX: Same_witness<T>::__kairo_op_eq({{.*}}Same_witness<T>::__kairo_op_minus(a), b)
+// CXX: if((!{{ ?}}::{{.*}}::Same_witness<T>::__kairo_op_eq(a, static_cast<T &&>(b))))
+// CXX: Same_witness<T>::__kairo_op_eq({{.*}}Same_witness<T>::__kairo_op_minus(a), static_cast<T &&>(b))
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

@@ -84,7 +84,7 @@ fn main() -> i32 {
 // CXX: return T();
 // CXX: return T(n);
 // CXX: T t = T();
-// CXX: return T(a, 5);
+// CXX: return T(static_cast<T &&>(a), 5);
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

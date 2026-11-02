@@ -1916,13 +1916,15 @@ class EmitIR {
     /// as one it would copy into the next layer's `E&&` (or not bind at
     /// all, for a MOVE element). With T an rvalue element the cast is a
     /// move; a reference element collapses to its own kind. A `const` or
-    /// `@inout` pack goes on as it is.
+    /// `@inout` pack goes on as it is, and so does an expansion the pack is
+    /// read again after (`reread`, MoveCheck, P239): forwarding it would
+    /// hand that later read moved-from elements.
     priv fn _pack_expansion(self, n: *PackExpansionExpr) {
         var opnd = n->operand;
         while (opnd != &null) && isa::<ParenExpr>(opnd) { opnd = cast::<ParenExpr>(opnd)->inner; }
         var p: *ParamDecl = &null;
         if (opnd != &null) && isa::<NamedIdentExpr>(opnd) { p = dyn_cast::<ParamDecl>(cast::<NamedIdentExpr>(opnd)->resolved_decl); }
-        if CXXSpell::forwarding_pack(p) {
+        if CXXSpell::forwarding_pack(p) && (!n->reread) {
             var g = cast::<GenericParamType>(canon_unqual(p->type_->canonical));
             self._cg->sink->spell(n->range, "static_cast<" + self._spell.pack_param_name(g) + "&&>(");
             self.emit(n->operand);

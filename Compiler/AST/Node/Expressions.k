@@ -1930,12 +1930,17 @@ class DeleteExpr derives Expr {
 ///
 class PackExpansionExpr derives Expr {
     pub var operand: *Expr;
+    /// The pack is read again after this expansion on some path (MoveCheck,
+    /// P239), so it must not forward -- a forward moves each element -- and
+    /// EmitIR spells it `xs...`, which copies into a by-value parameter.
+    pub var reread: bool = false;
 
     static fn create(ctx: *ASTContext, range: SourceRange, operand: *Expr) -> *PackExpansionExpr {
         var node      = ctx->alloc::<PackExpansionExpr>();
         node->kind    = ExprKind::PackExpansionExpr;
         node->range   = range;
         node->operand = operand;
+        node->reread  = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -1945,6 +1950,7 @@ class PackExpansionExpr derives Expr {
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::PackExpansionExpr;
         node->range         = range;
+        node->reread        = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

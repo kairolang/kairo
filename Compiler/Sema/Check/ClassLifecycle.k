@@ -68,7 +68,9 @@
 ///     lifecycle requirements) reads them. A fact only, never a re-typed
 ///     body (MONO.md D0). The memo below is the side table: keyed by the
 ///     instance decl, which is one per registry entry. An imported
-///     template's instance keeps clang's facts (ensure_filled).
+///     template's instance keeps clang's facts (ensure_filled), except that
+///     an owning one over an element that cannot be copied cannot be copied
+///     either (_imported_elements, GH#87).
 ///
 ///     The rules a generic class's declaration skipped on an Unknown --
 ///     rule 5, rule 6 and the virtual-destructor rule -- are asked again of
@@ -404,9 +406,38 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             self._compute(body, f);
         } else {
             self._compute(d, f);
+            if MemberLookup::filled_by_clang(d) { self._imported_elements(d, f); }
         }
         self._sub = saved;
         return f;
+    }
+
+    /// An imported template's instance over an element that cannot be
+    /// copied (GH#87). Clang's facts say `std::vector<Mv>` copies: its copy
+    /// constructor is declared and not deleted, and only instantiating its
+    /// body would find Mv's deleted one -- a hard error in clang, never a
+    /// fact Sema can read. So the instance reads COPY, every transfer of it
+    /// stays a copy, and the copy fails in clang. An owning template (one
+    /// clang does not call trivially copyable) whose type argument is not
+    /// copyable is taken as not copyable either: the category falls to MOVE,
+    /// and a transfer moves it. A trivially copyable instance (a span, a
+    /// reference_wrapper) copies only the address and keeps clang's answer.
+    priv fn _imported_elements(self, d: *Decl, f: *LifecycleFacts) {
+        if (self.sc->instances == &null) || (f->copyable != LifecycleTri::Yes) { return; }
+        if f->trivially_copyable == LifecycleTri::Yes { return; }
+        var e = self.sc->instances->entry_of(d);
+        if e == &null { return; }
+        for var i: usize = 0; i < e->args.size(); ++i {
+            var a = e->args[i];
+            if (a == &null) || a->is_dependent() || a->is_instantiation_dependent() { continue; }
+            var af = self.facts_of_type(a);
+            if af.copyable != LifecycleTri::No { continue; }
+            f->copyable         = LifecycleTri::No;
+            f->why_not_copyable = f"its element type '{self._tu.str(a)}' is not copyable";
+            f->category         = self._folded_category(f);
+            self._settle_non_transfer(f);
+            return;
+        }
     }
 
     /// Drop every memoized fact. EvalIfLateFolding calls it after a round

@@ -841,8 +841,17 @@ and a Move capture as a move; FinallyLowering and EmitIR read the rest.
 `MoveCheck` [PARTIAL] decides every move and checks use-after-move
 (SC052E). A `@move` argument moves; so does a MOVE value transferred: by
 value, into a C++ `T&&`, into a variable, by assignment, out of a return
-that is not a bare local. It records each transfer site for
-CopyMoveLowering. Bindings and field paths under them (`p.a`) are
+that is not a bare local (an expression body's value included). A user
+operator's operands are its arguments: binary, compound assignment and
+subscript alike. It records each transfer site for CopyMoveLowering. A
+transfer of a value whose category its generic instance decides (`var y =
+x`, `x: T`) and an expansion `xs...` of a forwarding pack are PENDING:
+they move only if no later read of the binding follows on any path (a
+loop's next iteration included); otherwise they stay copies (GH#90, P239).
+They mark nothing moved-from, since the pattern cannot know the instance
+is MOVE, and a binding whose address is taken anywhere in the body (`&x`,
+a pointer capture, a C++ `T&` / `@inout` argument) never takes one. A `for` binding is a fresh binding each iteration. Bindings and
+field paths under them (`p.a`) are
 tracked; pointers and `self` are not. A closure's captures are reads of
 the bindings where it is made, and a MOVE value captured by copy is moved
 into it (ClosureCaptures). Path-insensitive: a move

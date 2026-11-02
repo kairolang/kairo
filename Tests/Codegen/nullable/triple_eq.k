@@ -75,7 +75,10 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:      return(((!a.is_null()) &&(!b.is_null())) && {{.*}}Eqable_witness<T>::__kairo_op_eq(a.__value(), b.__value()));
+// `b` is passed by value at its last use, so it moves (MoveCheck, pending
+// transfers), and the moved operand is bound once.
+// CXX:      ::builtin::Nullable<T> __kairo_coal0 = static_cast< ::builtin::Nullable<T> &&>(b);
+// CXX-NEXT: (((!a.is_null()) &&(!__kairo_coal0.is_null())) && {{.*}}Eqable_witness<T>::__kairo_op_eq(a.__value(), static_cast<T &&>(__kairo_coal0.__value())));
 // `__value()` is a pure accessor (PureAccessors): two of them bind nothing.
 // CXX:      (((!a.is_null()) &&(!b.is_null())) &&(a.__value() == b.__value()));
 // CXX:      ((!a.is_null()) &&(a.__value() == 4));

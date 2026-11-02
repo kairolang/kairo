@@ -76,7 +76,7 @@ fn main() -> i32 {
 // DIAG-NOT: error
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: Value_witness<T>::__kairo_op_eq(a, b)
+// CXX: Value_witness<T>::__kairo_op_eq(a, static_cast<T &&>(b))
 // CXX: Named_witness<T>::
 
 // REQUIRES: clang
