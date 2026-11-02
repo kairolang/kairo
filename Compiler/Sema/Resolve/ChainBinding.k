@@ -986,21 +986,82 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         b.duck  = (gp->kind_bound == GenericParamKindBound::Duck);
 
         var it = self.sc->bounds.find(reinterpret_cast::<u64>(owner));
-        if it == self.sc->bounds.end() { return b; }
-        var _set = &(it->second);
-        for var i: usize = 0; i < _set->impl_constraints.size(); ++i {
-            var c = _set->impl_constraints[i];
-            if !self._constraint_names(c, gp) { continue; }
-            var d = self._record_decl_of(c->rhs);
-            if d != &null { b.interfaces.push_back(d); }
+        if it != self.sc->bounds.end() {
+            var _set = &(it->second);
+            for var i: usize = 0; i < _set->impl_constraints.size(); ++i {
+                var c = _set->impl_constraints[i];
+                if !self._constraint_names(c, gp) { continue; }
+                var d = self._record_decl_of(c->rhs);
+                if d != &null { b.interfaces.push_back(d); }
+            }
+            for var i: usize = 0; i < _set->derives_constraints.size(); ++i {
+                var c = _set->derives_constraints[i];
+                if !self._constraint_names(c, gp) { continue; }
+                var d = self._record_decl_of(c->rhs);
+                if d != &null { b.bases.push_back(d); }
+            }
         }
-        for var i: usize = 0; i < _set->derives_constraints.size(); ++i {
-            var c = _set->derives_constraints[i];
-            if !self._constraint_names(c, gp) { continue; }
-            var d = self._record_decl_of(c->rhs);
-            if d != &null { b.bases.push_back(d); }
+        // The `eval if gp impl I` branches this step stands in: I is a bound
+        // there (traverse_conditional_stmt).
+        for var i: usize = 0; i < self._narrow_params.size(); ++i {
+            if self._narrow_params[i] == gp { b.interfaces.push_back(self._narrow_ifaces[i]); }
         }
         return b;
+    }
+
+    // === eval if A impl I (P234) ================================================
+    //
+    // A function-body `eval if` stays C++'s `if constexpr` (RESOLUTION.md
+    // §2.3), decided per instantiation by the interface's concept
+    // (EmitIR::_constraint). In its TAKEN branch the test holds, so a
+    // parameter it names has that interface's members, exactly as if the
+    // bound had been declared: `A::resize(...)` binds to Resizer's
+    // requirement and is spelled through its witness. The else branch and
+    // everything after see the declared bounds only. Only conjuncts narrow
+    // (`A impl I && B impl J`); a test under `||` or `!` promises nothing.
+
+    /// Parallel stacks: while a taken branch is walked, its parameters and
+    /// the interface each one gained. Pushed and popped around then_ only.
+    priv var _narrow_params: vec::<*GenericParamDecl>;
+    priv var _narrow_ifaces: vec::<*Decl>;
+
+    fn traverse_conditional_stmt(self, n: *ConditionalStmt) -> *ConditionalStmt {
+        if (n == &null) || (!n->is_eval) { return RecursiveASTVisitor::<ChainBinding>::traverse_conditional_stmt(n); }
+        if self.dyn()->walkup_conditional_stmt(n) == false { return n; }
+        if n->cond != &null { n->cond = self.dyn()->dispatch_expr(n->cond); }
+        var mark = self._narrow_params.size();
+        self._narrow_from(n->cond);
+        n->then_ = self.dyn()->traverse_block(n->then_);
+        while self._narrow_params.size() > mark {
+            self._narrow_params.pop_back();
+            self._narrow_ifaces.pop_back();
+        }
+        if n->else_ != &null { n->else_ = self.dyn()->dispatch_stmt(n->else_); }
+        return n;
+    }
+
+    /// Pushes each `P impl I` conjunct of \p e0 whose P is a generic
+    /// parameter and whose I names a record.
+    priv fn _narrow_from(self, e0: *Expr) {
+        var e = e0;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        if e == &null { return; }
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if (b != &null) && ((b->op_token.kind == TokenKind::OpAmpAmp) || (b->op_token.kind == TokenKind::KwAnd)) {
+            self._narrow_from(b->lhs);
+            self._narrow_from(b->rhs);
+            return;
+        }
+        var c = dyn_cast::<ConstraintExpr>(e);
+        if (c == &null) || c->is_derives() || (c->lhs == &null) { return; }
+        var id = dyn_cast::<NamedIdentExpr>(c->lhs);
+        if id == &null { return; }
+        var gp = dyn_cast::<GenericParamDecl>(id->resolved_decl);
+        if gp == &null { return; }
+        var d = self._record_decl_of(c->rhs);
+        if d == &null { return; }
+        self._narrow_params.push_back(gp);
+        self._narrow_ifaces.push_back(d);
     }
 
     /// Whether conjunct \p c constrains \p gp. The lhs is an ordinary

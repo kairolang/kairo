@@ -931,8 +931,45 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
     fn visit_conditional_stmt(self, n: *ConditionalStmt) -> bool {
         if (!n->is_eval) || self._in_eval_fn() { return true; }
         if (n->cond == &null) || n->cond->is_poisoned() { return true; }
+        self._impl_tests(n->cond);
         self._need_eval(n->cond, "the condition of an 'eval if\x27");
         return true;
+    }
+
+    /// `A impl I` in a body's `eval if` (P234): C++ decides it per
+    /// instantiation through I's concept (EmitIR::_constraint), so it is
+    /// compile-time -- but only over a generic parameter, the one subject
+    /// with a concept argument to spell and a branch ChainBinding narrows.
+    /// `derives` has no concept yet. Each other form is reported here;
+    /// _first_runtime passes every ConstraintExpr, so none is reported twice.
+    priv fn _impl_tests(self, e0: *Expr) {
+        var e = self.tu.strip_parens(e0);
+        if (e == &null) || e->is_poisoned() { return; }
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if (b != &null) && (b->resolved_op == &null) {
+            self._impl_tests(b->lhs);
+            self._impl_tests(b->rhs);
+            return;
+        }
+        var u = dyn_cast::<UnaryOperatorExpr>(e);
+        if (u != &null) && (u->resolved_op == &null) { self._impl_tests(u->operand); return; }
+        var c = dyn_cast::<ConstraintExpr>(e);
+        if c == &null { return; }
+        var id = dyn_cast::<NamedIdentExpr>(c->lhs);
+        var on_param = (id != &null) && (id->resolved_decl != &null) && isa::<GenericParamDecl>(id->resolved_decl);
+        if c->is_derives() {
+            var d = self.sc->diag->report(DiagID::SC001E, e->range.start,
+                "'derives' in a function-body 'eval if' is not supported yet; test an interface with 'impl\x27");
+            d.first(e->range);
+            d.emit();
+            return;
+        }
+        if !on_param {
+            var d = self.sc->diag->report(DiagID::SC001E, e->range.start,
+                "an 'impl' test in a function-body 'eval if' must name a generic parameter of the function or its class");
+            d.first(c->lhs->range);
+            d.emit();
+        }
     }
 
     // === eval-able ==========================================================
@@ -964,6 +1001,9 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         if isa::<IntegerLiteralExpr>(e) || isa::<FloatingLiteralExpr>(e) || isa::<BooleanLiteralExpr>(e)
         || isa::<CharacterLiteralExpr>(e) || isa::<StringLiteralExpr>(e) || isa::<NullLiteralExpr>(e) { return &null; }
         if isa::<SizeOfExpr>(e) || isa::<AlignOfExpr>(e) || isa::<TypeOfExpr>(e) || isa::<TypeTraitExpr>(e) { return &null; }
+        // A type test: its operands are types. _impl_tests reports the forms
+        // codegen cannot spell.
+        if isa::<ConstraintExpr>(e) { return &null; }
         if isa::<UnaryOperatorExpr>(e) {
             var u = cast::<UnaryOperatorExpr>(e);
             if u->resolved_op != &null { return e; }

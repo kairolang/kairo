@@ -314,6 +314,15 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         for var i: usize = 0; i < bs.size(); ++i {
             if self._has_requirement(canon_unqual(bs[i]), f) { return canon_unqual(bs[i]); }
         }
+        // The taken branch of `eval if T impl I` (P234): I is a bound there
+        // only, so no declared bound has the requirement, and the witness is
+        // I's own. A generic I's arguments are the test's, which the step
+        // does not keep yet: those still end here.
+        var req = self._requirement_of(f);
+        if (req != &null) && (req->generic_params.size() == 0) {
+            var none = vec::<*Type>();
+            return self.sc->types->record(NameLookup::representative(static_cast::<*Decl>(req)), &none);
+        }
         ICE_FAIL("ExtensionLowering: no bound of the receiver requires the callee");
         return &null;
     }

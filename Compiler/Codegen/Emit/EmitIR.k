@@ -1809,10 +1809,32 @@ class EmitIR {
             case ExprKind::TypeOfExpr           { self._ice(e->range, "EmitIR: typeof; TypeQueryLowering owns it"); }
             case ExprKind::ImplConformanceExpr  { self._ice(e->range, "EmitIR: impl test; TypeQueryLowering owns it"); }
             case ExprKind::DerivesRelationExpr  { self._ice(e->range, "EmitIR: derives test; TypeQueryLowering owns it"); }
-            case ExprKind::ConstraintExpr       { self._ice(e->range, "EmitIR: constraint in expression position; RequiresDesugar owns it"); }
+            case ExprKind::ConstraintExpr       { self._constraint(cast::<ConstraintExpr>(e)); }
             case ExprKind::VerbatimExpr         { self._ice(e->range, "EmitIR: verbatim span; tooling-only node"); }
             default { self._ice(e->range, f"EmitIR: expression kind {to_string(e->kind)} is not in the core"); }
         }
+    }
+
+    /// `A impl I` as a value: the condition of a function-body `eval if`
+    /// EvalIfFolding left to C++ (RESOLUTION.md §2.3), decided once per
+    /// instantiation by I's concept -- `(::ns::I_c<A>)`, the conjunct
+    /// CXXSpell::requires_clause writes for a bound, so the test and a bound
+    /// can never disagree. The taken branch may call I's members on A
+    /// (ChainBinding's narrowed bounds); in a template the other branch is a
+    /// discarded statement, never instantiated for an A that lacks them.
+    /// EvalUsageChecking admits only `impl` over a generic parameter here.
+    priv fn _constraint(self, c: *ConstraintExpr) {
+        var e = static_cast::<*Expr>(c);
+        if c->is_derives() { self._ice(e->range, "EmitIR: a 'derives' test as a value; EvalUsageChecking admits only 'impl\x27"); }
+        if (c->rhs == &null) || (c->rhs->canonical == &null) { self._ice(e->range, "EmitIR: an 'impl' test whose interface did not resolve"); }
+        var rhs = canon_unqual(c->rhs->canonical);
+        if !isa::<RecordType>(rhs) { self._ice(e->range, "EmitIR: an 'impl' test against a type that is not an interface"); }
+        var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(rhs)->decl)));
+        if !isa::<InterfaceDecl>(idecl) { self._ice(e->range, "EmitIR: an 'impl' test against a type that is not an interface"); }
+        var gp = CXXSpell::_bound_param(c);
+        if (gp == &null) || (gp->owner == &null) { self._ice(e->range, "EmitIR: an 'impl' test of something other than a generic parameter"); }
+        var subj = self._spell.tparam_name(gp, CXXSpell::rep(gp->owner));
+        self._cg->sink->spell(e->range, "(" + self._spell.concept_name(idecl) + self._spell.witness_args(subj, rhs) + ")");
     }
 
     /// `xs...` of a forwarding pack (`T&&... xs`, CXXSpell::forwarding_pack)

@@ -2157,6 +2157,14 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
             if sl->const_eval && (sl->imm != &null) && sl->imm->has_owned_text() {
                 self.note_eval_str(sl->imm->owned_ptr, static_cast::<usize>(sl->imm->owned_len));
             }
+        } case ExprKind::ConstraintExpr {
+            // `eval if A impl I` in a body is I's concept (EmitIR::_constraint),
+            // which only a requires clause would otherwise have planned.
+            var ce = cast::<ConstraintExpr>(e);
+            if (!ce->is_derives()) && (ce->rhs != &null) && (ce->rhs->canonical != &null) && isa::<RecordType>(canon_unqual(ce->rhs->canonical)) {
+                var cd = cast::<RecordType>(canon_unqual(ce->rhs->canonical))->decl;
+                if isa::<InterfaceDecl>(CXXSpell::rep(decl_pattern(CXXSpell::rep(cd)))) { self._admit(cd, PlanNeed::Complete); }
+            }
         } case ExprKind::SizeOfExpr {
             // The operand is laid out, not just named: Complete, whatever
             // visit_type (Fwd, for a type merely spelled) would say.

@@ -695,6 +695,18 @@ conjuncts, read from `sc->bounds`):
 A dependent COMPOSITE (`*T`, `[T]`, an unfilled `Foo<T>::Inner`) is still
 Dependent under every regime; it has no scope to look into.
 
+**`eval if T impl I` narrows** [DONE for ChainBinding's walk, P234]. A
+function-body `eval if` stays `if constexpr` (§2.3); its `T impl I`
+conjunct is I's concept (`EmitIR::_constraint`), so C++ decides it per
+instantiation and discards the other branch. In the TAKEN branch, I is a
+bound of T for every step ChainBinding's own walk binds (`T::f(...)`,
+`T::Assoc`): `_bounds_of` adds it while the branch is walked, so the step
+binds to I's requirement and is spelled through I's witness. Only `&&`
+conjuncts narrow, only `impl` over a generic parameter (EvalUsageChecking
+rejects the rest), and the else branch sees the declared bounds. Not yet:
+steps the expression typer binds (`x.f()` on `x: T`) and operators
+(`TypeUtil::checked_param`) do not see the narrowing.
+
 **Operators, conversions, null tests and patterns on `<T>` / `<T impl I>`**
 [DONE, MONO.md G11]. The expression typer applies the same rule to a value
 of a bare parameter that is not `: type` and has no `derives` bound
