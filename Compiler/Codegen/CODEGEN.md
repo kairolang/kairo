@@ -37,8 +37,8 @@ nothing else builds a lang record. A dependent use keeps the primary.
 
 ## 1. Pipeline
 
-    FrontendAction::_codegen      per non-foreign fid, DAG order
-      CodegenBackend::run(out)     one clang invocation, one .o
+    FrontendAction::_codegen      per non-foreign fid, side by side (below)
+      CodegenBackend::run(out)     one CompilerInstance, one .o
         fill(TokenSink)
           EmitPlan(Preamble)       §3
           InterfaceEmitter::run    tiers 0–2 + extern template (tier 3 non-home)
@@ -78,6 +78,60 @@ import clang headers:
     Backend/   the plan's consumers and their clang glue:
                CodegenBackend (an object), EmitCXXHeader (a header),
                IncludeEmitter (`#include "foo.k"`), CodegenAction
+
+### Phase B headers: the merged PCH
+
+Every TU loads its graph's ffi header sets as ONE implicit PCH
+(`HeaderSetCache::codegen_pch`, clang loads only one): the sets' replay
+text inside the FP pragmas, parsed once. It is started on the pool as soon
+as phase A joins in `_sema` (`prebuild_codegen_pch`), so it overlaps Sema
+and the lowerings; `_codegen` joins `CODEGEN_PCH_GROUP` and looks it up
+(same list, `_graph_header_sets`). If it fails, each TU loads its biggest
+set as the PCH and `#include`s the rest through wrappers (`CodegenBackend::
+run`), the old path, still correct.
+
+### Parallel codegen (P216)
+
+`_codegen` runs in three steps:
+
+1. **Pre-pass, driver thread.** One `CodegenJob` per TU: output paths
+   (two TUs mapping to one object name -- a pathless `builtin.k` and the
+   builtin root -- get the later one a `-<fid>` suffix), header sets, print
+   flags. `EmitPlan::prepare_shared` fills the one plan cache other TUs'
+   plans read (`TranslationUnit::cxx_escaping`, via `CXXSpell::is_anon`).
+   `CodegenRun::mount` lists every byte the TUs' VFSs hold (the merged PCH,
+   or each set's PCH and wrapper) and sets the `mounted` flags.
+2. **Fan-out.** `CodegenQueue` hands TUs, biggest first, to
+   min(pool threads, physical cores, TUs) workers in `CODEGEN_GROUP`; one
+   worker under `--print-cg` / `--print-ir`, which print as each TU fills.
+   `CodegenJob::run` is the whole TU and shares nothing mutable: its own
+   CompilerInvocation copy and CompilerInstance per `run()` (FileManager,
+   SourceManager, TargetInfo, DiagnosticsEngine), its own `ClangLocMap`,
+   `ClangDiagAdapter` into its own `BufferedDiagSink`, and its own VFS
+   (`ClangBackend::codegen_vfs`: the real FS under a fresh in-memory layer,
+   PCH bytes mounted as views -- `InMemoryFileSystem::addFile` is not
+   thread-safe, so no layer is ever shared). clang's "N errors generated."
+   goes to `nulls()`.
+3. **Post-pass, driver thread, TU order.** Each job's sink, then its
+   `ctx->diag_sink`, is drained; objects are pushed. Every TU runs even
+   when one fails, so a build reports every TU's clang errors, and the same
+   ones whatever the worker count.
+
+`fill()` runs on the workers, side by side. The invariant that makes that
+safe: **an emitter writes only its own TU's state** (its plan, sink,
+`codegen_alloc`, `diag_sink`). Shared reads are of state Sema finished: the
+AST, `InstantiationRegistry` (shared-locked), the imm tables, the Kairo
+SourceManager (line tables only on the ICE path). A new lazily computed
+cache on a shared node belongs in `prepare_shared`, not in `run()`.
+
+`--time-passes` arms clang's profiler per worker thread (KTimeClang.hh); the
+rows land under `Codegen.Backend` from every worker, and the driver's wait
+is `Backend.Join [idle]`.
+
+The runtime's C objects (`_compile_runtime`) fan out too: invocations built
+serially (`ClangBackend::native_invocation`, the argv arena and arg-parse
+engine are shared), each `run_native` prints into its own log, printed in
+input order after the join.
 
 ## 2. Sinks
 

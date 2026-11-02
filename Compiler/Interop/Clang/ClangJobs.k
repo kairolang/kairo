@@ -48,7 +48,7 @@
 ///   drains it into its engine after each run. The driver's own argument
 ///   diagnostics still print through the backend's text printer.
 ///
-///   Driver thread only, like ClangBackend::compile_native.
+///   Driver thread only, like ClangBackend::native_invocation.
 ///
 
 ffi "c++" import "Native/Types.hh";

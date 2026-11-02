@@ -22,9 +22,10 @@
 ///      ThreadPool (group CLANG_STARTUP_GROUP) clang's expensive setup
 ///      (invocation parse, TargetInfo, FileManager/SourceManager) runs
 ///      concurrently with Kairo lex/preprocess.
-///   2. Codegen joins that group, then wraps each TU in begin_tu() / end_tu(),
-///      which install/remove the ClangDiagAdapter as the DiagnosticsEngine
-///      client.
+///   2. Codegen joins that group, then compiles each TU on a CompilerInstance
+///      of its own (CodegenBackend::run): a copy of this invocation, a VFS
+///      from codegen_vfs(), the TU's ClangDiagAdapter as the client. The
+///      shared instance here is the template and the oracle's, not a TU's.
 ///   3. Kairo fids enter the clang SM in exactly ONE place:
 ///      ClangLocMap::rebind(), called from
 ///      KairoEmitAction::BeginSourceFileAction. It has to be there, not on a
@@ -40,17 +41,15 @@
 ///      for free.
 ///
 /// \par Threading
-///   startup() is serialized on an internal mutex against itself. Everything
-///   else (begin_tu/end_tu/ExecuteAction/rebind) is driver-thread only
-///   clang's Preprocessor/Sema/SourceManager are not shareable across
-///   concurrent parses, and createFileID is not thread-safe. Parallel backend
-///   TUs later means one CompilerInstance per worker, not locks here.
-///
-/// \par PP/Sema per TU
-///   Only FileManager/SourceManager/TargetInfo persist. clang creates a
-///   fresh Preprocessor + Sema per ExecuteAction over the shared SM that
-///   is the point: header ContentCaches and Kairo fid buffers are loaded
-///   exactly once for the whole batch.
+///   startup() is serialized on an internal mutex against itself. Codegen
+///   TUs run on several pool workers at once (P216), so nothing a TU's
+///   compile touches is shared and mutable: each gets its own
+///   CompilerInvocation copy, CompilerInstance (FileManager, SourceManager,
+///   TargetInfo, DiagnosticsEngine), ClangLocMap and VFS. What they share is
+///   read-only once the fan-out starts: the invocation they copy, the PCH
+///   bytes (codegen_vfs mounts views, never copies) and the real file
+///   system. InMemoryFileSystem::addFile is not thread-safe, which is why
+///   each TU builds its own instead of mounting into one.
 ///
 
 ffi "c++" import "llvm/Support/Allocator.h";
@@ -87,6 +86,8 @@ import Command::FlagTranslator::*;
 /// ThreadPool group ids used by the driver for backend tasks.
 /// (5 = index, 6 = parse are taken by FrontendAction::_parse.)
 eval fn CLANG_STARTUP_GROUP() -> u8 { return 9;  }
+/// The runtime's native compiles (run_native), side by side.
+eval fn NATIVE_GROUP() -> u8 { return 13; }
 
 
 struct ClangBackendConfig {
@@ -134,6 +135,31 @@ struct ClangBackendConfig {
     var driver_words:  vec::<string>;
 }
 
+/// \class CodegenMounts
+/// \brief What every codegen TU's VFS holds on top of the real file system:
+///        the PCH bytes phase B loads, and the wrapper headers that replay a
+///        set textually. Filled on the driver thread before the fan-out and
+///        read-only after it; codegen_vfs() mounts it into a TU's own
+///        in-memory layer.
+class CodegenMounts {
+    pub var pch_paths:  vec::<string>;
+    pub var pch_data:   vec::<*llvm::SmallVector::<std::Legacy::char, 0>>;  ///< owned by the set / CodegenPCH
+    pub var text_paths: vec::<string>;
+    pub var texts:      vec::<string>;
+
+    fn add_pch(self, path: string, data: *llvm::SmallVector::<std::Legacy::char, 0>) {
+        for p: string in self.pch_paths { if p == path { return; } }
+        self.pch_paths.push_back(path);
+        self.pch_data.push_back(data);
+    }
+
+    fn add_text(self, path: string, text: string) {
+        for p: string in self.text_paths { if p == path { return; } }
+        self.text_paths.push_back(path);
+        self.texts.push_back(text);
+    }
+}
+
 class ClangBackend {
     priv var _ksm:    obs::<SourceManager>;         ///< driver-owned, outlives this
     priv var _cfg:    ClangBackendConfig;
@@ -141,8 +167,8 @@ class ClangBackend {
 
     // --- persistent clang state (built once in _startup_locked) ----------
     priv var _vfs:       llvm::IntrusiveRefCntPtr::<llvm::vfs::FileSystem>;
-    /// Top layer of _vfs: phase-A PCH bytes mounted at /kairo/pch/<id>.pch so
-    /// phase B loads them by path without ever touching disk.
+    /// Top layer of _vfs. Phase B no longer mounts here: each codegen TU
+    /// gets its own layer (codegen_vfs), because addFile is not thread-safe.
     priv var _mem:       llvm::IntrusiveRefCntPtr::<llvm::vfs::InMemoryFileSystem>;
     priv var _diag_opts: clang::DiagnosticOptions;  ///< plain value type in 22.x
     priv var _diags0:    llvm::IntrusiveRefCntPtr::<clang::DiagnosticsEngine>; ///< arg-parse engine
@@ -244,31 +270,25 @@ class ClangBackend {
         return &(self._oracle);
     }
 
-    /// \brief compiles one C or C++ source file to an object, on the same
-    ///        target, roots and VFS as Kairo's own codegen.
+    /// \brief the invocation for compiling one C or C++ source file to an
+    ///        object, on the same target and roots as Kairo's own codegen: a
+    ///        FRESH one from the shared cc1 arguments rather than a copy of
+    ///        the backend's. run_native() compiles it.
     ///
-    /// \details a FRESH invocation from the shared cc1 arguments rather than
-    ///          a copy of the backend's: a copy carries C++ LangOptions, and a
-    ///          .c file must get clang's C defaults. Own CompilerInstance per
-    ///          file, the backend's shared VFS (so an in-memory mount is
-    ///          visible), and the backend's printer: these files have no
-    ///          Kairo fid, so clang reports them in its own format.
-    ///
-    ///          The later `#include "foo.k"` work installs the patched
-    ///          FileTokenizer hook on this instance's Preprocessor; nothing
-    ///          else about the shape changes.
-    ///
-    ///          Only the runtime (Lib/rt) is built here; the user's C/C++
-    ///          inputs go through clang's driver (ClangJobs). \p extra is
-    ///          appended after the shared arguments: the runtime's own
-    ///          header roots (the vendored mimalloc's include/), which no
-    ///          other TU may see.
-    ///
-    ///          Driver thread only. False on any failure, with clang's
-    ///          diagnostics already printed.
-    fn compile_native(self, src: string, out: string, xlang: string, is_c: bool, extra: vec::<string>) -> bool {
+    /// \details a copy carries C++ LangOptions, and a .c file must get
+    ///          clang's C defaults. Only the runtime (Lib/rt) is built here;
+    ///          the user's C/C++ inputs go through clang's driver
+    ///          (ClangJobs). \p extra is appended after the shared
+    ///          arguments: the runtime's own header roots (the vendored
+    ///          mimalloc's include/), which no other TU may see. Driver
+    ///          thread only: the argv bytes come from this backend's arena
+    ///          and a bad argument reports through the shared arg-parse
+    ///          engine. Null on failure.
+    fn native_invocation(self, src: string, out: string, xlang: string, is_c: bool, extra: vec::<string>)
+            -> libcxx::shared_ptr::<clang::CompilerInvocation> {
+        var none = libcxx::shared_ptr::<clang::CompilerInvocation>();
         self.startup();
-        if !self.ready() { return false; }
+        if !self.ready() { return none; }
 
         var argv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
         // Lib/rt is C/C++ source: it keeps clang's C/C++ FP defaults.
@@ -304,36 +324,73 @@ class ClangBackend {
         var inv = libcxx::make_shared::<clang::CompilerInvocation>();
         if !clang::CompilerInvocation::CreateFromArgs(*(inv.get()), argv, *(self._diags0.get())) {
             Logger::error(Logger::Stage::Driver, f"ClangBackend: cannot build an invocation for {src}");
-            return false;
+            return none;
         }
-
-        var ci = std::create::<clang::CompilerInstance>(inv);
-        finally { std::destroy(ci); }
-        ci->setVirtualFileSystem(self._vfs);
-        ci->createDiagnostics(self._printer, false);
-        if !ci->hasDiagnostics() { return false; }
-        ci->setTarget(clang::TargetInfo::CreateTargetInfo(
-            ci->getDiagnostics(), ci->getInvocation().getTargetOpts()));
-        if !ci->hasTarget() { return false; }
-
-        var act = clang::EmitObjAction();
-        var ok  = ci->ExecuteAction(act);
-        return ok && (ci->getDiagnostics().getNumErrors() == 0);
+        return inv;
     }
 
-    /// Driver thread only. A generated header, copied in; addFile keeps the
-    /// first mount of a path, so a second call is a no-op.
-    fn mount_text(self, path: string, text: string) {
-        var buf = llvm::MemoryBuffer::getMemBufferCopy(
-            sref(text), sref(path));
-        self._mem->addFile(llvm::Twine(sref(path)), 0, libcxx::move(buf));
+    /// \brief runs one native_invocation() to its object. Any thread.
+    ///
+    /// \details Own CompilerInstance and own printer, writing to \p log
+    ///          rather than stderr, so the runtime's files compile side by
+    ///          side and the caller prints what they said in input order.
+    ///          These files have no Kairo fid, so they are reported in
+    ///          clang's own format. The backend's VFS is only read here: no
+    ///          mount happens while native compiles run.
+    ///
+    ///          The later `#include "foo.k"` work installs the patched
+    ///          FileTokenizer hook on this instance's Preprocessor; nothing
+    ///          else about the shape changes.
+    fn run_native(self, inv: libcxx::shared_ptr::<clang::CompilerInvocation>, log: *string) -> bool {
+        var text: libcxx::string;
+        var ok = false;
+        {
+            var os      = llvm::raw_string_ostream(text);
+            var printer = clang::TextDiagnosticPrinter(os, inv.get()->getDiagnosticOpts());
+            var ci = std::create::<clang::CompilerInstance>(inv);
+            ci->setVirtualFileSystem(self._vfs);
+            ci->createDiagnostics(&printer, false);
+            if ci->hasDiagnostics() {
+                ci->setTarget(clang::TargetInfo::CreateTargetInfo(
+                    ci->getDiagnostics(), ci->getInvocation().getTargetOpts()));
+                if ci->hasTarget() {
+                    var act = clang::EmitObjAction();
+                    ok = ci->ExecuteAction(act) && (ci->getDiagnostics().getNumErrors() == 0);
+                }
+            }
+            // The engine borrows the printer: the instance goes first.
+            std::destroy(ci);
+            os.flush();
+        }
+        (*log) += string(text);
+        return ok;
     }
 
-    /// Driver thread only. Idempotent per path.
-    fn mount_pch(self, path: string, data: *llvm::SmallVector::<std::Legacy::char, 0>) {
-        var buf = llvm::MemoryBuffer::getMemBuffer(
-            llvm::StringRef(data->data(), data->size()), sref(path), false);
-        self._mem->addFile(llvm::Twine(sref(path)), 0, libcxx::move(buf));
+    /// \brief a codegen TU's own VFS: the real file system under a fresh
+    ///        in-memory layer holding \p m.
+    ///
+    /// \details Any thread. The PCH bytes are mounted as views of the
+    ///          buffers \p m names (they outlive every TU); the small
+    ///          wrapper texts are copied. One per TU rather than one shared:
+    ///          InMemoryFileSystem::addFile is not thread-safe, so nothing
+    ///          is ever added to a layer another TU can see.
+    fn codegen_vfs(self, m: *CodegenMounts) -> llvm::IntrusiveRefCntPtr::<llvm::vfs::FileSystem> {
+        var overlay = llvm::makeIntrusiveRefCnt::<llvm::vfs::OverlayFileSystem>(llvm::vfs::getRealFileSystem());
+        var mem     = llvm::makeIntrusiveRefCnt::<llvm::vfs::InMemoryFileSystem>();
+        overlay->pushOverlay(mem);
+        for var i: usize = 0; i < m->pch_paths.size(); ++i {
+            var d   = m->pch_data[i];
+            var buf = llvm::MemoryBuffer::getMemBuffer(
+                llvm::StringRef(d->data(), d->size()), sref(m->pch_paths[i]), false);
+            mem->addFile(llvm::Twine(sref(m->pch_paths[i])), 0, libcxx::move(buf));
+        }
+        for var i: usize = 0; i < m->text_paths.size(); ++i {
+            var buf = llvm::MemoryBuffer::getMemBufferCopy(
+                sref(m->texts[i]), sref(m->text_paths[i]));
+            mem->addFile(llvm::Twine(sref(m->text_paths[i])), 0, libcxx::move(buf));
+        }
+        var fs: llvm::IntrusiveRefCntPtr::<llvm::vfs::FileSystem> = overlay;
+        return fs;
     }
 
     fn csm(self) -> *clang::SourceManager {
@@ -350,66 +407,6 @@ class ClangBackend {
     fn startup(self) {
         var lock = std::LockGuard(self._mu);
         self._startup_locked();
-    }
-
-    // --- Per-TU diagnostic wiring (driver thread only) -----------------------
-
-    /// Installs a fresh ClangDiagAdapter as the DiagnosticsEngine client for
-    /// one TU's backend run. Counters are Reset() so pass/fail is per-TU.
-    /// Returned adapter is owned by the CALLER via end_tu().
-    ///
-    /// The adapter is handed the locmap itself, not a snapshotted clang fid.
-    /// It is constructed BEFORE ExecuteAction, so any fid captured here would
-    /// be invalidated by clearIDTables before the first diagnostic arrives.
-    fn begin_tu(self, sink: *BufferedDiagSink, kfid: FileID) -> *ClangDiagAdapter {
-        ICE_IF(!self.ready(), "ClangBackend::begin_tu before ready()");
-
-        var a = std::create::<ClangDiagAdapter>();
-        a->sink   = sink;
-        a->ksm    = self._ksm;
-        a->kfid   = kfid;
-        a->locmap = self._locmap;
-
-        self._ci->getDiagnostics().Reset();
-
-        // Reset() (soft=false) wipes the per-diagnostic warning MAPPINGS set up
-        // by CreateFromArgs, so the -W/-Wno-/-Werror= args we injected for the
-        // user's diagnostic policy would be lost every TU. Reinstall them from
-        // the invocation's DiagnosticOptions after each reset. ReportDiags=false:
-        // arg-parse errors were already reported at startup.
-        clang::ProcessWarningOptions(
-            self._ci->getDiagnostics(),
-            self._ci->getInvocation().getDiagnosticOpts(),
-            *(self._vfs.get()),
-            false);
-
-        self._ci->getDiagnostics().setClient(a, false);
-        a->BeginSourceFile(self._ci->getLangOpts(), &null);
-
-        return a;
-    }
-
-    /// Flushes any open builder, detaches the adapter, and frees it.
-    /// The engine falls back to the startup TextDiagnosticPrinter between TUs.
-    fn end_tu(self, a: *ClangDiagAdapter) {
-        if a == &null {
-            return;
-        }
-
-        a->EndSourceFile();
-        a->finish();
-
-        self._ci->getDiagnostics().setClient(self._printer, false);
-        std::destroy(a);
-    }
-
-    /// Per-TU pass/fail as clang saw it (base DiagnosticConsumer counters
-    /// are maintained by the adapter's mandatory base call).
-    fn clang_error_count(self) -> u32 {
-        if (self._ci == &null) || (!self._started) {
-            return 0;
-        }
-        return self._ci->getDiagnostics().getNumErrors();
     }
 
     // --- Internals -----------------------------------------------------------

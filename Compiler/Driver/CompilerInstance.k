@@ -270,6 +270,7 @@ class FrontendAction {
     priv fn _import_order(self) -> vec::<u32>;
     priv fn _sema_group(self, fids: *vec::<u32>, effects: *EffectTable, print_sema: bool, print_lowered: bool, sema_opts: PrintOptions);
     priv fn _codegen(self)     -> bool;
+    priv fn _graph_header_sets(self) -> vec::<*HeaderSet>;
     priv fn _tu_is_empty(self, fid: u32) -> bool;
     priv fn _dump_tokens(self);
     priv fn _dump_preprocessed_source(self);
@@ -521,6 +522,7 @@ class CompilerInstance {
         // dies; destroying the cache releases every set.
         if self._headers != &null {
             self._pool->wait_group(HEADER_BUILD_GROUP());
+            self._pool->wait_group(CODEGEN_PCH_GROUP());
             // Early-exit paths skip both Sema's drain and release_all's.
             if self._diag != &null { self._headers->drain_all(self._diag, self._sm); }
             std::destroy(self._headers);
@@ -1373,7 +1375,7 @@ class CompilerInstance {
         // --march is a DRIVER spelling (cc1 has none): the probe turns it
         // into -target-cpu and the -target-feature pairs its extensions imply.
         for a: string in FlagTranslator::march_driver(tgt) { bcfg.driver_words.push_back(a); }
-        // (bcfg.c_std stays c17: compile_native builds only Lib/rt, Kairo's
+        // (bcfg.c_std stays c17: native_invocation builds only Lib/rt, Kairo's
         // own runtime; --c-std is for the user's C inputs.)
         // Every flag word below is spelled by FlagTranslator, the one home
         // of the kairo <-> clang mapping; this function only places them.
@@ -1400,7 +1402,7 @@ class CompilerInstance {
         bcfg.extra_cc1.push_back(f"-D{LowerTargets::reserved_prefix()}env_{env_nm}__=1");
         // The runtime root, after the user's: `rt/fmt.h` names the same file
         // from Lib/builtin/fmt/fmt_buf.k (an ffi header set copies this
-        // invocation) and from Lib/rt/fmt_*.c (compile_native shares these
+        // invocation) and from Lib/rt/fmt_*.c (native_invocation shares these
         // arguments).
         var rt_root = self._runtime_root();
         if !rt_root.empty() { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(rt_root); }
@@ -1594,7 +1596,7 @@ class CompilerInstance {
     /// \brief the runtime's C/C++ sources (Lib/rt), when Kairo objects were
     ///        emitted, into <dir>/kairo/<stem>.o beside kairo/std.o.
     ///
-    /// \details On the hand-built cc1 line (ClangBackend::compile_native),
+    /// \details On the hand-built cc1 line (ClangBackend::native_invocation and run_native),
     ///          not clang's driver: the runtime is Kairo's own code and is
     ///          built exactly as Kairo's TUs are (int128, no finite loops,
     ///          Kairo's exception model). Runtime objects never take -o.
@@ -1606,6 +1608,7 @@ class CompilerInstance {
             return false;
         }
         var dir = self.object_dir();
+        var n   = runtime.size();
         // The vendored mimalloc's headers, for rt/mimalloc.c alone: rt/alloc.h
         // declares the mi_* entry points it calls itself, so neither Kairo
         // TUs nor the user's C/C++ see mimalloc's include/ (its mimalloc.h
@@ -1613,9 +1616,45 @@ class CompilerInstance {
         var extra = vec::<string>();
         extra.push_back("-I");
         extra.push_back(Path::join_str(self._runtime_root(), "rt/mimalloc/include"));
-        var ok = true;
+
+        // Side by side on the pool: each file is its own CompilerInstance
+        // (ClangBackend::run_native) printing into its own log. The
+        // invocations are built here first, because their argv bytes and
+        // the arg-parse engine are the backend's; the logs, objects and
+        // verdict are read back in input order, so the output is the
+        // serial loop's whatever finishes first.
+        var invs = vec::<libcxx::shared_ptr::<clang::CompilerInvocation>>();
+        var objs = vec::<string>();
+        var logs = vec::<string>();
+        var oks  = vec::<u8>();     // not vec<bool>: its bits share bytes across threads
         for src: InputKind in runtime {
-            ok = self._compile_one_native(src, dir + "/kairo/" + Path(src.path).stem() + ".o", extra) && ok;
+            var obj = dir + "/kairo/" + Path(src.path).stem() + ".o";
+            Path::make_parent_dirs(obj);
+            invs.push_back(self._backend->native_invocation(src.path, obj, src.type_name(), src.is_c_family_c(), extra));
+            objs.push_back(obj);
+            logs.push_back("");
+            oks.push_back(u8(0));
+        }
+        var be     = self._backend;
+        var inv_p  = invs.data();
+        var log_p  = logs.data();
+        var ok_p   = oks.data();
+        var rec    = kairo::TimeReport::current();
+        for var i: usize = 0; i < n; ++i {
+            if inv_p[i].get() == &null { continue; }
+            self._pool->enqueue(fn () |be, inv_p, log_p, ok_p, i, rec| {
+                var _kt = kairo::TimeReport::Worker(rec);
+                if be->run_native(inv_p[i], &(log_p[i])) { ok_p[i] = u8(1); }
+            }, NATIVE_GROUP());
+        }
+        self._pool->wait_group(NATIVE_GROUP());
+
+        var ok = true;
+        for var i: usize = 0; i < n; ++i {
+            if !logs[i].empty() { std::eprint(logs[i]); }
+            if oks[i] == u8(0) { ok = false; continue; }
+            self._native_objs.push_back(objs[i]);
+            Logger::info(Logger::Stage::Driver, f"emitted object {objs[i]}");
         }
         return ok;
     }
@@ -1790,14 +1829,6 @@ class CompilerInstance {
             }
         }
         return ok;
-    }
-
-    priv fn _compile_one_native(self, src: InputKind, obj: string, extra: vec::<string>) -> bool {
-        Path::make_parent_dirs(obj);
-        if !self._backend->compile_native(src.path, obj, src.type_name(), src.is_c_family_c(), extra) { return false; }
-        self._native_objs.push_back(obj);
-        Logger::info(Logger::Stage::Driver, f"emitted object {obj}");
-        return true;
     }
 
     /// \brief the directory the runtime is included and compiled from: the
@@ -4568,6 +4599,14 @@ fn FrontendAction::_sema() -> bool {
             hs->drain_diags(self._ci->diag(), self._ci->sm());
             self._attach_ffi_edges(htu, hctx, hs);
         }
+        // Phase B's merged PCH needs nothing but the sets that just joined:
+        // build it on the pool now, overlapping Sema and the lowerings,
+        // rather than on the driver thread when codegen starts (about 45 ms
+        // there on a hello-sized program). _codegen joins it.
+        if !fe.stops_before_codegen() {
+            var gsets = self._graph_header_sets();
+            if gsets.size() > 1 { hc->prebuild_codegen_pch(gsets, kairo::TimeReport::current()); }
+        }
     }
 
     // Clang builtins, the fourth source of unqualified names. Here because
@@ -4860,6 +4899,24 @@ fn FrontendAction::_sema() -> bool {
 /// \p fid has nothing to define (EmitPlan::is_empty, on the preamble plan).
 /// A fid with no context or TU is not empty -- it is not a Kairo TU at all,
 /// and the callers already skip those -- so this answers only for real ones.
+/// The header sets of every TU in the graph, in graph order, each once:
+/// what phase B's merged PCH holds. One helper for the early build in
+/// _sema and the lookup in _codegen, so both name the same list.
+fn FrontendAction::_graph_header_sets() -> vec::<*HeaderSet> {
+    var out = vec::<*HeaderSet>();
+    for other: u32 in self._graph {
+        var sctx = self._global_scope->get_context(other);
+        if sctx == &null { continue; }
+        var stu = reinterpret_cast::<*TranslationUnit>(sctx->tu);
+        if (stu == &null) || (stu->header_set == &null) { continue; }
+        var hs  = reinterpret_cast::<*HeaderSet>(stu->header_set);
+        var dup = false;
+        for var j: usize = 0; j < out.size(); ++j { if out[j] == hs { dup = true; break; } }
+        if !dup { out.push_back(hs); }
+    }
+    return out;
+}
+
 fn FrontendAction::_tu_is_empty(fid: u32) -> bool {
     var ctx = self._global_scope->get_context(fid);
     if (ctx == &null) || (ctx->tu == &null) { return false; }
@@ -5030,27 +5087,35 @@ fn FrontendAction::_codegen() -> bool {
     var obj_dir = self._ci->object_dir();
 
     // Every TU loads the same headers: the whole graph's sets, in graph
-    // order, as one PCH (CodegenPCH). Built once here, before the first TU.
-    var graph_sets = vec::<*HeaderSet>();
-    for other: u32 in self._graph {
-        var sctx = self._global_scope->get_context(other);
-        if sctx == &null { continue; }
-        var stu = reinterpret_cast::<*TranslationUnit>(sctx->tu);
-        if (stu == &null) || (stu->header_set == &null) { continue; }
-        var hs  = reinterpret_cast::<*HeaderSet>(stu->header_set);
-        var dup = false;
-        for var j: usize = 0; j < graph_sets.size(); ++j { if graph_sets[j] == hs { dup = true; break; } }
-        if !dup { graph_sets.push_back(hs); }
-    }
+    // order, as one PCH (CodegenPCH). Normally already built on the pool
+    // during Sema (prebuild_codegen_pch); else built here, before the first
+    // TU.
+    var graph_sets = self._graph_header_sets();
     var merged: *CodegenPCH = &null;
     if (graph_sets.size() > 1) && (self._ci->headers() != &null) {
         self._ci->headers()->wait_all();
+        {
+            var _tw = TimeRegion("CodegenPCHWait");
+            self._ci->headers()->wait_codegen_pch();
+        }
         merged = self._ci->headers()->codegen_pch(graph_sets);
     }
 
+    // Pre-pass, driver thread: every decision about a TU (its output paths,
+    // its header sets), so the per-TU compile below reads nothing it shares
+    // with another TU except what is read-only from here on.
+    var crun = CodegenRun();
+    crun.be        = be;
+    crun.psym      = psym;
+    crun.instances = insts;
+    crun.merged    = merged;
+    var jobs = vec::<*CodegenJob>();
+    var all_sets = vec::<*HeaderSet>();
+    var used_stems = vec::<string>();
     for fid: u32 in own {
         var ctx = self._global_scope->get_context(fid);
         if ctx == &null {
+            for j: *CodegenJob in jobs { std::destroy(j); }
             return self._fatal(DiagID::I006F, "codegen: no ASTContext for a Kairo fid");
         }
         var ksize = static_cast::<u32>(self._ci->sm()->get_file_size(fid));
@@ -5077,18 +5142,38 @@ fn FrontendAction::_codegen() -> bool {
             else if segs.size() == 1 { rel = self._ci->kairo_object_stem(rel); }
             stem = obj_dir + "/" + rel;
             obj_stem = stem;
+            // Two TUs can map to one object name: a pathless `builtin.k`
+            // outside every search dir is named by its stem, as the builtin
+            // root is. Serially the later TU overwrote the earlier and the
+            // link happened to keep the right one; side by side, which write
+            // lands last is a race. The later TU in graph order (the
+            // importer, the one that used to win) takes a fid-suffixed name.
+            var taken = false;
+            for p: string in used_stems { if p == obj_stem { taken = true; break; } }
+            if taken {
+                obj_stem = obj_stem + f"-{fid}";
+                stem     = obj_stem;
+            }
+            used_stems.push_back(obj_stem);
             var beside = ("") if (self.discovered || (fid != self._file_id)) else (self._ci->emit_beside(self.path.stem()));
             if !beside.empty() { stem = beside; }
         }
 
-        var sink    = BufferedDiagSink{};
-        var adapter = be->begin_tu(&sink, fid);
-
-        var cg = CodegenBackend(be, ctx, fid, &(ctx->codegen_alloc), ksize, psym, insts);
-        var print_mode: u8 = 0;
-        if fe.print_cg { print_mode |= 2; }
-        if fe.print_ir { print_mode |= 1; }
-        cg.set_print_cg(print_mode, self._ci->sm()->get_filename(fid));
+        var job = std::create::<CodegenJob>();
+        job->fid   = fid;
+        job->ctx   = ctx;
+        job->ksize = ksize;
+        job->path  = self._ci->sm()->get_filename(fid);
+        if fe.print_cg { job->print |= 2; }
+        if fe.print_ir { job->print |= 1; }
+        for var k: usize = 0; k < kinds.size(); ++k {
+            var out = (single_obj) if (to_single) else (stem + exts[k]);
+            // An object nobody listed is a link input only.
+            if (!to_single) && (kinds[k] == EmitKind::Obj) && (!self._ci->obj_listed()) { out = obj_stem + exts[k]; }
+            self._ensure_parent_dir(out);
+            job->kinds.push_back(kinds[k]);
+            job->outs.push_back(out);
+        }
 
         // Phase B loads phase A's PCHs instead of re-parsing the headers:
         // the merged one when it built, else one per set (CodegenBackend::
@@ -5100,12 +5185,7 @@ fn FrontendAction::_codegen() -> bool {
         }
         // The whole graph's: an inline body this TU emits may name a header
         // of a module an earlier input claimed (builtin's rt/fmt.h).
-        for other: u32 in self._graph {
-            var sctx = self._global_scope->get_context(other);
-            if sctx == &null { continue; }
-            var stu = reinterpret_cast::<*TranslationUnit>(sctx->tu);
-            if (stu == &null) || (stu->header_set == &null) { continue; }
-            var hs  = reinterpret_cast::<*HeaderSet>(stu->header_set);
+        for hs: *HeaderSet in graph_sets {
             var dup = false;
             for var j: usize = 0; j < sets.size(); ++j { if sets[j] == hs { dup = true; break; } }
             if !dup { sets.push_back(hs); }
@@ -5125,51 +5205,92 @@ fn FrontendAction::_codegen() -> bool {
             sets.erase(sets.begin() + big);
             sets.insert(sets.begin(), b);
         }
-        cg.set_header_sets(sets);
-        cg.set_codegen_pch(merged);
-
-        var ok = true;
-        var outs = vec::<string>();
-        {
-            var _tr = TimeRegion("Backend");
-            for var k: usize = 0; k < kinds.size(); ++k {
-                var out = (single_obj) if (to_single) else (stem + exts[k]);
-                // An object nobody listed is a link input only.
-                if (!to_single) && (kinds[k] == EmitKind::Obj) && (!self._ci->obj_listed()) { out = obj_stem + exts[k]; }
-                self._ensure_parent_dir(out);
-                // Every run re-fills the same stream; print it once.
-                if k > 0 { cg.set_print_cg(0, self._ci->sm()->get_filename(fid)); }
-                if !cg.run(out, kinds[k]) { ok = false; break; }
-                outs.push_back(out);
-            }
+        for hs: *HeaderSet in sets {
+            var dup = false;
+            for var j: usize = 0; j < all_sets.size(); ++j { if all_sets[j] == hs { dup = true; break; } }
+            if !dup { all_sets.push_back(hs); }
         }
+        job->sets = sets;
+        jobs.push_back(job);
 
-        // end_tu FIRST: it flushes any builder still open in the adapter, so
-        // draining before it would silently drop the last diagnostic.
-        be->end_tu(adapter);
-        sink.drain_into(self._ci->diag(), self._ci->sm());
+        // The one cache a plan fills in place that other TUs' plans read
+        // (EmitPlan::prepare_shared): filled here, one TU at a time, so the
+        // fills below only read what they share.
+        var pcg  = CodegenContext(ctx, &null, psym, insts);
+        var prep = EmitPlan(&pcg, PlanMode::Header);
+        prep.prepare_shared();
+    }
+    // Everything any TU's VFS will hold, mounted (well, listed) before the
+    // first TU starts: nothing is added once workers read.
+    crun.mount(all_sets);
+
+    // The fan-out (P216). Each TU compiles on a CompilerInstance of its own
+    // (CodegenJob::run), so TUs run side by side up to the pool's size,
+    // capped at the physical cores -- SMT siblings doubled each TU's time in
+    // the spike and bought nothing -- and at the TU count. One worker when
+    // something prints per TU (--print-cg / --print-ir): their output is
+    // written as each TU fills, so it must come one TU at a time.
+    var workers = self._ci->pool()->get_thread_count();
+    var cores = llvm::get_physical_cores();
+    if (cores > 0) && (workers > usize(cores)) { workers = usize(cores); }
+    if workers > jobs.size() { workers = jobs.size(); }
+    if fe.print_cg || fe.print_ir { workers = 1; }
+
+    {
+        var _tr = TimeRegion("Backend");
+        if workers <= 1 {
+            for j: *CodegenJob in jobs { j->run(&crun); }
+        } else {
+            var q = CodegenQueue();
+            q.run = &crun;
+            for j: *CodegenJob in jobs { q.add(j); }
+            q.schedule();
+            Logger::info(Logger::Stage::Driver, f"codegen: {jobs.size()} TU(s) on {workers} worker(s)");
+            var qp  = &q;
+            var rec = _tr.record();
+            for var w: usize = 0; w < workers; ++w {
+                self._ci->pool()->enqueue(fn () |qp, rec| {
+                    var _kt = kairo::TimeReport::Worker(rec);
+                    qp->work();
+                }, CODEGEN_GROUP());
+            }
+            var wrec = time_region("Join");
+            time_mark_idle(wrec);
+            var _tj = TimeRegion(wrec);
+            self._ci->pool()->wait_group(CODEGEN_GROUP());
+        }
+    }
+
+    // Post-pass, driver thread, in TU order: what each TU said and wrote,
+    // independent of which worker finished first. Every TU ran, a failed
+    // one included, so every sink is drained before the verdict.
+    var all_ok = true;
+    for job: *CodegenJob in jobs {
+        job->sink.drain_into(self._ci->diag(), self._ci->sm());
         // Codegen's OWN reports (EmitIR's I011W, CODEGEN.md section 8) go to
         // the TU's diag_sink, whose last drain was after sema. Undrained, they
         // were never shown and the sink ICEd in its destructor at exit.
-        ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);
-
-        if !ok {
-            self._stage = TUStage::Failed;
-            return false;
-        }
+        job->ctx->diag_sink.drain_into(self._ci->diag(), job->ctx->sm);
+        if !job->ok { all_ok = false; continue; }
+        if !all_ok { continue; }
         // Only objects are link inputs; the rest are outputs in their own right.
-        for var k: usize = 0; k < outs.size(); ++k {
-            Logger::info(Logger::Stage::Driver, f"emitted {outs[k]}");
-            if kinds[k] == EmitKind::Obj { self.result.objects.push_back(outs[k]); }
+        for var k: usize = 0; k < job->written.size(); ++k {
+            Logger::info(Logger::Stage::Driver, f"emitted {job->written[k]}");
+            if job->kinds[k] == EmitKind::Obj { self.result.objects.push_back(job->written[k]); }
         }
         // A linking run's extra outputs are named, as the executable is not:
         // the user asked for them and could not have known where they went.
-        if self._ci->emits_beside_link() && (!self.discovered) && (fid == self._file_id) {
-            for var k: usize = 0; k < outs.size(); ++k {
-                if (kinds[k] == EmitKind::Obj) && (!self._ci->obj_listed()) { continue; }
-                std::eprintln(f"kairo: wrote {outs[k]}");
+        if self._ci->emits_beside_link() && (!self.discovered) && (job->fid == self._file_id) {
+            for var k: usize = 0; k < job->written.size(); ++k {
+                if (job->kinds[k] == EmitKind::Obj) && (!self._ci->obj_listed()) { continue; }
+                std::eprintln(f"kairo: wrote {job->written[k]}");
             }
         }
+    }
+    for j: *CodegenJob in jobs { std::destroy(j); }
+    if !all_ok {
+        self._stage = TUStage::Failed;
+        return false;
     }
 
     self._stage = TUStage::Done;

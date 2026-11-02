@@ -583,6 +583,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     }
 
     fn run(self);
+    fn prepare_shared(self);
     fn is_empty(self) -> bool;
     fn visible_bodies(self) -> vec::<*FunctionDecl>;
     fn include_bodies(self) -> vec::<*FunctionDecl>;
@@ -818,6 +819,17 @@ fn EmitPlan::run() {
         if e->own { self._empty = false; break; }
         if (e->tier == PlanTier::Instantiations) && e->is_home { self._empty = false; break; }
     }
+}
+
+/// What run() would otherwise fill in place on state OTHER TUs' plans read:
+/// TranslationUnit::cxx_escaping, which CXXSpell::is_anon reads for any
+/// TU's decl. The driver calls this for every TU, on its own thread, before
+/// TUs are emitted side by side (CodegenJob); run() then finds it done and
+/// writes nothing shared.
+fn EmitPlan::prepare_shared() {
+    var tu = self._cg->tu;
+    if (tu == &null) || (tu->program == &null) { return; }
+    if (!tu->cxx_escaping_done) && CXXSpell::is_entry_tu(tu) { self._find_escaping(tu); }
 }
 
 /// TranslationUnit::cxx_escaping for pathless TU \p tu: a Header plan of the

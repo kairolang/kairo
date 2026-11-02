@@ -48,6 +48,7 @@ import Codegen::Sink::TokenSink::*;
 import Memory::ArenaAllocator::*;
 import Interop::Clang::ClangLocMap::*;
 import Location::SourceLocation::*;
+import Support::TimeReport::*;
 
 class TokenFiller {
     virtual fn fill(self, sink: *TokenSink) -> bool {
@@ -104,7 +105,10 @@ class KairoInject {
         // mid-flight, post-block FileIDs, virtual fids) can actually be
         // constructed   a user's source files will never produce them.
         ICE_IF(self.locmap == &null, "KairoInject: no ClangLocMap wired");
-        if !self.locmap->rebind(&ci) { return false; }
+        {
+            var _tr = TimeRegion("Rebind");
+            if !self.locmap->rebind(&ci) { return false; }
+        }
 
         // This TU's fid is the block base plus its Kairo fid. Nothing here
         // caches the clang FileID beyond this action   the map owns it.
@@ -115,6 +119,9 @@ class KairoInject {
         // delta: preamble tokens borrow spans from OTHER registered fids.
         self.sink = std::create::<TokenSink>(
             pp, csm, self.locmap, live_cfid, self.kfid, self.ksize, self.arena);
+        // fill() runs on whichever worker runs this TU, beside other TUs'
+        // fills: it reads the shared AST and writes only this TU's own
+        // state (CODEGEN.md, "Parallel codegen").
         self.filled = self.filler->fill(self.sink);
         if !self.filled { return false; }
 

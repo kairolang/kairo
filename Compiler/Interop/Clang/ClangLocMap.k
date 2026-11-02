@@ -226,7 +226,15 @@ class ClangLocMap {
     priv fn _register_one(self, fm: *clang::FileManager, kfid: FileID) -> clang::FileID {
         var path = self._ksm->get_filename(kfid);
 
-        var fref = fm->getFileRef(sref(path), true);
+        // Stat only, not open (OpenFile=false): rebind registers EVERY fid,
+        // the C++ headers Kairo indexed included -- hundreds -- and an open
+        // FileEntry holds its descriptor until its bytes are read, which for
+        // most never happens. With TUs compiled side by side that was
+        // thousands of live descriptors at once, and rebind went from 1 ms
+        // to 37 ms a TU at 12 workers (the per-process fd table, growing
+        // under threads, is the likely contention). A file clang does read
+        // is opened then.
+        var fref = fm->getFileRef(sref(path), false);
         if fref {
             return self._csm->createFileID(
                 *fref, clang::SourceLocation(), clang::SrcMgr::C_User);

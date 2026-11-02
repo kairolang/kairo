@@ -81,6 +81,8 @@ import Diagnostic::ClangDiagAdapter::*;
 
 /// ThreadPool group for phase-A builds. 9 is CLANG_STARTUP_GROUP.
 eval fn HEADER_BUILD_GROUP() -> u8 { return 10; }
+/// The merged codegen PCH's early build (HeaderSetCache::prebuild_codegen_pch).
+eval fn CODEGEN_PCH_GROUP() -> u8 { return 12; }
 
 /// One header clang ENTERED during the parse, in first-touch order. The
 /// FileID is the phase-A instance's and is only meaningful while it lives.
@@ -747,21 +749,47 @@ class HeaderSetCache {
     /// \brief phase B's one PCH for \p sets, in that order; built on first
     ///        request, then shared by every TU that asks for the same list.
     ///
-    /// Driver thread, after wait_all(): it reads every set's includes. The
-    /// cache owns it because the backend's VFS mounts its bytes without a
-    /// copy, so they must live as long as the backend does.
+    /// After wait_all(): it reads every set's includes. Built on the pool
+    /// while Sema runs when prebuild_codegen_pch() was given the same list;
+    /// the driver joins CODEGEN_PCH_GROUP before asking, so a hit is always
+    /// a finished build. The cache owns it because each codegen TU's VFS
+    /// mounts its bytes without a copy, so they must outlive every TU.
     fn codegen_pch(self, sets: ref!(vec::<*HeaderSet>)) -> *CodegenPCH {
         var key = "";
         for var i: usize = 0; i < sets.size(); ++i { key += f"{sets[i]->id}-"; }
-        var lock = std::LockGuard(self._mu);
-        var it = self._codegen.find(sref(key));
-        if it != self._codegen.end() { return it->second; }
-        var p = std::create::<CodegenPCH>();
-        p->path = f"{HeaderSet::vfs_root()}/pch/codegen-{self._codegen.size()}.pch";
-        self._codegen.try_emplace(sref(key), p);
+        var p: *CodegenPCH = &null;
+        {
+            var lock = std::LockGuard(self._mu);
+            var it = self._codegen.find(sref(key));
+            if it != self._codegen.end() { return it->second; }
+            p = std::create::<CodegenPCH>();
+            p->path = f"{HeaderSet::vfs_root()}/pch/codegen-{self._codegen.size()}.pch";
+            self._codegen.try_emplace(sref(key), p);
+        }
+        // Outside the lock: a 50 ms parse must not stall request()/find()
+        // from the threads Sema is running on.
         p->build(self._be, sets);
         return p;
     }
+
+    /// \brief starts codegen_pch(\p sets) on the pool, off the critical
+    ///        path: it then overlaps Sema and the lowerings instead of
+    ///        running on the driver thread at the start of codegen.
+    ///
+    /// \details Driver thread, after wait_all(). \p rec is the region the
+    ///          build is billed under. The caller joins CODEGEN_PCH_GROUP
+    ///          before its own codegen_pch() call, which then hits.
+    fn prebuild_codegen_pch(self, sets: vec::<*HeaderSet>, rec: *kairo::KTimeRecord) {
+        var job = std::create::<vec::<*HeaderSet>>(sets);
+        var me  = &self;
+        self._pool->enqueue(fn () |me, job, rec| {
+            var _kt = kairo::TimeReport::Worker(rec);
+            me->codegen_pch(*job);
+            std::destroy(job);
+        }, CODEGEN_PCH_GROUP());
+    }
+
+    fn wait_codegen_pch(self) { self._pool->wait_group(CODEGEN_PCH_GROUP()); }
 
     fn release_all(self) {
         // A build still in flight owns the very clang::CompilerInstance
@@ -770,6 +798,9 @@ class HeaderSetCache {
         // without this drain the driver tears the instance down underneath
         // the parse thread: a SEGV in ~Preprocessor, or a hang.
         self.wait_all();
+        // And the merged PCH a stop before codegen never joined: it reads
+        // the sets and parses on the backend's invocation.
+        self.wait_codegen_pch();
         var lock = std::LockGuard(self._mu);
         for var it = self._sets.begin(); it != self._sets.end(); ++it { it->second->release(); }
     }
