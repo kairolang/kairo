@@ -1834,6 +1834,17 @@ class <T> TypeParse {
             arg.ty = ty;
             out->push_back(arg);
 
+            // a nested generic consumed `>>` and with it our `>`: the list
+            // is closed, so a `,` after it belongs to whatever holds the
+            // type. Asked BEFORE the comma, or `f(k: *vec<vec<u8>>, b:
+            // *vec<u8>)` read `, b: *vec<u8>` as more arguments of the
+            // outer `vec` (S049E, P350).
+            if self._pending_close_angle {
+                self._pending_close_angle = false;
+                dyn()->nl_pop();
+                return true;
+            }
+
             if dyn()->check(TokenKind::OpComma) {
                 dyn()->advance(T::SkipNL::After); // consume `,`
 
