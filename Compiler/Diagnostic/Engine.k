@@ -644,6 +644,11 @@ class DiagEngine derives DiagEngineVBase {
     priv var _note_limit:         u32  = 0;          ///< per diagnostic; 0 = unlimited.
     priv var _fixit_limit:        u32  = 0xFFFFFFFF; ///< per diagnostic (and per child); none = unlimited.
     priv var _quiet:              bool = false;      ///< --quiet: drop standalone warnings, notes, remarks.
+    /// code hash : location : message of every located diagnostic delivered,
+    /// so a second identical report is dropped (P353). A file is tokenized
+    /// more than once (the import scan, then the walk), and each lex
+    /// reported its warnings again: one octal escape printed S025W 3 times.
+    priv var _delivered: set::<string> = set::<string>();
     /// The "too many ..." line is printed once per run. Keyed on its own flag,
     /// not on _suppressed_count: a prior -A/-w suppression bumps that counter
     /// and used to swallow the limit notice entirely.
@@ -820,6 +825,19 @@ class DiagEngine derives DiagEngineVBase {
         if self._suppress_depth > 0 {
             std::destroy(diag);
             return;
+        }
+
+        // Before every counter and policy: a repeat is not a second finding,
+        // so it neither counts toward a limit nor reaches a consumer. Only
+        // located diagnostics; a location-less one (a driver notice) carries
+        // no identity to compare beyond its text.
+        if diag->has_loc {
+            var key: string = f"{diag->code.hash()}:{diag->loc.raw()}:{diag->message}";
+            if self._delivered.contains(key) {
+                std::destroy(diag);
+                return;
+            }
+            self._delivered.insert(key);
         }
 
         var sev = diag->code.severity();
@@ -1068,6 +1086,8 @@ class DiagEngine derives DiagEngineVBase {
             std::destroy(self._all_diags[i]);
         }
         self._all_diags.clear();
+        // a reparse (kairo watch) reports its findings afresh
+        self._delivered.clear();
 
         self._error_count      = 0;
         self._warn_count       = 0;
