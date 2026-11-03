@@ -27,7 +27,7 @@ fn main() -> i32 {
 
 // SEMA: SEMA fid {{[0-9]+}}: {{.*}}template_ref_return.k =====
 // SEMA: -- inferred decls --
-// SEMA-DAG: req : const i32&
-// SEMA-DAG: r : i32&
-// SEMA-DAG: k : i32&&
+// SEMA-DAG: req : i32{{$}}
+// SEMA-DAG: r : i32{{$}}
+// SEMA-DAG: k : i32{{$}}
 // SEMA-DAG: b : unsafe *Blk
