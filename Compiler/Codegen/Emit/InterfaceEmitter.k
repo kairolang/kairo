@@ -770,6 +770,15 @@ class InterfaceEmitter {
         return false;
     }
 
+    /// This stream writes \p d's out-of-line method definitions: a TU's own
+    /// record (EmitIR emits every body of its program). A header or an
+    /// include carries only the inline and template ones, and a record of
+    /// another file is defined in that file's TU.
+    priv fn _defines_methods(self, d: *Decl) -> bool {
+        if self._plan->mode() != PlanMode::Preamble { return false; }
+        return CXXSpell::fid_of(d) == self._plan->home();
+    }
+
     priv fn _fwd_at(self, d: *Decl) -> SourceRange {
         if !d->range.is_valid() { return self._at(d); }
         return SourceRange::from_bounds(d->range.start, 1);
@@ -960,14 +969,20 @@ class InterfaceEmitter {
             var m = methods[i];
             if m == &null { continue; }
             cur_access = self._access(cur_access, self._cxx_vis(static_cast::<*Decl>(m)), false, at);
-            // A constructor defined out of line (EmitIR::_method) is declared
-            // on its first byte, not its name, as _fwd_decl declares a type:
+            // A method defined out of line (EmitIR::_method) is declared on
+            // its first byte, not its name, as _fwd_decl declares a type:
             // only one exact token gets the name's byte (TokenSink::_claim),
-            // and the definition is where clang reports what the constructor
-            // fails to initialize. On the name, the definition's walked lines
-            // away (P145).
+            // and the definition is the one that keeps it. Clang reports at
+            // the definition (what a constructor fails to initialize, an
+            // incomplete result type) and its lookup finds the definition, so
+            // its "declared here" notes do too; on the name the definition's
+            // walked to its `{` or lines away (P145 for constructors, P253).
+            // Only where this stream writes the definition: a class another
+            // TU defines, or a header's, keeps the name for the declaration,
+            // which is all the C++ that includes it sees.
             var mat = self._at(static_cast::<*Decl>(m));
-            if self._is_ctor(m, d) && m->has_body() && (m->body_kind == FnBodyKind::Block) && (m->ci_split == 0) { mat = self._fwd_at(static_cast::<*Decl>(m)); }
+            if m->has_body() && (m->body_kind == FnBodyKind::Block) && (m->ci_split == 0)
+            && (self._is_ctor(m, d) || self._defines_methods(d)) { mat = self._fwd_at(static_cast::<*Decl>(m)); }
             self._cg->sink->spell(mat, self._method_decl(m, d));
         }
         if is_class { cur_access = self._base_usings(cast::<ClassDecl>(d), cur_access, at); }
