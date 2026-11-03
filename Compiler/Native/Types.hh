@@ -584,6 +584,28 @@ constexpr UniquePtr<T> create_unique(Args &&...args) {
     return libcxx::make_unique<T>(libcxx::forward<Args>(args)...);
 }
 
+#if !KAIRO_NATIVE_STAGE0
+/// \brief `new T(args...)` / `delete p`: Stage 0's std::create / std::destroy.
+///
+/// \details lib-helix defines both in this namespace for Stage 0
+///          (runtime/__memory/allocation.hh), so they exist only for Stage 1
+///          here. The self-host migration maps std::create<T>(a) and
+///          std::destroy(p) to these (Scripts/Migration/stage0_alloc.py,
+///          TODO(RAW-ALLOC)) rather than to @create / @destroy, which go
+///          through Kairo's allocator and hand out safe pointers: the tree
+///          is raw-pointer based, and a pointer must be freed by the same
+///          allocator that made it, on whichever side of the boundary.
+template <typename T, typename... Args>
+T *create(Args &&...args) {
+    return new T(::std::forward<Args>(args)...);
+}
+
+template <typename T>
+void destroy(T *ptr) {
+    delete ptr;
+}
+#endif
+
 ///
 /// \brief Null pointer type alias for uniformity.
 ///
