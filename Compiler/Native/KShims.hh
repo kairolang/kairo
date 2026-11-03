@@ -12,6 +12,9 @@
 ///                     struct's name, so it needs the elaborated specifier.
 ///     phys_footprint  the mach task_info call behind kwatch's RSS reading.
 ///
+///   It also includes the platform headers behind the POSIX calls Kairo
+///   code names (mmap, open, isatty, ...), under the same guards.
+///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
@@ -28,7 +31,21 @@
 
 #if !defined(_WIN32)
 #include <sys/stat.h>
+// The POSIX calls Stage 0 reached through lib-helix's includes: mmap /
+// munmap / PROT_* / MAP_* (MMapRegion.k), open / O_RDONLY (MMapRegion.k),
+// close / isatty (MMapRegion.k, PrettyConsumer.k, Config/Diagnostic.k).
+// A .k file that names them imports this header (the self-host migration's
+// ffi_imports.py), so the platform choice stays in C++.
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#else
+// isatty / fileno (the console checks): <io.h> declares the POSIX names.
+#include <io.h>
+#include <windows.h>
 #endif
+// fileno
+#include <cstdio>
 
 #if defined(__APPLE__)
 #include <mach/mach.h>
