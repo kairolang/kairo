@@ -6,6 +6,10 @@
  *   every windows-msvc sysroot links) and takes an unsigned int count;
  *   io.k's caller casts to u32 for that reason.
  *
+ *   kstd_flush_stdio is io.k's flush: fflush(NULL) drains every C stdio
+ *   stream so its bytes order against write(2). A wrapper because the NULL
+ *   is the point, and Kairo has no null pointer to pass.
+ *
  *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
  *   Copyright (c) 2026 Dhruvan Kartik
  *
@@ -13,8 +17,12 @@
 
 #pragma once
 
+#include <stdio.h>
+
 #ifdef _WIN32
 #include <io.h>
 #else
 #include <unistd.h>
 #endif
+
+static inline void kstd_flush_stdio(void) { (void)fflush(NULL); }

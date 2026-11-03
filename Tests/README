@@ -109,6 +109,8 @@ files it imports) or a documented role (parity/, kairo-only/).
       RedeclMerge/      redeclaration merging; parity/ + kairo-only/, see README
       Scenarios/        numbered end-to-end Sema walkthroughs (+ runner script)
     Codegen/            code emission and link-and-run tests
+    Std/                Lib/std modules, one link-and-run test per module
+                        (Lib/std/CONTRACT.txt 5): <module>_<what>.k
     Driver/             driver-level behaviour (--explain, --print-*, bundled sysroot)
     CLI/                one test per command-line flag, pinning what a LIVE flag
                         does (mostly via --print-clang-args / --print-ld-args).

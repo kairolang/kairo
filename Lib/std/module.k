@@ -22,5 +22,6 @@
 module kairo::std
 
 pub import io
+pub import env
 pub import ctypes::*
 pub import mem::*
