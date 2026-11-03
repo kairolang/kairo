@@ -632,6 +632,24 @@ class DeclImport {
             return;
         }
         self.bind(t, dc, self._ident_key(t, dc, self._display_name(nd)), kd);
+        // A member of an inline namespace lives in its parent's table
+        // (scope_for), which is how `std::vector` finds libc++'s
+        // `std::__1::vector`. C++ also lets the inline namespace be named
+        // (`ns::v1::F`), and with nothing in its own table that step was
+        // R025E "no member named 'F' in module 'v1'". So the decl is bound
+        // in each inline namespace it sits in as well; the entity is one.
+        if (self._friend_scope == &null) && (self._using_scope == &null) {
+            var cur = nd->getDeclContext();
+            while (cur != &null) && (cur->isTransparentContext() || cur->isInlineNamespace()) {
+                if llvm::isa::<clang::EnumDecl>(cur) { break; }
+                var ins = llvm::dyn_cast::<clang::NamespaceDecl>(cur);
+                if (ins != &null) && ins->isInline() {
+                    var idc = static_cast::<*DeclContext>(self.namespace_for(t, ins));
+                    self.bind(t, idc, self._ident_key(t, idc, self._display_name(nd)), kd);
+                }
+                cur = cur->getParent();
+            }
+        }
         // An UNSCOPED enumerator is also visible in the enum's enclosing scope.
         // Not for a using-declared enumerator: `using E::A` names A alone,
         // and its enum's scope is not the using's to write into.
