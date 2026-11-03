@@ -71,6 +71,9 @@ PIPELINE = [
     Pass("char_to_u8",
          "Stage 0 char (a byte) -> u8 (P340: Stage 1 char is char32); after cpp_casts, "
          "which reports C char targets and so leaves them for this pass"),
+    Pass("enum_open",
+         "@open + TODO(ENUM-OPEN) on enums holding non-variant values (flags, hashes), whose "
+         "casts cpp_casts made checked; adds lines, so after cpp_casts"),
 
     # inline C++ retirement next: both produce Kairo code from C++ strings,
     # and every later pass should see that code as code.
@@ -88,6 +91,12 @@ PIPELINE = [
          "emits value-form `if c => a else => b`; before switch_to_match so arm bodies are already final"),
     Pass("switch_to_match",
          "switch -> match and colon labels -> braced arms (subsumes case_labels_to_arms)"),
+    Pass("char_literals_u8",
+         "'a' -> ('a' as u8), in a case pattern -> 0x61; after octal_escapes ('\\0' is '\\x00') "
+         "and switch_to_match (final arm shape), before redundant_parens"),
+    Pass("empty_init_for",
+         "for (; c; s) -> while c { ...; s } (continue runs s), TODO(LOOP-PORT); "
+         "statement shape, before redundant_parens"),
     Pass("stub_ffi_imports",
          "DRY-RUN AID ONLY -- comments ffi imports out; never on a tree you keep",
          opt_in="--with-stubs"),
@@ -98,12 +107,16 @@ PIPELINE = [
     Pass("keyword_idents", "names spelled like a Stage 1 keyword (test, loop) -> #name; order-independent"),
 
     # Declarations.
+    Pass("ref_returns",
+         "-> ref!(T) -> -> *T / *Self with &-returns and call sites (-> / *), for x: ref!(T) -> "
+         "for *x; before ref_and_mref, after drop_turbofish and ranged_for_binding"),
     Pass("ref_and_mref",
-         "ref!/mref in parameters -> @inout/@move, returns of the own type -> Self",
+         "ref!/mref in parameters -> @inout/@move; the `op =` returns ref_returns leaves -> Self",
          loader="legacy"),
     Pass("libcxx_to_cxx_std",
          "Stage 1.5: libcxx:: -> cxx::std::; needs ffi imports added by hand",
          loader="libcxx", opt_in="--with-libcxx"),
+    Pass("default_class", "Stage 0 `default class X` -> `class X` (the modifier only emitted the rule of five)"),
     Pass("defaulted_fn_suffix",
          "default/delete prefix -> `= default`/`= delete`; before visibility_first "
          "so the modifier run it reorders is final"),

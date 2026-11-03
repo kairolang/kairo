@@ -8,10 +8,11 @@
 #   static_cast::<u32>(e)     e: enum E derives u8  -> (e as u8 as u32)
 #                                                     (`e as u32` is SC092E)
 #   static_cast::<*B>(c)      c: *C, C derives B    -> unsafe (c as unsafe *B)
-#   static_cast::<E>(n)       n: an integer         -> REPORTED: into a closed
-#                                                     enum this is a checked
-#                                                     cast that crashes on a
-#                                                     non-variant (flag ORs)
+#   static_cast::<E>(n)       n: a u32, E derives u8 -> (n as u8 as E): into a
+#                                                     closed enum a CHECKED
+#                                                     cast (crashes on a
+#                                                     non-variant); flag sets
+#                                                     are @open (enum_open.py)
 #
 # So every site is classified by clang, from the C++ Stage 0 emits for the
 # tree: cast_facts.py writes that table (FACTS.json) and this pass only ever
@@ -41,8 +42,12 @@
 #                                              own `derives`; (x as T) when
 #                                              U is T; reported when the
 #                                              source names no U
-#   int -> enum                                (x as E) only for `@open E`,
-#                                              else REPORTED (checked cast)
+#   int -> enum                                (x as U as E), (x as E) when
+#                                              x is a U or a literal; for a
+#                                              closed E this is the checked
+#                                              cast, and enum_open.py makes
+#                                              E @open where a non-variant
+#                                              value is expected
 #   bool -> int                                (x as T)
 #   float <-> int, float -> float              (x as T)  (float -> int now
 #                                              saturates; C++ was UB)
@@ -480,11 +485,27 @@ def classify(site, src_site):
         if tk == "enum":
             if ok == "enum":
                 return ("enum -> enum", None, "enum to enum")
+            # Into a closed enum this is Stage 1's CHECKED cast (casting.md
+            # "Enum Casts": a non-variant value crashes), which is what the
+            # user chose (2026-11-03) over reporting; an enum whose values
+            # are not always variants (flag ORs, hashes) is declared @open by
+            # enum_open.py, which makes the same spelling unchecked. The
+            # operand goes through the enum's own `derives` first unless it
+            # already has that type, as enum -> int does the other way.
             u, is_open = enum_source(td)
-            if is_open:
-                return ("int -> open enum", "({x} as {T})", None)
-            return ("int -> closed enum", None,
-                    "into a closed enum: Stage 1 checks it and crashes on a non-variant value (flag ORs)")
+            rule = "int -> open enum" if is_open else "int -> closed enum"
+            if not u:
+                return (rule, None, "the enum declares no `derives` underlying type")
+            if ok == "bool" or literal_value(src_site["op_text"]) is not None:
+                via = None if ok != "bool" else u
+            else:
+                sug = _sug_name(list(e0[1]))
+                can = " ".join(re.sub(r"\b(const|volatile)\b", " ", e0[1][1]).split()) if e0[1] else ""
+                kname = sug if sug in RANGE else KAIRO_INT.get(can)
+                via = None if kname == u else u
+            if via:
+                return (rule, "({x} as " + via + " as {T})", None)
+            return (rule, "({x} as {T})", None)
         if tk != "int":
             return ("integral other", None, f"IntegralCast to {tk}")
         if ok == "enum":
@@ -716,8 +737,11 @@ SELFTEST = [
     ("static_cast::<u8>(x)",             [_inst("IntegralCast", U32, U8)],                  "(x as u8)"),
     ("static_cast::<u32>(self.kind)",    [_inst("IntegralCast", EK, U32)],                  "(self.kind as u8 as u32)"),
     ("static_cast::<u8>(k)",             [_inst("IntegralCast", EK, U8)],                   "(k as u8)"),
-    ("static_cast::<Kind>(n)",           [_inst("IntegralCast", U32, EK)],                  None),
+    ("static_cast::<Kind>(n)",           [_inst("IntegralCast", U32, EK)],                  "(n as u8 as Kind)"),
+    ("static_cast::<Kind>(b)",           [_inst("IntegralCast", U8, EK)],                   "(b as Kind)"),
+    ("static_cast::<Kind>(3)",           [_inst("IntegralCast", I32, EK)],                  "(3 as Kind)"),
     ("static_cast::<Flags>(n)",          [_inst("IntegralCast", U32, EO)],                  "(n as Flags)"),
+    ("static_cast::<Flags>(w)",          [_inst("IntegralCast", U64, EO)],                  "(w as u32 as Flags)"),
     ("static_cast::<u8>(b)",             [_inst("IntegralCast", BOOL, U8)],                 "(b as u8)"),
     ("static_cast::<i32>(d)",            [_inst("FloatingToIntegral", F64, I32)],           "(d as i32)"),
     ("static_cast::<f64>(n)",            [_inst("IntegralToFloating", U64, F64)],           "(n as f64)"),

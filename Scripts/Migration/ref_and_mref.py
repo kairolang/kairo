@@ -5,7 +5,8 @@
 import re, sys, pathlib
 
 HEAD   = re.compile(r'(?P<lead>(?:const\s+)?)(?P<name>[A-Za-z_]\w*)\s*:\s*(?P<mac>ref!|mref!?)\(')
-TYPE   = re.compile(r'\b(?:class|struct)\s+(?P<name>[A-Za-z_]\w*)\s*(?P<gen><[^{;]*?>)?[^{;]*?\{')
+# Stage 0 writes a generic class both ways: `class Name<T>` and `class <T> Name`
+TYPE   = re.compile(r'\b(?:class|struct)\s+(?:<[^{;]*?>\s*)?(?P<name>[A-Za-z_]\w*)\s*(?P<gen><[^{;]*?>)?[^{;]*?\{')
 RETREF = re.compile(r'->\s*(?P<mac>ref!|mref!?)\(')
 
 def balance(src: str, j: int, open_: str, close: str) -> int:
@@ -85,6 +86,8 @@ SELFTEST = [
     ("for var q: ref!(Queue) in qs {", "for var q: ref!(Queue) in qs {"),
     ("for q: ref!(Queue) in qs {", "for q: ref!(Queue) in qs {"),
     ("class C { fn me(self) -> ref!(C) { } }", "class C { fn me(self) -> Self { } }"),
+    ("class <const N: usize> B { fn op = (self, o: ref!(B)) -> ref!(B) { } }",
+     "class <const N: usize> B { fn op = (self, @inout o: B) -> Self { } }"),
 ]
 
 

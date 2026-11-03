@@ -424,3 +424,41 @@ them after it, so a second run rewrote them); ref_and_mref turns
 range-for bindings alone (S069E); libcxx_to_cxx_std escapes keyword segments
 (`cxx::std::#thread`, `cxx::std::this_thread::#yield`); cast_facts sets $PWD
 for Stage 0, which resolves relative paths against it rather than the cwd.
+
+
+The user's answers (2026-11-03)
+-------------------------------
+
+Each has a --selftest table and is in migrate.py's pipeline. The markers they
+leave in the tree are listed with counts in selfhost/TODO-CATEGORIES.md.
+
+ref_returns.py            -> ref!(T) -> -> unsafe *T (-> unsafe *Self inside
+                          T), `return x` -> `return unsafe &x`; call sites of
+                          the CALLS table: `.m` after the call -> `->m`, a
+                          value use -> `*f()`, a builder call as a statement
+                          left; `for var x: ref!(T) in` -> `for *x in` with
+                          `x.` -> `x->` and `x` -> `(*x)` in the body. RAW
+                          pointers, not the safe `*T`: the rest of the tree is
+                          raw and safe -> raw is explicit only (SC028E), and
+                          raw_pointers would rewrite a safe one on the
+                          idempotency rerun. `op =` is left (an explicit op =
+                          is no Stage 1 form; ref_and_mref still makes those
+                          `-> Self`). A method of a class with a C++ base
+                          would become `-> __builtin_cxx_lvalue_ref<T>` +
+                          TODO(CXX-REF); there are none. Runs before
+                          ref_and_mref, whose `-> Self` rewrite now only sees
+                          the `op =` sites.
+empty_init_for.py         for (; c; s) { b } -> while c { b; s }, every
+                          `continue` of the loop -> `s; continue`;
+                          TODO(LOOP-PORT) names the original head.
+default_class.py          `default class X` -> `class X` (Path.k:51).
+cpp_casts.py              int -> closed enum is now rewritten too, as Stage 1's
+                          CHECKED cast `(x as U as E)` / `(x as E)`.
+enum_open.py              @open + TODO(ENUM-OPEN): <flags|hash-probe> on the
+                          seven enums whose values are not always variants
+                          (table by hand: it is a property of the code that
+                          makes the values). After cpp_casts: it adds lines.
+char_literals_u8.py       'a' -> ('a' as u8) (always parenthesized: gap G2);
+                          in a case pattern -> 0x61 /* 'a' */ (a pattern
+                          takes no cast); r'x' (C char) -> the integer. Stage 1
+                          has no b'a'.
