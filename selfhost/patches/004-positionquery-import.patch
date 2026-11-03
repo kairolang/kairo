@@ -1,0 +1,18 @@
+Subject: [selfhost 004] PositionQuery imports a module that does not exist
+
+`import AST::ParentRef::*` names no file (R011E): ParentRef and ParentKind
+live in AST::Context::TranslationUnit, which the file already imports.
+Stage 0 never resolved the import (nothing imports PositionQuery, and its
+unity build does not check it). The real fix is deleting the line in main.
+
+diff --git a/Compiler/AST/Matcher/PositionQuery.k b/Compiler/AST/Matcher/PositionQuery.k
+--- a/Compiler/AST/Matcher/PositionQuery.k
++++ b/Compiler/AST/Matcher/PositionQuery.k
+@@ -16,7 +16,6 @@
+ import Location::SourceRange::*;
+ import AST::Node::Base::*;
+ import AST::Context::TranslationUnit::*;
+-import AST::ParentRef::*;
+ 
+ class PositionQuery {
+     /// Finds the innermost node covering `loc` in `tu`.

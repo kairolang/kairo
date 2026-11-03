@@ -1,0 +1,32 @@
+Subject: [selfhost 005] Two Stage 0 declaration spellings with no Stage 1 form
+
+UTF8View.k: `fn op in (self)[iter] -> yield T`. The `[iter]` after the
+receiver is Stage 0 only (S048E); Stage 1 spells the generator
+`fn op in (self) -> yield T` (Spec/Docs control-flow, "for range and
+iterator"). Lexer.k: `inline inline priv fn`, a doubled modifier that Stage 0
+accepted and Stage 1 rejects (S048E).
+
+diff --git a/Compiler/Support/UTF8View.k b/Compiler/Support/UTF8View.k
+--- a/Compiler/Support/UTF8View.k
++++ b/Compiler/Support/UTF8View.k
+@@ -108,7 +108,7 @@
+     /// }
+     /// ```
+     ///
+-    fn op in (self)[iter] -> yield char32_t {
++    fn op in (self) -> yield char32_t {
+         var pos: usize = 0;
+ 
+         while pos < self.size {
+diff --git a/Compiler/Lexer/Lexer.k b/Compiler/Lexer/Lexer.k
+--- a/Compiler/Lexer/Lexer.k
++++ b/Compiler/Lexer/Lexer.k
+@@ -2313,7 +2313,7 @@
+         return name_char_kind(c.chr, c.len);
+     }
+     
+-    inline inline priv fn is_valid_escape(self, start: SourceLocation, is_byte: bool, is_format: bool) -> bool {
++    priv inline fn is_valid_escape(self, start: SourceLocation, is_byte: bool, is_format: bool) -> bool {
+         var chars = self.peek_char32<10>();
+ 
+         // 2 classes one for octal and one for hex
