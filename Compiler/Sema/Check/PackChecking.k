@@ -65,6 +65,7 @@ import AST::Node::Casting::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Location::SourceRange::*;
 import Diagnostic::Registry::*;
+import AST::ParamMode::*;
 
 /// The first type node under a written type that names a type pack without
 /// expanding it; an expansion's pattern is not looked into.
@@ -169,12 +170,33 @@ class PackChecking derives RecursiveASTVisitor::<PackChecking> {
             for var i: usize = 0; i < n->params.size(); ++i {
                 var p = n->params[i];
                 if (p == &null) || p->is_self || (p->type_ == &null) { continue; }
+                if p->is_pack && (p->mode != ParamMode::Value) { self._pack_mode(p); }
                 // `...xs: T` is the one parameter a bare pack types.
                 if p->is_pack && param_is_type_pack(p) { continue; }
                 self._check_type(p->type_, "a parameter that is not a pack parameter", static_cast::<*Decl>(p));
             }
         }
         return RecursiveASTVisitor::<PackChecking>::traverse_function_decl(n);
+    }
+
+    /// `@inout ...xs: T` / `@move ...xs: T`: a passing mode on a pack has no
+    /// per-element meaning yet, and every layer below took the pack by value
+    /// regardless -- overload ranking forces ParamMode::Value on a pack tail,
+    /// the marker is committed only for a non-pack parameter, MoveCheck
+    /// passes pack arguments by value -- so `bump(&a, &b)` deduced T = *i32
+    /// and bumped the pointers. An error until the language gives the mode a
+    /// meaning (P240). No fix-it: dropping the mode is a different program
+    /// (copies), not the one the author meant.
+    priv fn _pack_mode(self, p: *ParamDecl) {
+        var mw = ("@inout") if (p->mode == ParamMode::Inout) else ("@move");
+        var at = p->mode_range;
+        if !at.is_valid() { at = p->range; }
+        var pn = self._tu.decl_name(static_cast::<*Decl>(p));
+        var d = self.sc->diag->report(DiagID::SC001E, at.start,
+            f"'{mw}' on pack parameter '{pn}' is not supported yet: a passing mode on a pack has no meaning for its elements");
+        d.first(at, "a pack's elements are passed by value");
+        d.emit();
+        p->poison();
     }
 
     // --- variadic enums ---------------------------------------------------------------
