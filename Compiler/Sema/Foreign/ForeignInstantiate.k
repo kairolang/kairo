@@ -218,9 +218,19 @@ class ForeignInstantiate {
         //    definition: member DECLARATIONS, which is all sema needs.
         //    Member function bodies stay pending; phase B instantiates those
         //    itself from the PCH.
+        //    isCompleteType, not RequireCompleteType: an instance of a
+        //    template the header only declares (libc++'s `__value_type<K,
+        //    V>`, a tag map's __tree is parameterized on and never
+        //    completes) is legal C++ as long as nothing needs it complete,
+        //    and a fill is often speculative -- ClassLifecycle reads the
+        //    facts of every template argument of a field's type. Asked to
+        //    REQUIRE it, clang reported "implicit instantiation of undefined
+        //    template" (CL001E) for a `map<i32, i32>` class field nobody
+        //    used. Errors inside an instantiation that does happen (a
+        //    static_assert in the pattern) are still clang's to report.
         var diags  = &(csema->getDiagnostics());
         var before = diags->getNumErrors();
-        var incomplete = csema->RequireCompleteType(ct->getLocation(), ty, clang::diag::err_incomplete_type);
+        var incomplete = !csema->isCompleteType(ct->getLocation(), ty);
         if incomplete || (diags->getNumErrors() > before) {
             self._why = "clang could not complete the specialization";
             return false;
