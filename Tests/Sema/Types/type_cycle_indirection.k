@@ -12,7 +12,11 @@ class ByPointer  { var next: *ByPointer;      }
 class ByNullPtr  { var next: *ByNullPtr?;     }
 class ByVector   { var kids: [ByVector];      }
 class ByMap      { var kids: {i32: ByMap};    }
-class BySet      { var kids: {BySet};         }
+class BySet impl Hash {                      // a set's element is a key
+    var kids: {BySet};
+    pub fn hash(const self) -> usize { return 0; }
+    pub fn op ==(const self, const other: BySet) -> bool { return true; }
+}
 
 fn main() -> i32 { return 0; }
 

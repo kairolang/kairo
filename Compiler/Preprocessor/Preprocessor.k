@@ -2955,6 +2955,15 @@ class PreProcessor {
     priv fn _report_cycle(self, cyc: *vec::<u32>) {
         var n = cyc->size();
         if n == 0 { return; }
+        // A cycle through the builtin root is the builtin's own, and allowed:
+        // a builtin file that names a lang item module.k declares (alloc.k's
+        // `T?` needs Nullable) imports the root back. Once a container in the
+        // prelude imports such a file, every compile would carry the warning
+        // about a library the user cannot change. No user file closes one: the
+        // root imports none.
+        for var i: usize = 0; i < n; ++i {
+            if ((*cyc)[i] != 0) && ((*cyc)[i] == self._prelude_fid) { return; }
+        }
         var path = "";
         for var i: usize = 0; i < n; ++i {
             path += Path::filename_of(self._sm->get_filename((*cyc)[i]));

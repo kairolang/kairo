@@ -4986,10 +4986,16 @@ fn FrontendAction::_import_order() -> vec::<u32> {
             placed.insert(static_cast::<u64>(fid));
             progressed = true;
         }
+        // Stuck on an import cycle: break it at ONE file and keep sorting.
+        // Placing every remaining file at once in list order would drop the
+        // dependency order for the whole rest of the program -- and the
+        // builtin prelude has a cycle (module.k -> containers -> alloc.k ->
+        // module.k for Nullable), so every program would hit it.
+        // ImportGroups keeps each cycle's members together either way.
         if !progressed {
             for var i: usize = 0; i < n; ++i {
                 var fid = self._fids[n - 1 - i];
-                if placed.find(fid) == placed.end() { order.push_back(fid); placed.insert(fid); }
+                if placed.find(fid) == placed.end() { order.push_back(fid); placed.insert(fid); break; }
             }
         }
     }
