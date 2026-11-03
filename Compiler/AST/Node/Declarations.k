@@ -177,11 +177,21 @@ enum FnModifier derives u16 {
     IsConstexpr = 1 << 8,
 }
 
-// INLINE(cxx-feature: operators on an enum type)
-inline "c++" {
-    FnModifier  operator|(FnModifier a, FnModifier b) { return static_cast<FnModifier>(static_cast<uint16_t>(a) | static_cast<uint16_t>(b)); }
-    FnModifier  operator&(FnModifier a, FnModifier b) { return static_cast<FnModifier>(static_cast<uint16_t>(a) & static_cast<uint16_t>(b)); }
-    FnModifier& operator|=(FnModifier& a, FnModifier b) { a = a | b; return a; }
+// Bitset operators. Module-scope Kairo operators, so every module that
+// imports this one sees them (the inline C++ definition here was one
+// non-inline C++ definition: a duplicate symbol once two TUs include it).
+// `|=` returns nothing: every use is a statement, and a returned reference
+// has no Stage 1 spelling on a free function.
+fn op | (a: FnModifier, b: FnModifier) -> FnModifier {
+    return static_cast::<FnModifier>(static_cast::<u16>(a) | static_cast::<u16>(b));
+}
+
+fn op & (a: FnModifier, b: FnModifier) -> FnModifier {
+    return static_cast::<FnModifier>(static_cast::<u16>(a) & static_cast::<u16>(b));
+}
+
+fn op |= (a: ref!(FnModifier), b: FnModifier) {
+    a = a | b;
 }
 
 /// How a function body is provided. Drives codegen and the redeclaration

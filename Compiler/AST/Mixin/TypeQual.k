@@ -66,88 +66,108 @@ class QualSpan {
     }
 }
 
+/// Qualifier bitset of a TypeQual (TypeQual<T>::Flags). One type for every T.
+enum TypeQualFlags derives u16 {
+    /// No qualifiers applied.
+    None       = 0,
+
+    // --- Data qualifiers ------------------------------------------------
+
+    /// Immutable binding. Prevents mutation of the qualified type after
+    /// initialization. Type-level const (binding-level const lives on
+    /// Decl).
+    IsConst    = 1 << 0,
+
+    /// Volatile access every read/write goes to memory, no caching or
+    /// reordering. Required for memory-mapped I/O and signal handlers.
+    IsVolatile = 1 << 1,
+
+    /// No-alias hint the compiler may assume no other pointer aliases
+    /// this memory. Equivalent to C99 restrict.
+    IsRestrict = 1 << 2,
+
+    /// Atomic access. All reads/writes indivisible. Lowered to LLVM
+    /// atomic IR. Sema validates layout before codegen.
+    IsAtomic   = 1 << 3,
+
+    /// Unsafe qualifier. Applies to any type (Kairo has unsafe
+    /// overloading). On pointer types it selects the raw-pointer
+    /// representation; on other types it permits otherwise-restricted
+    /// operations. Treated as a regular qualifier for equality and
+    /// merging; semantic meaning is type-kind specific.
+    IsUnsafe   = 1 << 4,
+
+    // --- Compile-time qualifier ----------------------------------------
+
+    /// Compile-time evaluation required. The qualified value must be
+    /// fully known at compile time. Set by the `eval` keyword.
+    IsEval     = 1 << 5,
+
+    // --- Effect qualifiers (preserved through sema, desugared at
+    //     codegen into Future<T> / Generator<T> / similar) --------------
+
+    /// Async effect function returning a value via await. Desugars to
+    /// Future<T> at codegen. Primarily valid on function return types.
+    IsAsync    = 1 << 6,
+
+    /// Yield effect function returning a value via yield. Desugars to
+    /// Generator<T> / Iterator<T> at codegen. Primarily valid on
+    /// function return types.
+    IsYield    = 1 << 7,
+
+    /// Panic effect function that changes return type, to allow flow
+    /// control constructs like try blocks. Desugars to a tagged union at
+    /// codegen. Primarily valid on function return types.
+    IsPanic    = 1 << 8,
+
+    // --- Extended-qualifier presence bit -------------------------------
+
+    /// An ExtQuals node is attached. Currently only used for address
+    /// space; leaves room for future extended qualifiers.
+    HasExtQuals = 1 << 14,
+
+    // --- Masks ---------------------------------------------------------
+
+    /// Data qualifiers only (properties of the value's representation).
+    DataMask   = (IsConst | IsVolatile | IsRestrict | IsAtomic | IsUnsafe),
+
+    /// C-style CVR subset. For remove_cvr.
+    CVRMask    = (IsConst | IsVolatile | IsRestrict),
+
+    /// Effect qualifiers only.
+    EffectMask = (IsAsync | IsYield | IsPanic),
+}
+
+// Bitset operators. Free Kairo operators need a deducible operand type, and
+// an enum nested in the class template TypeQual<T> is not one (it was a
+// friend in an inline C++ block), so the enum lives here at module scope
+// and TypeQual<T>::Flags names it. Compound forms return nothing: every use
+// is a statement.
+fn op | (a: TypeQualFlags, b: TypeQualFlags) -> TypeQualFlags {
+    return static_cast::<TypeQualFlags>(static_cast::<u16>(a) | static_cast::<u16>(b));
+}
+
+fn op & (a: TypeQualFlags, b: TypeQualFlags) -> TypeQualFlags {
+    return static_cast::<TypeQualFlags>(static_cast::<u16>(a) & static_cast::<u16>(b));
+}
+
+fn op ~ (a: TypeQualFlags) -> TypeQualFlags {
+    return static_cast::<TypeQualFlags>(~static_cast::<u16>(a));
+}
+
+fn op |= (a: ref!(TypeQualFlags), b: TypeQualFlags) {
+    a = a | b;
+}
+
+fn op &= (a: ref!(TypeQualFlags), b: TypeQualFlags) {
+    a = a & b;
+}
+
 /// CRTP mixin: concrete Type nodes derive TypeQual::<SelfType> to get
 /// inline qualifier storage + flag/span APIs.
 class <T> TypeQual {
-    enum Flags derives u16 {
-        /// No qualifiers applied.
-        None       = 0,
-
-        // --- Data qualifiers ------------------------------------------------
-
-        /// Immutable binding. Prevents mutation of the qualified type after
-        /// initialization. Type-level const (binding-level const lives on
-        /// Decl).
-        IsConst    = 1 << 0,
-
-        /// Volatile access every read/write goes to memory, no caching or
-        /// reordering. Required for memory-mapped I/O and signal handlers.
-        IsVolatile = 1 << 1,
-
-        /// No-alias hint the compiler may assume no other pointer aliases
-        /// this memory. Equivalent to C99 restrict.
-        IsRestrict = 1 << 2,
-
-        /// Atomic access. All reads/writes indivisible. Lowered to LLVM
-        /// atomic IR. Sema validates layout before codegen.
-        IsAtomic   = 1 << 3,
-
-        /// Unsafe qualifier. Applies to any type (Kairo has unsafe
-        /// overloading). On pointer types it selects the raw-pointer
-        /// representation; on other types it permits otherwise-restricted
-        /// operations. Treated as a regular qualifier for equality and
-        /// merging; semantic meaning is type-kind specific.
-        IsUnsafe   = 1 << 4,
-
-        // --- Compile-time qualifier ----------------------------------------
-
-        /// Compile-time evaluation required. The qualified value must be
-        /// fully known at compile time. Set by the `eval` keyword.
-        IsEval     = 1 << 5,
-
-        // --- Effect qualifiers (preserved through sema, desugared at
-        //     codegen into Future<T> / Generator<T> / similar) --------------
-
-        /// Async effect function returning a value via await. Desugars to
-        /// Future<T> at codegen. Primarily valid on function return types.
-        IsAsync    = 1 << 6,
-
-        /// Yield effect function returning a value via yield. Desugars to
-        /// Generator<T> / Iterator<T> at codegen. Primarily valid on
-        /// function return types.
-        IsYield    = 1 << 7,
-
-        /// Panic effect function that changes return type, to allow flow
-        /// control constructs like try blocks. Desugars to a tagged union at
-        /// codegen. Primarily valid on function return types.
-        IsPanic    = 1 << 8,
-
-        // --- Extended-qualifier presence bit -------------------------------
-
-        /// An ExtQuals node is attached. Currently only used for address
-        /// space; leaves room for future extended qualifiers.
-        HasExtQuals = 1 << 14,
-
-        // --- Masks ---------------------------------------------------------
-
-        /// Data qualifiers only (properties of the value's representation).
-        DataMask   = (IsConst | IsVolatile | IsRestrict | IsAtomic | IsUnsafe),
-
-        /// C-style CVR subset. For remove_cvr.
-        CVRMask    = (IsConst | IsVolatile | IsRestrict),
-
-        /// Effect qualifiers only.
-        EffectMask = (IsAsync | IsYield | IsPanic),
-    }
-
-    // INLINE(cxx-feature: operators on an enum type)
-    inline "c++" {
-        friend Flags operator|(Flags a, Flags b) { return static_cast<Flags>(static_cast<uint16_t>(a) | static_cast<uint16_t>(b)); }
-        friend Flags operator&(Flags a, Flags b) { return static_cast<Flags>(static_cast<uint16_t>(a) & static_cast<uint16_t>(b)); }
-        friend Flags operator~(Flags a)          { return static_cast<Flags>(~static_cast<uint16_t>(a)); }
-        friend Flags& operator|=(Flags& a, Flags b) { a = a | b; return a; }
-        friend Flags& operator&=(Flags& a, Flags b) { a = a & b; return a; }
-    }
+    /// The qualifier bits; see TypeQualFlags above.
+    type Flags = TypeQualFlags;
 
     pub var flags: Flags     = Flags::None;
     pub var ext:   *ExtQuals = &null;           // null unless HasExtQuals set
