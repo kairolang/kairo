@@ -1,0 +1,35 @@
+Subject: [selfhost 002] FnModifier operators as Kairo operators (P342)
+
+diff --git a/Compiler/AST/Node/Declarations.k b/Compiler/AST/Node/Declarations.k
+index d40dffbb..67b0242d 100644
+--- a/Compiler/AST/Node/Declarations.k
++++ b/Compiler/AST/Node/Declarations.k
+@@ -157,7 +157,9 @@ enum StorageClass derives u8 {
+ 
+ /// Function effect/qualifier bitmask. These mirror the function_mods grammar
+ /// (const/volatile/unsafe/eval/async/final/panic/inline). Stored as a bitset
+-/// so a method can be e.g. `const inline`.
++/// so a method can be e.g. `const inline`. @open: a combination of flags is
++/// a value no variant names, which a closed enum's checked `as` would reject.
++@open
+ enum FnModifier derives u16 {
+     None       = 0,
+     IsConst    = 1 << 0,
+@@ -177,11 +179,12 @@ enum FnModifier derives u16 {
+     IsConstexpr = 1 << 8,
+ }
+ 
+-// INLINE(cxx-feature: operators on an enum type)
+-inline "c++" {
+-    FnModifier  operator|(FnModifier a, FnModifier b) { return static_cast<FnModifier>(static_cast<uint16_t>(a) | static_cast<uint16_t>(b)); }
+-    FnModifier  operator&(FnModifier a, FnModifier b) { return static_cast<FnModifier>(static_cast<uint16_t>(a) & static_cast<uint16_t>(b)); }
+-    FnModifier& operator|=(FnModifier& a, FnModifier b) { a = a | b; return a; }
++// P342: the operators as Kairo operators. `op |=` is derived from `op |`
++// (declaring both is SC054E), and an extend, not the enum body, holds them
++// (an enum body takes variants only).
++extend FnModifier {
++    fn op | (const self, b: FnModifier) -> FnModifier { return ((self as u16) | (b as u16)) as FnModifier }
++    fn op & (const self, b: FnModifier) -> FnModifier { return ((self as u16) & (b as u16)) as FnModifier }
+ }
+ 
+ /// How a function body is provided. Drives codegen and the redeclaration

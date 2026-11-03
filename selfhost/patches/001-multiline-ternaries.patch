@@ -1,0 +1,51 @@
+Subject: [selfhost 001] Multi-line Stage 0 ternaries -> value-form if
+
+ternary_to_if.py will not cross a newline (Scripts/Migration/README: "by
+hand"); these four are the sites it leaves: rg '^\s+if .* else '.
+
+diff --git a/Compiler/Diagnostic/PrettyConsumer.k b/Compiler/Diagnostic/PrettyConsumer.k
+index 1481b793..3b19b79c 100644
+--- a/Compiler/Diagnostic/PrettyConsumer.k
++++ b/Compiler/Diagnostic/PrettyConsumer.k
+@@ -856,8 +856,8 @@ class PrettyDiagConsumer derives DiagConsumer {
+             var end_lc    = sm->get_line_col(label.range.end);
+             var line_text = sm->get_full_line(label.range.start);
+ 
+-            var glyph_col  = (if (label.style == DiagLabel::Style::Primary) => (sev_col) else => DIM)
+-                if color else "";
++            var glyph_col  = if color => (if (label.style == DiagLabel::Style::Primary) => (sev_col) else => DIM)
++                else => "";
+ 
+             var line_num_str = f"{start_lc.line}";
+             var pad_count    = left_pad - line_num_str.length();
+diff --git a/Compiler/Lexer/Lexer.k b/Compiler/Lexer/Lexer.k
+index 00182816..c0ded235 100644
+--- a/Compiler/Lexer/Lexer.k
++++ b/Compiler/Lexer/Lexer.k
+@@ -1427,8 +1427,8 @@ class Lexer {
+         tok = if is_float => TokenKind::LitFloat else => TokenKind::LitInt;
+         tok = self.create_source_range(ctx.start);
+ 
+-        var   imm_idx: u32 = self.create_imm<Immediate::FloatData>()
+-           if is_float else  (self.create_imm<Immediate::IntData>());
++        var   imm_idx: u32 = if is_float => self.create_imm<Immediate::FloatData>()
++           else => self.create_imm<Immediate::IntData>();
+ 
+         tok.imm = imm_idx;
+ 
+@@ -2196,11 +2196,11 @@ class Lexer {
+             ));
+ 
+             var hole = Immediate::HoleSpec{};
+-            hole.spec     = self.create_source_range(spec.spec_start, spec.end)
+-                            if (spec.spec_start != 0) else (SourceRange::invalid());
++            hole.spec     = if spec.spec_start != 0 => self.create_source_range(spec.spec_start, spec.end)
++                            else => SourceRange::invalid();
+             var doc_end = if (spec.spec_start != 0) => (spec.spec_start - 1) else => spec.end;
+-            hole.doc  = self.create_source_range(spec.start, doc_end)
+-                        if (spec.eq_pos != 0) else (SourceRange::invalid());
++            hole.doc  = if spec.eq_pos != 0 => self.create_source_range(spec.start, doc_end)
++                        else => SourceRange::invalid();
+             ctx.imm.get_holes().push_back(hole);
+         }
+     }
