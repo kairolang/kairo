@@ -291,6 +291,20 @@ class Substitution {
                 var p = self.substitute(cast::<PointerType>(t)->pointee);
                 if p == &null { return &null; }
                 return self.sc->types->pointer(p, cast::<PointerType>(t)->is_unsafe);
+            } case TypeKind::CXXLValueRefType {
+                // An imported template's `const T&` / `T&` (std::max,
+                // std::forward's result). Without these two arms the
+                // default arm returned null, so the call typed as unknown
+                // with no diagnostic, and a `var x = std::max(a, b)` reached
+                // codegen with no type (I011W, then an EmitIR gate ICE on
+                // the first member access through it).
+                var r = self.substitute(cast::<CXXLValueRefType>(t)->referee);
+                if r == &null { return &null; }
+                return self.sc->types->cxx_lref(r);
+            } case TypeKind::CXXRValueRefType {
+                var r = self.substitute(cast::<CXXRValueRefType>(t)->referee);
+                if r == &null { return &null; }
+                return self.sc->types->cxx_rref(r);
             } case TypeKind::NullableType {
                 var i = self.substitute(cast::<NullableType>(t)->inner);
                 if i == &null { return &null; }
