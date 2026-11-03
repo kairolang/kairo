@@ -83,6 +83,22 @@ inline unsigned long long phys_footprint_kib() {
 #endif
 }
 
+// C macros have no name a Kairo file can use (an ffi import brings in
+// declarations, not the preprocessor), so the ones Kairo code needs are
+// spelled here as values and functions, under the same platform guards.
+#if !defined(_WIN32)
+inline constexpr int o_rdonly    = O_RDONLY;
+inline constexpr int prot_read   = PROT_READ;
+inline constexpr int map_private = MAP_PRIVATE;
+/// MAP_FAILED is `((void *)-1)`: a cast, so not a constant expression.
+inline void *map_failed() noexcept { return MAP_FAILED; }
+#endif
+
+/// Prefetch for reading into every cache level (`_mm_prefetch(p,
+/// _MM_HINT_T0)` on x86, where the scanners used it). The builtin is the
+/// same instruction there and the nearest equivalent elsewhere.
+inline void prefetch_t0(const void *p) noexcept { __builtin_prefetch(p, 0, 3); }
+
 }  // namespace kairo
 
 #endif  // __KAIRO_NATIVE_KSHIMS_HH__

@@ -91,6 +91,11 @@
 #define _simd_available() 0
 #endif
 
+namespace kairo {
+/// `_thread_pause()` as a function: a C macro is no name a Kairo file can use.
+inline void thread_pause() noexcept { _thread_pause(); }
+}  // namespace kairo
+
 #include <llvm/ADT/StringRef.h>
 
 namespace kairo {
