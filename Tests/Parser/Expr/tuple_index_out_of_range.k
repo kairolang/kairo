@@ -10,6 +10,3 @@
 // AST-NOT: tuple-index
 // AST-LABEL: AST (tree) for fid 1
 t.4294967296
-// The NOT above covers this file's own tree, which ends where the first
-// builtin TU's begins (the builtin may index tuples itself).
-// AST-LABEL: AST (tree) for fid 1 ==
