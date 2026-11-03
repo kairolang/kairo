@@ -153,6 +153,13 @@ class <T> StmtParse {
         var lbrace_range = dyn()->current_ptr()->range;
         dyn()->advance(T::SkipNL::After); // consume `{`
 
+        // A block is a statement context wherever it sits: a closure body in
+        // an argument list, an if head's operand. Inherited suppression
+        // folded `var z = y` newline `-z` into `y - z`. Restored before `}`,
+        // so the closer's trailing newline is the enclosing context's call.
+        var saved_nl = dyn()->nl_depth;
+        dyn()->nl_depth = 0;
+
         dyn()->enter_scope(scope_kind, dyn()->scope.current_dc());
 
         var stmts: std::StackBuf::<*Stmt, 16>;
@@ -178,6 +185,7 @@ class <T> StmtParse {
             self._consume_terminator();
         }
 
+        dyn()->nl_depth = saved_nl;
         var full_range = lbrace_range;
         if dyn()->check(TokenKind::OpRBrace) {
             full_range = lbrace_range | dyn()->current_ptr()->range;
@@ -1025,7 +1033,12 @@ class <T> StmtParse {
 
         dyn()->advance(T::SkipNL::After); // consume `if`
 
+        // The head runs to `{` (or `=>`), never to a newline: nothing can
+        // start a statement inside it, so `if a` newline `+ b == c {` is one
+        // condition, as it is inside parentheses (P348).
+        dyn()->nl_push();
         var cond = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
+        dyn()->nl_pop();
         if ((cond == &null)) || is_recovery(cond) {
             self._sync_stmt(StmtSyncCtx::Block, 0);
             dyn()->exit_depth();
@@ -1125,7 +1138,10 @@ class <T> StmtParse {
         var start_range = dyn()->current_ptr()->range;
         dyn()->advance(T::SkipNL::After); // consume `while`
 
+        // as an if head (_parse_conditional): the head ends at `{`.
+        dyn()->nl_push();
         var cond = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
+        dyn()->nl_pop();
         if (cond == &null) || is_recovery(cond) {
             self._sync_stmt(StmtSyncCtx::Block, 0);
             return static_cast::<*Stmt>(WhileLoopStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));

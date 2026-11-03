@@ -2844,11 +2844,21 @@ class ASTParse
         if self.nl_depth > 0 { --self.nl_depth; }
     }
 
-    /// \brief raw single-step advance that NEVER applies suppression skipping.
-    ///        used to consume closing delimiters so a trailing statement
-    ///        terminator after `)`/`]`/`}`/`>` survives for the caller.
+    /// \brief single-step advance that keeps a trailing newline for the
+    ///        caller. used to consume closing delimiters so a statement
+    ///        terminator after `)`/`]`/`}`/`>` survives.
+    ///
+    /// \details "for the caller" is the ENCLOSING context: a closer is
+    ///          consumed after its own nl_pop(), so a still-positive depth
+    ///          means the closer sits inside another bracket, where that
+    ///          newline is no terminator. Left under the cursor it ended the
+    ///          enclosing expression -- `g((y)` newline `+ 1, 2)`, a generic
+    ///          last parameter `seen: vec<u8>` newline `)` -- while the same
+    ///          code with a bare operand parsed (P348, P354). Under
+    ///          suppression the cursor never rests on a newline.
     inline pub fn advance_raw(self) {
         self._advance();
+        if self.nl_depth > 0 { self._skip_nl_fwd(); }
     }
 
     /// \brief resolved kind of the next non-newline token, without moving.

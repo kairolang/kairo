@@ -2090,9 +2090,13 @@ class <T> ExprParse {
             return SubscriptExpr::create_error(dyn()->ctx, base->range | rsquare_range);
         }
 
+        // bracket-delimited like an argument list: `]` ends the index, not
+        // a newline (P348). Popped before `]`, so its trailing newline stays.
+        dyn()->nl_push();
         var index = self.parse_expr(
             static_cast::<ExprStopKind>(static_cast::<u8>(ExprStopKind::StopSquare))
         );
+        dyn()->nl_pop();
 
         if index == &null {
             dyn()->diag->report(DiagID::S052E, lsquare_range.start,
@@ -2839,6 +2843,11 @@ class <T> ExprParse {
 
         var elements: std::StackBuf::<*Expr, 8>;
 
+        // as in an argument list, newlines inside `[ ]` are not significant:
+        // `[a,` newline `b` newline `]` and an element continued on the next
+        // line both parse (P348). Popped before `]`, so its trailing newline
+        // stays the enclosing context's.
+        dyn()->nl_push();
         while !dyn()->is_eof() {
             if dyn()->check(TokenKind::OpRSquare) { break; }
 
@@ -2863,6 +2872,7 @@ class <T> ExprParse {
 
             break;
         }
+        dyn()->nl_pop();
 
         var end_range = dyn()->prev().range;
         if dyn()->check(TokenKind::OpRSquare) {
