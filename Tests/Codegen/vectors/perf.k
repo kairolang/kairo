@@ -32,7 +32,9 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: clang, llvm-objdump, sysroot-x86_64-linux-musl
 // RUN: rm -rf %t.d
-// RUN: %kairo %s --target=x86_64-linux-musl -O2 -o %t.exe --cache-dir %t.d
+// --no-icf: the checks name callees, and safe ICF (on above -O0) folds
+// vector_out_of_range into any other function with the same code.
+// RUN: %kairo %s --target=x86_64-linux-musl -O2 --no-icf -o %t.exe --cache-dir %t.d
 // RUN: %t.exe
 // RUN: %objdump -d --no-show-raw-insn %t.exe > %t.asm
 // RUN: %FileCheck %s < %t.asm
