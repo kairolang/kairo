@@ -2168,7 +2168,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
 
         var imm = self._name_imm(n->name);
         if imm == u32(-1) {
-            if n->name.kind == TokenKind::BiSelf { return self._bind_self_type(n); }
+            if self.sc->ctx->unwrap_token(n->name).kind == TokenKind::BiSelf { return self._bind_self_type(n); }
             // A primitive type heading an expression (`i32::MAX`, `u32(-1)`;
             // the parser admits one only before `::` or `(`) names no decl,
             // so there is nothing to bind. Left unbound ON PURPOSE for the
@@ -2578,7 +2578,10 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     priv fn _name_imm(self, tok: Token) -> u32 {
         var im = self.sc->ctx->get_ident_imm(tok);
         if im != u32(-1) { return im; }
-        if tok.kind == TokenKind::KwSelf { return self._self_imm; }
+        // Unwrapped: a `self` passed as a macro argument reaches here as a
+        // TkMacroExpand token, and matching only the raw kind left it
+        // unbound (the I003E invariant error for `check!(self.x, ...)`).
+        if self.sc->ctx->unwrap_token(tok).kind == TokenKind::KwSelf { return self._self_imm; }
         return u32(-1);
     }
 

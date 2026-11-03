@@ -454,7 +454,10 @@ class ShadowCheck derives RecursiveASTVisitor::<ShadowCheck> {
     priv fn _name_imm(self, tok: Token) -> u32 {
         var im = self.sc->ctx->get_ident_imm(tok);
         if im != u32(-1) { return im; }
-        if tok.kind == TokenKind::KwSelf { return self._self_imm; }
+        // Unwrapped: a `self` passed as a macro argument reaches here as a
+        // TkMacroExpand token, and matching only the raw kind left it
+        // unbound (the I003E invariant error for `check!(self.x, ...)`).
+        if self.sc->ctx->unwrap_token(tok).kind == TokenKind::KwSelf { return self._self_imm; }
         return u32(-1);
     }
 }

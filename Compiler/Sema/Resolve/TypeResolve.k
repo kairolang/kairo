@@ -1518,7 +1518,8 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         // (IMPORTS.md §4.3). Empty whenever the segment is anything else.
         var mods = vec::<*DeclContext>();
 
-        if (tok.kind == TokenKind::KwSelf) || (tok.kind == TokenKind::BiSelf) {
+        var utk = self.sc->ctx->unwrap_token(tok).kind;   // `Self` from a macro argument is wrapped
+        if (utk == TokenKind::KwSelf) || (utk == TokenKind::BiSelf) {
             var sp = self.sc->ctx->get_spelling(tok);
             if !seg0->generic_args.is_empty() {
                 self.sc->diag->report(DiagID::R032E, seg0->range.start,
