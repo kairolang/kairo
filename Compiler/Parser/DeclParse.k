@@ -2068,7 +2068,11 @@ class <T> DeclParse {
                     out->push_back(capture);
                 }
 
-            } else if dyn()->check(TokenKind::LitIdentifier) {
+            } else if dyn()->check(TokenKind::LitIdentifier) || dyn()->check(TokenKind::KwSelf) {
+                // `self` names the receiver (P352): spelled as a `self`
+                // expression is, a NamedIdentExpr on the keyword, so it
+                // resolves to the receiver ParamDecl and ClosureCaptures
+                // gives it the receiver mode whatever the list says.
                 var cname = dyn()->current();
                 dyn()->advance();
                 var capture = ClosureExpr::Capture();
@@ -2124,7 +2128,7 @@ class <T> DeclParse {
                 dyn()->advance(); // consume `*`
             }
 
-            if !dyn()->check_is_ident() {
+            if (!dyn()->check_is_ident()) && (!dyn()->check(TokenKind::KwSelf)) {
                 dyn()->diag->report(DiagID::S047E, p_start.start,
                     "expected capture name"
                 ).first(p_start).emit();
