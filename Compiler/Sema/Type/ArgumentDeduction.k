@@ -310,13 +310,43 @@ class Deduction derives Substitution {
     /// `const i32` or an `i32` is T := i32 either way.
     priv fn _unify_referee(self, referee: *Type, a: *Type) -> ImplicitRank {
         if (referee == &null) || (a == &null) { return ImplicitRank::None; }
+        var p = referee;
+        var rest = a;
         if isa::<QualifiedType>(referee) {
             var pq = cast::<QualifiedType>(referee)->quals;
             var aq = canon_quals(a);
-            var rest = self.sc->types->qualified(canon_unqual(a), static_cast::<u8>(aq & (~pq)));
-            return self.unify(cast::<QualifiedType>(referee)->inner, rest, false);
+            rest = self.sc->types->qualified(canon_unqual(a), static_cast::<u8>(aq & (~pq)));
+            p = cast::<QualifiedType>(referee)->inner;
         }
-        return self.unify(referee, a, false);
+        var mark = self.bindings.size();
+        var r = self.unify(p, rest, false);
+        if r != ImplicitRank::None { return r; }
+        return self._unify_from_base(p, rest, mark);
+    }
+
+    /// [temp.deduct.call]/4.3: P a class template-id, A a class DERIVED from
+    /// an instance of it -- deduce from that base. `getline(basic_istream<C,
+    /// T>&, basic_string<C, T, A>&)` with an ifstream binds C and T from its
+    /// `basic_istream<char, ...>` base; matched only against the arg's own
+    /// record, every stream argument was SC063E. The first base that unifies
+    /// wins, and the binding ranks as a conversion (derived-to-base).
+    /// \p mark: the bindings to roll back to before each attempt.
+    priv fn _unify_from_base(self, p: *Type, a: *Type, mark: usize) -> ImplicitRank {
+        var pc = canon_unqual(p);
+        var ac = canon_unqual(a);
+        if (pc == &null) || (ac == &null) || (!isa::<RecordType>(pc)) || (!isa::<RecordType>(ac)) { return ImplicitRank::None; }
+        var ppat = NameLookup::representative(self.tu.pattern_of(cast::<RecordType>(pc)->decl));
+        var bases = vec::<*Type>();
+        self.base_records(ac, &bases);
+        for var i: usize = 0; i < bases.size(); ++i {
+            var b = cast::<RecordType>(bases[i]);
+            if NameLookup::representative(self.tu.pattern_of(b->decl)) != ppat { continue; }
+            while self.bindings.size() > mark { self.bindings.pop_back(); }
+            while self.bindings.size() > mark { self.bindings.pop_back(); }
+            if self.unify(pc, bases[i], false) != ImplicitRank::None { return ImplicitRank::Converted; }
+        }
+        while self.bindings.size() > mark { self.bindings.pop_back(); }
+        return ImplicitRank::None;
     }
 
     priv fn _inner(self, r: ImplicitRank) -> ImplicitRank {

@@ -1734,7 +1734,26 @@ class OverloadResolution {
         }
 
         if a->ty == &null { return ImplicitRank::None; }
-        if pt->is_dependent() { return c->ded.unify(pt, a->ty, true); }
+        if pt->is_dependent() {
+            var u = c->ded.unify(pt, a->ty, true);
+            if u == ImplicitRank::None { return u; }
+            // Deduction sees types only; a dependent reference still binds by
+            // category ([dcl.init.ref]). `X<T>&&` that is not a forwarding
+            // reference (a bare `T&&`) takes no lvalue, and a non-const
+            // `X<T>&` no rvalue: getline's `basic_istream<C, T>&&` overload
+            // tied the `&` one for an ifstream variable (G24).
+            var pc = canon_unqual(pt);
+            var lvalue = a->cat == Expr::ValueCategory::LValue;
+            var rvalue = (a->cat == Expr::ValueCategory::RValue) || (a->cat == Expr::ValueCategory::XValue);
+            if isa::<CXXRValueRefType>(pc) {
+                var rr = cast::<CXXRValueRefType>(pc)->referee;
+                var forwarding = isa::<GenericParamType>(rr) && (canon_quals(rr) == 0);
+                if lvalue && (!forwarding) { return ImplicitRank::None; }
+            } else if isa::<CXXLValueRefType>(pc) {
+                if rvalue && (!canon_has_const(cast::<CXXLValueRefType>(pc)->referee)) { return ImplicitRank::None; }
+            }
+            return u;
+        }
         var r = self.conv->implicit_arg(a->ty, pt, a->cat, a->is_const);
         // A C/C++ signature reads `size_t` at the target's width: `u32` into
         // `write(int, const void*, size_t)` widens there (Conversion::abi_widen).

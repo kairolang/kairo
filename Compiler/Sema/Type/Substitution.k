@@ -1164,6 +1164,43 @@ class Substitution {
         return false;
     }
 
+    /// Every base record of record type \p d, transitively, each read
+    /// through the record it is a base of (as _derives_walk reads them),
+    /// nearest first. For deduction from a derived argument
+    /// ([temp.deduct.call]/4.3): `getline(basic_istream<C, T>&, ...)` with
+    /// an ifstream finds `basic_istream<char, char_traits<char>>` here.
+    fn base_records(self, d: *Type, out: *vec::<*Type>) {
+        var start = canon_unqual(d);
+        if (start == &null) || (!isa::<RecordType>(start)) { return; }
+        var work = vec::<*Type>();
+        work.push_back(start);
+        var at: usize = 0;
+        while (at < work.size()) && (work.size() < 256) {
+            var cur = work[at];
+            at += 1;
+            var body = self.sc->record_body(cur);
+            if body == &null { continue; }
+            var bases = self._bases_of(NameLookup::representative(body));
+            for var i: usize = 0; i < bases.size(); ++i {
+                var e = bases.get(i);
+                if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+                var c = canon_unqual(e->base->canonical);
+                if (c == &null) || (!isa::<RecordType>(c)) { continue; }
+                if c->is_dependent() {
+                    var s = Substitution(self.sc);
+                    s.bind_own(cur);
+                    var sub = s.substitute(c);
+                    if (sub != &null) && isa::<RecordType>(canon_unqual(sub)) { c = canon_unqual(sub); }
+                }
+                var dup = false;
+                for var k: usize = 0; k < work.size(); ++k { if self._same_record(work[k], c) { dup = true; break; } }
+                if dup { continue; }
+                work.push_back(c);
+                out->push_back(c);
+            }
+        }
+    }
+
     priv fn _bases_of(self, d: *Decl) -> FrozenList::<InheritEdge> {
         if isa::<ClassDecl>(d)     { return cast::<ClassDecl>(d)->derives_list;     }
         if isa::<InterfaceDecl>(d) { return cast::<InterfaceDecl>(d)->derives_list; }
