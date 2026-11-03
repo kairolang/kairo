@@ -11,7 +11,12 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/KPlacement.hh";   // construct_at
 import Memory::ArenaAllocator::*;
+
+/// Initial capacity of an ArenaList's chunk-descriptor table. Module scope
+/// rather than a static member: Kairo has no class-level constant.
+const ARENA_LIST_DESCRIPTOR_INIT: usize = 8;
 
 /// ArenaList<T> arena-backed, slab-indexed dynamic array.
 ///
@@ -90,9 +95,6 @@ class <T> ArenaList {
     priv var _chunk_cap:   usize                 = 0;
     priv var _slab_size:   usize                 = 0;
 
-    // INLINE(cxx-feature: static constexpr member)
-    __inline_cpp("static constexpr usize DESCRIPTOR_INIT = 8");
-
     ///
     /// \brief Default constructor owns its own internal ArenaAllocator.
     /// Use for temporary lists during parsing that don't need to share memory.
@@ -102,7 +104,7 @@ class <T> ArenaList {
 
         var padding  = 2 * (alignof(libcxx::max_align_t) - 1);
         var arena_sz = (self._slab_size * sizeof(T))
-                    + (DESCRIPTOR_INIT * sizeof(Chunk))
+                    + (ARENA_LIST_DESCRIPTOR_INIT * sizeof(Chunk))
                     + padding;
 
         self._owned_arena.init(arena_sz);
@@ -152,8 +154,8 @@ class <T> ArenaList {
     fn push(self, val: T) -> *T {
         self.ensure_space();
         var chunk = &self._chunks[self._chunk_count - 1];
-        // INLINE(placement)
-        __inline_cpp("::new (static_cast<void*>(&chunk->base[chunk->count])) T(std::Memory::move(val))");
+        var dst = &(chunk->base[chunk->count]);
+        kairo::construct_at::<T>(static_cast::<*void>(dst), std::Memory::move(val));
         chunk->count += 1;
         self._total  += 1;
         return &(chunk->base[chunk->count - 1]);
@@ -172,8 +174,7 @@ class <T> ArenaList {
         self.ensure_space();
         var chunk = &self._chunks[self._chunk_count - 1];
         var slot  = &chunk->base[chunk->count];
-        // INLINE(placement)
-        __inline_cpp("::new (static_cast<void*>(slot)) T()");
+        kairo::construct_at::<T>(static_cast::<*void>(slot));
         chunk->count += 1;
         self._total  += 1;
         return slot;
@@ -288,7 +289,7 @@ class <T> ArenaList {
         self._total       = 0;
         self._chunk_count = 0;
         self._arena->reset();
-        self.alloc_descriptor_table(DESCRIPTOR_INIT);
+        self.alloc_descriptor_table(ARENA_LIST_DESCRIPTOR_INIT);
         self.alloc_slab();
     }
 
@@ -341,7 +342,7 @@ class <T> ArenaList {
 
     priv fn alloc_slab(self) {
         if self._chunk_count >= self._chunk_cap {
-            var new_cap   = (self._chunk_cap * 2) if (self._chunk_cap > 0) else DESCRIPTOR_INIT;
+            var new_cap   = (self._chunk_cap * 2) if (self._chunk_cap > 0) else ARENA_LIST_DESCRIPTOR_INIT;
             var new_table = reinterpret_cast::<*Chunk>(
                 self._arena->alloc(new_cap * sizeof(Chunk), alignof(Chunk))
             );

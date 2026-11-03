@@ -12,6 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/ArenaBlock.hh";
+ffi "c++" import "Native/KPlacement.hh";   // construct_at
 
 import Support::Timer::*;
 
@@ -148,23 +149,25 @@ class ArenaAllocator {
         return self.expand(sz, align);
     }
 
-    // INLINE(placement)
-    __inline_cpp("
-        template <typename T, typename ...Args>
-        inline T *create(Args &&...args) {
-            void *mem = alloc(sizeof(T), alignof(T));
-            return std::create<T>(mem, std::Memory::forward<Args>(args)...);
-        }
-    ");
+    // Allocate and construct a T in this arena. Kairo generics are not
+    // variadic, so there is one overload per arity a caller uses; add one
+    // when a new arity is needed. Arguments are taken by value and moved
+    // into T's constructor: one copy at the call, as forwarding an lvalue
+    // was. Placement itself is Native/KPlacement.hh.
+    fn <T> create(self) -> *T {
+        var mem: *void = self.alloc(sizeof(T), alignof(T));
+        return kairo::construct_at::<T>(mem);
+    }
 
-    // INLINE(placement)
-    __inline_cpp("
-        template <typename T, typename ...Args>
-        T *alloc_init(Args &&...args) {
-            void *mem = alloc(sizeof(T), alignof(T));
-            return ::new (mem) T(libcxx::forward<Args>(args)...);
-        }
-    ");
+    fn <T, A0> alloc_init(self, a0: A0) -> *T {
+        var mem: *void = self.alloc(sizeof(T), alignof(T));
+        return kairo::construct_at::<T>(mem, std::Memory::move(a0));
+    }
+
+    fn <T, A0, A1> alloc_init(self, a0: A0, a1: A1) -> *T {
+        var mem: *void = self.alloc(sizeof(T), alignof(T));
+        return kairo::construct_at::<T>(mem, std::Memory::move(a0), std::Memory::move(a1));
+    }
 
     fn reset(self) {
         ++(self.stats.resets);
@@ -225,8 +228,7 @@ class ArenaAllocator {
     }
 
     priv fn expand(self, sz: usize, align: usize) -> *void {
-        // INLINE(macro)
-        var req = __inline_cpp("(libcxx::max)(this->block_size, (libcxx::bit_ceil)(sz))");
+        var req = libcxx::max(self.block_size, libcxx::bit_ceil(sz));
         var blk = std::create::<ArenaBlock>(req);
 
         // prepend new block becomes head, old chain reachable via next

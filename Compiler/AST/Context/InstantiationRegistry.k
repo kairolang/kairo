@@ -60,6 +60,7 @@
 
 ffi "c++" import "llvm/ADT/DenseMap.h";
 ffi "c++" import "llvm/Support/Allocator.h";
+ffi "c++" import "Native/KPlacement.hh";   // construct_at
 import Memory::ArenaAllocator::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -844,7 +845,7 @@ class InstantiationRegistry {
     /// Caller holds the lock.
     priv fn _row_copy(self, r: *ConformanceRow) -> *ConformanceRow {
         var mem: *void = self._arena.alloc(sizeof(ConformanceRow), alignof(ConformanceRow));
-        var row = self._placement::<ConformanceRow>(mem);
+        var row = kairo::construct_at::<ConformanceRow>(mem);
         row->conformer  = r->conformer;
         row->iface      = r->iface;
         row->iface_decl = r->iface_decl;
@@ -1046,7 +1047,7 @@ class InstantiationRegistry {
     priv fn _new_entry(self, primary: *Decl, args: *vec::<*Type>, decl: *Decl,
                        is_explicit: bool, fid: u32) -> *InstanceEntry {
         var mem: *void = self._arena.alloc(sizeof(InstanceEntry), alignof(InstanceEntry));
-        var e = self._placement::<InstanceEntry>(mem);
+        var e = kairo::construct_at::<InstanceEntry>(mem);
         e->primary     = primary;
         e->decl        = decl;
         e->is_explicit = is_explicit;
@@ -1056,12 +1057,6 @@ class InstantiationRegistry {
         e->seq = static_cast::<u32>(self._order.size());
         self._order.push_back(e);
         return e;
-    }
-
-    // INLINE(placement)
-    inline "c++" {
-        template <typename T>
-        T *_placement(void *mem) { return ::new (mem) T(); }
     }
 
     priv fn <T> _alloc(self) -> *T {

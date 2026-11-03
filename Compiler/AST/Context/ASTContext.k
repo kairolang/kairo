@@ -15,6 +15,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/MapVector.h";
+ffi "c++" import "Native/KPlacement.hh";   // construct_at, destroy_in_place
 import Memory::ArenaList::*;
 import Driver::TUStage::*;   // standalone enum, no imports of its own; no cycle
 import Location::SourceManager::*;
@@ -141,13 +142,9 @@ class ASTContext {
     fn <T> alloc(self) -> *T {
         var mem: *void = self.ast_alloc.alloc(sizeof(T), alignof(T));
         libcxx::memset(mem, 0, sizeof(T));
-        // INLINE(placement)
-        inline "c++" {
-            static_assert(libcxx::is_default_constructible_v<T>,
-                "ASTContext::alloc<T>: T must be default-constructible");
-            ::new (mem) T();
-        }
-        return static_cast::<*T>(mem);
+        static_assert(libcxx::is_default_constructible_v::<T>,
+            r"ASTContext::alloc<T>: T must be default-constructible");
+        return kairo::construct_at::<T>(mem);
 
         // Zeroed, THEN constructed. Zero alone is not a valid object for every
         // member type: an all-zero MSVC wstring has capacity 0, which its own
@@ -158,22 +155,28 @@ class ASTContext {
         // design for the AST's lifetime.
     }
 
-    // INLINE(placement)
-    inline "c++" {
-        private:
-        template <typename T, typename ...Args>
-        T *placement_new(void *mem, Args &&...args) {
-            return ::new (mem) T(libcxx::forward<Args>(args)...);
-        }
+    // --- Construct-in-arena ----------------------------------------------
+    //
+    // alloc_init*<T>(args) allocate a T in one stage's arena and construct
+    // it there; the *_cleanup forms also register its destructor with that
+    // stage's cleanup list (see the arena block above). Kairo generics are
+    // not variadic, so each name has one overload per arity some caller
+    // uses; add one when a new arity is needed. Arguments are taken by value
+    // and moved into T's constructor, one copy at the call, as forwarding an
+    // lvalue was. Every argument passed today is a pointer, enum or integer.
+
+    /// Registers \p p's destructor on \p list and returns \p p.
+    priv fn <T> _with_cleanup(self, list: *vec::<ArenaCleanup>, p: *T) -> *T {
+        var c: ArenaCleanup;
+        c.obj = static_cast::<*void>(p);
+        c.run = kairo::destroy_in_place::<T>;
+        list->push_back(c);
+        return p;
     }
 
-    // INLINE(placement)
-    inline "c++" {
-        template <typename T, typename ...Args>
-        T *alloc_init(Args &&...args) {
-            void *mem = this->ast_alloc.alloc(sizeof(T), alignof(T));
-            return ::new (mem) T(libcxx::forward<Args>(args)...);
-        }
+    fn <T, A0, A1> alloc_init(self, a0: A0, a1: A1) -> *T {
+        var mem: *void = self.ast_alloc.alloc(sizeof(T), alignof(T));
+        return kairo::construct_at::<T>(mem, std::Memory::move(a0), std::Memory::move(a1));
     }
 
     fn <T> alloc_array(self, n: usize) -> *T {
@@ -205,60 +208,49 @@ class ASTContext {
         list->clear();
     }
 
-    // INLINE(placement)
-    inline "c++" {
-        template <typename T, typename ...Args>
-        T *alloc_init_cleanup(Args &&...args) {
-            void *mem = this->ast_alloc.alloc(sizeof(T), alignof(T));
-            T *p = ::new (mem) T(libcxx::forward<Args>(args)...);
-            ArenaCleanup c;
-            c.obj = static_cast<void *>(p);
-            c.run = [](void *q) { static_cast<T *>(q)->~T(); };
-            this->_cleanup_ast.push_back(c);
-            return p;
-        }
+    fn <T> alloc_init_cleanup(self) -> *T {
+        var mem: *void = self.ast_alloc.alloc(sizeof(T), alignof(T));
+        return self._with_cleanup::<T>(&(self._cleanup_ast), kairo::construct_at::<T>(mem));
     }
 
-    // INLINE(placement)
-    inline "c++" {
-        template <typename T, typename ...Args>
-        T *alloc_init_sema_cleanup(Args &&...args) {
-            void *mem = this->sema_alloc.alloc(sizeof(T), alignof(T));
-            T *p = ::new (mem) T(libcxx::forward<Args>(args)...);
-            ArenaCleanup c;
-            c.obj = static_cast<void *>(p);
-            c.run = [](void *q) { static_cast<T *>(q)->~T(); };
-            this->_cleanup_sema.push_back(c);
-            return p;
-        }
+    fn <T, A0> alloc_init_cleanup(self, a0: A0) -> *T {
+        var mem: *void = self.ast_alloc.alloc(sizeof(T), alignof(T));
+        return self._with_cleanup::<T>(&(self._cleanup_ast),
+            kairo::construct_at::<T>(mem, std::Memory::move(a0)));
     }
 
-    // INLINE(placement)
-    inline "c++" {
-        template <typename T, typename ...Args>
-        T *alloc_init_pp_cleanup(Args &&...args) {
-            void *mem = this->pp_alloc.alloc(sizeof(T), alignof(T));
-            T *p = ::new (mem) T(libcxx::forward<Args>(args)...);
-            ArenaCleanup c;
-            c.obj = static_cast<void *>(p);
-            c.run = [](void *q) { static_cast<T *>(q)->~T(); };
-            this->_cleanup_pp.push_back(c);
-            return p;
-        }
+    fn <T, A0, A1, A2> alloc_init_cleanup(self, a0: A0, a1: A1, a2: A2) -> *T {
+        var mem: *void = self.ast_alloc.alloc(sizeof(T), alignof(T));
+        return self._with_cleanup::<T>(&(self._cleanup_ast),
+            kairo::construct_at::<T>(mem, std::Memory::move(a0), std::Memory::move(a1), std::Memory::move(a2)));
     }
 
-    // INLINE(placement)
-    inline "c++" {
-        template <typename T, typename ...Args>
-        T *alloc_init_index_cleanup(Args &&...args) {
-            void *mem = this->index_alloc.alloc(sizeof(T), alignof(T));
-            T *p = ::new (mem) T(libcxx::forward<Args>(args)...);
-            ArenaCleanup c;
-            c.obj = static_cast<void *>(p);
-            c.run = [](void *q) { static_cast<T *>(q)->~T(); };
-            this->_cleanup_index.push_back(c);
-            return p;
-        }
+    fn <T> alloc_init_sema_cleanup(self) -> *T {
+        var mem: *void = self.sema_alloc.alloc(sizeof(T), alignof(T));
+        return self._with_cleanup::<T>(&(self._cleanup_sema), kairo::construct_at::<T>(mem));
+    }
+
+    fn <T> alloc_init_pp_cleanup(self) -> *T {
+        var mem: *void = self.pp_alloc.alloc(sizeof(T), alignof(T));
+        return self._with_cleanup::<T>(&(self._cleanup_pp), kairo::construct_at::<T>(mem));
+    }
+
+    fn <T, A0, A1, A2, A3> alloc_init_pp_cleanup(self, a0: A0, a1: A1, a2: A2, a3: A3) -> *T {
+        var mem: *void = self.pp_alloc.alloc(sizeof(T), alignof(T));
+        return self._with_cleanup::<T>(&(self._cleanup_pp),
+            kairo::construct_at::<T>(mem, std::Memory::move(a0), std::Memory::move(a1),
+                                          std::Memory::move(a2), std::Memory::move(a3)));
+    }
+
+    fn <T> alloc_init_index_cleanup(self) -> *T {
+        var mem: *void = self.index_alloc.alloc(sizeof(T), alignof(T));
+        return self._with_cleanup::<T>(&(self._cleanup_index), kairo::construct_at::<T>(mem));
+    }
+
+    fn <T, A0> alloc_init_index_cleanup(self, a0: A0) -> *T {
+        var mem: *void = self.index_alloc.alloc(sizeof(T), alignof(T));
+        return self._with_cleanup::<T>(&(self._cleanup_index),
+            kairo::construct_at::<T>(mem, std::Memory::move(a0)));
     }
 
     // --- Stage-qualified allocation --------------------------------------
@@ -272,31 +264,22 @@ class ASTContext {
         return static_cast::<*T>(mem);
     }
 
-    // INLINE(placement)
-    inline "c++" {
-        template <typename T, typename ...Args>
-        T *alloc_init_pp(Args &&...args) {
-            void *mem = this->pp_alloc.alloc(sizeof(T), alignof(T));
-            return ::new (mem) T(libcxx::forward<Args>(args)...);
-        }
+    fn <T, A0, A1, A2, A3> alloc_init_pp(self, a0: A0, a1: A1, a2: A2, a3: A3) -> *T {
+        var mem: *void = self.pp_alloc.alloc(sizeof(T), alignof(T));
+        return kairo::construct_at::<T>(mem, std::Memory::move(a0), std::Memory::move(a1),
+                                             std::Memory::move(a2), std::Memory::move(a3));
     }
 
-    // INLINE(placement)
-    inline "c++" {
-        template <typename T, typename ...Args>
-        T *alloc_init_index(Args &&...args) {
-            void *mem = this->index_alloc.alloc(sizeof(T), alignof(T));
-            return ::new (mem) T(libcxx::forward<Args>(args)...);
-        }
+    // No caller yet; kept at the zero-argument arity so the per-stage set
+    // stays complete.
+    fn <T> alloc_init_index(self) -> *T {
+        var mem: *void = self.index_alloc.alloc(sizeof(T), alignof(T));
+        return kairo::construct_at::<T>(mem);
     }
 
-    // INLINE(placement)
-    inline "c++" {
-        template <typename T, typename ...Args>
-        T *alloc_init_scratch(Args &&...args) {
-            void *mem = this->scratch_alloc.alloc(sizeof(T), alignof(T));
-            return ::new (mem) T(libcxx::forward<Args>(args)...);
-        }
+    fn <T> alloc_init_scratch(self) -> *T {
+        var mem: *void = self.scratch_alloc.alloc(sizeof(T), alignof(T));
+        return kairo::construct_at::<T>(mem);
     }
 
     fn mem_profile(self) -> (usize, usize, usize) {

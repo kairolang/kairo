@@ -52,6 +52,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/KPlacement.hh";   // construct_at
 import Memory::ArenaAllocator::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -101,11 +102,7 @@ class TupleRecords {
     priv fn <T> _alloc(self) -> *T {
         var mem: *void = self._arena.alloc(sizeof(T), alignof(T));
         libcxx::memset(mem, 0, sizeof(T));
-        // INLINE(placement)
-        inline "c++" {
-            ::new (mem) T();
-        }
-        return static_cast::<*T>(mem);
+        return kairo::construct_at::<T>(mem);
     }
 
     priv fn <T> _alloc_array(self, n: usize) -> *T {
