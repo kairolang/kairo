@@ -182,7 +182,8 @@ class Candidate {
     pub var assumed:      bool  = false;
     pub var reason:       string = "";
     /// An edit that would make this candidate viable, inserted at `fix_at`;
-    /// "" for none. Only the C-string reinterpretation sets one today.
+    /// "" for none. Set for a C string parameter: the reinterpretation of
+    /// a byte pointer, or `.c_str()` on a string that is no literal.
     pub var fix_text:     string = "";
     pub var fix_at:       SourceLocation;
     /// Which placement rule rejected this candidate, or SC001E (never emitted from here; a pure "no specific rule" sentinel) for anything
@@ -1409,6 +1410,7 @@ class OverloadResolution {
             }
             var r = ImplicitRank::None;
             if self._transfer_upcast(f, p, a, pt, has_receiver) { r = ImplicitRank::Converted; }
+            else if self._c_string_literal_arg(f, a, pt, mode) { r = ImplicitRank::Converted; }
             else { r = self._rank_arg(c, ra, rt, pi == usize(-1), mode); }
             // `Box<i32>::Box(self, n)` from `class IntBox derives Box<i32>`:
             // a generic record's `self` is `Box<T>`, and unification alone
@@ -1446,6 +1448,13 @@ class OverloadResolution {
                 if self._c_string_reinterpret(a->ty, pt) {
                     c->reason += "; a C string is '*const c_char' (std::c_char), which no byte or i8 pointer converts to";
                     c->fix_text = f" as {self.tu.str(pt)}";
+                    c->fix_at   = a->range.end;
+                } else if f->is_imported() && (a->ty != &null) && self.tu.is_string(a->ty)
+                       && self.tu.is_c_string_param(pt) && (mode != ParamMode::Inout) {
+                    // Only a literal is its own C string (P301); any other
+                    // string hands over its NUL-terminated bytes, O(1).
+                    c->reason += "; a string other than a literal passes its bytes with '.c_str()\x27";
+                    c->fix_text = ".c_str()";
                     c->fix_at   = a->range.end;
                 }
                 return;
@@ -1805,6 +1814,19 @@ class OverloadResolution {
     // === diagnostics ========================================================
 
     /// \p from points at u8 or i8 (or byte) and \p to at C's `char`.
+    /// A string literal at a C string parameter of an imported function
+    /// (P301): its static, NUL-terminated bytes are the `const char *`
+    /// already, so it converts without a `string` being made (CallTyping
+    /// marks it, StringLowering passes the bytes). Converted, not Exact: a
+    /// `string` overload still takes a literal first. Imported callees
+    /// only -- a Kairo function's `*const u8` parameter keeps its own
+    /// rules -- and never `@inout`, which needs a place.
+    priv fn _c_string_literal_arg(self, f: *FunctionDecl, a: *ArgInfo, pt: *Type, mode: ParamMode) -> bool {
+        if (f == &null) || (!f->is_imported()) || (mode == ParamMode::Inout) || a->marked { return false; }
+        if self.tu.c_string_literal(a->expr) == &null { return false; }
+        return self.tu.is_c_string_param(pt);
+    }
+
     priv fn _c_string_reinterpret(self, from: *Type, to: *Type) -> bool {
         if (from == &null) || (to == &null) { return false; }
         var fp = self.tu.pointee(canon_unqual(from));
@@ -1840,7 +1862,8 @@ class OverloadResolution {
             b.note(c->f->range.start, f"candidate not viable: {c->reason}").first(c->f->range);
             // One edit per call: two candidates' casts cannot both apply.
             if (!fixed) && (c->fix_text != "") {
-                b.insert(c->fix_at, c->fix_text, "reinterpret the pointer inside an 'unsafe' block");
+                var why = ("pass the string's NUL-terminated bytes") if (c->fix_text == ".c_str()") else ("reinterpret the pointer inside an 'unsafe' block");
+                b.insert(c->fix_at, c->fix_text, why);
                 fixed = true;
             }
             shown += 1;

@@ -1284,6 +1284,20 @@ is never read, so §4's portability holds across every 32/64-bit triple.
 Fixed-width pairs stay the lattice's alone. Off under `-fno-implicit-conv`.
 Kairo signatures, assignments and joins never see it.
 
+A second boundary case, the C string literal (P301), Converted: a plain
+string literal (not an f-string, not parenthesized) argument of an
+imported callee at a parameter that is a pointer of either kind to
+`const c_char` or `const u8` (`TypeUtil::is_c_string_param`;
+`OverloadResolution::_c_string_literal_arg` ranks it, before `_rank_arg`).
+CallTyping's `finish_call_args` records the parameter type on the node
+(`StringLiteralExpr::c_string`) instead of `check_convertible`; the node
+stays typed `string`, and StringLowering emits the literal's bytes alone,
+no `string` constructed. A C `...` tail takes a literal the same way, as
+`unsafe *const c_char`; any other `string` there is an error (SC001E,
+`.c_str()` fix-it), as C varargs cannot carry a C++ class. A non-literal
+`string` at a C string parameter gets the same `.c_str()` fix-it on its
+not-viable note. Kairo callees never see the case.
+
 Two USER rungs sit after the lattice, both Converted, both closed to
 `join` and `unify_operands` (`implicit_builtin`) and to the recursion
 under `T -> U?`, so at most one applies per sequence and an arm or operand

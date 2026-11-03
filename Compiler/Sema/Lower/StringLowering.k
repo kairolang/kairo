@@ -17,6 +17,10 @@
 ///     EVAL.md 2a) passes its bytes uncast: EmitIR spells them as
 ///     `__kairo_estr<...>`, a `const unsigned char` array.
 ///
+///     A literal CallTyping marked as a C string argument
+///     (StringLiteralExpr::c_string, P301) becomes the bytes alone:
+///       strlen("ab")         ->  strlen("ab")
+///
 ///     Only a literal typed `string` is rewritten. The byte literals this
 ///     pass and FStringLowering mint are pointer-typed and pass through to
 ///     EmitIR, which spells them from their bytes.
@@ -89,6 +93,18 @@ class StringLowering derives ASTWriter::<StringLowering> {
 
         var u8t  = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST());
         var pu8  = self.sc->types->pointer(u8t);
+
+        // A literal at a C string parameter (P301): the static bytes ARE
+        // the argument, and no string is made. `"..."` is C++'s `const
+        // char *`, which a `c_char` target is; a `*const u8` one is the
+        // same cast the constructor's `data` takes.
+        if n->c_string != &null {
+            var ct = n->c_string;
+            if self.tu.is_builtin(canon_unqual(self.tu.pointee(ct)), BuiltinKind::CChar) {
+                return self.synth.bytes_literal(n->range, &bytes, ct);
+            }
+            return self.synth.cast_to(n->range, self.synth.bytes_literal(n->range, &bytes, pu8), ct, CastMode::Unsafe);
+        }
         var lit  = self.synth.bytes_literal(n->range, &bytes, pu8);
         var data = lit;
         if n->const_eval {

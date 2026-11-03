@@ -640,6 +640,28 @@ class TypeUtil {
 
     fn is_string(self, t: *Type) -> bool { return self.is_lang(t, WellKnownType::String); }
 
+    /// \p t is a C string parameter a literal's static bytes may stand for
+    /// (P301): a pointer of either kind to `const c_char` (C's `const
+    /// char *`) or `const u8`. Const only: the bytes are a C++ literal in
+    /// read-only storage, so a `char *` that may be written is refused.
+    fn is_c_string_param(self, t: *Type) -> bool {
+        var p = self.pointee(t);
+        if (p == &null) || (!canon_has_const(p)) { return false; }
+        var k = self.kind_of(canon_unqual(p));
+        return (k == BuiltinKind::CChar) || (k == BuiltinKind::U8);
+    }
+
+    /// \p e as written is a plain string literal (not an f-string, which
+    /// is built at run time): what a C string parameter of an imported
+    /// function takes without a `string` being made (P301). The bare
+    /// literal only; a parenthesized one stays a `string`.
+    fn c_string_literal(self, e: *Expr) -> *StringLiteralExpr {
+        if (e == &null) || e->is_poisoned() || (!isa::<StringLiteralExpr>(e)) { return &null; }
+        var s = cast::<StringLiteralExpr>(e);
+        if s->is_format() { return &null; }
+        return s;
+    }
+
     // === tuples =============================================================
     //
     // `(A, B, ..)` is the record `TupleN<A, B, ..>` (TupleRecords): no

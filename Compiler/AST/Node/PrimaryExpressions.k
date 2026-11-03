@@ -858,6 +858,12 @@ class StringLiteralExpr derives Expr {
     /// byte literal StringLowering mints from it, EmitIR spells the bytes as
     /// `__kairo_estr<...>` rather than a `"..."` that needs a cast.
     pub var const_eval:  bool = false;
+    /// The C string parameter type this literal is passed as (P301): set by
+    /// CallTyping when the literal is an argument of an imported function
+    /// at a `const char *` / `*const u8` parameter or its C `...` tail.
+    /// StringLowering then passes the static bytes themselves, and no
+    /// `string` is made. The node stays typed `string` until then.
+    pub var c_string:    *Type = &null;
 
     static fn create(
         ctx:         *ASTContext,
@@ -878,6 +884,7 @@ class StringLiteralExpr derives Expr {
         node->fmt_len     = &null;
         node->fmt_holes   = create_empty_frozen_list::<FormatHole>();   // read only when is_format; an unset list must still be readable.
         node->const_eval  = false;
+        node->c_string    = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -898,6 +905,7 @@ class StringLiteralExpr derives Expr {
         node->fmt_len     = &null;
         node->fmt_holes   = create_empty_frozen_list::<FormatHole>();   // read only when is_format; an unset list must still be readable.
         node->const_eval  = false;
+        node->c_string    = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

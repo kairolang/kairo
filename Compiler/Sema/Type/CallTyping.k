@@ -267,6 +267,27 @@ class <T> CallTyping {
                     if view[k]->is_pack { p = view[k]; break; }
                 }
             }
+            // C's `...` tail takes a literal as its static bytes, `const
+            // char *` (P301: printf("%s", "x")). Any other string is a C++
+            // class, which C's varargs cannot carry: clang would reject it
+            // in the generated C++, so it is said here, with the edit.
+            if (pi == usize(-2)) && f->ffi_c_variadic {
+                var sl = dyn()->tu.c_string_literal(a->expr);
+                if sl != &null {
+                    var cc = dyn()->sc->types->qualified(dyn()->sc->builtin(BuiltinKind::CChar), QUAL_CONST());
+                    sl->c_string = dyn()->sc->types->pointer(cc, true);
+                    continue;
+                }
+                if (a->ty != &null) && dyn()->tu.is_string(a->ty) && (!a->expr->is_poisoned()) {
+                    var b = dyn()->sc->diag->report(DiagID::SC001E, a->range.start,
+                        "a 'string' cannot pass through C's '...'; pass its bytes as a C string with '.c_str()\x27");
+                    b.first(a->range);
+                    b.insert(a->range.end, ".c_str()", "pass the string's NUL-terminated bytes");
+                    b.emit();
+                    a->expr->poison();
+                    continue;
+                }
+            }
             if (p == &null) || (p->type_ == &null) { if a->lit != LitKind::None { dyn()->type_of(a->expr, &null); } continue; }
             var pt = self._self_first(f, r, p->type_->canonical, true);
             if (pt != &null) && (pt->is_dependent() || pt->in_generic_owner()) { pt = r->ded.substitute(pt); }
@@ -287,6 +308,14 @@ class <T> CallTyping {
                 dyn()->type_of(a->expr, pt);
                 dyn()->pop_null_target();
                 continue;
+            }
+            // A literal at an imported function's C string parameter: the
+            // resolver ranked it so (OverloadResolution::_c_string_literal_arg,
+            // the same test); StringLowering passes its bytes (P301).
+            if f->is_imported() && (pt != &null) && (p->mode != ParamMode::Inout) && (!a->marked)
+            && dyn()->tu.is_c_string_param(pt) {
+                var sl = dyn()->tu.c_string_literal(a->expr);
+                if sl != &null { sl->c_string = canon_unqual(pt); continue; }
             }
             // Either side dependent -- only reachable through a dependent
             // constructor call -- is the instance's question, as it is for
