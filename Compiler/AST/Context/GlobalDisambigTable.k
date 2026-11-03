@@ -192,6 +192,22 @@ class GlobalDisambigTable {
         return it->second.hoisted;
     }
 
+    /// The ICE path (CompilerInstance::_flush_for_ice): every context's
+    /// buffered sink into \p engine, in fid order, so what each TU reported
+    /// before the abort is printed. No lock: the process aborts next, and
+    /// the thread that ICE'd may be the one holding it.
+    fn drain_sinks_for_ice(self, engine: *DiagEngine) {
+        var fids = vec::<u64>();
+        for var it = self._by_fid.begin(); it != self._by_fid.end(); ++it { fids.push_back(it->first); }
+        libcxx::sort(fids.begin(), fids.end());
+        for var i: usize = 0; i < fids.size(); ++i {
+            var it = self._by_fid.find(fids[i]);
+            if it == self._by_fid.end() { continue; }
+            var ctx: *ASTContext = it->second.ctx;
+            if ctx != &null { ctx->diag_sink.drain_into(engine, ctx->sm); }
+        }
+    }
+
     fn get_context(self, fid: u32) -> *ASTContext {
         var rlock = std::SharedLock(self._mu);
         var it = self._by_fid.find(static_cast::<u64>(fid));

@@ -1191,8 +1191,33 @@ class StackBuf {
 ///          is NOT flushed (abort drops it), exactly as before. Templated on
 ///          the message (native::bytes) so one body takes either world's
 ///          string, a literal or an llvm::StringRef.
+/// \brief what runs before an ICE aborts: the driver's flush of every
+///        diagnostic still buffered (per-TU sinks and the engine's console
+///        consumer), in the configured format.
+/// \details abort() skips the end-of-run flush, so without it a crashed run
+///          printed the ICE banner and nothing else -- not even the ordinary
+///          errors reported before it, which are usually what explains it.
+///          One slot, set by CompilerInstance::execute for its run; taken
+///          (exchanged out) before it is called, so an ICE inside the flush
+///          aborts plainly instead of recursing.
+using ice_flush_fn = void (*)(void *);
+struct IceFlushHook {
+    ::std::atomic<ice_flush_fn> fn{nullptr};
+    ::std::atomic<void *>       ctx{nullptr};
+};
+inline IceFlushHook &ice_flush_hook() {
+    static IceFlushHook h;
+    return h;
+}
+/// Registers \p f, called with \p ctx before an ICE aborts; null clears it.
+inline void set_ice_flush_hook(ice_flush_fn f, void *ctx) {
+    ice_flush_hook().ctx.store(ctx);
+    ice_flush_hook().fn.store(f);
+}
+
 template <class S>
 [[noreturn]] inline void ice_abort(const S &msg, const ::std::source_location &location) {
+    if (ice_flush_fn f = ice_flush_hook().fn.exchange(nullptr)) { f(ice_flush_hook().ctx.load()); }
     native::write_bytes(stderr, "Kairo Internal Compiler Error: ");
     native::write_bytes(stderr, native::bytes(msg));
     native::write_bytes(stderr, "\nThis is a bug in the Kairo compiler.\nLocation: ");

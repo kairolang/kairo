@@ -610,6 +610,7 @@ class DiagEngine derives DiagEngineVBase {
     /// engine, so this cannot re-enter   keep it that way, this is a plain
     /// non-recursive mutex.
     priv var _mu:                 std::Mutex;
+    priv var _ice_flushed:        bool = false;   ///< flush_consumers_for_ice ran.
 
     priv var _poisoned:           vec::<PoisonEntry>;
     priv var _consumers:          vec::<obs::<DiagConsumer>>;
@@ -729,6 +730,11 @@ class DiagEngine derives DiagEngineVBase {
     ///          exactly one console consumer attached, so this prints once.
     fn flush_consumers_for_ice(self) {
         var lock = std::LockGuard(self._mu);
+        // Once: codegen_ice flushes and then ICE_FAILs, and the abort's own
+        // hook (CompilerInstance::_flush_for_ice) flushes again; consumers
+        // keep what they rendered, so a second pass printed it all twice.
+        if self._ice_flushed { return; }
+        self._ice_flushed = true;
         for var i: usize = 0; i < self._consumers.size(); ++i {
             self._consumers[i]->finalize_to_stderr();
         }

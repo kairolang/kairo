@@ -1260,6 +1260,16 @@ class CompilerInstance {
         return 0;
     }
 
+    /// The ICE hook: drain every TU's buffered sink into the engine, then
+    /// render the engine's console consumer, as the end of a run would.
+    /// \p ci is the CompilerInstance execute() registered.
+    priv static fn _flush_for_ice(ci: *void) {
+        var self_ = reinterpret_cast::<*CompilerInstance>(ci);
+        if (self_ == &null) || (self_->_diag == &null) { return; }
+        if self_->_g_scope != &null { self_->_g_scope->drain_sinks_for_ice(self_->_diag); }
+        self_->_diag->flush_consumers_for_ice();
+    }
+
     fn flush_errors(self) {
         if (self.invocation().diag.format == "basic") || (self.invocation().diag.format == "json") {
             self._basic->finalize_to_stderr();
@@ -2726,6 +2736,11 @@ class CompilerInstance {
 
     fn execute(self) -> BatchResult {
         assert((self._imp != &null) && r"initialize() must be called before execute()");
+
+        // An ICE aborts past every flush below; the hook prints what this
+        // run has buffered first (Native/Types.hh, ice_abort).
+        std::set_ice_flush_hook(&CompilerInstance::_flush_for_ice, reinterpret_cast::<*void>(&self));
+        finally { std::set_ice_flush_hook(&null, &null); }
 
         var result = BatchResult();
         var t0     = libcxx::chrono::steady_clock::now();
@@ -4687,6 +4702,13 @@ fn FrontendAction::_sema_group(fids: *vec::<u32>, effects: *EffectTable, print_s
         if reached {
             { var _tl = TimeRegion("Lower"); sem->run_to(SemaPhase::Lowered); }
             { var _tm = TimeRegion("Mono");  sem->run(); }
+        }
+        // Test hook (Tests/CLI/Driver/ice_flushes_diagnostics.k): an ICE at
+        // the worst point for the diagnostics -- Sema done on a TU that
+        // reported errors, its sink not yet drained -- so the test proves
+        // the ICE path flushes them.
+        if (libcxx::getenv(r"KAIRO_DEBUG_FORCE_ICE") != &null) && (ctx->diag_sink.error_count() > 0) {
+            ICE_FAIL("forced by KAIRO_DEBUG_FORCE_ICE (a test hook)");
         }
         ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);
         // Kept past `sem`: the batch rejects two scripts in one link.
