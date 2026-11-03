@@ -1591,7 +1591,13 @@ class <T> DeclParse {
         self._parse_fn_modifiers(fd);
 
         // return type
-        if dyn()->check(TokenKind::OpArrow) {
+        // `->` may start a continuation line under the signature. Nothing
+        // else begins with `->`, so the newline in front of it never ends a
+        // declaration; without the peek the arrow parsed on its own line only
+        // when the `)` before it happened to be consumed under newline
+        // suppression (a list ending in a typed parameter), and `fn f()` or
+        // `fn m(self)` with it was S048E in a type body and S052E outside.
+        if self._peek_past_nl(TokenKind::OpArrow) {
             dyn()->advance(T::SkipNL::After); // consume `->`
             if dyn()->check(TokenKind::OpExclaim) {
                 fd->is_noreturn = true;
@@ -1632,6 +1638,13 @@ class <T> DeclParse {
         }
 
         // body
+        // In a type body the `{` may sit on its own line under a wrapped
+        // signature: no member can begin with `{`, so the newline cannot be
+        // ending a bodyless method, and without the join every following
+        // member cascades into S048E. At module or block scope it stays a
+        // terminator: a bodyless `fn f()` there may legally be followed by a
+        // bare block statement, so joining would change what the code means.
+        if in_type_scope { self._peek_past_nl(TokenKind::OpLBrace); }
         self._parse_fn_body(fd);
 
         // type-only signatures are forward declarations: reject any body.
