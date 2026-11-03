@@ -47,6 +47,7 @@ import Sema::Type::NullnessFlow::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
+import AST::DeclFacts::*;
 import AST::OperatorFacts::*;
 import AST::Node::Base::*;
 import AST::Node::PrimaryExpressions::*;
@@ -252,6 +253,27 @@ class <T> MemberTyping {
                         info->unknown = true;
                         dyn()->mark_unknown(n);
                         return &null;
+                    }
+                    // A C++ class template over a Kairo parameter
+                    // (`cxx::std::is_trivially_destructible<T>::value`): a
+                    // dependent qualified name, which C++ looks up per
+                    // instantiation. Its members can come from a base over
+                    // a builtin of the arguments (every libc++ trait derives
+                    // integral_constant<bool, __is_xxx(T)>) or from a partial
+                    // specialization, neither of which the pattern shows, so
+                    // a name the pattern lacks is decided per instance (the
+                    // concrete `<i32>` binds since G18), not R025E here.
+                    if (head0 != &null) && isa::<RecordType>(head0) && head0->is_dependent()
+                    && decl_is_imported(cast::<RecordType>(head0)->decl)
+                    && (st->access_kind == ChainExpr::AccessKind::ColonColon) && (st->name != &null) {
+                        var imm0 = dyn()->sc->ctx->get_ident_imm(st->name->name);
+                        var probe = vec::<*Decl>();
+                        if imm0 != u32(-1) { dyn()->ml.lookup(head0, DeclName::ident(imm0), &probe); }
+                        if probe.empty() {
+                            info->unknown = true;
+                            dyn()->mark_unknown(n);
+                            return &null;
+                        }
                     }
                     // An associated type's statics (`T::Item::make()`) bind
                     // through its own bounds, as a value's members do.

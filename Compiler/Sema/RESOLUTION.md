@@ -701,6 +701,17 @@ anchors it can compute from DECLARED types; the expression typer calls it
 for every NeedsInference step once it knows the base's type, with
 `anchor_for_value(decl, canonical)` / `anchor_for_type(t)`.
 
+**A C++ class template over a Kairo parameter** (G26). A `::` step on an
+imported record instance whose arguments are dependent
+(`cxx::std::is_trivially_destructible<T>::value`) is a C++ dependent
+qualified name: C++ looks it up per instantiation, and its members may come
+from a base over a builtin of the arguments or a partial specialization the
+pattern does not show. A name the pattern declares still binds; one it lacks
+is left unbound and the expression instantiation-dependent (MemberTyping),
+EvalUsageChecking reads it as a compile-time value in an `eval if`, and
+EmitIR spells it through the instance (`::std::X<T>::value`) for clang to
+resolve. The concrete form (`<i32>`) binds through the instance (G18).
+
 **The three regimes** [DECIDED, MISSING]. A step on a value whose canonical
 is a bare `generic_param(owner, i)` reads `owner`'s `GenericParamDecl[i]`
 and its bounds (inline `impl`/`derives` plus the owner's requires

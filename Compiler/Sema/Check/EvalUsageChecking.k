@@ -1046,6 +1046,18 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
             var st = ch->steps.get(ch->steps.size() - 1);
             var d = (st->name->resolved_decl) if (st->name != &null) else (&null);
             if d == &null { d = st->resolved_decl; }
+            // A qualified name the typer left to each instantiation
+            // (`cxx::std::is_trivially_destructible<T>::value`, MemberTyping):
+            // C++ checks it per instance -- `if constexpr` refuses a non-
+            // constant there -- so here it is no run-time value. `::` steps
+            // only: a member read off a value (`x.n`) is never constant.
+            if (d == &null) && e->is_instantiation_dependent() {
+                var all_scope = true;
+                for var i: usize = 0; i < ch->steps.size(); ++i {
+                    if ch->steps.get(i)->access_kind != ChainExpr::AccessKind::ColonColon { all_scope = false; break; }
+                }
+                if all_scope { return &null; }
+            }
             return (&null) if (self._eval_decl(d)) else (e);
         }
         if isa::<CallExpr>(e) {

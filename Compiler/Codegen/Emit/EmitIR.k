@@ -2355,6 +2355,14 @@ class EmitIR {
                 self._dependent_member_named(n->steps.get(j), "::");
             }
             i = k + 1;
+        } else if (k != usize(-1)) && (self._foreign_dependent_scope(n, k) != &null) {
+            // `cxx::std::is_trivially_destructible<T>::value`: a member
+            // MemberTyping left to each instance of a C++ class template over
+            // a Kairo parameter. Spelled through the instance as written, and
+            // clang looks it up per instantiation.
+            self._cg->sink->spell(n->steps.get(k)->range, self._spell._type(self._foreign_dependent_scope(n, k), &null));
+            self._dependent_member_named(n->steps.get(k), "::");
+            i = k + 1;
         } else if k != usize(-1) {
             var st = n->steps.get(k);
             if (st->resolved_decl == &null) { self._ice(st->range, "EmitIR: unbound `::` step reached codegen; ChainBinding gate failure"); }
@@ -2538,6 +2546,22 @@ class EmitIR {
     /// \p sep, then the step's name as written, `template name<A...>` when it
     /// carries generic arguments (the scope is dependent, so C++ needs the
     /// keyword to read `<` as an argument list).
+    /// The dependent C++ class template instance whose member step \p k of
+    /// \p n names, when MemberTyping left that member to each instance
+    /// (unbound, the expression instantiation-dependent, the step before it
+    /// bound to an imported record over a parameter); else null.
+    priv fn _foreign_dependent_scope(self, n: *ChainExpr, k: usize) -> *Type {
+        if (k == 0) || (!n->is_instantiation_dependent()) { return &null; }
+        var st = n->steps.get(k);
+        if (st->resolved_decl != &null) || (st->candidate_cell != &null) || (st->name == &null) || st->name->is_poisoned() { return &null; }
+        var pt = n->steps.get(k - 1)->resolved_type;
+        if pt == &null { return &null; }
+        var c = canon_unqual((pt->canonical) if (pt->canonical != &null) else (pt));
+        if (c == &null) || (!isa::<RecordType>(c)) || (!c->is_dependent()) { return &null; }
+        if !decl_is_imported(cast::<RecordType>(c)->decl) { return &null; }
+        return c;
+    }
+
     priv fn _dependent_member_named(self, st: *ChainExpr::Step, sep: string) {
         self._cg->sink->spell(st->range, sep);
         if (st->name == &null) { self._ice(st->range, "EmitIR: a dependent member step with no name"); }
