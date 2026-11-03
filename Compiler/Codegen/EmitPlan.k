@@ -1579,12 +1579,22 @@ fn EmitPlan::_witness_row(row: *ConformanceRow) {
     var g = row->covered_by;
     if (g != &null) && ew.needs_specialization(g) { self._witness_row(g); return; }
     if !ew.needs_specialization(row) { return; }
-    for var i: usize = 0; i < self._witnesses.size(); ++i { if self._witnesses[i].row == row { return; } }
+    // Keyed with usize / isize folded (CODEGEN.md 7b.12, question 3): where
+    // the target spells usize as u64's C++ type, `Hash_witness<usize>` and
+    // `Hash_witness<u64>` are one C++ class, and a second definition is a
+    // clang redefinition. The first row in wins; two conformances of one C++
+    // type must agree (base/hash.k's do: both hash the 64-bit value).
+    self._spell.fold_sizes = true;
+    var key = self._spell.witness_name(iface) + self._spell.witness_args(self._spell._type(row->conformer), row->iface);
+    self._spell.fold_sizes = false;
+    for var i: usize = 0; i < self._witnesses.size(); ++i {
+        if (self._witnesses[i].row == row) || ((self._witnesses[i].row != &null) && (self._witnesses[i].key == key)) { return; }
+    }
 
     var fresh = WitnessPiece();
     fresh.iface = iface;
     fresh.row   = row;
-    fresh.key   = self._spell.witness_name(iface) + self._spell.witness_args(self._spell._type(row->conformer), row->iface);
+    fresh.key   = key;
     fresh.after.push_back(iface);
     self._witnesses.push_back(fresh);
     var k = self._witnesses.size() - 1;
@@ -1622,6 +1632,9 @@ fn EmitPlan::_witness_row(row: *ConformanceRow) {
         // A constructor slot is forwarded to by nothing: the bounded body
         // constructs `T(args)` itself, wherever the conformer is complete.
         if (i < ms.size()) && (ms[i] != &null) && decl_is_ctor_requirement(ms[i]) { continue; }
+        // A native operation (the requirement itself as the witness, e.g. a
+        // builtin's `==`) forwards to no decl: nothing to admit.
+        if decl_is_requirement(w) { continue; }
         var x = decl_extension_of(w);
         if x != &null { self._witness_scope(k, x); continue; }
         self._admit_use(w);   // an own member: its owner complete.

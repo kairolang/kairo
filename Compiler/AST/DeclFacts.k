@@ -640,6 +640,17 @@ fn decl_is_ctor_requirement(m: *FunctionDecl) -> bool {
     return a.imm == b.imm;
 }
 
+/// \p d is a member of an interface: a requirement. As a conformance row's
+/// WITNESS it means the conformer meets the requirement with no decl of its
+/// own -- a builtin's or an imported record's native `==`
+/// (ConformanceChecking::_native_implementation), a lifecycle slot -- so
+/// EmitWitness spells the native operation instead of a forwarding call.
+fn decl_is_requirement(d: *Decl) -> bool {
+    if (d == &null) || (d->semantic_dc == &null) { return false; }
+    var owner = reinterpret_cast::<*DeclContext>(d->semantic_dc)->owner_decl();
+    return (owner != &null) && isa::<InterfaceDecl>(owner);
+}
+
 // === Forward declarations ===================================================
 
 /// A Kairo class, struct or union no link of whose chain has a body: it was

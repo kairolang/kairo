@@ -1510,6 +1510,18 @@ EmitWitness decides per row, from spellings, never by lookup:
   type is not the requirement's even though Kairo's signature match
   accepted it (7b.12, question 5, covers free functions).
 
+A requirement may be its own witness (ConformanceChecking::
+_native_implementation, 2026-11-02): an `op ==(const self, [const] other:
+Self) -> bool` on a builtin, a pointer or an imported C++ record that has no
+matching member, met by the type's own `==` (the specialization member is
+`return (self == other);`, C++ picking a member or free operator); and the
+Hash lang item's `hash` on a pointer (`reinterpret_cast` of the address) or
+on an imported C++ type with no `hash` member (`std::hash<X>{}(*self)`). A
+pointer conformer's specialization names Self through a member alias,
+`using __kairo_Self = T *;`, so `const Self` stays the pointer made const.
+Specializations are keyed with usize / isize folded (question 3): where one
+C++ type spells both u64 and usize, the first row emitted is the one class.
+
 Explicit (`impl`) and structural conformance decide nothing here; the
 implementing decls do. The two differ in WHEN the row exists (7b.6).
 

@@ -1658,7 +1658,67 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             }
             return NameLookup::representative(static_cast::<*Decl>(f));
         }
-        return &null;
+        return self._native_implementation(x, iface, idecl, m);
+    }
+
+    /// An `op ==` requirement (`fn op ==(const self, other: Self) -> bool`)
+    /// met by an operator the conformer has with no decl to name: a
+    /// builtin's or a pointer's own `==`, or an imported C++ record's,
+    /// member or free, which C++ resolves (and checks) where the witness is
+    /// instantiated. The requirement itself stands as the witness, as for a
+    /// lifecycle slot on a builtin (_transfer_implementation); EmitWitness
+    /// spells the specialization member as the native comparison. Without
+    /// it no primitive could key a `{K: V}` (Lib/builtin/base/hash.k), and
+    /// declaring `op ==` on `i32` in an extension would take over every
+    /// `i32 ==` in the program. Reached only when no member matched: a
+    /// builtin or a pointer has none, and an imported record's own
+    /// `operator==(const X&) const` is not the requirement's Kairo shape but
+    /// is what C++ calls for `self == other`. A Kairo record never takes
+    /// this path: its declared `op ==` of another shape is a real mismatch.
+    priv fn _native_implementation(self, x: *Type, iface: *Type, idecl: *InterfaceDecl, m: *FunctionDecl) -> *Decl {
+        if (!m->is_operator) && self._is_std_hash_slot(x, idecl, m) { return static_cast::<*Decl>(m); }
+        if (!m->is_operator) || (!m->is_method()) || (!m->is_const()) { return &null; }
+        if (m->op_token.size() != 1) || (m->op_token[0].kind != TokenKind::OpEqualEqual) { return &null; }
+        if (m->generic_params.size() > 0) || (self._arity(m) != 1) { return &null; }
+        var c = self._canon(x);
+        if c == &null { return &null; }
+        var native = false;
+        var k = self.tu.kind_of(c);
+        if k != BuiltinKind::COUNT {
+            native = self.tu.is_numeric(c) || self.tu.is_bool(c) || (k == BuiltinKind::Char)
+                  || (k == BuiltinKind::CChar) || (k == BuiltinKind::Byte);
+        } else if self.tu.pointee(c) != &null {
+            native = true;
+        } else {
+            var rd = self.tu.record_decl(c);
+            native = (rd != &null) && decl_is_imported(NameLookup::representative(rd));
+        }
+        if !native { return &null; }
+        for var i: usize = 0; i < m->params.size(); ++i {
+            var mp = m->params[i];
+            if (mp == &null) || mp->is_self { continue; }
+            if self._as_conformer(mp->type_, x, iface, idecl, m, m) != c { return &null; }
+        }
+        if !self.tu.is_bool(self._as_conformer(m->return_type, x, iface, idecl, m, m)) { return &null; }
+        return static_cast::<*Decl>(m);
+    }
+
+    /// The Hash lang item's `fn hash(const self) -> usize` on a pointer (its
+    /// address), or on an imported C++ type with no `hash` member: met by
+    /// `std::hash<X>`, which the
+    /// witness calls (`::std::hash<X>{}(*self)`), so a C++ type usable as a
+    /// `std::unordered_map` key keys a `{K: V}` with no Kairo code. Whether
+    /// `std::hash<X>` is enabled is C++'s to check, at the witness.
+    priv fn _is_std_hash_slot(self, x: *Type, idecl: *InterfaceDecl, m: *FunctionDecl) -> bool {
+        var hd = self.sc->well_known->get(WellKnownType::Hash);
+        if (hd == &null) || (NameLookup::representative(hd) != NameLookup::representative(static_cast::<*Decl>(idecl))) { return false; }
+        if (!m->is_method()) || (!m->is_const()) || (self._arity(m) != 0) || (m->generic_params.size() > 0) { return false; }
+        if self.tu.decl_name(static_cast::<*Decl>(m)) != "hash" { return false; }
+        // A pointer has no extension scope to carry a `hash` (CXXSpell has no
+        // scope name for `extend <T> *T`), so its address is its hash.
+        if self.tu.pointee(self._canon(x)) != &null { return true; }
+        var rd = self.tu.record_decl(self._canon(x));
+        return (rd != &null) && decl_is_imported(NameLookup::representative(rd));
     }
 
     /// What supplies associated-type requirement \p ta of \p iface on

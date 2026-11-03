@@ -2451,7 +2451,13 @@ is
                 witness). A builtin meets none: `i32()` is SC037E. A
                 LIFECYCLE one (`@copy` / `@move`) is met by category
                 (ClassLifecycle): `@copy` by COPY, `@move` by COPY or
-                MOVE, builtins included.
+                MOVE, builtins included. A NATIVE one is the
+                requirement itself standing as its witness, when no
+                member matches (`_native_implementation`): `op ==
+                (const self, other: Self) -> bool` on a builtin, a pointer
+                or an imported C++ record (the type's own `==`), and the
+                Hash lang item's `hash` on a pointer or an imported C++
+                type (`std::hash<X>`); CODEGEN.md §7b.4 spells them.
                 `T(args)` on a parameter whose bound promises a
                 constructor of that arity types as T; any other `T(args)`
                 stays unknown, as before

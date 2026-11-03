@@ -79,6 +79,7 @@ import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Kind::TypeKind::*;
 import Location::SourceRange::*;
+import Token::TokenKind::*;
 
 /// One witness plan entry: an interface's primary and concept (`row`
 /// null), or one conformance row's specialization. EmitPlan's, like
@@ -441,6 +442,14 @@ class EmitWitness {
         var x     = self._spell->_type(row->conformer);
         self._cg->sink->spell(at, self._spec_head(row) + "struct " + self._leaf_witness(p->iface)
                                   + self._spell->witness_args(x, row->iface) + " {");
+        // A pointer conformer is named through an alias inside: the members
+        // spell Self as text, and `const ` in front of `int *` would make
+        // `const int *` (a pointer to const) where `const Self` is meant.
+        var is_ptr = isa::<PointerType>(canon_unqual(row->conformer));
+        if is_ptr {
+            self._cg->sink->spell(at, "using " + LowerTargets::witness_self() + " = " + x + ";");
+            x = LowerTargets::witness_self();
+        }
         // The associated types, ahead of the members whose signatures name
         // them: the conformer's alias, or the default it took.
         if idecl->compose_state == 2 {
@@ -462,7 +471,7 @@ class EmitWitness {
             var decl = self._member_decl(m, (subs[i]) if (subs[i] != &null) else (subst), x);
             var ea = vec::<*Type>();
             row->ext_args_of(i, &ea);
-            var call = self._target(w, m, x, &ea, row->conformer->is_dependent());
+            var call = self._target(w, m, x, &ea, row->conformer->is_dependent(), is_ptr);
             // A conformer met structurally keeps its own result (P202): a
             // smaller set's panic result, or a plain value when it does not
             // panic. A declared one returns the requirement's
@@ -504,8 +513,26 @@ class EmitWitness {
     /// The call a specialization member makes: the extension member,
     /// qualified, receiver first (none for a static); or the conformer's own
     /// member, through \p x for a static.
-    priv fn _target(self, w: *FunctionDecl, m: *FunctionDecl, x: string, ext_args: *vec::<*Type>, dep: bool) -> string {
+    priv fn _target(self, w: *FunctionDecl, m: *FunctionDecl, x: string, ext_args: *vec::<*Type>, dep: bool, ptr: bool = false) -> string {
         var args = self._forward(m);
+        // The requirement as its own witness: the conformer's native `==`
+        // (ConformanceChecking::_native_implementation), a builtin's or an
+        // imported record's, member or free -- C++ picks it here.
+        if decl_is_requirement(static_cast::<*Decl>(w)) {
+            // The Hash lang item's `hash` (ConformanceChecking::_is_std_hash_slot,
+            // the only named requirement Sema lets stand as its own
+            // witness): a pointer's is its address -- HashMap mixes every
+            // hash before it indexes, so an identity hash is enough -- and an
+            // imported C++ type's is `std::hash<X>`.
+            if !m->is_operator {
+                if ptr { return "reinterpret_cast<decltype(sizeof(0))>(*" + LowerTargets::witness_receiver_name() + ")"; }
+                return "static_cast<decltype(sizeof(0))>(::std::hash<" + x + ">{}(*" + LowerTargets::witness_receiver_name() + "))";
+            }
+            if (m->op_token.size() != 1) || (m->op_token[0].kind != TokenKind::OpEqualEqual) {
+                self._ice(CXXSpell::at(static_cast::<*Decl>(m)), "EmitWitness: a requirement as its own witness other than 'op =='; ConformanceChecking::_native_implementation admits only that");
+            }
+            return "(" + LowerTargets::witness_receiver_name() + " == " + args + ")";
+        }
         // A generic requirement's arguments are the witness member's own
         // parameters, spelled: nothing is left for deduction to choose.
         var targs = self._own_args(m);

@@ -594,6 +594,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._bind_lang(root, WellKnownType::Vector);
         self._bind_lang(root, WellKnownType::HashSet);
         self._bind_lang(root, WellKnownType::HashMap);
+        self._bind_lang(root, WellKnownType::Hash);
         self._bind_lang(root, WellKnownType::String);
 
         self._bind_lang(root, WellKnownType::Range);

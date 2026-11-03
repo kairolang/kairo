@@ -130,6 +130,10 @@ enum WellKnownType derives u8 {
     /// in scope cannot capture it.
     Create,
     Destroy,
+    /// `interface Hash` (base/hash.k): what a `{K: V}` / `{T}` key conforms
+    /// to. An imported C++ type meets its `hash` requirement through
+    /// `std::hash<T>` with no Kairo code (ConformanceChecking::_native_implementation).
+    Hash,
 
     COUNT,      ///< keep last.
 }
@@ -184,6 +188,7 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::DynamicAlign { return "__builtin_dynamic_align"; }
         case WellKnownType::Create     { return "create"; }
         case WellKnownType::Destroy    { return "destroy"; }
+        case WellKnownType::Hash       { return "Hash"; }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";

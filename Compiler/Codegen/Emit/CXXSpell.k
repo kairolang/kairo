@@ -1339,8 +1339,17 @@ class CXXSpell {
         }
         if mode == ParamMode::Move  { return self.decl(t, self._ref_declarator("&&", name), subst, scope); }
         if is_const {
-            // `const T&` iff a non-generic record; `const T` otherwise.
+            // `T const&` for a bare type parameter (it may be a record: a
+            // `const k: K` lookup in a `{K: V}` must not copy a string key
+            // per call), `const T&` for a non-generic record, `const T`
+            // otherwise.
             var c = t->canonical;
+            // East const for the parameter: an instance's explicit
+            // instantiation spells T as text (`int *`), and `const int *&`
+            // would be a reference to a pointer to const, not `T const&`.
+            if (c != &null) && (c->kind == TypeKind::GenericParamType) && (!cast::<GenericParamType>(c)->is_pack) {
+                return self.decl(t, self._ref_declarator("const&", name), subst, scope);
+            }
             if (c != &null) && (c->kind == TypeKind::RecordType) && (!c->is_dependent()) {
                 return "const " + self.decl(t, self._ref_declarator("&", name), subst, scope);
             }
