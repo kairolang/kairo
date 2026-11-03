@@ -565,7 +565,10 @@ class <T> MemberTyping {
         // EmitIR spells its arguments rather than leaving them to
         // C++ deduction (resolve_user_op's order).
         n->op_instance = reinterpret_cast::<*void>(r.instance);
-        if rt == &null { return &null; }
+        // A result still dependent ends unknown, as a call's does
+        // (CallTyping): returned bare, the node finished in no terminal
+        // state and ExprTyper ICE'd (G19).
+        if rt == &null { dyn()->mark_unknown(n); return &null; }
         // A C++ `operator[]` (std::unordered_map, ...) already returns
         // the place as `T&`, and one returning a real `T*` means the
         // pointer: its result is taken as declared. Decided by the

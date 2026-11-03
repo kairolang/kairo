@@ -544,6 +544,19 @@ class TypeExport {
         for var i: usize = 0; i < fields->size(); ++i {
             var ft: clang::QualType;
             if (*fields)[i] != &null { ft = self.to_clang((*fields)[i]); }
+            // A pointer field only needs a pointer's layout, and a stand-in
+            // carries layout, nothing more: nothing names its fields. So a
+            // pointee this set cannot spell (a Kairo record holding an
+            // imported instance from ANOTHER set, which is refused above)
+            // is `void *` here rather than the end of the stand-in. Without
+            // it, `children: unordered_map<string, unsafe *Node>` failed to
+            // fill whenever Node had an `unsafe *Ext` field and Ext held a
+            // `cxx::std::set<string>` from a different header set; the map's
+            // `op []` then came from the unfilled pattern, its result stayed
+            // dependent, and `self.children[name]` was an ICE (G19).
+            if ft.isNull() && ((*fields)[i] != &null) && isa::<PointerType>(canon_unqual((*fields)[i])) {
+                ft = self.cctx->VoidPtrTy;
+            }
             if ft.isNull() { rd->setInvalidDecl(); return false; }
             self._add_field(rd, ft, n);
             n += 1;
