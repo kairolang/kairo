@@ -402,6 +402,8 @@ class PPWalker
             }
         }
 
+        t = self._expand_fstring(t, chain);
+
         if (chain != &null) && (chain->size() > 0) {
             self._wrap_origin(&t, chain);
         }
@@ -1200,7 +1202,10 @@ class PPWalker
             }
         }
 
-        return self._substitute_body(e, &bindings, variadic_name, &variadic_bindings, inv->range);
+        // Where a rewritten f-string from another file's body is anchored
+        // (_subst_fstring): the outermost invocation, which this file wrote.
+        var anchor = (inv->origin_site) if (inv->origin_site.is_valid()) else (inv->range);
+        return self._substitute_body(e, &bindings, variadic_name, &variadic_bindings, inv->range, anchor);
     }
 
     /// Body substitution. Pack expansion is POSTFIX, mirroring expression- and
@@ -1225,7 +1230,8 @@ class PPWalker
         bindings: *map::<SymbolID, *(TokenBuffer::<512>)>,
         variadic_name: SymbolID,
         variadic_bindings: *vec::<*(TokenBuffer::<512>)>,
-        invoke_loc: SourceRange
+        invoke_loc: SourceRange,
+        anchor: SourceRange
     ) -> *(TokenBuffer::<512>) {
         var output = std::create::<TokenBuffer::<512>>();
         var i: usize = 0;
@@ -1243,7 +1249,7 @@ class PPWalker
                         if k > 0 { self._append_builtin_comma(output, invoke_loc); }
                         self._emit_pattern_instance(
                             output, e, i + 1, close,
-                            bindings, variadic_name, (*variadic_bindings)[k]);
+                            bindings, variadic_name, (*variadic_bindings)[k], anchor);
                     }
                     i = close + 2;
                     continue;
@@ -1279,7 +1285,7 @@ class PPWalker
                 }
             }
 
-            output->append(*tok);
+            output->append(self._subst_fstring(*tok, bindings, variadic_name, &null, anchor));
             i += 1;
         }
         return output;
@@ -1329,7 +1335,8 @@ class PPWalker
         hi: usize,
         bindings: *map::<SymbolID, *(TokenBuffer::<512>)>,
         variadic_name: SymbolID,
-        element: *(TokenBuffer::<512>)
+        element: *(TokenBuffer::<512>),
+        anchor: SourceRange
     ) {
         for var i: usize = lo; i < hi; ++i {
             var tok = e->storage->get(i);
@@ -1353,8 +1360,155 @@ class PPWalker
                 }
             }
 
-            output->append(*tok);
+            output->append(self._subst_fstring(*tok, bindings, variadic_name, element, anchor));
         }
+    }
+
+    // --- f-string holes (P267) ---------------------------------------------
+    //
+    //   An f-string is ONE token: its holes are token buffers the lexer kept
+    //   on the literal's StringData, which the walk never visits. So neither
+    //   a macro's parameter written in a hole (`macro g!(x) { f"v={x}" }`)
+    //   nor an invocation in one (`f"v={m!}"`) was ever seen: the parser met
+    //   the raw `x` / `m` (R020E). Two steps, in the order the walk reaches
+    //   them. _subst_fstring rewrites a body's f-string per expansion, with
+    //   the parameters bound; _expand_fstring, at emission, runs each hole
+    //   through the walk like an argument, which expands its invocations and
+    //   gives a macro body's hole tokens their origin chain as the body's
+    //   other tokens get theirs.
+
+    /// \p tok's StringData when it is an f-string with holes, read from the
+    /// table of the file that lexed it; null otherwise.
+    priv fn _fstring_data(self, tok: Token) -> *Immediate::StringData {
+        if tok.kind != TokenKind::LitString { return &null; }
+        var tbl = self._tcm->get_imm_table_for_token(tok);
+        if tbl == &null { return &null; }
+        var d = tbl->get::<Immediate::StringData>(tok.imm);
+        if (d == &null) || (d->exprs.size() == 0) { return &null; }
+        if (static_cast::<u8>(d->prefix_kind) & static_cast::<u8>(Immediate::TextPrefixKind::Format)) == 0 { return &null; }
+        return d;
+    }
+
+    /// A fresh slot in this file's table with \p d's text and hole specs and
+    /// no hole buffers yet: the caller pushes one per hole. Fresh, never the
+    /// lexed slot written over: a body's literal is shared by every
+    /// expansion, and the lexed slot frees its own buffers.
+    priv fn _fstring_slot(self, d: *Immediate::StringData, same_tbl: bool) -> u32 {
+        var idx = self._imm->create::<Immediate::StringData>();
+        var nd  = self._imm->get::<Immediate::StringData>(idx);
+        nd->body        = d->body;
+        nd->prefix      = d->prefix;
+        nd->suffix      = d->suffix;
+        nd->prefix_kind = d->prefix_kind;
+        nd->owned_ptr   = d->owned_ptr;
+        nd->owned_len   = d->owned_len;
+        // `next` indexes the table \p d lives in.
+        nd->next = (d->next) if (same_tbl) else (u32(-1));
+        for var i: usize = 0; i < d->holes.size(); ++i { nd->holes.push_back(d->holes[i]); }
+        return idx;
+    }
+
+    /// \p tok from a macro body: an f-string with holes comes back as a copy
+    /// whose holes have the parameters substituted (a pack's name, inside a
+    /// pattern splat, by \p element); any other token unchanged. The copy
+    /// lives in THIS file's table, so a literal from another file's body is
+    /// re-anchored at \p anchor, the invocation this file wrote: the parser
+    /// finds a string's table from where it was written (ASTContext::
+    /// get_payload_table), and the copy was written here. Its hole tokens
+    /// stay raw; _expand_fstring wraps them on the way out.
+    priv fn _subst_fstring(
+        self, tok: Token,
+        bindings: *map::<SymbolID, *(TokenBuffer::<512>)>,
+        variadic_name: SymbolID,
+        element: *(TokenBuffer::<512>),
+        anchor: SourceRange
+    ) -> Token {
+        var d = self._fstring_data(tok);
+        if d == &null { return tok; }
+        var same_tbl = self._tcm->get_imm_table_for_token(tok) == self._imm;
+        var idx = self._fstring_slot(d, same_tbl);
+        var nd  = self._imm->get::<Immediate::StringData>(idx);
+        for var h: usize = 0; h < d->exprs.size(); ++h {
+            var src = libcxx::get::<0>(d->exprs[h]);
+            var rng = libcxx::get::<1>(d->exprs[h]);
+            var nb  = std::create::<TokenBuffer::<16>>();
+            if src != &null {
+                for var k: usize = 0; k < src->size(); ++k {
+                    var ht = src->get(k);
+                    if ht->kind == TokenKind::LitIdentifier {
+                        var nm = self._sym->intern(TokenText::spelling(*ht, self._tcm));
+                        if (element != &null) && (nm == variadic_name) {
+                            for var j: usize = 0; j < element->size(); ++j { nb->append(*(element->get(j))); }
+                            continue;
+                        }
+                        if bindings->contains(nm) {
+                            var bound = (*bindings)[nm];
+                            for var j: usize = 0; j < bound->size(); ++j { nb->append(*(bound->get(j))); }
+                            continue;
+                        }
+                    }
+                    nb->append(*ht);
+                }
+            }
+            nd->exprs.push_back((nb, rng));
+        }
+        var out = tok;
+        out.imm = idx;
+        if (!same_tbl) && anchor.is_valid() { out.range = anchor; }
+        return out;
+    }
+
+    /// \p t, about to be emitted with origin chain \p chain: an f-string of
+    /// this file's whose holes need the walk comes back as a copy with each
+    /// hole walked (_expand_buffer: invocations expanded, every token given
+    /// \p chain); any other token unchanged. A hole needs it when it holds
+    /// an invocation, or when the string came out of a macro body: its hole
+    /// tokens are the body's, raw, and a body token another file wrote reads
+    /// against that file's tables only once wrapped. A string another file
+    /// lexed that no body rewrote (an argument from a macro of that file)
+    /// is left to the parser (ASTContext::wrap_foreign_token).
+    priv fn _expand_fstring(self, t: Token, chain: *vec::<InvokeHop>) -> Token {
+        var d = self._fstring_data(t);
+        if d == &null { return t; }
+        if self._tcm->get_imm_table_for_token(t) != self._imm { return t; }
+        var from_body = (chain != &null) && (chain->size() > 0);
+        var any = from_body;
+        if !any {
+            for var h: usize = 0; (h < d->exprs.size()) && (!any); ++h {
+                var src = libcxx::get::<0>(d->exprs[h]);
+                if src == &null { continue; }
+                for var k: usize = 0; k + 1 < src->size(); ++k {
+                    if (src->get(k)->kind == TokenKind::LitIdentifier) && (src->get(k + 1)->kind == TokenKind::OpExclaim) { any = true; break; }
+                }
+            }
+        }
+        if !any { return t; }
+
+        var empty = vec::<InvokeHop>();
+        var pc = (chain) if (chain != &null) else (&empty);
+        var idx = self._fstring_slot(d, true);
+        var nd  = self._imm->get::<Immediate::StringData>(idx);
+        for var h: usize = 0; h < d->exprs.size(); ++h {
+            var src = libcxx::get::<0>(d->exprs[h]);
+            var rng = libcxx::get::<1>(d->exprs[h]);
+            var nb  = std::create::<TokenBuffer::<16>>();
+            if src != &null {
+                // An EOF in the run would end _expand_buffer's walk with its
+                // frame still pushed; the hole's parse needs none.
+                var run = std::create::<TokenBuffer::<512>>();
+                for var k: usize = 0; k < src->size(); ++k {
+                    if src->get(k)->kind != TokenKind::TkEof { run->append(*(src->get(k))); }
+                }
+                var ex = self._expand_buffer(run, pc);
+                for var k: usize = 0; k < ex->size(); ++k { nb->append(*(ex->get(k))); }
+                self._splices.push_back(run);   // owned for the run, as a splice frame's tokens.
+                std::destroy(ex);
+            }
+            nd->exprs.push_back((nb, rng));
+        }
+        var out = t;
+        out.imm = idx;
+        return out;
     }
 
     priv fn make_int_token(self, value: u64, range: SourceRange) -> Token {
