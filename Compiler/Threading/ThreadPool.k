@@ -13,6 +13,7 @@
 
 ffi "c++" import "Native/SmallFunction.hh";
 ffi "c++" import "Native/Types.hh";
+ffi "c++" import "Native/KThread.hh";   // spawn_pool_workers, thread_pool_local_qid
 
 import Threading::Task::*;
 import Threading::PartitionQueue::*;
@@ -52,13 +53,8 @@ import Support::Timer::*;
 /// \see PartitionQueue, Task, wait_group, enqueue, shutdown, warmup
 ///
 class ThreadPool {
-    /// C++ threading alias for std::thread, the alias is in a __inline_cpp
-    /// block to avoid stage(0) parser issues with the 'thread' keyword.
+    /// C++ threading alias for std::thread.
     type Thread = libcxx::thread;
-    // INLINE(cxx-feature: static constexpr member)
-    inline "c++" {
-        static constexpr size_t DEFAULT_QUEUE_SIZE = 1 << 14;
-    }
 
     priv var _count:        usize = 0;
     priv var _queues:       vec::<own::<PartitionQueue>>;
@@ -128,43 +124,11 @@ class ThreadPool {
             self._queues.push_back(q.release());
         }
 
-        // Now spawn threads all queues are guaranteed present
-        const eval if defined(__APPLE__) || defined(__linux__) {
-            // INLINE(hot-path)
-            inline "c++" {
-            for (size_t i = 0; i < _count; ++i) {
-                pthread_attr_t attr;
-                pthread_attr_init(&attr);
-                pthread_attr_setstacksize(&attr, 32UL * 1024 * 1024);
-                pthread_t tid;
-                auto* arg = new libcxx::pair<ThreadPool*, size_t>(this, i);
-                pthread_create(&tid, &attr, [](void* raw) -> void* {
-                    auto* p = static_cast<libcxx::pair<ThreadPool*, size_t>*>(raw);
-                    p->first->worker_loop(p->second);
-                    delete p;
-                    return nullptr;
-                }, arg);
-                pthread_attr_destroy(&attr);
-                pthread_detach(tid);
-            }
-            }
-        } else if defined(_WIN32) {
-            // INLINE(hot-path)
-            inline "c++" {
-            for (size_t i = 0; i < _count; ++i) {
-                auto* arg = new libcxx::pair<ThreadPool*, size_t>(this, i);
-                    HANDLE h = CreateThread(nullptr, 32UL * 1024 * 1024,
-                        [](LPVOID raw) -> DWORD {
-                            auto* p = static_cast<libcxx::pair<ThreadPool*, size_t>*>(raw);
-                            p->first->worker_loop(p->second);
-                            delete p;
-                            return 0;
-                        }, arg, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
-                    CloseHandle(h);
-            }
-            }
-        }
-        
+        // Now spawn threads all queues are guaranteed present. Each runs
+        // worker_loop(i) on a detached native thread with a 32 MiB stack;
+        // the pthread / CreateThread calls are in Native/KThread.hh.
+        kairo::spawn_pool_workers(&self, self._count);
+
         Logger::info(Logger::Stage::ThreadPool, f"ThreadPool: initialized {self._count} workers");
     }
 
@@ -223,17 +187,15 @@ class ThreadPool {
         // increment BEFORE task is visible to any worker
         self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
 
-        // INLINE(cxx-feature: thread_local)
-        inline "c++" {
-            thread_local size_t local_qid = static_cast<size_t>(-1);
-        }
-
-        if local_qid == static_cast::<usize>(-1) {
+        // This thread's queue, picked once from its id and cached in a
+        // thread_local (Native/KThread.hh) shared by every pool.
+        var local_qid: *usize = kairo::thread_pool_local_qid();
+        if (*local_qid) == static_cast::<usize>(-1) {
             var tid = libcxx::this_thread::get_id();
-            local_qid = static_cast::<usize>(fnv1a64_bytes(tid) % self._count);
+            (*local_qid) = static_cast::<usize>(fnv1a64_bytes(tid) % self._count);
         }
 
-        var qid = local_qid;
+        var qid = *local_qid;
 
         var task = Task();
         task._fn    = std::Memory::move(_fn);
@@ -596,9 +558,7 @@ fn Test() -> i32 {
     var total_tasks: i32;
     var groups:      i32;
 
-    /// for some reason the stage(0) parser does not allow `{}` scoped blocks
-    /// so we have to use __inline_cpp to create a scope for the Timer RAII
-    /// object to work correctly.
+    /// a bare `{}` block scopes the Timer, so it reports on exit.
     {
         var startup = Timer("ThreadPool startup");
         total_tasks = 4000;

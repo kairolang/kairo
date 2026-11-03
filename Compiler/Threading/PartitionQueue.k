@@ -14,9 +14,14 @@
 
 ffi "c++" import "Native/SmallFunction.hh";
 ffi "c++" import "Native/Types.hh";
+ffi "c++" import "Native/KThread.hh";   // SeqCell
 
 import Threading::Task::*;
 import Threading::CacheLines::*;
+
+/// Default ring capacity, in tasks, for a PartitionQueue and so for each of
+/// a ThreadPool's queues. Module scope: Kairo has no class-level constant.
+const DEFAULT_QUEUE_SIZE: usize = 1 << 14;
 
 ///
 /// \class PartitionQueue
@@ -38,20 +43,6 @@ import Threading::CacheLines::*;
 /// \see Task, ThreadPool
 ///
 class PartitionQueue {
-    struct Cell;
-
-    priv var _buf:  vec::<Cell>;
-    priv var _mask: u64 = 0;
-    priv var _cap:  u64 = 0;
-
-    priv var _enqueue_pos: std::Atomic::<u64> = std::Atomic::<u64>(0);
-    priv var _dequeue_pos: std::Atomic::<u64> = std::Atomic::<u64>(0);
-
-    // INLINE(cxx-feature: static constexpr member)
-    inline "c++" {
-        static constexpr size_t DEFAULT_QUEUE_SIZE = 1 << 14;
-    }
-
     ///
     /// \struct ThreadPool::PartitionQueue::Cell
     ///
@@ -100,36 +91,16 @@ class PartitionQueue {
     ///
     /// \see PartitionQueue, Task, ThreadPool
     ///
-    // INLINE(cxx-feature: alignas)
-    inline "c++" {
-        struct alignas(CACHE_LINE) Cell {
-            std::Atomic<u64> seq {0};
-            Task        val;
+    /// The cell is Native/KThread.hh's SeqCell: Kairo has no `alignas`, and
+    /// its move has to relax through the atomic counter.
+    type Cell = kairo::SeqCell::<Task, CACHE_LINE>;
 
-            Cell() = default;
+    priv var _buf:  vec::<Cell>;
+    priv var _mask: u64 = 0;
+    priv var _cap:  u64 = 0;
 
-            Cell(Cell&& other) noexcept {
-                auto seq_val = other.seq.load(libcxx::memory_order::relaxed);
-                seq.store(seq_val, libcxx::memory_order::relaxed);
-
-                val = std::Memory::move(other.val);
-            }
-
-            Cell &operator=(Cell&& other) noexcept {
-                if (this != &other) {
-                    auto seq_val = other.seq.load(libcxx::memory_order::relaxed);
-                    seq.store(seq_val, libcxx::memory_order::relaxed);
-
-                    val = std::Memory::move(other.val);
-                }
-
-                return *this;
-            }
-
-            Cell           (const Cell&) = delete;
-            Cell &operator=(const Cell&) = delete;
-        };
-    }
+    priv var _enqueue_pos: std::Atomic::<u64> = std::Atomic::<u64>(0);
+    priv var _dequeue_pos: std::Atomic::<u64> = std::Atomic::<u64>(0);
 
     ///
     /// \brief Constructs a partitioned queue with the specified capacity.

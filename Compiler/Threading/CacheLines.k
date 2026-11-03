@@ -11,11 +11,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 ///
-/// Cache line size detection for alignment
-///
-/// \info in an inline "c++" block, since the current stage(0) parser
-///       does not support static & eval variables, it only supports static
-///       not even eval (constexpr) variables.
+/// Cache line size detection for alignment. CACHE_LINE is a template
+/// argument (PartitionQueue's SeqCell alignment), so it must stay a
+/// compile-time constant.
 ///
 const eval if defined(__APPLE__) && defined(__aarch64__) {
     // Apple Silicon (M1/M2/M3+) uses 128-byte cache lines
