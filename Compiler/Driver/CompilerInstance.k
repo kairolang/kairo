@@ -222,6 +222,10 @@ class FrontendAction {
     priv var _graph:        vec::<u32>;   ///< every fid of the graph, an earlier input's too
     pub var result:         TUResult;
     priv var _stage:        TUStage;
+    /// The shared engine's counts this input is judged against (see run()):
+    /// what the previous input left, 0 for the first. Set by execute().
+    pub var errors_at_start: u32 = 0;
+    pub var fatals_at_start: u32 = 0;
     /// Found through an include, not named on the command line
     /// (InputKind::discovered): its object never goes to -o.
     pub var discovered:     bool = false;
@@ -2773,8 +2777,13 @@ class CompilerInstance {
         var natives = vec::<InputKind>();
         var kairo_inputs: usize = 0;
 
+        // Every input is compiled even after one fails, as clang does with
+        // several: each reports its own errors, and the batch fails if any
+        // did. `aborted` still stops what runs AFTER the loop (natives, the
+        // link).
+        var prev_errors: u32 = 0;
+        var prev_fatals: u32 = 0;
         for k: InputKind in self._kairo_order() {
-            if result.aborted { break; }
             var path_str = k.path;
             if k.cls == InputClass::LinkInput {
                 self._link_inputs.push_back(path_str);
@@ -2797,7 +2806,11 @@ class CompilerInstance {
             finally { std::destroy(action); }
 
             action->discovered = k.discovered;
+            action->errors_at_start = prev_errors;
+            action->fatals_at_start = prev_fatals;
             action->run();
+            prev_errors = self._diag->error_count();
+            prev_fatals = self._diag->fatal_count();
 
             if action->result.had_fatal { result.aborted = true; }
             result.tu_results.push_back(action->result);
@@ -4222,6 +4235,16 @@ fn FrontendAction::run() {
     Logger::info(Logger::Stage::Driver,
         f"FrontendAction: begin '{self.path.full_path()}\x27");
 
+    // The engine is shared by every input of the batch and never reset, so
+    // the gates below compare against what the PREVIOUS input left
+    // (errors_at_start, set by execute(); 0 for the first). Testing the
+    // batch total stopped every input after the first one that had an
+    // error, right after its parse: `kairo --type-check-only a.k b.k` never
+    // checked b.k when a.k failed, where clang (and a whole-tree check)
+    // reports every input's errors. Not the count when run() starts: the
+    // batch's dependency scan reports an input's own lexing errors (S072E)
+    // before any run(), and they must still stop the first input's Sema.
+
     // Phase 1: shared-state stages driver thread only.
     if !self._load() { return; }
 
@@ -4235,11 +4258,11 @@ fn FrontendAction::run() {
     if self._fids.empty() { self._stage = TUStage::Done; return; }
 
     if !self._parse() { return; }
-    if self._ci->diag()->error_count() > 0 { self._stage = TUStage::Failed; return; }
+    if self._ci->diag()->error_count() > self.errors_at_start { self._stage = TUStage::Failed; return; }
     if fe.stops_at_parse() && (!feed) { self._stage = TUStage::Done; return; }
 
     if !self._sema() { return; }
-    if self._ci->diag()->error_count() > 0 { self._stage = TUStage::Failed; return; }
+    if self._ci->diag()->error_count() > self.errors_at_start { self._stage = TUStage::Failed; return; }
     if fe.stops_at_sema() { self._stage = TUStage::Done; return; }
 
     if !self._codegen() { return; }
@@ -4312,7 +4335,7 @@ fn FrontendAction::_preprocess() -> bool {
     // error_count/warn_count are snapshotted once in run()'s finally block,
     // after every stage this TU reaches - not here.
 
-    if self._ci->diag()->has_fatal() {
+    if self._ci->diag()->fatal_count() > self.fatals_at_start {
         self.result.had_fatal = true;
         self._stage = TUStage::Failed;
         return false;

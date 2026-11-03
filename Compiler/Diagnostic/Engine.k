@@ -1103,6 +1103,7 @@ class DiagEngine derives DiagEngineVBase {
     }
 
     fn has_fatal(self) -> bool       { return self._fatal_count > 0;  }
+    fn fatal_count(self) -> u32      { return self._fatal_count; }
     fn error_count(self) -> u32      { return self._error_count;      }
     fn warn_count(self) -> u32       { return self._warn_count;       }
     fn note_count(self) -> u32       { return self._note_count;       }
