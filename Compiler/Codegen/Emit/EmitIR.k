@@ -2436,7 +2436,11 @@ class EmitIR {
                 continue;
             }
             if (st->resolved_decl == &null) { self._ice(st->range, "EmitIR: unbound member step reached codegen; gate failure"); }
-            self._cg->sink->spell(st->range, (("->") if (is_ptr) else (".")));
+            // A written `->` on a record (Sema accepts it only through the
+            // record's `op ->`, Substitution::arrow_target) stays `->`: C++
+            // calls the class's operator-> for it.
+            var sep_arrow = is_ptr || (st->access_kind == ChainExpr::AccessKind::Arrow);
+            self._cg->sink->spell(st->range, (("->") if (sep_arrow) else (".")));
             self._name(st->name->name);
             // A pack-expanded variant's member holds one payload per element:
             // element K is its getter's (EnumLayoutQuery::payload_ref).
@@ -2835,7 +2839,8 @@ class EmitIR {
     /// allowed, and inert, on a known one.
     priv fn _generic_member_callee(self, ch: *ChainExpr, last: *ChainExpr::Step, ta: string) {
         var is_ptr = self._chain_prefix(ch, ch->steps.size() - 1);
-        self._cg->sink->spell(last->range, (("->") if (is_ptr) else (".")) + "template ");
+        var sep_arrow = is_ptr || (last->access_kind == ChainExpr::AccessKind::Arrow);   // `op ->`, as _chain_prefix
+        self._cg->sink->spell(last->range, (("->") if (sep_arrow) else (".")) + "template ");
         self._name(last->name->name);
         self._cg->sink->spell(last->range, ta);
     }

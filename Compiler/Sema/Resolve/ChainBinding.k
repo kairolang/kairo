@@ -803,7 +803,9 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         var arrow = (st->access_kind == ChainExpr::AccessKind::Arrow)
                  || (st->access_kind == ChainExpr::AccessKind::QuestionArrow);
         if arrow {
-            if !isa::<PointerType>(ty) { return &null; }
+            // A record's `op ->` (a C++ iterator's, a smart pointer's): the
+            // member is read from what it points to. Null when it has none.
+            if !isa::<PointerType>(ty) { return Substitution(self.sc).arrow_target(self.ml.peel_ref(a.ty), &(self.ml)); }
             return self.ml.peel_ref(cast::<PointerType>(ty)->pointee);
         }
         if isa::<PointerType>(ty) { return &null; }

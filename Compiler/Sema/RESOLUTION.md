@@ -671,7 +671,9 @@ every `ChainExpr` left to right from an ANCHOR and binds each step:
                 re-exports via the module's overlay); `.` is an error
     Type     -> `::` does member lookup; `.` is an error
     Value    -> `.`/`->`/`?.`/`?->` peel the wrapper then member lookup on
-                the canonical; `::` is an error
+                the canonical; `::` is an error. `->` on a record goes
+                through its `op ->` (C++'s operator->), chained while the
+                result is a record (Substitution::arrow_target)
     NeedsInference / Errored -> record why, stop
     Dependent -> the three-regime rule below
 

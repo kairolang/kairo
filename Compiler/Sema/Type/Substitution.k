@@ -46,6 +46,7 @@ import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Kind::TypeKind::*;
 import AST::ParamMode::*;
+import Token::TokenKind::*;
 
 class DeducedBinding {
     pub var owner: *Decl = &null;
@@ -1065,6 +1066,41 @@ class Substitution {
         self.bind_from_record(recv);
         var s = self.substitute(mt);
         return (s) if (s != &null) else (mt);
+    }
+
+    /// What `x->m` reads `m` from when \p ty (x's type, reference and cv
+    /// peeled) is a record: the pointee of what its `op ->` returns, with
+    /// `->` applied again while that result is itself a record
+    /// ([over.ref]/2, [over.match.oper]/2: `x->m` is `(x.operator->())->m`).
+    /// That is how a C++ iterator or smart pointer is read (`it->second`),
+    /// and operator-overloading.md promises it for a Kairo `op ->`. Null
+    /// when \p ty is no record or declares no `op ->`, which leaves the
+    /// R027E "'->' requires a pointer" to the caller. A const receiver takes
+    /// the `const self` overload where there is one.
+    fn arrow_target(self, ty: *Type, ml: *MemberLookup) -> *Type {
+        var cur = ty;
+        for var hop: u32 = 0; hop < 8; ++hop {
+            if cur == &null { return &null; }
+            var want_const = (canon_quals(cur) & QUAL_CONST()) != 0;
+            var rec = canon_unqual(ml->peel_ref(cur));
+            if (rec == &null) || (!isa::<RecordType>(rec)) { return &null; }
+            var cands = vec::<*Decl>();
+            ml->lookup(rec, DeclName::op_name(TokenKind::OpArrow), &cands);
+            var pick: *FunctionDecl = &null;
+            for var i: usize = 0; i < cands.size(); ++i {
+                var f = dyn_cast::<FunctionDecl>(cands[i]);
+                if (f == &null) || (f->return_type == &null) || (f->return_type->canonical == &null) { continue; }
+                if pick == &null { pick = f; }
+                if f->is_const() == want_const { pick = f; break; }
+            }
+            if pick == &null { return &null; }
+            var rt = self.member_through(rec, pick->return_type->canonical);
+            if rt == &null { return &null; }
+            var pv = canon_unqual(ml->peel_ref(rt));
+            if (pv != &null) && isa::<PointerType>(pv) { return ml->peel_ref(cast::<PointerType>(pv)->pointee); }
+            cur = rt;
+        }
+        return &null;
     }
 
     // === derived-to-base ====================================================

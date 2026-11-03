@@ -286,6 +286,9 @@ class <T> MemberTyping {
                 if (st->access_kind == ChainExpr::AccessKind::Arrow)
                 || (st->access_kind == ChainExpr::AccessKind::QuestionArrow) {
                     var p = dyn()->tu.pointee(val);
+                    // A record with `op ->` reads the member through it, as
+                    // ChainBinding bound it (Substitution::arrow_target).
+                    if p == &null { p = Substitution(dyn()->sc).arrow_target(val, &(dyn()->ml)); }
                     if p != &null { val = p; recv_q = self._object_quals(p); }
                 }
                 // The pointee of a `*const T` is `const T`; peel_ref now
