@@ -81,6 +81,29 @@ class <T> DeclParse {
         return SourceRange(last->range.end, last->range.end);
     }
 
+    /// \brief the kind of the token just consumed, or TkEof when there is
+    ///        none.
+    /// \details prev_ptr() is null once a recovery path advances a second
+    ///          time past the last token (ASTParse::_advance moves the null
+    ///          cursor into _prev), and a parameter list cut off by EOF
+    ///          (`fn S :: h ( ( self ,`, `fn ( fn ( [`) gets there. The reads
+    ///          after a parameter list or a panic set went through it
+    ///          unguarded (P278); the previous token's range has the same
+    ///          guard in _prev_range().
+    priv inline fn _prev_kind(self) -> TokenKind {
+        var last = dyn()->prev_ptr();
+        if last == &null { return TokenKind::TkEof; }
+        return last->kind;
+    }
+
+    /// \brief the range of the token just consumed, or _cur_range() when
+    ///        there is none (see _prev_kind).
+    priv inline fn _prev_range(self) -> SourceRange {
+        var last = dyn()->prev_ptr();
+        if last == &null { return self._cur_range(); }
+        return last->range;
+    }
+
     pub inline fn is_fatal_decl(self, d: *Decl) -> bool {
         return dyn()->is_fatal::<Decl>(d);
     }
@@ -1520,7 +1543,7 @@ class <T> DeclParse {
         self._parse_param_list(&params);
         fd->params.from_buf(params.data(), params.size(), dyn()->ctx);
         // The list's `)`, where a fix-it inserts a ` panic` specifier.
-        if dyn()->prev_ptr()->kind == TokenKind::OpRParen { fd->params_end = dyn()->prev_ptr()->range; }
+        if self._prev_kind() == TokenKind::OpRParen { fd->params_end = self._prev_range(); }
         // DERIVED, never written directly: the parameter list is the truth
         // about which parameter is the pack (ParamDecl::is_pack), and a flag on
         // the function cannot say which one it is.
@@ -2193,7 +2216,7 @@ class <T> DeclParse {
                 }
                 // The specifier as written, its set included: what a fix-it
                 // removes or rewrites.
-                fd->panic_range = pk | dyn()->prev_ptr()->range;
+                fd->panic_range = pk | self._prev_range();
             }
             else if dyn()->check(TokenKind::KwInline)   { fd->modifiers |= FnModifier::IsInline;   dyn()->advance(); }
             else { break; }
@@ -2271,7 +2294,7 @@ class <T> DeclParse {
                 }
                 // The specifier as written, its set included: what a fix-it
                 // removes or rewrites.
-                fd->panic_range = pk | dyn()->prev_ptr()->range;
+                fd->panic_range = pk | self._prev_range();
             }
             else if dyn()->check(TokenKind::KwInline)   { fd->modifiers |= FnModifier::IsInline;   dyn()->advance(); }
             else { break; }
@@ -4855,7 +4878,7 @@ class <T> DeclParse {
         dyn()->closure_params_end = SourceRange::invalid();
         if dyn()->check(TokenKind::OpLParen) {
             self._parse_param_list(&params);
-            if dyn()->prev_ptr()->kind == TokenKind::OpRParen { dyn()->closure_params_end = dyn()->prev_ptr()->range; }
+            if self._prev_kind() == TokenKind::OpRParen { dyn()->closure_params_end = self._prev_range(); }
         }
 
         // Recovery: If parameter list parsing exited unexpectedly or left corrupt tokens,
@@ -4871,7 +4894,7 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::OpPipe) {
             var cap_start = self._cur_range();
             var spelled_empty = self._parse_capture_list(&captures);
-            dyn()->closure_cap_range = cap_start | dyn()->prev_ptr()->range;
+            dyn()->closure_cap_range = cap_start | self._prev_range();
             // `| |` is the empty list spelled apart: no captures, as `||` is.
             // Keyed on the tokens, not on captures.size(): see the callee.
             explicit_no_capture = spelled_empty;
@@ -4942,7 +4965,7 @@ class <T> DeclParse {
                     dyn()->parse_panic_set(&pset);
                     dyn()->closure_panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
                 }
-                dyn()->closure_panic_range = pk | dyn()->prev_ptr()->range;
+                dyn()->closure_panic_range = pk | self._prev_range();
             }
             else if dyn()->check(TokenKind::KwVolatile) { modifiers |= FnModifier::IsVolatile; dyn()->advance(); }
             else if dyn()->check(TokenKind::KwAsync)    { modifiers |= FnModifier::IsAsync;    dyn()->advance(); }
