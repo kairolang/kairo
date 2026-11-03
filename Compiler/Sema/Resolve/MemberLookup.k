@@ -316,6 +316,7 @@ class MemberLookup {
         //    itself (see FieldDecl::is_anonymous_union).
         var dc = NameLookup::context_of(d);
         var own_hit = false;
+        var before_own = out->size();
         if dc != &null {
             var cell = self.in_scope(dc, name, self._cur_spelling);
             if cell != &null { self._append_cell(cell, out); own_hit = cell->size() > 0; }
@@ -366,6 +367,18 @@ class MemberLookup {
                 if (*us)[i] == self._cur_spelling { merged = true; break; }
             }
             if !merged { return; }
+        }
+        // A FIELD (or nested type) the class declares hides a base's of the
+        // same name, as in C++: there is no `using` that could merge two
+        // fields, and the emitted class hides it the same way. Only an
+        // overload set merges. Walking on, `self.ctx` in a visitor deriving
+        // RecursiveASTVisitor (both declare `ctx`) was R028E ambiguous.
+        if own_hit {
+            var all_fields = true;
+            for var i: usize = before_own; i < out->size(); ++i {
+                if isa::<FunctionDecl>((*out)[i]) { all_fields = false; break; }
+            }
+            if all_fields { return; }
         }
         if isa::<ClassDecl>(d) {
             var cd = cast::<ClassDecl>(d);
