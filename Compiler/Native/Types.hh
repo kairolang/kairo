@@ -617,6 +617,19 @@ template <class S>
     auto v = native::bytes(s);
     return ::std::string(v.data(), v.size());
 }
+
+/// \brief std::getline through pointers: Stage 0's `getline(stream, line)`.
+///
+/// \details In Stage 1 a move-only C++ variable passed to a C++ call is
+///          moved (Kairo has no std::move; user decision 2026-11-03), so a
+///          stream handed to std::getline's `istream&` would be gone after
+///          the first line. The self-host migration passes pointers here
+///          instead (TODO(CXX-LVALUE-ARG)). Returns the stream's state, as
+///          `if (std::getline(s, l))` reads it.
+template <class Stream, class Str>
+bool getline(Stream *stream, Str *line) {
+    return static_cast<bool>(::std::getline(*stream, *line));
+}
 #endif
 
 ///
