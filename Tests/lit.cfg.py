@@ -300,7 +300,13 @@ if os.path.isdir(_bundle):
 # roots above (Tests/CLI/Driver/root_discovery.k). Before %kairo, which lit
 # would otherwise substitute inside it.
 config.substitutions.append(("%kairo_bin", _sh(kairo_bin)))
-config.substitutions.append(("%kairo", _sh(kairo_bin) + " --error-format=basic" + kairo_roots))
+# --threads=2: lit already runs one test per hardware thread, and each
+# kairo spawns its own pool (codegen fans out to the physical core count),
+# so the default oversubscribed the machine several times over. A test that
+# passes its own --threads (CLI/Driver/threads.k) writes it later, and the
+# last one wins.
+_kairo_threads = " --threads=2"
+config.substitutions.append(("%kairo", _sh(kairo_bin) + " --error-format=basic" + _kairo_threads + kairo_roots))
 
 # --- kcc ----------------------------------------------------------------------
 # The clang drop-in, built beside kairo (Compiler/Driver/Kcc.k). It takes
@@ -310,7 +316,7 @@ import shlex as _shlex
 kcc_bin = os.path.join(os.path.dirname(kairo_bin), "kcc")
 if os.path.isfile(kcc_bin):
     config.available_features.add("kcc")
-    _kcc_x = "".join(" -Xkairo " + _sh(w) for w in ["--error-format=basic"] + _shlex.split(kairo_roots))
+    _kcc_x = "".join(" -Xkairo " + _sh(w) for w in ["--error-format=basic", _kairo_threads.strip()] + _shlex.split(kairo_roots))
     config.substitutions.append(("%kcc", _sh(kcc_bin) + _kcc_x))
 # clang's own test corpus, run through kcc (Tests/CLI/Kcc/ClangCorpus): the
 # fork's clang/test and the bundled clang the preprocessor mode compares with.
