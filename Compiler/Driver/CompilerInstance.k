@@ -2387,6 +2387,7 @@ class CompilerInstance {
                 self._sm->load_virtual(Path(r"<kairo-batch>"),
                     reinterpret_cast::<std::ConstPtr::<u8>>(self._fid0_text.raw()), self._fid0_text.size());
             }
+            var checked = llvm::DenseSet::<u64>();
             for k: InputKind in self._inputs {
                 if pp->global_allocator_set { break; }
                 // An object of a file that set it (its ABI note says so): a
@@ -2404,6 +2405,10 @@ class CompilerInstance {
                 if f == u32(-1) { continue; }
                 var r = self._pp->reach(f);
                 for g in r {
+                    // Each file once: inputs share most of their closures,
+                    // and re-reading every file per input was quadratic (P373).
+                    if checked.contains(static_cast::<u64>(g)) { continue; }
+                    checked.insert(static_cast::<u64>(g));
                     if CompilerInstance::_file_sets_global_allocator(self._sm->get_filename(g)) { (pp->global_allocator_set) = true; break; }
                 }
             }

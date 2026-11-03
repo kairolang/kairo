@@ -2714,6 +2714,8 @@ class PreProcessor {
     /// module path (DepScanner::set_known). Driver thread only: written after
     /// each walk, read by the next scan.
     priv var _scanned:   DepGraph;
+    /// What reach() has scanned this batch, followed by its later calls.
+    priv var _reach_known: DepGraph;
     priv var _walked_mu: std::SharedMutex;     // wave tasks are parallel
     /// The builtin module's scope and fid, and every fid in its own import
     /// closure (the builtin files): the macro prelude. Set by preprocess()
@@ -2923,7 +2925,21 @@ class PreProcessor {
     fn reach(self, entry_fid: u32) -> set::<u32> {
         self._resolver->wait_for_index();
         var scanner = DepScanner(self._sm, self._tcm, self._resolver, self._sym, self._opts.max_import_depth);
-        var graph   = scanner.build_graph(entry_fid, ModulePath());
+        // Every earlier reach's edges are followed, not rescanned. The
+        // driver asks this of every input (_kairo_order, and the global
+        // allocator check): a fresh scan each time lexed the whole closure
+        // once PER INPUT, and 305 inputs sharing one closure spent ~150 s
+        // in 1.2 million lexer runs before the first file was compiled
+        // (P373). Kept apart from _scanned: an entry here has no module
+        // path of its own, and preprocess() must still walk what only this
+        // has seen.
+        scanner.set_known(&(self._reach_known));
+        var graph = scanner.build_graph(entry_fid, ModulePath());
+        for fid in graph.all_fids {
+            if self._reach_known.all_fids.contains(fid) { continue; }
+            self._reach_known.add_node(fid, graph.mod_paths[fid]);
+            self._reach_known.deps[fid] = graph.deps[fid];
+        }
         return graph.all_fids;
     }
 
