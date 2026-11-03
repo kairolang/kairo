@@ -1069,6 +1069,15 @@ class OverloadResolution {
         // (`enable_if_t<cond, int>`, `-> decltype(...)`) has no Kairo shape.
         var want_ret = (f->return_type != &null) && (f->return_type->canonical != &null)
                     && isa::<OpaqueFFIType>(canon_unqual(f->return_type->canonical));
+        // So is one Kairo's deduction cannot finish: a parameter only
+        // clang deduces (from a derived-class argument, `out << s` on an
+        // ofstream against `basic_ostream<C, T>& operator<<(basic_ostream<C,
+        // T>&, const basic_string<C, T, A>&)`) leaves the declared return
+        // type dependent, and the call ended untyped (G23).
+        if (!want_ret) && (f->return_type != &null) && (f->return_type->canonical != &null)
+        && f->return_type->canonical->is_dependent() && (c->ded.substitute(f->return_type->canonical) == &null) {
+            want_ret = true;
+        }
         var ret: *Type = &null;
         var fid: i64 = -1;
         if self.sc->ctx != &null { fid = i64(self.sc->ctx->fid); }
