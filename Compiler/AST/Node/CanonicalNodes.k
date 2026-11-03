@@ -525,42 +525,44 @@ class BuiltinInfo {
 ///      `CChar` maps to `char`, distinct from I8 and U8 (C++ has three
 ///      character types at 8 bits). It is the one row with no keyword
 ///      (`TkUnknown`): it is reached only through its lang alias.
-// INLINE(cxx-feature: aggregate array initializer)
-inline "c++" {
-    static BuiltinInfo BuiltinTable[TOTAL_BUILTINS_COUNT] = {
-        BuiltinInfo(BuiltinKind::Void,   TokenKind::AtVoid,    "void",    "void",                  0,   0,                        float_layout_none()),
-        BuiltinInfo(BuiltinKind::Never,  TokenKind::OpExclaim, "!",       "void",                  0,   0,                        float_layout_none()),
-        BuiltinInfo(BuiltinKind::Bool,   TokenKind::AtBool,    "bool",    "bool",                  8,   0,                        float_layout_none()),
-        BuiltinInfo(BuiltinKind::I8,     TokenKind::AtI8,      "i8",      "signed char",           8,   BF_INTEGER()|BF_SIGNED(), float_layout_none()),
-        BuiltinInfo(BuiltinKind::I16,    TokenKind::AtI16,     "i16",     "signed short",          16,  BF_INTEGER()|BF_SIGNED(), float_layout_none()),
-        BuiltinInfo(BuiltinKind::I32,    TokenKind::AtI32,     "i32",     "signed int",            32,  BF_INTEGER()|BF_SIGNED(), float_layout_none()),
-        BuiltinInfo(BuiltinKind::I64,    TokenKind::AtI64,     "i64",     "",                      64,  BF_INTEGER()|BF_SIGNED()|BF_TARGET_CXX(), float_layout_none()),
-        BuiltinInfo(BuiltinKind::I128,   TokenKind::AtI128,    "i128",    "__int128",              128, BF_INTEGER()|BF_SIGNED(), float_layout_none()),
-        BuiltinInfo(BuiltinKind::I256,   TokenKind::AtI256,    "i256",    "_BitInt(256)",          256, BF_INTEGER()|BF_SIGNED(), float_layout_none()),
-        BuiltinInfo(BuiltinKind::I512,   TokenKind::AtI512,    "i512",    "_BitInt(512)",          512, BF_INTEGER()|BF_SIGNED(), float_layout_none()),
-        BuiltinInfo(BuiltinKind::U8,     TokenKind::AtU8,      "u8",      "unsigned char",         8,   BF_INTEGER(),             float_layout_none()),
-        BuiltinInfo(BuiltinKind::U16,    TokenKind::AtU16,     "u16",     "unsigned short",        16,  BF_INTEGER(),             float_layout_none()),
-        BuiltinInfo(BuiltinKind::U32,    TokenKind::AtU32,     "u32",     "unsigned int",          32,  BF_INTEGER(),             float_layout_none()),
-        BuiltinInfo(BuiltinKind::U64,    TokenKind::AtU64,     "u64",     "",                      64,  BF_INTEGER()|BF_TARGET_CXX(),             float_layout_none()),
-        BuiltinInfo(BuiltinKind::U128,   TokenKind::AtU128,    "u128",    "unsigned __int128",     128, BF_INTEGER(),             float_layout_none()),
-        BuiltinInfo(BuiltinKind::U256,   TokenKind::AtU256,    "u256",    "unsigned _BitInt(256)", 256, BF_INTEGER(),             float_layout_none()),
-        BuiltinInfo(BuiltinKind::U512,   TokenKind::AtU512,    "u512",    "unsigned _BitInt(512)", 512, BF_INTEGER(),             float_layout_none()),
-        BuiltinInfo(BuiltinKind::USize,  TokenKind::AtUsize,   "usize",   "decltype(sizeof(0))",                                             0,   BF_INTEGER()|BF_TARGET_WIDTH(),             float_layout_none()),
-        BuiltinInfo(BuiltinKind::ISize,  TokenKind::AtIsize,   "isize",   "decltype(static_cast<int*>(nullptr)-static_cast<int*>(nullptr))", 0,   BF_INTEGER()|BF_SIGNED()|BF_TARGET_WIDTH(), float_layout_none()),
-        BuiltinInfo(BuiltinKind::F8E4M3, TokenKind::AtF8E4M3,  "f8e4m3",  "::kairo::rt::f8e4m3",   8,   BF_FLOAT(),               FloatLayout(FloatSem::Float8E4M3FN,      FloatImpl::Corelib, 4,  3,   7,     false, false)),
-        BuiltinInfo(BuiltinKind::F8E5M2, TokenKind::AtF8E5M2,  "f8e5m2",  "::kairo::rt::f8e5m2",   8,   BF_FLOAT(),               FloatLayout(FloatSem::Float8E5M2,        FloatImpl::Corelib, 5,  2,   15,    true,  false)),
-        BuiltinInfo(BuiltinKind::F16,    TokenKind::AtF16,     "f16",     "_Float16",              16,  BF_FLOAT(),               FloatLayout(FloatSem::IEEEHalf,          FloatImpl::Native,  5,  10,  15,    true,  false)),
-        BuiltinInfo(BuiltinKind::BF16,   TokenKind::AtBf16,    "bf16",    "__bf16",                16,  BF_FLOAT(),               FloatLayout(FloatSem::BFloat,            FloatImpl::Native,  8,  7,   127,   true,  false)),
-        BuiltinInfo(BuiltinKind::F32,    TokenKind::AtF32,     "f32",     "float",                 32,  BF_FLOAT(),               FloatLayout(FloatSem::IEEESingle,        FloatImpl::Native,  8,  23,  127,   true,  false)),
-        BuiltinInfo(BuiltinKind::F64,    TokenKind::AtF64,     "f64",     "double",                64,  BF_FLOAT(),               FloatLayout(FloatSem::IEEEDouble,        FloatImpl::Native,  11, 52,  1023,  true,  false)),
-        BuiltinInfo(BuiltinKind::F80,    TokenKind::AtF80,     "f80",     "long double",           80,  BF_FLOAT()|BF_TARGET_GATED(), FloatLayout(FloatSem::X87DoubleExtended, FloatImpl::Native,  15, 64,  16383, true,  true)),
-        BuiltinInfo(BuiltinKind::F128,   TokenKind::AtF128,    "f128",    "__float128",            128, BF_FLOAT(),               FloatLayout(FloatSem::IEEEQuad,          FloatImpl::Libcall, 15, 112, 16383, true,  false)),
-        BuiltinInfo(BuiltinKind::F256,   TokenKind::AtF256,    "f256",    "::kairo::rt::f256",     256, BF_FLOAT(),               FloatLayout(FloatSem::SoftDouble4,       FloatImpl::Corelib, 0,  0,   0,     true,  false)),
-        BuiltinInfo(BuiltinKind::F512,   TokenKind::AtF512,    "f512",    "::kairo::rt::f512",     512, BF_FLOAT(),               FloatLayout(FloatSem::SoftDouble8,       FloatImpl::Corelib, 0,  0,   0,     true,  false)),
-        BuiltinInfo(BuiltinKind::Byte,   TokenKind::AtByte,    "byte",    "::builtin::base::byte_t::Byte", 8,   0,                        float_layout_none()),
-        BuiltinInfo(BuiltinKind::Char,   TokenKind::AtChar,    "char",    "char32_t",              32,  0,                        float_layout_none()),
-        BuiltinInfo(BuiltinKind::CChar,  TokenKind::TkUnknown, "c_char",  "char",                  8,   0,                        float_layout_none()),
-    };
+/// Builds BuiltinTable's rows, in BuiltinKind order. Called once, by
+/// builtin_info().
+fn make_builtin_table() -> vec::<BuiltinInfo> {
+    var rows: vec::<BuiltinInfo>;
+    rows.reserve(static_cast::<usize>(TOTAL_BUILTINS_COUNT));
+    rows.push_back(BuiltinInfo(BuiltinKind::Void,   TokenKind::AtVoid,    "void",    "void",                  0,   0,                        float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::Never,  TokenKind::OpExclaim, "!",       "void",                  0,   0,                        float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::Bool,   TokenKind::AtBool,    "bool",    "bool",                  8,   0,                        float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::I8,     TokenKind::AtI8,      "i8",      "signed char",           8,   BF_INTEGER()|BF_SIGNED(), float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::I16,    TokenKind::AtI16,     "i16",     "signed short",          16,  BF_INTEGER()|BF_SIGNED(), float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::I32,    TokenKind::AtI32,     "i32",     "signed int",            32,  BF_INTEGER()|BF_SIGNED(), float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::I64,    TokenKind::AtI64,     "i64",     "",                      64,  BF_INTEGER()|BF_SIGNED()|BF_TARGET_CXX(), float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::I128,   TokenKind::AtI128,    "i128",    "__int128",              128, BF_INTEGER()|BF_SIGNED(), float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::I256,   TokenKind::AtI256,    "i256",    "_BitInt(256)",          256, BF_INTEGER()|BF_SIGNED(), float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::I512,   TokenKind::AtI512,    "i512",    "_BitInt(512)",          512, BF_INTEGER()|BF_SIGNED(), float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::U8,     TokenKind::AtU8,      "u8",      "unsigned char",         8,   BF_INTEGER(),             float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::U16,    TokenKind::AtU16,     "u16",     "unsigned short",        16,  BF_INTEGER(),             float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::U32,    TokenKind::AtU32,     "u32",     "unsigned int",          32,  BF_INTEGER(),             float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::U64,    TokenKind::AtU64,     "u64",     "",                      64,  BF_INTEGER()|BF_TARGET_CXX(),             float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::U128,   TokenKind::AtU128,    "u128",    "unsigned __int128",     128, BF_INTEGER(),             float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::U256,   TokenKind::AtU256,    "u256",    "unsigned _BitInt(256)", 256, BF_INTEGER(),             float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::U512,   TokenKind::AtU512,    "u512",    "unsigned _BitInt(512)", 512, BF_INTEGER(),             float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::USize,  TokenKind::AtUsize,   "usize",   "decltype(sizeof(0))",                                             0,   BF_INTEGER()|BF_TARGET_WIDTH(),             float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::ISize,  TokenKind::AtIsize,   "isize",   "decltype(static_cast<int*>(nullptr)-static_cast<int*>(nullptr))", 0,   BF_INTEGER()|BF_SIGNED()|BF_TARGET_WIDTH(), float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::F8E4M3, TokenKind::AtF8E4M3,  "f8e4m3",  "::kairo::rt::f8e4m3",   8,   BF_FLOAT(),               FloatLayout(FloatSem::Float8E4M3FN,      FloatImpl::Corelib, 4,  3,   7,     false, false)));
+    rows.push_back(BuiltinInfo(BuiltinKind::F8E5M2, TokenKind::AtF8E5M2,  "f8e5m2",  "::kairo::rt::f8e5m2",   8,   BF_FLOAT(),               FloatLayout(FloatSem::Float8E5M2,        FloatImpl::Corelib, 5,  2,   15,    true,  false)));
+    rows.push_back(BuiltinInfo(BuiltinKind::F16,    TokenKind::AtF16,     "f16",     "_Float16",              16,  BF_FLOAT(),               FloatLayout(FloatSem::IEEEHalf,          FloatImpl::Native,  5,  10,  15,    true,  false)));
+    rows.push_back(BuiltinInfo(BuiltinKind::BF16,   TokenKind::AtBf16,    "bf16",    "__bf16",                16,  BF_FLOAT(),               FloatLayout(FloatSem::BFloat,            FloatImpl::Native,  8,  7,   127,   true,  false)));
+    rows.push_back(BuiltinInfo(BuiltinKind::F32,    TokenKind::AtF32,     "f32",     "float",                 32,  BF_FLOAT(),               FloatLayout(FloatSem::IEEESingle,        FloatImpl::Native,  8,  23,  127,   true,  false)));
+    rows.push_back(BuiltinInfo(BuiltinKind::F64,    TokenKind::AtF64,     "f64",     "double",                64,  BF_FLOAT(),               FloatLayout(FloatSem::IEEEDouble,        FloatImpl::Native,  11, 52,  1023,  true,  false)));
+    rows.push_back(BuiltinInfo(BuiltinKind::F80,    TokenKind::AtF80,     "f80",     "long double",           80,  BF_FLOAT()|BF_TARGET_GATED(), FloatLayout(FloatSem::X87DoubleExtended, FloatImpl::Native,  15, 64,  16383, true,  true)));
+    rows.push_back(BuiltinInfo(BuiltinKind::F128,   TokenKind::AtF128,    "f128",    "__float128",            128, BF_FLOAT(),               FloatLayout(FloatSem::IEEEQuad,          FloatImpl::Libcall, 15, 112, 16383, true,  false)));
+    rows.push_back(BuiltinInfo(BuiltinKind::F256,   TokenKind::AtF256,    "f256",    "::kairo::rt::f256",     256, BF_FLOAT(),               FloatLayout(FloatSem::SoftDouble4,       FloatImpl::Corelib, 0,  0,   0,     true,  false)));
+    rows.push_back(BuiltinInfo(BuiltinKind::F512,   TokenKind::AtF512,    "f512",    "::kairo::rt::f512",     512, BF_FLOAT(),               FloatLayout(FloatSem::SoftDouble8,       FloatImpl::Corelib, 0,  0,   0,     true,  false)));
+    rows.push_back(BuiltinInfo(BuiltinKind::Byte,   TokenKind::AtByte,    "byte",    "::builtin::base::byte_t::Byte", 8,   0,                        float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::Char,   TokenKind::AtChar,    "char",    "char32_t",              32,  0,                        float_layout_none()));
+    rows.push_back(BuiltinInfo(BuiltinKind::CChar,  TokenKind::TkUnknown, "c_char",  "char",                  8,   0,                        float_layout_none()));
+    return rows;
 }
 
 /// \brief THE builtin accessor. Every per-builtin fact (spelling, C++
@@ -571,8 +573,16 @@ inline "c++" {
 ///         more than one entry (see BuiltinKind's WIDTH IS NOT IDENTITY note),
 ///         so read `fp` when the question is about a format. `bits == 0` on a
 ///         BF_TARGET_WIDTH row means "ask the store", never a width.
+///
+/// \detail The table is a function-local static: built on first use (C++
+///         guarantees that once, thread-safe) and one object program-wide,
+///         however many TUs import this module. It is not const:
+///         CanonicalTypeStore::init writes the target's I64/U64 spellings
+///         into it, and every reader must see that write. The vec is never
+///         resized after it is built, so row pointers stay valid.
 fn builtin_info(b: BuiltinKind) -> *BuiltinInfo {
-    return &BuiltinTable[static_cast::<u8>(b)];
+    static var BuiltinTable: vec::<BuiltinInfo> = make_builtin_table();
+    return &BuiltinTable[static_cast::<usize>(static_cast::<u8>(b))];
 }
 
 /// \brief Map a type-position token kind to its builtin, or COUNT when the
@@ -657,7 +667,7 @@ eval fn verify_builtin_table() -> bool {
     for (var s = 0; s < 16; ++s) { seen_sem[s] = false; }
 
     for (var i = 0; i < static_cast::<u8>(BuiltinKind::COUNT); ++i) {
-        var row = &BuiltinTable[i];
+        var row = builtin_info(static_cast::<BuiltinKind>(static_cast::<u8>(i)));
 
         if (static_cast::<u8>(row->kind) != i) { return false; }
         if (row->spelling == "")               { return false; }
