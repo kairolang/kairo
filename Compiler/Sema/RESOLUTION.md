@@ -1847,7 +1847,17 @@ exactly what it runs today, in order:
     NullableTypeLowering ->
     OperatorLowering -> FStringLowering -> CallLowering -> IterLowering ->
     RangeLowering -> MatchLowering -> LabelLowering -> ExtensionLowering ->
-    SequenceLowering -> ListLiteralLowering -> StringLowering
+    SequenceLowering -> ListLiteralLowering -> StringLowering ->
+    ParamPassInference
+
+ParamPassInference (P331) lowers nothing: over the finished tree, the one
+EmitIR renders, it decides which by-value COPY record parameters their
+function never mutates, stamps `ParamDecl::inferred_const` (codegen spells
+those `const T&`, CODEGEN.md §4) and warns SC001W "parameter 'x' is never
+mutated; declare it 'const'" with the `const ` fix-it, in user files only.
+It runs after every lowering so a use a lowering mints (a move, a user
+operator's method call, an iterator call) is a use it sees; nothing in Sema
+reads the flag, so every TU's flags are final before any TU's codegen.
 
 PatternCompilation, which builds the decision tree MatchLowering renders,
 is not a lowering: it runs last in the checks (§2.8). Every pass walks a

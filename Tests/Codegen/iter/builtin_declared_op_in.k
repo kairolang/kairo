@@ -17,7 +17,7 @@ extend string {
     }
 }
 
-fn sum(v: [i32]) -> i32 {
+fn sum(const v: [i32]) -> i32 {
     var t: i32 = 0
     for x in v { t += x }
     return t

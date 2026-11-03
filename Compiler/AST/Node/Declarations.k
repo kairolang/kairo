@@ -443,6 +443,13 @@ class ParamDecl derives Decl {
     /// Never set on `self`: the receiver is already a reference parameter.
     pub var mode:       ParamMode   = ParamMode::Value;
     pub var mode_range: SourceRange = SourceRange::invalid();  ///< the `@inout` / `@move` tokens.
+    /// A by-value COPY record parameter its function never mutates (P331):
+    /// passed as `const T&`, as a written `const` is. One writer,
+    /// ParamPassInference, after the last lowering, on every link of the
+    /// function's redeclaration chain; read only by codegen
+    /// (CXXSpell::_param_type, EmitIR's fn-value adapter). The Kairo type
+    /// and every Sema fact stay the by-value parameter's.
+    pub var inferred_const: bool = false;
 
     fn is_inout(self) -> bool { return self.mode == ParamMode::Inout; }
     fn is_move(self)  -> bool { return self.mode == ParamMode::Move;  }

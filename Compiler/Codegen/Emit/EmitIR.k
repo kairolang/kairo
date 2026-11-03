@@ -1958,6 +1958,7 @@ class EmitIR {
     /// through here.
     priv fn _value(self, e: *Expr, want: *Type, subst: *InstanceEntry = &null) {
         if self._array_view(e, want, subst) { return; }
+        if self._fn_ref_adapter(e, want) { return; }
         if self._fn_effect_value(e, want) { return; }
         if self._needs_cast(e, want, subst) {
             self._cast_to(want, e, "static_cast", subst);
@@ -2041,6 +2042,103 @@ class EmitIR {
         }
         self._fn_effect_wrap(e, w, h, "");
         return true;
+    }
+
+    /// A function NAMED as a `fn` value whose C++ declaration takes a
+    /// by-value parameter as `const T&` (CXXSpell::by_ref_value_param: a
+    /// written `const s: string`, or one ParamPassInference inferred, P331).
+    /// Its `fn` type says `string`, and `R(const string&)` converts to no
+    /// `__kairo_fn<R(string)>`, so the value is a captureless adapter with the
+    /// type's own parameters, calling the function:
+    ///
+    ///   static_cast<W>(::__kairo_fn<R(A)>(+[](A __kairo_a0) noexcept -> R {
+    ///       return ::ns::f(static_cast<decltype(__kairo_a0)&&>(__kairo_a0)); }))
+    ///
+    /// (a raw target takes the lambda's own pointer; an effect-widening
+    /// target wraps the adapter as _fn_effect_value wraps a name). The
+    /// adapter is at the use, so the function's signature stays a fact of
+    /// its own body whoever takes its address, in whatever run (P331's
+    /// cross-TU rule). The one cost is the argument's copy into the adapter,
+    /// which a by-value call through a `fn` value always made. True when it
+    /// emitted.
+    priv fn _fn_ref_adapter(self, e: *Expr, want: *Type) -> bool {
+        if (e == &null) || (want == &null) || (e->type_ == &null) || (want->canonical == &null) { return false; }
+        var d = self._fn_ref_decl(e);
+        if d == &null { return false; }
+        var any = false;
+        for var i: usize = 0; i < d->params.size(); ++i {
+            if CXXSpell::by_ref_value_param(d->params[i]) { any = true; }
+        }
+        if !any { return false; }
+        var h = dyn_cast::<FunctionPointerType>(canon_unqual(e->type_));
+        var wt = self._nullable_inner(canon_unqual(want->canonical));
+        var w = dyn_cast::<FunctionPointerType>((wt) if (wt != &null) else (canon_unqual(want->canonical)));
+        if (h == &null) || (w == &null) { return false; }
+        if (h->params.size() != d->params.size()) || (h->modes.size() < h->params.size()) { return false; }
+
+        var nx = ("") if (self._cg->opts.unwind) else (" noexcept");
+        var ret_t = (h->panic_result) if (h->panic_result != &null) else (h->return_type);
+        var ps = "";
+        var fa = "";
+        for var i: usize = 0; i < h->params.size(); ++i {
+            var an = LowerTargets::panic_wrap_arg(i);
+            if i > 0 { ps += ", "; fa += ", "; }
+            ps += self._spell.param_named(h->params[i], h->modes[i], an);
+            fa += "static_cast<decltype(" + an + ")&&>(" + an + ")";
+        }
+        var adapt = "+[](" + ps + ")" + nx + " -> " + self._spell.decl(ret_t, "") + " { return " + self._spell.qual_name(static_cast::<*Decl>(d)) + "(" + fa + "); }";
+
+        // The widening conversion _fn_effect_value makes of a name, of the adapter.
+        var widen = (w != h) && (w->panic_result != &null) && (!w->is_raw) && (h->panic_result != w->panic_result);
+        if widen {
+            self._fn_effect_wrap(e, w, h, adapt);
+            return true;
+        }
+        var wspell = self._spell._type(want);
+        if w->is_raw {
+            self._cg->sink->spell(e->range, "static_cast<" + wspell + ">(" + adapt + ")");
+            return true;
+        }
+        self._cg->sink->spell(e->range, "static_cast<" + wspell + ">(::" + LowerTargets::fn_value() + "<" + self._spell.fn_signature(h) + ">(" + adapt + "))");
+        return true;
+    }
+
+    /// The non-generic free function or static member \p e names as a
+    /// value (`f`, `ns::f`, `T::make`), or null.
+    priv fn _fn_ref_decl(self, e: *Expr) -> *FunctionDecl {
+        var x = e;
+        while (x != &null) && isa::<ParenExpr>(x) { x = cast::<ParenExpr>(x)->inner; }
+        if x == &null { return &null; }
+        var d: *Decl = &null;
+        if isa::<NamedIdentExpr>(x) {
+            var ni = cast::<NamedIdentExpr>(x);
+            if ni->generic_args.size() > 0 { return &null; }
+            d = ni->resolved_decl;
+            if (d != &null) && self._is_local(d) { return &null; }
+        } else if isa::<ChainExpr>(x) {
+            var ce = cast::<ChainExpr>(x);
+            if ce->steps.size() == 0 { return &null; }
+            // `ns::f` / `T::make`: the head names a module or a type, never a value.
+            if ce->base != &null {
+                var hb = dyn_cast::<NamedIdentExpr>(ce->base);
+                if (hb == &null) || (hb->resolved_decl == &null) { return &null; }
+                if !(isa::<ModuleDecl>(hb->resolved_decl) || self._is_type_decl(hb->resolved_decl)) { return &null; }
+            }
+            for var i: usize = 0; i < ce->steps.size(); ++i {
+                var st = ce->steps.get(i);
+                if st->access_kind != ChainExpr::AccessKind::ColonColon { return &null; }
+                if (st->generic_args.size() > 0) || (st->through != &null) || (st->witness_iface != &null) { return &null; }
+            }
+            d = ce->steps.get(ce->steps.size() - 1)->resolved_decl;
+        } else {
+            return &null;
+        }
+        var f = dyn_cast::<FunctionDecl>(d);
+        if (f == &null) || (f->generic_params.size() > 0) { return &null; }
+        for var i: usize = 0; i < f->params.size(); ++i {
+            if (f->params[i] != &null) && f->params[i]->is_self { return &null; }
+        }
+        return f;
     }
 
     /// \p t's inner canonical when \p t is a `T?`, else null.

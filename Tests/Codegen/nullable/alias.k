@@ -18,7 +18,7 @@ fn keep(p: *(i32?)) { held = p }
 fn clobber() { if held? { *held = null } }
 fn noop() { }
 
-fn show(tag: string, x: i32?) {
+fn show(const tag: string, x: i32?) {
     if x? { println(f"{tag}: {x}") } else { println(f"{tag}: null") }
 }
 

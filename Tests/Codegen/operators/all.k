@@ -223,7 +223,7 @@ fn main() -> i32 {
 // above are what the exit code counts.
 
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX-DAG: Full operator+(::all::Full o) noexcept;
+// CXX-DAG: Full operator+(const::all::Full& o) noexcept;
 // CXX-DAG: Full operator+() noexcept;
 // CXX-DAG: Full operator~() noexcept;
 // CXX-DAG: bool operator!=(

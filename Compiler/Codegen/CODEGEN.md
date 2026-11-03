@@ -265,10 +265,47 @@ emitters use the same instance; a declaration and a body cannot disagree.
   target has type `[T; N]`. A declarator that starts with `*` or `&` is
   parenthesized before the array suffix (`signed int(*)[2]`, not
   `signed int*[2]`).
-- `param_type(p)`: modes → `T&` (`@inout`), `T&&` (`@move`), `T`. The
-  `const T&` rule for by-value records is DECIDED and not yet applied.
-  This is the name-less (abstract) form: instantiations, fn-pointer
-  parameter lists.
+- `param_type(p)`: modes → `T&` (`@inout`), `T&&` (`@move`), `T`; a
+  `const` one is `const T&` for a concrete record, `T const&` for a bare
+  type parameter, `const T` otherwise. "`const`" is `CXXSpell::const_param`:
+  written (`const s: string`), or inferred (P331, `ParamDecl::
+  inferred_const`, ParamPassInference). This is the name-less (abstract)
+  form: instantiations, fn-pointer parameter lists.
+
+  **Inferred `const T&` (P331, 2026-11-02).** A by-value parameter whose
+  function never mutates it is spelled as if it were written `const`, so a
+  `fn f(s: string)` is `f(const ::builtin::string::string & s)` and a call
+  binds the caller's string instead of deep-copying it. Which parameters:
+  a concrete Kairo RECORD (an imported C++ one keeps its value), COPY category, `trivially_copyable == No` (a string,
+  a vector, a map, a class with a copy constructor). Everything else keeps
+  its value: scalars, pointers and `fn` values (never records); a
+  trivially copyable record of any size (a register pair or a memcpy beats
+  the indirection at small sizes, and Sema has no record layout yet for a
+  size threshold; revisit when LayoutPass exists); a MOVE record (taking
+  ownership is the parameter's point). Which functions, the mutation rule
+  and the aliasing caveat: ParamPassInference's header. The rule that
+  keeps declarations and definitions agreeing: the decision is a function
+  of the function's own declaration and body only, decided after the last
+  lowering of the TU that defines it and stamped on every link of the
+  redeclaration chain, and every spelling of a parameter (EmitIR's
+  definition, InterfaceEmitter's preamble and header, `#include "foo.k"`,
+  explicit instantiations) goes through `param_type` / `param_decl`. A
+  function's address taken elsewhere does not change it: a `fn` value of
+  a function with a by-value `const T&` parameter (inferred or written) is
+  an adapter, `static_cast<W>(::__kairo_fn<R(A)>(+[](A a) noexcept -> R {
+  return f(a); }))` (EmitIR::_fn_ref_adapter), so `R(const A&)` never has
+  to convert to `__kairo_fn<R(A)>`. Never inferred, because the signature
+  is fixed by something else: `virtual` / `override` / abstract methods
+  and every method of a class with a polymorphic base (C++ would hide the
+  base's slot), interface members, `ffi "c"` / `ffi "c++"` linkage and a
+  calling convention (the C signature is the contract), generic functions
+  and members of generic records or extensions (the pattern and its
+  explicit instantiations), generators and `async` functions (the frame
+  outlives the call), `-> !` and `@cold_path` functions (the cold edge:
+  the copy is paid at most once, and a caller-held temporary would be one
+  more cleanup on every crash path), split constructors, transfer constructors, `where`
+  groups, allocator operators, ADT members, `eval` functions, `main`, and
+  every compiler-made function.
 - `param_decl(p, name)`: the parameter spelling with the name folded into
   the declarator, for every type: the mode's `&`/`&&` and the const marker
   go through `decl()`, so a raw function pointer (a C no-prototype one) is

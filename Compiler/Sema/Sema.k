@@ -52,6 +52,7 @@ import Sema::Check::ConstraintExtraction::*;
 import Sema::Check::TypeCycleCheck::*;
 import Sema::Check::ShadowCheck::*;
 import Sema::Check::ShorthandLint::*;
+import Sema::Check::ParamPassInference::*;
 import Sema::Check::PackChecking::*;
 import Sema::Check::ValueCategoryPass::*;
 import Sema::Check::ClassLifecycle::*;
@@ -722,6 +723,12 @@ class Sema {
         // Last: a literal is pure until it is a constructor call, and
         // SequenceLowering must not hoist every `"hi"` argument into a local.
         { var _p = TimeRegion("StringLowering"); StringLowering(&self.sc).run(); }
+        // A by-value COPY record parameter the body never mutates is passed
+        // as `const T&` and warned to say `const` (P331). After every
+        // lowering: the tree it reads is the one EmitIR renders, so a use a
+        // lowering mints (a move, an operator's method call) is seen. Writes
+        // ParamDecl::inferred_const, which only codegen reads.
+        { var _p = TimeRegion("ParamPassInference"); ParamPassInference(&self.sc).run(); }
         // Every generic ADT instance gets the layout C++ will pick for it,
         // predicted, for codegen to pin with static_asserts. After every
         // lowering: an instance a lowering mints (a `T?`'s record) is in

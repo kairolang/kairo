@@ -73,10 +73,10 @@ pub fn pair(a: i32) -> (i32, i32) {
     return (a, a * 2)
 }
 
-pub fn greet(name: string) -> string {
+pub fn greet(const name: string) -> string {
     return f"hi {name}"
 }
 
-pub fn shout(s: string) {
+pub fn shout(const s: string) {
     println(s)
 }

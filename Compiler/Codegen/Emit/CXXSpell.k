@@ -1295,7 +1295,28 @@ class CXXSpell {
             if (p->pack_type == &null) { self._ice(p->range, "CXXSpell: pack parameter with no slice type; CallLowering stamps it"); }
             return (("const ") if (p->is_const) else ("")) + self._type(p->pack_type, subst, scope);
         }
-        return self._param_type(p->type_, p->mode, p->is_const, "", subst, scope);
+        return self._param_type(p->type_, p->mode, CXXSpell::const_param(p), "", subst, scope);
+    }
+
+    /// The parameter is spelled as a `const` one: written `const x: T`, or a
+    /// by-value COPY record its function never mutates (P331,
+    /// ParamPassInference). Only a record is ever inferred, so an inferred
+    /// one always takes _param_type's `const T&` arm; a written `const` on a
+    /// scalar stays `const T`.
+    static fn const_param(p: *ParamDecl) -> bool {
+        return (p != &null) && (p->is_const || p->inferred_const);
+    }
+
+    /// A by-value parameter of \p f that C++ declares as a reference,
+    /// `const T&` (a concrete record, `const` or inferred): its `fn` type's
+    /// by-value parameter is a different C++ type, so a `fn` value of \p f
+    /// goes through an adapter (EmitIR::_fn_ref_adapter).
+    static fn by_ref_value_param(p: *ParamDecl) -> bool {
+        if (p == &null) || p->is_self || p->is_pack || (p->mode != ParamMode::Value) { return false; }
+        if !CXXSpell::const_param(p) { return false; }
+        if (p->type_ == &null) || (p->type_->canonical == &null) { return false; }
+        var c = p->type_->canonical;
+        return (c->kind == TypeKind::RecordType) && (!c->is_dependent());
     }
 
     /// `type name` for a parameter, name folded into the declarator for
@@ -1318,7 +1339,7 @@ class CXXSpell {
             if name.size() > 0 { s += " " + name; }
             return s;
         }
-        return self._param_type(p->type_, p->mode, p->is_const, name, subst, scope);
+        return self._param_type(p->type_, p->mode, CXXSpell::const_param(p), name, subst, scope);
     }
 
     /// The mode's reference and the const marker folded into decl(), so a

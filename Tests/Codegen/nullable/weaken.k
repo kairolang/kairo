@@ -20,7 +20,7 @@ fn bump(@inout x: i32?) { x = null }
 fn clear(@inout s: S) { s.n = null }
 fn look(p: *const (i32?)) -> i32 { return 0 }
 
-fn show(tag: string, x: i32?) {
+fn show(const tag: string, x: i32?) {
     if x? { println(f"{tag}: {x}") } else { println(f"{tag}: null") }
 }
 
