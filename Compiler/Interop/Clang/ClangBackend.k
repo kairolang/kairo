@@ -72,6 +72,7 @@ ffi "c++" import "llvm/Support/MemoryBuffer.h";
 ffi "c++" import "llvm/Support/TargetSelect.h";
 ffi "c++" import "llvm/Support/VirtualFileSystem.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
+ffi "c++" import "llvm/TargetParser/Triple.h";
 
 import Location::SourceLocation::*;
 import Location::SourceRange::*;
@@ -643,6 +644,24 @@ class ClangBackend {
         // Kairo's FP semantics, ahead of extra_cc1 so the user's own FP
         // flags (cc1 takes the last) still win.
         if kairo { for a: string in FlagTranslator::kairo_fp_cc1() { self._arg(argv, a); } }
+        // Devirtualization clang leaves off by default, both semantics-
+        // preserving: a speculative direct call guarded by a vtable compare,
+        // and vtables emitted in every TU that can see them, so more calls
+        // resolve. Not -fstrict-vtable-pointers (assumes storage holding a
+        // polymorphic object is never reused without launder, which a
+        // byte-relocating container breaks) nor -fstrict-enums (a C enum
+        // from a header may hold flag combinations). Above -O0 only, and
+        // ahead of extra_cc1 so the user's -fno-... still wins.
+        if (!is_c) && ((self._cfg.opt_level > 0) || (self._cfg.opt_size > 0)) {
+            self._arg(argv, "-fdevirtualize-speculatively");
+            self._arg(argv, "-fforce-emit-vtables");
+        }
+        // The complete and base constructor/destructor share one body: what
+        // clang's own driver passes on every target but Darwin (a linker bug)
+        // and NVPTX (no aliases). This line is built by hand, so it has to
+        // ask for it too.
+        var tri = llvm::Triple(llvm::Triple::normalize(sref(self._cfg.triple)));
+        if (!tri.isOSDarwin()) && (!tri.isNVPTX()) { self._arg(argv, "-mconstructor-aliases"); }
         for a: string in self._cfg.extra_cc1 {
             self._arg(argv, a);
         }
