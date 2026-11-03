@@ -161,7 +161,19 @@ class LinkerOptions {
         (o.print_ld_args)   = args.get_bool("print-ld-args");
         (o.strip)           = args.get_bool("strip");
         (o.strip_debug)     = args.get_bool("strip-debug");
-        (o.icf)             = args.get_bool("icf");
+        // Safe ICF by default in an optimized build: the objects carry an
+        // address-significance table (-faddrsig, ClangBackend), so lld folds
+        // only functions whose address is never compared. Off at -O0, where
+        // merged functions would confuse a debugger. --no-icf opts out.
+        var opt_val = args.get_string("opt");
+        if args.is_set("profile") && (!args.is_set("opt")) {
+            var prof = args.get_string("profile");
+            if prof == "release"       { opt_val = "2"; }
+            else if prof == "min-size" { opt_val = "s"; }
+        }
+        var optimized = (opt_val == "1") || (opt_val == "2") || (opt_val == "3")
+                     || (opt_val == "s") || (opt_val == "z") || (opt_val == "g");
+        (o.icf)             = args.get_bool("icf") || (optimized && (!args.get_bool("no-icf")));
         (o.icf_mode)        = args.get_string("icf-mode");
         (o.rtlib)           = args.get_string("rtlib");
         (o.unwindlib)       = args.get_string("unwindlib");

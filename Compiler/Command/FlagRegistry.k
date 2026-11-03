@@ -653,6 +653,7 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  link-time optimizations
     cmd->define::<FlagKind::Bool>  ("icf",                   "", "icf",                    "identical code folding: merge functions with identical machine code",      false);
+    cmd->define::<FlagKind::Bool>  ("no-icf",                "", "no-icf",                 "no identical code folding (it is on by default above -O0)",                false);
     cmd->define::<FlagKind::String>("icf-mode",              "", "icf-mode",               "ICF aggressiveness, only with --icf: safe|all (default: safe)",       "safe");
     cmd->define::<FlagKind::Bool>  ("whole-program-vtables", "", "whole-program-vtables",  "whole-program vtable devirtualization, requires --lto",                   false);
     cmd->define::<FlagKind::Bool>  ("devirt",                "", "devirt",                 "dead virtual function elimination, requires --lto=full",                  false);

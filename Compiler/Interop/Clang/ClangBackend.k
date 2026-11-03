@@ -72,6 +72,7 @@ ffi "c++" import "llvm/Support/MemoryBuffer.h";
 ffi "c++" import "llvm/Support/TargetSelect.h";
 ffi "c++" import "llvm/Support/VirtualFileSystem.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
+ffi "c++" import "llvm/TargetParser/Triple.h";
 
 import Location::SourceLocation::*;
 import Location::SourceRange::*;
@@ -684,6 +685,15 @@ class ClangBackend {
         if (!is_c) && ((self._cfg.opt_level > 0) || (self._cfg.opt_size > 0)) {
             self._arg(argv, "-fdevirtualize-speculatively");
             self._arg(argv, "-fforce-emit-vtables");
+        }
+        // The address-significance table safe ICF needs (the linker folds
+        // only what no one takes the address of; Config/Linker.k turns ICF
+        // on above -O0): where clang's own driver emits it, ELF and COFF
+        // minus Android, NetBSD, PS4 and VE. Harmless without ICF.
+        var tri = llvm::Triple(llvm::Triple::normalize(sref(self._cfg.triple)));
+        if (tri.isOSBinFormatELF() || tri.isOSBinFormatCOFF()) && (!tri.isAndroid())
+            && (!tri.isOSNetBSD()) && (!tri.isPS4()) && (tri.getArch() != llvm::Triple::ve) {
+            self._arg(argv, "-faddrsig");
         }
         // Not -mconstructor-aliases, though clang's own driver passes it on
         // most targets: with it the complete constructor becomes an alias of
