@@ -846,6 +846,19 @@ class CXXSpell {
         if CXXSpell::in_function_scope(d) { return self.leaf(d); }
         var r = CXXSpell::rep(d);
         if decl_is_imported(r) { return decl_cxx_spelling(r); }
+        // An imported enum's enumerator carries no import facts of its own
+        // (DeclImport makes a bare EnumVariantDecl), so it fell through to
+        // the Kairo path below and was spelled under its HEADER's module
+        // (`::memory_order::std::memory_order::relaxed`), which names
+        // nothing in C++. Its enum's C++ name is its scope: `E::b` is
+        // legal C++11 for a scoped and an unscoped enum alike.
+        if isa::<EnumVariantDecl>(r) {
+            var hdc = self._home_dc(r);
+            if (hdc != &null) && hdc->is_type_scope() && (hdc->owner_decl() != &null) {
+                var en = CXXSpell::rep(hdc->owner_decl());
+                if decl_is_imported(en) { return decl_cxx_spelling(en) + "::" + self.leaf(r); }
+            }
+        }
         var s = "";
         var ns = self.ns_segments(r);
         for var i: usize = 0; i < ns.size(); ++i { s += "::"; s += ns[i]; }
