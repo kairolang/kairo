@@ -283,7 +283,11 @@ pub class <K impl Hash, V> HashMap {
     priv inline fn index_of(const self, const k: K) -> usize {
         if self.len == 0 { return HASH_NPOS }
         var slot: usize = 0
-        return self.probe(k, tag_of(k.hash()), &slot)
+        // The tag first, as its own statement: in one call, the effectful
+        // hash() after `k` makes SequenceLowering bind `k` by value, a
+        // deep copy of a string key on every lookup.
+        var t = tag_of(k.hash())
+        return self.probe(k, t, &slot)
     }
 
     /// k's entry index, or HASH_NPOS with `*slot` the empty slot where k

@@ -225,20 +225,11 @@ extend f64 impl Hash {
 }
 
 // --- string ------------------------------------------------------------------
-// TEMPORARY (2026-11-02): string has no `op ==` yet (string.k's own lands
-// with its `op <=>`, which another change owns). Until then this extension is
-// string's equality, program-wide: byte-wise, length first. DELETE the
-// `op ==` here once string.k declares one (keeping both would make `==`
-// ambiguous or shadow the derived one), and move `hash` into string.k if a
-// member is wanted there; the conformance itself can stay in this file.
+// `op ==` is string's own, derived from string.k's `op <=>` (length first,
+// then one memcmp); `hash` stays here, beside the other conformances.
 
 extend string impl Hash {
     pub inline fn hash(const self) -> usize {
         unsafe { return to_usize(hash_bytes(self.as_ptr() as unsafe *const u8, self.length())) }
-    }
-    pub inline fn op ==(const self, const other: string) -> bool {
-        var n = self.length()
-        if n != other.length() { return false }
-        unsafe { return __builtin_compare_mem(self.as_ptr() as unsafe *const u8, other.as_ptr() as unsafe *const u8, n) == 0 }
     }
 }

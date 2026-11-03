@@ -349,6 +349,11 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
             var f = dyn_cast::<FunctionDecl>(cell->get(0));
             if (f == &null) || (!f->is_operator) || f->is_poisoned() { continue; }
             if !self._derived_from_cmp(OperatorFacts::op_kind(f)) { continue; }
+            // Not in the builtin library: its files are type-checked in every
+            // compile, so a warning there is every user's noise, and the one
+            // pair it has is on purpose (string's `op ==` is the same test its
+            // `op <=>` derives, declared so it can meet Hash's requirement).
+            if (self.sc->g != &null) && self.sc->g->is_builtin_fid(self._tu.fid_of(static_cast::<*Decl>(f))) { continue; }
             var sym = OperatorFacts::symbol(f);
             self.sc->diag->report(DiagID::SC001W, f->range.start,
                 f"'op {sym}' shadows the '{sym}' derived from 'op <=>'; every '{sym}' calls this declaration instead"

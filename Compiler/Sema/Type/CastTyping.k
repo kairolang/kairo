@@ -472,9 +472,18 @@ class <T> CastTyping {
                         // `explicit` is a header's own statement that a ctor
                         // is not a conversion.
                         var nreal: usize = 0;
+                        var only: *ParamDecl = &null;
                         for var j: usize = 0; j < f->params.size(); ++j {
-                            if (f->params[j] != &null) && (!f->params[j]->is_self) { nreal += 1; }
+                            if (f->params[j] != &null) && (!f->params[j]->is_self) { nreal += 1; only = f->params[j]; }
                         }
+                        // A bounds-checked source (`T as string`, T a
+                        // generic parameter) converts only through what its
+                        // bounds declare: a constructor whose parameter is a
+                        // concrete type (string's `*const u8`) can never take
+                        // it, and trying it would turn 5e's bound diagnostic
+                        // into a bare "no matching overload".
+                        if (cg != &null) && (only != &null) && (only->type_ != &null)
+                           && (only->type_->canonical != &null) && (!only->type_->canonical->is_dependent()) { continue; }
                         if (nreal == 1) && (!f->ffi_explicit) { ctors.push_back(cell.cell->get(i)); }
                     }
                     if ctors.size() > 0 {

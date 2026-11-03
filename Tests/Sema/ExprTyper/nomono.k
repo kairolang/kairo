@@ -39,6 +39,7 @@ fn <T> body(x: T, h: *Holder<T>) {
 // DIAG-NOT: error
 // DIAG-NOT: warning
 
+// SEMA-LABEL: ===== SEMA fid {{[0-9]+}}: {{.*}}nomono.k =====
 // SEMA: -- expression types --
 // SEMA:      BinaryOperatorExpr {{.*}} : <unknown>
 

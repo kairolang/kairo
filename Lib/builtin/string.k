@@ -9,16 +9,69 @@
 ///   bytes of heap behind `data`. Owned strings keep a NUL past `len`, as a
 ///   literal already does, so a C string view is O(1) for both kinds.
 ///
+///   Ownership. COPY: a copy of an owned string is a deep copy (one block of
+///   exactly len + 1 bytes); a copy of a borrowed one shares the static
+///   bytes and allocates nothing. The first mutation of a borrowed string
+///   (`+=`, `push_back`, `reserve` past its length, the mutable `[]`) moves
+///   its bytes to the heap; the literal itself is never written. `cap` is
+///   the size of the heap block, NUL slot included, and is exactly what
+///   free_raw is handed back: the block comes from the allocator in effect
+///   (alloc_raw / resize_raw, Lib/builtin/base/alloc.k), the same one
+///   FmtBuf builds f-strings with, so either can free what the other made.
+///
+///   Moves. A COPY class has one transfer constructor (SC057E), so C++ sees
+///   only `string(const string&)` and a move is the deep copy. The copy
+///   constructor is the single place a cheap move would land: steal
+///   `data` / `cap`, leave the source borrowing EMPTY.
+///
+///   Performance. The hot members (construction, copy of a borrowed string,
+///   the destructor's test, size / empty / [], the no-growth path of `+=`
+///   and push_back, comparison) are inline and branch once on `cap`;
+///   everything that allocates is an out-of-line @cold_path member.
+///
+///   Eval. The literal, empty and copy constructors and the destructor are
+///   C++ constexpr (NameResolution::_literal_ctor_constexpr): a compile-time
+///   string is always borrowed, so the copy's allocation and the
+///   destructor's free are on branches a constant expression never takes.
+///   Do not add another three-argument constructor: that pass marks every
+///   one constexpr as "the literal".
+///
+///   Placement. Every member is here, users' methods included: a plain
+///   `extend` must be in the type's own file (extends.mdx), so Lib/std
+///   cannot add them.
+///
 ///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
 import base::ordering::*
+import base::intrinsics::*
+import alloc_raw::{alloc_raw, free_raw, resize_raw, oom}
+import base::c_char::*
 
 /// One NUL byte with static lifetime: what every empty string points at, so
 /// `data` is never null and the C string view is valid for every string.
 static EMPTY: [u8; 1] = [0]
+
+/// The smallest heap block a growing string takes: appends to a fresh
+/// string do not reallocate for every few bytes.
+eval MIN_BLOCK: usize = 16
+
+/// 1 when \p b starts a codepoint (is not a UTF-8 continuation byte).
+inline fn lead_(b: u8) -> usize { return if (b & 0xC0) != 0x80 => 1 else => 0 }
+
+/// memcmp over safe pointers.
+inline fn cmp_(a: *const u8, b: *const u8, n: usize) -> i32 {
+    unsafe { return __builtin_compare_mem(a as unsafe *const u8, b as unsafe *const u8, n) }
+}
+
+/// The codepoints in n bytes at p.
+fn count_cps_(p: *const u8, n: usize) -> usize {
+    var c: usize = 0
+    for var i: usize = 0; i < n; ++i { c += lead_(p[i]) }
+    return c
+}
 
 pub class string {
     var data: *const u8
@@ -48,87 +101,296 @@ pub class string {
         self.cap  = 0
     }
 
-    /// TEMPORARY (2026-11-01): copy-only, a shallow copy, until the owning
-    /// API lands; it replaced the `@move` constructor (a class declares one
-    /// transfer, SC057E). Defaulted, so it stays constexpr for eval
-    /// strings. Shares `data`, owned or not: sound only while
-    /// string has no destructor. Move-only, every lowering that spills a
-    /// string by value (f-string holes, match binders, captures) emitted a
-    /// deleted C++ copy; see TICKETS.TXT.
-    @copy fn string(self, const other: Self) = default
+    /// NUL-terminated bytes, copied: Stage 0's `string(const char *)` and
+    /// `string(const unsigned char *)`.
+    fn string(self, c: *const u8) {
+        var n: usize = 0
+        while c[n] != 0 { ++n }
+        self.data = &EMPTY[0]
+        self.len  = 0
+        self.cps  = 0
+        self.cap  = 0
+        if n != 0 { self.assign_bytes_(c, n) }
+    }
+
+    /// Bytes [0, l), copied (`string(sr.data(), sr.size())`).
+    fn string(self, d: *const u8, l: usize) {
+        self.data = &EMPTY[0]
+        self.len  = 0
+        self.cps  = 0
+        self.cap  = 0
+        if l != 0 { self.assign_bytes_(d, l) }
+    }
+
+    /// Deep for an owned source, shared for a borrowed one (static bytes
+    /// outlive every copy). constexpr (see the file header).
+    @copy fn string(self, const other: Self) {
+        self.data = other.data
+        self.len  = other.len
+        self.cps  = other.cps
+        self.cap  = 0
+        if other.cap != 0 { self.own_exact_() }
+    }
+
+    fn op delete(self) {
+        if self.cap != 0 {
+            unsafe { free_raw(self.data as unsafe *u8, self.cap, 1) }
+        }
+    }
+
+    // --- reading ------------------------------------------------------------
 
     inline fn as_ptr(const self) -> *const u8 { return self.data }
     inline fn length(const self) -> usize     { return self.len }
     inline fn codepoints(const self) -> usize { return self.cps }
     inline fn capacity(const self) -> usize   { return self.cap }
 
-    // --- Declared, not yet defined (2026-11-01) ---------------------------
-    // The API Compiler/ uses of Stage 0's string, from
-    // Scripts/Migration/api_surface.py (private/IMPORTANT/api-surface.md has
-    // every site). Counts are Compiler/ call sites. Each is a declaration
-    // only: a call links against nothing until its definition lands, out of
-    // line (`fn string::size(const self) -> usize { ... }`) or here.
+    /// Byte count; Stage 0's `size()`. Same as length().
+    inline fn size(const self) -> usize { return self.len }
+    inline fn empty(const self) -> bool { return self.len == 0 }
 
-    /// Byte count; Stage 0's `size()` (454). `length()` above (167) is the same.
-    fn size(const self) -> usize
-    /// `size() == 0` (349).
-    fn empty(const self) -> bool
+    /// The bytes, NUL-terminated: Stage 0's `raw()`; same as as_ptr().
+    inline fn raw(const self) -> *const u8 { return self.data }
 
-    /// `len` bytes from byte `pos` (77).
-    fn subslice(const self, pos: usize, len: usize) -> string
+    /// The bytes as a C string, for a C or C++ `const char *` parameter.
+    /// O(1): a literal and an owned string both keep a NUL past len. Valid
+    /// until the string is next mutated or destroyed.
+    inline fn c_str(const self) -> unsafe *const __builtin_c_char {
+        unsafe { return self.data as unsafe *const __builtin_c_char }
+    }
 
-    /// Appends one byte (9).
-    fn push_back(self, c: u8)
-    /// Grows the capacity to at least `n` bytes (5).
-    fn reserve(self, n: usize)
+    /// The byte at `i`, as a place. Unchecked, like C++'s.
+    inline fn op [] (const self, i: usize) -> *const u8 { return &self.data[i] }
 
-    /// Prefix and suffix tests (18 / 5). Stage 0 also takes a single byte
-    /// and a C string; a literal converts to `string`.
-    fn starts_with(const self, needle: string) -> bool
-    fn starts_with(const self, c: u8) -> bool
-    fn ends_with(const self, needle: string) -> bool
-    fn ends_with(const self, c: u8) -> bool
+    /// The byte at `i`, writable: a borrowed string moves to the heap first,
+    /// so the literal's static bytes are never written. A write is a byte
+    /// write: it does not update codepoints().
+    inline fn op [] (self, i: usize) -> *u8 {
+        @unlikely if self.cap == 0 { self.own_exact_() }
+        unsafe {
+            var unsafe *d = (self.data as unsafe *u8) + i
+            return d as *u8
+        }
+    }
+
+    /// Byte-wise ordering. Derives `==`, `!=`, `<`, `>`, `<=`, `>=`. Equal
+    /// lengths are tested first: every return on the unequal-length path is
+    /// nonzero, so once inlined into `a == b` the compiler drops that path's
+    /// compare_mem, and `==` is a length test, then one memcmp.
+    inline fn op <=> (const self, const other: string) -> Ordering {
+        // Statements, not `if c => Ordering::Less else => ...`: a header
+        // spells that conditional's `: ::builtin::...` as `:::builtin`
+        // (ticket candidate), and every header includes this body.
+        if self.len == other.len {
+            if self.data == other.data { return Ordering::Equal }   // copies of one literal
+            var e = cmp_(self.data, other.data, self.len)
+            if e == 0 { return Ordering::Equal }
+            if e < 0 { return Ordering::Less }
+            return Ordering::Greater
+        }
+        var n = if self.len < other.len => self.len else => other.len
+        var c = cmp_(self.data, other.data, n)
+        if c < 0 { return Ordering::Less }
+        if c > 0 { return Ordering::Greater }
+        if self.len < other.len { return Ordering::Less }
+        return Ordering::Greater
+    }
+
+    /// Equality. `<=>` derives one, but an interface requirement (Hash's
+    /// `op ==`, for `{string: V}` keys) is met only by a declared operator:
+    /// this is that one, the same test the derived form inlines to.
+    inline fn op == (const self, const other: string) -> bool {
+        if self.len != other.len { return false }
+        if self.data == other.data { return true }
+        return cmp_(self.data, other.data, self.len) == 0
+    }
+
+    /// `n` bytes from byte `pos`, clamped to the string. Copied, except a
+    /// borrowed string's suffix, which shares its static, NUL-terminated
+    /// bytes.
+    fn subslice(const self, pos: usize, n: usize) -> string {
+        var p = if pos < self.len => pos else => self.len
+        var k = if n < self.len - p => n else => self.len - p
+        var r = string()
+        if k == 0 { return r }
+        if (self.cap == 0) && (p + k == self.len) {
+            r.data = &self.data[p]
+            r.len  = k
+            r.cps  = if self.len == self.cps => k else => count_cps_(&self.data[p], k)
+            return r
+        }
+        r.assign_bytes_(&self.data[p], k)
+        return r
+    }
+
+    /// Prefix and suffix tests. Stage 0 also takes a single byte; a literal
+    /// converts to `string` for free (it is borrowed).
+    inline fn starts_with(const self, const needle: string) -> bool {
+        if needle.len > self.len { return false }
+        return cmp_(self.data, needle.data, needle.len) == 0
+    }
+    inline fn starts_with(const self, c: u8) -> bool {
+        return (self.len != 0) && (self.data[0] == c)
+    }
+    inline fn ends_with(const self, const needle: string) -> bool {
+        if needle.len > self.len { return false }
+        return cmp_(&self.data[self.len - needle.len], needle.data, needle.len) == 0
+    }
+    inline fn ends_with(const self, c: u8) -> bool {
+        return (self.len != 0) && (self.data[self.len - 1] == c)
+    }
 
     /// Byte offset of the last occurrence, or usize::MAX when absent
-    /// (Stage 0's npos) (3).
-    fn rfind(const self, needle: string) -> usize
-    fn rfind(const self, c: u8) -> usize
+    /// (Stage 0's npos). An empty needle is found at size().
+    fn rfind(const self, const needle: string) -> usize {
+        if needle.len > self.len { return usize::MAX }
+        var i = self.len - needle.len
+        while true {
+            if cmp_(&self.data[i], needle.data, needle.len) == 0 { return i }
+            if i == 0 { break }
+            --i
+        }
+        return usize::MAX
+    }
+    fn rfind(const self, c: u8) -> usize {
+        var i = self.len
+        while i != 0 {
+            --i
+            if self.data[i] == c { return i }
+        }
+        return usize::MAX
+    }
 
-    /// The bytes, NUL-terminated: Stage 0's `raw()` (32); same as as_ptr().
-    fn raw(const self) -> *const u8
+    // --- mutation -----------------------------------------------------------
+
+    /// Concatenation; `+` is derived from it. No call when the block has
+    /// room: the growth path is a separate cold member, entered as a tail
+    /// call, so the fast path needs no stack frame of its own. Appending a
+    /// string to itself is safe: `other.len` is read before a growth can
+    /// move `other.data`, which is then the new block.
+    inline fn op += (self, const other: string) {
+        var k = other.len
+        if k == 0 { return }
+        @likely if self.len + k < self.cap { self.append_(other.data, k, other.cps); return }
+        self.append_slow_(other)
+    }
+
+    /// Appends one byte. codepoints() counts it when it starts a codepoint,
+    /// so pushing a multibyte character byte by byte counts it once.
+    inline fn push_back(self, c: u8) {
+        @likely if self.len + 1 < self.cap { self.put_(c); return }
+        self.push_slow_(c)
+    }
+
+    /// k bytes at p, k > 0, into room the block already has.
+    priv inline fn append_(self, p: *const u8, k: usize, c: usize) {
+        var n = self.len + k
+        unsafe {
+            var unsafe *d = self.data as unsafe *u8
+            __builtin_copy(d + self.len, p as unsafe *const u8, k)
+            d[n] = 0
+        }
+        self.len = n
+        self.cps += c
+    }
+
+    /// One byte into room the block already has.
+    priv inline fn put_(self, c: u8) {
+        var n = self.len + 1
+        unsafe {
+            var unsafe *d = self.data as unsafe *u8
+            d[self.len] = c
+            d[n] = 0
+        }
+        self.len = n
+        self.cps += lead_(c)
+    }
+
+    /// Room for at least `n` bytes without another allocation. A borrowed
+    /// string asked for no more than it has stays borrowed.
+    inline fn reserve(self, n: usize) {
+        if (n >= self.cap) && ((self.cap != 0) || (n > self.len)) { self.realloc_(n + 1) }
+    }
+
+    // --- slow paths ---------------------------------------------------------
+
+    @cold_path @no_inline
+    priv fn append_slow_(self, const other: string) {
+        var k = other.len
+        self.grow_(self.len + k)
+        self.append_(other.data, k, other.cps)
+    }
+
+    @cold_path @no_inline
+    priv fn push_slow_(self, c: u8) {
+        self.grow_(self.len + 1)
+        self.put_(c)
+    }
+
+    /// Room for `need` bytes plus the NUL: double, at least MIN_BLOCK.
+    @cold_path @no_inline
+    priv fn grow_(self, need: usize) {
+        var want = self.cap * 2
+        if want < need + 1 { want = need + 1 }
+        if want < MIN_BLOCK { want = MIN_BLOCK }
+        self.realloc_(want)
+    }
+
+    /// Moves the bytes into a heap block of exactly `block` bytes
+    /// (block > len). An owned block is resized; a borrowed string's bytes
+    /// are copied out of their static storage.
+    @cold_path @no_inline
+    priv fn realloc_(self, block: usize) {
+        unsafe {
+            var p: unsafe *u8 = &null
+            if self.cap != 0 {
+                p = resize_raw(self.data as unsafe *u8, self.cap, block, 1)
+                if p == &null { oom(block, 1) }
+            } else {
+                p = alloc_raw(block, 1)
+                if p == &null { oom(block, 1) }
+                __builtin_copy(p, self.data as unsafe *const u8, self.len)
+                p[self.len] = 0
+            }
+            self.data = p as *const u8
+        }
+        self.cap = block
+    }
+
+    /// The copy constructor's and the mutable `[]`'s slow path: the bytes
+    /// `data` points at, which this string does not own, into a block of
+    /// its own of exactly len + 1 bytes.
+    @cold_path @no_inline
+    priv fn own_exact_(self) {
+        var block = self.len + 1
+        unsafe {
+            var unsafe *p = alloc_raw(block, 1)
+            if p == &null { oom(block, 1) }
+            __builtin_copy(p, self.data as unsafe *const u8, self.len)
+            p[self.len] = 0
+            self.data = p as *const u8
+        }
+        self.cap = block
+    }
+
+    /// Replaces an EMPTY string's contents with a copy of n > 0 bytes at d.
+    @cold_path @no_inline
+    priv fn assign_bytes_(self, d: *const u8, n: usize) {
+        var block = n + 1
+        unsafe {
+            var unsafe *p = alloc_raw(block, 1)
+            if p == &null { oom(block, 1) }
+            __builtin_copy(p, d as unsafe *const u8, n)
+            p[n] = 0
+            self.data = p as *const u8
+        }
+        self.len = n
+        self.cps = count_cps_(d, n)
+        self.cap = block
+    }
+
     // Not declared:
-    //   c_str() (13), `const char *`: c_char is __builtin_c_char in the
-    //     builtin root (module.k), which this file cannot import without a
-    //     cycle. Declare it once that alias moves to a file both can import,
-    //     or spell it `raw() as unsafe *const c_char` at the FFI call.
     //   view() (13) and std_string() (24) return C++'s std::string_view /
     //     std::string, and builtin cannot name a C++ type. They belong in
     //     std, or at the FFI boundary that needs them.
-
-
-    // --- Declared only when defined ---------------------------------------
-    // These change how existing code resolves the moment they exist, so
-    // each lands with its definition, not before: an operator here takes
-    // over the compiler's built-in `==` / `[]` / `+=` on strings (a
-    // declaration with no body turns every string comparison into a call
-    // that links against nothing), and a one-argument constructor makes
-    // `x as string` a conversion through it (casting.md).
-    //
-    // /// NUL-terminated bytes, copied: Stage 0's `string(const char *)` (20)
-    // /// and `string(const unsigned char *)` (5).
-    // fn string(self, c: *const u8)
-    //
-    // /// Bytes [0, len), copied (`string(sr.data(), sr.size())`).
-    // fn string(self, d: *const u8, l: usize)
-    //
-    // /// Concatenation (`+=` 950; `+` 3911 is derived from it).
-    // fn op += (self, other: string)
-    // /// Byte-wise ordering. Derives every comparison: `==` (809), `!=`
-    // /// (147), and `<` (7) / `>` (1) for map / set keys. A separate `op ==`
-    // /// (a length check first) would shadow the derived one; declaring both
-    // /// warns (SC001W) on every compile while either is a declaration only.
-    // fn op <=> (const self, other: string) -> Ordering
-    // /// The byte at `i`, as a place (266).
-    // fn op [] (self, i: usize) -> *u8
-    // fn op [] (const self, i: usize) -> *const u8
 }

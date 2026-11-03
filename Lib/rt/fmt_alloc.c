@@ -1,7 +1,8 @@
 /* --- The Kairo Project ------------------------ Lib/rt/fmt_alloc.c --- */
 /*
- *   The heap FmtBuf (Lib/builtin/fmt/fmt_buf.k) draws on, and the exact
- *   path's spill for a long fixed-precision request.
+ *   The exact path's spill for a long fixed-precision request
+ *   (fmt_layout.c). FmtBuf itself allocates through Lib/builtin/base/alloc.k
+ *   now, the allocator the string it finishes frees with.
  *
  *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
  *   Copyright (c) 2026 Dhruvan Kartik

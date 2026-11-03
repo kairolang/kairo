@@ -1,19 +1,14 @@
 // A Kairo `string` passed to a C `const char*` parameter through
-// `string.c_str()` (c-cpp-calling.mdx, Strings and const char*: "A
-// `string.c_str()` method is planned").
-//
-// XFAIL: *
-// Ticket "[Lib/Sema] A Kairo `string` cannot reach a C `const char*`: no
-// `string.c_str()`" (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today: R025E
-// "no member named 'c_str' in 'string'". (A string's `data` is `*const u8`,
-// and `*u8` to `*i8` is neither implicit nor a safe cast.) When it XPASSes,
-// delete the XFAIL -- the run below is already the real assertion.
+// `string.c_str()` (c-cpp-calling.mdx, Strings and const char*): O(1), a
+// literal's static bytes and an owned string's block both end in a NUL.
 
 ffi "c" import "string.h"
 
 fn main() -> i32 {
     var s = "hello"
-    return strlen(s.c_str()) as i32
+    var o = s + ", world"                   // owned: its block keeps the NUL
+    o.push_back(33)
+    return (strlen(s.c_str()) + strlen(o.c_str())) as i32   // 5 + 13
 }
 
 // --- lit wiring -----------------------------------------------------------
@@ -23,4 +18,4 @@ fn main() -> i32 {
 // REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
-// RUN: %t.exe; test $? -eq 5
+// RUN: %t.exe; test $? -eq 18

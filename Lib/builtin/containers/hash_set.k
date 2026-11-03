@@ -210,7 +210,11 @@ pub class <T impl Hash> HashSet {
     priv inline fn index_of(const self, const x: T) -> usize {
         if self.len == 0 { return HASH_NPOS }
         var slot: usize = 0
-        return self.probe(x, tag_of(x.hash()), &slot)
+        // The tag first, as its own statement: in one call, the effectful
+        // hash() after `x` makes SequenceLowering bind `x` by value, a
+        // deep copy of a string key on every lookup.
+        var t = tag_of(x.hash())
+        return self.probe(x, t, &slot)
     }
 
     /// HashMap::probe: x's index, or HASH_NPOS and the empty slot. len > 0.

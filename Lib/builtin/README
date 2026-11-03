@@ -19,6 +19,10 @@ sees them, so a new file is listed there or nothing outside builtin sees it.
     module.k                  the root: the re-exports, plus what must be
                               declared in `::builtin` itself (see below)
     string.k                  string                    ""
+    alloc_raw.k               alloc_raw / free_raw / resize_raw, Global,
+                              System, the allocator interfaces, the OOM
+                              hook, the scope stack (base/alloc.k re-exports
+                              it; not pub imported here)
     base/range.k              Range, RangeFrom, RangeTo a..b  a..  ..b
     base/ordering.k           Ordering                  <=>
     base/byte_t.k             Byte                      byte's C++ spelling
@@ -26,6 +30,9 @@ sees them, so a new file is listed there or nothing outside builtin sees it.
     base/intrinsics.k         __builtin_* intrinsics    memory, traits, bits, atomics, target
     base/hash.k               Hash, hash_bytes, mix64   a `{K: V}` / `{T}` key; the
                                                         primitives' and string's conformance
+    base/c_char.k             __builtin_c_char          C's `char` (std::c_char)
+    base/alloc.k              create / destroy, Uninitialized, AllocatorScope
+                              (not pub imported here: std/mem.k re-exports it)
     num/bigint.k              BigInt                    big integer literals
     num/bigfloat.k            BigFloat                  big float literals
     errors/panic_result.k     Panic                     a `panic` fn's result
@@ -97,12 +104,12 @@ see an empty lang-item table and report the item missing from inside
 builtin itself. Imports are acyclic: two entities that name each other
 share a file (coro/generator.k).
 
-A container or string that owns memory imports base/alloc.k and allocates
-through its non-_in family (alloc_raw / free_raw / resize_raw: the
-allocator in effect), never mi_* or malloc. alloc.k does not import the
-root: `T?` binds Nullable without it, and the import closed a cycle
-(module.k -> containers/vector.k -> alloc.k -> module.k) that warned R001W
-on every compile.
+A container or string that owns memory allocates through the non-_in
+family (alloc_raw / free_raw / resize_raw: the allocator in effect), never
+mi_* or malloc; see Allocation below for which file to import. alloc.k does
+not import the root: `T?` binds Nullable without it, and the import closed
+a cycle (module.k -> containers/vector.k -> alloc.k -> module.k) that
+warned R001W on every compile.
 
 Vector (containers/vector.k) is the whole of `[T]`: layout, constructors,
 the deep @copy, the destructor, `op []`, `op in`, `op as [T;]` and every
@@ -150,13 +157,15 @@ namespace (and CanonicalNodes.k spells Byte's: "::builtin::base::byte_t::Byte").
     NicheOf         __builtin_niche_of       module.k
     TypeIdOf        __builtin_type_id        module.k
     PanicSiteOf     __builtin_panic_site     module.k
-    CChar           __builtin_c_char         module.k (std::c_char in std/ctypes.k)
+    CChar           __builtin_c_char         base/c_char.k (std::c_char in std/ctypes.k)
     (Array)         none: `[T; N]` stays a structural array
 
 Members found by name too (LangMembers in LangItems.k): Range's `begin`,
 `end`, `inclusive`; Slice's `data`, `len`; string's `data`, `len` (and its
-empty and 3-argument literal constructors, made constexpr by
-NameResolution::_literal_ctor_constexpr); Yield's `next`, `current`;
+empty and 3-argument literal constructors, its copy constructor and its
+destructor, made constexpr by NameResolution::_literal_ctor_constexpr so
+strings work in eval: keep string to ONE 3-argument constructor);
+Yield's `next`, `current`;
 FmtBuf's `text`, `finish` and the `put_<kind>` family (fmt_put_name).
 
 Not lang items, but named by something else and so not free to rename:
@@ -203,3 +212,26 @@ Where a new API goes
   - C the builtin calls: Lib/rt (see its README), declared in an rt/*.h the
     builtin file imports with `ffi`.
   - Anything only users call and the compiler never names: Lib/std.
+    Except a method of a builtin type: a plain `extend` must be in the
+    type's own file (extends.mdx), so string's whole API (size, subslice,
+    push_back, ...) is in string.k, beside the operators lowerings reach.
+
+Allocation
+----------
+
+A builtin type that owns memory takes it from alloc_raw.k's
+current-allocator family (alloc_raw / free_raw / resize_raw, `oom` on
+failure), never from malloc or mi_* directly: the block then goes back to
+whichever allocator made it, an open AllocatorScope included. string and
+FmtBuf share it, so the block an f-string builds is the string's and its
+destructor frees it.
+
+alloc_raw.k imports neither the root nor string, and must stay that way:
+the root imports string.k, which imports alloc_raw.k, so naming string
+there (a string literal, an assert message) would be a cycle. base/alloc.k
+imports string for its messages and re-exports alloc_raw.k; string.k
+imports alloc_raw.k only, never alloc.k (string <-> alloc would be a
+cycle).
+alloc_raw.k sits at the root, not in base/, so a program's
+builtin/alloc_raw.o lands beside builtin/string.o (code that links
+builtin/*.o by hand gets both).

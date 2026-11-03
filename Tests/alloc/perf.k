@@ -81,7 +81,7 @@ fn main() -> i32 {
 // points, mi_malloc_small and mi_free_small_nonnull, chosen at compile time.
 // RUN: { ! grep -q __clang_call_terminate %t.asm; }
 // RUN: %FileCheck %s --check-prefix=EH < %t.asm
-// EH-LABEL: alloc3oomEmm>:
+// EH-LABEL: 9alloc_raw3oomEmm>:
 // EH-NOT: callq {{.*}}<
 // EH: callq *(%rcx)
 // EH-NEXT: callq *(%rcx)

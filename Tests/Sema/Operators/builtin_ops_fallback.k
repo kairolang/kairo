@@ -1,6 +1,6 @@
 // A builtin type that declares no applicable operator keeps its built-in
-// shape (RESOLUTION.md, "A builtin type's declared operator wins"): `v[i]`,
-// `m[k]` and `s[i]` type as the element with no `op []` in scope, and
+// shape (RESOLUTION.md, "A builtin type's declared operator wins"): `m[k]`
+// types as the element with no `op []` in scope (string's `s[i]` is its own, a u8), and
 // iterating a builtin container with no `op in (self) -> yield T` is SC116E.
 // The containment `op in (self, x)` below is no iteration form: the set loop
 // (line 24) is quiet only because HashSet declares `op in (self) -> yield T`.
@@ -17,7 +17,7 @@ extend <T> {T} {
 fn index(v: [i32], m: {i32: i32}, s: string) -> i32 {
     var a: i32 = v[0]
     var b: i32 = m[1]
-    var c: char = s[0]
+    var c: u8 = s[0]
     return a + b
 }
 

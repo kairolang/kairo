@@ -30,6 +30,7 @@
 ffi "c++" import "rt/fmt.h"
 
 import string::*
+import alloc_raw::{alloc_raw, resize_raw, oom}
 
 pub class FmtBuf {
     pub var data:   *u8
@@ -39,7 +40,11 @@ pub class FmtBuf {
 
     /// `cap` bytes of headroom, plus the NUL finish() writes.
     pub fn FmtBuf(self, cap: usize) {
-        unsafe { self.data = kairo_rt_fmt_alloc(cap + 1) as *u8 }
+        // The allocator in effect, as string's own blocks: finish() hands
+        // this block to a string, whose destructor frees it with free_raw.
+        var unsafe *p = alloc_raw(cap + 1, 1)
+        @unlikely if p == &null { oom(cap + 1, 1) }
+        unsafe { self.data = p as *u8 }
         self.len    = 0
         self.cp_len = 0
         self.cap    = cap
@@ -294,9 +299,15 @@ pub class FmtBuf {
         var nc = self.cap * 2
         if nc < need { nc = need }
         // The pointer itself widens, never `&self.data[0]`: data is null on
-        // a finished buffer, indexing it is a dereference even when only the
-        // address is taken, and realloc(NULL, n) is malloc(n).
-        unsafe { self.data = kairo_rt_fmt_realloc(self.data as unsafe *u8, nc + 1) as *u8 }
+        // a finished buffer, and indexing it is a dereference even when only
+        // the address is taken. A null one has no block to resize.
+        var p: unsafe *u8 = &null
+        unsafe {
+            if self.data != &null { p = resize_raw(self.data as unsafe *u8, self.cap + 1, nc + 1, 1) }
+            else { p = alloc_raw(nc + 1, 1) }
+        }
+        @unlikely if p == &null { oom(nc + 1, 1) }
+        unsafe { self.data = p as *u8 }
         self.cap  = nc
     }
 
