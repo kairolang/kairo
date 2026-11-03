@@ -441,6 +441,10 @@ class ParamDecl derives Decl {
     /// the parameter has no default, or has an imported C++ one (has_default),
     /// which is omitted from the call and never has a thunk.
     pub var default_thunk: *Decl = &null;
+    /// This parameter WROTE the default default_thunk was minted from
+    /// (CallLowering places the thunk beside it), and whether it has been.
+    pub var default_thunk_home:   bool = false;
+    pub var default_thunk_placed: bool = false;
 
     /// is_pack only: the parameter's C++ type, `Slice<E>` by value, E being
     /// the canonical `type_` names. Stamped by CallLowering when it visits

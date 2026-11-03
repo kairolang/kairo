@@ -110,6 +110,8 @@ import AST::Kind::ExprKind::*;
 import AST::Kind::TypeKind::*;
 import Token::Token::*;
 import Location::SourceRange::*;
+import Location::SourceManager::*;
+import Location::FullSourceLocation::*;
 
 /// One default: minted once per (entity, parameter index).
 class ThunkSlot {
@@ -117,6 +119,7 @@ class ThunkSlot {
     pub var index:   usize         = 0;       ///< into params, `self` included.
     pub var thunk:   *FunctionDecl = &null;
     pub var carrier: *FunctionDecl = &null;   ///< the link that wrote the default.
+    pub var home:    *ParamDecl    = &null;   ///< its parameter that wrote it.
     pub var spliced: bool          = false;
     fn ThunkSlot(self) { }
 }
@@ -156,8 +159,14 @@ class CallLowering derives ASTWriter::<CallLowering> {
         if self.sc->tu == &null { return; }
         ASTWriter::<CallLowering>::run(self.sc->tu);
         for var i: usize = 0; i < self._slots.size(); ++i {
-            ICE_IF(!self._slots[i].spliced,
-                "CallLowering: a default thunk was minted but the declaration that wrote the default was never visited");
+            var s = &(self._slots[i]);
+            if s->spliced { continue; }
+            // Minted for a callee whose default is written in ANOTHER TU
+            // that had not been lowered yet (whole-tree, cycle groups): that
+            // TU's own walk places it (transform_function_decl, below).
+            if NameLookup::ctx_of(static_cast::<*Decl>(s->carrier)) != self.sc->ctx { continue; }
+            var full: FullSourceLocation = self.sc->ctx->sm->get_line_col(s->carrier->range.start);
+            ICE_FAIL(f"CallLowering: a default thunk was minted for '{self.tu.decl_name(s->entity)}' parameter {s->index}, but the declaration that wrote the default ({full.path.full_path()}:{full.line}:{full.column}) was never visited");
         }
     }
 
@@ -180,8 +189,20 @@ class CallLowering derives ASTWriter::<CallLowering> {
             var s = &(self._slots[i]);
             if (s->carrier != n) || s->spliced { continue; }
             s->spliced = true;
+            if s->home != &null { s->home->default_thunk_placed = true; }
             if n->is_out_of_line() { self._append_member(n, s->thunk); }
             else { out.push_back(static_cast::<*Decl>(s->thunk)); }
+        }
+        // A thunk another TU minted from this declaration's default, before
+        // this TU was lowered (it moved the default out, so no slot here
+        // names it): placed here, where the default is written.
+        for var i: usize = 0; i < n->params.size(); ++i {
+            var p = n->params[i];
+            if (p == &null) || (p->default_thunk == &null) || (!p->default_thunk_home) || p->default_thunk_placed { continue; }
+            p->default_thunk_placed = true;
+            var th = cast::<FunctionDecl>(p->default_thunk);
+            if n->is_out_of_line() { self._append_member(n, th); }
+            else { out.push_back(static_cast::<*Decl>(th)); }
         }
         return out;
     }
@@ -207,8 +228,10 @@ class CallLowering derives ASTWriter::<CallLowering> {
         s.index   = i;
         s.thunk   = th;
         s.carrier = carrier;
+        s.home    = p;
         self._slots.push_back(s);
 
+        p->default_thunk_home = true;
         var v = p->default_val;
         p->default_val = &null;                                   // moved: one node, one parent.
         if !self._was_entered(carrier) { v = self.transform_expr(v); }   // lower it now; the carrier's walk will find it moved.
@@ -254,7 +277,15 @@ class CallLowering derives ASTWriter::<CallLowering> {
 
         var at   = (p->default_val->range) if (p->default_val != &null) else (p->range);
         var name = LowerTargets::default_thunk(self.tu.decl_name(static_cast::<*Decl>(f)), self.tu.param_name(p)) + self._ordinal(f);
-        var th   = self._new_fn(at, self.synth.ident(at, name), reinterpret_cast::<*DeclContext>(sem));
+        var nt   = self.synth.ident(at, name);
+        // A token's spelling is read through ITS file's table, and `at` is
+        // in the carrier's file: minted from another TU of an import cycle,
+        // the name must be interned there, or it spells nothing in C++.
+        var cctx = NameLookup::ctx_of(static_cast::<*Decl>(carrier));
+        if (cctx != &null) && (cctx != self.sc->ctx) && (cctx->get_imm_table() != &null) {
+            nt.imm = cctx->get_imm_table()->intern_ident_copy(name);
+        }
+        var th   = self._new_fn(at, nt, reinterpret_cast::<*DeclContext>(sem));
         th->semantic_dc    = sem;
         th->lexical_dc     = lex;
         th->visibility     = VisibilityKind::Public;
