@@ -112,7 +112,15 @@ KAIRO_RT_INL void kairo_rt_aligned_free(unsigned char* p, std::size_t, std::size
 #if defined(__linux__) || defined(_WIN32) || defined(__APPLE__) || defined(__FreeBSD__) \
  || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__ANDROID__) || defined(__wasi__) \
  || defined(__EMSCRIPTEN__)
-  #define KAIRO_RT_SCOPE_TLS thread_local
+  #if defined(__APPLE__) && defined(__has_feature)
+    #if __has_feature(cxx_thread_local)
+      #define KAIRO_RT_SCOPE_TLS thread_local
+    #else
+      #define KAIRO_RT_SCOPE_TLS
+    #endif
+  #else
+    #define KAIRO_RT_SCOPE_TLS thread_local
+  #endif
 #else
   #define KAIRO_RT_SCOPE_TLS
 #endif

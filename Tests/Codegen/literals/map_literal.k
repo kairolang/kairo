@@ -1,13 +1,9 @@
 // A map literal, then a store and a load by key (collections.mdx, Maps).
 //
-// XFAIL: *
-// Ticket "[Lower] Set and map literals have no lowering and ICE"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today it ICEs, under
-// --type-check-only too:
-// "ListLiteralLowering: map literal has no lowering yet; {K: V} cannot reach
-// codegen". Until maps are compiled this should be SC116E, not an ICE. When
-// it XPASSes, delete the XFAIL -- the run below is already the real
-// assertion.
+// ListLiteralLowering builds it as `HashMap(<the entries as a slice of
+// (K, V) tuples>)` (Lib/builtin/containers/hash_map.k); the ticket "[Lower]
+// Set and map literals have no lowering and ICE" (2026-10-26) is fixed by
+// that lowering.
 
 fn main() -> i32 {
     var ages: {string: i32} = {"Alice": 30, "Bob": 25}

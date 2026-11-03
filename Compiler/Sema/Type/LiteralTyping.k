@@ -861,6 +861,9 @@ class <T> LiteralTyping {
     }
 
     fn type_set_literal(self, n: *SetLiteralExpr, expected: *Type) -> *Type {
+        // `{}` parses as a set; against a map target it is the empty map.
+        var target = dyn()->tu.strip_nullable(expected);
+        if (n->elements.size() == 0) && (target != &null) && dyn()->tu.is_map_like(target) { return canon_unqual(target); }
         var elem_expected = dyn()->tu.container_elem(dyn()->tu.strip_nullable(expected));
         var elem: *Type = elem_expected;
         var hole: *Expr = &null;
@@ -909,6 +912,12 @@ class <T> LiteralTyping {
         if (k == &null) || (v == &null) {
             if n->entries.size() == 0 { dyn()->fail(n, DiagID::SC078E, "cannot infer the key and value types of an empty map; annotate the target"); }
             return &null;
+        }
+        // ListLiteralLowering builds the entries as `(K, V)` tuples: mint the
+        // Tuple2 instance here, while instances are still being registered.
+        if n->entries.size() > 0 {
+            var kv = vec::<*Type>(); kv.push_back(k); kv.push_back(v);
+            dyn()->tu.tuple_of(&kv);
         }
         return dyn()->tu.map_of(k, v);
     }

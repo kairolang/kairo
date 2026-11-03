@@ -1,17 +1,13 @@
 // A set literal (collections.mdx, Sets): `var primes: {i32} = {2, 3, 5, 7,
 // 11}` builds a hash set.
 //
-// XFAIL: *
-// Ticket "[Lower] Set and map literals have no lowering and ICE"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today it ICEs, under
-// --type-check-only too:
-// "ListLiteralLowering: set literal has no lowering yet; {T} cannot reach
-// codegen". Until sets are compiled this should be SC116E, not an ICE. When
-// it XPASSes, delete the XFAIL -- the run below is already the real
-// assertion.
+// ListLiteralLowering builds it as `HashSet(<the elements as a slice>)`
+// (Lib/builtin/containers/hash_set.k); the ticket "[Lower] Set and map
+// literals have no lowering and ICE" (2026-10-26) is fixed by that lowering.
 
 fn main() -> i32 {
     var primes: {i32} = {2, 3, 5, 7, 11}
+    if (primes.size() != 5) || !primes.contains(7) || primes.contains(4) { return 1 }
     return 0
 }
 

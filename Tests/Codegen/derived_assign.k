@@ -140,7 +140,9 @@ fn main() -> i32 {
 
 // Each row as C++ is given it. Only a TU whose classes rebuild in place
 // includes <new>: coro/generator.k writes Yield's, and the region between
-// the next two labels is builtin coro/suspend.k's preamble, which writes none.
+// the next two labels is builtin coro/suspend.k's preamble, which writes none
+// (coro/future.k's preamble comes next; later builtin preambles, the
+// containers', do include it).
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}generator.k
 // CXX-NEXT:  #include <new>

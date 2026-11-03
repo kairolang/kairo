@@ -24,6 +24,7 @@ pub import base::ordering::*
 pub import base::byte_t::*
 pub import base::pow::*
 pub import base::intrinsics::*
+pub import base::hash::*
 
 pub import num::bigint::*
 pub import num::bigfloat::*

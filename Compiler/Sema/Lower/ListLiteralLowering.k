@@ -31,8 +31,11 @@
 ///     and ICE by name.
 ///
 ///   \par Postcondition
-///     No ListLiteralExpr reaches codegen, poisoned ones excepted (the gate
-///     stops those). Set and map literals have no lowering yet and ICE.
+///     No ListLiteralExpr, SetLiteralExpr or MapLiteralExpr reaches codegen,
+///     poisoned ones excepted (the gate stops those). A set literal is
+///     `HashSet(<its elements as a slice>)` and a map literal `HashMap(<its
+///     entries as a slice of (K, V) tuples>)`, through the same backing as a
+///     vector's; empty, each is the default constructor.
 ///
 ///   Phase: LOWER, after OperatorLowering.
 ///
@@ -167,14 +170,79 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
         return self._ctor_call(n->range, n->owner_ctor, to_string(WellKnownType::Vector), &args, n->type_);
     }
 
+    /// `{a, b}` -> `HashSet(Slice(<array prvalue>, N))`; `{}` typed as a set
+    /// -> `HashSet()`. The set's own constructor inserts in order, so a
+    /// repeated element keeps its first place.
     fn transform_set_literal_expr(self, n: *SetLiteralExpr) -> *Expr {
-        ICE_FAIL("ListLiteralLowering: set literal has no lowering yet; {T} cannot reach codegen");
-        return static_cast::<*Expr>(n);
+        var out = ASTWriter::<ListLiteralLowering>::transform_set_literal_expr(n);
+        if n->is_poisoned() || (n->type_ == &null) { return out; }
+        var none = self.list_builder::<*Expr>();
+        if self.tu.is_map_like(canon_unqual(n->type_)) { return self._hashed(n->range, n->type_, WellKnownType::HashMap, &null, &none); }   // `{}` as a map.
+        var elem = self.tu.container_elem(canon_unqual(n->type_));
+        ICE_IF(elem == &null, "ListLiteralLowering: a set literal whose type is not a HashSet; LiteralTyping::type_set_literal invariant violation");
+        var elems = self.list_builder::<*Expr>();
+        for var i: usize = 0; i < n->elements.size(); ++i { elems.push(n->elements[i]); }
+        return self._hashed(n->range, n->type_, WellKnownType::HashSet, elem, &elems);
     }
 
+    /// `{k: v, ...}` -> `HashMap(Slice(<array of (k, v) tuples>, N))`: one
+    /// braced array, so the entries are evaluated in written order, key
+    /// before value. `{}` typed as a map -> `HashMap()`.
     fn transform_map_literal_expr(self, n: *MapLiteralExpr) -> *Expr {
-        ICE_FAIL("ListLiteralLowering: map literal has no lowering yet; {K: V} cannot reach codegen");
-        return static_cast::<*Expr>(n);
+        var out = ASTWriter::<ListLiteralLowering>::transform_map_literal_expr(n);
+        if n->is_poisoned() || (n->type_ == &null) { return out; }
+        var kt: *Type = &null; var vt: *Type = &null;
+        ICE_IF(!self.tu.map_key_value(canon_unqual(n->type_), &kt, &vt), "ListLiteralLowering: a map literal whose type is not a HashMap; LiteralTyping::type_map_literal invariant violation");
+        var kv = vec::<*Type>(); kv.push_back(kt); kv.push_back(vt);
+        var tt = self.tu.tuple_of(&kv);
+        ICE_IF(tt == &null, "ListLiteralLowering: no Tuple2 record for a map literal's entries; LiteralTyping mints it");
+        var elems = self.list_builder::<*Expr>();
+        for var i: usize = 0; i < n->entries.size(); ++i {
+            var en = n->entries.get(i);
+            var init = NamedInitializerExpr::create(self.ctx, en->range, &null);
+            var fields = self.list_builder::<InitField>();
+            for var j: usize = 0; j < 2; ++j {
+                var e  = (en->key) if (j == 0) else (en->value);
+                var fd = self.tu.tuple_field(tt, j);
+                ICE_IF(fd == &null, "ListLiteralLowering: Tuple2 record with fewer than two fields");
+                var f = InitField{};
+                f.name       = self.synth.ident(e->range, self.tu.decl_name(static_cast::<*Decl>(fd)));
+                f.value      = e;
+                f.range      = e->range;
+                f.field_decl = static_cast::<*Decl>(fd);
+                fields.push(f);
+            }
+            fields.freeze_into(&(init->fields));
+            init->type_          = tt;
+            init->value_category = Expr::ValueCategory::RValue;
+            elems.push(static_cast::<*Expr>(init));
+        }
+        return self._hashed(n->range, n->type_, WellKnownType::HashMap, tt, &elems);
+    }
+
+    /// The HashSet / HashMap lang record \p ty built from \p elems: its
+    /// default constructor when there are none, else its one-slice
+    /// constructor over a full-expression backing array, as a vector's.
+    priv fn _hashed(self, at: SourceRange, ty: *Type, k: WellKnownType, elem: *Type, elems: *ListBuilder::<*Expr>) -> *Expr {
+        var args = self.list_builder::<*Expr>();
+        var ctor: *Decl = &null;
+        if elems->size() == 0 {
+            ctor = self.tu.lang_ctor(k, 0, false);
+        } else {
+            ctor = self.tu.lang_ctor(k, 1, true);
+            var st = self.tu.slice_of(elem);
+            ICE_IF(st == &null, "ListLiteralLowering: the Slice lang item is unbound under a set or map literal");
+            var lit = ListLiteralExpr::create(self.ctx, at);
+            elems->freeze_into(&(lit->elements));
+            lit->type_          = st;
+            lit->value_category = Expr::ValueCategory::RValue;
+            lit->storage        = ListStorage::FullExpr;
+            lit->slice_ctor     = self.tu.lang_ctor(WellKnownType::Slice, 2, false);
+            ICE_IF(lit->slice_ctor == &null, "ListLiteralLowering: Slice has no (data, len) constructor");
+            args.push(self._slice(lit, st, elem));
+        }
+        ICE_IF(ctor == &null, f"ListLiteralLowering: {to_string(k)} has no constructor for a literal (Lib/builtin declares `()` and one taking a slice)");
+        return self._ctor_call(at, ctor, to_string(k), &args, ty);
     }
 
     // --- pieces ---------------------------------------------------------------
