@@ -1565,6 +1565,23 @@ class OverloadResolution {
             if (r == ImplicitRank::Exact) && (a->lit == LitKind::None) && (a->ty != &null) && self.tu.is_integer(a->ty) {
                 c->ints[i] = (2) if (p->cxx_int_alias) else (1);
             }
+            // usize / isize is C++'s size_t / ptrdiff_t, which every target
+            // Kairo builds for makes the natural C type of its width
+            // (`unsigned long` on LP64, `unsigned long long` on LLP64). So
+            // against an imported same-width integer parameter it is the
+            // identity where that parameter is the natural type and a
+            // conversion where it is the other alias -- the same order the
+            // fixed-width case has at Exact. Without it both converted and
+            // `cxx::std::to_string(n)` with n: usize tied `to_string(unsigned
+            // long)` and `to_string(unsigned long long)`, which clang does not.
+            if (r == ImplicitRank::Converted) && f->is_imported() && (a->lit == LitKind::None) && (a->ty != &null) {
+                var ak = self.tu.kind_of(self.tu.as_value(a->ty));
+                if ((ak == BuiltinKind::USize) || (ak == BuiltinKind::ISize)) && self.tu.is_integer(pt)
+                && (self.tu.int_bits(canon_unqual(pt)) == self.tu.int_bits(canon_unqual(self.tu.as_value(a->ty))))
+                && (self.tu.is_signed_int(pt) == (ak == BuiltinKind::ISize)) {
+                    c->ints[i] = (2) if (p->cxx_int_alias) else (1);
+                }
+            }
             if (r == ImplicitRank::Exact) && (a->lit == LitKind::Float) { c->flits[i] = self._flit_code(pt); }
             if (mode == ParamMode::Inout) && (!a->marked) {
                 c->inout_unmarked.push_back(i);
