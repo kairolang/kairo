@@ -100,6 +100,7 @@
 ///
 
 ffi "c++" import "llvm/ADT/DenseSet.h";
+ffi "c++" import "llvm/Object/ObjectFile.h";
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
 import Diagnostic::Code::*;
@@ -1601,6 +1602,15 @@ class CompilerInstance {
     ///          not clang's driver: the runtime is Kairo's own code and is
     ///          built exactly as Kairo's TUs are (int128, no finite loops,
     ///          Kairo's exception model). Runtime objects never take -o.
+    ///
+    ///          Each object is taken from the toolchain's runtime cache
+    ///          (_rt_cache_dir) when an entry for its exact cc1 line and
+    ///          inputs is there, and stored into it after a compile: without
+    ///          it every link rebuilt mimalloc at -O2, 1.6 s of a 2 s
+    ///          trivial program. Copied in and out rather than linked from
+    ///          the cache, so a link never holds a file another run may
+    ///          replace or collect, and --kairo-lib's private build
+    ///          directory still holds its own objects.
     priv fn _compile_runtime(self) -> bool {
         var runtime = self._runtime_sources();
         if runtime.size() == 0 { return true; }
@@ -1628,13 +1638,52 @@ class CompilerInstance {
         var objs = vec::<string>();
         var logs = vec::<string>();
         var oks  = vec::<u8>();     // not vec<bool>: its bits share bytes across threads
+        var ents = vec::<string>(); // the cache entry a compiled object is stored to; "" for none
+
+        var cache = self._rt_cache_dir();
+        if (!cache.empty()) && (!LinkFS::make_dirs(cache)) { cache = ""; }
+        var fp = "";
+        if !cache.empty() { fp = string(llvm::utohexstr(llvm::xxh3_64bits(sref(self._rt_fingerprint())))); }
+        var force = self.invocation().frontend.force_recompile;
+        var exe = std::get_exe_path();
+        var none = libcxx::shared_ptr::<clang::CompilerInvocation>();
+
         for src: InputKind in runtime {
-            var obj = dir + "/kairo/" + Path(src.path).stem() + ".o";
+            var stem = Path(src.path).stem();
+            var obj = dir + "/kairo/" + stem + ".o";
             Path::make_parent_dirs(obj);
-            invs.push_back(self._backend->native_invocation(src.path, obj, src.type_name(), src.is_c_family_c(), extra));
+            var key = "";
+            var inv = self._backend->native_invocation(src.path, obj, src.type_name(), src.is_c_family_c(), extra, &key);
+            var entry = "";
+            var hit = false;
+            if (!cache.empty()) && (inv.get() != &null) {
+                // <stem>-<slot>-<inputs>.o: the slot is the compiler and the
+                // cc1 line, the second hash every file the object is built
+                // from. A store replaces its slot's older entries, so a
+                // compiler rebuild or a Lib/rt edit replaces the entry
+                // rather than adding one per build.
+                var slot = string(llvm::utohexstr(llvm::xxh3_64bits(sref(exe + "\n" + key))));
+                entry = cache + "/" + stem + "-" + slot + "-" + fp + ".o";
+                if force {
+                    Logger::info(Logger::Stage::Driver, f"runtime cache bypassed (--force-recompile): {entry}");
+                } else if CompilerInstance::_rt_cache_fetch(entry, obj) {
+                    Logger::info(Logger::Stage::Driver, f"runtime cache hit: {entry}");
+                    hit = true;
+                } else {
+                    Logger::info(Logger::Stage::Driver, f"runtime cache miss: {entry}");
+                }
+            }
+            if hit {
+                invs.push_back(none);
+                ents.push_back("");
+                oks.push_back(u8(1));
+            } else {
+                invs.push_back(inv);
+                ents.push_back(entry);
+                oks.push_back(u8(0));
+            }
             objs.push_back(obj);
             logs.push_back("");
-            oks.push_back(u8(0));
         }
         var be     = self._backend;
         var inv_p  = invs.data();
@@ -1651,13 +1700,154 @@ class CompilerInstance {
         self._pool->wait_group(NATIVE_GROUP());
 
         var ok = true;
+        var stored = false;
         for var i: usize = 0; i < n; ++i {
             if !logs[i].empty() { std::eprint(logs[i]); }
             if oks[i] == u8(0) { ok = false; continue; }
+            if !ents[i].empty() { stored = CompilerInstance::_rt_cache_store(objs[i], ents[i]) || stored; }
             self._native_objs.push_back(objs[i]);
             Logger::info(Logger::Stage::Driver, f"emitted object {objs[i]}");
         }
+        if stored { CompilerInstance::_rt_cache_gc(cache); }
         return ok;
+    }
+
+    // --- The runtime object cache ----------------------------------------
+
+    /// \brief where _compile_runtime caches the runtime's objects:
+    ///        <cache root>/rt (_cache_root), shared by every link of every
+    ///        target and option set; "" when there is no cache root.
+    priv fn _rt_cache_dir(self) -> string {
+        if self._backend == &null { return ""; }
+        var root = CompilerInstance::_cache_root();
+        if root.empty() { return ""; }
+        return root + "/rt";
+    }
+
+    /// `<path> <size> <mtime>` for one file, or `<path> -` when it cannot
+    /// be stat'd (a file that appears later then changes the key too).
+    priv static fn _rt_stamp(p: string) -> string {
+        var st: llvm::sys::fs::file_status;
+        var ec = llvm::sys::fs::status(llvm::Twine(sref(p)), st, true);
+        if ec { return p + " -\n"; }
+        var size  = static_cast::<u64>(st.getSize());
+        var mtime = static_cast::<u64>(st.getLastModificationTime().time_since_epoch().count());
+        return f"{p} {size} {mtime}\n";
+    }
+
+    /// \brief every file a runtime object may be built from, stamped: the
+    ///        compiler (clang is linked into it, and it stages the sysroot
+    ///        and resource dir beside itself), every file directly in
+    ///        <runtime root>/rt (sources and the headers they share), and
+    ///        the vendored mimalloc (_runtime_deps: a submodule bump never
+    ///        touches rt/mimalloc.c).
+    ///
+    /// \details One set for all of the runtime's objects, not each one's own
+    ///          includes: any change rebuilds all of them, which costs only
+    ///          the first link after it, and no include an object reads can
+    ///          be left out of its key. Sorted, so the key does not follow
+    ///          readdir.
+    priv fn _rt_fingerprint(self) -> string {
+        var out = CompilerInstance::_rt_stamp(std::get_exe_path());
+        var rroot = self._runtime_root();
+        if rroot.empty() { return out; }
+        var rt = Path::join_str(rroot, "rt");
+        var files = vec::<string>();
+        for name: string in LinkFS::list_dir(rt) {
+            var p = rt + "/" + name;
+            if LinkFS::is_file(p) { files.push_back(p); }
+        }
+        llvm::sort(files.begin(), files.end(),
+            fn (const a: ref!(string), const b: ref!(string)) || -> bool = a < b);
+        for p: string in files { out += CompilerInstance::_rt_stamp(p); }
+        for p: string in self._runtime_deps() { out += CompilerInstance::_rt_stamp(p); }
+        return out;
+    }
+
+    /// \brief copies the cache entry \p entry to \p obj; false (compile it)
+    ///        when there is none or it does not read as an object file.
+    ///
+    /// \details Entries are only ever renamed into place whole
+    ///          (_rt_cache_store), so a partial write is never seen; the
+    ///          parse guards against what else can damage a file in a cache
+    ///          directory (a full disk, a crash of the file system, a hand
+    ///          edit), which would otherwise fail the link instead of
+    ///          rebuilding the object.
+    priv static fn _rt_cache_fetch(entry: string, obj: string) -> bool {
+        if !LinkFS::is_file(entry) { return false; }
+        {
+            var o = llvm::object::ObjectFile::createObjectFile(sref(entry));
+            if !o {
+                llvm::consumeError(o.takeError());
+                return false;
+            }
+        }
+        var ec = llvm::sys::fs::copy_file(llvm::Twine(sref(entry)), llvm::Twine(sref(obj)));
+        if ec {
+            LinkFS::remove(obj);
+            return false;
+        }
+        return true;
+    }
+
+    /// \brief stores the object \p obj as the cache entry \p entry: copied to
+    ///        a private name and renamed into place, so a parallel link reads
+    ///        the whole object or none; two runs that both missed write the
+    ///        same bytes and the last rename wins. Then the slot's older
+    ///        entries (`<stem>-<slot>-*.o`, other inputs) are removed.
+    ///
+    /// \return true when the entry was written.
+    priv static fn _rt_cache_store(obj: string, entry: string) -> bool {
+        var tmp = f"{entry}.tmp-{llvm::sys::Process::getProcessId()}";
+        var ec = llvm::sys::fs::copy_file(llvm::Twine(sref(obj)), llvm::Twine(sref(tmp)));
+        if ec {
+            LinkFS::remove(tmp);
+            return false;
+        }
+        if !LinkFS::rename(tmp, entry) {
+            LinkFS::remove(tmp);
+            return false;
+        }
+        var dir  = LinkFS::parent(entry);
+        var name = LinkFS::filename(entry);
+        // Through the last '-': <stem>-<slot>-. A stem may itself hold
+        // '-', the two hashes never do.
+        var cut = name.size();
+        var found = false;
+        while cut > 0 {
+            cut -= 1;
+            if name[cut] == '-' { found = true; break; }
+        }
+        if !found { return true; }
+        var prefix = string(name.raw(), cut + 1);
+        for other: string in LinkFS::list_dir(dir) {
+            if (other == name) || (!other.starts_with(prefix)) || (!other.ends_with(".o")) { continue; }
+            // Only <prefix><hash>.o; the slot hash already separates stems
+            // that share a prefix, this is belt and braces.
+            var rest = string(other.raw() + prefix.size(), other.size() - prefix.size());
+            if !(string::npos == rest.view().find(r"-")) { continue; }
+            LinkFS::remove(dir + "/" + other);
+        }
+        return true;
+    }
+
+    /// \brief removes the runtime cache's entries no store has refreshed for
+    ///        30 days (a target or option set no longer used) and private
+    ///        copies a crashed store left (a day old). Run after a store,
+    ///        which is rare; a hit lists nothing.
+    priv static fn _rt_cache_gc(dir: string) {
+        if dir.empty() { return; }
+        var now = static_cast::<u64>(libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(
+            libcxx::chrono::system_clock::now().time_since_epoch()).count());
+        var day: u64 = static_cast::<u64>(86400) * static_cast::<u64>(1000000000);   // ns
+        for name: string in LinkFS::list_dir(dir) {
+            var p = dir + "/" + name;
+            if !LinkFS::is_file(p) { continue; }
+            var partial = !(string::npos == name.view().find(r".tmp-"));
+            var last = LinkFS::mtime(p);
+            var limit = (day) if (partial) else (30 * day);
+            if (last != 0) && (now > last) && ((now - last) > limit) { LinkFS::remove(p); }
+        }
     }
 
     /// \brief the clang driver words for one C/C++ input, without the
@@ -2763,8 +2953,7 @@ class CompilerInstance {
     ///        `kcc -c` runs needs and none of those runs wrote.
     ///
     /// \details Cached per target and code generation options, under
-    ///          $KAIRO_CACHE_DIR, else $XDG_CACHE_HOME/kairo, else
-    ///          ~/.cache/kairo, and rebuilt when the compiler or any source
+    ///          the toolchain's cache root (_cache_root), and rebuilt when the compiler or any source
     ///          it was built from changes (the manifest records each one's
     ///          mtime). Built in THIS session, before the inputs, when the
     ///          cache has none: it claims builtin and std first (claim_fid),
@@ -2787,8 +2976,12 @@ class CompilerInstance {
         return true;
     }
 
-    /// The cache directory for this target and option set; "" without a root.
-    priv fn _kairo_lib_dir(self) -> string {
+    /// \brief the toolchain's cache root, shared by the Kairo library
+    ///        (_kairo_lib_dir) and the runtime objects (_rt_cache_dir):
+    ///        $KAIRO_CACHE_DIR, else $XDG_CACHE_HOME/kairo, else
+    ///        ~/.cache/kairo, else %LOCALAPPDATA%/kairo (Windows, where HOME
+    ///        is usually unset). "" when none is set: nothing is cached.
+    priv static fn _cache_root() -> string {
         var root = LinkFS::env("KAIRO_CACHE_DIR");
         if root.empty() {
             var xdg = LinkFS::env("XDG_CACHE_HOME");
@@ -2798,6 +2991,16 @@ class CompilerInstance {
             var home = LinkFS::env("HOME");
             if !home.empty() { root = home + "/.cache/kairo"; }
         }
+        if root.empty() {
+            var local = LinkFS::env("LOCALAPPDATA");
+            if !local.empty() { root = local + "/kairo"; }
+        }
+        return root;
+    }
+
+    /// The cache directory for this target and option set; "" without a root.
+    priv fn _kairo_lib_dir(self) -> string {
+        var root = CompilerInstance::_cache_root();
         if root.empty() || (self._backend == &null) { return ""; }
         // What the objects' code depends on: the compiler, the target and
         // its ISA words, the code generation and optimization words, debug

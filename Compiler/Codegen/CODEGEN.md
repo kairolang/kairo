@@ -133,6 +133,19 @@ serially (`ClangBackend::native_invocation`, the argv arena and arg-parse
 engine are shared), each `run_native` prints into its own log, printed in
 input order after the join.
 
+Each runtime object is first looked up in the toolchain's runtime cache
+(`<cache root>/rt`, the root `--kairo-lib` uses: `$KAIRO_CACHE_DIR`, else
+`$XDG_CACHE_HOME/kairo`, `~/.cache/kairo`, `%LOCALAPPDATA%/kairo`). An entry
+is `<stem>-<slot>-<inputs>.o`: `slot` hashes the compiler's path and the
+object's exact cc1 line minus `-o` (`native_invocation`'s `key`), `inputs`
+hashes path, size and mtime of the compiler, every file directly in `Lib/rt`
+and the vendored mimalloc tree (`_rt_fingerprint`). A hit that parses as an
+object is copied into the build's object dir and not compiled; a miss is
+compiled and stored by copy + atomic rename, replacing its slot's older
+entries. `--force-recompile` skips the lookup (and still stores); `-v` logs
+hit / miss / bypassed per object. Without it, mimalloc alone was 1.6 s of a
+2 s trivial link.
+
 ## 2. Sinks
 
 `EmitSink` (base): `spell(at, text)` tokenizes a C++ fragment into

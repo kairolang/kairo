@@ -284,7 +284,17 @@ class ClangBackend {
     ///          thread only: the argv bytes come from this backend's arena
     ///          and a bad argument reports through the shared arg-parse
     ///          engine. Null on failure.
-    fn native_invocation(self, src: string, out: string, xlang: string, is_c: bool, extra: vec::<string>)
+    ///
+    ///          \p key, when not null, receives every argument but the
+    ///          trailing `-o <out>`, one per line: what the object's bytes
+    ///          depend on besides the files it reads, so the driver's runtime
+    ///          object cache (CompilerInstance::_compile_runtime) can key on
+    ///          the exact line rather than a re-derivation of it that could
+    ///          miss a flag. The output path is left out because it is a
+    ///          per-build temp directory and does not reach the object; so
+    ///          is the working directory, unless debug info or coverage
+    ///          mapping records it.
+    fn native_invocation(self, src: string, out: string, xlang: string, is_c: bool, extra: vec::<string>, key: *string)
             -> libcxx::shared_ptr::<clang::CompilerInvocation> {
         var none = libcxx::shared_ptr::<clang::CompilerInvocation>();
         self.startup();
@@ -313,6 +323,26 @@ class ClangBackend {
         self._arg(&argv, "-x");
         self._arg(&argv, xlang);
         self._arg(&argv, src);
+        if key != &null {
+            // The working directory reaches the line as the debug and
+            // coverage compilation dirs (clang's driver adds them always),
+            // but the object only records it under debug info or coverage
+            // mapping. Left out otherwise, or every directory a program is
+            // linked from would hold its own copy of the runtime.
+            var dbg = false;
+            var cov = false;
+            for var i: usize = 0; i < argv.size(); ++i {
+                var a = string(argv[i]);
+                if a.starts_with("-debug-info-kind=") { dbg = true; }
+                if a == "-fcoverage-mapping"          { cov = true; }
+            }
+            for var i: usize = 0; i < argv.size(); ++i {
+                var a = string(argv[i]);
+                if (!dbg) && a.starts_with("-fdebug-compilation-dir") { continue; }
+                if (!cov) && a.starts_with("-fcoverage-compilation-dir") { continue; }
+                (*key) += a + "\n";
+            }
+        }
         self._arg(&argv, "-o");
         self._arg(&argv, out);
         // The whole line under -v: nothing else shows what the runtime was
