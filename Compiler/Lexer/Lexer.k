@@ -1598,8 +1598,18 @@ class Lexer {
         }
 
         // -- git conflict marker detection ------------------------------
-        // check for 7+ repeated '<', '=', '>'
-        if (C1.chr == '<') || (C1.chr == '>') || (C1.chr == '=') {
+        // check for 7+ repeated '<', '=', '>' at the START of a line: git
+        // writes its markers at column 1 and nowhere else. Mid-line, a run
+        // of seven is code -- seven nested generics close with `>>>>>>>`
+        // (`A<A<A<A<A<A<A<i32>>>>>>>`), and taking that for a marker ate the
+        // rest of the line (S049E, P295); six closers or spaced ones lexed.
+        var at_line_start = true;
+        if self._cursor > 0 {
+            const src: std::ConstPtr::<u8> = self.file_data();
+            var before = src[self._cursor - 1];
+            at_line_start = (before == 0x0A) || (before == 0x0D);
+        }
+        if at_line_start && ((C1.chr == '<') || (C1.chr == '>') || (C1.chr == '=')) {
             var conflict_char = C1.chr;
             var run_len: usize = 0;
 
