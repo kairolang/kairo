@@ -228,6 +228,9 @@ class Candidate {
     /// object known). recv_const is the OBJECT's constness.
     pub var recv_bind:    u8   = 0;
     pub var recv_const:   bool = false;
+    /// The implicit object parameter's own cv (QUAL_CONST / QUAL_VOLATILE),
+    /// for the [over.ics.rank]/3.2.6 tie-break; set with recv_bind.
+    pub var recv_quals:   u8   = 0;
     /// Arguments that reached an `@inout` parameter WITHOUT the marker.
     /// Viable (migration tolerance); CallTyping warns after selection. The
     /// two are parallel: arg index, the parameter it landed on.
@@ -656,7 +659,20 @@ class OverloadResolution {
             ra.cat      = Expr::ValueCategory::LValue;
             if (x->f->ffi_ref_qualifier != 0) && (y->f->ffi_ref_qualifier != 0) { ra.cat = self.recv_cat; }
             ra.is_const = x->recv_const;
-            if self._ref_prefers(&ra, x->recv_bind, y->recv_bind) { better = true; }
+            if x->recv_quals != y->recv_quals {
+                // Different cv: both bind the object, so each covers the
+                // object's cv (_judge_receiver), and the less qualified one
+                // is better ([over.ics.rank]/3.2.6) -- data() over data()
+                // const for a plain object. recv_bind sees only const: read
+                // alone it tied std::atomic's `load() const` and `load()
+                // const volatile`, and picked `m() volatile` over `m()
+                // const`, which C++ calls ambiguous. Neither a subset of the
+                // other stays a tie.
+                var xq = x->recv_quals;
+                var yq = y->recv_quals;
+                if (xq & (~yq)) == 0 { better = true; }
+                else if (yq & (~xq)) == 0 { return false; }
+            } else if self._ref_prefers(&ra, x->recv_bind, y->recv_bind) { better = true; }
             else if self._ref_prefers(&ra, y->recv_bind, x->recv_bind) { return false; }
         }
         for var k: usize = 0; k < args->size(); ++k {
@@ -1187,6 +1203,7 @@ class OverloadResolution {
         }
         c->recv_bind  = (1) if ((sq & QUAL_CONST()) != 0) else (3);
         c->recv_const = (oq & QUAL_CONST()) != 0;
+        c->recv_quals = sq & (QUAL_CONST() | QUAL_VOLATILE());
         // A ref-qualified method's implicit object parameter IS a reference
         // ([over.match.funcs]/4) and binds like one: `q() &` an lvalue
         // only (`const &` anything), `q() &&` an rvalue only. Without a

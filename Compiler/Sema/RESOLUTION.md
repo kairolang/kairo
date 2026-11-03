@@ -1467,8 +1467,10 @@ ODRHash of its constraints / decltype return appended
 such templates were one registry entity.
 
 The implicit object parameter ranks as [over.ics.rank] says: without a
-ref-qualifier any object binds and only constness orders two candidates
-(3.2.6); WITH one (`ffi_ref_qualifier`) it is a reference -- `q() &` takes
+ref-qualifier any object binds and cv orders two candidates (3.2.6: of
+two whose cv differs, the less qualified wins, so a plain object takes
+std::atomic's `load() const` over `load() const volatile`; `const`
+against `volatile` stays a tie, `Candidate::recv_quals`); WITH one (`ffi_ref_qualifier`) it is a reference -- `q() &` takes
 an lvalue (or anything, if const), `q() &&` an rvalue -- and between two
 qualified methods an rvalue object prefers `&&` (3.2.3). The object's
 category is `ChainInfo::receiver_cat`, carried to resolve as
