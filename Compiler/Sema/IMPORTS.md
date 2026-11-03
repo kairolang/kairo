@@ -561,7 +561,14 @@ two mechanisms:
   imm space, probe-only, never interning).
 
 Both paths accept a target only when its `origin` import is pub/prot, so
-wall 1 holds: a `priv` import edge in the source is never surface.
+wall 1 holds: a `priv` import edge in the source is never surface. A folded
+re-export takes THIS TU's import as its `origin` (the edge it arrived
+through), so it is surface here only if that edge is pub/prot too. Kept
+with the source's origin, every target that once crossed a `pub import`
+(all of builtin's surface, through each prelude) leaked through private
+edges, and each overlay entry grew one duplicate per import path: phase I
+of a TU deep in the self-host DAG ran for minutes (P368; test:
+Tests/Sema/Imports/reexport_wall/main.k).
 
 Note what a form re-exports. `pub import bar` re-exports the NAME `bar`,
 so an importer of foo writes `foo::bar::f()`. `pub import bar::*`

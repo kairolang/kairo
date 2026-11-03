@@ -206,6 +206,17 @@ class ImportResolution {
                 var o = dyn_cast::<ImportDecl>(t.origin);
                 if o == &null { continue; }
                 if !(o->is_public() || o->is_protected()) { continue; }
+                // In THIS overlay the target arrived through `id`, so `id`
+                // is its origin: whether this TU hands it on is `id`'s
+                // pub/prot, not that of the edge it crossed in the source.
+                // Keeping the source's origin let every target that ever
+                // crossed a `pub import` (all of builtin's surface, through
+                // each TU's prelude) count as surface of every TU after it:
+                // wall 1 broke transitively, and each overlay entry gained
+                // one duplicate per import path, so a TU deep in a large
+                // DAG spent minutes here rebuilding entries thousands of
+                // targets long.
+                t.origin = static_cast::<*Decl>(id);
                 self._add(overlay, spelling, t);
             }
         }
