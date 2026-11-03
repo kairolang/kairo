@@ -9,7 +9,7 @@
 
 fn takes(const s: string) -> usize { return s.size() }
 
-fn join(a: string, b: string) -> string { return a + b }
+fn join(const a: string, const b: string) -> string { return a + b }
 
 fn main() -> i32 {
     // construction

@@ -62,6 +62,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+import AST::OperatorFacts::*;
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
@@ -1115,7 +1116,10 @@ class OverloadResolution {
         var oq = canon_quals(receiver);
         if (oq & (~sq)) != 0 {
             c->viable = false;
-            c->reason = f"'{self.tu.decl_name(static_cast::<*Decl>(c->f))}' is not const; it cannot be called on a const object";
+            // An operator has no name token to spell (TokenText::resolve
+            // asserts on its empty one): its symbol, `op +=`.
+            var nm = ("op " + OperatorFacts::symbol(c->f)) if (c->f->is_operator) else (self.tu.decl_name(static_cast::<*Decl>(c->f)));
+            c->reason = f"'{nm}' is not const; it cannot be called on a const object";
             return;
         }
         c->recv_bind  = (1) if ((sq & QUAL_CONST()) != 0) else (3);
@@ -1127,7 +1131,7 @@ class OverloadResolution {
         var rq = c->f->ffi_ref_qualifier;
         if rq == 0 { return; }
         var rvalue = (self.recv_cat == Expr::ValueCategory::RValue) || (self.recv_cat == Expr::ValueCategory::XValue);
-        var mname = self.tu.decl_name(static_cast::<*Decl>(c->f));
+        var mname = ("op " + OperatorFacts::symbol(c->f)) if (c->f->is_operator) else (self.tu.decl_name(static_cast::<*Decl>(c->f)));
         if (rq == 1) && rvalue && ((sq & QUAL_CONST()) == 0) {
             c->viable = false;
             c->reason = f"'{mname}' is '&'-qualified; it cannot be called on a temporary";

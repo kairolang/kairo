@@ -488,7 +488,7 @@ class <T> OperatorTyping {
     /// candidate wins over a non-viable direct one.
     fn resolve_user_op(self, n: *Expr, k0: TokenKind, k1: TokenKind, recv: *Expr, recv_ty: *Type,
                        other: *Type, args: *vec::<*Expr>, want_postfix: i32, label: string,
-                       found: *bool, viable_only: bool = false) -> *Type {
+                       found: *bool, viable_only: bool = false, copy_recv: bool = false) -> *Type {
         (*found) = false;
         if recv_ty == &null { return &null; }
         var name  = DeclName::op_name(k0, k1);
@@ -505,13 +505,17 @@ class <T> OperatorTyping {
         fargs.push_back(dyn()->arg_info(recv));
         for var i: usize = 0; i < margs.size(); ++i { fargs.push_back(margs[i]); }
 
-        if viable_only && (!dyn()->ovl.any_viable(&cands, &margs, true, &frees, &fargs, self._receiver_of(recv))) {
+        // \p copy_recv: the operator runs on a COPY of the receiver (a
+        // derived `a + b` is `copy a, += b`), a fresh mutable value whatever
+        // `a`'s own cv: a `const a: string` still adds (P331's fix-it).
+        var rcv = self._receiver_of(recv);
+        if copy_recv && (rcv != &null) { rcv = canon_unqual(rcv); }
+        if viable_only && (!dyn()->ovl.any_viable(&cands, &margs, true, &frees, &fargs, rcv)) {
             (*found) = false;
             return &null;
         }
 
-        var r = dyn()->ovl.resolve_mixed(&cands, &margs, true, &frees, &fargs, n->range, label,
-                                         self._receiver_of(recv));
+        var r = dyn()->ovl.resolve_mixed(&cands, &margs, true, &frees, &fargs, n->range, label, rcv);
         if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
         if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
         dyn()->finish_call_args(r.decl, (&fargs) if (r.via_free) else (&margs), &r);
@@ -814,7 +818,7 @@ class <T> OperatorTyping {
             var ck = OperatorFacts::compound_of(k);
             if (ck != TokenKind::TkUnknown) && (!decl_is_imported(dyn()->tu.record_decl(lt))) {
                 ut = self.resolve_user_op(static_cast::<*Expr>(n), ck, TokenKind::TkUnknown, n->lhs, lt, rt,
-                                          &args, -1, self._label(n->op_token), &found);
+                                          &args, -1, self._label(n->op_token), &found, false, true);
                 if found {
                     // Bound or not is resolved_op, set only on Selected: the
                     // node's dependence flags are its OPERANDS' too
