@@ -3157,7 +3157,7 @@ class EmitIR {
             var m   = n->cap_modes[i];
             var via = n->cap_via_ptr[i];
             if s.size() > 0 { s += ", "; }
-            if m == CaptureMode::Self {
+            if m == CaptureMode::Receiver {
                 s += (LowerTargets::ext_receiver_name()) if (self._cur_ext != &null) else ("this");
                 continue;
             }

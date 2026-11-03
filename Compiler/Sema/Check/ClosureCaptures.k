@@ -216,7 +216,7 @@ class ClosureCaptures derives RecursiveASTVisitor::<ClosureCaptures> {
             var p = dyn_cast::<ParamDecl>(d);
             if (p != &null) && p->is_self {
                 if n->explicit_no_capture { self._not_captured(n, d, at_use); continue; }
-                mode = CaptureMode::Self;
+                mode = CaptureMode::Receiver;
             } else {
                 var k = self._named_index(n, d);
                 if k != usize(-1) {
@@ -230,7 +230,7 @@ class ClosureCaptures derives RecursiveASTVisitor::<ClosureCaptures> {
                 }
                 if (mode == CaptureMode::Copy) && self._moves(d) { mode = CaptureMode::Move; }
             }
-            var vp = (mode != CaptureMode::Self) && self._via_ptr(d);
+            var vp = (mode != CaptureMode::Receiver) && self._via_ptr(d);
             // The name is a pointer already: copying it is the capture,
             // whether the list asked for a copy, a move or a pointer.
             if vp && ((mode == CaptureMode::Move) || (mode == CaptureMode::Ptr)) { mode = CaptureMode::Copy; }

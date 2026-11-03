@@ -823,7 +823,7 @@ enum CaptureMode derives u8 {
     Move,
     Ptr,
     ConstPtr,
-    Self,
+    Receiver,   // `self` (a method's receiver); not `Self`, a Stage 1 keyword
 }
 
 ///

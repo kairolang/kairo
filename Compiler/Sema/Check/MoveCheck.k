@@ -393,7 +393,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
             for var i: usize = 0; i < n->cap_decls.size(); ++i {
                 var m = n->cap_modes[i];
                 var at = n->cap_uses[i];
-                if (m == CaptureMode::Self) || (at == &null) { continue; }
+                if (m == CaptureMode::Receiver) || (at == &null) { continue; }
                 self._read(at);
             }
             for var i: usize = 0; i < n->cap_decls.size(); ++i {
