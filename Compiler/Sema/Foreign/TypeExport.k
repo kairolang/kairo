@@ -623,8 +623,12 @@ class TypeExport {
     priv fn _standin(self, d_in: *Decl, rt: *RecordType) -> clang::QualType {
         if !self._can_standin() { return clang::QualType(); }
         self.used_standin = true;      // records, enums, ADTs alike: layout, no behaviour.
-        var d = NameLookup::representative(d_in);
         if rt->args.size() > 0 { return clang::QualType(); }
+        return self._standin_of(NameLookup::representative(d_in));
+    }
+
+    /// _standin for non-generic record \p d, nested in a record or not.
+    priv fn _standin_of(self, d: *Decl) -> clang::QualType {
         if decl_generic_params(d).size() > 0 { return clang::QualType(); }
         var en = dyn_cast::<EnumDecl>(d);
         if (en != &null) && (!en->is_adt) { return self._standin_enum(en); }
@@ -633,12 +637,33 @@ class TypeExport {
         var fields = vec::<*Type>();
         if !self._shape(d, &tk, &tag, &fields) { return clang::QualType(); }
 
-        var segs = vec::<string>();
         var leaf = "";
-        var fid: u32 = 0;
-        if !self._spell_for(d, &segs, &leaf, &fid) { return clang::QualType(); }
-        var dc = self._namespace_for(&segs);
-        if dc == &null { return clang::QualType(); }
+        var dc: *clang::DeclContext = &null;
+        var owner = decl_type_owner(d);
+        if owner != &null {
+            // A member type: its stand-in is nested in the owner's, so it
+            // is spelled `::stem::Owner::Inner` as EmitIR spells it. Refused
+            // before, which left every container of a pointer to a nested
+            // record unfilled (`vector<unsafe *Segment>` in
+            // VirtualFileManager): no members, and `begin` / `end` from the
+            // pattern tied (SC064E). The owner may be mid-definition (its own
+            // field named the member), which is all a nested decl needs.
+            var oq = self._standin_of(NameLookup::representative(owner));
+            if oq.isNull() { return clang::QualType(); }
+            var ord = oq->getAsCXXRecordDecl();
+            if ord == &null { return clang::QualType(); }
+            var tu = CXXSpell::tu_of(d);
+            if (tu == &null) || (tu->ctx == &null) { return clang::QualType(); }
+            var cg = CodegenContext(tu->ctx, &null, self.psym, self.instances);
+            leaf = CXXSpell(&cg).leaf(d);
+            dc = static_cast::<*clang::DeclContext>(ord);
+        } else {
+            var segs = vec::<string>();
+            var fid: u32 = 0;
+            if !self._spell_for(d, &segs, &leaf, &fid) { return clang::QualType(); }
+            dc = self._namespace_for(&segs);
+            if dc == &null { return clang::QualType(); }
+        }
 
         var loc = clang::SourceLocation();
         var lii = self._ident(leaf);
@@ -657,6 +682,7 @@ class TypeExport {
 
         var rd = clang::CXXRecordDecl::Create(*(self.cctx), tk, dc, loc, loc, lii, &null);
         rd->setImplicit(true);
+        if owner != &null { rd->setAccess(clang::AS_public); }
         dc->addDecl(rd);
         if !self._define(rd, tag, &fields) { dc->removeDecl(rd); return clang::QualType(); }
 
