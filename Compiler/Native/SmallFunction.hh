@@ -38,7 +38,7 @@
 /// \see kairo::ThreadPool, std::function
 ///
 
-#include <include/core.hh>
+#include "KPrelude.hh"
 
 #include "Types.hh"
 
@@ -69,7 +69,7 @@ SmallFunction<InlineSize>::SmallFunction(F &&f) {
 
 template <size_t InlineSize>
 SmallFunction<InlineSize>::SmallFunction(SmallFunction &&other) noexcept {
-    move_from(std::Memory::move(other));
+    move_from(libcxx::move(other));
 }
 
 template <size_t InlineSize>
@@ -77,7 +77,7 @@ SmallFunction<InlineSize> &
 SmallFunction<InlineSize>::operator=(SmallFunction &&other) noexcept {
     if (this != &other) {
         reset();
-        move_from(std::Memory::move(other));
+        move_from(libcxx::move(other));
     }
     return *this;
 }
@@ -121,7 +121,7 @@ void SmallFunction<InlineSize>::emplace(F &&f) {
 
 template <size_t InlineSize>
 void SmallFunction<InlineSize>::move_from(SmallFunction &&other) noexcept {
-    std::Memory::copy(&_storage, &other._storage, sizeof(Storage));
+    libcxx::memcpy(&_storage, &other._storage, sizeof(Storage));
     _call    = other._call;
     _destroy = other._destroy;
 

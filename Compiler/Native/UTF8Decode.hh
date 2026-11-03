@@ -39,7 +39,7 @@
 /// \see SourceManager, Lexer
 ///
 
-#include <include/core.hh>
+#include "KPrelude.hh"
 #include "Types.hh"
 
 namespace kairo {

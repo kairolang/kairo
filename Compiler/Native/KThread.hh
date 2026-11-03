@@ -26,7 +26,8 @@
 #ifndef __KAIRO_NATIVE_KTHREAD_HH__
 #define __KAIRO_NATIVE_KTHREAD_HH__
 
-#include <include/core.hh>
+#include "KPrelude.hh"
+#include <atomic>
 #include <utility>
 
 #if defined(__APPLE__) || defined(__linux__)
@@ -96,7 +97,7 @@ inline usize *thread_pool_local_qid() {
 /// push()/pop(), never by relocating the buffer. Copies are deleted.
 template <typename T, usize Align>
 struct alignas(Align) SeqCell {
-    ::kairo::std::Atomic<u64> seq{0};
+    ::std::atomic<u64>        seq{0};
     T                         val;
 
     SeqCell() = default;

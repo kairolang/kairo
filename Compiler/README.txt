@@ -441,6 +441,14 @@ Native/ headers are pooled rather than co-located because their #include
 paths are relative and mutually dependent; -I does not currently reach them.
 (stage0 limitation)
 
+Native/ is plain C++ on the C++ standard library, and must compile in both
+worlds that import it: Stage 0 (lib-helix's core.hh force-included) and
+Stage 1 (no lib-helix anywhere). Every header includes Native/KPrelude.hh
+instead of <include/core.hh>; KAIRO_NATIVE_STAGE0 there is the one switch,
+and what sits behind it is Stage 0 only (lib-helix's string, null_t,
+std::Function, the print family). Text parameters are templates over
+native::bytes, so one signature takes either world's string.
+
 --------------------------------------------------------------------------------
 
  Build

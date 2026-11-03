@@ -40,15 +40,23 @@
 /// \see libcxx, kairo::std, kairo::ThreadPool
 ///
 
+#include "KPrelude.hh"
+
+#include <atomic>
 #include <bit>
+#include <chrono>
+#include <condition_variable>
 #include <cwchar>
 #include <execution>
-#include <include/core.hh>
+#include <future>
 #include <memory>
 #include <memory_resource>
 #include <mutex>
 #include <new>
+#include <shared_mutex>
 #include <source_location>
+#include <thread>
+#include <tuple>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -83,19 +91,22 @@
 #define _simd_available() 0
 #endif
 
-namespace llvm {
-class StringRef;
-}
+#include <llvm/ADT/StringRef.h>
 
 namespace kairo {
-/// A string's bytes as an llvm::StringRef (or any (const char*, size)
-/// view type R). The size is passed explicitly: the old `.raw()` crossings
-/// relied on strlen, which stops at an embedded NUL. A template so this
-/// header does not have to include LLVM; only the forward declaration is
-/// needed until a caller instantiates it.
-template <class R = llvm::StringRef>
-inline R sref(const kairo::string &s) {
-    return R(s.c_str(), s.size());
+/// A string's bytes as an llvm::StringRef. The size is passed explicitly: the
+/// old `.raw()` crossings relied on strlen, which stops at an embedded NUL.
+/// Templated on the string (native::bytes): Stage 0 passes lib-helix's
+/// string, Stage 1 the builtin one, and neither is nameable from the other
+/// world. The return type is concrete on purpose: it used to be a defaulted
+/// template parameter (`template <class R = llvm::StringRef>`), and Stage 1
+/// cannot type a call whose return is one (the call reaches codegen unbound).
+/// The forward-declaration trick that template served is moot: KLog.hh, below,
+/// includes LLVM anyway.
+template <class S>
+inline llvm::StringRef sref(const S &s) {
+    auto v = native::bytes(s);
+    return llvm::StringRef(v.data(), v.size());
 }
 
 }  // namespace kairo
@@ -731,6 +742,10 @@ class Expected {
     }
 };
 
+#if KAIRO_NATIVE_STAGE0
+/// Stage 0 only: lib-helix's null_t is its tag, and Stage 1 code spells an
+/// absent value `T?` (the self-host migration rewrites the three Nullable
+/// fields to it), so there is no Stage 1 Nullable to keep in step.
 template <typename T>
 class Expected<T, std::null_t> {
     union {
@@ -837,7 +852,11 @@ class Expected<T, std::null_t> {
 
 template <typename T>
 using Nullable = Expected<T, std::null_t>;
+#endif  // KAIRO_NATIVE_STAGE0
 
+#if KAIRO_NATIVE_STAGE0
+/// Stage 0 only: std::Function is lib-helix's. The F&& overload below takes
+/// any callable, a Stage 1 closure included.
 template <typename Rt, typename... Tp>
 inline void sleep_while(std::Function<Rt, Tp...> condition) {
     for (u16 i = 0; i < 1000 && condition(); ++i) {
@@ -868,6 +887,7 @@ inline void sleep_while(std::Function<Rt, Tp...> condition) {
         libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(100));
     }
 }
+#endif  // KAIRO_NATIVE_STAGE0
 
 template <typename F>
 inline void
@@ -900,6 +920,19 @@ sleep_while(F &&condition)  // NOLINT(cppcoreguidelines-missing-std-forward)
     }
 }
 
+#if KAIRO_NATIVE_STAGE0
+// Stage 0 only, all three: they are written against lib-helix
+// (std::to_string, std::endl, kairo::string), and each has a Stage 1 home in
+// Kairo's std rather than here:
+//
+//   eprint / eprintln  std::io::eprint / std::io::eprintln (Lib/std/io.k),
+//                      one string each; a multi-argument call becomes one
+//                      f-string. eprintln(..., std::endl("")) is how Stage 0
+//                      spelled "no newline": that is std::io::eprint.
+//   get_exe_path       std::env::exe_path (Lib/std/env.k).
+//
+// The self-host migration rewrites the call sites; nothing here is kept in
+// step with them.
 template <typename... Args>
 void eprint(Args &&...t) {
     if constexpr (sizeof...(t) == 0) {
@@ -996,7 +1029,13 @@ inline kairo::string get_exe_path() noexcept {
 #endif
 }
 
-inline string get_default_target_triple() noexcept {
+#endif  // KAIRO_NATIVE_STAGE0
+
+/// The triple this compiler targets when none is given: the host's arch and
+/// OS, with the vendor and environment Kairo ships for it. Compiler policy,
+/// not a host query, which is why it stays here rather than in std::env.
+/// A C string so both worlds can wrap it in their own string type.
+inline const char *default_target_triple_cstr() noexcept {
 #if defined(__aarch64__) || defined(_M_ARM64)
 #if defined(__APPLE__)
     return "aarch64-apple-macosx11.0.0";
@@ -1032,7 +1071,7 @@ inline string get_default_target_triple() noexcept {
 #endif
 }
 
-inline string get_thread_model() noexcept {
+inline const char *thread_model_cstr() noexcept {
 #if defined(_WIN32)
     return "win32";
 #elif defined(__wasm32__) || defined(__wasm64__)
@@ -1041,6 +1080,14 @@ inline string get_thread_model() noexcept {
     return "posix";
 #endif
 }
+
+#if KAIRO_NATIVE_STAGE0
+inline string get_default_target_triple() noexcept {
+    return default_target_triple_cstr();
+}
+
+inline string get_thread_model() noexcept { return thread_model_cstr(); }
+#endif  // KAIRO_NATIVE_STAGE0
 
 /// StackBuf<T, N> inline scratch buffer for parser hot paths.
 /// Trivially destructible T only. No copy, no move. Stack-local only.
@@ -1099,15 +1146,28 @@ class StackBuf {
     const T &operator[](uint32_t i) const { return _data[i]; }
 };
 
-/// \brief prints the ICE banner and aborts. shared by both overloads.
-/// \details not for direct use   go through KAIRO_ICE / KAIRO_ICE_FAIL so the
-///          message stays out of the hot path (see the macros below).
-[[noreturn]] inline void ice_abort(const string& msg, const libcxx::source_location& location) {
-    std::eprintln("Kairo Internal Compiler Error: ", msg);
-    std::eprintln("This is a bug in the Kairo compiler.");
-    std::eprintln("Location: ", location.file_name(), ":", location.line(), ":", location.column());
-    std::eprintln("Please report it: https://github.com/kairolang/kairo/issues, with the generated log files and a minimal reproduction if possible.");
-    libcxx::abort();
+/// \brief prints the ICE banner and aborts. shared by every entry point.
+/// \details not for direct use   go through ICE_IF / ICE_FAIL (Stage 0) or
+///          ice_if! / ice_fail! (Stage 1) so the message stays out of the hot
+///          path (see the macros below).
+///
+///          stderr through C stdio, as lib-helix's eprintln did: stderr is
+///          unbuffered, so the banner is out before abort(). Buffered stdout
+///          is NOT flushed (abort drops it), exactly as before. Templated on
+///          the message (native::bytes) so one body takes either world's
+///          string, a literal or an llvm::StringRef.
+template <class S>
+[[noreturn]] inline void ice_abort(const S &msg, const ::std::source_location &location) {
+    native::write_bytes(stderr, "Kairo Internal Compiler Error: ");
+    native::write_bytes(stderr, native::bytes(msg));
+    native::write_bytes(stderr, "\nThis is a bug in the Kairo compiler.\nLocation: ");
+    native::write_bytes(stderr, location.file_name());
+    ::std::fprintf(stderr, ":%u:%u\n", static_cast<unsigned>(location.line()),
+                   static_cast<unsigned>(location.column()));
+    native::write_bytes(stderr,
+                        "Please report it: https://github.com/kairolang/kairo/issues, with the "
+                        "generated log files and a minimal reproduction if possible.\n");
+    ::std::abort();
 }
 
 /// \brief asserts a compiler invariant; aborts with \p msg if it does not hold.
@@ -1116,13 +1176,14 @@ class StackBuf {
 ///          common one. Marking it noreturn would be a promise the function
 ///          breaks on every passing call.
 ///
-/// \warning prefer the KAIRO_ICE macro. Calling this directly constructs \p msg
+/// \warning prefer the ICE_IF macro. Calling this directly constructs \p msg
 ///          before the predicate is tested, and Stage 0 lowers every "..." to
 ///          string("..."), so a literal here costs a strlen + malloc + free on
 ///          EVERY call including the ones that pass. That cost is invisible at
 ///          one call per file and ruinous at one per token; it was ~115ns/token
 ///          in the lexer before the macro landed.
-inline void INTERNAL_ICE(bool condition, const string& msg, const libcxx::source_location location = libcxx::source_location::current()) {
+template <class S>
+inline void INTERNAL_ICE(bool condition, const S &msg, const ::std::source_location location = ::std::source_location::current()) {
     if (condition) [[likely]] { return; }
     ice_abort(msg, location);
 }
@@ -1131,11 +1192,26 @@ inline void INTERNAL_ICE(bool condition, const string& msg, const libcxx::source
 /// \details for unreachable branches and invariants with no boolean form.
 ///          Being [[noreturn]] lets callers omit a trailing return and silences
 ///          "non-void function does not return a value" in switch defaults.
-[[noreturn]] inline void INTERNAL_ICE(const string& msg, const libcxx::source_location location = libcxx::source_location::current()) {
+template <class S>
+[[noreturn]] inline void INTERNAL_ICE(const S &msg, const ::std::source_location location = ::std::source_location::current()) {
     ice_abort(msg, location);
 }
 
-/// \brief guards a compiler invariant. aborts with \p msg if \p cond is false.
+/// \brief the Stage 1 entry point: unconditional ICE, never returns.
+/// \details a C++ macro does not cross an ffi import, so Stage 1 code cannot
+///          call ICE_IF / ICE_FAIL. Its spelling is a Kairo macro over this
+///          function, which keeps the message on the failing path:
+///
+///              macro ice_if!(cond, msg) { if cond { kairo::std::ice_fail(msg) } }
+///              macro ice_fail!(msg)     { kairo::std::ice_fail(msg) }
+///
+///          The location is the emitted C++ call site, not the Kairo line.
+template <class S>
+[[noreturn]] inline void ice_fail(const S &msg, const ::std::source_location location = ::std::source_location::current()) {
+    ice_abort(msg, location);
+}
+
+/// \brief guards a compiler invariant. aborts with \p msg if \p cond is true.
 ///
 /// \details the message expression lives inside the branch body, so Stage 0's
 ///          string("") lowering only materializes on the failing path. The

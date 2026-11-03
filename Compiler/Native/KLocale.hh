@@ -27,7 +27,9 @@
 #include <cstring>
 #include <cwchar>
 
-#if !defined(_WIN32)
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #include <langinfo.h>
 #endif
 
@@ -38,7 +40,18 @@ namespace kairo {
 /// numeric or message formats the user chose. Also touches the wide-string
 /// machinery once on the calling thread: on Linux it resolves lazily and
 /// segfaults if first called from a worker with a shallow stack.
+///
+/// On Windows also sets the console's input and output code pages to UTF-8,
+/// so the UTF-8 bytes the print family writes verbatim render as text. That
+/// was lib-helix's enable_utf8_output, run by its runtime init before main;
+/// a Stage 1 main has no such hook, so the driver's init (which calls this
+/// before anything is printed) is its home. Under Stage 0 it runs twice,
+/// which is harmless: both calls set the same code page.
 inline void init_process_locale() {
+#if defined(_WIN32)
+    ::SetConsoleOutputCP(CP_UTF8);
+    ::SetConsoleCP(CP_UTF8);
+#endif
     const char* got = ::setlocale(LC_ALL, "");
 #if defined(_WIN32)
     // UCRT (Windows 10 1803+) takes ".UTF-8" as a codepage suffix; the name

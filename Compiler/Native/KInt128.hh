@@ -26,7 +26,7 @@
 #ifndef __KAIRO_NATIVE_KINT128_HH__
 #define __KAIRO_NATIVE_KINT128_HH__
 
-#include <include/core.hh>
+#include "KPrelude.hh"
 
 #if defined(_MSC_VER)
 #include <intrin.h>

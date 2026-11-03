@@ -14,7 +14,7 @@
 #include <array>
 #include <cstdint>
 #include <cwctype>
-#include <include/core.hh>
+#include "KPrelude.hh"
 
 namespace kairo {
 
@@ -73,8 +73,8 @@ enum class CharClass : uint8_t {
 };
 
 /// ASCII LUT (fast path: 0x00-0x7F)
-alignas(64) static constexpr array<CharClass, 128> ASCII_CLASS = [] {
-    array<CharClass, 128> t{};
+alignas(64) static constexpr libcxx::array<CharClass, 128> ASCII_CLASS = [] {
+    libcxx::array<CharClass, 128> t{};
     t.fill(CharClass::Unassigned);
 
     // simple whitespace
@@ -141,8 +141,8 @@ enum LexCharFlag : u8 {
     LEX_OP   = 1u << 1, ///< in MACRO_UNICODE_OPERATOR_CHAR_CASES
 };
 
-alignas(64) static constexpr array<u8, 128> ASCII_LEX_FLAGS = [] {
-    array<u8, 128> t{};
+alignas(64) static constexpr libcxx::array<u8, 128> ASCII_LEX_FLAGS = [] {
+    libcxx::array<u8, 128> t{};
     t.fill(0);
 
     for (u32 i = 0; i < 128; ++i) {

@@ -1,5 +1,5 @@
 #pragma once
-#include <include/core.hh>
+#include "KPrelude.hh"
 
 #include "Types.hh"
 #include "GlobalRecycler.hh"
@@ -119,7 +119,7 @@ struct alignas(64) ArenaBlock {
             _mm512_stream_si512(reinterpret_cast<__m512i *>(ptr + i), zero);
         }
         if (i < len) {
-            std::Memory::set(ptr + i, 0, len - i);
+            libcxx::memset(ptr + i, 0, len - i);
         }
         _mm_sfence();
     }
@@ -148,7 +148,7 @@ struct alignas(64) ArenaBlock {
 #endif
 
         if (i < len) {
-            std::Memory::set(ptr + i, 0, len - i);
+            libcxx::memset(ptr + i, 0, len - i);
         }
     }
 #endif
@@ -165,7 +165,7 @@ struct alignas(64) ArenaBlock {
 
 #if _simd_available()
         if (len < 4096) {
-            std::Memory::set(ptr, 0, len);
+            libcxx::memset(ptr, 0, len);
             return;
         }
 #if defined(_x86_64_simd)
@@ -173,10 +173,10 @@ struct alignas(64) ArenaBlock {
 #elif defined(_aarch64_simd)
         reset_neon(len);
 #else
-        std::Memory::set(ptr, 0, len);
+        libcxx::memset(ptr, 0, len);
 #endif
 #else
-        std::Memory::set(ptr, 0, len);
+        libcxx::memset(ptr, 0, len);
 #endif
     }
 

@@ -24,7 +24,7 @@
 #ifndef __KAIRO_NATIVE_KSHIMS_HH__
 #define __KAIRO_NATIVE_KSHIMS_HH__
 
-#include <include/core.hh>
+#include "KPrelude.hh"
 
 #if !defined(_WIN32)
 #include <sys/stat.h>

@@ -65,7 +65,7 @@
 #ifndef __KAIRO_TOOLCHAIN_CORE_KTIMEREPORT_HH__
 #define __KAIRO_TOOLCHAIN_CORE_KTIMEREPORT_HH__
 
-#include <include/core.hh>
+#include "KPrelude.hh"
 
 #include <algorithm>
 #include <atomic>
