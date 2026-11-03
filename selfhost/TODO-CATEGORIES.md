@@ -138,5 +138,5 @@ Compiler/ and Lib/builtin, 2026-11-03).
 - Loop semantics: `continue` in a `for (; c; s)` ran `s` (LOOP-PORT).
 - Char width: literals are char32 in Stage 1; byte contexts get `as u8`.
 - Stage 0-only spellings with no Stage 1 meaning: `default class` (rule of
-  five, dropped), `fn op in (self)[iter]` and `inline inline` (patch 005), a
-  dead import of a missing module (patch 004).
+  five, dropped), `fn op in (self)[iter]` and `inline inline` (patch 005). A
+  dead import of a missing module (patch 004) was deleted in main itself.
