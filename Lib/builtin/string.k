@@ -58,6 +58,12 @@ static EMPTY: [u8; 1] = [0]
 /// string do not reallocate for every few bytes.
 eval MIN_BLOCK: usize = 16
 
+/// The high bit of `cps`: the count is stale. The mutable `[]` hands out a
+/// raw byte place and cannot see the write, so it sets this and
+/// codepoints() counts the bytes while it is set. A count is at most `len`,
+/// so the bit is never a real one; additions keep it (append_ ORs it back).
+eval CPS_STALE: usize = usize::MAX ^ (usize::MAX >> 1)
+
 /// 1 when \p b starts a codepoint (is not a UTF-8 continuation byte).
 inline fn lead_(b: u8) -> usize { return if (b & 0xC0) != 0x80 => 1 else => 0 }
 
@@ -142,7 +148,13 @@ pub class string {
 
     inline fn as_ptr(const self) -> *const u8 { return self.data }
     inline fn length(const self) -> usize     { return self.len }
-    inline fn codepoints(const self) -> usize { return self.cps }
+    /// The codepoints the bytes encode. O(1), except after a write through
+    /// the mutable `[]`, which leaves the count stale: then the bytes are
+    /// counted, on every call, until something replaces the string.
+    inline fn codepoints(const self) -> usize {
+        @unlikely if (self.cps & CPS_STALE) != 0 { return count_cps_(self.data, self.len) }
+        return self.cps
+    }
     inline fn capacity(const self) -> usize   { return self.cap }
 
     /// Byte count; Stage 0's `size()`. Same as length().
@@ -163,10 +175,15 @@ pub class string {
     inline fn op [] (const self, i: usize) -> *const u8 { return &self.data[i] }
 
     /// The byte at `i`, writable: a borrowed string moves to the heap first,
-    /// so the literal's static bytes are never written. A write is a byte
-    /// write: it does not update codepoints().
+    /// so the literal's static bytes are never written. The write is a raw
+    /// byte store this operator never sees, so it marks the count stale
+    /// (CPS_STALE) and codepoints() recounts: one OR here, and nothing on
+    /// any read path of a string that was never written through `[]`. The
+    /// mark is set on a read through this operator too (a non-const
+    /// receiver selects it).
     inline fn op [] (self, i: usize) -> *u8 {
         @unlikely if self.cap == 0 { self.own_exact_() }
+        self.cps |= CPS_STALE
         unsafe {
             var unsafe *d = (self.data as unsafe *u8) + i
             return d as *u8
@@ -216,7 +233,7 @@ pub class string {
         if (self.cap == 0) && (p + k == self.len) {
             r.data = &self.data[p]
             r.len  = k
-            r.cps  = if self.len == self.cps => k else => count_cps_(&self.data[p], k)
+            r.cps  = if self.len == self.cps => k else => count_cps_(&self.data[p], k)   // a stale count is never len
             return r
         }
         r.assign_bytes_(&self.data[p], k)
@@ -291,7 +308,9 @@ pub class string {
             d[n] = 0
         }
         self.len = n
-        self.cps += c
+        // A stale count on either side stays stale: two set bits would
+        // carry out of the sum and clear it.
+        self.cps = (self.cps + c) | ((self.cps | c) & CPS_STALE)
     }
 
     /// One byte into room the block already has.
