@@ -921,8 +921,20 @@ class PPWalker
             }
 
             // m is the index of the matching `)`
+            // The invocation's `( ... )` is a bracket like any other: a
+            // newline in it terminates nothing, so it is not part of an
+            // argument. Kept, it reached the expansion as a statement end
+            // (`check!(x` newline `> 3, ...)` became `if (x` / `> 3)`), and
+            // a call spelled over lines parsed where the same macro
+            // invocation did not. Inside a `{ }` of an argument (a block or
+            // closure body) the newlines still separate statements.
+            var braces: i32 = 0;
             for var k: usize = arg_start; k < m; ++k {
-                result.arg_toks.push_back(self._src->peek(k));
+                var at = self._src->peek(k);
+                if at.kind == TokenKind::OpLBrace { braces += 1; }
+                if (at.kind == TokenKind::OpRBrace) && (braces > 0) { braces -= 1; }
+                if (at.kind == TokenKind::TkNewLine) && (braces == 0) { continue; }
+                result.arg_toks.push_back(at);
             }
 
             total_consumed = m + 1; // past `)`
