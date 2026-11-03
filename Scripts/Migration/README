@@ -392,3 +392,35 @@ vec, map, set and unordered_map, with counts and .k sites. That is the API
 Stage 1's builtin string and containers must provide for the self-host.
 
     python3 Scripts/Migration/api_surface.py /tmp/api   # -> /tmp/api/api.json
+
+
+Self-host passes (2026-11-02, selfhost/run.py)
+----------------------------------------------
+
+Found by the 5.1 syntax phase of private/SELFHOST.md over the migrated tree;
+each has a --selftest table and is in migrate.py's pipeline.
+
+char_to_u8.py             Stage 0 `char` (unsigned char) -> u8; Stage 1
+                          char is char32 (P340, a silent miscompile). Path
+                          segments (`std::Legacy::char`) are left; char
+                          literals are reported per file for 5.2.
+octal_escapes.py          '\0', "\033" -> \xHH outside b"" / r"" / inline
+                          C++ (S025W).
+eval_if_defined.py        `const eval if` -> `eval if` (S046E);
+                          `defined(X)` -> `defined!(X)`.
+keyword_idents.py         `test` / `loop` used as names -> `#test` / `#loop`.
+const_fn_receiver.py      `const fn f(self)` -> `fn f(const self)` (S047E).
+linker_api_imports.py     `import Linker::API::X` -> `import API::X` (P344:
+                          the self-host -I list is Compiler and Linker only).
+bare_value_params.py      `<N: usize>` -> `<eval N: usize>` when the bound
+                          names no kind (S049E).
+
+Changed for the self-host run: ternary_to_if emits the value form
+`if c => a else => b` (the braced form is statement-only, S073E) and sweeps to
+a fixed point (a ternary nested in another's operand needed a second run);
+raw_pointers walks into `ref!(...)` / `mref!(...)` (ref_and_mref unwrapped
+them after it, so a second run rewrote them); ref_and_mref turns
+`const x: ref!(T)` into the read-only borrow `const x: T` (S070E) and leaves
+range-for bindings alone (S069E); libcxx_to_cxx_std escapes keyword segments
+(`cxx::std::#thread`, `cxx::std::this_thread::#yield`); cast_facts sets $PWD
+for Stage 0, which resolves relative paths against it rather than the cwd.

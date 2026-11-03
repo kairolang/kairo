@@ -68,6 +68,9 @@ PIPELINE = [
     Pass("cpp_casts",
          "static_cast/reinterpret_cast/const_cast::<T>(x) -> `as`, by clang's cast kind; "
          "needs --cast-facts FACTS.json (cast_facts.py); before anything that moves lines"),
+    Pass("char_to_u8",
+         "Stage 0 char (a byte) -> u8 (P340: Stage 1 char is char32); after cpp_casts, "
+         "which reports C char targets and so leaves them for this pass"),
 
     # inline C++ retirement next: both produce Kairo code from C++ strings,
     # and every later pass should see that code as code.
@@ -77,10 +80,12 @@ PIPELINE = [
          "__inline_cpp(\"(T)x\") -> x as T; wants the Stage 0 string spelling, so before hex escapes"),
     Pass("hex_escapes_to_chars",
          "normalizes string contents once the passes matching on Stage 0 spellings are done"),
+    Pass("octal_escapes",
+         "\\0 / \\033 -> \\xHH (S025W); after hex_escapes_to_chars, which settles r\"\" strings first"),
 
     # Statement shape. README run order.
     Pass("ternary_to_if",
-         "emits braced if/else; before switch_to_match so arm bodies are already final"),
+         "emits value-form `if c => a else => b`; before switch_to_match so arm bodies are already final"),
     Pass("switch_to_match",
          "switch -> match and colon labels -> braced arms (subsumes case_labels_to_arms)"),
     Pass("stub_ffi_imports",
@@ -89,6 +94,8 @@ PIPELINE = [
     Pass("drop_turbofish", "Foo::<T> -> Foo<T>"),
     Pass("ranged_for_binding", "for x: T in -> for var x: T in"),
     Pass("qualified_var_binding", "static/const/eval var -> static/const/eval"),
+    Pass("eval_if_defined", "const eval if -> eval if; defined(X) -> defined!(X)"),
+    Pass("keyword_idents", "names spelled like a Stage 1 keyword (test, loop) -> #name; order-independent"),
 
     # Declarations.
     Pass("ref_and_mref",
@@ -101,9 +108,15 @@ PIPELINE = [
          "default/delete prefix -> `= default`/`= delete`; before visibility_first "
          "so the modifier run it reorders is final"),
     Pass("visibility_first", "pub/priv/prot lead the modifier run"),
+    Pass("const_fn_receiver",
+         "const fn f(self) -> fn f(const self); after visibility_first so the modifier run is final"),
+    Pass("linker_api_imports",
+         "import Linker::API::X -> import API::X (P344: -I Compiler -I Linker only); order-independent"),
     Pass("const_value_params",
          "<const N: T> -> <eval N: T> in generic parameter lists (the S001E fix-it); "
          "order-independent"),
+    Pass("bare_value_params",
+         "<N: usize> -> <eval N: usize> when the bound is no kind; after const_value_params"),
 
     # Expressions.
     Pass("redundant_parens",

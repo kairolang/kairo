@@ -28,7 +28,16 @@ def rewrite_params(src: str) -> tuple[str, int]:
         if j < 0:
             out.append(src[i:m.end()]); i = m.end(); continue
         inner = src[m.end():j - 1]
-        mode = '@inout ' if m.group('mac') == 'ref!' else '@move '
+        # A range-for binding is not a parameter: `for var q: ref!(T) in` has
+        # no mode in Stage 1 (S069E). Left for the gap list.
+        if re.search(r'\bfor\s+(?:var\s+)?$', src[max(0, m.start() - 12):m.start()]):
+            out.append(src[i:m.end()]); i = m.end(); continue
+        if m.group('lead') and m.group('mac') == 'ref!':
+            # `const x: ref!(T)` is C++ `const T&`, a read-only borrow, which
+            # Stage 1 spells `const x: T`; `@inout const` is S070E there.
+            mode = ''
+        else:
+            mode = '@inout ' if m.group('mac') == 'ref!' else '@move '
         out.append(src[i:m.start()])
         out.append(f"{mode}{m.group('lead')}{m.group('name')}: {inner}")
         i = j; n += 1
@@ -69,13 +78,38 @@ def rewrite_returns(src: str) -> tuple[str, int]:
     out.append(src[i:])
     return ''.join(out), n
 
-total_p = total_r = 0
-for p in pathlib.Path(sys.argv[1]).rglob('*.k'):
-    s = p.read_text()
-    s1, np_ = rewrite_params(s)
-    s2, nr  = rewrite_returns(s1)
-    if np_ or nr:
-        p.write_text(s2)
-        total_p += np_; total_r += nr
-        print(f"{np_:4d} params  {nr:4d} returns  {p}")
-print(f"{total_p} param sites, {total_r} return sites rewritten")
+SELFTEST = [
+    ("fn f(a: ref!(T), b: mref!(U)) {", "fn f(@inout a: T, @move b: U) {"),
+    ("fn f(const s: ref!(string)) {", "fn f(const s: string) {"),
+    ("fn f(const p: ref!(cxx::std::pair<A, B>)) {", "fn f(const p: cxx::std::pair<A, B>) {"),
+    ("for var q: ref!(Queue) in qs {", "for var q: ref!(Queue) in qs {"),
+    ("for q: ref!(Queue) in qs {", "for q: ref!(Queue) in qs {"),
+    ("class C { fn me(self) -> ref!(C) { } }", "class C { fn me(self) -> Self { } }"),
+]
+
+
+def selftest():
+    bad = 0
+    for src, want in SELFTEST:
+        s1, _ = rewrite_params(src)
+        got, _ = rewrite_returns(s1)
+        ok = got == want
+        bad += not ok
+        print(("ok   " if ok else "FAIL ") + src + ("" if ok else f"\n     got  {got!r}\n     want {want!r}"))
+    print(f"\n{len(SELFTEST) - bad}/{len(SELFTEST)} passed")
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    if "--selftest" in sys.argv[1:]:
+        sys.exit(selftest())
+    total_p = total_r = 0
+    for p in pathlib.Path(sys.argv[1]).rglob('*.k'):
+        s = p.read_text()
+        s1, np_ = rewrite_params(s)
+        s2, nr  = rewrite_returns(s1)
+        if np_ or nr:
+            p.write_text(s2)
+            total_p += np_; total_r += nr
+            print(f"{np_:4d} params  {nr:4d} returns  {p}")
+    print(f"\n{total_p} params, {total_r} returns")
