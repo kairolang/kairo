@@ -612,12 +612,15 @@ class <T> OperatorTyping {
         // base is); the count stays its own integer.
         var lhs_down: *Type = (expected) if (self._is_shift(k)) else (pass_down);
 
+        // The literal side takes the other side's VALUE type: a C++ element
+        // read (`v[0] - 1` with `v[0]: u32&`) is a u32, and handed the
+        // reference the literal stayed i32 and the pair did not unify (G25).
         if l_lit && (!r_lit) {
             rt = dyn()->type_of(n->rhs, self.cast_operand_expected(n->rhs, pass_down));
-            lt = dyn()->type_of(n->lhs, self._context_left_down(k, numeric_ctx, rt, lhs_down));
+            lt = dyn()->type_of(n->lhs, self._context_left_down(k, numeric_ctx, self._ref_value(rt), lhs_down));
         } else if r_lit && (!l_lit) {
             lt = dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, lhs_down));
-            rt = dyn()->type_of(n->rhs, (lt) if (numeric_ctx) else (self._coalesce_down(k, lt, pass_down)));
+            rt = dyn()->type_of(n->rhs, (self._ref_value(lt)) if (numeric_ctx) else (self._coalesce_down(k, lt, pass_down)));
         } else {
             lt = dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, lhs_down));
             rt = dyn()->type_of(n->rhs, self.cast_operand_expected(n->rhs, (lt) if (numeric_ctx && (pass_down == &null)) else (self._coalesce_down(k, lt, pass_down))));
@@ -1075,6 +1078,13 @@ class <T> OperatorTyping {
             return dyn()->tu.builtin(BuiltinKind::Bool);
         }
         return &null;
+    }
+
+    /// \p t, or its referee when it is a C++ reference.
+    priv fn _ref_value(self, t: *Type) -> *Type {
+        var c = canon_unqual(t);
+        if (c != &null) && (isa::<CXXLValueRefType>(c) || isa::<CXXRValueRefType>(c)) { return dyn()->tu.as_value(c); }
+        return t;
     }
 
     priv fn _unify_error(self, n: *Expr, lt: *Type, rt: *Type) {

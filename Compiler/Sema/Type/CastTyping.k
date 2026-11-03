@@ -112,6 +112,12 @@ class <T> CastTyping {
         var src = dyn()->type_of(n->operand, op_expected);
         if dyn()->propagate(n, n->operand) { return &null; }
         if src == &null { return &null; }
+        // A C++ reference converts as what it refers to: `v[i] as i64` with
+        // `v[i]: u32&` is a cast of the u32 (G25), as in C++.
+        var src_c = canon_unqual(src);
+        if (src_c != &null) && (isa::<CXXLValueRefType>(src_c) || isa::<CXXRValueRefType>(src_c)) {
+            src = dyn()->tu.as_value(src_c);
+        }
         if src == target {
             self._lint_redundant(n, src, target);
             return target;
