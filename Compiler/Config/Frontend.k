@@ -127,6 +127,10 @@ class FrontendOptions {
         return self.action == FrontendActionKind::Preprocess;
     }
 
+    fn is_syntax_only(self) -> bool {
+        return self.action == FrontendActionKind::SyntaxOnly;
+    }
+
     fn stops_at_parse(self) -> bool {
         return (self.action == FrontendActionKind::SyntaxOnly)
             || (self.action == FrontendActionKind::Preprocess);

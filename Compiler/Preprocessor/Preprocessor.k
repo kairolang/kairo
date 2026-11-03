@@ -3152,6 +3152,12 @@ class PreProcessor {
         b.emit();
     }
 
+    /// \brief no ffi header is handed to clang from here on: a walk records
+    ///        the header list and builds no HeaderSet. For --syntax-only,
+    ///        which never reaches the Sema that reads one (P355); the cache
+    ///        stays the CompilerInstance's.
+    fn drop_headers(self) { self._headers = &null; }
+
     fn preprocess(self, entry_fid: u32, entry_path: ModulePath) -> PPResult {
         var out = PPResult();
 

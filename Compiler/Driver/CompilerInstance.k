@@ -264,6 +264,9 @@ class FrontendAction {
     priv fn _dump_panic_sets(self);
 
     priv fn _fatal(self, id: DiagID, msg: string) -> bool;
+    /// --syntax-only, unless a C++ input includes Kairo (the include needs
+    /// the whole program analysed, kairo_feeds_includes).
+    priv fn _syntax_only(self) -> bool;
     priv fn _load(self)        -> bool;
     priv fn _preprocess(self)  -> bool;
     priv fn _parse(self)       -> bool;
@@ -4256,6 +4259,11 @@ fn FrontendAction::_fatal(id: DiagID, msg: string) -> bool {
     return false;
 }
 
+fn FrontendAction::_syntax_only() -> bool {
+    var fe = ((self._ci->invocation()).frontend);
+    return fe.is_syntax_only() && (!self._ci->kairo_feeds_includes());
+}
+
 /// Registers the source file with \c SourceManager and obtains a file ID.
 fn FrontendAction::_load() -> bool {
     var _t = TimeRegion("Load");
@@ -4277,13 +4285,22 @@ fn FrontendAction::_preprocess() -> bool {
 
     self._stage = TUStage::Preprocessing;
 
+    // --syntax-only is per file (P355): it parses its inputs and nothing they
+    // import, and a C++ header is not syntax, so no clang parse either. The
+    // import closure is still preprocessed -- an imported macro is expanded
+    // in the input's own tokens, and that needs its definition.
+    var syntax_only = self._syntax_only();
+    if syntax_only { self._ci->pp()->drop_headers(); }
+
     var pp_res = self._ci->pp()->preprocess(self._file_id, self.module_base);
     // Only what no earlier input took: the rest is done (claim_fid). An
-    // input another one imports is left with nothing.
+    // input another one imports is left with nothing -- except under
+    // --syntax-only, where the importer parsed only itself.
     self._graph = pp_res.fids;
     self._fids.clear();
     for f: u32 in pp_res.fids {
-        if self._ci->claim_fid(f) { self._fids.push_back(f); }
+        var mine = self._ci->claim_fid(f);
+        if mine || (syntax_only && (f == self._file_id)) { self._fids.push_back(f); }
     }
     // Which fid is the builtin module, recorded once for the build. Sema fills
     // the lang-item table from it (NameResolution); it cannot identify the fid
@@ -4346,6 +4363,15 @@ fn FrontendAction::_parse() -> bool {
         if self._ci->is_foreign_fid(f) { continue; }
         fids.push_back(f);
     }
+    // --syntax-only: the closure is indexed (the parser's disambiguation
+    // reads imported names), but only the input is parsed in full, so only
+    // its errors are reported (P355).
+    var parse_fids = vec::<u32>();
+    var syntax_only = self._syntax_only();
+    for f: u32 in fids {
+        if syntax_only && (f != self._file_id) { continue; }
+        parse_fids.push_back(f);
+    }
 
     // index phase: Index-mode ASTParse over each fid (same grammar as the
     // full parse, shallow materialization). Replaces the old ASTIndex
@@ -4373,7 +4399,7 @@ fn FrontendAction::_parse() -> bool {
     // parallel parse + low-water-mark flush
     {
         var _tp = TimeRegion("Full");
-        var N          = fids.size();
+        var N          = parse_fids.size();
         var time_rec   = kairo::TimeReport::current();
         var time_sm    = self._ci->sm();
         var time_flush = kairo::TimeReport::region_under(time_rec, r"DiagFlush");
@@ -4386,7 +4412,7 @@ fn FrontendAction::_parse() -> bool {
         var done_data = done.data();
 
         var engine = self._ci->diag();
-        var fids_data = fids.data();
+        var fids_data = parse_fids.data();
         var gs     = self._global_scope;
 
         // flusher: drains contiguous done-prefix in fid order, single-threaded.
@@ -4407,7 +4433,7 @@ fn FrontendAction::_parse() -> bool {
         });
 
         for var i: usize = 0; i < N; ++i {
-            var fid: u32 = fids[i];
+            var fid: u32 = parse_fids[i];
             self._ci->pool()->enqueue(fn () |gs, fid, done_data, i, time_rec, time_sm| {
                 var _kt = kairo::TimeReport::Worker(time_rec);
                 var publish = PublishOnExit(&(done_data[i]));
@@ -4443,7 +4469,7 @@ fn FrontendAction::_parse() -> bool {
             );
         }
         opts.color = use_color;
-        for fid: u32 in fids {
+        for fid: u32 in parse_fids {
             std::print(f"============== AST ({ast_mode}) for fid {fid} ==============");
             var ctx = self._global_scope->get_context(fid);
             if ctx == &null {
@@ -4470,7 +4496,7 @@ fn FrontendAction::_parse() -> bool {
         else if ast_mode == "canonical" { sym_opts = PrintOptions::canonical(); }
         sym_opts.color = use_color;
 
-        for fid: u32 in fids {
+        for fid: u32 in parse_fids {
             var ctx = self._global_scope->get_context(fid);
             if ctx == &null { continue; }
             var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
