@@ -107,6 +107,10 @@ PIPELINE = [
     Pass("keyword_idents", "names spelled like a Stage 1 keyword (test, loop) -> #name; order-independent"),
 
     # Declarations.
+    Pass("op_assign",
+         "explicit op = -> dropped (Stage 1 derives it) / Token's set_kind/set_range/set_imm + call "
+         "sites, TODO(OP-ASSIGN); deletes lines (after cpp_casts), sees final ternaries; "
+         "before ref_returns and ref_and_mref"),
     Pass("ref_returns",
          "-> ref!(T) -> -> *T / *Self with &-returns and call sites (-> / *), for x: ref!(T) -> "
          "for *x; before ref_and_mref, after drop_turbofish and ranged_for_binding"),
@@ -123,6 +127,7 @@ PIPELINE = [
     Pass("visibility_first", "pub/priv/prot lead the modifier run"),
     Pass("const_fn_receiver",
          "const fn f(self) -> fn f(const self); after visibility_first so the modifier run is final"),
+    Pass("typename_macro", "typename!(T::X) -> T::X (Stage 1 resolves T::X per instance); order-independent"),
     Pass("linker_api_imports",
          "import Linker::API::X -> import API::X (P344: -I Compiler -I Linker only); order-independent"),
     Pass("const_value_params",

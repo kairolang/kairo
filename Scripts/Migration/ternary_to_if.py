@@ -39,6 +39,27 @@ def scan_left(src, mask, ifpos):
         if c == ":" and depth == 0 and i > 0 and src[i - 1] == ":":
             i -= 2
             continue
+        # `f::<T>(x) if c else d`: a turbofish is part of operand A too.
+        if c == ">" and depth == 0 and i > 0 and src[i - 1] != "-":
+            j, d = i, 0
+            while j >= 0:
+                if src[j] == ">":
+                    d += 1
+                elif src[j] == "<":
+                    d -= 1
+                    if d == 0:
+                        break
+                elif src[j] in "\n;{}":
+                    j = -1
+                    break
+                j -= 1
+            if j >= 2 and src[j - 2:j] == "::":
+                i = j - 3
+                continue
+        # `p->f if c else d`: a member access is part of operand A too.
+        if c == ">" and depth == 0 and i > 0 and src[i - 1] == "-":
+            i -= 2
+            continue
         if c in CLOSE:
             depth += 1
         elif c in OPEN:
@@ -48,11 +69,11 @@ def scan_left(src, mask, ifpos):
         elif depth == 0:
             if c in LEFT_STOP:
                 return i + 1
-            # A newline bounds the operand. Crossing it would need bracket-depth
-            # tracking to stay sound -- in a newline-terminated language
-            # `foo()\nif x {` is a statement, not a ternary, and only unbalanced
-            # brackets make the difference. Not worth the risk for ~8 sites:
-            # find them with  rg '^\s+else\s+[^{]*$'  and do them by hand.
+            # A newline bounds the operand: in a newline-terminated language
+            # `foo()\nif x {` is a statement, not a ternary. The one crossing
+            # allowed is line_first_if's (an `if` that starts its line and
+            # reaches `else` before any `{`), and it starts this scan at the
+            # end of the line above.
             if c == "\n":
                 return i + 1
             # keyword boundary: `return X if C else Y` -- A is X, not `return X`
@@ -68,6 +89,45 @@ def scan_left(src, mask, ifpos):
     return 0
 
 
+def line_first_if(src, mask, pos):
+    """For an `if` that starts its line: the index just past the previous
+    code line's last character when the `if` continues a Stage 0 ternary
+    split over lines, else None.
+
+        node->canonical = replacement->canonical
+                          if   (replacement->canonical != &null)
+                          else (replacement);
+
+    A statement `if` reaches its body `{` before any `else`; a ternary
+    continuation reaches `else` first, and that `else` takes no block. The
+    line above must end in an operand (`)`, `]`, a string, a name), never in
+    `{`, `}` or `;`, which end a statement."""
+    k = pos - 1
+    while k >= 0 and src[k] in " \t":
+        k -= 1
+    if k < 0 or src[k] != "\n":
+        return None
+    while k >= 0 and (src[k] in " \t\r\n" or not mask[k]):
+        k -= 1
+    if k < 0 or not (src[k] in ")]\"" or IDENT.match(src[k])):
+        return None
+    e = scan_to(src, mask, pos + 2, "{;", ("else",))
+    if e >= len(src) or not kw_at(src, mask, e, "else"):
+        return None
+    j = e + 4
+    while j < len(src) and src[j] in " \t\r\n":
+        j += 1
+    if j < len(src) and src[j] == "{":
+        return None
+    # the operand's own last word must not be a keyword that ends a statement
+    w = k
+    while w > 0 and IDENT.match(src[w - 1]):
+        w -= 1
+    if src[w:k + 1] in ("else", "return", "break", "continue", "loop"):
+        return None
+    return k + 1
+
+
 def is_ternary_if(src, mask, pos):
     """Distinguish `A if C else B` from a statement `if`."""
     i = pos - 1
@@ -75,6 +135,8 @@ def is_ternary_if(src, mask, pos):
         i -= 1
     if i < 0:
         return False
+    if src[i] == "\n":
+        return line_first_if(src, mask, pos) is not None
     c = src[i]
     if c in ")]\"'" or IDENT.match(c):
         # guard: `else if`, `eval if`, `const eval if` -- statement forms whose
@@ -92,7 +154,9 @@ def parse_chain(src, mask, ifpos, spans=()):
 
     Returns (start, end, [(cond, val), ...], default) or None."""
     lo, hi = clamp(spans, ifpos)
-    a_start = scan_left(src, mask, ifpos)
+    # a ternary split over lines: operand A ends on the line above
+    cont = line_first_if(src, mask, ifpos)
+    a_start = scan_left(src, mask, cont if cont is not None else ifpos)
     if lo is not None:
         a_start = max(a_start, lo)
     # keep leading whitespace/indent in place; A begins at the first real char
@@ -164,9 +228,17 @@ def _sweep(src, path, report):
     i = 0
     n = len(src)
     count = 0
+    done_to = 0     # src offset where the last rewrite of this sweep ended
     while i < n:
         if kw_at(src, mask, i, "if") and is_ternary_if(src, mask, i):
             parsed = parse_chain(src, mask, i, spans)
+            if parsed is not None and parsed[0] < done_to:
+                # operand A holds a ternary this sweep already rewrote (a
+                # multi-line one whose line above had its own): `out` no
+                # longer mirrors src there, so leave it to the next sweep
+                out.append(src[i])
+                i += 1
+                continue
             if parsed is None:
                 report.append(f"{path}: SKIPPED ternary at offset {i} (unparsed)")
                 out.append(src[i])
@@ -193,6 +265,7 @@ def _sweep(src, path, report):
             while end > a_start and src[end - 1] in " \t":
                 end -= 1
             i = end
+            done_to = end
             count += 1
             continue
         out.append(src[i])
@@ -213,6 +286,9 @@ SELFTEST = [
      "var v = if c => (if p => a else => b) else => d"),
     ("f((a if p else b), c)",
      "f((if p => a else => b), c)"),
+    ("x = p->f if c else d", "x = if c => p->f else => d"),
+    ("x = (static_cast::<u8>(K::Raw) if (r) else 0)", "x = (if (r) => static_cast::<u8>(K::Raw) else => 0)"),
+    ("ok = a > b if c else d", "ok = a > (if c => b else => d)"),
     # A path is one operand.
     ("tok = TokenKind::LitFloat if f else TokenKind::LitInt",
      "tok = if f => TokenKind::LitFloat else => TokenKind::LitInt"),
@@ -223,6 +299,24 @@ SELFTEST = [
      "ok = x == (if c => a else => b)"),
     ("fn f() -> i32 { return a if c else b }",
      "fn f() -> i32 { return if c => a else => b }"),
+    # Split over lines (the shapes ternary_to_if used to leave for patches).
+    ("    node->canonical   =   replacement->canonical\n                         if   (replacement->canonical != &null)\n                         else (replacement);",
+     "    node->canonical   =   if (replacement->canonical != &null) => replacement->canonical else => (replacement);"),
+    ('        var msg  = f"a {x}"\n                   if (h > 0) else\n                   (f"b {y}");',
+     '        var msg  = if (h > 0) => f"a {x}" else => (f"b {y}");'),
+    ("            var ok = self.a(p, &n, k)\n                     if self.r(k)\n                     else (self.b(p, &n));",
+     "            var ok = if self.r(k) => self.a(p, &n, k) else => (self.b(p, &n));"),
+    ("        var code = DiagID::R010E\n            if (l == E)\n            else (DiagID::R010W)\n            if (l == W)\n            else (DiagID::R010N);",
+     "        var code = if (l == E) => DiagID::R010E else if (l == W) => (DiagID::R010W) else => (DiagID::R010N);"),
+    ("        var line_text = sm->get_full_line(r);\n\n        var g  = ((s) if (p) else (D))\n            if color else \"\";",
+     "        var line_text = sm->get_full_line(r);\n\n        var g  = if color => (if (p) => (s) else => (D)) else => \"\";"),
+    # Not ternaries: a statement if after a statement, and a multi-line head.
+    ("    f(x)\n    if c {\n        g()\n    } else {\n        h()\n    }",
+     "    f(x)\n    if c {\n        g()\n    } else {\n        h()\n    }"),
+    ("    x = 1;\n    if (a)\n    || (b) {\n        g()\n    }",
+     "    x = 1;\n    if (a)\n    || (b) {\n        g()\n    }"),
+    ("    return\n    if c => a else => b",
+     "    return\n    if c => a else => b"),
     ("if c { x }", "if c { x }"),
     ("} else if c { x }", "} else if c { x }"),
 ]

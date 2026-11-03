@@ -462,3 +462,14 @@ char_literals_u8.py       'a' -> ('a' as u8) (always parenthesized: gap G2);
                           in a case pattern -> 0x61 /* 'a' */ (a pattern
                           takes no cast); r'x' (C char) -> the integer. Stage 1
                           has no b'a'.
+op_assign.py              explicit `op =` -> dropped where it is what Stage 1
+                          derives from the transfer constructor (deleted,
+                          member-wise, or self-check + destroy + transfer
+                          body; by-hand class table); Token's
+                          `token = kind / range / imm` -> set_kind / set_range
+                          / set_imm plus the call sites. TODO(OP-ASSIGN).
+typename_macro.py         typename!(T::X) -> T::X.
+ternary_to_if.py          now also takes a ternary split over lines (an `if`
+                          that starts its line and reaches `else` before any
+                          `{`), `p->f` and `f::<T>(x)` operands; selfhost
+                          patch 001 is dropped.

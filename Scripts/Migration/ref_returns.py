@@ -190,8 +190,13 @@ def enclosing(spans, pos):
 
 def type_spans(src, mask):
     out = []
-    for m in TYPEHEAD.finditer(src):
-        if not mask[m.start()]:
+    for k in re.finditer(r"\b(?:class|struct)\b", src):
+        # per CODE keyword: a `class X` in a comment must not swallow the
+        # real declaration in a finditer
+        if not mask[k.start()]:
+            continue
+        m = TYPEHEAD.match(src, k.start())
+        if not m:
             continue
         ob = m.end() - 1
         cb = fwd(src, mask, ob, "{", "}")
