@@ -266,16 +266,27 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     /// types this expression afterwards and owns any arity error, so a list
     /// that does not apply leaves the step to inference.
     priv fn _anchor_of_generic_head(self, id: *NamedIdentExpr) -> Anchor {
+        return self._anchor_of_generic(id->resolved_decl, &(id->generic_args), id->range);
+    }
+
+    /// The instance a record named with explicit args denotes, as a head
+    /// (`Box<i32>::make()`) or as a `::` step (`ns::Box<i32>::make()`,
+    /// `cxx::std::is_same<A, B>::value`). The step form used to anchor the
+    /// PATTERN: a member the pattern declares outright still bound, but one
+    /// only the instance has -- through a base that depends on the args,
+    /// `is_same<A, B> : integral_constant<bool, __is_same(A, B)>` -- was
+    /// R025E "no member named 'value'", and nothing was ever filled.
+    priv fn _anchor_of_generic(self, d: *Decl, gargs: *FrozenList::<ChainType::GenericArg>, range: SourceRange) -> Anchor {
         var a = Anchor{};
-        var canon = NameLookup::representative(id->resolved_decl);
+        var canon = NameLookup::representative(d);
         a.decl = canon;
         var gps = decl_generic_params(canon);
         if gps.size() == 0 {
             a.kind = AnchorKind::NeedsInference;    // not a record with params.
             return a;
         }
-        for var i: usize = 0; i < id->generic_args.size(); ++i {
-            var g = id->generic_args.get(i);
+        for var i: usize = 0; i < gargs->size(); ++i {
+            var g = gargs->get(i);
             if (g->ty == &null) || g->ty->is_poisoned() {
                 a.kind = AnchorKind::Errored;
                 return a;
@@ -288,8 +299,8 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         var ga = GenericArgs(self.sc);
         ga.report = false;
         var args = vec::<*Type>();
-        if (!ga.check_arity(canon, "", gps, id->generic_args.size(), id->range))
-        || (!ga.collect(canon, gps, id->generic_args, true, &args)) {
+        if (!ga.check_arity(canon, "", gps, gargs->size(), range))
+        || (!ga.collect(canon, gps, *gargs, true, &args)) {
             a.kind = AnchorKind::NeedsInference;
             return a;
         }
@@ -314,6 +325,11 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         var a = Anchor{};
         if d == &null { a.kind = AnchorKind::Errored; return a; }
         if d->is_poisoned() { a.kind = AnchorKind::Errored; return a; }
+        // `::Name<args>`: the instance, exactly as for a head.
+        if (st != &null) && (!st->generic_args.is_empty())
+        && (isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d)) {
+            return self._anchor_of_generic(d, &(st->generic_args), st->range);
+        }
 
         switch d->kind {
             case DeclKind::ModuleDecl {
