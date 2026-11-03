@@ -339,6 +339,11 @@ what N reads to say "exists but is private"; recording the import edge's
 own pub/prot there made every plain `import foo` report "'foo' is
 imported but is declared private in its module". Whether the edge
 re-exports is a separate question, answered from `origin` in §4.4.
+A folded decl records its OWN visibility the same way, and one that writes
+none records `Public` (top-level declarations default to `pub`, modules.md);
+falling back to the edge's made every unannotated function or class used
+through a plain `import m::*` R047E (`ImportResolution::_cell_vis`; test:
+Tests/Sema/Imports/per_form/main_unannotated.k).
 
 ### 2.4 N NameResolution
 

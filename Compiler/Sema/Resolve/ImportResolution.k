@@ -416,7 +416,7 @@ class ImportResolution {
         var t = OverlayTarget{};
         t.origin  = static_cast::<*Decl>(id);
         t.src_fid = fid;
-        t.vis     = self._cell_vis(id, cell);
+        t.vis     = self._cell_vis(cell);
 
         if self._is_function_cell(cell) {
             t.kind = OverlayTargetKind::FunctionSet;
@@ -870,23 +870,22 @@ class ImportResolution {
         return true;
     }
 
-    /// Edge visibility: the import statement's own pub/prot/priv.
-    priv fn _edge_vis(self, id: *ImportDecl) -> OverlayVisibility {
-        if id->is_public()    { return OverlayVisibility::Public;    }
-        if id->is_protected() { return OverlayVisibility::Protected; }
-        return OverlayVisibility::Private;
-    }
-
     /// Carried visibility for a folded decl: the DECL's own visibility (the
-    /// fact N reads to emit "exists but priv/prot"). Falls back to the edge
-    /// visibility when the decl carries none.
-    priv fn _cell_vis(self, id: *ImportDecl, cell: *OverloadCell) -> OverlayVisibility {
+    /// fact N reads to emit "exists but priv/prot"). A decl that writes none
+    /// is Public: a top-level declaration defaults to `pub` (modules.md,
+    /// Visibility on Top-Level Declarations), and a header's entities carry
+    /// no Kairo visibility at all. Falling back to the import edge's own
+    /// visibility instead -- private unless written `pub import` -- made
+    /// every unannotated function or class reached through a plain
+    /// `import m::*` R047E at its first use in an expression (the same
+    /// mistake §2.3 records for module handles); whether the edge re-exports
+    /// is answered from `origin` (§4.4), never from this fact.
+    priv fn _cell_vis(self, cell: *OverloadCell) -> OverlayVisibility {
         var d = cell->get(0);
         if d != &null {
             if d->is_private()   { return OverlayVisibility::Private;   }
             if d->is_protected() { return OverlayVisibility::Protected; }
-            if d->is_public()    { return OverlayVisibility::Public;    }
         }
-        return self._edge_vis(id);
+        return OverlayVisibility::Public;
     }
 }
