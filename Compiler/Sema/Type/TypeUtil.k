@@ -37,6 +37,7 @@ import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
 import AST::Kind::ExprKind::*;
 import AST::ParamMode::*;
+import AST::OperatorFacts::*;
 import Token::TokenKind::*;
 
 /// The pointer levels of a canonical type (TypeUtil::pointer_shape): how
@@ -438,6 +439,10 @@ class TypeUtil {
         if isa::<EnumDecl>(d)         { return ctx->get_spelling(cast::<EnumDecl>(d)->name);         }
         if isa::<TypeAliasDecl>(d)    { return ctx->get_spelling(cast::<TypeAliasDecl>(d)->name);    }
         if isa::<ModuleDecl>(d)       { return ctx->get_spelling(cast::<ModuleDecl>(d)->name);       }
+        // An operator has no name token to spell (TokenText::resolve asserts
+        // on its empty one); EvalUsageChecking named every `eval fn op ==`
+        // through here and aborted the compile.
+        if isa::<FunctionDecl>(d) && cast::<FunctionDecl>(d)->is_operator { return "op " + OperatorFacts::symbol(cast::<FunctionDecl>(d)); }
         if isa::<FunctionDecl>(d)     { return ctx->get_spelling(cast::<FunctionDecl>(d)->name);     }
         if isa::<ParamDecl>(d)        { return ctx->get_spelling(cast::<ParamDecl>(d)->name);        }
         if isa::<VariableDecl>(d)     { return ctx->get_spelling(cast::<VariableDecl>(d)->name);     }
