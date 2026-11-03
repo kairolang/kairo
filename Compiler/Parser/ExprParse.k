@@ -754,7 +754,7 @@ class <T> ExprParse {
             // Everything else speculates: `as const`, `as (`, and plain type
             // positions are disambiguated inside _try_type_cast by the
             // trailing-`{` tiebreaker.
-            var c = self._try_type_cast(e);
+            var c = self._try_type_cast(e, stop);
             if c == &null { break; }   // binding (or unparseable) -> stmt layer owns `as`
             e = c;
         }
@@ -2134,7 +2134,7 @@ class <T> ExprParse {
     ///          so the statement layer routes to context binding.
     ///
     /// precondition: current token is `as`.
-    inline fn _try_type_cast(self, operand: *Expr) -> *Expr {
+    inline fn _try_type_cast(self, operand: *Expr, stop: ExprStopKind) -> *Expr {
         type ASTTentativeGuard = typename!(T::TentativeGuard);
         var t = ASTTentativeGuard(dyn());
 
@@ -2164,8 +2164,12 @@ class <T> ExprParse {
         }
 
         // tiebreaker: a `{` after the parsed type is a context-binding body
-        // (`as const x { ... }`), never a cast. roll back.
-        if dyn()->check(TokenKind::OpLBrace) {
+        // (`as const x { ... }`), never a cast. roll back. Not in a head that
+        // ends at `{` (NoStructLiteral: if / while / for / match / where):
+        // a binding cannot appear there, and the brace is the body, so
+        // `if m == x as unsafe *u8 {` is a cast (P349).
+        var in_head = (static_cast::<u8>(stop) & static_cast::<u8>(ExprStopKind::NoStructLiteral)) != 0;
+        if (!in_head) && dyn()->check(TokenKind::OpLBrace) {
             return &null;
         }
 
