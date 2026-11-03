@@ -11,33 +11,30 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+/// \brief value of a hex digit byte: '0'-'9' -> 0-9, 'A'-'F' and 'a'-'f' ->
+///        10-15, 0xFF for anything else (an invalid digit).
+///
+/// \details was a 256-entry `static constexpr` table built by a C++ lambda.
+///          It is indexed by the low byte of the code point, so callers keep
+///          passing `static_cast::<u8>(c)` exactly as they indexed the table.
+eval fn hex_digit_lut(b: u8) -> u8 {
+    if (b >= 48) && (b <= 57)  { return static_cast::<u8>(b - 48); }       // '0'-'9'
+    if (b >= 65) && (b <= 70)  { return static_cast::<u8>(b - 65 + 10); }  // 'A'-'F'
+    if (b >= 97) && (b <= 102) { return static_cast::<u8>(b - 97 + 10); }  // 'a'-'f'
+    return 0xFF;
+}
+
 /// \brief incremental hexadecimal digit parser
 /// \details used for escape sequence decoding (\x, \u, \U)
 class HexParser {
     var value:  usize = 0;
     var digits: usize = 0;
 
-    /// lookup table for hex digit to value conversion
-    /// 0xFF indicates invalid digit
-    // INLINE(cxx-feature: constexpr lambda)
-    __inline_cpp("static constexpr array<u8, 256> hex_lut = [] {
-        array<u8, 256> lut;
-        lut.fill(0xFF);
-
-        for (u8 i{}; i <= 9; ++i) lut[static_cast<u8>(U'0') + i] = i;
-        for (u8 i{}; i <= 5; ++i) {
-            lut[static_cast<u8>(U'A') + i] = 10 + i;
-            lut[static_cast<u8>(U'a') + i] = 10 + i;
-        }
-
-        return lut;
-    }()");
-
     /// \brief appends a hex digit
     /// \param c hex digit character
     /// \requires is_digit(c) == true
     inline eval fn push_back(self, c: char32) {
-        const v: u8 = hex_lut[static_cast::<u8>(c) & 0xFF];
+        const v: u8 = hex_digit_lut(static_cast::<u8>(c));
         self.value = (self.value << 4) | static_cast::<usize>(v);
         ++(self.digits);
     }
@@ -46,7 +43,7 @@ class HexParser {
     /// \param c input character
     /// \returns true if valid hex digit
     inline eval fn is_digit(self, c: char32) -> bool {
-        return hex_lut[static_cast::<u8>(c) & 0xFF] != 0xFF;
+        return hex_digit_lut(static_cast::<u8>(c)) != 0xFF;
     }
 
     /// \brief returns accumulated numeric value

@@ -12,6 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/SmallVector.h";
+ffi "c++" import "Native/KInt128.hh";   // kairo::wide: 64x64 -> 128 multiply-add
 import Location::SourceRange::*;
 import Location::SourceManager::*;
 import Token::TokenBuffer::*;
@@ -32,37 +33,12 @@ module Int128 {
     /// \param hi receives the high 64 bits if overflow
     /// \returns true if result overflows 64 bits
     inline static fn mul_add_64(val: ref!(u64), factor: u64, addend: u64, hi: ref!(u64)) -> bool {
+        // The wide paths are intrinsics / unsigned __int128, which have no
+        // Kairo spelling: Native/KInt128.hh, defined under the same tests.
         const eval if defined(_MSC_VER) {
-            var result_hi: u64;
-            var result_lo: u64;
-            var carry: u8;
-
-            // INLINE(simd)
-            __inline_cpp("
-                result_lo = _umul128(val, factor, &result_hi);
-                carry = _addcarry_u64(0, result_lo, addend, &result_lo);
-                _addcarry_u64(carry, result_hi, 0, &result_hi);
-            ");
-
-            val = result_lo;
-            hi = result_hi;
-            return result_hi != 0;
-
+            return kairo::wide::mul_add_64(&val, factor, addend, &hi);
         } else if defined(__SIZEOF_INT128__) {
-            var result_lo: u64;
-            var result_hi: u64;
-
-            // INLINE(cxx-feature: __int128)
-            __inline_cpp("
-                unsigned __int128 prod = (unsigned __int128)val * factor + addend;
-                result_lo = (uint64_t)prod;
-                result_hi = (uint64_t)(prod >> 64);
-            ");
-
-            val = result_lo;
-            hi = result_hi;
-            return result_hi != 0;
-
+            return kairo::wide::mul_add_64(&val, factor, addend, &hi);
         } else {
             // manual 32-bit multiplication fallback
             var a0: u64 = val & U32_MAX;
@@ -111,107 +87,12 @@ module Int128 {
     /// \param addend 64-bit value to add
     /// \returns true if result overflows 128 bits
     inline static fn mul_add_128(lo: ref!(u64), hi: ref!(u64), factor: u64, addend: u64) -> bool {
+        // The wide paths, and the overflow reasoning for each, are in
+        // Native/KInt128.hh (intrinsics / unsigned __int128).
         const eval if defined(_MSC_VER) {
-            var mul_lo: u64;
-            var mul_hi: u64;
-            var carry: u8;
-            var addend_carry: u8;
-
-            // step 1: multiply lo * factor -> 128-bit result
-            // INLINE(simd)
-            __inline_cpp("
-                mul_lo = _umul128(lo, factor, &mul_hi);
-            ");
-
-            // step 2: add addend to mul_lo, propagate carry
-            // INLINE(simd)
-            __inline_cpp("
-                carry = _addcarry_u64(0, mul_lo, addend, &mul_lo);
-            ");
-
-            // step 3: propagate carry to mul_hi
-            //
-            // The carry OUT of this add is kept in its own variable. It used to
-            // reuse `carry`, which step 5 then overwrote, so a carry out of
-            // mul_hi here was silently discarded. Unreachable for the only
-            // caller -- digit accumulation passes factor <= 16, which bounds
-            // mul_hi at 15, so it can never be all-ones and can never carry out
-            // -- but the signature accepts any u64 factor and the discard was a
-            // real hole for any other use.
-            // INLINE(simd)
-            __inline_cpp("
-                addend_carry = _addcarry_u64(carry, mul_hi, 0, &mul_hi);
-            ");
-
-            // step 4: multiply hi * factor
-            var hi_mul_lo: u64;
-            var hi_mul_hi: u64;
-
-            // INLINE(simd)
-            __inline_cpp("
-                hi_mul_lo = _umul128(hi, factor, &hi_mul_hi);
-            ");
-
-            // step 5: add hi_mul_lo to mul_hi, check overflow
-            //
-            // Three ways to leave 128 bits: the addend carried out of the high
-            // limb (step 3), this add carried out, or hi * factor did not fit
-            // 64 bits to begin with.
-            var overflow: bool;
-            // INLINE(simd)
-            __inline_cpp("
-                carry = _addcarry_u64(0, mul_hi, hi_mul_lo, &mul_hi);
-                overflow = (carry != 0) || (hi_mul_hi != 0) || (addend_carry != 0);
-            ");
-
-            lo = mul_lo;
-            hi = mul_hi;
-            return overflow;
-
+            return kairo::wide::mul_add_128(&lo, &hi, factor, addend);
         } else if defined(__SIZEOF_INT128__) {
-            var result_lo: u64;
-            var result_hi: u64;
-            var overflow: bool;
-
-            // The overflow test has to cover BOTH steps. Testing only
-            // `val > max_safe` before the multiply misses the case where the
-            // product fits exactly and the addend is what pushes it over: at
-            // `val == max_safe` the product is the largest representable
-            // multiple of factor, so any non-zero addend wraps.
-            //
-            // That is not a corner case here, it is the 2^128 boundary. The
-            // final digit of 2^128 in base 10 arrives with val == max_safe and
-            // addend == 6, so the wrap went undetected, is_big was never set,
-            // the BigInt phase was skipped, and the literal became 0. Because
-            // the wrap always happens on the last digit, the wrong value was
-            // always a single digit -- 2^128 read as 0, 2^128+1 as 1.
-            // INLINE(cxx-feature: __int128)
-            __inline_cpp("
-                unsigned __int128 val = ((unsigned __int128)hi << 64) | lo;
-                unsigned __int128 factor_128 = (unsigned __int128)factor;
-                unsigned __int128 all_ones = ~(unsigned __int128)0;
-
-                // step 1: does the multiply alone overflow?
-                unsigned __int128 max_safe = all_ones / factor_128;
-                overflow = (val > max_safe);
-
-                // step 2: does adding the addend overflow? Checked against the
-                // headroom left after the multiply rather than by inspecting
-                // the sum, so it is a real test even when step 1 already wrapped.
-                unsigned __int128 prod = val * factor_128;
-                if (prod > all_ones - (unsigned __int128)addend) {
-                    overflow = true;
-                }
-
-                prod += (unsigned __int128)addend;
-                result_lo = (uint64_t)prod;
-                result_hi = (uint64_t)(prod >> 64);
-            ");
-
-            lo = result_lo;
-            hi = result_hi;
-            return overflow;
-
+            return kairo::wide::mul_add_128(&lo, &hi, factor, addend);
         } else {
             // manual fallback: split into 32-bit chunks
             // 128-bit value as (a3:a2:a1:a0) where each is 32-bit
@@ -279,33 +160,9 @@ module Int128 {
     /// \param carry carry-in value, updated to carry-out
     inline static fn mul_limb(limb: ref!(u64), factor: u64, carry: ref!(u64)) {
         const eval if defined(_MSC_VER) {
-            var prod_hi: u64;
-            var prod_lo: u64;
-
-            // INLINE(simd)
-            __inline_cpp("
-                prod_lo = _umul128(limb, factor, &prod_hi);
-                unsigned char c = _addcarry_u64(0, prod_lo, carry, &prod_lo);
-                _addcarry_u64(c, prod_hi, 0, &prod_hi);
-            ");
-
-            limb = prod_lo;
-            carry = prod_hi;
-
+            kairo::wide::mul_limb(&limb, factor, &carry);
         } else if defined(__SIZEOF_INT128__) {
-            var new_limb: u64;
-            var new_carry: u64;
-
-            // INLINE(cxx-feature: __int128)
-            __inline_cpp("
-                unsigned __int128 prod = (unsigned __int128)limb * factor + carry;
-                new_limb = (uint64_t)prod;
-                new_carry = (uint64_t)(prod >> 64);
-            ");
-
-            limb = new_limb;
-            carry = new_carry;
-
+            kairo::wide::mul_limb(&limb, factor, &carry);
         } else {
             // manual multiplication
             var a0: u64 = limb & U32_MAX;
@@ -453,25 +310,16 @@ class BigFloat {
 class ImmediateTable;
 
 module Immediate {
-    // INLINE(cxx-feature: aggregate array initializer)
-    static var DIGIT_TABLE: array::<u8, 128> = __inline_cpp("{
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0-7
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 8-15
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 16-23
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 24-31
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 32-39
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 40-47
-        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // 48-55 ('0'-'7')
-        0x08, 0x09, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 56-63 ('8'-'9')
-        0xFF, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, // 64-71 ('@', 'A'-'G')
-        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, // 72-79 ('H'-'O')
-        0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, // 80-87 ('P'-'W')
-        0x21, 0x22, 0x23, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 88-95 ('X'-'Z', '['-'_')
-        0xFF, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, // 96-103 ('`', 'a'-'g')
-        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, // 104-111 ('h'-'o')
-        0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, // 112-119 ('p'-'w')
-        0x21, 0x22, 0x23, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF  // 120-127 ('x'-'z', '{'-DEL)
-    }");
+    /// \brief digit value of an ASCII code point in any base up to 36:
+    ///        '0'-'9' -> 0-9, 'A'-'Z' and 'a'-'z' -> 10-35, else 0xFF.
+    /// \details was a 128-entry table spelled as a C++ aggregate initializer;
+    ///          the ranges say the same thing in Kairo.
+    inline static fn digit_table_value(c: usize) -> u8 {
+        if (c >= 48) && (c <= 57)  { return static_cast::<u8>(c - 48); }       // '0'-'9'
+        if (c >= 65) && (c <= 90)  { return static_cast::<u8>(c - 65 + 10); }  // 'A'-'Z'
+        if (c >= 97) && (c <= 122) { return static_cast::<u8>(c - 97 + 10); }  // 'a'-'z'
+        return 0xFF;
+    }
 
     /// \brief fast digit lookup with base validation
     /// \param c character to look up
@@ -479,7 +327,7 @@ module Immediate {
     /// \returns digit value or 0xFF if invalid
     inline static fn get_digit_value(c: char, base: u8) -> u8 {
         if c >= 128 { return 0xFF; }
-        var val = DIGIT_TABLE[static_cast::<usize>(c)];
+        var val = digit_table_value(static_cast::<usize>(c));
         if val >= base { return 0xFF; }
         return val;
     }
