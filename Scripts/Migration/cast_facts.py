@@ -55,7 +55,12 @@ def stage0_cxx(root, entry, keep):
     """Run Stage 0 far enough to write its .cxx; return a copy's path."""
     cmd = ["kairo", entry] + ["-I" + i for i in INCLUDES] + \
           ["--verbose", "-o", os.path.join(keep, "stage0.out"), "--", "--cast-facts-stop-here"]
-    p = subprocess.run(cmd, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    # Stage 0 resolves relative paths against $PWD, not the process cwd, so
+    # cwd= alone is not enough: run from elsewhere with --root naming another
+    # tree, it read Compiler/ of whatever tree $PWD was in (and its facts named
+    # that tree's files), or found no entry file at all.
+    env = dict(os.environ, PWD=root)
+    p = subprocess.run(cmd, cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out = p.stdout.decode("utf-8", "replace")
     m = None
     for line in out.splitlines():
