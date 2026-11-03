@@ -83,8 +83,9 @@ class CxxNameCheck derives RecursiveASTVisitor::<CxxNameCheck> {
         if imm == u32(-1) { return; }
 
         if self.kw.contains(imm) {
+            var kw = self.sc->ctx->get_spelling(name);
             self.sc->diag->report(DiagID::SC004E, name.range.start,
-                f"{what} name is a C++ keyword; this name cannot be would be undefined behavior with C/C++ interop and cannot be used"
+                f"{what} name \x27{kw}\x27 is a C++ keyword; Kairo names are emitted unchanged, so C++ cannot declare or name it"
             ).first(name.range).emit();
             return;
         }

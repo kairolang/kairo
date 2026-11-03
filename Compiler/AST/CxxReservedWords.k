@@ -38,7 +38,11 @@
 /// ----------------------------------------------------------------- ///
 
 ffi "c++" import "llvm/ADT/DenseSet.h";
+ffi "c++" import "clang/Basic/IdentifierTable.h";
+ffi "c++" import "clang/Basic/LangOptions.h";
+ffi "c++" import "clang/Basic/LangStandard.h";
 ffi "c++" import "clang/Basic/TokenKinds.h";
+ffi "c++" import "llvm/TargetParser/Triple.h";
 
 import Lexer::Immediate::*;
 
@@ -57,10 +61,25 @@ class CxxKeywordSet {
         // NUM_TOKENS bounds the enum; getKeywordSpelling returns null for
         // every non-keyword kind, so the filter is clang's, not ours   it
         // cannot drift from what clang will actually reject.
+        //
+        // getKeywordSpelling answers for EVERY language clang lexes: HLSL's
+        // `in` / `out` / `inout`, OpenCL's and ObjC's words are kinds too.
+        // A user name is rejected here (SC004E) only if C++ would reject it,
+        // so each spelling is also asked whether it is a keyword under the
+        // newest GNU C++ mode, the widest C++ the emitted code may be built
+        // as. Without that, `var out` and `out: *T` were errors though
+        // `int out;` is valid C++.
+        var lo: clang::LangOptions;
+        var incs: libcxx::vector::<libcxx::string>;
+        clang::LangOptions::setLangDefaults(lo, clang::Language::CXX, llvm::Triple(), incs,
+                                            clang::LangStandard::lang_gnucxx26);
+        var ids = clang::IdentifierTable(lo);
         for var k: u32 = 0; k < static_cast::<u32>(clang::tok::NUM_TOKENS); ++k {
             var s = clang::tok::getKeywordSpelling(
                 static_cast::<clang::tok::TokenKind>(k));
             if s == &null { continue; }
+            var ii = &(ids.get(s));
+            if (!ii->isKeyword(lo)) { continue; }
 
             // narrow bytes straight through: getKeywordSpelling is already
             // the right string tier, no transcode.
