@@ -114,21 +114,39 @@ group = "cxx-interop"
     """
 
 [SC005]
-brief = "name is reserved to the C++ implementation"
+brief = "name is reserved for C++ interop"
 group = "cxx-interop"
 
     [SC005.W]
     explain = """
     # reserved name
 
+    Kairo emits names into C++ unchanged, so a Kairo name must also be a name C++ lets you declare.
     C++ reserves whole classes of identifiers to the implementation: names containing a double
-    underscore, names beginning with an underscore followed by a capital letter, and names beginning
-    with an underscore at global scope. using one is undefined behavior, and it may silently collide
-    with a standard-library or compiler-internal name in the emitted C++.
+    underscore and names beginning with an underscore followed by a capital letter are reserved at
+    every scope; a name beginning with an underscore followed by anything else is reserved only at
+    global scope. Declaring a reserved name is undefined behavior, and it may silently collide with a
+    standard-library or compiler-internal name in the emitted C++.
+
+    Kairo applies one rule everywhere on purpose: a leading underscore is refused at EVERY scope,
+    including class fields, parameters and locals, where C++ itself would accept `_count`. A rule
+    that holds at one scope and not another costs more to remember than the occasional rename. The
+    message says which case a name hit: "reserved by C++ at every scope" for `__` and `_Upper`, or
+    "Kairo reserves leading-underscore names" for a plain leading underscore.
+
+    ## example
+
+    ```kairo
+    class Counter {
+        var _count: i32     // warning: Kairo reserves leading-underscore names at every scope
+        var __raw: i32      // warning: reserved by C++ at every scope (double underscore)
+    }
+    ```
 
     ## how to fix
 
-    rename the declaration so it does not start with an underscore and contains no `__`.
+    rename the declaration so it does not start with an underscore and contains no `__`
+    (`count`, `count_`, `raw_count`).
     """
 
 [SC006]

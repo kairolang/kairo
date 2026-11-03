@@ -98,6 +98,20 @@ class CxxKeywordSet {
     }
 }
 
+/// Whether \p s is reserved by C++ at EVERY scope ([lex.name]/3: a double
+/// underscore anywhere, or `_` + uppercase), as opposed to a plain leading
+/// `_` + lowercase, which C++ reserves only at global scope and Kairo
+/// reserves everywhere by its own rule (SC005W). Only meaningful when
+/// cxx_reserved_reason(s) is non-empty.
+fn cxx_reserved_everywhere(s: string) -> bool {
+    var n = s.length();
+    for var i: usize = 1; i < n; ++i {
+        if (s[i - 1] == '_') && (s[i] == '_') { return true; }
+    }
+    if (n > 1) && (s[0] == '_') && (s[1] >= 'A') && (s[1] <= 'Z') { return true; }
+    return false;
+}
+
 /// Non-empty reason if \p s matches a [lex.name]/3 reserved pattern. These
 /// are shape rules on the spelling, not identity   no interning involved.
 fn cxx_reserved_reason(s: string) -> string {

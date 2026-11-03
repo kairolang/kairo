@@ -10,13 +10,17 @@
 ///     Two rule families, both reported at the DECLARATION, never at a use:
 ///       1. C++ KEYWORDS   set built from clang's own tables (see
 ///          CxxReservedWords.k), so it cannot drift from what clang rejects.
-///       2. RESERVED PATTERNS ([lex.name]/3)   double underscore anywhere,
-///          leading underscore, leading underscore + uppercase. Not keywords,
-///          so clang accepts them; still UB to define and an interop hazard.
+///       2. RESERVED PATTERNS   double underscore anywhere and leading
+///          underscore + uppercase, which [lex.name]/3 reserves at every
+///          scope, and a plain leading underscore, which C++ reserves only
+///          at global scope. Not keywords, so clang accepts them; UB to
+///          define where C++ reserves them, and an interop hazard.
 ///
-///     Applies to every user-written name including locals. A rule that
-///     holds at one scope and not another costs users more to remember than
-///     the occasional forced rename.
+///     Applies to every user-written name including locals and members: a
+///     KAIRO rule for the leading-underscore case, wider than C++'s on
+///     purpose. A rule that holds at one scope and not another costs users
+///     more to remember than the occasional forced rename. The message says
+///     which of the two rules a name broke.
 ///
 ///     RecoveryDecl nodes never reach _check: their `kind` is RecoveryDecl,
 ///     so the RAV dispatch never routes them to a visit_*_decl hook.
@@ -119,9 +123,16 @@ class CxxNameCheck derives RecursiveASTVisitor::<CxxNameCheck> {
 
         var why = cxx_reserved_reason(s);
         if !why.empty() {
-            self.sc->diag->report(DiagID::SC005W, name.range.start,
-                f"{what} name is reserved for the implementation in C++: {why}"
-            ).first(name.range).emit();
+            // Two messages, because only one of them is C++'s rule. A plain
+            // `_lower` is reserved by C++ at global scope alone; a member or
+            // a local spelled so is legal C++, and Kairo refuses it on its
+            // own account (file header). Saying "reserved in C++" there sent
+            // people looking for a C++ rule that does not exist (P372).
+            var msg = f"{what} name is reserved by C++ at every scope: {why}";
+            if !cxx_reserved_everywhere(s) {
+                msg = f"{what} name begins with an underscore; Kairo reserves leading-underscore names at every scope for C++ interop";
+            }
+            self.sc->diag->report(DiagID::SC005W, name.range.start, msg).first(name.range).emit();
         }
     }
 
