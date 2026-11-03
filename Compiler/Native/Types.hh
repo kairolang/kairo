@@ -604,6 +604,19 @@ template <typename T>
 void destroy(T *ptr) {
     delete ptr;
 }
+
+/// \brief A std::string copy of a Kairo string: Stage 0's `s.std_string()`.
+///
+/// \details lib-helix's string had a std_string() member; Stage 1's string
+///          does not. Built from the bytes and their count (native::bytes),
+///          never c_str(), so an embedded NUL survives. The self-host
+///          migration rewrites `x.std_string()` to this (TODO(STD-STRING):
+///          Stage 1.5 drops the std::string uses).
+template <class S>
+::std::string to_std_string(const S &s) {
+    auto v = native::bytes(s);
+    return ::std::string(v.data(), v.size());
+}
 #endif
 
 ///
