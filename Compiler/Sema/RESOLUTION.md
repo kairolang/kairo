@@ -1482,6 +1482,11 @@ there is no common-type search. Top level may succeed through the implicit
 relation (Converted); inside a structure exact or nothing. The bindings and
 their rewrite are its base, **Substitution** (`Substitution.k`), split out
 so the layer Deduction ranks with (Conversion) can substitute too.
+An imported function template's defaulted type parameter that no argument
+deduced is bound to its default before completeness is judged
+(`Deduction::fill_ffi_defaults`, [temp.deduct]/5), so `template <class S,
+class R = Box> R wrap(const S&)` returns a Box; value parameters
+(`enable_if_t<...> = 0`) stay clang's to fill.
 `substitute` rebuilds through the store and goes through the registry for
 a concrete record. `member_through(recv, mt)` reads a member type through
 the receiver's args. `bind_from_record(rec)` binds the record's own

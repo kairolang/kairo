@@ -1574,6 +1574,8 @@ class OverloadResolution {
 
         // 5. a generic candidate must have deduced every param. In defer mode
         //    an assumed argument deduced nothing, so a gap is assumed too.
+        //    An imported template's undeduced defaults are bound first.
+        if c->generic && f->is_imported() { c->ded.fill_ffi_defaults(static_cast::<*Decl>(f)); }
         if c->generic && c->assumed && (!c->ded.is_complete(static_cast::<*Decl>(f))) { return; }
         if c->generic && (!c->ded.is_complete(static_cast::<*Decl>(f))) {
             c->viable = false;

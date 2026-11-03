@@ -80,6 +80,28 @@ class Deduction derives Substitution {
         return true;
     }
 
+    /// An imported function template's defaulted TYPE parameter that no
+    /// argument deduced takes its default, as C++ does ([temp.deduct]/5):
+    /// `template <class S, class R = string_view> R sref(const S&)` called
+    /// with a string is sref<string, string_view>. Without the binding the
+    /// call typed as unknown (the return type stayed dependent) and the
+    /// callee reached codegen unbound. In order, so a default naming an
+    /// earlier parameter reads its binding; a default still dependent after
+    /// that, and every value parameter (`enable_if_t<...> = 0`), stays
+    /// clang's to fill (is_complete).
+    fn fill_ffi_defaults(self, owner: *Decl) {
+        var gps = self.tu.generic_params_of(owner);
+        for var i: usize = 0; i < gps.size(); ++i {
+            var gp = gps[i];
+            if (gp == &null) || gp->is_pack || gp->is_const_param || (!gp->ffi_has_default) { continue; }
+            if (gp->default_type == &null) || (gp->default_type->canonical == &null) { continue; }
+            if self.lookup(owner, gp->index) != &null { continue; }
+            var d = self.substitute(gp->default_type->canonical);
+            if (d == &null) || d->is_dependent() { continue; }
+            self.bind(owner, gp->index, d);
+        }
+    }
+
     /// Every param of \p owner has a binding.
     fn is_complete(self, owner: *Decl) -> bool {
         var gps = self.tu.generic_params_of(owner);
