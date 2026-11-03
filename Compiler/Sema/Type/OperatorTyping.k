@@ -1637,6 +1637,24 @@ class <T> OperatorTyping {
     }
 
     priv fn _incdec(self, n: *UnaryOperatorExpr, ot: *Type) -> *Type {
+        // `++p` / `--p` on a pointer of either kind is `p += 1` / `p -= 1`
+        // (P328), and takes that rule as it is: a void pointee has no unit
+        // to move by. A safe pointer is allowed: staying in its allocation
+        // is Tether's to prove, as for `p + 1`. C++'s own `++` on the
+        // pointer: no pointer type has a wrap form.
+        var pp = dyn()->tu.pointee(ot);
+        if pp != &null {
+            if dyn()->tu.is_void(pp) {
+                dyn()->fail(n, DiagID::SC067E, f"pointer arithmetic moves in units of the pointee, and '{dyn()->tu.str(ot)}' points to void; cast it to a typed pointer first");
+                return &null;
+            }
+            if !dyn()->is_lvalue(n->operand) {
+                dyn()->fail(n, DiagID::SC071E, "'++'/'--' require an assignable operand");
+                return &null;
+            }
+            if n->is_prefix() { n->value_category = Expr::ValueCategory::LValue; }
+            return ot;
+        }
         if !dyn()->tu.is_integer(ot) {
             var what = ("'++\x27") if (n->op_token.kind == TokenKind::OpPlusPlus) else ("'--\x27");
             if dyn()->tu.kind_of(ot) == BuiltinKind::COUNT {
