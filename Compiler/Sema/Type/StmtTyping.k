@@ -354,7 +354,11 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     priv fn _shorthand_type(self, v: *VariableDecl, t: *Type) -> *Type {
         var c = canon_unqual(t);
         if v->pointer_depth > 0 { self._check_pointer_shorthand(v, self._cxx_referee(c)); }
-        if !v->nullable_shorthand { return c; }
+        // A copy, as `typeof e` already reads it and as C++'s `auto` does:
+        // `var c = v.at(i)` is the value `v.at(i)` refers to, never the
+        // C++ reference (`unsafe *DirEntry&` from an unordered_map's
+        // `op []` failed to unify with a plain `unsafe *DirEntry` arm, G27).
+        if !v->nullable_shorthand { return self._cxx_referee(c); }
         // `var *p? = ptrs[0]` of a `vector<*Node?>`: the `?` is about the
         // value the reference refers to, and a nullable reference is no
         // type at all, so the slot is the referee's nullable -- `*Node?`,
