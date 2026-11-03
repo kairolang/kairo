@@ -219,40 +219,6 @@ eval fn compute_hash(const str: *string) -> u64 {
 }
 
 ///
-/// \brief Eval-time character hash step with position mixing.
-///        Inlined directly into loops to avoid call overhead.
-///
-/// \param  chr  The character to mix into the hash.
-/// \param  pos  The position of the character in the string (0-based).
-/// \param  hash The current hash value.
-/// \return The updated hash value after mixing in the character.
-///
-/// \ref Uses FNV-1a with position mixing.
-///
-// INLINE(cxx-feature: consteval)
-__inline_cpp("
-template <usize N>
-consteval u64 compute_hash(const char (&str)[N]) {
-    static_assert(N <= 256, \"String too long for hashing\");
-    
-    if constexpr (N == 0) {
-        return HASH_MAX;
-    }
-
-    u64 hash = FNV_OFFSET_BASIS;
-    
-    for (usize i = 0; i < N; ++i) {
-        hash = mix_char(str[i], hash, i);
-    }
-
-    return fold_hash((
-        (hash ^ (static_cast<u64>(N) * GOLDEN_RATIO_MIX))
-              + RESERVED_LOW
-        ) & HASH_MAX);
-}
-");
-
-///
 /// \brief Computes a hash from a string literal at compile time.
 ///        This function is the main entry point for eval-time string hashing.
 ///
@@ -339,9 +305,6 @@ class HashState {
 //     print(f"hash<\"for\">   \t= 0x{to_hex_string(compute_hash::<r"for">())}");
 //     print(f"hash<\"match\"> \t= 0x{to_hex_string(compute_hash::<r"match">())}");
 
-//     // --- wide string literal ---
-//     __inline_cpp("libcxx::cout << \"hash<L\\\"inline\\\">\t= 0x\" << libcxx::hex << (compute_hash<L\"inline\">()) << libcxx::endl;");
-
 //     // --- runtime string hashing ---
 //     var s: string = "inline";
 //     print(f"hash(\"inline\")\t= 0x{to_hex_string(compute_hash(&s))}");
@@ -378,14 +341,6 @@ class HashState {
 //     print(f"hash<\"_\">\t= 0x{to_hex_string(compute_hash::<r"_">())}");
 //     print(f"hash<\"$\">\t= 0x{to_hex_string(compute_hash::<r"$">())}");
 //     print(f"hash<\"0\">\t= 0x{to_hex_string(compute_hash::<r"0">())}");
-
-//     __inline_cpp("
-//         auto lbrace = to_hex_string(compute_hash<L\"{\">());
-//         auto rbrace = to_hex_string(compute_hash<L\"}\">());
-//     ");
-
-//     print(f"hash<\"L Brace\">\t= 0x{lbrace}");
-//     print(f"hash<\"R Brace\">\t= 0x{rbrace}");
 
 //     // Whitespace / escapes
 //     print(f"hash<\" \">\t= 0x{to_hex_string(compute_hash::<r" ">())}");

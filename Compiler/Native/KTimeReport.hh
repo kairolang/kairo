@@ -9,9 +9,8 @@
 ///   fans 148 files across a work-stealing pool.
 ///
 ///   WHY C++ AND NOT KAIRO: the registry needs thread_local state, atomics and
-///   a shared_mutex, and it has to be callable from inside the `inline "c++"`
-///   pool lambdas in FrontendAction::_parse   which is exactly where the
-///   interesting time goes.  A Kairo-side wrapper lives in
+///   a shared_mutex, and it has to be callable from C++ (the Native/
+///   headers) as well as from Kairo.  A Kairo-side wrapper lives in
 ///   Support/TimeReport.k for call sites that are plain Kairo.
 ///
 ///   MODEL
@@ -958,7 +957,7 @@ inline KTimeRecord *ktime_worker_record(const KTimeWorker &w) { return w.frame.r
 
 }  // namespace kairo
 
-/// Scoped region inside an `inline "c++"` block.
+/// Scoped region inside C++ code (a Native/ header).
 ///
 ///     KTIME("Parse.lower");
 #define KTIME_CAT2(a, b) a##b

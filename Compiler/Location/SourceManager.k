@@ -457,52 +457,6 @@ class SourceManager {
         return self.get_text(line_range);
     }
 
-    // INLINE(cxx-feature: variable template)
-    __inline_cpp("
-        private:
-        struct LineUtil {
-            template <usize N>
-            static inline constexpr usize line_range_size = N * 2 + 1;
-        };
-        public:
-    ");
-
-    /// gets N lines above and below the given locations line
-    fn <N: usize> get_line_range_context(self, loc: SourceLocation) -> array::<string, LineUtil::line_range_size::<N>> {
-        var full_loc = self.get_line_col(loc);
-        var resolve  = self.resolve(loc);
-        var fid      = resolve.fid;
-        var line     = full_loc.line;
-        var context: array::<string, LineUtil::line_range_size::<N>> = array::<string, LineUtil::line_range_size::<N>>();
-
-        for i in range::<isize>(-static_cast::<isize>(N), static_cast::<isize>(N) + 1) {
-            var curr_line = static_cast::<usize>(static_cast::<isize>(line) + i);
-
-            if curr_line < 1 {
-                context[static_cast::<usize>(i + static_cast::<isize>(N))] = "";
-                continue;
-            }
-
-            /// if the line doesnt exist, return empty string
-            var line_start = self._line_table.get_line_offset(fid, curr_line);
-            var line_end   = self._line_table.get_line_end_offset(fid, curr_line);
-            if line_start == line_end {
-                context[static_cast::<usize>(i + static_cast::<isize>(N))] = "";
-                continue;
-            }
-
-            var line_range = self.get_range(
-                fid,
-                static_cast::<usize>(line_start),
-                static_cast::<usize>(line_end - line_start)
-            );
-
-            context[static_cast::<usize>(i + static_cast::<isize>(N))] = self.get_text(line_range);
-        }
-
-        return context;
-    }
-
     ///
     /// \brief resolves a SourceLocation -> file/offset pair.
     ///

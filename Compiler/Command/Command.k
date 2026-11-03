@@ -117,9 +117,8 @@ class Command {
         }
     }
 
-    fn Command(self, diag: *DiagEngine) { // ONLY FOR TESTING
-        // INLINE(preproc)
-        __inline_cpp("#warning \"CommandCommand::Command(diag) is only for testing; use Command(argc, argv, diag) in production\"");
+    // ONLY FOR TESTING: production code uses Command(argc, argv, diag).
+    fn Command(self, diag: *DiagEngine) {
         self._diag = diag;
         self._table.reserve(64);
     }
@@ -518,8 +517,7 @@ class Command {
         if end == ptr { return 1; }     // nothing parsed
         if (*end) != '\0' { return 1; }   // trailing garbage
 
-        // INLINE(macro)
-        if (v < __inline_cpp("(libcxx::numeric_limits<i32>::min)()")) || (v > __inline_cpp("(libcxx::numeric_limits<i32>::max)()")) {
+        if (v < libcxx::numeric_limits::<i32>::min()) || (v > libcxx::numeric_limits::<i32>::max()) {
             return 2;
         }
 
@@ -538,8 +536,7 @@ class Command {
             if end == ptr { return false; }     // nothing parsed
             if (*end) != '\0' { return false; }   // trailing garbage
 
-            // INLINE(macro)
-            if (v < libcxx::numeric_limits::<f64>::lowest()) || (v > __inline_cpp("(libcxx::numeric_limits<f64>::max)()")) {
+            if (v < libcxx::numeric_limits::<f64>::lowest()) || (v > libcxx::numeric_limits::<f64>::max()) {
                 return false;
             }
 

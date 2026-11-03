@@ -22,6 +22,7 @@ ffi "c++" import "llvm/ADT/iterator_range.h";
 ffi "c++" import "llvm/Support/FileSystem.h";
 ffi "c++" import "llvm/Support/Path.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
+ffi "c++" import "Native/KFileSystem.hh";   // dir_entry_type: `type` is a keyword
 
 ///
 /// \file Path.k
@@ -273,8 +274,7 @@ default class Path {
     ///          is_directory() did.
     ///
     static fn type_of_entry(e: cref::<llvm::sys::fs::directory_entry>) -> FileType {
-        // INLINE(cxx-feature: member named with a Kairo keyword)
-        var t: FileType = e.__inline_cpp("type()");
+        var t: FileType = kairo::dir_entry_type(e);
         if (t == FileType::symlink_file) || (t == FileType::type_unknown) {
             t = llvm::sys::fs::get_file_type(llvm::Twine(e.path()), true);
         }

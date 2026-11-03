@@ -2881,8 +2881,7 @@ class ASTParse
         } else if libcxx::is_same_v::<T, Decl> {
             return reinterpret_cast::<*T>(base + 3);
         } else {
-            // INLINE(cxx-feature: static_assert)
-            __inline_cpp("static_assert(false, \"unsupported sentinel type\")");
+            static_assert(false, r"unsupported sentinel type");
             return &null;
         }
     }
@@ -2898,8 +2897,7 @@ class ASTParse
         } else if libcxx::is_same_v::<T, Decl> {
             return reinterpret_cast::<*T>(base + 3) == ptr;
         } else {
-            // INLINE(cxx-feature: static_assert)
-            __inline_cpp("static_assert(false, \"unsupported sentinel type\")");
+            static_assert(false, r"unsupported sentinel type");
             return false;
         }
     }

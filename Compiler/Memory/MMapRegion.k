@@ -12,6 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh";
+ffi "c++" import "Native/KShims.hh";   // posix_stat
 ffi "c++" import "llvm/Support/ConvertUTF.h";
 
 ///
@@ -171,8 +172,7 @@ class MMapRegion {
             var fd: i32 = ::open(path_str.c_str(), O_RDONLY);
             if fd < 0 { return false; }
 
-            // INLINE(cxx-feature: elaborated type specifier)
-            __inline_cpp("struct stat st{}");
+            var st: kairo::posix_stat = kairo::posix_stat();
 
             if fstat(fd, &st) != 0 {
                 ::close(fd);

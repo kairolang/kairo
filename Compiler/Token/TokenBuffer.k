@@ -60,15 +60,21 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
     var _chunk_capacity: usize          = 0;     // entries the table can hold
     var _total_length:   usize          = 0;     // number of tokens in all chunks
 
-    // INLINE(cxx-feature: move constructor)
-    __inline_cpp("public:
-    TokenBuffer(TokenBuffer&& other) noexcept {
-        this->_allocator      = std::Memory::move(other._allocator);
-        this->_chunks         = other._chunks;
-        this->_chunk_count    = other._chunk_count;
-        this->_chunk_alloced  = other._chunk_alloced;
-        this->_chunk_capacity = other._chunk_capacity;
-        this->_total_length   = other._total_length;
+    // Move-only. A copy would share _chunks with the source and leave both
+    // pointing into one arena. Prefix `delete fn` and `op =` are the
+    // spellings Kairo accepts (see OwnedUnit in Tooling/ParseAPI.k). The
+    // source of a move is left empty, so its destroy() frees nothing it no
+    // longer owns.
+    delete fn TokenBuffer(self, other: ref!(TokenBuffer));
+    delete fn op = (self, other: ref!(TokenBuffer)) -> ref!(TokenBuffer);
+
+    fn TokenBuffer(self, other: mref!(TokenBuffer)) {
+        self._allocator      = std::Memory::move(other._allocator);
+        self._chunks         = other._chunks;
+        self._chunk_count    = other._chunk_count;
+        self._chunk_alloced  = other._chunk_alloced;
+        self._chunk_capacity = other._chunk_capacity;
+        self._total_length   = other._total_length;
 
         other._chunks         = &null;
         other._chunk_count    = 0;
@@ -77,30 +83,25 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
         other._total_length   = 0;
     }
 
-    TokenBuffer& operator=(TokenBuffer&& other) noexcept {
-        if (this != &other) {
-            this->destroy();
+    fn op = (self, other: mref!(TokenBuffer)) -> ref!(TokenBuffer) {
+        // Parenthesised: `&self == &other` binds as `&(self == &other)`.
+        if (&self) == (&other) { return self; }
+        self.destroy();
 
-            _allocator      = std::Memory::move(other._allocator);
-            _chunks         = other._chunks;
-            _chunk_count    = other._chunk_count;
-            _chunk_alloced  = other._chunk_alloced;
-            _chunk_capacity = other._chunk_capacity;
-            _total_length   = other._total_length;
+        self._allocator      = std::Memory::move(other._allocator);
+        self._chunks         = other._chunks;
+        self._chunk_count    = other._chunk_count;
+        self._chunk_alloced  = other._chunk_alloced;
+        self._chunk_capacity = other._chunk_capacity;
+        self._total_length   = other._total_length;
 
-            other._chunks         = &null;
-            other._chunk_count    = 0;
-            other._chunk_alloced  = 0;
-            other._chunk_capacity = 0;
-            other._total_length   = 0;
-        }
-
-        return this;
+        other._chunks         = &null;
+        other._chunk_count    = 0;
+        other._chunk_alloced  = 0;
+        other._chunk_capacity = 0;
+        other._total_length   = 0;
+        return self;
     }
-
-    TokenBuffer(TokenBuffer&) noexcept = delete;
-    TokenBuffer& operator=(TokenBuffer&) noexcept = delete;
-    ");
 
     default fn TokenBuffer(self);
 

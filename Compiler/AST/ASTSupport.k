@@ -49,8 +49,7 @@ import Token::TokenText::*;
 class <T> FrozenList {
     pub var items: *T    = &null;
     pub var count: usize = 0;
-    // INLINE(macro)
-    pub var MAX:   usize = inline "c++" { (libcxx::numeric_limits<usize>::max)() };
+    pub var MAX:   usize = libcxx::numeric_limits::<usize>::max();
 
     ///
     /// \brief Freeze an ArenaList into a FrozenList, allocating the

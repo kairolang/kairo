@@ -46,8 +46,7 @@ ffi "c++" import "llvm/Support/FileSystem.h";
 // and cannot decrease. See rss_kib().
 ffi "c++" import "Native/GlobalRecycler.hh";
 ffi "c++" import "cstdlib";   // getenv/strtoull, for max_passes()
-ffi "c++" import "mach/mach.h";
-ffi "c++" import "mach/task_info.h";
+ffi "c++" import "Native/KShims.hh";   // phys_footprint_kib (mach task_info)
 
 /// Poll interval. Coarse on purpose: mtime granularity is the real floor and
 /// a tighter loop just burns CPU between saves.
@@ -105,21 +104,7 @@ fn mtime_of(p: string) -> i64 {
 /// pressure macOS will compress a leaked page rather than evict it, and plain
 /// resident_size would show that as a drop.
 fn rss_kib() -> usize {
-    // INLINE(macro)
-    return __inline_cpp("
-        []() -> unsigned long long {
-          task_vm_info_data_t    info {};
-          mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
-          
-          if (task_info(mach_task_self(),
-              TASK_VM_INFO,
-              reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS) {
-            return 0ull;
-          }
-
-          return (unsigned long long)info.phys_footprint / 1024ull;
-        }()
-    ");
+    return static_cast::<usize>(kairo::phys_footprint_kib());
 }
 
 /// True when $KWATCH_INCREMENTAL is set to something other than "0".

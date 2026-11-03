@@ -11,6 +11,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/KShims.hh";   // volatile_i64
+
 class Assert {
     var passes:      usize = 0;
     var fails:       usize = 0;
@@ -48,8 +50,7 @@ class Assert {
     fn measure_timer_overhead(self) -> i64 {
         const var iterations = 1000;
         var total = libcxx::chrono::nanoseconds(0);
-        // INLINE(cxx-feature: volatile)
-        __inline_cpp("volatile i64 dummy = 0");
+        var dummy: kairo::volatile_i64 = 0;
 
         for (var i = 0; i < iterations; ++i) {
             const var s = libcxx::chrono::steady_clock::now();

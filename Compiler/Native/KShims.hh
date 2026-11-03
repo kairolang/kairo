@@ -1,0 +1,71 @@
+/// --- The Kairo Project ------------------------------ Native/KShims.hh --- ///
+///
+///   One-line C/C++ spellings that Kairo has no syntax for, given names so
+///   Kairo code can use them.
+///
+///   WHY C++: each of these used to be an inline C++ expression at its use
+///   site. Stage 1 does not emit inline foreign code, and none of them is
+///   worth a language feature on its own:
+///
+///     volatile_i64    `volatile` is not a Kairo qualifier on a local.
+///     posix_stat      `struct stat`: in C++ the function stat() hides the
+///                     struct's name, so it needs the elaborated specifier.
+///     phys_footprint  the mach task_info call behind kwatch's RSS reading.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
+
+#ifndef __KAIRO_NATIVE_KSHIMS_HH__
+#define __KAIRO_NATIVE_KSHIMS_HH__
+
+#include <include/core.hh>
+
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#endif
+
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#include <mach/task_info.h>
+#endif
+
+namespace kairo {
+
+/// A local the optimizer must materialize on every store. The timer-overhead
+/// probes store into one so the clock reads between the stores are not
+/// folded away.
+using volatile_i64 = volatile i64;
+
+#if !defined(_WIN32)
+/// The POSIX stat record, for fstat(). Value-initialize it: `posix_stat()`.
+using posix_stat = struct ::stat;
+#endif
+
+/// Current physical footprint of this process in KiB, the number Activity
+/// Monitor shows (resident + compressed + IOKit mappings), or 0 when the
+/// query fails. macOS only; 0 everywhere else.
+inline unsigned long long phys_footprint_kib() {
+#if defined(__APPLE__)
+    task_vm_info_data_t    info{};
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+
+    if (task_info(mach_task_self(), TASK_VM_INFO,
+                  reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS) {
+        return 0ull;
+    }
+
+    return (unsigned long long)info.phys_footprint / 1024ull;
+#else
+    return 0ull;
+#endif
+}
+
+}  // namespace kairo
+
+#endif  // __KAIRO_NATIVE_KSHIMS_HH__

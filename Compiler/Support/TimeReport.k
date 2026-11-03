@@ -3,9 +3,8 @@
 ///   Kairo surface over the pass-timing engine in Native/KTimeReport.hh.
 ///
 ///   WHY TWO FILES: the registry needs thread_local state, atomics and a
-///   shared_mutex, and it has to be callable from inside the `inline "c++"`
-///   pool lambdas in FrontendAction::_parse   which is where most of the
-///   interesting time goes. That part is C++. This is the thin RAII surface
+///   shared_mutex, and it has to be callable from C++ (the Native/ headers)
+///   as well as from Kairo. That part is C++. This is the thin RAII surface
 ///   for call sites that are plain Kairo.
 ///
 ///   WHY NOT Support/Timer.k: Timer prints one line per scope and knows

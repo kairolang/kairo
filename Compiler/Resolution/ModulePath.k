@@ -33,8 +33,7 @@ class ModulePath { // 256-bit class (32 bytes - max)
     }
 
     const fn op < (self, other: ModulePath) -> bool {
-        // INLINE(macro)
-        var n = __inline_cpp("(libcxx::min)(this->segments.size(), other.segments.size())");
+        var n = libcxx::min(self.segments.size(), other.segments.size());
 
         for i in usize(0)..usize(n) {
             if self.segments[i].name != other.segments[i].name {
