@@ -828,6 +828,17 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         for var i: usize = 0; i < self._ef_binds.size(); ++i {
             if self._ef_binds[i] == d { return self.sc->types->value_expr(ValueOp::Decl, TokenKind::TkUnknown, d, &null, &null); }
         }
+        // A plain enum's variant (`FlagKind::Bool`, G30): a constant whose
+        // value StmtTyping writes later, so it stands as its name, which C++
+        // reads as the enumerator. One variant is one node, so two uses name
+        // one instance. An ADT variant is no constant.
+        var ev0 = dyn_cast::<EnumVariantDecl>(d);
+        if ev0 != &null {
+            var vdc = reinterpret_cast::<*DeclContext>(ev0->semantic_dc);
+            var en = (dyn_cast::<EnumDecl>(vdc->owner_decl())) if (vdc != &null) else (&null);
+            if (en == &null) || en->is_adt { return self._vx_fail(e, f"'{ConstEval(self.sc).tu.decl_name(d)}' is a variant of an enum with payloads, not a constant"); }
+            return self.sc->types->value_expr(ValueOp::Decl, TokenKind::TkUnknown, d, &null, &null);
+        }
         var vd = dyn_cast::<VariableDecl>(d);
         var fd = dyn_cast::<FieldDecl>(d);
         var ev = ((vd != &null) && vd->is_eval()) || ((fd != &null) && fd->is_eval());
@@ -1806,6 +1817,25 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                 self.sc->diag->report(DiagID::R025E, seg->name->range.start,
                     f"no type named '{snm}' in '{pnm}\x27"
                 ).first(seg->name->range).emit();
+                ct->poison();
+                return;
+            }
+            // A generic VALUE argument written as a path (`define<FlagKind::
+            // Bool>()`, G30) parses as a type, as a bare `Ring<CAP>` does
+            // (the head case above): a plain enum's variant last is that
+            // value, never "'Bool' does not name a type".
+            if (self._arg_depth > 0) && (i + 1 == n) && seg->generic_args.is_empty() && (sr.cell->size() == 1)
+            && isa::<EnumVariantDecl>(sr.cell->get(0)) {
+                self._vx_bad = &null;
+                self._vx_fn  = &null;
+                var vx = self._vx_name(static_cast::<*Expr>(seg->name), sr.cell->get(0));
+                if vx != &null {
+                    seg->resolved_decl = sr.cell->get(0);
+                    ct->canonical = vx;
+                    return;
+                }
+                var ce0 = ConstEval(self.sc);
+                self._report_value(static_cast::<*Expr>(seg->name), &ce0, IntConst{}, "a generic value argument");
                 ct->poison();
                 return;
             }

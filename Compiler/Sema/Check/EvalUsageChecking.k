@@ -308,8 +308,8 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
 
     /// A generic value parameter's type: an integer (a value argument folds
     /// to one, or is an expression C++ computes, EVAL.md 0.2), or an eval
-    /// class, a C++20 class-type parameter, when it is structural (7e).
-    /// Anything else (`bool`, a float) is not built.
+    /// class, a C++20 class-type parameter, when it is structural (7e), or a
+    /// plain enum. Anything else (`bool`, a float) is not built.
     fn visit_generic_param_decl(self, n: *GenericParamDecl) -> bool {
         if (!n->is_const_param) || (n->value_type == &null) || (n->value_type->canonical == &null) { return true; }
         var c = canon_unqual(n->value_type->canonical);
@@ -321,6 +321,10 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
             self._check_structural(n, rd);
             return true;
         }
+        // A plain enum (`<eval T: FlagKind>`, G30): a C++ enumeration
+        // template parameter, whose argument is a variant (`FlagKind::Bool`).
+        // An ADT is a class with payloads, not structural, so not here.
+        if (rd != &null) && isa::<EnumDecl>(rd) && (!cast::<EnumDecl>(rd)->is_adt) { return true; }
         var b = self.sc->diag->report(DiagID::SC116E, n->value_type->range.start,
             f"a generic value parameter of type '{self.tu.str(c)}' is not yet supported; only an integer type or an eval class is");
         b.first(n->value_type->range);
