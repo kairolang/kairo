@@ -1,0 +1,80 @@
+Subject: [selfhost 003] `&self.invocation()` is the pointer itself now
+
+ref_returns made CompilerInvocation& invocation() return the pointer, so the
+Stage 0 address-of on its result is an address of an rvalue; ref_returns
+reports these sites rather than dropping the `&` (a dropped `&` would read
+as a value use, and get a `*`, on the idempotency rerun).
+
+diff --git a/Compiler/Driver/CompilerInstance.k b/Compiler/Driver/CompilerInstance.k
+--- a/Compiler/Driver/CompilerInstance.k
++++ b/Compiler/Driver/CompilerInstance.k
+@@ -1633,13 +1633,13 @@
+         // (TypeExport / TypeImport): both ask the registry for the lang item.
+         self._freg->well_known = self._g_scope->well_known();
+         self._hindex  = std::create<HeaderIndex>(self._sm, self._tcm, self._diag, self._imp,
+-                                                   &self.invocation(), self._g_scope, self._freg);
++                                                   self.invocation(), self._g_scope, self._freg);
+         self._finst   = std::create<ForeignInstantiate>(self._hindex, self._freg, self._g_scope->instances());
+         self._builtins = std::create<BuiltinImport>();   // init()ed on the driver, after header indexing.
+ 
+         self._pp = std::create<PreProcessor>(
+             self._sm, self._tcm, self._imp, self._pool,
+-            self._diag, self._g_scope, &self.invocation(), self.invocation()->pp, self._headers);
++            self._diag, self._g_scope, self.invocation(), self.invocation()->pp, self._headers);
+         self._finst->psym = self._pp->get_symbol_table();
+         // Panic<i32, B, A> IS Panic<i32, A, B> wherever a type is formed
+         // (PANIC.md §1.3): one stateless orderer for the build's type store
+@@ -3139,7 +3139,7 @@
+         // info, and where builtin and std are read from. Not the inputs'
+         // own -D/-I/warnings: they never reach the library.
+         var key = std::get_exe_path() + "\n" + self._backend->triple();
+-        var inv = &self.invocation();
++        var inv = self.invocation();
+         var missing = vec<string>();
+         for var w: string in FlagTranslator::target(inv->target, ClangSpelling::Driver) { key += "\n" + w; }
+         for var w: string in FlagTranslator::codegen(*inv, self._backend->triple(), ClangSpelling::Driver, &missing) { key += "\n" + w; }
+@@ -3693,7 +3693,7 @@
+     /// rejects it. Output paths and --rpath are deliberately absent -- the
+     /// first may not exist yet, the second names a directory on the TARGET.
+     priv fn _absolutize_paths(self) {
+-        var inv  = &self.invocation();
++        var inv  = self.invocation();
+         var base = Path::absolute_if_exists(inv->working_dir);
+ 
+         CompilerInstance::_absolutize_all(&inv->input_files,  base);
+@@ -3764,7 +3764,7 @@
+     /// than a missing directory. No std warning under --no-stdlib, and no
+     /// builtin one under --no-prelude; --freestanding implies both.
+     priv fn _discover_roots(self) {
+-        var inv    = &self.invocation();
++        var inv    = self.invocation();
+         var prefix = CompilerInstance::_toolchain_prefix();
+         var lib    = LinkText::join(prefix, "lib");
+ 
+@@ -3822,7 +3822,7 @@
+     /// bundled <prefix>/sysroot/<target> into --sysroot when there is one.
+     /// --macos-sdk stands in for a sysroot on Darwin.
+     priv fn _check_sysroot(self) {
+-        var inv = &self.invocation();
++        var inv = self.invocation();
+         if inv->lang.freestanding || inv->linker.freestanding { return; }
+         if !inv->linker.macos_sdk.empty() { return; }
+         var sr = inv->target.sysroot;
+@@ -3881,7 +3881,7 @@
+     ///
+     /// \return false after reporting (a failed --pkg-config).
+     priv fn _apply_host_system(self, sysroot_given: bool) -> bool {
+-        var inv = &self.invocation();
++        var inv = self.invocation();
+         var tg  = &inv->target;
+         var host = llvm::Triple(llvm::Triple::normalize(sref(self.get_target_triple())));
+         var eff  = llvm::Triple(llvm::Triple::normalize(sref(self._effective_triple())));
+@@ -3971,7 +3971,7 @@
+     /// searched after the sysroot, and as a -I/-L they would come before it
+     /// (-I/usr/include ahead of libc++ is how <cstring> breaks).
+     priv fn _apply_pkg_words(self, name: string, @inout words: vec<string>) {
+-        var inv = &self.invocation();
++        var inv = self.invocation();
+         var tg  = &inv->target;
+         var i: usize = 0;
+         while i < words.size() {

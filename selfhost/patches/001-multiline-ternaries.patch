@@ -46,6 +46,6 @@ index 00182816..c0ded235 100644
 -                        if (spec.eq_pos != 0) else (SourceRange::invalid());
 +            hole.doc  = if spec.eq_pos != 0 => self.create_source_range(spec.start, doc_end)
 +                        else => SourceRange::invalid();
-             ctx.imm.get_holes().push_back(hole);
+             ctx.imm.get_holes()->push_back(hole);
          }
      }
