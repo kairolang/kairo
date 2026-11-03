@@ -3329,6 +3329,10 @@ class <T> ExprParse {
 
         var fields: std::StackBuf::<InitField, 8>;
 
+        // the field list is brace-delimited: a newline before `}` with no
+        // trailing comma, or inside a value, ends nothing (P351). Popped
+        // before `}`, so the statement terminator after it survives.
+        dyn()->nl_push();
         while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
             // tolerate stray newlines between fields
             if dyn()->check(TokenKind::TkNewLine) {
@@ -3356,6 +3360,7 @@ class <T> ExprParse {
             }
             break; // no comma => field list done
         }
+        dyn()->nl_pop();
 
         var full_range = start_range;
         if dyn()->check(TokenKind::OpRBrace) {
