@@ -23,9 +23,38 @@
 #   python3 Scripts/Migration/libcxx_to_cxx_std.py Compiler            # report
 #   python3 Scripts/Migration/libcxx_to_cxx_std.py Compiler --apply    # rewrite
 #   python3 Scripts/Migration/libcxx_to_cxx_std.py Compiler --apply --only Lexer
+#   python3 Scripts/Migration/libcxx_to_cxx_std.py --selftest
 import re, sys, pathlib
 
-SYM = re.compile(r'\blibcxx::([A-Za-z_]\w*)')
+# group(1) is the first segment (what HEADER is keyed on); group(2) the rest
+# of the `::` chain, kept so every segment can be checked against KEYWORDS.
+SYM = re.compile(r'\blibcxx::([A-Za-z_]\w*)((?:::[A-Za-z_]\w*)*)')
+
+# Stage 1 keywords (Compiler/Token/TokenText.k, plus `byte`, which the parser
+# reserves after `::`). A C++ name spelled like one is written `#name`
+# (Tests/Sema/FFI/keyword_escape_cxx_names.k): `cxx::std::thread` is S054E,
+# `cxx::std::#thread` names std::thread. Probed against the release Stage 1
+# with `--syntax-only` on `cxx::std::<name>` for every libcxx:: name the tree
+# uses (2026-11-02): atomic, thread, byte and yield are the ones it hits --
+# `yield` only as the SECOND segment (libcxx::this_thread::yield), which is
+# why the whole chain is checked, not just the name after `libcxx::`. The set
+# is the full keyword list so a new site cannot slip through.
+KEYWORDS = set("""
+    null return break continue panic match case default catch try finally if
+    else while for assert loop var const fn op class union enum type struct
+    interface extend module test macro import override final ffi impl derives
+    where requires pub priv prot eval unsafe static async inline atomic
+    volatile virtual self true false in as and and_eq bitand bitor compl not
+    not_eq or or_eq xor xor_eq void bool usize isize f16 f32 f64 f80 f128 f256
+    u8 u16 u32 u64 u128 u256 u512 i8 i16 i32 i64 i128 i256 i512 await thread
+    spawn delete yield sizeof alignof typeof byte
+""".split())
+
+
+def spell(m):
+    """cxx::std:: spelling of one libcxx:: match, keyword segments escaped."""
+    segs = [m.group(1)] + [x for x in m.group(2).split("::") if x]
+    return "cxx::std::" + "::".join("#" + x if x in KEYWORDS else x for x in segs)
 FFI = re.compile(r'ffi\s+"c\+\+"\s+import\s+"([^"]+)"')
 
 # symbol -> the header that declares it. Anything not here is reported UNKNOWN
@@ -140,14 +169,51 @@ def rewrite(src, live):
     out, i = [], 0
     for m in live:
         out.append(src[i:m.start()])
-        out.append("cxx::std::" + m.group(1))
+        out.append(spell(m))
         i = m.end()
     out.append(src[i:])
     return "".join(out)
 
 
+SELFTEST = [
+    # (source, expected) -- the five keyword shapes the tree has, and the
+    # plain names that must stay bare.
+    ("var a: libcxx::atomic::<u32>",            "var a: cxx::std::#atomic::<u32>"),
+    ("var b = 7u8 as libcxx::byte",             "var b = 7u8 as cxx::std::#byte"),
+    ("var t = libcxx::thread(f)",               "var t = cxx::std::#thread(f)"),
+    ("var i: libcxx::thread::id",               "var i: cxx::std::#thread::id"),
+    ("libcxx::this_thread::yield()",            "cxx::std::this_thread::#yield()"),
+    ("libcxx::get::<0>(t)",                     "cxx::std::get::<0>(t)"),
+    ("var s: libcxx::string",                   "var s: cxx::std::string"),
+    ("libcxx::chrono::steady_clock::now()",     "cxx::std::chrono::steady_clock::now()"),
+    ("libcxx::memory_order::relaxed",           "cxx::std::memory_order::relaxed"),
+    # Not code: left alone.
+    ("// libcxx::thread",                       "// libcxx::thread"),
+    ('var s = "libcxx::thread"',                'var s = "libcxx::thread"'),
+    ('inline "c++" { libcxx::thread t; }',      'inline "c++" { libcxx::thread t; }'),
+]
+
+
+def selftest():
+    bad = 0
+    for src, want in SELFTEST:
+        ok, _ = mask(src)
+        live = [m for m in SYM.finditer(src) if ok[m.start()]]
+        got = rewrite(src, live)
+        # The rewrite must be a fixed point: cxx::std:: holds no libcxx::.
+        ok2, _ = mask(got)
+        again = rewrite(got, [m for m in SYM.finditer(got) if ok2[m.start()]])
+        good = got == want and again == got
+        bad += not good
+        print(("ok   " if good else "FAIL ") + src + ("" if good else f"\n     got  {got}\n     want {want}"))
+    print(f"\n{len(SELFTEST) - bad}/{len(SELFTEST)} passed")
+    return 1 if bad else 0
+
+
 def main():
     args = sys.argv[1:]
+    if "--selftest" in args:
+        return selftest()
     if not args:
         print(__doc__ or "usage: libcxx_to_cxx_std.py <root> [--apply] [--only SUBSTR]")
         return 2

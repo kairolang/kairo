@@ -30,24 +30,69 @@
 ffi "c++" import "rt/fmt.h"
 
 import string::*
-import alloc_raw::{alloc_raw, resize_raw, oom}
+import alloc_raw::{alloc_raw, free_raw, resize_raw, oom}
+import base::intrinsics::{ __builtin_copy }
+
+/// "00" "01" ... "99": the two ASCII digits of every value below 100.
+static DIGIT_PAIRS: [u8; 200] = [48, 48, 48, 49, 48, 50, 48, 51, 48, 52, 48, 53, 48, 54, 48, 55, 48, 56, 48, 57, 49, 48, 49, 49, 49, 50, 49, 51, 49, 52, 49, 53, 49, 54, 49, 55, 49, 56, 49, 57, 50, 48, 50, 49, 50, 50, 50, 51, 50, 52, 50, 53, 50, 54, 50, 55, 50, 56, 50, 57, 51, 48, 51, 49, 51, 50, 51, 51, 51, 52, 51, 53, 51, 54, 51, 55, 51, 56, 51, 57, 52, 48, 52, 49, 52, 50, 52, 51, 52, 52, 52, 53, 52, 54, 52, 55, 52, 56, 52, 57, 53, 48, 53, 49, 53, 50, 53, 51, 53, 52, 53, 53, 53, 54, 53, 55, 53, 56, 53, 57, 54, 48, 54, 49, 54, 50, 54, 51, 54, 52, 54, 53, 54, 54, 54, 55, 54, 56, 54, 57, 55, 48, 55, 49, 55, 50, 55, 51, 55, 52, 55, 53, 55, 54, 55, 55, 55, 56, 55, 57, 56, 48, 56, 49, 56, 50, 56, 51, 56, 52, 56, 53, 56, 54, 56, 55, 56, 56, 56, 57, 57, 48, 57, 49, 57, 50, 57, 51, 57, 52, 57, 53, 57, 54, 57, 55, 57, 56, 57, 57]
+
+/// Bytes FmtBuf holds in itself before it spills to the heap, NUL included.
+eval FMTBUF_INLINE: usize = 128
 
 pub class FmtBuf {
-    pub var data:   *u8
+    pub var data:   *u8          // inline_ until the first spill, then the heap
     pub var len:    usize
     pub var cp_len: usize
-    pub var cap:    usize
+    pub var cap:    usize        // usable bytes; data has cap + 1 (the NUL)
+    var inline_:    [u8; 128]
 
-    /// `cap` bytes of headroom, plus the NUL finish() writes.
+    /// A bound of `cap` bytes. Up to FMTBUF_INLINE - 1 the buffer is inline_
+    /// and the heap is never touched unless the text outgrows it; past that
+    /// the heap block is taken now, sized once.
     pub fn FmtBuf(self, cap: usize) {
-        // The allocator in effect, as string's own blocks: finish() hands
-        // this block to a string, whose destructor frees it with free_raw.
-        var unsafe *p = alloc_raw(cap + 1, 1)
-        @unlikely if p == &null { oom(cap + 1, 1) }
-        unsafe { self.data = p as *u8 }
         self.len    = 0
         self.cp_len = 0
-        self.cap    = cap
+        if cap < FMTBUF_INLINE {
+            self.data = &self.inline_[0]
+            self.cap  = FMTBUF_INLINE - 1
+        } else {
+            // The allocator in effect, as string's own blocks: finish() hands
+            // this block to a string, whose destructor frees it with free_raw.
+            var unsafe *p = alloc_raw(cap + 1, 1)
+            @unlikely if p == &null { oom(cap + 1, 1) }
+            unsafe { self.data = p as *u8 }
+            self.cap = cap
+        }
+    }
+
+    /// An empty buffer on its inline storage: what a user declares to format
+    /// into repeatedly (`var b = FmtBuf()`, then `b.write(f"...")`).
+    pub fn FmtBuf(self) {
+        self.len    = 0
+        self.cp_len = 0
+        self.data   = &self.inline_[0]
+        self.cap    = FMTBUF_INLINE - 1
+    }
+
+    /// Room for `n` more bytes, so the puts that follow never grow.
+    pub inline fn reserve(self, n: usize) { self.reserve_(n) }
+
+    /// Appends a string as `{s}` would. `b.write(f"...")` never reaches this:
+    /// the lowering writes the f-string's parts straight onto `b`.
+    pub inline fn write(self, const s: string) { self.text(s.as_ptr(), s.length(), s.codepoints()) }
+
+    /// data points into the object itself: never copied, never moved. Every
+    /// FmtBuf is a statement-local of the lowering or a user local.
+    @copy fn FmtBuf(self, const other: Self) = delete
+    @move fn FmtBuf(self, other: Self) = delete
+
+    /// A spilled buffer that was never handed over by finish().
+    fn op delete(self) {
+        if self.spilled_() { unsafe { free_raw(self.data as unsafe *u8, self.cap + 1, 1) } }
+    }
+
+    priv inline fn spilled_(const self) -> bool {
+        return (self.data != &null) && (self.data != &self.inline_[0])
     }
 
     // --- the API the lowering calls -----------------------------------------
@@ -176,6 +221,16 @@ pub class FmtBuf {
     pub inline fn put_f32(self, v: f32, spec: u64) {
         var neg = false
         unsafe { neg = (FmtBuf::bits32_((&v) as unsafe *const u8, 0) >> 31) != 0 }
+        if spec == 0 {
+            self.reserve_(32)
+            var at = self.len
+            if neg { self.data[at] = 45; at += 1 }
+            var n: i32 = 0
+            unsafe { n = kairo_rt_fmt_f32(unsafe &self.data[at], 31, v, -1, 103) }
+            self.cp_len += (at - self.len) + (n as usize)
+            self.len = at + (n as usize)
+            return
+        }
         var slot = self.float_open_(spec)
         var n: i32 = 0
         unsafe { n = kairo_rt_fmt_f32(unsafe &self.data[slot], FmtBuf::float_cap_(spec), v, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
@@ -185,6 +240,18 @@ pub class FmtBuf {
     pub inline fn put_f64(self, v: f64, spec: u64) {
         var neg = false
         unsafe { neg = (FmtBuf::bits64_((&v) as unsafe *const u8, 0) >> 63) != 0 }
+        if spec == 0 {
+            // Shortest f64 text is at most 24 bytes: written in place, no
+            // digit slot, no move.
+            self.reserve_(32)
+            var at = self.len
+            if neg { self.data[at] = 45; at += 1 }
+            var n: i32 = 0
+            unsafe { n = kairo_rt_fmt_f64(unsafe &self.data[at], 31, v, -1, 103) }
+            self.cp_len += (at - self.len) + (n as usize)
+            self.len = at + (n as usize)
+            return
+        }
         var slot = self.float_open_(spec)
         var n: i32 = 0
         unsafe { n = kairo_rt_fmt_f64(unsafe &self.data[slot], FmtBuf::float_cap_(spec), v, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
@@ -275,18 +342,41 @@ pub class FmtBuf {
 
     /// Hands the buffer over. The result owns it: cap > 0.
     pub inline fn finish(self) -> string {
-        self.data[self.len] = 0
         var s = string()
-        s.place(
-            d:  self.data as const *u8,
-            l:  self.len,
-            c:  self.cp_len,
-            ca: self.cap + 1
-        )
+        if self.spilled_() {
+            // Heap already: hand the block over as it is.
+            self.data[self.len] = 0
+            s.place(d: self.data as const *u8, l: self.len, c: self.cp_len, ca: self.cap + 1)
+        } else {
+            // Inline: one allocation of exactly len + 1.
+            var unsafe *h = alloc_raw(self.len + 1, 1)
+            @unlikely if h == &null { oom(self.len + 1, 1) }
+            unsafe {
+                __builtin_copy(h, &self.inline_[0] as unsafe *u8, self.len)
+                *(h + self.len) = 0
+                var *hs = h as *u8
+                s.place(d: hs as const *u8, l: self.len, c: self.cp_len, ca: self.len + 1)
+            }
+        }
         self.data = &null
         self.len  = 0
         self.cap  = 0
         return s
+    }
+
+    /// The text so far as a borrowed string (capacity 0): valid until this
+    /// FmtBuf is written again or destroyed. NUL-terminated like every string.
+    pub inline fn view(self) -> string {
+        self.data[self.len] = 0
+        var s = string()
+        s.place(d: self.data as const *u8, l: self.len, c: self.cp_len, ca: 0)
+        return s
+    }
+
+    /// Empties the buffer, keeping its storage (inline or heap) for reuse.
+    pub inline fn clear(self) {
+        self.len    = 0
+        self.cp_len = 0
     }
 
     // --- capacity ----------------------------------------------------------------
@@ -298,17 +388,22 @@ pub class FmtBuf {
     priv fn grow_(self, need: usize) {
         var nc = self.cap * 2
         if nc < need { nc = need }
-        // The pointer itself widens, never `&self.data[0]`: data is null on
-        // a finished buffer, and indexing it is a dereference even when only
-        // the address is taken. A null one has no block to resize.
-        var p: unsafe *u8 = &null
-        unsafe {
-            if self.data != &null { p = resize_raw(self.data as unsafe *u8, self.cap + 1, nc + 1, 1) }
-            else { p = alloc_raw(nc + 1, 1) }
+        if self.spilled_() {
+            var q: unsafe *u8 = &null
+            unsafe { q = resize_raw(self.data as unsafe *u8, self.cap + 1, nc + 1, 1) }
+            @unlikely if q == &null { oom(nc + 1, 1) }
+            unsafe { self.data = q as *u8 }
+        } else {
+            // First spill (or reuse after finish(), when data is null): copy
+            // what inline_ holds into a fresh block.
+            var unsafe *h = alloc_raw(nc + 1, 1)
+            @unlikely if h == &null { oom(nc + 1, 1) }
+            unsafe {
+                if self.data != &null { __builtin_copy(h, &self.inline_[0] as unsafe *u8, self.len) }
+                self.data = h as *u8
+            }
         }
-        @unlikely if p == &null { oom(nc + 1, 1) }
-        unsafe { self.data = p as *u8 }
-        self.cap  = nc
+        self.cap = nc
     }
 
     /// One ASCII byte, headroom already reserved.
@@ -382,6 +477,20 @@ pub class FmtBuf {
     /// them: the one place every number's spec is applied. \p p holds the
     /// digits only.
     priv fn number_(self, p: *const u8, n: usize, neg: bool, spec: u64) {
+        // `{x}` with no spec: the sign and the digits, one copy, len and
+        // cp_len written once (per-byte byte_() stores both on every digit,
+        // since the compiler cannot keep fields in registers across stores
+        // through data).
+        if spec == 0 {
+            var at = self.len
+            var total = n + (if neg => 1 else => 0)
+            self.reserve_(total)
+            if neg { self.data[at] = 45; at += 1 }
+            unsafe { __builtin_copy(&self.data[at] as unsafe *u8, p as unsafe *u8, n) }
+            self.len    = at + n
+            self.cp_len += total
+            return
+        }
         var flags = FmtBuf::flags_(spec)
         var base  = FmtBuf::base_(spec)
         var sign: u8 = 0
@@ -425,14 +534,24 @@ pub class FmtBuf {
         var base  = FmtBuf::base_(spec)
         var upper = (FmtBuf::flags_(spec) & 8) != 0
         if base == 0 {
-            while mag >= 10 {
-                var q = mag / 10
-                i -= 1
-                tmp[i] = (48 + (mag - q * 10)) as u8
+            // Two digits per division, from the pair table.
+            while mag >= 100 {
+                var q = mag / 100
+                var r = ((mag - q * 100) * 2) as usize
+                i -= 2
+                tmp[i]     = DIGIT_PAIRS[r]
+                tmp[i + 1] = DIGIT_PAIRS[r + 1]
                 mag = q
             }
-            i -= 1
-            tmp[i] = (48 + mag) as u8
+            if mag >= 10 {
+                var r = (mag * 2) as usize
+                i -= 2
+                tmp[i]     = DIGIT_PAIRS[r]
+                tmp[i + 1] = DIGIT_PAIRS[r + 1]
+            } else {
+                i -= 1
+                tmp[i] = (48 + mag) as u8
+            }
         } else {
             var shift: u64 = 4
             var mask:  u64 = 15

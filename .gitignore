@@ -40,3 +40,6 @@ temp/
 # OS
 .DS_Store
 EOF
+# Self-host pipeline output (private/SELFHOST.md section 4): rebuilt every run.
+/selfhost/scratch/
+/selfhost/logs/
