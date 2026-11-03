@@ -176,6 +176,8 @@ FFI imports of headers that define names in `std` are automatically redirected t
 ffi "c++" import "iostream"  // imported into cxx::std, not std
 ```
 
+A name a header brings into a namespace with a using-declaration is a member of that namespace, as in C++. `<cmath>` puts the C library's `sqrt` in `std` with `using ::sqrt;`, so `cxx::std::sqrt(x)` finds it.
+
 See [C/C++ Interop](/docs/language/c-cpp/) for the full FFI model.
 
 ## FFI Linkage Declarations

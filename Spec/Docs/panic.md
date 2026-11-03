@@ -5,7 +5,7 @@
 Unlike [C++ exceptions](/docs/language/c-cpp-exceptions/), panics use no unwinding tables and no runtime. The codegen is zero-cost: every panic site becomes a tagged return value checked with a branch.
 
 > [!NOTE]
-> Panic is compiled, in generic functions too. Not supported yet: a panic under a [`<T: type>`](/docs/language/generics/#the-type-regime-transitional) parameter, in a generator or an `async` function, a call of a panicking operator, and keeping a caught error in another variable. See [Status](/docs/status/#not-compiled-yet).
+> Panic is compiled, in generic functions too. Not supported yet: a panic under a [`<T: type>`](/docs/language/generics/#the-type-regime-transitional) parameter, in a generator or an `async` function, a `for` loop over a panicking `op in`, a call of a panicking `op []` that returns a pointer or of a panicking `op as`, a method that implements two requirements (or overrides a method and implements a requirement) whose panic sets differ, and keeping a caught error in another variable. See [Status](/docs/status/#not-compiled-yet).
 
 ---
 

@@ -150,7 +150,18 @@ var second = *(p + 1)    // 20
 var third = *(p + 2)     // 30
 p = p + 4                // ok: one past the end, may be compared but not dereferenced
 p = p - 1                // ok: back to the last element
+--p                      // ok: `p -= 1`; `++p`, `p++` and `p--` step the same way
 ```
+
+`++` and `--` on a pointer move it by one element, as `p += 1` and `p -= 1` do, on both kinds of pointer. That is how a C++-style iterator loop is written:
+
+```kairo
+var v: [i32] = [1, 2, 3]
+var sum = 0
+for var *it = v.begin(); it != v.end(); ++it { sum += *it }   // 6
+```
+
+A pointer to `void` has no element size and cannot be stepped. A nullable pointer (`*T?`) must be checked first.
 
 A safe pointer must always stay within its allocation or exactly one past its end. Forming one outside that range (`&arr[0] - 1`, `&arr[0] + 5`) is a compile error when Tether can see it statically, and a runtime check at the arithmetic when the offset is runtime data. See [Forming versus dereferencing](/docs/language/tether-bounds/#forming-versus-dereferencing-and-one-past-the-end).
 

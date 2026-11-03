@@ -4,7 +4,7 @@ Allocation goes through [`@create T()`](/docs/language/pointers/#heap-allocation
 
 ### Global allocator
 
-The default for [`@create T()`](/docs/language/pointers/#heap-allocation) and all standard-library heap operations. Out of the box it is `System`, the platform's `malloc`. A program replaces it with `@set_global_allocator`, on a line of its own at file scope:
+The default for [`@create T()`](/docs/language/pointers/#heap-allocation) and all standard-library heap operations. Out of the box it is `System`, the runtime's bundled [mimalloc](https://github.com/microsoft/mimalloc) (see [Sharing the heap with C and C++](#sharing-the-heap-with-c-and-c)). A program replaces it with `@set_global_allocator`, on a line of its own at file scope:
 
 ```kairo
 class Arena {
@@ -78,7 +78,7 @@ unsigned char *kairo_global_realloc(unsigned char *ptr, size_t old_size, size_t 
 unsigned char *kairo_global_alloc_zeroed(size_t size, size_t align);
 ```
 
-- The runtime defines all five **weakly**, as `System`: `malloc`, `free`, `realloc` and `calloc` up to an alignment of `2 * sizeof(void *)`, the platform's aligned allocation past it. `resize` grows nothing and keeps any shrink.
+- The runtime defines all five **weakly**, as `System`: mimalloc's allocation, free, realloc and zeroed allocation up to an alignment of `2 * sizeof(void *)`, its aligned variants past it. `resize` grows nothing and keeps any shrink, except a shrink from above 128 words to 128 words or less, which it refuses (`false`) so `realloc` moves the block: mimalloc's small free cannot release a block from a large page.
 - The file that writes `@set_global_allocator(A)` defines all five **strongly**, each a forwarder to `A`'s static function of the same name. A strong definition beats a weak one, so the program gets `A`. Two strong definitions are the duplicate-symbol error described above.
 - C or C++ code can supply the global allocator the same way: define the five symbols (with C linkage) in any object of the link.
 - Without LTO, a call through `Global` is one direct call to the symbol. With LTO the forwarder, and `A`'s functions where they are inline, inline into the caller.
@@ -103,9 +103,13 @@ The four functions are the allocator's static functions, with the same contract 
 
 ---
 
+### Sharing the heap with C and C++
+
+On ELF targets (Linux, FreeBSD, NetBSD) and on WebAssembly, the bundled mimalloc also replaces `malloc` and `free` for the whole program, so C, C++ and Kairo share one heap and a block may cross between them: a block `System` allocated may be released by C's `free`. On Windows and Apple targets it does not (those keep the CRT heap and malloc zones): there a block Kairo allocates is freed by Kairo, and a block C or C++ allocates is freed by C or C++.
+
 ## Allocators and C++
 
-Exported Kairo classes carry class-specific `operator new` and `operator delete` that always bind to the global allocator, so C++ code can `new` and `delete` Kairo objects directly and a C++ global `operator new` override does not affect them. To route Kairo's own allocations through C++'s allocation path instead, set `core::CxxNewAllocator` as the global allocator. See [Allocators & Ownership](/docs/language/c-cpp-memory/) for the details.
+Exported Kairo classes carry class-specific `operator new` and `operator delete`, defined by the compiler (Kairo code cannot define or overload them), that always bind to the global allocator, so C++ code can `new` and `delete` Kairo objects directly and a C++ global `operator new` override does not affect them. To route Kairo's own allocations through C++'s allocation path instead, set `core::CxxNewAllocator` as the global allocator. See [Allocators & Ownership](/docs/language/c-cpp-memory/) for the details.
 
 ## See also
 

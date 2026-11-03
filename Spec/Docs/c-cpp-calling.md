@@ -266,22 +266,31 @@ fn main() {
 
 C's `char` is [`std::c_char`](/docs/language/primitives/#cs-char-stdc_char), so a C++ `const char*` is `*const c_char` in Kairo, and back: a function returning one can be stored, compared with `&null`, indexed and passed on to any C or C++ parameter of that type. `char`, `signed char` and `unsigned char` are three types, as in C++, so a header that overloads on them gives three Kairo overloads (`c_char`, `i8`, `u8`).
 
-A Kairo [`string`](/docs/language/primitives/#strings) stores UTF-8 bytes (`data` is `*const u8`) with a NUL after the last one, so its bytes are a C string once the pointer is reinterpreted. Bytes and C chars are unrelated types, so that is an `as unsafe *` cast inside an `unsafe` block ([pointer cast rules](/docs/language/casting/#pointer-cast-rules)); passing the `*u8` itself is an error whose fix-it inserts the cast:
+A string **literal** passed to an imported C or C++ function's `const char*` parameter (`*const c_char`, safe or `unsafe`) is the C string itself: the compiler passes the literal's static, NUL-terminated bytes, and no `string` is made. The same holds for a `const unsigned char*` (`*const u8`) parameter and for the `...` of a variadic C function such as `printf`. The parameter must be `const`: a literal's bytes are read-only, so a `char*` parameter does not take one.
+
+Any other [`string`](/docs/language/primitives/#strings) passes its bytes with `s.c_str()`, which returns `unsafe *const c_char`. It costs nothing: a Kairo string keeps a NUL after its last byte, a literal's and an owned string's alike. The pointer is valid until the string is next changed or destroyed. Passing the `string` itself is an error whose fix-it inserts `.c_str()`:
 
 ```kairo
-import std::c_char
 ffi "c" import "string.h"
+ffi "c" import "stdlib.h"
+ffi "c" import "stdio.h"
 
 fn main() {
+    var n = strlen("hello")                 // 5: the literal is the C string
+    var unsafe *home = getenv("HOME")
+    printf("%s %zu\n", "count", n)          // literals through C's `...` too
+
     var s = "hello"
-    unsafe {
-        var n = strlen(s.data as unsafe *const c_char)   // 5
-        // strlen(s.data)   // error SC063E: a C string is '*const c_char'; fix-it: ` as unsafe *const c_char`
-    }
+    s += ", world"
+    var m = strlen(s.c_str())               // 12
+    // strlen(s)          // error SC063E: a string other than a literal passes its bytes with '.c_str()'; fix-it: `.c_str()`
+    // printf("%s\n", s)  // error: a 'string' cannot pass through C's '...'; fix-it: `.c_str()`
 }
 ```
 
-A `*const c_char` in an f-string prints as a pointer (`const c_char @ 0x...`), like any pointer: there is no C-string formatter yet. A `string.c_str()` method is planned.
+The `string`'s bytes are also `data` (`*const u8`). Bytes and C chars are unrelated types, so passing `data` to a `const char*` parameter needs an `as unsafe *const c_char` cast inside an `unsafe` block ([pointer cast rules](/docs/language/casting/#pointer-cast-rules)); passing the `*u8` itself is an error whose fix-it inserts the cast.
+
+A `*const c_char` in an f-string prints as a pointer (`const c_char @ 0x...`), like any pointer: there is no C-string formatter yet.
 
 ### Function pointers and callbacks
 
@@ -354,7 +363,7 @@ int main() {
 }
 ```
 
-`T impl Addable` in Kairo maps directly to `Addable T` in the generated C++. The constraint is preserved across the boundary, not erased.
+`T impl Addable` in Kairo becomes a `requires` clause on the generated C++ template, naming a concept the compiler emits over the imported one (`requires(Addable_c<T>)`). The constraint is preserved across the boundary, not erased. A bound on a Kairo interface works the same way; a bound on a generic class or struct is not translated (see [Generics](/docs/language/c-cpp-exposing/#generics)).
 
 ### Template arguments, pointers and forwarding
 

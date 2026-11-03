@@ -634,7 +634,9 @@ A `catch e: T` arm whose `T` is a C++ type outside the `try` body's panic set [c
 
 Every error type has a 32-bit type id, the tag its errors are stored with, computed from the type's full name so every file agrees on it. Two types whose ids are equal cannot be in one panic set: their errors would be indistinguishable. This is astronomically rare; it is reported where the set is formed, with a note at each type. The code is a placeholder until the error gets its own.
 
-**Fix:** rename one of the two types, or keep them in different sets (handle one of them before the other propagates).
+One case is not rare: two builtins that are the same C++ type on the target. `usize` is C++'s `size_t`, which is `u64` on most 64-bit targets (and `u32` on 32-bit ones); `isize` likewise is `i64` or `i32`. On such a target the pair has one type id, and the message says so instead: `'usize' and 'u64' cannot be in one panic set: on this target both are the C++ type 'unsigned long', so their tags are one`. Where `size_t` is a type of its own (Darwin), the two can share a set.
+
+**Fix:** rename one of the two types, or keep them in different sets (handle one of them before the other propagates). For a builtin pair, panic with one of the two, or wrap one in a struct.
 
 ### OPT001R: `'{Panic}' is {n} bytes, so a function returning it returns through memory, not in two registers`
 
@@ -809,6 +811,14 @@ A `<T: type>` parameter is exempt: C++ checks its operators per instance. A null
 
 **Fix:** bound the parameter with an interface that declares the operator, or take the value at its concrete type.
 
+The same pair reports a type parameter passed to a bounded generic without the bound: `'{f}' needs '{T}' to implement '{I}'`, at the call, with a note at the callee's bound. R051E carries a fix-it adding `impl {I}` to the parameter. A bound that derives `{I}` meets it, and a forwarded pack (`print_all(args...)`) is held to the same rule per element.
+
+```kairo
+fn <T impl Named> one(x: T) -> string = x as string
+fn <T> fwd(x: T) -> string = one(x)                  // error R051E
+fn <T impl Named> fwd2(x: T) -> string = one(x)      // ok
+```
+
 ### SC001E: `a value of type '{T}' can only be matched by a binding, '_' or 'default' (with a 'where' guard)`
 
 A `match` pattern other than a binding or `_` on a value of a type parameter. No bound gives `T` variants, fields or values a literal could equal; a note points at the parameter. The code is a placeholder until the error gets its own.
@@ -920,7 +930,9 @@ It is reported for:
 - building or matching a [pack-expanded variant](/docs/language/enums-adt/#variadic-enums) at a type that depends on a generic parameter, and a pack-expanded variant's field whose type is built from the pack (`e: *E`)
 - naming the panic result type `Panic<T, E...>` in source (`a panic result type cannot be named yet`): a panicking call's result is handled with `try` or propagated, not stored
 - keeping a panic result in a variable (`a stored panic result is not yet supported`), such as `var copy = e` for a bare `catch e`'s binding (re-panicking it with `panic e` is fine), and a function type whose panic set names a generic parameter
-- a call of a panicking operator (`a call of a panicking operator is not yet supported`)
+- a `for` loop over a panicking `op in`, a call of a panicking `op []` that returns a pointer (`a call of a panicking place operator ('op []' returning a pointer) is not yet supported`), a cast through a panicking `op as` (`a call of a panicking 'op as' is not yet supported`), and `===` through a panicking `op ==`. Any other panicking operator is called like a function, its derived forms (`!=` from `==`, `<` from `<=>`, `+=` from `+`) included
+- a method that implements two interface requirements, or overrides a method and implements a requirement, whose panic sets differ (`a method meeting both 'Source::read' and 'Stream::read', whose panic sets differ, is not yet supported`), with a note at each. Equal sets, written in any order, are fine
+- a panicking interface requirement whose result names `Self` (`fn add(const self, o: Self) panic(E) -> Self`: `a panicking interface requirement whose result names 'Self' ('add') is not yet supported`); a requirement with a concrete result works, through a bound too
 - a [`panic`](/docs/language/panic/) function under a [`<T: type>`](/docs/language/generics/#the-type-regime-transitional) parameter, a generic `panic` closure, a `panic` generator or `async` function or closure, and a `panic` statement or a call that may panic inside such a body (bounded and unbounded generics are [supported](/docs/language/panic/#generic-functions))
 - a call whose callee's panic set names a generic parameter the call does not bind (no bound declares the requirement it calls)
 - a `fn`, class, struct, union or enum declared in a function body that uses a generic parameter of the function or class around it (`'echo' is declared in a body and uses 'T', a generic parameter of 'wraps'; that is not yet supported`); a note points at the parameter. One that is generic in its own right, or names no outer parameter, compiles

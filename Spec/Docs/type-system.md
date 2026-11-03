@@ -327,6 +327,7 @@ var k = 3
 //     compile error: this closure captures, so it has no function pointer
 
 var f: fn(i32) -> i32 = raw    // ok: a raw pointer converts to a fn value
+var g = twice as fn(i32) -> i32  // ok: the same conversion, written out
 // var back: unsafe fn(i32) -> i32 = f   // compile error: a fn value may hold a capturing closure
 ```
 

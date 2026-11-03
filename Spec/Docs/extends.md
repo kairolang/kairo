@@ -342,7 +342,7 @@ A method in the class body and a method in an `extend` block are called the same
 - An extension member is not virtual, cannot override, and cannot be a constructor, destructor, or assignment operator.
 - A same-file `extend` can read the type's private members. An `extend ... impl` placed in the interface's file cannot: its members see only what other code in that file sees.
 - A `priv` or `prot` member satisfies an interface requirement only if the type's own file declares the conformance (`class X impl I`, or an `extend X impl I` in that file). A generic bound met only structurally, from another file, needs the member to be `pub`.
-- C++ code calling a Kairo type sees body methods as member functions, and extension members as static functions of a companion scope.
+- C++ code calling a Kairo type sees body methods as member functions, and extension members as static functions of a companion struct emitted beside the type. A same-file `extend`'s companion is a friend of the type, so its members reach `priv` members in C++ too. See [Using Kairo in C++](/docs/language/c-cpp-exposing/#what-a-kairo-declaration-looks-like-in-c).
 
 Put anything that needs [dynamic dispatch](/docs/language/classes-inheritance/#virtual-dispatch), overriding, or [lifecycle behavior](/docs/language/classes-lifecycle/) in the body. Use `extend` for the rest, such as interface conformance kept apart from the core type:
 

@@ -137,16 +137,20 @@ join("a", "b", sep: ", ")       // "a, b"
 Combine `...` with [generic](/docs/language/generics/) type packs to accept arguments of different types:
 
 ```kairo
-fn <...T> print_all(...args: T) {
+interface Named {
+    fn op as(const self) -> string
+}
+
+fn <...T impl Named> print_all(...args: T) {
     for arg in args {
         std::println(arg as string)
     }
 }
 
-print_all(42, "hello", true)   // prints each on a new line
+print_all(Tag(1), Mark(), Tag(2))   // prints each on a new line (Tag, Mark impl Named)
 ```
 
-The parameter is a pack: one value per argument, each with its own type, and `T` stands for that list of types. A pack is not a value on its own: the body iterates it with `for` (the loop body runs once per element, at that element's type) or forwards it with `...` (below). Each element must satisfy the constraints the body puts on it: in the example above, every `T` must be convertible to `string` via `as`. The element types are deduced from the arguments; writing them as generic arguments (`print_all<i32, bool>(...)`) is not supported yet.
+The parameter is a pack: one value per argument, each with its own type, and `T` stands for that list of types. A pack is not a value on its own: the body iterates it with `for` (the loop body runs once per element, at that element's type) or forwards it with `...` (below). An element is checked like any other [generic](/docs/language/generics/#type-parameter-constraints) parameter: the body may use only what the pack's bounds grant, and every element must satisfy them. In the example above, `arg as string` is `Named`'s `op as`; without the `impl Named` bound it is an error in the body. The element types are deduced from the arguments; writing them as generic arguments (`print_all<i32, bool>(...)`) is not supported yet.
 
 A type pack is only ever written expanded (`Box<T...>`) or as the type of a `...` parameter: a field, variable, return value or ordinary parameter cannot have a pack as its type.
 
@@ -155,10 +159,16 @@ A type pack is only ever written expanded (`Box<T...>`) or as the type of a `...
 A pack expands with a **postfix** `...` in expression position. Declaration is prefix (`...args`), use is postfix (`args...`). The most common case is forwarding a pack to another call:
 
 ```kairo
-fn <...T> log_all(...args: T) {
+fn <...T impl Named> log_all(...args: T) {
     print_all(args...)         // forwards every element as a separate argument
 }
 ```
+
+A forwarded pack must meet the bounds of the pack it is forwarded to, through its own: `log_all` needs `impl Named` because `print_all` does. Without it, `print_all(args...)` is an error in `log_all` (R051E), as passing an unbounded `T` to a bounded generic is (see [Generics](/docs/language/generics/#type-parameter-constraints)).
+
+Each element is passed by its own type's transfer rules, as any argument is (see [Ownership](/docs/language/ownership/#function-parameters)): a COPY element is copied and stays live, a MOVE element is moved. So a body may expand the same pack more than once when its elements are COPY; the last expansion may move instead of copying, since nothing reads the elements after it.
+
+A pack parameter takes no passing mode yet: `@inout ...args: T` and `@move ...args: T` are compile errors ("'@inout' on pack parameter 'args' is not supported yet").
 
 An expansion is written only as a call argument, and only of a pack parameter. The same postfix form appears in type position for pack-typed signatures (`-> Outcome<i32, T...>`, `derives Base<T...>`). The split mirrors the [token-macro splat](/docs/language/macros/#variadic-macros-and-pack-expansion): `...` before a name declares a pack, `...` after an expression expands one.
 

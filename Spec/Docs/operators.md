@@ -387,7 +387,7 @@ For C++ developers the following C++ operators have no equivalent in Kairo:
 |---|---|
 | `? :` (ternary) | `if`/`else` expressions |
 | `,` (comma operator) | Not supported use separate statements |
-| `new` / `delete` | `@create T()` / automatic via Tether, or `op delete` for custom destructors |
+| `new` / `delete` | `@create T()` / automatic via Tether, or `op delete` for custom destructors. C++'s `operator new` / `operator delete` cannot be overloaded: Kairo defines them for every class ([Allocators & Ownership](/docs/language/c-cpp-memory/#class-specific-operator-new-and-operator-delete)) |
 | `typeid` | `typeof expr` returns `TypeInfo` |
 | `const_cast` / `reinterpret_cast` / `static_cast` / `dynamic_cast` | `as` for safe casts; see [Casting](/docs/language/casting/) |
 

@@ -84,7 +84,7 @@ A module that defines nothing (only comments, or only [`pub import` re-exports](
 | `pub class <T> Box { ... }` | `template <class T> class geo::vec::Box` |
 | `enum Dir derives u8 { N, S }` | `enum class Dir : std::uint8_t { N, S }` |
 | `fn m(self)` inside a class | member function |
-| `fn m(self)` inside `extend Vec2 { }` | free function `geo::vec::m(Vec2* self)` |
+| `fn m(self)` inside `extend Vec2 { }` | static function `m(Vec2* self)` of the companion struct `geo::vec::__kairo_ext_Vec2` |
 | `x: i32`, `x: f64`, `x: usize` | `std::int32_t`, `double`, `std::size_t` |
 | `p: *T` | `T*` |
 | `x: T?` | `::builtin::Nullable<T>` (see [Nullables Across the Boundary](#nullables-across-the-boundary)) |
@@ -98,7 +98,7 @@ A module that defines nothing (only comments, or only [`pub import` re-exports](
 
 An `ffi "c"` function's `fn` parameters and result are raw function pointers whether or not they are written `unsafe fn`, because C passes and expects a plain function pointer. A Kairo caller can pass a named function or a closure that captures nothing; passing a capturing closure is a compile error.
 
-Extension methods are not C++ member functions. Kairo keeps a class's C++ definition identical everywhere it appears, so a method added by [`extend`](/docs/language/extends/), even in the same file, is a free function taking the receiver as its first parameter. Call it as `geo::vec::len(&v)`.
+Extension methods are not C++ member functions. Kairo keeps a class's C++ definition identical everywhere it appears, so a method added by [`extend`](/docs/language/extends/), even in the same file, is a static function of a companion struct emitted beside the type, taking the receiver as its first parameter: `geo::vec::__kairo_ext_Vec2::len(&v)`. When the `extend` is in the type's own file, the type befriends the companion, so extension members reach `priv` members in C++ as they do in Kairo. An `extend` in another file puts its companion in that file's namespace, and the type does not befriend it. An operator added by `extend` is also a free C++ operator that forwards to the companion, so C++ code writes `a + b`.
 
 Member [type aliases](/docs/language/type-aliases/) are visible to C++: a class's `type promise_type = ...` is the C++ member `promise_type`, so C++ code that looks a member type up by name finds it.
 
@@ -106,7 +106,7 @@ Names beginning `__kairo_` are reserved. A rendered class may expose public `__k
 
 ### Generics
 
-Kairo [generics](/docs/language/generics/) are C++ templates in the header, bodies included. Instances Kairo already compiled are listed as `extern template`, so linking against the module's objects reuses them; any other instance is instantiated by your C++ compiler like any template. An `#include "file.k"` lists none: the C++ side instantiates every instance it uses, and the linker keeps one copy. Kairo's `impl` bounds are not translated to C++ constraints: instantiating a Kairo generic with a C++ type that does not satisfy the bound fails inside the template body rather than at the call.
+Kairo [generics](/docs/language/generics/) are C++ templates in the header, bodies included. Instances Kairo already compiled are listed as `extern template`, so linking against the module's objects reuses them; any other instance is instantiated by your C++ compiler like any template. An `#include "file.k"` lists none: the C++ side instantiates every instance it uses, and the linker keeps one copy. A Kairo `impl` bound on a generic function or method is a C++ constraint: each interface is emitted as a C++ concept (`Shape` is `Shape_c`, in the interface's namespace), and the template carries `requires(Shape_c<T>)`, so a C++ call with a type that does not satisfy the bound is rejected at the call. A bound on a generic class or struct is not translated: the class template is unconstrained, and instantiating it with a type that does not satisfy the bound fails inside the member that needs it. Each instance Kairo compiled also carries a `static_assert` that its bounds hold.
 
 ---
 
@@ -137,7 +137,8 @@ The layout depends on `T`:
 | Kairo | Storage |
 |---|---|
 | `*T?` (any safe pointer, `const` included) | the pointer alone, `sizeof(T*)`; null is `0x0` |
-| `bool?` | one byte; `0x02` is null |
+| a closed [enum](/docs/language/enums-plain/#closed-and-open-enums) `E?` | the enum alone, `sizeof(E)`; null is a value `E` does not declare |
+| `bool?` | two bytes, the `bool` and a presence flag; one byte, with `0x02` as null, is planned ([Status](/docs/status/#not-compiled-yet)) |
 | any other `T?` | the `T` and a presence flag |
 
 `(T?)?` is `Nullable<Nullable<T>>`.

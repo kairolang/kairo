@@ -6,7 +6,7 @@ Heap ownership crosses the boundary in both directions, using the mechanism C++ 
 
 ### Class-specific `operator new` and `operator delete`
 
-Every exported Kairo class carries its own allocation operators, bound to Kairo's [global allocator](/docs/language/allocators/#global-allocator):
+Every exported Kairo class carries its own allocation operators, bound to Kairo's [global allocator](/docs/language/allocators/#global-allocator). The compiler defines all four; Kairo code cannot define or overload them. A class defines only its constructors and its destructor ([`op delete`](/docs/language/operator-overloading/#delete-operator), which is the C++ destructor, not an allocation function). Not yet: the operators are not emitted yet, so a C++ `new` of a Kairo class uses C++'s global `operator new` for now ([Status](/docs/status/#not-compiled-yet)).
 
 ```cpp
 class MyKairoClass {
@@ -19,7 +19,7 @@ public:
 };
 ```
 
-So from C++, the ordinary spelling is the correct one:
+So from C++, the ordinary spelling is the correct one, and it goes through Kairo's allocator, not C++'s:
 
 ```cpp
 MyKairoClass *p = new MyKairoClass("hi");

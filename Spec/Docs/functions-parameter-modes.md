@@ -36,7 +36,19 @@ var @inout y: i32  // compile error
 
 ## How `x: T` is passed
 
-For a plain `x: T` parameter of a Kairo function, the compiler picks between passing by value and passing by `const T&`. Small trivially-copyable types go by value; everything else goes by reference. Callers can't observe the difference, since the callee can't modify the argument either way. This is why Kairo has no separate mode for `const T&`.
+For a plain `x: T` parameter of a Kairo function, the compiler picks between passing by value and passing by `const T&`. Scalars, pointers, `fn` values and trivially copyable records go by value. A record that is not trivially copyable (a `string`, a vector, a map, a class with a copy constructor) goes by `const T&` when the function never mutates the parameter: no assignment to it or a field of it, no non-`const` method call on it, no `&x`, no `@inout` or `@move` argument, no `return x`, no use in a closure. A parameter the body does mutate gets its own copy, as before, and a `@move` class always goes by value, since taking ownership is the point. This is why Kairo has no separate mode for `const T&`.
+
+When the compiler passes a parameter by reference this way, it warns that the parameter is never mutated and offers a fix-it that adds `const`:
+
+```kairo
+fn length(s: string) -> usize { return s.length() }
+//        ^ warning: parameter 's' is never mutated; declare it 'const'
+fn length(const s: string) -> usize { return s.length() }   // same code, no warning
+```
+
+A `const` parameter is a reference to the caller's object for the whole call. If the function changes that object some other way while the call runs, through `self` or a pointer, the parameter sees the change. A by-value copy would not.
+
+Some functions keep the by-value signature because something else fixes it, and the compiler neither infers the reference nor warns for them: `virtual` and `override` methods (and every method of a class with a polymorphic base), interface members, `ffi "c"` / `ffi "c++"` functions and functions with a calling convention, generic functions and members of generic types, generators and `async` functions, `-> !` and `@cold_path` functions, and `main`. The warning is not reported for the builtin and standard libraries.
 
 For a function declared in an [imported C++ header](/docs/language/c-cpp-calling/), the compiler doesn't choose. The parameter is passed exactly as the header declares it.
 

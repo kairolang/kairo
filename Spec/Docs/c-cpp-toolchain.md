@@ -154,7 +154,9 @@ kcc -c y.k         # writes y.o, and nothing for what y.k imports
 kcc x.o y.o -o main
 ```
 
-`-c` writes objects only for the files the command line names. What they import is compiled by its own `kcc -c`, as a C++ source would be. The final link needs Kairo's builtin library, the standard library and the runtime, which no `-c` run wrote: `kcc` links them from the toolchain's library, built on first use for the target and code-generation options and cached under `$KAIRO_CACHE_DIR` (default `$XDG_CACHE_HOME/kairo`, then `~/.cache/kairo`). It is rebuilt when the compiler or a library source changes, and a library no link has used for 30 days is removed. It is linked like an archive, so only what the objects use is pulled in.
+`-c` writes objects only for the files the command line names. What they import is compiled by its own `kcc -c`, as a C++ source would be. The final link needs Kairo's builtin library, the standard library and the runtime, which no `-c` run wrote: `kcc` links them from the toolchain's library, built on first use for the target and code-generation options and cached under `$KAIRO_CACHE_DIR` (default `$XDG_CACHE_HOME/kairo`, then `~/.cache/kairo`, then `%LOCALAPPDATA%\kairo`). It is rebuilt when the compiler or a library source changes, and a library no link has used for 30 days is removed. It is linked like an archive, so only what the objects use is pulled in.
+
+Every link, with `kcc` or `kairo`, also caches the runtime's C objects (the allocator and the runtime support code) in the same directory, under `rt/`. An object is reused only when its exact compile line (target, optimization level, sanitizers and every other flag that reaches it) and every runtime source it is built from, the compiler itself included, are unchanged; anything else rebuilds it. `--force-recompile` rebuilds them for one run, and `-v` reports a hit or miss for each.
 
 A template instance used on both sides is instantiated by each, and the linker keeps one: the include carries no `extern template`, because the C++ object and the Kairo object may come from different runs.
 

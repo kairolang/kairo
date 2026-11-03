@@ -11,7 +11,7 @@ var count: i32? = null           // explicitly null
 
 `null` is a real value: the one constant of the empty type `null_t`. `Nullable<T>` has exactly two constructors, one from `null_t` and one from `T`, and every implicit conversion to `T?` is one of them: `var c: i32? = 5` constructs from the `i32`, `= null` from the `null_t`. A bare `null` is only ever a nullable's null: it never converts to a pointer, so `var p: unsafe *i32 = null` is a compile error. The null raw pointer is spelled `&null` (see [Pointers and nullability](#pointers-and-nullability)).
 
-The storage depends on `T`. A nullable [safe pointer](#pointers-and-nullability) is the pointer itself, the same size, with `0x0` meaning null; `bool?` is one byte. Every other `T?` stores the value and a presence flag. `Nullable` is not writable as a type name in Kairo; the `?` suffix is the only spelling (see [Type System](/docs/language/type-system/#nullable-types-in-the-type-system)). From C++ it is `::builtin::Nullable<T>`; see [Using Kairo in C++](/docs/language/c-cpp-exposing/#nullables-across-the-boundary).
+The storage depends on `T`. A nullable [safe pointer](#pointers-and-nullability) is the pointer itself, the same size, with `0x0` meaning null. A nullable closed [enum](/docs/language/enums-plain/#closed-and-open-enums) is the enum itself, with a value it does not declare meaning null. Every other `T?` stores the value and a presence flag, so `bool?` is two bytes; a one-byte `bool?` is planned ([Status](/docs/status/#not-compiled-yet)). `Nullable` is not writable as a type name in Kairo; the `?` suffix is the only spelling (see [Type System](/docs/language/type-system/#nullable-types-in-the-type-system)). From C++ it is `::builtin::Nullable<T>`; see [Using Kairo in C++](/docs/language/c-cpp-exposing/#nullables-across-the-boundary).
 
 ### Shorthand declaration
 
@@ -149,7 +149,7 @@ if c? { use(c.value) }
 
 #### Closures and stored pointers
 
-A [closure](/docs/language/closures/) that captures by copy needs no special care: its copy starts in the state the variable had when the closure was made, unless the closure assigns its copy, which keeps its value from one call to the next. Inside a closure that captures `x` by pointer, `*x` is not tracked: copy it to a local and check that. A closure that captures by non-`const` pointer, or a pointer value such as `var *p = &x`, can write `x` behind the compiler's back, so the compiler follows it:
+A [closure](/docs/language/closures/) that captures by copy needs no special care: its copy starts in the state the variable had when the closure was made, unless the closure assigns its copy, which keeps its value from one call to the next. Inside a closure that captures `x` by pointer, `*x` is checked like any other nullable: `if (*x)? { use((*x).value) }` narrows it. It starts out maybe null, since the closure can run at any point, and any call, or a write through another pointer, makes it maybe null again, because anything else holding a pointer to `x` could change it. A closure that captures by non-`const` pointer, or a pointer value such as `var *p = &x`, can write `x` behind the compiler's back, so the compiler follows it:
 
 - calling a closure that captured `x` by pointer, or writing through `p`, makes `x` maybe null;
 - once that closure or pointer escapes (passed to a function that can keep it, stored in a field, a global or a container, or returned), **every** call from then until `x` goes out of scope makes `x` maybe null, since any call might run it. A check still narrows `x` until the next call.

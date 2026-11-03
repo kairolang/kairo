@@ -10,11 +10,12 @@ fn add(a: string, b: string) -> string = a + b
 
 Parameter modes also participate in overloading. See [Overloading on mode](#overloading-on-mode).
 
-A candidate either matches an argument exactly or through a conversion, and there is no ordering among conversions: if two candidates both need one, the call is ambiguous (`call to 'f' is ambiguous: more than one candidate matches at the same rank`). Before a tie at the same rank is declared ambiguous, three tie-breaks run, in C++'s order:
+A candidate either matches an argument exactly or through a conversion, and there is no ordering among conversions: if two candidates both need one, the call is ambiguous (`call to 'f' is ambiguous: more than one candidate matches at the same rank`). Before a tie at the same rank is declared ambiguous, four tie-breaks run, in C++'s order:
 
 1. **Reference binding.** An rvalue argument prefers a `T&&` parameter to `const T&`; a non-const lvalue prefers `T&` to `const T&`; a non-const receiver prefers the non-const method.
-2. **Non-generic over generic.** A non-generic candidate beats a generic one.
-3. **Most specialized generic.** Among generic candidates still tied, the most specialized wins: `fn <T> f(a: Box<T>, b: Box<T>)` beats `fn <A, B> f(a: Box<A>, b: Box<B>)` for `f(x, y)` with two `Box<i32>`.
+2. **Float literal.** An untyped float literal is a double, as in C++: against candidates that differ by float type it prefers `f64`, so `cxx::std::sqrt(16.0)` calls the `double` overload and `f(1.5)` picks `fn f(x: f64)` over `fn f(x: f32)`. A lone `f32` parameter still takes the literal. Integer literals are not ordered this way (C++ converts an integer to every float type alike), and neither are typed arguments.
+3. **Non-generic over generic.** A non-generic candidate beats a generic one.
+4. **Most specialized generic.** Among generic candidates still tied, the most specialized wins: `fn <T> f(a: Box<T>, b: Box<T>)` beats `fn <A, B> f(a: Box<A>, b: Box<B>)` for `f(x, y)` with two `Box<i32>`.
 
 These tie-breaks never order conversions. For a list literal argument, a `[T; N]` parameter with the same element count is an exact match, while `[T;]` and `[T]` parameters both need a conversion:
 
