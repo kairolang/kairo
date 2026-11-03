@@ -42,9 +42,11 @@ with a per-file timeout. The binary is the RELEASE Stage 1 (section 4.1 rule
 5); its path, mtime, version and the newest `main` commit before its mtime are
 recorded in the log, since the binary carries no commit of its own.
 
-`--syntax-only` still resolves imports and macros, so each run also parses the
-files the input imports. Diagnostics are attributed to the file they name and
-deduplicated across runs. Buckets are keyed by code + message with quoted
+Since P355, `--syntax-only` parses only its input: the import closure is still
+preprocessed (imported macros) and indexed (the parser's disambiguation), so
+an unresolved import or an unknown macro is still reported, but no imported
+file is parsed and no ffi header goes to clang. Diagnostics are attributed to
+the file they name and deduplicated across runs. Buckets are keyed by code + message with quoted
 text and numbers masked, and ranked by the number of files whose FIRST error
 (by position) is in the bucket: later errors in a file may be recovery
 cascades, so that count is the one a fix is sure to unblock.
