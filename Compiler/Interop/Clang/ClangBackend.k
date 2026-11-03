@@ -72,7 +72,6 @@ ffi "c++" import "llvm/Support/MemoryBuffer.h";
 ffi "c++" import "llvm/Support/TargetSelect.h";
 ffi "c++" import "llvm/Support/VirtualFileSystem.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
-ffi "c++" import "llvm/TargetParser/Triple.h";
 
 import Location::SourceLocation::*;
 import Location::SourceRange::*;
@@ -656,12 +655,11 @@ class ClangBackend {
             self._arg(argv, "-fdevirtualize-speculatively");
             self._arg(argv, "-fforce-emit-vtables");
         }
-        // The complete and base constructor/destructor share one body: what
-        // clang's own driver passes on every target but Darwin (a linker bug)
-        // and NVPTX (no aliases). This line is built by hand, so it has to
-        // ask for it too.
-        var tri = llvm::Triple(llvm::Triple::normalize(sref(self._cfg.triple)));
-        if (!tri.isOSDarwin()) && (!tri.isNVPTX()) { self._arg(argv, "-mconstructor-aliases"); }
+        // Not -mconstructor-aliases, though clang's own driver passes it on
+        // most targets: with it the complete constructor becomes an alias of
+        // the base one, and the base-object constructor of a Kairo template
+        // (Uninitialized<T> in destroy) stopped inlining -- Tests/alloc/perf.k
+        // and the container perf pins went from no call to one.
         for a: string in self._cfg.extra_cc1 {
             self._arg(argv, a);
         }
