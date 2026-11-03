@@ -47,6 +47,7 @@ ID = re.compile(r"[A-Za-z_]\w*")
 WS = re.compile(r"\s*")
 DECL_KW = re.compile(r"(?:\b(?:var|let|const|static|eval)\s+(?:(?:var|let|const|static|eval|mut)\s+)*)$")
 FN_HEAD = re.compile(r"\bfn\b[^(){};]*$")
+REF_MACRO = re.compile(r"(?:ref!|mref!?)\s*\(")
 
 
 class TypeWalk:
@@ -120,6 +121,14 @@ class TypeWalk:
                     j = self.typ(k + 2, depth + 1)
                 return self._suffix(j)
             return i
+        # Stage 0's reference macros wrap a type: `ret: ref!(*Type)`. Walk
+        # the inside, or ref_and_mref (a later pass) unwraps it to
+        # `@inout ret: *Type` and a second run rewrites that -- the pipeline
+        # would not be idempotent.
+        rm = REF_MACRO.match(s, i)
+        if rm and (i == 0 or not (s[i - 1].isalnum() or s[i - 1] == "_")):
+            j = self.typ(rm.end(), depth + 1)
+            return self._close(j, "(", ")", rm.end() - 1)
         m = ID.match(s, i)
         if not m:
             return i
@@ -311,6 +320,10 @@ SELFTEST = [
     ("type P = *Node;",                    "type P = unsafe *Node;"),
     ("var x = y as *u8;",                  "var x = y as unsafe *u8;"),
     ("fn <T> h(self, p: *T) -> bool {",    "fn <T> h(self, p: unsafe *T) -> bool {"),
+    ("fn d(ret: ref!(*Type), x: i32) {",   "fn d(ret: ref!(unsafe *Type), x: i32) {"),
+    ("fn e(v: mref!(vec<*T>)) {",          "fn e(v: mref!(vec<unsafe *T>)) {"),
+    ("fn r(self) -> ref!(*Node) {",        "fn r(self) -> ref!(unsafe *Node) {"),
+    ("var x = pref!(*p);",                 "var x = pref!(*p);"),
 ]
 
 
