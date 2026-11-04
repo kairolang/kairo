@@ -1798,7 +1798,13 @@ class <T> OperatorTyping {
             // A left side whose type is unknown (a dependent `res[i]`) must
             // not leave the right side unvisited: a brace initializer there
             // would reach codegen untyped (O4).
-            dyn()->type_of(n->rhs, &null);
+            // A bare `&null` has no pointer type to take from the unknown
+            // left side: left untyped it goes out as `nullptr`, which
+            // converts to the member's pointer in each instance. Typed
+            // against nothing it would be SC076E (O13).
+            var nl = dyn_cast::<NullLiteralExpr>(dyn()->tu.strip_parens(n->rhs));
+            if (nl != &null) && nl->is_ref { dyn()->mark_unknown(n->rhs); }
+            else { dyn()->type_of(n->rhs, &null); }
             return &null;
         }
         // The assigned-to object, not the reference naming it: `v.at(i) = 5`
