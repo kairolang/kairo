@@ -1353,7 +1353,27 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             r = self.sc->lookup.in_context(self._ext_target, DeclName::ident(imm));
         }
         if !r.found() { return NameHit::miss(); }
-        r = self._prefer_ordinary_over_ffi_forward(r, imm);
+        var h = self._hit_from(r, imm);
+
+        // Kairo has no implicit `this->`: a member is not in unqualified
+        // scope, so a member that needs a qualifier must not END the walk. A
+        // method `open` calling the imported C `open` means the C one. Keep
+        // looking outward from the member's type scope; only when nothing
+        // outside answers does the member hit survive, and then R049 is the
+        // helpful "did you mean self.open" diagnostic rather than a wrong bind.
+        while (h.member_scope != &null) && self._needs_qualifier(h) {
+            var outer = h.member_scope->parent_context();
+            if outer == &null { break; }
+            var r2 = self._lookup_unqualified(outer, imm);
+            if !r2.found() { break; }
+            h = self._hit_from(r2, imm);
+        }
+        return h;
+    }
+
+    /// Turn one lookup answer into a NameHit, tagging member hits (R049).
+    priv fn _hit_from(self, r0: SemaLookupResult, imm: u32) -> NameHit {
+        var r = self._prefer_ordinary_over_ffi_forward(r0, imm);
 
         var h = NameHit{};
         h.found       = true;
