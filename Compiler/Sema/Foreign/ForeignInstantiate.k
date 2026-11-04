@@ -540,16 +540,47 @@ class ForeignInstantiate {
             exprs.push_back(static_cast::<*clang::Expr>(e));
         }
 
+        // An argument class this set only forward-declares (`ofstream` in
+        // the set of <ostream>, where <__fwd/fstream.h> declares it and
+        // <fstream> was never included): a constraint reading it
+        // (`is_base_of<ios_base, basic_ofstream<char>>` in `operator<<(
+        // _Stream&&, const _Tp&)`) is a hard libc++ error clang would never
+        // raise for a caller that included <fstream>. The attempt is silent
+        // and, unless it succeeds anyway, undecided so the demanding TU's
+        // set deduces it again (G103; the same rule as a fill's, G94).
+        var quiet_args = false;
+        for var qi: usize = 0; qi < exprs.size(); ++qi {
+            var qt = exprs[qi]->getType().getNonReferenceType();
+            while qt->isPointerType() { qt = qt->getPointeeType(); }
+            var qrd = qt->getAsCXXRecordDecl();
+            if qrd == &null { continue; }
+            var qspec = llvm::dyn_cast::<clang::ClassTemplateSpecializationDecl>(qrd);
+            var qdef = qrd->getDefinition();
+            if (qdef == &null) && (qspec != &null) {
+                // An implicit instance is complete when its template's pattern
+                // is defined: clang instantiates it on demand.
+                var qpat = qspec->getSpecializedTemplate()->getTemplatedDecl();
+                if qpat->getDefinition() != &null { continue; }
+            }
+            if qdef == &null { quiet_args = true; break; }
+        }
         var info = clang::sema::TemplateDeductionInfo(loc, 0);
         var spec: *clang::FunctionDecl = &null;
         var eap: *clang::TemplateArgumentListInfo = &null;
         if explicit_args->size() > 0 { eap = &ali; }
+        var qdiags = &(csema->getDiagnostics());
+        var args_were_quiet = qdiags->getSuppressAllDiagnostics();
+        if quiet_args { qdiags->setSuppressAllDiagnostics(true); }
         // No non-dependent conversion check: Kairo ranked every argument
         // against its parameter already, with its own conversions.
         var r = csema->DeduceTemplateArguments(ftd, eap, exprs, spec, info,
                     false, false, false, clang::QualType(), clang::Expr::Classification(), false,
                     fn (ps: llvm::ArrayRef::<clang::QualType>, only: bool) -> bool { return false; });
         opaque = tx.used_opaque;
+        if quiet_args {
+            qdiags->setSuppressAllDiagnostics(args_were_quiet);
+            if r != clang::TemplateDeductionResult::Success { return -1; }
+        }
         if r == clang::TemplateDeductionResult::Success {
             if want_ret && (spec != &null) && (!tx.used_opaque) {
                 // `decltype(auto)` / `auto` (llvm::dyn_cast, cast, isa): the
