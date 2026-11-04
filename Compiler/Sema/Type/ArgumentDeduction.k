@@ -133,6 +133,12 @@ class Deduction derives Substitution {
         if top && (!isa::<CXXLValueRefType>(param)) && (!isa::<CXXRValueRefType>(param)) {
             param = canon_unqual(param);
             arg   = canon_unqual(arg);
+            // An argument typed by an imported `T&` result (`v[i]` on a
+            // `vector<*N>`) is an lvalue of T: an expression has no reference
+            // type in C++ ([expr.type]/1), so a by-value or pointer P deduces
+            // from the referee. `destroy(v[i])` against `T*` is T := N.
+            if (arg != &null) && isa::<CXXLValueRefType>(arg) { arg = canon_unqual(cast::<CXXLValueRefType>(arg)->referee); }
+            if (arg != &null) && isa::<CXXRValueRefType>(arg) { arg = canon_unqual(cast::<CXXRValueRefType>(arg)->referee); }
             if param == arg { return ImplicitRank::Exact; }
         }
 
