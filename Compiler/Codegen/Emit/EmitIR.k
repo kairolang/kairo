@@ -4712,6 +4712,7 @@ class EmitIR {
         if (src == &null) || (dst == &null) { return false; }
         var s = (src->canonical) if (src->canonical != &null) else (src);
         var d = (dst->canonical) if (dst->canonical != &null) else (dst);
+        var lvl: i32 = 0;
         while true {
             var su = canon_unqual(s);
             var du = canon_unqual(d);
@@ -4720,6 +4721,12 @@ class EmitIR {
             s = cast::<PointerType>(su)->pointee;
             d = cast::<PointerType>(du)->pointee;
             if (canon_quals(s) & (~canon_quals(d))) != 0 { return true; }
+            // Adding a qualifier two or more pointers deep (`char**` ->
+            // `const char**`) is "casting away" to reinterpret_cast too: a
+            // qualification conversion needs const at every level between
+            // (SI2).
+            lvl = lvl + 1;
+            if (lvl >= 2) && ((canon_quals(d) & (~canon_quals(s))) != 0) { return true; }
         }
         return false;
     }
