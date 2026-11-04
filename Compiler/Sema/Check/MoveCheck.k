@@ -92,6 +92,7 @@ import Sema::Check::ClassLifecycle::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::ASTSupport::*;
+import AST::DeclFacts::*;
 import AST::ParamMode::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
@@ -1134,6 +1135,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     priv fn _transfer(self, e: *Expr, how: string) {
         if (e == &null) || e->is_poisoned() { return; }
         if !moves_on_pass(self.sc, e->type_) {
+            if self._uncopyable_place(e, how) { return; }
             self._dependent_transfer(e);
             return;
         }
@@ -1143,6 +1145,32 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         self.sc->move_sites.insert(reinterpret_cast::<u64>(e));
         self.n_moves += 1;
         self._mark(e, how);
+    }
+
+    /// A transfer of an lvalue of an imported C++ record whose copy
+    /// constructor is deleted (`var o = llvm::outs()`, `take(get_nc())`):
+    /// clang rejects the copy at codegen, so Kairo refuses it first (the
+    /// semantic-independence rule). A prvalue is elided, never copied, and a
+    /// reference parameter takes no transfer, so neither reaches here.
+    priv fn _uncopyable_place(self, e: *Expr, how: string) -> bool {
+        var x = self._tu.strip_parens(e);
+        if (x == &null) || (x->value_category != Expr::ValueCategory::LValue) { return false; }
+        // An imported `T&` return types as the reference (the referee is
+        // the object copied).
+        var c  = self._tu.as_value(e->type_);
+        var rd = self._tu.record_decl(c);
+        if (rd == &null) || self._tu.is_tuple(c) || (!decl_is_imported(rd)) { return false; }
+        var facts = lifecycle_of(self.sc)->facts_of(rd);
+        if (facts->copyable != LifecycleTri::No) { return false; }
+        var b = self.sc->diag->report(DiagID::SC001E, e->range.start,
+            f"cannot copy a value of type '{self._tu.str(c)}': {facts->why_not_copyable}"
+        );
+        b.first(e->range);
+        b.note(rd->range.start, "type declared here").first(rd->range);
+        b.emit();
+        e->poison();
+        self.n_errored += 1;
+        return true;
     }
 
     /// A transfer of a value whose category its generic instance decides

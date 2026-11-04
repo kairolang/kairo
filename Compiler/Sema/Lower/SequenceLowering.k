@@ -224,7 +224,12 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         var args = self.list_builder::<*Expr>();
         for var i: usize = 0; i < n->args.size(); ++i {
             var a = n->args[i];
-            args.push((self._hoist(a, &stmts, true, false)) if (hoist[k + i]) else (a));
+            // A call that returns an imported `T&` is a place (an lvalue):
+            // bound `auto&&` so the referent is passed on, not copied. An
+            // `auto` snapshot of `llvm::outs()` copies a non-copyable
+            // raw_fd_ostream into a `raw_ostream&` parameter (SI1).
+            var ref_call = a->is_lvalue() && isa::<CallExpr>(self.tu.strip_parens(a));
+            args.push((self._hoist(a, &stmts, true, ref_call)) if (hoist[k + i]) else (a));
         }
         args.freeze_into(&(n->args));                 // arg_map is empty after CallLowering.
 
