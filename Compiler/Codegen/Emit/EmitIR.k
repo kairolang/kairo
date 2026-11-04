@@ -1139,7 +1139,7 @@ class EmitIR {
             case StmtKind::PanicStmt              { self._ice(s->range, "EmitIR: panic; PanicLowering owns it"); }
             case StmtKind::YieldStmt              { self._yield(cast::<YieldStmt>(s)); }
             case StmtKind::RuntimeAssertStmt      { self._assert(cast::<RuntimeAssertStmt>(s)); }
-            case StmtKind::StaticAssertStmt       { self._ice(s->range, "EmitIR: static assert; the Evaluator owns it"); }
+            case StmtKind::StaticAssertStmt       { self._static_assert(cast::<StaticAssertStmt>(s)); }
             case StmtKind::ContextBindingStmt     { self._ice(s->range, "EmitIR: context binding; ContextLowering owns it"); }
             case StmtKind::DestructuringDeclStmt  { self._ice(s->range, "EmitIR: destructuring; TupleLowering owns a tuple's, FeatureGateCheck rejects a struct's"); }
             case StmtKind::LabeledStmt            { self._ice(s->range, "EmitIR: labeled loop; the label lowering owns it"); }
@@ -1511,6 +1511,29 @@ class EmitIR {
     /// message operand is optional and a `string` here, not a C literal, so the
     /// crash text is the statement's own source and location instead; that
     /// names the failed condition and carries the message as written.
+    /// `assert static c, "msg"` is C++'s `static_assert(c, "msg")`. In a
+    /// generic body `c` depends on the parameters (a C++ trait over `T`), so
+    /// no Kairo pass can decide it; clang does, per instance, and a false one
+    /// is that instance's error. The message must be a literal in C++, so it
+    /// is spelled from the source text, not emitted as a `string` value.
+    priv fn _static_assert(self, n: *StaticAssertStmt) {
+        self._cg->sink->spell(n->range, "static_assert(");
+        self.emit(n->condition);
+        // StringLowering has already replaced the message with a `string`
+        // construction, so its source text is what is read.
+        if (n->message != &null) && n->message->range.is_valid() {
+            var t = self._cg->ctx->sm->get_text(n->message->range);
+            if (t.size() >= 3) && (t[0] == 0x22) {
+                self._cg->sink->spell(n->range, ", " + t);
+            } else if (t.size() >= 4) && (t[0] == 0x72) && (t[1] == 0x22) {
+                var inner = "";
+                for var i: usize = 2; i + 1 < t.size(); ++i { inner += t[i]; }
+                self._cg->sink->spell(n->range, ", " + CXXSpell::c_string(inner));
+            }
+        }
+        self._cg->sink->spell(n->range, ");");
+    }
+
     priv fn _assert(self, n: *RuntimeAssertStmt) {
         var sm  = self._cg->ctx->sm;
         var lc  = sm->get_line_col(n->range.start);
