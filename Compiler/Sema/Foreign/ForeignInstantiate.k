@@ -571,6 +571,10 @@ class ForeignInstantiate {
         var qdiags = &(csema->getDiagnostics());
         var args_were_quiet = qdiags->getSuppressAllDiagnostics();
         if quiet_args { qdiags->setSuppressAllDiagnostics(true); }
+        // The trap counts errors even while diagnostics are suppressed, and an
+        // immediate-context SFINAE failure is never one (Sema captures it), so
+        // it tells a hard error from a template's own substitution failure.
+        var trap = clang::DiagnosticErrorTrap(*qdiags);
         // No non-dependent conversion check: Kairo ranked every argument
         // against its parameter already, with its own conversions.
         var r = csema->DeduceTemplateArguments(ftd, eap, exprs, spec, info,
@@ -579,7 +583,13 @@ class ForeignInstantiate {
         opaque = tx.used_opaque;
         if quiet_args {
             qdiags->setSuppressAllDiagnostics(args_were_quiet);
-            if r != clang::TemplateDeductionResult::Success { return -1; }
+            // Only a HARD error (an incomplete class read by a trait) makes
+            // the verdict unreliable. A SFINAE removal over an incomplete
+            // argument is clang's own answer: `make_unique<PCHGenerator>(
+            // module_cache_ref)` drops the bounded-array overload by its
+            // `enable_if` whatever ModuleCache's completeness (G107). Other
+            // failure classes fall to the checks below.
+            if (r != clang::TemplateDeductionResult::Success) && trap.hasErrorOccurred() { return -1; }
         }
         if r == clang::TemplateDeductionResult::Success {
             if want_ret && (spec != &null) && (!tx.used_opaque) {
