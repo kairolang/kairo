@@ -448,6 +448,12 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         all.push(n->operand);
         all.freeze_into(&(call->args));
         call->adopt_sema(static_cast::<*Expr>(n));
+        // It IS a constructor call, the fact X records on one it types
+        // (CallExpr::ctor_decl): CallLowering and EmitIR then bind `self`
+        // whatever the head's spelling. Recognised by name alone, a class
+        // template instance's constructor was not (its owner is the
+        // instance), and `Tag() as WT<i32>` ICEd as a call short of `self`.
+        call->ctor_decl = n->resolved_ctor;
         return static_cast::<*Expr>(call);
     }
 

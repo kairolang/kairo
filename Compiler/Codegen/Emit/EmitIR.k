@@ -2842,7 +2842,10 @@ class EmitIR {
             return;
         }
 
-        if self._is_ctor(f) || self._is_type_decl(callee) || assoc_ctor {
+        // ctor_decl too: a constructor call a lowering minted naming the
+        // constructor (OperatorLowering::_ctor_cast), whose owner may be a
+        // class template instance that _is_ctor's name match misses.
+        if self._is_ctor(f) || self._is_type_decl(callee) || assoc_ctor || (n->ctor_decl != &null) {
             if n->type_ == &null { self._ice_untyped(static_cast::<*Expr>(n), "EmitIR: untyped constructor call; ExprTyper gate failure"); }
             self._cg->sink->spell(n->callee->range, self._spell._type(n->type_));
         } else if n->witness_iface != &null {
