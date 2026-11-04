@@ -976,7 +976,7 @@ class OverloadResolution {
         for var i: usize = 0; i < fy->params.size(); ++i { if (fy->params[i] != &null) && (!fy->params[i]->is_self) { py.push_back(fy->params[i]); } }
         if px.size() != py.size() { return false; }
         for var i: usize = 0; i < px.size(); ++i {
-            if (px[i]->mode != py[i]->mode) || (px[i]->is_pack != py[i]->is_pack) { return false; }
+            if (self._sig_mode(fx, px[i]) != self._sig_mode(fy, py[i])) || (px[i]->is_pack != py[i]->is_pack) { return false; }
             var tx = self._sig_type(x, px[i]);
             var ty = self._sig_type(y, py[i]);
             if (tx == &null) || (ty == &null) || (tx != ty) { return false; }
@@ -991,9 +991,34 @@ class OverloadResolution {
         return (canon_quals(p->type_->canonical) & QUAL_CONST()) != 0;
     }
 
+    /// A C++ reference parameter is the mode a Kairo override spells it with
+    /// (`const lo: T` for `const T&`, `@inout x: T` for `T&`, `@move x: T`
+    /// for `T&&`): imported parameters carry the reference in their TYPE and
+    /// leave the mode Value. Without this a Kairo `override` of
+    /// `BeginSourceFile(const LangOptions&, ...)` never hid the base's
+    /// virtual, and every call on the derived type was SC064E (G88).
+    priv fn _sig_mode(self, f: *FunctionDecl, p: *ParamDecl) -> ParamMode {
+        if (!f->is_imported()) || (p->type_ == &null) || (p->type_->canonical == &null) { return p->mode; }
+        var c = canon_unqual(p->type_->canonical);
+        if c == &null { return p->mode; }
+        if isa::<CXXRValueRefType>(c) { return ParamMode::Move; }
+        if isa::<CXXLValueRefType>(c) {
+            var r = cast::<CXXLValueRefType>(c)->referee;
+            if (r != &null) && ((canon_quals(r) & QUAL_CONST()) == 0) { return ParamMode::Inout; }
+        }
+        return p->mode;
+    }
+
     priv fn _sig_type(self, c: *Candidate, p: *ParamDecl) -> *Type {
         if (p->type_ == &null) || (p->type_->canonical == &null) { return &null; }
         var t = canon_unqual(p->type_->canonical);
+        // The reference itself is the mode (see _sig_mode); the referee is
+        // the type, as the Kairo spelling gives it.
+        if (c->f->is_imported()) && (t != &null) {
+            if isa::<CXXLValueRefType>(t) { t = cast::<CXXLValueRefType>(t)->referee; }
+            else if isa::<CXXRValueRefType>(t) { t = cast::<CXXRValueRefType>(t)->referee; }
+            if t != &null { t = canon_unqual(t); }
+        }
         if (t != &null) && t->is_dependent() {
             t = c->ded.substitute(t);
             if t != &null { t = canon_unqual(t); }
