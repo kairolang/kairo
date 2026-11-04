@@ -1074,7 +1074,9 @@ class <T> ControlTyping {
     fn type_delete(self, n: *DeleteExpr, expected: *Type) -> *Type {
         var t = dyn()->type_of(n->operand, &null);
         if dyn()->propagate(n, n->operand) { return &null; }
-        if (t != &null) && (dyn()->tu.pointee(dyn()->tu.strip_nullable(t)) == &null) {
+        // `delete v[i]` on a `vector<*T>`: the operand is an imported
+        // `T*&`, read as its value (as_value), a pointer like any other.
+        if (t != &null) && (dyn()->tu.pointee(dyn()->tu.strip_nullable(dyn()->tu.as_value(t))) == &null) {
             dyn()->fail(n, DiagID::SC090E, f"'delete' requires a pointer, not '{dyn()->tu.str(t)}\x27");
             return &null;
         }
