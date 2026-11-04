@@ -2593,6 +2593,17 @@ class EmitIR {
         if be != &null { return self._duck_rooted_expr(be->lhs) || self._duck_rooted_expr(be->rhs); }
         var se = dyn_cast::<SubscriptExpr>(e);
         if se != &null { return self._duck_rooted_expr(se->base); }
+        // `if (x != &null) => (cast<T>(x)) else => &null` (O26b): an arm that
+        // is the instance's makes the whole conditional the instance's; the
+        // `&null` arm has no type of its own to contradict that.
+        var ie = dyn_cast::<IfExpr>(e);
+        if ie != &null {
+            if self._duck_rooted_expr(ie->then_expr) || self._duck_rooted_expr(ie->else_expr) { return true; }
+            for var i: usize = 0; i < ie->else_ifs.size(); ++i {
+                if self._duck_rooted_expr(ie->else_ifs.get(i)->body) { return true; }
+            }
+            return false;
+        }
         // A local deduced from a duck chain (`var head = prev->first`, prev a
         // `: type` parameter's pointer) has no type until the instance; it is
         // emitted `auto`, so a step through it is the instance's to look up
