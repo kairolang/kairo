@@ -4894,6 +4894,7 @@ class EmitIR {
         var c = canon_unqual((t->canonical) if (t->canonical != &null) else (t));
         if (c == &null) || (c->kind != TypeKind::PointerType) { return false; }
         var p = canon_unqual(cast::<PointerType>(c)->pointee);
+        if (p != &null) && (p->kind == TypeKind::OpaqueFFIType) { return true; }   // a C++ vector type (`__m128i`)
         if (p == &null) || (p->kind != TypeKind::BuiltinType) { return false; }
         return cast::<BuiltinType>(p)->builtin != BuiltinKind::Void;
     }
