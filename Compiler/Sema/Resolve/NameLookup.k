@@ -28,6 +28,7 @@ import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::DeclFacts::*;
+ffi "c++" import "llvm/ADT/DenseSet.h";
 
 /// \class SemaLookupResult
 /// \brief One lookup's outcome: the frozen cell + where it was found.
@@ -310,6 +311,25 @@ class NameLookup {
         if !isa::<ModuleDecl>(d) { return; }
         var links = vec::<*Decl>();
         NameLookup::collect_chain(d, links);
+        // A module reopened across hundreds of files has a ring that long,
+        // and the linear out scan below made one call quadratic (and the
+        // per-cell-entry callers cubic). Past a small ring, dedupe against a
+        // pointer set seeded from out; the append order is unchanged.
+        if links.size() > 16 {
+            var have = llvm::DenseSet::<u64>();
+            for var j: usize = 0; j < out.size(); ++j {
+                have.insert(reinterpret_cast::<u64>(out[j]));
+            }
+            for var i: usize = 0; i < links.size(); ++i {
+                var dc = NameLookup::context_of(links[i]);
+                if dc == &null { continue; }
+                var k = reinterpret_cast::<u64>(dc);
+                if have.contains(k) { continue; }
+                have.insert(k);
+                out.push_back(dc);
+            }
+            return;
+        }
         for var i: usize = 0; i < links.size(); ++i {
             var dc = NameLookup::context_of(links[i]);
             if dc == &null { continue; }

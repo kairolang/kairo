@@ -2391,7 +2391,17 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         // Each entry's whole reopening ring, deduped -- `Util::SomeType` must
         // see a type declared in any `module Util { }` block, not only the
         // one the cell's entry is.
+        // Entries of one ring all expand to the same scopes, so a ring is
+        // expanded once per cell: the repeat calls were pure re-walks.
+        var heads = vec::<*Decl>();
         for var i: usize = 0; i < r.cell->size(); ++i {
+            var head = static_cast::<*Decl>(cast::<ModuleDecl>(r.cell->get(i))->first_decl());
+            var done = false;
+            for var j: usize = 0; j < heads.size(); ++j {
+                if heads[j] == head { done = true; break; }
+            }
+            if done { continue; }
+            heads.push_back(head);
             NameLookup::module_scopes(r.cell->get(i), *out);
         }
     }
