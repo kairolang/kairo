@@ -2685,6 +2685,16 @@ class EmitIR {
     // --- Calls -----------------------------------------------------------------------
 
     priv fn _call(self, n: *CallExpr) {
+        // A deferred f-string hole (CallExpr::fmt_dyn): the preamble's
+        // template picks the put at each instance. Its callee is a
+        // placeholder bound to nothing; the arguments go as written.
+        if n->fmt_dyn {
+            self._cg->sink->spell(n->callee->range, "::" + LowerTargets::fmt_dyn());
+            self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
+            self._args(n, &null, true, &null);
+            self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
+            return;
+        }
         // An overload set of imported templates that only an instance can
         // split (`on_default(x)` with `x: T`: which `enable_if` holds is
         // T's question -- OverloadResolution::_sfinae_pending). Left

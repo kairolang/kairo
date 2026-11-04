@@ -956,6 +956,19 @@ class LowerTargets {
     /// full-expression. ExtensionLowering's `materialize` `&` spells it.
     static fn tmp_addr() -> string { return "__kairo_tmp"; }
 
+    // --- Deferred f-string holes (writer: InterfaceEmitter; reader: EmitIR) ----------
+
+    /// `template <class B, class T> void __kairo_fmt_put(B&, T&&, name, len,
+    /// spec)`: an f-string hole in a generic body whose value's type only
+    /// the instance knows (CallExpr::fmt_dyn). It picks the FmtBuf put the
+    /// value's C++ type has, in LiteralTyping's order: a builtin's own row,
+    /// a string, a pointer's address, a plain enum's discriminant, then a
+    /// record's `repr()`, its `op as` string, its address. An instance
+    /// whose value is none of these fails there (static_assert).
+    static fn fmt_dyn() -> string { return "__kairo_fmt_put"; }
+    /// Its include guard in a header (one C++ TU may include several).
+    static fn fmt_dyn_guard() -> string { return "__KAIRO_FMT_DYN"; }
+
     /// The temporaries of EmitIR's binding operator forms, by kind (`a` / `b`
     /// a division's operands, `p` a place, `o` a postfix's old value; in a
     /// duck generic's integer arm `T` the operand type, `U` its carrier, `R`

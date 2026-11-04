@@ -121,6 +121,7 @@ class InterfaceEmitter {
     pub var have_helpers:    bool = false;
     pub var have_ctor_slots: bool = false;
     pub var have_fn_value:   bool = false;
+    pub var have_fmt_dyn:    bool = false;
     pub var have_eval_helpers: bool = false;
     pub var have_niche_helpers: bool = false;
     pub var have_pack_union: bool = false;
@@ -161,6 +162,50 @@ class InterfaceEmitter {
     }
 
     fn set_ffi_lines(self, lines: vec::<string>) { self._ffi_lines = lines; }
+
+    /// `__kairo_fmt_put`, LowerTargets::fmt_dyn: the put a generic body's
+    /// f-string hole gets at each instance, chosen from the value's C++
+    /// type in LiteralTyping's order -- a builtin's own row (spelled from
+    /// builtin_info, so the rows are the types EmitIR writes), a string, a
+    /// pointer's address, a plain enum's discriminant, a record's `repr()`,
+    /// its `op as` string, its address -- and a static_assert for anything
+    /// else, which is that instance's error. Only the types every target
+    /// names are rows: a type clang refuses on the target (`__int128`,
+    /// `_Float16`, `__bf16`, `__float128`, a wide `_BitInt`) is an error
+    /// even in a discarded `if constexpr`, and byte and the soft floats are
+    /// Kairo records a TU may not declare. Those values fall through to the
+    /// enum / class rows or the assert. FIXME(FMT-DYN-WIDE): rows for them
+    /// gated on the target.
+    priv fn _fmt_dyn_helper(self) -> string {
+        var kinds = vec::<BuiltinKind>();
+        kinds.push_back(BuiltinKind::Bool);
+        kinds.push_back(BuiltinKind::Char);
+        kinds.push_back(BuiltinKind::I8);   kinds.push_back(BuiltinKind::I16);  kinds.push_back(BuiltinKind::I32);
+        kinds.push_back(BuiltinKind::I64);
+        kinds.push_back(BuiltinKind::U8);   kinds.push_back(BuiltinKind::U16);  kinds.push_back(BuiltinKind::U32);
+        kinds.push_back(BuiltinKind::U64);
+        kinds.push_back(BuiltinKind::USize); kinds.push_back(BuiltinKind::ISize);
+        kinds.push_back(BuiltinKind::F32);  kinds.push_back(BuiltinKind::F64);
+
+        var sz = builtin_info(BuiltinKind::USize)->cxx;
+        var byt = builtin_info(BuiltinKind::U8)->cxx;
+        var out = "template <class B, class T> inline void " + LowerTargets::fmt_dyn()
+                + "(B& b, T&& v, const " + byt + "* n, " + sz + " nl, unsigned long long s) {"
+                + " using U = __remove_cvref(T); using S = __remove_cvref(decltype(b.finish()));";
+        out += " if constexpr (__is_same(U, char)) b.put_u8(static_cast<" + byt + ">(v), s);";
+        for var i: usize = 0; i < kinds.size(); ++i {
+            var k = kinds[i];
+            out += " else if constexpr (__is_same(U, " + builtin_info(k)->cxx + ")) b." + fmt_put_name(format_kind_of(k)) + "(v, s);";
+        }
+        out += " else if constexpr (__is_same(U, S)) b.put_str(v, s);";
+        out += " else if constexpr (__is_pointer(U)) b.put_ptr(reinterpret_cast<" + sz + ">(v), n, nl, s);";
+        out += " else if constexpr (__is_enum(U)) b.put_i64(static_cast<long long>(v), s);";
+        out += " else if constexpr (requires { v.repr(); }) b.put_str(v.repr(), s);";
+        out += " else if constexpr (__is_class(U) && requires { static_cast<S>(v); }) b.put_str(static_cast<S>(v), s);";
+        out += " else if constexpr (__is_class(U)) b.put_ptr(reinterpret_cast<" + sz + ">(" + LowerTargets::clang_addressof() + "(v)), n, nl, s);";
+        out += " else static_assert(sizeof(U) == 0, \x22" + "an f-string hole in a generic body has no formatter for this instance\x27s type\x22); }";
+        return out;
+    }
 
     /// ICE naming the Kairo source at \p at (CodegenICE).
     priv fn _ice(self, at: SourceRange, msg: string) {
@@ -236,6 +281,18 @@ class InterfaceEmitter {
             self._ctor_slot_helpers(header);
             self._cg->sink->unanchored(false);
             self.have_ctor_slots = true;
+        }
+        // A deferred f-string hole's put (EmitPlan::needs_fmt_dyn), guarded
+        // on its own for the same reason.
+        if (!self.have_fmt_dyn) && self._plan->needs_fmt_dyn {
+            self._cg->sink->unanchored(true);
+            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::fmt_dyn_guard()); }
+            if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::fmt_dyn_guard()); }
+            self._cg->sink->spell(self._tu_at(), self._fmt_dyn_helper());
+            self._cg->sink->brk();
+            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+            self._cg->sink->unanchored(false);
+            self.have_fmt_dyn = true;
         }
         // A Kairo `fn` value (EmitPlan::needs_fn_value), guarded on its own
         // for the same reason.

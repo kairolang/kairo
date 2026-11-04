@@ -826,6 +826,11 @@ struct FormatHole {
     var cast_to: *Type;         ///< a cast applied to the value first (usize for Ptr, the underlying int for a plain enum), or null.
     var by_addr: bool;          ///< Ptr with no pointer: the value's ADDRESS is printed.
     var doc:     SourceRange;   ///< `{x=}`: source bytes printed before the value; invalid otherwise.
+    /// The value's type is a generic body's (a `T`, or a member result
+    /// through a `: type` parameter): no put is chosen here. FStringLowering
+    /// mints a `fmt_dyn` call and C++ picks the put per instance
+    /// (LowerTargets::fmt_dyn). `kind` is None and `put` null.
+    var deferred: bool;
 }
 
 ///

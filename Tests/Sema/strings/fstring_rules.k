@@ -2,7 +2,7 @@
 
 struct Nope { var v: i32 }
 
-fn <T> generic(x: T) -> string { return f"{x}" }
+fn <T> generic(x: T) -> string { return f"{x:>4}" }
 
 fn main() -> i32 {
     var x: i32 = 1
@@ -20,7 +20,7 @@ fn main() -> i32 {
 }
 
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: formatting a 'T' needs a bound that declares 'fn repr(self) -> string' or 'op as' returning 'string'
+// CHECK: a format spec on a value whose type is generic is not supported yet
 // CHECK: invalid format spec '>4q' for a value of type 'i32'
 // CHECK: invalid format spec '.3' for a value of type 'i32': precision
 // CHECK: invalid format spec '+' for a value of type 'string'

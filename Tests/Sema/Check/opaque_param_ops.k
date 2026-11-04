@@ -1,8 +1,10 @@
 // A generic body is checked once, against its bounds (generics.mdx, MONO.md
-// D0). An operator, a conversion, an interpolation, a null test or a pattern
-// on a value of an opaque parameter `T` is something only a bound can grant,
-// so each is an error AT THE DEFINITION, naming what would grant it, never
-// a C++ error at some instance (or none, if the template is never used).
+// D0). An operator, a conversion, a null test or a pattern on a value of an
+// opaque parameter `T` is something only a bound can grant, so each is an
+// error AT THE DEFINITION, naming what would grant it, never a C++ error at
+// some instance (or none, if the template is never used). An interpolation
+// is the exception (USER 2026-11-03): formatted per instance, so only a
+// format SPEC on it is refused here (SC080E).
 // Under `-fduck-generics` a `: type` parameter keeps the C++ rule: nothing
 // is said here, and C++ checks each instance.
 
@@ -57,8 +59,8 @@ fn <T> present(a: T) -> bool = a?
 fn <T> text(a: T) -> string = a as string
 // DIAG: opaque_param_ops.k:[[@LINE-1]]:31: error [R051E]: 'as string' on 'T' needs a bound that declares 'op as' returning 'string'
 
-fn <T> shown(a: T) -> string = f"<{a}>"
-// DIAG: opaque_param_ops.k:[[@LINE-1]]:36: error [R051E]: formatting a 'T' needs a bound that declares 'fn repr(self) -> string' or 'op as' returning 'string'
+fn <T> shown(a: T) -> string = f"<{a:>4}>"
+// DIAG: opaque_param_ops.k:[[@LINE-1]]:36: error [SC080E]: a format spec on a value whose type is generic is not supported yet
 
 // A pattern can only bind it, or not look at it: T has no variants, no
 // values a literal could equal, no fields.
@@ -101,8 +103,8 @@ fn <T impl Scalable> beq(a: T, b: T) -> bool = a == b
 fn <T impl Scalable> btext(a: T) -> string = a as string
 // DIAG: opaque_param_ops.k:[[@LINE-1]]:46: error [R025E]: 'as string' on 'T' needs a bound that declares 'op as' returning 'string'; none of the bounds of 'T' does
 
-fn <T impl Scalable> bshown(a: T) -> string = f"{a}"
-// DIAG: opaque_param_ops.k:[[@LINE-1]]:50: error [R025E]: formatting a 'T' needs a bound that declares 'fn repr(self) -> string' or 'op as' returning 'string'; none of the bounds of 'T' does
+fn <T impl Scalable> bshown(a: T) -> string = f"{a:>4}"
+// DIAG: opaque_param_ops.k:[[@LINE-1]]:50: error [SC080E]: a format spec on a value whose type is generic is not supported yet
 
 // The bound's own requirements still work, and so does what needs no bound:
 // `&a`, a pointer compare, `t?` on a `T?`.

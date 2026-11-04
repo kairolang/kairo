@@ -29,6 +29,13 @@
 ///     pure primitive is read in place. So `f"{a()}{b()}"` calls a, then b,
 ///     and `f"{v}"` on a prvalue record has an address to print.
 ///
+///   \par Deferred holes
+///     A hole whose value's type is a generic body's (FormatHole::deferred:
+///     a `T`, or a member result through a `: type` parameter) is bound by
+///     forwarding reference and put by `::__kairo_fmt_put(buf, arg, name,
+///     len, 0)` (CallExpr::fmt_dyn), the preamble template that picks the
+///     put at each instance.
+///
 ///   \par Postcondition
 ///     No StringLiteralExpr with is_format() reaches StringLowering or
 ///     codegen. An f-string with no holes is retyped as a plain literal and
@@ -117,7 +124,15 @@ class FStringLowering derives ASTWriter::<FStringLowering> {
             var at = e->range;
             var arg: *Expr = &null;
 
-            if h->conv != &null {
+            if h->deferred {
+                // A generic body's value: bound by forwarding reference, in
+                // source order like every other impure hole -- its type is
+                // the instance's, so it is never copied and never named.
+                var vd = self.synth.local(at, "arg", &null, e);
+                vd->place_ref = true;
+                stmts.push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, at, static_cast::<*Decl>(vd))));
+                arg = self.synth.use_of(vd, at, Expr::ValueCategory::LValue);
+            } else if h->conv != &null {
                 // `(e).repr()` / `(e).op as()`: a string, bound.
                 var recv = ParenExpr::create(self.ctx, at, e);
                 recv->adopt_sema(e);
@@ -185,6 +200,10 @@ class FStringLowering derives ASTWriter::<FStringLowering> {
             self._text_before(n, i, &text);
             self._flush_text(n, buf, &text, &stmts);
 
+            if h->deferred {
+                stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, e->range, self._deferred_put(buf, args[i], h, e))));
+                continue;
+            }
             var pargs = self.list_builder::<*Expr>();
             pargs.push(args[i]);
             if h->kind == FormatKind::Ptr {
@@ -205,6 +224,30 @@ class FStringLowering derives ASTWriter::<FStringLowering> {
         var fin = self.synth.member_call(n->range, self.synth.use_of(buf, n->range, Expr::ValueCategory::LValue), n->fmt_finish, &fargs, str_t);
         stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, n->range, fin)));
         return self.synth.stmt_expr(static_cast::<*Expr>(n), &stmts, n->type_);
+    }
+
+    /// `::__kairo_fmt_put(buf, arg, name, len, 0)` for a deferred hole
+    /// (FormatHole::deferred): C++ picks the put at each instance
+    /// (LowerTargets::fmt_dyn). The name is what an address print shows: the
+    /// type as the body spells it, when it has one.
+    priv fn _deferred_put(self, buf: *VariableDecl, arg: *Expr, h: *FormatHole, e: *Expr) -> *Expr {
+        var at = e->range;
+        var name = vec::<u8>();
+        var spelled = ("value") if (e->type_ == &null) else (self.tu.str(self.tu.as_value(e->type_)));
+        LowerSynth::push_string(spelled, &name);
+        var cargs = self.list_builder::<*Expr>();
+        cargs.push(self.synth.use_of(buf, at, Expr::ValueCategory::LValue));
+        cargs.push(arg);
+        cargs.push(self._bytes_arg(at, &name));
+        cargs.push(self.synth.int_literal(at, static_cast::<u64>(name.size()), BuiltinKind::USize));
+        cargs.push(self.synth.int_literal(at, h->spec, BuiltinKind::U64));
+        var callee = NamedIdentExpr::create(self.ctx, at, self.synth.ident(at, LowerTargets::fmt_dyn()));
+        var call = CallExpr::create(self.ctx, at, static_cast::<*Expr>(callee));
+        cargs.freeze_into(&(call->args));
+        call->fmt_dyn        = true;
+        call->type_          = self.sc->builtin(BuiltinKind::Void);
+        call->value_category = Expr::ValueCategory::RValue;
+        return static_cast::<*Expr>(call);
     }
 
     /// `f"plain"`: a literal with a prefix it no longer needs. StringLowering
@@ -330,6 +373,8 @@ class FStringLowering derives ASTWriter::<FStringLowering> {
         var fill:  u64 = (h->spec >> 32) & 0x1FFFFF;
         var base:  u64 = (h->spec >> 55) & 3;
         var m: u64 = 0;
+        // The instance's: a guess. A short buffer only grows.
+        if h->deferred { return 32; }
         switch h->kind {
             case FormatKind::Bool   { m = 5; }
             case FormatKind::Char   { m = 6; }        // quoted, escaped.

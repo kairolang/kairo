@@ -528,9 +528,9 @@ class <T> LiteralTyping {
             var t = dyn()->type_of(e, &null);
             if e->is_poisoned() { ok = false; continue; }
             if t == &null {
-                // Untyped and not poisoned: dependent. Lower/ runs once, before M2.
-                dyn()->fail(e, DiagID::SC080E, "an interpolation in a generic body needs a concrete type; format it in the caller");
-                ok = false;
+                // Untyped and not poisoned: a member result through a `: type`
+                // parameter. Only the instance knows what it is.
+                if !self._defer_hole(n, e, (*holes)[i].spec, (*holes)[i].doc, &out) { ok = false; }
                 continue;
             }
             // A nullable place the analysis proved is formatted as its value
@@ -541,11 +541,15 @@ class <T> LiteralTyping {
 
             var h = FormatHole{};
             h.kind = FormatKind::None; h.spec = 0; h.put = &null; h.conv = &null;
-            h.cast_to = &null; h.by_addr = false; h.doc = (*holes)[i].doc;
+            h.cast_to = &null; h.by_addr = false; h.doc = (*holes)[i].doc; h.deferred = false;
 
             var repr: *Decl = &null;
             var conv: *Decl = &null;
             if !self._classify_hole(e, t, &h, &repr, &conv) { ok = false; continue; }
+            if h.deferred {
+                if !self._defer_hole(n, e, (*holes)[i].spec, (*holes)[i].doc, &out) { ok = false; }
+                continue;
+            }
             if !self._parse_spec(n, (*holes)[i].spec, h.kind, t, &(h.spec)) { ok = false; continue; }
 
             // A record: user repr, then user `op as`, then the address form.
@@ -576,8 +580,27 @@ class <T> LiteralTyping {
         return true;
     }
 
+    /// A hole whose value's type is a generic body's: recorded deferred, its
+    /// put left to the instance (FormatHole::deferred). The body is emitted
+    /// once, as a C++ template, so the choice is C++'s at each instance
+    /// (LowerTargets::fmt_dyn) -- as a duck member call is clang's -- and
+    /// an instance whose value has no formatter is an error there. A spec
+    /// is parsed per kind, which this hole does not have: refused.
+    priv fn _defer_hole(self, n: *StringLiteralExpr, e: *Expr, spec: SourceRange, doc: SourceRange, out: *vec::<FormatHole>) -> bool {
+        if spec.is_valid() {
+            dyn()->fail(e, DiagID::SC080E, "a format spec on a value whose type is generic is not supported yet; format it without a spec, or convert it first");
+            return false;
+        }
+        var h = FormatHole{};
+        h.kind = FormatKind::None; h.spec = 0; h.put = &null; h.conv = &null;
+        h.cast_to = &null; h.by_addr = false; h.doc = doc; h.deferred = true;
+        out->push_back(h);
+        return true;
+    }
+
     /// The put row for a hole's value type. A record leaves `kind` as None
     /// with its candidates in \p repr / \p conv; the caller ranks them.
+    /// A value whose type is a generic body's comes back `deferred`.
     priv fn _classify_hole(self, e: *Expr, t: *Type, h: *FormatHole, repr: *(*Decl), conv: *(*Decl)) -> bool {
         var v = dyn()->tu.as_value(t);
         if v == &null { return false; }
@@ -587,17 +610,11 @@ class <T> LiteralTyping {
         var cg = dyn()->tu.checked_head(v);
         if cg != &null {
             self._string_conv(v, repr, conv);
-            if ((*repr) == &null) && ((*conv) == &null) {
-                dyn()->needs_bound(e, cg, Substitution(dyn()->sc).bound_ifaces(v).size() > 0,
-                    f"formatting a '{dyn()->tu.head_spelling(v)}' needs a bound that declares 'fn repr(self) -> string' or 'op as' returning 'string\x27");
-                return false;
-            }
+            // No bound grants a string: the instance's own type decides.
+            if ((*repr) == &null) && ((*conv) == &null) { h->deferred = true; }
             return true;
         }
-        if v->is_dependent() {
-            dyn()->fail(e, DiagID::SC080E, "an interpolation in a generic body needs a concrete type; format it in the caller");
-            return false;
-        }
+        if v->is_dependent() { h->deferred = true; return true; }
         if dyn()->tu.nullable_inner(v) != &null {
             dyn()->fail(e, DiagID::SC081E, f"a value of type '{dyn()->tu.str(v)}' has no formatter yet; test it and format the inner value");
             return false;

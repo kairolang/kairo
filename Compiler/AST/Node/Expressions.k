@@ -90,6 +90,13 @@ class CallExpr derives Expr {
     /// (`Box<int>::__kairo_default_m_x()`). Null everywhere else.
     pub var qualifier: *Type = &null;
 
+    /// An f-string hole whose value's type only an instance knows
+    /// (FormatHole::deferred): `::__kairo_fmt_put(buf, value, name, len,
+    /// spec)`, the preamble template that picks the put per instance
+    /// (LowerTargets::fmt_dyn). The callee is a placeholder name bound to
+    /// nothing. One writer, FStringLowering; one reader, EmitIR.
+    pub var fmt_dyn: bool = false;
+
     /// A call bound to an interface REQUIREMENT (its callee's `semantic_dc`
     /// owner an InterfaceDecl) goes through that interface's witness,
     /// `::N::I_witness<Self, A...>::m(recv, ...)` (CODEGEN.md §7b.5).

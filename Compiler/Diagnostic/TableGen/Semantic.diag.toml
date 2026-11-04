@@ -1755,19 +1755,21 @@ group = "literals"
     """
 
 [SC080]
-brief = "interpolation of a generic type"
+brief = "format spec on a generic value"
 group = "format-strings"
 
     [SC080.E]
     explain = """
-    # the interpolated value has no concrete type yet
+    # a format spec on a value whose type is generic
 
-    inside a generic body an f-string interpolation of a dependent type cannot pick a formatter,
-    since the type is only known at instantiation.
+    inside a generic body, an f-string hole whose value's type only the instance knows is
+    formatted per instance. a format spec (`{x:>4}`) is parsed for one kind of value at compile
+    time, so it is refused on such a hole.
 
     ## how to fix
 
-    format the value in a caller where its type is concrete, and pass the string in.
+    drop the spec, or convert the value to a concrete type first (`f"{x as i64:>4}"`), or format
+    it in a caller where its type is concrete.
     """
 
 [SC081]

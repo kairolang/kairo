@@ -360,10 +360,17 @@ Every Preamble and every Header opens with
     template <unsigned int I> struct __kairo_vt { explicit __kairo_vt() = default; };
     template <class T, class... A> inline void __kairo_construct_at(T* p, A&&... a) { new (p) T(static_cast<A&&>(a)...); }
     template <class T> inline void __kairo_destroy_at(T* p) noexcept { p->~T(); }
+    template <class B, class T> inline void __kairo_fmt_put(B& b, T&& v, const unsigned char* n, size_t nl, unsigned long long s) { ... }
 
 (`LowerTargets::array_alias`, `LowerTargets::tmp_addr`,
 `LowerTargets::adt_variant_tag`, `LowerTargets::construct_at`,
-`LowerTargets::destroy_at`). A plan that admits a Kairo `fn` type
+`LowerTargets::destroy_at`, `LowerTargets::fmt_dyn`). `__kairo_fmt_put` is
+the put of an f-string hole in a generic body whose value's type only the
+instance knows (`CallExpr::fmt_dyn`, FStringLowering): an `if constexpr`
+chain over the value's C++ type -- one row per builtin, spelled from
+`builtin_info`; the string; a pointer's address; a plain enum's
+discriminant; a record's `repr()`, its `op as` string, its address -- that
+ends in a static_assert, which is the instance's error. A plan that admits a Kairo `fn` type
 anywhere (`EmitPlan::needs_fn_value`, set by `_admit_type`) also writes
 `::__kairo_fn` (`LowerTargets::fn_value`, guarded
 `__KAIRO_FN_HELPERS` in a header, `have_fn_value` for an include

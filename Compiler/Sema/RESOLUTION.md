@@ -754,7 +754,11 @@ and the derived `!=` / relational / `a + b`), `===` (its `==`), `as T`,
 and an f-string hole bind ONLY to the bounds' requirements (`op ==`,
 `op as`, `repr`), called through the witness; with none it is R051E
 (unbounded) or R025E (bounds that do not declare it) at the definition,
-never a deferral. The parameter is never nullable (`t?`, `t == null`,
+never a deferral. The one exception is the f-string hole (USER
+2026-11-03): with no bound granting a string it is DEFERRED
+(`FormatHole::deferred`), its put picked at each instance by the C++
+template `__kairo_fmt_put` (CODEGEN.md §preamble), and an instance whose
+value has no formatter is that instance's C++ error. The parameter is never nullable (`t?`, `t == null`,
 `unwrap!(t)` get the non-nullable errors), and a pattern on it other than
 a binder or `_` is SC001E (PatternTyping); its match is analysed with an
 Opaque domain. A pack element (the binding of `for x in xs` over
@@ -2273,7 +2277,10 @@ Inside such a body a panicking call is SC116E (a bounded body's set is
 computed at its definition, PANIC.md P10; this one has none to compute),
 and operators, `===`, null tests and patterns on the parameter defer as on
 any dependent operand (none of G11's definition-time errors above); its
-`as string` / f-string are still refused (SC027E / SC080E). Removal: flip the default, delete the regime
+`as string` is still refused (SC027E). An f-string hole on such a value,
+or on a member result through the parameter, is deferred as on a bounded
+parameter (`FormatHole::deferred`, `__kairo_fmt_put`); only a format SPEC
+on it is refused (SC080E), since a spec is parsed per kind. Removal: flip the default, delete the regime
 branch (ChainBinding `b.duck`), the gate and the flag, after the mixin
 migration (MONO.md G13/G14): first flip the default back (FlagRegistry,
 Config/Language.k, SemaContext::duck_generics), then delete.

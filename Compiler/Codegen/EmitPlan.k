@@ -525,6 +525,10 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     /// define the constructor slot helpers. Only then, so other TUs keep
     /// their text. `_ef_value_fn` is the walk's current function's answer.
     pub var needs_ef_slot: bool = false;
+    /// A body holds a deferred f-string hole (CallExpr::fmt_dyn): the
+    /// preamble must define `::__kairo_fmt_put` (LowerTargets::fmt_dyn).
+    /// Only then, so other TUs keep their text.
+    pub var needs_fmt_dyn: bool = false;
     priv var _ef_value_fn: bool = false;
     /// Compile-time string literals too long for `__kairo_estr<...>`
     /// (LowerTargets::eval_str_inline_max, EVAL.md §11), once each by
@@ -2253,6 +2257,7 @@ fn EmitPlan::_walk_body(f: *FunctionDecl) {
 /// declaration only names it.
 fn EmitPlan::visit_expr(e: *Expr) -> bool {
     if e == &null { return true; }
+    if (e->kind == ExprKind::CallExpr) && cast::<CallExpr>(e)->fmt_dyn { self.needs_fmt_dyn = true; }
     if e->type_ != &null { self._admit_type(e->type_, PlanNeed::Complete); }
     switch e->kind {
         case ExprKind::NamedIdentExpr {
