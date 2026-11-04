@@ -2320,6 +2320,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if !self._collect_args(seg, ct, canon, gps, &args) { return &null; }
         for var i: usize = 0; i < args.size(); ++i {
             if args[i]->is_dependent() || args[i]->is_instantiation_dependent() { return &null; }
+            if args[i]->in_generic_owner() { return &null; }   // as in the nominal-type path: G75.
         }
         var e = self.sc->instances->instance_for(canon, &args, self.sc->ctx->fid, NameLookup::ctx_of(canon));
         if e == &null { return &null; }
@@ -2569,6 +2570,15 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             ct->type_flags = static_cast::<Type::TypeFlags>(
                 static_cast::<u8>(ct->type_flags) | static_cast::<u8>(args[i]->type_flags));
             if args[i]->is_dependent() || args[i]->is_instantiation_dependent() { dep = true; }
+            // An imported template over a member type named as its owner's
+            // current instantiation (`vector<Op>` in L<T>'s body) has no
+            // clang spelling to fill: Op is L<T>::Op there, and a registry
+            // instance would stay unfilled for good, leaving `size_type`
+            // an unmapped <ffi type> (G75). Keep the pattern, as for
+            // `vector<T>`; substitution forms the instance over L<i32>::Op.
+            if args[i]->in_generic_owner() && MemberLookup::primary_is_imported(canon) {
+                dep = true;
+            }
         }
 
         // The Panic lang item (PANIC.md §1.1): the compiler forms every

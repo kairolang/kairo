@@ -403,6 +403,15 @@ class Substitution {
                 // Seen through its enclosing instance: never a registry entry,
                 // the enclosing instance's instantiation is the member's.
                 if outer != &null { return self.sc->types->record_in(primary, &args, outer); }
+                // An imported template over a member type still named as its
+                // owner's current instantiation (the owner's parameters are
+                // unbound here) has no clang spelling: stay the pattern, as
+                // TypeResolve does for the written type (G75).
+                if MemberLookup::primary_is_imported(primary) {
+                    for var i: usize = 0; i < args.size(); ++i {
+                        if args[i]->in_generic_owner() { dep = true; }
+                    }
+                }
                 if dep || (args.size() == 0) { return self.sc->types->record(primary, &args); }
                 var e = self.sc->instances->instance_for(primary, &args, self.sc->ctx->fid,
                                                          NameLookup::ctx_of(primary));

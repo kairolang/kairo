@@ -276,6 +276,21 @@ class CanonicalTypeStore {
         for var i: usize = 0; i < n; ++i {
             self._absorb_flags(ty, (*args)[i]);
         }
+        // An imported template over a member type of a generic Kairo owner
+        // (`vector<Op>` in `L<T>`'s body, Op being L<T>::Op) is as dependent
+        // as `vector<T>`: clang has no spelling for Op until the owner's
+        // parameters are bound, so a registry instance made now could never
+        // be filled and its `size_type` would stay an unmapped <ffi type>
+        // (G75). Substitution forms the instance over the bound owner.
+        if decl_is_imported(decl) {
+            for var i: usize = 0; i < n; ++i {
+                if (*args)[i]->in_generic_owner() {
+                    ty->type_flags = static_cast::<Type::TypeFlags>(
+                        static_cast::<u8>(ty->type_flags) | static_cast::<u8>(Type::TypeFlags::IsDependent)
+                        | static_cast::<u8>(Type::TypeFlags::IsInstantiationDependent));
+                }
+            }
+        }
         // ...and a member type as its enclosing instance; one named as its
         // owner's current instantiation carries the owner's parameters
         // implicitly.
