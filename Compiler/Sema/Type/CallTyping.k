@@ -841,6 +841,65 @@ class <T> CallTyping {
         return false;
     }
 
+    /// A call through a local initialized with a closure literal takes the
+    /// closure's defaults for the trailing arguments it omits (closures.md,
+    /// Default Parameters: "matching the behavior of regular functions").
+    /// The `fn` TYPE carries no defaults, so they are read off the literal
+    /// the local was built from, and appended as fresh copies: each node has
+    /// one parent. Only literal defaults are copied (FIXME(CLOSURE-DEFAULTS):
+    /// any other expression needs a clone or a thunk); otherwise the call is
+    /// left short and the arity error stands. A local reassigned to another
+    /// closure keeps its initializer's defaults.
+    priv fn _closure_defaults(self, n: *CallExpr, want: usize) {
+        var c = dyn()->tu.strip_parens(n->callee);
+        var id = dyn_cast::<NamedIdentExpr>(c);
+        if id == &null { return; }
+        var vd = dyn_cast::<VariableDecl>(id->resolved_decl);
+        if (vd == &null) || (vd->init == &null) { return; }
+        var ce = dyn_cast::<ClosureExpr>(dyn()->tu.strip_parens(vd->init));
+        if (ce == &null) || (ce->params.size() != want) { return; }
+        var have = n->args.size();
+        var extra = vec::<*Expr>();
+        for var i: usize = have; i < want; ++i {
+            var p = ce->params[i];
+            if (p == &null) || (p->default_val == &null) { return; }
+            var x = self._copy_literal(p->default_val, n->range);
+            if x == &null { return; }
+            extra.push_back(x);
+        }
+        var all = vec::<*Expr>();
+        for var i: usize = 0; i < have; ++i { all.push_back(n->args[i]); }
+        for var i: usize = 0; i < extra.size(); ++i { all.push_back(extra[i]); }
+        n->args.from_buf(all.data(), all.size(), dyn()->sc->ctx);
+    }
+
+    /// A fresh, untyped copy of the literal \p e (its token and immediate
+    /// data shared, both immutable), or null for anything else.
+    priv fn _copy_literal(self, e: *Expr, at: SourceRange) -> *Expr {
+        var ctx = dyn()->sc->ctx;
+        var out: *Expr = &null;
+        if isa::<IntegerLiteralExpr>(e) {
+            var x = ctx->alloc::<IntegerLiteralExpr>(); (*x) = *cast::<IntegerLiteralExpr>(e); out = static_cast::<*Expr>(x);
+        } else if isa::<FloatingLiteralExpr>(e) {
+            var x = ctx->alloc::<FloatingLiteralExpr>(); (*x) = *cast::<FloatingLiteralExpr>(e); out = static_cast::<*Expr>(x);
+        } else if isa::<BooleanLiteralExpr>(e) {
+            var x = ctx->alloc::<BooleanLiteralExpr>(); (*x) = *cast::<BooleanLiteralExpr>(e); out = static_cast::<*Expr>(x);
+        } else if isa::<CharacterLiteralExpr>(e) {
+            var x = ctx->alloc::<CharacterLiteralExpr>(); (*x) = *cast::<CharacterLiteralExpr>(e); out = static_cast::<*Expr>(x);
+        } else if isa::<NullLiteralExpr>(e) {
+            var x = ctx->alloc::<NullLiteralExpr>(); (*x) = *cast::<NullLiteralExpr>(e); out = static_cast::<*Expr>(x);
+        } else if isa::<StringLiteralExpr>(e) && (!cast::<StringLiteralExpr>(e)->is_format()) {
+            var x = ctx->alloc::<StringLiteralExpr>(); (*x) = *cast::<StringLiteralExpr>(e); out = static_cast::<*Expr>(x);
+        }
+        if out == &null { return &null; }
+        out->type_          = &null;
+        out->value_category = Expr::ValueCategory::Unknown;
+        out->expr_flags     = Expr::ExprFlags::None;
+        out->poisoned       = false;
+        out->init_annotations(&(ctx->ast_alloc));
+        return out;
+    }
+
     priv fn _type_args_blind(self, n: *CallExpr) {
         for var i: usize = 0; i < n->args.size(); ++i { dyn()->type_of(n->args[i], &null); }
     }
@@ -1433,6 +1492,7 @@ class <T> CallTyping {
             self._type_args_blind(n);
             return fp->return_type;
         }
+        if n->args.size() < fp->params.size() { self._closure_defaults(n, fp->params.size()); }
         if n->args.size() != fp->params.size() {
             self._type_args_blind(n);
             dyn()->fail(n, DiagID::SC099E, f"'{dyn()->tu.str(ft)}' takes {fp->params.size()} argument(s), {n->args.size()} given");
