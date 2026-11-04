@@ -339,7 +339,12 @@ class DeclImport {
     fn declare(self, d: *clang::Decl) -> *Decl {
         var nd = llvm::dyn_cast::<clang::NamedDecl>(d);
         if nd == &null { return &null; }
-        if nd->getDeclName().isEmpty() && (!self._anon_with_typedef(nd)) { return &null; }
+        // An unnamed enum (`enum { a, b };`, clang::diag's whole interface) is
+        // kept: its enumerators are values OF it, so they need an enum to be
+        // typed by. Nothing can name it; _display_name gives it a spelling no
+        // identifier can collide with, and _bind_named still exposes each
+        // enumerator in the enclosing scope (G64).
+        if nd->getDeclName().isEmpty() && (!self._anon_with_typedef(nd)) && (!self._unnamed_enum(nd)) { return &null; }
 
         var t = self.target_of(d);
         if t == &null { self.n_skipped += 1; return &null; }
@@ -411,6 +416,26 @@ class DeclImport {
         return kd;
     }
 
+    priv fn _unnamed_enum(self, nd: const_obs::<clang::NamedDecl>) -> bool {
+        var ed = llvm::dyn_cast::<clang::EnumDecl>(nd);
+        if (ed == &null) || (ed->getTypedefNameForAnonDecl() != &null) { return false; }
+        // clang's USR for an unnamed enum is its first enumerator's name, so
+        // one with none (an empty enum, an opaque `enum : int;`) would share
+        // a USR with every other and read as their redeclaration: the
+        // registry then saw two definitions of one entity. Nothing could be
+        // named through it anyway.
+        // Nor one inside a template or any of its specializations: the
+        // instances' unnamed enums carry the same USR as the pattern's, and a
+        // fill walks them separately.
+        var dc = ed->getDeclContext();
+        while (dc != &null) && (!dc->isTranslationUnit()) {
+            if dc->isDependentContext() || llvm::isa::<clang::ClassTemplateSpecializationDecl>(dc) { return false; }
+            dc = dc->getParent();
+        }
+        for e in ed->enumerators() { return true; }
+        return false;
+    }
+
     priv fn _anon_with_typedef(self, nd: const_obs::<clang::NamedDecl>) -> bool {
         var tag = llvm::dyn_cast::<clang::TagDecl>(nd);
         if tag == &null { return false; }
@@ -418,6 +443,7 @@ class DeclImport {
     }
 
     priv fn _display_name(self, nd: const_obs::<clang::NamedDecl>) -> string {
+        if nd->getDeclName().isEmpty() && self._unnamed_enum(nd) { return "(unnamed enum)"; }
         var tag = llvm::dyn_cast::<clang::TagDecl>(nd);
         if (tag != &null) && (tag->getTypedefNameForAnonDecl() != &null) {
             return self._str(tag->getTypedefNameForAnonDecl()->getName());
