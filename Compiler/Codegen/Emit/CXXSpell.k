@@ -869,6 +869,14 @@ class CXXSpell {
                 if decl_is_imported(en) { return decl_cxx_spelling(en) + "::" + self.leaf(r); }
             }
         }
+        // An enumerator of an enum nested in a class template: the plain
+        // `::ns::G::E::B` names the template without arguments, which C++
+        // rejects. Spell the owner chain over its own parameters, as the
+        // template body sees it (the same path a nested type takes).
+        if isa::<EnumVariantDecl>(r) {
+            var gq = self._generic_owner_qual(r);
+            if gq.size() > 0 { return gq + "::" + self.leaf(r); }
+        }
         var s = "";
         var ns = self.ns_segments(r);
         for var i: usize = 0; i < ns.size(); ++i { s += "::"; s += ns[i]; }
