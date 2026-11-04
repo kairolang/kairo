@@ -47,6 +47,12 @@
 // fileno
 #include <cstdio>
 
+// LLVM_VERSION_MAJOR (kairo::llvm_version_major below); the compiler always
+// builds against LLVM, but the guard keeps this header usable without it.
+#if __has_include(<llvm/Config/llvm-config.h>)
+#include <llvm/Config/llvm-config.h>
+#endif
+
 #if defined(__APPLE__)
 #include <mach/mach.h>
 #include <mach/task_info.h>
@@ -98,6 +104,20 @@ inline void *map_failed() noexcept { return MAP_FAILED; }
 /// _MM_HINT_T0)` on x86, where the scanners used it). The builtin is the
 /// same instruction there and the nearest equivalent elsewhere.
 inline void prefetch_t0(const void *p) noexcept { __builtin_prefetch(p, 0, 3); }
+
+/// Object-like macros Kairo code reads as values. LLVM_VERSION_MAJOR comes from
+/// llvm-config.h (EmitIR's ABI note); VERSION is the build's `-D VERSION="..."`
+/// (build.k), absent from builds that do not define it.
+#ifdef LLVM_VERSION_MAJOR
+inline constexpr int llvm_version_major() noexcept { return LLVM_VERSION_MAJOR; }
+#endif
+inline const char *version_string() noexcept {
+#ifdef VERSION
+    return VERSION;
+#else
+    return "unknown";
+#endif
+}
 
 }  // namespace kairo
 
