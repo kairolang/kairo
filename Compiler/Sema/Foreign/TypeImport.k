@@ -398,7 +398,19 @@ class TypeImport {
             return self.store->record(NameLookup::representative(prim), &args);
         }
 
-        // Everything else (member pointers, vectors, atomics, decltype that
+        // --- GNU / ext vectors --------------------------------------------------
+        // `__m128i` and `__m128i_u` are one canonical VectorType (the aligned(1)
+        // lives on the typedef), but the opaque fallback keys on the SPELLING
+        // of the type as written, so each typedef became its own type and
+        // `_mm_loadu_si128(*const __m128i)` (parameter `const __m128i_u *`)
+        // never matched. A vector has no Kairo operators and is only handed
+        // between intrinsics, so it is one opaque keyed by the canonical
+        // spelling: same element type + width, same type.
+        if llvm::isa::<clang::VectorType>(ty) {   // ExtVectorType derives from it
+            return self.opaque(qt.getUnqualifiedType());
+        }
+
+        // Everything else (member pointers, atomics, decltype that
         // stayed dependent, `nullptr_t`, ...): the caller decides.
         return &null;
     }
