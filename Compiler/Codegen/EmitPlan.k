@@ -700,8 +700,8 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _entry_needs(self, who: *PlanEntry, dep: *PlanEntry) -> bool;
     fn _needs_complete(self, who: *Decl, dep: *Decl) -> bool;
     fn value_param_record(self, who: *Decl, dep: *Decl) -> bool;
-    fn _names_vp_template(self, who: *Decl, dep: *Decl) -> bool;
-    fn _type_names_vp(self, t: *Type, dep: *Decl, depth: u32) -> bool;
+    fn _names_vp_template(self, who: *Decl, dep: *Decl, nested: bool) -> bool;
+    fn _type_names_vp(self, t: *Type, dep: *Decl, depth: u32, nested: bool) -> bool;
     fn _plannable(self, d: *Decl) -> bool;
     fn _is_requirement(self, d: *Decl) -> bool;
     fn _member_of_template(self, d: *Decl) -> bool;
@@ -3434,7 +3434,8 @@ fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
     if self.value_param_record(who, dep) { return true; }
     // And where it names such a template at all, through a pointer too:
     // the template's forward declaration follows the class (P160).
-    if self._names_vp_template(who, dep) { return true; }
+    if self._names_vp_template(who, dep, false) { return true; }
+    if self._names_vp_template(who, dep, true) { return true; }
     var probe = LayoutSpine(&self, dep);
     var rec   = self.adt_record(who);
     // A record nested in \p who is defined INSIDE its body (`struct Entry`
@@ -3496,7 +3497,7 @@ fn EmitPlan::value_param_record(who: *Decl, dep: *Decl) -> bool {
 /// pointers and arguments, a base, a method signature. That template is
 /// declared only once \p dep is complete (InterfaceEmitter::_vp_fwd_decls),
 /// so \p who's definition follows \p dep's even where its layout does not.
-fn EmitPlan::_names_vp_template(who: *Decl, dep: *Decl) -> bool {
+fn EmitPlan::_names_vp_template(who: *Decl, dep: *Decl, nested: bool) -> bool {
     if (who == &null) || (dep == &null) { return false; }
     var rec = self.adt_record(who);
     var fields: *FrozenList::<*FieldDecl> = &null;
@@ -3506,7 +3507,7 @@ fn EmitPlan::_names_vp_template(who: *Decl, dep: *Decl) -> bool {
             var n = cast::<ClassDecl>(rec);
             for var i: usize = 0; i < n->derives_list.size(); ++i {
                 var e = n->derives_list.get(i);
-                if (e != &null) && self._type_names_vp(e->base, dep, 0) { return true; }
+                if (e != &null) && self._type_names_vp(e->base, dep, 0, nested) { return true; }
             }
             fields = &(n->fields);
             methods = &(n->methods);
@@ -3520,52 +3521,55 @@ fn EmitPlan::_names_vp_template(who: *Decl, dep: *Decl) -> bool {
     }
     for var i: usize = 0; i < fields->size(); ++i {
         var f = *(fields->get(i));
-        if (f != &null) && self._type_names_vp(f->type_, dep, 0) { return true; }
+        if (f != &null) && self._type_names_vp(f->type_, dep, 0, nested) { return true; }
     }
     for var i: usize = 0; i < methods->size(); ++i {
         var m = *(methods->get(i));
         if m == &null { continue; }
-        if self._type_names_vp(m->return_type, dep, 0) { return true; }
+        if self._type_names_vp(m->return_type, dep, 0, nested) { return true; }
         for var j: usize = 0; j < m->params.size(); ++j {
             var p = *(m->params.get(j));
-            if (p != &null) && (!p->is_self) && self._type_names_vp(p->type_, dep, 0) { return true; }
+            if (p != &null) && (!p->is_self) && self._type_names_vp(p->type_, dep, 0, nested) { return true; }
         }
     }
     return false;
 }
 
-fn EmitPlan::_type_names_vp(t: *Type, dep: *Decl, depth: u32) -> bool {
+fn EmitPlan::_type_names_vp(t: *Type, dep: *Decl, depth: u32, nested: bool) -> bool {
     if (t == &null) || (depth > u32(16)) { return false; }
     var c = t->canonical;
     if c == &null { c = t; }
     var d1 = depth + u32(1);
     switch c->kind {
-        case TypeKind::QualifiedType    { return self._type_names_vp(cast::<QualifiedType>(c)->inner, dep, d1); }
-        case TypeKind::PointerType      { return self._type_names_vp(cast::<PointerType>(c)->pointee, dep, d1); }
-        case TypeKind::CXXLValueRefType { return self._type_names_vp(cast::<CXXLValueRefType>(c)->referee, dep, d1); }
-        case TypeKind::CXXRValueRefType { return self._type_names_vp(cast::<CXXRValueRefType>(c)->referee, dep, d1); }
-        case TypeKind::NullableType     { return self._type_names_vp(cast::<NullableType>(c)->lowered, dep, d1); }
-        case TypeKind::FixedArrayType   { return self._type_names_vp(cast::<FixedArrayType>(c)->element, dep, d1); }
+        case TypeKind::QualifiedType    { return self._type_names_vp(cast::<QualifiedType>(c)->inner, dep, d1, nested); }
+        case TypeKind::PointerType      { return self._type_names_vp(cast::<PointerType>(c)->pointee, dep, d1, nested); }
+        case TypeKind::CXXLValueRefType { return self._type_names_vp(cast::<CXXLValueRefType>(c)->referee, dep, d1, nested); }
+        case TypeKind::CXXRValueRefType { return self._type_names_vp(cast::<CXXRValueRefType>(c)->referee, dep, d1, nested); }
+        case TypeKind::NullableType     { return self._type_names_vp(cast::<NullableType>(c)->lowered, dep, d1, nested); }
+        case TypeKind::FixedArrayType   { return self._type_names_vp(cast::<FixedArrayType>(c)->element, dep, d1, nested); }
         case TypeKind::TupleType {
             var tp = cast::<TupleType>(c);
             for var i: usize = 0; i < tp->elements.size(); ++i {
-                if self._type_names_vp(*(tp->elements.get(i)), dep, d1) { return true; }
+                if self._type_names_vp(*(tp->elements.get(i)), dep, d1, nested) { return true; }
             }
             return false;
         }
         case TypeKind::FunctionPointerType {
             var fp = cast::<FunctionPointerType>(c);
             for var i: usize = 0; i < fp->params.size(); ++i {
-                if self._type_names_vp(*(fp->params.get(i)), dep, d1) { return true; }
+                if self._type_names_vp(*(fp->params.get(i)), dep, d1, nested) { return true; }
             }
-            return self._type_names_vp(fp->return_type, dep, d1);
+            return self._type_names_vp(fp->return_type, dep, d1, nested);
         }
         case TypeKind::RecordType {
             var r = cast::<RecordType>(c);
             var d = CXXSpell::rep(r->decl);
-            if (d != &null) && self.value_param_record(CXXSpell::rep(decl_pattern(d)), dep) { return true; }
+            if (d != &null) && (!nested) && self.value_param_record(CXXSpell::rep(decl_pattern(d)), dep) { return true; }
+            // `ClosureExpr::Capture` (O28): a nested type is spelled through
+            // its owner, which C++ needs complete at the declaration.
+            if (d != &null) && nested && (d != dep) && (self._outermost_type(d) == dep) { return true; }
             for var i: usize = 0; i < r->args.size(); ++i {
-                if self._type_names_vp(*(r->args.get(i)), dep, d1) { return true; }
+                if self._type_names_vp(*(r->args.get(i)), dep, d1, nested) { return true; }
             }
             return false;
         }
