@@ -282,7 +282,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<InferredType>(ty)          { self.p.paint(Color::Punct, "_");                           return; }
         if isa::<CXXLValueRefType>(ty)      { self._quals(ty); self.src_type(cast::<CXXLValueRefType>(ty)->referee); self.p.paint(Color::Punct, "&"); return; }
         if isa::<CXXRValueRefType>(ty)      { self._quals(ty); self.src_type(cast::<CXXRValueRefType>(ty)->referee); self.p.paint(Color::Punct, "&&"); return; }
-        if isa::<OpaqueFFIType>(ty)         { self.p.paint(Color::TypeName, self.istr(cast::<OpaqueFFIType>(ty)->name)); return; }
+        if isa::<OpaqueFFIType>(ty)         { self.p.paint(Color::TypeName, cast::<OpaqueFFIType>(ty)->text()); return; }
         if isa::<TypeExpr>(ty)              { self._quals(ty); self.src_expr(cast::<TypeExpr>(ty)->expr); return; }
 
         self.p.paint(Color::Error, "<error>");

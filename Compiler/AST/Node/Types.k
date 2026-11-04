@@ -971,7 +971,20 @@ class CXXRValueRefType derives Type {
 ///  name is the original C++ type spelling for diagnostics and codegen.
 ///
 class OpaqueFFIType derives Type {
-    pub var name: u32; ///< imm ident index of the original C++ spelling, e.g. "std::FILE". ///< Original C++ spelling, e.g. "std::FILE".
+    /// Low 32 bits of the spelling's hash: an identity aid only. NOT an imm
+    /// index: imm tables are per file, so an imported spelling interned in
+    /// one file's table and read back through another's names a different
+    /// identifier (P395). The spelling itself is sp / sp_len, read by text().
+    pub var name: u32;
+    pub var sp:     std::ConstPtr::<u8> = &null;   ///< the C++ spelling's bytes, NUL-terminated, owned by the canonical store's arena
+    pub var sp_len: u32 = 0;
+
+    /// The original C++ spelling, e.g. "std::FILE", independent of any file.
+    fn text(self) -> string {
+        var s = "";
+        for var i: usize = 0; i < static_cast::<usize>(self.sp_len); ++i { s += static_cast::<char>(self.sp[i]); }
+        return s;
+    }
 
     static fn create(
         ctx:   *ASTContext,

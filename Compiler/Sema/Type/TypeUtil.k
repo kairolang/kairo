@@ -110,7 +110,7 @@ class TypeUtil {
     /// C++'s `std::nullptr_t`, the type of an imported `nullptr` and so of
     /// `&null` passed to C++ (one node in the store, however it is reached).
     fn nullptr_t_type(self) -> *Type {
-        return self.sc->types->nullptr_t(self.sc->imm_table());
+        return self.sc->types->nullptr_t();
     }
 
     fn is_nullptr_t(self, t: *Type) -> bool {

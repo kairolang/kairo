@@ -1149,7 +1149,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     }
 
     priv fn _resolve_opaque(self, n: *OpaqueFFIType) {
-        n->canonical = self.sc->types->opaque(n->name);
+        n->canonical = self.sc->types->opaque(self.sc->imm_table()->get_ident(n->name));
     }
 
     priv fn _resolve_subst(self, n: *SubstGenericParamType) {

@@ -864,21 +864,27 @@ class CanonicalTypeStore {
         a->bounds_state = 2;
     }
 
-    /// An opaque C++ type, keyed by its spelling imm. Genuinely a black box:
+    /// An opaque C++ type, keyed by its spelling. Genuinely a black box:
     /// two FFI headers naming `std::FILE` denote the same thing, and Kairo has
     /// nothing else to compare.
-    fn opaque(self, name_imm: u32) -> *Type {
+    fn opaque(self, spelling: string) -> *Type {
         var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::OpaqueFFIType)));
-        h = canon_hash_u64(h, static_cast::<u64>(name_imm));
+        var n = spelling.size();
+        for var i: usize = 0; i < n; ++i { h = canon_hash_u64(h, static_cast::<u64>(static_cast::<u8>(spelling[i]))); }
 
         var lock = std::LockGuard(self._mu);
-        var hit = self._probe_opaque(h, name_imm);
+        var hit = self._probe_opaque(h, spelling);
         if hit != &null { return hit; }
 
         var ot = self._alloc::<OpaqueFFIType>();
         ot->kind  = TypeKind::OpaqueFFIType;
         ot->range = SourceRange::invalid();
-        ot->name  = name_imm;
+        ot->name  = static_cast::<u32>(h);
+        var buf = self._alloc_array::<u8>(n + 1);
+        for var i: usize = 0; i < n; ++i { buf[i] = static_cast::<u8>(spelling[i]); }
+        buf[n] = u8(0);
+        ot->sp     = reinterpret_cast::<std::ConstPtr::<u8>>(buf);
+        ot->sp_len = static_cast::<u32>(n);
         ot->init_annotations(&(self._arena));
         ot->init_spans(&(self._arena));
 
@@ -1158,28 +1164,26 @@ class CanonicalTypeStore {
     }
 
     /// C++'s `std::nullptr_t`, the one opaque `&null` takes when passed to C++.
-    /// An opaque is keyed by an imm of whichever file's table interned it and
-    /// those tables are per file, so a header's `nullptr_t` and the one a
-    /// call deduces would be two types: the first caller (\p imms is its
-    /// table) names the single node every later caller gets.
-    fn nullptr_t(self, imms: *ImmediateTable) -> *Type {
+    /// An opaque is keyed by its spelling (never a per-file imm: P395), so a
+    /// header's `nullptr_t` and the one a call deduces are one type.
+    fn nullptr_t(self) -> *Type {
         {
             var lock = std::LockGuard(self._mu);
             if self._nullptr_t != &null { return self._nullptr_t; }
         }
-        var t = self.opaque(imms->intern_ident_copy("std::nullptr_t"));
+        var t = self.opaque("std::nullptr_t");
         var lock = std::LockGuard(self._mu);
         if self._nullptr_t == &null { self._nullptr_t = t; }
         return self._nullptr_t;
     }
 
-    priv fn _probe_opaque(self, h: u64, name_imm: u32) -> *Type {
+    priv fn _probe_opaque(self, h: u64, spelling: string) -> *Type {
         var b = self._bucket(h);
         if b == &null { return &null; }
         for var i: usize = 0; i < b->size(); ++i {
             var c = (*b)[i];
             if c->kind != TypeKind::OpaqueFFIType { continue; }
-            if cast::<OpaqueFFIType>(c)->name == name_imm { return c; }
+            if cast::<OpaqueFFIType>(c)->text() == spelling { return c; }
         }
         return &null;
     }

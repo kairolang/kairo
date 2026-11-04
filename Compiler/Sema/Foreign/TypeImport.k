@@ -271,8 +271,7 @@ class TypeImport {
 
     fn opaque(self, qt: clang::QualType) -> *Type {
         var sp  = self.spelling(qt);
-        var imm = self.kctx->get_imm_table()->intern_ident_copy(TypeImport::opaque_key(sp));
-        return self.store->opaque(imm);
+        return self.store->opaque(TypeImport::opaque_key(sp));
     }
 
     /// The name an opaque type is interned under. The interner caps a
@@ -733,7 +732,7 @@ class TypeImport {
         var k = bt->getKind();
         if k == clang::BuiltinType::Void     { return self.store->builtin(BuiltinKind::Void); }
         if k == clang::BuiltinType::Bool     { return self.store->builtin(BuiltinKind::Bool); }
-        if k == clang::BuiltinType::NullPtr  { return self.store->nullptr_t(self.kctx->get_imm_table()); }   // opaque; `&null` is its value (G93)
+        if k == clang::BuiltinType::NullPtr  { return self.store->nullptr_t(); }   // opaque; `&null` is its value (G93)
         if k == clang::BuiltinType::Char32   { return self.store->builtin(BuiltinKind::Char); }
         // Plain `char` (Char_S or Char_U by the target's signedness) is its
         // own type, not i8/u8: `const char*` binds only `const char*`, and

@@ -4804,6 +4804,13 @@ class EmitIR {
         // static_cast computes. A reinterpret is right for a first base at
         // offset 0 and silently wrong for every other one.
         if n->base_adjust { kind = "static_cast"; }
+        // A pointer retyped to a pointer to an unrelated NON-class pointee
+        // (`*const u8` as `*const c_char`) is no static_cast in C++: only
+        // void* and class-hierarchy pointers convert that way.
+        if (kind == "static_cast") && (!n->base_adjust) && self._type_is_pointer(n->operand->type_) && self._type_is_pointer(n->target)
+        && self._scalar_pointee(n->operand->type_) && self._scalar_pointee(n->target) {
+            kind = "reinterpret_cast";
+        }
         // `&null as unsafe *T` (O28d): `nullptr` is a std::nullptr_t, which
         // reinterpret_cast refuses to retype as a pointer; static_cast is the
         // null pointer conversion.
@@ -4880,6 +4887,17 @@ class EmitIR {
     }
 
     /// \p t is a pointer whose pointee is a record.
+    /// True when \p t is a pointer whose pointee is a non-void builtin
+    /// scalar (`*const u8`, `*c_char`).
+    priv fn _scalar_pointee(self, t: *Type) -> bool {
+        if t == &null { return false; }
+        var c = canon_unqual((t->canonical) if (t->canonical != &null) else (t));
+        if (c == &null) || (c->kind != TypeKind::PointerType) { return false; }
+        var p = canon_unqual(cast::<PointerType>(c)->pointee);
+        if (p == &null) || (p->kind != TypeKind::BuiltinType) { return false; }
+        return cast::<BuiltinType>(p)->builtin != BuiltinKind::Void;
+    }
+
     priv fn _record_pointee(self, t: *Type) -> bool {
         if t == &null { return false; }
         var c = canon_unqual((t->canonical) if (t->canonical != &null) else (t));

@@ -1206,7 +1206,7 @@ class CXXSpell {
             }
             case TypeKind::OpaqueFFIType {
                 var o = cast::<OpaqueFFIType>(t);
-                return self._join(self.imm_name(o->name, self._cg->tu->fid), name);
+                return self._join(o->text(), name);
             }
             // `T?` is spelled as the record NullableTypeLowering gave it; with
             // none, that pass never saw this canonical.
