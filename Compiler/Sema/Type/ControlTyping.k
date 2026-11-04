@@ -296,8 +296,66 @@ class <T> ControlTyping {
         dyn()->flow.env = dyn()->flow.cond_of(mc->guard).t;
     }
 
+    /// A scrutinee typed only through a dependent call (`self.dyn()->kind()`
+    /// in a duck-generic mixin) has no type here, so its arms were typed
+    /// against nothing (a head left unresolved) and PatternChecking,
+    /// PatternCompilation and MatchLowering all skipped the match: EmitIR met
+    /// a MatchStmt nothing lowered. When an arm names a constant of a
+    /// non-dependent enum, that enum is the column: the instance either
+    /// yields it or the lowered `==` fails in C++, as the written test would.
+    /// Returns \p st untouched when it is known or nothing names an enum.
+    fn match_infer_column(self, scrutinee: *Expr, cases: *FrozenList::<MatchCase>, st: *Type) -> *Type {
+        if st != &null { return st; }
+        if (scrutinee == &null) || scrutinee->is_poisoned() || (!scrutinee->is_instantiation_dependent()) { return st; }
+        for var i: usize = 0; i < cases->size(); ++i {
+            var mc = cases->get(i);
+            for var j: usize = 0; j < mc->patterns.size(); ++j {
+                var et = self._enum_head_type(mc->patterns[j]);
+                if et != &null {
+                    scrutinee->type_          = et;
+                    scrutinee->value_category = Expr::ValueCategory::RValue;   // ValueCategoryPass ICEs on a typed expr with none.
+                    return et;
+                }
+            }
+        }
+        return st;
+    }
+
+    priv fn _enum_head_type(self, p: *Pattern) -> *Type {
+        if p == &null { return &null; }
+        var t: *Type = &null;
+        switch p->kind {
+            case PatternKind::AlternationPattern {
+                var a = cast::<AlternationPattern>(p);
+                for var i: usize = 0; i < a->alternatives.size(); ++i {
+                    t = self._enum_head_type(a->alternatives[i]);
+                    if t != &null { return t; }
+                }
+                return &null;
+            }
+            case PatternKind::LiteralPattern {
+                var l = cast::<LiteralPattern>(p);
+                if l->value != &null { t = dyn()->type_of(l->value, &null); }
+            }
+            case PatternKind::ConstructorPattern {
+                var c = cast::<ConstructorPattern>(p);
+                if !c->is_dotted { t = self.type_head(c->head); }
+            }
+            case PatternKind::UnresolvedConstructorPattern {
+                t = self.type_head(cast::<UnresolvedConstructorPattern>(p)->head);
+            }
+            default { return &null; }
+        }
+        if t == &null { return &null; }
+        var u = canon_unqual(dyn()->tu.as_value(t));
+        if (u == &null) || u->is_dependent() || (!isa::<RecordType>(u)) { return &null; }
+        if dyn_cast::<EnumDecl>(dyn()->tu.pattern_of(cast::<RecordType>(u)->decl)) == &null { return &null; }
+        return u;
+    }
+
     fn type_match_expr(self, n: *MatchExpr, expected: *Type) -> *Type {
         var st = dyn()->type_of(n->scrutinee, &null);
+        st = self.match_infer_column(n->scrutinee, &(n->cases), st);
         var acc: *Type = &null;
         var ok = true;
         // As the statement form (StmtTyping::traverse_match_stmt).

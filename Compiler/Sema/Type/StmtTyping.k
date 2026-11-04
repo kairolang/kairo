@@ -1608,6 +1608,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     fn traverse_match_stmt(self, n: *MatchStmt) -> *MatchStmt {
         if n == &null { return n; }
         var st = dyn()->type_of(n->scrutinee, &null);
+        st = dyn()->match_infer_column(n->scrutinee, &(n->cases), st);
         var entry = dyn()->flow.env;
         n->null_arm = dyn()->match_null_first(n->scrutinee, &(n->cases), st, n->range, true);
         var bad_null = dyn()->match_null_missed(n->null_arm, st);
