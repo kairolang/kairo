@@ -2748,6 +2748,20 @@ class EmitIR {
         }
         var callee: *Decl = &null;
         if (!self._dependent_arg_member(n)) { callee = self._callee_decl(n->callee); }
+        // `type G = T::Guard; G(x)` under `<T: type>`: the alias has no C++
+        // entity and no canonical until an instance names T, so the type it
+        // stands for is spelled as written and clang constructs per instance.
+        var dal = dyn_cast::<TypeAliasDecl>(callee);
+        if (dal != &null) && (n->ctor_decl == &null) && (dal->aliased != &null) && (dal->aliased->canonical == &null) && self._spell.dependent_member(dal->aliased).size() > 0 {
+            var dnw = (self._cur_fn != &null) && plan_under_duck(static_cast::<*Decl>(self._cur_fn));
+            if dnw { self._nopanic_open(n->range); }
+            self._cg->sink->spell(n->callee->range, self._spell._type(dal->aliased));
+            self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
+            self._args(n, &null, true, &null);
+            self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
+            if dnw { self._nopanic_close(n->range); }
+            return;
+        }
         // A call through a `fn` value: a local, a parameter, a field, or any
         // expression of `fn` type (`make()(4)`). Its parameters are the
         // type's; an operand that names a function is a plain call below.
@@ -5083,7 +5097,9 @@ class EmitIR {
 
     fn emit(self, t: *Type) {
         ICE_IF(t == &null, "EmitIR: null type reached codegen");
-        if (t->canonical == &null) { self._ice(t->range, "EmitIR: unresolved type reached codegen; sema gate failure"); }
+        // A member type of a duck parameter (`T::Guard`) has no canonical until
+        // an instance names T; it is spelled as written (CXXSpell::dependent_member).
+        if (t->canonical == &null) && (self._spell.dependent_member(t).size() == 0) { self._ice(t->range, "EmitIR: unresolved type reached codegen; sema gate failure"); }
         self._cg->sink->spell(t->range, self._spell._type(t));
     }
 }

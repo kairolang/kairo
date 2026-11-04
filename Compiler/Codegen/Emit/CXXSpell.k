@@ -48,6 +48,7 @@ import AST::ParamMode::*;
 import AST::LangItems::*;
 import AST::CxxReservedWords::*;
 import Token::TokenKind::*;
+import Token::TokenText::*;
 import Location::SourceManager::*;
 import Location::SourceRange::*;
 
@@ -1063,12 +1064,43 @@ class CXXSpell {
         return self.decl(t, "", subst, scope);
     }
 
+    /// The C++ spelling of an unresolved member type of a generic parameter
+    /// (`T::Guard`, `T::A::B`) as `typename T::Guard`, or "" for any other
+    /// type: a type unresolved for any other reason is still a Sema gate
+    /// failure, and must keep ICEing.
+    fn dependent_member(self, t: *Type) -> string {
+        if (t == &null) || (t->kind != TypeKind::ChainType) { return ""; }
+        var ch = cast::<ChainType>(t);
+        if ch->segments.size() < 2 { return ""; }
+        var s0 = ch->segments.get(0);
+        var out = "";
+        if (s0->resolved_type != &null) && (s0->resolved_type->canonical != &null) && isa::<GenericParamType>(s0->resolved_type->canonical) {
+            out = "typename " + self._type(s0->resolved_type);
+        } else if (s0->resolved_decl != &null) && isa::<GenericParamDecl>(s0->resolved_decl) && (s0->name != &null) {
+            out = "typename " + TokenText::from_range(s0->name->range, self._cg->ctx->sm).get_text();
+        } else {
+            return "";
+        }
+        for var i: usize = 1; i < ch->segments.size(); ++i {
+            var sg = ch->segments.get(i);
+            if (sg->name == &null) || (sg->generic_args.size() > 0) { return ""; }
+            out += "::" + TokenText::from_range(sg->name->range, self._cg->ctx->sm).get_text();
+        }
+        return out;
+    }
+
     /// `type name` with the declarator folded in: `int x`, `int (*f)(int)`.
     /// Empty \p name gives the abstract form. \p scope as for _type.
     fn decl(self, t_in: *Type, name: string, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
         if t_in == &null { return self._join("void", name); }
         var t = t_in->canonical;
-        if (t == &null) { self._ice(t_in->range, "CXXSpell: type with no canonical reached codegen (sema gate failure)"); }
+        if (t == &null) {
+            // `T::Guard` under a duck `<T: type>`: no canonical until an
+            // instance names T, so C++ resolves it (`typename T::Guard`).
+            var dm = self.dependent_member(t_in);
+            if dm.size() > 0 { return self._join(dm, name); }
+            self._ice(t_in->range, "CXXSpell: type with no canonical reached codegen (sema gate failure)");
+        }
 
         switch t->kind {
             case TypeKind::QualifiedType {

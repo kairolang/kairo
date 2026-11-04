@@ -681,7 +681,16 @@ class <T> CallTyping {
             }
             if dyn()->tu.is_type_decl(d) {
                 var rec = dyn()->denoted_type(callee);
-                if rec == &null { dyn()->poison_only(n); return &null; }
+                if rec == &null {
+                    // `type G = T::Guard; G(x)`: an alias of a nested type of a
+                    // `: type` parameter has no type until an instance names
+                    // T, so the construction is the instance's, as written
+                    // (like `T::Guard(x)` itself). Poisoning it made codegen
+                    // ICE on a call that is only unknown.
+                    if self._dependent_alias(d) { dyn()->mark_unknown(n); self._type_args_blind(n); return &null; }
+                    dyn()->poison_only(n);
+                    return &null;
+                }
                 return self._ctor_call(n, rec);
             }
             if isa::<GenericParamDecl>(d) { return self._param_ctor_call(n, cast::<GenericParamDecl>(d)); }
@@ -1322,6 +1331,15 @@ class <T> CallTyping {
     /// break leaves ctor_decl null, and the emitted `Box<T>(args)` lets
     /// clang pick per instance (RESOLUTION.md §2.9). Only a head with no
     /// record to name -- an unbounded `T::Inner` -- stays unknown.
+    /// \p d is a type alias whose body Sema cannot resolve until an instance
+    /// fixes a generic parameter (the alias names a member of a `: type`
+    /// parameter): a sema gap that is not an error.
+    priv fn _dependent_alias(self, d: *Decl) -> bool {
+        var td = dyn_cast::<TypeAliasDecl>(d);
+        if (td == &null) || (td->aliased == &null) { return false; }
+        return td->aliased->is_dependent() && (td->aliased->canonical == &null);
+    }
+
     priv fn _ctor_call(self, n: *CallExpr, rec: *Type) -> *Type {
         // `T::Node(args)`: only a constructor the associated type's bounds
         // promise (see ControlTyping::_assoc_init).
