@@ -126,6 +126,10 @@ class TypeExport {
     /// clang type at all. Saved and restored around a nested one.
     priv var _sub_owner: *Decl = &null;
     priv var _sub_args:  *llvm::SmallVector::<clang::QualType, 8> = &null;
+    /// Parallel to _sub_args: the canonical value argument at each value
+    /// parameter's index, null at a type parameter's. A fixed array whose
+    /// extent is such a parameter (FixedArrayType::extent_param) reads it here.
+    priv var _sub_vals:  *vec::<*Type> = &null;
 
     fn TypeExport(self, cctx: *clang::ASTContext, sema: *clang::Sema, set: *void) {
         self.cctx = cctx;
@@ -186,6 +190,16 @@ class TypeExport {
             // The store keeps a canonical array's extent in size_bits (it has
             // no size_expr); 0 is how TypeImport spells `T[]`.
             var extent = static_cast::<u64>(at->size_bits);
+            if at->extent_param != &null {
+                var ep = dyn_cast::<GenericParamType>(at->extent_param);
+                if (ep == &null) || (self._sub_owner == &null) || (self._sub_vals == &null) { return clang::QualType(); }
+                if NameLookup::representative(ep->owner) != self._sub_owner { return clang::QualType(); }
+                var ix = static_cast::<usize>(ep->param_index);
+                if ix >= self._sub_vals->size() { return clang::QualType(); }
+                var ev = dyn_cast::<TypeExpr>((*(self._sub_vals))[ix]);
+                if (ev == &null) || (!ev->is_exact()) || ev->vneg { return clang::QualType(); }
+                extent = ev->vmag;
+            }
             if at->is_incomplete || (extent == 0) {
                 return self.cctx->getIncompleteArrayType(el, clang::ArraySizeModifier::Normal, 0);
             }
@@ -928,6 +942,13 @@ class TypeExport {
         return false;
     }
 
+    /// A Kairo value parameter's canonical type (`value_type` is the syntax
+    /// node as written, which to_clang cannot walk); null before T resolves it.
+    priv static fn _value_canon(gp: *GenericParamDecl) -> *Type {
+        if (gp->value_type == &null) { return &null; }
+        return gp->value_type->canonical;
+    }
+
     /// The stand-in TEMPLATE for Kairo generic primary \p prim: declared
     /// with its type parameters, never defined. Every instance is an
     /// explicit specialization of it. Found by name after the first use.
@@ -938,9 +959,15 @@ class TypeExport {
         if gps.size() == 0 { return &null; }
         for var i: usize = 0; i < gps.size(); ++i {
             var gp = gps[i];
-            // A pack has no fixed arity to specialize on; a value parameter
-            // has no canonical shape in the registry yet (TypeImport::_args).
-            if (gp == &null) || gp->is_pack || gp->is_const_param { return &null; }
+            // A pack has no fixed arity to specialize on. A value parameter is
+            // a non-type template parameter of its Kairo type (below).
+            if (gp == &null) || gp->is_pack { return &null; }
+            if gp->is_const_param {
+                // Its C++ type must be integral: the instance argument is spelled
+                // as a clang integral (to_clang_arg_of), which has no other shape.
+                var vq = self.to_clang(TypeExport::_value_canon(gp));
+                if vq.isNull() || (!vq->isIntegralOrEnumerationType()) { return &null; }
+            }
         }
         var tk = clang::TagTypeKind::Struct;
         var tag0 = clang::QualType();
@@ -971,6 +998,15 @@ class TypeExport {
         var sp = CXXSpell(&cg);
         for var i: usize = 0; i < gps.size(); ++i {
             var name = sp.imm_name(gps[i]->name.imm, fid);
+            if gps[i]->is_const_param {
+                var vt = self.to_clang(TypeExport::_value_canon(gps[i]));
+                var nt = clang::NonTypeTemplateParmDecl::Create(*(self.cctx), static_cast::<*clang::DeclContext>(tu),
+                                                                loc, loc, 0, static_cast::<u32>(i),
+                                                                self._ident(name), vt, false,
+                                                                self.cctx->getTrivialTypeSourceInfo(vt, loc));
+                params.push_back(static_cast::<*clang::NamedDecl>(nt));
+                continue;
+            }
             var tp = clang::TemplateTypeParmDecl::Create(*(self.cctx), static_cast::<*clang::DeclContext>(tu),
                                                          loc, loc, 0, static_cast::<u32>(i),
                                                          self._ident(name), true, false);
@@ -1015,14 +1051,26 @@ class TypeExport {
         var qs: llvm::SmallVector::<clang::QualType, 8>;
         var targs: llvm::SmallVector::<clang::TemplateArgument, 8>;
         var concrete = true;
+        var vals = vec::<*Type>();
         for var i: usize = 0; i < args->size(); ++i {
             var a = (*args)[i];
             if a == &null { return clang::QualType(); }
             if a->is_dependent() || a->is_instantiation_dependent() { concrete = false; }
+            if decl_generic_params(prim)[i]->is_const_param {
+                // A value argument: a clang integral of the parameter's type.
+                // qs keeps a placeholder so the parameter indices still line up.
+                var va = self.to_clang_arg_of(ct->getTemplateParameters(), i, a, targs);
+                if va.isNull() { return clang::QualType(); }
+                qs.push_back(clang::QualType());
+                targs.push_back(va);
+                vals.push_back(a);
+                continue;
+            }
             var q = self.to_clang(a);
             if q.isNull() { return q; }
             qs.push_back(q);
             targs.push_back(clang::TemplateArgument(q));
+            vals.push_back(&null);
         }
 
         var pos: *void = &null;
@@ -1053,9 +1101,12 @@ class TypeExport {
         var saved_args  = self._sub_args;
         self._sub_owner = prim;
         self._sub_args  = &qs;
+        var saved_vals  = self._sub_vals;
+        self._sub_vals  = &vals;
         var ok = self._define(spec, tag, &fields);
         self._sub_owner = saved_owner;
         self._sub_args  = saved_args;
+        self._sub_vals  = saved_vals;
         // On failure the spec stays in clang's table, invalid: findSpecialization
         // refuses it above, and it is never printed.
         if !ok { return clang::QualType(); }
