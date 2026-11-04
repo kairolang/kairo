@@ -3807,6 +3807,22 @@ class EmitIR {
     /// A class, struct or union operand: a user operator that OperatorLowering
     /// must have rewritten. A plain enum is a RecordType too, and is NOT one:
     /// `==`, `<` and `as` on an `enum class` are C++'s own.
+    /// An operator Sema deferred to the instance (OperatorTyping's
+    /// dependent deferral: no resolved_op) on a DEPENDENT record operand --
+    /// `self == other` on `Q<T>` inside `Q`'s own body. Which `operator==`
+    /// it is depends on T, so clang picks it in each instantiation, as it
+    /// does for a duck operand; the record's operators are emitted as C++
+    /// operator members, so the plain spelling finds them.
+    priv fn _deferred_record_op(self, rop: *Decl, a: *Expr, b: *Expr) -> bool {
+        if rop != &null { return false; }
+        return self._dep_typed(a) || self._dep_typed(b);
+    }
+
+    priv fn _dep_typed(self, e: *Expr) -> bool {
+        if (e == &null) || (e->type_ == &null) { return false; }
+        return e->type_->is_dependent() || e->type_->is_instantiation_dependent();
+    }
+
     priv fn _record_operand(self, e: *Expr) -> bool {
         if (e == &null) || (e->type_ == &null) { return false; }
         var c = canon_unqual(e->type_);
@@ -4392,7 +4408,7 @@ class EmitIR {
         }
         var k = n->op_token.kind;
         var addr_or_deref = (k == TokenKind::OpAmp) || (k == TokenKind::OpStar);
-        if (self._record_operand(n->operand) && (!addr_or_deref)) { self._ice(n->range, "EmitIR: user operator; OperatorLowering must rewrite it into a call"); }
+        if (self._record_operand(n->operand) && (!addr_or_deref) && (!self._deferred_record_op(n->resolved_op, n->operand, &null))) { self._ice(n->range, "EmitIR: user operator; OperatorLowering must rewrite it into a call"); }
         var incdec = (k == TokenKind::OpPlusPlus) || (k == TokenKind::OpMinusMinus);
         var negnot = n->is_prefix() && ((k == TokenKind::OpMinus) || (k == TokenKind::OpTilde));
         if n->no_wrap && ((!(incdec || negnot)) || (!self._wraps(n->operand->type_))) { self._ice(n->range, "EmitIR: no_wrap on an operator that has no wrap form"); }
@@ -4448,7 +4464,7 @@ class EmitIR {
 
     priv fn _binary(self, n: *BinaryOperatorExpr) {
         if (n->op_token.kind == TokenKind::OpEqualEqualEqual) { self._ice(n->range, "EmitIR: `===`; CoalesceLowering owns it"); }
-        if (self._record_operand(n->lhs) || self._record_operand(n->rhs)) { self._ice(n->range, "EmitIR: user operator; OperatorLowering must rewrite it into a call"); }
+        if (self._record_operand(n->lhs) || self._record_operand(n->rhs)) && (!self._deferred_record_op(n->resolved_op, n->lhs, n->rhs)) { self._ice(n->range, "EmitIR: user operator; OperatorLowering must rewrite it into a call"); }
         var k = n->op_token.kind;
         var shift = (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater);
         var ints = self._wraps(n->type_) && self._wraps(n->lhs->type_) && (shift || self._wraps(n->rhs->type_));
