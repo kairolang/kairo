@@ -1019,7 +1019,15 @@ class DeclImport {
     priv fn _define_class_template(self, t: *HeaderTarget, ct: *clang::ClassTemplateDecl, kd: *Decl, ti: *TypeImport) {
         var gps = decl_generic_params_slot(kd);
         if gps == &null { return; }
-        self._generic_params(t, kd, ct->getTemplateParameters(), ti, gps);
+        // The registry keys on the USR, so `kd` is defined from whichever
+        // redeclaration came first. A forward declaration without the
+        // defaults (`template <class V, class A> class StringMap;` in
+        // TargetParser/Host.h) would leave `StringMap<u32>` short of an
+        // argument; the most recent redeclaration is the one that carries
+        // them (its parameters inherit the default from the primary).
+        var latest = ct->getMostRecentDecl();
+        var tpl    = (latest->getTemplateParameters()) if (latest != &null) else (ct->getTemplateParameters());
+        self._generic_params(t, kd, tpl, ti, gps);
         self._define_record(t, ct->getTemplatedDecl(), kd, ti);
     }
 
