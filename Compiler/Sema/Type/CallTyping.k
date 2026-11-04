@@ -148,6 +148,7 @@ class <T> CallTyping {
         // one cannot be moved from and stays an lvalue.
         if (a.cat == Expr::ValueCategory::LValue) && (!a.is_const) && moves_on_pass(dyn()->sc, a.ty) {
             a.cat = Expr::ValueCategory::XValue;
+            a.pass_moves = true;
         }
         return a;
     }

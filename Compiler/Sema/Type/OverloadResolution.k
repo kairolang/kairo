@@ -166,6 +166,11 @@ class ArgInfo {
     /// they decide which of `T&` / `const T&` / `T&&` the argument binds.
     pub var cat:        Expr::ValueCategory = Expr::ValueCategory::RValue;
     pub var is_const:   bool = false;
+    /// `cat` is XValue only because a MOVE-type lvalue moves when passed
+    /// (CallTyping::arg_info): the expression itself is an lvalue, which is
+    /// what an `@inout` parameter borrows -- an `@inout` argument is never
+    /// moved from.
+    pub var pass_moves: bool = false;
     /// The `&` MARKER (AST/ParamMode.k). `marked` when the argument as
     /// written is `&e`. `expr` is the whole `&e`, typed as the address-of it
     /// may still turn out to be (against `x: *T` that is what it means);
@@ -1721,6 +1726,7 @@ class OverloadResolution {
             var ty  = a->ty;
             var cat = a->cat;
             var cst = a->is_const;
+            if a->pass_moves { cat = Expr::ValueCategory::LValue; }
             if a->marked { ty = a->inner_ty; cat = a->inner_cat; cst = a->inner_const; }
             if (!a->marked) && (a->lit != LitKind::None) { return ImplicitRank::None; }
             if ty == &null { return ImplicitRank::None; }
