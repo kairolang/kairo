@@ -56,6 +56,7 @@ ffi "c++" import "llvm/ADT/DenseMap.h";
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Foreign::ForeignInstantiate::*;
+import Interop::Clang::HeaderSet::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -422,7 +423,13 @@ class MemberLookup {
         if (sc == &null) || (sc->foreign == &null) { return false; }
         var fid: i64 = -1;
         if sc->ctx != &null { fid = i64(sc->ctx->fid); }
-        return sc->foreign->fill(d, sc->diag, fid);
+        // The demanding TU's own set: the fill's fallback when the primary
+        // is another set's that cannot see every argument's header.
+        var alt: *HeaderSet = &null;
+        if (sc->tu != &null) && (sc->tu->header_set != &null) {
+            alt = reinterpret_cast::<*HeaderSet>(sc->tu->header_set);
+        }
+        return sc->foreign->fill(d, sc->diag, fid, alt);
     }
 
     /// True when \p d is an instance whose primary came from a C++ header --

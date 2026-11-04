@@ -109,7 +109,9 @@ class ForeignInstantiate {
     /// Kairo instance the fill names first (`Nullable<i32>` behind
     /// `vector<i32?>`) is homed there, as one its own typing named would be.
     /// -1 when no TU demands it (fid 0 is a TU: the first file loaded).
-    fn fill(self, shell: *Decl, sink: *BufferedDiagSink = &null, fid: i64 = -1) -> bool {
+    /// \p alt is that TU's own header set, the fallback when the primary's
+    /// set cannot spell the arguments (see _fill_locked); null for none.
+    fn fill(self, shell: *Decl, sink: *BufferedDiagSink = &null, fid: i64 = -1, alt: *HeaderSet = &null) -> bool {
         if shell == &null { return false; }
         // Unlocked fast path. Both flags only ever go false -> true, each is
         // written LAST by a fill holding `_mu`, and today every caller is the
@@ -127,7 +129,7 @@ class ForeignInstantiate {
         }
 
         self._active.push_back(shell);
-        var ok = self._fill_locked(shell, sink, fid);
+        var ok = self._fill_locked(shell, sink, fid, alt);
         self._active.pop_back();
         if ok {
             self.n_filled += 1;
@@ -147,7 +149,7 @@ class ForeignInstantiate {
         return false;
     }
 
-    priv fn _fill_locked(self, shell: *Decl, sink: *BufferedDiagSink, fid: i64) -> bool {
+    priv fn _fill_locked(self, shell: *Decl, sink: *BufferedDiagSink, fid: i64, alt: *HeaderSet) -> bool {
         // 1. who owns the pattern.
         var prim = decl_instantiated_from(shell);
         if prim == &null { self._why = "no pattern"; return false; }
@@ -172,6 +174,38 @@ class ForeignInstantiate {
         // Where a Kairo instance a stand-in names is homed (TypeExport::
         // home_fid): the demanding TU, else the TU that named the shell.
         var home = (fid) if (fid >= 0) else (i64(e->home_fid));
+
+        var r = self._fill_in(shell, sink, home, hs, ct, t, e);
+        if r >= 0 { return r == 1; }
+
+        // The primary's set could not spell an argument. The primary is the
+        // FIRST set to import its header, not the one that named the
+        // instance: with UTF8View.k ahead of PartitionQueue.k in one build,
+        // `vector` was UTF8View's set's, which never includes KThread.hh, so
+        // `vector<SeqCell<Task, 64>>` had no spelling there and every
+        // `size_type` member stayed opaque (`_buf[i]` was SC063E). The
+        // demanding TU's own set names the instance in its source, so it
+        // usually sees every argument's header too: re-find the template
+        // there and fill through it. The shell then belongs to that set, as
+        // one imported from it would.
+        if (alt == &null) || (alt == hs) || (!alt->alive()) { return false; }
+        if (alt->ast() == &null) || (alt->sema() == &null) { return false; }
+        var why = self._why;
+        var ax = TypeExport(alt->ast(), alt->sema(), reinterpret_cast::<*void>(alt));
+        var act = ax.refind_template(ct);
+        if act == &null { return false; }
+        r = self._fill_in(shell, sink, home, alt, act, t, e);
+        if r == -1 { self._why = f"{why}; also in the demanding TU's set"; }
+        return r == 1;
+    }
+
+    /// Steps 2-6 of a fill, in \p hs's AST with \p ct its template: 1
+    /// filled, 0 failed, -1 an argument has no clang spelling in this set
+    /// (the caller may retry in another).
+    priv fn _fill_in(self, shell: *Decl, sink: *BufferedDiagSink, home: i64, hs: *HeaderSet,
+                     ct: *clang::ClassTemplateDecl, t: *HeaderTarget, e: *InstanceEntry) -> i32 {
+        var cctx = hs->ast();
+        var csema = hs->sema();
 
         // Everything from here asks clang::Sema, including spelling the args:
         // a nested instance argument is itself a CheckTemplateIdType.
@@ -207,11 +241,11 @@ class ForeignInstantiate {
             var qs: llvm::SmallVector::<clang::TemplateArgument, 8>;
             for var i: usize = 0; i < e->args.size(); ++i {
                 var a = tx.to_clang_arg(ct, i, e->args[i], qs);
-                if a.isNull() { self._why = f"template argument {i} has no clang spelling in phase A"; return false; }
+                if a.isNull() { self._why = f"template argument {i} has no clang spelling in phase A"; return -1; }
                 qs.push_back(a);
             }
             ty = tx.template_id(ct, qs);
-            if ty.isNull() { self._why = "clang rejected the template-id"; return false; }
+            if ty.isNull() { self._why = "clang rejected the template-id"; return 0; }
         }
 
         // 3. complete. RequireCompleteType is what instantiates the class
@@ -233,10 +267,10 @@ class ForeignInstantiate {
         var incomplete = !csema->isCompleteType(ct->getLocation(), ty);
         if incomplete || (diags->getNumErrors() > before) {
             self._why = "clang could not complete the specialization";
-            return false;
+            return 0;
         }
         var spec = llvm::dyn_cast_or_null::<clang::ClassTemplateSpecializationDecl>(ty->getAsCXXRecordDecl());
-        if spec == &null { self._why = "completed type is not a class template specialization"; return false; }
+        if spec == &null { self._why = "completed type is not a class template specialization"; return 0; }
 
         // 4. import, in fill mode: every decl lands in the primary's header,
         //    the specialization itself maps to the shell.
@@ -284,7 +318,7 @@ class ForeignInstantiate {
         decl_set_instantiated(shell);
         Logger::info(Logger::Stage::Driver,
             f"ForeignInstantiate: filled {sp}: {di.n_declared} decl(s) declared, {di.n_defined} defined, {ti.n_opaque} opaque type(s)");
-        return true;
+        return 1;
     }
 
     /// Whether clang's own template argument deduction and substitution

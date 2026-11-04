@@ -467,6 +467,18 @@ class TypeExport {
         return clang::QualType(self.cctx->getCanonicalTagType(rd));
     }
 
+    /// \p ct, a class template of ANOTHER set's AST, re-found in this one;
+    /// null when this set never declared it. ForeignInstantiate's fallback
+    /// set for an instance the primary's set cannot spell.
+    fn refind_template(self, ct: *clang::ClassTemplateDecl) -> *clang::ClassTemplateDecl {
+        if ct == &null { return &null; }
+        var d = static_cast::<*clang::Decl>(ct);
+        var octx = &(d->getASTContext());
+        if octx == self.cctx { return ct; }
+        var rf = self._refind(d);
+        return TypeExport::class_template_of(static_cast::<*clang::Decl>(rf));
+    }
+
     /// \p d, a clang decl of ANOTHER set's AST, re-found in this set's AST by
     /// its qualified path -- namespaces (inline ones included, as written in
     /// its parents), then its name, of the same decl kind -- or null.
