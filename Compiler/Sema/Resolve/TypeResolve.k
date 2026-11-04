@@ -1820,6 +1820,13 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                     continue;
                 }
             }
+            // `Derived::Nested` where the nested type belongs to an IMPORTED
+            // class's base (`clang::TargetInfo::IntType` is declared in
+            // TransferrableTargetInfo): C++ finds it through the bases, so a
+            // miss in the class's own table walks them (G66).
+            if (!sr.found()) && (mods.size() <= 1) && isa::<ClassDecl>(cur) && decl_is_imported(cur) {
+                sr = self._in_foreign_bases(cast::<ClassDecl>(cur), simm, sspell, 0);
+            }
             var next_mods = vec::<*DeclContext>();
             if mods.size() > 1 {
                 // Every reopening. The first that has the name answers: a
@@ -2440,6 +2447,33 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     /// the one place a foreign shell is filled before its table is read
     /// (MemberLookup::ensure_filled; a failed fill leaves the table empty and
     /// the step misses as it always did).
+    /// \p cd's nested name \p simm through its base classes, depth-first in
+    /// declaration order (the first base that has it answers; a type found by
+    /// two paths is one entity). Bounded so a malformed cycle cannot spin.
+    priv fn _in_foreign_bases(self, cd: *ClassDecl, simm: u32, spelling: string, depth: u32) -> SemaLookupResult {
+        var none = SemaLookupResult::not_found();
+        if depth > 32 { return none; }
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var e = cd->derives_list.get(i);
+            if (e == &null) || (e->base == &null) { continue; }
+            var bc = canon_unqual(e->base->canonical);
+            if (bc == &null) || (!isa::<RecordType>(bc)) { continue; }
+            var bd = cast::<RecordType>(bc)->decl;
+            if bd == &null { continue; }
+            MemberLookup::ensure_filled(self.sc, bd);
+            var bdc = NameLookup::context_of(bd);
+            if bdc != &null {
+                var hit = self.sc->lookup.in_context(bdc, DeclName::ident(simm), spelling);
+                if hit.found() { return hit; }
+            }
+            if isa::<ClassDecl>(bd) {
+                var deeper = self._in_foreign_bases(cast::<ClassDecl>(bd), simm, spelling, depth + 1);
+                if deeper.found() { return deeper; }
+            }
+        }
+        return none;
+    }
+
     priv fn _scope_of(self, d: *Decl, at: SourceRange) -> *DeclContext {
         if d == &null { return &null; }
         if isa::<TypeAliasDecl>(d) {
