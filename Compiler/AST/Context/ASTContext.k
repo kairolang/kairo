@@ -68,6 +68,12 @@ class ASTContext {
     pub var codegen_alloc: ArenaAllocator = ArenaAllocator();                      ///< lazy   CodegenBackend's node storage.
     pub var scratch_alloc: ArenaAllocator = ArenaAllocator();                      ///< lazy   For transient tooling buffers whose contents never become AST.
     pub var diag_sink:     BufferedDiagSink;
+    /// Sema reported an error against this TU. Kept past the sink's drain
+    /// because a LATER input of the same batch that imports this TU finds it
+    /// already analysed and reports nothing, yet its codegen would walk this
+    /// TU's poisoned or never-lowered decls and hit an emitter ICE guard
+    /// (O10); FrontendAction::_codegen refuses a graph holding one.
+    pub var sema_errored:  bool = false;
     pub var sm:            obs::<SourceManager>              = &null;
     pub var tcm:           obs::<TokenCacheManager>          = &null; // we can get the imm table from the tcm
     pub var diags:         obs::<DiagEngine>                 = &null;

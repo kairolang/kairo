@@ -4723,6 +4723,7 @@ fn FrontendAction::_sema_group(fids: *vec::<u32>, effects: *EffectTable, print_s
         if (libcxx::getenv(r"KAIRO_DEBUG_FORCE_ICE") != &null) && (ctx->diag_sink.error_count() > 0) {
             ICE_FAIL("forced by KAIRO_DEBUG_FORCE_ICE (a test hook)");
         }
+        if ctx->diag_sink.error_count() > 0 { ctx->sema_errored = true; }
         ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);
         // Kept past `sem`: the batch rejects two scripts in one link.
         if sem->sc.script_at.is_valid() { self.result.script_at = sem->sc.script_at; }
@@ -5330,6 +5331,42 @@ fn FrontendAction::_codegen() -> bool {
     {
         var _tw = TimeRegion("ClangStartupWait");
         self._ci->pool()->wait_group(CLANG_STARTUP_GROUP());
+    }
+
+    // A TU Sema reported errors against is emitted by nobody, and neither is
+    // anything that imports it: its decls are poisoned or were never lowered
+    // (a field initializer FieldInitLowering skipped), and the emitters'
+    // guards would ICE and abort the batch, hiding every other diagnostic.
+    // Its errors are already in the engine, so the batch fails on those.
+    // Walked through the import edges, not _fids: that holds only the fids
+    // THIS action claimed, and a TU an earlier input already analysed (and
+    // reported) is one this graph imports but does not own.
+    {
+        var seen  = llvm::DenseSet::<u64>();
+        var stack = vec::<u32>();
+        for fid: u32 in self._fids { stack.push_back(fid); seen.insert(static_cast::<u64>(fid)); }
+        while stack.size() > 0 {
+            var fid = stack.back();
+            stack.pop_back();
+            var ectx = self._global_scope->get_context(fid);
+            if ectx == &null { continue; }
+            if ectx->sema_errored {
+                Logger::info(Logger::Stage::Driver, f"codegen: skipped, {self._ci->sm()->get_filename(fid)} had errors");
+                self._stage = TUStage::Failed;
+                return false;
+            }
+            var etu = reinterpret_cast::<*TranslationUnit>(ectx->tu);
+            if etu == &null { continue; }
+            for var j: usize = 0; j < etu->import_edges.size(); ++j {
+                var e = etu->import_edges.get(j);
+                if e == &null { continue; }
+                var t = e->target_fid;
+                if t == u32(-1) { continue; }
+                if seen.contains(static_cast::<u64>(t)) { continue; }
+                seen.insert(static_cast::<u64>(t));
+                stack.push_back(t);
+            }
+        }
     }
 
     var be = self._ci->backend();
