@@ -984,8 +984,12 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                 } else if pos < view.size() {
                     p = view[pos];
                     pos += 1;
-                } else if f->is_variadic && (view.size() > 0) {
-                    p = &null;                              // a pack tail is by value.
+                } else if view.size() > 0 {      // an imported pack leaves FunctionDecl::is_variadic false (DeclImport), so look at the params.
+                    // The pack tail: every argument past the pack's own position is the
+                    // pack's (it forwards, see _pass), so name the pack parameter.
+                    for var j: usize = 0; j < view.size(); ++j {
+                        if view[j]->is_pack { p = view[j]; }
+                    }
                 }
                 if p != &null { mode = p->mode; }
             } else if fp != &null {
@@ -993,6 +997,10 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
             }
 
             self.dispatch_expr(e);                          // reads inside the argument, in order.
+            // A call Sema could not resolve (SC064E ambiguous, no viable candidate)
+            // has no selected parameter to bind: its by-value default would
+            // report a copy that no parameter makes.
+            if n->is_poisoned() && (f == &null) && (fp == &null) { continue; }
             self._pass(e, p, mode);
         }
 
@@ -1015,7 +1023,11 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         if (p != &null) && p->is_self { return; }
         if (p != &null) && self._lref_param(p) { self._mark_addr(e); return; }
         var rref = (p != &null) && self._rref_param(p);
-        self._transfer(e, ("into a '@move' parameter") if (rref) else ("into a by-value parameter"));
+        // A C++ `T&&` binds an xvalue (`std::move(x)`), and a Kairo `const x: T`
+        // is a `const T&`, and a pack forwards (`create<T>(...args)`): none copies, so a deleted copy constructor is
+        // not in play (only a plain by-value parameter copies its argument).
+        var borrows = rref || ((p != &null) && (p->is_const || p->is_pack));
+        self._transfer_checked(e, ("into a '@move' parameter") if (rref) else ("into a by-value parameter"), !borrows);
     }
 
     /// The value a function returns, already walked. C++ already moves a
@@ -1133,9 +1145,15 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     /// SemaContext::move_sites, where CopyMoveLowering casts it, and the
     /// binding, or the part of it, is moved-from.
     priv fn _transfer(self, e: *Expr, how: string) {
+        self._transfer_checked(e, how, true);
+    }
+
+    /// _transfer; \p copies is false when the receiving slot is a reference
+    /// (no copy happens, so _uncopyable_place has nothing to reject).
+    priv fn _transfer_checked(self, e: *Expr, how: string, copies: bool) {
         if (e == &null) || e->is_poisoned() { return; }
         if !moves_on_pass(self.sc, e->type_) {
-            if self._uncopyable_place(e, how) { return; }
+            if copies && self._uncopyable_place(e, how) { return; }
             self._dependent_transfer(e);
             return;
         }
