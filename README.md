@@ -53,6 +53,13 @@ This builds today with the Stage 1 compiler (build from source for now; see [Ins
 
 C++ includes a `.k` file directly. There is no generated header and no binding layer:
 
+<div align="left">
+  <img src="Assets/main-cpp.png" alt="Main.cpp code">
+</div>
+
+<details>
+<summary>The C++ code to copy into main.cpp</summary>
+
 ```cpp
 //> main.cpp
 #include "packet.k"
@@ -67,7 +74,9 @@ concept ScorableBatch = requires(B& b, const B& cb) {
 
 template <ScorableBatch B>
 int run_from_cxx(B& b) {
-    b[0] = packet::Frame<int>::Burst(20, 4);   // Kairo `*Frame` surfaces as `Frame&`
+    // A nicer api for c++ side usage of ADT Enums is in the works:
+    // b[0] = packet::Frame<int>::Burst(20, 4);
+    b[0] = packet::Frame<int>{::__kairo_vt<0> {}, 20, 4};
     return b.score() + packet::sum_burst(b[0]);
 }
 
@@ -76,6 +85,15 @@ int main() {
     std::cout << "[C++] total = " << run_from_cxx(batch) << "\n";
 }   // `batch` leaves C++ scope: Kairo's destructor runs here
 ```
+
+</details>
+
+<div align="left">
+  <img src="Assets/packet-k.png" alt="Packet.k code">
+</div>
+
+<details>
+<summary>The Kairo code to copy into main.k</summary>
 
 ```kairo
 //> packet.k
@@ -97,20 +115,25 @@ pub class Batch {
             .Code  { status: b },
             .Idle
         ]
+
         self.tag = a + b
     }
 
+    @copy // marks this class as copyable
+    pub fn Batch(self, const other: Self) = default
+
     pub fn score(const self) -> i32 {
         return match self.frames[1] {
-            case .Code(const s) => match s {
+            case .Code(const status) => match status {
                 case 200..=299 => 50
                 default        => 10
-            }
-            default => 0
+            } default => 0
         } + (self.tag ?? 0)
     }
 
-    pub fn op [] (self, idx: usize) -> *Frame<i32> { return &self.frames[idx] }
+    pub fn op [] (self, idx: usize) -> *Frame<i32> {
+        return &self.frames[idx]
+    }
 
     // Destructor: runs when the owning scope ends, C++ or Kairo.
     fn op delete (self) {
@@ -118,26 +141,32 @@ pub class Batch {
     }
 }
 
-pub fn sum_burst(f: Frame<i32>) -> i32 = match f {
-    case .Burst(const base, const count) => base * count
-    default => 0
+pub fn sum_burst(f: Frame<i32>) -> i32 {
+    return match f {
+        case .Burst(const base, const count) => base * count
+        default => 0
+    }
 }
 ```
 
-```bash
-kcc main.cpp -o main && ./main
-```
-
-```
-[C++] total = 344
-[Kairo] ~Batch()
-```
+</details>
 
 `kcc` is a drop-in replacement for `clang++` that takes Clang's arguments. `kairo` is the Kairo compiler driver.
+
+<div align="left">
+  <img src="Assets/running-ex.png" alt="Building and running example">
+</div>
 
 ### Where Kairo Semantics Differ from C and C++
  
 These are legal C and C++ calls. `clang++` accepts all three. Kairo rejects them:
+
+<div align="left">
+  <img src="Assets/buf-h.png" alt="Buff.h code">
+</div>
+
+<details>
+<summary>The C code to copy into buf.c</summary>
 
 ```c
 //> buf.h
@@ -146,6 +175,15 @@ These are legal C and C++ calls. `clang++` accepts all three. Kairo rejects them
 
 void buf_reserve(size_t n);
 ```
+
+</details>
+
+<div align="left">
+  <img src="Assets/buf-k.png" alt="Buff.k code">
+</div>
+
+<details>
+<summary>The Kairo code to copy into buf.k</summary>
 
 ```kairo
 //> buf.k
@@ -163,32 +201,11 @@ fn first(v: cxx::std::vector<i32>?) -> i32 {
 }
 ```
 
-```
-$ kairo buf.k
-error @ buf.k:6
-    6 |     buf_reserve(b)
-      |     ^^^^^^^^^^^^^^
-      |     [SC063E] no matching overload for call to 'buf_reserve'
-    note @ buf.h:4
-       4 | void buf_reserve(size_t n);
-         | ^ candidate not viable: cannot convert argument of type 'u64' to parameter 'n' of type 'usize'
+</details>
 
-error @ buf.k:7
-    7 |     buf_reserve(s)
-      |     ^^^^^^^^^^^^^^
-      |     [SC063E] no matching overload for call to 'buf_reserve'
-    note @ buf.h:4
-       4 | void buf_reserve(size_t n);
-         | ^ candidate not viable: cannot convert argument of type 'i32' to parameter 'n' of type 'usize'
-
-error @ buf.k:11
-   11 |     return v.at(0)
-      |            ^
-      |            [SC001E] 'v' may be null here; check it with 'if v?' first
-    note @ buf.k:10
-   10 | fn first(v: cxx::std::vector<i32>?) -> i32 {
-      |          ^ 'v' is a nullable parameter; it may be null on entry
-```
+<div align="left">
+  <img src="Assets/err-ex.png" alt="Error example">
+</div>
 
 ### Getting Started
 
