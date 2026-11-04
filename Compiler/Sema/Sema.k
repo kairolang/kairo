@@ -314,7 +314,15 @@ class Sema {
         // fid compare and a return.
         nr.fill_lang_items();
         self.sc.advance_phase(SemaPhase::NamesResolved);
-        return !self._hard_stop();
+        // N's errors stop the pipeline AFTER T, not here. N poisons every
+        // name it could not bind, so T over the rest of the TU is
+        // information, and it is what gives the declarations their types:
+        // stopped here, one undeclared name in one method BODY left every
+        // signature in the TU unresolved, and each importer's call into it
+        // failed "parameter type is unresolved" (self-host: a `std::print`
+        // in Command::print_help, 363 SC063E on `cmd->define<FlagKind::X>`).
+        // T's own gate counts N's errors, so nothing past T runs.
+        return true;
     }
 
     /// Phase T. Every non-dependent Type node -> canonical; dependent

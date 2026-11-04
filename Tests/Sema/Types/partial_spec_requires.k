@@ -35,10 +35,12 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// A redefinition and the conformance refusal each stop Sema before the
-// rest, so each is asked of its own copy.
+// A redefinition (N) stops Sema after T, so T's conformance refusal is
+// still reported beside it; the refusal stops it before the rest, so each
+// remaining case is asked of its own copy.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=REDEF --implicit-check-not=error
 // REDEF: partial_spec_requires.k:16:5: error [R029E]: redefinition of 'Store'
+// REDEF: partial_spec_requires.k:20:5: error [SC116E]: a partial specialization selected by a conformance
 // RUN: sed 's|.*// \[redef\]$||' %s > %t.conf.k
 // RUN: { %kairo %t.conf.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=CONF --implicit-check-not=error
 // CONF: :20:5: error [SC116E]: a partial specialization selected by a conformance ('impl' / 'derives') in its 'requires' clause is not yet supported

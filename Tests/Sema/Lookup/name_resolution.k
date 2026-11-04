@@ -166,7 +166,7 @@ fn same_frame_redefinition() -> i32 {
 // the exact decl the use bound to. Anchored on this file's own section, since
 // the imported module dumps first.
 // SEMA: ===== SEMA fid {{[0-9]+}}: {{.*}}name_resolution.k =====
-// SEMA: phase: NamesResolved
+// SEMA: phase: TypesResolved
 
 // The multi-decl section lists cells in DECLARATION order (the symbol table
 // is insertion-ordered), so `overloaded` (line 32) precedes `Shape` (44).
@@ -197,12 +197,13 @@ fn same_frame_redefinition() -> i32 {
 
 // CASE 3: in bump the param wins, and the trace names the field it hid. In the
 // sibling method the field is reached through `self`, so N binds only the
-// receiver -- the `.count` step is ChainBinding's, and stays open here.
+// receiver -- the `.count` step is ChainBinding's (T), which still runs
+// after this file's N errors.
 // SEMA:      <tu>::Counter::bump
 // SEMA-NEXT:   count  @ 79:16  -> param count @ 78:19  [local frame 0]  (shadows field count @ 76:5 in Counter)
 // SEMA:      <tu>::Counter::field_needs_self
 // SEMA-NEXT:   self  @ 83:16  -> param self @ 82:25  [local frame 0]
-// SEMA-NEXT:   .count  @ 83:21  <open: inference or M2>
+// SEMA-NEXT:   .count  @ 83:21  -> field count @ 76:5
 
 // CASE 4: `var outer_x = outer_x` -- the initializer binds the OUTER var (87),
 // and only the following use binds the local (90).
