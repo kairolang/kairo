@@ -421,8 +421,9 @@ class MemberLookup {
     /// call this before reading it -- member lookup (`c.size`) and
     /// TypeResolve's `::` step (`traits<alloc>::size_type`) -- so neither
     /// can miss a member the other would have filled in. A failed fill is
-    /// sticky and leaves \p d unfilled; callers fall back exactly as they
-    /// did before fills existed. True when \p d's own table is readable.
+    /// sticky (one no set tried could spell is retried for another TU's
+    /// set) and leaves \p d unfilled; callers fall back exactly as they did
+    /// before fills existed. True when \p d's own table is readable.
     static fn ensure_filled(sc: *SemaContext, d: *Decl) -> bool {
         if !MemberLookup::unfilled(d) { return true; }
         if !MemberLookup::filled_by_clang(d) { return false; }   // M2's, not clang's.

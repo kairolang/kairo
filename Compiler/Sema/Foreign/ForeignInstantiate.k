@@ -88,6 +88,15 @@ class ForeignInstantiate {
     priv var _reg:       obs::<ForeignRegistry>;
     priv var _instances: obs::<InstantiationRegistry>;
     priv var _why:       string = "";              ///< the last failure's reason, for the log line.
+    /// The last failure was only that no set tried could spell an argument
+    /// (_fill_in's -1), not clang's verdict on the instance.
+    priv var _unspelled: bool = false;
+    /// Shells whose fill failed that way, each beside the demanding set it
+    /// was tried with (null: none); parallel, guarded by `_mu`. Such a
+    /// failure is not sticky: another TU's set may see the argument's
+    /// header (G101).
+    priv var _unspelled_shell: vec::<*Decl>;
+    priv var _unspelled_set:   vec::<*HeaderSet>;
     /// For TypeExport's stand-ins of Kairo records (`vector<S>`), which
     /// are named as EmitIR names them. Null until the driver has a
     /// preprocessor; a Kairo-record argument is refused until then.
@@ -127,16 +136,34 @@ class ForeignInstantiate {
         for var i: usize = 0; i < self._active.size(); ++i {
             if self._active[i] == shell { return false; }
         }
+        // Already found unspellable with this same demanding set: nothing
+        // has changed that a retry would see.
+        for var i: usize = 0; i < self._unspelled_shell.size(); ++i {
+            if (self._unspelled_shell[i] == shell) && (self._unspelled_set[i] == alt) { return false; }
+        }
 
         self._active.push_back(shell);
+        self._unspelled = false;
         var ok = self._fill_locked(shell, sink, fid, alt);
         self._active.pop_back();
         if ok {
             self.n_filled += 1;
             return true;
         }
-        decl_set_fill_failed(shell);
         self.n_failed += 1;
+        // A fill no set tried could spell is the demanding TU's gap, not the
+        // instance's. With the whole tree in one compile, a TU whose set never
+        // includes Compilation.h read a member of `unique_ptr<Compilation>`
+        // first; a sticky failure there left the instance unfilled for
+        // ClangJobs.k too, whose own set spells it, and its `pointer` stayed
+        // '<ffi type>' (G101). So only clang's own verdict is sticky; an
+        // unspelled fill is retried for each other demanding set.
+        if self._unspelled {
+            self._unspelled_shell.push_back(shell);
+            self._unspelled_set.push_back(alt);
+        } else {
+            decl_set_fill_failed(shell);
+        }
         // clang's own errors for the fill already went to `sink`, with spans
         // in the header. TODO(diag): a Kairo note pointing at the USE that
         // demanded the fill; until then the use's member typing reports
@@ -176,7 +203,10 @@ class ForeignInstantiate {
         var home = (fid) if (fid >= 0) else (i64(e->home_fid));
 
         var r = self._fill_in(shell, sink, home, hs, ct, t, e);
-        if r >= 0 { return r == 1; }
+        // A nested fill (an argument's own instance) may have left the flag
+        // set; this verdict is the outer one.
+        if r >= 0 { self._unspelled = false; return r == 1; }
+        self._unspelled = true;
 
         // The primary's set could not spell an argument. The primary is the
         // FIRST set to import its header, not the one that named the
@@ -196,6 +226,7 @@ class ForeignInstantiate {
         if act == &null { return false; }
         r = self._fill_in(shell, sink, home, alt, act, t, e);
         if r == -1 { self._why = f"{why}; also in the demanding TU's set"; }
+        else { self._unspelled = false; }
         return r == 1;
     }
 

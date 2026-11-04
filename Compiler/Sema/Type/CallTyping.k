@@ -53,6 +53,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
+import Sema::Resolve::MemberLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
@@ -1335,6 +1336,14 @@ class <T> CallTyping {
         }
         if (!dep) && self.reject_abstract(static_cast::<*Expr>(n), d) { self._type_args_blind(n); return &null; }
 
+        // A C++ instance's constructors are clang's, read off its filled
+        // table: unfilled, the pattern's stand in, every parameter spelled in
+        // the template's own dependent names. `unique_ptr<Compilation>(raw)`
+        // as an instance's first use then offered `explicit unique_ptr(
+        // pointer)` with `pointer` '<ffi type>', and no raw pointer converted
+        // (SC063E, G101). Member lookup and `::` fill on demand; a
+        // constructor call is the same demand.
+        if !dep { MemberLookup::ensure_filled(dyn()->sc, d); }
         var body = dyn()->sc->record_body(rec);   // an unfilled instance has an empty table; its body's (a selected partial's).
         if body == &null { body = dyn()->tu.pattern_of(d); }
         var dc   = NameLookup::context_of(body);
