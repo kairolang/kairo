@@ -400,6 +400,7 @@ class ForeignInstantiate {
         tx.psym      = self.psym;
         tx.instances = self._instances;
         tx.home_fid  = fid;            // \p fid: the calling TU, which a Kairo instance spelled here is homed in.
+        tx.allow_opaque_args = true;   // see TypeExport::allow_opaque_args; a removal over a blob is soft (below).
         var loc = ftd->getLocation();
         var tpl = ftd->getTemplateParameters();
 
@@ -438,7 +439,7 @@ class ForeignInstantiate {
                     false, false, false, clang::QualType(), clang::Expr::Classification(), false,
                     fn (ps: llvm::ArrayRef::<clang::QualType>, only: bool) -> bool { return false; });
         if r == clang::TemplateDeductionResult::Success {
-            if want_ret && (spec != &null) {
+            if want_ret && (spec != &null) && (!tx.used_opaque) {
                 // `decltype(auto)` / `auto` (llvm::dyn_cast, cast, isa): the
                 // specialization's declared return type is the placeholder
                 // until its body is instantiated, and imported as such it is

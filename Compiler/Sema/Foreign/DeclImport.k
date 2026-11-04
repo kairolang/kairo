@@ -950,7 +950,16 @@ class DeclImport {
             c->ffi_usings.clear();
             for ud in def->decls() {
                 var u = llvm::dyn_cast::<clang::UsingDecl>(ud);
-                if (u == &null) || (!u->getDeclName().isIdentifier()) { continue; }
+                if u == &null { continue; }
+                // An operator is keyed by its token kinds, not a spelling
+                // (DeclName::op_name), so MemberLookup cannot ask for one
+                // operator: any `using B::operator@;` keeps every operator
+                // merged ("operator" marks it; no identifier spells so).
+                if u->getDeclName().getNameKind() == clang::DeclarationName::CXXOperatorName {
+                    c->ffi_usings.push_back("operator");
+                    continue;
+                }
+                if !u->getDeclName().isIdentifier() { continue; }
                 c->ffi_usings.push_back(string(u->getNameAsString()));
             }
         } else if isa::<StructDecl>(kd) {

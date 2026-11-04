@@ -508,6 +508,8 @@ class OverloadResolution {
         if winners.size() > 1 { winners = self._ref_tiebreak(&cs, &winners, margs, fargs); }
         // Integer spelling, also a conversion-sequence ordering: see _int_better.
         if winners.size() > 1 { winners = self._int_tiebreak(&cs, &winners); }
+        // Pointee cv, the same ordering for a pointer parameter: see _cv_better.
+        if winners.size() > 1 { winners = self._cv_tiebreak(&cs, &winners); }
         // A float literal is C++'s double: see _flit_better.
         if winners.size() > 1 { winners = self._flit_tiebreak(&cs, &winners); }
         // non-generic beats generic.
@@ -761,6 +763,54 @@ class OverloadResolution {
         for var k: usize = 0; k < x->ints.size(); ++k {
             if (x->ints[k] == 1) && (y->ints[k] == 2) { better = true; continue; }
             if (x->ints[k] == 2) && (y->ints[k] == 1) { return false; }
+        }
+        return better;
+    }
+
+    /// The winners no other winner beats on pointee cv.
+    priv fn _cv_tiebreak(self, cs: *vec::<Candidate>, winners: *vec::<usize>) -> vec::<usize> {
+        var keep = vec::<usize>();
+        for var i: usize = 0; i < winners->size(); ++i {
+            var ci = &((*cs)[(*winners)[i]]);
+            var beaten = false;
+            for var j: usize = 0; j < winners->size(); ++j {
+                if i == j { continue; }
+                if self._cv_better(&((*cs)[(*winners)[j]]), ci) { beaten = true; break; }
+            }
+            if !beaten { keep.push_back((*winners)[i]); }
+        }
+        if keep.size() == 0 { return *winners; }       // defensive, as _ref_tiebreak.
+        return keep;
+    }
+
+    /// \p x beats \p y on pointee cv: on no argument does \p x's pointer
+    /// parameter point at MORE cv than \p y's of the same pointee, on at
+    /// least one it points at less. A derived pointer reaches `*Base` and
+    /// `*const Base` alike, both at the Converted rank; C++ orders them
+    /// because the first is a subsequence of the second plus a
+    /// qualification conversion ([over.ics.rank]/3.2.1), so `cast(p)` with
+    /// `cast(*Stmt)` beside `cast(*const Stmt)` took the first, and here was
+    /// SC064E for every derived `p`. Only pointers to the same unqualified
+    /// type are compared: a different pointee is a different conversion.
+    /// Same alignment rule as _ref_better.
+    priv fn _cv_better(self, x: *Candidate, y: *Candidate) -> bool {
+        if x->free != y->free { return false; }
+        if x->targets.size() != y->targets.size() { return false; }
+        var better = false;
+        for var k: usize = 0; k < x->targets.size(); ++k {
+            var tx = x->targets[k];
+            var ty = y->targets[k];
+            if (tx == &null) || (ty == &null) || (tx == ty) { continue; }
+            var px = dyn_cast::<PointerType>(canon_unqual(tx));
+            var py = dyn_cast::<PointerType>(canon_unqual(ty));
+            if (px == &null) || (py == &null) || (px->is_unsafe != py->is_unsafe) { continue; }
+            if (px->pointee == &null) || (py->pointee == &null) { continue; }
+            if canon_unqual(px->pointee) != canon_unqual(py->pointee) { continue; }
+            var qx = canon_quals(px->pointee);
+            var qy = canon_quals(py->pointee);
+            if qx == qy { continue; }
+            if (qx & (~qy)) == 0 { better = true; continue; }
+            if (qy & (~qx)) == 0 { return false; }
         }
         return better;
     }

@@ -359,13 +359,19 @@ class MemberLookup {
         //    i32 and computed as a converted double. A Kairo class cannot
         //    hide (InterfaceEmitter writes a `using` for every shared name
         //    instead), and neither does a name the header's class merges
-        //    with a `using B::g;` (ClassDecl::ffi_usings). An operator has
-        //    no spelling here and is left merged: ADL finds it either way.
-        if own_hit && decl_is_imported(d) && (self._cur_spelling.size() > 0) && isa::<ClassDecl>(d) {
+        //    with a `using B::g;` (ClassDecl::ffi_usings). An operator hides
+        //    the same way ([over.match.oper]/3.1: the member candidates are
+        //    the QUALIFIED lookup of operator@ in the class, so a derived
+        //    `operator*` hides the base's -- llvm::iterator_adaptor_base's
+        //    beside DeclTemplate.h's SpecIterator::operator* was SC064E).
+        //    An operator has no spelling, so a `using B::operator@;` anywhere
+        //    in the class keeps all of its operators merged.
+        if own_hit && decl_is_imported(d) && isa::<ClassDecl>(d) && ((self._cur_spelling.size() > 0) || name.is_op()) {
             var merged = false;
             var us = &(cast::<ClassDecl>(d)->ffi_usings);
+            var want = (self._cur_spelling) if (!name.is_op()) else ("operator");
             for var i: usize = 0; i < us->size(); ++i {
-                if (*us)[i] == self._cur_spelling { merged = true; break; }
+                if (*us)[i] == want { merged = true; break; }
             }
             if !merged { return; }
         }

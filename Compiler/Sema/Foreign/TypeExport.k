@@ -119,6 +119,15 @@ class TypeExport {
     /// question clang answers about it -- a concept probing `b.len()`, a
     /// trait probing a member -- can come out false for the real type.
     pub var used_standin: bool = false;
+    /// A plain imported record that only ANOTHER set's AST can spell may be
+    /// spelled as a layout-only blob (_opaque_like) instead of failing. Only
+    /// a caller that asks a question about the TEMPLATE, not the argument,
+    /// sets it: deduce_call's SFINAE verdict on `make_shared<clang::X>()`
+    /// from <memory>'s set, which never saw X. A fill must keep failing so it
+    /// retries in the demanding TU's set (a blob there would name the wrong
+    /// instance). \p used_opaque reports it was taken; it implies used_standin.
+    pub var allow_opaque_args: bool = false;
+    pub var used_opaque: bool = false;
 
     /// The substitution in force while a stand-in specialization is being
     /// defined: the primary whose parameters are being read, and what they
@@ -399,6 +408,14 @@ class TypeExport {
             var rf = self._refind(reinterpret_cast::<*clang::Decl>(cd));
             var rtag = llvm::dyn_cast_or_null::<clang::TagDecl>(static_cast::<*clang::Decl>(rf));
             if rtag != &null { return clang::QualType(self.cctx->getCanonicalTagType(rtag)); }
+            if self.allow_opaque_args {
+                var ob = self._opaque_like(static_cast::<*Type>(rt));
+                if !ob.isNull() {
+                    self.used_standin = true;
+                    self.used_opaque  = true;
+                    return ob;
+                }
+            }
         }
 
         // A Kairo-authored record: a stand-in under its emitted name. With
