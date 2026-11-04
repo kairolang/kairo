@@ -1763,6 +1763,30 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                 cur = inst;
             }
 
+            // `Alias::Member` with `type Alias = L<i32>`, L a Kairo generic:
+            // the instance's table is empty (M2 fills it lazily), and its
+            // members live on the pattern. Walk the pattern, exactly as
+            // `L<i32>::Member` does, and read the instance's arguments into
+            // the result afterwards; probing the empty instance reported a
+            // member the class plainly declares as missing (G65).
+            if isa::<TypeAliasDecl>(cur) && (!self._foreign(cur)) {
+                var ac = canon_unqual(self._expand_alias(cast::<TypeAliasDecl>(cur), seg->range));
+                if (ac != &null) && isa::<RecordType>(ac) {
+                    var ad = cast::<RecordType>(ac)->decl;
+                    // A Kairo primary only: an imported template's instance
+                    // is filled by clang (_scope_of), never read off a pattern.
+                    var apat = (decl_instantiated_from(ad)) if (ad != &null) else (&null);
+                    if (apat != &null) && decl_is_instance(ad) && (!MemberLookup::primary_is_imported(NameLookup::representative(apat))) && MemberLookup::unfilled(ad) {
+                        var abody = self.sc->record_body(ac);
+                        if (abody != &null) && (abody != ad) {
+                            through.push_back(ac);
+                            prev->resolved_type = ac;
+                            cur = abody;
+                        }
+                    }
+                }
+            }
+
             var scope = self._scope_of(cur, seg->range);
             if scope == &null {
                 if !cur->is_poisoned() {
