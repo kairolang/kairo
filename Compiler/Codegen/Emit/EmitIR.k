@@ -3927,6 +3927,12 @@ class EmitIR {
     /// operator members, so the plain spelling finds them.
     priv fn _deferred_record_op(self, rop: *Decl, a: *Expr, b: *Expr) -> bool {
         if rop != &null { return false; }
+        // An operand with no type at all is a duck-typed one (`self.dyn()->
+        // prev().range` under a `<T: type>` mixin, O24): the other side's
+        // operator is chosen by clang per instance, the same as for a
+        // dependent type.
+        if (a != &null) && (a->type_ == &null) { return true; }
+        if (b != &null) && (b->type_ == &null) { return true; }
         return self._dep_typed(a) || self._dep_typed(b);
     }
 
