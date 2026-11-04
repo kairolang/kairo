@@ -709,7 +709,7 @@ class <T> CallTyping {
                 if ce->has_optional_chaining() { return self._safe_call_result(n, r); }
                 return r;
             }
-            if info->unknown { dyn()->mark_unknown(n); self._type_args_blind(n); return &null; }
+            if info->unknown { dyn()->mark_unknown(n); self._type_args_dependent(n); return &null; }
             return self._call_through(n, callee->type_);
         }
 
@@ -842,6 +842,22 @@ class <T> CallTyping {
 
     priv fn _type_args_blind(self, n: *CallExpr) {
         for var i: usize = 0; i < n->args.size(); ++i { dyn()->type_of(n->args[i], &null); }
+    }
+
+    /// The arguments of a call only the instance resolves (a member call
+    /// through a `: type` parameter, MONO.md D1): typed as written, with no
+    /// parameter to read a type from. A bare `&null` among them is the
+    /// instance's too: it goes out as `nullptr`, which converts to whatever
+    /// pointer the parameter clang picks takes, so it is left untyped
+    /// (instantiation-dependent) rather than SC076E "cannot infer" -- the
+    /// self-host mixins' `dyn()->type_of(e, &null)`.
+    priv fn _type_args_dependent(self, n: *CallExpr) {
+        for var i: usize = 0; i < n->args.size(); ++i {
+            var a = n->args[i];
+            var nl = dyn_cast::<NullLiteralExpr>(dyn()->tu.strip_parens(a));
+            if (nl != &null) && nl->is_ref { dyn()->mark_unknown(a); continue; }
+            dyn()->type_of(a, &null);
+        }
     }
 
     /// The explicit generic arguments of a call's callee name (`f<3>()`),
