@@ -534,14 +534,25 @@ class TypeExport {
     /// own copy, while the real record copies exactly when every payload
     /// does -- and phase A's member declarations ask traits
     /// (`is_copy_constructible`, a defaulted `pair` copy), never sizeof.
-    priv fn _shape(self, d: *Decl, tk: *clang::TagTypeKind, tag: *clang::QualType, out: *vec::<*Type>) -> bool {
+    priv fn _shape(self, d: *Decl, tk: *clang::TagTypeKind, tag: *clang::QualType, out: *vec::<*Type>,
+                   bases: *vec::<*Type> = &null) -> bool {
         (*tk) = clang::TagTypeKind::Struct;
         var fields: *FrozenList::<*FieldDecl> = &null;
         if isa::<StructDecl>(d) { fields = &(cast::<StructDecl>(d)->fields); }
         if isa::<UnionDecl>(d)  { (*tk) = clang::TagTypeKind::Union; fields = &(cast::<UnionDecl>(d)->fields); }
         if isa::<ClassDecl>(d) {
-            // A base would have to be mirrored first, and its layout with it.
-            if cast::<ClassDecl>(d)->derives_list.size() > 0 { return false; }
+            // Bases are mirrored as C++ bases by a caller that asks for them
+            // (\p bases, _standin_of); one that does not still refuses. A
+            // virtual base's subobject placement is not modelled.
+            var dl = &(cast::<ClassDecl>(d)->derives_list);
+            if dl->size() > 0 {
+                if bases == &null { return false; }
+                for var i: usize = 0; i < dl->size(); ++i {
+                    var e = dl->get(i);
+                    if (e == &null) || (e->base == &null) || (e->base->canonical == &null) || e->is_virtual { return false; }
+                    bases->push_back(e->base->canonical);
+                }
+            }
             fields = &(cast::<ClassDecl>(d)->fields);
         }
         if isa::<EnumDecl>(d) {
@@ -621,9 +632,22 @@ class TypeExport {
     /// False, with \p rd marked invalid, when a field has no clang type:
     /// all or nothing, or a stand-in found by name later would have the
     /// wrong shape.
-    priv fn _define(self, rd: *clang::CXXRecordDecl, tag: clang::QualType, fields: *vec::<*Type>) -> bool {
-        rd->startDefinition();
+    priv fn _define(self, rd: *clang::CXXRecordDecl, tag: clang::QualType, fields: *vec::<*Type>,
+                    bases: *vec::<clang::QualType> = &null, vptr: bool = false) -> bool {
+        if !rd->isBeingDefined() { rd->startDefinition(); }
+        if (bases != &null) && (bases->size() > 0) {
+            if self.sema == &null { rd->setInvalidDecl(); return false; }
+            var specs: llvm::SmallVector::<*clang::CXXBaseSpecifier, 4>;
+            for var i: usize = 0; i < bases->size(); ++i {
+                var tsi = self.cctx->getTrivialTypeSourceInfo((*bases)[i], clang::SourceLocation());
+                var bs = self.sema->CheckBaseSpecifier(rd, clang::SourceRange(), false, clang::AS_public, tsi, clang::SourceLocation());
+                if bs == &null { rd->setInvalidDecl(); return false; }
+                specs.push_back(bs);
+            }
+            rd->setBases(specs.data(), static_cast::<u32>(specs.size()));
+        }
         var n: usize = 0;
+        if vptr { self._add_field(rd, self.cctx->VoidPtrTy, n); n += 1; }
         if !tag.isNull() { self._add_field(rd, tag, n); n += 1; }
         for var i: usize = 0; i < fields->size(); ++i {
             var ft: clang::QualType;
@@ -755,7 +779,8 @@ class TypeExport {
         var tk = clang::TagTypeKind::Struct;
         var tag = clang::QualType();
         var fields = vec::<*Type>();
-        if !self._shape(d, &tk, &tag, &fields) { return clang::QualType(); }
+        var kbases = vec::<*Type>();
+        if !self._shape(d, &tk, &tag, &fields, &kbases) { return clang::QualType(); }
 
         var leaf = "";
         var owner = decl_type_owner(d);
@@ -781,12 +806,83 @@ class TypeExport {
         rd->setImplicit(true);
         if owner != &null { rd->setAccess(clang::AS_public); }
         dc->addDecl(rd);
-        if !self._define(rd, tag, &fields) { dc->removeDecl(rd); return clang::QualType(); }
+        // Bases (G43): `class DiagEngine derives DiagEngineVBase`, `Decl
+        // derives VisibilityAnnotation<Decl>, Annotation<Decl>`. Refused
+        // before, which left every container of such a class -- or of a
+        // nested type of one (`vector<DiagEngine::PoisonEntry>`) -- unfilled,
+        // with the pattern's dependent `size_type`. Each base's stand-in
+        // first, as a C++ base, so the layout is the Itanium one of the
+        // emitted class. A vtable pointer is a stand-in's leading `void *`
+        // (nothing calls through it); a class whose first virtual comes
+        // with non-dynamic bases would put it before them, which this does
+        // not model, so it is refused.
+        // Being defined before the bases are spelled: a CRTP base (`Decl
+        // derives Annotation<Decl>`) names this record as its argument, and
+        // the lookup above takes a record mid-definition as ours.
+        rd->startDefinition();
+        var bq = vec::<clang::QualType>();
+        var dyn_at = usize(-1);
+        for var i: usize = 0; i < kbases.size(); ++i {
+            var q = self.to_clang(kbases[i]);
+            if q.isNull() || (q->getAsCXXRecordDecl() == &null) { dc->removeDecl(rd); return clang::QualType(); }
+            if (dyn_at == usize(-1)) && self._dynamic(kbases[i], 0) { dyn_at = bq.size(); }
+            bq.push_back(q);
+        }
+        // Itanium places the first dynamic base at offset 0 (the primary
+        // base) whatever its position in the list; a stand-in's dynamism is
+        // a field clang does not see, so the order says it instead.
+        if (dyn_at != usize(-1)) && (dyn_at != 0) {
+            var ord = vec::<clang::QualType>();
+            ord.push_back(bq[dyn_at]);
+            for var i: usize = 0; i < bq.size(); ++i { if i != dyn_at { ord.push_back(bq[i]); } }
+            bq = ord;
+        }
+        var vptr = (dyn_at == usize(-1)) && self._own_virtual(d);
+        if vptr && (bq.size() > 0) { dc->removeDecl(rd); return clang::QualType(); }
+        if !self._define(rd, tag, &fields, &bq, vptr) { dc->removeDecl(rd); return clang::QualType(); }
 
         var usr = TypeImport::usr_of(rd);
         if usr.empty() { dc->removeDecl(rd); return clang::QualType(); }
         self.reg->put(usr, d);
         return clang::QualType(self.cctx->getCanonicalTagType(rd));
+    }
+
+    /// \p d declares a virtual (or override, or pure) method itself.
+    priv fn _own_virtual(self, d: *Decl) -> bool {
+        var cd = dyn_cast::<ClassDecl>(NameLookup::representative(decl_pattern(d)));
+        if cd == &null { return false; }
+        for var i: usize = 0; i < cd->methods.size(); ++i {
+            var m = cd->methods[i];
+            if m == &null { continue; }
+            if (m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) { return true; }
+            if m->body_kind == FnBodyKind::Virtual { return true; }
+        }
+        return false;
+    }
+
+    /// Record type \p t has a vtable: an imported class clang calls dynamic,
+    /// or a Kairo class with a virtual method of its own or in a base.
+    priv fn _dynamic(self, t: *Type, depth: u32) -> bool {
+        if depth > 64 { return false; }
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<RecordType>(c)) { return false; }
+        var d = cast::<RecordType>(c)->decl;
+        if d == &null { return false; }
+        if decl_is_imported(d) || decl_is_imported(NameLookup::representative(decl_pattern(d))) {
+            var q = self.to_clang(c);
+            if q.isNull() { return false; }
+            var rd = q->getAsCXXRecordDecl();
+            return (rd != &null) && rd->hasDefinition() && rd->isDynamicClass();
+        }
+        if self._own_virtual(d) { return true; }
+        var cd = dyn_cast::<ClassDecl>(NameLookup::representative(decl_pattern(d)));
+        if cd == &null { return false; }
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var e = cd->derives_list.get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            if self._dynamic(e->base->canonical, depth + 1) { return true; }
+        }
+        return false;
     }
 
     /// The stand-in TEMPLATE for Kairo generic primary \p prim: declared
