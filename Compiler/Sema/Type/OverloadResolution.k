@@ -1148,7 +1148,11 @@ class OverloadResolution {
         var n = self.explicit_args.size();
         if n == 0 { return true; }
         var gps = c->f->generic_params;
-        if n > gps.size() {
+        // A type pack among the parameters takes every written argument from
+        // its slot on ([temp.arg.explicit]/9), so the count cannot overflow.
+        var has_pack = false;
+        for var g: usize = 0; g < gps.size(); ++g { if (gps[g] != &null) && gps[g]->is_pack { has_pack = true; } }
+        if (n > gps.size()) && (!has_pack) {
             c->viable = false;
             c->reason = f"it takes {gps.size()} generic argument(s), and {n} were written";
             return false;
@@ -1157,14 +1161,38 @@ class OverloadResolution {
             var gp = gps[i];
             var a  = self.explicit_args[i];
             if (gp == &null) || (a == &null) || (gp->owner == &null) { continue; }
-            // A type pack deduces from the arguments only (PANIC.md §1.2):
-            // written elements would have to be checked against the
-            // arguments one by one, which nothing does yet.
+            // `isa<A, B>(x)` against `template <typename... To, typename From>`:
+            // the pack takes every written argument from here and the
+            // parameters after it deduce, as clang does. A pack that ALSO
+            // types a function parameter would have the written elements
+            // extended by the arguments' (push_pack appends), which nothing
+            // checks yet, so that stays rejected.
             if gp->is_pack {
-                c->viable = false;
-                var pn = self.sc->ctx->get_spelling(gp->name);
-                c->reason = f"'{pn}' is a type pack, deduced from the arguments; it cannot be written as a generic argument yet";
-                return false;
+                var in_params = false;
+                for var k: usize = 0; k < c->f->params.size(); ++k {
+                    if (c->f->params[k] != &null) && c->f->params[k]->is_pack { in_params = true; }
+                }
+                if in_params || gp->is_const_param {
+                    c->viable = false;
+                    var pn = self.sc->ctx->get_spelling(gp->name);
+                    c->reason = f"'{pn}' is a type pack, deduced from the arguments; it cannot be written as a generic argument yet";
+                    return false;
+                }
+                c->ded.open_pack(gp->owner, gp->index);
+                for var j: usize = i; j < n; ++j {
+                    var e = self.explicit_args[j];
+                    if e == &null { continue; }
+                    var ce = canon_unqual(e);
+                    if isa::<TypeExpr>(ce) && cast::<TypeExpr>(ce)->is_value {
+                        c->viable = false;
+                        var pn2 = self.sc->ctx->get_spelling(gp->name);
+                        c->reason = f"'{pn2}' is a type pack, and argument {j + 1} is a value";
+                        return false;
+                    }
+                    c->ded.push_pack(gp->owner, gp->index, e);
+                }
+                c->ded.seeded = true;
+                return true;
             }
             var ca = canon_unqual(a);
             var is_value = isa::<TypeExpr>(ca) && cast::<TypeExpr>(ca)->is_value;
