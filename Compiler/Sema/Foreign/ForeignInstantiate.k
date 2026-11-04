@@ -264,7 +264,37 @@ class ForeignInstantiate {
         //    static_assert in the pattern) are still clang's to report.
         var diags  = &(csema->getDiagnostics());
         var before = diags->getNumErrors();
+        // An instance with a class-type argument this set only declares
+        // (`DenseMapPair<GlobalDecl, V>` named by DenseMapBase's members while
+        // ASTContext.h forward-declares GlobalDecl) is often named only, never
+        // used: clang itself would never complete it. Completing it here is a
+        // hard error in libc++ (`pair` field of incomplete type) that no
+        // importer asked for, so the attempt is silent and the instance stays
+        // unfilled (G94). Any other fill keeps clang's diagnostics.
+        var quiet = false;
+        var qspec = llvm::dyn_cast_or_null::<clang::ClassTemplateSpecializationDecl>(ty->getAsCXXRecordDecl());
+        if qspec != &null {
+            var qargs = qspec->getTemplateArgs().asArray();
+            for var qi: usize = 0; qi < qargs.size(); ++qi {
+                if qargs[qi].getKind() != clang::TemplateArgument::Type { continue; }
+                var qrd = qargs[qi].getAsType()->getAsCXXRecordDecl();
+                if (qrd != &null) && (qrd->getDefinition() == &null) && (!llvm::isa::<clang::ClassTemplateSpecializationDecl>(qrd)) {
+                    quiet = true;
+                    break;
+                }
+            }
+        }
+        var was_quiet = diags->getSuppressAllDiagnostics();
+        if quiet { diags->setSuppressAllDiagnostics(true); }
         var incomplete = !csema->isCompleteType(ct->getLocation(), ty);
+        if quiet {
+            diags->setSuppressAllDiagnostics(was_quiet);
+            var qd = ty->getAsCXXRecordDecl();
+            if (qd != &null) && qd->isInvalidDecl() {
+                self._why = "clang could not complete the specialization";
+                return 0;
+            }
+        }
         if incomplete || (diags->getNumErrors() > before) {
             self._why = "clang could not complete the specialization";
             // Incomplete with no error is this SET's gap, not the instance's:
