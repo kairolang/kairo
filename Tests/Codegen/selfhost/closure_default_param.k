@@ -4,13 +4,8 @@
 // A closure parameter with a default (closures.md, Default Parameters:
 // "matching the behavior of regular functions").
 //
-// XFAIL: *
-// Waiting on call typing honouring a closure's defaults: `f(1)` is SC099E
-// "'fn (i32, i32) -> i32' takes 2 argument(s), 1 given" -- the default is
-// dropped from the closure's function type. Then on lambda emission
-// (closures.k).
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// Landed with G53 (d2cc633b): a call through the closure's local takes
+// its literal defaults, so `f(1)` is `f(1, 2)`. The run below asserts it.
 
 fn main() -> i32 {
     var f = fn (a: i32, b: i32 = 2) -> i32 { return a + b }
