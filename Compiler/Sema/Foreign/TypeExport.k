@@ -636,12 +636,12 @@ class TypeExport {
                     bases: *vec::<clang::QualType> = &null, vptr: bool = false) -> bool {
         if !rd->isBeingDefined() { rd->startDefinition(); }
         if (bases != &null) && (bases->size() > 0) {
-            if self.sema == &null { rd->setInvalidDecl(); return false; }
+            if self.sema == &null { self._abandon(rd); return false; }
             var specs: llvm::SmallVector::<*clang::CXXBaseSpecifier, 4>;
             for var i: usize = 0; i < bases->size(); ++i {
                 var tsi = self.cctx->getTrivialTypeSourceInfo((*bases)[i], clang::SourceLocation());
                 var bs = self.sema->CheckBaseSpecifier(rd, clang::SourceRange(), false, clang::AS_public, tsi, clang::SourceLocation());
-                if bs == &null { rd->setInvalidDecl(); return false; }
+                if bs == &null { self._abandon(rd); return false; }
                 specs.push_back(bs);
             }
             rd->setBases(specs.data(), static_cast::<u32>(specs.size()));
@@ -670,12 +670,45 @@ class TypeExport {
             // alignment, measured in the set that owns the type. Layout is
             // all a stand-in carries.
             if ft.isNull() && ((*fields)[i] != &null) { ft = self._opaque_like((*fields)[i]); }
-            if ft.isNull() { rd->setInvalidDecl(); return false; }
+            if ft.isNull() { self._abandon(rd); return false; }
+            // A by-value field of class type must be COMPLETE (G55): a field
+            // of an imported instance is only declared by template_id, and a
+            // stand-in completed around an incomplete subobject is a record
+            // clang never checked. Declaring its implicit copy assignment
+            // (`is_copy_assignable<ConstraintSet>` from `pair<u64,
+            // ConstraintSet>`) then walked into the subobject's missing
+            // definition and segfaulted in LookupSpecialMember. Completing
+            // it here instantiates `vector<unsafe *X>` as any use would. One
+            // that will not complete (an instance whose pattern this set only
+            // declares) is a blob in its place, measured where it is complete
+            // (_opaque_like), else a byte: a stand-in carries layout for
+            // phase A only, and an incomplete subobject is the crash, while
+            // refusing the whole stand-in left every container of the record
+            // unfilled.
+            var bt = self.cctx->getBaseElementType(ft);
+            if (!bt.isNull()) && bt->isRecordType() {
+                if (self.sema == &null) || (!self.sema->isCompleteType(clang::SourceLocation(), bt)) {
+                    var ol = self._opaque_like((*fields)[i]);
+                    ft = (ol) if (!ol.isNull()) else (clang::QualType(self.cctx->CharTy));
+                }
+            }
             self._add_field(rd, ft, n);
             n += 1;
         }
         rd->completeDefinition();
         return true;
+    }
+
+    /// A stand-in given up on after its definition started: completed (as
+    /// it stands) and invalid, never left mid-definition. Something may
+    /// already name it -- a CRTP base's specialization (`Mixin<B>` while B
+    /// is being defined), a field's container (`vector<B *>` inside B) --
+    /// and clang declaring an implicit member of THAT reaches it as a
+    /// subobject: LookupSpecialMember on a record still being defined
+    /// segfaulted the whole-tree type-check (G55).
+    priv fn _abandon(self, rd: *clang::CXXRecordDecl) {
+        if rd->isBeingDefined() { rd->completeDefinition(); }
+        rd->setInvalidDecl();
     }
 
     priv fn _add_field(self, rd: *clang::CXXRecordDecl, ft: clang::QualType, i: usize) {
@@ -806,6 +839,16 @@ class TypeExport {
         rd->setImplicit(true);
         if owner != &null { rd->setAccess(clang::AS_public); }
         dc->addDecl(rd);
+        return self._standin_body(d, rd, dc, tag, &fields, &kbases);
+    }
+
+    /// Define stand-in \p rd of \p d (declared in \p dc, empty so far):
+    /// its bases, then its fields, then register it. Null on failure, with
+    /// \p rd abandoned (_abandon) and taken out of \p dc.
+    priv fn _standin_body(self, d: *Decl, rd: *clang::CXXRecordDecl, dc: *clang::DeclContext,
+                          tag: clang::QualType, fields_in: *vec::<*Type>, kbases_in: *vec::<*Type>) -> clang::QualType {
+        var fields = *fields_in;
+        var kbases = *kbases_in;
         // Bases (G43): `class DiagEngine derives DiagEngineVBase`, `Decl
         // derives VisibilityAnnotation<Decl>, Annotation<Decl>`. Refused
         // before, which left every container of such a class -- or of a
@@ -824,7 +867,7 @@ class TypeExport {
         var dyn_at = usize(-1);
         for var i: usize = 0; i < kbases.size(); ++i {
             var q = self.to_clang(kbases[i]);
-            if q.isNull() || (q->getAsCXXRecordDecl() == &null) { dc->removeDecl(rd); return clang::QualType(); }
+            if q.isNull() || (q->getAsCXXRecordDecl() == &null) { self._abandon(rd); dc->removeDecl(rd); return clang::QualType(); }
             if (dyn_at == usize(-1)) && self._dynamic(kbases[i], 0) { dyn_at = bq.size(); }
             bq.push_back(q);
         }
@@ -838,7 +881,7 @@ class TypeExport {
             bq = ord;
         }
         var vptr = (dyn_at == usize(-1)) && self._own_virtual(d);
-        if vptr && (bq.size() > 0) { dc->removeDecl(rd); return clang::QualType(); }
+        if vptr && (bq.size() > 0) { self._abandon(rd); dc->removeDecl(rd); return clang::QualType(); }
         if !self._define(rd, tag, &fields, &bq, vptr) { dc->removeDecl(rd); return clang::QualType(); }
 
         var usr = TypeImport::usr_of(rd);
