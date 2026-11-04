@@ -2754,8 +2754,9 @@ class EmitIR {
         var dal = dyn_cast::<TypeAliasDecl>(callee);
         if (dal != &null) && (n->ctor_decl == &null) && (dal->aliased != &null) && (dal->aliased->canonical == &null) && self._spell.dependent_member(dal->aliased).size() > 0 {
             var dnw = (self._cur_fn != &null) && plan_under_duck(static_cast::<*Decl>(self._cur_fn));
-            if dnw { self._nopanic_open(n->range); }
-            self._cg->sink->spell(n->callee->range, self._spell._type(dal->aliased));
+            var dty = self._spell._type(dal->aliased);
+            if dnw { self._nopanic_open_of(n->range, dty); }
+            self._cg->sink->spell(n->callee->range, dty);
             self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
             self._args(n, &null, true, &null);
             self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
@@ -3004,6 +3005,16 @@ class EmitIR {
     priv fn _nopanic_open(self, at: SourceRange) {
         self._cg->sink->unanchored(true);
         self._cg->sink->spell(at, "(::" + LowerTargets::nopanic_call() + "()");
+        self._cg->sink->unanchored(false);
+        self._cg->sink->synth_at_start(at, clang::tok::comma);
+    }
+
+    /// As _nopanic_open for a construction of \p ty: the check names the
+    /// type, so the wrapper's comma is the builtin one and the construction
+    /// stays a prvalue, never moved (a RAII guard's move may be deleted).
+    priv fn _nopanic_open_of(self, at: SourceRange, ty: string) {
+        self._cg->sink->unanchored(true);
+        self._cg->sink->spell(at, "(::" + LowerTargets::nopanic_of() + "<" + ty + ">()");
         self._cg->sink->unanchored(false);
         self._cg->sink->synth_at_start(at, clang::tok::comma);
     }

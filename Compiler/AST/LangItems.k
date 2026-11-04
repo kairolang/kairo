@@ -1200,6 +1200,12 @@ class LowerTargets {
     /// it; a `void` call takes the builtin comma.
     static fn nopanic_call() -> string              { return "__kairo_nopanic"; }
     static fn nopanic_tag() -> string               { return "__kairo_nopanic_t"; }
+    /// `(::__kairo_nopanic_of<X>(), X(args))`: the same check for a
+    /// construction, whose type is known without the value. The check
+    /// returns `void`, so the comma is the builtin one and X(args) stays a
+    /// prvalue: through `operator,` it would be moved out, which a type
+    /// with a deleted move (a RAII guard) cannot be.
+    static fn nopanic_of() -> string                { return "__kairo_nopanic_of"; }
     static fn nopanic_trait() -> string             { return "__kairo_is_panic"; }
     static fn nopanic_guard() -> string             { return "__KAIRO_NO_PANIC"; }
     /// A nullable `fn` source's parameter in the null-keeping wrapper (P167).

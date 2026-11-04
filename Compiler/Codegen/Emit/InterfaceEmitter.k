@@ -2175,6 +2175,8 @@ class InterfaceEmitter {
         self._cg->sink->spell(at, "template <class T> struct " + ip + "<const T> : " + ip + "<T> {};");
         self._cg->sink->spell(at, "struct " + tg + " {};");
         self._cg->sink->spell(at, "constexpr " + tg + " " + LowerTargets::nopanic_call() + "() noexcept { return {}; }");
+        self._cg->sink->spell(at, "template <class T> constexpr void " + LowerTargets::nopanic_of() + "() noexcept { "
+            + "static_assert(!" + ip + "<T>::value, \"a call through a '<T: type>' parameter that may panic is not yet supported (C++-checked generics)\"); }");
         self._cg->sink->spell(at, "template <class T> constexpr T operator,(" + tg + ", T&& v) noexcept { "
             + "static_assert(!" + ip + "<T>::value, \"a call through a '<T: type>' parameter that may panic is not yet supported (C++-checked generics)\"); "
             + "return static_cast<T&&>(v); }");

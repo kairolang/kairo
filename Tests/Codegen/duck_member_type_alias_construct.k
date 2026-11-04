@@ -17,14 +17,14 @@ class <T: type> Mixin {
     pub fn ahead(self) -> bool {
         type G = T::Guard;
         var t = G(self.dyn());
-        return self.dyn()->pos >= 10;
+        return self.dyn()->pos == 10;
     }
 }
 
 fn main() -> i32 {
     var h = Host();
     if !h.ahead() { return 1 }
-    if h.pos < 11 { return 2 }
+    if h.pos != 11 { return 2 }
     return 0
 }
 
