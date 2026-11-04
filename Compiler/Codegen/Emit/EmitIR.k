@@ -116,6 +116,9 @@ class EmitIR {
     priv var _spell: CXXSpell;
     /// The function whose body is being emitted. Decides what `self` means.
     priv var _cur_fn:  *FunctionDecl  = &null;
+    /// The callee step of the call being emitted whose overload only an
+    /// instance can pick because an argument is dependent (_dependent_arg_member).
+    priv var _arg_dep_step: *ChainExpr::Step = &null;
     priv var _cur_ext: *ExtensionDecl = &null;   ///< non-null inside an extension member.
     /// The method _body writes went out with its `requires` as a trailing
     /// clause (CXXSpell::member_requires, P235): no static_asserts for it.
@@ -2484,7 +2487,7 @@ class EmitIR {
         // spelled as written, as clang resolves a dependent call. The
         // dependent receiver is the evidence; the typer marks the CALL
         // unknown, not the callee chain.
-        if st->candidate_cell != &null { return self._foreign_dependent_receiver(n, st); }
+        if st->candidate_cell != &null { return (st == self._arg_dep_step) || self._foreign_dependent_receiver(n, st); }
         if (!n->is_instantiation_dependent()) && (!via_local) { return false; }
         return self._duck_rooted(n);
     }
@@ -2715,7 +2718,8 @@ class EmitIR {
             if dw { self._nopanic_close(n->range); }
             return;
         }
-        var callee = self._callee_decl(n->callee);
+        var callee: *Decl = &null;
+        if (!self._dependent_arg_member(n)) { callee = self._callee_decl(n->callee); }
         // A call through a `fn` value: a local, a parameter, a field, or any
         // expression of `fn` type (`make()(4)`). Its parameters are the
         // type's; an operand that names a function is a plain call below.
@@ -2748,11 +2752,16 @@ class EmitIR {
             // SC116E) and a discarded call would drop. The wrapper stops
             // that instance (LowerTargets::nopanic_call).
             if self._dependent_member_call(n) {
+                if self._dependent_arg_member(n) {
+                    var dch = cast::<ChainExpr>(n->callee);
+                    self._arg_dep_step = dch->steps.get(dch->steps.size() - 1);
+                }
                 // A C++ member left to each instance (G33) cannot return a
                 // Kairo panic result; only a duck body's callee can.
                 var nw = (self._cur_fn != &null) && plan_under_duck(static_cast::<*Decl>(self._cur_fn));
                 if nw { self._nopanic_open(n->range); }
                 self.emit(n->callee);
+                self._arg_dep_step = &null;
                 self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
                 self._args(n, &null, true, &null);
                 self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
@@ -3000,10 +3009,27 @@ class EmitIR {
         return self._duck_operand(n->rhs);
     }
 
+    /// A member of a concrete C++ instance (`out.push_back(x)` on a
+    /// `vector<*Decl>`) left to its overload set because an ARGUMENT is
+    /// dependent (`unsafe (cur as *Decl)` with `cur` of a `<T: type>` type):
+    /// the overload cannot be picked until an instance fixes the argument,
+    /// so the call goes out as written and clang resolves it per instance.
+    priv fn _dependent_arg_member(self, n: *CallExpr) -> bool {
+        var ch = dyn_cast::<ChainExpr>(n->callee);
+        if (ch == &null) || (ch->steps.size() == 0) { return false; }
+        var last = ch->steps.get(ch->steps.size() - 1);
+        if (last->resolved_decl != &null) || (last->candidate_cell == &null) { return false; }
+        for var i: usize = 0; i < n->args.size(); ++i {
+            if n->args[i]->is_instantiation_dependent() { return true; }
+        }
+        return false;
+    }
+
     /// \p n calls a member Sema left unbound because its receiver is
     /// dependent (_dependent_step): the callee is a value chain whose LAST
     /// step is that member.
     priv fn _dependent_member_call(self, n: *CallExpr) -> bool {
+        if self._dependent_arg_member(n) { return true; }
         var ch = dyn_cast::<ChainExpr>(n->callee);
         if (ch == &null) || (ch->steps.size() == 0) { return false; }
         var last = ch->steps.get(ch->steps.size() - 1);
