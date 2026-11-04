@@ -290,7 +290,12 @@ class EarlyNeeds derives RecursiveASTVisitor::<EarlyNeeds> {
                 }
             }
             case ExprKind::CallExpr { self.named(cast::<CallExpr>(e)->ctor_decl); }
-            case ExprKind::BinaryOperatorExpr { self.named(cast::<BinaryOperatorExpr>(e)->resolved_op); }
+            case ExprKind::BinaryOperatorExpr {
+                var bo = cast::<BinaryOperatorExpr>(e);
+                self.named(bo->resolved_op);
+                // `typeof T == U`: EmitIR spells both types (__is_same).
+                if bo->type_cmp_lhs != &null { self.rec_type(bo->type_cmp_lhs); self.rec_type(bo->type_cmp_rhs); }
+            }
             case ExprKind::UnaryOperatorExpr { self.named(cast::<UnaryOperatorExpr>(e)->resolved_op); }
             case ExprKind::SizeOfExpr { self.rec_type(cast::<SizeOfExpr>(e)->type_arg); }
             case ExprKind::AlignOfExpr { self.rec_type(cast::<AlignOfExpr>(e)->type_arg); }
@@ -2302,6 +2307,13 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
         } case ExprKind::TypeTraitExpr {
             // clang's trivially-* builtins need the type complete, as sizeof does.
             self._admit_type(cast::<TypeTraitExpr>(e)->type_arg, PlanNeed::Complete);
+        } case ExprKind::BinaryOperatorExpr {
+            // `typeof T == U` (G67): `__is_same` only names its types.
+            var bo = cast::<BinaryOperatorExpr>(e);
+            if bo->type_cmp_lhs != &null {
+                self._admit_type(bo->type_cmp_lhs, PlanNeed::Fwd);
+                self._admit_type(bo->type_cmp_rhs, PlanNeed::Fwd);
+            }
         } case ExprKind::CallExpr {
             // A generic callee's instance: tier 3, homed where it was first
             // named, `extern template` elsewhere. A FUNCTION instance's decl

@@ -1047,15 +1047,44 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         if (n == &null) || (!n->is_eval) { return RecursiveASTVisitor::<ChainBinding>::traverse_conditional_stmt(n); }
         if self.dyn()->walkup_conditional_stmt(n) == false { return n; }
         if n->cond != &null { n->cond = self.dyn()->dispatch_expr(n->cond); }
+        // `eval if typeof T == U` over a generic parameter (G67): which
+        // branch runs is known per instance only, and the unselected ones
+        // are not checked (eval.md "Type-based branching"), so no branch
+        // reports here; C++ checks the one each instance takes.
+        var dep = self._typeof_param(n->cond);
         var mark = self._narrow_params.size();
         self._narrow_from(n->cond);
+        if dep { self.sc->diag->push_suppress(); }
         n->then_ = self.dyn()->traverse_block(n->then_);
+        if dep { self.sc->diag->pop_suppress(); }
         while self._narrow_params.size() > mark {
             self._narrow_params.pop_back();
             self._narrow_ifaces.pop_back();
         }
+        var sup_else = dep && (n->else_ != &null) && (!isa::<ConditionalStmt>(n->else_));
+        if sup_else { self.sc->diag->push_suppress(); }
         if n->else_ != &null { n->else_ = self.dyn()->dispatch_stmt(n->else_); }
+        if sup_else { self.sc->diag->pop_suppress(); }
         return n;
+    }
+
+    /// \p e0 holds `typeof P` with P a generic parameter (G67).
+    priv fn _typeof_param(self, e0: *Expr) -> bool {
+        var e = e0;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        if e == &null { return false; }
+        var t = dyn_cast::<TypeOfExpr>(e);
+        if t != &null {
+            var o = t->operand;
+            while (o != &null) && isa::<ParenExpr>(o) { o = cast::<ParenExpr>(o)->inner; }
+            var id = dyn_cast::<NamedIdentExpr>(o);
+            return (id != &null) && (id->resolved_decl != &null) && isa::<GenericParamDecl>(id->resolved_decl);
+        }
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if b != &null { return self._typeof_param(b->lhs) || self._typeof_param(b->rhs); }
+        var u = dyn_cast::<UnaryOperatorExpr>(e);
+        if u != &null { return self._typeof_param(u->operand); }
+        return false;
     }
 
     /// Pushes each `P impl I` conjunct of \p e0 whose P is a generic

@@ -880,7 +880,18 @@ class ExprTyper
         if e == &null { return &null; }
         self.type_of(e, &null);
         var it = self._typeexp.find(reinterpret_cast::<u64>(e));
-        if it == self._typeexp.end() { return &null; }
+        if it == self._typeexp.end() {
+            // A bare primitive (`u32` in `typeof T == u32`, G67): N leaves
+            // the head unbound on purpose (CallTyping: `u32(x)`); it still
+            // names its builtin.
+            var id = dyn_cast::<NamedIdentExpr>(e);
+            if (id != &null) && is_annotation(id->name.kind) && (!id->is_poisoned()) {
+                var b = self.tu.builtin(builtin_for_token(id->name.kind));
+                if b != &null { self.note_type_expr(e, b); }
+                return b;
+            }
+            return &null;
+        }
         return it->second;
     }
 

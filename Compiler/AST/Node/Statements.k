@@ -628,6 +628,11 @@ class ConditionalStmt derives Stmt {
     /// the hint for the else branch, as the statement's own attribute is for
     /// the then branch. EmitIR::_if reads it.
     pub var else_hint: u8;
+    /// An `eval if` over `typeof T == U` that X decided (G67): 1 the then
+    /// branch is taken, 2 the else side; 0 undecided. The untaken branch is
+    /// already emptied or dropped; ControlFlowAnalysis reads the taken one
+    /// alone, as the emptied branch is never run. One writer: StmtTyping.
+    pub var eval_taken: u8;
 
     static fn create(
         ctx:   *ASTContext,
@@ -646,6 +651,7 @@ class ConditionalStmt derives Stmt {
         node->is_eval = false;
         node->eval_deferred = false;
         node->else_hint = 0;
+        node->eval_taken = 0;
         return node;
     }
 
@@ -656,6 +662,7 @@ class ConditionalStmt derives Stmt {
         node->is_eval       = false;
         node->eval_deferred = false;
         node->else_hint     = 0;
+        node->eval_taken    = 0;
         node->range         = range;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;

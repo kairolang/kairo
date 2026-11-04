@@ -116,6 +116,10 @@ class FallThrough {
             }
             case StmtKind::ConditionalStmt {
                 var c = cast::<ConditionalStmt>(s);
+                // A decided `eval if typeof T == U` (G67): only the taken
+                // side ever runs; the other is emptied, not a path.
+                if c->eval_taken == 1 { return self.block_falls_through(c->then_); }
+                if c->eval_taken == 2 { return self.falls_through(c->else_); }
                 // No `else`: the false edge falls through regardless of `then`.
                 if c->else_ == &null { return true; }
                 if self.block_falls_through(c->then_) { return true; }

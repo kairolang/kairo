@@ -1029,15 +1029,70 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     fn traverse_conditional_stmt(self, n: *ConditionalStmt) -> *ConditionalStmt {
         if n == &null { return n; }
         if n->cond != &null { dyn()->require_bool(n->cond, "the 'if' condition"); }
+        // An `eval if` over `typeof T == U` (EVAL.md "Type-based branching"):
+        // the unselected branches are not type-checked. Decided here (0/1),
+        // the untaken branch is dropped from the tree, so no later pass and
+        // no C++ compile sees code that is invalid for these types. Decided
+        // only per instance (2: a generic parameter), every branch is typed
+        // with its diagnostics dropped -- the tree still gets its terminal
+        // states -- and `if constexpr (__is_same(T, U))` lets C++ check the
+        // one branch each instance takes.
+        var sel = (self._type_cmp_truth(n->cond)) if (n->is_eval) else (-1);
+        if sel == 1 { n->else_ = &null; n->eval_taken = 1; }
+        if (sel == 0) && (n->then_ != &null) { n->then_ = CompoundStmt::create(dyn()->sc->ctx, n->then_->range); n->eval_taken = 2; }
+        if sel == 2 { dyn()->sc->diag->push_suppress(); }
         var c = dyn()->flow.cond_of(n->cond);
         dyn()->flow.env = c.t;
         if n->then_ != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->then_)); }
+        if sel == 2 { dyn()->sc->diag->pop_suppress(); }
         var then_env = dyn()->flow.env;
         dyn()->flow.env = c.f;
+        // An else-if link is a ConditionalStmt of its own, decided when it
+        // is dispatched; a final `else` here is the dependent chain's.
+        var sup_else = (sel == 2) && (n->else_ != &null) && (!isa::<ConditionalStmt>(n->else_));
+        if sup_else { dyn()->sc->diag->push_suppress(); }
         if n->else_ != &null { dyn()->dispatch_stmt(n->else_); }
+        if sup_else { dyn()->sc->diag->pop_suppress(); }
         var else_env = dyn()->flow.env;
         dyn()->flow.env = dyn()->flow.join(&then_env, &else_env);
         return n;
+    }
+
+    /// \p e, an `eval if` condition built of `typeof T == U` comparisons
+    /// (OperatorTyping wrote type_cmp_lhs/rhs), `!`, `&&`, `||`, parentheses
+    /// and bool literals: 1 / 0 when it is decided here, 2 when it depends
+    /// on a generic parameter, -1 when it is not such a condition (it stays
+    /// an ordinary `eval if`).
+    priv fn _type_cmp_truth(self, e0: *Expr) -> i32 {
+        var e = dyn()->tu.strip_parens(e0);
+        if (e == &null) || e->is_poisoned() { return -1; }
+        if isa::<BooleanLiteralExpr>(e) { return (1) if (cast::<BooleanLiteralExpr>(e)->value) else (0); }
+        var u = dyn_cast::<UnaryOperatorExpr>(e);
+        if (u != &null) && u->is_prefix() && ((u->op_token.kind == TokenKind::OpExclaim) || (u->op_token.kind == TokenKind::KwNot)) {
+            var v = self._type_cmp_truth(u->operand);
+            if (v == 0) || (v == 1) { return 1 - v; }
+            return v;
+        }
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if b == &null { return -1; }
+        if b->type_cmp_lhs != &null {
+            if b->type_cmp_lhs->is_dependent() || b->type_cmp_rhs->is_dependent() { return 2; }
+            var same = b->type_cmp_lhs == b->type_cmp_rhs;
+            if b->op_token.kind != TokenKind::OpEqualEqual { same = !same; }
+            return (1) if (same) else (0);
+        }
+        var k = b->op_token.kind;
+        var is_and = (k == TokenKind::OpAmpAmp) || (k == TokenKind::KwAnd);
+        var is_or  = (k == TokenKind::OpPipePipe) || (k == TokenKind::KwOr);
+        if (!is_and) && (!is_or) { return -1; }
+        var l = self._type_cmp_truth(b->lhs);
+        var r = self._type_cmp_truth(b->rhs);
+        if (l == -1) || (r == -1) { return -1; }
+        // A decided side settles it when it is the absorbing value.
+        if is_and && ((l == 0) || (r == 0)) { return 0; }
+        if is_or  && ((l == 1) || (r == 1)) { return 1; }
+        if (l == 2) || (r == 2) { return 2; }
+        return (1) if (is_and) else (0);
     }
 
     /// `outer: while ...`: the loop's `break outer` joins into it, not into

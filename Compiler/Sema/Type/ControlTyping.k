@@ -992,18 +992,22 @@ class <T> ControlTyping {
     /// a type-denoting head (usable as `typeof(x)::Foo` or a ctor).
     fn type_typeof(self, n: *TypeOfExpr, expected: *Type) -> *Type {
         var t = dyn()->type_of(n->operand, &null);
-        if dyn()->propagate(n, n->operand) { return &null; }
         if t == &null {
             // A type operand (`typeof T`, `typeof Foo`) has no value type by
             // design but denotes one: `typeof T` names T. Returning with no
             // note left the node in no terminal state, which finish() reports
-            // as an internal error (P378: `eval if typeof T == X`).
+            // as an internal error (P378: `eval if typeof T == X`). Asked
+            // before propagate: a bare primitive (`typeof u32`, G67) is
+            // "unknown" to N on purpose, yet names its builtin.
             var d = dyn()->denoted_type(n->operand);
-            if d == &null { return &null; }
-            n->resolved_type = d;
-            dyn()->note_type_expr(static_cast::<*Expr>(n), d);
-            return &null;
+            if d != &null {
+                n->resolved_type = d;
+                dyn()->note_type_expr(static_cast::<*Expr>(n), d);
+                return &null;
+            }
         }
+        if dyn()->propagate(n, n->operand) { return &null; }
+        if t == &null { return &null; }
         n->resolved_type = t;
         dyn()->note_type_expr(static_cast::<*Expr>(n), t);
         return &null;

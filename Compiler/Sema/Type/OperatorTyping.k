@@ -583,6 +583,26 @@ class <T> OperatorTyping {
         // the expected type, the exponent is its own integer.
         if k == TokenKind::OpCaretCaret { return self._type_pow(n, expected); }
 
+        // `typeof T == U` (EVAL.md "Type-based branching"): two types
+        // compared, a compile-time bool. Asked before the operands are typed
+        // as values: each would be "a type, not a value" (SC094E) and `typeof`
+        // the TypeInfo value that does not exist yet (U001E).
+        if (k == TokenKind::OpEqualEqual) || (k == TokenKind::OpExclaimEqual) || (k == TokenKind::KwNotEq) {
+            if isa::<TypeOfExpr>(n->lhs) || isa::<TypeOfExpr>(n->rhs) {
+                var lt = dyn()->denoted_type(n->lhs);
+                var rt = dyn()->denoted_type(n->rhs);
+                // Before propagate: a bare primitive operand is left "unknown"
+                // on purpose (N does not bind it), which is not this node's.
+                if (lt != &null) && (rt != &null) {
+                    n->type_cmp_lhs = (lt->canonical) if (lt->canonical != &null) else (lt);
+                    n->type_cmp_rhs = (rt->canonical) if (rt->canonical != &null) else (rt);
+                    n->value_category = Expr::ValueCategory::RValue;
+                    return dyn()->tu.builtin(BuiltinKind::Bool);
+                }
+                if dyn()->propagate(n, n->lhs) || dyn()->propagate(n, n->rhs) { return &null; }
+            }
+        }
+
         // `x == null` and the other three spellings are the null test
         // (NULLABLE.md 2.2). Asked before the operands are typed: a `null`
         // typed against a non-nullable would report "cannot infer the type

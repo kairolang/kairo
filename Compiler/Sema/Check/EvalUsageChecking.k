@@ -1026,6 +1026,8 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         if isa::<BinaryOperatorExpr>(e) {
             var b = cast::<BinaryOperatorExpr>(e);
             if b->resolved_op != &null { return e; }
+            // `typeof T == U` (G67): two types compared, never a value.
+            if b->type_cmp_lhs != &null { return &null; }
             var l = self._first_runtime(b->lhs);
             if l != &null { return l; }
             return self._first_runtime(b->rhs);

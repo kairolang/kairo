@@ -938,6 +938,12 @@ class BinaryOperatorExpr derives Expr {
     /// stage0 reason as Decl::semantic_dc. OperatorLowering copies it onto the
     /// call it mints, and EmitIR spells the instance's arguments from it.
     pub var op_instance: *void = &null;
+    /// `typeof T == U` / `!=` (EVAL.md "Type-based branching", G67): the two
+    /// canonical types compared, both set or both null. One writer: X
+    /// (OperatorTyping). StmtTyping folds an `eval if` over them and EmitIR
+    /// spells `__is_same(L, R)`: the operands are types, never emitted.
+    pub var type_cmp_lhs: *Type = &null;
+    pub var type_cmp_rhs: *Type = &null;
 
     static fn create(
         ctx:      *ASTContext,
@@ -959,6 +965,8 @@ class BinaryOperatorExpr derives Expr {
         node->tag_eq      = false;
         node->no_wrap     = false;
         node->op_instance = &null;
+        node->type_cmp_lhs = &null;
+        node->type_cmp_rhs = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -979,6 +987,8 @@ class BinaryOperatorExpr derives Expr {
         node->tag_eq        = false;
         node->no_wrap       = false;
         node->op_instance   = &null;
+        node->type_cmp_lhs  = &null;
+        node->type_cmp_rhs  = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

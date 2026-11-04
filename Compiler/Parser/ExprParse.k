@@ -2368,9 +2368,17 @@ class <T> ExprParse {
         // reporting "expected expression" instead of silently parsing as a
         // name. Postfix then sees the `(` or `::` and builds the CallExpr or
         // the chain, exactly as it does after an identifier.
+        // `typeof u32` and `typeof T == u32` (eval.md "Type-based
+        // branching", G67) name the type itself: after `typeof`, or as the
+        // other side of an equality, a bare primitive is the type operand
+        // OperatorTyping compares (a value comparison still reports it as a
+        // type, not a value, in Sema).
+        var pk = dyn()->prev().kind;
+        var type_operand = (pk == TokenKind::KwTypeOf) || (pk == TokenKind::OpEqualEqual)
+            || (pk == TokenKind::OpExclaimEqual) || (pk == TokenKind::KwNotEq);
         if dyn()->check(fn(k: TokenKind) -> bool {
             return is_annotation(k);
-        }) && (((dyn()->ig_peek_kind()) == TokenKind::OpLParen)
+        }) && (type_operand || ((dyn()->ig_peek_kind()) == TokenKind::OpLParen)
             || ((dyn()->ig_peek_kind()) == TokenKind::OpColonColon)) {
             if ((dyn()->ig_peek_kind()) == TokenKind::OpColonColon) && (dyn()->tu != &null) {
                 dyn()->tu->has_prim_member = true;   // PrimitiveLimitDesugar mints it.

@@ -4466,6 +4466,15 @@ class EmitIR {
     }
 
     priv fn _binary(self, n: *BinaryOperatorExpr) {
+        // `typeof T == U` (G67): the operands are types, never values; clang
+        // answers the comparison, per instance in a template.
+        if n->type_cmp_lhs != &null {
+            var neg = ("!") if (n->op_token.kind != TokenKind::OpEqualEqual) else ("");
+            var ls = self._spell._type(n->type_cmp_lhs);
+            var rs = self._spell._type(n->type_cmp_rhs);
+            self._cg->sink->spell(n->range, "(" + neg + "__is_same(" + ls + ", " + rs + "))");
+            return;
+        }
         if (n->op_token.kind == TokenKind::OpEqualEqualEqual) { self._ice(n->range, "EmitIR: `===`; CoalesceLowering owns it"); }
         if (self._record_operand(n->lhs) || self._record_operand(n->rhs)) && (!self._deferred_record_op(n->resolved_op, n->lhs, n->rhs)) { self._ice(n->range, "EmitIR: user operator; OperatorLowering must rewrite it into a call"); }
         var k = n->op_token.kind;
