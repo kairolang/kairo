@@ -1844,11 +1844,22 @@ class OverloadResolution {
                 var forwarding = isa::<GenericParamType>(rr) && (canon_quals(rr) == 0);
                 if lvalue && (!forwarding) { return ImplicitRank::None; }
             } else if isa::<CXXLValueRefType>(pc) {
-                if rvalue && (!canon_has_const(cast::<CXXLValueRefType>(pc)->referee)) { return ImplicitRank::None; }
+                // A MOVE value is only an xvalue by CallTyping's say-so; a plain `T&` borrows it.
+                if rvalue && (!a->pass_moves) && (!canon_has_const(cast::<CXXLValueRefType>(pc)->referee)) { return ImplicitRank::None; }
             }
             return u;
         }
-        var r = self.conv->implicit_arg(a->ty, pt, a->cat, a->is_const);
+        // A MOVE value passed to a plain `T&` is not moved from: the reference
+        // borrows it (`T&` is an `@inout` parameter, c-cpp-calling.md), so
+        // it binds as the lvalue it is -- the xvalue CallTyping gave it would
+        // never bind a non-const lvalue reference, and `ci->ExecuteAction(act)`
+        // with a non-copyable `act` had no viable candidate (G77).
+        var cat = a->cat;
+        if a->pass_moves && isa::<CXXLValueRefType>(pt)
+        && (!canon_has_const(cast::<CXXLValueRefType>(pt)->referee)) {
+            cat = Expr::ValueCategory::LValue;
+        }
+        var r = self.conv->implicit_arg(a->ty, pt, cat, a->is_const);
         // A C/C++ signature reads `size_t` at the target's width: `u32` into
         // `write(int, const void*, size_t)` widens there (Conversion::abi_widen).
         if (r == ImplicitRank::None) && (c->f != &null) && c->f->is_imported() {
