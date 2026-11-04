@@ -395,6 +395,16 @@ class ForeignInstantiate {
                     fn (ps: llvm::ArrayRef::<clang::QualType>, only: bool) -> bool { return false; });
         if r == clang::TemplateDeductionResult::Success {
             if want_ret && (spec != &null) {
+                // `decltype(auto)` / `auto` (llvm::dyn_cast, cast, isa): the
+                // specialization's declared return type is the placeholder
+                // until its body is instantiated, and imported as such it is
+                // opaque -- `dyn_cast<TagDecl>(nd)` typed as nothing, so
+                // every `->` on it was R027E. clang deduces it as it would
+                // at a call: by instantiating the definition, quietly (a
+                // failure leaves the placeholder, and the call untyped).
+                if spec->getReturnType()->getContainedDeducedType() != &null {
+                    csema->DeduceReturnType(spec, loc, false);
+                }
                 var t = self._hindex->target_for_fid(decl_origin_fid(f));
                 if t != &null {
                     var ti = self._hindex->type_importer_for(hs, t->ctx, t->fid);
