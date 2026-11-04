@@ -91,6 +91,15 @@ class TypeImport {
     /// answer. Empty outside a fill (note_pointer_arg).
     priv var _ptr_args: llvm::DenseMap::<u64, *Type>;
 
+    /// The same for a pointer-sized integer argument. `vector<usize>` is
+    /// `vector<unsigned long>` to C++ and `unsigned long` canonicalizes to
+    /// u64, so `v[i]` came back `u64&` and no usize converts to it (G87).
+    /// Keyed by the canonical builtin; a fill is one TypeImport, so the
+    /// entry cannot leak into another instance. A key two arguments claim
+    /// with different Kairo types (`map<u64, usize>`) holds null: the
+    /// canonical type cannot say which, and the ordinary mapping answers.
+    priv var _int_args: llvm::DenseMap::<u64, *Type>;
+
     fn TypeImport(self, store: *CanonicalTypeStore, instances: *InstantiationRegistry,
                   reg: *ForeignRegistry, cctx: *clang::ASTContext, kctx: *ASTContext, fid: u32) {
         self.store     = store;
@@ -298,7 +307,13 @@ class TypeImport {
 
         // --- builtins ---------------------------------------------------------
         var bt = llvm::dyn_cast::<clang::BuiltinType>(ty);
-        if bt != &null { return self._builtin(bt); }
+        if bt != &null {
+            if !self._int_args.empty() {
+                var ii = self._int_args.find(reinterpret_cast::<u64>(ty));
+                if (ii != self._int_args.end()) && (ii->second != &null) { return ii->second; }
+            }
+            return self._builtin(bt);
+        }
 
         // --- pointers / references --------------------------------------------
         var pt = llvm::dyn_cast::<clang::PointerType>(ty);
@@ -540,6 +555,17 @@ class TypeImport {
             self._note_arg(kn->inner, nargs[0].getAsType(), depth + 1);
             return;
         }
+        var kb = dyn_cast::<BuiltinType>(ku);
+        if (kb != &null) && TypeImport::is_ptr_int(kb) {
+            if !cu->isBuiltinType() { return; }
+            var ie = self._int_args.find(reinterpret_cast::<u64>(cu));
+            if ie == self._int_args.end() {
+                self._int_args.try_emplace(reinterpret_cast::<u64>(cu), ku);
+            } else if ie->second != ku {
+                ie->second = &null;
+            }
+            return;
+        }
         var cp = llvm::dyn_cast::<clang::PointerType>(cu);
         if cp != &null {
             if !isa::<PointerType>(ku) { return; }
@@ -563,11 +589,18 @@ class TypeImport {
         }
     }
 
-    /// \p t holds a Kairo pointer: is one, or is an instance with one among
-    /// its arguments (the args note_pointer_arg has anything to record for).
+    static fn is_ptr_int(b: *BuiltinType) -> bool {
+        return (b->builtin == BuiltinKind::USize) || (b->builtin == BuiltinKind::ISize);
+    }
+
+    /// \p t holds a Kairo pointer or usize/isize: is one, or is an instance
+    /// with one among its arguments (the args note_pointer_arg has anything
+    /// to record for).
     static fn has_pointer_arg(t: *Type) -> bool {
         var u = canon_unqual(t);
         if u == &null { return false; }
+        var ub = dyn_cast::<BuiltinType>(u);
+        if (ub != &null) && TypeImport::is_ptr_int(ub) { return true; }
         if isa::<PointerType>(u) { return true; }
         if isa::<NullableType>(u) { return TypeImport::has_pointer_arg(cast::<NullableType>(u)->inner); }
         var rk = dyn_cast::<RecordType>(u);
