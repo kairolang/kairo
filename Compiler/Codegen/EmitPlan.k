@@ -2624,6 +2624,14 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
                 self._admit(d, need);                 // _admit_instance handles the args.
             } else {
                 self._admit(d, need);
+                // `Outer::Inner` spelled anywhere -- behind a pointer or as an
+                // argument a template holds only by pointer (`FrozenList<
+                // ChainType::GenericArg>`) -- is a nested-name-specifier: C++
+                // needs Outer complete, whatever the layout needs of Inner.
+                if (d != &null) && (d->semantic_dc != &null) {
+                    var own = self._outermost_type(d);
+                    if own != d { self._admit(own, PlanNeed::Complete); }
+                }
                 for var i: usize = 0; i < r->args.size(); ++i {
                     var n = need;
                     if !self._arg_by_value(d, i) { n = PlanNeed::Fwd; }
