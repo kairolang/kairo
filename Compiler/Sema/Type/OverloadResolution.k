@@ -210,8 +210,9 @@ class Candidate {
     pub var binds:        vec::<u8>;
     /// per arg: how a TYPED integer argument bound AT EXACT -- 0 not judged
     /// (not an integer, not Exact, an untyped literal), 1 its natural C
-    /// type, 2 a same-width C alias (ParamDecl::cxx_int_alias). Read only
-    /// by the integer tiebreak.
+    /// type, 2 a same-width C alias (ParamDecl::cxx_int_alias) -- and how a
+    /// string literal bound a C string parameter: 1 `const char *`, 2 a
+    /// byte pointer (P301). Read only by the integer tiebreak.
     pub var ints:         vec::<u8>;
     /// per arg: how an untyped FLOAT LITERAL bound at Exact to a
     /// non-dependent float parameter -- 0 not judged, 1 f64 (C++'s double,
@@ -1503,7 +1504,18 @@ class OverloadResolution {
             }
             var r = ImplicitRank::None;
             if self._transfer_upcast(f, p, a, pt, has_receiver) { r = ImplicitRank::Converted; }
-            else if self._c_string_literal_arg(f, a, pt, mode) { r = ImplicitRank::Converted; }
+            else if self._c_string_literal_arg(f, a, pt, mode) {
+                r = ImplicitRank::Converted;
+                // P301 takes a literal at `const char *` AND `const u8 *`
+                // (unsigned char, char8_t, uint8_t), but to C++ the literal
+                // IS `const char[N]`: only the first is viable there. Both
+                // here, they tied -- `llvm::outs() << "\n"` against
+                // raw_ostream's `<<(const char *)` and its deleted
+                // `<<(const char8_t *)`. The integer tiebreak orders them:
+                // `char` is the natural spelling, a byte pointer the alias.
+                var lp = self.tu.pointee(canon_unqual(pt));
+                c->ints[i] = (1) if ((lp != &null) && self.tu.is_builtin(canon_unqual(lp), BuiltinKind::CChar)) else (2);
+            }
             else { r = self._rank_arg(c, ra, rt, pi == usize(-1), mode); }
             // `Box<i32>::Box(self, n)` from `class IntBox derives Box<i32>`:
             // a generic record's `self` is `Box<T>`, and unification alone
