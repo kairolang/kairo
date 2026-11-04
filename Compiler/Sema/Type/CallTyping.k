@@ -321,7 +321,7 @@ class <T> CallTyping {
             if f->is_imported() && (pt != &null) && (p->mode != ParamMode::Inout) && (!a->marked)
             && dyn()->tu.is_c_string_param(pt) {
                 var sl = dyn()->tu.c_string_literal(a->expr);
-                if sl != &null { sl->c_string = canon_unqual(pt); continue; }
+                if sl != &null { sl->c_string = dyn()->tu.as_value(pt); continue; }
             }
             // Either side dependent -- only reachable through a dependent
             // constructor call -- is the instance's question, as it is for

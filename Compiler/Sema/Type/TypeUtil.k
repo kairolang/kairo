@@ -661,7 +661,18 @@ class TypeUtil {
     /// char *`) or `const u8`. Const only: the bytes are a C++ literal in
     /// read-only storage, so a `char *` that may be written is refused.
     fn is_c_string_param(self, t: *Type) -> bool {
-        var p = self.pointee(t);
+        // A C++ template member's `const T&` / `T&&` with T = `const char *`
+        // (vector<const char*>::push_back) is the same slot: the literal
+        // decays to a pointer temporary the reference binds. A non-const
+        // lvalue reference cannot bind that temporary, as in C++.
+        var u = t;
+        if (u != &null) && isa::<CXXLValueRefType>(u) {
+            u = cast::<CXXLValueRefType>(u)->referee;
+            if !canon_has_const(u) { return false; }
+        } else if (u != &null) && isa::<CXXRValueRefType>(u) {
+            u = cast::<CXXRValueRefType>(u)->referee;
+        }
+        var p = self.pointee(u);
         if (p == &null) || (!canon_has_const(p)) { return false; }
         var k = self.kind_of(canon_unqual(p));
         return (k == BuiltinKind::CChar) || (k == BuiltinKind::U8);

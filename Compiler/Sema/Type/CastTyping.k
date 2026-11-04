@@ -109,6 +109,15 @@ class <T> CastTyping {
         var op_expected = target;
         var ped = dyn_cast::<EnumDecl>(dyn()->tu.record_decl(dyn()->tu.strip_nullable(target)));
         if (ped != &null) && (!ped->is_adt) && (!ped->is_imported()) { op_expected = self._enum_underlying(ped); }
+        // Into `char` an explicit `as` from an integer literal is the u32 to
+        // char conversion, which is UNCHECKED (ruling 2026-11-04: `0xFFFFFFFF
+        // as char32` is the sentinel, not a trap). The scalar-value range
+        // test belongs to the IMPLICIT literal adaptation only, so the
+        // literal is typed as the u32 it must fit and the cast does the rest.
+        if dyn()->tu.is_builtin(canon_unqual(target), BuiltinKind::Char)
+        && isa::<IntegerLiteralExpr>(dyn()->tu.strip_parens(n->operand)) {
+            op_expected = dyn()->tu.builtin(BuiltinKind::U32);
+        }
         var src = dyn()->type_of(n->operand, op_expected);
         if dyn()->propagate(n, n->operand) { return &null; }
         if src == &null { return &null; }
@@ -697,6 +706,10 @@ class <T> CastTyping {
     }
 
     priv fn _lint_redundant(self, n: *TypeCastExpr, src: *Type, target: *Type) {
+        // `0xFFFFFFFF as char` is not redundant against a char slot: the
+        // implicit literal path range-checks, the cast does not.
+        if dyn()->tu.is_builtin(canon_unqual(target), BuiltinKind::Char)
+        && isa::<IntegerLiteralExpr>(dyn()->tu.strip_parens(n->operand)) { return; }
         dyn()->sc->diag->report(DiagID::SC031W, n->range.start,
             f"redundant cast: '{dyn()->tu.str(src)}' converts to '{dyn()->tu.str(target)}' implicitly"
         ).first(n->range).emit();
