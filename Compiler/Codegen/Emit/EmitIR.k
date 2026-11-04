@@ -4744,6 +4744,20 @@ class EmitIR {
         self._cg->sink->spell(n->range, ")");
     }
 
+    /// \p e is the `&null` literal, through parentheses or an implicit retyping.
+    priv fn _is_null_literal(self, e: *Expr) -> bool {
+        var x = e;
+        while x != &null {
+            var pe = dyn_cast::<ParenExpr>(x);
+            if pe != &null { x = pe->inner; continue; }
+            // Sema's own implicit retyping of the literal to the target.
+            var tc = dyn_cast::<TypeCastExpr>(x);
+            if (tc != &null) && (tc->operand != &null) && isa::<NullLiteralExpr>(tc->operand) { return true; }
+            break;
+        }
+        return (x != &null) && isa::<NullLiteralExpr>(x);
+    }
+
     /// The written target is the result type (invariant 15). Which C++ cast:
     /// `as const` -> const_cast, `as unsafe` -> reinterpret_cast (a C-style
     /// cast when it drops a pointee qualifier), otherwise static_cast. The
@@ -4790,6 +4804,10 @@ class EmitIR {
         // static_cast computes. A reinterpret is right for a first base at
         // offset 0 and silently wrong for every other one.
         if n->base_adjust { kind = "static_cast"; }
+        // `&null as unsafe *T` (O28d): `nullptr` is a std::nullptr_t, which
+        // reinterpret_cast refuses to retype as a pointer; static_cast is the
+        // null pointer conversion.
+        if (n->mode == CastMode::Unsafe) && self._is_null_literal(n->operand) { kind = "static_cast"; }
         // reinterpret_cast cannot cast away qualifiers, and `as unsafe *` is
         // the one Kairo spelling that drops them (the written cast already
         // passed the unsafe-context check). A C-style cast is the one C++
