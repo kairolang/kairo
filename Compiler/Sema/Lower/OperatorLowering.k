@@ -355,6 +355,11 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
                 miss = self._cmp(at, neg, miss, TokenKind::OpPipePipe);
             }
         } else {
+            // The `&&` of every `t != value` is built as a balanced tree, not
+            // a left-leaning chain: EmitIR parenthesises each operator, so a
+            // chain over a registry-sized enum (thousands of variants) nests
+            // that many brackets and clang stops at -fbracket-depth=2048.
+            var terms = vec::<*Expr>();
             for var i: usize = 0; i < en->variants.size(); ++i {
                 var ev  = en->variants[i];
                 var lit = self.synth.int_literal(at, ev->value.mag, uk);
@@ -366,8 +371,18 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
                     lit = static_cast::<*Expr>(m);
                 }
                 var ne = self._cmp(at, self.synth.use_of(t, at, Expr::ValueCategory::LValue), lit, TokenKind::OpExclaimEqual);
-                miss = (ne) if (miss == &null) else (self._cmp(at, miss, ne, TokenKind::OpAmpAmp));
+                terms.push_back(ne);
             }
+            // A FIFO pairing: each pass over the queue halves what is left, so
+            // the depth is log2(n).
+            var head: usize = 0;
+            while (terms.size() - head) > 1 {
+                var a = terms[head];
+                var b = terms[head + 1];
+                head += 2;
+                terms.push_back(self._cmp(at, a, b, TokenKind::OpAmpAmp));
+            }
+            if (terms.size() - head) == 1 { miss = terms[head]; }
         }
 
         stmts.push(self._crash_if(n, en, miss));
