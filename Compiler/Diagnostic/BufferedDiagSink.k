@@ -82,6 +82,18 @@ class BufferedDiagSink derives DiagEngineVBase {
         if self._suppress_depth > 0 { self._suppress_depth -= 1; }
     }
 
+    /// Lets one diagnostic through a push_suppress region, returning the depth
+    /// to hand restore_suppress. For an error that holds for EVERY instance of
+    /// a region checked once on purpose (the branch of a generic `eval if
+    /// typeof T == U`): dropping it left a poisoned node for codegen to ICE
+    /// on with no diagnostic at all (O23).
+    fn lift_suppress(self) -> u32 {
+        var d = self._suppress_depth;
+        self._suppress_depth = 0;
+        return d;
+    }
+    fn restore_suppress(self, d: u32) { self._suppress_depth = d; }
+
     /// Drop warnings with policy key \p key located inside \p scope.
     fn quiet_in(self, key: u32, scope: SourceRange) {
         var q = QuietScope{};

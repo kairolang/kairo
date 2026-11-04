@@ -1140,11 +1140,20 @@ class <T> OperatorTyping {
     }
 
     priv fn _unify_error(self, n: *Expr, lt: *Type, rt: *Type) {
+        // Two concrete types that do not unify fail in every instance: in a
+        // generic `eval if typeof T == U` branch (typed once, diagnostics
+        // dropped) the error still has to surface, or the poisoned node
+        // reaches codegen unexplained (O23).
+        var lifted: u32 = 0;
+        var lift = (lt != &null) && (rt != &null) && (!lt->is_dependent()) && (!rt->is_dependent())
+                   && (!lt->is_instantiation_dependent()) && (!rt->is_instantiation_dependent());
+        if lift { lifted = dyn()->sc->diag->lift_suppress(); }
         dyn()->sc->diag->report(DiagID::SC033E, n->range.start,
             f"operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' do not unify; neither converts implicitly to the other"
         ).first(n->range)
          .note(n->range.start, "cast one side explicitly with 'as' to choose the result type")
          .emit();
+        if lift { dyn()->sc->diag->restore_suppress(lifted); }
         n->poison();
     }
 
