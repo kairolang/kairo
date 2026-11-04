@@ -117,6 +117,7 @@ import Support::TimeReport::*;
 
 class Sema {
     pub var sc: SemaContext;
+    priv var _types_pre_done: bool = false;   ///< resolve_types_pre ran.
 
     /// The TU's lifecycle facts. A member, not a stage local: the checks
     /// fill the memo and --print-sema reads it after the run returns.
@@ -324,6 +325,23 @@ class Sema {
         if self._already(SemaPhase::TypesResolved) { return true; }
         var _t = TimeRegion("Types");
         self.sc.require_phase(SemaPhase::NamesResolved);
+        self.resolve_types_pre();
+        { var _p = TimeRegion("ChainBinding"); ChainBinding(&self.sc).run();   }
+        self.sc.advance_phase(SemaPhase::TypesResolved);
+        return !self._hard_stop();
+    }
+
+    /// Everything of T before ChainBinding, once. Split out for an import
+    /// cycle's lockstep (CompilerInstance::_sema_group): ChainBinding walks
+    /// OTHER TUs' records -- a base's members through `derives` edges T
+    /// resolves -- so every TU of the group runs this first, then each
+    /// binds. Run whole per TU, a TU early in the cycle bound `n->range`
+    /// before the TU declaring `LabeledStmt derives Stmt` had resolved that
+    /// edge, and the base's members were missing (R025E, G31).
+    fn resolve_types_pre(self) {
+        if self._types_pre_done { return; }
+        self._types_pre_done = true;
+        self.sc.require_phase(SemaPhase::NamesResolved);
         { var _p = TimeRegion("TypeResolve");  TypeResolution(&self.sc).run(); }
         { var _p = TimeRegion("RedeclMerge");  RedeclMerge(&self.sc).run();    }
         // EVAL.md 4.2b: the declaration-scope `eval if`s E deferred on a type
@@ -348,10 +366,6 @@ class Sema {
         // to is exactly what T's declaration promised -- so the table has to
         // exist before it walks.
         { var _p = TimeRegion("Constraints"); ConstraintExtraction(&self.sc).run(); }
-
-        { var _p = TimeRegion("ChainBinding"); ChainBinding(&self.sc).run();   }
-        self.sc.advance_phase(SemaPhase::TypesResolved);
-        return !self._hard_stop();
     }
 
     /// Signature/shape checks: operator signatures, conformance

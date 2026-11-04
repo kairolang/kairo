@@ -4618,6 +4618,14 @@ fn FrontendAction::_sema_group(fids: *vec::<u32>, effects: *EffectTable, print_s
             var stopped = vec::<bool>();
             for var i: usize = 0; i < sems.size(); ++i { stopped.push_back(false); }
             for var p: usize = 0; p < phases.size(); ++p {
+                // T before any ChainBinding of the group: binding walks the
+                // other TUs' records through edges their T resolves (G31).
+                if phases[p] == SemaPhase::TypesResolved {
+                    for var i: usize = 0; i < sems.size(); ++i {
+                        if stopped[i] { continue; }
+                        if sems[i]->sc.phase == SemaPhase::NamesResolved { sems[i]->resolve_types_pre(); }
+                    }
+                }
                 for var i: usize = 0; i < sems.size(); ++i {
                     if stopped[i] { continue; }
                     // run_to's continuation would carry a stopped TU on past
