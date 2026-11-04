@@ -1665,7 +1665,13 @@ class OverloadResolution {
             var r = ImplicitRank::None;
             if self._transfer_upcast(f, p, a, pt, has_receiver) { r = ImplicitRank::Converted; }
             else if self._c_string_literal_arg(f, a, pt, mode) {
-                r = ImplicitRank::Converted;
+                // Exact, as in C++: `"ab"` is `const char[3]`, whose decay to
+                // `const char *` is an exact-match conversion. At Converted a
+                // template `append(const _Tp&)` deduced from the literal's
+                // `string` outranked `append(const char *)`, and the literal
+                // was then emitted as a builtin::string clang cannot take
+                // (O14). Tied at Exact, the non-generic candidate wins.
+                r = ImplicitRank::Exact;
                 // P301 takes a literal at `const char *` AND `const u8 *`
                 // (unsigned char, char8_t, uint8_t), but to C++ the literal
                 // IS `const char[N]`: only the first is viable there. Both
@@ -2142,8 +2148,8 @@ class OverloadResolution {
     /// A string literal at a C string parameter of an imported function
     /// (P301): its static, NUL-terminated bytes are the `const char *`
     /// already, so it converts without a `string` being made (CallTyping
-    /// marks it, StringLowering passes the bytes). Converted, not Exact: a
-    /// `string` overload still takes a literal first. Imported callees
+    /// marks it, StringLowering passes the bytes). Exact (O14), as C++ ranks it: a
+    /// generic overload then loses the tie. Imported callees
     /// only -- a Kairo function's `*const u8` parameter keeps its own
     /// rules -- and never `@inout`, which needs a place.
     priv fn _c_string_literal_arg(self, f: *FunctionDecl, a: *ArgInfo, pt: *Type, mode: ParamMode) -> bool {
