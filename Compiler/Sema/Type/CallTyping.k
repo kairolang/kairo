@@ -404,7 +404,7 @@ class <T> CallTyping {
         // An imported template whose declared return type IS its SFINAE
         // (`enable_if_t<cond, int>`, `-> decltype(...)`) imports opaque;
         // clang's specialization has the real one (_clang_substitute).
-        if (r->cxx_ret != &null) && isa::<OpaqueFFIType>(canon_unqual(rt)) { rt = r->cxx_ret; }
+        if (r->cxx_ret != &null) && has_opaque_ffi(rt) { rt = r->cxx_ret; }
         // An interface member's `Self` is the receiver, so `-> Self` through a
         // bound `T impl I` reads back as T. AFTER the deduced substitution,
         // not before, and the order is not cosmetic: rewriting first turns

@@ -104,6 +104,21 @@ enum LitKind derives u8 {
     Variant,  ///< `.V`: fits a parameter whose enum has a variant named lit_name.
 }
 
+/// \p t is an imported opaque type, or a C++ reference, pointer or
+/// qualified type over one: `std::move`'s `remove_reference_t<T>&&` imports
+/// as a reference to an opaque alias. Such a return type has no Kairo shape
+/// even after Kairo's deduction (substitution leaves the opaque referee
+/// alone), so clang's specialization supplies it (_clang_substitute).
+pub fn has_opaque_ffi(t: *Type) -> bool {
+    var c = canon_unqual(t);
+    if c == &null { return false; }
+    if isa::<OpaqueFFIType>(c) { return true; }
+    if isa::<CXXLValueRefType>(c) { return has_opaque_ffi(cast::<CXXLValueRefType>(c)->referee); }
+    if isa::<CXXRValueRefType>(c) { return has_opaque_ffi(cast::<CXXRValueRefType>(c)->referee); }
+    if isa::<PointerType>(c)      { return has_opaque_ffi(cast::<PointerType>(c)->pointee); }
+    return false;
+}
+
 /// One element of a list literal, ranked by SHAPE. Flat on purpose: ArgInfo
 /// is a value passed and copied everywhere, and a container of ArgInfo inside
 /// ArgInfo is a type that contains itself -- its copies do not survive, and
@@ -1094,7 +1109,7 @@ class OverloadResolution {
         // import of it is opaque: a return type that IS the SFINAE
         // (`enable_if_t<cond, int>`, `-> decltype(...)`) has no Kairo shape.
         var want_ret = (f->return_type != &null) && (f->return_type->canonical != &null)
-                    && isa::<OpaqueFFIType>(canon_unqual(f->return_type->canonical));
+                    && has_opaque_ffi(f->return_type->canonical);
         // So is one Kairo's deduction cannot finish: a parameter only
         // clang deduces (from a derived-class argument, `out << s` on an
         // ofstream against `basic_ostream<C, T>& operator<<(basic_ostream<C,
@@ -1109,7 +1124,7 @@ class OverloadResolution {
         if self.sc->ctx != &null { fid = i64(self.sc->ctx->fid); }
         var keep = self.sc->foreign->deduce_call(static_cast::<*Decl>(f), &(self.explicit_args), &tys, &cats,
                                                  self.sc->diag, &why, want_ret, ret, fid);
-        if (keep == 1) && (ret != &null) && (!isa::<OpaqueFFIType>(canon_unqual(ret))) { c->cxx_ret = ret; }
+        if (keep == 1) && (ret != &null) && (!has_opaque_ffi(ret)) { c->cxx_ret = ret; }
         if keep == 0 {
             c->viable = false;
             c->reason = f"template ignored: {why}";
