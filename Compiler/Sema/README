@@ -36,8 +36,10 @@ Layout:
   lets the rest of Sema run per TU in parallel, up to mono.
 - Class lifecycle: Check/ClassLifecycle.k decides copyable / movable /
   trivial / destructible per record.
-- Virtual destructor rule: a class deriving a base whose destructor is not
-  virtual, when the derived class has a non-trivial destructor, is SC056E
+- Virtual destructor rule: a class deriving a POLYMORPHIC base (one with a
+  virtual method) whose destructor is not virtual, when the derived class
+  has a non-trivial destructor, is SC056E. A base with no virtual method (a
+  mixin) is exempt, as in clang's -Wdelete-non-virtual-dtor
   (also in ClassLifecycle.k). Without it, deleting a Derived through a Base
   runs only Base's destructor:
 

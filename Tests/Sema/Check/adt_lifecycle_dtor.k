@@ -1,4 +1,4 @@
-class Base { var n: i32; }
+class Base { var n: i32; virtual fn tag(self) -> i32 { return 0; } }
 enum Mode { Read, Write }
 enum Text { Some { s: string }, None }
 enum Num { One { n: i32 }, Two { p: *i32 } }
@@ -10,7 +10,8 @@ class HasOpt derives Base { var o: Opt<i32>; }  // expect: clean -- a dependent 
 
 // --- lit wiring -----------------------------------------------------------
 // ClassLifecycle's facts for an enum, observed through the one rule that
-// reads a field's destructor triviality: the virtual-destructor rule. Each
+// reads a field's destructor triviality: the virtual-destructor rule (Base
+// has a virtual method, so it is polymorphic and the rule applies). Each
 // class adds nothing but one enum field, so the class has destruction work of
 // its own exactly when that enum's destructor is non-trivial.
 //

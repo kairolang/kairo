@@ -1,6 +1,6 @@
 class Base {
     @copy fn Base(self, other: Self) = delete
-    fn op delete(self) { }
+    fn op delete(self) { } virtual fn area(self) -> i32 { return 0 }
 }
 class Derived derives Base {                // expect: error class 'Derived' has a non-trivial destructor, but its base 'Base' does not have a virtual destructor
     @copy fn Derived(self, other: Self) = delete
@@ -25,6 +25,21 @@ class Deep derives VDerived {               // expect: clean -- virtual inherite
     @copy fn Deep(self, other: Self) = delete
     fn op delete(self) { }
 }
+class Mixin {                               // no virtual method: never deleted through
+    @copy fn Mixin(self, other: Self) = delete
+    fn op delete(self) { }
+}
+class UsesMixin derives Mixin {             // expect: clean -- a non-polymorphic base is exempt (clang's -Wdelete-non-virtual-dtor)
+    @copy fn UsesMixin(self, other: Self) = delete
+    fn op delete(self) { }
+}
+class Mid derives Base {                    // polymorphic through Base, trivial dtor
+    @copy fn Mid(self, other: Self) = delete
+}
+class Leaf derives Mid {                    // expect: error -- Mid is polymorphic by inheritance
+    @copy fn Leaf(self, other: Self) = delete
+    fn op delete(self) { }
+}
 
 // --- lit wiring -----------------------------------------------------------
 // ClassLifecycle's virtual-destructor rule. Every class declares its copy
@@ -39,4 +54,6 @@ class Deep derives VDerived {               // expect: clean -- virtual inherite
 // DIAG:     virtual_dtor.k:5:{{[0-9]+}}: error [SC056E]: class 'Derived' has a non-trivial destructor, but its base 'Base' does not have a virtual destructor
 // DIAG-NOT: {{error|warning}} [
 // DIAG:     virtual_dtor.k:20:{{[0-9]+}}: error [SC056E]: class 'Holder'
+// DIAG-NOT: {{error|warning}} [
+// DIAG:     virtual_dtor.k:{{[0-9]+}}:{{[0-9]+}}: error [SC056E]: class 'Leaf' has a non-trivial destructor, but its base 'Mid'
 // DIAG-NOT: {{error|warning}} [

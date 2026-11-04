@@ -33,7 +33,7 @@ fn reached() -> i32 { return outer(Mv(3)) + outer(4); }
 
 class Base {
     pub var k: i32
-    fn Base(self) { self.k = 0; }
+    fn Base(self) { self.k = 0; } virtual fn tag(self) -> i32 { return 0; }
 }
 
 class <T> Der derives Base {

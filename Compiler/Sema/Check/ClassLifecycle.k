@@ -996,6 +996,11 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             if bf->virtual_dtor == LifecycleTri::Yes { continue; }
             // An Unknown is the pattern's; each instance is asked again (instance_failures).
             if bf->virtual_dtor == LifecycleTri::Unknown { continue; }
+            // Only a POLYMORPHIC base is deleted through, as clang's
+            // -Wdelete-non-virtual-dtor has it: a base with no virtual
+            // method is a mixin (Decl, DeclContext, Redeclarable), never the
+            // static type of a `delete`. Unknown is the pattern's, as above.
+            if bf->polymorphic != LifecycleTri::Yes { continue; }
 
             var bn = self._tu.decl_name(bd);
             var b = self.sc->diag->report(DiagID::SC056E, e->range.start,
@@ -1401,7 +1406,9 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
 
             // The virtual-destructor rule.
             var p_said = (pf->own_dtor_work == LifecycleTri::Yes) && (pbf != &null) && (pbf->virtual_dtor == LifecycleTri::No);
-            if (!p_said) && (f->own_dtor_work == LifecycleTri::Yes) && (bf->virtual_dtor == LifecycleTri::No) {
+            // A polymorphic base only, as at the pattern (visit_class_decl).
+            if (!p_said) && (f->own_dtor_work == LifecycleTri::Yes) && (bf->virtual_dtor == LifecycleTri::No)
+            && (bf->polymorphic == LifecycleTri::Yes) {
                 var x = LifecycleFailure();
                 x.id  = DiagID::SC056E;
                 x.msg = f"class '{iname}' has a non-trivial destructor, but its base '{bn}' does not have a virtual destructor; deleting a '{iname}' through a '*{bn}' would run only '{bn}''s destructor and leak the rest";

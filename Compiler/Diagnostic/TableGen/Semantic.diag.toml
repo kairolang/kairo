@@ -1204,16 +1204,19 @@ group = "lifecycle"
     explain = """
     # non-virtual base destructor
 
-    a class has a non-trivial destructor, but its base's destructor is not virtual. deleting the
-    derived object through a pointer to the base would run only the base's destructor and leak
-    the rest.
+    a class has a non-trivial destructor, and its base is polymorphic (it declares or inherits a
+    virtual method) but its destructor is not virtual. deleting the derived object through a
+    pointer to the base would run only the base's destructor and leak the rest.
 
     ```kairo
-    class Base {}
+    class Base { virtual fn area(self) -> i32 { return 0 } }
     class Derived derives Base {
         fn op delete(self) { ... }
     }
     ```
+
+    a base with no virtual method is not checked, as clang's `-Wdelete-non-virtual-dtor` does not
+    check one: such a base is a mixin, never the type a derived object is deleted through.
 
     ## how to fix
 
