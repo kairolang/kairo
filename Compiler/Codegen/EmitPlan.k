@@ -2460,7 +2460,11 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
     // in the preamble or the header. Its fields' owner and its destructor
     // land here too and are skipped the same way.
     if CXXSpell::in_function_scope(c) { return; }
-    if decl_is_imported(c) { return; }             // the header declares it (IMPORTS.md §5).
+    // The header declares it (IMPORTS.md §5) -- but an instance of an
+    // imported C++ template is written out in THIS TU's text with its
+    // arguments spelled whole (`std::vector<Loc::File::File *>`), so the
+    // Kairo types they name must be declared here (_admit_instance).
+    if decl_is_imported(c) && (!decl_is_instance(c)) { return; }
     if decl_ffi_tag_target(c) != &null { return; } // `ffi "c" struct T`: the header's tag, not a Kairo type (§5.2).
     // An interface's C++ entity is its witness: named by a call through a
     // bound (_admit_use on the requirement), or by a bound's concept.
@@ -2473,6 +2477,7 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
 
     if decl_is_instance(c) {
         var e = self._cg->instances->entry_of(c);
+        if (e == &null) && decl_is_imported(c) { return; }   // no registry entry: nothing of ours to name.
         if (e == &null) { self._ice(c->range, "EmitPlan: instance shell with no registry entry"); }
         self._admit_instance(e, need);
         return;
@@ -2528,7 +2533,15 @@ fn EmitPlan::_admit_specs(c: *Decl, need: PlanNeed) {
 /// recorded for tier 3.
 fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
     var prim = CXXSpell::rep(e->primary);
-    if decl_is_imported(prim) { return; }          // clang instantiates it from the PCH.
+    // clang instantiates it from the PCH, but its arguments are spelled in
+    // THIS TU's text: `std::vector<Loc::File::File *>` in a foreign class's
+    // field needs `File` declared here, or the qualified name does not
+    // resolve. Fwd is all a C++ template argument asks of Kairo's own types
+    // at the point of naming (the own-decl walk, visit_type, does the same).
+    if decl_is_imported(prim) {
+        for var i: usize = 0; i < e->args.size(); ++i { self._admit_type(e->args[i], PlanNeed::Fwd); }
+        return;
+    }
     // A generic REQUIREMENT's instance names no C++ function: the call goes
     // through the witness's member template, instantiated implicitly. No
     // tier-3 line, ever (CODEGEN.md §7b.8); its arguments are still named.
