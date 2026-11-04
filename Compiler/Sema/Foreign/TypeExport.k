@@ -396,8 +396,13 @@ class TypeExport {
 
         // An unfilled instance of an imported template: spell the template-id
         // from its args. Recursing here is what makes `cont<cont<i32>>` work.
-        if decl_origin_set(prim) != self.set { return clang::QualType(); }
-        var ct = TypeExport::class_template_of(reinterpret_cast::<*clang::Decl>(decl_clang(prim)));
+        var pcd = reinterpret_cast::<*clang::Decl>(decl_clang(prim));
+        if decl_origin_set(prim) != self.set {
+            var rf = self._refind(pcd);
+            pcd = static_cast::<*clang::Decl>(rf);
+        }
+        if pcd == &null { return clang::QualType(); }
+        var ct = TypeExport::class_template_of(pcd);
         if ct == &null { return clang::QualType(); }
         var qs: llvm::SmallVector::<clang::TemplateArgument, 8>;
         for var i: usize = 0; i < rt->args.size(); ++i {
@@ -406,6 +411,85 @@ class TypeExport {
             qs.push_back(a);
         }
         return self.template_id(ct, qs);
+    }
+
+    /// An opaque struct with \p t's size and alignment, for an imported
+    /// record type that only another set's AST can spell; null otherwise.
+    priv fn _opaque_like(self, t: *Type) -> clang::QualType {
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<RecordType>(c)) { return clang::QualType(); }
+        var d = cast::<RecordType>(c)->decl;
+        if d == &null { return clang::QualType(); }
+        var tag = llvm::dyn_cast_or_null::<clang::TagDecl>(reinterpret_cast::<*clang::Decl>(decl_clang(d)));
+        if (tag == &null) || (!tag->isCompleteDefinition()) { return clang::QualType(); }
+        var octx = &(tag->getASTContext());
+        if octx == self.cctx { return clang::QualType(); }
+        var oty = clang::QualType(octx->getCanonicalTagType(tag));
+        var size  = static_cast::<u64>(octx->getTypeSizeInChars(oty).getQuantity());
+        var align = static_cast::<u64>(octx->getTypeAlignInChars(oty).getQuantity());
+        if (align == 0) || (align > 16) || ((size % align) != 0) { return clang::QualType(); }
+        var elem = self.cctx->getIntTypeForBitwidth(static_cast::<u32>(align * 8), 0);
+        if elem.isNull() { return clang::QualType(); }
+        var leaf = f"__kairo_opaque_s{size}_a{align}";
+        var tu  = static_cast::<*clang::DeclContext>(self.cctx->getTranslationUnitDecl());
+        var lii = self._ident(leaf);
+        var res = tu->lookup(clang::DeclarationName(lii));
+        if !res.empty() {
+            var prev = llvm::dyn_cast::<clang::CXXRecordDecl>(res.front());
+            if prev == &null { return clang::QualType(); }
+            return clang::QualType(self.cctx->getCanonicalTagType(prev));
+        }
+        var loc = clang::SourceLocation();
+        var rd = clang::CXXRecordDecl::Create(*(self.cctx), clang::TagTypeKind::Struct, tu, loc, loc, lii, &null);
+        rd->setImplicit(true);
+        tu->addDecl(rd);
+        rd->startDefinition();
+        if size > 0 {
+            var arr = self.cctx->getConstantArrayType(elem, llvm::APInt(64, size / align), &null,
+                                                      clang::ArraySizeModifier::Normal, 0);
+            self._add_field(rd, arr, 0);
+        }
+        rd->completeDefinition();
+        return clang::QualType(self.cctx->getCanonicalTagType(rd));
+    }
+
+    /// \p d, a clang decl of ANOTHER set's AST, re-found in this set's AST by
+    /// its qualified path -- namespaces (inline ones included, as written in
+    /// its parents), then its name, of the same decl kind -- or null.
+    priv fn _refind(self, d: *clang::Decl) -> *clang::NamedDecl {
+        var nd = llvm::dyn_cast_or_null::<clang::NamedDecl>(d);
+        if nd == &null { return &null; }
+        if nd->getIdentifier() == &null { return &null; }
+        var names = vec::<string>();
+        var dc = nd->getDeclContext();
+        while (dc != &null) && (!dc->isTranslationUnit()) {
+            var ns = llvm::dyn_cast::<clang::NamespaceDecl>(dc);
+            if ns == &null {
+                if dc->isTransparentContext() { dc = dc->getParent(); continue; }
+                return &null;
+            }
+            if ns->isAnonymousNamespace() { return &null; }
+            var sr: llvm::StringRef = ns->getName();
+            names.push_back(string(sr.data(), sr.size()));
+            dc = dc->getParent();
+        }
+        var cur = static_cast::<*clang::DeclContext>(self.cctx->getTranslationUnitDecl());
+        for var i: usize = names.size(); i > 0; --i {
+            var res = cur->lookup(clang::DeclarationName(self._ident(names[i - 1])));
+            var next: *clang::DeclContext = &null;
+            for r in res {
+                var rns = llvm::dyn_cast::<clang::NamespaceDecl>(r);
+                if rns != &null { next = static_cast::<*clang::DeclContext>(rns); break; }
+            }
+            if next == &null { return &null; }
+            cur = next;
+        }
+        var nsr: llvm::StringRef = nd->getName();
+        var res = cur->lookup(clang::DeclarationName(self._ident(string(nsr.data(), nsr.size()))));
+        for r in res {
+            if r->getKind() == d->getKind() { return r; }
+        }
+        return &null;
     }
 
     // --- stand-ins ----------------------------------------------------------------
@@ -557,6 +641,11 @@ class TypeExport {
             if ft.isNull() && ((*fields)[i] != &null) && isa::<PointerType>(canon_unqual((*fields)[i])) {
                 ft = self.cctx->VoidPtrTy;
             }
+            // A field of a C++ type this set cannot see (a `set<string>` from
+            // <set> while filling in <map>'s set): a blob of the same size and
+            // alignment, measured in the set that owns the type. Layout is
+            // all a stand-in carries.
+            if ft.isNull() && ((*fields)[i] != &null) { ft = self._opaque_like((*fields)[i]); }
             if ft.isNull() { rd->setInvalidDecl(); return false; }
             self._add_field(rd, ft, n);
             n += 1;
