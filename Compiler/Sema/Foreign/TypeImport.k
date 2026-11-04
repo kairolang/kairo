@@ -504,6 +504,22 @@ class TypeImport {
         for var i: usize = 0; i < list.size(); ++i {
             var a = list[i];
             if a.getKind() == clang::TemplateArgument::Type {
+                // A C++ FUNCTION type argument (`function_ref<bool(int)>`) is
+                // the written `fn(i32) -> bool`, not the raw pointer: the
+                // user spells that instance with `fn(...)` (TypeExport turns
+                // it back into `R(A)`), and both must be one registry entry
+                // or the imported parameter never accepts the written
+                // argument (SC063E, G104b). `R(*)(A)` stays a raw `unsafe fn`.
+                var at = a.getAsType().getCanonicalType();
+                var afp = llvm::dyn_cast::<clang::FunctionProtoType>(at.getTypePtr());
+                if afp != &null {
+                    var fparams = vec::<*Type>();
+                    for var j: u32 = 0; j < afp->getNumParams(); ++j {
+                        fparams.push_back(self._map_or_opaque(afp->getParamType(j)));
+                    }
+                    out.push_back(self.store->func(&fparams, &null, self._map_or_opaque(afp->getReturnType()), false, &null, false));
+                    continue;
+                }
                 out.push_back(self._map_or_opaque(a.getAsType()));
                 continue;
             }
