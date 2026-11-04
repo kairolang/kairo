@@ -2922,7 +2922,14 @@ class EmitIR {
         // class template instance that _is_ctor's name match misses.
         if self._is_ctor(f) || self._is_type_decl(callee) || assoc_ctor || (n->ctor_decl != &null) {
             if n->type_ == &null { self._ice_untyped(static_cast::<*Expr>(n), "EmitIR: untyped constructor call; ExprTyper gate failure"); }
-            self._cg->sink->spell(n->callee->range, self._spell._type(n->type_));
+            // An elaborated tag (`struct ::stat`, hidden by a function of the
+            // same name) is no simple-type-specifier, so `struct ::stat()` is
+            // not an expression; `__typeof__(...)` is one and names the same type.
+            var ctor_head = self._spell._type(n->type_);
+            if (ctor_head.starts_with("struct ")) || (ctor_head.starts_with("class ")) || (ctor_head.starts_with("union ")) || (ctor_head.starts_with("enum ")) {
+                ctor_head = "__typeof__(" + ctor_head + ")";
+            }
+            self._cg->sink->spell(n->callee->range, ctor_head);
         } else if n->witness_iface != &null {
             // `::ring::Scalable_witness<T>::scale(`: the receiver is argument
             // zero already, in the form the witness member takes it.
