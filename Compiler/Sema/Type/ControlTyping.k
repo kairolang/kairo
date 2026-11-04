@@ -113,6 +113,20 @@ class <T> ControlTyping {
 
     // === if / match / try as expressions ====================================
 
+    /// A bare `&null` arm with nothing to take its pointer type from: no
+    /// expected type, and every arm before it still instantiation-dependent
+    /// (`f(if c => (dep_list[i]) else => &null)` in a generic class). It goes
+    /// out as `nullptr`, which converts to whichever pointer the other arm
+    /// turns out to be, so it is left untyped as `_type_args_dependent` does
+    /// for a bare `&null` argument, rather than SC076E "cannot infer".
+    priv fn _dependent_null_arm(self, e: *Expr, expected: *Type, acc: *Type, dep_seen: bool) -> bool {
+        if (!dep_seen) || (expected != &null) || (acc != &null) { return false; }
+        var nl = dyn_cast::<NullLiteralExpr>(dyn()->tu.strip_parens(e));
+        if (nl == &null) || (!nl->is_ref) { return false; }
+        dyn()->mark_unknown(e);
+        return true;
+    }
+
     /// Each arm is typed under its condition's true set, the next
     /// condition under the false sets before it (NULLABLE.md 3.3); after
     /// the expression, the join of every arm's end.
@@ -123,6 +137,7 @@ class <T> ControlTyping {
         var ok = true;
         dyn()->flow.env = c.t;
         var t = self._arm_value(n->then_expr, expected);
+        var dep_seen = (t == &null) && (!n->then_expr->is_poisoned());
         var out = dyn()->flow.env;
         var rest = c.f;
         ok = self._join_into(&acc, t, n->then_expr, "the 'if' branch") && ok;
@@ -132,14 +147,20 @@ class <T> ControlTyping {
             self.require_bool(arm->condition, "the 'else if' condition");
             var ac = dyn()->flow.cond_of(arm->condition);
             dyn()->flow.env = ac.t;
-            var at = self._arm_value(arm->body, (expected) if (expected != &null) else (acc));
+            var at: *Type = &null;
+            if self._dependent_null_arm(arm->body, expected, acc, dep_seen) { dep_seen = true; }
+            else { at = self._arm_value(arm->body, (expected) if (expected != &null) else (acc)); }
+            if (at == &null) && (!arm->body->is_poisoned()) { dep_seen = true; }
             var arm_end = dyn()->flow.env;
             out  = dyn()->flow.join(&out, &arm_end);
             rest = ac.f;
             ok = self._join_into(&acc, at, arm->body, "this 'else if' branch") && ok;
         }
         dyn()->flow.env = rest;
-        var et = self._arm_value(n->else_expr, (expected) if (expected != &null) else (acc));
+        var et: *Type = &null;
+        if (!self._dependent_null_arm(n->else_expr, expected, acc, dep_seen)) {
+            et = self._arm_value(n->else_expr, (expected) if (expected != &null) else (acc));
+        }
         var else_end = dyn()->flow.env;
         dyn()->flow.env = dyn()->flow.join(&out, &else_end);
         ok = self._join_into(&acc, et, n->else_expr, "the 'else' branch") && ok;
