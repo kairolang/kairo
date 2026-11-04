@@ -2231,8 +2231,19 @@ class CXXSpell {
             // `::std::array`, a template used without arguments. A filled
             // instance's spelling already carries its own.
             if (r->args.size() > 0) && (!decl_is_instance(d)) {
+                // A defaulted parameter whose default names a param still
+                // unplaced (`vector<T>`'s `allocator<T>` in a generic
+                // body) is held by the primary's OWN param as a stand-in
+                // (GenericArgs). That param is clang's and has no Kairo
+                // name; every param after it is defaulted too, so stop
+                // there and let C++ apply its defaults itself.
                 var v = vec::<*Type>();
-                for var i: usize = 0; i < r->args.size(); ++i { v.push_back(r->args[i]); }
+                for var i: usize = 0; i < r->args.size(); ++i {
+                    var g = dyn_cast::<GenericParamType>(canon_unqual(r->args[i]));
+                    if (g != &null) && (g->owner != &null) && (CXXSpell::rep(g->owner) == CXXSpell::rep(d)) { break; }
+                    v.push_back(r->args[i]);
+                }
+                if v.size() == 0 { return decl_cxx_spelling(d); }
                 return decl_cxx_spelling(d) + self.args_str(&v, subst, scope);
             }
             return decl_cxx_spelling(d);

@@ -2467,11 +2467,44 @@ class EmitIR {
     /// check (D0), and an unbound step there (a bound call's dependent
     /// result, `c.get(1).w`) is a Sema gap, not a request for clang.
     priv fn _dependent_step(self, n: *ChainExpr, st: *ChainExpr::Step) -> bool {
-        if !n->is_instantiation_dependent() { return false; }
-        if (st->candidate_cell != &null) || (st->name == &null) || st->name->is_poisoned() { return false; }
+        if (st->name == &null) || st->name->is_poisoned() { return false; }
         var k = st->access_kind;
         if (k != ChainExpr::AccessKind::Dot) && (k != ChainExpr::AccessKind::Arrow) && (k != ChainExpr::AccessKind::ColonColon) { return false; }
+        // A member of a C++ class template instance over a Kairo parameter
+        // (`self.v.push_back(x)` on a `vector<T>`, G33): bound to its
+        // overload set but left to each instance (OverloadResolution), so
+        // spelled as written, as clang resolves a dependent call. The
+        // dependent receiver is the evidence; the typer marks the CALL
+        // unknown, not the callee chain.
+        if st->candidate_cell != &null { return self._foreign_dependent_receiver(n, st); }
+        if !n->is_instantiation_dependent() { return false; }
         return self._duck_rooted(n);
+    }
+
+    /// The receiver of step \p st of \p n is a dependent instance of an
+    /// imported class template (or a pointer to one).
+    priv fn _foreign_dependent_receiver(self, n: *ChainExpr, st: *ChainExpr::Step) -> bool {
+        var recv: *Type = (n->base->type_) if (n->base != &null) else (&null);
+        for var i: usize = 0; i < n->steps.size(); ++i {
+            var s0 = n->steps.get(i);
+            if s0 == st { break; }
+            recv = s0->resolved_type;
+        }
+        return self._dependent_foreign_type(recv);
+    }
+
+    /// \p recv is a dependent instance of an imported class template, a
+    /// reference to one, or a pointer to one.
+    priv fn _dependent_foreign_type(self, recv: *Type) -> bool {
+        if recv == &null { return false; }
+        var c = canon_unqual((recv->canonical) if (recv->canonical != &null) else (recv));
+        if (c != &null) && isa::<CXXLValueRefType>(c) { c = canon_unqual(cast::<CXXLValueRefType>(c)->referee); }
+        if (c != &null) && isa::<PointerType>(c) {
+            var pt = cast::<PointerType>(c)->pointee;
+            c = (canon_unqual((pt->canonical) if (pt->canonical != &null) else (pt))) if (pt != &null) else (&null);
+        }
+        if (c == &null) || (!isa::<RecordType>(c)) || (!c->is_dependent()) { return false; }
+        return decl_is_imported(cast::<RecordType>(c)->decl);
     }
 
     /// Whether \p n's first unbound step is reached through a `: type`
@@ -2680,12 +2713,15 @@ class EmitIR {
             // SC116E) and a discarded call would drop. The wrapper stops
             // that instance (LowerTargets::nopanic_call).
             if self._dependent_member_call(n) {
-                self._nopanic_open(n->range);
+                // A C++ member left to each instance (G33) cannot return a
+                // Kairo panic result; only a duck body's callee can.
+                var nw = (self._cur_fn != &null) && plan_under_duck(static_cast::<*Decl>(self._cur_fn));
+                if nw { self._nopanic_open(n->range); }
                 self.emit(n->callee);
                 self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
                 self._args(n, &null, true, &null);
                 self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
-                self._nopanic_close(n->range);
+                if nw { self._nopanic_close(n->range); }
                 return;
             }
             self._ice(n->range, "EmitIR: unbound callee reached codegen; ExprTyper gate failure");
@@ -3339,7 +3375,11 @@ class EmitIR {
         var ch = dyn_cast::<ChainExpr>(c);
         if (ch != &null) && (ch->steps.size() > 0) {
             var last = ch->steps.get(ch->steps.size() - 1);
-            if ((last->resolved_decl == &null) && (last->candidate_cell != &null)) { self._ice(c->range, "EmitIR: unpromoted callee step; ExprTyper gate failure"); }
+            if ((last->resolved_decl == &null) && (last->candidate_cell != &null)) {
+                // Left to each instance (G33): spelled as written below.
+                if self._dependent_step(ch, last) { return &null; }
+                self._ice(c->range, "EmitIR: unpromoted callee step; ExprTyper gate failure");
+            }
             return last->resolved_decl;
         }
         return &null;   // a fn-pointer expression; no decl to consult.
@@ -4605,7 +4645,9 @@ class EmitIR {
     }
 
     priv fn _subscript(self, n: *SubscriptExpr) {
-        if (self._record_operand(n->base)) { self._ice(n->range, "EmitIR: `[]` on a record; OperatorLowering owns it"); }
+        // `self.v[i]` on a `vector<T>` (G33): the operator was left to each
+        // instance, so clang resolves `operator[]` as written.
+        if self._record_operand(n->base) && (!self._dependent_foreign_type(n->base->type_)) { self._ice(n->range, "EmitIR: `[]` on a record; OperatorLowering owns it"); }
         self.emit(n->base);
         self._cg->sink->spell(n->range, "[");
         self.emit(n->index);
