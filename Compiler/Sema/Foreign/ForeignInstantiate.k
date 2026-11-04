@@ -200,8 +200,8 @@ class ForeignInstantiate {
     }
 
     /// Steps 2-6 of a fill, in \p hs's AST with \p ct its template: 1
-    /// filled, 0 failed, -1 an argument has no clang spelling in this set
-    /// (the caller may retry in another).
+    /// filled, 0 failed, -1 an argument has no clang spelling in this set or
+    /// the set only declares the template (the caller may retry in another).
     priv fn _fill_in(self, shell: *Decl, sink: *BufferedDiagSink, home: i64, hs: *HeaderSet,
                      ct: *clang::ClassTemplateDecl, t: *HeaderTarget, e: *InstanceEntry) -> i32 {
         var cctx = hs->ast();
@@ -267,6 +267,16 @@ class ForeignInstantiate {
         var incomplete = !csema->isCompleteType(ct->getLocation(), ty);
         if incomplete || (diags->getNumErrors() > before) {
             self._why = "clang could not complete the specialization";
+            // Incomplete with no error is this SET's gap, not the instance's:
+            // the primary is the FIRST set to import its header, and there
+            // the template may be only declared (a set that reaches
+            // `SmallString` through <DependencyDirectivesScanner.h>'s
+            // forward declaration, while the demanding TU includes
+            // SmallString.h). The caller retries in the demanding TU's set;
+            // without that, `s.size()` on a SmallString was R025E (G62).
+            // An error means the pattern itself rejected these arguments,
+            // which no other set changes.
+            if (!(diags->getNumErrors() > before)) { return -1; }
             return 0;
         }
         var spec = llvm::dyn_cast_or_null::<clang::ClassTemplateSpecializationDecl>(ty->getAsCXXRecordDecl());
