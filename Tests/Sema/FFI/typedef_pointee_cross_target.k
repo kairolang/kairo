@@ -34,7 +34,7 @@ fn main() -> i32 {
 // RUN: test -s %t.d/w.exe
 
 // RUN: { %kairo %s --target=i686-linux-musl --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=I686
-// I686: ::pthread_create(reinterpret_cast<pthread_t *{{( restrict)?}}>((& tid)), nullptr,
+// I686: ::pthread_create(reinterpret_cast<{{ ?}}::pthread_t *{{( restrict)?}}>((& tid)), nullptr,
 // RUN: %kairo %s --target=i686-linux-musl -o %t.d/i686
 // RUN: test -s %t.d/i686
 

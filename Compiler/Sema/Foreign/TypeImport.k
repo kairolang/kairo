@@ -115,7 +115,14 @@ class TypeImport {
     /// The fully qualified C++ spelling of a (sugared) type, for EmitIR.
     fn spelling(self, qt: clang::QualType) -> string {
         var pol = clang::PrintingPolicy(self.cctx->getLangOpts());
-        pol.FullyQualifiedName   = true;
+        // getFullyQualifiedName below already puts a `::`-rooted qualifier on
+        // every tag and template name; FullyQualifiedName would make the
+        // printer drop it and re-walk the decl contexts unrooted. An instance
+        // spelled `std::vector<Dg::Dg::Dg *>` inside EmitIR's `namespace
+        // Dg::Dg` then read `Dg::Dg` as the class's injected constructor name
+        // (O18). Off, the qualifier is printed as written; a canonical type
+        // the rewrite does not reach (a pack element) still gets its scope.
+        pol.FullyQualifiedName   = false;
         pol.SuppressScope        = false;
         pol.SuppressUnwrittenScope = true;
         pol.AnonymousTagLocations = false;
