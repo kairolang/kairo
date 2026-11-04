@@ -1202,8 +1202,12 @@ class OverloadResolution {
         var ret: *Type = &null;
         var fid: i64 = -1;
         if self.sc->ctx != &null { fid = i64(self.sc->ctx->fid); }
+        // The calling TU's own header set: deduce_call's retry when the
+        // function's set cannot spell an argument (G101).
+        var alt: *void = &null;
+        if self.sc->tu != &null { alt = reinterpret_cast::<*void>(self.sc->tu->header_set); }
         var keep = self.sc->foreign->deduce_call(static_cast::<*Decl>(f), &(self.explicit_args), &tys, &cats,
-                                                 self.sc->diag, &why, want_ret, ret, fid);
+                                                 self.sc->diag, &why, want_ret, ret, fid, alt);
         if (keep == 1) && (ret != &null) && (!has_opaque_ffi(ret)) { c->cxx_ret = ret; }
         if keep == 0 {
             c->viable = false;

@@ -402,10 +402,12 @@ class ForeignInstantiate {
     /// \p ret, when \p want_ret, receives the specialization's return type as
     /// clang substituted it, imported: the one source for a return type
     /// Kairo imported opaque (`enable_if_t<..., int>`, `-> decltype(...)`).
-    /// \p fid is the calling TU (-1 none), as for fill().
+    /// \p fid is the calling TU (-1 none), as for fill(); \p alt_set its own
+    /// HeaderSet (null for none), the retry when \p f's set cannot spell the
+    /// arguments.
     fn deduce_call(self, f: *Decl, explicit_args: *vec::<*Type>, arg_tys: *vec::<*Type>,
                    arg_cats: *vec::<Expr::ValueCategory>, sink: *BufferedDiagSink, why: *string,
-                   want_ret: bool, ret: ref!(*Type), fid: i64 = -1) -> i8 {
+                   want_ret: bool, ret: ref!(*Type), fid: i64 = -1, alt_set: *void = &null) -> i8 {
         var cd = reinterpret_cast::<*clang::Decl>(decl_clang(f));
         if cd == &null { return -1; }
         var ftd = llvm::dyn_cast::<clang::FunctionTemplateDecl>(cd);
@@ -420,11 +422,51 @@ class ForeignInstantiate {
         if ftd->getDeclContext()->isDependentContext() { return -1; }
         var hs = reinterpret_cast::<*HeaderSet>(decl_origin_set(f));
         if (hs == &null) || (!hs->alive()) { return -1; }
+        if (hs->ast() == &null) || (hs->sema() == &null) { return -1; }
+
+        var alt = reinterpret_cast::<*HeaderSet>(alt_set);
+        var lock = std::LockGuard(self._mu);
+        var opaque = false;
+        var r = self._deduce_in(f, ftd, hs, explicit_args, arg_tys, arg_cats, sink, why, want_ret, ret, fid, opaque);
+        // The function's set is the FIRST to import its header, not the
+        // caller's: `std::move` belongs to whichever set reached <utility>
+        // first, and that set may never include llvm/Support/Error.h. There
+        // `std::move(err)` spelled its argument as an opaque blob, so the
+        // return type clang substitutes (`remove_reference_t<T>&&`) was never
+        // imported and the call typed as `<ffi type>&&`; every `consumeError(
+        // std::move(err))` then had no overload (G101). The calling TU's own
+        // set names the argument's type in its source, so it usually sees its
+        // header: re-find the template there and deduce again, as a fill
+        // retries an instance (G58). Only an answer the first set could not
+        // give is taken from the retry; a firm verdict there stands.
+        var unspelled = (r == -1) || ((r == 1) && want_ret && opaque);
+        if (!unspelled) || (alt == &null) || (alt == hs) || (!alt->alive()) { return r; }
+        if (alt->ast() == &null) || (alt->sema() == &null) { return r; }
+        var ax = TypeExport(alt->ast(), alt->sema(), reinterpret_cast::<*void>(alt));
+        var aftd = ax.refind_function_template(ftd);
+        if aftd == &null { return r; }
+        var aret: *Type = &null;
+        var awhy = "";
+        var aopaque = false;
+        var r2 = self._deduce_in(f, aftd, alt, explicit_args, arg_tys, arg_cats, sink, &awhy, want_ret, aret, fid, aopaque);
+        if r == -1 {
+            (*why) = awhy;
+            ret = aret;
+            return r2;
+        }
+        if (r2 == 1) && (aret != &null) { ret = aret; }
+        return r;
+    }
+
+    /// deduce_call's work in one set: \p ftd is the template as \p hs's AST
+    /// declares it. \p opaque reports that an argument had no spelling there
+    /// but an opaque blob, so no return type was imported. Under `_mu`.
+    priv fn _deduce_in(self, f: *Decl, ftd: *clang::FunctionTemplateDecl, hs: *HeaderSet,
+                       explicit_args: *vec::<*Type>, arg_tys: *vec::<*Type>,
+                       arg_cats: *vec::<Expr::ValueCategory>, sink: *BufferedDiagSink, why: *string,
+                       want_ret: bool, ret: ref!(*Type), fid: i64, opaque: ref!(bool)) -> i8 {
         var cctx = hs->ast();
         var csema = hs->sema();
-        if (cctx == &null) || (csema == &null) { return -1; }
-
-        var lock  = std::LockGuard(self._mu);
         var slock = std::LockGuard(*(hs->sema_lock()));
         // A hard error outside the immediate context (a static_assert in a
         // trait the condition instantiates) is the program's error in C++
@@ -476,6 +518,7 @@ class ForeignInstantiate {
         var r = csema->DeduceTemplateArguments(ftd, eap, exprs, spec, info,
                     false, false, false, clang::QualType(), clang::Expr::Classification(), false,
                     fn (ps: llvm::ArrayRef::<clang::QualType>, only: bool) -> bool { return false; });
+        opaque = tx.used_opaque;
         if r == clang::TemplateDeductionResult::Success {
             if want_ret && (spec != &null) && (!tx.used_opaque) {
                 // `decltype(auto)` / `auto` (llvm::dyn_cast, cast, isa): the

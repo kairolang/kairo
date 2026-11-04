@@ -78,6 +78,7 @@ ffi "c++" import "clang/AST/DeclTemplate.h";
 ffi "c++" import "clang/AST/TemplateBase.h";
 ffi "c++" import "clang/AST/TemplateName.h";
 ffi "c++" import "clang/AST/Type.h";
+ffi "c++" import "clang/Basic/SourceManager.h";
 ffi "c++" import "clang/Sema/Sema.h";
 ffi "c++" import "llvm/ADT/APInt.h";
 ffi "c++" import "llvm/ADT/APSInt.h";
@@ -551,6 +552,42 @@ class TypeExport {
         if octx == self.cctx { return ct; }
         var rf = self._refind(d);
         return TypeExport::class_template_of(static_cast::<*clang::Decl>(rf));
+    }
+
+    /// \p ftd, a function template of ANOTHER set's AST, re-found in this
+    /// one; null when this set never declared it. An overload set shares the
+    /// qualified path (`std::move(T&&)` beside the algorithm `std::move(It,
+    /// It, Out)`), so the one whose declaration sits at the same header
+    /// position is the match: both sets parsed the one header file.
+    /// deduce_call's fallback set for a call the primary's set cannot spell.
+    fn refind_function_template(self, ftd: *clang::FunctionTemplateDecl) -> *clang::FunctionTemplateDecl {
+        if ftd == &null { return &null; }
+        var d = static_cast::<*clang::Decl>(ftd);
+        var octx = &(d->getASTContext());
+        if octx == self.cctx { return ftd; }
+        var nd = static_cast::<*clang::NamedDecl>(ftd);
+        if nd->getIdentifier() == &null { return &null; }
+        var first = self._refind(d);
+        if first == &null { return &null; }
+        var osm = &(octx->getSourceManager());
+        var opl = osm->getPresumedLoc(d->getLocation(), true);
+        if opl.isInvalid() { return &null; }
+        var ofile = string(opl.getFilename());
+        var nsm = &(self.cctx->getSourceManager());
+        var dc = first->getDeclContext();
+        // The name through THIS set's identifier table: a DeclarationName
+        // of the other AST never matches here.
+        var nsr: llvm::StringRef = nd->getName();
+        var res = dc->lookup(clang::DeclarationName(self._ident(string(nsr.data(), nsr.size()))));
+        for r in res {
+            var cand = llvm::dyn_cast::<clang::FunctionTemplateDecl>(r);
+            if cand == &null { continue; }
+            var npl = nsm->getPresumedLoc(r->getLocation(), true);
+            if npl.isInvalid() { continue; }
+            if (npl.getLine() != opl.getLine()) || (npl.getColumn() != opl.getColumn()) { continue; }
+            if string(npl.getFilename()) == ofile { return cand; }
+        }
+        return &null;
     }
 
     /// \p d, a clang decl of ANOTHER set's AST, re-found in this set's AST by
