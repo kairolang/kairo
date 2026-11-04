@@ -1041,6 +1041,11 @@ class <T> LiteralTyping {
             var t = dyn()->type_of(n->elements[i], e_exp);
             if t == &null { if hole == &null { hole = n->elements[i]; } continue; }
             if e_exp != &null { dyn()->check_convertible(n->elements[i], e_exp); }
+            // A tuple element is a value: an imported `T&`/`T&&` result
+            // (`(d, cxx::std::move(c))`) is a tuple of the T it refers to,
+            // not of a reference type that no `(A, T)` target accepts (G74).
+            var ec = canon_unqual(t);
+            if (ec != &null) && (isa::<CXXLValueRefType>(ec) || isa::<CXXRValueRefType>(ec)) { t = dyn()->tu.as_value(ec); }
             elems.push_back(t);
         }
         if hole != &null { self._lift_hole(n, hole); return &null; }
