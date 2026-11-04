@@ -1450,7 +1450,14 @@ class <T> CallTyping {
     priv fn _finish_args_unselected(self, args: *vec::<ArgInfo>) {
         for var i: usize = 0; i < args->size(); ++i {
             var a = &((*args)[i]);
-            if a->lit != LitKind::None { dyn()->type_of(a->expr, &null); }
+            // A bare `&null` has no parameter to read its pointer type from
+            // while the constructor is undecided (a sibling argument is
+            // instantiation-dependent): left untyped like
+            // _type_args_dependent does, it goes out as `nullptr`, which
+            // converts to the pointer the instance's constructor takes.
+            // Typed against nothing it is SC076E "cannot infer".
+            if a->lit == LitKind::NullPtr { dyn()->mark_unknown(a->expr); }
+            else if a->lit != LitKind::None { dyn()->type_of(a->expr, &null); }
             if (a->carrier == &null) || (a->carrier == a->expr) { continue; }
             if a->expr->is_poisoned() { a->carrier->poison(); }
             a->carrier->value_category = a->expr->value_category;
