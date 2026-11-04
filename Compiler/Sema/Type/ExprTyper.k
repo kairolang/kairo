@@ -801,7 +801,46 @@ class ExprTyper
         if isa::<TypeAliasDecl>(d) {
             var td = cast::<TypeAliasDecl>(d);
             if (td->aliased == &null) || (td->aliased->canonical == &null) { self.mark_unknown(at); return &null; }
-            return td->aliased->canonical;
+            var body = td->aliased->canonical;
+            if (td->generic_params.size() == 0) || (gargs.size() == 0) { return body; }
+            // A generic alias APPLIED in an expression (`KA<i32>(x)`,
+            // `kairo::std::Atomic<*T>(&null)`): its body with the arguments
+            // substituted in, as TypeResolve::_apply_alias does for a type
+            // position. Returning the body bare made the call construct the
+            // PATTERN (`Box<T>`), a dependent type in non-generic code: the
+            // constructor went unselected and `&null` had no pointer type.
+            var gps = td->generic_params;
+            var ga = GenericArgs(self.sc);
+            if !ga.check_arity(d, self.tu.decl_name(d), gps, gargs.size(), at->range) { self.poison_only(at); return &null; }
+            for var i: usize = 0; i < gargs.size(); ++i {
+                var g = gargs.get(i);
+                if (g->ty == &null) || g->ty->is_poisoned() { self.poison_only(at); return &null; }
+            }
+            var args = vec::<*Type>();
+            if !ga.collect(d, gps, gargs, true, &args) { self.poison_only(at); return &null; }
+            var ded = Deduction(self.sc, &null);
+            var owners = vec::<*Decl>();
+            owners.push_back(d);
+            var rep = NameLookup::representative(d);
+            if rep != d { owners.push_back(rep); }
+            for var o: usize = 0; o < owners.size(); ++o {
+                var k: usize = 0;
+                for var i: usize = 0; i < gps.size(); ++i {
+                    var gp = gps[i];
+                    if gp == &null { continue; }
+                    if gp->is_pack {
+                        ded.open_pack(owners[o], gp->index);
+                        for var j: usize = k; j < args.size(); ++j { ded.push_pack(owners[o], gp->index, args[j]); }
+                        k = args.size();
+                        continue;
+                    }
+                    if k >= args.size() { return body; }
+                    ded.bind(owners[o], gp->index, args[k]);
+                    k += 1;
+                }
+            }
+            var applied = ded.substitute(body);
+            return (applied) if (applied != &null) else (body);
         }
         var rep = NameLookup::representative(d);
         var gps = self.tu.generic_params_of(rep);
