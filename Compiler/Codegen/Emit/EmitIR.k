@@ -2572,6 +2572,10 @@ class EmitIR {
     /// An unknown expression that is a duck chain, or a call through one.
     priv fn _duck_rooted_expr(self, e: *Expr) -> bool {
         var c = dyn_cast::<CallExpr>(e);
+        // A call Sema left untyped because an argument is dependent
+        // (`self.prec_of(cur)`, `cur` deduced from a duck call): its result is
+        // the instance's, so a local initialised from it is `auto` too.
+        if (c != &null) && (c->type_ == &null) && c->is_instantiation_dependent() { return true; }
         if c != &null { e = c->callee; }
         // A local deduced from a duck chain (`var head = prev->first`, prev a
         // `: type` parameter's pointer) has no type until the instance; it is
@@ -2727,6 +2731,7 @@ class EmitIR {
         // unpromoted by decision; it goes out as the dependent call it is,
         // by the set's one C++ name, and clang resolves it per instance.
         var dset = self._dependent_imported_set(n->callee);
+        if dset.size() == 0 { dset = self._dependent_free_set(n); }
         if dset.size() > 0 {
             // Under `<T: type>` the overload only the instance picks may be
             // a Kairo function that panics, as a duck member call's may.
@@ -3108,6 +3113,36 @@ class EmitIR {
         for var i: usize = 0; i < cell->size(); ++i {
             var d = cell->get(i);
             if (d == &null) || (!isa::<FunctionDecl>(d)) || (!decl_is_imported(d)) { return ""; }
+            var s = self._spell.qual_name(d);
+            if i == 0 { name = s; }
+            else if s != name { return ""; }
+        }
+        return name;
+    }
+
+    /// The one C++ name of an UNPROMOTED plain callee whose candidates are Kairo
+    /// functions spelled alike (`is_recovery(x)` over an `Expr`/`Stmt` pair)
+    /// when an ARGUMENT is dependent or untyped (`x` deduced from a duck call):
+    /// which overload wins is the instance's question, so the call goes out as
+    /// written and clang picks per instance, as for the imported set above.
+    /// "" for any other call, so an unpromoted set with plain arguments still
+    /// trips the gate.
+    priv fn _dependent_free_set(self, n: *CallExpr) -> string {
+        if !self._plain_callee(n->callee) { return ""; }
+        var ni = dyn_cast::<NamedIdentExpr>(n->callee);
+        if (ni == &null) || (ni->resolved_decl != &null) || (ni->candidate_cell == &null) { return ""; }
+        var cell = ni->candidate_cell;
+        if cell->size() == 0 { return ""; }
+        var any_dep = false;
+        for var j: usize = 0; j < n->args.size(); ++j {
+            var a = n->args[j];
+            if a->is_instantiation_dependent() || (a->type_ == &null) { any_dep = true; }
+        }
+        if !any_dep { return ""; }
+        var name = "";
+        for var i: usize = 0; i < cell->size(); ++i {
+            var d = cell->get(i);
+            if (d == &null) || (!isa::<FunctionDecl>(d)) { return ""; }
             var s = self._spell.qual_name(d);
             if i == 0 { name = s; }
             else if s != name { return ""; }
