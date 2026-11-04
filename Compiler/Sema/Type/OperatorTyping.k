@@ -270,6 +270,17 @@ class <T> OperatorTyping {
         return decl_is_instance(d) && decl_is_imported(decl_instantiated_from(d));
     }
 
+    /// \p t is an enum imported from C++. Its comparisons are C++'s
+    /// built-in candidates, which compete with every operator ADL finds
+    /// in its namespace; a user `operator==` template there that cannot take
+    /// the enum is no reason to refuse `e == E::a`.
+    priv fn _is_imported_enum(self, t: *Type) -> bool {
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<RecordType>(c)) { return false; }
+        var d = cast::<RecordType>(c)->decl;
+        return (d != &null) && isa::<EnumDecl>(d) && decl_is_imported(d);
+    }
+
     priv fn _label(self, tok: Token) -> string {
         return "op " + dyn()->sc->ctx->get_spelling(tok);
     }
@@ -779,14 +790,17 @@ class <T> OperatorTyping {
             // when the type declares no `!=` at all.
             var cxx_rewrite = (self._is_inequality(k) || self._is_relational(k))
                            && (self._is_imported_record(lt) || self._is_imported_record(rt));
+            // A C++ enum operand: a non-viable ADL operator yields to the
+            // built-in comparison below, as C++'s built-in candidates do.
+            var cxx_enum = self._is_imported_enum(lt) || self._is_imported_enum(rt);
             var ut = self.resolve_user_op(static_cast::<*Expr>(n), k, TokenKind::TkUnknown, n->lhs, lt, rt,
-                                          &args, -1, self._label(n->op_token), &found, cxx_rewrite);
+                                          &args, -1, self._label(n->op_token), &found, cxx_rewrite || cxx_enum);
             if found { return ut; }
 
             // Derived: `!=` from `op ==`.
             if self._is_inequality(k) {
                 ut = self.resolve_user_op(static_cast::<*Expr>(n), TokenKind::OpEqualEqual, TokenKind::TkUnknown,
-                                          n->lhs, lt, rt, &args, -1, "op ==", &found);
+                                          n->lhs, lt, rt, &args, -1, "op ==", &found, cxx_enum);
                 if found {
                     if ut == &null { return &null; }
                     n->op_rewrite = OpRewrite::Not;
@@ -796,7 +810,7 @@ class <T> OperatorTyping {
             // Derived: `<` `<=` `>` `>=` from `op <=>`.
             if self._is_relational(k) {
                 ut = self.resolve_user_op(static_cast::<*Expr>(n), TokenKind::OpLessEqualGreater, TokenKind::TkUnknown,
-                                          n->lhs, lt, rt, &args, -1, "op <=>", &found);
+                                          n->lhs, lt, rt, &args, -1, "op <=>", &found, cxx_enum);
                 if found {
                     if ut == &null { return &null; }
                     n->op_rewrite = OpRewrite::Cmp;
