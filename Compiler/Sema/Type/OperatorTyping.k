@@ -1794,8 +1794,13 @@ class <T> OperatorTyping {
     fn type_assign(self, n: *AssignOperatorExpr, expected: *Type) -> *Type {
         var k  = n->op_token.kind;
         var lt = dyn()->type_of(n->lhs, &null);
-        if dyn()->propagate(n, n->lhs) { return &null; }
-        if lt == &null { return &null; }
+        if dyn()->propagate(n, n->lhs) || (lt == &null) {
+            // A left side whose type is unknown (a dependent `res[i]`) must
+            // not leave the right side unvisited: a brace initializer there
+            // would reach codegen untyped (O4).
+            dyn()->type_of(n->rhs, &null);
+            return &null;
+        }
         // The assigned-to object, not the reference naming it: `v.at(i) = 5`
         // assigns an `i32`. The lvalue test below still reads the NODE's
         // category, which _default_category already set to LValue for a `T&`
