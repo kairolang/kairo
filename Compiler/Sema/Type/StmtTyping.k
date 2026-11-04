@@ -894,7 +894,48 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if (n == &null) || (n->expr == &null) { return n; }
         var t = dyn()->type_of(n->expr, &null);
         if (t != &null) && dyn()->tu.is_never(t) { dyn()->flow.diverge(); }   // a `-> !` call ends the path.
+        // An attributed statement (`@note` NL `p`) was written to be there.
+        if (t != &null) && (!n->has_attribute()) && self._discards_pure_value(n->expr) {
+            // `x = a` NEWLINE `+ b` is two statements (a newline ends one),
+            // the second a value thrown away: a silent miscompile of the
+            // continuation it looks like (G44), as C++'s -Wunused-value.
+            var b = dyn()->sc->diag->report(DiagID::SC001W, n->expr->range.start,
+                "expression result unused; the statement has no effect");
+            b.first(n->expr->range);
+            b.note(n->expr->range.start, "a newline ends a statement: an operator that continues the line above belongs at the end of that line");
+            b.emit();
+        }
         return n;
+    }
+
+    /// \p e computes a value and does nothing else: a literal, a bare name,
+    /// or a BUILTIN unary / binary operator (not `++`/`--`, not a user `op`,
+    /// which may act, and not `&&` / `||` / `??`, which are control flow).
+    priv fn _discards_pure_value(self, e_in: *Expr) -> bool {
+        var e = dyn()->tu.strip_parens(e_in);
+        if (e == &null) || e->is_poisoned() || e->is_instantiation_dependent() { return false; }
+        if e->range.start.is_invalid() { return false; }   // synthesized, not written.
+        var k = e->kind;
+        if (k == ExprKind::IntegerLiteralExpr) || (k == ExprKind::FloatingLiteralExpr) || (k == ExprKind::StringLiteralExpr)
+            || (k == ExprKind::CharacterLiteralExpr) || (k == ExprKind::BooleanLiteralExpr) || (k == ExprKind::NullLiteralExpr)
+            || (k == ExprKind::NamedIdentExpr) {
+            return true;
+        }
+        if k == ExprKind::UnaryOperatorExpr {
+            var u = cast::<UnaryOperatorExpr>(e);
+            if u->is_mode_marker || (u->resolved_op != &null) { return false; }
+            var uk = u->op_token.kind;
+            if (uk == TokenKind::OpPlusPlus) || (uk == TokenKind::OpMinusMinus) { return false; }
+            return u->fix == UnaryOperatorExpr::Fix::Prefix;
+        }
+        if k == ExprKind::BinaryOperatorExpr {
+            var bo = cast::<BinaryOperatorExpr>(e);
+            if bo->resolved_op != &null { return false; }
+            var bk = bo->op_token.kind;
+            if (bk == TokenKind::OpAmpAmp) || (bk == TokenKind::OpPipePipe) || (bk == TokenKind::OpQuestionQuestion) { return false; }
+            return true;
+        }
+        return false;
     }
 
     fn traverse_return_stmt(self, n: *ReturnStmt) -> *ReturnStmt {
