@@ -2577,6 +2577,22 @@ class EmitIR {
         // the instance's, so a local initialised from it is `auto` too.
         if (c != &null) && (c->type_ == &null) && c->is_instantiation_dependent() { return true; }
         if c != &null { e = c->callee; }
+        // `unsafe &self.dyn()->frames[i]` (O26): the address of / index into
+        // a duck chain is the instance's too, so a local initialised from it
+        // is `auto` and its member steps go with the instance.
+        var ue = dyn_cast::<UnsafeExpr>(e);
+        if ue != &null { return self._duck_rooted_expr(ue->operand); }
+        var tc = dyn_cast::<TypeCastExpr>(e);
+        if tc != &null { return self._duck_rooted_expr(tc->operand); }
+        var pe = dyn_cast::<ParenExpr>(e);
+        if pe != &null { return self._duck_rooted_expr(pe->inner); }
+        var uo = dyn_cast::<UnaryOperatorExpr>(e);
+        if uo != &null { return self._duck_rooted_expr(uo->operand); }
+        // `m.flag != Kind::None` with a duck operand: C++ types the result.
+        var be = dyn_cast::<BinaryOperatorExpr>(e);
+        if be != &null { return self._duck_rooted_expr(be->lhs) || self._duck_rooted_expr(be->rhs); }
+        var se = dyn_cast::<SubscriptExpr>(e);
+        if se != &null { return self._duck_rooted_expr(se->base); }
         // A local deduced from a duck chain (`var head = prev->first`, prev a
         // `: type` parameter's pointer) has no type until the instance; it is
         // emitted `auto`, so a step through it is the instance's to look up
@@ -2594,13 +2610,20 @@ class EmitIR {
     /// `tail->next`, or as the head step of a chain the parser left baseless).
     priv fn _duck_local(self, d: *Decl) -> bool {
         var vd = dyn_cast::<VariableDecl>(d);
-        if (vd == &null) || (vd->type_ != &null) || (vd->init == &null) { return false; }
+        if vd == &null { return false; }
+        // `var m: T::Pending;` (O26): declared, but its type is the instance's.
+        if (vd->type_ != &null) && (vd->type_->canonical == &null) && (self._spell.dependent_member(vd->type_).size() > 0) { return true; }
+        if (vd->type_ != &null) || (vd->init == &null) { return false; }
         return self._duck_rooted_expr(vd->init);
     }
 
     /// \p t is a `: type` parameter, or a pointer to one.
     priv fn _is_duck_param_type(self, t: *Type) -> bool {
         if t == &null { return false; }
+        // `var m: T::Pending;` has no canonical type until an instance names
+        // T: a member type of the parameter, so what its fields are is the
+        // instance's (O26), exactly as for `t.f`.
+        if (t->canonical == &null) && (self._spell.dependent_member(t).size() > 0) { return true; }
         var c = t->canonical;
         if c == &null { c = t; }
         c = canon_unqual(c);
