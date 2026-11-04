@@ -388,6 +388,15 @@ class CXXSpell {
         if (f != &null) && f->is_operator { return self.operator_name(f); }
         var t = decl_name_tok(d);
         var nm = self.imm_name(t.imm, CXXSpell::fid_of(d));
+        // An imported enumerator's name was interned in the table of the
+        // file its range lies in (DeclImport::_tok), which is not the TU of
+        // the scope it lives in when a class and its nested enum sit in
+        // different headers of one fill: reading the scope's table gave a
+        // different identifier at that index (`Triple::UnknownVendor` came
+        // out as `VendorType::mips64`). The range names the right table.
+        if isa::<EnumVariantDecl>(d) && (self._cg->ctx->sm != &null) && t.range.is_valid() {
+            nm = self.imm_name(t.imm, self._cg->ctx->sm->get_fid(t.range));
+        }
         // An ADT's layout record IS the enum to C++, and takes its name.
         var lay = dyn_cast::<StructDecl>(d);
         var named = d;
