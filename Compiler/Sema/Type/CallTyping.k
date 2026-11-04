@@ -134,6 +134,7 @@ class <T> CallTyping {
 
         if dyn()->list_literal_shape(e, &a) { return a; }
         if dyn()->literal_shape(e, &a) { return a; }
+        if dyn()->literal_expr_shape(e, &a) { return a; }
         if dyn()->dotted_variant_shape(e, &a) { return a; }
         a.ty = dyn()->type_of(e, &null);
         // `take(P)`: a type is no argument (P252), not an unknown one.

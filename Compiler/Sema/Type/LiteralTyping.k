@@ -107,6 +107,83 @@ class <T> LiteralTyping {
         return false;
     }
 
+    /// \p e is integer arithmetic over untyped integer literals only
+    /// (`256 * 1024`, `(1 << 20) - 1`): still untyped, so it takes the type
+    /// its parameter asks for, as one literal does (primitives.md §5: a
+    /// parameter is an expected type). Ranked by its folded value; once
+    /// selected, the typer hands the parameter type to every leaf. Only the
+    /// argument path reads this: an operand beside a typed one already
+    /// gets that type handed down.
+    fn literal_expr_shape(self, e_in: *Expr, a: *ArgInfo) -> bool {
+        var e = dyn()->tu.strip_parens(e_in);
+        if (e == &null) || (!isa::<BinaryOperatorExpr>(e)) { return false; }
+        var v: i64 = 0;
+        if !self._fold_lit_int(e, &v, 0) { return false; }
+        a->lit     = LitKind::Int;
+        a->lit_neg = false;
+        a->lit_lo  = static_cast::<u64>(v);
+        a->lit_hi  = 0;
+        a->lit_big = false;
+        return true;
+    }
+
+    /// Fold \p e_in into \p out when it is untyped integer literals under
+    /// builtin binary integer operators, every step non-negative and below
+    /// 2^62, so no step overflows i64; anything else is not folded (and
+    /// stays the i32 arithmetic it was).
+    priv fn _fold_lit_int(self, e_in: *Expr, out: *i64, depth: u32) -> bool {
+        if depth > 32 { return false; }
+        var e = dyn()->tu.strip_parens(e_in);
+        if e == &null { return false; }
+        var lim: i64 = i64(1) << 62;
+        if isa::<IntegerLiteralExpr>(e) {
+            var n = cast::<IntegerLiteralExpr>(e);
+            if (n->imm == &null) || n->has_suffix() || n->is_big() || (n->get_value_hi() != 0) { return false; }
+            var lo = n->get_value_lo();
+            if lo >= static_cast::<u64>(lim) { return false; }
+            (*out) = static_cast::<i64>(lo);
+            return true;
+        }
+        if !isa::<BinaryOperatorExpr>(e) { return false; }
+        var b = cast::<BinaryOperatorExpr>(e);
+        if b->resolved_op != &null { return false; }
+        var l: i64 = 0;
+        var r: i64 = 0;
+        if (!self._fold_lit_int(b->lhs, &l, depth + 1)) || (!self._fold_lit_int(b->rhs, &r, depth + 1)) { return false; }
+        var k = b->op_token.kind;
+        var res: i64 = 0;
+        if k == TokenKind::OpPlus { res = l + r; }
+        else if k == TokenKind::OpMinus { res = l - r; }
+        else if k == TokenKind::OpStar {
+            var al = (-l) if (l < 0) else (l);
+            var ar = (-r) if (r < 0) else (r);
+            if (al != 0) && (ar >= lim / al) { return false; }
+            res = l * r;
+        }
+        else if (k == TokenKind::OpSlash) || (k == TokenKind::OpPercent) {
+            if r == 0 { return false; }
+            res = (l / r) if (k == TokenKind::OpSlash) else (l % r);
+        }
+        else if (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater) {
+            if (r < 0) || (r > 62) || (l < 0) { return false; }
+            if k == TokenKind::OpGreaterGreater { res = l >> r; }
+            else {
+                if l >= (lim >> r) { return false; }
+                res = l << r;
+            }
+        }
+        else if k == TokenKind::OpAmp   { res = l & r; }
+        else if k == TokenKind::OpPipe  { res = l | r; }
+        else if k == TokenKind::OpCaret { res = l ^ r; }
+        else { return false; }
+        // Never negative: each leaf takes the parameter's type once
+        // selected, so an unsigned one would see a value its ranking never
+        // saw (`-(4) + 8` at a usize is SC075E at the `4`).
+        if (res >= lim) || (res < 0) { return false; }
+        (*out) = res;
+        return true;
+    }
+
     fn is_untyped_literal(self, e: *Expr) -> bool {
         var a = ArgInfo{};
         return self.literal_shape(e, &a);
