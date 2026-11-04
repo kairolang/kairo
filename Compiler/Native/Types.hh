@@ -94,6 +94,21 @@
 namespace kairo {
 /// `_thread_pause()` as a function: a C macro is no name a Kairo file can use.
 inline void thread_pause() noexcept { _thread_pause(); }
+
+#if !KAIRO_NATIVE_STAGE0
+/// \brief Calls a C++ callable object: Stage 0's `f(args...)` on a functor.
+///
+/// \details An imported C++ functor (a class with operator(), such as
+///          SmallFunction<64>) is not callable as `f()` from Kairo (SC062E;
+///          user decision 2026-11-03, no language change). The self-host
+///          migration writes `kairo::invoke(unsafe &f, args...)` instead. A
+///          pointer, because passing the C++ variable itself would move it
+///          (TODO(CXX-LVALUE-ARG)).
+template <class F, class... Args>
+decltype(auto) invoke(F *f, Args &&...args) {
+    return (*f)(::std::forward<Args>(args)...);
+}
+#endif
 }  // namespace kairo
 
 #include <llvm/ADT/StringRef.h>
