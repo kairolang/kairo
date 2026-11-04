@@ -647,6 +647,24 @@ class DeclImport {
         }
     }
 
+    /// A friend function that is ALSO declared outside any class
+    /// (`friend const_iterator begin(StringRef, Style);` in llvm::sys::path's
+    /// const_iterator, then `const_iterator begin(StringRef, Style = ...)` in
+    /// the namespace): it is an ordinary namespace member, found by qualified
+    /// lookup, and the bare spelling a hidden friend gets would miss it (clang
+    /// finds only the std::begin template). Only a friend never redeclared
+    /// stays hidden.
+    priv fn _friend_redeclared(self, nd: *clang::NamedDecl) -> bool {
+        var fd = llvm::dyn_cast::<clang::FunctionDecl>(nd);
+        if fd == &null { return false; }
+        var r = fd->getMostRecentDecl();
+        while r != &null {
+            if r->getFriendObjectKind() == clang::Decl::FOK_None { return true; }
+            r = r->getPreviousDecl();
+        }
+        return false;
+    }
+
     /// The FFILinkage stamp. Every imported kind derives it except
     /// EnumDecl / InterfaceDecl / EnumVariant / Field / Module; those carry
     /// no per-decl foreign facts sema needs.
@@ -654,7 +672,7 @@ class DeclImport {
         var sp   = self._qual(nd);
         // A hidden friend has no qualified spelling: qualified lookup never
         // finds it, only ADL does. Its bare name is what C++ calls it by.
-        if self._friend_scope != &null { sp = self._display_name(nd); }
+        if (self._friend_scope != &null) && (!self._friend_redeclared(nd)) { sp = self._display_name(nd); }
         var us   = string(usr.data(), usr.size());
         var vset = reinterpret_cast::<*void>(self._set);
         var vd   = reinterpret_cast::<*void>(d);
