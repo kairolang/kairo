@@ -312,6 +312,18 @@ class TypeExport {
         if !isa::<TypeExpr>(t) {
             var q = self.to_clang(t);
             if q.isNull() { return clang::TemplateArgument(); }
+            // A written `fn(A) -> R` as a template argument names the C++
+            // FUNCTION type `R(A)` (`function_ref<bool(X)>`), not `R(*)(A)`:
+            // a partial specialization over `Ret(Params...)` never matches the
+            // pointer, so the instance stayed unfilled and its constructors
+            // were invisible (SC038E, G104). A raw `unsafe fn` is the pointer.
+            var ct_ = canon_unqual(t);
+            if (ct_ != &null) && isa::<FunctionPointerType>(ct_) {
+                var fpt = cast::<FunctionPointerType>(ct_);
+                if (!fpt->is_raw) && (!fpt->is_unprototyped) && q->isPointerType() {
+                    return clang::TemplateArgument(q->getPointeeType());
+                }
+            }
             return clang::TemplateArgument(q);
         }
         var te = cast::<TypeExpr>(t);
