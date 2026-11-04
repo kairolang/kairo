@@ -1247,6 +1247,14 @@ class OverloadResolution {
     priv fn _judge_receiver(self, c: *Candidate, p: *ParamDecl, receiver: *Type) {
         if (receiver == &null) || (p->type_ == &null) || (p->type_->canonical == &null) { return; }
         var sq = canon_quals(p->type_->canonical);
+        // An imported method's constness is clang's own (CXXMethodDecl::
+        // isConst, DeclImport::_define_function). In a multi-input build the
+        // imported `self` type can come back without its cv (G68: every
+        // `array<bool, 256>::operator[]` candidate read sq == 0), and then
+        // the const and non-const overloads both bound as non-const and tied
+        // in _ref_better. clang's rule needs the method's constness, not the
+        // type's.
+        if c->f->is_imported() && p->is_const { sq = sq | QUAL_CONST(); }
         var oq = canon_quals(receiver);
         if (oq & (~sq)) != 0 {
             c->viable = false;
