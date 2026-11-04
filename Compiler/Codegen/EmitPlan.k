@@ -3437,6 +3437,22 @@ fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
     if self._names_vp_template(who, dep) { return true; }
     var probe = LayoutSpine(&self, dep);
     var rec   = self.adt_record(who);
+    // A record nested in \p who is defined INSIDE its body (`struct Entry`
+    // in a class), so what it holds by value orders \p who exactly as
+    // \p who's own fields do; an Entry reached only through a template
+    // argument (`vector<Entry>`) or not at all would otherwise leave the
+    // outer record ahead of a field type it needs complete.
+    var ndc = CXXSpell::dc_of(rec);
+    if ndc != &null {
+        for var i: usize = 0; i < ndc->dc_decls.size(); ++i {
+            var nd = *(ndc->dc_decls.get(i));
+            if (nd == &null) || (!self._is_type_decl(nd)) { continue; }
+            if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
+            var nr = CXXSpell::rep(nd);
+            if nr == who { continue; }
+            if self._needs_complete(nr, dep) { return true; }
+        }
+    }
     switch rec->kind {
         case DeclKind::ClassDecl {
             var n = cast::<ClassDecl>(rec);

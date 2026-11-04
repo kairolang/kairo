@@ -2241,6 +2241,14 @@ class CXXSpell {
                 for var i: usize = 0; i < r->args.size(); ++i {
                     var g = dyn_cast::<GenericParamType>(canon_unqual(r->args[i]));
                     if (g != &null) && (g->owner != &null) && (CXXSpell::rep(g->owner) == CXXSpell::rep(d)) { break; }
+                    // A parameter of a generic ALIAS (`BoxA(x)` over
+                    // `template <class T> using BoxA = Box<T>`, no explicit
+                    // arguments) is the alias's pattern, never in scope in
+                    // an emitted body: spelling it gave `Box<T>` with an
+                    // undeclared T (the self-host's `LockGuard(self._mu)`).
+                    // The name alone leaves the arguments to clang's
+                    // deduction, as for the template itself.
+                    if (g != &null) && (g->owner != &null) && isa::<TypeAliasDecl>(CXXSpell::rep(g->owner)) { v.clear(); break; }
                     v.push_back(r->args[i]);
                 }
                 if v.size() == 0 { return decl_cxx_spelling(d); }
