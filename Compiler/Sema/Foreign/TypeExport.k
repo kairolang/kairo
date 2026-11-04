@@ -410,6 +410,10 @@ class TypeExport {
             if rtag != &null { return clang::QualType(self.cctx->getCanonicalTagType(rtag)); }
             if self.allow_opaque_args {
                 var ob = self._opaque_like(static_cast::<*Type>(rt));
+                // Forward-declared in its own set, or a layout the sized blob
+                // refuses: the template's SFINAE never reads the argument's
+                // layout, so a byte stands for it.
+                if ob.isNull() { ob = self._opaque_blank(); }
                 if !ob.isNull() {
                     self.used_standin = true;
                     self.used_opaque  = true;
@@ -422,9 +426,23 @@ class TypeExport {
         // arguments it is the primary named from inside its own pattern
         // (`next: *G<T>` while G<int> is being defined): the specialization.
         if (!decl_is_imported(d)) && (!decl_is_instance(d)) {
-            if rt->args.size() == 0 { return self._standin(d, rt); }
-            var own = TypeExport::_vec_of(rt->args);
-            return self._standin_instance(d, &own);
+            var sq = clang::QualType();
+            if rt->args.size() == 0 { sq = self._standin(d, rt); }
+            else {
+                var own = TypeExport::_vec_of(rt->args);
+                sq = self._standin_instance(d, &own);
+            }
+            // A stand-in refused here (its C++ base is not spellable in this
+            // set): a caller asking only about the template takes a blob, so
+            // a removal over it stays soft.
+            if sq.isNull() && self.allow_opaque_args {
+                sq = self._opaque_blank();
+                if !sq.isNull() {
+                    self.used_standin = true;
+                    self.used_opaque  = true;
+                }
+            }
+            return sq;
         }
 
         var prim = decl_instantiated_from(d);
@@ -454,6 +472,33 @@ class TypeExport {
             qs.push_back(a);
         }
         return self.template_id(ct, qs);
+    }
+
+    /// A complete one-byte struct standing for a type whose layout is
+    /// unknown or unspellable here. Only for a caller whose question is about
+    /// the template, never the argument (allow_opaque_args).
+    priv fn _opaque_blank(self) -> clang::QualType {
+        var elem = self.cctx->getIntTypeForBitwidth(8, 0);
+        if elem.isNull() { return clang::QualType(); }
+        var leaf = "__kairo_opaque_blank";
+        var tu  = static_cast::<*clang::DeclContext>(self.cctx->getTranslationUnitDecl());
+        var lii = self._ident(leaf);
+        var res = tu->lookup(clang::DeclarationName(lii));
+        if !res.empty() {
+            var prev = llvm::dyn_cast::<clang::CXXRecordDecl>(res.front());
+            if prev == &null { return clang::QualType(); }
+            return clang::QualType(self.cctx->getCanonicalTagType(prev));
+        }
+        var loc = clang::SourceLocation();
+        var rd = clang::CXXRecordDecl::Create(*(self.cctx), clang::TagTypeKind::Struct, tu, loc, loc, lii, &null);
+        rd->setImplicit(true);
+        tu->addDecl(rd);
+        rd->startDefinition();
+        var arr = self.cctx->getConstantArrayType(elem, llvm::APInt(64, 1), &null,
+                                                  clang::ArraySizeModifier::Normal, 0);
+        self._add_field(rd, arr, 0);
+        rd->completeDefinition();
+        return clang::QualType(self.cctx->getCanonicalTagType(rd));
     }
 
     /// An opaque struct with \p t's size and alignment, for an imported
