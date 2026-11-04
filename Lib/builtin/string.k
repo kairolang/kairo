@@ -128,6 +128,18 @@ pub class string {
         if l != 0 { self.assign_bytes_(d, l) }
     }
 
+    /// n copies of the byte c (`string(std::size_t n, char c)` with the
+    /// arguments the other way round, so a literal count never reads as a
+    /// pointer). Built in place: filling a fresh block avoids the temporary
+    /// string and the copy that `string(n)` plus a loop of push_back would pay.
+    fn string(self, c: u8, n: usize) {
+        self.data = &EMPTY[0]
+        self.len  = 0
+        self.cps  = 0
+        self.cap  = 0
+        if n != 0 { self.fill_bytes_(c, n) }
+    }
+
     /// Deep for an owned source, shared for a borrowed one (static bytes
     /// outlive every copy). constexpr (see the file header).
     @copy fn string(self, const other: Self) {
@@ -405,6 +417,24 @@ pub class string {
         }
         self.len = n
         self.cps = count_cps_(d, n)
+        self.cap = block
+    }
+
+    /// Replaces an EMPTY string's contents with n > 0 copies of c.
+    @cold_path @no_inline
+    priv fn fill_bytes_(self, c: u8, n: usize) {
+        var block = n + 1
+        unsafe {
+            var unsafe *p = alloc_raw(block, 1)
+            if p == &null { oom(block, 1) }
+            for var i: usize = 0; i < n; ++i { p[i] = c }
+            p[n] = 0
+            self.data = p as *const u8
+        }
+        self.len = n
+        // Every copy of c counts the same: a continuation byte repeated is
+        // zero codepoints, as count_cps_ would say of the same bytes.
+        self.cps = n * lead_(c)
         self.cap = block
     }
 
