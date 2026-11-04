@@ -379,6 +379,20 @@ class OverloadResolution {
         return false;
     }
 
+    /// \p receiver is a dependent instance of an imported class template
+    /// and \p members are its (imported) members.
+    priv fn _dependent_foreign_receiver(self, receiver: *Type, members: *vec::<*Decl>) -> bool {
+        if (receiver == &null) || (members == &null) || (members->size() == 0) { return false; }
+        var r = canon_unqual(self.tu.as_value(receiver));
+        if (r == &null) || (!isa::<RecordType>(r)) || (!r->is_dependent()) { return false; }
+        if !decl_is_imported(cast::<RecordType>(r)->decl) { return false; }
+        for var i: usize = 0; i < members->size(); ++i {
+            var f = dyn_cast::<FunctionDecl>((*members)[i]);
+            if (f != &null) && f->is_imported() { return true; }
+        }
+        return false;
+    }
+
     fn resolve_mixed(self, members: *vec::<*Decl>, margs: *vec::<ArgInfo>, has_receiver: bool,
                      frees: *vec::<*Decl>, fargs: *vec::<ArgInfo>,
                      at: SourceRange, name: string, receiver: *Type = &null,
@@ -390,6 +404,17 @@ class OverloadResolution {
         out.receiver = canon_unqual(receiver);
 
         if (!defer) && (self._any_dependent(margs) || self._any_dependent(fargs)) {
+            out.outcome = OvlOutcome::Dependent;
+            return out;
+        }
+        // A member of a C++ class template instance over a Kairo parameter
+        // (`self.v[i]`, `self.v.size()` on a `vector<T>`, G33): the pattern's
+        // signatures are dependent (`operator[](size_type)` with size_type
+        // `allocator_traits<A>::size_type`) and import as opaque types no
+        // argument converts to. C++ resolves a call on a dependent object
+        // per instantiation, and so does Kairo: Dependent, as for a
+        // dependent argument. The concrete instance resolves as before.
+        if (!defer) && self._dependent_foreign_receiver(receiver, members) {
             out.outcome = OvlOutcome::Dependent;
             return out;
         }
