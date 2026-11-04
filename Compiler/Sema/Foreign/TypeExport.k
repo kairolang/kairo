@@ -389,6 +389,18 @@ class TypeExport {
             if tag != &null { return clang::QualType(self.cctx->getCanonicalTagType(tag)); }
         }
 
+        // An imported plain record or enum whose decl is ANOTHER set's: the
+        // first set to import `clang::QualType` is not the set of the TU
+        // naming `SmallVector<QualType, 8>`, and an argument with no spelling
+        // here left the whole instance unfilled (`v.size()` was R025E, G80).
+        // The same entity is re-found in this set's AST by its qualified
+        // path; an instance or a Kairo-authored record is handled below.
+        if (cd != &null) && decl_is_imported(d) && (!decl_is_instance(d)) {
+            var rf = self._refind(reinterpret_cast::<*clang::Decl>(cd));
+            var rtag = llvm::dyn_cast_or_null::<clang::TagDecl>(static_cast::<*clang::Decl>(rf));
+            if rtag != &null { return clang::QualType(self.cctx->getCanonicalTagType(rtag)); }
+        }
+
         // A Kairo-authored record: a stand-in under its emitted name. With
         // arguments it is the primary named from inside its own pattern
         // (`next: *G<T>` while G<int> is being defined): the specialization.
