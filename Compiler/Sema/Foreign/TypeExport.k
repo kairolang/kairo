@@ -603,7 +603,17 @@ class TypeExport {
             var ns = llvm::dyn_cast::<clang::NamespaceDecl>(dc);
             if ns == &null {
                 if dc->isTransparentContext() { dc = dc->getParent(); continue; }
-                return &null;
+                // A member of a plain class (`RedeclarableTemplateDecl::
+                // SpecIterator`): re-found through the class's own table. A
+                // class that is itself an instance has no path another AST
+                // shares, and a dependent one is not a place at all.
+                var orec = llvm::dyn_cast::<clang::CXXRecordDecl>(dc);
+                if (orec == &null) || llvm::isa::<clang::ClassTemplateSpecializationDecl>(orec) { return &null; }
+                if (orec->getIdentifier() == &null) || orec->isDependentContext() { return &null; }
+                var rsr: llvm::StringRef = orec->getName();
+                names.push_back(string(rsr.data(), rsr.size()));
+                dc = dc->getParent();
+                continue;
             }
             if ns->isAnonymousNamespace() { return &null; }
             var sr: llvm::StringRef = ns->getName();
@@ -617,6 +627,13 @@ class TypeExport {
             for r in res {
                 var rns = llvm::dyn_cast::<clang::NamespaceDecl>(r);
                 if rns != &null { next = static_cast::<*clang::DeclContext>(rns); break; }
+                // A class on the path: its definition's table is the one that
+                // holds the members (a forward declaration holds none).
+                var rrec = llvm::dyn_cast::<clang::CXXRecordDecl>(r);
+                if rrec != &null {
+                    var rdef = rrec->getDefinition();
+                    if rdef != &null { next = static_cast::<*clang::DeclContext>(rdef); break; }
+                }
             }
             if next == &null { return &null; }
             cur = next;
