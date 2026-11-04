@@ -696,6 +696,29 @@ class ImportResolution {
         self._add(overlay, cxx_root_name(), t);
     }
 
+    /// An imported C++ variable already held under this key. The import
+    /// registry keys decls by USR across header sets, so a variable two
+    /// closures both reach (glibc's `extern FILE *stdout` under <cstdio> and
+    /// <string>) arrives as the SAME VariableDecl twice, not as two decls.
+    /// non_function_count dedups by pointer so it is no ambiguity, but the
+    /// merged cell would list it twice, and a variable has no redeclaration
+    /// ring to collapse that on: ExprTyper reads two candidates as an
+    /// overload set and never promotes it (EmitIR: unpromoted overload set).
+    priv fn _is_same_ffi_var(self, entry: *OverlayEntry, t: OverlayTarget) -> bool {
+        if (t.kind != OverlayTargetKind::Type) || (t.decl == &null) { return false; }
+        if (!isa::<VariableDecl>(t.decl)) || (!decl_is_ffi(t.decl)) { return false; }
+        for var i: usize = 0; i < entry->targets.size(); ++i {
+            var o = entry->targets[i];
+            if (o.kind != OverlayTargetKind::Type) || (o.decl == &null) { continue; }
+            if o.decl == t.decl { return true; }
+            if (!isa::<VariableDecl>(o.decl)) || (!decl_is_ffi(o.decl)) { continue; }
+            // Distinct decls of one entity (no shared registry): same USR.
+            var u = cast::<VariableDecl>(t.decl)->usr;
+            if (u.size() > 0) && (u == cast::<VariableDecl>(o.decl)->usr) { return true; }
+        }
+        return false;
+    }
+
     /// Intern the visible name into THIS TU's imm space (overlay key), add the
     /// target, rebuild the merged candidate cell, and diagnose a fresh
     /// non-function collision exactly once (R016; a header-only collision
@@ -710,6 +733,10 @@ class ImportResolution {
                 if (o.kind == t.kind) && (o.cell == t.cell) && (o.decl == t.decl) { return; }
             }
         }
+
+        // One C++ variable reached through two header closures folds once;
+        // see _is_same_ffi_var.
+        if self._is_same_ffi_var(entry, t) { return; }
 
         // Shadowing a PRELUDE module handle. Two ModuleHandle targets under
         // one key UNION into a multi-scope module -- non_function_count
