@@ -75,6 +75,11 @@ class <T> ControlTyping {
     /// Join \p t into \p acc; on failure diagnose at \p at and return false.
     priv fn _join_into(self, acc: *(*Type), t: *Type, at: *Expr, what: string) -> bool {
         if t == &null { return true; }   // unknown/poisoned arm: nothing to join, already reported.
+        // An arm is a value: an imported `T&`/`T&&` arm (an element accessor
+        // beside a `T` arm) joins as the T it refers to, as G74 does for a
+        // tuple element; the reference type itself never unifies with T (G78).
+        var cu = canon_unqual(t);
+        if (cu != &null) && (isa::<CXXLValueRefType>(cu) || isa::<CXXRValueRefType>(cu)) { t = dyn()->tu.as_value(cu); }
         var j = dyn()->conv.join(*acc, t);
         if j == &null {
             dyn()->sc->diag->report(DiagID::SC039E, at->range.start,
