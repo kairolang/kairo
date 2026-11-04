@@ -247,6 +247,20 @@ class HeaderIndex {
     /// were declared. Public for ForeignInstantiate, which walks a completed
     /// ClassTemplateSpecializationDecl the same way.
     fn walk_declare(self, dc: *clang::DeclContext, di: *DeclImport, out: ref!(vec::<(*void, *Decl)>)) {
+        // clang declares a record's implicit special members lazily (the
+        // default constructor of `struct S : B { APValue v; }` only when
+        // something looks it up). Kairo never asks clang, it reads decls(), so
+        // without this `S()` finds only the copy / move constructors that an
+        // earlier lookup happened to declare. Before the loop: declaring adds
+        // to the very list it iterates.
+        var crd = llvm::dyn_cast::<clang::CXXRecordDecl>(dc);
+        if (crd != &null) && crd->hasDefinition() && crd->isCompleteDefinition() && (!crd->isDependentContext()) && (!crd->isInvalidDecl()) {
+            var hs = di->_set;
+            if (hs != &null) && (hs->sema() != &null) {
+                var slock = std::LockGuard(*(hs->sema_lock()));
+                hs->sema()->ForceDeclarationOfImplicitMembers(crd);
+            }
+        }
         for d in dc->decls() {
             var kind = d->getKind();
             // clang marks every UsingShadowDecl implicit (its using-declaration
