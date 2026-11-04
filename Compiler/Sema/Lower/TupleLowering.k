@@ -135,8 +135,20 @@ class TupleLowering derives ASTWriter::<TupleLowering> {
         for var i: usize = 0; i < n->steps.size(); ++i {
             var st = n->steps.get(i);
             if (st == &null) || (!st->is_tuple_index()) { continue; }
-            ICE_IF(st->resolved_decl == &null, "TupleLowering: a tuple index step with no field; MemberTyping binds it");
-            var nm = self.synth.ident(st->range, self.tu.decl_name(st->resolved_decl));
+            // A step off a dependent value (`self.dyn()->sig().0`, a duck
+            // generic's result) has no tuple type to bind a field in: the
+            // instance knows it. Spelled as the field `_N` every tuple
+            // record has (tuple_field_name), left unbound like any other
+            // dependent member step (EmitIR::_dependent_step); a step that is
+            // unbound with no dependence behind it is still a Sema gap.
+            var nm_s: string;
+            if st->resolved_decl == &null {
+                ICE_IF(!n->is_instantiation_dependent(), "TupleLowering: a tuple index step with no field; MemberTyping binds it");
+                nm_s = tuple_field_name(static_cast::<usize>(st->index));
+            } else {
+                nm_s = self.tu.decl_name(st->resolved_decl);
+            }
+            var nm = self.synth.ident(st->range, nm_s);
             var id = NamedIdentExpr::create(self.ctx, st->range, nm);
             id->resolved_decl = st->resolved_decl;
             st->name   = id;
