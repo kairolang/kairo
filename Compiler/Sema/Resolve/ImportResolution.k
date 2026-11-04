@@ -32,6 +32,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
+import Sema::Resolve::MemberLookup::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
@@ -755,13 +756,48 @@ class ImportResolution {
 
         // A Kairo import takes part: the import itself is the mistake.
         if entry->reported { return; }
-        var d = dyn_cast::<ImportDecl>(t.origin);
+        // Blame an import the user WROTE. The builtin prelude is synthesized
+        // at 1:1; a user `BigInt` colliding with builtin's was reported
+        // there, on a line that names nothing.
+        var d = self._blame_import(entry, t);
         if d != &null {
             entry->reported = true;
-            self.sc->diag->report(DiagID::R016E, d->range.start,
+            // Contained, not a hard stop: every use of the name is poisoned
+            // where it is looked up (MemberLookup::report_use_ambiguity), so
+            // nothing downstream binds a guess. Stopping the TU instead left
+            // every signature in it unresolved -- `ctx->alloc<T>()` in each
+            // importer of ASTContext failed over an unrelated `BigInt`.
+            self.sc->contained_errors += 1;
+            var b = self.sc->diag->report(DiagID::R016E, d->range.start,
                 f"ambiguous import: '{visible}' names more than one non-function symbol"
-            ).first(d->range).emit();
+            );
+            b.first(d->range);
+            var seen = vec::<*Decl>();
+            for var i: usize = 0; i < entry->targets.size(); ++i {
+                var o = entry->targets[i];
+                if (o.kind != OverlayTargetKind::Type) || o.hidden || (o.decl == &null) { continue; }
+                var dup = false;
+                for var j: usize = 0; j < seen.size(); ++j { if seen[j] == o.decl { dup = true; break; } }
+                if dup { continue; }
+                seen.push_back(o.decl);
+                var what = MemberLookup::kind_word(o.decl);
+                b.note(DiagID::R016N, o.decl->range.start, f"'{visible}' could be the {what} declared here").first(o.decl->range);
+            }
+            b.emit();
         }
+    }
+
+    /// The ImportDecl an eager R016E is reported at: \p t's own unless that
+    /// is the synthesized prelude import, then the first written import
+    /// among the entry's targets. Null when neither exists.
+    priv fn _blame_import(self, entry: *OverlayEntry, t: OverlayTarget) -> *ImportDecl {
+        var d = dyn_cast::<ImportDecl>(t.origin);
+        if (d != &null) && (!d->is_prelude) { return d; }
+        for var i: usize = 0; i < entry->targets.size(); ++i {
+            var o = dyn_cast::<ImportDecl>(entry->targets[i].origin);
+            if (o != &null) && (!o->is_prelude) { return o; }
+        }
+        return d;
     }
 
     /// Mark every Type target C++ would hide: an imported tag beside an

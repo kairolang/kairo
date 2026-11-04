@@ -684,14 +684,21 @@ class MemberLookup {
     /// The R016E C++ defers to the use: \p imm, found through the overlay of
     /// \p found_in's TU, names an entry I marked `lazy` (every colliding
     /// entity came from a header, ImportResolution::_add). Reports at \p at
-    /// with one note per candidate and returns true; false, silently, for
-    /// every other entry. N calls it for expression heads, T for type names.
+    /// with one note per candidate and returns true. An entry I already
+    /// reported at a Kairo import returns true without a second report (the
+    /// caller poisons the use); false, silently, for every other entry. N
+    /// calls it for expression heads, T for type names.
     static fn report_lazy_ambiguity(sc: *SemaContext, found_in: *DeclContext, imm: u32,
                                     nm: string, at: SourceRange) -> bool {
         var tu = NameLookup::tu_of(found_in);
         if (tu == &null) || (tu->import_overlay == &null) { return false; }
         var entry = tu->import_overlay->entry(imm);
-        if (entry == &null) || (!entry->lazy) || (!entry->is_ambiguous()) { return false; }
+        if (entry == &null) || (!entry->is_ambiguous()) { return false; }
+        // A collision a Kairo import took part in was reported once, at that
+        // import (ImportResolution::_add), and I let the TU go on because
+        // every use lands here: poison it, quietly. Binding the merged
+        // cell's stand-in would type the use as a guess.
+        if !entry->lazy { return entry->reported; }
 
         var b = sc->diag->report(DiagID::R016E, at.start,
             f"ambiguous import: '{nm}' names more than one non-function symbol"
@@ -706,14 +713,15 @@ class MemberLookup {
             for var j: usize = 0; j < seen.size(); ++j { if seen[j] == t.decl { dup = true; break; } }
             if dup { continue; }
             seen.push_back(t.decl);
-            var what = MemberLookup::_kind_word(t.decl);
+            var what = MemberLookup::kind_word(t.decl);
             b.note(DiagID::R016N, t.decl->range.start, f"'{nm}' could be the {what} declared here").first(t.decl->range);
         }
         b.emit();
         return true;
     }
 
-    priv static fn _kind_word(d: *Decl) -> string {
+    /// The word a note uses for \p d's kind ("class", "typedef", ...).
+    pub static fn kind_word(d: *Decl) -> string {
         if isa::<VariableDecl>(d)    { return "variable"; }
         if isa::<TypeAliasDecl>(d)   { return "typedef"; }
         if isa::<EnumVariantDecl>(d) { return "enumerator"; }

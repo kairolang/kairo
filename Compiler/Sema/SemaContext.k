@@ -359,6 +359,13 @@ class SemaContext {
     /// sema itself produced (parse errors already gated the run).
     pub var error_count_base: u32 = 0;
 
+    /// Errors among error_delta() whose damage is already fenced off: the
+    /// node or name they concern is poisoned at every use, so resolving the
+    /// rest of the TU yields information rather than cascade. The stage
+    /// gates (Sema::_hard_stop) do not count them; errored() still does, so
+    /// the TU still fails. One writer today: I's eager R016E.
+    pub var contained_errors: u32 = 0;
+
     /// Default ctor: leaves the context UNWIRED (null handles, Parsed phase).
     /// Exists so a by-value SemaContext member (e.g. Sema::sc) can be
     /// default-constructed and then assigned the wired form below. A pass must

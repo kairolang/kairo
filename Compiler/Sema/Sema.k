@@ -214,7 +214,9 @@ class Sema {
     /// names produces cascade noise, not information. Check/lowering
     /// stages keep going where they can; poisoned nodes carry the state.
     priv fn _hard_stop(self) -> bool {
-        return self.sc.errored();
+        // Contained errors (SemaContext::contained_errors) poison their own
+        // uses; only the rest stop the pipeline.
+        return self.sc.error_delta() > self.sc.contained_errors;
     }
 
     // --- Stages (schedule only; bodies live in the pass files) ---------------
