@@ -427,7 +427,15 @@ class <T> MemberTyping {
                     var ed  = (edc->owner_decl()) if (edc != &null) else (&null);
                     if ed == &null { dyn()->fail(n, DiagID::SC093E, "enum variant has no owning enum"); return &null; }
                     cur = dyn()->variant_value_type(ed);
-                    if (cur_kind == 1) && (dyn()->discr_enum == &null) { cur = cur_type; }   // `Foo<i32>::V` keeps the instance
+                    // `Foo<i32>::V` keeps the instance -- only when the
+                    // qualifier IS the variant's enum. A C++ unscoped
+                    // enumerator named through its enclosing record
+                    // (`LangStandard::lang_gnucxx26`, of `LangStandard::Kind`)
+                    // is the enum's, not the record's.
+                    if (cur_kind == 1) && (dyn()->discr_enum == &null) {
+                        var qd = dyn()->tu.record_decl(cur_type);
+                        if (qd != &null) && (NameLookup::representative(dyn()->tu.pattern_of(qd)) == NameLookup::representative(dyn()->tu.pattern_of(ed))) { cur = cur_type; }
+                    }
                     cur_kind = 0; st->resolved_type = cur;
                     n->value_category = Expr::ValueCategory::RValue;
                     if is_last { last_variant = cast::<EnumVariantDecl>(d); }
