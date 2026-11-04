@@ -92,6 +92,10 @@ class <T> ControlTyping {
         var t = dyn()->type_of(e, dyn()->tu.builtin(BuiltinKind::Bool));
         if t == &null { return !e->is_poisoned(); }
         if dyn()->tu.is_bool(t) { return true; }
+        // A C++ `bool&` (`flags[i]` on an `array<bool, N>`) is read as the
+        // bool it refers to, as `!`, `&&` and C++ itself read it (G45).
+        var cu = canon_unqual(t);
+        if (cu != &null) && (isa::<CXXLValueRefType>(cu) || isa::<CXXRValueRefType>(cu)) && dyn()->tu.is_bool(dyn()->tu.as_value(cu)) { return true; }
         // A `bool?` place as the condition reads its value (NULLABLE.md §4).
         if dyn()->tu.is_bool(dyn()->tu.strip_nullable(t)) {
             t = dyn()->read_value(e);
