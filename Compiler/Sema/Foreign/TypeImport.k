@@ -555,8 +555,12 @@ class TypeImport {
             self._note_arg(kn->inner, nargs[0].getAsType(), depth + 1);
             return;
         }
+        // Any builtin claims its canonical type, not only usize/isize: in
+        // `DenseMap<u64, usize>` both arguments are `unsigned long`, and a
+        // usize that was the only claimant made the KEY come back usize too
+        // (G91). A second claimant with another Kairo type nulls the entry.
         var kb = dyn_cast::<BuiltinType>(ku);
-        if (kb != &null) && TypeImport::is_ptr_int(kb) {
+        if kb != &null {
             if !cu->isBuiltinType() { return; }
             var ie = self._int_args.find(reinterpret_cast::<u64>(cu));
             if ie == self._int_args.end() {

@@ -328,8 +328,16 @@ class ForeignInstantiate {
         px.psym      = self.psym;
         px.instances = self._instances;
         px.home_fid  = home;
+        // A sibling argument with the same canonical C++ type must be seen
+        // too, or it is mistaken for the one that was noted (G91).
+        var any_noted = false;
         for var i: usize = 0; i < e->args.size(); ++i {
-            if !TypeImport::has_pointer_arg(e->args[i]) { continue; }
+            if TypeImport::has_pointer_arg(e->args[i]) { any_noted = true; }
+        }
+        for var i: usize = 0; i < e->args.size(); ++i {
+            if !any_noted { continue; }
+            var ab = dyn_cast::<BuiltinType>(canon_unqual(e->args[i]));
+            if (ab == &null) && (!TypeImport::has_pointer_arg(e->args[i])) { continue; }
             ti.note_pointer_arg(e->args[i], px.to_clang(e->args[i]));
         }
 
