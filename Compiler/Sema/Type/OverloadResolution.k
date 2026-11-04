@@ -1978,7 +1978,12 @@ class OverloadResolution {
                 return (ImplicitRank::Exact) if (self.tu.nullable_inner(pt) != &null) else (ImplicitRank::None);
             }
             case LitKind::NullPtr {
-                return (ImplicitRank::Exact) if (self.tu.pointee(target) != &null) else (ImplicitRank::None);
+                // `&null` is C++'s `nullptr`: it IS a `std::nullptr_t` (identity),
+                // and only converts to a pointer ([conv.ptr]). Ranked apart so
+                // `It(std::nullptr_t)` beats `It(int *)` as it does in clang
+                // instead of tying it (G93).
+                if self.tu.is_nullptr_t(target) { return ImplicitRank::Exact; }
+                return (ImplicitRank::Converted) if (self.tu.pointee(target) != &null) else (ImplicitRank::None);
             }
             case LitKind::List { return self._rank_list(a, pt); }
             case LitKind::Variant {
@@ -2084,6 +2089,10 @@ class OverloadResolution {
                 return self.tu.builtin(BuiltinKind::U128);
             }
             case LitKind::Float { return self.tu.builtin(BuiltinKind::F64); }
+            // `&null` deduces `std::nullptr_t` as C++'s `nullptr` does: a
+            // forwarding `Args&&` then forwards a nullptr, which the callee
+            // converts to whatever pointer it takes (G93).
+            case LitKind::NullPtr { return self.tu.nullptr_t_type(); }
             case LitKind::List { return self._list_default(a->elems_lo, a->elems_n, pt); }
             // `.V` has no type of its own to deduce a `T` from.
             case LitKind::Variant { return &null; }

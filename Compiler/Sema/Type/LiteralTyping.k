@@ -426,6 +426,10 @@ class <T> LiteralTyping {
             expected = dyn()->tu.as_value(ec);
         }
         if n->is_ref {
+            // Passed to C++ where a `std::nullptr_t` is wanted (a deduced
+            // forwarding reference, or the parameter itself): `&null` is the
+            // nullptr that type holds (G93).
+            if dyn()->tu.is_nullptr_t(expected) { return expected; }
             if dyn()->tu.pointee(dyn()->tu.strip_nullable(expected)) != &null {
                 // A safe `*T` is never null (pointers.mdx), so `&null` has
                 // nowhere to go in one: only a `*T?` (as that nullable's

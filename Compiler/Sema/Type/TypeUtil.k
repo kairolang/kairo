@@ -107,6 +107,17 @@ class TypeUtil {
         return cast::<PointerType>(u)->pointee;
     }
 
+    /// C++'s `std::nullptr_t`, the type of an imported `nullptr` and so of
+    /// `&null` passed to C++ (one node in the store, however it is reached).
+    fn nullptr_t_type(self) -> *Type {
+        return self.sc->types->nullptr_t(self.sc->imm_table());
+    }
+
+    fn is_nullptr_t(self, t: *Type) -> bool {
+        var u = canon_unqual(t);
+        return (u != &null) && isa::<OpaqueFFIType>(u) && (u == self.nullptr_t_type());
+    }
+
     /// Requires PointerType::is_unsafe on canonical nodes (see spec).
     fn is_unsafe_ptr(self, t: *Type) -> bool {
         var u = canon_unqual(t);

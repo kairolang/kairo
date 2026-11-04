@@ -701,7 +701,7 @@ class TypeImport {
         var k = bt->getKind();
         if k == clang::BuiltinType::Void     { return self.store->builtin(BuiltinKind::Void); }
         if k == clang::BuiltinType::Bool     { return self.store->builtin(BuiltinKind::Bool); }
-        if k == clang::BuiltinType::NullPtr  { return &null; }                   // opaque: `nullptr_t`
+        if k == clang::BuiltinType::NullPtr  { return self.store->nullptr_t(self.kctx->get_imm_table()); }   // opaque; `&null` is its value (G93)
         if k == clang::BuiltinType::Char32   { return self.store->builtin(BuiltinKind::Char); }
         // Plain `char` (Char_S or Char_U by the target's signedness) is its
         // own type, not i8/u8: `const char*` binds only `const char*`, and

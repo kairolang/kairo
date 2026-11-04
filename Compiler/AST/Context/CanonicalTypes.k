@@ -109,6 +109,7 @@ class CanonicalTypeStore {
     /// tables) but pointless until a profile shows contention: each TU asks for
     /// each distinct shape ONCE and reads its own `canonical` slots after.
     priv var _mu: std::SharedMutex;
+    priv var _nullptr_t: *Type = &null;   ///< see nullptr_t()
 
     /// Indexed by BuiltinKind; COUNT slots, filled eagerly in init().
     priv var _builtins: vec::<*Type>;
@@ -1154,6 +1155,22 @@ class CanonicalTypeStore {
             if (g->owner == owner) && (g->param_index == index) { return c; }
         }
         return &null;
+    }
+
+    /// C++'s `std::nullptr_t`, the one opaque `&null` takes when passed to C++.
+    /// An opaque is keyed by an imm of whichever file's table interned it and
+    /// those tables are per file, so a header's `nullptr_t` and the one a
+    /// call deduces would be two types: the first caller (\p imms is its
+    /// table) names the single node every later caller gets.
+    fn nullptr_t(self, imms: *ImmediateTable) -> *Type {
+        {
+            var lock = std::LockGuard(self._mu);
+            if self._nullptr_t != &null { return self._nullptr_t; }
+        }
+        var t = self.opaque(imms->intern_ident_copy("std::nullptr_t"));
+        var lock = std::LockGuard(self._mu);
+        if self._nullptr_t == &null { self._nullptr_t = t; }
+        return self._nullptr_t;
     }
 
     priv fn _probe_opaque(self, h: u64, name_imm: u32) -> *Type {
