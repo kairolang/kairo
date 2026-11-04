@@ -116,6 +116,19 @@ class DeclImport {
     pub var fill_scope:  *DeclContext  = &null;   ///< the instance shell.
     pub var fill_spec:   *clang::Decl  = &null;   ///< the ClassTemplateSpecializationDecl it stands for.
     pub var fill_scopes: vec::<*DeclContext>;     ///< every table the fill created; the fill freezes them.
+    /// A VARIANT fill only (else null): the USR -> decl table for the
+    /// members this fill mints. `vector<usize>` and `vector<u64>` are two
+    /// Kairo instances of ONE clang specialization (`vector<unsigned long>`
+    /// on LP64), so every member has one USR. Through the registry the
+    /// second fill found the first's members and re-defined them with its
+    /// own argument mapping: whichever instance filled LAST decided whether
+    /// both `v[i]`s were usize or u64, and the whole-tree result depended on
+    /// input order (G108). Members of `fill_spec` go here instead, so each
+    /// instance has its own; anything outside the specialization is still
+    /// the registry's. The fill owns the table and drops it after.
+    pub var fill_usr:    *llvm::StringMap::<*Decl> = &null;
+    /// declare() is minting a member of a variant fill: _put goes to fill_usr.
+    priv var _own: bool = false;
     /// declare_friend only: the class whose table the friend's NAME goes in.
     priv var _friend_scope: *clang::DeclContext = &null;
     /// declare_using only: the namespace whose table the target's NAME also
@@ -266,7 +279,7 @@ class DeclImport {
         if ns != &null { return static_cast::<*DeclContext>(self.namespace_for(t, ns)); }
         var rd = clang::Decl::castFromDeclContext(dc);
         if rd != &null {
-            var kd = self.reg->find(TypeImport::usr_of(rd->getCanonicalDecl()));
+            var kd = self._find(TypeImport::usr_of(rd->getCanonicalDecl()));
             var kdc = NameLookup::context_of(kd);
             if kdc != &null { return kdc; }
         }
@@ -332,6 +345,38 @@ class DeclImport {
         return m;
     }
 
+    /// The Kairo decl registered for \p usr: this variant fill's own first.
+    priv fn _find(self, usr: llvm::StringRef) -> *Decl {
+        if self.fill_usr != &null {
+            var it = self.fill_usr->find(usr);
+            if it != self.fill_usr->end() { return it->second; }
+        }
+        return self.reg->find(usr);
+    }
+
+    /// Register \p d under \p usr (first one wins); a variant fill's member
+    /// goes to the fill's own table.
+    priv fn _put(self, usr: llvm::StringRef, d: *Decl) -> *Decl {
+        if self._own && (self.fill_usr != &null) {
+            var r = self.fill_usr->try_emplace(usr, d);
+            return (r.first)->second;
+        }
+        return self.reg->put(usr, d);
+    }
+
+    /// \p d is declared inside the specialization a fill is importing.
+    priv fn _in_fill_spec(self, d: *clang::Decl) -> bool {
+        if self.fill_spec == &null { return false; }
+        var spec = self.fill_spec->getCanonicalDecl();
+        var dc = d->getDeclContext();
+        while dc != &null {
+            var cd = clang::Decl::castFromDeclContext(dc);
+            if (cd != &null) && (cd->getCanonicalDecl() == spec) { return true; }
+            dc = dc->getParent();
+        }
+        return false;
+    }
+
     // === pass 1: declare =======================================================
 
     /// Mint + register + bind the name. Returns the Kairo decl (existing one
@@ -362,7 +407,17 @@ class DeclImport {
         var usr   = TypeImport::usr_of(canon);
         if usr.empty() { self.n_skipped += 1; return &null; }
 
-        var existing = self.reg->find(usr);
+        // A member of a variant fill's specialization is this instance's
+        // own: the registry's entry under the same USR belongs to the other
+        // Kairo instance of that specialization (see fill_usr).
+        var own = (self.fill_usr != &null) && self._in_fill_spec(d);
+        var existing: *Decl = &null;
+        if own {
+            var oi = self.fill_usr->find(usr);
+            if oi != self.fill_usr->end() { existing = oi->second; }
+        } else {
+            existing = self._find(usr);
+        }
         if existing != &null {
             // Second declaration of a known entity: only the NAME binding
             // in THIS header's table is new.
@@ -370,9 +425,12 @@ class DeclImport {
             return existing;
         }
 
+        var was_own = self._own;
+        self._own = own;
         var kd = self._mint(t, nd);
-        if kd == &null { self.n_skipped += 1; return &null; }
-        var won = self.reg->put(usr, kd);
+        if kd == &null { self._own = was_own; self.n_skipped += 1; return &null; }
+        var won = self._put(usr, kd);
+        self._own = was_own;
         if won != kd { self._bind_named(t, nd, won); return won; }
 
         self._stamp(kd, d, nd, usr, t);
@@ -469,7 +527,7 @@ class DeclImport {
                 var ct = llvm::cast::<clang::ClassTemplateDecl>(nd);
                 out = self._mint_record(t, ct->getTemplatedDecl(), at, name, parent);
                 // The template decl and its templated record are one entity to us.
-                self.reg->put(TypeImport::usr_of(ct->getTemplatedDecl()->getCanonicalDecl()), out);
+                self._put(TypeImport::usr_of(ct->getTemplatedDecl()->getCanonicalDecl()), out);
             }
             case clang::Decl::ClassTemplateSpecialization {
                 var sp = llvm::cast::<clang::ClassTemplateSpecializationDecl>(nd);
@@ -497,14 +555,14 @@ class DeclImport {
             case clang::Decl::FunctionTemplate {
                 var ft = llvm::cast::<clang::FunctionTemplateDecl>(nd);
                 out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent));
-                self.reg->put(TypeImport::usr_of(ft->getTemplatedDecl()->getCanonicalDecl()), out);
+                self._put(TypeImport::usr_of(ft->getTemplatedDecl()->getCanonicalDecl()), out);
             }
             case clang::Decl::Typedef   { out = static_cast::<*Decl>(TypeAliasDecl::create(t->ctx, at, name, &null)); }
             case clang::Decl::TypeAlias { out = static_cast::<*Decl>(TypeAliasDecl::create(t->ctx, at, name, &null)); }
             case clang::Decl::TypeAliasTemplate {
                 var at_ = llvm::cast::<clang::TypeAliasTemplateDecl>(nd);
                 out = static_cast::<*Decl>(TypeAliasDecl::create(t->ctx, at, name, &null));
-                self.reg->put(TypeImport::usr_of(at_->getTemplatedDecl()->getCanonicalDecl()), out);
+                self._put(TypeImport::usr_of(at_->getTemplatedDecl()->getCanonicalDecl()), out);
             }
             case clang::Decl::Var {
                 var v = llvm::cast::<clang::VarDecl>(nd);
@@ -878,18 +936,18 @@ class DeclImport {
         if td != &null {
             var inner = td->getTemplatedDecl();                 // null for a concept.
             if inner == &null { return &null; }
-            return self.reg->find(TypeImport::usr_of(inner->getCanonicalDecl()));
+            return self._find(TypeImport::usr_of(inner->getCanonicalDecl()));
         }
         if llvm::isa::<clang::ClassTemplatePartialSpecializationDecl>(c) {
-            return self.reg->find(TypeImport::usr_of(c->getCanonicalDecl()));
+            return self._find(TypeImport::usr_of(c->getCanonicalDecl()));
         }
         var rd = llvm::dyn_cast::<clang::CXXRecordDecl>(c);
         if (rd != &null) && (rd->getDescribedClassTemplate() != &null) {
-            return self.reg->find(TypeImport::usr_of(rd->getCanonicalDecl()));
+            return self._find(TypeImport::usr_of(rd->getCanonicalDecl()));
         }
         var fd = llvm::dyn_cast::<clang::FunctionDecl>(c);
         if (fd != &null) && (fd->getDescribedFunctionTemplate() != &null) {
-            return self.reg->find(TypeImport::usr_of(fd->getCanonicalDecl()));
+            return self._find(TypeImport::usr_of(fd->getCanonicalDecl()));
         }
         return &null;
     }
@@ -925,7 +983,7 @@ class DeclImport {
         self._collect_fields(t, def, fields, ti);
         for m in def->methods() {
             if m->isImplicit() && (!m->isUserProvided()) { continue; }
-            var km = self.reg->find(TypeImport::usr_of(m->getCanonicalDecl()));
+            var km = self._find(TypeImport::usr_of(m->getCanonicalDecl()));
             if km == &null { continue; }
             methods.push_back(cast::<FunctionDecl>(km));
         }
@@ -983,7 +1041,7 @@ class DeclImport {
                 if inner != &null { self._collect_fields(t, inner, out, ti); }
                 continue;
             }
-            var kf = self.reg->find(TypeImport::usr_of(f->getCanonicalDecl()));
+            var kf = self._find(TypeImport::usr_of(f->getCanonicalDecl()));
             if kf == &null { continue; }
             out.push_back(cast::<FieldDecl>(kf));
         }
@@ -1044,7 +1102,7 @@ class DeclImport {
     /// primary exactly as T registers a Kairo `class <> Box<i32>`.
     priv fn _define_spec(self, t: *HeaderTarget, sp: *clang::ClassTemplateSpecializationDecl,
                          kd: *Decl, ti: *TypeImport, partial: bool) {
-        var prim = self.reg->find(TypeImport::usr_of(sp->getSpecializedTemplate()->getCanonicalDecl()));
+        var prim = self._find(TypeImport::usr_of(sp->getSpecializedTemplate()->getCanonicalDecl()));
         if prim == &null { return; }
         var rep  = NameLookup::representative(prim);
         var args = vec::<*Type>();
@@ -1148,7 +1206,7 @@ class DeclImport {
         ke->underlying = ti->_import(def->getIntegerType());
         var vs = vec::<*EnumVariantDecl>();
         for ec in def->enumerators() {
-            var kv = self.reg->find(TypeImport::usr_of(ec->getCanonicalDecl()));
+            var kv = self._find(TypeImport::usr_of(ec->getCanonicalDecl()));
             if kv == &null { continue; }
             vs.push_back(cast::<EnumVariantDecl>(kv));
         }

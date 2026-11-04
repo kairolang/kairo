@@ -45,6 +45,7 @@ ffi "c++" import "clang/AST/DeclTemplate.h";
 ffi "c++" import "clang/AST/ODRHash.h";
 ffi "c++" import "clang/AST/PrettyPrinter.h";
 ffi "c++" import "clang/AST/QualTypeNames.h";
+ffi "c++" import "llvm/ADT/StringMap.h";
 ffi "c++" import "clang/AST/Type.h";
 ffi "c++" import "clang/Index/USRGeneration.h";
 ffi "c++" import "llvm/ADT/APSInt.h";
@@ -99,6 +100,9 @@ class TypeImport {
     /// with different Kairo types (`map<u64, usize>`) holds null: the
     /// canonical type cannot say which, and the ordinary mapping answers.
     priv var _int_args: llvm::DenseMap::<u64, *Type>;
+
+    /// A variant fill's own members (DeclImport::fill_usr); null otherwise.
+    pub var fill_usr: *llvm::StringMap::<*Decl> = &null;
 
     fn TypeImport(self, store: *CanonicalTypeStore, instances: *InstantiationRegistry,
                   reg: *ForeignRegistry, cctx: *clang::ASTContext, kctx: *ASTContext, fid: u32) {
@@ -661,6 +665,11 @@ class TypeImport {
         if d == &null { return &null; }
         var usr = TypeImport::usr_of(d->getCanonicalDecl());
         if usr.empty() { return &null; }
+        // A variant fill's own members first (DeclImport::fill_usr, G108).
+        if self.fill_usr != &null {
+            var it = self.fill_usr->find(usr);
+            if it != self.fill_usr->end() { return it->second; }
+        }
         return self.reg->find(usr);
     }
 

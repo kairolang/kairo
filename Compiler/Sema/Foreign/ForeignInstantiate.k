@@ -59,6 +59,7 @@ ffi "c++" import "clang/Sema/Sema.h";
 ffi "c++" import "clang/Sema/TemplateDeduction.h";
 ffi "c++" import "llvm/ADT/SmallString.h";
 ffi "c++" import "llvm/ADT/SmallVector.h";
+ffi "c++" import "llvm/ADT/StringMap.h";
 
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -370,6 +371,23 @@ class ForeignInstantiate {
             var ab = dyn_cast::<BuiltinType>(canon_unqual(e->args[i]));
             if (ab == &null) && (!TypeImport::has_pointer_arg(e->args[i])) { continue; }
             ti.note_pointer_arg(e->args[i], px.to_clang(e->args[i]));
+        }
+
+        // A VARIANT: another Kairo instance already owns this clang
+        // specialization (`vector<u64>` beside `vector<usize>`, both
+        // `vector<unsigned long>` to clang). It shares the specialization
+        // but not the members, whose types follow each instance's own
+        // arguments (DeclImport::fill_usr, G108). The spec's own USR maps to
+        // this shell inside the fill, so `const vector&` is this instance.
+        var own_usr: llvm::StringMap::<*Decl>;
+        var spec_usr = TypeImport::usr_of(spec);
+        if !spec_usr.empty() {
+            var owner = self._reg->find(spec_usr);
+            if (owner != &null) && (owner != shell) {
+                own_usr.try_emplace(spec_usr, shell);
+                di.fill_usr = &own_usr;
+                ti.fill_usr = &own_usr;
+            }
         }
 
         var pairs = vec::<(*void, *Decl)>();
