@@ -1279,7 +1279,10 @@ class EmitIR {
             var nm = self._spell.imm_name(n->name.imm, self._owning_fid());
             self._cg->sink->spell(n->name.range, self._spell.decl(n->type_, nm));
         } else {
-            if n->type_ == &null {
+            // Deduced from a duck chain: `auto` is the type, the instance's.
+            if (n->type_ == &null) && (n->init != &null) && self._duck_rooted_expr(n->init) {
+                self._cg->sink->kw_auto(n->name);
+            } else if n->type_ == &null {
                 var nm = self._cg->ctx->get_spelling(n->name);
                 self._cg->ctx->diag_sink.report(DiagCode(DiagID::I011W), n->name.range.start,
                     f"internal: '{nm}' reached codegen with no inferred type; This is a compiler bug; please report it with the source that triggered it"
@@ -2468,6 +2471,11 @@ class EmitIR {
     /// result, `c.get(1).w`) is a Sema gap, not a request for clang.
     priv fn _dependent_step(self, n: *ChainExpr, st: *ChainExpr::Step) -> bool {
         if (st->name == &null) || st->name->is_poisoned() { return false; }
+        // A chain through a duck-deduced local (`tail = tail->next`) is not
+        // flagged dependent: Sema only knows its base's type is inferred.
+        // The local is `auto` (_duck_local), so the step is the instance's.
+        var via_local = (n->base != &null) && isa::<NamedIdentExpr>(n->base)
+                     && self._duck_local(cast::<NamedIdentExpr>(n->base)->resolved_decl);
         var k = st->access_kind;
         if (k != ChainExpr::AccessKind::Dot) && (k != ChainExpr::AccessKind::Arrow) && (k != ChainExpr::AccessKind::ColonColon) { return false; }
         // A member of a C++ class template instance over a Kairo parameter
@@ -2477,7 +2485,7 @@ class EmitIR {
         // dependent receiver is the evidence; the typer marks the CALL
         // unknown, not the callee chain.
         if st->candidate_cell != &null { return self._foreign_dependent_receiver(n, st); }
-        if !n->is_instantiation_dependent() { return false; }
+        if (!n->is_instantiation_dependent()) && (!via_local) { return false; }
         return self._duck_rooted(n);
     }
 
@@ -2527,6 +2535,7 @@ class EmitIR {
                 // `t.inner().w`: the base is itself an unknown duck call, so
                 // `.w` hangs off it like a later step of one chain.
                 if (i == 0) && (recv == &null) && (n->base != &null) { return self._duck_rooted_expr(n->base); }
+                if (recv == &null) && (i > 0) && self._duck_local(n->steps.get(i - 1)->resolved_decl) { return true; }
                 return self._is_duck_param_type(recv);
             }
             recv = st->resolved_type;
@@ -2538,9 +2547,25 @@ class EmitIR {
     priv fn _duck_rooted_expr(self, e: *Expr) -> bool {
         var c = dyn_cast::<CallExpr>(e);
         if c != &null { e = c->callee; }
+        // A local deduced from a duck chain (`var head = prev->first`, prev a
+        // `: type` parameter's pointer) has no type until the instance; it is
+        // emitted `auto`, so a step through it is the instance's to look up
+        // like any later step of the chain it came from. Without this the
+        // step was an "unbound member step" ICE (Redeclarable::set_prev).
+        var ni = dyn_cast::<NamedIdentExpr>(e);
+        if ni != &null { return self._duck_local(ni->resolved_decl); }
         var ch = dyn_cast::<ChainExpr>(e);
         if ch == &null { return false; }
         return ch->is_instantiation_dependent() && self._duck_rooted(ch);
+    }
+
+    /// \p d is a local with no type of its own, deduced from a duck chain:
+    /// emitted `auto`, so what it holds is the instance's (as a name base,
+    /// `tail->next`, or as the head step of a chain the parser left baseless).
+    priv fn _duck_local(self, d: *Decl) -> bool {
+        var vd = dyn_cast::<VariableDecl>(d);
+        if (vd == &null) || (vd->type_ != &null) || (vd->init == &null) { return false; }
+        return self._duck_rooted_expr(vd->init);
     }
 
     /// \p t is a `: type` parameter, or a pointer to one.
