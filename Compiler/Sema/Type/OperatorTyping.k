@@ -431,12 +431,30 @@ class <T> OperatorTyping {
     /// conversion per operand decide it; a dependent parameter is the
     /// instantiation's to decide, so it stays.
     priv fn _filter_free_applies(self, v: *vec::<*Decl>, recv_ty: *Type, other: *Type) {
+        // C++ looks an operator function up only when an operand has class
+        // or enumeration type ([over.match.oper]/1): `p != nullptr` on two
+        // pointers is the builtin, whatever ADL through `T*`'s namespace
+        // would reach. Kept, clang's own free operator templates
+        // (CustomizableOptional's `!=`) made `dyn_cast<TagDecl>(m) !=
+        // &null` an SC063E with no viable candidate.
+        var cxx_ok = self._class_or_enum(recv_ty) || self._class_or_enum(other);
         var keep = vec::<*Decl>();
         for var i: usize = 0; i < v->size(); ++i {
             var f = dyn_cast::<FunctionDecl>((*v)[i]);
+            if (f != &null) && (!cxx_ok) && decl_is_imported((*v)[i]) { continue; }
             if (f == &null) || self._free_may_apply(f, recv_ty, other) { keep.push_back((*v)[i]); }
         }
         (*v) = keep;
+    }
+
+    /// \p t, references and nullability peeled, is a record or an enum: an
+    /// operand that lets C++ consider operator functions at all.
+    priv fn _class_or_enum(self, t: *Type) -> bool {
+        if t == &null { return false; }
+        var v = dyn()->tu.strip_nullable(dyn()->tu.as_value(t));
+        if v == &null { return false; }
+        if v->is_dependent() { return true; }
+        return dyn()->tu.record_decl(v) != &null;
     }
 
     priv fn _free_may_apply(self, f: *FunctionDecl, recv_ty: *Type, other: *Type) -> bool {
