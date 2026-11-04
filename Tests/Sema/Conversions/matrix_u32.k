@@ -575,16 +575,15 @@ fn main() -> i32 { return 0; }
 // DIAG-NEXT: {{.*}}: note [I900N]: cast one side explicitly with 'as' to choose the result type
 // DIAG-NOT: :298:
 // DIAG: {{.*}}:299:{{[0-9]+}}: error [SC028E]: cannot convert 'u32' to 'bool'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:303:{{[0-9]+}}: error [SC028E]: cannot convert 'u32' to 'char'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:305:{{[0-9]+}}: error [SC028E]: cannot convert 'u32' to 'char'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:306:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'sink_char'
-// DIAG-NEXT: {{.*}}: note [I900N]: candidate not viable: cannot convert argument of type 'u32' to parameter 'x' of type 'char'
+// DIAG-NOT: :303:
+// DIAG-NOT: :305:
+// DIAG-NOT: :306:
 // DIAG: {{.*}}:307:{{[0-9]+}}: error [SC039E]: the 'else' branch has type 'char', which does not unify with the earlier 'u32'
 // DIAG-NEXT: {{.*}}: note [I900N]: every branch of a value-producing construct must convert to one type
 // DIAG: {{.*}}:308:{{[0-9]+}}: error [SC033E]: operands 'u32' and 'char' do not unify; neither converts implicitly to the other
 // DIAG-NEXT: {{.*}}: note [I900N]: cast one side explicitly with 'as' to choose the result type
 // DIAG-NOT: :309:
-// DIAG: {{.*}}:310:{{[0-9]+}}: error [SC028E]: cannot convert 'u32' to 'char'; the conversion may lose value and needs an explicit 'as'
+// DIAG-NOT: :310:
 // DIAG: {{.*}}:314:{{[0-9]+}}: error [SC028E]: cannot convert 'u32' to 'byte'; the conversion may lose value and needs an explicit 'as'
 // DIAG: {{.*}}:316:{{[0-9]+}}: error [SC028E]: cannot convert 'u32' to 'byte'; the conversion may lose value and needs an explicit 'as'
 // DIAG: {{.*}}:317:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'sink_byte'

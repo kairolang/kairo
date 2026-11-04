@@ -581,10 +581,8 @@ fn main() -> i32 { return 0; }
 // DIAG: {{.*}}:307:{{[0-9]+}}: error [SC028E]: cannot convert 'i64' to 'char'; the conversion may lose value and needs an explicit 'as'
 // DIAG: {{.*}}:308:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'sink_char'
 // DIAG-NEXT: {{.*}}: note [I900N]: candidate not viable: cannot convert argument of type 'i64' to parameter 'x' of type 'char'
-// DIAG: {{.*}}:309:{{[0-9]+}}: error [SC039E]: the 'else' branch has type 'char', which does not unify with the earlier 'i64'
-// DIAG-NEXT: {{.*}}: note [I900N]: every branch of a value-producing construct must convert to one type
-// DIAG: {{.*}}:310:{{[0-9]+}}: error [SC033E]: operands 'i64' and 'char' do not unify; neither converts implicitly to the other
-// DIAG-NEXT: {{.*}}: note [I900N]: cast one side explicitly with 'as' to choose the result type
+// DIAG-NOT: :309:
+// DIAG-NOT: :310:
 // DIAG-NOT: :311:
 // DIAG: {{.*}}:312:{{[0-9]+}}: error [SC028E]: cannot convert 'i64' to 'char'; the conversion may lose value and needs an explicit 'as'
 // DIAG: {{.*}}:316:{{[0-9]+}}: error [SC028E]: cannot convert 'i64' to 'byte'; the conversion may lose value and needs an explicit 'as'

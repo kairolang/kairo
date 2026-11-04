@@ -201,7 +201,7 @@ extend i32  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64
 extend i64  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
 extend usize impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
 extend isize impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
-extend char impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
+extend char impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self)) }
 
 extend u128 impl Hash {
     pub inline fn hash(const self) -> usize = to_usize(fold_mul((self as u64) ^ HASH_S0, ((self >> 64) as u64) ^ HASH_S1))

@@ -291,26 +291,20 @@ fn main() -> i32 { return 0; }
 // DIAG-NEXT: {{.*}}: note [I900N]: cast one side explicitly with 'as' to choose the result type
 // DIAG-NOT: :66:
 // DIAG: {{.*}}:67:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'i32'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:71:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'i64'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:73:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'i64'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:74:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'sink_i64'
-// DIAG-NEXT: {{.*}}: note [I900N]: candidate not viable: cannot convert argument of type 'char' to parameter 'x' of type 'i64'
-// DIAG: {{.*}}:75:{{[0-9]+}}: error [SC039E]: the 'else' branch has type 'i64', which does not unify with the earlier 'char'
-// DIAG-NEXT: {{.*}}: note [I900N]: every branch of a value-producing construct must convert to one type
-// DIAG: {{.*}}:76:{{[0-9]+}}: error [SC033E]: operands 'char' and 'i64' do not unify; neither converts implicitly to the other
-// DIAG-NEXT: {{.*}}: note [I900N]: cast one side explicitly with 'as' to choose the result type
+// DIAG-NOT: :71:
+// DIAG-NOT: :73:
+// DIAG-NOT: :74:
+// DIAG-NOT: :75:
+// DIAG-NOT: :76:
 // DIAG-NOT: :77:
-// DIAG: {{.*}}:78:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'i64'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:82:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'i128'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:84:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'i128'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:85:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'sink_i128'
-// DIAG-NEXT: {{.*}}: note [I900N]: candidate not viable: cannot convert argument of type 'char' to parameter 'x' of type 'i128'
-// DIAG: {{.*}}:86:{{[0-9]+}}: error [SC039E]: the 'else' branch has type 'i128', which does not unify with the earlier 'char'
-// DIAG-NEXT: {{.*}}: note [I900N]: every branch of a value-producing construct must convert to one type
-// DIAG: {{.*}}:87:{{[0-9]+}}: error [SC033E]: operands 'char' and 'i128' do not unify; neither converts implicitly to the other
-// DIAG-NEXT: {{.*}}: note [I900N]: cast one side explicitly with 'as' to choose the result type
+// DIAG-NOT: :78:
+// DIAG-NOT: :82:
+// DIAG-NOT: :84:
+// DIAG-NOT: :85:
+// DIAG-NOT: :86:
+// DIAG-NOT: :87:
 // DIAG-NOT: :88:
-// DIAG: {{.*}}:89:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'i128'; the conversion may lose value and needs an explicit 'as'
+// DIAG-NOT: :89:
 // DIAG: {{.*}}:93:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'isize'; the conversion may lose value and needs an explicit 'as'
 // DIAG: {{.*}}:95:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'isize'; the conversion may lose value and needs an explicit 'as'
 // DIAG: {{.*}}:96:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'sink_isize'
@@ -325,52 +319,41 @@ fn main() -> i32 { return 0; }
 // DIAG: {{.*}}:106:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u8'; the conversion may lose value and needs an explicit 'as'
 // DIAG: {{.*}}:107:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'sink_u8'
 // DIAG-NEXT: {{.*}}: note [I900N]: candidate not viable: cannot convert argument of type 'char' to parameter 'x' of type 'u8'
-// DIAG: {{.*}}:108:{{[0-9]+}}: error [SC039E]: the 'else' branch has type 'u8', which does not unify with the earlier 'char'
-// DIAG-NEXT: {{.*}}: note [I900N]: every branch of a value-producing construct must convert to one type
-// DIAG: {{.*}}:109:{{[0-9]+}}: error [SC033E]: operands 'char' and 'u8' do not unify; neither converts implicitly to the other
-// DIAG-NEXT: {{.*}}: note [I900N]: cast one side explicitly with 'as' to choose the result type
+// DIAG-NOT: :108:
+// DIAG-NOT: :109:
 // DIAG-NOT: :110:
 // DIAG: {{.*}}:111:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u8'; the conversion may lose value and needs an explicit 'as'
 // DIAG: {{.*}}:115:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u16'; the conversion may lose value and needs an explicit 'as'
 // DIAG: {{.*}}:117:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u16'; the conversion may lose value and needs an explicit 'as'
 // DIAG: {{.*}}:118:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'sink_u16'
 // DIAG-NEXT: {{.*}}: note [I900N]: candidate not viable: cannot convert argument of type 'char' to parameter 'x' of type 'u16'
-// DIAG: {{.*}}:119:{{[0-9]+}}: error [SC039E]: the 'else' branch has type 'u16', which does not unify with the earlier 'char'
-// DIAG-NEXT: {{.*}}: note [I900N]: every branch of a value-producing construct must convert to one type
-// DIAG: {{.*}}:120:{{[0-9]+}}: error [SC033E]: operands 'char' and 'u16' do not unify; neither converts implicitly to the other
-// DIAG-NEXT: {{.*}}: note [I900N]: cast one side explicitly with 'as' to choose the result type
+// DIAG-NOT: :119:
+// DIAG-NOT: :120:
 // DIAG-NOT: :121:
 // DIAG: {{.*}}:122:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u16'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:126:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u32'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:128:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u32'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:129:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'sink_u32'
-// DIAG-NEXT: {{.*}}: note [I900N]: candidate not viable: cannot convert argument of type 'char' to parameter 'x' of type 'u32'
+// DIAG-NOT: :126:
+// DIAG-NOT: :128:
+// DIAG-NOT: :129:
 // DIAG: {{.*}}:130:{{[0-9]+}}: error [SC039E]: the 'else' branch has type 'u32', which does not unify with the earlier 'char'
 // DIAG-NEXT: {{.*}}: note [I900N]: every branch of a value-producing construct must convert to one type
 // DIAG: {{.*}}:131:{{[0-9]+}}: error [SC033E]: operands 'char' and 'u32' do not unify; neither converts implicitly to the other
 // DIAG-NEXT: {{.*}}: note [I900N]: cast one side explicitly with 'as' to choose the result type
 // DIAG-NOT: :132:
-// DIAG: {{.*}}:133:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u32'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:137:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u64'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:139:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u64'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:140:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'sink_u64'
-// DIAG-NEXT: {{.*}}: note [I900N]: candidate not viable: cannot convert argument of type 'char' to parameter 'x' of type 'u64'
-// DIAG: {{.*}}:141:{{[0-9]+}}: error [SC039E]: the 'else' branch has type 'u64', which does not unify with the earlier 'char'
-// DIAG-NEXT: {{.*}}: note [I900N]: every branch of a value-producing construct must convert to one type
-// DIAG: {{.*}}:142:{{[0-9]+}}: error [SC033E]: operands 'char' and 'u64' do not unify; neither converts implicitly to the other
-// DIAG-NEXT: {{.*}}: note [I900N]: cast one side explicitly with 'as' to choose the result type
+// DIAG-NOT: :133:
+// DIAG-NOT: :137:
+// DIAG-NOT: :139:
+// DIAG-NOT: :140:
+// DIAG-NOT: :141:
+// DIAG-NOT: :142:
 // DIAG-NOT: :143:
-// DIAG: {{.*}}:144:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u64'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:148:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u128'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:150:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u128'; the conversion may lose value and needs an explicit 'as'
-// DIAG: {{.*}}:151:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'sink_u128'
-// DIAG-NEXT: {{.*}}: note [I900N]: candidate not viable: cannot convert argument of type 'char' to parameter 'x' of type 'u128'
-// DIAG: {{.*}}:152:{{[0-9]+}}: error [SC039E]: the 'else' branch has type 'u128', which does not unify with the earlier 'char'
-// DIAG-NEXT: {{.*}}: note [I900N]: every branch of a value-producing construct must convert to one type
-// DIAG: {{.*}}:153:{{[0-9]+}}: error [SC033E]: operands 'char' and 'u128' do not unify; neither converts implicitly to the other
-// DIAG-NEXT: {{.*}}: note [I900N]: cast one side explicitly with 'as' to choose the result type
+// DIAG-NOT: :144:
+// DIAG-NOT: :148:
+// DIAG-NOT: :150:
+// DIAG-NOT: :151:
+// DIAG-NOT: :152:
+// DIAG-NOT: :153:
 // DIAG-NOT: :154:
-// DIAG: {{.*}}:155:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'u128'; the conversion may lose value and needs an explicit 'as'
+// DIAG-NOT: :155:
 // DIAG: {{.*}}:159:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'usize'; the conversion may lose value and needs an explicit 'as'
 // DIAG: {{.*}}:161:{{[0-9]+}}: error [SC028E]: cannot convert 'char' to 'usize'; the conversion may lose value and needs an explicit 'as'
 // DIAG: {{.*}}:162:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'sink_usize'

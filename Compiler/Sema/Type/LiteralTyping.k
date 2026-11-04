@@ -296,6 +296,11 @@ class <T> LiteralTyping {
             if builtin_info(tk)->is_float() { return target; }
             // C's `char` takes an untyped literal only where both of its
             // possible signednesses agree, 0..=127: `buf[i] == 0`, `c < 65`.
+            if tk == BuiltinKind::Char {
+                if literal_fits_int(n->get_value_lo(), n->get_value_hi(), n->is_big(), negative, tk, pb) { return target; }
+                dyn()->fail(n, DiagID::SC075E, f"literal '{n->get_spelling()}' is not a Unicode scalar value, so it does not fit in 'char': only 0 through 0xD7FF and 0xE000 through 0x10FFFF do");
+                return &null;
+            }
             if tk == BuiltinKind::CChar {
                 if literal_fits_int(n->get_value_lo(), n->get_value_hi(), n->is_big(), negative, tk, pb) { return target; }
                 dyn()->fail(n, DiagID::SC075E, f"literal '{n->get_spelling()}' does not fit in 'c_char' on every target: only 0 through 127 do, whether C's char is signed or not");

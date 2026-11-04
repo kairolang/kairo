@@ -142,7 +142,7 @@ pub class FmtBuf {
 
     pub fn put_char(self, c: char, spec: u64) {
         var tmp: [u8; 4]
-        var n = FmtBuf::encode_(c as u32, &tmp[0])
+        var n = FmtBuf::encode_(c, &tmp[0])
         if (FmtBuf::flags_(spec) & 16) != 0 {
             self.reserve_(n * 4 + 2)
             self.byte_(39)                                    // '

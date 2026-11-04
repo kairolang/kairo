@@ -125,6 +125,17 @@ def classify(s, t):
         return "X", "decision: c_char is a character, not a number (primitives.mdx); X like char's row"
     nonnum = s if s.cat in ("bool", "char", "byte") else t
     other = t if nonnum is s else s
+    if nonnum.cat == "char" and other.cat == "int":
+        # USER RULING 2026-11-04: char (32-bit scalar) <-> integer is implicit
+        # only when the target is equal or wider; the pointer-sized types and
+        # everything else need `as`.
+        if other.ptr:
+            return "E", "ruling 2026-11-04: usize/isize stay explicit with char"
+        if nonnum is s:
+            ok = other.bits > 32 or (other.bits == 32 and not other.signed)
+        else:
+            ok = other.bits <= 32 and not other.signed
+        return ("W" if ok else "E"), "ruling 2026-11-04: char <-> integer is implicit only to an equal or wider target (signed: strictly wider)"
     if other.cat == "int":
         return "E", f"{LAT} s3.1/s4: {nonnum.name} <-> any int is E"
     return "X", f"{LAT} s3.1: bool, char and byte take no `as` to floats or to each other"

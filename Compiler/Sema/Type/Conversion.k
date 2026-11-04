@@ -87,6 +87,13 @@ fn literal_fits_int(lo: u64, hi: u64, big: bool, negative: bool, bk: BuiltinKind
     // C's `char` is no integer, but takes a literal where both of its
     // possible signednesses agree: 0..=127.
     if bk == BuiltinKind::CChar { return (!negative) && (!big) && (hi == 0) && (lo <= 127); }
+    // Kairo's `char` is a Unicode scalar value: surrogates and anything above
+    // 0x10FFFF never exist as a char, so a literal outside that set must not
+    // be typed as one.
+    if bk == BuiltinKind::Char {
+        if negative || big || (hi != 0) { return false; }
+        return (lo <= 0xD7FF) || ((lo >= 0xE000) && (lo <= 0x10FFFF));
+    }
     if !builtin_info(bk)->is_integer() { return false; }
     if big { return false; }
     var bits = builtin_info(bk)->bits;
@@ -153,8 +160,12 @@ class Conversion {
         // non-numeric primitives: §4.
         if s == BuiltinKind::Bool { return (ConvClass::E) if (ti) else (ConvClass::X); }
         if t == BuiltinKind::Bool { return (ConvClass::E) if (si) else (ConvClass::X); }
-        if s == BuiltinKind::Char { return (ConvClass::E) if (ti) else (ConvClass::X); }
-        if t == BuiltinKind::Char { return (ConvClass::E) if (si) else (ConvClass::X); }
+        // `char` is a 32-bit Unicode scalar: it converts implicitly to and from an
+        // integer only when the TARGET is equal or wider, and never to or from
+        // the pointer-sized ones (target-dependent width, section 4). Signed
+        // 32-bit and narrower stay explicit.
+        if s == BuiltinKind::Char { return self._char_to_int(t) if (ti) else (ConvClass::X); }
+        if t == BuiltinKind::Char { return self._int_to_char(s) if (si) else (ConvClass::X); }
         if s == BuiltinKind::Byte { return (ConvClass::E) if (ti) else (ConvClass::X); }
         if t == BuiltinKind::Byte { return (ConvClass::E) if (si) else (ConvClass::X); }
         // C's `char`: explicit to and from every integer, never implicit --
@@ -166,6 +177,20 @@ class Conversion {
 
     priv fn _is_ptr_int(self, b: BuiltinKind) -> bool {
         return (b == BuiltinKind::USize) || (b == BuiltinKind::ISize);
+    }
+
+    priv fn _char_to_int(self, t: BuiltinKind) -> ConvClass {
+        if self._is_ptr_int(t) { return ConvClass::E; }
+        var tb = builtin_info(t)->bits;
+        var ts = builtin_info(t)->is_signed();
+        if (!ts) { return (ConvClass::W) if (tb >= 32) else (ConvClass::E); }   // u32, u64, u128...
+        return (ConvClass::W) if (tb > 32) else (ConvClass::E);                  // i64, i128...: strictly wider
+    }
+
+    priv fn _int_to_char(self, s: BuiltinKind) -> ConvClass {
+        if self._is_ptr_int(s) { return ConvClass::E; }
+        if builtin_info(s)->is_signed() { return ConvClass::E; }
+        return (ConvClass::W) if (builtin_info(s)->bits <= 32) else (ConvClass::E);   // u8, u16, u32
     }
 
     priv fn _int_int(self, s: BuiltinKind, t: BuiltinKind) -> ConvClass {
