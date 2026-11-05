@@ -37,7 +37,7 @@ far: char width (byte vs char32), map/set iteration order, `default class`
 raw vs safe pointers, closed enums, lib-helix runtime helpers vs their
 Stage 1 replacements.
 
-## Sites (pipeline at ce799d3f, 2026-11-03)
+## Sites (pipeline at b91be5d7, 2026-11-03)
 
 Line numbers are in the migrated tree (`selfhost/scratch`) of that run.
 
