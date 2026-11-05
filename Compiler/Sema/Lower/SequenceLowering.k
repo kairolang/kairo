@@ -654,7 +654,12 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
             var dv = self.synth.local(e->range, "ord", e->type_, e);
             dv->auto_copy = true;
             stmts->push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, e->range, static_cast::<*Decl>(dv))));
-            return self.synth.use_of(dv, e->range, Expr::ValueCategory::LValue);
+            var du = self.synth.use_of(dv, e->range, Expr::ValueCategory::LValue);
+            // An xvalue (`cxx::std::move(x)`, an imported `T&&` return) is copied into an
+            // `auto` local, a named lvalue: handed on bare it would COPY again, which a
+            // move-only type (`unique_ptr`) forbids. It is passed on as the `T&&` it was.
+            if consumed && isa::<CXXRValueRefType>(e->type_) { return self.synth.cast_to(e->range, du, e->type_, CastMode::Default); }
+            return du;
         }
         var use = self._bind(e, stmts);
         if consumed { return self._moved(use); }
