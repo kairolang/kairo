@@ -1155,6 +1155,17 @@ class CXXSpell {
                 var pfx = "";
                 if (q->quals & QUAL_CONST())    != 0 { pfx += "const "; }
                 if (q->quals & QUAL_VOLATILE()) != 0 { pfx += "volatile "; }
+                // A qualifier on a pointer belongs to the pointer, after the
+                // `*` (`S *const &`); a prefix would make it the pointee's
+                // (`const S *&`), a reference clang refuses to bind to a
+                // `S *` element (vector<S *>::push_back's `const value_type&`).
+                var ic = q->inner->canonical;
+                if (ic != &null) && (ic->kind == TypeKind::PointerType) {
+                    var after = "";
+                    if (q->quals & QUAL_CONST())    != 0 { after += "const"; }
+                    if (q->quals & QUAL_VOLATILE()) != 0 { after += (" volatile") if (after.size() > 0) else ("volatile"); }
+                    return self.decl(q->inner, (after + " " + name) if (name.size() > 0) else (after), subst, scope);
+                }
                 return pfx + self.decl(q->inner, name, subst, scope);
             }
             case TypeKind::BuiltinType {
