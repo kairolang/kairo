@@ -208,8 +208,15 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         var places = vec::<bool>();
         // The receiver object is a place; a pointer it is reached through
         // is a value, read once.
-        if recv != &null { ops.push_back(recv->base); places.push_back(recv->base->is_lvalue() && (!self._pointer_typed(recv->base))); }
-        for var i: usize = 0; i < n->args.size(); ++i { ops.push_back(n->args[i]); places.push_back(false); }
+        // A receiver reached through an imported `T&` (`info.getSM().loc(x)`)
+        // is the referee itself, not a pointer: copied, it would snapshot a
+        // record that may not be copyable (O39).
+        if recv != &null { ops.push_back(recv->base); places.push_back(recv->base->is_lvalue() && ((!self._pointer_typed(recv->base)) || self._lref_typed(recv->base))); }
+        var lrefs = self._lref_params(n, recv != &null);
+        for var i: usize = 0; i < n->args.size(); ++i {
+            ops.push_back(n->args[i]);
+            places.push_back((n->args[i] != &null) && n->args[i]->is_lvalue() && (i < lrefs.size()) && lrefs[i]);
+        }
         var hoist = vec::<bool>();
         var planned = self._plan(&ops, &hoist, &places);
         if n->recv_last && (ops.size() == 2) && (hoist.size() == 2) { planned = self._plan_recv_last(&ops, &hoist, &places); }
@@ -228,7 +235,12 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
             // bound `auto&&` so the referent is passed on, not copied. An
             // `auto` snapshot of `llvm::outs()` copies a non-copyable
             // raw_fd_ostream into a `raw_ostream&` parameter (SI1).
-            var ref_call = a->is_lvalue() && isa::<CallExpr>(self.tu.strip_parens(a));
+            // An lvalue for an imported `T&` / `const T&` parameter is a
+            // place too (`FieldDecl::Create(*self.cctx, ...)`): the callee
+            // binds the object, so a snapshot would hand it a copy -- a
+            // deleted copy constructor at clang, or writes lost on a copy (O39).
+            var lref_arg = a->is_lvalue() && (i < lrefs.size()) && lrefs[i];
+            var ref_call = (a->is_lvalue() && isa::<CallExpr>(self.tu.strip_parens(a))) || lref_arg;
             args.push((self._hoist(a, &stmts, true, ref_call)) if (hoist[k + i]) else (a));
         }
         args.freeze_into(&(n->args));                 // arg_map is empty after CallLowering.
@@ -531,6 +543,46 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
             if u->op_token.kind == TokenKind::OpStar { return self._reads_state(u->operand); }
         }
         return true;
+    }
+
+    /// \p e is typed as an imported `T&` (a call returning one).
+    priv fn _lref_typed(self, e: *Expr) -> bool {
+        if (e == &null) || (e->type_ == &null) { return false; }
+        var c = canon_unqual(e->type_);
+        return (c != &null) && isa::<CXXLValueRefType>(c);
+    }
+
+    /// Per positional argument of \p n (args are positional after
+    /// CallLowering): whether its parameter is an imported `T&` or
+    /// `const T&`. \p bound_recv: `obj.m(...)`, whose `self` is no argument.
+    priv fn _lref_params(self, n: *CallExpr, bound_recv: bool) -> vec::<bool> {
+        var out = vec::<bool>();
+        var f: *FunctionDecl = &null;
+        var is_ctor = (n->ctor_decl != &null) && isa::<FunctionDecl>(n->ctor_decl);
+        if is_ctor { f = cast::<FunctionDecl>(n->ctor_decl); }
+        else {
+            var c = self.tu.strip_parens(n->callee);
+            if (c != &null) && isa::<NamedIdentExpr>(c) { f = dyn_cast::<FunctionDecl>(cast::<NamedIdentExpr>(c)->resolved_decl); }
+            else if (c != &null) && isa::<ChainExpr>(c) {
+                var ce = cast::<ChainExpr>(c);
+                if ce->steps.size() > 0 { f = dyn_cast::<FunctionDecl>(ce->steps.get(ce->steps.size() - 1)->resolved_decl); }
+            }
+        }
+        if f == &null { return out; }
+        var skip_self = is_ctor || (bound_recv && f->is_method());
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var p = f->params[i];
+            if p == &null { continue; }
+            if p->is_self && skip_self { continue; }
+            if p->is_pack { break; }
+            var lr = false;
+            if p->type_ != &null {
+                var t = (p->type_->canonical) if (p->type_->canonical != &null) else (p->type_);
+                lr = isa::<CXXLValueRefType>(canon_unqual(t));
+            }
+            out.push_back(lr);
+        }
+        return out;
     }
 
     priv fn _pointer_typed(self, e: *Expr) -> bool {
