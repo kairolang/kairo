@@ -407,8 +407,8 @@ class CXXSpell {
             if ok { out += c; continue; }
             var b = static_cast::<u32>(static_cast::<u8>(c));
             out += "__x";
-            out += hex[static_cast::<usize>(b >> 4)];
-            out += hex[static_cast::<usize>(b & 15)];
+            out.push_back(hex[static_cast::<usize>(b >> 4)]);
+            out.push_back(hex[static_cast::<usize>(b & 15)]);
         }
         return out;
     }

@@ -177,32 +177,25 @@ class DiagBuilder {
     fn DiagBuilder(self, engine: *DiagEngineVBase, code: DiagCode, loc: SourceLocation, msg: string) {
         // Suppressed before it exists (P397): no Diagnostic, and _emitted set so
         // emit() and the destructor are no-ops; every attach below sees null.
-        if engine->drops(code) {
-            self._engine  = engine;
-            self._diag    = &null;
-            self._emitted = true;
-            return;
-        }
-        if loc == SourceLocation::invalid() {
-            self._engine  = engine;
-            self._diag    = std::create::<Diagnostic>(code, msg);
-            self._emitted = false;
-            return;
-        }
-
+        // Every field is set before the first return: Stage 1 rejects a
+        // constructor return ahead of its last field initialization (SC001E).
         self._engine  = engine;
-        self._diag    = std::create::<Diagnostic>(code, loc, msg);
+        self._diag    = &null;
+        self._emitted = true;
+        if engine->drops(code) { return; }
         self._emitted = false;
+        if loc == SourceLocation::invalid() {
+            self._diag = std::create::<Diagnostic>(code, msg);
+            return;
+        }
+        self._diag = std::create::<Diagnostic>(code, loc, msg);
     }
 
     fn DiagBuilder(self, engine: *DiagEngineVBase, code: DiagCode, msg: string) {
-        if engine->drops(code) {
-            self._engine  = engine;
-            self._diag    = &null;
-            self._emitted = true;
-            return;
-        }
         self._engine  = engine;
+        self._diag    = &null;
+        self._emitted = true;
+        if engine->drops(code) { return; }
         self._diag    = std::create::<Diagnostic>(code, msg);
         self._emitted = false;
     }
