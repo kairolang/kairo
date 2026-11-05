@@ -465,6 +465,16 @@ class CXXSpell {
         // out as `VendorType::mips64`). The range names the right table.
         if isa::<EnumVariantDecl>(d) && (self._cg->ctx->sm != &null) && t.range.is_valid() {
             nm = self.imm_name(t.imm, self._cg->ctx->sm->get_fid(t.range));
+        } else if decl_is_imported(d) && (self._cg->ctx->sm != &null) && (self._cg->ctx->tcm != &null) && t.range.is_valid() {
+            // Any imported member, for the same reason: a class template
+            // forward-declared in one header and defined in another (libc++'s
+            // `<__fwd/string.h>` and `<string>`) has its members' names in
+            // the defining header's table, so `basic_string<char>::npos` read
+            // from the scope's came out as `cend` (O40). A range in a file
+            // with no table of its own was interned in the scope's, as
+            // DeclImport::_tok falls back.
+            var rf = self._cg->ctx->sm->get_fid(t.range);
+            if self._cg->ctx->tcm->get_imm_table_for_fid(rf) != &null { nm = self.imm_name(t.imm, rf); }
         }
         // An ADT's layout record IS the enum to C++, and takes its name.
         var lay = dyn_cast::<StructDecl>(d);
