@@ -2463,10 +2463,18 @@ class EmitIR {
             } else {
                 if self._base_is_self(n->base) {
                     self._self_ptr(cast::<NamedIdentExpr>(n->base));
+                } else if self._dot_on_unknown_call(n, i, upto) {
+                    // `b.first(r).note(m)` in a duck body: `first`'s result
+                    // is whatever the instance returns, a value or (Kairo's
+                    // `.` derefs either) a pointer, and C++ needs `.` or
+                    // `->` to match. The lambda yields the object either way.
+                    self._cg->sink->spell(n->base->range, "[](auto&& __kv) -> decltype(auto) { if constexpr (__is_pointer(__remove_cvref(decltype(__kv)))) { return (*__kv); } else { return (__kv); } }(");
+                    self.emit(n->base);
+                    self._cg->sink->spell(n->base->range, ")");
                 } else {
                     self.emit(n->base);
                 }
-                is_ptr = self._base_is_self(n->base) || self._is_pointer(n->base);
+                is_ptr = self._base_is_self(n->base) || ((!self._dot_on_unknown_call(n, i, upto)) && self._is_pointer(n->base));
             }
         }
         for var j: usize = i; j < upto; ++j {
@@ -2508,6 +2516,19 @@ class EmitIR {
             is_ptr = self._type_is_pointer(st->resolved_type);
         }
         return is_ptr;
+    }
+
+    /// Step \p i of \p n is a `.` member the instance resolves, on a call
+    /// whose result type only the instance knows: whether that result is a
+    /// pointer decides `.` against `->`, and Sema cannot say.
+    priv fn _dot_on_unknown_call(self, n: *ChainExpr, i: usize, upto: usize) -> bool {
+        if (i >= upto) || (i >= n->steps.size()) || (n->base == &null) { return false; }
+        var st = n->steps.get(i);
+        if (st->resolved_decl != &null) || (st->access_kind != ChainExpr::AccessKind::Dot) { return false; }
+        if !isa::<CallExpr>(self._strip(n->base)) { return false; }
+        var bt = n->base->type_;
+        if (bt != &null) && (!bt->is_dependent()) && (!bt->is_instantiation_dependent()) { return false; }
+        return self._dependent_step(n, st);
     }
 
     /// A member step Sema left unbound ON PURPOSE: the chain is dependent
