@@ -62,6 +62,7 @@ import Codegen::Emit::EmitWitness::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
+import AST::Context::GlobalDisambigTable::*;
 import AST::Context::SymbolTable::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
@@ -658,6 +659,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _witness_sig(self, k: usize, f: *FunctionDecl);
     fn _witness_dep(self, k: usize, t: *Type);
     fn _witness_scope(self, k: usize, x: *ExtensionDecl);
+    fn _std_hash(self, prim: *Decl, e: *InstanceEntry);
     fn visit_expr(self, e: *Expr) -> bool;
     fn note_eval_str(self, p: std::ConstPtr::<u8>, n: usize);
     fn visit_type(self, t: *Type) -> bool;
@@ -1668,6 +1670,59 @@ fn EmitPlan::_witness_row(row: *ConformanceRow) {
     }
 }
 
+/// `std::hash<K>` for a Kairo record K that conforms to Hash: \p e is that
+/// imported instance, which a C++ container keyed by K names as its default
+/// hasher (`unordered_map<K, V, std::hash<K>, ...>`, as the registry spells
+/// it). The primary is disabled for a type C++ knows nothing of, so this TU
+/// specializes it (WitnessPiece::std_hash) over the row's witness, pulled
+/// in here: the TU that declares the conformance is not the one that keys
+/// the map. A record that conforms structurally has no recorded row, and a
+/// nested one cannot be declared ahead of the records that hold the map;
+/// both are left to C++'s own error, as a C++ type without a hash is.
+fn EmitPlan::_std_hash(prim: *Decl, e: *InstanceEntry) {
+    if (e->args.size() != 1) || isa::<FunctionDecl>(prim) { return; }
+    var sp = decl_cxx_spelling(prim);
+    if (sp != "::std::hash") && (sp != "std::hash") { return; }
+    var k = e->args[0];
+    if (k == &null) || k->is_dependent() { return; }
+    var kc = canon_unqual((k->canonical) if (k->canonical != &null) else (k));
+    if !isa::<RecordType>(kc) { return; }
+    var kd = CXXSpell::rep(cast::<RecordType>(kc)->decl);
+    if (kd == &null) || decl_is_imported(kd) { return; }
+    var pd = CXXSpell::rep(decl_pattern(kd));
+    if self._outermost_type(pd) != pd { return; }
+    var gs = self._cg->tu->global_scope;
+    if gs == &null { return; }
+    var hd = gs->well_known()->get(WellKnownType::Hash);
+    if hd == &null { return; }
+    var rows = vec::<*ConformanceRow>();
+    self._cg->instances->rows_of(kc, &rows);
+    var row: *ConformanceRow = &null;
+    for var i: usize = 0; i < rows.size(); ++i {
+        if rows[i]->ok && (rows[i]->iface_decl != &null) && (CXXSpell::rep(rows[i]->iface_decl) == CXXSpell::rep(hd)) { row = rows[i]; break; }
+    }
+    if row == &null { return; }
+    if (self._mode != PlanMode::Preamble) && _hidden_in_header(CXXSpell::vis_of(kd)) { return; }
+    self._witness_row(row);
+    // Keyed with usize / isize folded, as a row's specialization is: one
+    // C++ class per C++ type.
+    self._spell.fold_sizes = true;
+    var key = "::std::hash<" + self._spell._type(row->conformer) + ">";
+    self._spell.fold_sizes = false;
+    for var i: usize = 0; i < self._witnesses.size(); ++i {
+        if self._witnesses[i].std_hash && (self._witnesses[i].key == key) { return; }
+    }
+    var iface = CXXSpell::rep(row->iface_decl);
+    var fresh = WitnessPiece();
+    fresh.iface    = iface;
+    fresh.row      = row;
+    fresh.key      = key;
+    fresh.std_hash = true;
+    fresh.after.push_back(iface);
+    self._witnesses.push_back(fresh);
+    self._witness_dep(self._witnesses.size() - 1, row->conformer);
+}
+
 /// The rows \p d DECLARES (`class X impl I`, `extend X impl I`), where \p d
 /// is emitted: there both X and I are complete -- \p d defines or extends
 /// X and names I -- and a C++ host instantiating a bounded template with X
@@ -2662,6 +2717,7 @@ fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
     if decl_is_imported(prim) {
         var imp_need = (PlanNeed::Complete) if (isa::<FunctionDecl>(prim)) else (need);
         for var i: usize = 0; i < e->args.size(); ++i { self._admit_type(e->args[i], imp_need); }
+        self._std_hash(prim, e);
         return;
     }
     // A `<T: type>` instance (O36b): its body is checked by C++ alone, and a
@@ -3305,6 +3361,16 @@ fn EmitPlan::_order() {
     self._toposort(&cs);
     for var i: usize = 0; i < cs.size(); ++i { self.entries.push_back(cs[i]); }
     for var i: usize = 0; i < bounded.size(); ++i { self.entries.push_back(bounded[i]); }
+    // Last, the std::hash adapters' classes (WitnessPiece::std_hash): each
+    // names its K, now declared, and every record definition below may
+    // instantiate it through a container's hasher.
+    for var i: usize = 0; i < self._witnesses.size(); ++i {
+        if !self._witnesses[i].std_hash { continue; }
+        var e = self._entry(self._witnesses[i].iface, PlanNeed::Fwd, PlanTier::FwdDecls);
+        e.witness = &(self._witnesses[i]);
+        e.own     = true;
+        self.entries.push_back(e);
+    }
 
     // Tier 1: definitions, toposorted on Complete edges.
     var t1: vec::<PlanEntry>;
@@ -3513,6 +3579,8 @@ fn EmitPlan::_entry_needs(who: *PlanEntry, dep: *PlanEntry) -> bool {
     if who->witness != &null {
         var w = who->witness;
         if dep->witness != &null {
+            // A std::hash adapter's operator calls its row's specialization.
+            if w->std_hash && (!dep->witness->std_hash) && (dep->witness->row == w->row) { return true; }
             if dep->witness->row != &null { return false; }   // nothing waits on a specialization.
             for var i: usize = 0; i < w->after.size(); ++i { if w->after[i] == dep->witness->iface { return true; } }
             return false;

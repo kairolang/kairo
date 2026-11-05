@@ -327,6 +327,11 @@ class InstantiationRegistry {
     /// The conformance table: hash of (conformer, interface) -> rows. Same
     /// arena and lock as the instances; rows are immutable once added.
     priv var _rows: llvm::DenseMap::<u64, vec::<*ConformanceRow>>;
+    /// The same rows keyed by their conformer alone (canonical, unqualified):
+    /// a reader that knows the interface by its DECL, not its type, finds
+    /// them here (rows_of: EmitPlan's std::hash adapter, which has the Hash
+    /// lang item's decl but no canonical interface type to probe with).
+    priv var _rows_by_conformer: llvm::DenseMap::<u64, vec::<*ConformanceRow>>;
     /// DECLARED rows (`class X impl I`, `extend X impl I`), keyed by the
     /// declaring decl's address: the rows EmitPlan admits where that decl is
     /// emitted, with no Kairo instance to reach them (CODEGEN.md §7b.6). A
@@ -811,7 +816,21 @@ class InstantiationRegistry {
         if hit != &null { return hit; }
         var row = self._row_copy(r);
         self._rows[self._row_hash(r->conformer, r->iface)].push_back(row);
+        self._rows_by_conformer[self._conformer_hash(r->conformer)].push_back(row);
         return row;
+    }
+
+    /// Every table row whose conformer is \p conformer (canonically, either
+    /// side unqualified), in the order they were added, appended to \p out.
+    fn rows_of(self, conformer: *Type, out: *vec::<*ConformanceRow>) {
+        if (conformer == &null) || (out == &null) { return; }
+        var rlock = std::SharedLock(self._mu);
+        var it = self._rows_by_conformer.find(self._conformer_hash(conformer));
+        if it == self._rows_by_conformer.end() { return; }
+        var want = canon_unqual(conformer);
+        for var i: usize = 0; i < it->second.size(); ++i {
+            if canon_unqual(it->second[i]->conformer) == want { out->push_back(it->second[i]); }
+        }
     }
 
     /// A copy of \p r that is NOT recorded: one TU's requirement match that
@@ -1002,6 +1021,10 @@ class InstantiationRegistry {
         var h = canon_hash_ptr(0, reinterpret_cast::<*void>(conformer));
         h = canon_hash_ptr(h, reinterpret_cast::<*void>(iface));
         return h >> 1;   // clear of DenseMap's reserved keys, as _hash.
+    }
+
+    priv fn _conformer_hash(self, conformer: *Type) -> u64 {
+        return canon_hash_ptr(0, reinterpret_cast::<*void>(canon_unqual(conformer))) >> 1;   // as _row_hash.
     }
 
     /// Under the lock (either mode).

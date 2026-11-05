@@ -98,6 +98,17 @@ class WitnessPiece {
     pub var after:  vec::<*Decl>;
     /// The identity across plans and includes: the witness and its Self.
     pub var key:   string;
+    /// A `std::hash<K>` ADAPTER for `row` (K impl Hash), not a witness: an
+    /// imported C++ container keyed by a Kairo record (`cxx::std::
+    /// unordered_map<string, V>`) defaults its hasher to `std::hash<K>`,
+    /// whose primary is disabled for any type C++ was not told about. Tier
+    /// 0 declares the specialization in namespace std, its call operator
+    /// only declared, so it precedes every record whose field instantiates
+    /// the hasher (K need only be declared); tier 1 defines the operator,
+    /// forwarding to `Hash_witness<K>::hash`, after the row's
+    /// specialization when it has one. Equality needs nothing: libc++'s
+    /// `std::equal_to<K>` is `a == b`, and Hash's `op ==` is a member.
+    pub var std_hash: bool = false;
     fn WitnessPiece(self) { }
 }
 
@@ -297,13 +308,32 @@ class EmitWitness {
 
     /// Tier 0: `template <class __kairo_Self, ...> struct I_witness;`.
     fn fwd(self, p: *WitnessPiece) {
+        if p->std_hash { self._std_hash_decl(p); return; }
         self._cg->sink->spell(self._at(p), self._head(p->iface) + " struct " + self._leaf_witness(p->iface) + ";");
     }
 
     /// Tier 1: the primary, or a row's specialization.
     fn def(self, p: *WitnessPiece) {
+        if p->std_hash { self._std_hash_def(p); return; }
         if p->row == &null { self._primary(p); return; }
         self._specialization(p);
+    }
+
+    /// Tier 0, inside `namespace std`: the adapter's class (WitnessPiece::
+    /// std_hash). Its operator is defined out of line (_std_hash_def), so
+    /// the class needs K declared only.
+    priv fn _std_hash_decl(self, p: *WitnessPiece) {
+        var x = self._spell->_type(p->row->conformer);
+        self._cg->sink->spell(self._at(p), "template <> struct hash<" + x + "> { decltype(sizeof(0)) operator()(const " + x + " & v) const noexcept; };");
+    }
+
+    /// Tier 1, inside `namespace std`: the adapter's operator, the Kairo
+    /// hash through the witness -- the same call a `{K: V}` makes.
+    priv fn _std_hash_def(self, p: *WitnessPiece) {
+        var x = self._spell->_type(p->row->conformer);
+        var w = self._spell->witness_name(p->iface) + self._spell->witness_args(x, p->row->iface);
+        self._cg->sink->spell(self._at(p), "inline decltype(sizeof(0)) hash<" + x + ">::operator()(const " + x + " & v) const noexcept { return " + w + "::hash(&v); }");
+        self._cg->sink->brk();
     }
 
     /// Tier 0: the concept. Ahead of every head that names it -- a bounded

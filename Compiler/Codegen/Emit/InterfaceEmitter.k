@@ -442,6 +442,13 @@ class InterfaceEmitter {
                     if header { self._cg->sink->directive(self._tu_at(), "#define " + g); }
                     EmitWitness(self._cg, self._spell).concept_def(f->witness);
                     if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+                } else if (f->witness != &null) && f->witness->std_hash {
+                    // A class definition, so guarded in a header as a concept is.
+                    var g = LowerTargets::witness_guard("decl_" + CXXSpell::_path_ident(f->witness->key));
+                    if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + g); }
+                    if header { self._cg->sink->directive(self._tu_at(), "#define " + g); }
+                    EmitWitness(self._cg, self._spell).fwd(f->witness);
+                    if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
                 } else if f->witness != &null {
                     EmitWitness(self._cg, self._spell).fwd(f->witness);
                 } else if !self._plan->value_param_record(f->decl, &null) {
@@ -558,7 +565,14 @@ class InterfaceEmitter {
                 var g = LowerTargets::witness_guard(CXXSpell::_path_ident(e->witness->key));
                 if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + g); }
                 if header { self._cg->sink->directive(self._tu_at(), "#define " + g); }
-                self._wrapped(e->decl, fn () { EmitWitness(self._cg, self._spell).def(e->witness); });
+                if e->witness->std_hash {
+                    var sns = CXXSpell::std_ns();
+                    var sopened = self._ns_open(e->decl, sns, false);
+                    EmitWitness(self._cg, self._spell).def(e->witness);
+                    self._ns_close(sopened);
+                } else {
+                    self._wrapped(e->decl, fn () { EmitWitness(self._cg, self._spell).def(e->witness); });
+                }
                 if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
                 continue;
             }
@@ -721,6 +735,7 @@ class InterfaceEmitter {
     /// A plan entry's namespace: an extension scope's own, else its decl's.
     priv fn _entry_ns(self, e: *PlanEntry) -> vec::<string> {
         if e->scope != &null { return e->scope->ns; }
+        if (e->witness != &null) && e->witness->std_hash { return CXXSpell::std_ns(); }
         return self._spell->ns_segments(e->decl);
     }
 

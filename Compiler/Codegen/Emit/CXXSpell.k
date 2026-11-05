@@ -1721,6 +1721,14 @@ class CXXSpell {
 
     // --- Witnesses (CODEGEN.md §7b) ----------------------------------------------
 
+    /// `namespace std`'s segments: where a std::hash adapter is written
+    /// (EmitWitness::_std_hash_decl).
+    static fn std_ns() -> vec::<string> {
+        var v = vec::<string>();
+        v.push_back("std");
+        return v;
+    }
+
     /// `::ns::I_witness`: the class template a bound call goes through.
     fn witness_name(self, iface: *Decl) -> string {
         return self._iface_qual(iface) + LowerTargets::witness_suffix();
