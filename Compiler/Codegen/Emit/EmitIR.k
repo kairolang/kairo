@@ -2592,7 +2592,10 @@ class EmitIR {
         var be = dyn_cast::<BinaryOperatorExpr>(e);
         if be != &null { return self._duck_rooted_expr(be->lhs) || self._duck_rooted_expr(be->rhs); }
         var se = dyn_cast::<SubscriptExpr>(e);
-        if se != &null { return self._duck_rooted_expr(se->base); }
+        // `self.ops[j].kind` (O31): an element of a C++ vector whose argument
+        // is a record nested in a generic class is the instance's, since
+        // `vector<Op>` is instantiation-dependent and so is its operator[].
+        if se != &null { return self._duck_rooted_expr(se->base) || self._dependent_foreign_type(se->base->type_); }
         // `if (x != &null) => (cast<T>(x)) else => &null` (O26b): an arm that
         // is the instance's makes the whole conditional the instance's; the
         // `&null` arm has no type of its own to contradict that.
