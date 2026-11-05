@@ -1064,6 +1064,9 @@ class InterfaceEmitter {
         if self._assign_form_of(d) != AssignForm::Implicit {
             cur_access = self._access(cur_access, VIS_PUB(), false, at);
             self._derived_assign(d);
+        } else if is_class && self._implicit_transfer_with_dtor(cast::<ClassDecl>(d)) {
+            cur_access = self._access(cur_access, VIS_PUB(), false, at);
+            self._defaulted_transfers(d);
         }
 
         // `__builtin_dynamic_size` / `_align`'s hidden virtual: last, so the
@@ -1368,6 +1371,40 @@ class InterfaceEmitter {
         s += ")";
         if f->no_unwind { s += " noexcept"; }
         return s + ";";
+    }
+
+    /// \p c writes no transfer constructor (its category is its fields'),
+    /// but does write `op delete` and a constructor. C++ declares no
+    /// implicit move constructor or move assignment beside a user-declared
+    /// destructor, so a move of it fell back to the copy -- deleted when a
+    /// field is move-only (`ArenaList`'s ArenaAllocator, O39), a silent
+    /// copy otherwise. A class with no constructor is left alone: declaring
+    /// one would cost it its implicit default constructor and aggregate
+    /// initialization.
+    priv fn _implicit_transfer_with_dtor(self, c: *ClassDecl) -> bool {
+        if (c == &null) || decl_is_imported(static_cast::<*Decl>(c)) { return false; }
+        var dtor = false;
+        var ctor = false;
+        for var i: usize = 0; i < c->methods.size(); ++i {
+            var m = c->methods[i];
+            if m == &null { continue; }
+            if m->transfer != TransferKind::NotTransfer { return false; }
+            if m->is_operator && (m->op_token.size() > 0) && (m->op_token[0].kind == TokenKind::KwDelete) { dtor = true; }
+            else if self._is_ctor(m, static_cast::<*Decl>(c)) { ctor = true; }
+        }
+        return dtor && ctor;
+    }
+
+    /// The four transfers C++ would have declared but for the destructor,
+    /// each `= default`: memberwise, and defined as deleted where a part
+    /// cannot take it, which is exactly the category ClassLifecycle derived.
+    priv fn _defaulted_transfers(self, d: *Decl) {
+        var nm = self._spell->leaf(d);
+        var dat = self._at(d);
+        self._cg->sink->spell(dat, nm + "(const " + nm + "&) = default;");
+        self._cg->sink->spell(dat, nm + "(" + nm + "&&) = default;");
+        self._cg->sink->spell(dat, nm + "& operator=(const " + nm + "&) = default;");
+        self._cg->sink->spell(dat, nm + "& operator=(" + nm + "&&) = default;");
     }
 
     /// The derived `op =` slots ClassLifecycle wrote on a record; Implicit
