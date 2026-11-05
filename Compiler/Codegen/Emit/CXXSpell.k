@@ -380,7 +380,37 @@ class CXXSpell {
         if tcm == &null { return "<?>"; }
         var tbl = tcm->get_imm_table_for_fid(fid);
         if tbl == &null { return "<?>"; }
-        return tbl->get_ident(imm);
+        return CXXSpell::ident_safe(tbl->get_ident(imm));
+    }
+
+    /// A Kairo name as one C++ identifier. Kairo names may carry `#` or
+    /// non-ASCII bytes (`#type`, `a#b`, `gr\xC3\xB6\xC3\x9Fe`), which no C++ token can
+    /// hold: EmitSink::spell ICEs on them. Each such byte becomes `__xHH`, so
+    /// the declaration and every use (both read the name through here) agree
+    /// and distinct Kairo names stay distinct (`#op` vs `op#`). Plain
+    /// names come back untouched, keeping the no-mangling ABI for them.
+    static fn ident_safe(s: string) -> string {
+        var clean = true;
+        for var i: usize = 0; i < s.size(); ++i {
+            var c = s[i];
+            var ok = ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z'))
+                  || ((c >= '0') && (c <= '9')) || (c == '_');
+            if (!ok) { clean = false; break; }
+        }
+        if clean { return s; }
+        var hex = "0123456789ABCDEF";
+        var out = "";
+        for var i: usize = 0; i < s.size(); ++i {
+            var c = s[i];
+            var ok = ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z'))
+                  || ((c >= '0') && (c <= '9')) || (c == '_');
+            if ok { out += c; continue; }
+            var b = static_cast::<u32>(static_cast::<u8>(c));
+            out += "__x";
+            out += hex[static_cast::<usize>(b >> 4)];
+            out += hex[static_cast::<usize>(b & 15)];
+        }
+        return out;
     }
 
     fn leaf(self, d: *Decl) -> string {
