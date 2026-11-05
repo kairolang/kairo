@@ -54,6 +54,10 @@ import Diagnostic::Consumer::*;
 
 class DiagEngineVBase {
     virtual fn emit(self, diag: *Diagnostic) { 0; };
+    /// True when a diagnostic with \p code would be dropped at emit no matter
+    /// what is attached to it (P397). DiagBuilder asks before allocating the
+    /// Diagnostic, so a suppressed warning costs no heap, labels or children.
+    virtual fn drops(self, code: DiagCode) -> bool { return false; };
 }
 
 class DiagEngine;
@@ -171,6 +175,14 @@ class DiagBuilder {
     // --- Constructors --------------------------------------------------------
 
     fn DiagBuilder(self, engine: *DiagEngineVBase, code: DiagCode, loc: SourceLocation, msg: string) {
+        // Suppressed before it exists (P397): no Diagnostic, and _emitted set so
+        // emit() and the destructor are no-ops; every attach below sees null.
+        if engine->drops(code) {
+            self._engine  = engine;
+            self._diag    = &null;
+            self._emitted = true;
+            return;
+        }
         if loc == SourceLocation::invalid() {
             self._engine  = engine;
             self._diag    = std::create::<Diagnostic>(code, msg);
@@ -184,6 +196,12 @@ class DiagBuilder {
     }
 
     fn DiagBuilder(self, engine: *DiagEngineVBase, code: DiagCode, msg: string) {
+        if engine->drops(code) {
+            self._engine  = engine;
+            self._diag    = &null;
+            self._emitted = true;
+            return;
+        }
         self._engine  = engine;
         self._diag    = std::create::<Diagnostic>(code, msg);
         self._emitted = false;
@@ -220,6 +238,7 @@ class DiagBuilder {
 
     /// Attaches a primary label (\c ^^^) to \p range.
     fn first(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if !range.is_valid() {
             return self;
         }
@@ -234,6 +253,7 @@ class DiagBuilder {
 
     /// Attaches a secondary label (\c +++) to \p range.
     fn second(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if !range.is_valid() {
             return self;
         }
@@ -248,6 +268,7 @@ class DiagBuilder {
 
     /// Attaches a highlight label (\c ---) to \p range.
     fn highlight(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if !range.is_valid() {
             return self;
         }
@@ -264,6 +285,7 @@ class DiagBuilder {
     /// Rendered with Unicode combining strikethrough in \c PrettyConsumer;
     /// falls back to ASCII in all other consumers.
     fn strike(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if !range.is_valid() {
             return self;
         }
@@ -282,6 +304,7 @@ class DiagBuilder {
     /// \p msg is shown to the user describing the intent of the edit.
     /// Replace \p range with \p replacement (the general edit).
     fn fix(self, range: SourceRange, replacement: string, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if !range.is_valid() {
             return self;
         }
@@ -297,6 +320,7 @@ class DiagBuilder {
 
     /// Delete \p range (no insertion).
     fn remove(self, range: SourceRange, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if !range.is_valid() {
             return self;
         }
@@ -311,6 +335,7 @@ class DiagBuilder {
     }
 
     fn fix(self, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         var f = FixIt{};
         f.range       = SourceRange::invalid();
         f.replacement = "";
@@ -322,6 +347,7 @@ class DiagBuilder {
 
     /// Attaches a fix-it that inserts \p text at \p loc (zero-length replacement).
     fn insert(self, loc: SourceLocation, text: string, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         var r = SourceRange{};
         r.start = loc;
         r.end   = loc;
@@ -342,6 +368,7 @@ class DiagBuilder {
     // --- Child diagnostics ---------------------------------------------------
 
     priv fn _add_child(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if loc == SourceLocation::invalid() {
             return self._add_child_no_loc(code, msg);
         }
@@ -352,6 +379,7 @@ class DiagBuilder {
     }
 
     priv fn _add_child_no_loc(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         var child = std::create::<Diagnostic>(code, msg);
         self._diag->children.push_back(child);
         return self;
@@ -359,6 +387,7 @@ class DiagBuilder {
 
     /// Attaches a child note. Overloaded for with/without source location.
     fn note(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if loc == SourceLocation::invalid() {
             return self._add_child_no_loc(code, msg);
         }
@@ -366,11 +395,13 @@ class DiagBuilder {
         return self._add_child(code, loc, msg);
     }
     fn note(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         return self._add_child_no_loc(code, msg);
     }
 
     /// Attaches a child warning.
     fn warning(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if loc == SourceLocation::invalid() {
             return self._add_child_no_loc(code, msg);
         }
@@ -378,11 +409,13 @@ class DiagBuilder {
         return self._add_child(code, loc, msg);
     }
     fn warning(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         return self._add_child_no_loc(code, msg);
     }
 
     /// Attaches a child remark.
     fn remark(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if loc == SourceLocation::invalid() {
             return self._add_child_no_loc(code, msg);
         }
@@ -390,11 +423,13 @@ class DiagBuilder {
         return self._add_child(code, loc, msg);
     }
     fn remark(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         return self._add_child_no_loc(code, msg);
     }
 
     /// Attaches a child verbose note.
     fn verbose(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if loc == SourceLocation::invalid() {
             return self._add_child_no_loc(code, msg);
         }
@@ -404,6 +439,7 @@ class DiagBuilder {
 
     /// Attaches a child debug note (stripped in release builds).
     fn debug_note(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if loc == SourceLocation::invalid() {
             return self._add_child_no_loc(code, msg);
         }
@@ -412,10 +448,12 @@ class DiagBuilder {
     }
 
     fn verbose(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         return self._add_child_no_loc(code, msg);
     }
     
     fn debug_note(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         return self._add_child_no_loc(code, msg);
     }
 
@@ -429,56 +467,66 @@ class DiagBuilder {
 
     /// Attaches a child note.
     fn note(self, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if loc == SourceLocation::invalid() {
             return self._add_child_no_loc(DiagCode(DiagID::I900N), msg);
         }
         return self._add_child(DiagCode(DiagID::I900N), loc, msg);
     }
     fn note(self, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         return self._add_child_no_loc(DiagCode(DiagID::I900N), msg);
     }
 
     /// Attaches a child warning.
     fn warning(self, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if loc == SourceLocation::invalid() {
             return self._add_child_no_loc(DiagCode(DiagID::I900W), msg);
         }
         return self._add_child(DiagCode(DiagID::I900W), loc, msg);
     }
     fn warning(self, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         return self._add_child_no_loc(DiagCode(DiagID::I900W), msg);
     }
 
     /// Attaches a child remark.
     fn remark(self, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if loc == SourceLocation::invalid() {
             return self._add_child_no_loc(DiagCode(DiagID::I900R), msg);
         }
         return self._add_child(DiagCode(DiagID::I900R), loc, msg);
     }
     fn remark(self, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         return self._add_child_no_loc(DiagCode(DiagID::I900R), msg);
     }
 
     /// Attaches a child verbose note.
     fn verbose(self, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if loc == SourceLocation::invalid() {
             return self._add_child_no_loc(DiagCode(DiagID::I900V), msg);
         }
         return self._add_child(DiagCode(DiagID::I900V), loc, msg);
     }
     fn verbose(self, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         return self._add_child_no_loc(DiagCode(DiagID::I900V), msg);
     }
 
     /// Attaches a child debug note (stripped in release builds).
     fn debug_note(self, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if loc == SourceLocation::invalid() {
             return self._add_child_no_loc(DiagCode(DiagID::I900D), msg);
         }
         return self._add_child(DiagCode(DiagID::I900D), loc, msg);
     }
     fn debug_note(self, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         return self._add_child_no_loc(DiagCode(DiagID::I900D), msg);
     }
 
@@ -489,6 +537,7 @@ class DiagBuilder {
 
     /// Attaches a primary label to the last child diagnostic.
     fn child_first(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if range.is_invalid() {
             return self;
         }
@@ -506,6 +555,7 @@ class DiagBuilder {
 
     /// Attaches a secondary label to the last child diagnostic.
     fn child_second(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if range.is_invalid() {
             return self;
         }
@@ -523,6 +573,7 @@ class DiagBuilder {
 
     /// Attaches a fix-it to the last child diagnostic.
     fn child_fix(self, range: SourceRange, replacement: string, msg: string) -> ref!(DiagBuilder) {
+        if self._diag == &null { return self; }
         if range.is_invalid() {
             return self;
         }
@@ -1033,6 +1084,17 @@ class DiagEngine derives DiagEngineVBase {
 
     /// Suppresses every Warning-severity diagnostic when \p val is true (\c -w).
     fn set_suppress_all_warnings(self, val: bool) { self._suppress_all_warnings = val; }
+
+    /// P397: the cheap half of emit()'s policy, decided from the code alone.
+    /// Only the -w rule is safe to decide early: a per-code policy (--allow,
+    /// --error, --forbid, --warn) can change the severity, so a code that has
+    /// one is never dropped here, and errors / fatals never are.
+    fn drops(self, code: DiagCode) -> bool {
+        if !self._suppress_all_warnings { return false; }
+        if code.severity() != DiagSeverity::Warning { return false; }
+        var num = diag_policy_key(code.category(), code.number());
+        return !self._policy.contains(num);
+    }
 
     /// Installs a per-code policy action, keyed by \c diag_policy_key
     /// (category + number, severity-letter-agnostic). Last write wins.
