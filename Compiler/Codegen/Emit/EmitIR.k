@@ -4968,6 +4968,18 @@ class EmitIR {
         && self._scalar_pointee(n->operand->type_) && self._scalar_pointee(n->target) {
             kind = "reinterpret_cast";
         }
+        // The same cast on an operand typed only per instance (a duck call's
+        // result, `self.dyn()->x`): Sema cannot see a pointer, so the scalar
+        // pair above is missed and static_cast would be ill-formed in the
+        // instance that retypes `const u8 *` as `const char *`. A C-style cast
+        // picks the right one per instance.
+        var dep_opnd = (n->operand->type_ == &null) || n->operand->type_->is_dependent() || n->operand->type_->is_instantiation_dependent();
+        if (kind == "static_cast") && (!n->base_adjust) && dep_opnd && self._type_is_pointer(n->target) && self._scalar_pointee(n->target) && (!self._is_null_literal(n->operand)) {
+            self._cg->sink->spell(n->operand->range, "(" + self._spell._type(n->target, &null) + ")(");
+            self.emit(n->operand);
+            self._cg->sink->spell(n->operand->range, ")");
+            return;
+        }
         // `&null as unsafe *T` (O28d): `nullptr` is a std::nullptr_t, which
         // reinterpret_cast refuses to retype as a pointer; static_cast is the
         // null pointer conversion.
