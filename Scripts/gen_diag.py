@@ -180,6 +180,8 @@ def gen_temp_registry(diags, registry_module_name):
 
     lines.append("fn diag_explain(id: DiagID) -> string {")
     lines.append("  switch id {")
+    # Stage 1 matches are exhaustive: Invalid has no explanation.
+    lines.append('    case DiagID::Invalid { return ""; }')
     for code, _, _, _, _, _, explain in diags:
         explain_esc = (explain.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'")
                        .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
@@ -192,7 +194,9 @@ def gen_temp_registry(diags, registry_module_name):
 
     lines.append("fn diag_from_string(code_str: string) -> DiagID {")
     lines.append("  var h = compute_hash(&code_str);")
-    lines.append("  return static_cast::<DiagID>(h);")
+    # DiagID derives u32 and the hash is u64: Stage 1 casts to an enum only from its
+    # underlying type (SC127E), so narrow first.
+    lines.append("  return static_cast::<DiagID>(static_cast::<u32>(h));")
     lines.append("}")
     lines.append("")
 
