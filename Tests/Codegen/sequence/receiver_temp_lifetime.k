@@ -16,6 +16,9 @@ class B {
     fn B(self) { }
     @move fn B(self, other: Self) { self.done = other.done; other.done = true; }
     fn first(self, x: i32) -> unsafe *Self { return unsafe &self; }
+    /// A default argument is a thunk call: the receiver is hoisted ahead of
+    /// it and bound by value in the call's own block.
+    fn first_d(self, x: i32, t: string = "") -> unsafe *Self { return unsafe &self; }
     fn note(self, s: string) -> unsafe *Self { return unsafe &self; }
     fn emit(self) { self.done = true; }
     fn op delete(self) { if !self.done { dropped += 1; } }
@@ -29,6 +32,10 @@ fn main() -> i32 {
     make().first(1)->note(f"outer '{nm}' declared here; " "rest")->emit();
     // Deeper: the temporary is two steps below the pointer that is hoisted.
     make().first(1)->first(2)->note(f"again '{nm}'")->emit();
+    // The receiver bound by value for a default argument's thunk, then a
+    // hoisting argument, then a plain chain on the same shape.
+    make().first_d(1)->note(f"third '{nm}'" "x")->emit();
+    make().first_d(1)->note("plain")->emit();
     // Not hoisted: one full-expression, no pre-statements.
     make().first(1)->note("plain")->emit();
     return dropped;

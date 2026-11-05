@@ -270,7 +270,14 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         var saved_bound = self._bound_temp;
         self._bound_temp = false;
         if recv != &null {
-            if hoist[0] { recv->base = self._hoist(recv->base, &stmts, false, places[0]); }
+            if hoist[0] {
+                // A record prvalue receiver (`make().first(1, <default>)`) is
+                // bound by value in this block, and the call's result may point
+                // into it: noted, so a call on the result is sunk in (P411).
+                var prv = self._record_prvalue(recv->base);
+                recv->base = self._hoist(recv->base, &stmts, false, places[0]);
+                if prv { self._bound_temp = true; }
+            }
             k = 1;
         }
         var args = self.list_builder::<*Expr>();
@@ -735,14 +742,20 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         var b = ch->base;
         // A deeper chain first (`make().a().first(1)`): its own base is the temporary.
         if self._pointer_typed(b) && (b->type_ != &null) { self._extend_receiver_temp(b, stmts); return; }
-        if b->is_lvalue() || self._materialized(b) || (b->type_ == &null) { return; }
-        if b->type_->is_dependent() || b->type_->is_instantiation_dependent() { return; }
-        var bc = canon_unqual(b->type_);
-        if (bc == &null) || (bc->kind != TypeKind::RecordType) || isa::<EnumDecl>(cast::<RecordType>(bc)->decl) { return; }
+        if !self._record_prvalue(b) { return; }
         var vd = self.synth.local(b->range, "ord", b->type_, b);
         stmts->push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, b->range, static_cast::<*Decl>(vd))));
         ch->base = self.synth.use_of(vd, b->range, Expr::ValueCategory::LValue);
         self._bound_temp = true;
+    }
+
+    /// \p e is a typed, non-dependent record (no enum) prvalue: a temporary.
+    priv fn _record_prvalue(self, e: *Expr) -> bool {
+        if (e == &null) || e->is_lvalue() || self._materialized(e) || (e->type_ == &null) { return false; }
+        if e->type_->is_dependent() || e->type_->is_instantiation_dependent() { return false; }
+        var c = canon_unqual(e->type_);
+        if (c == &null) || (c->kind != TypeKind::RecordType) { return false; }
+        return !isa::<EnumDecl>(cast::<RecordType>(c)->decl);
     }
 
     /// \p e is a field step that is an imported bit-field: no reference binds
