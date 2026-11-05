@@ -2233,9 +2233,9 @@ class EmitIR {
         if (kind == "static_cast") && self._spell.names_hidden_member(t) {
             var tc = canon_unqual(t->canonical);
             if (tc != &null) && isa::<CXXRValueRefType>(tc) && e->is_lvalue() {
-                self._cg->sink->spell(e->range, "[]<class T>(T& __kairo_x) -> T&& { return static_cast<T&&>(__kairo_x); }(");
+                self._cg->sink->spell(e->range, "([]<class T>(T& __kairo_x) -> T&& { return static_cast<T&&>(__kairo_x); }(");
                 self.emit(e);
-                self._cg->sink->spell(e->range, ")");
+                self._cg->sink->spell(e->range, "))");
             } else {
                 self.emit(e);
             }
@@ -2468,9 +2468,9 @@ class EmitIR {
                     // is whatever the instance returns, a value or (Kairo's
                     // `.` derefs either) a pointer, and C++ needs `.` or
                     // `->` to match. The lambda yields the object either way.
-                    self._cg->sink->spell(n->base->range, "[](auto&& __kv) -> decltype(auto) { if constexpr (__is_pointer(__remove_cvref(decltype(__kv)))) { return (*__kv); } else { return (__kv); } }(");
+                    self._cg->sink->spell(n->base->range, "([](auto&& __kv) -> decltype(auto) { if constexpr (__is_pointer(__remove_cvref(decltype(__kv)))) { return (*__kv); } else { return (__kv); } }(");
                     self.emit(n->base);
-                    self._cg->sink->spell(n->base->range, ")");
+                    self._cg->sink->spell(n->base->range, "))");
                 } else {
                     self.emit(n->base);
                 }
@@ -4731,7 +4731,8 @@ class EmitIR {
             // only `op +=`, which OperatorLowering would have derived `+`
             // from, and C++ has no such `operator+`.
             var s = self._cg->sink;
-            s->spell(n->range, "[](auto&& __ka, auto&& __kb) { if constexpr (requires { __ka ");
+            // Parenthesized: as a subscript index, `v[[](...)]` opens a C++ attribute.
+            s->spell(n->range, "([](auto&& __ka, auto&& __kb) { if constexpr (requires { __ka ");
             s->create(n->op_token);
             s->spell(n->range, " __kb; }) { return (__ka ");
             s->create(n->op_token);
@@ -4739,7 +4740,7 @@ class EmitIR {
             self.emit(n->lhs);
             s->spell(n->range, ", ");
             self.emit(n->rhs);
-            s->spell(n->range, ")");
+            s->spell(n->range, "))");
             return;
         }
         self._cg->sink->spell(n->range, "(");
@@ -4872,7 +4873,7 @@ class EmitIR {
             // only if the type declares it (an enum never does), and Kairo
             // takes `a = a | b` from the plain one.
             var s = self._cg->sink;
-            s->spell(n->range, "[](auto& __ka, auto&& __kb) -> decltype(auto) { if constexpr (requires { __ka ");
+            s->spell(n->range, "([](auto& __ka, auto&& __kb) -> decltype(auto) { if constexpr (requires { __ka ");
             s->create(n->op_token);
             s->spell(n->range, " __kb; }) { return (__ka ");
             s->create(n->op_token);
@@ -4880,7 +4881,7 @@ class EmitIR {
             self.emit(n->lhs);
             s->spell(n->range, ", ");
             self._value(n->rhs, want);
-            s->spell(n->range, ")");
+            s->spell(n->range, "))");
             return;
         }
         self._cg->sink->spell(n->range, "(");
