@@ -229,7 +229,8 @@ def gen_temp_registry(diags, registry_module_name):
 
 
 def registry_hash(merged_toml):
-    """Hash of everything registry.o depends on, not just the .diag.toml.
+    """Hash of everything registry.o depends on, not just the .diag.toml:
+    this script, the Stage 0 binary and its core/ headers.
 
     The object is compiled by Stage 0 against its runtime headers (the
     `core/` copy installed beside the kairo binary, which every TU gets via
@@ -238,6 +239,11 @@ def registry_hash(merged_toml):
     link error. The kairo binary and every file under its core/ are hashed in.
     """
     h = hashlib.sha256(merged_toml.encode("utf-8"))
+    # This generator too: a change to what it writes (a new arm, a new
+    # spelling) must regenerate even when no .diag.toml changed; otherwise
+    # the stamp keeps the old output until someone deletes registry.o by hand.
+    with open(os.path.abspath(__file__), "rb") as f:
+        h.update(hashlib.sha256(f.read()).digest())
 
     kairo = shutil.which("kairo")
     if kairo is not None:
