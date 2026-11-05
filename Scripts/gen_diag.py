@@ -173,6 +173,10 @@ def gen_temp_registry(diags, registry_module_name):
         lines.append(f"        severity: DiagSeverity::{sev}")
         lines.append(f"      }};")
         lines.append(f"    }}")
+    # A value no variant names (diag_from_string's hash of an unknown code; DiagID
+    # is @open in Stage 1, a C++ enum in Stage 0) takes the default, as Stage 0's
+    # switch fell through to the return below.
+    lines.append("    default { return DiagMeta{}; }")
     lines.append("  }")
     lines.append("  return DiagMeta{};")
     lines.append("}")
@@ -187,6 +191,7 @@ def gen_temp_registry(diags, registry_module_name):
                        .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
                        .replace("\0", "\\0").replace("\x0b", "\\v").replace("\x1b", "\\e"))
         lines.append(f'    case DiagID::{code} {{ return "{explain_esc}"; }}')
+    lines.append('    default { return ""; }')
     lines.append("  }")
     lines.append('  return "";')
     lines.append("}")

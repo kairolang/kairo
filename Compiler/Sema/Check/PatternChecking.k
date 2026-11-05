@@ -182,6 +182,11 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
             }
         }
         v.analysed = true;
+        // `@open enum E` holds values no variant names (enums-plain.md): a match
+        // listing every variant is exhaustive (its tail traps, open_tail), and a
+        // `default` after them is reachable, the arm those values take.
+        var sdom = self._ps.domain_of(scrutinee->type_);
+        var decl_open = (sdom.en != &null) && sdom.en->is_open;
 
         // One row per case-level alternative; `default` is one wildcard row.
         var rows = vec::<PatRow>();
@@ -210,6 +215,7 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
         if self._flat_rows(&rows, &flat, &fd) {
             var fv = FlatVerdict{};
             self._flat_check(&rows, &flat, fd, &fv);
+            if decl_open { self._spare_open_default(&rows, &(fv.dead)); }
             self._report_dead(cases, &rows, &(fv.dead));
             if fv.missing.useful {
                 v.is_exhaustive = false;
@@ -226,6 +232,7 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
         }
 
         var dead = self._dead_rows(&rows);
+        if decl_open { self._spare_open_default(&rows, &dead); }
         self._report_dead(cases, &rows, &dead);
 
         // Exhaustiveness, closed enums first.
@@ -294,6 +301,16 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
             dead.push_back(!u.useful);
         }
         return dead;
+    }
+
+    /// A `default` row (no pattern) over an `@open` enum is never dead: the
+    /// values no variant names reach it however many variants come before.
+    priv fn _spare_open_default(self, rows: *vec::<PatRow>, dead: *vec::<bool>) {
+        for var i: usize = 0; i < rows->size(); ++i {
+            if (i < dead->size()) && (*dead)[i] && ((*rows)[i].cols.size() == 1) && ((*rows)[i].cols[0] == &null) {
+                (*dead)[i] = false;
+            }
+        }
     }
 
     priv fn _report_dead(self, cases: *FrozenList::<MatchCase>, rows: *vec::<PatRow>, deadp: *vec::<bool>) {
