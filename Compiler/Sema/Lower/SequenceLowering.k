@@ -170,6 +170,13 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
     /// The expression that is a whole statement: an assignment there needs
     /// no address of its result.
     priv var _stmt_top: *Expr = &null;
+    /// P411: set when a hoist bound a receiver's record prvalue
+    /// (_extend_receiver_temp), so the call's block is noted in _temp_blocks.
+    priv var _bound_temp: bool = false;
+    /// Call blocks holding such a prvalue: their result points into it, so a
+    /// call made on that result is moved INTO the block (_sink_into_temp_block)
+    /// rather than run after the block, and the prvalue, has ended.
+    priv var _temp_blocks: vec::<*StmtExpr>;
 
     fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
         var saved = self._escaped;
@@ -193,6 +200,42 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         // Children first: an inner call `f(g(h(), k()))` is sequenced on its
         // own, and this call then sees it as one impure argument.
         var out = ASTWriter::<SequenceLowering>::transform_call_expr(n);
+        // P411: `({ B t = make(); B* p = t.first(1); p->note(..) })->emit()`
+        // would run emit after `t` ended. A call on such a block's result is
+        // moved into the block's tail: `({ ...; p->note(..)->emit() })`. The
+        // order is unchanged (the block's statements, its tail, then this
+        // call's own operands), and the temporary now outlives the chain.
+        var host = self._temp_block_recv(n);
+        var r = self._sequence_call(n, out);
+        if host == &null { return r; }
+        var last = cast::<ExpressionStmt>(host->body->body[host->body->body.size() - 1]);
+        last->expr          = r;
+        host->type_          = r->type_;
+        host->value_category = Expr::ValueCategory::RValue;
+        return static_cast::<*Expr>(host);
+    }
+
+    /// \p n's receiver, when it is a block in _temp_blocks whose result is a
+    /// pointer: the receiver is replaced by the block's tail expression and
+    /// the block returned, for transform_call_expr to finish around \p n.
+    priv fn _temp_block_recv(self, n: *CallExpr) -> *StmtExpr {
+        if (n->callee == &null) || (!isa::<ChainExpr>(n->callee)) { return &null; }
+        var ch = cast::<ChainExpr>(n->callee);
+        if (ch->base == &null) || (ch->steps.size() == 0) { return &null; }
+        var se = dyn_cast::<StmtExpr>(self.tu.strip_parens(ch->base));
+        if se == &null { return &null; }
+        var found = false;
+        for var i: usize = 0; i < self._temp_blocks.size(); ++i { if self._temp_blocks[i] == se { found = true; } }
+        if !found { return &null; }
+        var nb = se->body->body.size();
+        if nb == 0 { return &null; }
+        var last = dyn_cast::<ExpressionStmt>(se->body->body[nb - 1]);
+        if (last == &null) || (last->expr == &null) { return &null; }
+        ch->base = last->expr;
+        return se;
+    }
+
+    priv fn _sequence_call(self, n: *CallExpr, out: *Expr) -> *Expr {
         if n->is_poisoned() || SequenceLowering::dependent_result(n) { return out; }
         if !self._result_sequenceable(n) { return out; }
 
@@ -224,6 +267,8 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
 
         var stmts = self.list_builder::<*Stmt>();
         var k: usize = 0;
+        var saved_bound = self._bound_temp;
+        self._bound_temp = false;
         if recv != &null {
             if hoist[0] { recv->base = self._hoist(recv->base, &stmts, false, places[0]); }
             k = 1;
@@ -253,6 +298,8 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         se->type_          = n->type_;
         se->value_category = Expr::ValueCategory::RValue;
         se->expr_flags     = n->expr_flags;
+        if self._bound_temp { self._temp_blocks.push_back(se); }
+        self._bound_temp = saved_bound;
         return static_cast::<*Expr>(se);
     }
 
@@ -620,6 +667,13 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
             mk->operand = self._hoist(mk->operand, stmts, false, true);
             return e;
         }
+        // P411: a pointer or reference read off a record PRVALUE's method
+        // (`make().first(1)`, a builder's `-> unsafe *Self`) points into that
+        // temporary, which a local bound here would end at its own `;`, before
+        // the rest of the statement runs through the pointer. The prvalue is
+        // bound first, by value (elided), so it lives to the end of the block
+        // the bindings open; the chain then reads off that local.
+        if (e->type_ != &null) && self._pointer_typed(e) { self._extend_receiver_temp(e, stmts); }
         // A bit-field place: no reference binds it, so its OBJECT is bound
         // (a place, or the pointer it is reached through) and the field is
         // stepped to again from that.
@@ -666,6 +720,29 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         var use = self._bind(e, stmts);
         if consumed { return self._moved(use); }
         return use;
+    }
+
+    /// \p e is `R().m(..)` (or `R().m(..).n(..)`, any depth) whose innermost
+    /// receiver is a record prvalue: that prvalue is bound into its own local
+    /// in \p stmts and the chain's base rewritten to read it (P411).
+    priv fn _extend_receiver_temp(self, e: *Expr, stmts: *ListBuilder::<*Stmt>) {
+        var x = self.tu.strip_parens(e);
+        var call = dyn_cast::<CallExpr>(x);
+        var ch: *ChainExpr = &null;
+        if call != &null { ch = dyn_cast::<ChainExpr>(self.tu.strip_parens(call->callee)); }
+        else { ch = dyn_cast::<ChainExpr>(x); }
+        if (ch == &null) || (ch->base == &null) { return; }
+        var b = ch->base;
+        // A deeper chain first (`make().a().first(1)`): its own base is the temporary.
+        if self._pointer_typed(b) && (b->type_ != &null) { self._extend_receiver_temp(b, stmts); return; }
+        if b->is_lvalue() || self._materialized(b) || (b->type_ == &null) { return; }
+        if b->type_->is_dependent() || b->type_->is_instantiation_dependent() { return; }
+        var bc = canon_unqual(b->type_);
+        if (bc == &null) || (bc->kind != TypeKind::RecordType) || isa::<EnumDecl>(cast::<RecordType>(bc)->decl) { return; }
+        var vd = self.synth.local(b->range, "ord", b->type_, b);
+        stmts->push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, b->range, static_cast::<*Decl>(vd))));
+        ch->base = self.synth.use_of(vd, b->range, Expr::ValueCategory::LValue);
+        self._bound_temp = true;
     }
 
     /// \p e is a field step that is an imported bit-field: no reference binds
