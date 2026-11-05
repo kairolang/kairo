@@ -4682,11 +4682,69 @@ class EmitIR {
             self._dep_binary(n->range, k, fn () { self.emit(n->lhs); }, fn () { self.emit(n->rhs); });
             return;
         }
+        if self._derived_dependent_op(n->resolved_op, n->lhs, n->rhs, self._compound_op_of_binary(k)) {
+            // `a + b` where an operand is the instance's: its type may define
+            // only `op +=`, which OperatorLowering would have derived `+`
+            // from, and C++ has no such `operator+`.
+            var s = self._cg->sink;
+            s->spell(n->range, "[](auto&& __ka, auto&& __kb) { if constexpr (requires { __ka ");
+            s->create(n->op_token);
+            s->spell(n->range, " __kb; }) { return (__ka ");
+            s->create(n->op_token);
+            s->spell(n->range, " __kb); } else { auto __kt = __ka; __kt " + self._compound_spell(k) + " __kb; return __kt; } }(");
+            self.emit(n->lhs);
+            s->spell(n->range, ", ");
+            self.emit(n->rhs);
+            s->spell(n->range, ")");
+            return;
+        }
         self._cg->sink->spell(n->range, "(");
         self.emit(n->lhs);
         self._cg->sink->create(n->op_token);
         self.emit(n->rhs);
         self._cg->sink->spell(n->range, ")");
+    }
+
+    /// An arithmetic or bitwise binary operator \p k as its compound form's
+    /// kind, or TkUnknown for any other (a comparison, a logical operator).
+    priv fn _compound_op_of_binary(self, k: TokenKind) -> TokenKind {
+        if k == TokenKind::OpPlus      { return TokenKind::OpPlusEqual; }
+        if k == TokenKind::OpMinus     { return TokenKind::OpMinusEqual; }
+        if k == TokenKind::OpStar      { return TokenKind::OpStarEqual; }
+        if k == TokenKind::OpSlash     { return TokenKind::OpSlashEqual; }
+        if k == TokenKind::OpPercent   { return TokenKind::OpPercentEqual; }
+        if k == TokenKind::OpAmp       { return TokenKind::OpAmpEqual; }
+        if k == TokenKind::OpPipe      { return TokenKind::OpPipeEqual; }
+        if k == TokenKind::OpCaret     { return TokenKind::OpCaretEqual; }
+        return TokenKind::TkUnknown;
+    }
+
+    /// The C++ spelling of compound kind \p k's operator, or of binary kind
+    /// \p k's compound twin.
+    priv fn _compound_spell(self, k: TokenKind) -> string {
+        if k == TokenKind::OpMinus   { return "-="; }
+        if k == TokenKind::OpStar    { return "*="; }
+        if k == TokenKind::OpSlash   { return "/="; }
+        if k == TokenKind::OpPercent { return "%="; }
+        if k == TokenKind::OpAmp     { return "&="; }
+        if k == TokenKind::OpPipe    { return "|="; }
+        if k == TokenKind::OpCaret   { return "^="; }
+        return "+=";
+    }
+
+    /// An operator no Sema rule bound (\p ro null) whose operand the instance
+    /// types: left as written, it needs the C++ operator its type may not
+    /// declare, the second of the pair OperatorLowering derives from. \p ck
+    /// is the compound twin, TkUnknown for an operator with none.
+    priv fn _derived_dependent_op(self, ro: *Decl, a: *Expr, b: *Expr, ck: TokenKind) -> bool {
+        if (ro != &null) || (ck == TokenKind::TkUnknown) { return false; }
+        return self._unknown_typed(a) || self._unknown_typed(b);
+    }
+
+    priv fn _unknown_typed(self, e: *Expr) -> bool {
+        if e == &null { return false; }
+        var t = e->type_;
+        return (t == &null) || t->is_dependent() || t->is_instantiation_dependent();
     }
 
     priv fn _assign(self, n: *AssignOperatorExpr) {
@@ -4761,11 +4819,42 @@ class EmitIR {
             self._cg->sink->spell(n->range, ")");
             return;
         }
+        var ck2 = n->op_token.kind;
+        var arith_eq = (ck2 == TokenKind::OpPlusEqual) || (ck2 == TokenKind::OpMinusEqual) || (ck2 == TokenKind::OpStarEqual)
+                    || (ck2 == TokenKind::OpSlashEqual) || (ck2 == TokenKind::OpPercentEqual) || (ck2 == TokenKind::OpAmpEqual)
+                    || (ck2 == TokenKind::OpPipeEqual) || (ck2 == TokenKind::OpCaretEqual);
+        if arith_eq && (n->resolved_op == &null) && self._unknown_typed(n->lhs) {
+            // `a |= b` on the instance's type: C++ has the compound operator
+            // only if the type declares it (an enum never does), and Kairo
+            // takes `a = a | b` from the plain one.
+            var s = self._cg->sink;
+            s->spell(n->range, "[](auto& __ka, auto&& __kb) -> decltype(auto) { if constexpr (requires { __ka ");
+            s->create(n->op_token);
+            s->spell(n->range, " __kb; }) { return (__ka ");
+            s->create(n->op_token);
+            s->spell(n->range, " __kb); } else { __ka = __ka " + self._compound_binary_spell(ck2) + " __kb; return (__ka); } }(");
+            self.emit(n->lhs);
+            s->spell(n->range, ", ");
+            self._value(n->rhs, want);
+            s->spell(n->range, ")");
+            return;
+        }
         self._cg->sink->spell(n->range, "(");
         self.emit(n->lhs);
         self._cg->sink->create(n->op_token);
         self._value(n->rhs, want);
         self._cg->sink->spell(n->range, ")");
+    }
+
+    priv fn _compound_binary_spell(self, ck: TokenKind) -> string {
+        if ck == TokenKind::OpMinusEqual   { return "-"; }
+        if ck == TokenKind::OpStarEqual    { return "*"; }
+        if ck == TokenKind::OpSlashEqual   { return "/"; }
+        if ck == TokenKind::OpPercentEqual { return "%"; }
+        if ck == TokenKind::OpAmpEqual     { return "&"; }
+        if ck == TokenKind::OpPipeEqual    { return "|"; }
+        if ck == TokenKind::OpCaretEqual   { return "^"; }
+        return "+";
     }
 
     /// \p e is the `&null` literal, through parentheses or an implicit retyping.
