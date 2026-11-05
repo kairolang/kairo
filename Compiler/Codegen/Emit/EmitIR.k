@@ -1291,10 +1291,15 @@ class EmitIR {
                     f"internal: '{nm}' reached codegen with no inferred type; This is a compiler bug; please report it with the source that triggered it"
                 ).first(n->name.range).emit();
                 self._cg->sink->kw_auto(n->name);
-            } else if n->type_->range.is_valid() {
+            } else if n->type_->range.is_valid() && (!self._spell.names_hidden_member(n->type_)) {
                 self.emit(n->type_);
             } else {
-                self._cg->sink->spell(n->name.range, self._spell._type(n->type_));
+                // An inferred or written type that names a C++ class's
+                // private/protected member type is spelled `auto` there.
+                self._spell.auto_hidden = true;
+                var ts = self._spell._type(n->type_);
+                self._spell.auto_hidden = false;
+                self._cg->sink->spell(n->name.range, ts);
             }
             self._name(n->name);
         }

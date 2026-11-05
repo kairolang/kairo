@@ -92,6 +92,9 @@ class CXXSpell {
     /// alike. sizes_folded counts the spellings that changed. Never set
     /// while emitting: the emitted spelling stays `decltype(sizeof(0))`,
     /// which is right on every target.
+    /// A local's declarator is being spelled (EmitIR::_var_decl): a record
+    /// that C++ would refuse to name here is written `auto` instead.
+    pub var auto_hidden:  bool = false;
     pub var fold_sizes:   bool = false;
     pub var sizes_folded: u32  = 0;
     /// While set, the template parameters of this decl are spelled
@@ -162,6 +165,42 @@ class CXXSpell {
         var fd = dyn_cast::<FieldDecl>(d);
         if (fd != &null) && (!fd->is_static()) && self.is_aggregate_record(owner) { return VIS_PUB(); }
         return v;
+    }
+
+    /// \p t is a record whose C++ spelling names, in itself or in a template
+    /// argument, a private or protected member type of a C++ class (an
+    /// iterator `begin()` returns, a `SpecIterator` a range is over). C++
+    /// code reaches such a type only through `auto`; Kairo's AccessCheck
+    /// rightly accepts the inferred local, since its author never wrote the
+    /// name, so a spelling of it would make clang refuse what Kairo accepted
+    /// (I003E). Kairo records never qualify: their access is a friend away.
+    fn names_hidden_member(self, t: *Type) -> bool {
+        if (t == &null) || (t->canonical == &null) { return false; }
+        var c = canon_unqual(t->canonical);
+        if c == &null { return false; }
+        if isa::<PointerType>(c)        { return self.names_hidden_member(cast::<PointerType>(c)->pointee); }
+        if isa::<CXXLValueRefType>(c)   { return self.names_hidden_member(cast::<CXXLValueRefType>(c)->referee); }
+        if isa::<CXXRValueRefType>(c)   { return self.names_hidden_member(cast::<CXXRValueRefType>(c)->referee); }
+        if !isa::<RecordType>(c) { return false; }
+        var r = cast::<RecordType>(c);
+        var d = r->decl;
+        if (d != &null) && decl_is_imported(d) {
+            var cands = vec::<*Decl>();
+            cands.push_back(d);
+            cands.push_back(CXXSpell::rep(d));
+            cands.push_back(CXXSpell::rep(decl_pattern(CXXSpell::rep(d))));
+            for var i: usize = 0; i < cands.size(); ++i {
+                var cd = cands[i];
+                if cd == &null { continue; }
+                var v = CXXSpell::vis_of(cd);
+                if ((v == VIS_PRIV()) || (v == VIS_PROT())) && (self._record_owner(CXXSpell::rep(cd)) != &null) { return true; }
+            }
+        }
+        for var i: usize = 0; i < r->args.size(); ++i {
+            if self.names_hidden_member(r->args[i]) { return true; }
+        }
+        if (r->outer != &null) && self.names_hidden_member(r->outer) { return true; }
+        return false;
     }
 
     /// \p t canonical and unqualified, through a C++ reference to its
@@ -1178,6 +1217,7 @@ class CXXSpell {
                 return self._join(b->cxx_emission(), name);
             }
             case TypeKind::RecordType {
+                if self.auto_hidden && self.names_hidden_member(t) { return self._join("auto", name); }
                 return self._join(self._record(cast::<RecordType>(t), subst, scope), name);
             }
             case TypeKind::PointerType {
