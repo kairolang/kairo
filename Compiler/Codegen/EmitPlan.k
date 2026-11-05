@@ -679,6 +679,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _admit_type(self, t: *Type, need: PlanNeed);
     fn _nullable_record(self, c: *Type) -> *Type;
     fn _expand(self, d: *Decl, need: PlanNeed);
+    fn _admit_default_returns(self, n: *FunctionDecl);
     fn _expand_fn(self, n: *FunctionDecl);
     fn _expand_member_sig(self, n: *FunctionDecl);
     fn _expand_type(self, d: *Decl);
@@ -756,6 +757,22 @@ class LayoutSpine {
                 continue;
             }
             if self.reaches(f->type_) { return true; }
+        }
+        return false;
+    }
+
+    /// A method written with a C++ default argument (`= __kairo_default_f_x()`)
+    /// has clang call the thunk where the member is declared, inside the
+    /// record's body, so the default's type is defined ahead of the record (O51).
+    fn defaults(self, list: *FrozenList::<*FunctionDecl>) -> bool {
+        for var i: usize = 0; i < list->size(); ++i {
+            var m = *(list->get(i));
+            if (m == &null) || (CXXSpell::template_params(static_cast::<*Decl>(m)).size() > 0) { continue; }
+            for var j: usize = 0; j < m->params.size(); ++j {
+                var p = *(m->params.get(j));
+                if (p == &null) || p->is_self || p->is_pack || (p->default_thunk == &null) || (!p->default_thunk_home) { continue; }
+                if self.reaches(p->type_) { return true; }
+            }
         }
         return false;
     }
@@ -2923,8 +2940,23 @@ fn EmitPlan::_expand(d: *Decl, need: PlanNeed) {
 }
 
 /// A declaration names its types, it does not lay them out.
+/// A declaration written with `= __kairo_default_f_x()` (InterfaceEmitter::
+/// _default_arg) makes clang build that call where the declaration sits, and
+/// a call needs the thunk's return type COMPLETE, whatever the shape of the
+/// parameter: a signature alone only names it (O51). Function templates carry
+/// no C++ default (their friend line declares them first), so they add nothing.
+fn EmitPlan::_admit_default_returns(n: *FunctionDecl) {
+    if CXXSpell::template_params(static_cast::<*Decl>(n)).size() > 0 { return; }
+    for var i: usize = 0; i < n->params.size(); ++i {
+        var p = *(n->params.get(i));
+        if (p == &null) || p->is_self || p->is_pack || (p->default_thunk == &null) || (!p->default_thunk_home) { continue; }
+        self._admit_type(p->type_, PlanNeed::Complete);
+    }
+}
+
 fn EmitPlan::_expand_fn(n: *FunctionDecl) {
     self._witness_bounds(static_cast::<*Decl>(n));
+    self._admit_default_returns(n);
     for var i: usize = 0; i < n->params.size(); ++i {
         var p = *(n->params.get(i));
         if (p == &null) || p->is_self { continue; }
@@ -3049,6 +3081,7 @@ fn EmitPlan::_methods(methods: *FrozenList::<*FunctionDecl>) {
 /// either order, not a tier-1 cycle.
 fn EmitPlan::_expand_member_sig(n: *FunctionDecl) {
     self._witness_bounds(static_cast::<*Decl>(n));   // a bounded member template's head.
+    self._admit_default_returns(n);
     for var i: usize = 0; i < n->params.size(); ++i {
         var p = *(n->params.get(i));
         if (p == &null) || p->is_self { continue; }
@@ -3673,8 +3706,13 @@ fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
         case DeclKind::ClassDecl {
             var n = cast::<ClassDecl>(rec);
             if probe.bases(&(n->derives_list)) { return true; }
-            return probe.fields(&(n->fields));
-        } case DeclKind::StructDecl { return probe.fields(&(cast::<StructDecl>(rec)->fields)); }
+            if probe.fields(&(n->fields)) { return true; }
+            return probe.defaults(&(n->methods));
+        } case DeclKind::StructDecl {
+            var sn = cast::<StructDecl>(rec);
+            if probe.fields(&(sn->fields)) { return true; }
+            return probe.defaults(&(sn->methods));
+        }
         case DeclKind::UnionDecl  { return probe.fields(&(cast::<UnionDecl>(rec)->fields)); }
         case DeclKind::EnumDecl {
             var n = cast::<EnumDecl>(rec);
