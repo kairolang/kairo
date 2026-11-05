@@ -665,6 +665,8 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _admit_use(self, d: *Decl);
     fn _admit_cell(self, cell: *OverloadCell);
     fn _member_owner(self, d: *Decl) -> *Decl;
+    fn _admit_receiver(self, t: *Type);
+    fn _admit_derived_pointee(self, t: *Type);
     fn _admit(self, d: *Decl, need: PlanNeed);
     fn _admit_instance(self, e: *InstanceEntry, need: PlanNeed);
     fn _admit_reached(self, e: *InstanceEntry);
@@ -2264,6 +2266,12 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
     if e == &null { return true; }
     if (e->kind == ExprKind::CallExpr) && cast::<CallExpr>(e)->fmt_dyn { self.needs_fmt_dyn = true; }
     if e->type_ != &null { self._admit_type(e->type_, PlanNeed::Complete); }
+    // A pointer to a class with bases converts to a base pointer at any
+    // return, argument or initializer EmitIR::_value finds a different
+    // pointer type at -- a `static_cast<Base *>` no node of the tree
+    // records -- and C++ relates the two only through a complete class
+    // ("not related by inheritance" otherwise, O36).
+    self._admit_derived_pointee(e->type_);
     switch e->kind {
         case ExprKind::NamedIdentExpr {
             var n = cast::<NamedIdentExpr>(e);
@@ -2276,6 +2284,15 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
                 if s == &null { continue; }
                 self._admit_use(s->resolved_decl);
                 self._admit_cell(s->candidate_cell);
+                // `n->k` with k a member of n's BASE: _admit_use made the
+                // base complete, but C++ looks k up in n's own class, so the
+                // receiver is complete too (O36). A `.` on a value is already
+                // complete through its expression type; a `::` step names a
+                // scope, not an object (O30 owns those).
+                if s->access_kind != ChainExpr::AccessKind::ColonColon {
+                    if i > 0 { self._admit_receiver(c->steps.get(i - 1)->resolved_type); }
+                    else if c->base != &null { self._admit_receiver(c->base->type_); }
+                }
                 // `Box<int>::count`: the member is looked up in the class,
                 // so the instance is complete here (as CallExpr::qualifier).
                 self._admit_type(s->through, PlanNeed::Complete);
@@ -2438,6 +2455,27 @@ fn EmitPlan::_admit_cell(cell: *OverloadCell) {
     for var i: usize = 0; i < cell->size(); ++i { self._admit_use(cell->get(i)); }
 }
 
+/// The object of a member step: \p t itself, or what it points at. C++
+/// looks the member up in that class, so it is complete.
+fn EmitPlan::_admit_receiver(t: *Type) {
+    if t == &null { return; }
+    var c = canon_unqual((t->canonical) if (t->canonical != &null) else (t));
+    if (c != &null) && isa::<PointerType>(c) { c = canon_unqual(cast::<PointerType>(c)->pointee); }
+    if (c != &null) && isa::<RecordType>(c) { self._admit_type(c, PlanNeed::Complete); }
+}
+
+/// \p t a pointer to a class with bases: that class complete (see
+/// visit_expr). Anything else is left as its shape admits it.
+fn EmitPlan::_admit_derived_pointee(t: *Type) {
+    if t == &null { return; }
+    var c = canon_unqual((t->canonical) if (t->canonical != &null) else (t));
+    if (c == &null) || (!isa::<PointerType>(c)) { return; }
+    var p = canon_unqual(cast::<PointerType>(c)->pointee);
+    if (p == &null) || (!isa::<RecordType>(p)) { return; }
+    var cd = dyn_cast::<ClassDecl>(CXXSpell::rep(cast::<RecordType>(p)->decl));
+    if (cd != &null) && cd->has_bases() { self._admit_type(p, PlanNeed::Complete); }
+}
+
 /// The type whose scope holds \p d, or null for a namespace-scope decl.
 fn EmitPlan::_member_owner(d: *Decl) -> *Decl {
     var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
@@ -2536,10 +2574,15 @@ fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
     // clang instantiates it from the PCH, but its arguments are spelled in
     // THIS TU's text: `std::vector<Loc::File::File *>` in a foreign class's
     // field needs `File` declared here, or the qualified name does not
-    // resolve. Fwd is all a C++ template argument asks of Kairo's own types
-    // at the point of naming (the own-decl walk, visit_type, does the same).
+    // resolve. Naming the instance asks only Fwd of them; an instance held
+    // at Complete is one whose members this TU instantiates -- the
+    // destructor an owner's implicit one calls, size(), the allocator's
+    // sizeof -- and every one of those needs a by-value argument complete
+    // (O36). _admit_type still weakens an argument behind a pointer
+    // (`vector<File *>`) to Fwd. Strength only: definition order is the
+    // layout's (_needs_complete), which a template argument never is.
     if decl_is_imported(prim) {
-        for var i: usize = 0; i < e->args.size(); ++i { self._admit_type(e->args[i], PlanNeed::Fwd); }
+        for var i: usize = 0; i < e->args.size(); ++i { self._admit_type(e->args[i], need); }
         return;
     }
     // A generic REQUIREMENT's instance names no C++ function: the call goes
@@ -2590,9 +2633,16 @@ fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
     // value and reads its error (PANIC.md §4.6).
     var en = dyn_cast::<EnumDecl>(prim);
     var whole = (en != &null) && en->adt_explicit_tags;
+    // A FUNCTION template is instantiated here at its arguments -- its
+    // tier-3 line in the home TU, implicitly in any TU that sees the body
+    // -- and a `<T: type>` body may do anything with T (`T::classof(p)`
+    // in Casting's isa): each argument is complete, a pointer one at Fwd
+    // as _admit_type has it (O36). A record's argument is held as its
+    // layout says.
+    var fn_inst = isa::<FunctionDecl>(prim);
     for var i: usize = 0; i < e->args.size(); ++i {
-        var n = (PlanNeed::Complete) if (whole) else (need);
-        if !self._arg_by_value(prim, i) { n = PlanNeed::Fwd; }
+        var n = (PlanNeed::Complete) if (whole || fn_inst) else (need);
+        if (!fn_inst) && (!self._arg_by_value(prim, i)) { n = PlanNeed::Fwd; }
         self._admit_type(e->args[i], n);
     }
     // Laid out by a partial specialization: what IT holds by value is what
