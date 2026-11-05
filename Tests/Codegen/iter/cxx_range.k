@@ -78,10 +78,10 @@ fn main() -> i32 {
 // the libc++ version's declaration.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      signed int sum(const{{ ?}}::std::vector<int, ::std::allocator<int>> & v) noexcept {
-// CXX:      const{{ ?}}::std::vector<int, ::std::allocator<int>> * __kairo_rng{{[0-9]+}} =(& v);
-// CXX-NEXT: ::std::__wrap_iter<const int *> __kairo_it{{[0-9]+}} =(* __kairo_rng{{[0-9]+}}).begin();
-// CXX-NEXT: ::std::__wrap_iter<const int *> __kairo_end{{[0-9]+}} =(* __kairo_rng{{[0-9]+}}).end();
-// CXX-NEXT: while((!operator ==({{.*}}__kairo_it{{[0-9]+}}{{.*}}, {{.*}}__kairo_end{{[0-9]+}}{{.*}}))) {
+// CXX:      auto __kairo_rng{{[0-9]+}} =((& v));
+// CXX-NEXT: auto __kairo_it{{[0-9]+}} =((* __kairo_rng{{[0-9]+}}).begin());
+// CXX-NEXT: auto __kairo_end{{[0-9]+}} =((* __kairo_rng{{[0-9]+}}).end());
+// CXX-NEXT: while((!({{.*}}__kairo_it{{[0-9]+}}{{.*}} == {{.*}}__kairo_end{{[0-9]+}}{{.*}}))) {
 // CXX-NEXT: signed int x = {{.*}}__kairo_it{{[0-9]+}}.operator *(){{.*}};
 // CXX-NEXT: __kairo_it{{[0-9]+}}.operator++();
 
