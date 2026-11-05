@@ -505,6 +505,8 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     /// Memo for param_by_value: (primary, index) -> answer. Pairs, linear
     /// scan; a build has tens of generic primaries, not thousands.
     priv var _pbv_key:  vec::<u64>;
+    /// Records _duck_reach has walked, once each.
+    priv var _duck_seen: vec::<*Decl>;
     priv var _pbv_val:  vec::<bool>;
     priv var _pbv_depth: usize = 0;
 
@@ -667,6 +669,8 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _member_owner(self, d: *Decl) -> *Decl;
     fn _admit_receiver(self, t: *Type);
     fn _admit_derived_pointee(self, t: *Type);
+    fn _duck_reach(self, t: *Type, depth: u32);
+    fn is_tuple_type(self, t: *Type) -> bool;
     fn _admit(self, d: *Decl, need: PlanNeed);
     fn _admit_instance(self, e: *InstanceEntry, need: PlanNeed);
     fn _admit_reached(self, e: *InstanceEntry);
@@ -771,9 +775,21 @@ class LayoutSpine {
                 // would. Its type names the struct, never the ADT.
                 var ps = dyn_cast::<StructDecl>(d);
                 if (ps != &null) && ps->is_adt_payload { return self.fields(&(ps->fields)); }
+                // An imported C++ template may store an argument inline
+                // (`llvm::SmallVector<(A, B), 4>`), which no Kairo field says.
+                // A tuple record has no source position to fall into place by,
+                // so one as such an argument orders the holder after it (O36b).
+                // Other records keep (fid, offset) order: `vector<B>` in A and
+                // `vector<A>` in B is valid C++ an edge would make a cycle.
+                var imp = decl_is_imported(d);
                 for var i: usize = 0; i < r->args.size(); ++i {
+                    var a = *(r->args.get(i));
+                    if imp && self._plan->is_tuple_type(a) {
+                        if self.reaches(a) { return true; }
+                        continue;
+                    }
                     if !self._plan->param_by_value(d, static_cast::<u32>(i)) { continue; }
-                    if self.reaches(*(r->args.get(i))) { return true; }
+                    if self.reaches(a) { return true; }
                 }
                 return false;
             }
@@ -2476,6 +2492,63 @@ fn EmitPlan::_admit_derived_pointee(t: *Type) {
     if (cd != &null) && cd->has_bases() { self._admit_type(p, PlanNeed::Complete); }
 }
 
+/// \p t is a tuple by value: the record TupleRecords made for one (a
+/// TupleType too, though none is canonical after T).
+fn EmitPlan::is_tuple_type(t: *Type) -> bool {
+    if t == &null { return false; }
+    var c = canon_unqual((t->canonical) if (t->canonical != &null) else (t));
+    if c == &null { return false; }
+    if isa::<TupleType>(c) { return true; }
+    if !isa::<RecordType>(c) { return false; }
+    // The arity is the pattern's (TupleRecords), never an instance's.
+    var sd = dyn_cast::<StructDecl>(self.layout_decl(cast::<RecordType>(c)->decl));
+    return (sd != &null) && (sd->tuple_arity > 0);
+}
+
+/// Every record \p t reaches through pointers, fields, method results and
+/// generic arguments, each complete (see _admit_instance, O36b). Once per
+/// record per plan: _duck_seen.
+fn EmitPlan::_duck_reach(t: *Type, depth: u32) {
+    if (t == &null) || (depth > 64) { return; }
+    var c = canon_unqual((t->canonical) if (t->canonical != &null) else (t));
+    if c == &null { return; }
+    switch c->kind {
+        case TypeKind::PointerType      { self._duck_reach(cast::<PointerType>(c)->pointee, depth + 1); return; }
+        case TypeKind::CXXLValueRefType { self._duck_reach(cast::<CXXLValueRefType>(c)->referee, depth + 1); return; }
+        case TypeKind::CXXRValueRefType { self._duck_reach(cast::<CXXRValueRefType>(c)->referee, depth + 1); return; }
+        case TypeKind::NullableType     { self._duck_reach(self._nullable_record(c), depth + 1); return; }
+        case TypeKind::FixedArrayType   { self._duck_reach(cast::<FixedArrayType>(c)->element, depth + 1); return; }
+        case TypeKind::RecordType { break; }
+        default { return; }
+    }
+    var r = cast::<RecordType>(c);
+    var d = CXXSpell::rep(r->decl);
+    if d == &null { return; }
+    for var i: usize = 0; i < self._duck_seen.size(); ++i { if self._duck_seen[i] == d { return; } }
+    self._duck_seen.push_back(d);
+    self._admit_type(c, PlanNeed::Complete);
+    for var i: usize = 0; i < r->args.size(); ++i { self._duck_reach(*(r->args.get(i)), depth + 1); }
+    if decl_is_imported(d) { return; }
+    var rec = self.adt_record(d);
+    if rec == &null { return; }
+    var fields:  *FrozenList::<*FieldDecl> = &null;
+    var methods: *FrozenList::<*FunctionDecl> = &null;
+    switch rec->kind {
+        case DeclKind::ClassDecl  { fields = &(cast::<ClassDecl>(rec)->fields);  methods = &(cast::<ClassDecl>(rec)->methods); }
+        case DeclKind::StructDecl { fields = &(cast::<StructDecl>(rec)->fields); methods = &(cast::<StructDecl>(rec)->methods); }
+        case DeclKind::UnionDecl  { fields = &(cast::<UnionDecl>(rec)->fields);  methods = &(cast::<UnionDecl>(rec)->methods); }
+        default { return; }
+    }
+    for var i: usize = 0; i < fields->size(); ++i {
+        var f = *(fields->get(i));
+        if f != &null { self._duck_reach(f->type_, depth + 1); }
+    }
+    for var i: usize = 0; i < methods->size(); ++i {
+        var m = *(methods->get(i));
+        if m != &null { self._duck_reach(m->return_type, depth + 1); }
+    }
+}
+
 /// The type whose scope holds \p d, or null for a namespace-scope decl.
 fn EmitPlan::_member_owner(d: *Decl) -> *Decl {
     var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
@@ -2581,9 +2654,24 @@ fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
     // (O36). _admit_type still weakens an argument behind a pointer
     // (`vector<File *>`) to Fwd. Strength only: definition order is the
     // layout's (_needs_complete), which a template argument never is.
+    //
+    // An imported FUNCTION template (`kairo::std::create<T>(a)`, which is
+    // `new T(a)`) is instantiated in this TU at its arguments whatever the
+    // call's strength, so each is complete (O36b), as a Kairo one's is below.
     if decl_is_imported(prim) {
-        for var i: usize = 0; i < e->args.size(); ++i { self._admit_type(e->args[i], need); }
+        var imp_need = (PlanNeed::Complete) if (isa::<FunctionDecl>(prim)) else (need);
+        for var i: usize = 0; i < e->args.size(); ++i { self._admit_type(e->args[i], imp_need); }
         return;
+    }
+    // A `<T: type>` instance (O36b): its body is checked by C++ alone, and a
+    // chain through T (`self.dyn()->sc->g->is_builtin_fid(...)`) is spelled
+    // as written, untyped, so no node names the classes it walks through.
+    // The C++ that instantiates the body here needs every one complete:
+    // what an argument reaches through its fields and method results.
+    // A header carries no body of a foreign instance, and the wider
+    // closure would only turn its forward declarations into includes.
+    if (self._mode != PlanMode::Header) && plan_under_duck(prim) {
+        for var i: usize = 0; i < e->args.size(); ++i { self._duck_reach(e->args[i], 0); }
     }
     // A generic REQUIREMENT's instance names no C++ function: the call goes
     // through the witness's member template, instantiated implicitly. No
