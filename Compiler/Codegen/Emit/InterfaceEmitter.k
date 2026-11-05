@@ -3619,7 +3619,7 @@ class InterfaceEmitter {
     priv fn _free_fn_decl(self, f: *FunctionDecl, ext: *ExtensionDecl) {
         // A namespace-scope default argument names its thunk at the point of
         // declaration, and the thunk is placed after `f`: declare it first (O35).
-        if ext == &null {
+        if (ext == &null) && (CXXSpell::template_params(static_cast::<*Decl>(f)).size() == 0) {
             for var i: usize = 0; i < f->params.size(); ++i {
                 var p = f->params[i];
                 if (p == &null) || (self._default_arg(f, i).size() == 0) { continue; }
@@ -3652,7 +3652,8 @@ class InterfaceEmitter {
         s += " ";
         s += self._fn_name(f);
         s += "(";
-        s += self._params(f, ext != &null, ext, &null, ext == &null);
+        s += self._params(f, ext != &null, ext, &null,
+            (ext == &null) && (CXXSpell::template_params(static_cast::<*Decl>(f)).size() == 0));
         s += ")";
         if f->no_unwind { s += " noexcept"; }
         s += ";";
