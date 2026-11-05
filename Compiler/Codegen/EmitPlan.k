@@ -2518,8 +2518,9 @@ fn EmitPlan::_duck_reach(t: *Type, depth: u32) {
         case TypeKind::CXXRValueRefType { self._duck_reach(cast::<CXXRValueRefType>(c)->referee, depth + 1); return; }
         case TypeKind::NullableType     { self._duck_reach(self._nullable_record(c), depth + 1); return; }
         case TypeKind::FixedArrayType   { self._duck_reach(cast::<FixedArrayType>(c)->element, depth + 1); return; }
-        case TypeKind::RecordType { break; }
-        default { return; }
+        // A record falls out of the switch to the walk below; Stage 1 has no
+        // `break` out of a switch, so the default arm tests for it instead.
+        default { if c->kind != TypeKind::RecordType { return; } }
     }
     var r = cast::<RecordType>(c);
     var d = CXXSpell::rep(r->decl);

@@ -25,6 +25,14 @@ class TopLevelItem {
     pub var kind:  TopLevelKind;
     pub var ptr:   obs::<void>;
 
+    // TODO(GENERIC-MEMBER-REQUIRES): exists only because ArenaList<T> is
+    // instantiated with every member, and its emplace() default-constructs T.
+    // Remove once a generic member can state what it needs of T (P398).
+    fn TopLevelItem(self) {
+        self.kind = TopLevelKind::Decl;
+        self.ptr  = &null;
+    }
+
     fn TopLevelItem(self, kind: TopLevelKind, ptr: obs::<void>) {
         self.kind = kind;
         self.ptr  = ptr;

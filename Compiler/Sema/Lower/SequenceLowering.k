@@ -215,7 +215,7 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         var lrefs = self._lref_params(n, recv != &null);
         for var i: usize = 0; i < n->args.size(); ++i {
             ops.push_back(n->args[i]);
-            places.push_back((n->args[i] != &null) && n->args[i]->is_lvalue() && (i < lrefs.size()) && lrefs[i]);
+            places.push_back((n->args[i] != &null) && n->args[i]->is_lvalue() && (i < lrefs.size()) && (lrefs[i] != 0));
         }
         var hoist = vec::<bool>();
         var planned = self._plan(&ops, &hoist, &places);
@@ -239,7 +239,7 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
             // place too (`FieldDecl::Create(*self.cctx, ...)`): the callee
             // binds the object, so a snapshot would hand it a copy -- a
             // deleted copy constructor at clang, or writes lost on a copy (O39).
-            var lref_arg = a->is_lvalue() && (i < lrefs.size()) && lrefs[i];
+            var lref_arg = a->is_lvalue() && (i < lrefs.size()) && (lrefs[i] != 0);
             var ref_call = (a->is_lvalue() && isa::<CallExpr>(self.tu.strip_parens(a))) || lref_arg;
             args.push((self._hoist(a, &stmts, true, ref_call)) if (hoist[k + i]) else (a));
         }
@@ -555,8 +555,10 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
     /// Per positional argument of \p n (args are positional after
     /// CallLowering): whether its parameter is an imported `T&` or
     /// `const T&`. \p bound_recv: `obj.m(...)`, whose `self` is no argument.
-    priv fn _lref_params(self, n: *CallExpr, bound_recv: bool) -> vec::<bool> {
-        var out = vec::<bool>();
+    priv fn _lref_params(self, n: *CallExpr, bound_recv: bool) -> vec::<u8> {
+        // u8, not bool: the self-host migration rewrites vec<bool> to vec<u8>
+        // by name, and a local named like a field (`out`) dragged the field along.
+        var lrs = vec::<u8>();
         var f: *FunctionDecl = &null;
         var is_ctor = (n->ctor_decl != &null) && isa::<FunctionDecl>(n->ctor_decl);
         if is_ctor { f = cast::<FunctionDecl>(n->ctor_decl); }
@@ -568,7 +570,7 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
                 if ce->steps.size() > 0 { f = dyn_cast::<FunctionDecl>(ce->steps.get(ce->steps.size() - 1)->resolved_decl); }
             }
         }
-        if f == &null { return out; }
+        if f == &null { return lrs; }
         var skip_self = is_ctor || (bound_recv && f->is_method());
         for var i: usize = 0; i < f->params.size(); ++i {
             var p = f->params[i];
@@ -580,9 +582,9 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
                 var t = (p->type_->canonical) if (p->type_->canonical != &null) else (p->type_);
                 lr = isa::<CXXLValueRefType>(canon_unqual(t));
             }
-            out.push_back(lr);
+            if lr { lrs.push_back(1); } else { lrs.push_back(0); }
         }
-        return out;
+        return lrs;
     }
 
     priv fn _pointer_typed(self, e: *Expr) -> bool {
