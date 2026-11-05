@@ -1023,6 +1023,10 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         if (p != &null) && p->is_self { return; }
         if (p != &null) && self._lref_param(p) { self._mark_addr(e); return; }
         var rref = (p != &null) && self._rref_param(p);
+        // A Kairo `const x: T` is a reference to the caller's object for the
+        // whole call (Doc: Functions, Parameter passing modes): a MOVE
+        // argument is borrowed, not moved, and stays live (O39).
+        if (!rref) && (p != &null) && p->is_const && (!p->is_pack) && moves_on_pass(self.sc, e->type_) { return; }
         // A C++ `T&&` binds an xvalue (`std::move(x)`), and a Kairo `const x: T`
         // is a `const T&`, and a pack forwards (`create<T>(...args)`): none copies, so a deleted copy constructor is
         // not in play (only a plain by-value parameter copies its argument).

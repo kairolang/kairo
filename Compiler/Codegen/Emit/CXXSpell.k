@@ -1505,8 +1505,7 @@ class CXXSpell {
         if is_const {
             // `T const&` for a bare type parameter (it may be a record: a
             // `const k: K` lookup in a `{K: V}` must not copy a string key
-            // per call), `const T&` for a non-generic record, `const T`
-            // otherwise.
+            // per call), `const T&` for a record, `const T` otherwise.
             var c = t->canonical;
             // East const for the parameter: an instance's explicit
             // instantiation spells T as text (`int *`), and `const int *&`
@@ -1514,7 +1513,11 @@ class CXXSpell {
             if (c != &null) && (c->kind == TypeKind::GenericParamType) && (!cast::<GenericParamType>(c)->is_pack) {
                 return self.decl(t, self._ref_declarator("const&", name), subst, scope);
             }
-            if (c != &null) && (c->kind == TypeKind::RecordType) && (!c->is_dependent()) {
+            // A generic record's own instance type (`const other: Q<T>`) is a
+            // record in every instance, so it is `const Q<T>&` as well: by
+            // value, a move-only Q (an ArenaList field) could not be passed
+            // at all (O39).
+            if (c != &null) && (c->kind == TypeKind::RecordType) {
                 return "const " + self.decl(t, self._ref_declarator("&", name), subst, scope);
             }
             return "const " + self.decl(t, name, subst, scope);
