@@ -1,6 +1,6 @@
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
-// RUN: %t.exe; test $? -eq 45
+// RUN: %t.exe; test $? -eq 51
 //
 // A C++ class may hand out an iterator whose type is a private or protected
 // member alias; C++ callers never name it (`auto`). The emitter must not
@@ -20,5 +20,14 @@ fn main() -> i32 {
     for y in d { sum += y }
     var h: Holder
     for z in h.items() { sum += z }
+    var dv: Derived
+    var dp = &dv
+    for w in dp->items() { sum += w }
+    var cb: CmpBag
+    if cb.find(1) != cb.end() { sum += 1 }
+    var found = cb.find(7) == cb.end()
+    if found { sum += 1 }
+    var st: Set
+    if st.find(1) != st.end() { sum += 1 }
     return sum * 1 + 0
 }

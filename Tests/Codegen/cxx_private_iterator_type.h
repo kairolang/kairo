@@ -1,4 +1,5 @@
 #pragma once
+#include <type_traits>
 // A C++ container whose iterator type is a private/protected member alias of
 // the class, reachable only through public begin()/end()/range accessors.
 class Bag {
@@ -45,4 +46,38 @@ protected:
     int data[2] = {1, 2};
 public:
     PubRange<Cur<int>> items() { return PubRange<Cur<int>>{Cur<int>{data}, Cur<int>{data + 2}}; }
+};
+// Derived: the hidden type belongs to a BASE of the class the call is on.
+class Derived : public Holder {};
+class CmpBag {
+    struct It {
+        int *p;
+        bool operator==(const It &o) const { return p == o.p; }
+        bool operator!=(const It &o) const { return p != o.p; }
+    };
+    int data[2] = {1, 2};
+public:
+    It find(int k) { return It{data + (k == 1 ? 0 : 2)}; }
+    It end() { return It{data + 2}; }
+};
+// llvm::DenseSet's shape: a private iterator template, compared through a
+// FREE operator== on its const form, so the call's arguments are cast to a
+// parameter type that names the private template.
+class Set {
+    template <bool C> class Iter2 {
+    public:
+        const int *p;
+        Iter2(const int *q) : p(q) {}
+        template <bool D, class = typename std::enable_if<C && !D>::type>
+        Iter2(const Iter2<D> &o) : p(o.p) {}
+        friend bool operator==(const Iter2<C> &a, const Iter2<C> &b) { return a.p == b.p; }
+        friend bool operator!=(const Iter2<C> &a, const Iter2<C> &b) { return a.p != b.p; }
+    };
+    int data[2] = {1, 2};
+public:
+    using iterator = Iter2<false>;
+    using const_iterator = Iter2<true>;
+    iterator find(int k) { return iterator(data + (k == 1 ? 0 : 2)); }
+    iterator end() { return iterator(data + 2); }
+    const_iterator end() const { return const_iterator(data + 2); }
 };

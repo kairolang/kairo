@@ -2225,6 +2225,22 @@ class EmitIR {
     }
 
     priv fn _cast_to(self, t: *Type, e: *Expr, kind: string, subst: *InstanceEntry = &null) {
+        // A target that names a C++ class's private/protected member type
+        // (the iterator `find()` returns, compared through a free
+        // `operator==`) cannot be spelled: clang refuses the name. Its cast
+        // only restates a conversion C++ makes itself, except a lowering's
+        // move, said here with a clang builtin and no name (no <utility> needed).
+        if (kind == "static_cast") && self._spell.names_hidden_member(t) {
+            var tc = canon_unqual(t->canonical);
+            if (tc != &null) && isa::<CXXRValueRefType>(tc) && e->is_lvalue() {
+                self._cg->sink->spell(e->range, "[]<class T>(T& __kairo_x) -> T&& { return static_cast<T&&>(__kairo_x); }(");
+                self.emit(e);
+                self._cg->sink->spell(e->range, ")");
+            } else {
+                self.emit(e);
+            }
+            return;
+        }
         self._cg->sink->spell(e->range, kind + "<" + self._spell._type(t, subst) + ">(");
         self.emit(e);
         self._cg->sink->spell(e->range, ")");
