@@ -627,8 +627,12 @@ class <T> MemberTyping {
 
     fn type_subscript(self, n: *SubscriptExpr, expected: *Type) -> *Type {
         var bt = dyn()->type_of(n->base, &null);
-        if dyn()->propagate(n, n->base) { return &null; }
-        if bt == &null { return &null; }
+        // An unknown base (`self.dyn()->xs[i]`, a field of a duck parameter)
+        // still has an index to type: left alone, a call inside it
+        // (`xs[xs.size() - 1]`) reaches codegen untyped and ICEs "unbound
+        // callee" instead of being spelled per instance (O32).
+        if dyn()->propagate(n, n->base) { dyn()->type_of(n->index, &null); return &null; }
+        if bt == &null { dyn()->type_of(n->index, &null); return &null; }
         // `xs[i]` on a nullable reads its value (NULLABLE.md §4).
         if dyn()->tu.nullable_inner(bt) != &null {
             bt = dyn()->read_value(n->base);
