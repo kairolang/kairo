@@ -921,6 +921,25 @@ class CXXSpell {
     /// `::stem::Name` is the same name whether the decl is `pub` or `priv`:
     /// C++'s implicit using-directive reaches into the nested unnamed
     /// namespace `priv` puts it in, and qual_name never has to know.
+    /// \p q, an imported enum's C++ name, cut before an unnamed segment:
+    /// clang prints `enum { a };` as `::ns::(unnamed enum at f.h:2:16)`,
+    /// which is no C++ name. An unnamed enum is never scoped, so its
+    /// enumerators are its enclosing scope's (`::clang::diag::err_x`, O41);
+    /// `::` alone is the global scope.
+    static fn _unnamed_scope_cut(q: string) -> string {
+        var out = "";
+        for var i: usize = 0; i < q.size(); ++i {
+            if (q[i] == '(') && (i >= 2) && (q[i - 1] == ':') && (q[i - 2] == ':') {
+                // `out` ends in the `::` before the segment; drop it.
+                var cut = "";
+                for var j: usize = 0; j + 2 < out.size(); ++j { cut.push_back(out[j]); }
+                return cut;
+            }
+            out.push_back(q[i]);
+        }
+        return q;
+    }
+
     fn qual_name(self, d: *Decl) -> string {
         if CXXSpell::in_function_scope(d) { return self.leaf(d); }
         var r = CXXSpell::rep(d);
@@ -935,7 +954,7 @@ class CXXSpell {
             var hdc = self._home_dc(r);
             if (hdc != &null) && hdc->is_type_scope() && (hdc->owner_decl() != &null) {
                 var en = CXXSpell::rep(hdc->owner_decl());
-                if decl_is_imported(en) { return decl_cxx_spelling(en) + "::" + self.leaf(r); }
+                if decl_is_imported(en) { return CXXSpell::_unnamed_scope_cut(decl_cxx_spelling(en)) + "::" + self.leaf(r); }
             }
         }
         // An enumerator of an enum nested in a class template: the plain
