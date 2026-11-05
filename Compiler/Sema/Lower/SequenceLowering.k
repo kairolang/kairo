@@ -554,7 +554,7 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
 
     /// Per positional argument of \p n (args are positional after
     /// CallLowering): whether its parameter is an imported `T&` or
-    /// `const T&`. \p bound_recv: `obj.m(...)`, whose `self` is no argument.
+    /// `const T&`, or a Kairo `inout`. \p bound_recv: `obj.m(...)`, whose `self` is no argument.
     priv fn _lref_params(self, n: *CallExpr, bound_recv: bool) -> vec::<u8> {
         // u8, not bool: the self-host migration rewrites vec<bool> to vec<u8>
         // by name, and a local named like a field (`out`) dragged the field along.
@@ -577,10 +577,12 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
             if p == &null { continue; }
             if p->is_self && skip_self { continue; }
             if p->is_pack { break; }
-            var lr = false;
+            // An `inout` parameter is a C++ `T&` too, marked with `&` or not:
+            // bound by value, the argument is a copy the callee writes to.
+            var lr = p->is_inout();
             if p->type_ != &null {
                 var t = (p->type_->canonical) if (p->type_->canonical != &null) else (p->type_);
-                lr = isa::<CXXLValueRefType>(canon_unqual(t));
+                lr = lr || isa::<CXXLValueRefType>(canon_unqual(t));
             }
             if lr { lrs.push_back(1); } else { lrs.push_back(0); }
         }
