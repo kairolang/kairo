@@ -3558,7 +3558,7 @@ class InterfaceEmitter {
             s += nm;
         }
         s += "(";
-        s += self._params(m, false, &null, owner);
+        s += self._params(m, false, &null, owner, true);
         s += ")";
         if is_method && m->is_const() { s += " const"; }
         if m->no_unwind { s += " noexcept"; }
@@ -3580,6 +3580,16 @@ class InterfaceEmitter {
     }
 
     priv fn _free_fn_decl(self, f: *FunctionDecl, ext: *ExtensionDecl) {
+        // A namespace-scope default argument names its thunk at the point of
+        // declaration, and the thunk is placed after `f`: declare it first (O35).
+        if ext == &null {
+            for var i: usize = 0; i < f->params.size(); ++i {
+                var p = f->params[i];
+                if (p == &null) || (self._default_arg(f, i).size() == 0) { continue; }
+                var th = cast::<FunctionDecl>(p->default_thunk);
+                self._cg->sink->spell(self._at(static_cast::<*Decl>(f)), self._free_fn_text(th, &null));
+            }
+        }
         self._cg->sink->spell(self._at(static_cast::<*Decl>(f)), self._free_fn_text(f, ext));
     }
 
@@ -3605,7 +3615,7 @@ class InterfaceEmitter {
         s += " ";
         s += self._fn_name(f);
         s += "(";
-        s += self._params(f, ext != &null, ext);
+        s += self._params(f, ext != &null, ext, &null, ext == &null);
         s += ")";
         if f->no_unwind { s += " noexcept"; }
         s += ";";
@@ -3693,7 +3703,13 @@ class InterfaceEmitter {
 
     /// \p scope: the record whose body the declaration is in, or null
     /// (CXXSpell::_type).
-    priv fn _params(self, f: *FunctionDecl, with_self: bool, ext: *ExtensionDecl, scope: *Decl = &null) -> string {
+    ///
+    /// \p defaults: also write each Kairo default as a C++ default argument
+    /// calling its thunk. Kairo fills a default at every call it types, but a
+    /// call through a `: type` parameter (`self.dyn()->sc->diag->report(..)
+    /// .first(r)`) has no callee to fill from; clang resolves it per instance
+    /// and needs the C++ declaration to carry the default (O35).
+    priv fn _params(self, f: *FunctionDecl, with_self: bool, ext: *ExtensionDecl, scope: *Decl = &null, defaults: bool = false) -> string {
         var s = "";
         var first = true;
         for var i: usize = 0; i < f->params.size(); ++i {
@@ -3716,6 +3732,7 @@ class InterfaceEmitter {
             var nm = "";
             if !p->unname { nm = self._spell->imm_name(p->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(f))); }
             s += self._spell->param_decl(p, nm, &null, scope);
+            if defaults { s += self._default_arg(f, i); }
         }
         // C++ distinguishes postfix `++`/`--` from prefix by an unnamed `int`
         // parameter. Kairo says `op r++`, so the dummy is invented here.
@@ -3724,6 +3741,32 @@ class InterfaceEmitter {
             s += "int";
         }
         return s;
+    }
+
+    /// ` = __kairo_default_f_x()` for parameter \p i of \p f when it is the
+    /// declaration that wrote a Kairo default (a redeclaration repeating a C++
+    /// default is an error, so only the writer's link carries it). Empty
+    /// when a later parameter has none: C++ rejects a gap, and a call that
+    /// fills it is Kairo's, as before.
+    priv fn _default_arg(self, f: *FunctionDecl, i: usize) -> string {
+        var p = f->params[i];
+        if (p->default_thunk == &null) || (!p->default_thunk_home) || p->is_pack { return ""; }
+        for var k: usize = i + 1; k < f->params.size(); ++k {
+            var q = f->params[k];
+            if (q == &null) || q->is_pack { continue; }
+            if (q->default_thunk == &null) && (!q->has_default) { return ""; }
+        }
+        var th  = cast::<FunctionDecl>(p->default_thunk);
+        var fid = CXXSpell::fid_of(static_cast::<*Decl>(f));
+        var targs = "";
+        var tps = CXXSpell::template_params(static_cast::<*Decl>(th));
+        for var j: usize = 0; j < tps.size(); ++j {
+            targs += (("<") if (j == 0) else (", "));
+            targs += self._spell->imm_name(tps[j]->name.imm, fid);
+            if tps[j]->is_pack { targs += "..."; }
+        }
+        if tps.size() > 0 { targs += ">"; }
+        return " = " + self._spell->leaf(static_cast::<*Decl>(th)) + targs + "()";
     }
 
     priv fn _ret(self, f: *FunctionDecl, scope: *Decl = &null) -> string {
