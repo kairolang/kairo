@@ -3810,6 +3810,15 @@ class InterfaceEmitter {
             var v = dyn_cast::<TypeExpr>(ie->args[i]);
             if (v != &null) && v->is_value && (!v->is_exact()) { return; }
         }
+        // A record under a `<T: type>` parameter is C++-checked per instance:
+        // a member body may use an operator T lacks and be an error only for
+        // an instance that calls it. `template class X<A>;` instantiates
+        // EVERY member, so it would reject (FrozenList<NoEq>::find, never
+        // called) what C++ implicit instantiation accepts; its bodies are
+        // visible in every TU, so the instance is instantiated implicitly,
+        // member by member as used. No `extern template` either: it would
+        // suppress that.
+        if (!isa::<FunctionDecl>(d)) && plan_under_duck(d) { return; }
         var s  = ("") if (e->is_home) else ("extern ");
         s += "template ";
         if isa::<FunctionDecl>(d) {
