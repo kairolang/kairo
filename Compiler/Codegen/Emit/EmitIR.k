@@ -2909,6 +2909,20 @@ class EmitIR {
             self._cg->sink->spell(n->range, ")");
             return;
         }
+        // A free imported binary operator is written infix, `(a == b)`. The
+        // function-call spelling `operator ==(a, b)` is looked up by name
+        // first, and inside a class that declares its own `operator==` that
+        // finds the member and stops: ADL never runs, so the imported free
+        // one (a std iterator's) is "no matching member function".
+        if (f != &null) && f->is_operator && (!f->is_method()) && decl_is_imported(callee) && self._plain_callee(n->callee)
+        && (n->args.size() == 2) && (f->params.size() == 2) && (f->op_token.size() == 1) && self._infix_operator(f->op_token[0].kind) {
+            self._cg->sink->spell(n->range, "(");
+            self._arg(n->args[0], f->params[0], inst);
+            self._cg->sink->spell(n->range, " " + self._cg->ctx->get_spelling(f->op_token[0]) + " ");
+            self._arg(n->args[1], f->params[1], inst);
+            self._cg->sink->spell(n->range, ")");
+            return;
+        }
         // `T::Node(args)`: the callee is the requirement, the type is the
         // witness's member type, constructed as any type is (CallTyping
         // admitted it through a constructor bound).
@@ -3293,6 +3307,15 @@ class EmitIR {
             out.push_back(ga->ty->canonical);
         }
         return out;
+    }
+
+    /// The binary operators C++ spells infix and a free function can overload
+    /// (shifts excluded: `>>` is a split-token hazard in a template).
+    priv fn _infix_operator(self, k: TokenKind) -> bool {
+        return (k == TokenKind::OpEqualEqual) || (k == TokenKind::OpExclaimEqual) || (k == TokenKind::OpLess)
+            || (k == TokenKind::OpLessEqual) || (k == TokenKind::OpGreater) || (k == TokenKind::OpGreaterEqual)
+            || (k == TokenKind::OpPlus) || (k == TokenKind::OpMinus) || (k == TokenKind::OpStar)
+            || (k == TokenKind::OpSlash) || (k == TokenKind::OpPercent);
     }
 
     priv fn _plain_callee(self, c: *Expr) -> bool {
