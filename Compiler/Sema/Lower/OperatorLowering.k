@@ -65,6 +65,7 @@ import Sema::Lower::EnumLayoutLowering::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Substitution::*;
 import AST::LangItems::*;
+import AST::DeclFacts::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::Node::Base::*;
@@ -520,6 +521,18 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         var cmp = self._call(static_cast::<*Expr>(n), n->lhs, self.synth.punct(n->op_token.range, TokenKind::OpLessEqualGreater),
                              f, n->op_via_free, &args, n->op_instance);
         cmp->type_ = self._ret(f);   // Ordering.
+        // An imported `<=>` answers a C++ ordering (`std::strong_ordering`),
+        // which converts to no integer (and its type may be a dependent member
+        // alias, no record Sema can name): C++ itself compares it with a literal
+        // 0, so it is left uncast against an int 0.
+        var rd = TypeUtil(self.sc).record_decl(cmp->type_);
+        var kairo_ord = (rd != &null) && (!decl_is_imported(rd)) && ((!decl_is_instance(rd)) || (!decl_is_imported(decl_instantiated_from(rd))));
+        if !kairo_ord {
+            var izero = self.synth.int_literal(n->range, 0, BuiltinKind::I32);
+            var irel  = BinaryOperatorExpr::create(self.ctx, n->range, cmp, izero, n->op_token);
+            irel->adopt_sema(static_cast::<*Expr>(n));
+            return static_cast::<*Expr>(irel);
+        }
         var _i8 = self.sc->builtin(BuiltinKind::I8);
         var as_int = TypeCastExpr::create(self.ctx, n->range, cmp, _i8);
         as_int->type_          = _i8;
