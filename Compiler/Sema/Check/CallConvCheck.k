@@ -149,6 +149,7 @@ class CallConvCheck derives RecursiveASTVisitor::<CallConvCheck> {
             if (m == &null) || m->is_poisoned() { continue; }
             if (m->abi != AbiKind::Override) && (m->abi != AbiKind::Virtual) { continue; }
             var base = panic_overridden(&(self._tu), cd, m);
+            if (base == &null) && (m->abi == AbiKind::Override) { self._overrides_nothing(cd, m); continue; }
             if (base == &null) || (base->call_conv == m->call_conv) { continue; }
             var nm = self._tu.decl_name(static_cast::<*Decl>(m));
             var mine   = self._phrase(m->call_conv);
@@ -161,6 +162,25 @@ class CallConvCheck derives RecursiveASTVisitor::<CallConvCheck> {
             b.emit();
         }
         return true;
+    }
+
+    /// `override` on \p m, whose parameter list matches no base virtual of
+    /// its name and arity as C++ declares them (SI8): a Kairo `x: D` is a
+    /// by-value `D`, not the `const D&` a C++ base takes, so clang says the
+    /// method overrides nothing. Reported only when such a base method
+    /// exists, the one the override was meant for; the fix is the base's
+    /// parameter form (`const x: D` for `const D&`).
+    priv fn _overrides_nothing(self, cd: *ClassDecl, m: *FunctionDecl) {
+        var bt: *Type = &null;
+        var meant = overridden_at(&(self._tu), cd, m, &bt, true);
+        if meant == &null { return; }
+        var nm = self._tu.decl_name(static_cast::<*Decl>(m));
+        var b = self.sc->diag->report(DiagID::SC001E, m->range.start,
+            f"'{nm}' is marked 'override' but overrides nothing: its parameter types differ from the base method's as C++ declares them");
+        b.first(m->range);
+        b.note(meant->range.start, "the base method of that name; a C++ 'const T&' parameter is written 'const x: T\x27");
+        b.first(meant->range);
+        b.emit();
     }
 
     /// `@preserve_most fn() { ... }`: the attribute reaches a closure as an

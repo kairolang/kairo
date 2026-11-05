@@ -79,6 +79,7 @@ import AST::Node::Expressions::*;
 import AST::Node::Statements::*;
 import AST::Node::Declarations::*;
 import AST::Node::Types::*;
+import AST::ParamMode::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::Kind::StmtKind::*;
@@ -518,12 +519,55 @@ fn panic_type_depth(t: *Type, budget: u32) -> u32 {
     return 1;
 }
 
-/// panic_overridden, and the base record it was found in, \p out_base, as
-/// \p cd derives it (`B<i32>` for `class D derives B<i32>`): a generic
-/// base's method is read through it (its parameters, its panic set, P10).
-/// A generic base is walked as its pattern (an instance shell holds no
-/// methods), each hop's bases read through the hop's arguments.
-fn panic_overridden_at(tu: *TypeUtil, cd: *ClassDecl, m: *FunctionDecl, out_base: * *Type) -> *FunctionDecl {
+/// How a parameter reaches C++, for matching an override against the method
+/// it overrides: C++ compares the declared parameter types (top-level cv
+/// dropped), so a Kairo `x: D` (by value; ParamPassInference leaves an
+/// override alone) does not override a C++ `const D&` (SI8), while a Kairo
+/// `const x: D` (CXXSpell::_param_type: `const D&`) does. 0 by value, 1
+/// `T&`, 2 `T&&`; \p inner_const is the referee's const.
+fn override_param_shape(p: *ParamDecl, t: *Type, inner_const: *bool) -> u8 {
+    (*inner_const) = false;
+    var c = canon_unqual(t);
+    if (c != &null) && isa::<CXXLValueRefType>(c) {
+        var r = cast::<CXXLValueRefType>(c)->referee;
+        (*inner_const) = (r != &null) && (canon_has_const(r) || ((r->canonical != &null) && canon_has_const(r->canonical)));
+        return 1;
+    }
+    if (c != &null) && isa::<CXXRValueRefType>(c) { return 2; }
+    if p->mode == ParamMode::Inout { (*inner_const) = p->is_const; return 1; }
+    if p->mode == ParamMode::Move { return 2; }
+    if p->is_const && (c != &null) && ((c->kind == TypeKind::RecordType) || (c->kind == TypeKind::GenericParamType)) {
+        (*inner_const) = true;
+        return 1;
+    }
+    return 0;
+}
+
+/// The type a parameter's C++ type is about: the referee of a C++ reference,
+/// else the parameter's own type, unqualified either way.
+fn override_param_core(t: *Type) -> *Type {
+    var c = canon_unqual(t);
+    if (c != &null) && isa::<CXXLValueRefType>(c) { return canon_unqual(cast::<CXXLValueRefType>(c)->referee); }
+    if (c != &null) && isa::<CXXRValueRefType>(c) { return canon_unqual(cast::<CXXRValueRefType>(c)->referee); }
+    return c;
+}
+
+/// \p x (the override's) and \p y (the base's, typed \p yt after the base's
+/// arguments) are the same C++ parameter type.
+fn override_param_same(x: *ParamDecl, y: *ParamDecl, yt: *Type) -> bool {
+    var xc = false;
+    var yc = false;
+    var xs = override_param_shape(x, x->type_->canonical, &xc);
+    var ys = override_param_shape(y, yt, &yc);
+    if (xs != ys) || (xc != yc) { return false; }
+    var a = override_param_core(x->type_->canonical);
+    var b = override_param_core(yt);
+    return (a != &null) && (a == b);
+}
+
+/// \p loose: name and arity only, the parameter types unread -- the base
+/// method an `override` was meant for when no parameter list matches (SI8).
+fn overridden_at(tu: *TypeUtil, cd: *ClassDecl, m: *FunctionDecl, out_base: * *Type, loose: bool) -> *FunctionDecl {
     // An operator has no name to spell (FunctionDecl::name): it is
     // matched by its symbol.
     var nm = (OperatorFacts::symbol(m)) if (m->is_operator) else (tu->decl_name(static_cast::<*Decl>(m)));
@@ -558,7 +602,7 @@ fn panic_overridden_at(tu: *TypeUtil, cd: *ClassDecl, m: *FunctionDecl, out_base
             if bn != nm { continue; }
             if b->params.size() != m->params.size() { continue; }
             var same = true;
-            for var p: usize = 0; p < m->params.size(); ++p {
+            for var p: usize = 0; (!loose) && (p < m->params.size()); ++p {
                 var x = m->params[p];
                 var y = b->params[p];
                 if (x == &null) || (y == &null) { same = false; break; }
@@ -569,7 +613,7 @@ fn panic_overridden_at(tu: *TypeUtil, cd: *ClassDecl, m: *FunctionDecl, out_base
                     var ys = sub.substitute(yt);
                     if ys != &null { yt = ys; }
                 }
-                if x->type_->canonical != yt { same = false; break; }
+                if !override_param_same(x, y, yt) { same = false; break; }
             }
             if same {
                 (*out_base) = bt;
@@ -588,6 +632,15 @@ fn panic_overridden_at(tu: *TypeUtil, cd: *ClassDecl, m: *FunctionDecl, out_base
         }
     }
     return &null;
+}
+
+/// panic_overridden, and the base record it was found in, \p out_base, as
+/// \p cd derives it (`B<i32>` for `class D derives B<i32>`): a generic
+/// base's method is read through it (its parameters, its panic set, P10).
+/// A generic base is walked as its pattern (an instance shell holds no
+/// methods), each hop's bases read through the hop's arguments.
+fn panic_overridden_at(tu: *TypeUtil, cd: *ClassDecl, m: *FunctionDecl, out_base: * *Type) -> *FunctionDecl {
+    return overridden_at(tu, cd, m, out_base, false);
 }
 
 /// The method \p m overrides: the nearest base's virtual or override
