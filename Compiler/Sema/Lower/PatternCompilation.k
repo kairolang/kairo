@@ -85,6 +85,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/StringMap.h";
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Check::PatternSpace::*;
@@ -254,6 +255,7 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
     priv var _occs:   vec::<DOcc>;
     priv var _binds:  vec::<DBind>;
     priv var _keys:   vec::<string>;
+    priv var _key_ids: llvm::StringMap::<u32>;   ///< _keys inverted: one probe per accept, not a scan.
     priv var _budget: usize = 0;
     priv var _over:   bool  = false;
     priv var _bad:    bool  = false;   ///< a test with no rendering was reported.
@@ -363,6 +365,7 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
         self._occs  = vec::<DOcc>();
         self._binds = vec::<DBind>();
         self._keys  = vec::<string>();
+        self._key_ids.clear();
         self._flat  = vec::<FlatRow>();
         self._over  = false;
     }
@@ -483,9 +486,12 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
     }
 
     priv fn _row_id(self, key: string) -> u32 {
-        for var i: usize = 0; i < self._keys.size(); ++i { if self._keys[i] == key { return u32(i); } }
+        var it = self._key_ids.find(sref(key));
+        if it != self._key_ids.end() { return it->second; }
         self._keys.push_back(key);
-        return u32(self._keys.size() - 1);
+        var id = u32(self._keys.size() - 1);
+        self._key_ids.try_emplace(sref(key), id);
+        return id;
     }
 
     /// Leaf or Guard for \p r, every column of which is a wildcard.
@@ -592,7 +598,9 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
             if self._ps.is_wild(r0->cols[c]) { continue; }
             var run: usize = 0;
             while (run < rows->size()) && (!self._ps.is_wild((*rows)[run].cols[c])) { run += 1; }
-            var heads = self._distinct_heads(rows, c);
+            // One candidate needs no tiebreak.
+            var heads: usize = 0;
+            if r0->cols.size() > 1 { heads = self._distinct_heads(rows, c); }
             if (best < 0) || (run > best_run) || ((run == best_run) && (heads < best_heads)) {
                 best = i32(c); best_run = run; best_heads = heads;
             }
@@ -602,16 +610,14 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
 
     /// Distinct heads in column \p c, counted by spelling. A tiebreak only.
     priv fn _distinct_heads(self, rows: *vec::<CRow>, c: usize) -> usize {
-        var seen = vec::<string>();
+        var seen: llvm::StringMap::<u32>;
         for var i: usize = 0; i < rows->size(); ++i {
             var p = (*rows)[i].cols[c];
             if self._ps.is_wild(p) { continue; }
             var s = self.sc->ctx->get_spelling(p->range);
-            var dup = false;
-            for var k: usize = 0; k < seen.size(); ++k { if seen[k] == s { dup = true; break; } }
-            if !dup { seen.push_back(s); }
+            seen.try_emplace(sref(s), u32(0));
         }
-        return seen.size();
+        return usize(seen.size());
     }
 
     /// Every row whose head is an alternation becomes one row per
@@ -666,6 +672,27 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
             }
             for var k: usize = 1; k < r->cols.size(); ++k { nr.cols.push_back(r->cols[k]); }
             out.push_back(nr);
+        }
+        return out;
+    }
+
+    /// _specialize over the rows \p idx names (ascending): an edge's own
+    /// heads and the wildcard rows, bucketed by the caller in one pass, so
+    /// a switch over n heads is O(rows) and not O(rows * edges).
+    priv fn _specialize_idx(self, rows: *vec::<CRow>, occs: *vec::<u32>, c: Ctor, idx: *vec::<u32>) -> vec::<CRow> {
+        var sub = vec::<CRow>();
+        for var i: usize = 0; i < idx->size(); ++i { sub.push_back((*rows)[usize((*idx)[i])]); }
+        return self._specialize(&sub, occs, c);
+    }
+
+    /// \p a and \p b, both ascending, merged.
+    priv fn _merge_idx(self, a: *vec::<u32>, b: *vec::<u32>) -> vec::<u32> {
+        var out = vec::<u32>();
+        var i: usize = 0;
+        var j: usize = 0;
+        while (i < a->size()) || (j < b->size()) {
+            if (j >= b->size()) || ((i < a->size()) && ((*a)[i] < (*b)[j])) { out.push_back((*a)[i]); i += 1; }
+            else { out.push_back((*b)[j]); j += 1; }
         }
         return out;
     }
@@ -729,16 +756,31 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
 
     priv fn _switch_enum(self, rows: *vec::<CRow>, occs: *vec::<u32>, d: Domain) -> u32 {
         var n = usize(d.nctors);   // a pack-expanded variant counts once per element.
+        // Edges in first-appearance order; each edge's rows bucketed in the
+        // same pass (wildcard rows join every edge at _specialize_idx).
         var order = vec::<u32>();
         var heads = vec::<*Pattern>();
+        var buckets = vec::<vec::<u32>>();
+        var wilds = vec::<u32>();
+        var slot = vec::<i32>();
+        for var k: usize = 0; k < n; ++k { slot.push_back(-1); }
         for var i: usize = 0; i < rows->size(); ++i {
             var h = (*rows)[i].cols[0];
-            if self._ps.is_wild(h) { continue; }
+            if self._ps.is_wild(h) { wilds.push_back(u32(i)); continue; }
             var hc = self._ps.ctor_of(h);
             if hc.kind != CtorKind::Variant { continue; }
-            var dup = false;
-            for var k: usize = 0; k < order.size(); ++k { if order[k] == hc.index { dup = true; break; } }
-            if !dup { order.push_back(hc.index); heads.push_back(h); }
+            var at: i32 = -1;
+            if usize(hc.index) < n { at = slot[usize(hc.index)]; }
+            else {
+                for var k: usize = 0; k < order.size(); ++k { if order[k] == hc.index { at = i32(k); break; } }
+            }
+            if at < 0 {
+                at = i32(order.size());
+                order.push_back(hc.index); heads.push_back(h);
+                buckets.push_back(vec::<u32>());
+                if usize(hc.index) < n { slot[usize(hc.index)] = at; }
+            }
+            buckets[usize(at)].push_back(u32(i));
         }
 
         var kids = vec::<DEdge>();
@@ -748,7 +790,8 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
             c.index = order[k];
             c.arity = u32(adt_variant_at(d.en, usize(order[k]))->payload.size());
             var sub   = self._sub_occs((*occs)[0], c, d);
-            var srows = self._specialize(rows, occs, c);
+            var idx   = self._merge_idx(&(buckets[k]), &wilds);
+            var srows = self._specialize_idx(rows, occs, c, &idx);
             var socc  = self._with_sub(occs, &sub);
             var e = DEdge{};
             e.kind = CtorKind::Variant; e.index = order[k]; e.pat = heads[k];
@@ -801,6 +844,7 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
     }
 
     priv fn _switch_int(self, rows: *vec::<CRow>, occs: *vec::<u32>, d: Domain) -> u32 {
+        if self._all_points(rows) { return self._switch_points(rows, occs, d); }
         var segs = self._int_segments(rows, d.max_key);
 
         // Which Int heads survive each segment; merge neighbours that agree.
@@ -843,6 +887,90 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
         return self._switch_node((*occs)[0], &kids, other, false);
     }
 
+    /// Every Int head one key: a `case 1, 2, 3` table.
+    priv fn _all_points(self, rows: *vec::<CRow>) -> bool {
+        for var i: usize = 0; i < rows->size(); ++i {
+            var h = (*rows)[i].cols[0];
+            if self._ps.is_wild(h) { continue; }
+            var hc = self._ps.ctor_of(h);
+            if (hc.kind != CtorKind::Int) || (hc.lo != hc.hi) { return false; }
+        }
+        return true;
+    }
+
+    /// _switch_int when every head is one key. The segments are then the
+    /// keys and the gaps between them, and a key's surviving rows are its
+    /// own heads, so the rows are bucketed by key in one pass instead of
+    /// rescanned per segment. Same edges, merges and order as the general
+    /// form: ascending keys, a gap a hole that breaks a merge run.
+    priv fn _switch_points(self, rows: *vec::<CRow>, occs: *vec::<u32>, d: Domain) -> u32 {
+        var at: llvm::StringMap::<u32>;
+        var buckets = vec::<vec::<u32>>();
+        var bkey = vec::<u64>();
+        var wilds = vec::<u32>();
+        for var i: usize = 0; i < rows->size(); ++i {
+            var h = (*rows)[i].cols[0];
+            if self._ps.is_wild(h) { wilds.push_back(u32(i)); continue; }
+            var v = self._ps.ctor_of(h).lo;
+            var ks = f"{v}";
+            var it = at.find(sref(ks));
+            var b: u32 = 0;
+            if it != at.end() { b = it->second; }
+            else {
+                b = u32(buckets.size());
+                buckets.push_back(vec::<u32>());
+                bkey.push_back(v);
+                at.try_emplace(sref(ks), b);
+            }
+            buckets[usize(b)].push_back(u32(i));
+        }
+        var keys = bkey;
+        sort_unique_keys(&keys);
+
+        var kids = vec::<DEdge>();
+        var kidb = vec::<u32>();   // the bucket each edge's rows are read from: its first key's.
+        var any_hole = false;
+        var have_prev = false;
+        var prev_set = vec::<u32>();
+        var next: u64 = 0;         // the least key not yet placed in a segment.
+        for var k: usize = 0; k < keys.size(); ++k {
+            var v = keys[k];
+            if v > next { any_hole = true; have_prev = false; }
+            var b = at.find(sref(f"{v}"))->second;
+            var set = buckets[usize(b)];
+            if have_prev && self._same_rows(rows, &set, &prev_set) {
+                kids[kids.size() - 1].hi = v;
+            } else {
+                var e = DEdge{};
+                e.kind = CtorKind::Int; e.lo = v; e.hi = v;
+                e.pat  = (*rows)[usize(set[0])].cols[0];
+                kids.push_back(e);
+                kidb.push_back(b);
+                prev_set = set;
+                have_prev = true;
+            }
+            next = v + u64(1);
+        }
+        if (keys.size() == 0) || (keys[keys.size() - 1] < d.max_key) { any_hole = true; }
+
+        for var k: usize = 0; k < kids.size(); ++k {
+            var c = Ctor{};
+            c.kind = CtorKind::Int; c.lo = kids[k].lo; c.hi = kids[k].lo;
+            var idx   = self._merge_idx(&(buckets[usize(kidb[k])]), &wilds);
+            var srows = self._specialize_idx(rows, occs, c, &idx);
+            var socc  = self._rest(occs);
+            kids[k].child = self._build(&srows, &socc);
+        }
+
+        var other: i32 = -1;
+        if any_hole {
+            var drows = self._defaults(rows, occs);
+            var rest  = self._rest(occs);
+            other = i32(self._build(&drows, &rest));
+        }
+        return self._switch_node((*occs)[0], &kids, other, false);
+    }
+
     /// PatternSpace::int_segments over CRow, across the whole key space.
     priv fn _int_segments(self, rows: *vec::<CRow>, max_key: u64) -> vec::<Ctor> {
         var cuts = vec::<u64>();
@@ -851,15 +979,10 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
             if self._ps.is_wild(h) { continue; }
             var c = self._ps.ctor_of(h);
             if c.kind != CtorKind::Int { continue; }
-            if c.lo > u64(0)  { self._add_cut(&cuts, c.lo); }
-            if c.hi < max_key { self._add_cut(&cuts, c.hi + u64(1)); }
+            if c.lo > u64(0)  { cuts.push_back(c.lo); }
+            if c.hi < max_key { cuts.push_back(c.hi + u64(1)); }
         }
-        for var i: usize = 1; i < cuts.size(); ++i {
-            var x = cuts[i];
-            var j = i;
-            while (j > 0) && (cuts[j - 1] > x) { cuts[j] = cuts[j - 1]; j = j - 1; }
-            cuts[j] = x;
-        }
+        sort_unique_keys(&cuts);
         var out = vec::<Ctor>();
         var start: u64 = 0;
         for var i: usize = 0; i <= cuts.size(); ++i {
@@ -870,11 +993,6 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
             if i < cuts.size() { start = cuts[i]; }
         }
         return out;
-    }
-
-    priv fn _add_cut(self, cuts: *vec::<u64>, k: u64) {
-        for var i: usize = 0; i < cuts->size(); ++i { if (*cuts)[i] == k { return; } }
-        cuts->push_back(k);
     }
 
     /// Rows whose Int head contains segment \p s, by index.
@@ -930,29 +1048,38 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
     }
 
     priv fn _switch_string(self, rows: *vec::<CRow>, occs: *vec::<u32>) -> u32 {
-        var keys = vec::<vec::<u8>>();
+        // Keys in first-appearance order, each key's rows bucketed by its
+        // decoded bytes in the same pass; wildcard rows join every key.
+        var at: llvm::StringMap::<u32>;
         var heads = vec::<*Pattern>();
+        var buckets = vec::<vec::<u32>>();
+        var wilds = vec::<u32>();
         for var i: usize = 0; i < rows->size(); ++i {
             var h = (*rows)[i].cols[0];
-            if self._ps.is_wild(h) { continue; }
+            if self._ps.is_wild(h) { wilds.push_back(u32(i)); continue; }
             var b = vec::<u8>();
             pattern_string_bytes(self.sc, h, &b);
-            if self._find_key(&keys, &b) >= 0 { continue; }
-            keys.push_back(b);
-            heads.push_back(h);
+            var ks: string;
+            for var j: usize = 0; j < b.size(); ++j { ks.push_back(static_cast::<char>(b[j])); }
+            var it = at.find(sref(ks));
+            var slot: u32 = 0;
+            if it != at.end() { slot = it->second; }
+            else {
+                slot = u32(heads.size());
+                heads.push_back(h);
+                buckets.push_back(vec::<u32>());
+                at.try_emplace(sref(ks), slot);
+            }
+            buckets[usize(slot)].push_back(u32(i));
         }
 
         var kids = vec::<DEdge>();
-        for var k: usize = 0; k < keys.size(); ++k {
+        for var k: usize = 0; k < heads.size(); ++k {
             var srows = vec::<CRow>();
-            for var i: usize = 0; i < rows->size(); ++i {
-                var r = &((*rows)[i]);
+            var idx = self._merge_idx(&(buckets[k]), &wilds);
+            for var ii: usize = 0; ii < idx.size(); ++ii {
+                var r = &((*rows)[usize(idx[ii])]);
                 var h = r->cols[0];
-                if !self._ps.is_wild(h) {
-                    var b = vec::<u8>();
-                    pattern_string_bytes(self.sc, h, &b);
-                    if !self._same_bytes(&b, &(keys[k])) { continue; }
-                }
                 var nr = CRow{};
                 nr.arm = r->arm; nr.guarded = r->guarded; nr.key = r->key; nr.binds = r->binds;
                 self._bind_head(&nr, h, (*occs)[0]);
@@ -969,17 +1096,6 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
         var rest  = self._rest(occs);
         var other = i32(self._build(&drows, &rest));
         return self._switch_node((*occs)[0], &kids, other, true);
-    }
-
-    priv fn _find_key(self, keys: *vec::<vec::<u8>>, b: *vec::<u8>) -> i32 {
-        for var i: usize = 0; i < keys->size(); ++i { if self._same_bytes(&((*keys)[i]), b) { return i32(i); } }
-        return -1;
-    }
-
-    priv fn _same_bytes(self, a: *vec::<u8>, b: *vec::<u8>) -> bool {
-        if a->size() != b->size() { return false; }
-        for var i: usize = 0; i < a->size(); ++i { if (*a)[i] != (*b)[i] { return false; } }
-        return true;
     }
 
     // --- opaque -------------------------------------------------------------------------

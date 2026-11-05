@@ -60,6 +60,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/StringMap.h";
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Check::PatternSpace::*;
@@ -87,6 +88,14 @@ import Diagnostic::Registry::*;
 struct Usefulness {
     var useful:  bool = false;
     var witness: vec::<string>;
+}
+
+/// The constant-rows answer (PatternChecking::_flat_check): the dead
+/// verdict per row, and the non-exhaustive witness when one is missing.
+struct FlatVerdict {
+    var dead:      vec::<bool>;
+    var missing:   Usefulness;
+    var open_tail: bool = false;
 }
 
 /// What one analysis of one match concluded.
@@ -194,7 +203,30 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
             }
         }
 
-        self._report_dead(cases, &rows);
+        // Every head a constant (or a wildcard): usefulness is set
+        // membership, in one pass over the rows (see _flat_check).
+        var flat = vec::<vec::<Ctor>>();
+        var fd = Domain{};
+        if self._flat_rows(&rows, &flat, &fd) {
+            var fv = FlatVerdict{};
+            self._flat_check(&rows, &flat, fd, &fv);
+            self._report_dead(cases, &rows, &(fv.dead));
+            if fv.missing.useful {
+                v.is_exhaustive = false;
+                v.covering_arm  = -1;
+                if self._requires_exhaustive(stmt_form) {
+                    self._report_missing(scrutinee, at, &(fv.missing));
+                }
+                return v;
+            }
+            v.is_exhaustive = true;
+            v.covering_arm  = i32(cases->size()) - 1;
+            v.open_tail     = fv.open_tail;
+            return v;
+        }
+
+        var dead = self._dead_rows(&rows);
+        self._report_dead(cases, &rows, &dead);
 
         // Exhaustiveness, closed enums first.
         var covering = vec::<PatRow>();
@@ -250,7 +282,9 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
 
     // === dead rows ========================================================
 
-    priv fn _report_dead(self, cases: *FrozenList::<MatchCase>, rows: *vec::<PatRow>) {
+    /// Row i is dead when it is not useful against the unguarded rows
+    /// before it. The general matrix: O(rows^2) specializations.
+    priv fn _dead_rows(self, rows: *vec::<PatRow>) -> vec::<bool> {
         var dead = vec::<bool>();
         for var i: usize = 0; i < rows->size(); ++i {
             var before = vec::<PatRow>();
@@ -259,7 +293,11 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
             var u = self._useful(&before, &q, true, false);
             dead.push_back(!u.useful);
         }
+        return dead;
+    }
 
+    priv fn _report_dead(self, cases: *FrozenList::<MatchCase>, rows: *vec::<PatRow>, deadp: *vec::<bool>) {
+        var dead = *deadp;
         var i: usize = 0;
         while i < rows->size() {
             var arm = (*rows)[i].arm;
@@ -287,6 +325,165 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
                 ).first(p->range).emit();
             }
         }
+    }
+
+    // === constant rows ====================================================
+    //
+    // The shape of a generated table (the diagnostic registry's 5000-arm
+    // matches): one column whose every head is a wildcard or a constant --
+    // a payload-free variant, a bool, a single integer, an opaque literal.
+    // A constant covers exactly the rows with its own constructor, so for
+    // q a constant, "useful against P" is "no wildcard and no equal head in
+    // P", and for q a wildcard it is "no wildcard, and the heads seen are not
+    // the whole domain". The general matrix answers the same questions with
+    // a specialization per row per earlier row; this answers them with one
+    // set, so the verdicts and witnesses are the general path's, in O(rows).
+
+    /// The heads of every row, an alternation's alternatives each a head;
+    /// false when some head is not a constant of the column's one domain
+    /// (\p d, from the first typed head), which leaves the general path.
+    priv fn _flat_rows(self, rows: *vec::<PatRow>, out: *vec::<vec::<Ctor>>, d: *Domain) -> bool {
+        var have = false;
+        for var i: usize = 0; i < rows->size(); ++i {
+            if (*rows)[i].cols.size() != 1 { return false; }
+            var alts = vec::<*Pattern>();
+            self._flat_alts((*rows)[i].cols[0], &alts);
+            var hs = vec::<Ctor>();
+            for var k: usize = 0; k < alts.size(); ++k {
+                var p = alts[k];
+                if self._ps.is_wild(p) { hs.push_back(Ctor{}); continue; }
+                if p->type_ == &null { return false; }
+                var pd = self._ps.domain_of(p->type_);
+                if !have {
+                    (*d) = pd; have = true;
+                    // Once: the scan is O(variants), and this runs per head.
+                    if (pd.kind == DomainKind::ClosedEnum) && (adt_pack_variant(pd.en) != &null) { return false; }
+                }
+                else if (pd.kind != d->kind) || (pd.en != d->en) || (pd.bits != d->bits) || (pd.signed != d->signed) { return false; }
+                var c = self._ps.ctor_of(p);
+                switch d->kind {
+                    case DomainKind::ClosedEnum {
+                        if (c.kind != CtorKind::Variant) || (c.arity != u32(0)) || (c.index >= d->nctors) { return false; }
+                    }
+                    case DomainKind::Bool { if c.kind != CtorKind::Bool { return false; } }
+                    case DomainKind::Int  { if (c.kind != CtorKind::Int) || (c.lo != c.hi) { return false; } }
+                    case DomainKind::OpenEnum { if c.kind != CtorKind::Opaque { return false; } }
+                    case DomainKind::Opaque   { if c.kind != CtorKind::Opaque { return false; } }
+                    default { return false; }
+                }
+                hs.push_back(c);
+            }
+            out->push_back(hs);
+        }
+        return true;
+    }
+
+    /// \p p's alternatives, nested alternations flattened, in order.
+    priv fn _flat_alts(self, p: *Pattern, out: *vec::<*Pattern>) {
+        if (p != &null) && (p->kind == PatternKind::AlternationPattern) {
+            var a = cast::<AlternationPattern>(p);
+            for var k: usize = 0; k < a->alternatives.size(); ++k { self._flat_alts(a->alternatives[k], out); }
+            return;
+        }
+        out->push_back(p);
+    }
+
+    /// One constant's identity within its domain.
+    priv fn _flat_key(self, c: Ctor) -> string {
+        switch c.kind {
+            case CtorKind::Variant { return f"v{c.index}"; }
+            case CtorKind::Bool    { return f"b{c.lo}"; }
+            case CtorKind::Int     { return f"i{c.lo}"; }
+            default { 0; }
+        }
+        return "o" + c.key;
+    }
+
+    /// \p distinct different constants cover all of \p d.
+    priv fn _flat_complete(self, d: Domain, distinct: u64) -> bool {
+        switch d.kind {
+            case DomainKind::ClosedEnum { return distinct == u64(d.nctors); }
+            case DomainKind::Bool       { return distinct == u64(2); }
+            case DomainKind::Int        { return (distinct > u64(0)) && ((distinct - u64(1)) == d.max_key); }
+            default { 0; }
+        }
+        return false;
+    }
+
+    priv fn _flat_check(self, rows: *vec::<PatRow>, heads: *vec::<vec::<Ctor>>, d: Domain, out: *FlatVerdict) {
+        var seen: llvm::StringMap::<u32>;
+        var distinct: u64 = 0;
+        var any_wild = false;
+        var ints = vec::<u64>();
+        for var i: usize = 0; i < rows->size(); ++i {
+            var hs = &((*heads)[i]);
+            var useful = false;
+            for var k: usize = 0; k < hs->size(); ++k {
+                var c = (*hs)[k];
+                if any_wild { break; }
+                if c.kind == CtorKind::Wild {
+                    if !self._flat_complete(d, distinct) { useful = true; }
+                } else {
+                    var key = self._flat_key(c);
+                    if seen.find(sref(key)) == seen.end() { useful = true; }
+                }
+            }
+            out->dead.push_back(!useful);
+            if (*rows)[i].guarded { continue; }
+            for var k: usize = 0; k < hs->size(); ++k {
+                var c = (*hs)[k];
+                if c.kind == CtorKind::Wild { any_wild = true; continue; }
+                var key = self._flat_key(c);
+                if seen.find(sref(key)) != seen.end() { continue; }
+                seen.try_emplace(sref(key), u32(i));
+                distinct += u64(1);
+                if c.kind == CtorKind::Int { ints.push_back(c.lo); }
+            }
+        }
+
+        if any_wild || self._flat_complete(d, distinct) {
+            // Exhaustive; over every value, or only over the declared
+            // variants (the general path's closed=false question).
+            out->open_tail = (d.kind == DomainKind::ClosedEnum) && (!any_wild);
+            return;
+        }
+
+        // The witness the general path builds: the first missing
+        // constructor, or `_` where no list of constants is complete.
+        var w = "_";
+        switch d.kind {
+            case DomainKind::ClosedEnum {
+                for var k: u32 = 0; k < d.nctors; ++k {
+                    var c = Ctor{};
+                    c.kind = CtorKind::Variant; c.index = k;
+                    if seen.find(sref(self._flat_key(c))) != seen.end() { continue; }
+                    var none = vec::<string>();
+                    w = self._ps.render(d, c, &none);
+                    break;
+                }
+            }
+            case DomainKind::Bool {
+                var t = Ctor{};
+                t.kind = CtorKind::Bool; t.lo = u64(1);
+                w = ("false") if (seen.find(sref(self._flat_key(t))) != seen.end()) else ("true");
+            }
+            case DomainKind::Int {
+                // The first segment no head covers: below the least key, or
+                // between two keys, or above the greatest.
+                sort_unique_keys(&ints);
+                var lo: u64 = 0;
+                var hi: u64 = d.max_key;
+                var found = false;
+                for var k: usize = 0; (k < ints.size()) && (!found); ++k {
+                    if ints[k] > lo { hi = ints[k] - u64(1); found = true; }
+                    else { lo = ints[k] + u64(1); }
+                }
+                w = self._ps.range_str(d, lo, hi);
+            }
+            default { 0; }
+        }
+        out->missing.useful = true;
+        out->missing.witness.push_back(w);
     }
 
     // === non-exhaustive ===================================================

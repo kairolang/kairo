@@ -53,6 +53,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
+ffi "c++" import "llvm/ADT/STLExtras.h";
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Check::ConstEval::*;
@@ -73,6 +75,19 @@ import AST::Kind::PatternKind::*;
 import AST::Kind::ExprKind::*;
 import Token::Token::*;
 import Token::TokenKind::*;
+
+/// Sort \p v ascending and drop repeats: a match's integer cuts, which
+/// are O(rows) and must not cost O(rows^2).
+fn sort_unique_keys(v: *vec::<u64>) {
+    llvm::sort(v->begin(), v->end());
+    var n: usize = 0;
+    for var i: usize = 0; i < v->size(); ++i {
+        if (n > 0) && ((*v)[n - 1] == (*v)[i]) { continue; }
+        (*v)[n] = (*v)[i];
+        n += 1;
+    }
+    v->resize(n, u64(0));
+}
 
 /// What a column ranges over. See the file header.
 enum DomainKind derives u8 {
@@ -132,6 +147,11 @@ class PatternSpace {
     pub var sc: *SemaContext;
     pub var tu: TypeUtil;
     pub var ce: ConstEval;
+    /// domain_of by type address. The domain walks the enum's variant list
+    /// (is_open_enum, ctor_count), and ctor_of asks it once per head per
+    /// specialization: uncached, a 5000-arm match was cubic. A pass's types
+    /// do not change under it, and the key is an address, never reserved.
+    priv var _domains: llvm::DenseMap::<u64, Domain>;
 
     fn PatternSpace(self) { self.sc = &null; }
     fn PatternSpace(self, sc: *SemaContext) {
@@ -144,10 +164,20 @@ class PatternSpace {
 
     /// The domain of a column whose values have type \p t.
     fn domain_of(self, t: *Type) -> Domain {
-        var d = Domain{};
-        if t == &null { return d; }
+        if t == &null { return Domain{}; }
+        // Keyed by the canonical: every head's `type_` is its own node.
         var u = canon_unqual(self.tu.as_value(t));
-        if u == &null { return d; }
+        if u == &null { return Domain{}; }
+        var key = reinterpret_cast::<u64>(u);
+        var it = self._domains.find(key);
+        if it != self._domains.end() { return it->second; }
+        var d = self._domain_of(u);
+        self._domains[key] = d;
+        return d;
+    }
+
+    priv fn _domain_of(self, u: *Type) -> Domain {
+        var d = Domain{};
         // A bounds-checked parameter (MONO.md D0) has values no pattern
         // can name: only a wildcard or a binder covers it.
         if u->is_dependent() {
@@ -240,6 +270,9 @@ class PatternSpace {
     /// The variant's position in \p en, or -1.
     fn variant_index(self, en: *EnumDecl, v: *EnumVariantDecl) -> i32 {
         if (en == &null) || (v == &null) { return -1; }
+        // The declaration-order slot first: the scan below is per head, and
+        // a match lists every variant.
+        if (usize(v->index) < en->variants.size()) && (en->variants[usize(v->index)] == v) { return i32(v->index); }
         for var i: usize = 0; i < en->variants.size(); ++i {
             if en->variants[i] == v { return i32(i); }
         }
@@ -576,16 +609,10 @@ class PatternSpace {
             if self.is_wild(h) { continue; }
             var c = self.ctor_of(h);
             if c.kind != CtorKind::Int { continue; }
-            if (c.lo > lo) && (c.lo <= hi) { self._add_cut(&cuts, c.lo); }
-            if (c.hi >= lo) && (c.hi < hi) { self._add_cut(&cuts, c.hi + u64(1)); }
+            if (c.lo > lo) && (c.lo <= hi) { cuts.push_back(c.lo); }
+            if (c.hi >= lo) && (c.hi < hi) { cuts.push_back(c.hi + u64(1)); }
         }
-        // insertion sort: the cut list is O(rows) and rows are few.
-        for var i: usize = 1; i < cuts.size(); ++i {
-            var x = cuts[i];
-            var j = i;
-            while (j > 0) && (cuts[j - 1] > x) { cuts[j] = cuts[j - 1]; j = j - 1; }
-            cuts[j] = x;
-        }
+        sort_unique_keys(&cuts);
         var out = vec::<Ctor>();
         var start = lo;
         for var i: usize = 0; i <= cuts.size(); ++i {
@@ -598,10 +625,6 @@ class PatternSpace {
         return out;
     }
 
-    priv fn _add_cut(self, cuts: *vec::<u64>, k: u64) {
-        for var i: usize = 0; i < cuts->size(); ++i { if (*cuts)[i] == k { return; } }
-        cuts->push_back(k);
-    }
 
     // === rendering ==========================================================
 
