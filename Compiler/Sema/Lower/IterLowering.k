@@ -515,6 +515,13 @@ class IterLowering derives ASTWriter::<IterLowering> {
             addr->type_          = self.sc->types->pointer(obj, false);
             addr->value_category = Expr::ValueCategory::RValue;
             rng = self._local(pre, at, "rng", addr->type_, static_cast::<*Expr>(addr));
+            // The place's constness is C++'s to deduce: a field read through a
+            // `const self` has a non-const Kairo type but a const address, and
+            // its begin()/end() are the const overloads, so a spelled `T*` or
+            // `iterator` would not bind.
+            rng->auto_copy  = true;
+            itv->auto_copy  = true;
+            endv->auto_copy = true;
         } else {
             rng = self._local(pre, at, "seq", canon_unqual(obj), n->iterable);
         }
