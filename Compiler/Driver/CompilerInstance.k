@@ -2597,8 +2597,14 @@ class CompilerInstance {
         job.lto       = self.invocation().codegen.lto;
         job.opt_level = self.invocation().codegen.opt_level;
         {
+            // As the runtime cache: a cache root that cannot be made (a
+            // read-only home, a sandbox) means no cache, not a failed link --
+            // lld errors on a cache dir it cannot create.
             var croot = CompilerInstance::_cache_root();
-            if !croot.empty() { job.lto_cache_dir = croot + "/lto"; }
+            if !croot.empty() {
+                var ldir = croot + "/lto";
+                if LinkFS::make_dirs(ldir) { job.lto_cache_dir = ldir; }
+            }
         }
 
         for tr: TUResult in result.tu_results {
