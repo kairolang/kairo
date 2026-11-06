@@ -203,6 +203,12 @@ class HeaderSet {
     priv var _idx_built: bool = false;
     priv var _file_at:   llvm::StringMap::<u32>;          ///< path -> first index in `files`.
     priv var _out_edges: llvm::StringMap::<vec::<u32>>;   ///< from_path -> indices in `includes`, in order.
+    /// The include graph by node number, for closure_kfids' walk: a node per
+    /// distinct path, its edges' target nodes in include order, and its kfid
+    /// (kfid_of_path, 0 when none). Built with the maps above.
+    priv var _node_of:   llvm::StringMap::<u32>;
+    priv var _node_out:  vec::<vec::<u32>>;
+    priv var _node_path: vec::<string>;
     priv var _closure_memo: llvm::StringMap::<vec::<u32>>;  ///< spelled header -> closure_kfids' answer.
 
     fn HeaderSet(self) {
@@ -344,6 +350,21 @@ class HeaderSet {
         for var i: usize = 0; i < self.includes.size(); ++i {
             self._out_edges[sref(self.includes[i].from_path)].push_back(static_cast::<u32>(i));
         }
+        for var i: usize = 0; i < self.includes.size(); ++i {
+            var a = self._node(self.includes[i].from_path);
+            var b = self._node(self.includes[i].to_path);
+            self._node_out[a].push_back(b);
+        }
+    }
+
+    priv fn _node(self, p: string) -> u32 {
+        var it = self._node_of.find(sref(p));
+        if it != self._node_of.end() { return it->second; }
+        var n = static_cast::<u32>(self._node_path.size());
+        self._node_of.try_emplace(sref(p), n);
+        self._node_path.push_back(p);
+        self._node_out.push_back(vec::<u32>());
+        return n;
     }
 
     fn closure_of(self, spelled: string, out: ref!(vec::<string>)) {
@@ -381,12 +402,33 @@ class HeaderSet {
     fn closure_kfids(self, spelled: string) -> *vec::<u32> {
         var it = self._closure_memo.find(sref(spelled));
         if it != self._closure_memo.end() { return &(it->second); }
-        var paths = vec::<string>();
-        self.closure_of(spelled, paths);
+        // closure_of's walk over node numbers: the same root (the first
+        // direct include whose spelling matches), the same LIFO order with
+        // children pushed in include order, so the same sequence.
+        self._build_path_index();
         var ks = vec::<u32>();
-        for var p: usize = 0; p < paths.size(); ++p {
-            var k = self.kfid_of_path(paths[p]);
-            if k != 0 { ks.push_back(k); }
+        var root: string = "";
+        var mit = self._out_edges.find(sref(""));
+        if mit != self._out_edges.end() {
+            for var k: usize = 0; k < mit->second.size(); ++k {
+                var e = &(self.includes[mit->second[k]]);
+                if self._spelling_matches(spelled, e->to_path) { root = e->to_path; break; }
+            }
+        }
+        if root.size() > 0 {
+            var seen = vec::<bool>();
+            seen.resize(self._node_path.size(), false);
+            var work = vec::<u32>();
+            work.push_back(self._node(root));
+            while !work.empty() {
+                var p = work[work.size() - 1];
+                work.pop_back();
+                if seen[p] { continue; }
+                seen[p] = true;
+                var k = self.kfid_of_path(self._node_path[p]);
+                if k != 0 { ks.push_back(k); }
+                for var j: usize = 0; j < self._node_out[p].size(); ++j { work.push_back(self._node_out[p][j]); }
+            }
         }
         var slot = &(self._closure_memo[sref(spelled)]);
         (*slot) = ks;
