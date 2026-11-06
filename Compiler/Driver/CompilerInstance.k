@@ -5496,16 +5496,51 @@ fn FrontendAction::_codegen() -> bool {
     // --emit-scope=inputs: this action's own file only, and nothing for a
     // discovered one (a header to this run). The rest is analysed for it.
     var inputs_only = self._ci->invocation().linker.inputs_only();
+    var cand = vec::<u32>();
     for var i: usize = 0; i < n; ++i {
         var f = self._fids[n - 1 - i];   // reverse tree order: imports before importers.
         if self._ci->is_foreign_fid(f) { continue; }
         any_kairo = true;
         if inputs_only && ((f != self._file_id) || self.discovered) { continue; }
-        // An empty TU -- zero bytes, comments, only `pub import`s -- has done
-        // all it can (it resolved as an import, it passed sema). Decided on
-        // the PLAN, before any backend or anchor exists for it, so it gets no
-        // CodegenBackend, no clang run and no object.
-        if self._tu_is_empty(f) {
+        cand.push_back(f);
+    }
+    // An empty TU -- zero bytes, comments, only `pub import`s -- has done
+    // all it can (it resolved as an import, it passed sema). Decided on
+    // the PLAN, before any backend or anchor exists for it, so it gets no
+    // CodegenBackend, no clang run and no object.
+    //
+    // A plan's one in-place write that other plans read is the entry TU's
+    // cxx_escaping (prepare_shared); made first, serially and in this order,
+    // the plans are then read-only and run side by side, as the codegen
+    // workers run them. They were one serial plan per TU on this thread,
+    // seconds on a large graph (P380). Verdicts are read back in order.
+    {
+        var psym0 = self._ci->pp()->get_symbol_table();
+        var inst0 = self._global_scope->instances();
+        for f: u32 in cand {
+            var sctx = self._global_scope->get_context(f);
+            if (sctx == &null) || (sctx->tu == &null) { continue; }
+            var scg  = CodegenContext(sctx, &null, psym0, inst0);
+            var sprep = EmitPlan(&scg, PlanMode::Header);
+            sprep.prepare_shared();
+        }
+    }
+    var empty = vec::<u8>();
+    for var i: usize = 0; i < cand.size(); ++i { empty.push_back(u8(0)); }
+    {
+        var e_p  = empty.data();
+        var c_p  = cand.data();
+        var me   = &self;
+        for var i: usize = 0; i < cand.size(); ++i {
+            self._ci->pool()->enqueue(fn () |e_p, c_p, me, i| {
+                if me->_tu_is_empty(c_p[i]) { e_p[i] = u8(1); }
+            }, u8(14));
+        }
+        self._ci->pool()->wait_group(u8(14));
+    }
+    for var i: usize = 0; i < cand.size(); ++i {
+        var f = cand[i];
+        if empty[i] != u8(0) {
             Logger::info(Logger::Stage::Driver, f"nothing to define in {self._ci->sm()->get_filename(f)}; no object");
             continue;
         }
