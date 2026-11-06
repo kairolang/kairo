@@ -196,6 +196,14 @@ class HeaderSet {
     /// another instance of the same set, and the outer fill still holds this.
     priv var _sema_mu: std::RecursiveMutex;
 
+    /// closure_of / kfid_of_path indexes, built on their first call (driver
+    /// thread, after index(): `files` and `includes` are final by then).
+    /// The linear scans they replace were O(files x edges) per ffi import,
+    /// about 10 s of serial driver time over the self-host graph.
+    priv var _idx_built: bool = false;
+    priv var _file_at:   llvm::StringMap::<u32>;          ///< path -> first index in `files`.
+    priv var _out_edges: llvm::StringMap::<vec::<u32>>;   ///< from_path -> indices in `includes`, in order.
+
     fn HeaderSet(self) {
         self.pch = libcxx::make_shared::<clang::PCHBuffer>();
     }
@@ -326,13 +334,26 @@ class HeaderSet {
 
     /// Transitive include closure of one header spelling, as PATHS, the
     /// header itself first. Empty if the spelling never resolved.
+    priv fn _build_path_index(self) {
+        if self._idx_built { return; }
+        self._idx_built = true;
+        for var i: usize = 0; i < self.files.size(); ++i {
+            self._file_at.try_emplace(sref(self.files[i].path), static_cast::<u32>(i));
+        }
+        for var i: usize = 0; i < self.includes.size(); ++i {
+            self._out_edges[sref(self.includes[i].from_path)].push_back(static_cast::<u32>(i));
+        }
+    }
+
     fn closure_of(self, spelled: string, out: ref!(vec::<string>)) {
+        self._build_path_index();
         // The direct include from the injected main whose spelling matches.
         var root: string = "";
-        for var i: usize = 0; i < self.includes.size(); ++i {
-            var e = self.includes[i];
-            if e.from_path.size() != 0 { continue; }
-            if self._spelling_matches(spelled, e.to_path) { root = e.to_path; break; }
+        var mit = self._out_edges.find(sref(""));
+        if mit == self._out_edges.end() { return; }
+        for var k: usize = 0; k < mit->second.size(); ++k {
+            var e = &(self.includes[mit->second[k]]);
+            if self._spelling_matches(spelled, e->to_path) { root = e->to_path; break; }
         }
         if root.size() == 0 { return; }
         var seen = set::<string>();
@@ -344,17 +365,19 @@ class HeaderSet {
             if seen.contains(p) { continue; }
             seen.insert(p);
             out.push_back(p);
-            for var i: usize = 0; i < self.includes.size(); ++i {
-                if self.includes[i].from_path == p { work.push_back(self.includes[i].to_path); }
+            var it = self._out_edges.find(sref(p));
+            if it == self._out_edges.end() { continue; }
+            for var k: usize = 0; k < it->second.size(); ++k {
+                work.push_back(self.includes[it->second[k]].to_path);
             }
         }
     }
 
     fn kfid_of_path(self, p: string) -> u32 {
-        for var i: usize = 0; i < self.files.size(); ++i {
-            if self.files[i].path == p { return self.files[i].kfid; }
-        }
-        return 0;
+        self._build_path_index();
+        var it = self._file_at.find(sref(p));
+        if it == self._file_at.end() { return 0; }
+        return self.files[it->second].kfid;
     }
 
     priv fn _spelling_matches(self, spelled: string, path: string) -> bool {
