@@ -150,41 +150,79 @@ class Sema {
     /// IDE queries (hover needs N, not codegen lowering). Each stage
     /// advances sc.phase; a re-entrant call continues from the current
     /// phase rather than re-running completed stages.
+    /// MEM_STAGES (P380 measuring): the sum of every TU's ast arena, so a
+    /// stage that allocates in another TU (an instance's home) still counts.
+    priv fn _arena_total(self) -> usize {
+        if (libcxx::getenv(r"MEM_STAGES") == &null) || (self.sc.g == &null) { return 0; }
+        var tot: usize = 0;
+        var fids = self.sc.g->all_fids();
+        for var i: usize = 0; i < fids.size(); ++i {
+            var c = self.sc.g->get_context(fids[i]);
+            if c != &null { tot += c->ast_alloc.profile().bytes_allocated; }
+        }
+        return tot;
+    }
+    priv fn _arena_note(self, stage: string, before: usize) {
+        if libcxx::getenv(r"MEM_STAGES") == &null { return; }
+        var after = self._arena_total();
+        std::eprintln(f"[memstage] {stage} {after - before}");
+    }
+
     fn run_to(self, target: SemaPhase) -> bool {
         if self.sc.tu == &null { return false; }
 
         if !self._gate(SemaPhase::Parsed, target) { return self._done(); }
+        var _m_imports = self._arena_total();
         if !self._stage_imports()                 { return false; }
+        self._arena_note("imports", _m_imports);
 
         if !self._gate(SemaPhase::ImportsResolved, target) { return self._done(); }
+        var _m_expand = self._arena_total();
         if !self._stage_expand()                  { return false; }
+        self._arena_note("expand", _m_expand);
 
         if !self._gate(SemaPhase::Expanded, target) { return self._done(); }
+        var _m_verify = self._arena_total();
         if !self._stage_verify()                  { return false; }
+        self._arena_note("verify", _m_verify);
 
         if !self._gate(SemaPhase::Verified, target) { return self._done(); }
+        var _m_name_resolution = self._arena_total();
         if !self._stage_name_resolution()         { return false; }
+        self._arena_note("name_resolution", _m_name_resolution);
 
         if !self._gate(SemaPhase::NamesResolved, target) { return self._done(); }
+        var _m_type_resolution = self._arena_total();
         if !self._stage_type_resolution()         { return false; }
+        self._arena_note("type_resolution", _m_type_resolution);
 
         if !self._gate(SemaPhase::TypesResolved, target) { return self._done(); }
+        var _m_typed_checks = self._arena_total();
         if !self._stage_typed_checks()            { return false; }
+        self._arena_note("typed_checks", _m_typed_checks);
 
         // The panic-set barrier sits between these two (SemaPhase::Typed):
         // the driver takes every TU of an import cycle to Typed, solves
         // their sets (EffectPropagation), then continues each.
         if !self._gate(SemaPhase::Typed, target) { return self._done(); }
+        var _m_checks = self._arena_total();
         if !self._stage_checks()                  { return false; }
+        self._arena_note("checks", _m_checks);
 
         if !self._gate(SemaPhase::Checked, target) { return self._done(); }
+        var _m_lowerings = self._arena_total();
         if !self._stage_lowerings()               { return false; }
+        self._arena_note("lowerings", _m_lowerings);
 
         if !self._gate(SemaPhase::Lowered, target) { return self._done(); }
+        var _m_mono_collect = self._arena_total();
         if !self._stage_mono_collect()            { return false; }
+        self._arena_note("mono_collect", _m_mono_collect);
 
         if !self._gate(SemaPhase::MonoCollected, target) { return self._done(); }
+        var _m_mono_instantiate = self._arena_total();
         if !self._stage_mono_instantiate()        { return false; }
+        self._arena_note("mono_instantiate", _m_mono_instantiate);
 
         return self._done();
     }
@@ -590,7 +628,7 @@ class Sema {
         // pass rebuilds an initializer or a chain, which would lose them, and
         // so every pass below sees one node kind for it (SequenceLowering
         // orders its payload).
-        { var _p = TimeRegion("VariantInitLowering"); VariantInitLowering(&self.sc).run(); }
+        { var _p = TimeRegion("VariantInitLowering"); var _ma = self._arena_total(); VariantInitLowering(&self.sc).run(); self._arena_note("L:VariantInitLowering", _ma); }
         // Second: every ADT enum gets its layout record, the one a
         // VariantInitExpr is built through (a variant constructor per
         // variant). Before every body rewrite: every later pass and EmitPlan
@@ -600,34 +638,34 @@ class Sema {
         // and VariantInitLowering reads nothing it builds, so neither feeds
         // the other; placing it second means every pass from here on sees
         // both the constructions and the record that renders them.
-        { var _p = TimeRegion("EnumLayoutLowering"); EnumLayoutLowering(&self.sc).run(); }
+        { var _p = TimeRegion("EnumLayoutLowering"); var _ma = self._arena_total(); EnumLayoutLowering(&self.sc).run(); self._arena_note("L:EnumLayoutLowering", _ma); }
         // Third: `fn f() -> T = e` becomes `{ return e }`, so every pass below
         // sees an ordinary block -- SequenceLowering hoists into statements,
         // and an expression body has no statement position to hoist into.
-        { var _p = TimeRegion("ExprBodyDesugar"); ExprBodyDesugar(&self.sc).run(); }
+        { var _p = TimeRegion("ExprBodyDesugar"); var _ma = self._arena_total(); ExprBodyDesugar(&self.sc).run(); self._arena_note("L:ExprBodyDesugar", _ma); }
         // Each `where` group becomes one function testing the guards in
         // order and calling its candidates. After ExprBodyDesugar, so every
         // candidate body and the dispatcher are blocks; before every other
         // body rewrite, so each of them meets ordinary functions and the
         // guards as ordinary `if` conditions -- and before CopyMoveLowering,
         // which casts the forwarded MOVE parameters this pass records.
-        { var _p = TimeRegion("WhereDispatchLowering"); WhereDispatchLowering(&self.sc).run(); }
+        { var _p = TimeRegion("WhereDispatchLowering"); var _ma = self._arena_total(); WhereDispatchLowering(&self.sc).run(); self._arena_note("L:WhereDispatchLowering", _ma); }
         // Fourth: a field's initializer becomes a constant on the field or the
         // body of a member function its C++ default calls. Clang takes no
         // statement expression at class scope; from here on every pass meets
         // the initializer as an ordinary `return`.
-        { var _p = TimeRegion("FieldInitLowering"); FieldInitLowering(&self.sc).run(); }
+        { var _p = TimeRegion("FieldInitLowering"); var _ma = self._arena_total(); FieldInitLowering(&self.sc).run(); self._arena_note("L:FieldInitLowering", _ma); }
         // A constructor that initializes a const field is cut into its
         // S_pre and S_post blocks at CtorInitCheck's frontier. Here, before
         // any pass inserts a statement: the frontier is a statement COUNT,
         // true of the tree as checked and of nothing a later pass builds.
-        { var _p = TimeRegion("CtorInitLowering"); CtorInitLowering(&self.sc).run(); }
+        { var _p = TimeRegion("CtorInitLowering"); var _ma = self._arena_total(); CtorInitLowering(&self.sc).run(); self._arena_note("L:CtorInitLowering", _ma); }
         // Fifth: a MOVE value passed, initialized from, assigned or returned
         // is cast to `T&&` at each site MoveCheck recorded. Before any pass
         // rebuilds an expression, which would drop the node the record names;
         // SequenceLowering leaves the cast in place, a cast of a name being
         // pure.
-        { var _p = TimeRegion("CopyMoveLowering"); CopyMoveLowering(&self.sc).run(); }
+        { var _p = TimeRegion("CopyMoveLowering"); var _ma = self._arena_total(); CopyMoveLowering(&self.sc).run(); self._arena_note("L:CopyMoveLowering", _ma); }
         // A script's top-level statements become a synthesized `main`, its
         // deferred bindings `T?` storage that main assigns at their lines
         // (SCRIPT.md). After CopyMoveLowering: the `e as T&&` cast it put on
@@ -637,7 +675,7 @@ class Sema {
         // `g?` tests and narrowed reads it builds and gives each `T?` it
         // mints its record; before every pass that rebuilds bodies, to which
         // main is then an ordinary function.
-        { var _p = TimeRegion("ScriptLowering"); ScriptLowering(&self.sc, self.sc.script_root).run(); }
+        { var _p = TimeRegion("ScriptLowering"); var _ma = self._arena_total(); ScriptLowering(&self.sc, self.sc.script_root).run(); self._arena_note("L:ScriptLowering", _ma); }
         // A panic is a returned value (PANIC.md §4): each panicking
         // function's signature becomes `Panic<T, E...>`, `return` / `panic`
         // build it, a panicking call is held and tested in a statement
@@ -650,19 +688,19 @@ class Sema {
         // before CallLowering and SequenceLowering, which order the held
         // call's arguments like any call's (a panic result is the one
         // record result SequenceLowering sequences).
-        { var _p = TimeRegion("PanicLowering"); PanicLowering(&self.sc).run(); }
+        { var _p = TimeRegion("PanicLowering"); var _ma = self._arena_total(); PanicLowering(&self.sc).run(); self._arena_note("L:PanicLowering", _ma); }
         // A `finally` becomes a record in the function body whose destructor
         // is its body, and a local of it. After CopyMoveLowering, whose
         // `T&&` cast wraps a node this pass rewrites in place; before every
         // other body rewrite, so each of them meets the body as a method
         // body (tuples, operators, f-strings, calls, receivers, sequencing).
-        { var _p = TimeRegion("FinallyLowering"); FinallyLowering(&self.sc).run(); }
+        { var _p = TimeRegion("FinallyLowering"); var _ma = self._arena_total(); FinallyLowering(&self.sc).run(); self._arena_note("L:FinallyLowering", _ma); }
         // A tuple literal becomes its record's initializer, an index step
         // the field it names, a destructuring one local per binder. After
         // CopyMoveLowering, whose `T&&` cast stays on the destructured
         // value; before OperatorLowering, so an operator on `t.0` sees a
         // field path.
-        { var _p = TimeRegion("TupleLowering"); TupleLowering(&self.sc).run(); }
+        { var _p = TimeRegion("TupleLowering"); var _ma = self._arena_total(); TupleLowering(&self.sc).run(); self._arena_note("L:TupleLowering", _ma); }
         // `x ?? y` -> `if x? => x else y`, `x?.m`, `unwrap!(x)`, `a === b`
         // and a `match` on a `T?` likewise, each read after its test marked
         // narrowed (NULLABLE.md §5 step 1). Before MatchLowering, which
@@ -670,7 +708,7 @@ class Sema {
         // `op ==`, recorded by typing and lowered there. Before NullTestLowering and
         // NarrowedAccessLowering, which lower the test and the marked read it
         // builds; after CopyMoveLowering, whose moves it binds as operands.
-        { var _p = TimeRegion("CoalesceLowering"); CoalesceLowering(&self.sc).run(); }
+        { var _p = TimeRegion("CoalesceLowering"); var _ma = self._arena_total(); CoalesceLowering(&self.sc).run(); self._arena_note("L:CoalesceLowering", _ma); }
         // Every null test (`x?`, `x == null` and its spellings) -> a call of
         // the Nullable's `is_null()` (NULLABLE.md §5 step 2). After
         // EnumLayoutLowering, which mints `is_null()`; before
@@ -678,7 +716,7 @@ class Sema {
         // classify and a compared `null` is dropped before it becomes a
         // record; before OperatorLowering, which would leave a `x == null`
         // with a record operand for EmitIR to ICE on.
-        { var _p = TimeRegion("NullTestLowering"); NullTestLowering(&self.sc).run(); }
+        { var _p = TimeRegion("NullTestLowering"); var _ma = self._arena_total(); NullTestLowering(&self.sc).run(); self._arena_note("L:NullTestLowering", _ma); }
         // Every read the nullness analysis narrowed -> `x.__value()`, the
         // unchecked accessor (NULLABLE.md §5 step 3). After CopyMoveLowering:
         // a `x as T&&` it put around a narrowed `x` then moves the VALUE.
@@ -686,78 +724,78 @@ class Sema {
         // NullableTypeLowering: the receiver it restores is the `T?`, still a
         // NullableType there. Free against NullTestLowering (a test's operand
         // is never narrowed); after it, as §5 lists them.
-        { var _p = TimeRegion("NarrowedAccessLowering"); NarrowedAccessLowering(&self.sc).run(); }
+        { var _p = TimeRegion("NarrowedAccessLowering"); var _ma = self._arena_total(); NarrowedAccessLowering(&self.sc).run(); self._arena_note("L:NarrowedAccessLowering", _ma); }
         // `T?` -> `::builtin::Nullable<T>`, and `null` -> its null (NULLABLE.md
         // §5). After CopyMoveLowering: a transfer is decided from the value's
         // lifecycle, which ClassLifecycle answers for `T?` from T; the minted
         // record instance has no facts yet. Before OperatorLowering. The last
         // nullable pass: CoalesceLowering, NullTestLowering and
         // NarrowedAccessLowering above it still see NullableType.
-        { var _p = TimeRegion("NullableTypeLowering"); NullableTypeLowering(&self.sc).run(); }
-        { var _p = TimeRegion("OperatorLowering"); OperatorLowering(&self.sc).run(); }
+        { var _p = TimeRegion("NullableTypeLowering"); var _ma = self._arena_total(); NullableTypeLowering(&self.sc).run(); self._arena_note("L:NullableTypeLowering", _ma); }
+        { var _p = TimeRegion("OperatorLowering"); var _ma = self._arena_total(); OperatorLowering(&self.sc).run(); self._arena_note("L:OperatorLowering", _ma); }
         // An f-string becomes one FmtBuf and straight-line puts. After
         // OperatorLowering (a hole may hold a user operator); before
         // StringLowering (a plain `string` literal inside a hole is still a
         // literal here). Everything it mints is pure or single-use, so its
         // position relative to SequenceLowering is free.
-        { var _p = TimeRegion("FStringLowering"); FStringLowering(&self.sc).run(); }
+        { var _p = TimeRegion("FStringLowering"); var _ma = self._arena_total(); FStringLowering(&self.sc).run(); self._arena_note("L:FStringLowering", _ma); }
         // Defaults and named/packed arguments become one positional list in
         // parameter order. Before SequenceLowering: a default thunk's call is
         // an impure argument, and it is ordered with the rest there.
-        { var _p = TimeRegion("CallLowering"); CallLowering(&self.sc).run(); }
+        { var _p = TimeRegion("CallLowering"); var _ma = self._arena_total(); CallLowering(&self.sc).run(); self._arena_note("L:CallLowering", _ma); }
         // `for x in xs` becomes a `while` over a once-evaluated iterable.
         // Before ExtensionLowering: a user `op in` declared in an extension is
         // called here through a chain, and that pass makes it the free call.
         // Before SequenceLowering and ListLiteralLowering, which order and
         // render what this pass binds.
-        { var _p = TimeRegion("IterLowering"); IterLowering(&self.sc).run(); }
+        { var _p = TimeRegion("IterLowering"); var _ma = self._arena_total(); IterLowering(&self.sc).run(); self._arena_note("L:IterLowering", _ma); }
         // A range used as a value becomes its Range record. After IterLowering,
         // which consumed the ranges written as a loop's iterable; a subscript's
         // range index is a slice and is left for SliceLowering.
-        { var _p = TimeRegion("RangeLowering"); RangeLowering(&self.sc).run(); }
+        { var _p = TimeRegion("RangeLowering"); var _ma = self._arena_total(); RangeLowering(&self.sc).run(); self._arena_note("L:RangeLowering", _ma); }
         // Every match becomes labels, gotos and switches over a once-
         // evaluated scrutinee, rendering PatternCompilation's tree. After
         // IterLowering and RangeLowering; before SequenceLowering (which
         // orders the scrutinee local this binds) and StringLowering (a
         // string pattern's literal is still a literal here).
-        { var _p = TimeRegion("MatchLowering"); MatchLowering(&self.sc).run(); }
+        { var _p = TimeRegion("MatchLowering"); var _ma = self._arena_total(); MatchLowering(&self.sc).run(); self._arena_note("L:MatchLowering", _ma); }
         // `break L` / `continue L` become gotos past the loop / to the end
         // of its body. After IterLowering (it keeps labels on the loops it
         // mints) and MatchLowering (an arm's `break L` moves with the arm).
-        { var _p = TimeRegion("LabelLowering"); LabelLowering(&self.sc).run(); }
+        { var _p = TimeRegion("LabelLowering"); var _ma = self._arena_total(); LabelLowering(&self.sc).run(); self._arena_note("L:LabelLowering", _ma); }
         // An extension member call becomes the free call: the receiver goes in
         // front of the placed arguments. Before SequenceLowering, which orders it.
-        { var _p = TimeRegion("ExtensionLowering"); ExtensionLowering(&self.sc).run(); }
+        { var _p = TimeRegion("ExtensionLowering"); var _ma = self._arena_total(); ExtensionLowering(&self.sc).run(); self._arena_note("L:ExtensionLowering", _ma); }
         // Argument order: after OperatorLowering (operators are calls now),
         // before ListLiteralLowering (a hoisted slice literal is marked
         // Extended here and gets its backing there).
-        { var _p = TimeRegion("SequenceLowering"); SequenceLowering(&self.sc).run(); }
+        { var _p = TimeRegion("SequenceLowering"); var _ma = self._arena_total(); SequenceLowering(&self.sc).run(); self._arena_note("L:SequenceLowering", _ma); }
         // The order is in the tree now: no node C++ evaluates in an
         // unspecified order has two effectful operands (an ICE otherwise),
         // and from here a pass that mints one ICEs at the mint
         // (LowerSynth::_mint_check). The passes below mint only calls with
         // at most one effectful operand: ListLiteralLowering's Slice /
         // Vector constructors and StringLowering's string constructor.
-        { var _p = TimeRegion("SequenceCheck"); SequenceCheck(&self.sc).run(); }
+        { var _p = TimeRegion("SequenceCheck"); var _ma = self._arena_total(); SequenceCheck(&self.sc).run(); self._arena_note("L:SequenceCheck", _ma); }
         self.sc.sequenced = true;
         // After OperatorLowering: a list literal can be an operand of a user
         // operator, and this pass builds constructor calls that must not be
         // re-read as operator nodes.
-        { var _p = TimeRegion("ListLiteralLowering"); ListLiteralLowering(&self.sc).run(); }
+        { var _p = TimeRegion("ListLiteralLowering"); var _ma = self._arena_total(); ListLiteralLowering(&self.sc).run(); self._arena_note("L:ListLiteralLowering", _ma); }
         // Last: a literal is pure until it is a constructor call, and
         // SequenceLowering must not hoist every `"hi"` argument into a local.
-        { var _p = TimeRegion("StringLowering"); StringLowering(&self.sc).run(); }
+        { var _p = TimeRegion("StringLowering"); var _ma = self._arena_total(); StringLowering(&self.sc).run(); self._arena_note("L:StringLowering", _ma); }
         // A by-value COPY record parameter the body never mutates is passed
         // as `const T&` and warned to say `const` (P331). After every
         // lowering: the tree it reads is the one EmitIR renders, so a use a
         // lowering mints (a move, an operator's method call) is seen. Writes
         // ParamDecl::inferred_const, which only codegen reads.
-        { var _p = TimeRegion("ParamPassInference"); ParamPassInference(&self.sc).run(); }
+        { var _p = TimeRegion("ParamPassInference"); var _ma = self._arena_total(); ParamPassInference(&self.sc).run(); self._arena_note("L:ParamPassInference", _ma); }
         // Every generic ADT instance gets the layout C++ will pick for it,
         // predicted, for codegen to pin with static_asserts. After every
         // lowering: an instance a lowering mints (a `T?`'s record) is in
         // the registry by now.
-        { var _p = TimeRegion("EnumLayoutSweep"); EnumLayoutQuery(&self.sc).sweep(); }
+        { var _p = TimeRegion("EnumLayoutSweep"); var _ma = self._arena_total(); EnumLayoutQuery(&self.sc).sweep(); self._arena_note("L:EnumLayoutSweep", _ma); }
         // `using Base::name;` for merged base overloads C++ would hide is
         // InterfaceEmitter::_base_usings: a property of the class
         // definition, written where it is spelled, so no pass here.

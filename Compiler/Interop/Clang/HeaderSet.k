@@ -262,6 +262,14 @@ class HeaderSet {
     /// snapshot. EvalIfFolding asks this instead of alive(), which revives.
     fn macros_known(self) -> bool { return (self._ci != &null) || self._macros_kept || self.revivable; }
 
+    /// MEM_STATS: the live instance's ASTContext bytes (AST + side tables),
+    /// 0 when released. Never revives.
+    fn ast_bytes(self) -> usize {
+        if (self._ci == &null) || (!self._ci->hasASTContext()) { return 0; }
+        var a = &(self._ci->getASTContext());
+        return a->getASTAllocatedMemory() + a->getSideTableAllocatedMemory();
+    }
+
     /// Frees this set's clang instance after HeaderIndex took nothing from
     /// it; the include graph, file list and fid map stay. Driver thread.
     fn release_unused(self) {

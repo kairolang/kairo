@@ -4286,6 +4286,7 @@ fn FrontendAction::run() {
     if self._ci->diag()->error_count() > self.errors_at_start { self._stage = TUStage::Failed; return; }
     if fe.stops_at_sema() { self._stage = TUStage::Done; return; }
 
+    self._dump_mem_stats();   // MEM_STATS: after Sema, before the header release.
     // Phase A's clang instances are Sema's (HeaderIndex, M2 fills, defined!):
     // codegen reads only the merged PCH and the sets' text. With one Kairo
     // input and no C++ input including a .k, no later action needs them, so
@@ -4298,6 +4299,7 @@ fn FrontendAction::run() {
     }
 
     if !self._codegen() { return; }
+    self._dump_mem_stats();
     {
         var late = kairo::header_set_late_uses().load();
         Logger::info(Logger::Stage::Driver, f"header sets revived after release_unused: {kairo::header_set_revivals().load()}");
@@ -6097,4 +6099,35 @@ priv fn FrontendAction::_dump_mem_stats() {
     std::eprintln(f"[mem] alloc calls:        {total_allocs}");
     std::eprintln(f"[mem] bytes / alloc:      {(total_bytes / total_allocs) if (total_allocs > 0) else 0}");
     std::eprintln(f"[mem] recycler retained:  {retained_bytes / (1024*1024)} MB ({retained_blocks} blocks)");
+    {
+        var b_pp: usize = 0; var b_ix: usize = 0; var b_ast: usize = 0;
+        var b_sem: usize = 0; var b_scr: usize = 0; var b_str: usize = 0;
+        var top_fid: u32 = 0; var top_b: usize = 0;
+        for fid: u32 in self._fids {
+            var c = self._global_scope->get_context(fid);
+            if c == &null { continue; }
+            b_pp  += c->pp_alloc.profile().bytes_allocated;
+            b_ix  += c->index_alloc.profile().bytes_allocated;
+            b_ast += c->ast_alloc.profile().bytes_allocated;
+            b_sem += c->sema_alloc.profile().bytes_allocated;
+            b_scr += c->scratch_alloc.profile().bytes_allocated;
+            b_str += c->string_alloc.profile().bytes_allocated;
+            var one = libcxx::get::<0>(c->mem_profile());
+            if one > top_b { top_b = one; top_fid = fid; }
+        }
+        var mb: usize = 1024 * 1024;
+        std::eprintln(f"[mem] by arena MB: pp {b_pp / mb} index {b_ix / mb} ast {b_ast / mb} sema {b_sem / mb} scratch {b_scr / mb} string {b_str / mb}");
+        std::eprintln(f"[mem] largest TU: {self._ci->sm()->get_filename(top_fid)} {top_b / mb} MB");
+    }
+    if self._ci->headers() != &null {
+        var hsets: vec::<*HeaderSet>;
+        self._ci->headers()->all(hsets);
+        var live: usize = 0;
+        var hbytes: usize = 0;
+        for hs: *HeaderSet in hsets {
+            var b = hs->ast_bytes();
+            if b > 0 { live += 1; hbytes += b; }
+        }
+        std::eprintln(f"[mem] header sets:        {live} of {hsets.size()} live, clang AST {hbytes / (1024*1024)} MB");
+    }
 }
