@@ -1387,7 +1387,7 @@ class <T> DeclParse {
         var enclosing_dc  = dyn()->scope.current_dc();
         var in_type_scope = (enclosing_dc != &null) && enclosing_dc->is_type_scope();
 
-        var fd = FunctionDecl::create(dyn()->ctx, start, Token(), enclosing_dc);
+        var fd: *FunctionDecl = FunctionDecl::create(dyn()->ctx, start, Token(), enclosing_dc);
         fd->abi = lead->abi;
         if lead->is_final {
             fd->modifiers |= FnModifier::IsFinal;
@@ -3358,7 +3358,7 @@ class <T> DeclParse {
         var name = dyn()->current();
         dyn()->advance();
 
-        var cd = ClassDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
+        var cd: *ClassDecl = ClassDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
         cd->is_final = lead->is_final;
         if has_generics {
             cd->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
@@ -3465,7 +3465,7 @@ class <T> DeclParse {
         var name = dyn()->current();
         dyn()->advance();
 
-        var sd = StructDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
+        var sd: *StructDecl = StructDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
         if has_generics {
             sd->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
         }
@@ -3567,7 +3567,7 @@ class <T> DeclParse {
         var name = dyn()->current();
         dyn()->advance();
 
-        var ud = UnionDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
+        var ud: *UnionDecl = UnionDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
         if has_generics {
             ud->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
         }
@@ -3653,7 +3653,7 @@ class <T> DeclParse {
         var name = dyn()->current();
         dyn()->advance();
 
-        var id = InterfaceDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
+        var id: *InterfaceDecl = InterfaceDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
         if has_generics {
             id->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
         }
@@ -3740,7 +3740,7 @@ class <T> DeclParse {
             return static_cast::<*Decl>(ExtensionDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
         }
 
-        var ed = ExtensionDecl::create(dyn()->ctx, start, target, dyn()->scope.current_dc());
+        var ed: *ExtensionDecl = ExtensionDecl::create(dyn()->ctx, start, target, dyn()->scope.current_dc());
         if has_generics {
             ed->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
         }
@@ -4120,7 +4120,7 @@ class <T> DeclParse {
             dyn()->advance();
         }
 
-        var md = ModuleDecl::create(dyn()->ctx, start, name_tok, dyn()->scope.current_dc());
+        var md: *ModuleDecl = ModuleDecl::create(dyn()->ctx, start, name_tok, dyn()->scope.current_dc());
         md->is_inline    = is_inline;
         md->is_anonymous = anon;
 
@@ -4170,7 +4170,7 @@ class <T> DeclParse {
         var start = self._cur_range();
         dyn()->advance(T::SkipNL::After); // consume `test`
 
-        var td = TestDecl::create(dyn()->ctx, start, dyn()->scope.current_dc());
+        var td: *TestDecl = TestDecl::create(dyn()->ctx, start, dyn()->scope.current_dc());
 
         // index mode: tests contribute nothing to the table; skip wholesale.
         if dyn()->mode == T::ParseMode::Index {
@@ -4295,7 +4295,7 @@ class <T> DeclParse {
         var name = dyn()->current();
         dyn()->advance();
 
-        var pm = ProcedureMacroDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
+        var pm: *ProcedureMacroDecl = ProcedureMacroDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
 
         // index mode: proc-macro bodies are full statement blocks; skip them.
         // (Token macros run their normal production its body is a raw

@@ -333,7 +333,11 @@ class <T> OperatorTyping {
         var n = dyn()->frames.size();
         for var i: usize = 0; i < n; ++i {
             var fr = &(dyn()->frames[(n - 1) - i]);
-            if fr->fn_decl != &null { return static_cast::<*DeclContext>(fr->fn_decl); }
+            // Typed local: `fr` is per instance (dyn()), so a cast straight off
+            // fr->fn_decl is dependent once migrated and emits as a reinterpret,
+            // which misses DeclContext's offset in FunctionDecl (its second base, P408).
+            var fdecl: *FunctionDecl = fr->fn_decl;
+            if fdecl != &null { return static_cast::<*DeclContext>(fdecl); }
         }
         return static_cast::<*DeclContext>(dyn()->sc->tu);
     }

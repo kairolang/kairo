@@ -49,6 +49,15 @@ TABLE = {
     "Compiler/Lexer/Immediate.k": {
         "TextPrefixKind": ("flags", "Raw | Format"),
     },
+    "Compiler/AST/Mixin/Annotation.k": {
+        "AnnotationPresence": ("flags", "presence bitmask, combined with |"),
+    },
+    "Compiler/AST/Mixin/TypeQual.k": {
+        "TypeQualFlags": ("flags", "qualifier bitset, combined with |"),
+    },
+    "Compiler/Parser/LexicalScope.k": {
+        "SyncSet": ("flags", "recovery barriers are ORed"),
+    },
     "Compiler/Parser/ExprParse.k": {
         "ExprStopKind": ("flags", "stop sets are ORed (StopComma | StopParen | ...)"),
     },

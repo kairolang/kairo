@@ -652,7 +652,10 @@ class PrettyDiagConsumer derives DiagConsumer {
                     caret_row += ' ';
                     continue;
                 }
-                var mark = string(row_glyph[c], 1);
+                // One glyph byte, appended: string(ch, 1) is lib-helix's (char, count)
+                // repeat ctor, which the migration misread as (pointer, length) (P410).
+                var mark = string();
+                mark += row_glyph[c];
                 if color {
                     var mcol = row_color[c];
                     caret_row += f"{mcol}{mark}{RESET}";
