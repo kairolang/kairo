@@ -50,6 +50,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <atomic>
+#include <cstdio>
+#include <string>
 #include <vector>
 
 #include <llvm/ADT/SmallString.h>
@@ -194,6 +197,17 @@ inline void ktime_clang_end(const KClangTimeCapture &c) {
         llvm::timeTraceProfilerWrite(os);
     }
     llvm::timeTraceProfilerCleanup();
+
+    // KAIRO_CLANG_TRACE_DIR: keep each TU's raw clang trace (chrome JSON) as
+    // <dir>/<n>.json, for finding what clang spends a TU's frontend on.
+    if (const char *dir = ::std::getenv("KAIRO_CLANG_TRACE_DIR")) {
+        static ::std::atomic<unsigned> n{0};
+        ::std::string path = ::std::string(dir) + "/" + ::std::to_string(n.fetch_add(1)) + ".json";
+        if (FILE *f = ::std::fopen(path.c_str(), "wb")) {
+            ::std::fwrite(buf.data(), 1, buf.size(), f);
+            ::std::fclose(f);
+        }
+    }
 
     struct Span {
         uint64_t ts;

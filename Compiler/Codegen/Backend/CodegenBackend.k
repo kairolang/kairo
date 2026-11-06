@@ -174,6 +174,7 @@ class CodegenBackend derives TokenFiller {
 
         sink->eof();
         cg.advance_phase(CodegenPhase::Emitted);
+        Logger::info(Logger::Stage::Driver, f"codegen tokens: {sink->token_count()} plan entries: {plan.entries.size()} in {self._path}");
 
         if self._print != 0 {
             // we deicide if we prnt cg or ir or both

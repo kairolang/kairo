@@ -5573,15 +5573,24 @@ fn FrontendAction::_codegen() -> bool {
     crun.mount(all_sets);
 
     // The fan-out (P216). Each TU compiles on a CompilerInstance of its own
-    // (CodegenJob::run), so TUs run side by side up to the pool's size,
-    // capped at the physical cores -- SMT siblings doubled each TU's time in
-    // the spike and bought nothing -- and at the TU count. One worker when
+    // (CodegenJob::run), so TUs run side by side up to the pool's size
+    // (--threads; every logical CPU by default) and the TU count. The P216
+    // spike capped it at the physical cores (SMT doubled a small program's
+    // per-TU time); on the self-host graph (316 TUs) all 24 threads beat 12
+    // by 12% of the whole build (P380), so the cap is gone. One worker when
     // something prints per TU (--print-cg / --print-ir): their output is
     // written as each TU fills, so it must come one TU at a time.
     var workers = self._ci->pool()->get_thread_count();
-    var cores = llvm::get_physical_cores();
-    if (cores > 0) && (workers > usize(cores)) { workers = usize(cores); }
     if workers > jobs.size() { workers = jobs.size(); }
+    // KAIRO_CODEGEN_WORKERS: an explicit worker count, for measuring.
+    {
+        var wenv = libcxx::getenv(r"KAIRO_CODEGEN_WORKERS");
+        if wenv != &null {
+            var wn = static_cast::<usize>(libcxx::strtoull(wenv, &null, 10));
+            if wn > 0 { workers = wn; }
+            if workers > jobs.size() { workers = jobs.size(); }
+        }
+    }
     if fe.print_cg || fe.print_ir { workers = 1; }
 
     {
