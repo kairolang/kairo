@@ -101,6 +101,12 @@ class TokenSink derives EmitSink {
     /// space unfiltered, and a u32 key could land on DenseSet's reserved
     /// 0xFFFFFFFF / 0xFFFFFFFE. Zero-extended, it never can.
     priv var _used:       llvm::DenseSet::<u64>;
+    /// anchor raw -> h: every byte at offsets [1, h) from that anchor is in
+    /// _used. The forward claim walk starts past them instead of re-probing
+    /// each one: many tokens share one anchor, and the probes were O(k^2) per
+    /// anchor (the top Kairo symbol of the codegen workers). Valid because
+    /// _used only grows; the one erase clears it.
+    priv var _claim_hint: llvm::DenseMap::<u64, u64>;
     /// The bytes in _used held by a token that is not the exact spelling of
     /// its anchor (an index into _held_list), so an exact one can take them
     /// back (_steal). Keyed as _used is.
@@ -370,6 +376,16 @@ class TokenSink derives EmitSink {
     }
 
     /// _claim for token \p tok: the next one, or one _steal is moving.
+    /// Offsets [1, i] from the anchor keyed \p hkey are all in _used now
+    /// (the walk passed or took each), so the next walk may start past them.
+    priv fn _hint_used(self, hkey: u64, i: usize) {
+        if i < 1 { return; }
+        var h = static_cast::<u64>(i + 1);
+        var it = self._claim_hint.find(hkey);
+        if it == self._claim_hint.end() { self._claim_hint.try_emplace(hkey, h); return; }
+        if it->second < h { it->second = h; }
+    }
+
     priv fn _claim_for(self, loc: SourceLocation, len: u32, exact: bool, tok: usize) -> SourceLocation {
         if self._unanchored { return SourceLocation::invalid(); }
         var dec   = self._csm->getDecomposedLoc(self._loc(loc));
@@ -380,20 +396,32 @@ class TokenSink derives EmitSink {
             if self._used.insert(static_cast::<u64>(loc.raw())).second { return loc; }
             if self._steal(loc) { return loc; }
         }
+        // Below `lim` a used byte may still be stolen (the stray check), so
+        // only bytes from `lim` on are skipped through the hint.
+        var hkey = static_cast::<u64>(loc.raw());
+        var skip_to: usize = 0;
+        var hit = self._claim_hint.find(hkey);
+        if hit != self._claim_hint.end() { skip_to = static_cast::<usize>(hit->second); }
+        var lim: usize = 1;
+        if (!exact) && (static_cast::<usize>(len) > lim) { lim = static_cast::<usize>(len); }
         for var i: usize = from; i < avail; ++i {
+            if (i >= lim) && (i < skip_to) { i = skip_to - 1; continue; }
             var at  = loc.advance(i);
             if !self._used.insert(static_cast::<u64>(at.raw())).second {
                 // A byte of this token's own anchor, held by a token that
                 // walked onto it from somewhere else: it is this one's.
                 if (!exact) && (i < static_cast::<usize>(len)) && self._stray_at(at) && self._steal(at) {
                     self._hold(at, tok, loc, len);
+                    self._hint_used(hkey, i);
                     return at;
                 }
                 continue;
             }
             if !exact { self._hold(at, tok, loc, len); }
+            self._hint_used(hkey, i);
             return at;
         }
+        self._hint_used(hkey, avail);
         // Then backward: a closer anchored near the end of a small file
         // finds every later byte taken by its own opener's run.
         var before = static_cast::<usize>(dec.second);
@@ -603,6 +631,7 @@ class TokenSink derives EmitSink {
                 return true;
             }
             self._used.erase(static_cast::<u64>(self._open_byte.raw()));
+            self._claim_hint.clear();   // a byte left _used: no prefix is known whole any more.
             self._held.erase(static_cast::<u64>(self._open_byte.raw()));
             var h = self._pending.slot();
             h->tok_index = first;
