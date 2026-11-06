@@ -3567,23 +3567,37 @@ fn EmitPlan::_sort(v: *vec::<PlanEntry>) {
 
 /// Stable topological sort on Complete edges. Nothing takeable means a
 /// by-value cycle sema should have rejected (TypeCycleCheck): assert.
+///
+/// Each round takes the LOWEST-index entry none of whose untaken entries it
+/// needs. The edges are asked once each (n^2 _entry_needs calls, each a walk
+/// of a record's fields and methods) into a matrix, and a per-entry count of
+/// untaken needs replaces the rescan: asking them per round was n^3 calls,
+/// the single biggest cost of codegen's serial pre-pass on a large graph.
+/// Same picks in the same order as the rescanning form.
 fn EmitPlan::_toposort(v: *vec::<PlanEntry>) {
     var n = v->size();
     if n < 2 { return; }
     var out:   vec::<PlanEntry>;
     var taken: vec::<bool>;
-    for var i: usize = 0; i < n; ++i { taken.push_back(false); }
+    // needs[i * n + j]: entry i must follow entry j. pending[i]: how many
+    // untaken j entry i still needs.
+    var needs:   vec::<u8>;
+    var pending: vec::<usize>;
+    needs.resize(n * n, u8(0));
+    for var i: usize = 0; i < n; ++i {
+        taken.push_back(false);
+        var c: usize = 0;
+        for var j: usize = 0; j < n; ++j {
+            if j == i { continue; }
+            if self._entry_needs(&((*v)[i]), &((*v)[j])) { needs[i * n + j] = u8(1); c += 1; }
+        }
+        pending.push_back(c);
+    }
 
     for var round: usize = 0; round < n; ++round {
         var picked = usize(-1);
         for var i: usize = 0; i < n; ++i {
-            if taken[i] { continue; }
-            var ready = true;
-            for var j: usize = 0; j < n; ++j {
-                if taken[j] || (j == i) { continue; }
-                if self._entry_needs(&((*v)[i]), &((*v)[j])) { ready = false; break; }
-            }
-            if ready { picked = i; break; }
+            if (!taken[i]) && (pending[i] == 0) { picked = i; break; }
         }
         if picked == usize(-1) {
             // A cycle through an early item (EVAL.md §11) is EvalUsageChecking's
@@ -3598,6 +3612,9 @@ fn EmitPlan::_toposort(v: *vec::<PlanEntry>) {
             && r"EmitPlan: Complete-edge cycle in tier 1; TypeCycleCheck should have rejected this in sema");
         taken[picked] = true;
         out.push_back((*v)[picked]);
+        for var i: usize = 0; i < n; ++i {
+            if (!taken[i]) && (needs[i * n + picked] != u8(0)) { pending[i] -= 1; }
+        }
     }
     for var i: usize = 0; i < n; ++i { (*v)[i] = out[i]; }
 }
