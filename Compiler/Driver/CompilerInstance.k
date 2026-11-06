@@ -5307,11 +5307,9 @@ fn FrontendAction::_attach_ffi_edges(tu: *TranslationUnit, ctx: *ASTContext, hs:
         // A fid shared by two inputs' graphs reaches here twice; stamp once.
         if id->ffi_closure_fids.size() > 0 { continue; }
 
-        var paths = vec::<string>();
-        hs->closure_of(hdr, paths);
-        for var p: usize = 0; p < paths.size(); ++p {
-            var k = hs->kfid_of_path(paths[p]);
-            if k == 0 { continue; }
+        var ks = hs->closure_kfids(hdr);
+        for var p: usize = 0; p < ks->size(); ++p {
+            var k = (*ks)[p];
             if id->ffi_closure_fids.size() == 0 { id->resolved_fid = k; }
             id->ffi_closure_fids.push_back(k);
             var e = ImportEdge{};

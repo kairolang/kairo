@@ -203,6 +203,7 @@ class HeaderSet {
     priv var _idx_built: bool = false;
     priv var _file_at:   llvm::StringMap::<u32>;          ///< path -> first index in `files`.
     priv var _out_edges: llvm::StringMap::<vec::<u32>>;   ///< from_path -> indices in `includes`, in order.
+    priv var _closure_memo: llvm::StringMap::<vec::<u32>>;  ///< spelled header -> closure_kfids' answer.
 
     fn HeaderSet(self) {
         self.pch = libcxx::make_shared::<clang::PCHBuffer>();
@@ -371,6 +372,25 @@ class HeaderSet {
                 work.push_back(self.includes[it->second[k]].to_path);
             }
         }
+    }
+
+    /// closure_of(\p spelled) mapped through kfid_of_path, zeros dropped, in
+    /// closure order: what _attach_ffi_edges stamps on an ffi import. Every
+    /// TU sharing this set imports the same headers, so it is memoized per
+    /// spelling (driver thread only, after index()).
+    fn closure_kfids(self, spelled: string) -> *vec::<u32> {
+        var it = self._closure_memo.find(sref(spelled));
+        if it != self._closure_memo.end() { return &(it->second); }
+        var paths = vec::<string>();
+        self.closure_of(spelled, paths);
+        var ks = vec::<u32>();
+        for var p: usize = 0; p < paths.size(); ++p {
+            var k = self.kfid_of_path(paths[p]);
+            if k != 0 { ks.push_back(k); }
+        }
+        var slot = &(self._closure_memo[sref(spelled)]);
+        (*slot) = ks;
+        return slot;
     }
 
     fn kfid_of_path(self, p: string) -> u32 {
