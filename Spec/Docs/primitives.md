@@ -162,6 +162,8 @@ var other = false
 
 A `char` holds a single decoded Unicode codepoint. It is always 4 bytes regardless of which codepoint it represents.
 
+A `char` converts implicitly to and from an integer only when the target is equal or wider: `char` to `u32`, `u64`, `u128`, `i64`, `i128`, and `u8`, `u16`, `u32` to `char`. Everything else (`char` to `u8`, `u16`, `i8`, `i16`, `i32`; `i8`, `i16`, `i32`, `i64`, `i128`, `u64`, `u128` to `char`) needs `as`. An integer literal takes `char` when it is a Unicode scalar value, and `0xD800` or `0x110000` is an error. See the [conversion lattice](/docs/language/conversion-lattice/#4-non-numeric-primitives-rationale).
+
 ```kairo
 var letter = 'A'
 var emoji = '😶‍🌫'

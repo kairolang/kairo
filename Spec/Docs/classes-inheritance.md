@@ -101,11 +101,20 @@ Code in the base's own file has no such restriction.
 
 ### Destructors and inheritance
 
-A class with a non-trivial destructor (its own `op delete` with a body, or any field or base that has one) may only derive from a class whose destructor is `virtual`. Otherwise deleting the derived object through a `*Base` runs only the base's destructor and leaks the rest. This is a compile error at the derived class.
+A class with a non-trivial destructor (its own `op delete` with a body, or any field or base that has one) may only derive from a **polymorphic** class (one with any `virtual` method, or a `derives virtual` base) if that class's destructor is `virtual`. Otherwise deleting the derived object through a `*Base` runs only the base's destructor and leaks the rest. This is a compile error at the derived class.
 
 ```kairo
-class Base { fn op delete(self) { } }
+class Base { virtual fn name(self) -> string { return "base" } fn op delete(self) { } }
 class Derived derives Base {          // error: 'Base' has no virtual destructor
+    fn op delete(self) { }
+}
+```
+
+A base with no virtual methods is exempt: it is not used through a base pointer for dispatch, so a mixin or plain data base needs no vtable just for its destructor.
+
+```kairo
+class Counted { var refs: i32 = 0 }   // not polymorphic
+class Node derives Counted {          // ok
     fn op delete(self) { }
 }
 ```

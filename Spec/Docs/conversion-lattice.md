@@ -67,16 +67,16 @@ Read the shape: the unsigned block is upper-triangular, the signed block is uppe
 
 | S \ T | `f16` | `f32` | `f64` | `f128`+ | any int | `bool` | `char` | `byte` |
 |---|---|---|---|---|---|---|---|---|
-| `u8`/`i8`   | W | W | W | E | see section 3 | E | E | E |
-| `u16`/`i16` | E | W | W | E | see section 3 | E | E | E |
-| `u32`/`i32` | E | E | W | E | see section 3 | E | E | E |
+| `u8`/`i8`   | W | W | W | E | see section 3 | E | `u8`: W, `i8`: E | E |
+| `u16`/`i16` | E | W | W | E | see section 3 | E | `u16`: W, `i16`: E | E |
+| `u32`/`i32` | E | E | W | E | see section 3 | E | `u32`: W, `i32`: E | E |
 | `u64`/`i64` | E | E | E | E | see section 3 | E | E | E |
 | `f16` | I | W | W | E | E | X | X | X |
 | `f32` | E | I | W | E | E | X | X | X |
 | `f64` | E | E | I | E | E | X | X | X |
 | `f128`+ | E | E | E | E/I | E | X | X | X |
 | `bool` | X | X | X | X | E | I | X | X |
-| `char` | X | X | X | X | E | X | I | X |
+| `char` | X | X | X | X | see below | X | I | X |
 | `byte` | X | X | X | X | E | X | X | I |
 | `string` | X | X | X | X | X | X | X | X |
 | `void` | X | X | X | X | X | X | X | X |
@@ -91,7 +91,16 @@ Float-to-int is E in all cases. The cast truncates toward zero and saturates on 
 
 **`byte`.** No W conversion to or from `u8`. `byte` is restricted to bitwise operations ([Byte](/docs/language/primitives/#byte)); if `byte -> u8` were implicit then `b + mask` would succeed by converting both operands and the restriction would be decorative. E in both directions.
 
-**`char`.** `char -> u32` is bit-identical and technically widening-free, but a codepoint is not a number. E. `u32 -> char` is E and range-checks: surrogates and values above `0x10FFFF` are not scalar values, and an invalid `char` never exists. Whether the failed check traps or yields a `char?` is not yet specified.
+**`char`.** A `char` is a 32-bit Unicode scalar value. It converts implicitly to and from an integer only when the **target is equal or wider**; everything else needs `as`. Signed 32-bit and narrower types never convert implicitly, in either direction.
+
+| Direction | W (implicit) | E (`as` required) |
+|---|---|---|
+| `char -> int` | `u32`, `u64`, `u128`, `i64`, `i128` | `u8`, `u16`, `i8`, `i16`, `i32`, `usize`, `isize` |
+| `int -> char` | `u8`, `u16`, `u32` | `i8`, `i16`, `i32`, `i64`, `i128`, `u64`, `u128`, `usize`, `isize` |
+
+This is the one place R5 does not apply: `char -> u128` and `char -> i128` are W because the source is a fixed 32-bit value and the widening is exact. Signed targets must be *strictly* wider (`char -> i32` is E, as `u32 -> i32` is). `usize`/`isize` stay E as everywhere else.
+
+`u8`/`u16`/`u32 -> char` is W even though a `u32` can hold a surrogate or a value above `0x10FFFF`, which are not scalar values and so never exist as a `char`. The conversion is **unchecked**: it does not trap and does not yield a `char?`. An out-of-range value produces a `char` that is not a scalar value, which can only show up as wrong text, never as a memory-safety violation, so it is a logic error in the program, not undefined behavior. Because `char -> u32` is also W, mixing a `char` and a `u32` in one binary operation (`c + n`, `c == n`) is ambiguous and is an error: write `as` on one side. An **untyped integer literal** takes `char` exactly when its value is a scalar value (`0` to `0xD7FF` or `0xE000` to `0x10FFFF`); `0xD800`, `0x110000` and `-1` are error SC075E.
 
 **`bool`.** E in both directions. [Bool](/docs/language/primitives/#bool) already forbids implicit conversion from integers; the reverse is forbidden too. `int -> bool` is E with `!= 0` semantics.
 
