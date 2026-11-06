@@ -265,73 +265,146 @@ class <D> ASTWriter {
     //- Default list rebuilds: map each element through its transform_F. ---
     // STMT/DECL versions splice (transform returns vec); EXPR/TYPE/PATTERN
     // versions are scalar with null-drop (transform returns *F, null deletes).
-
+    //
+    // Copy on change (P380): a list every element of which maps to itself is
+    // left as it was. Each of the ~28 lowering passes rebuilt every list of
+    // every TU, twice copied (the buffer, then from_list), changed or not:
+    // 7.4 GB of the self-host graph's arenas, never reclaimed. The first
+    // element that maps to something else starts the buffer, seeded with
+    // the unchanged prefix, so a changed list ends up exactly as before.
     fn rebuild_stmt_list(self, old: *FrozenList::<*Stmt>) {
         var buf = ArenaList::<*Stmt>();
-        buf.set_allocator(&(self.ctx->ast_alloc));
+        var changed = false;
         for var i: usize = 0; i < old->size(); i++ {
-            if self.stop { buf.push(*(old->get(i))); continue; }
-            var results = self.dyn()->transform_stmt(*(old->get(i)));
+            var orig = *(old->get(i));
+            if self.stop {
+                if changed { buf.push(orig); }
+                continue;
+            }
+            var results = self.dyn()->transform_stmt(orig);
+            if !changed {
+                if (results.size() == 1) && (results[0] == orig) { continue; }
+                changed = true;
+                buf.set_allocator(&(self.ctx->ast_alloc));
+                for var k: usize = 0; k < i; k++ { buf.push(*(old->get(k))); }
+            }
             for var j: usize = 0; j < results.size(); j++ {
                 buf.push(results[j]);
             }
         }
-        old->from_list(&buf, &(self.ctx->ast_alloc));
+        if changed { old->from_list(&buf, &(self.ctx->ast_alloc)); }
     }
 
     fn rebuild_decl_list(self, old: *FrozenList::<*Decl>) {
         var buf = ArenaList::<*Decl>();
-        buf.set_allocator(&(self.ctx->ast_alloc));
+        var changed = false;
         for var i: usize = 0; i < old->size(); i++ {
-            if self.stop { buf.push(*(old->get(i))); continue; }
-            var results = self.dyn()->transform_decl(*(old->get(i)));
+            var orig = *(old->get(i));
+            if self.stop {
+                if changed { buf.push(orig); }
+                continue;
+            }
+            var results = self.dyn()->transform_decl(orig);
+            if !changed {
+                if (results.size() == 1) && (results[0] == orig) { continue; }
+                changed = true;
+                buf.set_allocator(&(self.ctx->ast_alloc));
+                for var k: usize = 0; k < i; k++ { buf.push(*(old->get(k))); }
+            }
             for var j: usize = 0; j < results.size(); j++ {
                 buf.push(results[j]);
             }
         }
-        old->from_list(&buf, &(self.ctx->ast_alloc));
+        if changed { old->from_list(&buf, &(self.ctx->ast_alloc)); }
     }
 
     fn rebuild_expr_list(self, old: *FrozenList::<*Expr>) {
         var buf = ArenaList::<*Expr>();
-        buf.set_allocator(&(self.ctx->ast_alloc));
+        var changed = false;
         for var i: usize = 0; i < old->size(); i++ {
-            if self.stop { buf.push(*(old->get(i))); continue; }
-            var r = self.dyn()->transform_expr(*(old->get(i)));
+            var orig = *(old->get(i));
+            if self.stop {
+                if changed { buf.push(orig); }
+                continue;
+            }
+            var r = self.dyn()->transform_expr(orig);
+            if !changed {
+                if (r != &null) && (r == orig) { continue; }
+                changed = true;
+                buf.set_allocator(&(self.ctx->ast_alloc));
+                for var k: usize = 0; k < i; k++ { buf.push(*(old->get(k))); }
+            }
             if r != &null { buf.push(r); }
         }
-        old->from_list(&buf, &(self.ctx->ast_alloc));
+        if changed { old->from_list(&buf, &(self.ctx->ast_alloc)); }
     }
 
     fn rebuild_type_list(self, old: *FrozenList::<*Type>) {
         var buf = ArenaList::<*Type>();
-        buf.set_allocator(&(self.ctx->ast_alloc));
+        var changed = false;
         for var i: usize = 0; i < old->size(); i++ {
-            if self.stop { buf.push(*(old->get(i))); continue; }
-            var r = self.dyn()->transform_type(*(old->get(i)));
+            var orig = *(old->get(i));
+            if self.stop {
+                if changed { buf.push(orig); }
+                continue;
+            }
+            var r = self.dyn()->transform_type(orig);
+            if !changed {
+                if (r != &null) && (r == orig) { continue; }
+                changed = true;
+                buf.set_allocator(&(self.ctx->ast_alloc));
+                for var k: usize = 0; k < i; k++ { buf.push(*(old->get(k))); }
+            }
             if r != &null { buf.push(r); }
         }
-        old->from_list(&buf, &(self.ctx->ast_alloc));
+        if changed { old->from_list(&buf, &(self.ctx->ast_alloc)); }
     }
 
     fn rebuild_pattern_list(self, old: *FrozenList::<*Pattern>) {
         var buf = ArenaList::<*Pattern>();
-        buf.set_allocator(&(self.ctx->ast_alloc));
+        var changed = false;
         for var i: usize = 0; i < old->size(); i++ {
-            if self.stop { buf.push(*(old->get(i))); continue; }
-            var r = self.dyn()->transform_pattern(*(old->get(i)));
+            var orig = *(old->get(i));
+            if self.stop {
+                if changed { buf.push(orig); }
+                continue;
+            }
+            var r = self.dyn()->transform_pattern(orig);
+            if !changed {
+                if (r != &null) && (r == orig) { continue; }
+                changed = true;
+                buf.set_allocator(&(self.ctx->ast_alloc));
+                for var k: usize = 0; k < i; k++ { buf.push(*(old->get(k))); }
+            }
             if r != &null { buf.push(r); }
         }
-        old->from_list(&buf, &(self.ctx->ast_alloc));
+        if changed { old->from_list(&buf, &(self.ctx->ast_alloc)); }
     }
 
     /// DeclContext::dc_decls is a live ArenaList, not a FrozenList. Rebuild it
-    /// in place, splicing transform_decl results.
+    /// in place, splicing transform_decl results; untouched when nothing
+    /// changed (a null entry is dropped, which is a change).
     fn rebuild_dc_decls(self, dc: *DeclContext) {
         var buf = ArenaList::<*Decl>();
-        buf.set_allocator(&(self.ctx->ast_alloc));
+        var changed = false;
         for var i: usize = 0; i < dc->dc_decls.size(); i++ {
             var d = *(dc->dc_decls.get(i));
+            if !changed {
+                if (d != &null) && self.stop { continue; }
+                if d != &null {
+                    var results = self.dyn()->transform_decl(d);
+                    if (results.size() == 1) && (results[0] == d) { continue; }
+                    changed = true;
+                    buf.set_allocator(&(self.ctx->ast_alloc));
+                    for var k: usize = 0; k < i; k++ { buf.push(*(dc->dc_decls.get(k))); }
+                    for var j: usize = 0; j < results.size(); j++ { buf.push(results[j]); }
+                    continue;
+                }
+                changed = true;
+                buf.set_allocator(&(self.ctx->ast_alloc));
+                for var k: usize = 0; k < i; k++ { buf.push(*(dc->dc_decls.get(k))); }
+                continue;
+            }
             if d == &null { continue; }
             if self.stop { buf.push(d); continue; }
             var results = self.dyn()->transform_decl(d);
@@ -339,7 +412,7 @@ class <D> ASTWriter {
                 buf.push(results[j]);
             }
         }
-        dc->dc_decls = buf;
+        if changed { dc->dc_decls = buf; }
     }
 
     //- Scalar-position wrappers ------------------------------------------
