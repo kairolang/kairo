@@ -383,6 +383,16 @@ class CompilerInstance {
     /// The bytes of the placeholder that takes fid 0 (_kairo_order).
     priv var _fid0_text: string = "\n";
     priv var _native_objs: vec::<string>; ///< objects from _compile_sources / _compile_runtime, in order
+    // _start_runtime's work list, read by _finish_runtime (P380: the runtime
+    // compiles on the pool during Sema). Parallel vectors, one row per source.
+    priv var _rt_invs: vec::<libcxx::shared_ptr::<clang::CompilerInvocation>>;
+    priv var _rt_objs: vec::<string>;
+    priv var _rt_logs: vec::<string>;
+    priv var _rt_oks:  vec::<u8>;      // not vec<bool>: its bits share bytes across threads
+    priv var _rt_ents: vec::<string>;  // the cache entry a compiled object is stored to; "" for none
+    priv var _rt_cache: string;
+    priv var _rt_started: bool = false;
+    priv var _rt_prestart_tried: bool = false;
     priv var _link_inputs: vec::<string>; ///< .o/.a/.so given on the command line, in order
     /// Every command-line input, classified once by _plan_outputs (in
     /// command-line order, with the -x each was given under). execute() and
@@ -1628,10 +1638,49 @@ class CompilerInstance {
     ///          the cache, so a link never holds a file another run may
     ///          replace or collect, and --kairo-lib's private build
     ///          directory still holds its own objects.
+    /// \brief compiles the runtime's C sources (Lib/rt) to objects, for the
+    ///        link: _start_runtime unless it already ran, then _finish_runtime.
+    ///
+    /// \details The runtime depends on no Kairo source, so the batch starts it
+    ///          as soon as the first action reaches Sema (prestart_runtime),
+    ///          on pool threads that the serial Sema leaves idle, instead of
+    ///          after codegen, where a cache miss (every first link after a
+    ///          compiler rebuild) put ~4 s of -O2 compiles on the critical
+    ///          path (P380). The objects, logs and cache stores are the same.
     priv fn _compile_runtime(self) -> bool {
+        if !self._rt_started {
+            if !self._start_runtime() { return false; }
+        }
+        return self._finish_runtime();
+    }
+
+    /// The batch's early start (FrontendAction::_sema): only when this run
+    /// will compile the runtime at all -- the same test as the batch's call.
+    fn prestart_runtime(self) {
+        if self._rt_started || self._rt_prestart_tried { return; }
+        self._rt_prestart_tried = true;
+        var fe_rt = &(self.invocation().frontend);
+        if (self._kairo_inputs == 0) || fe_rt->stops_before_codegen() || (!fe_rt->emit_obj)
+           || self.invocation().linker.inputs_only() || self._link_out.empty() { return; }
+        if !self._start_runtime() { self._rt_started = false; }
+    }
+
+    /// Joins an early start the batch then did not use (an error stopped it
+    /// before the link): the tasks write into members, so they must finish.
+    priv fn _join_runtime(self) {
+        if !self._rt_started { return; }
+        self._pool->wait_group(NATIVE_GROUP());
+    }
+
+    priv fn _start_runtime(self) -> bool {
+        self._rt_invs.clear(); self._rt_objs.clear(); self._rt_logs.clear();
+        self._rt_oks.clear();  self._rt_ents.clear();
+        self._rt_cache = "";
+        self._rt_started = true;
         var runtime = self._runtime_sources();
         if runtime.size() == 0 { return true; }
         if self._backend == &null {
+            self._rt_started = false;
             self._diag->report(DiagID::I004F, "cannot compile the runtime: no clang backend").emit();
             return false;
         }
@@ -1651,14 +1700,10 @@ class CompilerInstance {
         // the arg-parse engine are the backend's; the logs, objects and
         // verdict are read back in input order, so the output is the
         // serial loop's whatever finishes first.
-        var invs = vec::<libcxx::shared_ptr::<clang::CompilerInvocation>>();
-        var objs = vec::<string>();
-        var logs = vec::<string>();
-        var oks  = vec::<u8>();     // not vec<bool>: its bits share bytes across threads
-        var ents = vec::<string>(); // the cache entry a compiled object is stored to; "" for none
 
         var cache = self._rt_cache_dir();
         if (!cache.empty()) && (!LinkFS::make_dirs(cache)) { cache = ""; }
+        self._rt_cache = cache;
         var fp = "";
         if !cache.empty() { fp = string(llvm::utohexstr(llvm::xxh3_64bits(sref(self._rt_fingerprint())))); }
         var force = self.invocation().frontend.force_recompile;
@@ -1691,21 +1736,21 @@ class CompilerInstance {
                 }
             }
             if hit {
-                invs.push_back(none);
-                ents.push_back("");
-                oks.push_back(u8(1));
+                self._rt_invs.push_back(none);
+                self._rt_ents.push_back("");
+                self._rt_oks.push_back(u8(1));
             } else {
-                invs.push_back(inv);
-                ents.push_back(entry);
-                oks.push_back(u8(0));
+                self._rt_invs.push_back(inv);
+                self._rt_ents.push_back(entry);
+                self._rt_oks.push_back(u8(0));
             }
-            objs.push_back(obj);
-            logs.push_back("");
+            self._rt_objs.push_back(obj);
+            self._rt_logs.push_back("");
         }
         var be     = self._backend;
-        var inv_p  = invs.data();
-        var log_p  = logs.data();
-        var ok_p   = oks.data();
+        var inv_p  = self._rt_invs.data();
+        var log_p  = self._rt_logs.data();
+        var ok_p   = self._rt_oks.data();
         var rec    = kairo::TimeReport::current();
         for var i: usize = 0; i < n; ++i {
             if inv_p[i].get() == &null { continue; }
@@ -1714,18 +1759,24 @@ class CompilerInstance {
                 if be->run_native(inv_p[i], &(log_p[i])) { ok_p[i] = u8(1); }
             }, NATIVE_GROUP());
         }
-        self._pool->wait_group(NATIVE_GROUP());
+        return true;
+    }
 
+    priv fn _finish_runtime(self) -> bool {
+        if !self._rt_started { return true; }
+        self._rt_started = false;
+        self._pool->wait_group(NATIVE_GROUP());
+        var n = self._rt_objs.size();
         var ok = true;
         var stored = false;
         for var i: usize = 0; i < n; ++i {
-            if !logs[i].empty() { std::eprint(logs[i]); }
-            if oks[i] == u8(0) { ok = false; continue; }
-            if !ents[i].empty() { stored = CompilerInstance::_rt_cache_store(objs[i], ents[i]) || stored; }
-            self._native_objs.push_back(objs[i]);
-            Logger::info(Logger::Stage::Driver, f"emitted object {objs[i]}");
+            if !self._rt_logs[i].empty() { std::eprint(self._rt_logs[i]); }
+            if self._rt_oks[i] == u8(0) { ok = false; continue; }
+            if !self._rt_ents[i].empty() { stored = CompilerInstance::_rt_cache_store(self._rt_objs[i], self._rt_ents[i]) || stored; }
+            self._native_objs.push_back(self._rt_objs[i]);
+            Logger::info(Logger::Stage::Driver, f"emitted object {self._rt_objs[i]}");
         }
-        if stored { CompilerInstance::_rt_cache_gc(cache); }
+        if stored { CompilerInstance::_rt_cache_gc(self._rt_cache); }
         return ok;
     }
 
@@ -2856,6 +2907,7 @@ class CompilerInstance {
                 if !self._compile_runtime() { result.aborted = true; }
             }
         }
+        self._join_runtime();   // an early start the batch did not get to use.
 
         // Every set's clang instance dies here, while _backend still lives:
         // imported decls' clang_decl point into those ASTContexts, and
@@ -4907,6 +4959,10 @@ fn FrontendAction::_sema() -> bool {
     // phase I of any importer folds its headers. Indexing mints the header
     // fids, so it runs on this (driver) thread; _attach_ffi_edges then stamps
     // each ffi ImportDecl with the closure it imports.
+    // The runtime's C objects need nothing from Kairo: compile them on the
+    // pool now, while the serial Sema below leaves it idle (P380).
+    self._ci->prestart_runtime();
+
     var hc = self._ci->headers();
     if hc != &null {
         var _th = TimeRegion("Headers");
