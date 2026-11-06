@@ -44,6 +44,10 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/StringMap.h";
+ffi "c++" import "llvm/Support/FileSystem.h";
+ffi "c++" import "llvm/Support/Path.h";
+ffi "c++" import "llvm/ADT/SmallString.h";
+ffi "c++" import "cstring";
 ffi "c++" import "llvm/ADT/STLExtras.h";
 ffi "c++" import "llvm/ADT/DenseMap.h";
 ffi "c++" import "Native/Types.hh";
@@ -252,6 +256,9 @@ class HeaderSet {
     /// decl, so imported decls point into its AST. One that did neither (85
     /// of the self-host graph's 115) is released right after indexing
     /// (release_unused) and only re-parsed if something asks for its AST.
+    /// P417: this set is a VIEW (one TU list) whose headers were parsed as
+    /// part of the build's one shared set; null for a set parsed itself.
+    pub var shared: obs::<HeaderSet> = &null;
     pub var contributed: bool = true;
     pub var revivable:   bool = false;
     priv var _be_saved:  obs::<ClangBackend> = &null;
@@ -874,10 +881,17 @@ class HeaderSetCache {
     priv var _mu:   std::Mutex;
     priv var _be:   obs::<ClangBackend>;
     priv var _pool: obs::<ThreadPool>;
+    /// P417: one clang parse for the build's header lists, not one per list.
+    /// request() only records a list (a view); start_shared() parses their
+    /// union. KAIRO_HEADER_SETS=per-set keeps one parse per list.
+    priv var _shared_mode: bool = true;
+    priv var _pending: vec::<*HeaderSet>;
 
     fn HeaderSetCache(self, be: *ClangBackend, pool: *ThreadPool) {
         self._be   = be;
         self._pool = pool;
+        var mode = libcxx::getenv(r"KAIRO_HEADER_SETS");
+        if (mode != &null) && (libcxx::strcmp(mode, r"per-set") == 0) { self._shared_mode = false; }
     }
 
     fn op delete (self) {
@@ -917,14 +931,120 @@ class HeaderSetCache {
         hs->id         = static_cast::<u32>(self._sets.size());
         self._sets.try_emplace(sref(key), hs);
 
-        var set = hs;
+        if self._shared_mode {
+            self._pending.push_back(hs);   // parsed by start_shared, with the others.
+            return hs;
+        }
+        self._enqueue_build(hs);
+        return hs;
+    }
+
+    priv fn _enqueue_build(self, set: *HeaderSet) {
         var be  = self._be;
         var rec = kairo::TimeReport::region(r"HeaderSets");
         self._pool->enqueue(fn () |set, be, rec| {
             var _kt = kairo::TimeReport::Worker(rec);
             set->build(be);
         }, HEADER_BUILD_GROUP());
-        return hs;
+    }
+
+    /// Where a view's spelled header resolves: its importer's directory first,
+    /// as that set's quoted -I entry made it, else the spelling itself, which
+    /// every set resolves alike through the shared search path.
+    static fn resolve_spelling(view: *HeaderSet, h: string) -> string {
+        if view->import_dir.size() > 0 {
+            var cand = view->import_dir + "/" + h;
+            if llvm::sys::fs::exists(llvm::Twine(sref(cand))) {
+                // Lexically normal: `Inputs/../x.h` from one list and `x.h`
+                // from another's directory are one file, and must be one
+                // union line and one closure key, or the second spelling's
+                // lookup finds a path the parse never recorded.
+                var norm: llvm::SmallString::<256>;
+                norm.append(sref(cand));
+                llvm::sys::path::remove_dots(norm, true);
+                return string(norm.data(), norm.size());
+            }
+        }
+        return h;
+    }
+
+    /// \brief P417: parse every list request() recorded since the last call
+    ///        as ONE set, on the pool; each list's set becomes a view of it.
+    ///
+    /// \details Driver thread, after a preprocess. The union takes the lists
+    ///          by key (a stable order), each header once (by resolved path and
+    ///          linkage; include guards make a repeat a no-op anyway), and each
+    ///          line's source location from the first list that names it, so a
+    ///          header error lands on that import. Per-list parses instead --
+    ///          today's behaviour -- when there is one list, when one header is
+    ///          imported both as C and as C++, or when the union fails to
+    ///          parse (its diagnostics are dropped; the per-list parses report).
+    fn start_shared(self) {
+        var views = vec::<*HeaderSet>();
+        {
+            var lock = std::LockGuard(self._mu);
+            views = self._pending;
+            self._pending.clear();
+        }
+        if views.size() == 0 { return; }
+        if views.size() == 1 { self._enqueue_build(views[0]); return; }
+        llvm::sort(views.begin(), views.end(),
+            fn (const a: *HeaderSet, const b: *HeaderSet) || -> bool = a->key < b->key);
+
+        var u_headers = vec::<string>();
+        var u_c       = vec::<bool>();
+        var u_locs    = vec::<SourceRange>();
+        var seen      = llvm::StringMap::<bool>();   // resolved -> c linkage
+        var conflict  = false;
+        for v: *HeaderSet in views {
+            for var i: usize = 0; i < v->headers.size(); ++i {
+                var r = HeaderSetCache::resolve_spelling(v, v->headers[i]);
+                var c = (i < v->c_linkage.size()) && v->c_linkage[i];
+                var it = seen.find(sref(r));
+                if it != seen.end() {
+                    if it->second != c { conflict = true; }
+                    continue;
+                }
+                seen.try_emplace(sref(r), c);
+                u_headers.push_back(r);
+                u_c.push_back(c);
+                var at = SourceRange::invalid();
+                if i < v->header_locs.size() { at = v->header_locs[i]; }
+                u_locs.push_back(at);
+            }
+        }
+        if conflict {
+            for v: *HeaderSet in views { self._enqueue_build(v); }
+            return;
+        }
+
+        var u = std::create::<HeaderSet>();
+        u->key        = "<shared>\n" + HeaderSetCache::key_of(u_headers, u_c);
+        u->headers    = u_headers;
+        u->c_linkage  = u_c;
+        u->header_locs = u_locs;
+        u->import_dir = "";   // every quoted header is resolved above.
+        {
+            var lock = std::LockGuard(self._mu);
+            u->id = static_cast::<u32>(self._sets.size());
+            self._sets.try_emplace(sref(u->key), u);
+        }
+        var job = std::create::<vec::<*HeaderSet>>(views);
+        var be  = self._be;
+        var me  = &self;
+        var rec = kairo::TimeReport::region(r"HeaderSets");
+        self._pool->enqueue(fn () |u, job, be, me, rec| {
+            var _kt = kairo::TimeReport::Worker(rec);
+            u->build(be);
+            if u->ok {
+                for v: *HeaderSet in *job { v->shared = u; }
+            } else {
+                // The views report what is wrong, each as its own parse did.
+                u->diag_buf.discard();
+                for v: *HeaderSet in *job { me->_enqueue_build(v); }
+            }
+            std::destroy(job);
+        }, HEADER_BUILD_GROUP());
     }
 
     fn find(self, key: string) -> *HeaderSet {

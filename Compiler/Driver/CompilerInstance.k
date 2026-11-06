@@ -275,7 +275,7 @@ class FrontendAction {
     priv fn _preprocess(self)  -> bool;
     priv fn _parse(self)       -> bool;
     priv fn _sema(self)        -> bool;
-    priv fn _attach_ffi_edges(self, tu: *TranslationUnit, ctx: *ASTContext, hs: *HeaderSet);
+    priv fn _attach_ffi_edges(self, tu: *TranslationUnit, ctx: *ASTContext, hs: *HeaderSet, view: *HeaderSet);
     priv fn _import_order(self) -> vec::<u32>;
     priv fn _sema_group(self, fids: *vec::<u32>, effects: *EffectTable, print_sema: bool, print_lowered: bool, sema_opts: PrintOptions);
     priv fn _codegen(self)     -> bool;
@@ -4420,6 +4420,9 @@ fn FrontendAction::_preprocess() -> bool {
     if syntax_only { self._ci->pp()->drop_headers(); }
 
     var pp_res = self._ci->pp()->preprocess(self._file_id, self.module_base);
+    // P417: the header lists this preprocess recorded are parsed as one set,
+    // on the pool, overlapping the parse.
+    if self._ci->headers() != &null { self._ci->headers()->start_shared(); }
     // Only what no earlier input took: the rest is done (claim_fid). An
     // input another one imports is left with nothing -- except under
     // --syntax-only, where the importer parsed only itself.
@@ -4985,13 +4988,19 @@ fn FrontendAction::_sema() -> bool {
             if hctx == &null { continue; }
             var htu = reinterpret_cast::<*TranslationUnit>(hctx->tu);
             if (htu == &null) || (htu->header_set == &null) { continue; }
-            var hs = reinterpret_cast::<*HeaderSet>(htu->header_set);
+            var view = reinterpret_cast::<*HeaderSet>(htu->header_set);
+            // P417: a view's headers were parsed in the build's one shared
+            // set; from here on the TU's set IS that set, and only the ffi
+            // closures below still read which file the view's spelling meant.
+            var hs = view;
+            if view->shared != &null { hs = view->shared; }
             self._ci->header_index()->index(hs);
             // The set's build-time clang diagnostics, buffered on the pool
             // thread (HeaderSet::diag_buf): into the engine now the build
             // has joined. A set shared by several TUs drains once.
             hs->drain_diags(self._ci->diag(), self._ci->sm());
-            self._attach_ffi_edges(htu, hctx, hs);
+            self._attach_ffi_edges(htu, hctx, hs, view);
+            htu->header_set = reinterpret_cast::<*void>(hs);
         }
         // Phase B's merged PCH needs nothing but the sets that just joined:
         // build it on the pool now, overlapping Sema and the lowerings,
@@ -5413,7 +5422,10 @@ fn FrontendAction::_import_order() -> vec::<u32> {
 /// and one ImportEdge per closure header, so the import graph (importers_of,
 /// release's inbound-edge guard) sees a header the way it sees a Kairo file.
 /// A spelling clang never resolved leaves resolved_fid 0 and no edges.
-fn FrontendAction::_attach_ffi_edges(tu: *TranslationUnit, ctx: *ASTContext, hs: *HeaderSet) {
+/// \p hs is the set the TU's headers were parsed in; \p view the TU's own
+/// list, which is \p hs unless the build parsed every list as one (P417):
+/// then a spelling is first resolved as the view's own parse resolved it.
+fn FrontendAction::_attach_ffi_edges(tu: *TranslationUnit, ctx: *ASTContext, hs: *HeaderSet, view: *HeaderSet) {
     for var i: usize = 0; i < tu->imports.size(); ++i {
         var slot = tu->imports[i];
         if slot == &null { continue; }
@@ -5425,7 +5437,9 @@ fn FrontendAction::_attach_ffi_edges(tu: *TranslationUnit, ctx: *ASTContext, hs:
         // A fid shared by two inputs' graphs reaches here twice; stamp once.
         if id->ffi_closure_fids.size() > 0 { continue; }
 
-        var ks = hs->closure_kfids(hdr);
+        var key = hdr;
+        if view != hs { key = HeaderSetCache::resolve_spelling(view, hdr); }
+        var ks = hs->closure_kfids(key);
         for var p: usize = 0; p < ks->size(); ++p {
             var k = (*ks)[p];
             if id->ffi_closure_fids.size() == 0 { id->resolved_fid = k; }

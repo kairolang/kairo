@@ -135,6 +135,15 @@ class BufferedDiagSink derives DiagEngineVBase {
     fn error_count(self) -> u32 { return self._error_count; }
     fn warn_count(self) -> u32 { return self._warn_count; }
 
+    /// Drops every buffered diagnostic unreported (a parse whose findings
+    /// another parse reports instead: HeaderSetCache::start_shared, P417).
+    fn discard(self) {
+        for var i: usize = 0; i < self._diags.size(); ++i { std::destroy(self._diags[i]); }
+        self._diags.clear();
+        self._error_count = 0;
+        self._warn_count  = 0;
+    }
+
     // --- drain: single-threaded, at the join. transfers ownership. ----------
     //
     // Drains in SOURCE order, not the order diagnostics happened to be
