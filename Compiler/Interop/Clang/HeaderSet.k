@@ -270,6 +270,20 @@ class HeaderSet {
         return a->getASTAllocatedMemory() + a->getSideTableAllocatedMemory();
     }
 
+    /// MEM_STATS: the live instance's file buffers (heap-read and mmapped),
+    /// SourceManager tables and Preprocessor, in bytes; zeros when released.
+    fn other_bytes(self, malloc_buf: *usize, mmap_buf: *usize, sm_tab: *usize, pp: *usize) {
+        if self._ci == &null { return; }
+        if self._ci->hasSourceManager() {
+            var sm = &(self._ci->getSourceManager());
+            var mb = sm->getMemoryBufferSizes();
+            (*malloc_buf) += mb.malloc_bytes;
+            (*mmap_buf)   += mb.mmap_bytes;
+            (*sm_tab)     += sm->getDataStructureSizes();
+        }
+        if self._ci->hasPreprocessor() { (*pp) += self._ci->getPreprocessor().getTotalMemory(); }
+    }
+
     /// Frees this set's clang instance after HeaderIndex took nothing from
     /// it; the include graph, file list and fid map stay. Driver thread.
     fn release_unused(self) {

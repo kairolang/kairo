@@ -6129,5 +6129,9 @@ priv fn FrontendAction::_dump_mem_stats() {
             if b > 0 { live += 1; hbytes += b; }
         }
         std::eprintln(f"[mem] header sets:        {live} of {hsets.size()} live, clang AST {hbytes / (1024*1024)} MB");
+        var m_buf: usize = 0; var m_map: usize = 0; var m_sm: usize = 0; var m_pp: usize = 0;
+        for hs: *HeaderSet in hsets { hs->other_bytes(&m_buf, &m_map, &m_sm, &m_pp); }
+        var mb: usize = 1024 * 1024;
+        std::eprintln(f"[mem] header sets other:  file buffers heap {m_buf / mb} MB mmap {m_map / mb} MB, SM tables {m_sm / mb} MB, PP {m_pp / mb} MB");
     }
 }
