@@ -617,6 +617,12 @@ class HeaderSet {
         fe->Inputs.push_back(clang::FrontendInputFile(
             buf->getMemBufferRef(), clang::InputKind(clang::Language::CXX)));
         fe->DisableFree = true;                          // we own the AST's lifetime.
+        // Kairo imports declarations; nothing reads a header function's body
+        // (records' and enums' definitions are not bodies). Clang still
+        // parses the bodies semantics needs -- constexpr, deduced return
+        // types -- and codegen compiles against the merged PCH, which parses
+        // every body. Bodies were most of each set's parse and AST (P380).
+        fe->SkipFunctionBodies = true;
         // A quoted include from a .k file resolves relative to that file's
         // directory, exactly as it would from a .cpp beside it. IgnoreSysRoot
         // (the last argument) MUST be true: the directory is a real absolute
