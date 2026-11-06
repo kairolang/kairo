@@ -119,6 +119,15 @@ class ArenaAllocator {
         }
     }
 
+    /// init() without the block: the first alloc() makes it, \p blk_sz big.
+    /// For an owner that may never allocate (ArenaList's own arena, P380).
+    fn init_lazy(self, blk_sz: usize) {
+        if (self.head) != (&null) {
+            self.destroy();
+        }
+        self.block_size = blk_sz;
+    }
+
     fn init(self, blk_sz: usize) {
         if (self.head) != (&null) {
             self.destroy();

@@ -107,11 +107,13 @@ class <T> ArenaList {
                     + (ARENA_LIST_DESCRIPTOR_INIT * sizeof(Chunk))
                     + padding;
 
-        self._owned_arena.init(arena_sz);
+        // Lazily: the first push makes the block. Every AST node's annotation
+        // list is built here and then handed the context's arena by
+        // init_annotations (set_allocator), so an eager block -- and the debug
+        // line formatted for it whatever the log level -- was a malloc, a free
+        // and an f-string per node: ~7.5M of each on the self-host graph (P380).
+        self._owned_arena.init_lazy(arena_sz);
         self._arena = &self._owned_arena;
-
-        Logger::debug(Logger::Stage::Driver,
-            f"ArenaList::ctor (owned): slab_size={self._slab_size} arena_sz={arena_sz}B");
     }
 
     ///
