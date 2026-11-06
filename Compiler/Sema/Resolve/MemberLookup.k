@@ -470,11 +470,21 @@ class MemberLookup {
     /// Appends only scopes not already in \p out, so callers accumulate over
     /// every operand / argument into one list.
     fn associated_scopes(self, t: *Type, out: *vec::<*DeclContext>) {
+        // Deduped through a set seeded with what \p out already holds: a
+        // type in `std` brings every reopening of the namespace (hundreds,
+        // one ModuleDecl per header), and the linear _has_dc made each call
+        // quadratic in them (P380). Same scopes, same order.
+        var seen = llvm::DenseSet::<u64>();
+        for var i: usize = 0; i < out->size(); ++i { seen.insert(reinterpret_cast::<u64>((*out)[i])); }
+        self._associated_scopes(t, out, &seen);
+    }
+
+    priv fn _associated_scopes(self, t: *Type, out: *vec::<*DeclContext>, seen: *llvm::DenseSet::<u64>) {
         var c = self._peel(t);
         if (c == &null) || (!isa::<RecordType>(c)) { return; }
         var rt = cast::<RecordType>(c);
-        self._enclosing_modules(rt->decl, out);
-        for var i: usize = 0; i < rt->args.size(); ++i { self.associated_scopes(rt->args[i], out); }
+        self._enclosing_modules(rt->decl, out, seen);
+        for var i: usize = 0; i < rt->args.size(); ++i { self._associated_scopes(rt->args[i], out, seen); }
     }
 
     /// The FILE scope a value's record type was declared in, for OPERATOR
@@ -549,7 +559,7 @@ class MemberLookup {
     /// candidate everywhere the type is used. Consequence for C++: a type in
     /// the global namespace associates no scope, so a global `operator<<` for
     /// it is not found this way.
-    priv fn _enclosing_modules(self, d: *Decl, out: *vec::<*DeclContext>) {
+    priv fn _enclosing_modules(self, d: *Decl, out: *vec::<*DeclContext>, seen: *llvm::DenseSet::<u64>) {
         if d == &null { return; }
         var src = d;
         // An implicit instance may not carry a semantic_dc of its own; its
@@ -562,7 +572,7 @@ class MemberLookup {
         while dc != &null {
             if dc->dc_kind == DeclContextKind::TranslationUnit { return; }
             if dc->dc_kind == DeclContextKind::Module {
-                if !self._has_dc(out, dc) { out->push_back(dc); }
+                if seen->insert(reinterpret_cast::<u64>(dc)).second { out->push_back(dc); }
                 // The namespace, not the one block of it the record sits in:
                 // C++ searches every reopening. Sema/Foreign gives each
                 // header's `namespace std { }` its own ModuleDecl, and libc++
@@ -572,7 +582,7 @@ class MemberLookup {
                 var scopes = vec::<*DeclContext>();
                 NameLookup::module_scopes(dc->owner_decl(), scopes);
                 for var i: usize = 0; i < scopes.size(); ++i {
-                    if !self._has_dc(out, scopes[i]) { out->push_back(scopes[i]); }
+                    if seen->insert(reinterpret_cast::<u64>(scopes[i])).second { out->push_back(scopes[i]); }
                 }
             }
             dc = dc->parent_context();
