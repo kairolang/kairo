@@ -117,6 +117,11 @@ class MemberLookup {
             if ctx == &null { continue; }
             var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
             if tu == &null { continue; }
+            // A C++ header's TU holds no ExtensionDecl (only the parser makes
+            // one), and its namespaces are most of the graph's decls: every
+            // MemberLookup -- one per Substitution associated-type lookup --
+            // walked them all (P380).
+            if tu->is_foreign { continue; }
             self._index_dc(static_cast::<*DeclContext>(tu));
         }
     }
