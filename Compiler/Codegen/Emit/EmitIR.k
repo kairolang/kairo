@@ -4981,6 +4981,23 @@ class EmitIR {
             self._cg->sink->spell(n->operand->range, ")");
             return;
         }
+        // P408: `as unsafe *R` with the operand or the target typed only per
+        // instance (a duck call's result, a CRTP `(unsafe &self) as unsafe
+        // *T`): CastTyping cannot see whether the records are related, so no
+        // base_adjust, and reinterpret_cast is silently wrong in every
+        // instance where they are -- a non-first base is at an offset (a
+        // DeclContext inside a ClassDecl, a mixin inside a parser). A C-style
+        // cast is static_cast where the instance's classes are related and
+        // reinterpret_cast where not: what base_adjust gives a non-dependent
+        // cast.
+        var dep_tgt = (n->target != &null) && (n->target->is_dependent() || n->target->is_instantiation_dependent());
+        if (kind == "reinterpret_cast") && (n->mode == CastMode::Unsafe) && (!n->base_adjust) && (dep_opnd || dep_tgt)
+        && self._type_is_pointer(n->target) && (!self._scalar_pointee(n->target)) && (!self._is_null_literal(n->operand)) {
+            self._cg->sink->spell(n->operand->range, "(" + self._spell._type(n->target, &null) + ")(");
+            self.emit(n->operand);
+            self._cg->sink->spell(n->operand->range, ")");
+            return;
+        }
         // `&null as unsafe *T` (O28d): `nullptr` is a std::nullptr_t, which
         // reinterpret_cast refuses to retype as a pointer; static_cast is the
         // null pointer conversion.
