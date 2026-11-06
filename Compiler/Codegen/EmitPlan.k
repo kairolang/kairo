@@ -481,6 +481,19 @@ class PlanEntry {
     fn PlanEntry(self) { }
 }
 
+/// _needs_complete(who, *) for one who (EmitPlan::_need_row): true for dep
+/// exactly when dep is in `direct` or layout_decl(dep) is in `layout`.
+struct NeedRow {
+    var direct: llvm::DenseSet::<u64>;
+    var layout: llvm::DenseSet::<u64>;
+}
+
+/// One memoized _names_vp_template answer set (EmitPlan::_vp_row).
+struct VpNames {
+    var vp:   llvm::DenseSet::<u64>;
+    var nest: llvm::DenseSet::<u64>;
+}
+
 class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     priv var _cg:    obs::<CodegenContext>;
     priv var _spell: CXXSpell;
@@ -581,6 +594,16 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     priv var _en_done: vec::<*Decl>;
     priv var _en_key:  vec::<*Decl>;
     priv var _en_kind: vec::<u8>;
+    /// _set's index by decl address (P380): _admit asked _index_of for every
+    /// use, a linear scan of the set. _set only grows, at one push site.
+    priv var _set_at: llvm::DenseMap::<u64, u64>;
+    /// _names_vp_template per `who` (P380): the decls a record's definition
+    /// names through a value-parameter template (vp) or as the owner of a
+    /// nested type (nest), from one walk; _needs_complete asked it per pair.
+    priv var _vp_memo: llvm::DenseMap::<u64, u64>;
+    priv var _vp_rows: vec::<VpNames>;
+    priv var _need_memo: llvm::DenseMap::<u64, u64>;
+    priv var _need_rows: vec::<NeedRow>;
     priv var _en_val:  vec::<*Decl>;
 
     fn EmitPlan(self, cg: *CodegenContext, mode: PlanMode = PlanMode::Preamble) {
@@ -711,6 +734,9 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn value_param_record(self, who: *Decl, dep: *Decl) -> bool;
     fn _names_vp_template(self, who: *Decl, dep: *Decl, nested: bool) -> bool;
     fn _type_names_vp(self, t: *Type, dep: *Decl, depth: u32, nested: bool) -> bool;
+    fn _vp_row(self, who: *Decl) -> u64;
+    fn _need_row(self, who: *Decl) -> u64;
+    fn _vp_collect(self, t: *Type, depth: u32, row: *VpNames);
     fn _plannable(self, d: *Decl) -> bool;
     fn _is_requirement(self, d: *Decl) -> bool;
     fn _member_of_template(self, d: *Decl) -> bool;
@@ -729,6 +755,10 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
 class LayoutSpine {
     priv var _plan:   obs::<EmitPlan>;
     priv var _target: obs::<Decl>;
+    /// Collect mode (EmitPlan::_need_row): every layout decl the walk would
+    /// compare against the target goes in here, and nothing answers true,
+    /// so the walk covers the whole spine once for every target.
+    pub var collect: *llvm::DenseSet::<u64> = &null;
 
     fn LayoutSpine(self, plan: *EmitPlan, target: *Decl) {
         self._plan   = plan;
@@ -788,7 +818,8 @@ class LayoutSpine {
             case TypeKind::RecordType {
                 var r = cast::<RecordType>(c);
                 var d = self._plan->layout_decl(r->decl);
-                if d == self._target { return true; }
+                if self.collect != &null { self.collect->insert(reinterpret_cast::<u64>(d)); }
+                else if d == self._target { return true; }
                 // A payload struct is defined inside its ADT's body, so what it
                 // holds by value orders the ADT exactly as its own fields
                 // would. Its type names the struct, never the ADT.
@@ -2682,6 +2713,7 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
 
     var at = self._index_of(c);
     if at == usize(-1) {
+        self._set_at.try_emplace(reinterpret_cast::<u64>(c), static_cast::<u64>(self._set.size()));
         self._set.push_back(c);
         self._need.push_back(need);
         self._queue.push_back(self._set.size() - 1);
@@ -3694,20 +3726,46 @@ fn EmitPlan::_specs_after_primary(v: *vec::<PlanEntry>) {
 /// through its anonymous union and payload structs.
 fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
     if (who == &null) || (dep == &null) { return false; }
-    // A value parameter of class type (`<eval C: Config>`, EVAL.md 7e): C++
-    // needs the class complete wherever the template is declared.
-    if self.value_param_record(who, dep) { return true; }
-    // And where it names such a template at all, through a pointer too:
-    // the template's forward declaration follows the class (P160).
-    if self._names_vp_template(who, dep, false) { return true; }
-    if self._names_vp_template(who, dep, true) { return true; }
-    var probe = LayoutSpine(&self, dep);
-    var rec   = self.adt_record(who);
-    // A record nested in \p who is defined INSIDE its body (`struct Entry`
-    // in a class), so what it holds by value orders \p who exactly as
-    // \p who's own fields do; an Entry reached only through a template
-    // argument (`vector<Entry>`) or not at all would otherwise leave the
-    // outer record ahead of a field type it needs complete.
+    // Asked for every pair of tier-1 entries (P380): the answer for one
+    // `who` is two sets built by one walk (_need_row), so a pair is a lookup.
+    var r = &(self._need_rows[self._need_row(who)]);
+    if r->direct.contains(reinterpret_cast::<u64>(dep)) { return true; }
+    return r->layout.contains(reinterpret_cast::<u64>(self.layout_decl(dep)));
+}
+
+/// What `who`'s definition needs complete before it, for every dep at once:
+/// - direct: a value parameter of class type (`<eval C: Config>`, EVAL.md
+///   7e) -- C++ needs the class complete wherever the template is declared
+///   -- and every class whose value-parameter template `who` names at all,
+///   through a pointer too (its forward declaration follows the class,
+///   P160), or whose nested type it names (O28).
+/// - layout: what `who` holds by value (LayoutSpine): its bases, fields
+///   and C++ default arguments, an ADT's payloads.
+/// A record nested in `who` is defined INSIDE its body (`struct Entry` in
+/// a class), so what it needs orders `who` exactly as `who`'s own fields
+/// do; an Entry reached only through a template argument (`vector<Entry>`)
+/// or not at all would otherwise leave the outer record ahead of a field
+/// type it needs complete. Its row is folded in.
+fn EmitPlan::_need_row(who: *Decl) -> u64 {
+    var key = reinterpret_cast::<u64>(who);
+    var hit = self._need_memo.find(key);
+    if hit != self._need_memo.end() { return hit->second; }
+    var row = NeedRow();
+    var gps = decl_generic_params(who);
+    for var i: usize = 0; i < gps.size(); ++i {
+        var gp = gps[i];
+        if (gp == &null) || (!gp->is_const_param) || (gp->value_type == &null) || (gp->value_type->canonical == &null) { continue; }
+        var c = canon_unqual(gp->value_type->canonical);
+        if !isa::<RecordType>(c) { continue; }
+        row.direct.insert(reinterpret_cast::<u64>(CXXSpell::rep(cast::<RecordType>(c)->decl)));
+    }
+    {
+        var vr = self._vp_row(who);
+        var vn = &(self._vp_rows[vr]);
+        for var it = vn->vp.begin(); it != vn->vp.end(); ++it { row.direct.insert(*it); }
+        for var it = vn->nest.begin(); it != vn->nest.end(); ++it { row.direct.insert(*it); }
+    }
+    var rec = self.adt_record(who);
     var ndc = CXXSpell::dc_of(rec);
     if ndc != &null {
         for var i: usize = 0; i < ndc->dc_decls.size(); ++i {
@@ -3716,31 +3774,38 @@ fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
             if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
             var nr = CXXSpell::rep(nd);
             if nr == who { continue; }
-            if self._needs_complete(nr, dep) { return true; }
+            var ni = self._need_row(nr);     // may grow _need_rows: index, not pointer.
+            var nn = &(self._need_rows[ni]);
+            for var it = nn->direct.begin(); it != nn->direct.end(); ++it { row.direct.insert(*it); }
+            for var it = nn->layout.begin(); it != nn->layout.end(); ++it { row.layout.insert(*it); }
         }
     }
+    var probe = LayoutSpine(&self, who);
+    probe.collect = &(row.layout);
     switch rec->kind {
         case DeclKind::ClassDecl {
             var n = cast::<ClassDecl>(rec);
-            if probe.bases(&(n->derives_list)) { return true; }
-            if probe.fields(&(n->fields)) { return true; }
-            return probe.defaults(&(n->methods));
+            probe.bases(&(n->derives_list));
+            probe.fields(&(n->fields));
+            probe.defaults(&(n->methods));
         } case DeclKind::StructDecl {
             var sn = cast::<StructDecl>(rec);
-            if probe.fields(&(sn->fields)) { return true; }
-            return probe.defaults(&(sn->methods));
+            probe.fields(&(sn->fields));
+            probe.defaults(&(sn->methods));
         }
-        case DeclKind::UnionDecl  { return probe.fields(&(cast::<UnionDecl>(rec)->fields)); }
+        case DeclKind::UnionDecl  { probe.fields(&(cast::<UnionDecl>(rec)->fields)); }
         case DeclKind::EnumDecl {
             var n = cast::<EnumDecl>(rec);
             for var i: usize = 0; i < n->variants.size(); ++i {
                 var vr = *(n->variants.get(i));
-                if (vr != &null) && probe.fields(&(vr->payload)) { return true; }
+                if vr != &null { probe.fields(&(vr->payload)); }
             }
-            return false;
-        } default { return false; }
+        } default { }
     }
-    return false;
+    var at = static_cast::<u64>(self._need_rows.size());
+    self._need_rows.push_back(row);
+    self._need_memo.try_emplace(key, at);
+    return at;
 }
 
 // --- Predicates ----------------------------------------------------------------------
@@ -3769,6 +3834,20 @@ fn EmitPlan::value_param_record(who: *Decl, dep: *Decl) -> bool {
 /// so \p who's definition follows \p dep's even where its layout does not.
 fn EmitPlan::_names_vp_template(who: *Decl, dep: *Decl, nested: bool) -> bool {
     if (who == &null) || (dep == &null) { return false; }
+    var r = &(self._vp_rows[self._vp_row(who)]);
+    if nested { return r->nest.contains(reinterpret_cast::<u64>(dep)); }
+    return r->vp.contains(reinterpret_cast::<u64>(dep));
+}
+
+/// \p who's VpNames, walked once: the same positions _type_names_vp
+/// searched for one dep -- bases, fields, method returns and non-self
+/// parameters, through the same type shapes and depth limit -- collecting
+/// every dep it would have answered true for.
+fn EmitPlan::_vp_row(who: *Decl) -> u64 {
+    var key = reinterpret_cast::<u64>(who);
+    var hit = self._vp_memo.find(key);
+    if hit != self._vp_memo.end() { return hit->second; }
+    var row = VpNames();
     var rec = self.adt_record(who);
     var fields: *FrozenList::<*FieldDecl> = &null;
     var methods: *FrozenList::<*FunctionDecl> = &null;
@@ -3777,7 +3856,7 @@ fn EmitPlan::_names_vp_template(who: *Decl, dep: *Decl, nested: bool) -> bool {
             var n = cast::<ClassDecl>(rec);
             for var i: usize = 0; i < n->derives_list.size(); ++i {
                 var e = n->derives_list.get(i);
-                if (e != &null) && self._type_names_vp(e->base, dep, 0, nested) { return true; }
+                if e != &null { self._vp_collect(e->base, 0, &row); }
             }
             fields = &(n->fields);
             methods = &(n->methods);
@@ -3787,22 +3866,76 @@ fn EmitPlan::_names_vp_template(who: *Decl, dep: *Decl, nested: bool) -> bool {
         } case DeclKind::UnionDecl {
             fields = &(cast::<UnionDecl>(rec)->fields);
             methods = &(cast::<UnionDecl>(rec)->methods);
-        } default { return false; }
+        } default { }
     }
-    for var i: usize = 0; i < fields->size(); ++i {
-        var f = *(fields->get(i));
-        if (f != &null) && self._type_names_vp(f->type_, dep, 0, nested) { return true; }
-    }
-    for var i: usize = 0; i < methods->size(); ++i {
-        var m = *(methods->get(i));
-        if m == &null { continue; }
-        if self._type_names_vp(m->return_type, dep, 0, nested) { return true; }
-        for var j: usize = 0; j < m->params.size(); ++j {
-            var p = *(m->params.get(j));
-            if (p != &null) && (!p->is_self) && self._type_names_vp(p->type_, dep, 0, nested) { return true; }
+    if fields != &null {
+        for var i: usize = 0; i < fields->size(); ++i {
+            var f = *(fields->get(i));
+            if f != &null { self._vp_collect(f->type_, 0, &row); }
+        }
+        for var i: usize = 0; i < methods->size(); ++i {
+            var m = *(methods->get(i));
+            if m == &null { continue; }
+            self._vp_collect(m->return_type, 0, &row);
+            for var j: usize = 0; j < m->params.size(); ++j {
+                var p = *(m->params.get(j));
+                if (p != &null) && (!p->is_self) { self._vp_collect(p->type_, 0, &row); }
+            }
         }
     }
-    return false;
+    var at = static_cast::<u64>(self._vp_rows.size());
+    self._vp_rows.push_back(row);
+    self._vp_memo.try_emplace(key, at);
+    return at;
+}
+
+fn EmitPlan::_vp_collect(t: *Type, depth: u32, row: *VpNames) {
+    if (t == &null) || (depth > u32(16)) { return; }
+    var c = t->canonical;
+    if c == &null { c = t; }
+    var d1 = depth + u32(1);
+    switch c->kind {
+        case TypeKind::QualifiedType    { self._vp_collect(cast::<QualifiedType>(c)->inner, d1, row); }
+        case TypeKind::PointerType      { self._vp_collect(cast::<PointerType>(c)->pointee, d1, row); }
+        case TypeKind::CXXLValueRefType { self._vp_collect(cast::<CXXLValueRefType>(c)->referee, d1, row); }
+        case TypeKind::CXXRValueRefType { self._vp_collect(cast::<CXXRValueRefType>(c)->referee, d1, row); }
+        case TypeKind::NullableType     { self._vp_collect(cast::<NullableType>(c)->lowered, d1, row); }
+        case TypeKind::FixedArrayType   { self._vp_collect(cast::<FixedArrayType>(c)->element, d1, row); }
+        case TypeKind::TupleType {
+            var tp = cast::<TupleType>(c);
+            for var i: usize = 0; i < tp->elements.size(); ++i { self._vp_collect(*(tp->elements.get(i)), d1, row); }
+        }
+        case TypeKind::FunctionPointerType {
+            var fp = cast::<FunctionPointerType>(c);
+            for var i: usize = 0; i < fp->params.size(); ++i { self._vp_collect(*(fp->params.get(i)), d1, row); }
+            self._vp_collect(fp->return_type, d1, row);
+        }
+        case TypeKind::RecordType {
+            var r = cast::<RecordType>(c);
+            var d = CXXSpell::rep(r->decl);
+            if d != &null {
+                // value_param_record(rep(pattern), dep) for any dep: the
+                // record-typed value parameters of the named template.
+                var pat = CXXSpell::rep(decl_pattern(d));
+                if pat != &null {
+                    var gps = decl_generic_params(pat);
+                    for var i: usize = 0; i < gps.size(); ++i {
+                        var gp = gps[i];
+                        if (gp == &null) || (!gp->is_const_param) || (gp->value_type == &null) || (gp->value_type->canonical == &null) { continue; }
+                        var vc = canon_unqual(gp->value_type->canonical);
+                        if !isa::<RecordType>(vc) { continue; }
+                        row->vp.insert(reinterpret_cast::<u64>(CXXSpell::rep(cast::<RecordType>(vc)->decl)));
+                    }
+                }
+                // A nested type's outermost owner (d != dep there, so only
+                // an owner that is not d itself).
+                var o = self._outermost_type(d);
+                if o != d { row->nest.insert(reinterpret_cast::<u64>(o)); }
+            }
+            for var i: usize = 0; i < r->args.size(); ++i { self._vp_collect(*(r->args.get(i)), d1, row); }
+        }
+        default { }
+    }
 }
 
 fn EmitPlan::_type_names_vp(t: *Type, dep: *Decl, depth: u32, nested: bool) -> bool {
@@ -3898,8 +4031,9 @@ fn EmitPlan::_outermost_type(d: *Decl) -> *Decl {
 }
 
 fn EmitPlan::_index_of(d: *Decl) -> usize {
-    for var i: usize = 0; i < self._set.size(); ++i { if self._set[i] == d { return i; } }
-    return usize(-1);
+    var it = self._set_at.find(reinterpret_cast::<u64>(d));
+    if it == self._set_at.end() { return usize(-1); }
+    return static_cast::<usize>(it->second);
 }
 
 fn EmitPlan::_off_of(d: *Decl) -> usize {
