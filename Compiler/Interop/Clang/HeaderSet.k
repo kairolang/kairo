@@ -639,6 +639,14 @@ class CodegenPCH {
             buf->getMemBufferRef(), clang::InputKind(clang::Language::CXX)));
         fe->DisableFree = false;                          // nothing outlives the parse.
         inv->getPreprocessorOpts().Includes.clear();      // the buffer IS the includes.
+        // -fpch-instantiate-templates: perform the headers' pending implicit
+        // instantiations HERE, once, and store them in the PCH. Without it
+        // every TU loading the PCH performed them all again at its end
+        // (PerformPendingInstantiations): std::format, clang's DenseMaps,
+        // ... -- 659 s of the 794 s clang frontend time over the self-host
+        // graph's 316 TUs (P380). A Benign LangOpt: the TUs' own invocations
+        // need not match it for the PCH to load.
+        inv->getLangOpts().PCHInstantiateTemplates = true;
 
         var ci = std::create::<clang::CompilerInstance>(inv);
         var ok = self._parse(ci, be, fe->Inputs[0]);
