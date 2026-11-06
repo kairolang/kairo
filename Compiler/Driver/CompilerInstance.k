@@ -2596,6 +2596,10 @@ class CompilerInstance {
         // produced; the link must be told the level the objects were built at.
         job.lto       = self.invocation().codegen.lto;
         job.opt_level = self.invocation().codegen.opt_level;
+        {
+            var croot = CompilerInstance::_cache_root();
+            if !croot.empty() { job.lto_cache_dir = croot + "/lto"; }
+        }
 
         for tr: TUResult in result.tu_results {
             for obj: string in tr.objects { job.add_object(obj); }

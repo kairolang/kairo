@@ -33,6 +33,11 @@ class LinkJob {
     pub var threads:        u32  = 0;        ///< lld --threads; 0 = lld's default
     pub var lto:            string = "off";  ///< --lto: only gates lld's --lto-O<n>; off means no bitcode reaches the link
     pub var opt_level:      i32  = 0;        ///< the -O level the objects were compiled at; lld's LTO must match it
+    /// lld's ThinLTO cache. Kairo emits no bitcode, but the vendored LLVM's
+    /// lld libraries (liblld*.a) ARE bitcode, so a program that links lld --
+    /// the compiler itself -- ThinLTO-compiled all of lld at every link (~4 s
+    /// on 16 threads, P380). Cached per module by content; "" for none.
+    pub var lto_cache_dir:  string = "";
     pub var kld_path:       string;          ///< out-of-process fallback; "" disables it
     pub var out_of_process: bool = false;    ///< force kld even when in-process is healthy
     /// Filled by the plan, read after the link (Link::execute): the shared

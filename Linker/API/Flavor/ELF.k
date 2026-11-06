@@ -74,6 +74,13 @@ class ELFArgs {
         if job.threads > 0 { argv.push_back(f"--threads={job.threads}"); }
         // No --lto-O<n>: the backend always emits native objects (EmitObjAction),
         // so no bitcode reaches lld and --lto is marked unimplemented.
+        // A bitcode archive still can (LinkJob::lto_cache_dir): its compiled
+        // modules are reused across links. Capped so the cache cannot grow
+        // without bound; lld prunes it.
+        if !job.lto_cache_dir.empty() {
+            argv.push_back(f"--thinlto-cache-dir={job.lto_cache_dir}");
+            argv.push_back("--thinlto-cache-policy=cache_size_bytes=4g");
+        }
         if !tc.emulation.empty() { argv.push_back("-m"); argv.push_back(tc.emulation); }
         if tc.pass_sysroot { argv.push_back(f"--sysroot={tc.sysroot}"); }
         if (!want_stat) && (!o->hash_style.empty()) { argv.push_back(f"--hash-style={o->hash_style}"); }
