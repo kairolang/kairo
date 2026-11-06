@@ -395,16 +395,39 @@ fn decl_ffi_hides_tag(d: *Decl, tag: *Decl) -> bool {
 fn ffi_hide_tags(cands: *vec::<*Decl>) -> bool {
     var n = cands->size();
     if n < 2 { return false; }
+    // Every drop needs an imported TAG on one side of the pair (the dropped
+    // one, or the one it is a typedef of), so classify once and pair only
+    // against tags. A `cxx::std::` step has hundreds of candidates (libc++
+    // reopens std per header) and no tag: the all-pairs scan was the top of
+    // the serial Sema profile. Same keep set, same order.
+    var tags = vec::<usize>();
+    var is_tag = vec::<bool>();
+    for var i: usize = 0; i < n; ++i {
+        var t = decl_is_ffi_tag((*cands)[i]);
+        is_tag.push_back(t);
+        if t { tags.push_back(i); }
+    }
+    if tags.size() == 0 { return false; }
     var keep = vec::<*Decl>();
     for var i: usize = 0; i < n; ++i {
         var d = (*cands)[i];
         var drop = false;
-        for var j: usize = 0; (j < n) && (!drop); ++j {
-            if i == j { continue; }
-            var o = (*cands)[j];
-            if o == d { continue; }
-            if decl_is_ffi_tag(d) && decl_ffi_hides_tag(o, d) { drop = true; }
-            else if decl_is_ffi_tag(o) && decl_is_ffi_typedef_of(d, o) { drop = true; }
+        if is_tag[i] {
+            for var j: usize = 0; (j < n) && (!drop); ++j {
+                if i == j { continue; }
+                var o = (*cands)[j];
+                if o == d { continue; }
+                if decl_ffi_hides_tag(o, d) { drop = true; }
+                else if is_tag[j] && decl_is_ffi_typedef_of(d, o) { drop = true; }
+            }
+        } else {
+            for var k: usize = 0; (k < tags.size()) && (!drop); ++k {
+                var j = tags[k];
+                if i == j { continue; }
+                var o = (*cands)[j];
+                if o == d { continue; }
+                if decl_is_ffi_typedef_of(d, o) { drop = true; }
+            }
         }
         if !drop { keep.push_back(d); }
     }
