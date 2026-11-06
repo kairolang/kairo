@@ -734,8 +734,8 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn value_param_record(self, who: *Decl, dep: *Decl) -> bool;
     fn _names_vp_template(self, who: *Decl, dep: *Decl, nested: bool) -> bool;
     fn _type_names_vp(self, t: *Type, dep: *Decl, depth: u32, nested: bool) -> bool;
-    fn _vp_row(self, who: *Decl) -> u64;
-    fn _need_row(self, who: *Decl) -> u64;
+    fn _vp_row(self, who: *Decl) -> usize;
+    fn _need_row(self, who: *Decl) -> usize;
     fn _vp_collect(self, t: *Type, depth: u32, row: *VpNames);
     fn _plannable(self, d: *Decl) -> bool;
     fn _is_requirement(self, d: *Decl) -> bool;
@@ -3746,10 +3746,10 @@ fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
 /// do; an Entry reached only through a template argument (`vector<Entry>`)
 /// or not at all would otherwise leave the outer record ahead of a field
 /// type it needs complete. Its row is folded in.
-fn EmitPlan::_need_row(who: *Decl) -> u64 {
+fn EmitPlan::_need_row(who: *Decl) -> usize {
     var key = reinterpret_cast::<u64>(who);
     var hit = self._need_memo.find(key);
-    if hit != self._need_memo.end() { return hit->second; }
+    if hit != self._need_memo.end() { return static_cast::<usize>(hit->second); }
     var row = NeedRow();
     var gps = decl_generic_params(who);
     for var i: usize = 0; i < gps.size(); ++i {
@@ -3802,9 +3802,9 @@ fn EmitPlan::_need_row(who: *Decl) -> u64 {
             }
         } default { }
     }
-    var at = static_cast::<u64>(self._need_rows.size());
+    var at = self._need_rows.size();
     self._need_rows.push_back(row);
-    self._need_memo.try_emplace(key, at);
+    self._need_memo.try_emplace(key, static_cast::<u64>(at));
     return at;
 }
 
@@ -3843,10 +3843,10 @@ fn EmitPlan::_names_vp_template(who: *Decl, dep: *Decl, nested: bool) -> bool {
 /// searched for one dep -- bases, fields, method returns and non-self
 /// parameters, through the same type shapes and depth limit -- collecting
 /// every dep it would have answered true for.
-fn EmitPlan::_vp_row(who: *Decl) -> u64 {
+fn EmitPlan::_vp_row(who: *Decl) -> usize {
     var key = reinterpret_cast::<u64>(who);
     var hit = self._vp_memo.find(key);
-    if hit != self._vp_memo.end() { return hit->second; }
+    if hit != self._vp_memo.end() { return static_cast::<usize>(hit->second); }
     var row = VpNames();
     var rec = self.adt_record(who);
     var fields: *FrozenList::<*FieldDecl> = &null;
@@ -3883,9 +3883,9 @@ fn EmitPlan::_vp_row(who: *Decl) -> u64 {
             }
         }
     }
-    var at = static_cast::<u64>(self._vp_rows.size());
+    var at = self._vp_rows.size();
     self._vp_rows.push_back(row);
-    self._vp_memo.try_emplace(key, at);
+    self._vp_memo.try_emplace(key, static_cast::<u64>(at));
     return at;
 }
 

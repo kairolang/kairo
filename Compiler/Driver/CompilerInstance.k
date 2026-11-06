@@ -280,7 +280,7 @@ class FrontendAction {
     priv fn _sema_group(self, fids: *vec::<u32>, effects: *EffectTable, print_sema: bool, print_lowered: bool, sema_opts: PrintOptions);
     priv fn _codegen(self)     -> bool;
     priv fn _graph_header_sets(self) -> vec::<*HeaderSet>;
-    priv fn _tu_is_empty(self, fid: u32) -> bool;
+    fn _tu_is_empty(self, fid: u32) -> bool;   // not priv: _codegen's pool tasks call it (P380).
     priv fn _dump_tokens(self);
     priv fn _dump_preprocessed_source(self);
     priv fn _dump_macros(self);
@@ -5554,7 +5554,7 @@ fn FrontendAction::_codegen() -> bool {
         for var i: usize = 0; i < cand.size(); ++i {
             self._ci->pool()->enqueue(fn () |e_p, c_p, me, i| {
                 if me->_tu_is_empty(c_p[i]) { e_p[i] = u8(1); }
-            }, u8(14));
+            }, u8(14));   // the emptiness plans.
         }
         self._ci->pool()->wait_group(u8(14));
     }

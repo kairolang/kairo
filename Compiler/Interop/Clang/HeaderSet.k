@@ -629,7 +629,7 @@ class HeaderSet {
         // parses the bodies semantics needs -- constexpr, deduced return
         // types -- and codegen compiles against the merged PCH, which parses
         // every body. Bodies were most of each set's parse and AST (P380).
-        fe->SkipFunctionBodies = true;
+        fe->SkipFunctionBodies = 1;   // a 1-bit field: an integer, not a bool, for Stage 1.
         // A quoted include from a .k file resolves relative to that file's
         // directory, exactly as it would from a .cpp beside it. IgnoreSysRoot
         // (the last argument) MUST be true: the directory is a real absolute
@@ -746,7 +746,7 @@ class HeaderSet {
             // EndSourceFile LEAKS Sema, ASTContext, Preprocessor and the
             // managers (BuryPointer) and a release frees nothing. ~200 MB a
             // set on the self-host graph (P380).
-            if self._ci != &null { self._ci->getFrontendOpts().DisableFree = false; }
+            if self._ci != &null { self._ci->getFrontendOpts().DisableFree = 0; }
             if (self._ci != &null) && self._began { self._act->EndSourceFile(); }
             self._began = false;
             std::destroy(self._act);
@@ -832,7 +832,7 @@ class CodegenPCH {
         // ... -- 659 s of the 794 s clang frontend time over the self-host
         // graph's 316 TUs (P380). A Benign LangOpt: the TUs' own invocations
         // need not match it for the PCH to load.
-        inv->getLangOpts().PCHInstantiateTemplates = true;
+        inv->getLangOpts().PCHInstantiateTemplates = 1;
 
         var ci = std::create::<clang::CompilerInstance>(inv);
         var ok = self._parse(ci, be, fe->Inputs[0]);
@@ -939,7 +939,8 @@ class HeaderSetCache {
         return hs;
     }
 
-    priv fn _enqueue_build(self, set: *HeaderSet) {
+    /// Not priv: start_shared's pool task calls it through a captured pointer.
+    fn _enqueue_build(self, set: *HeaderSet) {
         var be  = self._be;
         var rec = kairo::TimeReport::region(r"HeaderSets");
         self._pool->enqueue(fn () |set, be, rec| {
@@ -1044,7 +1045,7 @@ class HeaderSetCache {
                 for v: *HeaderSet in *job { me->_enqueue_build(v); }
             }
             std::destroy(job);
-        }, HEADER_BUILD_GROUP());
+        }, HEADER_BUILD_GROUP());   // start_shared: the union parse.
     }
 
     fn find(self, key: string) -> *HeaderSet {
