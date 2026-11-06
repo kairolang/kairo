@@ -741,7 +741,7 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         var tu = self.sc->tu;
         if tu->header_set != &null {
             var hs = reinterpret_cast::<*HeaderSet>(tu->header_set);
-            if hs->alive() { return hs->macro_defined(nm); }
+            if hs->macros_known() { return hs->macro_defined(nm); }   // a released set's snapshot too (P380).
         }
         if self.sc->builtins != &null { return self.sc->builtins->macro_predefined(nm); }
         return false;

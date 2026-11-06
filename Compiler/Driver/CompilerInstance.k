@@ -2287,6 +2287,7 @@ class CompilerInstance {
     /// this run links (-o is the executable then) or there is no -o. Valid
     /// only if the build emits exactly one object; each emitter checks.
     fn kairo_input_count(self) -> usize { return self._kairo_inputs + self._source_inputs; }
+    fn kairo_only_input_count(self) -> usize { return self._kairo_inputs; }
 
     /// \brief the path, minus its extension, an entry TU of input stem
     ///        \p stem writes its --emit outputs to in a linking run that
@@ -4285,7 +4286,26 @@ fn FrontendAction::run() {
     if self._ci->diag()->error_count() > self.errors_at_start { self._stage = TUStage::Failed; return; }
     if fe.stops_at_sema() { self._stage = TUStage::Done; return; }
 
+    // Phase A's clang instances are Sema's (HeaderIndex, M2 fills, defined!):
+    // codegen reads only the merged PCH and the sets' text. With one Kairo
+    // input and no C++ input including a .k, no later action needs them, so
+    // they are freed before the fan-out instead of at exit -- ~200 MB each,
+    // the bulk of the peak (P380). Any later read is counted, not silent.
+    if (self._ci->kairo_only_input_count() == 1) && (!self._ci->kairo_feeds_includes()) && (self._ci->headers() != &null) {
+        var _tr = TimeRegion("HeaderRelease");
+        self._ci->headers()->drain_all(self._ci->diag(), self._ci->sm());
+        self._ci->headers()->release_all();
+    }
+
     if !self._codegen() { return; }
+    {
+        var late = kairo::header_set_late_uses().load();
+        Logger::info(Logger::Stage::Driver, f"header sets revived after release_unused: {kairo::header_set_revivals().load()}");
+        if late > 0 {
+            Logger::warn(Logger::Stage::Driver, f"{late} use(s) of a header set's clang AST after its early release (P380)");
+            std::eprintln(f"kairo: warning: {late} use(s) of a released header set (P380)");
+        }
+    }
 
     self._stage = TUStage::Done;
     Logger::info(Logger::Stage::Driver,
@@ -5116,11 +5136,41 @@ fn FrontendAction::_sema() -> bool {
     // that is exactly the loop as it was.
     var groups = ImportGroups();
     groups.build(&order, self._global_scope);
+    // A header set nothing imported points into (HeaderSet::contributed is
+    // false: 85 of the self-host graph's 115) is still each owning TU's
+    // fallback for a fill or a deduction its first set cannot spell (G58,
+    // G101), and only during that TU's Sema. So it is freed once the last
+    // TU owning it has run its group, instead of at exit (~200 MB each,
+    // P380). One action only: a later input's graph may own it too.
+    var early_release = (self._ci->kairo_only_input_count() == 1) && (!self._ci->kairo_feeds_includes())
+                        && (self._ci->headers() != &null);
+    var set_owners = llvm::DenseMap::<u64, u64>();
+    if early_release {
+        for fid: u32 in self._fids {
+            var octx = self._global_scope->get_context(fid);
+            if octx == &null { continue; }
+            var otu = reinterpret_cast::<*TranslationUnit>(octx->tu);
+            if (otu == &null) || (otu->header_set == &null) { continue; }
+            set_owners[reinterpret_cast::<u64>(otu->header_set)] += 1;
+        }
+    }
     var effects: EffectTable;
     for var g: usize = 0; g + 1 < groups.starts.size(); ++g {
         var members = vec::<u32>();
         for var k: usize = groups.starts[g]; k < groups.starts[g + 1]; ++k { members.push_back(groups.fids[k]); }
         self._sema_group(&members, &effects, fe.print_sema, fe.print_lowered, sema_opts);
+        if !early_release { continue; }
+        for fid: u32 in members {
+            var mctx = self._global_scope->get_context(fid);
+            if mctx == &null { continue; }
+            var mtu = reinterpret_cast::<*TranslationUnit>(mctx->tu);
+            if (mtu == &null) || (mtu->header_set == &null) { continue; }
+            var key = reinterpret_cast::<u64>(mtu->header_set);
+            var it = set_owners.find(key);
+            if (it == set_owners.end()) || (it->second == 0) { continue; }
+            it->second -= 1;
+            if it->second == 0 { reinterpret_cast::<*HeaderSet>(mtu->header_set)->release_unused(); }
+        }
     }
 
     if fe.print_imports { self._dump_overlays(); }

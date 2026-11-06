@@ -185,6 +185,7 @@ class HeaderIndex {
             t->frozen = true;
         }
 
+        hs->contributed = (fresh.size() > 0) || (di.n_declared > 0);
         Logger::info(Logger::Stage::Driver,
             f"HeaderIndex: {fresh.size()} new header TU(s), {di.n_declared} decl(s) declared, {di.n_defined} defined, {di.n_skipped} skipped, {ti.n_opaque} opaque type(s)");
         return true;

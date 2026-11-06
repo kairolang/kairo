@@ -47,6 +47,7 @@ ffi "c++" import "llvm/ADT/StringMap.h";
 ffi "c++" import "llvm/ADT/STLExtras.h";
 ffi "c++" import "llvm/ADT/DenseMap.h";
 ffi "c++" import "Native/Types.hh";
+ffi "c++" import "Native/KShims.hh";   // header_set_late_uses
 ffi "c++" import "clang/AST/ASTContext.h";
 ffi "c++" import "clang/AST/ASTConsumer.h";
 ffi "c++" import "clang/Basic/Diagnostic.h";
@@ -220,20 +221,100 @@ class HeaderSet {
     // --- Accessors (valid between build() and release()) --------------------
 
     fn ast(self)  -> *clang::ASTContext {
-        if self._ci == &null { return &null; }
+        // Any use after indexing (a fill or a deduction retry through this
+        // set, TypeExport stand-ins) may leave pointers into this AST: pin it.
+        if self.indexed { self.contributed = true; }
+        if (self._ci == &null) && (!self._revive()) { HeaderSet::_note_late(self.released); return &null; }
         if !self._ci->hasASTContext() { return &null; }
         return &(self._ci->getASTContext());
     }
     fn sema(self) -> *clang::Sema {
-        if self._ci == &null { return &null; }
+        // Any use after indexing (a fill or a deduction retry through this
+        // set, TypeExport stand-ins) may leave pointers into this AST: pin it.
+        if self.indexed { self.contributed = true; }
+        if (self._ci == &null) && (!self._revive()) { HeaderSet::_note_late(self.released); return &null; }
         if !self._ci->hasSema() { return &null; }
         return &(self._ci->getSema());
     }
     fn csm(self)  -> *clang::SourceManager {
-        if self._ci == &null { return &null; }
+        // Any use after indexing (a fill or a deduction retry through this
+        // set, TypeExport stand-ins) may leave pointers into this AST: pin it.
+        if self.indexed { self.contributed = true; }
+        if (self._ci == &null) && (!self._revive()) { HeaderSet::_note_late(self.released); return &null; }
         return &(self._ci->getSourceManager());
     }
-    fn alive(self) -> bool { return self._ci != &null; }
+    fn alive(self) -> bool {
+        if self._ci == &null { self._revive(); }
+        return self._ci != &null;
+    }
+
+    /// Set by HeaderIndex::index: this set minted a header TU or declared a
+    /// decl, so imported decls point into its AST. One that did neither (85
+    /// of the self-host graph's 115) is released right after indexing
+    /// (release_unused) and only re-parsed if something asks for its AST.
+    pub var contributed: bool = true;
+    pub var revivable:   bool = false;
+    priv var _be_saved:  obs::<ClangBackend> = &null;
+    priv var _macros:      llvm::StringMap::<bool>;   ///< release_unused's macro snapshot (names defined).
+    priv var _macros_kept: bool = false;
+
+    /// macro_defined() can answer: a live instance, or a released one's
+    /// snapshot. EvalIfFolding asks this instead of alive(), which revives.
+    fn macros_known(self) -> bool { return (self._ci != &null) || self._macros_kept || self.revivable; }
+
+    /// Frees this set's clang instance after HeaderIndex took nothing from
+    /// it; the include graph, file list and fid map stay. Driver thread.
+    fn release_unused(self) {
+        if self.contributed || (!self.ok) || (self._ci == &null) { return; }
+        // `defined!` (EvalIfFolding) asks a TU's own set for its macros, and
+        // most sets are some TU's own: keep the names defined at the end of
+        // the parse, so that question never re-parses the set.
+        if self._ci->hasPreprocessor() {
+            var pp = &(self._ci->getPreprocessor());
+            for var it = pp->macro_begin(true); it != pp->macro_end(true); ++it {
+                var ii = it->first;
+                if (ii != &null) && pp->isMacroDefined(ii) { self._macros.try_emplace(ii->getName(), true); }
+            }
+            self._macros_kept = true;
+        }
+        self.release();
+        self.released  = false;   // not a late use: _revive answers instead.
+        self.revivable = true;
+    }
+
+    /// Re-parse a release_unused() set on demand (a G62 fill retry in the
+    /// demanding TU's set, or `defined!` asking its macros): the same buffer,
+    /// VFS and invocation, so the same AST. Its diagnostics were already
+    /// reported, so the re-parse's are suppressed, and the recorded file
+    /// list and include graph are kept as they were. Once per set.
+    priv fn _revive(self) -> bool {
+        if self._ci != &null { return true; }
+        if (!self.revivable) || (self._be_saved == &null) { return false; }
+        self.revivable = false;
+        var keep_files = self.files;
+        var keep_inc   = self.includes;
+        var keep_ok    = self.ok;
+        self.files.clear();
+        self.includes.clear();
+        self.built.store(false);
+        self.diag_buf.push_suppress();
+        self.build(self._be_saved);
+        self.diag_buf.pop_suppress();
+        self.files    = keep_files;
+        self.includes = keep_inc;
+        self.ok       = keep_ok;
+        kairo::header_set_revivals().fetch_add(1);
+        Logger::info(Logger::Stage::Driver, f"HeaderSet {self.id}: revived after release_unused");
+        return self._ci != &null;
+    }
+
+    /// A set released early (HeaderSetCache::release_all before codegen,
+    /// P380) that something still asks for its AST: counted, and reported
+    /// once at exit (HeaderSetCache::report_late_uses), never silent.
+    pub var released: bool = false;
+    static fn _note_late(released: bool) {
+        if released { kairo::header_set_late_uses().fetch_add(1); }
+    }
     /// Hold this around any clang::Sema call from sema (M2's RequireCompleteType).
     fn sema_lock(self) -> *std::RecursiveMutex { return &(self._sema_mu); }
 
@@ -242,7 +323,8 @@ class HeaderSet {
     /// source file, so the preprocessor still holds every definition.
     /// Kairo's `defined!` (EVAL.md §4.3).
     fn macro_defined(self, name: string) -> bool {
-        if self._ci == &null { return false; }
+        if (self._ci == &null) && self._macros_kept { return self._macros.find(sref(name)) != self._macros.end(); }
+        if (self._ci == &null) && (!self._revive()) { return false; }
         if !self._ci->hasPreprocessor() { return false; }
         var slock = std::LockGuard(self._sema_mu);
         return self._ci->getPreprocessor().isMacroDefined(sref(name));
@@ -457,6 +539,7 @@ class HeaderSet {
     /// Parse the set and write the PCH. Keeps the instance alive.
     fn build(self, be: *ClangBackend) {
         var _t = TimeRegion("HeaderSetBuild");
+        self._be_saved = be;
         be->startup();                                   // idempotent, mutex-guarded.
         if !be->ready() { self.ok = false; self.built.store(true); return; }
 
@@ -622,7 +705,13 @@ class HeaderSet {
     // --- release (driver thread) -------------------------------------------
 
     fn release(self) {
+        if self._ci != &null { self.released = true; }
         if self._act != &null {
+            // build() set DisableFree so the AST outlives the parse; left set,
+            // EndSourceFile LEAKS Sema, ASTContext, Preprocessor and the
+            // managers (BuryPointer) and a release frees nothing. ~200 MB a
+            // set on the self-host graph (P380).
+            if self._ci != &null { self._ci->getFrontendOpts().DisableFree = false; }
             if (self._ci != &null) && self._began { self._act->EndSourceFile(); }
             self._began = false;
             std::destroy(self._act);
@@ -895,7 +984,12 @@ class HeaderSetCache {
         // the sets and parses on the backend's invocation.
         self.wait_codegen_pch();
         var lock = std::LockGuard(self._mu);
-        for var it = self._sets.begin(); it != self._sets.end(); ++it { it->second->release(); }
+        for var it = self._sets.begin(); it != self._sets.end(); ++it {
+            it->second->release();
+            // Final: no revival past here, and any later read is a late use.
+            it->second->revivable = false;
+            it->second->released  = true;
+        }
     }
 }
 

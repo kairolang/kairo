@@ -45,6 +45,7 @@
 #include <windows.h>
 #endif
 // fileno
+#include <atomic>
 #include <cstdio>
 
 // LLVM_VERSION_MAJOR (kairo::llvm_version_major below); the compiler always
@@ -117,6 +118,19 @@ inline const char *version_string() noexcept {
 #else
     return "unknown";
 #endif
+}
+
+/// Uses of a header set's clang AST after it was released early (P380:
+/// HeaderSet::_note_late). Expected 0; the driver reports a nonzero count.
+inline ::std::atomic<unsigned long long> &header_set_late_uses() noexcept {
+    static ::std::atomic<unsigned long long> n{0};
+    return n;
+}
+
+/// Header sets re-parsed after HeaderSet::release_unused (P380).
+inline ::std::atomic<unsigned long long> &header_set_revivals() noexcept {
+    static ::std::atomic<unsigned long long> n{0};
+    return n;
 }
 
 }  // namespace kairo
