@@ -267,6 +267,19 @@ class HeaderIndex {
             // is the written decl), so the shadow is let through by kind.
             if d->isImplicit() && (!llvm::isa::<clang::CXXMethodDecl>(d)) && (kind != clang::Decl::UsingShadow) { continue; }
 
+            // A header an earlier set indexed is frozen: bind() and define()
+            // are no-ops for it, and declare() only finds the entity that set
+            // registered under the same USR. Walking it again cost a USR and a
+            // registry probe per decl for every later set -- the self-host
+            // graph's 115 sets re-walked the same LLVM/libc++ headers (P380).
+            // Namespaces and transparent containers still recurse: a header
+            // they open may be one this set brings in first. Never in a fill.
+            if (di->fill_target == &null) && (kind != clang::Decl::Namespace)
+            && (kind != clang::Decl::LinkageSpec) && (kind != clang::Decl::Export) {
+                var ft = di->target_of(d);
+                if (ft != &null) && ft->frozen { continue; }
+            }
+
             // Transparent containers: recurse, no node.
             if (kind == clang::Decl::LinkageSpec) || (kind == clang::Decl::Export) {
                 self.walk_declare(llvm::cast::<clang::DeclContext>(d), di, out);
