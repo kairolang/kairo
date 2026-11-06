@@ -456,7 +456,11 @@ class CXXSpell {
         var f = dyn_cast::<FunctionDecl>(d);
         if (f != &null) && f->is_operator { return self.operator_name(f); }
         var t = decl_name_tok(d);
-        var nm = self.imm_name(t.imm, CXXSpell::fid_of(d));
+        // The table the name was interned in is chosen BEFORE it is read: an
+        // index read through the wrong table is not merely the wrong name but
+        // can lie past that table's end (P414: Stage 1.5 SIGSEGV'd building
+        // itself on `__fwd/memory.h`'s table, 31 names, asked for #44).
+        var nfid = CXXSpell::fid_of(d);
         // An imported enumerator's name was interned in the table of the
         // file its range lies in (DeclImport::_tok), which is not the TU of
         // the scope it lives in when a class and its nested enum sit in
@@ -464,7 +468,7 @@ class CXXSpell {
         // different identifier at that index (`Triple::UnknownVendor` came
         // out as `VendorType::mips64`). The range names the right table.
         if isa::<EnumVariantDecl>(d) && (self._cg->ctx->sm != &null) && t.range.is_valid() {
-            nm = self.imm_name(t.imm, self._cg->ctx->sm->get_fid(t.range));
+            nfid = self._cg->ctx->sm->get_fid(t.range);
         } else if decl_is_imported(d) && (self._cg->ctx->sm != &null) && (self._cg->ctx->tcm != &null) && t.range.is_valid() {
             // Any imported member, for the same reason: a class template
             // forward-declared in one header and defined in another (libc++'s
@@ -474,8 +478,9 @@ class CXXSpell {
             // with no table of its own was interned in the scope's, as
             // DeclImport::_tok falls back.
             var rf = self._cg->ctx->sm->get_fid(t.range);
-            if self._cg->ctx->tcm->get_imm_table_for_fid(rf) != &null { nm = self.imm_name(t.imm, rf); }
+            if self._cg->ctx->tcm->get_imm_table_for_fid(rf) != &null { nfid = rf; }
         }
+        var nm = self.imm_name(t.imm, nfid);
         // An ADT's layout record IS the enum to C++, and takes its name.
         var lay = dyn_cast::<StructDecl>(d);
         var named = d;
