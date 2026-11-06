@@ -340,7 +340,7 @@ class CodegenRun {
         self.be->header_fp_pragmas(&fp_open, &fp_close);
         for var i: usize = 0; i < sets.size(); ++i {
             var s = sets[i];
-            if s->ok {
+            if s->ok && (s->pch->Data.size() > 0) {   // a set writes no PCH of its own today (P380).
                 self.mounts.add_pch(s->pch_path(), &(s->pch->Data));
                 s->mounted = true;
             }

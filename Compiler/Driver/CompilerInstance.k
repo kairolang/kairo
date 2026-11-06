@@ -4911,7 +4911,7 @@ fn FrontendAction::_sema() -> bool {
         // there on a hello-sized program). _codegen joins it.
         if !fe.stops_before_codegen() {
             var gsets = self._graph_header_sets();
-            if gsets.size() > 1 { hc->prebuild_codegen_pch(gsets, kairo::TimeReport::current()); }
+            if gsets.size() > 0 { hc->prebuild_codegen_pch(gsets, kairo::TimeReport::current()); }
         }
     }
 
@@ -5438,7 +5438,8 @@ fn FrontendAction::_codegen() -> bool {
     // TU.
     var graph_sets = self._graph_header_sets();
     var merged: *CodegenPCH = &null;
-    if (graph_sets.size() > 1) && (self._ci->headers() != &null) {
+    // Also for ONE set (P380): the sets write no PCH of their own now.
+    if (graph_sets.size() > 0) && (self._ci->headers() != &null) {
         self._ci->headers()->wait_all();
         {
             var _tw = TimeRegion("CodegenPCHWait");

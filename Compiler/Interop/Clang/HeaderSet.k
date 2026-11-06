@@ -2,14 +2,14 @@
 ///
 ///   \brief Phase A of C++ header import: one clang parse per distinct
 ///          ORDERED header set, producing (a) a live clang AST that
-///          Sema/Foreign walks and M2 queries, and (b) an in-memory PCH that
-///          phase B (codegen) loads instead of re-parsing.
+///          Sema/Foreign walks and M2 queries. Phase B (codegen) loads
+///          the merged CodegenPCH built from the sets' text instead.
 ///
 ///   \par Lifecycle
 ///     request()  driver thread, from PPWalker::_finalize. Mints the set,
 ///                enqueues build() on the pool (HEADER_BUILD_GROUP). Returns
 ///                at once; the build overlaps parse + sema of the importer.
-///     build()    pool thread. Clang parse + PCHGenerator. The instance is
+///     build()    pool thread. Clang parse (a TU prefix). The instance is
 ///                kept ALIVE (BeginSourceFile + Execute, no EndSourceFile):
 ///                the ASTContext and Sema are what HeaderIndex walks and
 ///                what M2 asks for template members.
@@ -122,7 +122,7 @@ class HeaderSetPPCallbacks derives clang::PPCallbacks {
                                    file_type: clang::SrcMgr::CharacteristicKind);
 }
 
-/// The action: PCHGenerator as the consumer, TU_Prefix like GeneratePCHAction,
+/// The action: a plain ASTConsumer (no PCH, P380), TU_Prefix like GeneratePCHAction,
 /// our callbacks installed before the parse. BeginSourceFile + Execute are
 /// called by HeaderSet::build; EndSourceFile by HeaderSet::release.
 class HeaderSetAction derives clang::ASTFrontendAction {
@@ -560,7 +560,7 @@ class HeaderSet {
         var err = self._act->Execute();
         var failed = bool(err);
         if failed { llvm::consumeError(libcxx::move(err)); }
-        self.ok = (!failed) && (self._ci->getDiagnostics().getNumErrors() == 0) && (self.pch->IsComplete);
+        self.ok = (!failed) && (self._ci->getDiagnostics().getNumErrors() == 0);
         self.built.store(true, std::MemoryOrder::release);
 
         Logger::info(Logger::Stage::Driver,
@@ -947,16 +947,12 @@ fn HeaderSetPPCallbacks::InclusionDirective(
 
 fn HeaderSetAction::CreateASTConsumer(ci: ref!(clang::CompilerInstance), in_file: llvm::StringRef)
         -> libcxx::unique_ptr::<clang::ASTConsumer> {
-    // VERIFY(22.x): ctor order (PP, ModCache, OutputFile, isysroot, Buffer,
-    // CodeGenOpts, Extensions, AllowASTWithErrors, IncludeTimestamps, ...)
-    // confirmed against release/22.x ASTWriter.h:1015.
-    return libcxx::make_unique::<clang::PCHGenerator>(
-        ci.getPreprocessor(), ci.getModuleCache(),
-        llvm::StringRef(r"<kairo-hdrs>.pch"), llvm::StringRef(r""),
-        self._set->pch,
-        ci.getCodeGenOpts(),
-        ci.getFrontendOpts().ModuleFileExtensions,
-        false, false);
+    // No PCHGenerator (P380): phase B loads the merged CodegenPCH, built
+    // for every graph with a header set, and falls back to the sets' text,
+    // never to a set's own PCH. Serializing each of the self-host graph's
+    // 115 sets was ~11% of their build CPU, and the bytes were kept for the
+    // whole run. The parse is still a TU prefix (getTranslationUnitKind).
+    return libcxx::make_unique::<clang::ASTConsumer>();
 }
 
 fn HeaderSetAction::getTranslationUnitKind() -> clang::TranslationUnitKind {
