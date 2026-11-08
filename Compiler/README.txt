@@ -4,76 +4,132 @@
  Layout
 --------
 Compiler/
-├── Lexer/          source text -> tokens (scanners: hex, octal, immediate)
-├── Token/          token types, buffers, kind enums, identifier interning
+├── Lexer/          source text -> tokens (Lexer.k; scanners: HexParser,
+│                   OctalParser, Immediate; BalanceTracker; ImmBig.k: literal
+│                   values past 128 bits)
+├── Token/          token types, buffers, kind enums, identifier interning,
+│                   the immediate-value cache (TokenCacheManager), token text
+│                   (TokenText) and printing (TokenPrinter)
 ├── Preprocessor/   import scanning, expansion driving, scope tracking
-├── Macro/          macro definitions, collection, expansion, builtin sentinels
-├── Resolution/     import probing, module path resolution, search roots
-├── Parser/         tokens -> AST, two-pass hoisted (decl/expr/stmt/type/pattern)
-├── Sema/           RESOLUTION.md (pass spec), IMPORTS.md (import/overlay model)
-│   ├── Resolve/    name, member, type and import resolution, chain binding
-│   ├── Type/       expression typing, calls, casts, argument deduction
-│   ├── Check/      conformance, init/move/const, control flow, patterns
-│   ├── Verify/     post-resolution checks (e.g. ModulePinCheck)
-│   ├── Expand/     macro expansion, eval, requires desugaring
+│                   (Preprocessor.k batch driver, WaveExecutor.k the wave
+│                   loop, PPWalker.k per-fid walk, DepScanner.k import-only
+│                   scan, MacroTable.k, FileImportIndex.k, ScopeTracker.k;
+│                   TokenSource / StreamCursor / TokenRunCursor feed the
+│                   shared grammars)
+├── Macro/          macro parameters and builtin sentinels
+├── Resolution/     import probing, module path resolution, search roots,
+│                   file extensions
+├── Parser/         tokens -> AST, two-pass hoisted (ASTParse.k entry; Decl /
+│   │               Expr / Stmt / Type / Pattern parse files; LexicalScope)
+│   └── Shared/     grammars shared with the preprocessor (ImportGrammar,
+│                   MacroHeaderGrammar)
+├── Sema/           Compiler/Spec/Pipeline.md (pass spec), Compiler/Spec/Imports.md
+│   │               (import/overlay model); Sema.k schedules, SemaContext.k
+│   │               carries state, SemaDump.k is --print-sema
+│   ├── Resolve/    name, member, type and import resolution, chain binding,
+│   │               redeclaration merge, access checks
+│   ├── Type/       expression typing, calls, casts, overloads, argument
+│   │               deduction, substitution, panic sets
+│   ├── Check/      conformance, init/move/const, purity, control flow,
+│   │               patterns, effects, layout, feature gates
+│   ├── Verify/     post-resolution structural checks (e.g. ModulePinCheck)
+│   ├── Expand/     macro expansion, eval folding, requires / alloc desugaring
 │   ├── Foreign/    C++ (ffi) decl import/export, header index
 │   └── Lower/      Kairo -> core-Kairo rewrites that feed Codegen
-├── Codegen/        CODEGEN.md; checked tree -> tokens -> object
-│   ├── Emit/       EmitIR (bodies), InterfaceEmitter, CXXSpell (names)
-│   ├── Sink/       token / text sinks (--print-cxx)
-│   └── Backend/    clang invocation, headers, #include "foo.k" emitter
+├── Codegen/        Compiler/Spec/Codegen.md; checked tree -> tokens -> object
+│   │               (EmitPlan.k, PlanVisitors.k: the plan's read-only walks;
+│   │               CodegenContext.k; CodegenICE.k: ICE reports naming the
+│   │               program node)
+│   ├── Emit/       EmitIR (bodies), InterfaceEmitter, EmitWitness (interface
+│   │               witnesses), CXXSpell (names)
+│   ├── Sink/       token / text sinks (--print-cxx), TokenStreamPrinter
+│   └── Backend/    CodegenBackend / CodegenAction (clang invocation), headers
+│                   (EmitCXXHeader), the #include "foo.k" emitter
+│                   (IncludeEmitter), InterfacePCH (per-build interface PCH)
 ├── AST/
 │   ├── Node/       node defs + RTTI casting (isa/cast/dyn_cast via kind field)
 │   ├── Kind/       discriminator enums (DeclKind, ExprKind, ...)
-│   ├── Context/    ASTContext arena owner, symbol tables, translation unit,
-│   │               instantiation registry
-│   ├── Mixin/      shared node traits (annotation, redeclarable, qualifiers)
-│   ├── Visitor/    CRTP RecursiveASTVisitor
+│   ├── Context/    ASTContext arena owner, DisambigTable (the parser's hoisted
+│   │               scope table; GlobalDisambigTable the build-wide one),
+│   │               symbol tables, translation unit, instantiation registry,
+│   │               import overlay, canonical types
+│   ├── Mixin/      shared node traits (annotation, redeclarable, qualifiers,
+│   │               TemplateParams, FFILinkage)
+│   ├── Visitor/    CRTP RecursiveASTVisitor, ASTWriter (structural rewrites)
 │   ├── Matcher/    AST matching, position queries
-│   └── Printer/    tree/flat AST dump
+│   └── Printer/    tree/flat AST dump (ASTPrinter.k AstDumper; Printers.k the
+│                   TypePrinter / ExprPrinter / ... / ASTPrinter entry points)
+│                   Top level: shared fact tables (DeclFacts, AttrFacts,
+│                   OperatorFacts, LangItems, EnumNiche, ParamMode,
+│                   PrimitiveLimits, CxxReservedWords)
 ├── Interop/
-│   └── Clang/      clang jobs for C/C++ inputs, the codegen backend, the
-│                   #include "foo.k" hook and include scan, loc mapping
-├── Driver/         CompilerInstance; entry points Kairo.k (kairo), Kcc.k
-│                   (kcc), KairoWatch.k (kwatch); input kinds
-├── Diagnostic/     engine, consumers (basic/pretty)
-│   └──TableGen/    diagnostic registry, --explain, *.diag.toml files
-├── Command/        CLI flag parsing (registry, utils, parsed args)
+│   └── Clang/      clang jobs for C/C++ inputs (ClangJobs), the one shared
+│                   clang instance (ClangBackend), BuiltinsSet, the
+│                   #include "foo.k" hook and include scan (KairoInclude,
+│                   KairoIncludeScan), loc mapping (ClangLocMap); header sets
+│                   (HeaderSet.k, HeaderSetCache.k) and the merged codegen
+│                   PCH (CodegenPCH.k)
+├── Driver/         CompilerInstance (shared resources), FrontendAction (the
+│                   per-file pipeline); entry points Kairo.k (kairo) and
+│                   Kcc.k (kcc), both starting through Runtime.k; input kinds
+│                   (InputKinds), KairoIncludes (kcc's #include "foo.k"
+│                   answer), per-TU / batch results and stages
+├── Diagnostic/     engine, DiagBuilder, DiagSink (the builder's target) and
+│   │               BufferedDiagSink, consumers (basic/pretty), clang
+│   │               diagnostic adapter, generated Registry.k
+│   └── TableGen/   *.diag.toml definitions (one per category); Registry.k is
+│                   generated from them by Scripts/gen_diag.py
+├── Command/        CLI flag parsing (registry, utils, parsed args), the
+│                   kairo <-> clang flag translator
 ├── Config/         resolved CompilerInvocation + per-subsystem option structs
 ├── Location/       source locations, ranges, managers, line tables
 ├── Memory/         arena allocation, memory buffers, mmap regions
 ├── Threading/      thread pool, task queues, partitioning, cache-line consts
-├── Support/        interning, file IO, terminal rendering, misc primitives
-├── Tooling/        parse API for tools, kparse / kparsebench
-└── Native/         C++ interop headers (.hh) pooled, path-coupled
+├── Support/        interning/hash helpers, assertions, limits, terminal
+│   │               rendering, shell quoting, timers (Timer, TimeReport)
+│   └── FileIO/     Path, FileSystem, VirtualFileManager
+├── Tooling/        parse API for tools (ParseAPI, ToolDiagnostics), kparse
+│                   (ParseOnceTest.k), GenClangDiagIdentity.k
+│                   (clang-diag-identity: lists clang's diagnostic flags for
+│                   Scripts/gen_clang_diag_table.py)
+├── Spec/           the compiler specification: pipeline, per-pass contracts,
+│                   build system, self-hosting, incremental compilation
+│                   (index: Compiler/Spec/README.md; Issues/ holds the
+│                   ticket write-ups)
+└── Native/         C++ interop headers (.hh) pooled, path-coupled: arenas
+                    (ArenaBlock, GlobalRecycler, KPlacement), text and numbers
+                    (CharTable, UTF8Decode, KInt128, KLocale), threading and
+                    timing (KThread, KTimeReport, KTimeClang), Win32 calls
+                    (Win32.hh/.cpp), Cc1As.hh (clang's -cc1as entry point),
+                    KClangDiag.hh (questions about a clang::Diagnostic's
+                    arguments), KClangPurity.hh (clang's const / pure marks
+                    for FnPurityCheck), KSharedVFS.hh (a codegen TU's view of
+                    the fan-out's shared in-memory file layer)
 
 The linker (KLD) is not under Compiler/: it is ../Linker (Linker::API).
 
 --------------------------------------------------------------------------------
 
- Stage 0 vs Stage 1
---------------------
+ The compiler, and where it came from
+---------------------------------------
 
-Stage 1 compiler: self-hosted, written in Kairo. This tree is Stage 1.
+This tree is the Kairo compiler (Stage 1), written in Kairo and built by
+itself: since 2026-11-06 the repo is self-hosted, and `python3 build.py`
+builds it with the last good release compiler (the seed). Stage 0, the old
+C++ transpiler that bootstrapped it, no longer builds anything here; the
+bootstrap and the seed chain are Compiler/Spec/SelfHosting.md.
 
-Stage 0 and Stage 1 are different compilers, not two versions of one. Do
-not carry assumptions from one to the other.
+Stage naming: Stage 1 is this self-hosting compiler; Stage 1.5 drops the C++
+standard-library dependencies and std APIs from the compiler's own source;
+Stage 2 is hardening (the safety pass, SSA).
 
-  Stage 0 - the current shipping compiler, written in C++. A transpiler:
-  it parses every file and import, has NO semantic analysis, and codegens
-  the entire program into one mono C++ file that it dumps to disk and hands
-  to a C++ compiler. It compiles all ~65k lines of Stage 1 today. Stage 1
-  does not yet compile itself.
-
-  Stage 1 - a real compiler. Own lexer, preprocessor, parser, full Sema
-  (name resolution, overload resolution, ADL, SFINAE, concept and conformance
-  checking, instance enumeration, all done Kairo-side), and a CodeGen that
-  does NOT emit C++ source.
-
-BUILD STATE: lexer, preprocessor, parser, import resolution and Sema's name
-and type resolution are complete (`--type-check-only` is the dependable
-loop). Lowering and CodeGen are in progress: many programs compile, link
-through KLD and run (Tests/Codegen), but not every construct lowers yet.
+The compiler has its own lexer, preprocessor, parser, full Sema (name
+resolution, overload resolution, ADL, SFINAE, concept and conformance
+checking, instance enumeration, all done Kairo-side), and a CodeGen that does
+NOT emit C++ source. Many programs compile, link through KLD and run (Tests/
+Codegen); a few constructs do not lower yet (see Compiler/Spec/Issues/).
+`--type-check-only` stops after Sema and is the fast loop when a change does
+not touch codegen.
 Panic is built end to end outside generic bodies: inferred and declared
 sets, try/catch, tagged `Panic<T, ...E>` returns (every Kairo function
 stays noexcept), the C++ view (`::builtin::value_or_throw`, ...) and C++
@@ -81,7 +137,7 @@ exception arms. `crash!` and every crash-family check go through one
 signal-safe runtime call (Lib/rt/crash.c). The LLVM IR safety pass is
 designed, not built.
 
-Stage 1 CodeGen constructs an in-memory clang::Token stream located into the
+CodeGen constructs an in-memory clang::Token stream located into the
 original .k files, and Clang consumes it directly (via EnterTokenStream, or
 the patched FileTokenizer hook). That token stream is a REDUCED subset of
 C++: overload selection, specialization choice, constraint satisfaction,
@@ -102,14 +158,14 @@ so Clang compiles a known instance once. What differs per instance is
 selected by C++ itself (a specialization, `requires`, a `static_assert` pin),
 because C++ also instantiates Kairo templates at types Kairo never sees.
 
-Transitional: duck generics. `<T: type>` (the C++-checked regime, MONO.md
-D1) is ON by default until the compiler hosts itself, because the bootstrap
-corpus is written in it: its body is typed as written and clang checks each
-instance. `-fno-duck-generics` turns it off (every `: type` is then SC001E).
-Permanent removal is MONO.md G14: flip the default (FlagRegistry.k's help
-text, Config/Language.k, SemaContext::duck_generics), then delete the regime
-branch (FlagGates' `: type` gate, ChainBinding's `b.duck`, EmitIR's
-as-written member chain) and the flag.
+Transitional: duck generics. `<T: type>` (the C++-checked regime,
+Compiler/Spec/Generics.md#duck-regime) is still ON by default, because the
+compiler's own source is written in it: its body is typed as written and
+clang checks each instance. `-fno-duck-generics` turns it off (every `: type`
+is then SC001E). Permanent removal is Compiler/Spec/Generics.md#duck-regime:
+flip the default (FlagRegistry.k's help text, Config/Language.k,
+SemaContext::duck_generics), then delete the regime branch (FlagGates' `: type`
+gate, ChainBinding's `b.duck`, EmitIR's as-written member chain) and the flag.
 Lowering stays ABI-stable with C++ throughout; Kairo stays the richer
 language above that line, but the boundary is clean and stable.
 
@@ -121,12 +177,12 @@ Each stage owns one transformation and hands off; the directory layout
 follows the pipeline.
 
   Load -> Lex -> Preprocess -> Index -> Parse -> Import Resolution
-       -> Sema (KairoIR lowering) -> CodeGen -> Sema agreement
+       -> Sema (KIR lowering) -> CodeGen -> Sema agreement
        -> LLVM IR safety -> Link
 
 Built: Load, Lex, Preprocess, Index (the parser's hoisting pass), Parse,
-Import Resolution, Sema. In progress: lowering, CodeGen, Link. Designed,
-not built: Sema agreement, LLVM IR safety.
+Import Resolution, Sema, lowering, CodeGen, Link. Designed, not built: Sema
+agreement, LLVM IR safety.
 
 Index and Import Resolution are real stages, not sub-steps. C++ FFI is not
 a linear stage, it's a guest invoke that fires during Index (see Pipeline 1).
@@ -192,7 +248,7 @@ contains it, and `main` is the global `int main` wherever it is declared.
 Each input gets one Frontend Action over the TUs it reaches. The inputs of
 one build share a batch: a file reached by two inputs is built once (the
 first action to reach it claims it), and an input another input imports is
-run first. See Sema/IMPORTS.md for roots and module paths.
+run first. See Compiler/Spec/Imports.md for roots and module paths.
 
 Per-Action pipeline (parallelism shown explicitly):
 
@@ -257,7 +313,7 @@ Per-Action pipeline (parallelism shown explicitly):
         *=================================================*
                                 v
         *=================================================*
-        |  SEMA -- per TU, in import order                |   Sema/*, Sema/RESOLUTION.md
+        |  SEMA -- per TU, in import order                |   Sema/*, Spec/Pipeline.md
         |  P -> I -> E -> V -> N -> T -> ChainBinding ->  |
         |  checks. Name + type resolution, overloads,     |
         |  conformance, init/move/const, control flow,    |
@@ -275,10 +331,10 @@ Per-Action pipeline (parallelism shown explicitly):
         |  Lowering: Kairo's IR layer IS Kairo. Each      |   Sema/Lower/* (one pass per
         |  high-level construct is rewritten into more    |   construct; the fixed order
         |  primitive Kairo (variants, enum layout, ctor   |   is Sema.k::_stage_lowerings,
-        |  init, script, panic, finally, nullable,        |   listed in RESOLUTION.md §2.10)
+        |  init, script, panic, finally, nullable,        |   listed in Compiler/Spec/Lowering.md)
         |  operators, f-strings, iteration, match, ...).  |
         |                                                 |
-        |  Mono (MONO.md): a generic body is checked once |   AST/Context/
+        |  Mono (Compiler/Spec/Generics.md): a generic body is checked once |   AST/Context/
         |  against its bounds, never per instance. T, X   |   InstantiationRegistry.k
         |  and the reach mint instances into the build-   |   Sema/Check/
         |  wide registry's worklist; M1 drains it, and    |   ConformanceChecking.k
@@ -291,7 +347,7 @@ Per-Action pipeline (parallelism shown explicitly):
         *=================================================*
                                 v
         *=================================================*
-        |  CODEGEN -- always fully parallel over TUs      |   Codegen/CODEGEN.md
+        |  CODEGEN -- always fully parallel over TUs      |   Spec/Codegen.md
         |  construct a clang::Token stream into a custom  |   Codegen/EmitPlan.k, Emit/*
         |  inline buffer; SourceLocs point into .k.       |   Codegen/Sink/TokenSink.k
         |  Invoke Clang cleanly as a guest -> object.     |   Codegen/Backend/CodegenBackend.k
@@ -420,7 +476,7 @@ memory, located into .k. The only difference is who asked for them, here
 it's Clang's include machinery via the hook, not a standalone Frontend Action.
 What the include yields is foo's interface (pub decls, plus the inline and
 template bodies a C++ consumer compiles itself); foo's own bodies are in
-foo.k.o (CODEGEN.md §1, EmitPlan(Include)).
+foo.k.o (Compiler/Spec/Codegen.md#pipeline, EmitPlan(Include)).
 
 --------------------------------------------------------------------------------
 
@@ -437,28 +493,53 @@ are merged today and the surface is large. This is a known seam, not a design
 choice: analysis decides, lowering rewrites, and the two will want splitting
 as the folder grows.
 
-Native/ headers are pooled rather than co-located because their #include
-paths are relative and mutually dependent; -I does not currently reach them.
-(stage0 limitation)
 
-Native/ is plain C++ on the C++ standard library, and must compile in both
-worlds that import it: Stage 0 (lib-helix's core.hh force-included) and
-Stage 1 (no lib-helix anywhere). Every header includes Native/KPrelude.hh
-instead of <include/core.hh>; KAIRO_NATIVE_STAGE0 there is the one switch,
-and what sits behind it is Stage 0 only (lib-helix's string, null_t,
-std::Function, the print family). Text parameters are templates over
-native::bytes, so one signature takes either world's string.
+Native/ headers are pooled rather than co-located because their #include
+paths are relative and mutually dependent; -I does not reach them.
+
+Native/ is plain C++ on the C++ standard library. Every header includes
+Native/KPrelude.hh. KAIRO_NATIVE_STAGE0 there is the one switch between the
+two worlds a header can be compiled in: with lib-helix's core.hh
+force-included (the retired Stage 0 build) or with nothing but the C++
+standard library (today's build). Only the second world is built now; what
+sits behind the switch is leftover Stage 0 code (lib-helix's string, null_t,
+std::Function, the print family) pending removal. Text parameters are templates
+over native::bytes, so one signature takes either world's string.
 
 --------------------------------------------------------------------------------
 
  Build
 -------
 
-  kbld kairo --debug     (from the repo root)
-  kbld kcc --debug       (when Driver/ or anything kcc links changes)
+  python3 build.py --debug kairo kcc     (from the repo root; the edit/test loop)
+  python3 build.py --release kairo kcc   (the release pipeline)
 
-Both end with a post-build hook (build.k) that turns build/<triple>/<mode>
-into a self-contained toolchain:
+build.py is the build of record (its module docstring and `--help` are
+authoritative; Compiler/Spec/BuildSystem.md is the spec). kbld and build.k
+drive Stage 0 and cannot build this tree. Targets: kairo, kcc, kld, kparse,
+katar, clang-diag-identity (default kairo; `--print-jobs` shows the clang
+jobs and the link without building).
+
+  --debug    build/<triple>/debug, built by the newest staged release
+             compiler (--kairo names another seed), with a permanent cache
+             build/<triple>/cache/debug.
+  --release  the two-stage pipeline: snapshot build/<triple>/release to
+             build/<triple>/N-1 (the backup and the seed), N-1 builds kairo
+             alone into build/<triple>/staging, staging builds the toolchain
+             into build/<triple>/release, then the PATH entries for kairo and
+             kcc are pointed at it (--no-path skips that). A failure restores
+             release/ from N-1 and exits nonzero. <triple> is e.g.
+             x86_64-linux-musl.
+
+Every build writes the diagnostic registry first: Scripts/gen_diag.py reads
+Diagnostic/TableGen/*.diag.toml, emits Diagnostic/Registry.k (generated, never
+edited) and the registry object build/registry, which is linked into every
+tool and so references no compiler-module symbol (P501; TableGen/README says
+why). Never rebuild a compiler
+binary while a compile is running from it.
+
+Both end with a post-build hook that turns build/<triple>/<mode> into a
+self-contained toolchain:
 
   Scripts/stage_tree.py <tree>   bin/: clang-<ver> (+ clang, clang++,
                                  clang-cpp, clang-cl), lld (+ ld.lld,
@@ -485,13 +566,11 @@ release.
 
 A staged tree runs with no root flags:
 
-  build/x86_64-linux-gnu/debug/bin/kairo main.k -o main
+  build/x86_64-linux-musl/debug/bin/kairo main.k -o main
 
 Without --resource-dir / --builtins-dir / --std-dir the driver takes
 <exe>/../lib/clang/<ver>, <exe>/../lib/builtin and <exe>/../lib/std
 (CompilerInstance::_discover_roots); a flag always wins. Each root it cannot
 find is a P001W naming the path searched and the flag; so is having no
 sysroot (none given, no <exe>/../sysroot/<target>) unless --freestanding.
-lit still passes every root explicitly.
-
-Stage 0 compiles all of Stage 1. Stage 1 does not yet compile itself.
+lit passes every root explicitly.

@@ -20,9 +20,11 @@ Kairo is a **statically typed compiled general purpose language**, built for sys
 
 ### Current Status
 
-The **Stage 0 compiler** (written in C++) is functional and can compile Kairo albeit not all the features that stage1 has, you can download it from the [release page](https://github.com/kairolang/kairo/releases), works, but has quite a few bugs, **stage0 issues will not be fixed unless critical**. Development of the **Stage1 compiler**, written in Kairo itself, is in progress.
+The **Stage 1 compiler**, written in Kairo, now **compiles itself** (November 2026). A release build is bootstrapped by the previous release: it builds a staging compiler from the source, and the staging compiler builds the release. It is checked against a lit suite of about 2,000 tests and builds for 14 targets. The self-hosted source lands with the **0.2.0** release.
+
+The **Stage 0 compiler** (the original C++ transpiler) is retired: it only bootstrapped Stage 1, and **its issues will not be fixed**. Older Stage 0 binaries are still on the [release page](https://github.com/kairolang/kairo/releases).
 > [!WARNING]
-> [Documentation](https://www.kairolang.org/docs) is technically complete now matching, stage1 and what it can do once built, but the compiler is still in development and not ready for production use.
+> The [documentation](https://www.kairolang.org/docs) covers the language as Stage 1 implements it, and the [status page](https://www.kairolang.org/docs/status/) lists what is not built yet. The compiler is not ready for production use.
 > If you want to help with documentation, please reach out to us on [Discord](https://discord.gg/VHCnPccDc)
 
 ### Why Kairo?
@@ -49,7 +51,7 @@ Kairo is built to slot directly into C **and** C++ ecosystems, offering a fresh 
 
 ### Example
 
-This builds today with the Stage 1 compiler (build from source for now; see [Installation](#installation)).
+This builds today with the Stage 1 compiler (build from source for now; see [Getting Started](#getting-started)).
 
 C++ includes a `.k` file directly. There is no generated header and no binding layer:
 
@@ -213,7 +215,7 @@ fn first(v: cxx::std::vector<i32>?) -> i32 {
 
 **Build from source:** see [BUILD.md](BUILD.md) - covers the quick install script, manual setup, PATH configuration, the VSCode extension, and debugging.
 
-**Code reference:** since the docs are still catching up, the [Compiler directory](https://github.com/kairolang/kairo/tree/main/Compiler) is compiling Stage 0 code.
+**Code reference:** the [Compiler directory](https://github.com/kairolang/kairo/tree/main/Compiler) is the Stage 1 compiler, written in Kairo. [Compiler/README.txt](Compiler/README.txt) maps every directory, and [Compiler/Spec](Compiler/Spec) holds the compiler's design specs.
 
 ### License
 
