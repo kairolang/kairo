@@ -28,3 +28,9 @@
 	path = Lib/rt/mimalloc
 	url = https://github.com/microsoft/mimalloc
 	shallow = true
+[submodule "Lib/third_party/zlib"]
+	path = Lib/third_party/zlib
+	url = https://github.com/madler/zlib.git
+[submodule "Lib/third_party/zstd"]
+	path = Lib/third_party/zstd
+	url = https://github.com/facebook/zstd.git
