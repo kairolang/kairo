@@ -48,23 +48,23 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: error [
-// DIAG: triple_eq_errors.k:28:20: error [SC001E]: 'a' may be null here; check it with 'if a?' first
+// DIAG: triple_eq_errors.k:28:20: error [SC265E]: 'a' may be null here; check it with 'if a?' first
 // DIAG-NOT: error [
 // DIAG: triple_eq_errors.k:34:14: error [SC034E]: '===' needs a nullable operand; 'i32' and 'i32' are not nullable
 // DIAG-NOT: error [
 // DIAG: triple_eq_errors.k:35:14: error [SC034E]: '===' needs a nullable operand; '*i32' and '*i32' are not nullable
 // DIAG-NOT: error [
-// DIAG: triple_eq_errors.k:36:14: error [SC001E]: '===' with 'null' is never true: '===' holds only when both sides have a value
+// DIAG: triple_eq_errors.k:36:14: error [SC264E]: '===' with 'null' is never true: '===' holds only when both sides have a value
 // DIAG: fix-it:{{.*}}:{36:14-36:24}:"!a?"
 // DIAG-NOT: error [
-// DIAG: triple_eq_errors.k:37:14: error [SC001E]: '===' with 'null' is never true
+// DIAG: triple_eq_errors.k:37:14: error [SC264E]: '===' with 'null' is never true
 // DIAG: fix-it:{{.*}}:{37:14-37:24}:"!a?"
 // DIAG-NOT: error [
 // DIAG: triple_eq_errors.k:39:14: error [SC033E]: '===' operands '*i32?' and 'i32?' do not unify: on a nullable pointer '===' compares what it points to, so the other side must be a pointer too
 // DIAG-NOT: error [
 // DIAG: triple_eq_errors.k:41:14: error [SC066E]: '===' compares the values with their 'op ==', and 'Bare' has none
 // DIAG-NOT: error [
-// DIAG: triple_eq_errors.k:43:14: error [SC001E]: '===' on 'unsafe *i32?' and 'unsafe *i32?' dereferences a raw pointer, which requires an unsafe context
+// DIAG: triple_eq_errors.k:43:14: error [SC263E]: '===' on 'unsafe *i32?' and 'unsafe *i32?' dereferences a raw pointer, which requires an unsafe context
 // DIAG-NOT: error [
 
 // RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA

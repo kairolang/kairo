@@ -81,23 +81,23 @@ fn ool() -> usize { var o = Ool(); var s: string = "abc"; return o.m(s) }
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:12:18: warning [SC001W]: parameter 's' is never mutated; declare it 'const'
+// DIAG: {{.*}}:12:18: warning [SC224W]: parameter 's' is never mutated; declare it 'const'
 // DIAG-NEXT: fix-it:"{{.*}}":{12:18-12:18}:"const "
-// DIAG: {{.*}}:30:9: warning [SC001W]: parameter 's' is never mutated; declare it 'const'
+// DIAG: {{.*}}:30:9: warning [SC224W]: parameter 's' is never mutated; declare it 'const'
 // DIAG-NEXT: fix-it:"{{.*}}":{30:9-30:9}:"const "
-// DIAG: {{.*}}:31:12: warning [SC001W]: parameter 's' is never mutated; declare it 'const'
+// DIAG: {{.*}}:31:12: warning [SC224W]: parameter 's' is never mutated; declare it 'const'
 // DIAG-NEXT: fix-it:"{{.*}}":{31:12-31:12}:"const "
-// DIAG: {{.*}}:32:15: warning [SC001W]: parameter 's' is never mutated; declare it 'const'
+// DIAG: {{.*}}:32:15: warning [SC224W]: parameter 's' is never mutated; declare it 'const'
 // DIAG-NEXT: fix-it:"{{.*}}":{32:15-32:15}:"const "
-// DIAG: {{.*}}:33:12: warning [SC001W]: parameter 'a' is never mutated; declare it 'const'
+// DIAG: {{.*}}:33:12: warning [SC224W]: parameter 'a' is never mutated; declare it 'const'
 // DIAG-NEXT: fix-it:"{{.*}}":{33:12-33:12}:"const "
-// DIAG: {{.*}}:33:23: warning [SC001W]: parameter 'b' is never mutated; declare it 'const'
+// DIAG: {{.*}}:33:23: warning [SC224W]: parameter 'b' is never mutated; declare it 'const'
 // DIAG-NEXT: fix-it:"{{.*}}":{33:23-33:23}:"const "
-// DIAG: {{.*}}:42:17: warning [SC001W]: parameter 'b' is never mutated; declare it 'const'
+// DIAG: {{.*}}:42:17: warning [SC224W]: parameter 'b' is never mutated; declare it 'const'
 // DIAG-NEXT: fix-it:"{{.*}}":{42:17-42:17}:"const "
-// DIAG: {{.*}}:48:34: warning [SC001W]: parameter 's' is never mutated; declare it 'const'
+// DIAG: {{.*}}:48:34: warning [SC224W]: parameter 's' is never mutated; declare it 'const'
 // DIAG-NEXT: fix-it:"{{.*}}":{48:34-48:34}:"const "
-// DIAG: {{.*}}:77:17: warning [SC001W]: parameter 's' is never mutated; declare it 'const'
+// DIAG: {{.*}}:77:17: warning [SC224W]: parameter 's' is never mutated; declare it 'const'
 // DIAG-NEXT: fix-it:"{{.*}}":{77:17-77:17}:"const "
 // END-GENERATED-CHECKS(DIAG)
 

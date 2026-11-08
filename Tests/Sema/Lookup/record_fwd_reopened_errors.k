@@ -16,7 +16,7 @@ fn main() -> i32 { return 0 }
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
 // DIAG: {{.*}}:6:12: error [R029E]: redefinition of 'Twice'
 // DIAG-NEXT: {{.*}}:5:12: note [R029N]: previous definition of 'Twice' is here
-// DIAG: {{.*}}:8:12: error [R001E]: 'Kw' is forward-declared as a struct but defined as a class
+// DIAG: {{.*}}:8:12: error [R063E]: 'Kw' is forward-declared as a struct but defined as a class
 // DIAG-NEXT: fix-it:"{{.*}}":{8:12-8:18}:"class"
-// DIAG-NEXT: {{.*}}:9:12: note [R001N]: 'Kw' is defined here as a class
+// DIAG-NEXT: {{.*}}:9:12: note [R063N]: 'Kw' is defined here as a class
 // END-GENERATED-CHECKS(DIAG)

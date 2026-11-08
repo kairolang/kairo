@@ -54,4 +54,4 @@ fn use_both() -> i32 {
 // Whatever the part before `=` is: a name no pin could carry used to slip
 // past and vanish as a missing directory literally named `foo-lib=...`,
 // with only the import's R011E left to see.
-// NAMEDASH: error [U001E]: -I foo-lib={{.*}}libfoo: no such directory; -I takes a directory only, and the name=dir form is gone
+// NAMEDASH: error [U007E]: -I foo-lib={{.*}}libfoo: no such directory; -I takes a directory only, and the name=dir form is gone

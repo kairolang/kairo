@@ -10,6 +10,6 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
-// CHECK: eval_class_errors.k:6:6: error [SC001E]: 'R' is an 'eval' constant of type 'Res', whose destructor is not trivial; a compile-time object is never destroyed
-// CHECK-NEXT: eval_class_errors.k:4:63: note [SC001N]: the destructor is declared here
+// CHECK: eval_class_errors.k:6:6: error [SC184E]: 'R' is an 'eval' constant of type 'Res', whose destructor is not trivial; a compile-time object is never destroyed
+// CHECK-NEXT: eval_class_errors.k:4:63: note [SC184N]: the destructor is declared here
 // CHECK: eval_class_errors.k:8:13: error [SC116E]: a generic value parameter of type 'bool' is not yet supported; only an integer type or an eval class is

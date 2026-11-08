@@ -17,7 +17,7 @@ fn main() -> i32 { return 0 }
 // RUN: cd %t.d/sep && %kcc -c %S/Inputs/multi/y.k
 // RUN: test "$(ls %t.d/sep)" = "$(printf 'm1.o\nm2.o\ny.o')"
 // RUN: cd %t.d/sep && { %kcc m1.o m2.o y.o -o app 2>&1 || true; } | %FileCheck %s --check-prefix=NOZ
-// NOZ: error [L001E]: undefined symbol: z::base(int)
+// NOZ: error [L002E]: undefined symbol: z::base(int)
 // RUN: cd %t.d/sep && %kcc -c %S/Inputs/multi/z.k && %kcc m1.o m2.o y.o z.o -o app && ./app; test $? -eq 32
 
 // The same objects in any order.

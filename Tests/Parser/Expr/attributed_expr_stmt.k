@@ -84,17 +84,17 @@ fn f(p: *T) {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=SUGAR --implicit-check-not="error [" --implicit-check-not="warning ["
 // SUGAR: attributed_expr_stmt.k:21:5: error [SC116E]: the expression attribute '@a' is not yet supported
 // SUGAR: attributed_expr_stmt.k:21:8: error [SC116E]: the expression attribute '@b' is not yet supported
-// SUGAR: attributed_expr_stmt.k:23:5: error [SC001E]: unknown attribute '@repeat'
-// SUGAR: attributed_expr_stmt.k:25:5: error [SC001E]: unknown attribute '@always_inline'
-// SUGAR: attributed_expr_stmt.k:27:5: error [SC001E]: unknown attribute '@note'
-// SUGAR: attributed_expr_stmt.k:29:5: error [SC001E]: unknown attribute '@lbl'
+// SUGAR: attributed_expr_stmt.k:23:5: error [SC145E]: unknown attribute '@repeat'
+// SUGAR: attributed_expr_stmt.k:25:5: error [SC145E]: unknown attribute '@always_inline'
+// SUGAR: attributed_expr_stmt.k:27:5: error [SC145E]: unknown attribute '@note'
+// SUGAR: attributed_expr_stmt.k:29:5: error [SC145E]: unknown attribute '@lbl'
 // RUN: sed -e '/^@create/d' -e '/    @destroy p/d' -e '/    @create T()/d' %s > %t.k
 // RUN: { %kairo %t.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=GATE --implicit-check-not="error [" --implicit-check-not="warning ["
 // GATE: :18:5: error [SC116E]: the expression attribute '@a' is not yet supported
 // GATE: :18:8: error [SC116E]: the expression attribute '@b' is not yet supported
 // The statement and declaration attributes no compiler rule knows are
 // AttributeCheck's (unknown attribute); `@deprecated` and `@likely` are known.
-// GATE: :20:5: error [SC001E]: unknown attribute '@repeat'
-// GATE: :22:5: error [SC001E]: unknown attribute '@always_inline'
-// GATE: :24:5: error [SC001E]: unknown attribute '@note'
-// GATE: :26:5: error [SC001E]: unknown attribute '@lbl'
+// GATE: :20:5: error [SC145E]: unknown attribute '@repeat'
+// GATE: :22:5: error [SC145E]: unknown attribute '@always_inline'
+// GATE: :24:5: error [SC145E]: unknown attribute '@note'
+// GATE: :26:5: error [SC145E]: unknown attribute '@lbl'

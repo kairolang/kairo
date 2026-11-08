@@ -31,9 +31,9 @@ fn main() -> i32 { return 0 }
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:17:19: error [SC001E]: 'Bad' does not conform to 'Valued': no member 'value' with the requirement's signature
+// DIAG: {{.*}}:17:19: error [SC162E]: 'Bad' does not conform to 'Valued': no member 'value' with the requirement's signature
 // DIAG-NEXT: {{.*}}:12:8: note [I900N]: required by this bound
 // DIAG-NEXT: {{.*}}:9:5: note [I900N]: 'value' is required here
-// DIAG: {{.*}}:25:21: error [SC001E]: 'Plain' does not derive 'Doubler<Plain>'
+// DIAG: {{.*}}:25:21: error [SC156E]: 'Plain' does not derive 'Doubler<Plain>'
 // DIAG-NEXT: {{.*}}:12:8: note [I900N]: required by this bound
 // END-GENERATED-CHECKS(DIAG)

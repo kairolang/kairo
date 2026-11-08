@@ -1,10 +1,10 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: conformance_qualified_generic.k:19:52: error [SC001E]: no bound on 'C' provides 'Container<bool>::get'; bound it 'impl Container<bool>'
+// CHECK: conformance_qualified_generic.k:19:52: error [SC155E]: no bound on 'C' provides 'Container<bool>::get'; bound it 'impl Container<bool>'
 // CHECK: conformance_qualified_generic.k:13:31: note [I900N]: 'get' is required here
 // CHECK: conformance_qualified_generic.k:23:19: error [SC028E]: cannot convert 'i32' to 'bool'
-// CHECK: conformance_qualified_generic.k:24:13: error [SC001E]: 'Box' does not conform to 'Container<bool>': no member 'get' with the requirement's signature
+// CHECK: conformance_qualified_generic.k:24:13: error [SC162E]: 'Box' does not conform to 'Container<bool>': no member 'get' with the requirement's signature
 // CHECK: conformance_qualified_generic.k:13:31: note [I900N]: 'get' is required here
-// CHECK: conformance_qualified_generic.k:25:13: error [SC001E]: 'Container' is generic, and a qualified call names its instance: write 'Container<...>::get'
+// CHECK: conformance_qualified_generic.k:25:13: error [SC248E]: 'Container' is generic, and a qualified call names its instance: write 'Container<...>::get'
 // CHECK: conformance_qualified_generic.k:13:5: note [I900N]: 'Container' is declared here
 // CHECK-NOT: error
 // `I<A>::m(x)`: the qualifier's arguments are the requirement's interface

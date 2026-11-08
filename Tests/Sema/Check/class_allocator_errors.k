@@ -38,8 +38,8 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: class_allocator_errors.k:10:11: error [SC001E]: 'op new' is a class's own allocator and has no object to run on; declare it 'static fn op new(size: usize, align: usize) -> unsafe *u8'
-// CHECK: class_allocator_errors.k:15:18: error [SC001E]: 'op new' is called as Allocator::alloc, so it must be 'static fn op new(size: usize, align: usize) -> unsafe *u8'
-// CHECK: class_allocator_errors.k:16:18: error [SC001E]: 'op delete' is called as Allocator::free, so it must be 'static fn op delete(ptr: unsafe *u8, size: usize, align: usize)'
-// CHECK: class_allocator_errors.k:20:18: error [SC001E]: a class with 'op new' must also declare 'static fn op delete(ptr: unsafe *u8, size: usize, align: usize)': its objects are freed by the allocator they came from
-// CHECK: class_allocator_errors.k:34:5: error [SC001E]: 'Good' has its own allocator ('op new' / 'op delete'), so its destroy names it: write 'destroy<Good>(p)' or '@destroy<Good>(p)'
+// CHECK: class_allocator_errors.k:10:11: error [SC149E]: 'op new' is a class's own allocator and has no object to run on; declare it 'static fn op new(size: usize, align: usize) -> unsafe *u8'
+// CHECK: class_allocator_errors.k:15:18: error [SC149E]: 'op new' is called as Allocator::alloc, so it must be 'static fn op new(size: usize, align: usize) -> unsafe *u8'
+// CHECK: class_allocator_errors.k:16:18: error [SC149E]: 'op delete' is called as Allocator::free, so it must be 'static fn op delete(ptr: unsafe *u8, size: usize, align: usize)'
+// CHECK: class_allocator_errors.k:20:18: error [SC149E]: a class with 'op new' must also declare 'static fn op delete(ptr: unsafe *u8, size: usize, align: usize)': its objects are freed by the allocator they came from
+// CHECK: class_allocator_errors.k:34:5: error [SC246E]: 'Good' has its own allocator ('op new' / 'op delete'), so its destroy names it: write 'destroy<Good>(p)' or '@destroy<Good>(p)'

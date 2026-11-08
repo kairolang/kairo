@@ -1,5 +1,5 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: conformance_dependent_leaf.k:29:19: error [SC001E]: 'Bad' does not conform to 'Fancy<i32>': no member 'get' with the requirement's signature
+// CHECK: conformance_dependent_leaf.k:29:19: error [SC162E]: 'Bad' does not conform to 'Fancy<i32>': no member 'get' with the requirement's signature
 // CHECK: conformance_dependent_leaf.k:25:9: note [I900N]: required by this bound
 // CHECK: conformance_dependent_leaf.k:13:31: note [I900N]: 'get' is required here
 // CHECK-NOT: error

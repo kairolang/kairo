@@ -91,19 +91,19 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: {{error|warning}}
-// CHECK: assoc_type_conformance.k:86:13: error [SC001E]: 'Trail' does not conform to 'Graph': it declares no associated type 'Edge'
+// CHECK: assoc_type_conformance.k:86:13: error [SC161E]: 'Trail' does not conform to 'Graph': it declares no associated type 'Edge'
 // CHECK-NEXT: assoc_type_conformance.k:81:5: note [{{.*}}]: required by this bound
 // CHECK-NEXT: assoc_type_conformance.k:13:5: note [{{.*}}]: 'Edge' has a default, but a default applies only to a type that declares 'impl Graph'
 // CHECK-NOT: {{error|warning}}
-// CHECK: assoc_type_conformance.k:86:28: error [SC001E]: 'Bare' does not conform to 'Graph': it declares no associated type 'Node'
+// CHECK: assoc_type_conformance.k:86:28: error [SC161E]: 'Bare' does not conform to 'Graph': it declares no associated type 'Node'
 // CHECK-NEXT: assoc_type_conformance.k:81:5: note [{{.*}}]: required by this bound
 // CHECK-NEXT: assoc_type_conformance.k:12:5: note [{{.*}}]: 'Node' is required here
 // CHECK-NOT: {{error|warning}}
-// CHECK: assoc_type_conformance.k:86:42: error [SC001E]: 'Wrong' does not conform to 'Graph': no member 'first' with the requirement's signature
+// CHECK: assoc_type_conformance.k:86:42: error [SC162E]: 'Wrong' does not conform to 'Graph': no member 'first' with the requirement's signature
 // CHECK-NEXT: assoc_type_conformance.k:81:5: note [{{.*}}]: required by this bound
 // CHECK-NEXT: assoc_type_conformance.k:14:5: note [{{.*}}]: 'first' is required here
 // CHECK-NOT: {{error|warning}}
-// CHECK: assoc_type_conformance.k:87:35: error [SC001E]: 'BadShelf' does not conform to 'Catalog': its associated type 'Item' is 'Plain', which does not meet the bounds 'Item' declares
+// CHECK: assoc_type_conformance.k:87:35: error [SC161E]: 'BadShelf' does not conform to 'Catalog': its associated type 'Item' is 'Plain', which does not meet the bounds 'Item' declares
 // CHECK-NEXT: assoc_type_conformance.k:82:5: note [{{.*}}]: required by this bound
 // CHECK-NEXT: assoc_type_conformance.k:19:5: note [{{.*}}]: 'Item' and its bounds are declared here
 // CHECK-NOT: {{error|warning}}

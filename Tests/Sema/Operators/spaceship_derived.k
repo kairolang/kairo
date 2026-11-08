@@ -52,11 +52,11 @@ fn shadowed(a: Mixed, b: Mixed, c: Ext, d: Ext) -> bool {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG:      spaceship_derived.k:18:9: warning [SC001W]: 'op <' shadows the '<' derived from 'op <=>'; every '<' calls this declaration instead
+// DIAG:      spaceship_derived.k:18:9: warning [SC202W]: 'op <' shadows the '<' derived from 'op <=>'; every '<' calls this declaration instead
 // DIAG-NEXT: spaceship_derived.k:17:9: note [{{[A-Z0-9]+}}]: 'op <=>' is declared here; it already derives '<', '<=', '>', '>=', '==' and '!='
-// DIAG:      spaceship_derived.k:19:9: warning [SC001W]: 'op ==' shadows the '==' derived from 'op <=>'; every '==' calls this declaration instead
+// DIAG:      spaceship_derived.k:19:9: warning [SC202W]: 'op ==' shadows the '==' derived from 'op <=>'; every '==' calls this declaration instead
 // DIAG-NEXT: spaceship_derived.k:17:9: note
-// DIAG:      spaceship_derived.k:29:5: warning [SC001W]: 'op >=' shadows the '>=' derived from 'op <=>'; every '>=' calls this declaration instead
+// DIAG:      spaceship_derived.k:29:5: warning [SC202W]: 'op >=' shadows the '>=' derived from 'op <=>'; every '>=' calls this declaration instead
 // DIAG-NEXT: spaceship_derived.k:25:9: note
 
 // RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA

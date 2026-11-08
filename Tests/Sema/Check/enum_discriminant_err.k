@@ -27,7 +27,7 @@ enum Evaluates {
 enum Fits derives u8 {
     Shifted = 1 << 8,
 // A u8 shift by 8: a constant count past the width, not a 256 that does not fit.
-// DIAG:      enum_discriminant_err.k:[[@LINE-2]]:20: error [SC001E]: shift count 8 is not below the width of 'u8' (8 bits)
+// DIAG:      enum_discriminant_err.k:[[@LINE-2]]:20: error [SC262E]: shift count 8 is not below the width of 'u8' (8 bits)
     Literal = 256,
 // DIAG:      enum_discriminant_err.k:[[@LINE-1]]:15: error [SC075E]: literal '256' does not fit in 'u8'
     Top = 255,

@@ -13,13 +13,13 @@ a = a + thrower()
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: script.k:10:9: error [SC001E]: a panic cannot reach a script's top level: 'thrower' may panic with 'E', which is not handled
-// CHECK-NEXT: script.k:8:1: note [SC001N]: 'thrower' is declared 'panic' here
-// CHECK-NEXT: script.k:10:9: note [SC001N]: or handle it here, or stop the program with 'crash!()'
+// CHECK: script.k:10:9: error [SC221E]: a panic cannot reach a script's top level: 'thrower' may panic with 'E', which is not handled
+// CHECK-NEXT: script.k:8:1: note [SC222N]: 'thrower' is declared 'panic' here
+// CHECK-NEXT: script.k:10:9: note [SC221N]: or handle it here, or stop the program with 'crash!()'
 // CHECK-NEXT: fix-it:"{{.*}}script.k":{10:9-10:9}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}script.k":{10:18-10:18}:" catch => crash!()"
-// CHECK: script.k:12:9: error [SC001E]: a panic cannot reach a script's top level: 'thrower' may panic with 'E', which is not handled
-// CHECK-NEXT: script.k:8:1: note [SC001N]: 'thrower' is declared 'panic' here
-// CHECK-NEXT: script.k:12:9: note [SC001N]: or handle it here, or stop the program with 'crash!()'
+// CHECK: script.k:12:9: error [SC221E]: a panic cannot reach a script's top level: 'thrower' may panic with 'E', which is not handled
+// CHECK-NEXT: script.k:8:1: note [SC222N]: 'thrower' is declared 'panic' here
+// CHECK-NEXT: script.k:12:9: note [SC221N]: or handle it here, or stop the program with 'crash!()'
 // CHECK-NEXT: fix-it:"{{.*}}script.k":{12:9-12:9}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}script.k":{12:18-12:18}:" catch => crash!()"

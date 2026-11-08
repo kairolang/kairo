@@ -55,7 +55,7 @@ fn errors() {
 
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: {{error|warning}}
-// DIAG: shorthand.k:17:32: error [SC001E]: 'early' may be null here
+// DIAG: shorthand.k:17:32: error [SC265E]: 'early' may be null here
 // DIAG-NOT: {{error|warning}}
 // DIAG: shorthand.k:35:14: error [SC076E]: nothing to infer the nullable's type from: 'x?' takes its type from the initializer, and 'null' has none
 // DIAG-NOT: {{error|warning}}

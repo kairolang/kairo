@@ -8,4 +8,4 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // RUN: %kairo --type-check-only %s
 // RUN: { %kairo --type-check-only --no-modules %s 2>&1 || true; } | %FileCheck %s
-// CHECK: no_modules.k:4:{{[0-9]+}}: error [SC001E]: an import is not allowed when the module system is disabled
+// CHECK: no_modules.k:4:{{[0-9]+}}: error [SC198E]: an import is not allowed when the module system is disabled

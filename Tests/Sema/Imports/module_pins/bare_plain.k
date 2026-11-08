@@ -18,6 +18,6 @@ module inner { pub fn one() -> i32 { return 1 } }   // the block form is unchang
 
 fn use_inner() -> i32 { return inner::one() + answer() }
 
-// DIAG: bare_plain.k:13:1: error [R001E]: a bare `module text::fmt` is only allowed in a module.k, where it names the directory as a library
+// DIAG: bare_plain.k:13:1: error [R064E]: a bare `module text::fmt` is only allowed in a module.k, where it names the directory as a library
 // DIAG: note {{.*}}: to declare a module here, use the block form `module text::fmt { ... }`
 // DIAG-NOT: error

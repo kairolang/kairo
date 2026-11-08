@@ -62,18 +62,18 @@ fn through(f: fn() panic(F) -> i32) panic(E) -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: subsets.k:24:28: error [SC001E]: 'F' is not in the panic set of 'Base::read', which this overrides; an override's set must be a subset of it
+// CHECK: subsets.k:24:28: error [SC208E]: 'F' is not in the panic set of 'Base::read', which this overrides; an override's set must be a subset of it
 // CHECK-NEXT: fix-it:"{{.*}}subsets.k":{19:34-19:34}:", F"
-// CHECK-NEXT: subsets.k:19:5: note [SC001N]: 'Base::read' is declared here
-// CHECK: subsets.k:25:29: error [SC001E]: an override cannot panic when 'Base::quiet', which it overrides, does not: it panics with 'E'
-// CHECK-NEXT: subsets.k:20:5: note [SC001N]: 'Base::quiet' is declared here
-// CHECK: subsets.k:39:19: error [SC001E]: 'F' is not in the panic set of 'Source::next', which this implements; a conforming method's set must be a subset of it
+// CHECK-NEXT: subsets.k:19:5: note [SC208N]: 'Base::read' is declared here
+// CHECK: subsets.k:25:29: error [SC208E]: an override cannot panic when 'Base::quiet', which it overrides, does not: it panics with 'E'
+// CHECK-NEXT: subsets.k:20:5: note [SC208N]: 'Base::quiet' is declared here
+// CHECK: subsets.k:39:19: error [SC208E]: 'F' is not in the panic set of 'Source::next', which this implements; a conforming method's set must be a subset of it
 // CHECK-NEXT: fix-it:"{{.*}}subsets.k":{34:26-34:26}:", F"
-// CHECK-NEXT: subsets.k:34:5: note [SC001N]: 'Source::next' is declared here
+// CHECK-NEXT: subsets.k:34:5: note [SC208N]: 'Source::next' is declared here
 // CHECK: subsets.k:52:35: error [SC028E]: cannot convert 'unsafe fn () panic({{E, F|F, E}}) -> i32' to 'fn () panic(E) -> i32'
 // CHECK: subsets.k:53:26: error [SC028E]: cannot convert 'unsafe fn () panic(E) -> i32' to 'fn () -> i32'
-// CHECK: subsets.k:54:13: error [SC001E]: 'inferred' is used as a value, but its panic set is inferred: a 'fn' value's type carries the set, so 'inferred' must declare it
+// CHECK: subsets.k:54:13: error [SC219E]: 'inferred' is used as a value, but its panic set is inferred: a 'fn' value's type carries the set, so 'inferred' must declare it
 // CHECK-NEXT: fix-it:"{{.*}}subsets.k":{45:15-45:20}:"panic(F)"
-// CHECK-NEXT: subsets.k:45:1: note [SC001N]: 'inferred' is declared here
-// CHECK: subsets.k:60:12: error [SC001E]: 'F' is not in the declared panic set of 'through'
+// CHECK-NEXT: subsets.k:45:1: note [SC219N]: 'inferred' is declared here
+// CHECK: subsets.k:60:12: error [SC221E]: 'F' is not in the declared panic set of 'through'
 // CHECK-NEXT: fix-it:"{{.*}}subsets.k":{59:44-59:44}:", F"

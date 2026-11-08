@@ -1,4 +1,4 @@
-// O44: an `@inout` argument that is `*p` (no `&` marker), followed by an
+// O44: an `@inout` argument that is `*p` (marked `&`), followed by an
 // argument with an effect, is sequenced; the sequencing must bind the pointee
 // itself, not a copy that the callee's `T&` parameter then cannot bind.
 // RUN: %kairo %s -o %t.exe
@@ -10,9 +10,9 @@ class Holder {
     var inv_: Inv;
     fn invocation(self) -> unsafe *Inv { return unsafe &self.inv_; }
     fn run(self, be: unsafe *BE) -> i32 {
-        var a = bump(*self.invocation(), be->triple(), 2);
+        var a = bump(&*self.invocation(), be->triple(), 2);
         var inv = self.invocation();
-        var b = bump(*inv, be->triple(), 3);
+        var b = bump(&*inv, be->triple(), 3);
         return a + b;
     }
 }

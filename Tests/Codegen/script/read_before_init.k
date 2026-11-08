@@ -22,13 +22,13 @@ show()
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: {{error|warning}}
-// DIAG:      read_before_init.k:14:12: error [SC001E]: script variable 'early' is read before the line that gives it a value has run
-// DIAG-NEXT: read_before_init.k:15:1: note [SC001N]: 'early' is given its value here
+// DIAG:      read_before_init.k:14:12: error [SC236E]: script variable 'early' is read before the line that gives it a value has run
+// DIAG-NEXT: read_before_init.k:15:1: note [SC236N]: 'early' is given its value here
 // DIAG-NOT: {{error|warning}}
-// DIAG:      read_before_init.k:16:21: error [SC001E]: script variable 'self_ref' is read before the line that gives it a value has run
-// DIAG-NEXT: read_before_init.k:16:1: note [SC001N]: 'self_ref' is given its value here
+// DIAG:      read_before_init.k:16:21: error [SC236E]: script variable 'self_ref' is read before the line that gives it a value has run
+// DIAG-NEXT: read_before_init.k:16:1: note [SC236N]: 'self_ref' is given its value here
 // DIAG-NOT: {{error|warning}}
-// DIAG:      read_before_init.k:17:1: error [SC001E]: 'show' reads script variable 'late' before the line that gives it a value has run
-// DIAG-NEXT: read_before_init.k:11:24: note [SC001N]: 'show' reads 'late' here
-// DIAG-NEXT: read_before_init.k:19:1: note [SC001N]: 'late' is given its value here, later
+// DIAG:      read_before_init.k:17:1: error [SC236E]: 'show' reads script variable 'late' before the line that gives it a value has run
+// DIAG-NEXT: read_before_init.k:11:24: note [SC236N]: 'show' reads 'late' here
+// DIAG-NEXT: read_before_init.k:19:1: note [SC236N]: 'late' is given its value here, later
 // DIAG-NOT: {{error|warning}}

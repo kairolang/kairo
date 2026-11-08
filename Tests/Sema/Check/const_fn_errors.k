@@ -24,11 +24,11 @@ fn pure_calls(x: i32) -> i32 { return plain(x) }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK-DAG: const_fn_errors.k:13:{{[0-9]+}}: error [SC001E]:
-// CHECK-DAG: const_fn_errors.k:14:{{[0-9]+}}: error [SC001E]:
-// CHECK-DAG: const_fn_errors.k:15:{{[0-9]+}}: error [SC001E]:
-// CHECK-DAG: const_fn_errors.k:21:{{[0-9]+}}: error [SC001E]:
-// CHECK-DAG: const_fn_errors.k:23:{{[0-9]+}}: error [SC001E]:
+// CHECK-DAG: const_fn_errors.k:13:{{[0-9]+}}: error [SC200E]:
+// CHECK-DAG: const_fn_errors.k:14:{{[0-9]+}}: error [SC200E]:
+// CHECK-DAG: const_fn_errors.k:15:{{[0-9]+}}: error [SC200E]:
+// CHECK-DAG: const_fn_errors.k:21:{{[0-9]+}}: error [SC200E]:
+// CHECK-DAG: const_fn_errors.k:23:{{[0-9]+}}: error [SC200E]:
 // Clean: a const fn calling a const fn and an eval fn (16), and a @pure
 // one reading a global and a pointer (19).
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=CLEAN

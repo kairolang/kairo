@@ -13,8 +13,8 @@ println("first")
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: { %kairo %s %S/second.k -o %t.d/both --cache-dir %t.d/c1 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: {{error|warning}}
-// DIAG:      second.k:6:1: error [SC001E]: two script files in one program: 'second.k' and 'first.k' each run top-level statements as 'main'
-// DIAG-NEXT: first.k:9:1: note [SC001N]: 'first.k' is a script: its first top-level statement is here
+// DIAG:      second.k:6:1: error [SC142E]: two script files in one program: 'second.k' and 'first.k' each run top-level statements as 'main'
+// DIAG-NEXT: first.k:9:1: note [SC142N]: 'first.k' is a script: its first top-level statement is here
 // DIAG-NOT: {{error|warning}}
 // RUN: test ! -e %t.d/both
 //

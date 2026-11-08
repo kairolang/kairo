@@ -46,8 +46,8 @@ fn main() -> i32 {
 // CONF: :20:5: error [SC116E]: a partial specialization selected by a conformance ('impl' / 'derives') in its 'requires' clause is not yet supported
 // RUN: sed -e 's|.*// \[redef\]$||' -e 's|.*// \[conf\]$||' %s > %t.k
 // RUN: { %kairo %t.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not=error
-// DIAG: :32:13: error [SC001E]: cannot decide whether a partial specialization of 'Fit' applies to these arguments
-// DIAG-NEXT: :24:5: note [SC001N]: its 'requires' clause is decided at compile time only from literals and the 'sizeof' / 'alignof' of builtins, pointers and arrays of them
-// DIAG: :33:13: error [SC001E]: ambiguous partial specializations of 'Two' for these arguments
-// DIAG-NEXT: :27:5: note [SC001N]: matches this partial specialization
-// DIAG-NEXT: :28:5: note [SC001N]: and this one, and neither is more specialized than the other
+// DIAG: :32:13: error [SC158E]: cannot decide whether a partial specialization of 'Fit' applies to these arguments
+// DIAG-NEXT: :24:5: note [SC158N]: its 'requires' clause is decided at compile time only from literals and the 'sizeof' / 'alignof' of builtins, pointers and arrays of them
+// DIAG: :33:13: error [SC157E]: ambiguous partial specializations of 'Two' for these arguments
+// DIAG-NEXT: :27:5: note [SC157N]: matches this partial specialization
+// DIAG-NEXT: :28:5: note [SC157N]: and this one, and neither is more specialized than the other

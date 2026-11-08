@@ -41,12 +41,12 @@ fn inner() {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
-// DIAG-DAG: jump_across_deferred.k:18:1: error [SC001E]: this 'jump!' crosses the line that gives script variable 'g' its value
-// DIAG-DAG: jump_across_deferred.k:19:1: note [SC001N]: 'g' is given its value here; a jump past it would skip it, and reads after the label are not checked
-// DIAG-DAG: jump_across_deferred.k:20:1: note [SC001N]: the jump lands here
-// DIAG-DAG: jump_across_deferred.k:30:13: error [SC001E]: this 'jump!' crosses the line that gives script variable 'h' its value
-// DIAG-DAG: jump_across_deferred.k:28:1: note [SC001N]: 'h' is given its value here; a jump back over it would run it again
-// DIAG-DAG: jump_across_deferred.k:27:1: note [SC001N]: the jump lands here
+// DIAG-DAG: jump_across_deferred.k:18:1: error [SC238E]: this 'jump!' crosses the line that gives script variable 'g' its value
+// DIAG-DAG: jump_across_deferred.k:19:1: note [SC238N]: 'g' is given its value here; a jump past it would skip it, and reads after the label are not checked
+// DIAG-DAG: jump_across_deferred.k:20:1: note [SC238N]: the jump lands here
+// DIAG-DAG: jump_across_deferred.k:30:13: error [SC238E]: this 'jump!' crosses the line that gives script variable 'h' its value
+// DIAG-DAG: jump_across_deferred.k:28:1: note [SC238N]: 'h' is given its value here; a jump back over it would run it again
+// DIAG-DAG: jump_across_deferred.k:27:1: note [SC238N]: the jump lands here
 // DIAG-DAG: jump_across_deferred.k:18:1: error [SC116E]: 'jump!' is not yet supported
 // DIAG-DAG: jump_across_deferred.k:23:1: error [SC116E]: 'jump!' is not yet supported
 // DIAG-DAG: jump_across_deferred.k:30:13: error [SC116E]: 'jump!' is not yet supported

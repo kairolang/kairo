@@ -9,14 +9,14 @@
 
 class Fwd {
     pub var a: i32 = b + 1
-// DIAG: field_init_order.k:[[@LINE-1]]:22: error [{{SC0*1E}}]: the default of 'a' reads 'b', which is declared after it
+// DIAG: field_init_order.k:[[@LINE-1]]:22: error [SC178E]: the default of 'a' reads 'b', which is declared after it
     pub var b: i32 = 1
 // DIAG: field_init_order.k:[[@LINE-1]]:9: note [{{[A-Z0-9]+}}]: 'b' is declared here; defaults run in declaration order, so it is not built yet when 'a' is
 }
 
 class Own {
     pub var a: i32 = a * 2
-// DIAG: field_init_order.k:[[@LINE-1]]:22: error [{{SC0*1E}}]: the default of 'a' reads 'a' itself, which it is still building
+// DIAG: field_init_order.k:[[@LINE-1]]:22: error [SC178E]: the default of 'a' reads 'a' itself, which it is still building
 }
 
 class Back {

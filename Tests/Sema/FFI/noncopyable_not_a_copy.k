@@ -16,7 +16,7 @@ fn <T, ...U> make(...args: U) -> T { return T(...args) }
 fn main() -> i32 {
     var k = Sink(getstream())              // C++ ctor taking Stream&
     var a = use_const(getstream())         // Kairo const param: const T&
-    var b = use_inout(getstream())         // Kairo @inout param: T&
+    var b = use_inout(&getstream())         // Kairo @inout param: T&
     var h = Holder()
     h.push_back(cxx::std::move(getnch()))  // T&& overload: a move, not a copy
     var k2 = make<Sink>(getstream())       // a pack forwards its arguments

@@ -22,5 +22,5 @@ fn main() -> i32 {
 
 // RUN: sed -e 's/var a = eval sq(3)/var n = 3  var a = eval sq(n)  eval { var t = 1 }/' %s > %t.bad.k
 // RUN: { %kairo %t.bad.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=BAD
-// BAD-DAG: error [SC001E]: an eval context reads only compile-time values; 'n' is a run-time local
+// BAD-DAG: error [SC189E]: an eval context reads only compile-time values; 'n' is a run-time local
 // BAD-DAG: error [SC116E]: an 'eval' block in a function body is not yet supported

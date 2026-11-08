@@ -16,6 +16,6 @@ fn h(x: i32) -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK-DAG: assume_errors.k:8:{{[0-9]+}}: error [SC001E]: @assume is a statement of its own; it does not attach to what follows on its line
-// CHECK-DAG: assume_errors.k:12:{{[0-9]+}}: error [S001E]:
-// CHECK-DAG: assume_errors.k:13:{{[0-9]+}}: error [S001E]:
+// CHECK-DAG: assume_errors.k:8:{{[0-9]+}}: error [SC148E]: @assume is a statement of its own; it does not attach to what follows on its line
+// CHECK-DAG: assume_errors.k:12:{{[0-9]+}}: error [S080E]:
+// CHECK-DAG: assume_errors.k:13:{{[0-9]+}}: error [S080E]:

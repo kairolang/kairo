@@ -2,12 +2,12 @@
 // (nullables.mdx, Pointers and nullability), and a `bool?` is one byte.
 //
 // XFAIL: *
-// Ticket "[Codegen] Every `T?` stores a presence flag, so `*T?` is wider than
-// a pointer and `bool?` wider than a byte" (private/IMPORTANT/TICKETS.TXT,
-// 2026-10-26). Today every `T?` is ::builtin::Nullable<T>, its value plus a
-// presence flag, so `sizeof *i32?` is 16 and the program exits 1 (status.mdx,
-// Nullables: "Not yet"). When it XPASSes, delete the XFAIL -- the run below
-// is already the real assertion.
+// Ticket "[Codegen] Every `T?` stores a presence flag" (TICKETS.TXT,
+// 2026-10-26; note 2026-11-07). The pointer half is done: `*T?` uses the null
+// niche, so `sizeof *i32? == sizeof *i32` holds. `bool?` still carries a
+// presence flag (2 bytes), so the program exits 2 at the `bool?` check.
+// When it XPASSes, delete the XFAIL -- the run below is already the real
+// assertion.
 
 fn main() -> i32 {
     if sizeof *i32? != sizeof *i32 { return 1 }

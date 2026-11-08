@@ -29,12 +29,12 @@ fn main() -> i32 { return Y }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: eval_if_errors.k:12:9: error [SC001E]: the condition of an 'eval if' outside a function body must fold before names are resolved; a call is computed by C++ after names are resolved; use an 'eval' constant, a literal or 'defined!' here
-// CHECK: eval_if_errors.k:13:9: error [SC001E]: {{.*}}; 'runtime' is not an 'eval' constant
-// CHECK-NEXT: eval_if_errors.k:9:5: note [SC001N]: 'runtime' is declared here
-// CHECK: eval_if_errors.k:14:9: error [SC001E]: {{.*}}; 'C' is not an 'eval' constant
+// CHECK: eval_if_errors.k:12:9: error [SC230E]: the condition of an 'eval if' outside a function body must fold before names are resolved; a call is computed by C++ after names are resolved; use an 'eval' constant, a literal or 'defined!' here
+// CHECK: eval_if_errors.k:13:9: error [SC230E]: {{.*}}; 'runtime' is not an 'eval' constant
+// CHECK-NEXT: eval_if_errors.k:9:5: note [SC230N]: 'runtime' is declared here
+// CHECK: eval_if_errors.k:14:9: error [SC230E]: {{.*}}; 'C' is not an 'eval' constant
 // CHECK-NEXT: fix-it:{{.*}}:{10:1-10:6}:"eval"
-// CHECK-NEXT: eval_if_errors.k:10:7: note [SC001N]: 'C' is declared here
-// CHECK: eval_if_errors.k:15:9: error [SC001E]: {{.*}}; it compares a bool with an integer
-// CHECK: eval_if_errors.k:18:24: error [SC001E]: a field declares its type; 'untyped' has none
-// CHECK: eval_if_errors.k:22:20: error [SC001E]: an 'eval if' in a module or class body holds declarations only
+// CHECK-NEXT: eval_if_errors.k:10:7: note [SC230N]: 'C' is declared here
+// CHECK: eval_if_errors.k:15:9: error [SC230E]: {{.*}}; it compares a bool with an integer
+// CHECK: eval_if_errors.k:18:24: error [SC231E]: a field declares its type; 'untyped' has none
+// CHECK: eval_if_errors.k:22:20: error [SC231E]: an 'eval if' in a module or class body holds declarations only

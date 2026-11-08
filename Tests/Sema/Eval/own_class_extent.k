@@ -23,4 +23,4 @@ fn main() -> i32 {
 // CHECK: own_class_extent.k:7:22: error [SC116E]: an array length computed by C++ from 'J', an 'eval' constant of the field's own class, is not supported: 'Box' is incomplete inside its own body
 // CHECK-NEXT: fix-it:"{{.*}}own_class_extent.k":{3:1-3:1}:"eval J: i32 = two()\n"
 // CHECK-NEXT: fix-it:"{{.*}}own_class_extent.k":{5:5-5:28}:""
-// CHECK-NEXT: own_class_extent.k:5:14: note [SC001N]: 'J' is declared here; its value is computed by C++, which reads it only once the class is complete
+// CHECK-NEXT: own_class_extent.k:5:14: note [SC193N]: 'J' is declared here; its value is computed by C++, which reads it only once the class is complete

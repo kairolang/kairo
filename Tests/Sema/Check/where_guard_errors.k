@@ -110,26 +110,26 @@ fn use_closure() -> i32 {                          // [parse]
 // RUN: sed 's|.*// \[redecl\]$||; s|.*// \[parse\]$||' %s > %t.check.k
 // RUN: { %kairo %t.check.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=CHECK --implicit-check-not="error [" --implicit-check-not="warning ["
 //
-// CHECK:     :9:1: error [SC001E]: no fallback overload for 'sq' when where condition fails
-// CHECK-NEXT: :9:1: note [SC001N]: add an overload without a 'where' clause to handle all remaining cases
-// CHECK:     :18:1: error [SC001E]: no fallback overload for 'ov' when where condition fails
-// CHECK-NEXT: :18:1: note [SC001N]: add an overload without a 'where' clause to handle all remaining cases
-// CHECK:     :24:33: warning [SC001W]: 'where' guard of 'process' is unreachable: every value it accepts is taken by an earlier overload
-// CHECK-NEXT: :23:33: note [SC001N]: this guard is tested first
-// CHECK:     :28:32: warning [SC001W]: 'where' guard of 'handle' overlaps an earlier one; a value both accept goes to the earlier overload
-// CHECK-NEXT: :27:32: note [SC001N]: overlaps this guard, which is tested first
-// CHECK:     :34:31: warning [SC001W]: 'where' guard of 'split' is unreachable: every value it accepts is taken by an earlier overload
-// CHECK-NEXT: :33:31: note [SC001N]: this guard is tested first
-// CHECK:     :37:31: warning [SC001W]: 'where' guard of 'never' never holds, so this overload is never called
-// CHECK:     :51:36: error [SC001E]: 'where' is not allowed on an 'unsafe' overload of 'uns'
-// CHECK-NEXT: :51:1: note [SC001N]: unsafe overloads are a separate namespace, selected with 'unsafe' at the call; they take no part in 'where' dispatch
-// CHECK:     :53:32: error [SC001E]: a guarded overload of 'nobody' needs a body; the guard chooses which body runs
-// CHECK:     :58:13: error [SC001E]: 'where' is not allowed on an interface method; interfaces are zero-cost, so a requirement cannot dispatch at run time. Use 'requires' for a compile-time constraint
-// CHECK-NEXT: :56:1: note [SC001N]: the interface is declared here
-// CHECK:     :64:1: error [SC001E]: every overload in the 'where' dispatch of 'rt' must have the same return type; C++ sees them as one function
-// CHECK-NEXT: :63:1: note [SC001N]: the first overload of the dispatch is here
-// CHECK:     :69:5: error [SC001E]: every overload in the 'where' dispatch of 'c1' must have the same 'const self'; C++ sees them as one function
-// CHECK-NEXT: :68:5: note [SC001N]: the first overload of the dispatch is here
+// CHECK:     :9:1: error [SC228E]: no fallback overload for 'sq' when where condition fails
+// CHECK-NEXT: :9:1: note [SC228N]: add an overload without a 'where' clause to handle all remaining cases
+// CHECK:     :18:1: error [SC228E]: no fallback overload for 'ov' when where condition fails
+// CHECK-NEXT: :18:1: note [SC228N]: add an overload without a 'where' clause to handle all remaining cases
+// CHECK:     :24:33: warning [SC229W]: 'where' guard of 'process' is unreachable: every value it accepts is taken by an earlier overload
+// CHECK-NEXT: :23:33: note [SC229N]: this guard is tested first
+// CHECK:     :28:32: warning [SC229W]: 'where' guard of 'handle' overlaps an earlier one; a value both accept goes to the earlier overload
+// CHECK-NEXT: :27:32: note [SC229N]: overlaps this guard, which is tested first
+// CHECK:     :34:31: warning [SC229W]: 'where' guard of 'split' is unreachable: every value it accepts is taken by an earlier overload
+// CHECK-NEXT: :33:31: note [SC229N]: this guard is tested first
+// CHECK:     :37:31: warning [SC229W]: 'where' guard of 'never' never holds, so this overload is never called
+// CHECK:     :51:36: error [SC228E]: 'where' is not allowed on an 'unsafe' overload of 'uns'
+// CHECK-NEXT: :51:1: note [SC228N]: unsafe overloads are a separate namespace, selected with 'unsafe' at the call; they take no part in 'where' dispatch
+// CHECK:     :53:32: error [SC228E]: a guarded overload of 'nobody' needs a body; the guard chooses which body runs
+// CHECK:     :58:13: error [SC228E]: 'where' is not allowed on an interface method; interfaces are zero-cost, so a requirement cannot dispatch at run time. Use 'requires' for a compile-time constraint
+// CHECK-NEXT: :56:1: note [SC228N]: the interface is declared here
+// CHECK:     :64:1: error [SC228E]: every overload in the 'where' dispatch of 'rt' must have the same return type; C++ sees them as one function
+// CHECK-NEXT: :63:1: note [SC228N]: the first overload of the dispatch is here
+// CHECK:     :69:5: error [SC228E]: every overload in the 'where' dispatch of 'c1' must have the same 'const self'; C++ sees them as one function
+// CHECK-NEXT: :68:5: note [SC228N]: the first overload of the dispatch is here
 // CHECK:     :71:5: error [SC116E]: 'where' dispatch on a 'virtual' or 'override' method is not yet supported
 // CHECK:     :72:5: error [SC116E]: 'where' dispatch on a 'virtual' or 'override' method is not yet supported
 // CHECK:     :80:1: error [SC116E]: 'where' dispatch on a default argument is not yet supported

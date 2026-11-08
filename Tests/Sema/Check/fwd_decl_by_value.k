@@ -39,17 +39,17 @@ fn main() -> i32 {
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:16:9: error [SC001E]: 'Holds' holds 'Never' by value, but 'Never' is only forward-declared, so its size is unknown
+// DIAG: {{.*}}:16:9: error [SC227E]: 'Holds' holds 'Never' by value, but 'Never' is only forward-declared, so its size is unknown
 // DIAG-NEXT: fix-it:"{{.*}}":{16:16-16:16}:"unsafe *"
-// DIAG-NEXT: {{.*}}:11:1: note [SC001N]: 'Never' is forward-declared here and never defined
-// DIAG: {{.*}}:17:9: error [SC001E]: 'Holds' holds 'NeverU' by value, but 'NeverU' is only forward-declared, so its size is unknown
-// DIAG-NEXT: {{.*}}:12:1: note [SC001N]: 'NeverU' is forward-declared here and never defined
-// DIAG: {{.*}}:19:9: error [SC001E]: 'Holds' holds 'NeverC' by value, but 'NeverC' is only forward-declared, so its size is unknown
-// DIAG-NEXT: {{.*}}:13:1: note [SC001N]: 'NeverC' is forward-declared here and never defined
-// DIAG: {{.*}}:22:23: error [SC001E]: 'Derived' holds 'NeverC' by value, but 'NeverC' is only forward-declared, so its size is unknown
-// DIAG-NEXT: {{.*}}:13:1: note [SC001N]: 'NeverC' is forward-declared here and never defined
-// DIAG: {{.*}}:31:5: error [SC001E]: 'x' is declared without an initializer, and 'Never' is only forward-declared, so there is nothing to build; Kairo has no uninitialized variables
+// DIAG-NEXT: {{.*}}:11:1: note [SC227N]: 'Never' is forward-declared here and never defined
+// DIAG: {{.*}}:17:9: error [SC227E]: 'Holds' holds 'NeverU' by value, but 'NeverU' is only forward-declared, so its size is unknown
+// DIAG-NEXT: {{.*}}:12:1: note [SC227N]: 'NeverU' is forward-declared here and never defined
+// DIAG: {{.*}}:19:9: error [SC227E]: 'Holds' holds 'NeverC' by value, but 'NeverC' is only forward-declared, so its size is unknown
+// DIAG-NEXT: {{.*}}:13:1: note [SC227N]: 'NeverC' is forward-declared here and never defined
+// DIAG: {{.*}}:22:23: error [SC227E]: 'Derived' holds 'NeverC' by value, but 'NeverC' is only forward-declared, so its size is unknown
+// DIAG-NEXT: {{.*}}:13:1: note [SC227N]: 'NeverC' is forward-declared here and never defined
+// DIAG: {{.*}}:31:5: error [SC179E]: 'x' is declared without an initializer, and 'Never' is only forward-declared, so there is nothing to build; Kairo has no uninitialized variables
 // DIAG-NEXT: fix-it:"{{.*}}":{31:17-31:17}:" = ..."
-// DIAG: {{.*}}:32:13: error [SC001E]: 'NeverC()' cannot be called: 'NeverC' is only forward-declared, so there is nothing to build
-// DIAG-NEXT: {{.*}}:13:1: note [SC001N]: 'NeverC' declared here
+// DIAG: {{.*}}:32:13: error [SC250E]: 'NeverC()' cannot be called: 'NeverC' is only forward-declared, so there is nothing to build
+// DIAG-NEXT: {{.*}}:13:1: note [SC250N]: 'NeverC' declared here
 // END-GENERATED-CHECKS(DIAG)

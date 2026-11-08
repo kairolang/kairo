@@ -64,8 +64,8 @@ fn main() -> i32 {
 // Both attributes on one function.
 // RUN: printf '@unwind @no_unwind fn both() -> i32 { return 0 }\nfn main() -> i32 { return both() }\n' > %t.both.k
 // RUN: { %kairo %t.both.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=BOTH
-// BOTH: :1:20: error [SC001E]: 'both' is marked both '@unwind' and '@no_unwind'
-// BOTH-NEXT: :1:20: note [SC001N]: '@no_unwind' is here; it wins: the function is 'noexcept'
+// BOTH: :1:20: error [SC267E]: 'both' is marked both '@unwind' and '@no_unwind'
+// BOTH-NEXT: :1:20: note [SC267N]: '@no_unwind' is here; it wins: the function is 'noexcept'
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d && mkdir -p %t.d

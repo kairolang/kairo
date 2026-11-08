@@ -41,16 +41,16 @@ fn main() -> i32 {
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:21:50: error [SC001E]: protected field 'hits' of 'Base' is reached here through a 'Base', not through 'Counter' or a class deriving from it
+// DIAG: {{.*}}:21:50: error [SC242E]: protected field 'hits' of 'Base' is reached here through a 'Base', not through 'Counter' or a class deriving from it
 // DIAG-NEXT: fix-it:"{{.*}}/access_prot_object_lib.k":{4:5-4:9}:"pub"
-// DIAG-NEXT: {{.*}}/access_prot_object_lib.k:4:14: note [SC001N]: 'hits' is protected: outside the file that declares 'Base', a class deriving from it reaches it only through an object of its own class (as C++ does, [class.protected])
-// DIAG: {{.*}}:22:37: error [SC001E]: protected method 'bump' of 'Base' is reached here through a 'Base', not through 'Counter' or a class deriving from it
+// DIAG-NEXT: {{.*}}/access_prot_object_lib.k:4:14: note [SC242N]: 'hits' is protected: outside the file that declares 'Base', a class deriving from it reaches it only through an object of its own class (as C++ does, [class.protected])
+// DIAG: {{.*}}:22:37: error [SC242E]: protected method 'bump' of 'Base' is reached here through a 'Base', not through 'Counter' or a class deriving from it
 // DIAG-NEXT: fix-it:"{{.*}}/access_prot_object_lib.k":{6:5-6:9}:"pub"
-// DIAG-NEXT: {{.*}}/access_prot_object_lib.k:6:13: note [SC001N]: 'bump' is protected: outside the file that declares 'Base', a class deriving from it reaches it only through an object of its own class (as C++ does, [class.protected])
-// DIAG: {{.*}}:23:52: error [SC001E]: protected field 'hits' of 'Base' is reached here through a 'Sibling', not through 'Counter' or a class deriving from it
+// DIAG-NEXT: {{.*}}/access_prot_object_lib.k:6:13: note [SC242N]: 'bump' is protected: outside the file that declares 'Base', a class deriving from it reaches it only through an object of its own class (as C++ does, [class.protected])
+// DIAG: {{.*}}:23:52: error [SC242E]: protected field 'hits' of 'Base' is reached here through a 'Sibling', not through 'Counter' or a class deriving from it
 // DIAG-NEXT: fix-it:"{{.*}}/access_prot_object_lib.k":{4:5-4:9}:"pub"
-// DIAG-NEXT: {{.*}}/access_prot_object_lib.k:4:14: note [SC001N]: 'hits' is protected: outside the file that declares 'Base', a class deriving from it reaches it only through an object of its own class (as C++ does, [class.protected])
-// DIAG: {{.*}}:24:42: error [SC001E]: this constructor of 'Base' is protected: a class deriving from 'Base' calls it only as a base initializer, not to build a separate 'Base'
+// DIAG-NEXT: {{.*}}/access_prot_object_lib.k:4:14: note [SC242N]: 'hits' is protected: outside the file that declares 'Base', a class deriving from it reaches it only through an object of its own class (as C++ does, [class.protected])
+// DIAG: {{.*}}:24:42: error [SC242E]: this constructor of 'Base' is protected: a class deriving from 'Base' calls it only as a base initializer, not to build a separate 'Base'
 // DIAG-NEXT: fix-it:"{{.*}}/access_prot_object_lib.k":{7:5-7:9}:"pub"
-// DIAG-NEXT: {{.*}}/access_prot_object_lib.k:7:13: note [SC001N]: declared protected here: outside the file that declares 'Base', a subclass calls it only as 'Base::Base(self, ...)' at the start of its own constructor
+// DIAG-NEXT: {{.*}}/access_prot_object_lib.k:7:13: note [SC242N]: declared protected here: outside the file that declares 'Base', a subclass calls it only as 'Base::Base(self, ...)' at the start of its own constructor
 // END-GENERATED-CHECKS(DIAG)

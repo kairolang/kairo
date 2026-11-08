@@ -28,26 +28,26 @@ fn local_static() panic -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: initializers.k:13:9: error [SC001E]: a global's initializer cannot panic: 'thrower' may panic with 'E', and there is no function to propagate to
-// CHECK-NEXT: initializers.k:11:1: note [SC001N]: 'thrower' is declared 'panic' here
-// CHECK-NEXT: initializers.k:13:1: note [SC001N]: initialize it in a function instead
-// CHECK: initializers.k:14:9: error [SC001E]: a global's initializer cannot hold a 'try': it runs at file scope, outside every function
-// CHECK-NEXT: initializers.k:14:1: note [SC001N]: initialize it in a function instead
-// CHECK: initializers.k:14:13: error [SC001E]: a global's initializer cannot panic: 'thrower' may panic with 'E', and there is no function to propagate to
-// CHECK-NEXT: initializers.k:11:1: note [SC001N]: 'thrower' is declared 'panic' here
-// CHECK-NEXT: initializers.k:14:1: note [SC001N]: initialize it in a function instead
-// CHECK: initializers.k:17:21: error [SC001E]: a global's initializer cannot panic: 'thrower' may panic with 'E', and there is no function to propagate to
-// CHECK-NEXT: initializers.k:11:1: note [SC001N]: 'thrower' is declared 'panic' here
-// CHECK-NEXT: initializers.k:17:5: note [SC001N]: initialize it in a function instead
-// CHECK: initializers.k:18:18: error [SC001E]: a field's default cannot panic: 'thrower' may panic with 'E', which is not handled
-// CHECK-NEXT: initializers.k:11:1: note [SC001N]: 'thrower' is declared 'panic' here
-// CHECK-NEXT: initializers.k:18:18: note [SC001N]: or handle it here
+// CHECK: initializers.k:13:9: error [SC222E]: a global's initializer cannot panic: 'thrower' may panic with 'E', and there is no function to propagate to
+// CHECK-NEXT: initializers.k:11:1: note [SC222N]: 'thrower' is declared 'panic' here
+// CHECK-NEXT: initializers.k:13:1: note [SC222N]: initialize it in a function instead
+// CHECK: initializers.k:14:9: error [SC222E]: a global's initializer cannot hold a 'try': it runs at file scope, outside every function
+// CHECK-NEXT: initializers.k:14:1: note [SC222N]: initialize it in a function instead
+// CHECK: initializers.k:14:13: error [SC222E]: a global's initializer cannot panic: 'thrower' may panic with 'E', and there is no function to propagate to
+// CHECK-NEXT: initializers.k:11:1: note [SC222N]: 'thrower' is declared 'panic' here
+// CHECK-NEXT: initializers.k:14:1: note [SC222N]: initialize it in a function instead
+// CHECK: initializers.k:17:21: error [SC222E]: a global's initializer cannot panic: 'thrower' may panic with 'E', and there is no function to propagate to
+// CHECK-NEXT: initializers.k:11:1: note [SC222N]: 'thrower' is declared 'panic' here
+// CHECK-NEXT: initializers.k:17:5: note [SC222N]: initialize it in a function instead
+// CHECK: initializers.k:18:18: error [SC221E]: a field's default cannot panic: 'thrower' may panic with 'E', which is not handled
+// CHECK-NEXT: initializers.k:11:1: note [SC222N]: 'thrower' is declared 'panic' here
+// CHECK-NEXT: initializers.k:18:18: note [SC221N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}initializers.k":{18:18-18:18}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}initializers.k":{18:27-18:27}:" catch => crash!()"
-// CHECK-NEXT: initializers.k:18:5: note [SC001N]: the default is declared here
-// CHECK: initializers.k:22:23: error [SC001E]: a parameter's default cannot panic: 'thrower' may panic with 'E', which is not handled
-// CHECK-NEXT: initializers.k:11:1: note [SC001N]: 'thrower' is declared 'panic' here
-// CHECK-NEXT: initializers.k:22:23: note [SC001N]: or handle it here
+// CHECK-NEXT: initializers.k:18:5: note [SC221N]: the default is declared here
+// CHECK: initializers.k:22:23: error [SC221E]: a parameter's default cannot panic: 'thrower' may panic with 'E', which is not handled
+// CHECK-NEXT: initializers.k:11:1: note [SC222N]: 'thrower' is declared 'panic' here
+// CHECK-NEXT: initializers.k:22:23: note [SC221N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}initializers.k":{22:23-22:23}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}initializers.k":{22:32-22:32}:" catch => crash!()"
-// CHECK-NEXT: initializers.k:22:14: note [SC001N]: the default is declared here
+// CHECK-NEXT: initializers.k:22:14: note [SC221N]: the default is declared here

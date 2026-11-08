@@ -32,10 +32,10 @@ fn main() -> i32 {
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:22:34: error [SC001E]: 'Plain' does not conform to 'Show': no member 'show' with the requirement's signature
+// DIAG: {{.*}}:22:34: error [SC162E]: 'Plain' does not conform to 'Show': no member 'show' with the requirement's signature
 // DIAG-NEXT: {{.*}}:11:11: note [I900N]: required by this bound
 // DIAG-NEXT: {{.*}}:9:18: note [I900N]: 'show' is required here
-// DIAG: {{.*}}:27:13: error [SC001E]: 'Flat' does not conform to 'Store': its 'Map' takes 0 generic parameter(s), and the associated type takes 1
+// DIAG: {{.*}}:27:13: error [SC161E]: 'Flat' does not conform to 'Store': its 'Map' takes 0 generic parameter(s), and the associated type takes 1
 // DIAG-NEXT: {{.*}}:23:5: note [I900N]: required by this bound
 // DIAG-NEXT: {{.*}}:19:5: note [I900N]: 'Flat' declares 'Map' here
 // DIAG-NEXT: {{.*}}:11:5: note [I900N]: 'Map' is required here

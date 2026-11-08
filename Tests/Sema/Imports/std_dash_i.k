@@ -23,4 +23,4 @@ fn use_io() -> void {
 // The registration is checked against the directory's own pin: a std dir
 // whose module.k says something else is told so, not silently renamed.
 // RUN: { %kairo %S/Inputs/std_pin_mismatch/module.k --type-check-only --std-dir=%S/Inputs/std_pin_mismatch 2>&1 || true; } | %FileCheck %s --check-prefix=MISMATCH
-// MISMATCH: error [R001E]: '{{.*}}std_pin_mismatch/module.k' pins `module not_std`, but this directory is registered as library 'kairo::std'
+// MISMATCH: error [R059E]: '{{.*}}std_pin_mismatch/module.k' pins `module not_std`, but this directory is registered as library 'kairo::std'

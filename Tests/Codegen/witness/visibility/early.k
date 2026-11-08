@@ -12,5 +12,5 @@ fn main() -> i32 { return sees::use_a() + blind::use_b() }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error ["
-// DIAG:      blind.k:6:12: error [SC001E]: 'Metric' does not conform to 'Scalable'
+// DIAG:      blind.k:6:12: error [SC162E]: 'Metric' does not conform to 'Scalable'
 // DIAG-NEXT: iface.k:7:9: note [I900N]: required by this bound

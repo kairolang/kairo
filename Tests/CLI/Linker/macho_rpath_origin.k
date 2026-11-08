@@ -11,4 +11,4 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo %s --target=arm64-apple-macosx14.0 --print-ld-args --rpath-origin=@executable_path | %FileCheck %s --check-prefix=EP
 // EP: -rpath @executable_path
 // RUN: { %kairo %s --target=arm64-apple-macosx14.0 --print-ld-args --rpath-origin=@rpath 2>&1 || true; } | %FileCheck %s --check-prefix=BAD
-// BAD: error [L001E]: --rpath-origin=@rpath: expected @loader_path or @executable_path
+// BAD: error [L002E]: --rpath-origin=@rpath: expected @loader_path or @executable_path

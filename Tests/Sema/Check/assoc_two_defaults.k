@@ -39,7 +39,7 @@ fn main() -> i32 {
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:31:13: error [SC001E]: 'Split' does not conform to 'G': its interfaces give associated type 'Node' two defaults, 'i64' from 'D1' and 'i32' from 'D2'
+// DIAG: {{.*}}:31:13: error [SC161E]: 'Split' does not conform to 'G': its interfaces give associated type 'Node' two defaults, 'i64' from 'D1' and 'i32' from 'D2'
 // DIAG-NEXT: {{.*}}:28:5: note [I900N]: required by this bound
 // DIAG-NEXT: {{.*}}:10:38: note [I900N]: 'D1' gives it 'i64' here
 // DIAG-NEXT: {{.*}}:11:38: note [I900N]: 'D2' gives it 'i32' here; declare 'type Node = ...' in 'Split' to choose

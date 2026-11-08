@@ -33,7 +33,7 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: conformance_ctor_lifecycle.k:{{(25|26|27|28)}}:
-// CHECK: conformance_ctor_lifecycle.k:29:13: error [SC001E]: 'M' does not conform to 'Copyable': 'M' is not a COPY type
+// CHECK: conformance_ctor_lifecycle.k:29:13: error [SC162E]: 'M' does not conform to 'Copyable': 'M' is not a COPY type
 // CHECK: conformance_ctor_lifecycle.k:22:5: note [I900N]: required by this bound
 // CHECK: conformance_ctor_lifecycle.k:9:5: note [I900N]: the constructor is required here
 // CHECK-NOT: error

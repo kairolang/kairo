@@ -19,5 +19,5 @@ fn main() -> i32 { return twice_lib::two() }
 // --- lit wiring -----------------------------------------------------------
 // RUN: rm -rf %t.d
 // RUN: { %kairo %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s
-// CHECK: error [SC001E]: two files set the global allocator: '{{twice_main|twice_lib}}.k' and '{{twice_main|twice_lib}}.k'; a program has one
-// CHECK: note [SC001N]: '{{twice_main|twice_lib}}.k' sets it here
+// CHECK: error [SC138E]: two files set the global allocator: '{{twice_main|twice_lib}}.k' and '{{twice_main|twice_lib}}.k'; a program has one
+// CHECK: note [SC138N]: '{{twice_main|twice_lib}}.k' sets it here

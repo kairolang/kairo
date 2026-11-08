@@ -12,4 +12,4 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo %s --target=arm64-apple-macosx14.0 --print-ld-args --macos-version-min=13.0 | %FileCheck %s --check-prefix=FLAG
 // FLAG: -platform_version macos 13.0
 // RUN: { %kairo %s --target=arm64-apple-macosx14.0 --print-ld-args --macos-version-min=banana 2>&1 || true; } | %FileCheck %s --check-prefix=BAD
-// BAD: error [L001E]: --macos-version-min=banana: expected a version
+// BAD: error [L002E]: --macos-version-min=banana: expected a version

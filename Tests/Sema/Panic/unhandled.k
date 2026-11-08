@@ -108,44 +108,44 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: unhandled.k:26:12: error [SC001E]: unhandled panic: 'parse' may panic with 'IOError' and 'ParseError', and 'propagates_nothing' is not marked 'panic'
+// CHECK: unhandled.k:26:12: error [SC221E]: unhandled panic: 'parse' may panic with 'IOError' and 'ParseError', and 'propagates_nothing' is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{25:30-25:30}:" panic"
-// CHECK-NEXT: unhandled.k:19:1: note [SC001N]: 'parse' is declared 'panic' here
-// CHECK-NEXT: unhandled.k:26:12: note [SC001N]: or handle it here
+// CHECK-NEXT: unhandled.k:19:1: note [SC222N]: 'parse' is declared 'panic' here
+// CHECK-NEXT: unhandled.k:26:12: note [SC221N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{26:12-26:12}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{26:20-26:20}:" catch => crash!()"
-// CHECK: unhandled.k:30:16: error [SC001E]: unhandled panic: this 'panic' raises 'IOError', and 'raises' is not marked 'panic'
+// CHECK: unhandled.k:30:16: error [SC221E]: unhandled panic: this 'panic' raises 'IOError', and 'raises' is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{29:18-29:18}:" panic"
-// CHECK: unhandled.k:37:16: error [SC001E]: unhandled panic: 'parse' may panic with 'ParseError', and 'partial' is not marked 'panic'
+// CHECK: unhandled.k:37:16: error [SC221E]: unhandled panic: 'parse' may panic with 'ParseError', and 'partial' is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{35:19-35:19}:" panic"
-// CHECK-NEXT: unhandled.k:19:1: note [SC001N]: 'parse' is declared 'panic' here
-// CHECK-NEXT: unhandled.k:37:16: note [SC001N]: or handle it here
+// CHECK-NEXT: unhandled.k:19:1: note [SC222N]: 'parse' is declared 'panic' here
+// CHECK-NEXT: unhandled.k:37:16: note [SC221N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{37:16-37:16}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{37:24-37:24}:" catch => crash!()"
-// CHECK: unhandled.k:64:16: error [SC001E]: unhandled panic: 'parse' may panic with 'IOError' and 'ParseError', and 'panics_in_arm' is not marked 'panic'
+// CHECK: unhandled.k:64:16: error [SC221E]: unhandled panic: 'parse' may panic with 'IOError' and 'ParseError', and 'panics_in_arm' is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{60:25-60:25}:" panic"
-// CHECK-NEXT: unhandled.k:19:1: note [SC001N]: 'parse' is declared 'panic' here
-// CHECK-NEXT: unhandled.k:64:16: note [SC001N]: or handle it here
+// CHECK-NEXT: unhandled.k:19:1: note [SC222N]: 'parse' is declared 'panic' here
+// CHECK-NEXT: unhandled.k:64:16: note [SC221N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{64:16-64:16}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{64:24-64:24}:" catch => crash!()"
-// CHECK: unhandled.k:65:7: warning [SC001W]: this arm never runs: 'ParseError' is not in the panic set of its 'try' (this 'try' may panic only with 'IOError')
+// CHECK: unhandled.k:65:7: warning [SC210W]: this arm never runs: 'ParseError' is not in the panic set of its 'try' (this 'try' may panic only with 'IOError')
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{65:7-67:6}:""
-// CHECK: unhandled.k:94:13: error [SC001E]: unhandled panic: 'make' may panic with 'ParseError', and 'members' is not marked 'panic'
+// CHECK: unhandled.k:94:13: error [SC221E]: unhandled panic: 'make' may panic with 'ParseError', and 'members' is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{93:13-93:13}:" panic"
-// CHECK-NEXT: unhandled.k:85:5: note [SC001N]: 'make' is declared 'panic' here
-// CHECK-NEXT: unhandled.k:94:13: note [SC001N]: or handle it here
+// CHECK-NEXT: unhandled.k:85:5: note [SC222N]: 'make' is declared 'panic' here
+// CHECK-NEXT: unhandled.k:94:13: note [SC221N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{94:13-94:13}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{94:26-94:26}:" catch => crash!()"
 // A panicking operator is held to the rules of any other call.
-// CHECK: unhandled.k:95:13: error [SC001E]: unhandled panic: this operator may panic with 'IOError', and 'members' is not marked 'panic'
+// CHECK: unhandled.k:95:13: error [SC221E]: unhandled panic: this operator may panic with 'IOError', and 'members' is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{93:13-93:13}:" panic"
-// CHECK-NEXT: unhandled.k:89:5: note [SC001N]: 'op +' is declared 'panic' here
-// CHECK-NEXT: unhandled.k:95:13: note [SC001N]: or handle it here
+// CHECK-NEXT: unhandled.k:89:5: note [SC222N]: 'op +' is declared 'panic' here
+// CHECK-NEXT: unhandled.k:95:13: note [SC221N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{95:13-95:13}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{95:18-95:18}:" catch => crash!()"
-// CHECK: unhandled.k:96:12: error [SC001E]: unhandled panic: 'get' may panic with 'IOError', and 'members' is not marked 'panic'
+// CHECK: unhandled.k:96:12: error [SC221E]: unhandled panic: 'get' may panic with 'IOError', and 'members' is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{93:13-93:13}:" panic"
-// CHECK-NEXT: unhandled.k:90:5: note [SC001N]: 'get' is declared 'panic' here
-// CHECK-NEXT: unhandled.k:96:12: note [SC001N]: or handle it here
+// CHECK-NEXT: unhandled.k:90:5: note [SC222N]: 'get' is declared 'panic' here
+// CHECK-NEXT: unhandled.k:96:12: note [SC221N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{96:12-96:12}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{96:19-96:19}:" catch => crash!()"

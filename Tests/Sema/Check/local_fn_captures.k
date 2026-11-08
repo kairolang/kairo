@@ -51,18 +51,18 @@ fn main() -> i32 { return outer(1) + fine(2) }
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:14:47: error [SC001E]: 'uses_local' is a named function declared in a body, and cannot use 'x' from the function around it
+// DIAG: {{.*}}:14:47: error [SC151E]: 'uses_local' is a named function declared in a body, and cannot use 'x' from the function around it
 // DIAG-NEXT: {{.*}}:12:5: note [I900N]: 'x' is declared here; a named function captures nothing -- pass it as a parameter, or use a closure
-// DIAG: {{.*}}:15:37: error [SC001E]: 'uses_param' is a named function declared in a body, and cannot use 'p' from the function around it
+// DIAG: {{.*}}:15:37: error [SC151E]: 'uses_param' is a named function declared in a body, and cannot use 'p' from the function around it
 // DIAG-NEXT: {{.*}}:11:10: note [I900N]: 'p' is declared here; a named function captures nothing -- pass it as a parameter, or use a closure
-// DIAG: {{.*}}:16:38: error [SC001E]: 'uses_static' is a named function declared in a body, and cannot use 'hits' from the function around it
+// DIAG: {{.*}}:16:38: error [SC151E]: 'uses_static' is a named function declared in a body, and cannot use 'hits' from the function around it
 // DIAG-NEXT: {{.*}}:13:5: note [I900N]: 'hits' is declared here; a named function captures nothing -- pass it as a parameter, or use a closure
-// DIAG: {{.*}}:19:40: error [SC001E]: 'innermost' is a named function declared in a body, and cannot use 'x' from the function around it
+// DIAG: {{.*}}:19:40: error [SC151E]: 'innermost' is a named function declared in a body, and cannot use 'x' from the function around it
 // DIAG-NEXT: {{.*}}:12:5: note [I900N]: 'x' is declared here; a named function captures nothing -- pass it as a parameter, or use a closure
-// DIAG: {{.*}}:19:44: error [SC001E]: 'innermost' is a named function declared in a body, and cannot use 'm' from the function around it
+// DIAG: {{.*}}:19:44: error [SC151E]: 'innermost' is a named function declared in a body, and cannot use 'm' from the function around it
 // DIAG-NEXT: {{.*}}:18:9: note [I900N]: 'm' is declared here; a named function captures nothing -- pass it as a parameter, or use a closure
-// DIAG: {{.*}}:23:38: error [SC001E]: 'get' is a named function declared in a body, and cannot use 'x' from the function around it
+// DIAG: {{.*}}:23:38: error [SC151E]: 'get' is a named function declared in a body, and cannot use 'x' from the function around it
 // DIAG-NEXT: {{.*}}:12:5: note [I900N]: 'x' is declared here; a named function captures nothing -- pass it as a parameter, or use a closure
-// DIAG: {{.*}}:31:41: error [SC001E]: 'reads_self' is a named function declared in a body, and cannot use 'self' from the function around it
+// DIAG: {{.*}}:31:41: error [SC151E]: 'reads_self' is a named function declared in a body, and cannot use 'self' from the function around it
 // DIAG-NEXT: {{.*}}:30:15: note [I900N]: 'self' is declared here; a named function captures nothing -- pass it as a parameter, or use a closure
 // END-GENERATED-CHECKS(DIAG)

@@ -15,5 +15,5 @@ class B {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: late_fold_cycle.k:5:13: error [SC001E]: the condition of an 'eval if' outside a function body must fold once types are resolved; it reads the members of 'B', which an 'eval if' that is not decided yet chooses
-// CHECK: late_fold_cycle.k:11:13: error [SC001E]: the condition of an 'eval if' outside a function body must fold once types are resolved; it reads the members of 'A', which an 'eval if' that is not decided yet chooses
+// CHECK: late_fold_cycle.k:5:13: error [SC230E]: the condition of an 'eval if' outside a function body must fold once types are resolved; it reads the members of 'B', which an 'eval if' that is not decided yet chooses
+// CHECK: late_fold_cycle.k:11:13: error [SC230E]: the condition of an 'eval if' outside a function body must fold once types are resolved; it reads the members of 'A', which an 'eval if' that is not decided yet chooses

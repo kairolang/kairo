@@ -54,7 +54,7 @@ fn main() -> i32 { return 0 }
 // DIAG-NOT: {{error|warning}}
 // DIAG: unwrap.k:19:40: error [SC028E]: cannot convert '*i32' to 'bool'
 // DIAG-NOT: {{error|warning}}
-// DIAG: unwrap.k:38:36: error [SC001E]: 'n' is not nullable ('i32'); 'unwrap!' takes a nullable, and this value is never null
+// DIAG: unwrap.k:38:36: error [SC260E]: 'n' is not nullable ('i32'); 'unwrap!' takes a nullable, and this value is never null
 // DIAG-NEXT: fix-it:{{.*}}:{38:36-38:44}:""
 // DIAG-NEXT: fix-it:{{.*}}:{38:45-38:46}:""
 // DIAG-NEXT: unwrap.k:38:12: note [{{.*}}]: 'n' is declared 'i32' here

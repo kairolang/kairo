@@ -80,10 +80,10 @@ fn t_lit_chain() { var r: bool = u() ?? u() ?? 7 }
 // DIAG-NOT: {{error|warning}}
 // DIAG: coalesce_types.k:27:34: error [SC033E]: '??' operands 'i32?' and 'string' have no common type
 // DIAG-NOT: {{error|warning}}
-// DIAG: coalesce_types.k:31:16: error [SC001E]: 'a' may be null here; check it with 'if a?' first
+// DIAG: coalesce_types.k:31:16: error [SC265E]: 'a' may be null here; check it with 'if a?' first
 // DIAG-NEXT: coalesce_types.k:29:15: note [{{.*}}]: 'a' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: coalesce_types.k:48:14: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: coalesce_types.k:48:14: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: coalesce_types.k:49:9: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}
 // DIAG: coalesce_types.k:60:34: error [SC028E]: cannot convert 'u8' to 'bool'

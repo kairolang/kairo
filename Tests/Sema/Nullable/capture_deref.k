@@ -117,14 +117,14 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
-// DIAG:      capture_deref.k:62:17: error [SC001E]: '(*x)' may be null here; check it with 'if (*x)?' first
+// DIAG:      capture_deref.k:62:17: error [SC265E]: '(*x)' may be null here; check it with 'if (*x)?' first
 // DIAG-NEXT: capture_deref.k:60:5: note [I900N]: '(*x)' is reached through a pointer the closure captured: anything holding that pointer may change it, so it may be null on entry
-// DIAG-NEXT: capture_deref.k:72:21: error [SC001E]: '(*x)' may be null here; check it with 'if (*x)?' first
+// DIAG-NEXT: capture_deref.k:72:21: error [SC265E]: '(*x)' may be null here; check it with 'if (*x)?' first
 // DIAG-NEXT: capture_deref.k:71:13: note [I900N]: '(*x)' is reached through a pointer the closure captured: this call may change it, which ends the check before it
-// DIAG-NEXT: capture_deref.k:83:17: error [SC001E]: '(*x)' is always null here
+// DIAG-NEXT: capture_deref.k:83:17: error [SC265E]: '(*x)' is always null here
 // DIAG-NEXT: capture_deref.k:82:9: note [I900N]: '(*x)' is set to null here
-// DIAG-NEXT: capture_deref.k:94:21: error [SC001E]: '(*x)' may be null here; check it with 'if (*x)?' first
+// DIAG-NEXT: capture_deref.k:94:21: error [SC265E]: '(*x)' may be null here; check it with 'if (*x)?' first
 // DIAG-NEXT: capture_deref.k:89:5: note [I900N]: '(*x)' is reached through a pointer the closure captured: anything holding that pointer may change it, so it may be null on entry
-// DIAG-NEXT: capture_deref.k:107:23: error [SC001E]: '(*x)' may be null here; check it with 'if (*x)?' first
+// DIAG-NEXT: capture_deref.k:107:23: error [SC265E]: '(*x)' may be null here; check it with 'if (*x)?' first
 // DIAG-NEXT: capture_deref.k:102:5: note [I900N]: '(*x)' is reached through a pointer the closure captured: anything holding that pointer may change it, so it may be null on entry
 // DIAG-NOT:  error

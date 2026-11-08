@@ -29,8 +29,8 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
-// DIAG:      dynamic_layout_no_vdtor.k:24:{{[0-9]+}}: error [SC001E]: '__builtin_dynamic_align<NoVd>' needs the layout of what a '*NoVd' points at, but 'NoVd' is polymorphic and has no virtual destructor
-// DIAG-NEXT: dynamic_layout_no_vdtor.k:7:{{[0-9]+}}: note [SC001N]: declare 'virtual fn op delete(self)' in 'NoVd'
-// DIAG:      dynamic_layout_no_vdtor.k:27:{{[0-9]+}}: error [SC001E]: '__builtin_dynamic_size<NoVd>' needs the layout
+// DIAG:      dynamic_layout_no_vdtor.k:24:{{[0-9]+}}: error [SC159E]: '__builtin_dynamic_align<NoVd>' needs the layout of what a '*NoVd' points at, but 'NoVd' is polymorphic and has no virtual destructor
+// DIAG-NEXT: dynamic_layout_no_vdtor.k:7:{{[0-9]+}}: note [SC159N]: declare 'virtual fn op delete(self)' in 'NoVd'
+// DIAG:      dynamic_layout_no_vdtor.k:27:{{[0-9]+}}: error [SC159E]: '__builtin_dynamic_size<NoVd>' needs the layout
 // DIAG:      dynamic_layout_no_vdtor.k:19:{{[0-9]+}}: note [I900N]: in instantiation of
 // DIAG-NOT:  {{error|warning}} [

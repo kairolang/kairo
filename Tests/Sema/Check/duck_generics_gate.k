@@ -20,15 +20,15 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only -fno-duck-generics 2>&1 || true; } | %FileCheck %s --check-prefix=OFF
-// OFF: duck_generics_gate.k:9:6: error [SC001E]: 'T: type' needs -fduck-generics: a generic body is checked against its bounds, not per instance
+// OFF: duck_generics_gate.k:9:6: error [SC198E]: 'T: type' needs -fduck-generics: a generic body is checked against its bounds, not per instance
 // OFF-NEXT: duck_generics_gate.k:9:43: note [{{.*}}]: the body uses a member of 'T' here; declare an interface with the members it needs and bound the parameter 'T impl <Interface>'
 // OFF-NOT: fix-it
 // OFF: note [{{.*}}]: `: type` is the transitional regime clang checks per instance; -fduck-generics enables it
-// OFF: duck_generics_gate.k:11:6: error [SC001E]: 'T: type' needs -fduck-generics
+// OFF: duck_generics_gate.k:11:6: error [SC198E]: 'T: type' needs -fduck-generics
 // OFF-NEXT: fix-it:"{{.*}}duck_generics_gate.k":{11:6-11:12}:""
-// OFF: duck_generics_gate.k:13:9: error [SC001E]: 'X: type' needs -fduck-generics
+// OFF: duck_generics_gate.k:13:9: error [SC198E]: 'X: type' needs -fduck-generics
 // OFF-NEXT: fix-it:"{{.*}}duck_generics_gate.k":{13:9-13:15}:""
-// OFF: duck_generics_gate.k:17:6: error [SC001E]: 'T: type' needs -fduck-generics
+// OFF: duck_generics_gate.k:17:6: error [SC198E]: 'T: type' needs -fduck-generics
 // OFF-NEXT: duck_generics_gate.k:17:{{[0-9]+}}: note [{{.*}}]: the body uses a member of 'T' here
 // OFF-NOT: error
 

@@ -18,5 +18,5 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // RUN: %kairo --type-check-only %s
 // RUN: { %kairo --type-check-only --no-fp %s 2>&1 || true; } | %FileCheck %s
-// CHECK: no_fp.k:6:{{[0-9]+}}: error [SC001E]: a floating-point literal is not allowed when floating point is disabled
-// CHECK: no_fp.k:10:{{[0-9]+}}: error [SC001E]: a floating-point parameter is not allowed when floating point is disabled
+// CHECK: no_fp.k:6:{{[0-9]+}}: error [SC198E]: a floating-point literal is not allowed when floating point is disabled
+// CHECK: no_fp.k:10:{{[0-9]+}}: error [SC198E]: a floating-point parameter is not allowed when floating point is disabled

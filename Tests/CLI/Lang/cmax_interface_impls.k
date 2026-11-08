@@ -17,4 +17,4 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo --type-check-only --cmax-interface-impls=2 %s
 // RUN: %kairo --type-check-only --cmax-interface-impls=0 %s
 // RUN: { %kairo --type-check-only --cmax-interface-impls=1 %s 2>&1 || true; } | %FileCheck %s
-// CHECK: cmax_interface_impls.k:8:{{[0-9]+}}: error [SC001E]: class implements too many interfaces (2, limit 1)
+// CHECK: cmax_interface_impls.k:8:{{[0-9]+}}: error [SC199E]: class implements too many interfaces (2, limit 1)

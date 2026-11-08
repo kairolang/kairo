@@ -9,9 +9,9 @@
 // --- lit wiring -----------------------------------------------------------
 // RUN: cd %S/Inputs/module_pins_late && { %kairo late/module.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=LATE
 // RUN: cd %S/Inputs/module_pins_late && not %kairo late/module.k --type-check-only > /dev/null 2>&1
-// LATE: module.k:2:1: error [R001E]: `module geo` is not the first declaration of this module.k, so it does not name the directory
+// LATE: module.k:2:1: error [R064E]: `module geo` is not the first declaration of this module.k, so it does not name the directory
 //
 // RUN: cd %S/Inputs/module_pins_late && { %kairo twice/module.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=TWICE
-// TWICE: module.k:2:1: error [R001E]: a second bare `module` declaration; a file names at most one library
+// TWICE: module.k:2:1: error [R064E]: a second bare `module` declaration; a file names at most one library
 // TWICE: module.k:1:1: note {{.*}}: the first pin is here
 // TWICE-NOT: error

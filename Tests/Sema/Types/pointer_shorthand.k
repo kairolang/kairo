@@ -128,36 +128,36 @@ fn loop_shorthand(n: i32) -> i32 {
 
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: {{error|warning}}
-// DIAG: pointer_shorthand.k:29:9: error [SC001E]: '*c' states a pointer of depth 1, but its initializer is '**T', a pointer of depth 2; write '**c'
+// DIAG: pointer_shorthand.k:29:9: error [SC266E]: '*c' states a pointer of depth 1, but its initializer is '**T', a pointer of depth 2; write '**c'
 // DIAG-NEXT: fix-it:{{.*}}:{29:9-29:10}:"**"
 // DIAG-NOT: {{error|warning}}
-// DIAG: pointer_shorthand.k:55:9: error [SC001E]: '*bad' states a pointer of depth 1, but its initializer is '**i32', a pointer of depth 2; write '**bad'
+// DIAG: pointer_shorthand.k:55:9: error [SC266E]: '*bad' states a pointer of depth 1, but its initializer is '**i32', a pointer of depth 2; write '**bad'
 // DIAG-NEXT: fix-it:{{.*}}:{55:9-55:10}:"**"
 // DIAG-NOT: {{error|warning}}
-// DIAG: pointer_shorthand.k:56:9: error [SC001E]: '***bad2' states a pointer of depth 3, but its initializer is '**i32', a pointer of depth 2; write '**bad2'
+// DIAG: pointer_shorthand.k:56:9: error [SC266E]: '***bad2' states a pointer of depth 3, but its initializer is '**i32', a pointer of depth 2; write '**bad2'
 // DIAG-NEXT: fix-it:{{.*}}:{56:9-56:12}:"**"
 // DIAG-NOT: {{error|warning}}
-// DIAG: pointer_shorthand.k:57:9: error [SC001E]: '*notp' declares a pointer, but its initializer has type 'i32', which is not one
+// DIAG: pointer_shorthand.k:57:9: error [SC266E]: '*notp' declares a pointer, but its initializer has type 'i32', which is not one
 // DIAG-NEXT: fix-it:{{.*}}:{57:9-57:10}:""
 // DIAG-NOT: {{error|warning}}
-// DIAG: pointer_shorthand.k:58:9: error [SC001E]: '*u2' declares a safe pointer, but its initializer is the unsafe pointer 'unsafe *i32'; write 'unsafe *u2'
+// DIAG: pointer_shorthand.k:58:9: error [SC266E]: '*u2' declares a safe pointer, but its initializer is the unsafe pointer 'unsafe *i32'; write 'unsafe *u2'
 // DIAG-NEXT: fix-it:{{.*}}:{58:9-58:10}:"unsafe *"
 // DIAG-NOT: {{error|warning}}
-// DIAG: pointer_shorthand.k:59:9: error [SC001E]: 'unsafe *s' declares an unsafe pointer, but its initializer is the safe pointer '*i32'; write '*s'
+// DIAG: pointer_shorthand.k:59:9: error [SC266E]: 'unsafe *s' declares an unsafe pointer, but its initializer is the safe pointer '*i32'; write '*s'
 // DIAG-NEXT: fix-it:{{.*}}:{59:9-59:17}:"*"
 // DIAG-NOT: {{error|warning}}
-// DIAG: pointer_shorthand.k:60:9: error [SC001E]: '**w2' declares a safe pointer, but its initializer is the unsafe pointer 'unsafe **i32'; write 'unsafe **w2'
+// DIAG: pointer_shorthand.k:60:9: error [SC266E]: '**w2' declares a safe pointer, but its initializer is the unsafe pointer 'unsafe **i32'; write 'unsafe **w2'
 // DIAG-NEXT: fix-it:{{.*}}:{60:9-60:11}:"unsafe **"
 // DIAG-NOT: {{error|warning}}
-// DIAG: pointer_shorthand.k:61:10: error [SC001E]: '*m2' is initialized with a nullable '*i32?'; write '*m2?' so the declaration says it may be null
+// DIAG: pointer_shorthand.k:61:10: error [SC266E]: '*m2' is initialized with a nullable '*i32?'; write '*m2?' so the declaration says it may be null
 // DIAG-NEXT: fix-it:{{.*}}:{61:12-61:12}:"?"
 // DIAG-NOT: {{error|warning}}
-// DIAG: pointer_shorthand.k:69:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: pointer_shorthand.k:69:12: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: pointer_shorthand.k:68:5: note [I900N]: 'x' may be changed here, through a pointer to it
 // DIAG-NOT: {{error|warning}}
 // Both loops read the same: a loop-local is not classified by the pre-scan
 // (ticketed), with or without the stars.
-// DIAG: pointer_shorthand.k:79:19: error [SC001E]: 'q' may be null here
+// DIAG: pointer_shorthand.k:79:19: error [SC265E]: 'q' may be null here
 // DIAG-NOT: {{error|warning}}
-// DIAG: pointer_shorthand.k:93:19: error [SC001E]: 'q' may be null here
+// DIAG: pointer_shorthand.k:93:19: error [SC265E]: 'q' may be null here
 // DIAG-NOT: {{error|warning}}

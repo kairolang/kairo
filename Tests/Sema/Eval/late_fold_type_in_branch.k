@@ -10,4 +10,4 @@ eval if is_trivially_copyable!(Plain) {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: late_fold_type_in_branch.k:7:12: error [SC001E]: 'Inner' is declared in an 'eval if' whose condition reads a type fact; such a condition is decided after types are resolved, so its branches may declare only functions, constants and fields
+// CHECK: late_fold_type_in_branch.k:7:12: error [SC231E]: 'Inner' is declared in an 'eval if' whose condition reads a type fact; such a condition is decided after types are resolved, so its branches may declare only functions, constants and fields

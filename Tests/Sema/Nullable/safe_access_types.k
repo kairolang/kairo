@@ -81,15 +81,15 @@ fn bad_loop_call(a: Foo?, k: i32) -> i32 {
 // DIAG-NOT: {{error|warning}}
 // DIAG: safe_access_types.k:35:41: error [SC028E]: cannot convert 'i32?' to 'bool'
 // DIAG-NOT: {{error|warning}}
-// DIAG: safe_access_types.k:37:36: error [SC001E]: 'f' is not nullable ('Foo'); '?.' guards a null it cannot hold, write '.'
+// DIAG: safe_access_types.k:37:36: error [SC260E]: 'f' is not nullable ('Foo'); '?.' guards a null it cannot hold, write '.'
 // DIAG-NEXT: fix-it:{{.*}}:{37:36-37:37}:""
 // DIAG-NEXT: safe_access_types.k:37:11: note [{{.*}}]: 'f' is declared 'Foo' here
 // DIAG-NOT: {{error|warning}}
-// DIAG: safe_access_types.k:38:43: error [SC001E]: 'f?.plain' is not nullable ('Inner'); '?.' guards a null it cannot hold, write '.'
+// DIAG: safe_access_types.k:38:43: error [SC260E]: 'f?.plain' is not nullable ('Inner'); '?.' guards a null it cannot hold, write '.'
 // DIAG-NEXT: fix-it:{{.*}}:{38:43-38:44}:""
 // DIAG-NEXT: safe_access_types.k:18:9: note [{{.*}}]: 'plain' is declared 'Inner' here
 // DIAG-NOT: {{error|warning}}
-// DIAG: safe_access_types.k:39:36: error [SC001E]: 'p' is not nullable ('*Foo'); '?->' guards a null it cannot hold, write '->'
+// DIAG: safe_access_types.k:39:36: error [SC260E]: 'p' is not nullable ('*Foo'); '?->' guards a null it cannot hold, write '->'
 // DIAG-NEXT: fix-it:{{.*}}:{39:36-39:37}:""
 // DIAG-NEXT: safe_access_types.k:39:10: note [{{.*}}]: 'p' is declared '*Foo' here
 // DIAG-NOT: {{error|warning}}
@@ -97,9 +97,9 @@ fn bad_loop_call(a: Foo?, k: i32) -> i32 {
 // DIAG-NOT: {{error|warning}}
 // DIAG: safe_access_types.k:41:42: error [R025E]: no member named 'v' in 'Foo?'
 // DIAG-NOT: {{error|warning}}
-// DIAG: safe_access_types.k:53:24: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: safe_access_types.k:53:24: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: safe_access_types.k:53:27: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}
-// DIAG: safe_access_types.k:59:24: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: safe_access_types.k:59:24: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: safe_access_types.k:59:27: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}

@@ -81,26 +81,26 @@ fn structural() -> i32 { return try through_loose(Loose {}) catch e: A => e.n }
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
 // RUN: { %kairo %s --type-check-only --shared 2>&1 || true; } | %FileCheck %s --check-prefix=LIB
-// CHECK: generics.k:32:12: error [SC001E]: unhandled panic: 'read' may panic with 'E', and 'unhandled' is not marked 'panic'
+// CHECK: generics.k:32:12: error [SC221E]: unhandled panic: 'read' may panic with 'E', and 'unhandled' is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}generics.k":{31:38-31:38}:" panic"
-// CHECK-NEXT: generics.k:28:5: note [SC001N]: 'read' is declared 'panic' here
-// CHECK-NEXT: generics.k:32:12: note [SC001N]: or handle it here
+// CHECK-NEXT: generics.k:28:5: note [SC222N]: 'read' is declared 'panic' here
+// CHECK-NEXT: generics.k:32:12: note [SC221N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}generics.k":{32:12-32:12}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}generics.k":{32:20-32:20}:" catch => crash!()"
-// CHECK: generics.k:36:12: error [SC001E]: 'A' is not in the declared panic set of 'declared'
+// CHECK: generics.k:36:12: error [SC221E]: 'A' is not in the declared panic set of 'declared'
 // CHECK-NEXT: fix-it:"{{.*}}generics.k":{35:54-35:54}:", A"
-// CHECK: generics.k:51:27: error [SC001E]: the panic set of 'deep' grows without bound: it calls itself (or a function that calls it) at ever-larger type arguments
-// CHECK-NEXT: generics.k:51:1: note [SC001N]: a declared set, 'panic(E1, E2)', bounds it: what the recursive call panics with must then be in it or caught
-// CHECK: generics.k:57:19: error [SC001E]: 'B' is not in the panic set of 'Src::read', which this implements; a conforming method's set must be a subset of it
-// CHECK-NEXT: generics.k:28:5: note [SC001N]: 'Src::read' is declared here
-// CHECK: generics.k:64:35: error [SC001E]: 'C' is not in the panic set of 'Base::run', which this overrides; an override's set must be a subset of it
-// CHECK-NEXT: generics.k:61:5: note [SC001N]: 'Base::run' is declared here
-// CHECK: generics.k:71:13: error [SC001E]: two 'catch' arms of one 'try' catch 'A' in 'dup<A>': the first takes every 'A', and the second never runs
-// CHECK-NEXT: generics.k:46:39: note [SC001N]: this arm catches 'A' at these arguments
-// CHECK-NEXT: generics.k:46:55: note [SC001N]: and so does this one
+// CHECK: generics.k:51:27: error [SC216E]: the panic set of 'deep' grows without bound: it calls itself (or a function that calls it) at ever-larger type arguments
+// CHECK-NEXT: generics.k:51:1: note [SC216N]: a declared set, 'panic(E1, E2)', bounds it: what the recursive call panics with must then be in it or caught
+// CHECK: generics.k:57:19: error [SC208E]: 'B' is not in the panic set of 'Src::read', which this implements; a conforming method's set must be a subset of it
+// CHECK-NEXT: generics.k:28:5: note [SC208N]: 'Src::read' is declared here
+// CHECK: generics.k:64:35: error [SC208E]: 'C' is not in the panic set of 'Base::run', which this overrides; an override's set must be a subset of it
+// CHECK-NEXT: generics.k:61:5: note [SC208N]: 'Base::run' is declared here
+// CHECK: generics.k:71:13: error [SC209E]: two 'catch' arms of one 'try' catch 'A' in 'dup<A>': the first takes every 'A', and the second never runs
+// CHECK-NEXT: generics.k:46:39: note [SC209N]: this arm catches 'A' at these arguments
+// CHECK-NEXT: generics.k:46:55: note [SC209N]: and so does this one
 // CHECK-NEXT: generics.k:49:34: note [I900N]: in instantiation of 'dup<A>' required here
-// CHECK: generics.k:79:37: error [SC001E]: 'Loose' does not meet 'Src<A>' here: 'B' is not in the panic set of 'Src::read', which 'Loose::read' implements
-// CHECK-NEXT: generics.k:76:5: note [SC001N]: 'Loose::read' may panic with 'B'
-// CHECK-NEXT: generics.k:28:5: note [SC001N]: 'Src::read' is declared here
-// LIB: generics.k:67:22: warning [SC001W]: the panic set of public function 'lib' is inferred ('T'); declare it, or a change to the body changes its callers' contract
+// CHECK: generics.k:79:37: error [SC208E]: 'Loose' does not meet 'Src<A>' here: 'B' is not in the panic set of 'Src::read', which 'Loose::read' implements
+// CHECK-NEXT: generics.k:76:5: note [SC208N]: 'Loose::read' may panic with 'B'
+// CHECK-NEXT: generics.k:28:5: note [SC208N]: 'Src::read' is declared here
+// LIB: generics.k:67:22: warning [SC217W]: the panic set of public function 'lib' is inferred ('T'); declare it, or a change to the body changes its callers' contract
 // LIB-NEXT: fix-it:"{{.*}}generics.k":{67:22-67:27}:"panic(T)"

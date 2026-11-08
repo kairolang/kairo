@@ -27,12 +27,12 @@ fn main() -> i32 {
 // LD: ld.lld {{.*}}--allow-shlib-undefined {{.*}}-lcurl
 
 // RUN: { %kairo %s --pkg-config no-such-package-kairo --type-check-only 2>&1; echo "exit $?"; } | %FileCheck %s --check-prefix=UNKNOWN
-// UNKNOWN: error [U001E]: --pkg-config no-such-package-kairo: pkg-config does not know the package 'no-such-package-kairo'
+// UNKNOWN: error [U019E]: --pkg-config no-such-package-kairo: pkg-config does not know the package 'no-such-package-kairo'
 // UNKNOWN: exit 1
 
 // RUN: { env -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR %kairo %s --target=x86_64-linux-gnu --pkg-config libcurl --type-check-only 2>&1; echo "exit $?"; } | %FileCheck %s --check-prefix=CROSS
-// CROSS: error [U001E]: --pkg-config cannot be used with --target=x86_64-linux-gnu as is
-// CROSS: note [U001N]: point PKG_CONFIG_SYSROOT_DIR or PKG_CONFIG_LIBDIR
+// CROSS: error [U018E]: --pkg-config cannot be used with --target=x86_64-linux-gnu as is
+// CROSS: note [U018N]: point PKG_CONFIG_SYSROOT_DIR or PKG_CONFIG_LIBDIR
 // CROSS: exit 1
 
 // Hermetic: the host's header is not there at all.

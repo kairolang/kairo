@@ -8,5 +8,5 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: sysroot-x86_64-linux-musl
 // RUN: %kairo %s --target=x86_64-linux-musl --print-ld-args --rpath /r1 --rpath=/r2 2>&1 | %FileCheck %s
-// CHECK: warning [L001W]: --rpath has no effect on a static link
+// CHECK: warning [L002W]: --rpath has no effect on a static link
 // CHECK-NOT: -rpath

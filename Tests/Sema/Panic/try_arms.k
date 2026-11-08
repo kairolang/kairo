@@ -67,14 +67,14 @@ fn cxx_exception_arm(x: i32) -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: try_arms.k:27:7: warning [SC001W]: this arm never runs: 'F' is not in the panic set of its 'try' (this 'try' may panic only with 'E')
+// CHECK: try_arms.k:27:7: warning [SC210W]: this arm never runs: 'F' is not in the panic set of its 'try' (this 'try' may panic only with 'E')
 // CHECK-NEXT: fix-it:"{{.*}}try_arms.k":{27:7-29:6}:""
-// CHECK: try_arms.k:31:7: error [SC001E]: a second 'catch' arm for 'E': the first one already catches it
+// CHECK: try_arms.k:31:7: error [SC209E]: a second 'catch' arm for 'E': the first one already catches it
 // CHECK-NEXT: fix-it:"{{.*}}try_arms.k":{31:7-33:6}:""
-// CHECK-NEXT: try_arms.k:29:7: note [SC001N]: the first arm is here
-// CHECK: try_arms.k:39:7: warning [SC001W]: this arm never runs: 'E' is not in the panic set of its 'try' (nothing in this 'try' can panic)
+// CHECK-NEXT: try_arms.k:29:7: note [SC209N]: the first arm is here
+// CHECK: try_arms.k:39:7: warning [SC210W]: this arm never runs: 'E' is not in the panic set of its 'try' (nothing in this 'try' can panic)
 // CHECK-NEXT: fix-it:"{{.*}}try_arms.k":{39:7-41:6}:""
-// CHECK: try_arms.k:47:7: warning [SC001W]: this arm never runs: 'Base' is not in the panic set of its 'try' (this 'try' may panic only with 'Derived')
+// CHECK: try_arms.k:47:7: warning [SC210W]: this arm never runs: 'Base' is not in the panic set of its 'try' (this 'try' may panic only with 'Derived')
 // CHECK-NEXT: fix-it:"{{.*}}try_arms.k":{47:7-49:6}:""
-// CHECK: try_arms.k:55:27: warning [SC001W]: this arm never runs: 'F' is not in the panic set of its 'try' (this 'try' may panic only with 'E')
+// CHECK: try_arms.k:55:27: warning [SC210W]: this arm never runs: 'F' is not in the panic set of its 'try' (this 'try' may panic only with 'E')
 // CHECK-NEXT: fix-it:"{{.*}}try_arms.k":{55:27-55:42}:""

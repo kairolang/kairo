@@ -26,6 +26,6 @@ fn main() -> i32 { return 0 }
 // NOL-NOT: -L{{[^ ]*}}glibc2.31
 
 // RUN: { %kairo %s --native --target=x86_64-linux-gnu --type-check-only 2>&1; echo "exit $?"; } | %FileCheck %s --check-prefix=MIX
-// MIX: error [U001E]: --native and --target=x86_64-linux-gnu cannot be combined
-// MIX: note [U001N]: --native builds for this machine
+// MIX: error [U016E]: --native and --target=x86_64-linux-gnu cannot be combined
+// MIX: note [U016N]: --native builds for this machine
 // MIX: exit 1

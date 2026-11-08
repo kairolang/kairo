@@ -44,6 +44,6 @@ fn main() -> i32 { return 0 }
 // DIAG-NEXT: {{.*}}:14:5: note [I900N]: 'Item' is declared here; add the requirement to one of its interfaces, or bound it by one that declares it
 // DIAG: {{.*}}:28:14: error [R025E]: '-' on 'T::Item' needs a bound that declares 'op -'; none of the bounds of 'Item' does
 // DIAG-NEXT: {{.*}}:14:5: note [I900N]: 'Item' is declared here; add the requirement to one of its interfaces, or bound it by one that declares it
-// DIAG: {{.*}}:29:14: error [SC001E]: 'a' is not nullable; 'T::Item' is never null, so comparing it with 'null' is meaningless
+// DIAG: {{.*}}:29:14: error [SC260E]: 'a' is not nullable; 'T::Item' is never null, so comparing it with 'null' is meaningless
 // DIAG-NEXT: {{.*}}:21:5: note [I900N]: declared 'T::Item' here; a type that may be null is written 'T?'
 // END-GENERATED-CHECKS(DIAG)

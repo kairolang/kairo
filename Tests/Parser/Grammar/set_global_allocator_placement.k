@@ -22,6 +22,6 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: set_global_allocator_placement.k:15:1: error [SC001E]: the global allocator is already set in this file; a program has one
-// CHECK: set_global_allocator_placement.k:14:1: note [SC001N]: set here first
-// CHECK: set_global_allocator_placement.k:18:5: error [SC001E]: '@set_global_allocator' stands on a line of its own at file scope; it is not an attribute of a declaration or statement
+// CHECK: set_global_allocator_placement.k:15:1: error [SC138E]: the global allocator is already set in this file; a program has one
+// CHECK: set_global_allocator_placement.k:14:1: note [SC138N]: set here first
+// CHECK: set_global_allocator_placement.k:18:5: error [SC139E]: '@set_global_allocator' stands on a line of its own at file scope; it is not an attribute of a declaration or statement

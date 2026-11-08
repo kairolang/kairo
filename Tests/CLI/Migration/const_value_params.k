@@ -25,7 +25,7 @@
 // RUN: cp %S/Inputs/const_value_params/gen.k %t/fix/gen.k
 // RUN: { %kairo %t/fix/gen.k --type-check-only 2>&1 || true; } > %t/fix/diags.txt
 // RUN: %FileCheck %s --check-prefix=FIXDIAG --implicit-check-not="error [" --implicit-check-not="warning [" < %t/fix/diags.txt
-// FIXDIAG-COUNT-6: error [S001E]: a generic value parameter is written 'eval N: T', not 'const N: T'
+// FIXDIAG-COUNT-6: error [S082E]: a generic value parameter is written 'eval N: T', not 'const N: T'
 // RUN: python3 %S/Inputs/const_value_params/apply_fixits.py %t/fix/diags.txt %t/fix/gen.k | %FileCheck %s --check-prefix=APPLIED
 // APPLIED: 6 fix-it(s) applied
 // RUN: diff %t/fix/gen.k %S/Inputs/const_value_params/gen.k.expected

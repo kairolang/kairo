@@ -13,4 +13,4 @@ fn main() -> i32 { return 0 }
 // CMD: crt1
 // CMD-NOT: --no-entry
 // RUN: { %kairo %s --target=wasm32-wasi --print-ld-args --wasm-exec-model=bogus 2>&1 || true; } | %FileCheck %s --check-prefix=BAD
-// BAD: error [L001E]: unknown --wasm-exec-model bogus
+// BAD: error [L002E]: unknown --wasm-exec-model bogus

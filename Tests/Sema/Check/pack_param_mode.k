@@ -14,5 +14,5 @@ fn main() -> i32 {
 // It was silently dropped: `bump(&a, &b)` deduced T = *i32 and every layer
 // below passed the pointers by value. The call itself reports nothing more.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not=error
-// CHECK: pack_param_mode.k:1:16: error [SC001E]: '@inout' on pack parameter 'args' is not supported yet: a passing mode on a pack has no meaning for its elements
-// CHECK: pack_param_mode.k:2:16: error [SC001E]: '@move' on pack parameter 'args' is not supported yet: a passing mode on a pack has no meaning for its elements
+// CHECK: pack_param_mode.k:1:16: error [SC204E]: '@inout' on pack parameter 'args' is not supported yet: a passing mode on a pack has no meaning for its elements
+// CHECK: pack_param_mode.k:2:16: error [SC204E]: '@move' on pack parameter 'args' is not supported yet: a passing mode on a pack has no meaning for its elements

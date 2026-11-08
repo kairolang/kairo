@@ -9,4 +9,4 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo --type-check-only --cmax-function-params=3 %s
 // RUN: %kairo --type-check-only --cmax-function-params=0 %s
 // RUN: { %kairo --type-check-only --cmax-function-params=2 %s 2>&1 || true; } | %FileCheck %s
-// CHECK: cmax_function_params.k:4:{{[0-9]+}}: error [SC001E]: function has too many parameters (3, limit 2)
+// CHECK: cmax_function_params.k:4:{{[0-9]+}}: error [SC199E]: function has too many parameters (3, limit 2)

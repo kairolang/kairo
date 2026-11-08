@@ -27,5 +27,5 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: {{error|warning}}
-// CHECK: conformance_generic_member.k:23:13: error [SC001E]: 'Holder<f64>' does not conform to 'Getter': no member 'get' with the requirement's signature
+// CHECK: conformance_generic_member.k:23:13: error [SC162E]: 'Holder<f64>' does not conform to 'Getter': no member 'get' with the requirement's signature
 // CHECK-NOT: {{error|warning}}

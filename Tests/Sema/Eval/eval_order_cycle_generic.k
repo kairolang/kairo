@@ -29,7 +29,7 @@ fn main() -> i32 {
 // needs another record only (Fine) is no cycle.
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
-// CHECK: eval_order_cycle_generic.k:3:20: error [SC001E]: this type has a value C++ computes from 'grid_size', which needs 'Grid' complete; inside its own definition 'Grid' is not complete yet, so no order of the C++ declarations can compute it
-// CHECK-NEXT: eval_order_cycle_generic.k:1:47: note [SC001N]: 'grid_size' needs 'Grid' complete here
-// CHECK-NEXT: eval_order_cycle_generic.k:7:30: error [SC001E]: this requires predicate is a value C++ computes from 'pool_ok', which needs 'Pool' complete
-// CHECK-NEXT: eval_order_cycle_generic.k:6:36: note [SC001N]: 'pool_ok' needs 'Pool' complete here
+// CHECK: eval_order_cycle_generic.k:3:20: error [SC195E]: this type has a value C++ computes from 'grid_size', which needs 'Grid' complete; inside its own definition 'Grid' is not complete yet, so no order of the C++ declarations can compute it
+// CHECK-NEXT: eval_order_cycle_generic.k:1:47: note [SC195N]: 'grid_size' needs 'Grid' complete here
+// CHECK-NEXT: eval_order_cycle_generic.k:7:30: error [SC195E]: this requires predicate is a value C++ computes from 'pool_ok', which needs 'Pool' complete
+// CHECK-NEXT: eval_order_cycle_generic.k:6:36: note [SC195N]: 'pool_ok' needs 'Pool' complete here

@@ -57,7 +57,7 @@ fn main() -> i32 { return 0 }
 
 // A clang option missing its value is an error, exit 1.
 // RUN: { %kairo --print-from-clang -- -o 2>&1 || true; } | %FileCheck %s --check-prefix=MISS
-// MISS: error [U001E]: clang option '-o' is missing its value
+// MISS: error [U014E]: clang option '-o' is missing its value
 // RUN: not %kairo --print-from-clang -- -o > /dev/null 2>&1
 
 // --cxx-define / --cxx-undefine reach clang (here: the shared cc1 line).

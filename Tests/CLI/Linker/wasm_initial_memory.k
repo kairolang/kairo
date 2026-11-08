@@ -9,6 +9,6 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo %s --target=wasm32-wasi --print-ld-args --wasm-initial-memory=131072 | %FileCheck %s --check-prefix=INIT
 // INIT: --initial-memory=131072
 // RUN: { %kairo %s --target=wasm32-wasi --print-ld-args --wasm-initial-memory=100000 2>&1 || true; } | %FileCheck %s --check-prefix=BAD
-// BAD: error [L001E]: --wasm-initial-memory=100000 is not a multiple of the 65536-byte wasm page
+// BAD: error [L002E]: --wasm-initial-memory=100000 is not a multiple of the 65536-byte wasm page
 // RUN: %kairo %s --target=wasm32-wasi --print-ld-args | %FileCheck %s --check-prefix=NONE
 // NONE-NOT: --initial-memory

@@ -15,11 +15,11 @@
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: cd %S/Inputs/access_other_module && { %kairo main.k --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
-// CHECK: main.k:5:{{[0-9]+}}: error [SC001E]: field 'secret' of 'Acc' is private
+// CHECK: main.k:5:{{[0-9]+}}: error [SC242E]: field 'secret' of 'Acc' is private
 // CHECK-NEXT: fix-it:"{{.*}}acc.k":{3:5-3:5}:"pub "
-// CHECK-NEXT: acc.k:3:9: note [SC001N]: 'secret' is private by default
-// CHECK: main.k:6:{{[0-9]+}}: error [SC001E]: static member 'hidden' of 'Acc' is private
-// CHECK: main.k:7:{{[0-9]+}}: error [SC001E]: method 'peek' of 'Acc' is private
+// CHECK-NEXT: acc.k:3:9: note [SC242N]: 'secret' is private by default
+// CHECK: main.k:6:{{[0-9]+}}: error [SC242E]: static member 'hidden' of 'Acc' is private
+// CHECK: main.k:7:{{[0-9]+}}: error [SC242E]: method 'peek' of 'Acc' is private
 // CHECK-NEXT: fix-it:"{{.*}}acc.k":{5:5-5:9}:"pub"
-// CHECK-NEXT: acc.k:5:13: note [SC001N]: 'peek' is declared private here
-// CHECK: main.k:8:{{[0-9]+}}: error [SC001E]: this constructor of 'Acc' is private
+// CHECK-NEXT: acc.k:5:13: note [SC242N]: 'peek' is declared private here
+// CHECK: main.k:8:{{[0-9]+}}: error [SC242E]: this constructor of 'Acc' is private

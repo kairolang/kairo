@@ -48,7 +48,7 @@ class Partial {
     pub var flags: [bool; 4]
 // DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: note [{{.*}}]: 'flags' has 4 elements; write each one once ('self.flags[k] = ...' for every k from 0 to 3) on every path, or assign it whole
     fn Partial(self, c: bool) {
-// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: array field 'flags' is built element by element, but elements 1 and 3 are not initialized on every path through the constructor of 'Partial', and 'bool' has no zero state: a default would have to guess true or false
+// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [SC173E]: array field 'flags' is built element by element, but elements 1 and 3 are not initialized on every path through the constructor of 'Partial', and 'bool' has no zero state: a default would have to guess true or false
         self.flags[0] = true
         if c { self.flags[1] = true }
         self.flags[2] = true
@@ -61,7 +61,7 @@ class Twice {
         self.flags[0] = true
 // DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: note [{{.*}}]: initialized here first
         self.flags[0] = false
-// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: element 0 of 'flags' may already be initialized here; each element is initialized exactly once before 'flags' is whole
+// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [SC176E]: element 0 of 'flags' may already be initialized here; each element is initialized exactly once before 'flags' is whole
         self.flags[1] = true
     }
 }
@@ -70,7 +70,7 @@ class NotConst {
     pub var flags: [bool; 2]
     fn NotConst(self, i: usize) {
         self.flags[i] = true
-// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: the index of an element write that builds 'flags' must be a constant
+// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [SC176E]: the index of an element write that builds 'flags' must be a constant
         self.flags[1] = true
     }
 }
@@ -79,7 +79,7 @@ class OutOfRange {
     pub var flags: [bool; 2]
     fn OutOfRange(self) {
         self.flags[2] = true
-// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: index 2 is out of range for 'flags', which has 2 elements
+// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [SC176E]: index 2 is out of range for 'flags', which has 2 elements
         self.flags[0] = true
         self.flags[1] = true
     }
@@ -89,7 +89,7 @@ class InLoop {
     pub var flags: [bool; 2]
     fn InLoop(self) {
         for var i: usize = 0; i < 2; ++i { self.flags[i] = true }
-// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: an element of 'flags' is initialized inside a loop; each element of an array field built element by element is written exactly once, with a constant index
+// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [SC176E]: an element of 'flags' is initialized inside a loop; each element of an array field built element by element is written exactly once, with a constant index
     }
 }
 
@@ -99,7 +99,7 @@ class ReadEarly {
         self.flags[0] = true
 // DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: note [{{.*}}]: 'flags' starts being built here; read it after its last element is written
         self.flags[1] = self.flags[0]
-// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: 'flags' is read before all of its elements are initialized: elements 1 and 2 are not initialized yet on every path
+// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [SC175E]: 'flags' is read before all of its elements are initialized: elements 1 and 2 are not initialized yet on every path
         self.flags[2] = true
     }
 }
@@ -110,7 +110,7 @@ class SelfEarly {
 // DIAG-DAG: ctor_field_elems.k:[[@LINE+4]]:{{[0-9]+}}: note [{{.*}}]: the last field is initialized here; the object exists only after it, so move this use below it
         self.flags[0] = true
         self.go()
-// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: 'self' is used before the constructor has initialized its fields
+// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [SC175E]: 'self' is used before the constructor has initialized its fields
         self.flags[1] = true
     }
     fn go(self) {}
@@ -119,7 +119,7 @@ class SelfEarly {
 class IntoElement {
     pub var toks: [Token; 1]
     fn IntoElement(self) {
-// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: constructor of 'IntoElement' does not initialize field 'toks', and 'Token' has no default constructor (declare 'fn Token(self)')
+// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [SC173E]: constructor of 'IntoElement' does not initialize field 'toks', and 'Token' has no default constructor (declare 'fn Token(self)')
         self.toks[0].n = 1
 // DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: note [{{.*}}]: only a whole element written with a constant index ('self.toks[0] = ...') builds part of 'toks'; a write into an element (a field of it, or a nested index) needs the element to exist first
     }
@@ -128,7 +128,7 @@ class IntoElement {
 class Nested {
     pub var grid: [[bool; 2]; 1]
     fn Nested(self) {
-// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: constructor of 'Nested' does not initialize field 'grid', and 'bool' has no zero state: a default would have to guess true or false
+// DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: error [SC173E]: constructor of 'Nested' does not initialize field 'grid', and 'bool' has no zero state: a default would have to guess true or false
         self.grid[0] = [true, false]
 // DIAG-DAG: ctor_field_elems.k:[[@LINE-1]]:{{[0-9]+}}: note [{{.*}}]: 'grid' cannot be built element by element: only a one-dimensional array of a known length can; assign it whole
 // DIAG-DAG: ctor_field_elems.k:[[@LINE-2]]:{{[0-9]+}}: error [SC071E]: an array is not assignable; assign its elements, or go through a slice

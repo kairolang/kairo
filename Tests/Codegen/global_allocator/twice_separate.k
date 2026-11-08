@@ -20,5 +20,5 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo -c %S/twice_lib.k -o %t.lib.o --cache-dir %t.d1
 // RUN: %kairo -c %s -o %t.main.o --cache-dir %t.d2
 // RUN: { %kairo %t.main.o %t.lib.o -o %t.exe --cache-dir %t.d3 2>&1 || true; } | %FileCheck %s
-// CHECK: error [L001E]: the global allocator is set twice (@set_global_allocator): by {{.*}}main.o and by {{.*}}lib.o; a program has one, so exactly one linked file may set it
+// CHECK: error [L002E]: the global allocator is set twice (@set_global_allocator): by {{.*}}main.o and by {{.*}}lib.o; a program has one, so exactly one linked file may set it
 // CHECK-NOT: duplicate symbol

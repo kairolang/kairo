@@ -40,7 +40,7 @@ class Foo {
     // Out-of-line below: the SAME body, and it must report the same thing.
     fn out_of_line(self) -> i32
 }
-// DIAG: warning [SC001W]: nested type 'Nested' of 'Foo' is named without a qualifier; write 'Self::Nested'
+// DIAG: warning [SC243W]: nested type 'Nested' of 'Foo' is named without a qualifier; write 'Self::Nested'
 // DIAG: error [R049E]: use of member 'x' requires an explicit qualifier
 // DIAG: note [R049N]: 'x' is declared here
 // DIAG: error [R049E]: use of method 'inc' requires an explicit qualifier
@@ -50,7 +50,7 @@ fn Foo::out_of_line(self) -> i32 {
     var n = Nested { a: 1 }
     return x + n.a
 }
-// DIAG: warning [SC001W]: nested type 'Nested' of 'Foo' is named without a qualifier; write 'Self::Nested'
+// DIAG: warning [SC243W]: nested type 'Nested' of 'Foo' is named without a qualifier; write 'Self::Nested'
 // DIAG: error [R049E]: use of member 'x' requires an explicit qualifier
 
 // An extend body's scope parents to the TU, not to Foo -- the nested type must
@@ -67,7 +67,7 @@ extend Foo {
         return f()
     }
 }
-// DIAG: warning [SC001W]: nested type 'Nested' of 'Foo' is named without a qualifier; write 'Self::Nested'
+// DIAG: warning [SC243W]: nested type 'Nested' of 'Foo' is named without a qualifier; write 'Self::Nested'
 // DIAG: error [R049E]: use of member 'x' requires an explicit qualifier
 // DIAG: error [R049E]: use of member 'x' requires an explicit qualifier
 

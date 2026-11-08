@@ -7,4 +7,4 @@ fn main() -> i32 { return 0 }
 // RUN: rm -rf %t.notadir && echo > %t.notadir
 // RUN: { %kairo %s --type-check-only --time-trace=%t.notadir/no_such_dir/t.json 2>&1 || true; } | %FileCheck %s
 // RUN: not %kairo %s --type-check-only --time-trace=%t.notadir/no_such_dir/t.json > /dev/null 2>&1
-// CHECK: error [U001E]: cannot write time trace
+// CHECK: error [U023E]: cannot write time trace

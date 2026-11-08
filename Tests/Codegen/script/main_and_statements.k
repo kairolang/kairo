@@ -16,6 +16,6 @@ fn main() -> i32 { return g }
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: {{error|warning}}
-// DIAG:      main_and_statements.k:12:1: error [SC001E]: a file with 'fn main' cannot also have top-level statements; 'main' is where the program starts
-// DIAG-NEXT: main_and_statements.k:14:1: note [SC001N]: 'main' is declared here
+// DIAG:      main_and_statements.k:12:1: error [SC234E]: a file with 'fn main' cannot also have top-level statements; 'main' is where the program starts
+// DIAG-NEXT: main_and_statements.k:14:1: note [SC234N]: 'main' is declared here
 // DIAG-NOT: {{error|warning}}

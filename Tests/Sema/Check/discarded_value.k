@@ -21,9 +21,9 @@ fn f(a: i32, b: i32) -> i32 {
 }
 
 // --- lit wiring ---
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not=SC001W
-// CHECK: discarded_value.k:10:9: warning [SC001W]: expression result unused; the statement has no effect
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not=SC268W
+// CHECK: discarded_value.k:10:9: warning [SC268W]: expression result unused; the statement has no effect
 // CHECK: discarded_value.k:10:9: note [I900N]: a newline ends a statement
-// CHECK: discarded_value.k:12:9: warning [SC001W]
-// CHECK: discarded_value.k:13:5: warning [SC001W]
-// CHECK: discarded_value.k:14:5: warning [SC001W]
+// CHECK: discarded_value.k:12:9: warning [SC268W]
+// CHECK: discarded_value.k:13:5: warning [SC268W]
+// CHECK: discarded_value.k:14:5: warning [SC268W]

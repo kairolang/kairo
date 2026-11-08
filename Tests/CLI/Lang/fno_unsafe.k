@@ -11,4 +11,4 @@ fn main() -> i32 { return f() }
 // --- lit wiring -----------------------------------------------------------
 // RUN: %kairo --type-check-only -funsafe %s
 // RUN: { %kairo --type-check-only -fno-unsafe %s 2>&1 || true; } | %FileCheck %s
-// CHECK: fno_unsafe.k:5:{{[0-9]+}}: error [SC001E]: an unsafe block is not allowed when unsafe code is disabled
+// CHECK: fno_unsafe.k:5:{{[0-9]+}}: error [SC198E]: an unsafe block is not allowed when unsafe code is disabled

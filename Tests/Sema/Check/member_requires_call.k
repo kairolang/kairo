@@ -34,8 +34,8 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
-// DIAG:     member_requires_call.k:24:{{[0-9]+}}: error [SC001E]: 'get' cannot be called on 'Box<Tracked>': its 'requires' clause does not hold
-// DIAG-NEXT: member_requires_call.k:10:{{[0-9]+}}: note [SC001N]: this is false for 'Box<Tracked>'
-// DIAG:     member_requires_call.k:25:{{[0-9]+}}: error [SC001E]: 'plain' cannot be called on 'Box<Tracked>'
-// DIAG:     member_requires_call.k:26:{{[0-9]+}}: error [SC001E]: 'narrow' cannot be called on 'Box<i64>'
+// DIAG:     member_requires_call.k:24:{{[0-9]+}}: error [SC153E]: 'get' cannot be called on 'Box<Tracked>': its 'requires' clause does not hold
+// DIAG-NEXT: member_requires_call.k:10:{{[0-9]+}}: note [SC153N]: this is false for 'Box<Tracked>'
+// DIAG:     member_requires_call.k:25:{{[0-9]+}}: error [SC153E]: 'plain' cannot be called on 'Box<Tracked>'
+// DIAG:     member_requires_call.k:26:{{[0-9]+}}: error [SC153E]: 'narrow' cannot be called on 'Box<i64>'
 // DIAG-NOT: {{error|warning}} [

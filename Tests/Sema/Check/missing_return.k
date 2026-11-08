@@ -240,7 +240,7 @@ fn bad_generator_return_value() -> yield i32 {
     yield 1
     return 2
 }
-// CHECK: missing_return.k:[[@LINE-2]]:5: error [SC001E]: a generator ends with 'return' and yields its values; it has no return value
+// CHECK: missing_return.k:[[@LINE-2]]:5: error [SC269E]: a generator ends with 'return' and yields its values; it has no return value
 
 // --- main -----------------------------------------------------------------------
 // `main` gets no C++-style implicit `return 0`: a `-> i32` main that can reach

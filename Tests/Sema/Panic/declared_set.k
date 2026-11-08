@@ -74,14 +74,14 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: declared_set.k:26:12: error [SC001E]: 'OddError' is not in the declared panic set of 'only_even'
+// CHECK: declared_set.k:26:12: error [SC221E]: 'OddError' is not in the declared panic set of 'only_even'
 // CHECK-NEXT: fix-it:"{{.*}}declared_set.k":{25:37-25:37}:", OddError"
-// CHECK-NEXT: declared_set.k:14:1: note [SC001N]: 'even' is declared 'panic' here
-// CHECK: declared_set.k:35:16: error [SC001E]: 'Other' is not in the declared panic set of 'raises_other'
+// CHECK-NEXT: declared_set.k:14:1: note [SC222N]: 'even' is declared 'panic' here
+// CHECK: declared_set.k:35:16: error [SC221E]: 'Other' is not in the declared panic set of 'raises_other'
 // CHECK-NEXT: fix-it:"{{.*}}declared_set.k":{34:40-34:40}:", Other"
-// CHECK: declared_set.k:51:12: error [SC001E]: 'EvenError' is not in the declared panic set of 'user_typed'
+// CHECK: declared_set.k:51:12: error [SC221E]: 'EvenError' is not in the declared panic set of 'user_typed'
 // CHECK-NEXT: fix-it:"{{.*}}declared_set.k":{50:37-50:37}:", EvenError"
-// CHECK-NEXT: declared_set.k:40:1: note [SC001N]: 'repanic_typed' is declared 'panic' here
-// CHECK: declared_set.k:64:12: error [SC001E]: 'OddError' is not in the declared panic set of 'user_bare'
+// CHECK-NEXT: declared_set.k:40:1: note [SC222N]: 'repanic_typed' is declared 'panic' here
+// CHECK: declared_set.k:64:12: error [SC221E]: 'OddError' is not in the declared panic set of 'user_bare'
 // CHECK-NEXT: fix-it:"{{.*}}declared_set.k":{63:37-63:37}:", OddError"
-// CHECK-NEXT: declared_set.k:55:1: note [SC001N]: 'repanic_bare' is declared 'panic' here
+// CHECK-NEXT: declared_set.k:55:1: note [SC222N]: 'repanic_bare' is declared 'panic' here

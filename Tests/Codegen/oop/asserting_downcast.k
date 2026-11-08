@@ -55,11 +55,11 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
-// DIAG: asserting_downcast.k:26:14: warning [SC001W]: 'a as *Dog' crashes the program when the object is not a 'Dog'; use 'a as *Dog?' and test the result for cleaner handling
+// DIAG: asserting_downcast.k:26:14: warning [SC253W]: 'a as *Dog' crashes the program when the object is not a 'Dog'; use 'a as *Dog?' and test the result for cleaner handling
 // DIAG: fix-it:"{{.*}}asserting_downcast.k":{26:23-26:23}:"?"
 // DIAG: asserting_downcast.k:15:1: note [I900N]: 'Dog' is declared here
-// DIAG: asserting_downcast.k:31:14: warning [SC001W]: 't as *Corgi' crashes the program when the object is not a 'Corgi'
-// DIAG: asserting_downcast.k:36:14: warning [SC001W]: 'a as *const Dog' crashes the program when the object is not a 'Dog'
+// DIAG: asserting_downcast.k:31:14: warning [SC253W]: 't as *Corgi' crashes the program when the object is not a 'Corgi'
+// DIAG: asserting_downcast.k:36:14: warning [SC253W]: 'a as *const Dog' crashes the program when the object is not a 'Dog'
 // DIAG-NOT: error [
 //
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX

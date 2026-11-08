@@ -45,12 +45,12 @@ fn raises_values(x: i32) panic -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: payload_types.k:20:41: error [SC001E]: type 'Pinned' cannot be panicked: it is not movable; an error is returned and propagated by value (its move constructor is deleted)
-// CHECK-NEXT: payload_types.k:8:1: note [SC001N]: 'Pinned' is declared here
-// CHECK: payload_types.k:22:39: error [SC001E]: type 'void' cannot be panicked: 'void' is not a value
-// CHECK: payload_types.k:24:28: error [SC001E]: type 'Pinned' cannot be panicked: it is not movable; an error is returned and propagated by value (its move constructor is deleted)
-// CHECK-NEXT: payload_types.k:8:1: note [SC001N]: 'Pinned' is declared here
-// CHECK: payload_types.k:26:35: error [SC001E]: type 'Later' cannot be panicked: it is incomplete; an error is held by value, so its size must be known
-// CHECK-NEXT: payload_types.k:14:1: note [SC001N]: 'Later' is declared here
-// CHECK: payload_types.k:31:16: error [SC001E]: type 'Pinned' cannot be caught: it is not movable; an error is returned and propagated by value (its move constructor is deleted)
-// CHECK-NEXT: payload_types.k:8:1: note [SC001N]: 'Pinned' is declared here
+// CHECK: payload_types.k:20:41: error [SC212E]: type 'Pinned' cannot be panicked: it is not movable; an error is returned and propagated by value (its move constructor is deleted)
+// CHECK-NEXT: payload_types.k:8:1: note [SC212N]: 'Pinned' is declared here
+// CHECK: payload_types.k:22:39: error [SC212E]: type 'void' cannot be panicked: 'void' is not a value
+// CHECK: payload_types.k:24:28: error [SC212E]: type 'Pinned' cannot be panicked: it is not movable; an error is returned and propagated by value (its move constructor is deleted)
+// CHECK-NEXT: payload_types.k:8:1: note [SC212N]: 'Pinned' is declared here
+// CHECK: payload_types.k:26:35: error [SC212E]: type 'Later' cannot be panicked: it is incomplete; an error is held by value, so its size must be known
+// CHECK-NEXT: payload_types.k:14:1: note [SC212N]: 'Later' is declared here
+// CHECK: payload_types.k:31:16: error [SC212E]: type 'Pinned' cannot be caught: it is not movable; an error is returned and propagated by value (its move constructor is deleted)
+// CHECK-NEXT: payload_types.k:8:1: note [SC212N]: 'Pinned' is declared here

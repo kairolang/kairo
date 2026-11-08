@@ -26,8 +26,8 @@ fn main() -> i32 { return 0 }
 // were all found.
 // RUN: { env LD_LIBRARY_PATH="$(dirname %kairo_bin)/../lib" %t/bin/kairo --error-format=basic --type-check-only a.k 2>&1 || true; } \
 // RUN:   | %FileCheck %s --check-prefix=NOSTD --implicit-check-not=warning
-// NOSTD: warning [P001W]: standard library not found: searched {{.*}}/lib/std
-// NOSTD: note [P001N]: pass --std-dir=<dir> naming the standard library tree, or --no-stdlib to build without it
+// NOSTD: warning [P008W]: standard library not found: searched {{.*}}/lib/std
+// NOSTD: note [P008N]: pass --std-dir=<dir> naming the standard library tree, or --no-stdlib to build without it
 //
 // --no-stdlib asked for no std: nothing to warn about.
 // RUN: env LD_LIBRARY_PATH="$(dirname %kairo_bin)/../lib" %t/bin/kairo --error-format=basic --type-check-only --no-stdlib a.k 2>&1 \
@@ -42,8 +42,8 @@ fn main() -> i32 { return 0 }
 // RUN: rm %t/lib/clang/*
 // RUN: { env LD_LIBRARY_PATH="$(dirname %kairo_bin)/../lib" %t/bin/kairo --error-format=basic --type-check-only a.k 2>&1 || true; } \
 // RUN:   | %FileCheck %s --check-prefix=NORES --implicit-check-not=warning
-// NORES: warning [P001W]: clang resource directory not found: searched {{.*}}/lib/clang/<version>/include/stddef.h
-// NORES: note [P001N]: pass --resource-dir=<dir> naming the directory whose include/ holds clang's builtin headers (stddef.h)
+// NORES: warning [P008W]: clang resource directory not found: searched {{.*}}/lib/clang/<version>/include/stddef.h
+// NORES: note [P008N]: pass --resource-dir=<dir> naming the directory whose include/ holds clang's builtin headers (stddef.h)
 //
 // No sysroot: its warning alone. (The builtin tree's own C++ includes then
 // fail to resolve; those errors are not what this checks.)
@@ -51,8 +51,8 @@ fn main() -> i32 { return 0 }
 // RUN: rm %t/sysroot
 // RUN: { env LD_LIBRARY_PATH="$(dirname %kairo_bin)/../lib" %t/bin/kairo --error-format=basic --type-check-only a.k 2>&1 || true; } \
 // RUN:   | %FileCheck %s --check-prefix=NOSYS --implicit-check-not=warning
-// NOSYS: warning [P001W]: no sysroot found for target '[[T:.+]]': searched {{.*}}/sysroot/[[T]]
-// NOSYS: note [P001N]: pass --sysroot=<dir>, or --freestanding to compile without system headers and libraries
+// NOSYS: warning [P008W]: no sysroot found for target '[[T:.+]]': searched {{.*}}/sysroot/[[T]]
+// NOSYS: note [P008N]: pass --sysroot=<dir>, or --freestanding to compile without system headers and libraries
 //
 // --freestanding: no sysroot is what was asked for.
 // RUN: { env LD_LIBRARY_PATH="$(dirname %kairo_bin)/../lib" %t/bin/kairo --error-format=basic --type-check-only --freestanding a.k 2>&1 || true; } \

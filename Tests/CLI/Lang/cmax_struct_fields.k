@@ -13,4 +13,4 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo --type-check-only --cmax-struct-fields=3 %s
 // RUN: %kairo --type-check-only --cmax-struct-fields=0 %s
 // RUN: { %kairo --type-check-only --cmax-struct-fields=2 %s 2>&1 || true; } | %FileCheck %s
-// CHECK: cmax_struct_fields.k:4:{{[0-9]+}}: error [SC001E]: struct has too many fields (3, limit 2)
+// CHECK: cmax_struct_fields.k:4:{{[0-9]+}}: error [SC199E]: struct has too many fields (3, limit 2)

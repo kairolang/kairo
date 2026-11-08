@@ -13,7 +13,7 @@
 // --- lit wiring -----------------------------------------------------------
 // RUN: cd %S/Inputs/access_ext_other_file && { %kairo show.k --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
 // RUN: cd %S/Inputs/access_ext_other_file && { %kairo point.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=OWN --allow-empty
-// CHECK: show.k:4:{{[0-9]+}}: error [SC001E]: field 'x' of 'Point' is private
+// CHECK: show.k:4:{{[0-9]+}}: error [SC242E]: field 'x' of 'Point' is private
 // CHECK-NEXT: fix-it:"{{.*}}point.k":{2:5-2:5}:"pub "
-// CHECK-NEXT: point.k:2:9: note [SC001N]: 'x' is private by default
+// CHECK-NEXT: point.k:2:9: note [SC242N]: 'x' is private by default
 // OWN-NOT: error

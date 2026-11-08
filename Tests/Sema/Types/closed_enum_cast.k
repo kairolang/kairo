@@ -35,13 +35,13 @@ enum Fwd2 derives u8 { M, N }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG:      closed_enum_cast.k:20:13: error [SC001E]: 3 is not a value of 'Color': a closed enum holds only its variants' values
+// DIAG:      closed_enum_cast.k:20:13: error [SC252E]: 3 is not a value of 'Color': a closed enum holds only its variants' values
 // DIAG-NEXT: fix-it:"{{.*}}closed_enum_cast.k":{10:1-10:1}:"@open "
 // DIAG-NEXT: closed_enum_cast.k:10:1: note [I900N]: 'Color' is declared here; it is closed, so a value no variant has is an error
-// DIAG:      closed_enum_cast.k:21:13: error [SC001E]: 3 is not a value of 'Spread': a closed enum holds only its variants' values
+// DIAG:      closed_enum_cast.k:21:13: error [SC252E]: 3 is not a value of 'Spread': a closed enum holds only its variants' values
 // DIAG-NEXT: fix-it:"{{.*}}closed_enum_cast.k":{11:1-11:1}:"@open "
-// DIAG:      closed_enum_cast.k:24:13: error [SC001E]: 7 is not a value of 'Color': a closed enum holds only its variants' values
-// DIAG:      closed_enum_cast.k:26:13: error [SC001E]: 9 is not a value of 'Later': a closed enum holds only its variants' values
+// DIAG:      closed_enum_cast.k:24:13: error [SC252E]: 7 is not a value of 'Color': a closed enum holds only its variants' values
+// DIAG:      closed_enum_cast.k:26:13: error [SC252E]: 9 is not a value of 'Later': a closed enum holds only its variants' values
 // DIAG-NEXT: fix-it:"{{.*}}closed_enum_cast.k":{32:1-32:1}:"@open "
-// DIAG:      closed_enum_cast.k:27:13: error [SC001E]: 4 is not a value of 'Color': a closed enum holds only its variants' values
-// DIAG:      closed_enum_cast.k:28:13: error [SC001E]: 3 is not a value of 'Fwd': a closed enum holds only its variants' values
+// DIAG:      closed_enum_cast.k:27:13: error [SC252E]: 4 is not a value of 'Color': a closed enum holds only its variants' values
+// DIAG:      closed_enum_cast.k:28:13: error [SC252E]: 3 is not a value of 'Fwd': a closed enum holds only its variants' values

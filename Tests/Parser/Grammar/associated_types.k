@@ -16,7 +16,7 @@
 //
 // DIAG: associated_types.k:36:1: error [S050E]: expected '=' in type alias declaration
 // DIAG-NEXT: associated_types.k:36:1: note [I900N]: a 'type' with no '=' is an associated type, which is only declared inside an interface
-// DIAG: associated_types.k:38:12: error [S001E]: 'impl' bounds an associated type, which is only declared inside an interface
+// DIAG: associated_types.k:38:12: error [S088E]: 'impl' bounds an associated type, which is only declared inside an interface
 // DIAG-NOT: error
 
 interface Display { fn show(const self) -> i32 }

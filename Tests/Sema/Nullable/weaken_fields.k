@@ -112,21 +112,21 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only --cmax-errors=0 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_fields.k:26:20: error [SC001E]: 'self.cache' may be null here; check it with 'if self.cache?' first
+// DIAG: weaken_fields.k:26:20: error [SC265E]: 'self.cache' may be null here; check it with 'if self.cache?' first
 // DIAG-NEXT: weaken_fields.k:25:13: note [{{.*}}]: this call takes what holds 'self.cache' as a mutable 'self', so it may change 'self.cache'
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_fields.k:37:16: error [SC001E]: 'f.cache' may be null here; check it with 'if f.cache?' first
+// DIAG: weaken_fields.k:37:16: error [SC265E]: 'f.cache' may be null here; check it with 'if f.cache?' first
 // DIAG-NEXT: weaken_fields.k:36:9: note [{{.*}}]: this call takes what holds 'f.cache' as a mutable 'self', so it may change 'f.cache'
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_fields.k:45:16: error [SC001E]: 's.foo.cache' may be null here; check it with 'if s.foo.cache?' first
+// DIAG: weaken_fields.k:45:16: error [SC265E]: 's.foo.cache' may be null here; check it with 'if s.foo.cache?' first
 // DIAG-NEXT: weaken_fields.k:44:9: note [{{.*}}]: this call takes what holds 's.foo.cache' as a mutable 'self', so it may change 's.foo.cache'
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_fields.k:54:12: error [SC001E]: 'f.cache' may be null here; check it with 'if f.cache?' first
+// DIAG: weaken_fields.k:54:12: error [SC265E]: 'f.cache' may be null here; check it with 'if f.cache?' first
 // DIAG-NEXT: weaken_fields.k:53:5: note [{{.*}}]: this call takes what holds 'f.cache' as a mutable 'self', so it may change 'f.cache'
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_fields.k:63:16: error [SC001E]: 'o.cache' may be null here; check it with 'if o.cache?' first
+// DIAG: weaken_fields.k:63:16: error [SC265E]: 'o.cache' may be null here; check it with 'if o.cache?' first
 // DIAG-NEXT: weaken_fields.k:61:9: note [{{.*}}]: this call takes what holds 'o.cache' as a mutable 'self', so it may change 'o.cache'
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_fields.k:104:14: error [SC001E]: 'f.cache' may be null here; check it with 'if f.cache?' first
+// DIAG: weaken_fields.k:104:14: error [SC265E]: 'f.cache' may be null here; check it with 'if f.cache?' first
 // DIAG-NEXT: weaken_fields.k:105:9: note [{{.*}}]: 'f.cache' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}

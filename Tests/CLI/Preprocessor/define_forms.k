@@ -10,4 +10,4 @@ fn main() -> i32 { return FOO! + BAR! }
 // RUN: %kairo %s --dump-preprocessed --define=FOO --define=BAR=7 | %FileCheck %s --check-prefix=OK
 // OK: return 1 + 7
 // RUN: { %kairo %s --type-check-only --define==5 2>&1 || true; } | %FileCheck %s --check-prefix=BAD
-// BAD: error [U001E]: invalid -D argument '=5': expected NAME or NAME=VALUE with a non-empty NAME
+// BAD: error [U006E]: invalid -D argument '=5': expected NAME or NAME=VALUE with a non-empty NAME

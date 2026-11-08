@@ -25,7 +25,7 @@ fn main() {
 // SEMA:      -- expression types --
 // SEMA:      CallExpr @ 4:5 : void
 //
-// DIAG-DAG: unmarked_warning.k:4:{{[0-9]+}}: warning [SC097W]: {{.*}}'&'
+// DIAG-DAG: unmarked_warning.k:4:{{[0-9]+}}: error [SC097E]: {{.*}}'&'
 // DIAG-DAG: unmarked_warning.k:6:{{[0-9]+}}: error [{{[A-Z0-9]+}}]:
 // DIAG-DAG: {{.*}}parameter 'x' is '@inout' and needs a mutable lvalue
 // DIAG-DAG: unmarked_warning.k:8:{{[0-9]+}}: error [{{[A-Z0-9]+}}]:

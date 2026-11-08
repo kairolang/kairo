@@ -37,10 +37,10 @@ fn main() -> i32 {
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:26:20: error [SC001E]: 'Plain' does not derive 'B'
+// DIAG: {{.*}}:26:20: error [SC156E]: 'Plain' does not derive 'B'
 // DIAG-NEXT: {{.*}}:18:8: note [I900N]: required by this bound
-// DIAG: {{.*}}:33:23: error [SC001E]: 'Plain' does not derive 'B'
+// DIAG: {{.*}}:33:23: error [SC156E]: 'Plain' does not derive 'B'
 // DIAG-NEXT: {{.*}}:21:5: note [I900N]: required by this bound
-// DIAG: {{.*}}:33:44: error [SC001E]: 'Gen<f64>' does not derive 'Src<i32>'
+// DIAG: {{.*}}:33:44: error [SC156E]: 'Gen<f64>' does not derive 'Src<i32>'
 // DIAG-NEXT: {{.*}}:22:5: note [I900N]: required by this bound
 // END-GENERATED-CHECKS(DIAG)

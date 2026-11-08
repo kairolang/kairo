@@ -1,5 +1,5 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: conformance_composed.k:22:12: error [SC001E]: 'File' does not conform to 'Cursor': no member 'seek' with the requirement's signature
+// CHECK: conformance_composed.k:22:12: error [SC162E]: 'File' does not conform to 'Cursor': no member 'seek' with the requirement's signature
 // CHECK-NOT: close
 // CHECK-NOT: error
 //

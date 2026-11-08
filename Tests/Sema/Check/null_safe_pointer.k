@@ -9,11 +9,11 @@
 
 fn main() -> i32 {
     var p: *i32 = &null
-// CHECK: null_safe_pointer.k:[[@LINE-1]]:{{[0-9]+}}: error [SC001E]: '&null' cannot be stored in '*i32': a safe pointer is never null
+// CHECK: null_safe_pointer.k:[[@LINE-1]]:{{[0-9]+}}: error [SC259E]: '&null' cannot be stored in '*i32': a safe pointer is never null
     var x: i32 = 1
     var q: *i32 = &x
     q = &null
-// CHECK: null_safe_pointer.k:[[@LINE-1]]:{{[0-9]+}}: error [SC001E]: '&null' cannot be stored in '*i32': a safe pointer is never null
+// CHECK: null_safe_pointer.k:[[@LINE-1]]:{{[0-9]+}}: error [SC259E]: '&null' cannot be stored in '*i32': a safe pointer is never null
     return x
 }
 

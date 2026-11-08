@@ -52,7 +52,7 @@ fn <T> same(a: T?, b: T?) -> bool = a === b
 
 // Only a `T?` can be null: whatever T is instantiated with, the body sees a T.
 fn <T> isnull(a: T) -> bool = a == null
-// DIAG: opaque_param_ops.k:[[@LINE-1]]:31: error [SC001E]: 'a' is not nullable; 'T' is never null, so comparing it with 'null' is meaningless
+// DIAG: opaque_param_ops.k:[[@LINE-1]]:31: error [SC260E]: 'a' is not nullable; 'T' is never null, so comparing it with 'null' is meaningless
 fn <T> present(a: T) -> bool = a?
 // DIAG: opaque_param_ops.k:[[@LINE-1]]:32: error [SC066E]: 'a' is not nullable; '?' tests a nullable, and 'T' is never null
 
@@ -71,7 +71,7 @@ fn <T> pick(a: T) -> i32 {
         case _ => 3
     }
 }
-// DIAG: opaque_param_ops.k:[[@LINE-5]]:14: error [SC001E]: a value of type 'T' can only be matched by a binding, '_' or 'default' (with a 'where' guard)
+// DIAG: opaque_param_ops.k:[[@LINE-5]]:14: error [SC257E]: a value of type 'T' can only be matched by a binding, '_' or 'default' (with a 'where' guard)
 
 // Exhaustive only when an unguarded binder or `_` ends it, as for any type
 // whose values no pattern can list.

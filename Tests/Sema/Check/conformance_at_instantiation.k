@@ -1,5 +1,5 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: conformance_at_instantiation.k:25:12: error [SC001E]: 'Metric' does not conform to 'Scalable': no member 'scale' with the requirement's signature
+// CHECK: conformance_at_instantiation.k:25:12: error [SC162E]: 'Metric' does not conform to 'Scalable': no member 'scale' with the requirement's signature
 // CHECK: conformance_at_instantiation.k:20:9: note [I900N]: required by this bound
 // CHECK: conformance_at_instantiation.k:12:5: note [I900N]: 'scale' is required here
 //

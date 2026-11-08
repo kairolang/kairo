@@ -99,31 +99,31 @@ fn main() -> i32 { return 0 }
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:15:8: error [SC001E]: constructor of 'Dog' does not initialize its base 'Animal', and 'Animal' has no default constructor
-// DIAG-NEXT: {{.*}}:13:19: note [SC001N]: 'Animal' is a base here; call one of its constructors first in the body: 'Animal::Animal(self, ...)'
-// DIAG: {{.*}}:18:7: error [SC001E]: 'Cat' has no constructor, so nothing initializes its base 'Animal', and 'Animal' has no default constructor
-// DIAG-NEXT: {{.*}}:18:19: note [SC001N]: 'Animal' is a base here; declare a constructor whose first statement calls one of its own: 'Animal::Animal(self, ...)'
-// DIAG: {{.*}}:22:8: error [SC001E]: constructor of 'Bird' does not initialize its base 'Animal', and 'Animal' has no default constructor
-// DIAG-NEXT: {{.*}}:21:20: note [SC001N]: 'Animal' is a base here; call one of its constructors first in the body: 'Animal::Animal(self, ...)'
-// DIAG: {{.*}}:24:9: error [SC001E]: a constructor is called by name only to initialize a base, as one of the first statements of a constructor of a derived class
-// DIAG-NEXT: {{.*}}:10:8: note [SC001N]: to build an object of 'Animal', call the type by name instead
-// DIAG: {{.*}}:31:30: error [SC001E]: 'self' cannot be used in the arguments of the initializer of base 'Animal': the object is built only after its bases
-// DIAG-NEXT: {{.*}}:31:9: note [SC001N]: base initializers run before any field is initialized
-// DIAG: {{.*}}:38:9: error [SC001E]: base 'Animal' is initialized twice
+// DIAG: {{.*}}:15:8: error [SC181E]: constructor of 'Dog' does not initialize its base 'Animal', and 'Animal' has no default constructor
+// DIAG-NEXT: {{.*}}:13:19: note [SC181N]: 'Animal' is a base here; call one of its constructors first in the body: 'Animal::Animal(self, ...)'
+// DIAG: {{.*}}:18:7: error [SC181E]: 'Cat' has no constructor, so nothing initializes its base 'Animal', and 'Animal' has no default constructor
+// DIAG-NEXT: {{.*}}:18:19: note [SC181N]: 'Animal' is a base here; declare a constructor whose first statement calls one of its own: 'Animal::Animal(self, ...)'
+// DIAG: {{.*}}:22:8: error [SC181E]: constructor of 'Bird' does not initialize its base 'Animal', and 'Animal' has no default constructor
+// DIAG-NEXT: {{.*}}:21:20: note [SC181N]: 'Animal' is a base here; call one of its constructors first in the body: 'Animal::Animal(self, ...)'
+// DIAG: {{.*}}:24:9: error [SC180E]: a constructor is called by name only to initialize a base, as one of the first statements of a constructor of a derived class
+// DIAG-NEXT: {{.*}}:10:8: note [SC180N]: to build an object of 'Animal', call the type by name instead
+// DIAG: {{.*}}:31:30: error [SC180E]: 'self' cannot be used in the arguments of the initializer of base 'Animal': the object is built only after its bases
+// DIAG-NEXT: {{.*}}:31:9: note [SC180N]: base initializers run before any field is initialized
+// DIAG: {{.*}}:38:9: error [SC180E]: base 'Animal' is initialized twice
 // DIAG-NEXT: fix-it:"{{.*}}":{38:9-38:32}:""
-// DIAG: {{.*}}:49:9: error [SC001E]: 'Other' is not a direct or virtual base of 'Snake'; a constructor initializes only those
-// DIAG-NEXT: {{.*}}:42:7: note [SC001N]: 'Other' is declared here
-// DIAG: {{.*}}:55:24: error [SC001E]: a base initializer builds the base part of 'self'; its first argument must be 'self'
+// DIAG: {{.*}}:49:9: error [SC180E]: 'Other' is not a direct or virtual base of 'Snake'; a constructor initializes only those
+// DIAG-NEXT: {{.*}}:42:7: note [SC180N]: 'Other' is declared here
+// DIAG: {{.*}}:55:24: error [SC180E]: a base initializer builds the base part of 'self'; its first argument must be 'self'
 // DIAG-NEXT: fix-it:"{{.*}}":{55:24-55:25}:"self"
-// DIAG-NEXT: {{.*}}:55:9: note [SC001N]: this initializes base 'Animal'
-// DIAG: {{.*}}:63:7: error [SC001E]: 'Kid' has no constructor, so nothing initializes its base 'NoDefault', and the default constructor of 'NoDefault' is deleted
-// DIAG-NEXT: {{.*}}:63:19: note [SC001N]: 'NoDefault' is a base here; declare a constructor whose first statement calls one of its own: 'NoDefault::NoDefault(self, ...)'
-// DIAG: {{.*}}:72:8: error [SC001E]: constructor of 'Heir' does not initialize its base 'OnlyCopy', and 'OnlyCopy' has no default constructor: declaring its transfer constructor removed the implicit one (declare 'fn OnlyCopy(self) = default' to keep it)
-// DIAG-NEXT: {{.*}}:71:20: note [SC001N]: 'OnlyCopy' is a base here; call one of its constructors first in the body: 'OnlyCopy::OnlyCopy(self, ...)'
-// DIAG: {{.*}}:77:22: error [SC001E]: a constructor of 'Self1' cannot call another of its own constructors; only a base constructor is called by name
-// DIAG-NEXT: {{.*}}:77:8: note [SC001N]: this constructor builds the object itself
-// DIAG: {{.*}}:82:5: error [SC001E]: a constructor is called by name only to initialize a base, as one of the first statements of a constructor of a derived class
-// DIAG-NEXT: {{.*}}:10:8: note [SC001N]: to build an object of 'Animal', call the type by name instead
-// DIAG: {{.*}}:94:33: error [SC001E]: constructor of 'FlagKid' does not initialize its base 'Flag', and 'Flag' has no default constructor: the implicit one cannot build field 'on', which has no initializer ('bool' has no zero state: a default would have to guess true or false)
-// DIAG-NEXT: {{.*}}:94:23: note [SC001N]: 'Flag' is a base here and declares no constructor to call; give it one, or make its implicit one possible
+// DIAG-NEXT: {{.*}}:55:9: note [SC180N]: this initializes base 'Animal'
+// DIAG: {{.*}}:63:7: error [SC181E]: 'Kid' has no constructor, so nothing initializes its base 'NoDefault', and the default constructor of 'NoDefault' is deleted
+// DIAG-NEXT: {{.*}}:63:19: note [SC181N]: 'NoDefault' is a base here; declare a constructor whose first statement calls one of its own: 'NoDefault::NoDefault(self, ...)'
+// DIAG: {{.*}}:72:8: error [SC181E]: constructor of 'Heir' does not initialize its base 'OnlyCopy', and 'OnlyCopy' has no default constructor: declaring its transfer constructor removed the implicit one (declare 'fn OnlyCopy(self) = default' to keep it)
+// DIAG-NEXT: {{.*}}:71:20: note [SC181N]: 'OnlyCopy' is a base here; call one of its constructors first in the body: 'OnlyCopy::OnlyCopy(self, ...)'
+// DIAG: {{.*}}:77:22: error [SC180E]: a constructor of 'Self1' cannot call another of its own constructors; only a base constructor is called by name
+// DIAG-NEXT: {{.*}}:77:8: note [SC180N]: this constructor builds the object itself
+// DIAG: {{.*}}:82:5: error [SC180E]: a constructor is called by name only to initialize a base, as one of the first statements of a constructor of a derived class
+// DIAG-NEXT: {{.*}}:10:8: note [SC180N]: to build an object of 'Animal', call the type by name instead
+// DIAG: {{.*}}:94:33: error [SC181E]: constructor of 'FlagKid' does not initialize its base 'Flag', and 'Flag' has no default constructor: the implicit one cannot build field 'on', which has no initializer ('bool' has no zero state: a default would have to guess true or false)
+// DIAG-NEXT: {{.*}}:94:23: note [SC181N]: 'Flag' is a base here and declares no constructor to call; give it one, or make its implicit one possible
 // END-GENERATED-CHECKS(DIAG)

@@ -20,12 +20,12 @@ fn makes() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: closures.k:14:40: error [SC001E]: unhandled panic: 'thrower' may panic with 'E', and the closure is not marked 'panic'
+// CHECK: closures.k:14:40: error [SC221E]: unhandled panic: 'thrower' may panic with 'E', and the closure is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}closures.k":{14:23-14:23}:" panic"
-// CHECK-NEXT: closures.k:11:1: note [SC001N]: 'thrower' is declared 'panic' here
-// CHECK-NEXT: closures.k:14:40: note [SC001N]: or handle it here
+// CHECK-NEXT: closures.k:11:1: note [SC222N]: 'thrower' is declared 'panic' here
+// CHECK-NEXT: closures.k:14:40: note [SC221N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}closures.k":{14:40-14:40}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}closures.k":{14:49-14:49}:" catch => crash!()"
-// CHECK: closures.k:15:49: error [SC001E]: 'E' is not in the declared panic set of the closure
+// CHECK: closures.k:15:49: error [SC221E]: 'E' is not in the declared panic set of the closure
 // CHECK-NEXT: fix-it:"{{.*}}closures.k":{15:31-15:31}:", E"
-// CHECK-NEXT: closures.k:11:1: note [SC001N]: 'thrower' is declared 'panic' here
+// CHECK-NEXT: closures.k:11:1: note [SC222N]: 'thrower' is declared 'panic' here

@@ -108,82 +108,82 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only --cmax-errors=0 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:33:14: error [SC001E]: 'a' may be null here; check it with 'if a?' first
+// DIAG: access_errors.k:33:14: error [SC265E]: 'a' may be null here; check it with 'if a?' first
 // DIAG-NEXT: access_errors.k:31:14: note [{{.*}}]: 'a' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:34:15: error [SC001E]: 'a' may be null here; check it with 'if a?' first
+// DIAG: access_errors.k:34:15: error [SC265E]: 'a' may be null here; check it with 'if a?' first
 // DIAG-NEXT: access_errors.k:31:14: note [{{.*}}]: 'a' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:35:15: error [SC001E]: 'p' may be null here; check it with 'if p?' first
+// DIAG: access_errors.k:35:15: error [SC265E]: 'p' may be null here; check it with 'if p?' first
 // DIAG-NEXT: access_errors.k:31:23: note [{{.*}}]: 'p' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:36:14: error [SC001E]: 'p' may be null here; check it with 'if p?' first
+// DIAG: access_errors.k:36:14: error [SC265E]: 'p' may be null here; check it with 'if p?' first
 // DIAG-NEXT: access_errors.k:31:23: note [{{.*}}]: 'p' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:37:14: error [SC001E]: 'f' may be null here; check it with 'if f?' first
+// DIAG: access_errors.k:37:14: error [SC265E]: 'f' may be null here; check it with 'if f?' first
 // DIAG-NEXT: access_errors.k:31:35: note [{{.*}}]: 'f' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:38:14: error [SC001E]: 'f' may be null here; check it with 'if f?' first
+// DIAG: access_errors.k:38:14: error [SC265E]: 'f' may be null here; check it with 'if f?' first
 // DIAG-NEXT: access_errors.k:31:35: note [{{.*}}]: 'f' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:39:10: error [SC001E]: 'a' may be null here; check it with 'if a?' first
+// DIAG: access_errors.k:39:10: error [SC265E]: 'a' may be null here; check it with 'if a?' first
 // DIAG-NEXT: access_errors.k:31:14: note [{{.*}}]: 'a' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:40:5: error [SC001E]: 'a' may be null here; check it with 'if a?' first
+// DIAG: access_errors.k:40:5: error [SC265E]: 'a' may be null here; check it with 'if a?' first
 // DIAG-NEXT: access_errors.k:31:14: note [{{.*}}]: 'a' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:41:10: error [SC001E]: 'a' may be null here; check it with 'if a?' first
+// DIAG: access_errors.k:41:10: error [SC265E]: 'a' may be null here; check it with 'if a?' first
 // DIAG-NEXT: access_errors.k:31:14: note [{{.*}}]: 'a' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:42:19: error [SC001E]: 'a' may be null here; check it with 'if a?' first
+// DIAG: access_errors.k:42:19: error [SC265E]: 'a' may be null here; check it with 'if a?' first
 // DIAG-NEXT: access_errors.k:31:14: note [{{.*}}]: 'a' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:43:14: error [SC001E]: 'xs' may be null here; check it with 'if xs?' first
+// DIAG: access_errors.k:43:14: error [SC265E]: 'xs' may be null here; check it with 'if xs?' first
 // DIAG-NEXT: access_errors.k:31:44: note [{{.*}}]: 'xs' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:44:8: error [SC001E]: 'b' may be null here; check it with 'if b?' first
+// DIAG: access_errors.k:44:8: error [SC265E]: 'b' may be null here; check it with 'if b?' first
 // DIAG-NEXT: access_errors.k:31:56: note [{{.*}}]: 'b' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:45:12: error [SC001E]: 'a' may be null here; check it with 'if a?' first
+// DIAG: access_errors.k:45:12: error [SC265E]: 'a' may be null here; check it with 'if a?' first
 // DIAG-NEXT: access_errors.k:31:14: note [{{.*}}]: 'a' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:51:14: error [SC001E]: 'y' is always null here
+// DIAG: access_errors.k:51:14: error [SC265E]: 'y' is always null here
 // DIAG-NEXT: access_errors.k:50:5: note [{{.*}}]: 'y' is set to null here
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:53:14: error [SC001E]: 'd' is always null here
+// DIAG: access_errors.k:53:14: error [SC265E]: 'd' is always null here
 // DIAG-NEXT: access_errors.k:52:5: note [{{.*}}]: 'd' is set to null here
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:56:14: error [SC001E]: 'j' may be null here; check it with 'if j?' first
+// DIAG: access_errors.k:56:14: error [SC265E]: 'j' may be null here; check it with 'if j?' first
 // DIAG-NEXT: access_errors.k:55:12: note [{{.*}}]: 'j' is given a value that may be null here
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:59:14: error [SC001E]: 'j2' may be null here; check it with 'if j2?' first
+// DIAG: access_errors.k:59:14: error [SC265E]: 'j2' may be null here; check it with 'if j2?' first
 // DIAG-NEXT: access_errors.k:57:5: note [{{.*}}]: 'j2' is declared nullable here
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:64:38: error [SC001E]: 'a' is always null here
+// DIAG: access_errors.k:64:38: error [SC265E]: 'a' is always null here
 // DIAG-NEXT: access_errors.k:64:8: note [{{.*}}]: on this path, the test here found 'a' null
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:68:28: error [SC001E]: 'g' may be null here; check it with 'if g?' first
+// DIAG: access_errors.k:68:28: error [SC265E]: 'g' may be null here; check it with 'if g?' first
 // DIAG-NEXT: access_errors.k:68:13: note [{{.*}}]: 'g' is global: this call may change it, which ends the check before it
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:76:14: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: access_errors.k:76:14: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: access_errors.k:77:9: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:84:45: error [SC001E]: 'a' may be null here; check it with 'if a?' first
+// DIAG: access_errors.k:84:45: error [SC265E]: 'a' may be null here; check it with 'if a?' first
 // DIAG-NEXT: access_errors.k:82:13: note [{{.*}}]: 'a' is captured by the closure: inside it, 'a' is as it was where the closure was made, less what the closure assigns it
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:93:31: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: access_errors.k:93:31: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: access_errors.k:93:13: note [{{.*}}]: 'x' may be changed here, through a pointer to it
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:98:12: error [SC001E]: 'o.cache' may be null here; check it with 'if o.cache?' first
+// DIAG: access_errors.k:98:12: error [SC265E]: 'o.cache' may be null here; check it with 'if o.cache?' first
 // DIAG-NEXT: access_errors.k:22:16: note [{{.*}}]: 'cache' is declared nullable here
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:101:50: error [SC001E]: 'a' may be null here; check it with 'if a?' first
+// DIAG: access_errors.k:101:50: error [SC265E]: 'a' may be null here; check it with 'if a?' first
 // DIAG-NEXT: fix-it:{{.*}}:{101:41-101:41}:"("
 // DIAG-NEXT: fix-it:{{.*}}:{101:55-101:55}:")"
 // DIAG-NEXT: access_errors.k:101:9: note [{{.*}}]: 'a' is a nullable parameter; it may be null on entry
 // DIAG-NEXT: note [{{.*}}]: '&&' binds tighter than '||': the right of '||' runs when 'a?' may have failed; parenthesize, or force it with 'unwrap!(a)'
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:102:65: error [SC001E]: 'b' may be null here; check it with 'if b?' first
+// DIAG: access_errors.k:102:65: error [SC265E]: 'b' may be null here; check it with 'if b?' first
 // DIAG-NEXT: access_errors.k:102:24: note [{{.*}}]: 'b' is a nullable parameter; it may be null on entry
 // DIAG-NOT: {{error|warning}}
 // DIAG: access_errors.k:104:39: error [R025E]: no member named 'v' in 'Foo?'

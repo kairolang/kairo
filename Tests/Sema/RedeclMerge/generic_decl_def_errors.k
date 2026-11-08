@@ -34,10 +34,10 @@ fn main() -> i32 { return 0 }
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:15:1: error [R001E]: 'g' redeclared with different bounds on generic parameter 'T'; a declaration and its definition must name the same bounds
-// DIAG-NEXT: {{.*}}:14:1: note [R001N]: previously declared here
-// DIAG: {{.*}}:18:1: error [R001E]: 'd' redeclared with different bounds on generic parameter 'T'; a declaration and its definition must name the same bounds
-// DIAG-NEXT: {{.*}}:17:1: note [R001N]: previously declared here
+// DIAG: {{.*}}:15:1: error [R061E]: 'g' redeclared with different bounds on generic parameter 'T'; a declaration and its definition must name the same bounds
+// DIAG-NEXT: {{.*}}:14:1: note [R061N]: previously declared here
+// DIAG: {{.*}}:18:1: error [R061E]: 'd' redeclared with different bounds on generic parameter 'T'; a declaration and its definition must name the same bounds
+// DIAG-NEXT: {{.*}}:17:1: note [R061N]: previously declared here
 // DIAG: {{.*}}:21:19: error [R037E]: 'r' declared with a different return type; the parameter types are identical, so this is a redeclaration, not an overload
 // DIAG-NEXT: {{.*}}:20:19: note [R037N]: previously declared with this return type
 // END-GENERATED-CHECKS(DIAG)

@@ -23,7 +23,7 @@ fn main() -> i32 {
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:18:13: error [SC001E]: 'Rect' does not conform to 'Area': its 'area' is not public, and its file declares no 'impl Area'
+// DIAG: {{.*}}:18:13: error [SC162E]: 'Rect' does not conform to 'Area': its 'area' is not public, and its file declares no 'impl Area'
 // DIAG-NEXT: fix-it:"{{.*}}/access_priv_witness_lib.k":{21:5-21:9}:"pub"
 // DIAG-NEXT: {{.*}}:13:5: note [I900N]: required by this bound
 // DIAG-NEXT: {{.*}}/access_priv_witness_lib.k:3:22: note [I900N]: 'area' is required here

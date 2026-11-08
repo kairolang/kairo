@@ -31,7 +31,7 @@ fn two_bare(x: i32) -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: arm_order.k:17:7: error [SC001E]: no 'catch' arm may follow a bare 'catch': it already handles everything
+// CHECK: arm_order.k:17:7: error [SC240E]: no 'catch' arm may follow a bare 'catch': it already handles everything
 // CHECK-NEXT: fix-it:"{{.*}}arm_order.k":{17:7-19:6}:""
-// CHECK-NEXT: arm_order.k:15:7: note [SC001N]: the bare 'catch' is here
+// CHECK-NEXT: arm_order.k:15:7: note [SC240N]: the bare 'catch' is here
 // CHECK: arm_order.k:27:7: error [SC008E]: duplicate bare `catch`; a previous bare `catch` already handles everything

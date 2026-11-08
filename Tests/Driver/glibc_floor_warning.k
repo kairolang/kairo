@@ -21,5 +21,5 @@ fn main() -> i32 { return 0 }
 // NOHOST-NOT: --allow-shlib-undefined
 
 // RUN: { %kairo %s -L %t -l floor -o %t/a.out 2>&1; echo "exit $?"; } | %FileCheck %s
-// CHECK: warning [L001W]: 'libfloor.so.1' needs GLIBC_2.34, so this program needs glibc 2.34 or newer to run (the floor is 2.31)
+// CHECK: warning [L002W]: 'libfloor.so.1' needs GLIBC_2.34, so this program needs glibc 2.34 or newer to run (the floor is 2.31)
 // CHECK: exit 0

@@ -1,5 +1,5 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: conformance_base_missing.k:30:12: error [SC001E]: 'File' does not conform to 'Stream': no member 'read' with the requirement's signature
+// CHECK: conformance_base_missing.k:30:12: error [SC162E]: 'File' does not conform to 'Stream': no member 'read' with the requirement's signature
 // CHECK: conformance_base_missing.k:24:9: note [I900N]: required by this bound
 // CHECK: conformance_base_missing.k:12:5: note [I900N]: 'read' is required here
 //

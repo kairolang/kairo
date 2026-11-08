@@ -30,8 +30,8 @@ fn main() -> i32 {
 // fix-it; a run-time variable is one too.
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
-// CHECK: computed_extent_errors.k:19:18: error [SC001E]: an array length can call only 'eval' functions; 'plain' is not 'eval'
+// CHECK: computed_extent_errors.k:19:18: error [SC192E]: an array length can call only 'eval' functions; 'plain' is not 'eval'
 // CHECK-NEXT: fix-it:"{{.*}}computed_extent_errors.k":{2:1-2:1}:"eval "
-// CHECK-NEXT: computed_extent_errors.k:2:1: note [SC001N]: 'plain' is declared here
-// CHECK: computed_extent_errors.k:20:18: error [SC001E]: an array length must be an 'eval' constant; 'n' is a variable
-// CHECK: computed_extent_errors.k:21:17: error [SC001E]: a generic value argument can call only 'eval' functions; 'plain' is not 'eval'
+// CHECK-NEXT: computed_extent_errors.k:2:1: note [SC192N]: 'plain' is declared here
+// CHECK: computed_extent_errors.k:20:18: error [SC192E]: an array length must be an 'eval' constant; 'n' is a variable
+// CHECK: computed_extent_errors.k:21:17: error [SC192E]: a generic value argument can call only 'eval' functions; 'plain' is not 'eval'

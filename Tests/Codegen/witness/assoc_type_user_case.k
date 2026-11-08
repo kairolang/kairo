@@ -50,7 +50,7 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: error
-// DIAG: assoc_type_user_case.k:10:31: warning [SC001W]: associated type 'Node' of 'Iface' is named without a qualifier
+// DIAG: assoc_type_user_case.k:10:31: warning [SC243W]: associated type 'Node' of 'Iface' is named without a qualifier
 // DIAG-NOT: error
 
 // REQUIRES: clang

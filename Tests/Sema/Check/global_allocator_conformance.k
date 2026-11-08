@@ -15,8 +15,8 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: global_allocator_conformance.k:12:1: error [SC001E]: 'Half' cannot be the global allocator: it has no static function 'resize'
-// CHECK: global_allocator_conformance.k:6:1: note [SC001N]: the global allocator needs static alloc, free, resize, realloc and alloc_zeroed (FullAllocator)
-// CHECK: global_allocator_conformance.k:12:1: error [SC001E]: 'Half' cannot be the global allocator: it has no static function 'realloc'
-// CHECK: global_allocator_conformance.k:12:1: error [SC001E]: 'Half' cannot be the global allocator: it has no static function 'alloc_zeroed'
+// CHECK: global_allocator_conformance.k:12:1: error [SC141E]: 'Half' cannot be the global allocator: it has no static function 'resize'
+// CHECK: global_allocator_conformance.k:6:1: note [SC141N]: the global allocator needs static alloc, free, resize, realloc and alloc_zeroed (FullAllocator)
+// CHECK: global_allocator_conformance.k:12:1: error [SC141E]: 'Half' cannot be the global allocator: it has no static function 'realloc'
+// CHECK: global_allocator_conformance.k:12:1: error [SC141E]: 'Half' cannot be the global allocator: it has no static function 'alloc_zeroed'
 // CHECK-NOT: no static function 'alloc'

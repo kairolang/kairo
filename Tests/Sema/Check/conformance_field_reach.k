@@ -1,5 +1,5 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: conformance_field_reach.k:20:12: error [SC001E]: 'Metric' does not conform to 'Named': no member 'name_len' with the requirement's signature
+// CHECK: conformance_field_reach.k:20:12: error [SC162E]: 'Metric' does not conform to 'Named': no member 'name_len' with the requirement's signature
 // CHECK: conformance_field_reach.k:16:13: note [I900N]: required by this bound
 // CHECK-NOT: error
 //

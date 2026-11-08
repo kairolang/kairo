@@ -9,7 +9,7 @@ fn main() -> i32 { return f(0) + g(0) }
 // RUN: { %kairo %s --type-check-only --cmax-warnings=1 2>&1 || true; } | %FileCheck %s --check-prefix=CAP
 // RUN: { %kairo %s --type-check-only --cmax-warnings=0 2>&1 || true; } | %FileCheck %s --check-prefix=ALL
 // CAP: warning [SC005W]: parameter name is reserved
-// CAP-NEXT: warning [U001W]: too many warnings emitted, further warnings will be suppressed
+// CAP-NEXT: warning [U024W]: too many warnings emitted, further warnings will be suppressed
 // CAP-NOT: SC005W
 // ALL: warning [SC005W]: parameter name is reserved
 // ALL: warning [SC005W]: parameter name is reserved

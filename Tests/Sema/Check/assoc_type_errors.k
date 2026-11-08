@@ -41,10 +41,10 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: {{error|warning}}
-// CHECK: assoc_type_errors.k:20:23: error [R001E]: the default of associated type 'Cost' names 'Weight', which is not declared before it; defaults resolve in declaration order
+// CHECK: assoc_type_errors.k:20:23: error [R066E]: the default of associated type 'Cost' names 'Weight', which is not declared before it; defaults resolve in declaration order
 // CHECK-NEXT: assoc_type_errors.k:21:5: note [I900N]: 'Weight' is declared here
 // CHECK-NOT: {{error|warning}}
-// CHECK: assoc_type_errors.k:22:23: error [R001E]: the default of associated type 'Loop' names 'Loop', which is not declared before it; defaults resolve in declaration order
+// CHECK: assoc_type_errors.k:22:23: error [R066E]: the default of associated type 'Loop' names 'Loop', which is not declared before it; defaults resolve in declaration order
 // CHECK-NEXT: assoc_type_errors.k:22:5: note [I900N]: 'Loop' is declared here
 // CHECK-NOT: {{error|warning}}
 // CHECK: assoc_type_errors.k:32:28: error [R025E]: no associated type named 'Node' in the bounds of 'T'
@@ -57,7 +57,7 @@ fn main() -> i32 { return 0 }
 // CHECK-NEXT: assoc_type_errors.k:14:19: note [R028N]: one is declared here
 // CHECK-NEXT: assoc_type_errors.k:15:19: note [R028N]: another is declared here
 // CHECK-NOT: {{error|warning}}
-// CHECK: assoc_type_errors.k:35:24: error [R001E]: associated type 'Node' of 'Graph' is named outside the interface; name it through a type parameter bounded by 'Graph' ('T::Node')
+// CHECK: assoc_type_errors.k:35:24: error [R065E]: associated type 'Node' of 'Graph' is named outside the interface; name it through a type parameter bounded by 'Graph' ('T::Node')
 // CHECK-NEXT: assoc_type_errors.k:14:19: note [I900N]: declared here
 // CHECK-NOT: {{error|warning}}
 // CHECK: assoc_type_errors.k:37:44: error [R025E]: no associated type named 'Inner' in the bounds of 'T::Item'

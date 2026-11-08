@@ -28,4 +28,4 @@ fn main() -> i32 { return 0 }
 // LDH-NOT: [[T]]
 
 // RUN: { env LIBRARY_PATH=%t/lib %kairo %s -l hoststatic --print-jobs 2>&1 || true; } | %FileCheck %s --check-prefix=STATIC -DT=%t
-// STATIC: warning [L001W]: [[T]]/lib/libhoststatic.a is a static archive from the host system: it was built against the host's glibc, and linking it can silently raise the glibc this program needs above the floor (2.31)
+// STATIC: warning [L002W]: [[T]]/lib/libhoststatic.a is a static archive from the host system: it was built against the host's glibc, and linking it can silently raise the glibc this program needs above the floor (2.31)

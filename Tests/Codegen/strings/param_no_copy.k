@@ -52,9 +52,9 @@ fn main() -> i32 {
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:23:21: warning [SC001W]: parameter 's' is never mutated; declare it 'const'
+// DIAG: {{.*}}:23:21: warning [SC224W]: parameter 's' is never mutated; declare it 'const'
 // DIAG-NEXT: fix-it:"{{.*}}":{23:21-23:21}:"const "
-// DIAG: {{.*}}:24:24: warning [SC001W]: parameter 's' is never mutated; declare it 'const'
+// DIAG: {{.*}}:24:24: warning [SC224W]: parameter 's' is never mutated; declare it 'const'
 // DIAG-NEXT: fix-it:"{{.*}}":{24:24-24:24}:"const "
 // END-GENERATED-CHECKS(DIAG)
 

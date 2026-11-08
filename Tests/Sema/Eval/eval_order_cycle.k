@@ -36,15 +36,15 @@ fn main() -> i32 { return A + C }
 // binding whose value reaches itself (A / B, and C through reads_c).
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
-// CHECK: eval_order_cycle.k:2:16: error [SC001E]: this type has a value C++ computes from 'size_of_rec', which needs 'Rec' complete; inside its own definition 'Rec' is not complete yet, so no order of the C++ declarations can compute it
-// CHECK-NEXT: eval_order_cycle.k:4:41: note [SC001N]: 'size_of_rec' needs 'Rec' complete here
-// CHECK-NEXT: eval_order_cycle.k:7:16: error [SC001E]: this type has a value C++ computes from 'right_size', which needs 'Right' complete, and 'Right' needs 'Left'; inside its own definition 'Left' is not complete yet
-// CHECK-NEXT: eval_order_cycle.k:12:40: note [SC001N]: 'right_size' needs 'Right' complete here
-// CHECK-NEXT: eval_order_cycle.k:15:16: error [SC001E]: this type has a value C++ computes from 'k', which needs 'Own' complete
-// CHECK-NEXT: eval_order_cycle.k:16:5: note [SC001N]: 'k' needs 'Own' complete here
-// CHECK-NEXT: eval_order_cycle.k:19:6: error [SC001E]: the value of 'eval A' depends on itself through 'B'; an eval binding cannot be computed from its own value
-// CHECK-NEXT: eval_order_cycle.k:19:15: note [SC001N]: its initializer, which reads it back
-// CHECK-NEXT: eval_order_cycle.k:20:6: error [SC001E]: the value of 'eval B' depends on itself through 'A'
-// CHECK-NEXT: eval_order_cycle.k:20:15: note [SC001N]
-// CHECK-NEXT: eval_order_cycle.k:22:6: error [SC001E]: the value of 'eval C' depends on itself through 'reads_c'
-// CHECK-NEXT: eval_order_cycle.k:22:15: note [SC001N]
+// CHECK: eval_order_cycle.k:2:16: error [SC195E]: this type has a value C++ computes from 'size_of_rec', which needs 'Rec' complete; inside its own definition 'Rec' is not complete yet, so no order of the C++ declarations can compute it
+// CHECK-NEXT: eval_order_cycle.k:4:41: note [SC195N]: 'size_of_rec' needs 'Rec' complete here
+// CHECK-NEXT: eval_order_cycle.k:7:16: error [SC195E]: this type has a value C++ computes from 'right_size', which needs 'Right' complete, and 'Right' needs 'Left'; inside its own definition 'Left' is not complete yet
+// CHECK-NEXT: eval_order_cycle.k:12:40: note [SC195N]: 'right_size' needs 'Right' complete here
+// CHECK-NEXT: eval_order_cycle.k:15:16: error [SC195E]: this type has a value C++ computes from 'k', which needs 'Own' complete
+// CHECK-NEXT: eval_order_cycle.k:16:5: note [SC195N]: 'k' needs 'Own' complete here
+// CHECK-NEXT: eval_order_cycle.k:19:6: error [SC196E]: the value of 'eval A' depends on itself through 'B'; an eval binding cannot be computed from its own value
+// CHECK-NEXT: eval_order_cycle.k:19:15: note [SC196N]: its initializer, which reads it back
+// CHECK-NEXT: eval_order_cycle.k:20:6: error [SC196E]: the value of 'eval B' depends on itself through 'A'
+// CHECK-NEXT: eval_order_cycle.k:20:15: note [SC196N]
+// CHECK-NEXT: eval_order_cycle.k:22:6: error [SC196E]: the value of 'eval C' depends on itself through 'reads_c'
+// CHECK-NEXT: eval_order_cycle.k:22:15: note [SC196N]

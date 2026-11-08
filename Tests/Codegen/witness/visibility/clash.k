@@ -21,7 +21,7 @@ fn main() -> i32 { return sees::use_a() + other::use_c() }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error ["
-// DIAG:      sees.k:6:12: error [SC001E]: 'Metric' conforms to 'Scalable' through a different implementation here than elsewhere in the program; a conformance has one implementation
+// DIAG:      sees.k:6:12: error [SC163E]: 'Metric' conforms to 'Scalable' through a different implementation here than elsewhere in the program; a conformance has one implementation
 // DIAG-NEXT: iface.k:7:9: note [I900N]: required by this bound
 // DIAG-NEXT: ea.k:4:9: note [I900N]: this implementation is the one visible here
 // DIAG-NEXT: ec.k:4:9: note [I900N]: this one implements it for another file of the program

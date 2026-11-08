@@ -10,7 +10,7 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: generic_value_param.k:7:8: error [S001E]: a generic value parameter is written 'eval N: T', not 'const N: T'; its value is a compile-time constant
+// DIAG: generic_value_param.k:7:8: error [S082E]: a generic value parameter is written 'eval N: T', not 'const N: T'; its value is a compile-time constant
 // DIAG-NEXT: fix-it:{{.*}}:{7:8-7:13}:"eval"
 
 // RUN: { %kairo %s --type-check-only --print-ast=flat 2>&1 || true; } | %FileCheck %s --check-prefix=SRC

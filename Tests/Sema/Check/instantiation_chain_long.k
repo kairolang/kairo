@@ -27,7 +27,7 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=CAP --implicit-check-not="error ["
-// CAP: instantiation_chain_long.k:25:12: error [SC001E]: 'Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Metric>>>>>>>' does not conform to 'Named'
+// CAP: instantiation_chain_long.k:25:12: error [SC162E]: 'Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Metric>>>>>>>' does not conform to 'Named'
 // CAP-NEXT: instantiation_chain_long.k:16:9: note [I900N]: required by this bound
 // CAP-NEXT: instantiation_chain_long.k:10:5: note [I900N]: 'name_len' is required here
 // CAP-NEXT: instantiation_chain_long.k:17:53: note [I900N]: in instantiation of 'hop8<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Metric>>>>>>>>' required here
@@ -39,7 +39,7 @@ fn main() -> i32 {
 // CAP-NOT: note
 
 // RUN: { %kairo %s --type-check-only --cmax-generic-backtrace=0 2>&1 || true; } | %FileCheck %s --check-prefix=ALL --implicit-check-not="error ["
-// ALL: instantiation_chain_long.k:25:12: error [SC001E]: 'Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Metric>>>>>>>' does not conform to 'Named'
+// ALL: instantiation_chain_long.k:25:12: error [SC162E]: 'Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Metric>>>>>>>' does not conform to 'Named'
 // ALL: instantiation_chain_long.k:17:53: note [I900N]: in instantiation of 'hop8<
 // ALL-NEXT: instantiation_chain_long.k:18:53: note [I900N]: in instantiation of 'hop7<
 // ALL-NEXT: instantiation_chain_long.k:19:53: note [I900N]: in instantiation of 'hop6<

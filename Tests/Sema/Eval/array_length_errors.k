@@ -20,9 +20,9 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: array_length_errors.k:12:18: error [SC001E]: an array length must be an 'eval' constant; 'C' is 'const', which is not evaluated at compile time
+// CHECK: array_length_errors.k:12:18: error [SC192E]: an array length must be an 'eval' constant; 'C' is 'const', which is not evaluated at compile time
 // CHECK-NEXT: fix-it:{{.*}}:{5:1-5:6}:"eval"
-// CHECK-NEXT: array_length_errors.k:5:7: note [SC001N]: 'C' is declared 'const' here
-// CHECK: array_length_errors.k:13:18: error [SC001E]: an array length must be an 'eval' constant; 'n' is a variable
-// CHECK-NEXT: array_length_errors.k:11:9: note [SC001N]: 'n' is declared here
-// CHECK: array_length_errors.k:15:18: error [SC001E]: an array length must be a non-negative constant that fits 64 bits; this one is -3, which is negative
+// CHECK-NEXT: array_length_errors.k:5:7: note [SC192N]: 'C' is declared 'const' here
+// CHECK: array_length_errors.k:13:18: error [SC192E]: an array length must be an 'eval' constant; 'n' is a variable
+// CHECK-NEXT: array_length_errors.k:11:9: note [SC192N]: 'n' is declared here
+// CHECK: array_length_errors.k:15:18: error [SC193E]: an array length must be a non-negative constant that fits 64 bits; this one is -3, which is negative

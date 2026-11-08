@@ -8,7 +8,7 @@ enum Signed derives i8 { Has { x: u8 }, B }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: adt_tag_derives_narrow.k:5:19: error [R001E]: an enum's underlying type is its tag's, and 'u8' cannot hold its 300 variants
+// CHECK: adt_tag_derives_narrow.k:5:19: error [R067E]: an enum's underlying type is its tag's, and 'u8' cannot hold its 300 variants
 // CHECK-NEXT: fix-it:"{{.*}}adt_tag_derives_narrow.k":{5:19-5:21}:"u16"
 // CHECK-NEXT: adt_tag_derives_narrow.k:5:6: note [{{[A-Z0-9]+}}]: 'Wide' declares 300 variants, tagged 0 to 299
 // CHECK-NOT: error

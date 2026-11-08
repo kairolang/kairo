@@ -1,5 +1,5 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: conformance_nested.k:25:12: error [SC001E]: 'Wrap<Metric>' does not conform to 'Named': no member 'name_len' with the requirement's signature
+// CHECK: conformance_nested.k:25:12: error [SC162E]: 'Wrap<Metric>' does not conform to 'Named': no member 'name_len' with the requirement's signature
 // CHECK: conformance_nested.k:20:9: note [I900N]: required by this bound
 // CHECK: conformance_nested.k:22:12: note [I900N]: in instantiation of 'inner<Wrap<Metric>>' required here
 //

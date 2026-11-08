@@ -45,23 +45,23 @@ fn main() -> i32 {
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:12:1: error [R001E]: 'A' is forward-declared as a struct but defined as a class
+// DIAG: {{.*}}:12:1: error [R063E]: 'A' is forward-declared as a struct but defined as a class
 // DIAG-NEXT: fix-it:"{{.*}}":{12:1-12:7}:"class"
-// DIAG-NEXT: {{.*}}:13:1: note [R001N]: 'A' is defined here as a class
-// DIAG: {{.*}}:15:1: error [R001E]: 'B' is forward-declared as a union but defined as a struct
+// DIAG-NEXT: {{.*}}:13:1: note [R063N]: 'A' is defined here as a class
+// DIAG: {{.*}}:15:1: error [R063E]: 'B' is forward-declared as a union but defined as a struct
 // DIAG-NEXT: fix-it:"{{.*}}":{15:1-15:6}:"struct"
-// DIAG-NEXT: {{.*}}:16:1: note [R001N]: 'B' is defined here as a struct
-// DIAG: {{.*}}:18:1: error [R001E]: 'C' is forward-declared as a class but defined as a union
+// DIAG-NEXT: {{.*}}:16:1: note [R063N]: 'B' is defined here as a struct
+// DIAG: {{.*}}:18:1: error [R063E]: 'C' is forward-declared as a class but defined as a union
 // DIAG-NEXT: fix-it:"{{.*}}":{18:1-18:6}:"union"
-// DIAG-NEXT: {{.*}}:19:1: note [R001N]: 'C' is defined here as a union
-// DIAG: {{.*}}:22:1: error [R001E]: 'D' is forward-declared as a union but defined as a struct
+// DIAG-NEXT: {{.*}}:19:1: note [R063N]: 'C' is defined here as a union
+// DIAG: {{.*}}:22:1: error [R063E]: 'D' is forward-declared as a union but defined as a struct
 // DIAG-NEXT: fix-it:"{{.*}}":{22:1-22:6}:"struct"
-// DIAG-NEXT: {{.*}}:23:1: note [R001N]: 'D' is defined here as a struct
-// DIAG: {{.*}}:26:1: error [R001E]: 'E' is forward-declared as a union here and as a struct before
+// DIAG-NEXT: {{.*}}:23:1: note [R063N]: 'D' is defined here as a struct
+// DIAG: {{.*}}:26:1: error [R063E]: 'E' is forward-declared as a union here and as a struct before
 // DIAG-NEXT: fix-it:"{{.*}}":{26:1-26:6}:"struct"
-// DIAG-NEXT: {{.*}}:25:1: note [R001N]: 'E' is first forward-declared here as a struct
-// DIAG: {{.*}}:28:1: error [R001E]: 'F' is forward-declared as a class but defined as a struct
-// DIAG-NEXT: {{.*}}:29:1: note [R001N]: 'F' is defined here as a struct
+// DIAG-NEXT: {{.*}}:25:1: note [R063N]: 'E' is first forward-declared here as a struct
+// DIAG: {{.*}}:28:1: error [R063E]: 'F' is forward-declared as a class but defined as a struct
+// DIAG-NEXT: {{.*}}:29:1: note [R063N]: 'F' is defined here as a struct
 // DIAG: {{.*}}:32:1: error [R029E]: 'G' declared with conflicting kinds
 // DIAG-NEXT: {{.*}}:31:1: note [R029N]: previous declaration of 'G' is here
 // DIAG: {{.*}}:35:1: error [R029E]: 'H' declared with conflicting kinds

@@ -27,7 +27,7 @@ fn in_set(x: i32) -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s -fno-exceptions --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: cxx_arm_no_exceptions.k:14:7: error [SC001E]: 'catch' of the C++ exception 'exception' in a build without C++ exceptions (-fno-exceptions, or a target with no OS)
+// CHECK: cxx_arm_no_exceptions.k:14:7: error [SC220E]: 'catch' of the C++ exception 'exception' in a build without C++ exceptions (-fno-exceptions, or a target with no OS)
 // CHECK-NEXT: fix-it:"{{.*}}cxx_arm_no_exceptions.k":{14:7-16:6}:""
-// CHECK-NEXT: {{.*}}exception{{.*}}: note [SC001N]: 'exception' is declared here, in C++
+// CHECK-NEXT: {{.*}}exception{{.*}}: note [SC220N]: 'exception' is declared here, in C++
 // RUN: %kairo %s --type-check-only

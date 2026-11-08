@@ -38,15 +38,15 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: error [
-// DIAG: null_compare.k:30:14: error [SC001E]: the operand is not nullable; 'i32' is never null, so comparing it with 'null' is meaningless
+// DIAG: null_compare.k:30:14: error [SC260E]: the operand is not nullable; 'i32' is never null, so comparing it with 'null' is meaningless
 // DIAG-NOT: error [
-// DIAG: null_compare.k:31:14: error [SC001E]: 'n' is not nullable; 'i32' is never null, so comparing it with 'null' is meaningless
+// DIAG: null_compare.k:31:14: error [SC260E]: 'n' is not nullable; 'i32' is never null, so comparing it with 'null' is meaningless
 // DIAG-NEXT: null_compare.k:17:5: note [{{.*}}]: declared 'i32' here; a type that may be null is written 'T?'
 // DIAG-NOT: error [
-// DIAG: null_compare.k:32:14: error [SC001E]: 'p' is not nullable; '*i32' is never null, so comparing it with 'null' is meaningless
+// DIAG: null_compare.k:32:14: error [SC260E]: 'p' is not nullable; '*i32' is never null, so comparing it with 'null' is meaningless
 // DIAG-NEXT: null_compare.k:18:5: note
 // DIAG-NOT: error [
-// DIAG: null_compare.k:33:14: error [SC001E]: 'raw' is a raw pointer, not a nullable; a raw pointer's null is '&null'
+// DIAG: null_compare.k:33:14: error [SC261E]: 'raw' is a raw pointer, not a nullable; a raw pointer's null is '&null'
 // DIAG-NEXT: fix-it:{{.*}}:{33:21-33:25}:"&null"
 // DIAG-NOT: error [
 // DIAG: null_compare.k:34:19: error [SC076E]: cannot infer the pointer type of '&null' here

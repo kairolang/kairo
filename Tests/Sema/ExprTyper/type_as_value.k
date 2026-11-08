@@ -38,7 +38,7 @@ fn ok() -> i32 {
 // DIAG-NEXT: fix-it:"{{.*}}":{15:14-15:14}:"()"
 // DIAG:      type_as_value.k:16:13: error [SC094E]: 'ns::Q' is a type, not a value
 // DIAG-NEXT: fix-it:"{{.*}}":{16:18-16:18}:"()"
-// DIAG:      type_as_value.k:17:10: error [U001E]: 'typeof' as a value is a 'TypeInfo', which is not implemented yet
+// DIAG:      type_as_value.k:17:10: error [SC271E]: 'typeof' as a value is a 'TypeInfo', which is not implemented yet
 // DIAG:      type_as_value.k:18:12: error [SC094E]: 'P' is a type, not a value
 // DIAG-NEXT: fix-it:"{{.*}}":{18:13-18:13}:"()"
 // DIAG:      type_as_value.k:19:17: error [SC094E]: 'P' is a type, not a value

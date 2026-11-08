@@ -9,4 +9,4 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo %s --target=arm64-apple-macosx14.0 --print-ld-args --macos-sdk=%S/fake_sdk | %FileCheck %s --check-prefix=SDK
 // SDK: -syslibroot {{.*}}/fake_sdk
 // RUN: { %kairo %s --target=arm64-apple-macosx14.0 --print-ld-args --macos-sdk=%S/no_such_sdk 2>&1 || true; } | %FileCheck %s --check-prefix=BAD
-// BAD: error [L001E]: the SDK {{.*}}/no_such_sdk does not exist
+// BAD: error [L002E]: the SDK {{.*}}/no_such_sdk does not exist

@@ -35,15 +35,15 @@ fn closures() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: required_sets.k:13:18: error [SC001E]: the panic set of a 'fn' type must be declared: 'fn(T) panic(E) -> U'
-// CHECK-NEXT: required_sets.k:13:18: note [SC001N]: there is no body to infer it from
-// CHECK: required_sets.k:16:19: error [SC001E]: the panic set of interface requirement 'load' must be declared: it is the contract every conformer is held to
-// CHECK-NEXT: required_sets.k:16:19: note [SC001N]: there is no body to infer it from
-// CHECK: required_sets.k:22:27: error [SC001E]: the panic set of virtual method 'step' must be declared: it is the contract every override is held to
+// CHECK: required_sets.k:13:18: error [SC218E]: the panic set of a 'fn' type must be declared: 'fn(T) panic(E) -> U'
+// CHECK-NEXT: required_sets.k:13:18: note [SC218N]: there is no body to infer it from
+// CHECK: required_sets.k:16:19: error [SC218E]: the panic set of interface requirement 'load' must be declared: it is the contract every conformer is held to
+// CHECK-NEXT: required_sets.k:16:19: note [SC218N]: there is no body to infer it from
+// CHECK: required_sets.k:22:27: error [SC218E]: the panic set of virtual method 'step' must be declared: it is the contract every override is held to
 // CHECK-NEXT: fix-it:"{{.*}}required_sets.k":{22:27-22:32}:"panic(E)"
-// CHECK: required_sets.k:23:32: error [SC001E]: the panic set of virtual method 'pure_step' must be declared: it is the contract every override is held to
-// CHECK-NEXT: required_sets.k:23:32: note [SC001N]: there is no body to infer it from
-// CHECK: required_sets.k:30:19: error [SC001E]: a closure's panic set must be declared: 'fn () panic(E) -> T'
+// CHECK: required_sets.k:23:32: error [SC218E]: the panic set of virtual method 'pure_step' must be declared: it is the contract every override is held to
+// CHECK-NEXT: required_sets.k:23:32: note [SC218N]: there is no body to infer it from
+// CHECK: required_sets.k:30:19: error [SC218E]: a closure's panic set must be declared: 'fn () panic(E) -> T'
 // CHECK-NEXT: fix-it:"{{.*}}required_sets.k":{30:19-30:24}:"panic(E)"
-// CHECK: required_sets.k:31:19: error [SC001E]: a closure's panic set must be declared: 'fn () panic(E) -> T'
+// CHECK: required_sets.k:31:19: error [SC218E]: a closure's panic set must be declared: 'fn () panic(E) -> T'
 // CHECK-NEXT: fix-it:"{{.*}}required_sets.k":{31:19-31:24}:""

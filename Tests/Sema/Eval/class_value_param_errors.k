@@ -34,11 +34,11 @@ fn main() -> i32 { return 0 }
 // constructor that is not `eval`, is the error, with a note at it.
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
-// CHECK: class_value_param_errors.k:23:16: error [SC001E]: 'Hidden' cannot be the type of a generic value parameter: its field 'secret' is not 'pub'
-// CHECK-NEXT: class_value_param_errors.k:2:5: note [SC001N]: declared here
-// CHECK: class_value_param_errors.k:24:16: error [SC001E]: 'Runtime' cannot be the type of a generic value parameter: a constructor of 'Runtime' is not 'eval'
-// CHECK-NEXT: class_value_param_errors.k:9:5: note [SC001N]: declared here
-// CHECK: class_value_param_errors.k:25:16: error [SC001E]: 'Ptr' cannot be the type of a generic value parameter: its field 'p' points to mutable memory
-// CHECK-NEXT: class_value_param_errors.k:13:9: note [SC001N]: declared here
-// CHECK: class_value_param_errors.k:26:16: error [SC001E]: 'Outer' cannot be the type of a generic value parameter: its field 'inner' is a 'Hidden', and its field 'secret' is not 'pub'
-// CHECK-NEXT: class_value_param_errors.k:2:5: note [SC001N]: declared here
+// CHECK: class_value_param_errors.k:23:16: error [SC183E]: 'Hidden' cannot be the type of a generic value parameter: its field 'secret' is not 'pub'
+// CHECK-NEXT: class_value_param_errors.k:2:5: note [SC183N]: declared here
+// CHECK: class_value_param_errors.k:24:16: error [SC183E]: 'Runtime' cannot be the type of a generic value parameter: a constructor of 'Runtime' is not 'eval'
+// CHECK-NEXT: class_value_param_errors.k:9:5: note [SC183N]: declared here
+// CHECK: class_value_param_errors.k:25:16: error [SC183E]: 'Ptr' cannot be the type of a generic value parameter: its field 'p' points to mutable memory
+// CHECK-NEXT: class_value_param_errors.k:13:9: note [SC183N]: declared here
+// CHECK: class_value_param_errors.k:26:16: error [SC183E]: 'Outer' cannot be the type of a generic value parameter: its field 'inner' is a 'Hidden', and its field 'secret' is not 'pub'
+// CHECK-NEXT: class_value_param_errors.k:2:5: note [SC183N]: declared here

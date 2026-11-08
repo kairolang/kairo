@@ -35,7 +35,7 @@ fn nullable_step(p: *i32?) {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
 // RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
 // DIAG: pointer_incdec.k:26:5: error [SC067E]: pointer arithmetic moves in units of the pointee, and '*void' points to void; cast it to a typed pointer first
-// DIAG: pointer_incdec.k:31:5: error [SC001E]: 'q' may be null here; check it with 'if q?' first
+// DIAG: pointer_incdec.k:31:5: error [SC265E]: 'q' may be null here; check it with 'if q?' first
 // DIAG-NEXT: pointer_incdec.k:30:5: note [I900N]: 'q' is given a value that may be null here
 // SEMA-LABEL: SEMA fid {{[0-9]+}}: {{.*}}pointer_incdec.k
 // SEMA:       UnaryOperatorExpr {{ *}}@ 10:45 {{ *}}: *i32

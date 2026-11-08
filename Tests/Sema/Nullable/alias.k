@@ -183,34 +183,34 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only --cmax-errors=0 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: {{error|warning}}
-// DIAG: alias.k:38:16: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: alias.k:38:16: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: alias.k:37:9: note [{{.*}}]: this call runs a closure that holds a pointer to 'x', so it may change 'x'
 // DIAG-NOT: {{error|warning}}
-// DIAG: alias.k:57:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: alias.k:57:12: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: alias.k:56:5: note [{{.*}}]: 'x' may be changed here, through a pointer to it
 // DIAG-NOT: {{error|warning}}
-// DIAG: alias.k:65:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: alias.k:65:12: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: alias.k:64:5: note [{{.*}}]: 'x' may be changed here, through a pointer to it
 // DIAG-NOT: {{error|warning}}
-// DIAG: alias.k:83:16: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: alias.k:83:16: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: alias.k:79:10: note [{{.*}}]: a pointer to 'x' escapes here; any call after it, or a write through it, may change 'x'
 // DIAG-NOT: {{error|warning}}
-// DIAG: alias.k:95:16: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: alias.k:95:16: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: alias.k:92:11: note [{{.*}}]: a pointer to 'x' escapes here; any call after it, or a write through it, may change 'x'
 // DIAG-NOT: {{error|warning}}
-// DIAG: alias.k:106:16: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: alias.k:106:16: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: alias.k:103:11: note [{{.*}}]: a pointer to 'x' escapes here; any call after it, or a write through it, may change 'x'
 // DIAG-NOT: {{error|warning}}
-// DIAG: alias.k:116:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: alias.k:116:12: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: alias.k:115:5: note [{{.*}}]: this call runs a closure that holds a pointer to 'x', so it may change 'x'
 // DIAG-NOT: {{error|warning}}
-// DIAG: alias.k:138:40: error [SC001E]: 'a' may be null here; check it with 'if a?' first
+// DIAG: alias.k:138:40: error [SC265E]: 'a' may be null here; check it with 'if a?' first
 // DIAG-NEXT: alias.k:136:25: note [{{.*}}]: 'a' is captured by the closure: inside it, 'a' is as it was where the closure was made, less what the closure assigns it
 // DIAG-NOT: {{error|warning}}
-// DIAG: alias.k:158:14: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: alias.k:158:14: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: alias.k:159:14: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}
-// DIAG: alias.k:166:30: error [SC001E]: 'xs[0].cache' is nullable and no check narrows it: it goes through a subscript, which a null check does not follow; copy it to a local ('var c = xs[0].cache') and check that
+// DIAG: alias.k:166:30: error [SC265E]: 'xs[0].cache' is nullable and no check narrows it: it goes through a subscript, which a null check does not follow; copy it to a local ('var c = xs[0].cache') and check that
 // DIAG-NOT: {{error|warning}}
-// DIAG: alias.k:171:27: error [SC001E]: 'p->cache' is nullable and no check narrows it: it goes through '->', which a null check does not follow; copy it to a local ('var c = p->cache') and check that
+// DIAG: alias.k:171:27: error [SC265E]: 'p->cache' is nullable and no check narrows it: it goes through '->', which a null check does not follow; copy it to a local ('var c = p->cache') and check that
 // DIAG-NOT: {{error|warning}}

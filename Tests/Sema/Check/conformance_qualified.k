@@ -1,5 +1,5 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: conformance_qualified.k:16:12: error [SC001E]: 'i32' does not conform to 'Scalable': no member 'scale' with the requirement's signature
+// CHECK: conformance_qualified.k:16:12: error [SC162E]: 'i32' does not conform to 'Scalable': no member 'scale' with the requirement's signature
 // CHECK: conformance_qualified.k:12:5: note [I900N]: 'scale' is required here
 // CHECK-NOT: required by this bound
 //

@@ -200,27 +200,27 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only --cmax-errors=0 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: {{error|warning}}
-// DIAG: loops.k:63:14: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: loops.k:63:14: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: loops.k:64:9: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}
-// DIAG: loops.k:75:14: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: loops.k:75:14: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: loops.k:76:9: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}
-// DIAG: loops.k:94:12: error [SC001E]: 'x' is always null here
+// DIAG: loops.k:94:12: error [SC265E]: 'x' is always null here
 // DIAG-NEXT: loops.k:93:11: note [{{.*}}]: on this path, the test here found 'x' null
 // DIAG-NOT: {{error|warning}}
-// DIAG: loops.k:105:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: loops.k:105:12: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: loops.k:100:17: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}
-// DIAG: loops.k:128:14: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: loops.k:128:14: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: loops.k:129:9: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}
-// DIAG: loops.k:138:14: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: loops.k:138:14: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: loops.k:137:27: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}
-// DIAG: loops.k:148:14: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: loops.k:148:14: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: loops.k:151:13: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}
-// DIAG: loops.k:184:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: loops.k:184:12: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: loops.k:175:5: note [{{.*}}]: 'x' is declared nullable here
 // DIAG-NOT: {{error|warning}}

@@ -72,24 +72,24 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: error [
-// DIAG: match_null_first.k:18:25: error [SC001E]: 'x' is always null here
+// DIAG: match_null_first.k:18:25: error [SC265E]: 'x' is always null here
 // DIAG-NOT: error [
-// DIAG: match_null_first.k:40:5: error [SC001E]: a match on 'i32?' must answer null first
+// DIAG: match_null_first.k:40:5: error [SC254E]: a match on 'i32?' must answer null first
 // DIAG: fix-it:{{.*}}:{41:9-41:9}:"case null { }\n        "
 // DIAG-NOT: error [
-// DIAG: match_null_first.k:44:13: error [SC001E]: a match on 'i32?' must answer null first
+// DIAG: match_null_first.k:44:13: error [SC254E]: a match on 'i32?' must answer null first
 // DIAG: note [{{.*}}]: add 'case null => <value>' as the first arm
 // DIAG-NOT: error [
-// DIAG: match_null_first.k:45:5: error [SC001E]: a match on 'i32?' must answer null first
+// DIAG: match_null_first.k:45:5: error [SC254E]: a match on 'i32?' must answer null first
 // DIAG: match_null_first.k:47:9: note [{{.*}}]: move this arm to the top: every arm after the first matches only a value
 // DIAG-NOT: error [
-// DIAG: match_null_first.k:50:5: error [SC001E]: a match on 'i32?' must answer null first
+// DIAG: match_null_first.k:50:5: error [SC254E]: a match on 'i32?' must answer null first
 // DIAG: match_null_first.k:51:25: note [{{.*}}]: 'case null' takes no 'where' guard: null is answered once, by the first arm
 // DIAG-NOT: error [
-// DIAG: match_null_first.k:54:5: error [SC001E]: a match on 'i32?' must answer null first
+// DIAG: match_null_first.k:54:5: error [SC254E]: a match on 'i32?' must answer null first
 // DIAG: match_null_first.k:55:9: note [{{.*}}]: write 'case null' as an arm of its own: every arm after it matches only a value
 // DIAG-NOT: error [
-// DIAG: match_null_first.k:61:14: error [SC001E]: 'null' is answered by the first arm; this arm matches only a 'i32' value
+// DIAG: match_null_first.k:61:14: error [SC254E]: 'null' is answered by the first arm; this arm matches only a 'i32' value
 // DIAG-NOT: error [
 // DIAG: match_null_first.k:64:5: error [SC120E]: match is not exhaustive
 // DIAG-NOT: error [

@@ -11,7 +11,7 @@
 // AST: -- 0 error(s), 0 warning(s) --
 //
 // -- diagnostics (order matches emission order) --
-// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [U001E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [SC271E]:
 // END-GENERATED-CHECKS(AST)
 
 fn Test() { var info = typeof 42; }

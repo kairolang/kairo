@@ -31,14 +31,14 @@ class Handled {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: ctor_dtor.k:18:39: error [SC001E]: a constructor cannot panic: 'risky' may panic with 'E', which is not handled
-// CHECK-NEXT: ctor_dtor.k:11:1: note [SC001N]: 'risky' is declared 'panic' here
-// CHECK-NEXT: ctor_dtor.k:18:39: note [SC001N]: construction that can fail belongs in a static factory function that may panic and returns the object
-// CHECK-NEXT: ctor_dtor.k:18:39: note [SC001N]: or handle it here, or stop the program with 'crash!()'
+// CHECK: ctor_dtor.k:18:39: error [SC221E]: a constructor cannot panic: 'risky' may panic with 'E', which is not handled
+// CHECK-NEXT: ctor_dtor.k:11:1: note [SC222N]: 'risky' is declared 'panic' here
+// CHECK-NEXT: ctor_dtor.k:18:39: note [SC221N]: construction that can fail belongs in a static factory function that may panic and returns the object
+// CHECK-NEXT: ctor_dtor.k:18:39: note [SC221N]: or handle it here, or stop the program with 'crash!()'
 // CHECK-NEXT: fix-it:"{{.*}}ctor_dtor.k":{18:39-18:39}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}ctor_dtor.k":{18:47-18:47}:" catch => crash!()"
-// CHECK: ctor_dtor.k:20:26: error [SC001E]: a destructor cannot panic: 'risky' may panic with 'E', which is not handled
-// CHECK-NEXT: ctor_dtor.k:11:1: note [SC001N]: 'risky' is declared 'panic' here
-// CHECK-NEXT: ctor_dtor.k:20:26: note [SC001N]: or handle it here, or stop the program with 'crash!()'
+// CHECK: ctor_dtor.k:20:26: error [SC221E]: a destructor cannot panic: 'risky' may panic with 'E', which is not handled
+// CHECK-NEXT: ctor_dtor.k:11:1: note [SC222N]: 'risky' is declared 'panic' here
+// CHECK-NEXT: ctor_dtor.k:20:26: note [SC221N]: or handle it here, or stop the program with 'crash!()'
 // CHECK-NEXT: fix-it:"{{.*}}ctor_dtor.k":{20:26-20:26}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}ctor_dtor.k":{20:40-20:40}:" catch => crash!()"

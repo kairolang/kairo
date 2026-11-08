@@ -15,4 +15,4 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // RUN: %kairo --type-check-only --cmax-extend-chain=2 %s
 // RUN: { %kairo --type-check-only --cmax-extend-chain=1 %s 2>&1 || true; } | %FileCheck %s
-// CHECK: cmax_extend_chain.k:9:{{[0-9]+}}: error [SC001E]: type has too many extend blocks (2, limit 1)
+// CHECK: cmax_extend_chain.k:9:{{[0-9]+}}: error [SC199E]: type has too many extend blocks (2, limit 1)

@@ -62,17 +62,17 @@ fn separated(k: i32) {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: finally_after_try.k:20:46: warning [SC001W]: 'finally' runs when the enclosing block exits, like any 'finally', not when the 'try' before it finishes
-// CHECK-NEXT: finally_after_try.k:22:1: note [SC001N]: it runs here, when this block is left
-// CHECK-NEXT: finally_after_try.k:20:5: note [SC001N]: a 'return', 'break' or uncaught panic leaving this 'try' never reaches the 'finally', so it does not run on that path
-// CHECK-NEXT: note [SC001N]: to run it as soon as the 'try' is done, and on every way out of it, put it first in a block of its own: '{ finally { ... } try { ... } catch { ... } }'
+// CHECK: finally_after_try.k:20:46: warning [SC211W]: 'finally' runs when the enclosing block exits, like any 'finally', not when the 'try' before it finishes
+// CHECK-NEXT: finally_after_try.k:22:1: note [SC211N]: it runs here, when this block is left
+// CHECK-NEXT: finally_after_try.k:20:5: note [SC211N]: a 'return', 'break' or uncaught panic leaving this 'try' never reaches the 'finally', so it does not run on that path
+// CHECK-NEXT: note [SC211N]: to run it as soon as the 'try' is done, and on every way out of it, put it first in a block of its own: '{ finally { ... } try { ... } catch { ... } }'
 // CHECK-NOT: fix-it
-// CHECK: finally_after_try.k:30:5: warning [SC001W]: 'finally' runs when the enclosing block exits
-// CHECK-NEXT: finally_after_try.k:32:1: note [SC001N]: it runs here, when this block is left
-// CHECK-NEXT: finally_after_try.k:25:5: note [SC001N]: a 'return', 'break' or uncaught panic
-// CHECK: finally_after_try.k:37:9: warning [SC001W]: 'finally' runs when the enclosing block exits
-// CHECK-NEXT: finally_after_try.k:38:5: note [SC001N]: it runs here, when this block is left
-// CHECK-NEXT: finally_after_try.k:36:9: note [SC001N]: a 'return', 'break' or uncaught panic
-// CHECK: finally_after_try.k:42:62: warning [SC001W]: 'finally' runs when the enclosing block exits
-// CHECK-NEXT: finally_after_try.k:42:82: note [SC001N]: it runs here, when this block is left
-// CHECK-NEXT: finally_after_try.k:42:21: note [SC001N]: a 'return', 'break' or uncaught panic
+// CHECK: finally_after_try.k:30:5: warning [SC211W]: 'finally' runs when the enclosing block exits
+// CHECK-NEXT: finally_after_try.k:32:1: note [SC211N]: it runs here, when this block is left
+// CHECK-NEXT: finally_after_try.k:25:5: note [SC211N]: a 'return', 'break' or uncaught panic
+// CHECK: finally_after_try.k:37:9: warning [SC211W]: 'finally' runs when the enclosing block exits
+// CHECK-NEXT: finally_after_try.k:38:5: note [SC211N]: it runs here, when this block is left
+// CHECK-NEXT: finally_after_try.k:36:9: note [SC211N]: a 'return', 'break' or uncaught panic
+// CHECK: finally_after_try.k:42:62: warning [SC211W]: 'finally' runs when the enclosing block exits
+// CHECK-NEXT: finally_after_try.k:42:82: note [SC211N]: it runs here, when this block is left
+// CHECK-NEXT: finally_after_try.k:42:21: note [SC211N]: a 'return', 'break' or uncaught panic

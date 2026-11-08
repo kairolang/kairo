@@ -22,6 +22,6 @@ fn main() -> i32 { return f<Square>() + g() }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: eval_if_impl_forms.k:14:13: error [SC001E]: 'derives' in a function-body 'eval if' is not supported yet; test an interface with 'impl'
-// CHECK: eval_if_impl_forms.k:18:13: error [SC001E]: an 'impl' test in a function-body 'eval if' must name a generic parameter of the function or its class
+// CHECK: eval_if_impl_forms.k:14:13: error [SC191E]: 'derives' in a function-body 'eval if' is not supported yet; test an interface with 'impl'
+// CHECK: eval_if_impl_forms.k:18:13: error [SC191E]: an 'impl' test in a function-body 'eval if' must name a generic parameter of the function or its class
 // CHECK-NOT: evaluable at compile time

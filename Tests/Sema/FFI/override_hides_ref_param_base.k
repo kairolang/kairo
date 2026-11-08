@@ -18,5 +18,5 @@ class Mine derives ob::Consumer {
 
 fn use(m: *Mine, @inout o: ob::Opts) {
     m->Begin(o, &null)
-    m->Fill(o, 1)
+    m->Fill(&o, 1)
 }

@@ -47,19 +47,19 @@ fn good_plain(c: C, q: P) -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: {{warning|error}}
-// CHECK: static_through_value.k:32:14: error [SC001E]: 'make' is a static requirement; it takes no 'self' and is called through the type, not a value
+// CHECK: static_through_value.k:32:14: error [SC247E]: 'make' is a static requirement; it takes no 'self' and is called through the type, not a value
 // CHECK-NEXT: fix-it:{{.*}}:{32:12-32:14}:"T::"
-// CHECK-NEXT: static_through_value.k:13:5: note [SC001N]: 'make' is declared here, without 'self'
+// CHECK-NEXT: static_through_value.k:13:5: note [SC247N]: 'make' is declared here, without 'self'
 // CHECK-NOT: {{warning|error}}
-// CHECK: static_through_value.k:32:27: error [SC001E]: 'make' is a static requirement; it takes no 'self' and is called through the type, not a value
+// CHECK: static_through_value.k:32:27: error [SC247E]: 'make' is a static requirement; it takes no 'self' and is called through the type, not a value
 // CHECK-NEXT: fix-it:{{.*}}:{32:24-32:27}:"T::"
-// CHECK-NEXT: static_through_value.k:13:5: note [SC001N]: 'make' is declared here, without 'self'
+// CHECK-NEXT: static_through_value.k:13:5: note [SC247N]: 'make' is declared here, without 'self'
 // CHECK-NOT: {{warning|error}}
-// CHECK: static_through_value.k:36:14: error [SC001E]: 'make' is a static extension member; it takes no 'self' and is called through the type, not a value
+// CHECK: static_through_value.k:36:14: error [SC247E]: 'make' is a static extension member; it takes no 'self' and is called through the type, not a value
 // CHECK-NEXT: fix-it:{{.*}}:{36:12-36:14}:"C::"
-// CHECK-NEXT: static_through_value.k:19:5: note [SC001N]: 'make' is declared here, without 'self'
+// CHECK-NEXT: static_through_value.k:19:5: note [SC247N]: 'make' is declared here, without 'self'
 // CHECK-NOT: {{warning|error}}
-// CHECK: static_through_value.k:36:26: error [SC001E]: 'twice' is a static extension member; it takes no 'self' and is called through the type, not a value
+// CHECK: static_through_value.k:36:26: error [SC247E]: 'twice' is a static extension member; it takes no 'self' and is called through the type, not a value
 // CHECK-NEXT: fix-it:{{.*}}:{36:24-36:26}:"C::"
-// CHECK-NEXT: static_through_value.k:24:5: note [SC001N]: 'twice' is declared here, without 'self'
+// CHECK-NEXT: static_through_value.k:24:5: note [SC247N]: 'twice' is declared here, without 'self'
 // CHECK-NOT: {{warning|error}}

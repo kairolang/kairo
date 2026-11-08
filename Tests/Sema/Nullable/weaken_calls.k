@@ -1,10 +1,10 @@
 // G12 (Compiler/Sema/NULLABLE.md 3.4): a call that may write a place the
 // analysis cannot see the value of ends its check. Each `bad_*` reads a
-// place the check proved, after a call that weakens it, and is the SC001E
+// place the check proved, after a call that weakens it, and is the SC265E
 // with a note naming that call; each `ok_*` is a use the rule leaves
 // proven. Covered:
-//   - an `@inout` argument, marked `&x`, unmarked (the tolerated, warned
-//     form), on a field path (`&s.n`), on the path's owner (`&s` weakens
+//   - an `@inout` argument, marked `&x`, unmarked (an SC097E
+//     error, which still weakens), on a field path (`&s.n`), on the path's owner (`&s` weakens
 //     `s.n`), and through a function pointer (`g(&x)`);
 //   - a non-const pointer passed (`mptr(&x)`): the pointer may be kept, so
 //     the call weakens `x`, and so does every LATER call, while a check
@@ -139,36 +139,36 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only --cmax-errors=0 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_calls.k:35:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: weaken_calls.k:35:12: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: weaken_calls.k:34:11: note [{{.*}}]: this '@inout' argument lets the call change 'x'
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_calls.k:40:10: warning [SC097W]: argument to '@inout' parameter 'x' is not marked with '&'; the marker will be required in a future release
+// DIAG: weaken_calls.k:40:10: error [SC097E]: argument to '@inout' parameter 'x' must be marked with '&'
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_calls.k:41:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: weaken_calls.k:41:12: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: weaken_calls.k:40:10: note [{{.*}}]: this '@inout' argument lets the call change 'x'
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_calls.k:48:12: error [SC001E]: 's.n' may be null here; check it with 'if s.n?' first
+// DIAG: weaken_calls.k:48:12: error [SC265E]: 's.n' may be null here; check it with 'if s.n?' first
 // DIAG-NEXT: weaken_calls.k:47:11: note [{{.*}}]: this '@inout' argument lets the call change 's.n'
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_calls.k:55:12: error [SC001E]: 's.n' may be null here; check it with 'if s.n?' first
+// DIAG: weaken_calls.k:55:12: error [SC265E]: 's.n' may be null here; check it with 'if s.n?' first
 // DIAG-NEXT: weaken_calls.k:54:12: note [{{.*}}]: this '@inout' argument lets the call change 's.n'
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_calls.k:62:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: weaken_calls.k:62:12: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: weaken_calls.k:61:8: note [{{.*}}]: this '@inout' argument lets the call change 'x'
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_calls.k:68:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: weaken_calls.k:68:12: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: weaken_calls.k:67:10: note [{{.*}}]: a pointer to 'x' escapes here; any call after it, or a write through it, may change 'x'
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_calls.k:77:16: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: weaken_calls.k:77:16: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: weaken_calls.k:73:10: note [{{.*}}]: a pointer to 'x' escapes here; any call after it, or a write through it, may change 'x'
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_calls.k:86:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: weaken_calls.k:86:12: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: weaken_calls.k:85:5: note [{{.*}}]: 'x' may be changed here, through a pointer to it
 // DIAG-NOT: {{error|warning}}
 // DIAG: weaken_calls.k:122:16: error [SC052E]: 'm' is used after being moved
 // DIAG-NEXT: weaken_calls.k:121:17: note [{{.*}}]: 'm' was moved here, into a '@move' parameter
 // DIAG-NEXT: weaken_calls.k:122:16: note [{{.*}}]: assign a new value to 'm' before using it again
 // DIAG-NOT: {{error|warning}}
-// DIAG: weaken_calls.k:131:14: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: weaken_calls.k:131:14: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: weaken_calls.k:132:14: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}

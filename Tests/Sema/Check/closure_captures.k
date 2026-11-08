@@ -79,19 +79,19 @@ fn ok_moved_copyable() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: {{warning|error}}
-// CHECK: closure_captures.k:19:41: error [SC001E]: 'self' is not captured by this closure: its capture list is '||', which captures nothing
+// CHECK: closure_captures.k:19:41: error [SC152E]: 'self' is not captured by this closure: its capture list is '||', which captures nothing
 // CHECK-NEXT: fix-it:{{.*}}:{19:22-19:24}:""
 // CHECK-NEXT: closure_captures.k:18:17: note [{{.*}}]: 'self' is declared here, outside the closure
 // CHECK-NOT: {{warning|error}}
-// CHECK: closure_captures.k:28:37: error [SC001E]: 'x' is not captured by this closure: its capture list is '||', which captures nothing
+// CHECK: closure_captures.k:28:37: error [SC152E]: 'x' is not captured by this closure: its capture list is '||', which captures nothing
 // CHECK-NEXT: fix-it:{{.*}}:{28:18-28:20}:"|x|"
 // CHECK-NEXT: closure_captures.k:27:9: note [{{.*}}]: 'x' is declared here, outside the closure
 // CHECK-NOT: {{warning|error}}
-// CHECK: closure_captures.k:34:38: error [SC001E]: 'x' is not captured by this closure: its capture list does not name it
+// CHECK: closure_captures.k:34:38: error [SC152E]: 'x' is not captured by this closure: its capture list does not name it
 // CHECK-NEXT: fix-it:{{.*}}:{34:20-34:20}:", x"
 // CHECK-NEXT: closure_captures.k:33:9: note [{{.*}}]: 'x' is declared here, outside the closure
 // CHECK-NOT: {{warning|error}}
-// CHECK: closure_captures.k:41:42: error [SC001E]: 'x' is not captured by this closure: its capture list is '||', which captures nothing
+// CHECK: closure_captures.k:41:42: error [SC152E]: 'x' is not captured by this closure: its capture list is '||', which captures nothing
 // CHECK-NEXT: fix-it:{{.*}}:{41:22-41:24}:"|x|"
 // CHECK-NEXT: closure_captures.k:39:9: note [{{.*}}]: 'x' is declared here, outside the closure
 // CHECK-NOT: {{warning|error}}

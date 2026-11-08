@@ -38,13 +38,13 @@ class Interleaved {
 class Missing {
     pub const x: i32
     fn Missing(self) { }
-// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: constructor of 'Missing' does not initialize const field 'x'
+// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC173E]: constructor of 'Missing' does not initialize const field 'x'
 }
 
 class OnePath {
     pub const x: i32
     fn OnePath(self, c: bool) { if c { self.x = 1 } }
-// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: const field 'x' is not initialized on every path through the constructor of 'OnePath'
+// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC173E]: const field 'x' is not initialized on every path through the constructor of 'OnePath'
 }
 
 class Twice {
@@ -52,7 +52,7 @@ class Twice {
     fn Twice(self) {
         self.x = 1
         self.x = 2
-// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: const field 'x' may already be initialized here; a const field is initialized exactly once
+// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC172E]: const field 'x' may already be initialized here; a const field is initialized exactly once
     }
 }
 
@@ -62,7 +62,7 @@ class InLoop {
         var i = 0
         while i < n {
             self.x = i
-// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: const field 'x' is initialized inside a loop, which may run more than once or not at all
+// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC172E]: const field 'x' is initialized inside a loop, which may run more than once or not at all
             i += 1
         }
     }
@@ -71,14 +71,14 @@ class InLoop {
 class HasDefault {
     pub const x: i32 = 4
     fn HasDefault(self) { self.x = 5 }
-// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: const field 'x' has an initializer at its declaration, so the constructor cannot assign it
+// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC172E]: const field 'x' has an initializer at its declaration, so the constructor cannot assign it
 }
 
 class EarlySelf {
     pub const x: i32
     fn EarlySelf(self) {
         self.touch()
-// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: 'self' is used before every const field is initialized
+// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC175E]: 'self' is used before every const field is initialized
         self.x = 1
     }
     fn touch(self) { }
@@ -89,7 +89,7 @@ class ReadUnbuilt {
     pub var y: i32 = 7
     fn ReadUnbuilt(self) {
         var t = self.y
-// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: 'y' cannot be read before every const field is initialized: the object does not exist yet
+// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC175E]: 'y' cannot be read before every const field is initialized: the object does not exist yet
         self.x = t
     }
 }
@@ -99,7 +99,7 @@ class ReadEarly {
     pub var y: i32 = 0
     fn ReadEarly(self) {
         self.y = self.x
-// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: 'x' is read before it is initialized on every path
+// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC175E]: 'x' is read before it is initialized on every path
         self.x = 1
     }
 }
@@ -108,7 +108,7 @@ class EarlyReturn {
     pub const x: i32
     fn EarlyReturn(self, c: bool) {
         if c { return }
-// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: a constructor cannot return before its last const field is initialized
+// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC174E]: a constructor cannot return before its last const field is initialized
         self.x = 1
     }
 }
@@ -116,7 +116,7 @@ class EarlyReturn {
 class Defaulted {
     pub const x: i32
     fn Defaulted(self) = default
-// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: a defaulted constructor of 'Defaulted' cannot initialize const field 'x'
+// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC173E]: a defaulted constructor of 'Defaulted' cannot initialize const field 'x'
 }
 
 class Generic {
@@ -127,7 +127,7 @@ class Generic {
 
 fn stray(o: *Ok) {
     o->x = 3
-// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: cannot assign to const field 'x'
+// DIAG-DAG: ctor_const_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC171E]: cannot assign to const field 'x'
 }
 
 fn reassign() {

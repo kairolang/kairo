@@ -38,10 +38,10 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: {{error|warning}}
-// CHECK: assoc_type_body_errors.k:25:13: error [SC001E]: cannot construct 'T::Item': no bound of associated type 'Item' requires a constructor taking no arguments
+// CHECK: assoc_type_body_errors.k:25:13: error [SC251E]: cannot construct 'T::Item': no bound of associated type 'Item' requires a constructor taking no arguments
 // CHECK-NEXT: assoc_type_body_errors.k:17:5: note [I900N]: 'Item' is declared here; bound it with an interface that declares a constructor requirement
 // CHECK-NOT: {{error|warning}}
-// CHECK: assoc_type_body_errors.k:26:13: error [SC001E]: cannot construct 'T::Item': no bound of associated type 'Item' requires a constructor taking 0 argument(s)
+// CHECK: assoc_type_body_errors.k:26:13: error [SC251E]: cannot construct 'T::Item': no bound of associated type 'Item' requires a constructor taking 0 argument(s)
 // CHECK-NEXT: assoc_type_body_errors.k:17:5: note [I900N]: 'Item' is declared here; bound it with an interface that declares a constructor requirement
 // CHECK-NOT: {{error|warning}}
 // CHECK: assoc_type_body_errors.k:27:13: error [SC088E]: 'T::Made' is an associated type: a generic body knows none of its fields

@@ -33,4 +33,4 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only --target=x86_64-linux-gnu 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
-// CHECK: callconv_interface.k:31:{{[0-9]+}}: error [SC001E]: 'Bad' does not conform to 'Grower': no member 'grow' with the requirement's signature
+// CHECK: callconv_interface.k:31:{{[0-9]+}}: error [SC162E]: 'Bad' does not conform to 'Grower': no member 'grow' with the requirement's signature

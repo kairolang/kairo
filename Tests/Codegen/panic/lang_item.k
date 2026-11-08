@@ -63,8 +63,8 @@ fn main() -> i32 {
 // The register cliff: past 16 bytes, at the set's formation, naming the
 // widest payload. 16 bytes exactly is quiet.
 // DIAG-NOT: error
-// DIAG: lang_item.k:31:14: remark [OPT001R]: 'Panic<i32, W>' is 24 bytes, so a function returning it returns through memory, not in two registers; its widest payload, 'W', is 16 bytes
-// DIAG: lang_item.k:32:17: remark [OPT001R]: 'Panic<i32, i128>' is 32 bytes, {{.*}}; its widest payload, 'i128', is 16 bytes
+// DIAG: lang_item.k:31:14: remark [OPT002R]: 'Panic<i32, W>' is 24 bytes, so a function returning it returns through memory, not in two registers; its widest payload, 'W', is 16 bytes
+// DIAG: lang_item.k:32:17: remark [OPT002R]: 'Panic<i32, i128>' is 32 bytes, {{.*}}; its widest payload, 'i128', is 16 bytes
 // DIAG-NOT: remark
 
 // One instance for `<i32, B, A>`, `<i32, A, B>` and `<i32, A, B, A>`; the

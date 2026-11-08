@@ -14,4 +14,4 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo %s --target=x86_64-pc-windows-msvc --print-ld-args | %FileCheck %s --check-prefix=NONE
 // NONE-NOT: -subsystem
 // RUN: { %kairo %s --target=x86_64-pc-windows-msvc --print-ld-args --subsystem=bogus 2>&1 || true; } | %FileCheck %s --check-prefix=BAD
-// BAD: error [L001E]: unknown --subsystem bogus
+// BAD: error [L002E]: unknown --subsystem bogus

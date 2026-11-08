@@ -27,7 +27,7 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
-// CHECK: instantiation_chain.k:25:12: error [SC001E]: 'Wrap<Wrap<Metric>>' does not conform to 'Named': no member 'name_len' with the requirement's signature
+// CHECK: instantiation_chain.k:25:12: error [SC162E]: 'Wrap<Wrap<Metric>>' does not conform to 'Named': no member 'name_len' with the requirement's signature
 // CHECK-NEXT: instantiation_chain.k:19:9: note [I900N]: required by this bound
 // CHECK-NEXT: instantiation_chain.k:13:5: note [I900N]: 'name_len' is required here
 // CHECK-NEXT: instantiation_chain.k:20:53: note [I900N]: in instantiation of 'hop3<Wrap<Wrap<Metric>>>' required here

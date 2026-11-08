@@ -25,7 +25,7 @@ fn main() {
 // DIAG: {{.*}}:15:13: error [SC063E]: no matching overload for call to 'count'
 // DIAG-NEXT: fix-it:"{{.*}}":{15:20-15:20}:".c_str()"
 // DIAG-NEXT: {{.*}}/c_string_literal_errors.h:5:1: note [I900N]: candidate not viable: cannot convert argument of type 'string' to parameter 's' of type 'unsafe *const c_char'; a string other than a literal passes its bytes with '.c_str()'
-// DIAG: {{.*}}:16:20: error [SC001E]: a 'string' cannot pass through C's '...'; pass its bytes as a C string with '.c_str()'
+// DIAG: {{.*}}:16:20: error [SC245E]: a 'string' cannot pass through C's '...'; pass its bytes as a C string with '.c_str()'
 // DIAG-NEXT: fix-it:"{{.*}}":{16:21-16:21}:".c_str()"
 // DIAG: {{.*}}:17:5: error [SC063E]: no matching overload for call to 'fill'
 // DIAG-NEXT: {{.*}}/c_string_literal_errors.h:4:1: note [I900N]: candidate not viable: cannot convert argument of type 'string' to parameter 'buf' of type 'unsafe *c_char'

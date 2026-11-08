@@ -14,7 +14,7 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
-// CHECK: requires_runtime.k:9:43: error [SC001E]: requires expression is not compile-time evaluable
-// CHECK-NEXT: requires_runtime.k:9:43: note [SC001N]: for runtime-conditional dispatch, use 'where'
-// CHECK: requires_runtime.k:10:36: error [SC001E]: requires expression is not compile-time evaluable
-// CHECK-NEXT: requires_runtime.k:10:36: note [SC001N]: for runtime-conditional dispatch, use 'where'
+// CHECK: requires_runtime.k:9:43: error [SC186E]: requires expression is not compile-time evaluable
+// CHECK-NEXT: requires_runtime.k:9:43: note [SC186N]: for runtime-conditional dispatch, use 'where'
+// CHECK: requires_runtime.k:10:36: error [SC186E]: requires expression is not compile-time evaluable
+// CHECK-NEXT: requires_runtime.k:10:36: note [SC186N]: for runtime-conditional dispatch, use 'where'

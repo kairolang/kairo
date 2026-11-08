@@ -23,7 +23,7 @@ fn missing() {
 // CHECK: primitive_limits_errors.k:10:13: error [R024E]: 'f256' has no 'MAX'
 // CHECK: primitive_limits_errors.k:11:13: error [R024E]: 'i32' has no 'EPSILON'
 // CHECK-NEXT: note [I900N]: 'EPSILON' is a float limit; integers have MIN, MAX and BITS
-// CHECK: primitive_limits_errors.k:12:13: error [SC001E]: 'u256::MAX' is not supported yet
+// CHECK: primitive_limits_errors.k:12:13: error [SC232E]: 'u256::MAX' is not supported yet
 // CHECK-NOT: primitive_limits_errors.k:13:
 
 // f80 exists only where the target's long double is x87: the same P003E as

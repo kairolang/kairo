@@ -4,7 +4,7 @@
 // `const x: D` form (`const D&`) and a by-value match both override.
 // RUN: { %kairo --type-check-only %s 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: error
-// CHECK: override_param_mismatch.k:[[@LINE+13]]:{{[0-9]+}}: error [SC001E]: 'handle' is marked 'override' but overrides nothing
+// CHECK: override_param_mismatch.k:[[@LINE+13]]:{{[0-9]+}}: error [SC150E]: 'handle' is marked 'override' but overrides nothing
 // CHECK: si8_override.h:5:{{[0-9]+}}: note {{.*}}the base method of that name
 // CHECK-NOT: error
 

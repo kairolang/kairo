@@ -20,6 +20,6 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not=error
-// DIAG: partial_spec_errors.k:16:14: error [SC001E]: ambiguous partial specializations of 'Pair' for these arguments
-// DIAG-NEXT: partial_spec_errors.k:10:5: note [SC001N]: matches this partial specialization
-// DIAG-NEXT: partial_spec_errors.k:11:5: note [SC001N]: and this one, and neither is more specialized than the other
+// DIAG: partial_spec_errors.k:16:14: error [SC157E]: ambiguous partial specializations of 'Pair' for these arguments
+// DIAG-NEXT: partial_spec_errors.k:10:5: note [SC157N]: matches this partial specialization
+// DIAG-NEXT: partial_spec_errors.k:11:5: note [SC157N]: and this one, and neither is more specialized than the other

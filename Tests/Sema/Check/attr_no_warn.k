@@ -6,7 +6,7 @@ fn quiet() -> i32 { var y: i32 = 1 as i32; return y }
 
 fn loud() -> i32 { var y: i32 = 1 as i32; return y }
 
-@no_warn(SC001W)
+@no_warn(SC146W)
 fn uses_old() -> i32 { return old() }
 
 @deprecated fn old() -> i32 { return 0 }
@@ -16,4 +16,4 @@ fn uses_old_loud() -> i32 { return old() }
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
 // CHECK-DAG: attr_no_warn.k:7:{{[0-9]+}}: warning [SC031W]: redundant cast
-// CHECK-DAG: attr_no_warn.k:14:{{[0-9]+}}: warning [SC001W]: 'old' is deprecated
+// CHECK-DAG: attr_no_warn.k:14:{{[0-9]+}}: warning [SC146W]: 'old' is deprecated

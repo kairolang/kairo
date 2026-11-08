@@ -10,4 +10,4 @@ fn main() -> i32 { return 0 }
 // SET: -dylib
 // SET: -install_name @rpath/libfoo.dylib
 // RUN: { %kairo %s --target=arm64-apple-macosx14.0 --print-ld-args --install-name=@rpath/libfoo.dylib 2>&1 || true; } | %FileCheck %s --check-prefix=EXE
-// EXE: warning [L001W]: --install-name only applies to a dylib
+// EXE: warning [L002W]: --install-name only applies to a dylib

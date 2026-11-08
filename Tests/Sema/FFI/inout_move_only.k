@@ -22,5 +22,5 @@ fn bump(@inout m: MV) -> i32 {
 
 fn main() -> i32 {
     var m = MV()
-    return bump(m)
+    return bump(&m)
 }

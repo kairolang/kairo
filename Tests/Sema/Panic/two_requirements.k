@@ -63,4 +63,4 @@ fn main() -> i32 { return 0 }
 // CHECK-NEXT: two_requirements.k:41:5: note [SC116N]: 'Base::read' panics with 'Missing'
 // CHECK-NEXT: two_requirements.k:17:5: note [SC116N]: 'Stream::read' panics with 'Closed'
 // CHECK: two_requirements.k:49:8: error [SC116E]: a method meeting both 'Source::read' and 'Stream::read', whose panic sets differ, is not yet supported
-// CHECK: two_requirements.k:49:27: error [SC001E]: 'Missing' is not in the panic set of 'Stream::read', which this implements; a conforming method's set must be a subset of it
+// CHECK: two_requirements.k:49:27: error [SC208E]: 'Missing' is not in the panic set of 'Stream::read', which this implements; a conforming method's set must be a subset of it

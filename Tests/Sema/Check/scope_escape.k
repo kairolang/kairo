@@ -85,8 +85,8 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: scope_escape.k:33:12: warning [SC001W]: a pointer from the allocator scope is returned from the function; it dangles once the scope closes
-// CHECK: scope_escape.k:39:12: warning [SC001W]: a pointer from the allocator scope is returned from the function; it dangles once the scope closes
-// CHECK: scope_escape.k:45:12: warning [SC001W]: a pointer from the allocator scope is stored to the static variable 'kept'; it dangles once the scope closes
-// CHECK: scope_escape.k:53:17: warning [SC001W]: a pointer from the allocator scope is stored to 'outer', which is declared outside the scope's block; it dangles once the scope closes
-// CHECK: scope_escape.k:60:18: warning [SC001W]: a pointer from the allocator scope is stored through the parameter 'head', which outlives the scope; it dangles once the scope closes
+// CHECK: scope_escape.k:33:12: warning [SC225W]: a pointer from the allocator scope is returned from the function; it dangles once the scope closes
+// CHECK: scope_escape.k:39:12: warning [SC225W]: a pointer from the allocator scope is returned from the function; it dangles once the scope closes
+// CHECK: scope_escape.k:45:12: warning [SC225W]: a pointer from the allocator scope is stored to the static variable 'kept'; it dangles once the scope closes
+// CHECK: scope_escape.k:53:17: warning [SC225W]: a pointer from the allocator scope is stored to 'outer', which is declared outside the scope's block; it dangles once the scope closes
+// CHECK: scope_escape.k:60:18: warning [SC225W]: a pointer from the allocator scope is stored through the parameter 'head', which outlives the scope; it dangles once the scope closes

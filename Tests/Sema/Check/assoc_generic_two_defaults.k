@@ -30,7 +30,7 @@ fn main() -> i32 {
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:25:13: error [SC001E]: 'Split' does not conform to 'Source<i32>': its interfaces give associated type 'Item' two defaults, 'i32' from 'A' and 'i64' from 'B'
+// DIAG: {{.*}}:25:13: error [SC161E]: 'Split' does not conform to 'Source<i32>': its interfaces give associated type 'Item' two defaults, 'i32' from 'A' and 'i64' from 'B'
 // DIAG-NEXT: {{.*}}:21:5: note [I900N]: required by this bound
 // DIAG-NEXT: {{.*}}:9:49: note [I900N]: 'A' gives it 'i32' here
 // DIAG-NEXT: {{.*}}:10:49: note [I900N]: 'B' gives it 'i64' here; declare 'type Item = ...' in 'Split' to choose

@@ -53,19 +53,19 @@ class WithDefault {
 class Missing {
     pub var frame: Frame
     fn Missing(self) { }
-// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: constructor of 'Missing' does not initialize field 'frame', and 'Frame' is an enum with payloads, so no variant is its default
+// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC173E]: constructor of 'Missing' does not initialize field 'frame', and 'Frame' is an enum with payloads, so no variant is its default
 }
 
 class MissingBool {
     pub var flag: bool
     fn MissingBool(self) { }
-// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: constructor of 'MissingBool' does not initialize field 'flag', and 'bool' has no zero state: a default would have to guess true or false
+// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC173E]: constructor of 'MissingBool' does not initialize field 'flag', and 'bool' has no zero state: a default would have to guess true or false
 }
 
 class MissingRecord {
     pub var tok: Token
     fn MissingRecord(self) { }
-// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: constructor of 'MissingRecord' does not initialize field 'tok', and 'Token' has no default constructor (declare 'fn Token(self)')
+// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC173E]: constructor of 'MissingRecord' does not initialize field 'tok', and 'Token' has no default constructor (declare 'fn Token(self)')
 }
 
 // The user's report: elements written one by one. Every element once,
@@ -92,14 +92,14 @@ class PartFirst {
 class OnePath {
     pub var flag: bool
     fn OnePath(self, c: bool) { if c { self.flag = true } }
-// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: field 'flag' is not initialized on every path through the constructor of 'OnePath', and 'bool' has no zero state: a default would have to guess true or false
+// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC173E]: field 'flag' is not initialized on every path through the constructor of 'OnePath', and 'bool' has no zero state: a default would have to guess true or false
 }
 
 class SelfFirst {
     pub var frame: Frame
     fn SelfFirst(self) {
         self.go()
-// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: 'self' is used before the constructor has initialized its fields
+// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC175E]: 'self' is used before the constructor has initialized its fields
         self.frame = .Idle
     }
     fn go(self) { }
@@ -122,7 +122,7 @@ class ArrayLater {
     fn ArrayLater(self) {
         self.frame = .Idle
         self.go()
-// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: 'self' is used before the constructor has initialized its fields
+// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC175E]: 'self' is used before the constructor has initialized its fields
         self.frames = [1, 2]
     }
     fn go(self) { }
@@ -131,7 +131,7 @@ class ArrayLater {
 class ArrayOnePath {
     pub var frames: [i32; 2]
     fn ArrayOnePath(self, c: bool) { if c { self.frames = [1, 2] } }
-// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: array field 'frames' is initialized on some paths through the constructor of 'ArrayOnePath' only; an array is not assignable, so its one initialization must be on every path
+// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC173E]: array field 'frames' is initialized on some paths through the constructor of 'ArrayOnePath' only; an array is not assignable, so its one initialization must be on every path
 }
 
 class ArrayLoop {
@@ -147,7 +147,7 @@ class ArrayLoop {
 class Defaulted {
     pub var flag: bool
     fn Defaulted(self) = default
-// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: a defaulted constructor of 'Defaulted' cannot initialize field 'flag', and 'bool' has no zero state: a default would have to guess true or false
+// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC173E]: a defaulted constructor of 'Defaulted' cannot initialize field 'flag', and 'bool' has no zero state: a default would have to guess true or false
 }
 
 // Outside a constructor an array is still not assignable.
@@ -159,7 +159,7 @@ fn stray(o: *Ok) {
 // A local of an enum with payloads has no default either.
 fn local() {
     var f: Frame
-// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: 'f' is declared without an initializer, and 'Frame' is an enum with payloads, so no variant is its default; Kairo has no uninitialized variables
+// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC179E]: 'f' is declared without an initializer, and 'Frame' is an enum with payloads, so no variant is its default; Kairo has no uninitialized variables
 }
 
 // --- lit wiring -----------------------------------------------------------

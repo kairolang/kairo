@@ -9,9 +9,9 @@ class S {
     pub static none: i32
     pub var inst: i32 = 2
     pub static bad: i32 = inst + 1
-// DIAG: static_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: the initializer of static field 'bad' reads instance field 'inst'; a static belongs to no object
+// DIAG: static_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC177E]: the initializer of static field 'bad' reads instance field 'inst'; a static belongs to no object
     pub static flag: bool
-// DIAG: static_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: static field 'flag' is declared without an initializer, and 'bool' has no zero state: a default would have to guess true or false; Kairo has no uninitialized variables
+// DIAG: static_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC179E]: static field 'flag' is declared without an initializer, and 'bool' has no zero state: a default would have to guess true or false; Kairo has no uninitialized variables
 }
 
 // --- lit wiring -----------------------------------------------------------

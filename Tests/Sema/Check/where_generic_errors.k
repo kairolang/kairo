@@ -28,9 +28,9 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
-// CHECK: where_generic_errors.k:12:1: error [SC001E]: every overload in the 'where' dispatch of 'names' must have the same generic parameter names; C++ sees them as one function
-// CHECK-NEXT: where_generic_errors.k:11:1: note [SC001N]: the first overload of the dispatch is here
-// CHECK: where_generic_errors.k:15:1: error [SC001E]: every overload in the 'where' dispatch of 'bounds' must have the same bounds; C++ sees them as one function
-// CHECK: where_generic_errors.k:18:1: error [SC001E]: every overload in the 'where' dispatch of 'ret' must have the same return type; C++ sees them as one function
+// CHECK: where_generic_errors.k:12:1: error [SC228E]: every overload in the 'where' dispatch of 'names' must have the same generic parameter names; C++ sees them as one function
+// CHECK-NEXT: where_generic_errors.k:11:1: note [SC228N]: the first overload of the dispatch is here
+// CHECK: where_generic_errors.k:15:1: error [SC228E]: every overload in the 'where' dispatch of 'bounds' must have the same bounds; C++ sees them as one function
+// CHECK: where_generic_errors.k:18:1: error [SC228E]: every overload in the 'where' dispatch of 'ret' must have the same return type; C++ sees them as one function
 // CHECK: where_generic_errors.k:22:1: error [R029E]: redefinition of 'twice'
 // CHECK-NEXT: where_generic_errors.k:21:1: note [R029N]: previous definition of 'twice' is here

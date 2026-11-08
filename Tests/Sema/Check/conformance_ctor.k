@@ -48,12 +48,12 @@ fn main() -> i32 {
 // conformer's), a generic record at the wrong argument.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: conformance_ctor.k:{{(28|29|30|31|32)}}:
-// CHECK: conformance_ctor.k:33:15: error [SC001E]: 'Flag' does not conform to 'Defaultable': no constructor 'Flag()'
+// CHECK: conformance_ctor.k:33:15: error [SC162E]: 'Flag' does not conform to 'Defaultable': no constructor 'Flag()'
 // CHECK: conformance_ctor.k:24:9: note [I900N]: required by this bound
 // CHECK: conformance_ctor.k:8:29: note [I900N]: the constructor is required here
-// CHECK: conformance_ctor.k:34:15: error [SC001E]: 'Flag' does not conform to 'Sized': no constructor 'Flag(i32)'
-// CHECK: conformance_ctor.k:35:15: error [SC001E]: 'i32' does not conform to 'Defaultable': no constructor 'i32()'
-// CHECK: conformance_ctor.k:36:15: error [SC001E]: 'Plain' does not conform to 'Sized': no constructor 'Plain(i32)'
-// CHECK: conformance_ctor.k:37:15: error [SC001E]: 'Kid' does not conform to 'Sized': no constructor 'Kid(i32)'
-// CHECK: conformance_ctor.k:38:15: error [SC001E]: 'Box<bool>' does not conform to 'Sized': no constructor 'Box<bool>(i32)'
+// CHECK: conformance_ctor.k:34:15: error [SC162E]: 'Flag' does not conform to 'Sized': no constructor 'Flag(i32)'
+// CHECK: conformance_ctor.k:35:15: error [SC162E]: 'i32' does not conform to 'Defaultable': no constructor 'i32()'
+// CHECK: conformance_ctor.k:36:15: error [SC162E]: 'Plain' does not conform to 'Sized': no constructor 'Plain(i32)'
+// CHECK: conformance_ctor.k:37:15: error [SC162E]: 'Kid' does not conform to 'Sized': no constructor 'Kid(i32)'
+// CHECK: conformance_ctor.k:38:15: error [SC162E]: 'Box<bool>' does not conform to 'Sized': no constructor 'Box<bool>(i32)'
 // CHECK-NOT: error

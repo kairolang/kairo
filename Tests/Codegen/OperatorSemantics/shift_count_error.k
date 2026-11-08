@@ -23,11 +23,11 @@ fn main() -> i32 { return counts(1, 2, 3) }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: shift_count_error.k:8:18: error [SC001E]: shift count 8 is not below the width of 'u8' (8 bits)
-// CHECK: shift_count_error.k:9:18: error [SC001E]: shift count 32 is not below the width of 'i32' (32 bits)
-// CHECK: shift_count_error.k:10:18: error [SC001E]: shift count -1 is negative; a constant count of a 'i32' shift must be in 0..32
-// CHECK: shift_count_error.k:11:18: error [SC001E]: shift count 40 is not below the width of 'i32' (32 bits)
+// CHECK: shift_count_error.k:8:18: error [SC262E]: shift count 8 is not below the width of 'u8' (8 bits)
+// CHECK: shift_count_error.k:9:18: error [SC262E]: shift count 32 is not below the width of 'i32' (32 bits)
+// CHECK: shift_count_error.k:10:18: error [SC262E]: shift count -1 is negative; a constant count of a 'i32' shift must be in 0..32
+// CHECK: shift_count_error.k:11:18: error [SC262E]: shift count 40 is not below the width of 'i32' (32 bits)
 // CHECK: shift_count_error.k:5:1: note [{{[A-Z0-9]+}}]: 'K' is declared here
-// CHECK: shift_count_error.k:13:11: error [SC001E]: shift count 33 is not below the width of 'i32' (32 bits)
-// CHECK: shift_count_error.k:14:26: error [SC001E]: shift count 33 is not below the width of 'i32' (32 bits)
+// CHECK: shift_count_error.k:13:11: error [SC262E]: shift count 33 is not below the width of 'i32' (32 bits)
+// CHECK: shift_count_error.k:14:26: error [SC262E]: shift count 33 is not below the width of 'i32' (32 bits)
 // CHECK-NOT: error

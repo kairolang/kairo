@@ -62,12 +62,12 @@ fn braces() {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: error
-// CHECK: default_init.k:35:5: error [SC001E]: 'd' {{.*}} the default constructor of 'Del' is deleted
-// CHECK: default_init.k:36:5: error [SC001E]: 'e' {{.*}} 'Arg' has no default constructor
+// CHECK: default_init.k:35:5: error [SC179E]: 'd' {{.*}} the default constructor of 'Del' is deleted
+// CHECK: default_init.k:36:5: error [SC179E]: 'e' {{.*}} 'Arg' has no default constructor
 // CHECK: default_init.k:37:5: error [SC116E]: 'f' would be built by a constructor whose arguments all default
-// CHECK: default_init.k:39:5: error [SC001E]: 'i' {{.*}} 'bool' has no zero state
-// CHECK: default_init.k:43:5: error [SC001E]: 'm' {{.*}} 'bool' has no zero state
-// CHECK: default_init.k:45:5: error [SC001E]: 'o' {{.*}} 'Arg' has no default constructor
+// CHECK: default_init.k:39:5: error [SC179E]: 'i' {{.*}} 'bool' has no zero state
+// CHECK: default_init.k:43:5: error [SC179E]: 'm' {{.*}} 'bool' has no zero state
+// CHECK: default_init.k:45:5: error [SC179E]: 'o' {{.*}} 'Arg' has no default constructor
 // CHECK: default_init.k:54:13: error [SC088E]: 'Def' declares a constructor, so it cannot be built with a brace initializer
 // CHECK: default_init.k:55:13: error [SC088E]: 'Arg' declares a constructor
 // CHECK-NOT: error

@@ -12,9 +12,9 @@
 // --- lit wiring -----------------------------------------------------------
 // RUN: cd %S/Inputs/cross_tu && { %kairo main.k --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
 // CHECK: broken.k:7:12: error [R020E]: use of undeclared identifier 'missing'
-// CHECK: main.k:7:18: error [SC001E]: unhandled panic: 'parse' may panic with 'ParseError', and 'partial' is not marked 'panic'
+// CHECK: main.k:7:18: error [SC221E]: unhandled panic: 'parse' may panic with 'ParseError', and 'partial' is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}main.k":{6:19-6:19}:" panic"
-// CHECK-NEXT: lib.k:13:5: note [SC001N]: 'parse' is declared 'panic' here
-// CHECK-NEXT: main.k:7:18: note [SC001N]: or handle it here
+// CHECK-NEXT: lib.k:13:5: note [SC222N]: 'parse' is declared 'panic' here
+// CHECK-NEXT: main.k:7:18: note [SC221N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}main.k":{7:18-7:18}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}main.k":{7:31-7:31}:" catch => crash!()"

@@ -23,11 +23,11 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: raw_fn_reject.k:15:36: error [SC001E]: cannot convert 'fn (i32) -> i32' to the raw 'unsafe fn (i32) -> i32': this closure captures, so it has no function pointer
-// CHECK: raw_fn_reject.k:17:36: error [SC001E]: cannot convert 'fn (i32) -> i32' to the raw 'unsafe fn (i32) -> i32': a 'fn' value may hold a capturing closure, which has no function pointer
+// CHECK: raw_fn_reject.k:15:36: error [SC258E]: cannot convert 'fn (i32) -> i32' to the raw 'unsafe fn (i32) -> i32': this closure captures, so it has no function pointer
+// CHECK: raw_fn_reject.k:17:36: error [SC258E]: cannot convert 'fn (i32) -> i32' to the raw 'unsafe fn (i32) -> i32': a 'fn' value may hold a capturing closure, which has no function pointer
 // An argument is ranked by overload resolution, which says the same in its note.
 // CHECK: raw_fn_reject.k:18:13: error [SC063E]: no matching overload for call to 'take'
 // CHECK: raw_fn_reject.k:11:1: note [I900N]: candidate not viable: cannot convert argument of type 'fn (i32) -> i32' to parameter 'f' of type 'unsafe fn (i32) -> i32'
 // CHECK: raw_fn_reject.k:19:13: error [SC063E]: no matching overload for call to 'c_apply'
 // CHECK: c_callback.h:3:1: note [I900N]: candidate not viable: cannot convert argument of type 'fn (i32) -> i32' to parameter 'f' of type 'unsafe fn (i32) -> i32'
-// CHECK: raw_fn_reject.k:20:22: error [SC001E]: cannot convert 'fn (i32) -> i32' to the raw 'unsafe fn (i32) -> i32': a 'fn' value may hold a capturing closure, which has no function pointer
+// CHECK: raw_fn_reject.k:20:22: error [SC258E]: cannot convert 'fn (i32) -> i32' to the raw 'unsafe fn (i32) -> i32': a 'fn' value may hold a capturing closure, which has no function pointer

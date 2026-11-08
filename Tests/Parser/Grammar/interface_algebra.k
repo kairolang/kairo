@@ -19,7 +19,7 @@
 //
 // Only an unparenthesized mix of `&` with `+`/`-` warns, with the fix-it.
 // DIAG-NOT: warning
-// DIAG: interface_algebra.k:38:24: warning [S001W]: '+' and '-' bind tighter than '&' in a 'derives' clause; parenthesize to say which you mean
+// DIAG: interface_algebra.k:38:24: warning [S085W]: '+' and '-' bind tighter than '&' in a 'derives' clause; parenthesize to say which you mean
 // DIAG-NOT: warning
 
 interface X { fn a(self) }

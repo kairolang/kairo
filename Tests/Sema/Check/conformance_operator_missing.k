@@ -1,5 +1,5 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: conformance_operator_missing.k:24:12: error [SC001E]: 'W' does not conform to 'Growable': no member 'op +=' with the requirement's signature
+// CHECK: conformance_operator_missing.k:24:12: error [SC162E]: 'W' does not conform to 'Growable': no member 'op +=' with the requirement's signature
 // CHECK: conformance_operator_missing.k:18:9: note [I900N]: required by this bound
 // CHECK: conformance_operator_missing.k:12:5: note [I900N]: 'op +=' is required here
 //

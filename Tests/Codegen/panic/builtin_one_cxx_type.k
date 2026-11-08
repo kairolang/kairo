@@ -25,7 +25,7 @@ fn main() -> i32 {
 // IR-NOT:     template<> struct __kairo_tid<
 
 // RUN: { %kairo %S/Inputs/builtin_one_cxx_type_set.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=SET
-// SET: builtin_one_cxx_type_set.k:{{[0-9]+}}:{{[0-9]+}}: error [SC001E]: 'u64' and 'usize' cannot be in one panic set: on this target both are the C++ type 'unsigned long', so their tags are one
+// SET: builtin_one_cxx_type_set.k:{{[0-9]+}}:{{[0-9]+}}: error [SC223E]: 'u64' and 'usize' cannot be in one panic set: on this target both are the C++ type 'unsigned long', so their tags are one
 
 // REQUIRES: host-linux, host-x86_64
 

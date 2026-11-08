@@ -20,12 +20,12 @@ fn main() -> i32 { return count<i32>(1) + forward(1, 2) }
 // parameter is forwarded as a call argument or iterated (PackChecking);
 // its elements are deduced, not written (OverloadResolution).
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: pack_errors.k:2:13: error [SC001E]: 'T' is a type pack and stands for several types; a field cannot have it as its type
-// CHECK: pack_errors.k:4:28: error [SC001E]: 'T' is a type pack and stands for several types; a return value cannot have it as its type
-// CHECK: pack_errors.k:5:20: error [SC001E]: 'T' is a type pack and stands for several types; a parameter that is not a pack parameter cannot have it as its type
-// CHECK: pack_errors.k:7:13: error [SC001E]: 'xs' is a pack of values with different types; pass it on expanded as an argument, or iterate it with a for loop
+// CHECK: pack_errors.k:2:13: error [SC203E]: 'T' is a type pack and stands for several types; a field cannot have it as its type
+// CHECK: pack_errors.k:4:28: error [SC203E]: 'T' is a type pack and stands for several types; a return value cannot have it as its type
+// CHECK: pack_errors.k:5:20: error [SC203E]: 'T' is a type pack and stands for several types; a parameter that is not a pack parameter cannot have it as its type
+// CHECK: pack_errors.k:7:13: error [SC207E]: 'xs' is a pack of values with different types; pass it on expanded as an argument, or iterate it with a for loop
 // CHECK-NEXT: pack_errors.k:6:17: note [I900N]: declared as a pack here
-// CHECK: pack_errors.k:10:14: error [SC001E]: a pack expansion is written only as a call argument, where it passes each element as its own argument
-// CHECK: pack_errors.k:14:60: error [SC001E]: only a pack parameter can be expanded
+// CHECK: pack_errors.k:10:14: error [SC206E]: a pack expansion is written only as a call argument, where it passes each element as its own argument
+// CHECK: pack_errors.k:14:60: error [SC206E]: only a pack parameter can be expanded
 // CHECK: pack_errors.k:16:27: error [SC063E]: no matching overload for call to 'count'
 // CHECK-NEXT: pack_errors.k:13:1: note [I900N]: candidate not viable: 'T' is a type pack, deduced from the arguments; it cannot be written as a generic argument yet

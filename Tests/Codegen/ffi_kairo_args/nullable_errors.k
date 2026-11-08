@@ -50,8 +50,8 @@ fn main() -> i32 {
 // DIAG-NEXT: {{.*}}/vector.h:464:3: note [I900N]: candidate not viable: cannot convert argument of type 'string' to parameter '__x' of type '*Node?&&'
 // DIAG: {{.*}}:24:12: error [SC063E]: no matching overload for call to 'take'
 // DIAG-NEXT: {{.*}}:17:1: note [I900N]: candidate not viable: cannot convert argument of type '*Node?&' to parameter 'p' of type '*Node'
-// DIAG: {{.*}}:29:12: error [SC001E]: 'p' may be null here; check it with 'if p?' first
+// DIAG: {{.*}}:29:12: error [SC265E]: 'p' may be null here; check it with 'if p?' first
 // DIAG-NEXT: {{.*}}:28:5: note [I900N]: 'p' is given a value that may be null here
-// DIAG: {{.*}}:34:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG: {{.*}}:34:12: error [SC265E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: {{.*}}:33:5: note [I900N]: 'x' is given a value that may be null here
 // END-GENERATED-CHECKS(DIAG)

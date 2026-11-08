@@ -15,7 +15,7 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:6:7: error [SC001E]: plain enum 'Plain' cannot be generic: no variant carries a payload for a type parameter to type
-// DIAG-NEXT: {{.*}}:6:10: note [SC001N]: give a variant a payload to make it an ADT enum, or remove the generic parameters
-// DIAG: {{.*}}:7:7: error [SC001E]: plain enum 'Pair' cannot be generic: no variant carries a payload for a type parameter to type
-// DIAG-NEXT: {{.*}}:7:13: note [SC001N]: give a variant a payload to make it an ADT enum, or remove the generic parameters
+// DIAG: {{.*}}:6:7: error [SC197E]: plain enum 'Plain' cannot be generic: no variant carries a payload for a type parameter to type
+// DIAG-NEXT: {{.*}}:6:10: note [SC197N]: give a variant a payload to make it an ADT enum, or remove the generic parameters
+// DIAG: {{.*}}:7:7: error [SC197E]: plain enum 'Pair' cannot be generic: no variant carries a payload for a type parameter to type
+// DIAG-NEXT: {{.*}}:7:13: note [SC197N]: give a variant a payload to make it an ADT enum, or remove the generic parameters

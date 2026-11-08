@@ -15,4 +15,4 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo --type-check-only --cmax-match-arms=3 %s
 // RUN: %kairo --type-check-only --cmax-match-arms=0 %s
 // RUN: { %kairo --type-check-only --cmax-match-arms=2 %s 2>&1 || true; } | %FileCheck %s
-// CHECK: cmax_match_arms.k:5:{{[0-9]+}}: error [SC001E]: match has too many arms (3, limit 2)
+// CHECK: cmax_match_arms.k:5:{{[0-9]+}}: error [SC199E]: match has too many arms (3, limit 2)

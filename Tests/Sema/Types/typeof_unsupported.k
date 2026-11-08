@@ -19,7 +19,7 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-DAG: typeof_unsupported.k:8:8: error [SC043E]: cannot take 'typeof' of an expression whose type depends on this declaration's own type
-// DIAG-DAG: typeof_unsupported.k:10:17: error [U001E]: 'typeof' is supported only as the whole declared type of a variable ('var y: typeof x'); write this type out
-// DIAG-DAG: typeof_unsupported.k:14:16: error [U001E]: 'typeof' as a value is a 'TypeInfo', which is not implemented yet; as a type ('var y: typeof x') it is supported
-// DIAG-DAG: typeof_unsupported.k:15:13: error [U001E]: 'typeof' is supported only as the whole declared type of a variable ('var y: typeof x'); write this type out
+// DIAG-DAG: typeof_unsupported.k:10:17: error [SC270E]: 'typeof' is supported only as the whole declared type of a variable ('var y: typeof x'); write this type out
+// DIAG-DAG: typeof_unsupported.k:14:16: error [SC271E]: 'typeof' as a value is a 'TypeInfo', which is not implemented yet; as a type ('var y: typeof x') it is supported
+// DIAG-DAG: typeof_unsupported.k:15:13: error [SC270E]: 'typeof' is supported only as the whole declared type of a variable ('var y: typeof x'); write this type out
 // DIAG-NOT: {{I0[0-9]+}}

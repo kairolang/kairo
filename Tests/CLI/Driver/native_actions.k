@@ -67,7 +67,7 @@ fn main() -> i32 { return 0 }
 
 // Two inputs with one stem would write one file: an error, nothing compiled.
 // RUN: { %kairo -c %S/Inputs/native_dup.c %S/Inputs/dup/native_dup.c --cache-dir %t.d/dup 2>&1 || true; } | %FileCheck %s --check-prefix=DUP
-// DUP: error [U001E]: {{.*}}native_dup.c and {{.*}}dup/native_dup.c both write 'native_dup' outputs
+// DUP: error [U013E]: {{.*}}native_dup.c and {{.*}}dup/native_dup.c both write 'native_dup' outputs
 // RUN: not test -e %t.d/dup/native_dup.o
 
 // -o names the build's one output; two C/C++ inputs have no single name.
@@ -104,7 +104,7 @@ fn main() -> i32 { return 0 }
 
 // Nothing to preprocess in a .i: skipped with a warning, the run succeeds.
 // RUN: %kairo --preprocess %S/Inputs/native_pp.i 2>&1 | %FileCheck %s --check-prefix=PPSKIP
-// PPSKIP: warning [U001W]: {{.*}}native_pp.i: nothing to do for this input under --preprocess
+// PPSKIP: warning [U012W]: {{.*}}native_pp.i: nothing to do for this input under --preprocess
 
 // -o is checked before anything is written: an existing file survives a
 // batch that turns out to have two outputs.

@@ -12,6 +12,6 @@ fn ok() { finally { } }
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: error
-// CHECK: finally_file_scope.k:6:1: error [SC001E]: `finally` outside of a function body
-// CHECK: finally_file_scope.k:8:3: error [SC001E]: `finally` outside of a function body
+// CHECK: finally_file_scope.k:6:1: error [SC239E]: `finally` outside of a function body
+// CHECK: finally_file_scope.k:8:3: error [SC239E]: `finally` outside of a function body
 // CHECK-NOT: {{error|Internal}}

@@ -30,10 +30,10 @@ fn main() -> i32 { return 0 }
 
 // RUN: { %kcc %S/Inputs/errors/undef.cc -o %t.d/e 2>&1 || true; } | %FileCheck %s --check-prefix=UNDEF
 // RUN: test ! -e %t.d/e
-// UNDEF: error [L001E]: undefined symbol: missing_fn()
+// UNDEF: error [L002E]: undefined symbol: missing_fn()
 
 // RUN: { %kcc %S/Inputs/errors/main.cc %S/Inputs/errors/two_mains.k -o %t.d/f 2>&1 || true; } | %FileCheck %s --check-prefix=DUPMAIN
-// DUPMAIN: error [L001E]: duplicate symbol: main
+// DUPMAIN: error [L002E]: duplicate symbol: main
 
 // RUN: %kcc -Wall %S/Inputs/errors/warn.cc -o %t.d/g 2>&1 | %FileCheck %s --check-prefix=WARN
 // RUN: test -e %t.d/g

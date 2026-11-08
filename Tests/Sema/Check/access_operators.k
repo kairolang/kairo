@@ -33,25 +33,25 @@ fn main() -> i32 { return outside() }
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:14:51: error [SC001E]: protected operator 'op -' of 'Num' is reached here through a 'Num', not through 'Sub' or a class deriving from it
+// DIAG: {{.*}}:14:51: error [SC242E]: protected operator 'op -' of 'Num' is reached here through a 'Num', not through 'Sub' or a class deriving from it
 // DIAG-NEXT: fix-it:"{{.*}}/access_operators_lib.k":{7:5-7:9}:"pub"
-// DIAG-NEXT: {{.*}}/access_operators_lib.k:7:16: note [SC001N]: 'op -' is protected: outside the file that declares 'Num', a class deriving from it reaches it only through an object of its own class (as C++ does, [class.protected])
-// DIAG: {{.*}}:20:15: error [SC001E]: operator 'op +' of 'Num' is private
+// DIAG-NEXT: {{.*}}/access_operators_lib.k:7:16: note [SC242N]: 'op -' is protected: outside the file that declares 'Num', a class deriving from it reaches it only through an object of its own class (as C++ does, [class.protected])
+// DIAG: {{.*}}:20:15: error [SC242E]: operator 'op +' of 'Num' is private
 // DIAG-NEXT: fix-it:"{{.*}}/access_operators_lib.k":{6:5-6:9}:"pub"
-// DIAG-NEXT: {{.*}}/access_operators_lib.k:6:16: note [SC001N]: 'op +' is declared private here: accessible only in the file that declares 'Num'
-// DIAG: {{.*}}:21:15: error [SC001E]: operator 'op -' of 'Num' is protected
+// DIAG-NEXT: {{.*}}/access_operators_lib.k:6:16: note [SC242N]: 'op +' is declared private here: accessible only in the file that declares 'Num'
+// DIAG: {{.*}}:21:15: error [SC242E]: operator 'op -' of 'Num' is protected
 // DIAG-NEXT: fix-it:"{{.*}}/access_operators_lib.k":{7:5-7:9}:"pub"
-// DIAG-NEXT: {{.*}}/access_operators_lib.k:7:16: note [SC001N]: 'op -' is declared protected here: accessible only in the file that declares 'Num' and in classes that derive from it
-// DIAG: {{.*}}:23:13: error [SC001E]: operator 'op []' of 'Num' is private
+// DIAG-NEXT: {{.*}}/access_operators_lib.k:7:16: note [SC242N]: 'op -' is declared protected here: accessible only in the file that declares 'Num' and in classes that derive from it
+// DIAG: {{.*}}:23:13: error [SC242E]: operator 'op []' of 'Num' is private
 // DIAG-NEXT: fix-it:"{{.*}}/access_operators_lib.k":{9:5-9:9}:"pub"
-// DIAG-NEXT: {{.*}}/access_operators_lib.k:9:16: note [SC001N]: 'op []' is declared private here: accessible only in the file that declares 'Num'
-// DIAG: {{.*}}:24:10: error [SC001E]: operator 'op ==' of 'Num' is private
+// DIAG-NEXT: {{.*}}/access_operators_lib.k:9:16: note [SC242N]: 'op []' is declared private here: accessible only in the file that declares 'Num'
+// DIAG: {{.*}}:24:10: error [SC242E]: operator 'op ==' of 'Num' is private
 // DIAG-NEXT: fix-it:"{{.*}}/access_operators_lib.k":{10:5-10:9}:"pub"
-// DIAG-NEXT: {{.*}}/access_operators_lib.k:10:16: note [SC001N]: 'op ==' is declared private here: accessible only in the file that declares 'Num'
-// DIAG: {{.*}}:25:7: error [SC001E]: operator 'op %=' of 'Num' is private
+// DIAG-NEXT: {{.*}}/access_operators_lib.k:10:16: note [SC242N]: 'op ==' is declared private here: accessible only in the file that declares 'Num'
+// DIAG: {{.*}}:25:7: error [SC242E]: operator 'op %=' of 'Num' is private
 // DIAG-NEXT: fix-it:"{{.*}}/access_operators_lib.k":{11:5-11:9}:"pub"
-// DIAG-NEXT: {{.*}}/access_operators_lib.k:11:16: note [SC001N]: 'op %=' is declared private here: accessible only in the file that declares 'Num'
-// DIAG: {{.*}}:26:13: error [SC001E]: operator 'op -' of 'Num' is private
+// DIAG-NEXT: {{.*}}/access_operators_lib.k:11:16: note [SC242N]: 'op %=' is declared private here: accessible only in the file that declares 'Num'
+// DIAG: {{.*}}:26:13: error [SC242E]: operator 'op -' of 'Num' is private
 // DIAG-NEXT: fix-it:"{{.*}}/access_operators_lib.k":{12:5-12:9}:"pub"
-// DIAG-NEXT: {{.*}}/access_operators_lib.k:12:16: note [SC001N]: 'op -' is declared private here: accessible only in the file that declares 'Num'
+// DIAG-NEXT: {{.*}}/access_operators_lib.k:12:16: note [SC242N]: 'op -' is declared private here: accessible only in the file that declares 'Num'
 // END-GENERATED-CHECKS(DIAG)

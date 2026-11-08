@@ -39,8 +39,8 @@ fn main() -> i32 { return 0 }
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:19:30: error [SC001E]: the default of associated type 'Item' is 'i32', which does not meet its bound 'Display'
+// DIAG: {{.*}}:19:30: error [SC154E]: the default of associated type 'Item' is 'i32', which does not meet its bound 'Display'
 // DIAG-NEXT: {{.*}}:19:10: note [I900N]: the bound is declared here
-// DIAG: {{.*}}:28:30: error [SC001E]: the default of associated type 'Edge' is 'Self::Node', which does not meet its bound 'Display'
+// DIAG: {{.*}}:28:30: error [SC154E]: the default of associated type 'Edge' is 'Self::Node', which does not meet its bound 'Display'
 // DIAG-NEXT: {{.*}}:28:10: note [I900N]: the bound is declared here
 // END-GENERATED-CHECKS(DIAG)

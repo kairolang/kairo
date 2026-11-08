@@ -22,6 +22,6 @@ fn main() -> i32 { return 0 }
 // Kept at the BOTTOM on purpose: the EXPECT-ERROR annotations above name
 // absolute LINE NUMBERS in the code.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: inline-no-body.k:14:5: error [R001E]: 'e' is declared inline but has no body
-// CHECK: inline-no-body.k:17:1: error [R001E]: 'free_decl' is declared inline but has no body
+// CHECK: inline-no-body.k:14:5: error [R062E]: 'e' is declared inline but has no body
+// CHECK: inline-no-body.k:17:1: error [R062E]: 'free_decl' is declared inline but has no body
 // CHECK-NOT: error
