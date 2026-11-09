@@ -4,6 +4,7 @@
     python3 Scripts/package_release.py x86_64-linux-musl
     python3 Scripts/package_release.py --out build/ship/dist --work build/ship/work x86_64-linux-musl
     python3 Scripts/package_release.py --all                  # every tree that is built
+    python3 Scripts/package_release.py --all -j 2             # two hosts at once (default: RAM-aware)
     python3 Scripts/package_release.py --sysroots none ...    # compiler only
     python3 Scripts/package_release.py --legacy-sysroots ...  # 0.2.0 layout: all 18 roots prebuilt
     python3 Scripts/package_release.py --stage-only --work build/sysgen/c/stage x86_64-linux-musl
@@ -61,6 +62,7 @@ import sys
 import tarfile
 import tomllib
 import zipfile
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -85,7 +87,7 @@ BANNED_PATH_PARTS = ("apple-macosx", "windows-msvc", "/msvc/", ".tbd", "MacOSX")
 
 
 def die(m: str) -> None:
-    print(f"[package] FAIL: {m}", flush=True)
+    print(f"[{LOG_TAG}] FAIL: {m}", flush=True)
     sys.exit(1)
 
 
@@ -95,8 +97,11 @@ def version() -> str:
     return build.KAIRO_VERSION
 
 
+LOG_TAG = "package"    # "package <triple>" while --all -j packages several hosts at once
+
+
 def log(m: str) -> None:
-    print(f"[package] {m}", flush=True)
+    print(f"[{LOG_TAG}] {m}", flush=True)
 
 
 TREE_OVERRIDE: Path | None = None    # --tree: package another release tree (a dry run)
@@ -119,9 +124,32 @@ def find_tool(triple: str, name: str) -> Path | None:
     return None
 
 
+def link_or_copy(src, dst) -> None:
+    """copytree's copy_function: a hard link where src and dst share a filesystem, else copy2.
+    A staged tree was ~1.7 GB of copies per host (3.4 GB legacy), written and then read
+    straight back by the archiver; linked, staging is metadata only, and --all -j N needs
+    no N x 1.7 GB of scratch. A link carries what copy2 would have (bytes, mode, mtime; the
+    owner is ours either way), so the archive cannot tell. The price: the staged tree IS the
+    source, so nothing may write into a staged file in place (write_new below; bin/ is a
+    real copy because strip_debug rewrites it). os.link follows a symlinked src, as copy2
+    does under symlinks=False."""
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copy2(src, dst)
+
+
+def write_new(path: Path, text: str) -> None:
+    """write_text for a file inside a hard-linked staged tree: unlink first, so a source
+    file of the same name is replaced in the staging, never written through the link."""
+    path.unlink(missing_ok=True)
+    path.write_text(text)
+
+
 def copy_resolved(src: Path, dst: Path) -> None:
     """copytree that never leaves a symlink: the archive must not depend on where it was built."""
-    shutil.copytree(src, dst, symlinks=False, ignore=shutil.ignore_patterns("*.log", "*.tmp", ".git*"))
+    shutil.copytree(src, dst, symlinks=False, ignore=shutil.ignore_patterns("*.log", "*.tmp", ".git*"),
+                    copy_function=link_or_copy)
 
 
 # Debug info is most of each toolchain binary (kairo/kcc ~187 MB unstripped). Only
@@ -191,7 +219,7 @@ def stage_lib(triple: str, dst: Path) -> None:
     # they ship too, and collect_licenses fails on any it has no entry for.
     for p in src.glob("*"):
         if p.is_file() and (fnmatch.fnmatch(p.name, "*.so*") or p.suffix in (".dylib", ".dll")):
-            shutil.copy2(p, dst / "lib" / p.name)
+            link_or_copy(p, dst / "lib" / p.name)
 
 
 # scripts/: shipped as is, mode 0755. They may only run the install's own tools (kcc, kld,
@@ -287,18 +315,20 @@ def stage_runtimes(dst: Path) -> None:
     out.mkdir(parents=True)
     ignore = shutil.ignore_patterns(".git*")
     for d in RUNTIMES_TREES:
-        shutil.copytree(LLVM_SRC / d, out / d, symlinks=True, ignore=ignore)
+        shutil.copytree(LLVM_SRC / d, out / d, symlinks=True, ignore=ignore, copy_function=link_or_copy)
     for d in RUNTIMES_PRUNED:
         shutil.copytree(LLVM_SRC / d, out / d, symlinks=True,
                         ignore=lambda dirpath, names: [
                             n for n in names
                             if (n in RUNTIMES_DROP or n.startswith(".git"))
-                            and Path(dirpath, n).relative_to(LLVM_SRC).as_posix() not in RUNTIMES_KEEP])
+                            and Path(dirpath, n).relative_to(LLVM_SRC).as_posix() not in RUNTIMES_KEEP],
+                        copy_function=link_or_copy)
     for f in RUNTIMES_FILES:
         (out / f).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(LLVM_SRC / f, out / f)
+        (out / f).unlink(missing_ok=True)
+        link_or_copy(LLVM_SRC / f, out / f)
     rev = runtimes_revision()
-    (out / "REVISION").write_text(rev + "\n")
+    write_new(out / "REVISION", rev + "\n")
     # Source lists a no-cmake builder can read, scraped so they follow the fork.
     cm = (out / "compiler-rt" / "lib" / "builtins" / "CMakeLists.txt").read_text()
     lines = []
@@ -308,7 +338,7 @@ def stage_runtimes(dst: Path) -> None:
             die(f"compiler-rt builtins CMakeLists.txt has no set({name} ...)")
         srcs = re.findall(r"[a-z0-9_/]+\.(?:c|S)\b", m.group(1))
         lines.append(f"{name} = [" + ",".join(f'"{x}"' for x in srcs) + "]")
-    (out / "compiler-rt" / "lib" / "builtins" / "sources.toml").write_text("\n".join(lines) + "\n")
+    write_new(out / "compiler-rt" / "lib" / "builtins" / "sources.toml", "\n".join(lines) + "\n")
     for must in ("libcxx/include/vector", "runtimes/CMakeLists.txt", "libcxxabi/CMakeLists.txt",
                  "compiler-rt/lib/builtins/addtf3.c", "llvm/cmake/modules/HandleLLVMOptions.cmake",
                  "libc/shared/fp_bits.h", "libcxx/utils/CMakeLists.txt", "compiler-rt/tools/CMakeLists.txt"):
@@ -340,7 +370,7 @@ def stage_sdk_overlays(dst: Path) -> None:
     if errs:
         die("SDK overlay content check failed:\n  " + "\n  ".join(errs))
     out = dst / "share" / "kairo" / "sdk-overlays"
-    shutil.copytree(SDK_OVERLAYS, out, symlinks=False)
+    shutil.copytree(SDK_OVERLAYS, out, symlinks=False, copy_function=link_or_copy)
     # Checked again on the copy: what ships, not what was meant to.
     errs = build_sdk_overlays.check_overlays(out, runtimes)
     if errs:
@@ -374,7 +404,7 @@ def copy_root(src: Path, dst: Path) -> int:
     loader) is REMOVED, not shipped: a dangling
     libc.so is a lookup trap for `-lc` (SysRoot.md 4.6: "keep the dangling libc.so out"),
     and nothing can use one. Returns how many were dropped."""
-    shutil.copytree(src, dst, symlinks=True)
+    shutil.copytree(src, dst, symlinks=True, copy_function=link_or_copy)
     dropped = []
     for d, dirs, files in os.walk(dst):
         for n in dirs + files:
@@ -505,9 +535,10 @@ def stage_share(dst: Path, src: Path) -> None:
             die(f"{e}: not an input dir of registry.toml nor a known share file; decide whether it ships "
                 "(SHARE_META in Scripts/package_release.py)")
         if e.is_dir():
-            shutil.copytree(e, out / e.name, symlinks=True, ignore=shutil.ignore_patterns(".git*", "__pycache__"))
+            shutil.copytree(e, out / e.name, symlinks=True, ignore=shutil.ignore_patterns(".git*", "__pycache__"),
+                            copy_function=link_or_copy)
         else:
-            shutil.copy2(e, out / e.name)
+            link_or_copy(e, out / e.name)
     # A link must stay inside its own input dir (FORMAT.md, producer notes): the hash
     # follows links, so one escaping into a sibling, or out of the tree, would hash here
     # and dangle (or differ) in an install.
@@ -606,37 +637,294 @@ def stage_dir(triple: str, ver: str, sysroots: str, work: Path, allow_missing: s
     return dst
 
 
+# Compression threads per archive: 0 = every core. --all -j N divides the cores between
+# the N hosts packaged at once.
+THREADS = 0
+
+
+def threads() -> int:
+    return THREADS or os.cpu_count() or 1
+
+
+# zip members are deflated in parallel worker processes, pigz style: a large file is cut
+# into DEFLATE_CHUNK pieces, each primed with the 32 KiB before it as a preset dictionary
+# and ended with a sync flush (the last with Z_FINISH), so the pieces concatenate into one
+# ordinary deflate stream; small files go DEFLATE_BATCH bytes' worth to a task, because
+# 44k one-file tasks spend their time on dispatch, not deflate. Processes, not threads:
+# zlib drops the GIL while it compresses, but the per-task Python around it does not,
+# and with 24 threads that serialised to about 2 cores. One core deflating at level 9 was
+# most of a Windows/macOS host's time (11 minutes under load, ~200 CPU s).
+# The output is deterministic and depends on DEFLATE_CHUNK, never on the worker count
+# (each piece is compressed on its own); it is within a fraction of a percent of a single
+# stream's size.
+DEFLATE_CHUNK = 4 << 20
+DEFLATE_BATCH = 4 << 20
+DEFLATE_WINDOW = 1 << 15
+
+
+def _deflate_task(task: list[tuple[str, int, int, bool]]) -> list[tuple[int, int, bytes]]:
+    """Each (path, offset, length, last) -> (crc32 of that range, bytes read, deflate)."""
+    res = []
+    for path, off, n, last in task:
+        with open(path, "rb") as f:
+            start = max(0, off - DEFLATE_WINDOW)
+            f.seek(start)
+            buf = f.read(off - start + n)
+        zdict, data = buf[:off - start], buf[off - start:]
+        c = zlib.compressobj(9, zlib.DEFLATED, -15, **({"zdict": zdict} if zdict else {}))
+        res.append((zlib.crc32(data), len(data),
+                    c.compress(data) + c.flush(zlib.Z_FINISH if last else zlib.Z_SYNC_FLUSH)))
+    return res
+
+
+def _gf2_times(mat: list[int], vec: int) -> int:
+    s, i = 0, 0
+    while vec:
+        if vec & 1:
+            s ^= mat[i]
+        vec >>= 1
+        i += 1
+    return s
+
+
+def crc32_combine(crc1: int, crc2: int, len2: int) -> int:
+    """zlib's crc32_combine (Python's zlib does not export it): the CRC of A+B from
+    crc(A), crc(B) and len(B), so the pieces of one file are CRC'd where they are read."""
+    if len2 <= 0:
+        return crc1
+    odd = [0xEDB88320] + [1 << i for i in range(31)]          # one zero bit
+    even = [_gf2_times(odd, odd[i]) for i in range(32)]        # two zero bits
+    odd = [_gf2_times(even, even[i]) for i in range(32)]       # four zero bits
+    while True:
+        even = [_gf2_times(odd, odd[i]) for i in range(32)]
+        if len2 & 1:
+            crc1 = _gf2_times(even, crc1)
+        len2 >>= 1
+        if not len2:
+            break
+        odd = [_gf2_times(even, even[i]) for i in range(32)]
+        if len2 & 1:
+            crc1 = _gf2_times(odd, crc1)
+        len2 >>= 1
+        if not len2:
+            break
+    return crc1 ^ crc2
+
+
+def _zip_write_raw(z: zipfile.ZipFile, info: zipfile.ZipInfo, crc: int, parts: list[bytes]) -> None:
+    """Writes one already-deflated member: what ZipFile.write does, minus the compressor
+    (zipfile has no public raw-member API). Every header field is the one ZipFile.write
+    would set; only the compressed bytes are ours."""
+    info.compress_type, info.compress_level = zipfile.ZIP_DEFLATED, 9
+    info.flag_bits = 0x800   # UTF-8 names, as ZipFile._open_to_write sets
+    info.CRC = crc
+    info.compress_size = sum(len(p) for p in parts)
+    zip64 = info.file_size * 1.05 > zipfile.ZIP64_LIMIT or info.compress_size > zipfile.ZIP64_LIMIT
+    z.fp.seek(z.start_dir)
+    info.header_offset = z.fp.tell()
+    z._writecheck(info)
+    z._didModify = True
+    z.fp.write(info.FileHeader(zip64))
+    for p in parts:
+        z.fp.write(p)
+    z.start_dir = z.fp.tell()
+    z.filelist.append(info)
+    z.NameToInfo[info.filename] = info
+
+
+def walk_sorted(top: str):
+    """(path, is_symlink) of everything below top, in sorted(Path(top).rglob("*")) order
+    (component-wise, a directory right before its contents; symlinked dirs not entered),
+    from scandir: pathlib's per-entry objects were 13 s of a 46k-file tree."""
+    with os.scandir(top) as it:
+        ents = sorted(it, key=lambda e: e.name)
+    for e in ents:
+        link = e.is_symlink()
+        yield e.path, link
+        if not link and e.is_dir():
+            yield from walk_sorted(e.path)
+
+
+def write_zip(dst: Path, path: Path, pool) -> None:
+    base = str(dst.parent)
+    members = []          # (path, ZipInfo, or None for a symlink)
+    for p, link in walk_sorted(str(dst)):
+        if link:
+            members.append((p, None))
+        elif os.path.isfile(p):
+            members.append((p, zipfile.ZipInfo.from_file(p, os.path.relpath(p, base))))
+    # Tasks in member order: one task per piece of a large file, small files batched.
+    tasks, batch, held = [], [], 0
+    for i, (p, info) in enumerate(members):
+        if info is None:
+            continue
+        size = info.file_size
+        if size > DEFLATE_CHUNK:
+            if batch:       # the small files before it go first: tasks are in member order
+                tasks.append(batch)
+                batch, held = [], 0
+            for off in range(0, size, DEFLATE_CHUNK):
+                tasks.append([(i, p, off, min(DEFLATE_CHUNK, size - off), off + DEFLATE_CHUNK >= size)])
+            continue
+        batch.append((i, p, 0, size, True))
+        held += size
+        if held >= DEFLATE_BATCH or len(batch) >= 512:
+            tasks.append(batch)
+            batch, held = [], 0
+    if batch:
+        tasks.append(batch)
+    # Submitted ahead of the writer, bounded so memory stays at a few hundred MB.
+    ahead, it, limit = [], iter(tasks), 4 * threads()
+
+    def refill():
+        while len(ahead) < limit:
+            t = next(it, None)
+            if t is None:
+                return
+            ahead.append(([x[0] for x in t], pool.submit(_deflate_task, [x[1:] for x in t])))
+
+    done: list[tuple[int, int, bytes]] = []     # results of the task at ahead's head
+    owners: list[int] = []
+
+    def next_piece():
+        nonlocal done, owners
+        if not done:
+            owners, f = ahead.pop(0)
+            done = f.result()
+            refill()
+        return owners.pop(0), done.pop(0)
+
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        refill()
+        for i, (p, info) in enumerate(members):
+            if info is None:
+                # zip keeps a symlink as a file whose mode says link and whose
+                # data is the target (what unzip and macOS Archive Utility read).
+                link = zipfile.ZipInfo(os.path.relpath(p, base))
+                link.create_system = 3
+                link.external_attr = (0o120777 << 16)
+                z.writestr(link, os.readlink(p))
+                continue
+            crc, n, parts = 0, 0, []
+            while n < info.file_size or not parts:
+                owner, (c, got, comp) = next_piece()
+                if owner != i:
+                    die(f"zip writer out of order: piece of member {owner} while writing {i} ({p})")
+                crc = crc32_combine(crc, c, got) if parts else c
+                n += got
+                parts.append(comp)
+                if got == 0:
+                    break
+            if n != info.file_size:
+                die(f"{p} changed while it was being archived ({info.file_size} -> {n} bytes)")
+            _zip_write_raw(z, info, crc, parts)
+
+
+def _zip_verify(path: str, names: list[str]) -> str | None:
+    """Reads members back in full: zipfile checks each one's CRC at its end."""
+    with zipfile.ZipFile(path) as z:
+        for n in names:
+            try:
+                with z.open(n) as f:
+                    while f.read(1 << 20):
+                        pass
+            except (zipfile.BadZipFile, zlib.error) as e:
+                return f"{n}: {e}"
+    return None
+
+
+class _NoHardLinks(dict):
+    """TarFile.inodes that never remembers an inode, so a staged file sharing its inode with
+    another (a hard-linked staging, or a source tree with hard links of its own) is archived
+    as a regular file, as a staged copy always was, never as a tar link member."""
+    def __setitem__(self, k, v):
+        pass
+
+
 def archive(dst: Path, triple: str, out: Path) -> Path:
     windows_or_mac = cross_llvm.FAMILIES.get(triple, ("Linux",))[0] in ("Windows", "Darwin")
     if windows_or_mac:
+        from concurrent.futures import ProcessPoolExecutor
         path = out / f"{dst.name}.zip"
-        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-            for p in sorted(dst.rglob("*")):
-                rel = p.relative_to(dst.parent)
-                if p.is_symlink():
-                    # zip keeps a symlink as a file whose mode says link and whose
-                    # data is the target (what unzip and macOS Archive Utility read).
-                    info = zipfile.ZipInfo(str(rel))
-                    info.create_system = 3
-                    info.external_attr = (0o120777 << 16)
-                    z.writestr(info, os.readlink(p))
-                elif p.is_file():
-                    z.write(p, rel)
-        check_names(zipfile.ZipFile(path).namelist(), path.name)
+        with ProcessPoolExecutor(threads()) as pool:
+            write_zip(dst, path, pool)
+            with zipfile.ZipFile(path) as z:
+                names = z.namelist()
+            check_names(names, path.name)
+            # Every member read back and CRC-checked (testzip, on every core), so a bug in
+            # the raw-member writer can never ship a corrupt archive.
+            k = threads()
+            for bad in pool.map(_zip_verify, [str(path)] * k, [names[i::k] for i in range(k)]):
+                if bad:
+                    die(f"{path.name}: {bad}")
         return path
     path = out / f"{dst.name}.tar.xz"
     # tar streams straight into the external xz (multi-threaded, and no 3 GB temp tar).
+    # -T: the output is deterministic for a given thread count (xz cuts blocks by size,
+    # not by timing), but differs between thread counts; nothing pins it today.
     with open(path, "wb") as fh:
-        xz = subprocess.Popen(["xz", "-T0", "-6", "-c"], stdin=subprocess.PIPE, stdout=fh)
-        with tarfile.open(fileobj=xz.stdin, mode="w|") as t:
+        xz = subprocess.Popen(["xz", f"-T{threads()}", "-6", "-c"], stdin=subprocess.PIPE, stdout=fh)
+        with tarfile.open(fileobj=xz.stdin, mode="w|", bufsize=1 << 20) as t:
+            t.inodes = _NoHardLinks()
             t.add(dst, arcname=dst.name)
         xz.stdin.close()
         if xz.wait() != 0:
             die("xz failed")
-    # Verify what was actually written, not what was meant to be.
-    with tarfile.open(path, "r|xz") as t:
+    # Verify what was actually written, not what was meant to be. xz -T decompresses the
+    # multi-block stream on every core; Python's lzma would take one.
+    xz = subprocess.Popen(["xz", f"-T{threads()}", "-dc", str(path)], stdout=subprocess.PIPE)
+    with tarfile.open(fileobj=xz.stdout, mode="r|", bufsize=1 << 20) as t:
         check_names((m.name for m in t), path.name)
+    xz.stdout.close()
+    if xz.wait() != 0:
+        die(f"{path.name}: xz cannot decompress what it wrote")
     return path
+
+
+def package_one(t: str, ver: str, out: Path, work: Path, a: dict) -> tuple[str, int]:
+    """Stages and archives one host; returns (archive name, size). Takes everything as
+    arguments (and sets the module knobs from them), because a --all -j worker is a fresh
+    process: globals main() set in the parent do not reach it."""
+    global STRIP, TREE_OVERRIDE, THREADS, LOG_TAG
+    STRIP, TREE_OVERRIDE, THREADS = a["strip"], a["tree"], a["threads"]
+    if a["tag"]:
+        LOG_TAG = f"package {t}"
+    dst = stage_dir(t, ver, a["sysroots"], work, a["allow_missing"], a["overlays"], a["legacy"], a["share"])
+    p = archive(dst, t, out)
+    # A staged tree is ~1.5-2 GB (the share tree + the host roots; ~3.4 GB with
+    # --legacy-sysroots) when it cannot be hard-linked, so drop each one as soon as its
+    # archive is written.
+    shutil.rmtree(dst, ignore_errors=True)
+    size = p.stat().st_size
+    log(f"{t}: {p.name} ({size / (1 << 20):.0f} MiB)")
+    return p.name, size
+
+
+def meminfo() -> dict[str, int]:
+    """/proc/meminfo in bytes; {} where there is none (not Linux)."""
+    try:
+        with open("/proc/meminfo") as f:
+            return {k: int(v.split()[0]) << 10 for k, v in (l.split(":", 1) for l in f) if v.strip()}
+    except (OSError, ValueError):
+        return {}
+
+
+# --all -j default. One host's packaging peaks at about 1.5 GB besides xz (the zip
+# writer's read-ahead, tarfile, the verify), and xz -6 takes about 100 MB a thread; the
+# threads are divided between the hosts, so xz's total stays at cores x 100 MB however many
+# run. The hosts get what keeps the whole box under 80% of RAM, counting what is in use
+# now, at most JOBS_CAP: past that, every core is already compressing.
+JOBS_CAP = 4
+HOST_BYTES = 3 << 29          # 1.5 GiB
+XZ_THREAD_BYTES = 100 << 20
+
+
+def default_jobs(hosts: int) -> int:
+    m = meminfo()
+    if "MemTotal" not in m or "MemAvailable" not in m:
+        return 1
+    budget = 0.8 * m["MemTotal"] - (m["MemTotal"] - m["MemAvailable"]) - (os.cpu_count() or 1) * XZ_THREAD_BYTES
+    return max(1, min(hosts, JOBS_CAP, int(budget // HOST_BYTES)))
 
 
 def main() -> int:
@@ -660,6 +948,9 @@ def main() -> int:
                     help="leave out share/kairo/sdk-overlays (the macOS/MSVC scripts then do the full build)")
     ap.add_argument("--allow-missing", action="append", default=[], metavar="TOOL",
                     help="package without this bin/ tool instead of failing (a test archive)")
+    ap.add_argument("-j", "--jobs", type=int, default=0,
+                    help="hosts packaged at once, each with cores/N compression threads (default: as "
+                         f"many as keep RAM under 80%%, at most {JOBS_CAP}; 1 without --all)")
     a = ap.parse_args()
     global STRIP, TREE_OVERRIDE
     STRIP = not a.no_strip
@@ -685,18 +976,31 @@ def main() -> int:
         return 0
     out = Path(a.out).resolve() if a.out else ROOT / "dist" / ver
     work = Path(a.work).resolve() if a.work else out / ".stage"
-    out.mkdir(parents=True, exist_ok=True)
     for t in triples:
         if not (tree_of(t) / "bin").is_dir():
             log(f"{t}: no tree at {tree_of(t)}; build it: python3 build.py --target {t} kairo kcc")
             return 1
-        dst = stage_dir(t, ver, a.sysroots, work, set(a.allow_missing), not a.no_sdk_overlays,
-                        a.legacy_sysroots, a.share.resolve())
-        p = archive(dst, t, out)
-        # A staged tree is ~1.5-2 GB (the share tree + the host roots; ~3.4 GB with
-        # --legacy-sysroots), so drop each one as soon as its archive is written.
-        shutil.rmtree(dst, ignore_errors=True)
-        log(f"{t}: {p.name} ({p.stat().st_size / (1 << 20):.0f} MiB)")
+    jobs = min(len(triples), a.jobs or (default_jobs(len(triples)) if a.all else 1))
+    out.mkdir(parents=True, exist_ok=True)
+    cfg = {"strip": STRIP, "tree": TREE_OVERRIDE, "threads": max(1, (os.cpu_count() or 1) // jobs),
+           "tag": jobs > 1, "sysroots": a.sysroots, "allow_missing": set(a.allow_missing),
+           "overlays": not a.no_sdk_overlays, "legacy": a.legacy_sysroots, "share": a.share.resolve()}
+    if jobs == 1:
+        for t in triples:
+            package_one(t, ver, out, work, cfg)
+    else:
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        log(f"{len(triples)} hosts, {jobs} at once, {cfg['threads']} compression threads each")
+        with ProcessPoolExecutor(jobs) as pool:
+            futs = {pool.submit(package_one, t, ver, out, work, cfg): t for t in triples}
+            for f in as_completed(futs):
+                try:
+                    f.result()
+                except BaseException as e:      # die() is a SystemExit in the worker
+                    for g in futs:
+                        g.cancel()
+                    die(f"{futs[f]}: packaging failed ({type(e).__name__}: {e}); "
+                        "the hosts still running finish, nothing else starts")
     shutil.rmtree(work, ignore_errors=True)
     with open(out / "SHA256SUMS", "w") as f:
         for p in sorted(out.glob("kairo-*")):
