@@ -1,64 +1,1200 @@
-# Kairo Formatter Style Rules (draft)
+# kfmt: Kairo formatting spec
+
+This file is the formatter's spec. Edit it freely; the code follows it.
+
+How to read the tags on every rule:
+
+- No tag, or `(decided 2026-11-08)`: a rule fixed in review (the original
+  draft, the 2026-11-08 notes, or the answers to the first round of open
+  questions).
+- `(proposed)`: a default proposed for review: accept, change, or delete.
+- `[impl]`: `Extras/Formatter/Driver/kfmt.k` does this today.
+- `[partial]`: some of it is implemented; the rule says which part is missing.
+- `[spec-only]`: not implemented yet.
+
+Open questions (conflicts or undecided points) are listed in section 17,
+each with its readings; none was resolved silently.
+
+Proposed defaults come from how `Compiler/**/*.k` is
+written today (the house style) and from the language reference
+(https://kairolang.org/docs/language/). Where those two disagree, the
+rule says so.
+
+Examples use ```rs fences, as in the draft. "Before" is what someone wrote;
+"after" is what kfmt prints.
+
+The user-facing page, https://kairolang.org/docs/toolchain/kfmt/, is written (0.2.0) and summarises this spec; it was frontmatter
+only today. It gets written in full once the formatter is complete, from this
+spec; until then this file is the only description of kfmt's rules.
 
 
- > Line width: 100 columns.
+## 1. Principles
+
+**1.1 Output parses.** (proposed) [partial] kfmt never writes a file that
+does not parse. Today a file with a syntax error is refused before
+formatting starts; the output is not re-parsed.
+
+**1.2 Meaning never changes.** (proposed) [partial] The output parses to the
+same AST as the input. The only differences allowed are whitespace, line
+breaks, redundant `;` (section 13), trailing commas (rule 4.2), the order and form of imports
+(section 5), and, under `--normalize-parens` only, redundant parentheses
+(rule 9.5). Today kfmt checks a weaker property, see 1.5 and section 16.
+
+**1.3 Comments are never lost, never reordered.** (proposed) [impl] Every
+comment in the input is in the output, with its text unchanged and in the
+same order relative to other comments. A comment may move relative to code
+(rule 12.4); it never moves past another comment.
+
+**1.4 Idempotent.** (proposed) [partial] `kfmt(kfmt(x)) == kfmt(x)`. Several
+rules depend on how the source was written (one-line blocks, enum trailing commas,
+parentheses, alignment runs on consecutive lines). Each such rule is written
+so its own output keeps the property that triggered it. Section 16 lists
+them. No golden test checks this yet.
+
+**1.5 Write-back is gated.** (proposed) [impl] `--write` replaces a file only
+when the output passes the round-trip check. Today that check is: the output
+re-lexes to the same code tokens, the same non-blank text between tokens, and
+the same comments in the same order. Line breaks are not code tokens, so the
+check does not catch a line break that changes parsing (see 4.5 and 16.3).
+
+**1.6 Text inside literals is never touched.** (proposed) [impl] String,
+char, raw-string and f-string contents (including the expressions inside
+`{...}` of an f-string) are copied byte for byte. A multi-line string or
+char literal pins its continuation lines to column 0: re-indenting them would
+change the value.
+
+**1.7 When in doubt, copy.** (proposed) [impl] A construct kfmt does not
+know how to lay out is copied as written and only re-indented to its new
+nesting level. Section 15 lists what is copied today.
 
 
-### 1. Argument/parameter list wrapping
+## 2. Configuration
 
-If a parenthesized list `(item1, item2, ...)` would exceed the line width on one line, break it one item per line, aligned to the column just after the opening paren:
+The formatting knobs are exactly the ones below (2.2-2.5, 2.8). Everything else
+is fixed. There is no config file and no `--blankline` flag.
+
+**2.1 Line width: 100 columns, fixed.** [impl] Not a knob
+(`Formatter::line_width()`).
+
+**2.2 `--no-align`.** [spec-only] Turns off every alignment rule
+(section 11, and the aligned list form of rule 4.1, which then falls back to
+the block form). Default: alignment on.
+
+**2.3 Indent kind: spaces or tabs.** [spec-only] Default spaces.
+Flag spelling (proposed): `--indent=spaces|tabs`. Leading indentation in the
+input, tabs or spaces, is rewritten in the chosen kind. Tabs are only ever
+indentation: the padding that aligns columns (section 11, rule 4.1's aligned
+form) is always spaces, after the tabs of the indent, also in tabs mode
+. Alignment therefore survives any tab width in an editor. For the
+width limit (2.1, 4.1), a tab counts as `--tab-size` columns.
+> Tabs outside leading indentation (between tokens) collapse with the rest of
+> the inter-token whitespace (rule 3.3); tabs inside literals and comments
+> stay. (proposed) [partial]
+
+**2.4 `--tab-size=N`.** [partial] Width of one indent level: N spaces
+in spaces mode (default 4, Kairo's tab size), N tabs in tabs mode (default 1).
+Today the level is fixed at 4 spaces (`indent_width()` in Renderer.k).
+
+**2.5 `--normalize-parens`.** (flag name proposed) [spec-only] Default
+off. Turns on rule 9.5's parenthesis normalization. The compiler tree's
+format pass turns it on.
+
+**2.6 Blank-line cap: 4, fixed.** [impl] Not a knob; see rule 14.1.
+
+**2.8 `--call-width=N`.** (decided 2026-11-08) [impl] Where a call's one-line
+form must end (rule 4.1). Default 80; N from 40 to the line width (100).
+The compiler tree's format pass (Compiler/, Linker/, Extras/Formatter/) uses
+`--call-width=100`: calls there get the full line width like every other
+list.
+
+**2.7 Modes.** (proposed) [impl] Not formatting knobs: `--check` (default:
+list files that would change, exit 1 if any), `--write` (rewrite in place),
+`--stdout` (print the formatted file). A directory argument formats every
+`.k` file under it.
+
+
+## 3. Whitespace and indentation
+
+**3.1 Indentation is structural.** (one level = `--tab-size`) [impl]
+Each `{ }` body is one level deeper than the line holding the `{`. Wrapped
+lists in the block form (rule 4.1) are one level deeper than the line
+holding the opener.
+
+**3.2 No trailing whitespace; blank lines are empty.** (proposed) [impl]
+
+**3.3 One space between tokens where a space belongs, none elsewhere.**
+(proposed) [partial] What "belongs" is set per construct in sections 6-10.
+Today only the parts kfmt lays out from the AST are respaced; headers and
+types are copied as written (section 15), so `if  x  {` keeps its spaces.
 ```rs
-fn example(
-    item1,
-    item2,
-    item3,
-    ...
-    itemLast 
-   )
+// before
+var x=a+ b *c
+if  x>0{ f( a ,b ) }
+// after
+var x = a + b * c
+if x > 0 { f(a, b) }
+```
+
+**3.4 File ends with exactly one newline.** (proposed) [partial] Leading
+blank lines at the top of the file are removed.
+
+**3.5 Line endings are LF.** (proposed) [spec-only] CRLF input becomes LF.
+> Alternative: keep the file's own line ending. Pick one.
+
+
+## 4. Line breaking and wrapping
+
+**4.1 Parenthesized, bracketed and braced lists: all on one line, or one
+item per line.** [partial] Applies to parameter lists, call
+arguments, tuple literals, list literals `[...]`, named initializers
+`T { ... }` and braced import lists. If the list does not fit on one line,
+every item goes on its own line. There is no "fill as many as fit" mode.
+
+The limit: 100 columns, except a call, whose one-line form must end
+by column **80**; a call that would cross column 80 is split. "Call" means any
+call expression: free function, method, constructor, `Type::f(...)`
+. Tuple and list literals, named initializers, parameter lists
+and imports use 100. The call limit is `--call-width=N` (2.8); the compiler
+tree's format pass sets it to 100 (decided 2026-11-08), other code keeps 80.
+
+The two broken forms follow LLVM / Google clang-format:
+- **Aligned form.** The first item stays on the opener's line, right after
+  `(` / `[` / `{`; the other items align to its column (padding in spaces,
+  2.3); the closer follows the last item on its line.
+- **Block form.** No item on the opener's line; the items go one level deeper
+  than the line holding the opener; the closer goes on its own line at that
+  line's indent.
+
+Which form each list gets:
+- Function parameters: always aligned; the first parameter stays on the
+  `fn f(` line.
+- Call arguments, tuple and list literals, named initializers: always block.
+- Imports: always block (rule 5.2).
+- Long name lists in imports and in list / tuple / set / map literals: the
+  grid form below instead of one per line, when it applies.
+- Fallback for parameters: if the aligned column leaves too little room (the
+  widest parameter would still cross the width), use the block form.
+  (proposed)
+- With `--no-align`, parameters use the block form too. The grid
+  form is alignment as well, so under `--no-align` those lists are one item
+  per line. (proposed)
+
+**Grid form ("block table").** A block-form list of short items puts
+several items per row, column-aligned: each column is padded with spaces to
+its widest item.
+```rs
+import foo::{
+    Bar,  Baz,   Foo,
+    Sazs, Ianhs, Achoo,
+}
+```
+- Where: imports and list / tuple / set / map literals. Not call
+  arguments, parameters or named initializers. A `case` with many
+  alternatives has its own grid, rule 8.4 (decided 2026-11-08).
+- When: the list has more than 6 items, no item is over 24
+  columns, no item spans several lines, and no comment sits between items.
+  Otherwise one item per line.
+- Columns per row: as many as fit within
+  100 columns at the list's indent, counting every column as wide as the
+  widest item (plus `, `), at most 8. The rows are then padded per column,
+  as in the example, so a column can be narrower than that estimate.
+- Order: items keep their order, row by row; imports are
+  sorted first (5.2).
+- The last row may be short; it is not padded at its end.
+
+Aligned form:
+```rs
+fn example(item1,
+           item2,
+           item3,
+           ...
+           itemLast)
+```
+Block form, a call over 80 columns (trailing comma, rule 4.2):
+```rs
+// before
+diag->report(DiagID::R049E, name_range, f"unknown name '{name}\x27 in this scope")
+// after
+diag->report(
+    DiagID::R049E,
+    name_range,
+    f"unknown name '{name}\x27 in this scope",
+)
+```
+The tree already writes calls this way, for example
+`Extras/Formatter/Driver/kfmt.k` in `_seq` (the `Doc::group(Doc::concat4(`
+call, arguments one level in, `))` on its own line) and in `main`
+(`Logger::set_dump_path(` / one argument / `);`).
+
+When a split call's argument is itself a call that is still too long, that
+inner call splits the same way, one level deeper. (proposed)
+
+Today kfmt prints only the block form (`_seq` in kfmt.k), against the single
+100-column limit; the aligned form and the 80-column call limit are
+[spec-only].
+
+The first draft's text ("aligned to the column just after the opening
+paren") is this rule's aligned form; its example (items indented 4, `)` at
+3 spaces) is withdrawn.
+
+**4.2 Trailing comma: by form.** (following the grid example)
+[spec-only] A list in block or grid form ends with a trailing `,`; a list on
+one line has none. kfmt adds or removes it to match. The aligned form
+(parameters) has none: its `)` follows the last item. Enum bodies keep their
+commas as written (they are member lists, not rule-4.1 lists). Today kfmt
+keeps trailing commas exactly as written [impl].
+> Never where the comma changes meaning (proposed): a one-element tuple
+> `(x,)` keeps its comma on one line, and no comma is added that would turn
+> a parenthesized expression into a tuple. Both are token changes, so the
+> round-trip check must allow them (16.4).
+
+**4.3 Empty list: `()`, `[]`, `{ }`.** (proposed) [impl] Empty parens and
+brackets have no space inside; an empty block is `{ }` with one space.
+
+**4.4 Where a break may go.** (proposed) [impl, as a constraint] Inside `( )`
+and `[ ]` a newline is insignificant to the parser (it ignores newlines there),
+so kfmt may break anywhere between tokens. Inside `{ }` (and at file scope) a
+newline ends a statement, and kfmt may break only where the parser continues
+the statement on the next line:
+- after `(`, `[`, `,`, or any binary operator at the end of a line;
+- before `.`, `->`, `?.`, `?->` (member access continues across a newline;
+  `::` does not) [Compiler/Parser/ExprParse.k: "newline continuation: only the
+  member-access family"];
+- before an infix operator that cannot also start a statement: `&&`, `||`,
+  `and`, `or`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `/`, `%`, `|`, `^`, `<<`,
+  `>>`, `??`, `in`, and the compound assignments other than `=` [same file,
+  the Pratt loop; the excluded set is `is_unary_operator` in
+  Compiler/Token/TokenKind.k];
+- before `->` in a function signature, before `derives` / `impl` in a type
+  head, before `where` / `requires` on a declaration;
+- before `else` and `=>` in an `if` expression, before `catch` in a `try`
+  expression.
+
+**4.5 Never break before `+ - * & ~ ! ++ -- .. ... = ? @ as`.**
+[impl, by omission] A line starting with one of these starts a new statement,
+so `a\n- b` is two statements. kfmt never puts a line break in front of them
+outside brackets.
+```rs
+// never this: it is `var t = a` followed by the statement `-b`
+var t = a
+    - b
+// this, or wrap the right side in ( )
+var t = a -
+    b
+```
+
+**4.6 Binary expressions: break BEFORE `&&` / `||`.** (house style)
+[partial] A chain of one logical operator (`&&` or
+`||`) that does not fit breaks before every operator, each continuation
+indented one level. The parser accepts a line starting with `&&` / `||`
+(rule 4.4). Today this is the only binary expression kfmt breaks; all others
+stay flat (and may overflow the width).
+```rs
+if is_constructor(f) && f->params.size() == 1 && is_self_type(f->params[0]) && (!f->is_deleted) {
+// after
+if is_constructor(f)
+    && f->params.size() == 1
+    && is_self_type(f->params[0])
+    && (!f->is_deleted) {
+```
+> Difference from the docs (the docs page is
+> not edited here): control-flow.mdx, "Line breaks" under `if` expressions,
+> says "break after an operator, not before it". That holds for
+> `+ - * &` and the rest of the rule-4.5 set, not for `&&` / `||`. A
+> suggested wording: "break after `+`, `-`, `*`, `&` (a line starting with
+> one of them starts a new statement); `&&` and `||` may start a line".
+>
+> Other operators (proposed) [spec-only]: when a non-logical binary chain does
+> not fit, break after the operator of lowest precedence, continuation
+> indented one level. A rule-4.5 operator is always broken after, never
+> before.
+
+**4.7 Chained calls.** (proposed) [spec-only] Today a member chain is printed
+flat. Proposed: a chain with three or more calls that does not fit breaks
+before each `.` / `->` (never before `::`), one step per line, indented one
+level from the chain's start.
+```rs
+var n = self.ctx->symbols().lookup(name).filter(is_visible).first_or_null()
+// after, when over the width
+var n = self.ctx->symbols()
+    .lookup(name)
+    .filter(is_visible)
+    .first_or_null()
+```
+
+**4.8 Long strings are never split.** (proposed) [impl] A string literal
+that alone overflows the width stays on one line, overflowing. kfmt never
+splits a literal or joins two.
+
+**4.9 Over-wide lines are allowed when nothing can break.** (proposed) [impl]
+A line with no legal break point (rule 4.4) is printed as is.
+
+**4.10 Named initializers.** (proposed) [partial] `Type { a: 1, b: 2 }` keeps
+one space inside the braces when flat; when it does not fit, one field per
+line in rule 4.1's block form, with the `name: value` columns aligned
+(rule 11.3). Today: block form, no column alignment.
+```rs
+var c = Cmd { ind: 0, brk: true, doc: doc, lit: "" }
 ```
 
 
+## 5. Imports
 
-### 2. Multiline assignment aligning
+**5.1 One name in braces: drop the braces.** [spec-only]
+```rs
+// before
+import Foo::{foo}
+// after
+import Foo::foo
+```
+A single aliased item drops the braces too (`import std::io::println
+as pl` was checked with the release compiler, and imports.mdx now shows the
+form):
+```rs
+// before
+import Foo::{Bar as Baz}
+// after
+import Foo::Bar as Baz
+```
+> Also (proposed): `import Foo::{*}` becomes `import Foo::*`, and a single
+> nested path `import Foo::{list::LinkedList}` becomes
+> `import Foo::list::LinkedList` (imports.mdx: items resolve relative to the
+> base).
 
-For multiline assignmenst or declarations with : and = 
-format will be converted to 
+**5.2 Two or more names: always broken.** [spec-only] Even when the
+list would fit on one line. Up to 6 names (or any long name): rule 4.1's
+block form, one per line. More than 6 short names: the grid form (rule 4.1).
+Either way the list ends with a trailing comma (revising the
+earlier "no trailing comma" call to match the grid example, rule 4.2) and
+there is no `;` after the closing `}` (section 13).
+```rs
+// before
+import Foo::{foo, bar};
+// after
+import Foo::{
+    foo,
+    bar,
+}
 
+// before
+import foo::{Foo, Bar, Achoo, Baz, Sazs, Ianhs}
+// after (6 names: still one per line)
+import foo::{
+    Achoo,
+    Bar,
+    Baz,
+    Foo,
+    Ianhs,
+    Sazs,
+}
+```
+With a seventh name the same list takes the grid form, sorted, row by row.
+The language docs write `import math::{Vector3, Matrix4}` on one line; that
+is a difference from this rule, not an error in the docs.
+
+Item order inside the braces (proposed) [spec-only]: sorted the same way as
+5.4. Nested paths (`list::LinkedList`) sort by their full text.
+
+**5.3 FFI header imports first.** [spec-only] Every `ffi "..." import`
+line comes first, then one blank line, then the Kairo imports.
+```rs
+// before
+import std::io
+ffi "c++" import "Native/KShims.hh"
+import AST::Node::Base
+ffi "c++" import "cstdlib"
+// after
+ffi "c++" import "Native/KShims.hh"
+ffi "c++" import "cstdlib"
+
+import AST::Node::Base
+import std::io
+```
+FFI imports keep their relative order. (proposed) C and C++ headers can
+depend on what an earlier header defined, so reordering them can break the
+build.
+
+**5.4 Kairo imports sorted by path.** [spec-only] Key: the path text
+after the `import` keyword and any `pub`/`priv`/`prot`/`module` word, compared
+byte by byte (so uppercase sorts before lowercase, as in `Sema.k` today).
+(proposed: the exact key)
+> Proposed details:
+> - Visibility does not group: `pub import` lines sort among the rest. (Or
+>   group `pub` first? Pick one.)
+> - Only a contiguous run of imports is sorted. A comment line or a blank
+>   line inside the run is a barrier: imports above and below it sort
+>   separately, and the comment stays where it was. (Otherwise a section
+>   comment such as `// sema passes` would detach from its group.)
+> - Imports inside `eval if` branches, `module` bodies and other blocks are
+>   sorted within that block, never moved out of it.
+> - A trailing comment travels with its import line.
+> - Exact duplicate imports are left alone (removing one is a lint, not
+>   formatting).
+
+**5.5 Spacing.** (proposed) [spec-only] `import a::b::{x, y}` has no space
+around `::`; one space after `,` in a flat list; `as` has one space on each
+side.
+
+Today kfmt copies every import as written (section 15), and the round-trip
+check (1.5) rejects any reordering. Rules 5.1-5.4 need the check relaxed to
+"same set of imports" (section 16). Rules 5.3-5.4 always apply; there is no
+flag to turn sorting off (2.2-2.5 are the only knobs).
+
+
+## 6. Declarations
+
+**6.1 Function head.** (proposed) [partial] One line when it fits:
+`fn name(params) modifiers -> Ret {`. One space before `{`. `->` has one
+space on each side. In a parameter, `name: Type` has no space before `:` and
+one after. Generic parameters attach to `fn`: `fn <T> name(...)`, one space
+after `fn` and none inside `<...>`. Today only the parameter list is laid out
+(rule 4.1); the rest of the head is copied as written.
+```rs
+fn <T>pick( x :T,n:i32 )->i32{ return 1 }
+// after
+fn <T> pick(x: T, n: i32) -> i32 { return 1 }
+```
+
+**6.2 Wrapped parameters.** (aligned form, type column) [partial]
+Parameters wrap in rule 4.1's aligned form, `:` glued to each name, and the
+types align in one column (rule 11.1). `) -> Ret {` follow the last parameter
+on its line (proposed).
+```rs
+fn create_session(config: *SessionConfig, diag: *DiagnosticsEngine, sources: *SourceManager, opts: *Options) -> *Session {
+// after
+fn create_session(config:  *SessionConfig,
+                  diag:    *DiagnosticsEngine,
+                  sources: *SourceManager,
+                  opts:    *Options) -> *Session {
+```
+Today kfmt prints the block form with `)` on its own line and no column.
+
+**6.3 `where` and `requires`.** (proposed) [spec-only] On the head's line
+when the whole head fits; otherwise on their own continuation line, indented
+2 spaces, with `{` at its end. This is the language docs' style
+(where.mdx, requires.mdx).
+```rs
+fn safe_index(arr: [i32], i: i32) -> i32 requires i >= 0 && i < arr.length() {
+// after, when over the width
+fn safe_index(arr: [i32], i: i32) -> i32
+  requires i >= 0 && i < arr.length() {
+    return arr[i]
+}
+```
+> The 2-space continuation is the only non-4 indent in this spec. The other
+> choice is 4. Pick one.
+
+**6.4 Modifiers keep their written order.** (proposed) [impl] `pub inline fn`
+and `fn ... inline` mean the same (functions-declarations.mdx); kfmt keeps
+whichever position the author used.
+
+**6.5 Attributes.** (proposed) [impl, copied] A declaration attribute
+(`@deprecated`, `@add_logging`, `@copy`) stays on the line it was written on:
+its own line above the declaration, or before the keyword on the same line.
+kfmt does not move attributes between those two forms: a line break after an
+`@name` changes what it attaches to (attributes.mdx). An expression attribute
+(`@create Config(8080)`) is part of its expression and never gets a line
+break after it.
+
+**6.6 Generics.** (proposed) [impl, copied] `vec::<Doc>`, `cast::<T>(x)`,
+`Foo<T>` are copied as written. kfmt never adds spaces around a `<` or `>`
+that touches a neighbour, because it may be a generic the parser read as a
+comparison.
+
+**6.7 Variables and constants.** (`:` glued) [impl] `var name: Type =
+init`: no space before `:`, ever; one after; one space each side of `=`.
+Inside an alignment run, rule 11.1 adds padding after the `:`, never before.
+
+**6.8 Function bodies of the form `= expr`.** (proposed) [impl] `fn f(x: i32)
+-> i32 = x * 2` stays on one line; when too long, it breaks after `=` with the
+expression indented one level (proposed, [spec-only]).
+
+**6.9 Forward declarations.** (proposed) [impl] A declaration with no body
+(`fn f() -> i32`, `class Foo`) is copied as written, minus a redundant `;`
+(section 13).
+
+
+## 7. Types: class, struct, union, interface, enum, extend, module
+
+**7.1 Head and brace.** (proposed) [impl] `class Name derives Base impl I {`
+on one line, `{` at the end after one space. Members one level in, `}` alone
+on the last line. An empty body is `class Empty { }`.
+> When the head does not fit, `derives` / `impl` move to a continuation line
+> (the parser accepts that) indented 2 spaces, as in 6.3. (proposed)
+> [spec-only]
+
+**7.2 Member order is never changed.** (proposed) [impl] Fields, methods,
+nested types and comments come out in source order.
+
+**7.3 Blank lines between members: as written, capped (rule 14.1).**
+(proposed) [impl] kfmt neither adds nor removes blank lines between members.
+> Alternative (proposed, [spec-only]): force one blank line between two
+> methods with bodies, the house-style habit. A rule that adds lines, so
+> listed separately.
+
+**7.4 Enums.** (proposed) [impl] One variant per line, each followed by `,`
+as written (a trailing `,` on the last variant is kept or left absent as
+written, rule 4.2). Variants with explicit values on consecutive lines align
+their `=` (rule 11.1):
+```rs
+enum FileMode derives u8 {
+    Read = 1 << 0,
+    Write = 1 << 1,
+    Execute = 1 << 2,
+}
+// after
+enum FileMode derives u8 {
+    Read    = 1 << 0,
+    Write   = 1 << 1,
+    Execute = 1 << 2,
+}
+```
+Variants with payloads are copied as written.
+
+**7.5 One-line type bodies.** (proposed) [partial] `struct Node { var value:
+i32 }` written on one line stays on one line while it fits. Today this works
+for blocks (rule 8.1) but not for type bodies, which are always broken.
+[spec-only for type bodies]
+
+**7.6 `pub { }` visibility groups and `module` blocks** are laid out like
+type bodies. (proposed) [impl]
+
+
+## 8. Statements
+
+**8.1 Blocks always break.** (decided 2026-11-08) [impl] `{` ends the line
+holding the header, one space before it; statements one level in; `}` alone
+at the header's indent. Never kept on one line, not even for one simple
+statement that would fit (LLVM / Google clang-format's
+`AllowShortBlocksOnASingleLine: Never`). An empty block stays `{ }` (4.3).
+Type bodies are not blocks: 7.5 still keeps a one-line one.
+```rs
+if want_tp { time_enable(true, want_tt); }
+// after
+if want_tp {
+    time_enable(true, want_tt)
+}
+```
+Switch: `Rules.blocks_always_break`. Off, the rule this replaced: a block
+written on one line with exactly one simple statement and no comment stays
+on one line while it fits (and an if/else chain only as a whole,
+`Rules.if_chain_together`).
+
+**8.2 `if` / `else if` / `else`.** (proposed; decided 2026-11-08, as part of
+"chain every chainable clause", 8.4 / 8.11) [impl] `} else {` and
+`} else if c {` on one line. Headers are copied as written today, so the
+condition's inner spacing is not normalized ([partial]). An `@likely` /
+`@unlikely` hint between `}` and `else` stays where it was written.
+```rs
+if a {
+    f()
+}
+else {
+    g()
+}
+// after
+if a {
+    f()
+} else {
+    g()
+}
+```
+
+**8.3 `if` / `try` expressions.** (decided 2026-11-08) [impl] Both stay on
+one line while they fit; past the column limit they split one clause per
+line. The parser takes a line break before `else` / `else if` in an `if`
+expression and before `catch` in a `try` expression (`_skip_nl_if_next` in
+Compiler/Parser/ExprParse.k), and kfmt's tree check re-parses every output.
+- `if`: every clause starts at the `if`'s column, the keywords
+  right-aligned so the conditions line up; the last `else` has no condition
+  and starts the column. With no `else if` there is nothing to line up and
+  `else` goes under `if`.
+  ```rs
+       if a == b => 1
+  else if a == 1 => 2
+  else => 3
+  ```
+  In a statement the `if` keeps its place after `=` / `return`, so the
+  padding sits there: `var x =      if a == b => 1`.
+- `try`: each `catch` starts in the `try`'s column, and the `=>` column is
+  aligned across the arms (a section 11 table).
+  ```rs
+  var n = try parse_config_file(path, opts)
+          catch e: ParseError => -1
+          catch e: IoError    => -2
+          catch               => 0
+  ```
+Only the `=>` forms are laid out; a `try` whose arm heads span lines, or
+whose operand or a value is itself broken over lines, is copied as written.
+An arm too long for its line overflows (or, when it is a call, splits by
+4.1); there is no break before `=>`. Switches: `Rules.if_expr_layout`,
+`Rules.if_expr_align` (off: the clauses after the first go one level in),
+`Rules.try_expr_layout`.
+
+The old `a if c else b` form has no rule: Stage 1 has no infix `if`
+(`_infix_precedence` has no `KwIf`). kfmt's leftover layout for it
+(`_ternary` in kfmt.k) is to be deleted; see section 18.
+
+**8.4 `match`.** (proposed; decided 2026-11-08) [impl] `match x {`, each
+case's block laid out by rule 8.1. A block arm (`case` or `default` with a
+block body) chains onto the `}` of the block arm before it: `} case B
+{`, `} default {`. A value arm (`case A => 1`) is not a block: one per line.
+A comment line between two arms keeps them apart, and a trailing comment on
+an arm's `}` line too (it would land after the chained clause); one on the
+arm's first line stays there.
+```rs
+match item.get_kind() {
+    case TopLevelKind::Decl {
+        self.dispatch_decl(item.as_decl())
+    } case TopLevelKind::Stmt {
+        self.dispatch_stmt(item.as_stmt())
+    }
+}
+```
+A `match` expression with more than 2 cases always breaks:
+`match a {`, one `case` per line one level in, `}`. With 2 or fewer it is
+copied as written.
+```rs
+var x = match a {
+    case 1 => 10
+    case 2 => 20
+    default => 0
+}
+```
+**Grid for many alternatives.** A `case` with more than 6
+alternatives lays them out like the import grid (4.1): the first row right
+after `case `, the other rows aligned under the first pattern, each column
+padded to its widest `pattern,`, as many columns as fit within 100 columns
+(at most 8, as for imports; no per-item width cap, unlike 4.1's 24), source
+order row by row, only the last row short, then ` {` (or a `where` guard,
+or ` =>`) after the last pattern.
+```rs
+case TokenKind::KwIn,                TokenKind::OpLessLessEqual,
+     TokenKind::KwAs,                TokenKind::OpGreaterGreaterEqual,
+     TokenKind::OpQuestionDotStar {
+```
+Six or fewer alternatives, and any header holding a comment, a macro or a
+multi-line pattern, are copied as written. Switches: `Rules.chain_clauses`,
+`Rules.match_expr_break`, `Rules.case_grid`. Aligning the `{` of
+consecutive one-line cases (11.6) is moot under 8.1.
+
+**8.5 Loops.** (proposed) [impl] `for x in xs {`, `while c {`, `loop {`.
+C-style `for`: `for init; cond; step {`, `;` followed by one space, none
+before it. With an empty part, the `;` stays and no space is left where the
+part would be (the header is copied as written today, [partial]):
+```rs
+for var i: usize = 0; i < n; ++i {
+for ; i < n; ++i {
+for ;; {
+```
+> `for ; cond; step` is being added to the language now. `for ;; {` is a
+> guess at the all-empty spelling; delete it if the grammar does not allow
+> it.
+
+**8.6 Generators.** (proposed) [impl] `fn f() -> yield i32 {`; `yield x` is
+an ordinary statement.
+
+**8.7 `unsafe` blocks.** (proposed) [impl] `unsafe {` like any block header.
+
+**8.8 `eval if` and `defined!()`.** (proposed) [impl, copied] Today an
+`eval if` / `eval` block is copied as written, re-indented as a whole. The
+parser may not build a tree for a branch the preprocessor drops (for example
+a `defined!(_WIN32)` branch on Linux), so kfmt cannot lay that branch out.
+> Proposed [spec-only]: lay out a branch whose contents parse; copy any
+> branch that does not. The header `eval if defined!(X) {` follows rule 8.2.
+
+**8.9 `return`, `break`, `continue`, `panic`, `yield`.** (proposed) [impl] One
+space between the keyword and its operand or label.
+
+**8.10 Labels.** (proposed) [impl] `outer: for ...` keeps the label on the
+loop's line: `name: ` then the statement.
+
+**8.11 `finally`, `try`/`catch` statements, context bindings.** (proposed;
+decided 2026-11-08) [impl] Header as written, block by 8.1, `} catch ... {` on
+one line, and a `finally` right after a statement `try` chains onto its last
+`}`: `} finally {`. It is still the scope-exit `finally`
+(diagnostics.mdx: a `finally` on the line of the `try`'s closing brace or
+the next is the same statement), so the move changes nothing.
+
+**8.12 One statement per line.** ("newlines where needed") [spec-only]
+Two statements on one line separated by `;` are split onto two lines, and
+the `;` goes (section 13). Except: a one-line block keeps its one statement
+(8.1); a `for` header keeps its `;`s.
+```rs
+var a = 1; var b = 2
+// after
+var a = 1
+var b = 2
+```
+
+
+## 9. Expressions
+
+**9.1 Binary operators: one space each side.** (proposed) [impl] Except the
+member-pointer operators `.*` `->*` `?.*` `?->*`, which take no spaces, and
+`<` / `>` / `>>` touching a neighbour (rule 6.6).
+
+**9.2 Unary operators: no space.** (proposed) [impl] `-x`, `!ok`, `*p`, `&x`,
+`++i`, `i++`. Word operators keep one space: `not x`, `await f()`,
+`spawn t`, `thread x`, `eval x`, `unsafe &x`.
+
+**9.3 Casts.** (proposed) [impl] `x as T`, one space each side of `as`.
+Casts in any other mode (`CastMode` other than `Default`) are copied as written.
+
+**9.4 Ranges.** (proposed) [impl] `a..b`, `a..=b`, no spaces.
+
+**9.5 Parentheses: kept by default, normalized under `--normalize-parens`.**
+ Default (flag off) [impl]: kfmt never adds or removes a parenthesis.
+
+With `--normalize-parens` [spec-only], kfmt rewrites the parentheses of
+binary and unary operator expressions by Stage 1 precedence: a pair that does
+not change how the expression parses is removed; a pair the parse needs is
+kept; kfmt never adds one. The output must pass the AST-equality check
+(16.3): same operator tree, only redundant parens gone.
+```rs
+// before (Stage 0 workarounds)
+if (!a) && b { (*p) += x }
+var t = (a * b) + c
+var u = !(a == b)
+// after --normalize-parens
+if !a && b { *p += x }
+var t = a * b + c
+var u = !(a == b)
+```
+This is meaning-preserving only under Stage 1 precedence. Stage 0 parses
+`!a && b` as `!(a && b)` and `*p += x` as `*(p += x)`, so a file that Stage 0
+still has to compile must not be formatted with the flag on. The compiler
+tree's format pass turns it on (the tree is Stage 1 source).
+
+Details (proposed):
+- Only parens whose content is a binary or unary operator expression (or
+  whose parent is one) are candidates. Parens around an `if` / `try`
+  expression, a statement expression `({ ... })`, a tuple, a closure, a
+  cast, a call's argument list, or a control-flow condition are never
+  touched.
+- A pair a diagnostic asks for stays, even if the parse would not change:
+  `base + (if c => 1 else => 2)` (S078W), nested `if` arms (S077E).
+- A pair holding a comment stays.
+- A pair that keeps a `<` apart from a `>` stays: a depth-0 `<` inside it
+  with a `>` (`>>`, `>=`, `>>=`) later in the statement, or a depth-0 `>`
+  inside it with a `<` earlier. `(xs[k].imp < 0) || f > (g)` keeps its pair:
+  without it the parser reads `imp<0 || f>(g)` as a generic call
+  (tentative generic arguments after a member step or an unknown name).
+- Equal precedence: a pair is redundant only when associativity gives the
+  same tree, so `a - (b - c)` keeps its pair and `(a - b) - c` loses it.
+
+**9.6 Calls and subscripts.** (proposed) [impl] `f(a, b)`, `xs[i]`: no space
+before `(` / `[`, none inside, one after each `,`. Named arguments:
+`name: value`, `:` glued to the name; when the argument list is broken one
+per line, the values align in one column (rule 11.3).
+
+**9.7 Closures.** (proposed) [impl, copied] `fn (a: i32) -> i32 { ... }` and
+`fn ()|x, *y| { ... }`: one space between `fn` and `(`; the capture list
+`|...|` attaches to `)`. The head (`fn`, generics, parameters, captures,
+`-> T`) is copied as written. (2026-11-08) [impl] A block
+body is laid out like any block: 13.1 drops its redundant `;`, 9.5 applies,
+and a comment or macro use inside it belongs to the body's statement list, so
+it no longer makes the call or statement around the closure copied. A body
+written on one line with exactly one statement (no comment, no macro) stays
+on one line while it fits, `op(at, fn () { s->spell(at, p) }, t)`, instead
+of the three lines 8.1 would give each such argument; any other body is
+broken by 8.1. An expression body (`fn (x) => x`) is still copied.
+
+**9.8 f-strings and literals.** (strings untouched) [impl] Copied byte
+for byte, including the `{...}` parts and number spellings (`0xFF` stays
+`0xFF`, `and` stays `and`).
+
+**9.9 Address-of.** (proposed) [impl] `&x`, `unsafe &x`, `&null`; never `& x`.
+
+**9.10 Statement expressions.** (proposed) [impl, copied]
+`({ var t = load(); (t.value); })` is copied as written; its `;`s are
+required (rule 13.2).
+
+
+## 10. FFI blocks and declarations
+
+**10.1 `ffi "c++" { ... }` blocks** are laid out like type bodies (section 7).
+(proposed) [impl]
+
+**10.2 `ffi "c++" fn f(i32) -> *Window`** follows rules 6.1-6.2. (proposed)
+[partial]
+
+**10.3 `ffi "..." import "header"`** lines: see 5.3. The header string is a
+literal and is never changed.
+
+
+## 11. Alignment
+
+**11.1 Assignment runs align their `=`.** [impl] From the first
+draft:
 ```rs
 item1      = 67
 item2      = 34
 itemscount = 56
 tree       = "binary"
-
-var item1      : u32
-var itemscount : u8
-var item2      : u32
-var tree       : string
 ```
 
-
-
-### 3. Blank line preservation
-
-Preserve up to 4 consecutive blank lines from source; collapse anything beyond that down to 4. Configurable via `--blankline=preserve` (flag name/behavior subject to change).
-
-
-
-### 4. Comment relocation
-
-Because reformatting changes line counts, a trailing comment is re-anchored to the line where its associated node starts, not where it originally sat:
-
+**11.2 Declaration runs align keyword, name and type columns; `:` is always
+glued to the name.** [partial] Across a run of consecutive
+declarations, mixed keywords included, the keyword column is padded to the
+longest keyword, and the type column starts one space past the longest
+`name:`:
 ```rs
-fn example(item1, item2, item3, ...itemLast)   // hello mate 
+// before
+var i1: u32
+const i2: u32
+static i3: u32
+eval i4: u32
+var itemscount: u8
+// after
+var    i1:         u32
+const  i2:         u32
+static i3:         u32
+eval   i4:         u32
+var    itemscount: u8
+```
+Where the declarations also have initializers, `=` aligns as a fourth column
+(proposed); rows without an initializer leave it empty:
+```rs
+pub var kind:     DocKind    = DocKind::Concat
+pub var txt:      string     = ""
+pub var children: vec::<Doc>
+```
+The "keyword" column is everything before the name: `var`, `pub var`,
+`static const` (proposed). This is the house style of the compiler tree, so
+Compiler/ field blocks mostly keep their shape. The first draft's
+`var item1      : u32` form (padding before `:`) is withdrawn.
+
+The same columns apply to wrapped parameters (rule 6.2) and, through 11.3, to
+named arguments and named initializer fields.
+
+Today kfmt aligns one column with the padding before `:` (the withdrawn
+form), and only rows that all use the same separator; it has no keyword or
+second column.
+
+**What a run is.** (impl, kept) Consecutive rows on consecutive source lines
+(no blank line, no comment line between), each row on one line, of the same
+kind (assignments with `=`; declarations; enum values with `=`), each row
+fitting the width at its indent. A run needs at least two rows. Compound
+assignments (`+=`) and rows holding a comment or macro do not align. Untyped
+`var x = v` rows join a declaration run with an empty type column (proposed).
+
+**11.3 Name/value lists align when broken.** [spec-only] When a
+parameter list, a named-argument list or a named initializer is broken one
+per line, the `name: value` (or `name: Type`) rows align their value column,
+`:` glued to the name. When the list is flat, no padding.
+```rs
+var c = Cmd {
+    indent: 0,
+    brk:    true,
+    doc:    some_long_document_expression(),
+    lit:    "",
+}
+```
+(The value column is one space past the longest `name:`, here `indent:`.)
+
+**11.4 Trailing comments in a run align.** (proposed) [spec-only] Consecutive
+lines that each end with a trailing comment align the comments one space past
+the longest line, if that stays within the width. Today a trailing comment
+gets exactly one space before it, so the house-style column (`Line,
+///< ...` in DocIR.k) is lost.
+```rs
+Text,
+Line,          ///< a space flat, a newline broken
+HardLine,      ///< always a newline, at the current indent
+```
+> Alternative: at least 2 spaces before a trailing comment, the house habit.
+
+**11.5 Nowhere else.** (proposed) Positional arguments, list and tuple
+items, and `case` arms do not align beyond rule 4.1's aligned form.
+
+**11.6 Same-shape one-liners.** (proposed) [spec-only] Align the `{` of
+consecutive one-line overloads, as where.mdx does
+(`... where x > 0  { return 1 }`). No flag of its own (2.2-2.5 are the only
+knobs): accept it as always-on under alignment, or delete it.
+
+All of section 11 is off under `--no-align` (2.2).
+
+
+## 12. Comments
+
+**12.1 Text is never changed.** (proposed) [impl] No re-wrapping, no
+re-spacing inside `//`, `///`, `///<` or `/* */`.
+
+**12.2 Own-line comments** are re-indented to the indent of the code they sit
+in, and keep their blank-line spacing (rule 14.1). (proposed) [impl]
+
+**12.3 Doc comments.** (proposed) [impl] `///` stays on its own lines above
+the declaration; `///<` stays trailing after its member. The file header
+banner (`/// --- The Kairo Project --- ///`) is an ordinary comment block and
+is never reflowed.
+
+**12.4 Trailing comment relocation.** [impl] From the first draft:
+because reformatting changes line counts, a trailing comment is re-anchored
+to the line where its associated node starts, not where it originally sat:
+```rs
+fn example(item1, item2, item3, ...itemLast)   // hello mate
 ```
 becomes, once wrapped:
-
 ```rs
-fn example(  
-    item1,   // hello mate
-    item2,
-    item3,
-    ...
-    itemLast
-)
+fn example(item1,   // hello mate
+           item2,
+           item3,
+           ...
+           itemLast)
 ```
+The comment stays on the node's first line. With rule 4.1's
+aligned form that line also holds the first parameter, so the text and the
+example now agree. A comment trailing a multi-line element stays on that
+element's last line (kfmt does this today). The code already puts the
+comment on the first line; only the aligned list layout is missing.
+
+**12.5 Comment on an opener's line stays there.** (proposed) [impl] In
+`class Foo { // why`, the comment stays after `{`.
+
+**12.6 Comment-only blocks.** (proposed) [impl] A block holding only
+comments stays a block, comments one level in. (Stage 0 could not compile an
+`if` whose body is only comments; Stage 1 can.)
+
+**12.7 Comments inside expressions.** (proposed) [impl] An expression,
+declaration head or initializer holding a comment is copied as written, so
+the comment cannot drift to the wrong operand.
+
+
+## 13. Semicolons
+
+Statements end at a newline; `;` is an optional terminator (StmtParse.k,
+`_consume_terminator`). A block resets the parser to statement mode even
+inside `( )`, so a newline ends a statement inside a closure body or a
+statement expression as well (StmtParse.k ~185, ExprParse.k
+`_finish_stmt_expr`).
+
+**13.1 Redundant `;` is removed.** [spec-only] A `;` is redundant, and
+kfmt removes it, when the next thing after it is a newline, a comment and then
+a newline, `}`, or end of file, AND the first token of the next line does not
+continue the statement (rule 4.4: `.`, `->`, `?.`, `?->`, a non-ambiguous
+infix operator, `->` under a fn head, `derives`/`impl`/`where`/`requires`,
+`else`, `catch`, `=>`). If it would continue, the `;` stays: removing it would
+join the two lines.
+```rs
+// before
+var x = 1;
+f(x);
+class Point { var x: i32; var y: i32; };
+// after
+var x = 1
+f(x)
+class Point { var x: i32; var y: i32 }
+```
+(The one-line class keeps its middle `;`; see 13.2. If that body is broken by
+rule 7.5, the `;` goes.)
+
+**13.2 Required `;` stays.** (with the cases from the parser) [impl]
+- between two statements or members on one line (rule 8.12 splits most of
+  these; what remains are one-line type bodies and statement expressions);
+- in a C-style `for` header: `for var i = 0; i < n; ++i`, `for ; i < n; ++i`;
+- in types: `[i32;]`, `[T; N]`;
+- inside a statement expression, `({ var t = load(); (t.value); })`.
+
+**13.3 Never added.** (proposed) kfmt never inserts a `;`.
+
+The whole Compiler/ tree ends statements with `;` today, so turning 13.1 on
+changes nearly every line of it. The round-trip check (1.5) compares `;` as a
+code token, so 13.1 needs the check relaxed (section 16).
+
+
+## 14. Blank lines
+
+**14.1 Keep up to 4.** [impl] Preserve up to 4 consecutive blank
+lines from source; collapse anything beyond that down to 4. Not
+configurable: the draft's `--blankline` flag is dropped (2.6).
+
+**14.2 None at the start or end of a block.** (proposed) [impl] Blank lines
+right after `{` or right before `}` are removed.
+```rs
+fn f() {
+
+    g()
+
+}
+// after
+fn f() {
+    g()
+}
+```
+
+**14.3 None added.** (proposed) [impl] kfmt adds a blank line only where
+rule 5.3 needs one (between the ffi and Kairo imports) and where 14.4 does.
+
+**14.4 A blank line after a closer line.** (decided 2026-11-08) [impl] After a
+line consisting only of closers (`}`, `)`, `]`, optionally followed by `;`
+or `,`; a trailing comment does not count) one blank line goes before the
+next line, unless that line also begins with a closer (`}`, `} else {`,
+`} catch E {`, `)`, ...). Statement level only: between the statements of
+a block or file, the members of a type and the arms of a match, never
+inside a broken argument or element list (a `),` line followed by the next
+argument gets nothing). Never more than one is added, none when a blank
+line is already there (14.1's cap holds), none before a block's `}` or at
+the end of the file. A comment line after the closer counts like code: it
+gets the blank line.
+```rs
+kairo::Logger::set_dump_path(
+    dump_directory,
+    file_name,
+)
+
+kairo::Logger::dump_to_file()
+```
+Whether a call broke into a `)` line is the renderer's decision, so the
+renderer adds the line (`DocKind::GapLine`). An alignment run (section 11)
+ends before a call row that will break, since the blank line after it would
+split the run on the next pass. Switch: `Rules.blank_after_closer`.
+
+
+## 15. What kfmt copies as written today
+
+(proposed: keep this list as the spec until each item gets a rule) [impl]
+
+Copied byte for byte, then re-indented as a whole: control-flow headers
+(`if`, `while`, `for`, `match` scrutinee, `catch`), types, patterns, closure
+heads (9.7), macro invocations and everything a macro expanded to, imports,
+type aliases, macro declarations, `eval` blocks (an `eval if` / `eval for`
+statement keeps only its header as written; its blocks are laid out by 8.1),
+asserts, `label!` / `jump!`, inline blocks, operator function heads, any
+construct holding a comment or a macro use (outside a closure body it holds
+whole, 9.7; a declaration that merely contains a macro use is laid out),
+chains with generic arguments or operator steps, `<` / `>` glued to a
+neighbour, non-default casts, dotted or headless initializers, `if` / `try`
+expressions not in the `=>` form (8.3), `match` expressions with 2 cases or
+fewer (8.4), multi-line string and char literals (pinned to column 0).
+
+**15.1 Never touched under any rule.** (proposed) Literal contents (1.6),
+comment text (12.1), the spelling of numbers and word operators, parentheses
+(except under `--normalize-parens`, 9.5), member and import order except
+rule 5.3-5.4.
+
+
+## 16. Golden tests and the safety check
+
+**16.1 Golden pairs.** (proposed) [spec-only] One test per rule: `name.k`
+(input) beside `name.expected.k`. The test runs `kfmt --stdout` and diffs.
+Each rule's before/after example above is its first test case.
+
+**16.2 Idempotency.** (proposed) [spec-only] Every test also runs kfmt on
+the expected file and requires no change. A whole-tree run on Compiler/ and
+Lib/ followed by a second run must change nothing.
+
+**16.3 AST equality.** (proposed) [spec-only] Every test parses input and
+output and requires the same tree (as `--emit=ast` prints it, locations
+ignored), modulo: removed `;` (13.1), import order and form (section 5),
+and parentheses the parser folds away (9.5). This is the check that catches
+a line break that changes parsing (4.5) and a paren removal that changes the
+operator tree (9.5), neither of which today's token-only check (1.5) can see.
+Every `--normalize-parens` test runs it with the flag on.
+
+**16.4 Relaxing the write-back check.** (proposed) [spec-only] The 1.5 check
+must ignore `;` tokens that 13.1 removed, trailing commas 4.2 adds or drops, and
+(under `--normalize-parens`) removed parens, and compare imports as a set
+(plus the brace rewrites of 5.1-5.2). Until it does, those rules cannot ship:
+today any output that differs by a `;`, a `,`, a paren or an import's
+position is refused. Paren removal additionally needs the 16.3 tree check at
+write time, since a token comparison cannot tell a redundant pair from a
+needed one.
+
+**16.5 Refusal is not failure.** (proposed) [impl] A file kfmt cannot format
+safely is left untouched and reported as "refused" (exit 1); the others
+are still written.
+
+
+## 17. Open questions
+
+O-1 to O-11 were answered on 2026-11-08 and folded into rules 2.x, 4.1,
+4.6, 4.10, 5.1, 5.2, 8.3, 11.1-11.3 and 12.4. The six rulings of the
+same day are folded into 8.1-8.4, 8.11 and 14.4 (marked).
+
+Open (not decided):
+
+- Whether the import and literal grids (4.1) also drop their 24-column item
+  cap, as the `case` grid (8.4) does. Kept as is.
+- The `case` grid keeps the import grid's 8-column maximum; the ruling says
+  only "as many columns as fit". A list of short patterns (`case 1, 2, ...`)
+  is the only place it shows.
+- 8.3 with no `else if`: `else` under `if` (nothing to line up), and the
+  `if`'s padding after `= ` / `return ` (the ruling's example starts at
+  column 0).
+
+The remaining "Pick one" notes inside proposed rules (3.5 line endings,
+5.4 `pub` grouping, 6.3 2-space vs 4-space continuation,
+7.3 blank lines between methods, 11.4 comment spacing, 11.6) are review
+items on proposals, not conflicts.
+
+
+## 18. Implementation to-dos
+
+Status 2026-11-08: kfmt is a Stage 1 build target (`python3 build.py
+--debug kfmt`; in build.py's TOOLCHAIN and the staged tree) and implements
+the spec below. The `[impl]` / `[partial]` / `[spec-only]` tags in sections
+1-16 predate this pass; read this section for what is done.
+
+Done:
+
+- `_ternary` and its call are deleted (O-8); `if c => a else => b` has
+  rule 8.3's layout instead.
+- Safety (1.1-1.5, 16.3-16.5): nothing is written unless the output parses,
+  re-lexes to the same code (modulo `;`, a `,` before a closer, imports
+  compared as a multiset, and parens under `--normalize-parens`), keeps
+  every comment in order (a comment travelling with its import is compared
+  with it), dumps to the same tree with the compiler's own AST printer, and
+  formats to itself. A refused file is left alone and reported; exit 1.
+- Section 2: `--no-align`, `--indent=spaces|tabs`, `--tab-size=N`,
+  `--normalize-parens`; widths 100 / 80 fixed; blank-line cap 4.
+- 4.1: block form (calls, literals, initializers), aligned form
+  (parameters, with the block fallback), grid form (imports, list / tuple
+  literals), the 80-column limit for calls. 4.2: trailing commas by form.
+  4.6: `&&` / `||` chains break before the operator.
+- Section 5: 5.1 (and the `{*}` / nested-path forms), 5.2 (block / grid,
+  items sorted), 5.3, 5.4 (Scripts/import_lint.py's layout: the run sorts as
+  one, lead comments travel). 5.1's module-collision exception as
+  import_lint's `module_exists`.
+- 6.2 / 6.7 / 11.1-11.4: alignment runs with keyword, name, type and `=`
+  columns, `:` glued; named arguments and initializer fields align their
+  values when broken; trailing comments in a run align.
+- 7.5 one-line type bodies; 8.1 / 8.2 (plus: an if/else chain is one-line
+  only as a whole); 8.3; 8.12; 9.5; 12.4; section 13; 3.5.
+- The rulings of 2026-11-08: 8.1 blocks always break; 14.4 the
+  blank line after a closer line; 8.2 / 8.4 / 8.11 chained clauses
+  (`} case B {`, `} default {`, `} finally {`); 8.3 `if` expressions with
+  right-aligned keywords and `try` expressions with `catch` under `try`
+  and the `=>` aligned; 8.4 `match` expressions with more than 2 cases
+  broken; 8.4 the `case` grid. Golden tests: block_break, blank_after_closer,
+  chain_clauses, if_expr, try_expr, match_expr, case_grid.
+- 16.1 / 16.2: golden tests in Tests/Formatter (one per rule family, each
+  also checked for idempotency; the tree check runs on every input).
+- The (proposed) rules kfmt implements each have one switch in
+  Extras/Formatter/Options.k (`Rules`).
+
+Not done (copied as written today, as section 15 says):
+
+- 4.6 for operators other than `&&` / `||`; 4.7 chained calls; 6.1 head
+  respacing other than the parameter list; 6.3 / 7.1 continuation lines for
+  `where` / `requires` / `derives` / `impl`; 6.8 breaking after `= expr`;
+  8.5 / 8.8 loop and `eval` headers; 9.7 expression-bodied closures; 11.6.
+- https://kairolang.org/docs/toolchain/kfmt/: once the formatter is complete.
+
+Review items found while implementing (not resolved silently):
+
+- 4.2's one-element-tuple clause is moot: Kairo has no one-element tuple
+  (`(x,)` is S054E).
+- 3.3's example `if  x>0{` -> `if x > 0 {` conflicts with 6.6: a `<` / `>`
+  touching a neighbour is copied as written (it may be a generic the parser
+  read as a comparison, which a parse-level check cannot see), so `x>0`
+  stays. `x==0` does get its spaces.
+- 2.3 / 2.4 read literally: in tabs mode a level is `--tab-size` tabs
+  (default 1) and a tab counts as `--tab-size` columns, so with the
+  default one level counts as 1 column for the width limit.
+- 5.4 blank-line barrier: off, as import_lint does (`Rules.
+  import_blank_barrier`); a comment that would be orphaned ends the run.
+- 11.4: one space past the longest line, as proposed; the house style used
+  at least two, so many enum / field comment columns move.
+- The grid fills as many columns as fit (at most 8, import_lint's
+  grid_rows), so 4.1's two-rows-of-three example would print as one row.
