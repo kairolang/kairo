@@ -12,7 +12,7 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: ksys
+// REQUIRES: ksys, long-tests
 // RUN: rm -rf %t && mkdir -p %t/cache/sysroots/k1/include %t/cache/by-name %t/empty
 //
 // RUN: env KAIRO_SYSROOT_CACHE=%t/empty %kairo %s --type-check-only --target=riscv32-linux-musl --no-sysroot-build > %t/refuse.out 2>&1; test $? -eq 2

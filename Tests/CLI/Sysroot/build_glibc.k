@@ -8,7 +8,7 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: ksys, ksys-share, shell, host-linux, host-x86_64
+// REQUIRES: ksys, ksys-share, shell, host-linux, host-x86_64, long-tests
 // RUN: rm -rf %t && %sysgen_env %ksys %sysgen_share %t
 // RUN: echo 'env KAIRO_SYSROOT_CACHE=%t/cache %t/tc/bin/ksys --share %t/share "$@"' > %t/ksys.sh
 //

@@ -8,7 +8,7 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: default-sysroot
+// REQUIRES: default-sysroot, long-tests
 // RUN: rm -rf %t.d && mkdir -p %t.d
 
 // A .k's namespace is its module path under the search dir that holds it,

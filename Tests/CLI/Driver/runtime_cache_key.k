@@ -9,7 +9,7 @@
 fn main() -> i32 { return 3 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: default-sysroot
+// REQUIRES: default-sysroot, long-tests
 // RUN: rm -rf %t.c %t.lib && mkdir -p %t.c %t.lib
 // RUN: cp -RL %S/../../../Lib/builtin %t.lib/builtin
 // RUN: cp -RL %S/../../../Lib/rt %t.lib/rt

@@ -207,3 +207,4 @@ fn main() -> i32 {
 // CXX: ::__kairo_pset< ::builtin::errors::panic_result::Panic, signed int, ::generics::A, T> pick(T x, bool flag) noexcept;
 // CXX-DAG: static_assert(__is_same( ::__kairo_pset< ::builtin::errors::panic_result::Panic, signed int, ::generics::A, ::generics::A>, ::builtin::errors::panic_result::Panic<signed int, ::generics::A>), "{{[^"]*}}");
 // CXX-DAG: template::builtin::errors::panic_result::Panic<signed int, ::generics::A>( ::generics::pick< ::generics::A>)( ::generics::A, bool);
+// REQUIRES: long-tests

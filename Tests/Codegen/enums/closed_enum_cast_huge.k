@@ -17,7 +17,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: clang
+// REQUIRES: clang, long-tests
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: python3 -c "n=4000; print('enum Big derives u32 {'); print(',\n'.join('V%d = %d' % (i, i*7+3) for i in range(n))); print('}'); print('fn conv(v: u32) -> Big = v as Big'); print('fn main() -> i32 {'); print('    var ok = (conv(%d) == .V%d) && (conv(3) == .V0)' % ((n-1)*7+3, n-1)); print('    if !ok { return 1 }'); print('    var z = conv(4)'); print('    return 0'); print('}')" > %t.d/big.k
 // RUN: %kairo %t.d/big.k -o %t.d/big.exe --cache-dir %t.d/c

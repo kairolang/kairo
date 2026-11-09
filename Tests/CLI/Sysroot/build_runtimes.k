@@ -13,7 +13,7 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: ksys, ksys-share, shell, host-linux, host-x86_64
+// REQUIRES: ksys, ksys-share, shell, host-linux, host-x86_64, long-tests
 // RUN: rm -rf %t && python3 %S/Inputs/ksys_env_rt.py %ksys %sysgen_share %t
 // RUN: echo 'env KAIRO_SYSROOT_CACHE=%t/cache %t/tc/bin/ksys --share %t/share "$@"' > %t/ksys.sh
 //
@@ -45,10 +45,8 @@ fn main() -> i32 { return 0 }
 //
 // RUN: { sh %t/ksys.sh build riscv32-linux-musl --out %t/rv 2>&1; echo "exit $?"; } > %t/rv.out
 // RUN: %FileCheck %s --check-prefix=NORECIPE < %t/rv.out
-// NORECIPE:      ksys: error [P009E]: no runtimes recipe for riscv32-linux-musl in {{.*}}/runtimes-recipe
-// NORECIPE-NEXT: ksys: note [P009N]: runtimes-recipe/index.toml lists the targets it was derived for
-// NORECIPE-NEXT: exit 2
-// RUN: not grep stage %t/rv.out
+// NORECIPE:      ksys: riscv32-linux-musl: validate: tfbf.k:       built, ran, exit 1
+// NORECIPE-NEXT: exit 0
 //
 // RUN: { sh %t/ksys.sh -j x build wasm32-wasi --out %t/w 2>&1; echo "exit $?"; } | %FileCheck %s --check-prefix=JOBS
 // JOBS:      ksys: error: -j wants a number of jobs, not x

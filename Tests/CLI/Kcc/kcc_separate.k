@@ -7,7 +7,7 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: kcc, default-sysroot
+// REQUIRES: kcc, default-sysroot, long-tests
 // RUN: rm -rf %t.d && mkdir -p %t.d && cd %t.d
 
 // 3 + 4, then hits 2 and 2 + 3; the destructor runs at the C++ scope end.

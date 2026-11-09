@@ -318,6 +318,14 @@ if os.path.isfile(kcc_bin):
     config.available_features.add("kcc")
     _kcc_x = "".join(" -Xkairo " + _sh(w) for w in ["--error-format=basic", _kairo_threads.strip()] + _shlex.split(kairo_roots))
     config.substitutions.append(("%kcc", _sh(kcc_bin) + _kcc_x))
+# --- long-tests ----------------------------------------------------------------
+# Tests that take more than ~30 s (ksys sysroot builds, kcc/runtime-cache
+# rebuilds, huge codegen cases) say `// REQUIRES: long-tests`, so a normal
+# `lit Tests` reports them UNSUPPORTED and stays fast. Opt in with
+# `--param long=1` or KAIRO_LIT_LONG=1 (any value but "" / "0").
+_long = lit_config.params.get("long", os.environ.get("KAIRO_LIT_LONG", ""))
+if str(_long) not in ("", "0", "false", "no"):
+    config.available_features.add("long-tests")
 # --- ksys ---------------------------------------------------------------------
 # The sysroot generator (Linker/Sysroot/Driver/ksys.k, Compiler/Spec/SysRoot.md):
 # $KSYS_BIN, else the one beside the kairo under test. Tests that use it

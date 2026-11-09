@@ -16,6 +16,12 @@ its default target, as a bare `kairo` does. Every default can be overridden:
 
 Add `-v` to see the output of failing tests, or `-a` to see it for every test.
 
+Long tests (ksys sysroot builds, kcc and runtime-cache rebuilds, huge codegen
+cases; each carries `// REQUIRES: long-tests`) are skipped by default and shown
+as UNSUPPORTED, which keeps a normal run fast. Run them too with:
+
+    lit Tests -s --param long=1     (or KAIRO_LIT_LONG=1 in the environment)
+
 
 WHICH COMPILER GETS TESTED
 

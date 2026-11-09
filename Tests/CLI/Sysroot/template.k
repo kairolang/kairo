@@ -13,7 +13,7 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: ksys, ksys-share, shell, host-linux, host-x86_64
+// REQUIRES: ksys, ksys-share, shell, host-linux, host-x86_64, long-tests
 // RUN: rm -rf %t && python3 %S/Inputs/ksys_env_rt.py %ksys %sysgen_share %t
 // RUN: python3 %S/../../../Scripts/runtimes_template.py --recipe %sysgen_share/runtimes-recipe --out %t/tmpl > %t/gen.out
 // RUN: %FileCheck %s --check-prefix=GEN < %t/gen.out
