@@ -94,11 +94,12 @@ This assignment does not require additional consent from You, and You waive any 
 
 ## 11. Project License
 
-You agree that your Contribution will be licensed as part of the Project under:
+You agree that your Contribution will be licensed as part of the Project under the license that applies to the part of the Project it is submitted to:
 
-**Apache License 2.0 WITH KAIRO-RUNTIME-EXCEPTION**
+- **Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception** for code and all other material, except as below;
+- **Creative Commons Attribution 4.0 International (CC BY 4.0)** for documentation under `Compiler/Spec/`.
 
-You acknowledge that this license may include additional terms specific to the Project.
+You acknowledge that these licenses may include additional terms specific to the Project, as published in the Project repository.
 
 ---
 
@@ -133,13 +134,13 @@ To the maximum extent permitted by law, You disclaim liability for any damages a
 
 ## 16. General
 
-This Agreement is governed by the laws of the State of [STATE], United States, without regard to its conflict-of-law rules. If any provision of this Agreement is held unenforceable, the remaining provisions remain in full effect. This Agreement is the entire agreement between You and the Owner regarding Your Contributions and supersedes any prior version of this Agreement.
+This Agreement is governed by the laws of the State of Indiana, United States, without regard to its conflict-of-law rules. If any provision of this Agreement is held unenforceable, the remaining provisions remain in full effect. This Agreement is the entire agreement between You and the Owner regarding Your Contributions and supersedes any prior version of this Agreement.
 
 ---
 
 ## Signature
 
-To sign, copy this section into a separate document, complete it, and send it to the Owner, or accept through the Project's CLA tooling.
+To sign, copy this section into a separate document, complete it, and send it to legal@kairolang.org, or accept through the Project's CLA tooling.
 
 Full legal name: ______________________________
 
@@ -155,4 +156,6 @@ Date: ______________________________
 
 ---
 
-*Last updated: October 14, 2026. Owner: Dhruvan Kartik.*
+*Version 2. Last updated: November 8, 2026. Owner: Dhruvan Kartik.*
+
+Changes from Version 1 (October 14, 2026): Section 11 corrects the license identifier to its SPDX form and states the documentation license. No rights or obligations changed. Acceptances of Version 1 remain valid and are read as acceptances of this version.

@@ -33,14 +33,47 @@ precision, no `#line`, no source map, no proxy file.
 - Size: 5 files, ~55 insertions, ~6 deletions
 - Upstream status: RFC pending (see below)
 
+### 0002-cxx23-compile-fixes.patch
+
+Lets the tree build as C++23: a missing module header include in
+`IncrementalParser.h`, `CXDiagnosticSetImpl`'s constructor moved into its
+header, and `<cstdlib>` in `ProgramStack.cpp`.
+
+- Files: `clang/lib/Interpreter/IncrementalParser.h`,
+  `clang/tools/libclang/CIndexDiagnostic.{h,cpp}`, `llvm/lib/Support/ProgramStack.cpp`
+- Upstream status: candidate (build fixes)
+
+### 0003-float128.patch
+
+`__float128` on every release target, squashed from the fork's four commits
+(`c20043286c99`, `a489978e3dce`, `a4f9e83cfb4f`, `8f7e268535dd`); Kairo's `f128`
+needs it:
+
+- AArch64 (Darwin included), ARM, RISC-V: enable it with the right ABI handling,
+  define `__SIZEOF_FLOAT128__`.
+- X86: `HasFloat128` (IEEE binary128).
+- MSVC targets: mangle it as an artificial struct in the `__clang` namespace.
+- WebAssembly: `bf16`/`f16` in function signatures and the runtime libcall signatures.
+- compiler-rt: the binary128 builtins (`CMakeLists.txt`, `trunctfbf2.c`).
+
+- Files: `clang/lib/AST/MicrosoftMangle.cpp`,
+  `clang/lib/Basic/Targets/{AArch64.cpp,ARM.cpp,RISCV.cpp,RISCV.h,WebAssembly.h,X86.h}`,
+  `compiler-rt/lib/builtins/{CMakeLists.txt,trunctfbf2.c}`,
+  `llvm/lib/Target/WebAssembly/{WebAssemblyISelLowering,WebAssemblyRuntimeLibcallSignatures}.cpp`
+
+One file per change, in order (2026-11-08): 0001 and 0002 are one fork commit each, 0003
+squashes the four `__float128` commits. Applied in order onto `llvmorg-22.1.0` they reproduce the fork's HEAD
+(`8f7e268535dd`) exactly. 0001 is exported from `kairo/file-tokenizer-hook`
+(`fcee6a01`), whose diff is identical to the fork commit `2091b018` ("code").
+
 ## Applying manually
 
 The fork branch already includes these, so a normal recursive checkout of
 the submodule needs no manual step. To apply onto a fresh upstream tree:
 
     git checkout -b <branch> llvmorg-22.1.0
-    git am patches/0001-file-tokenizer-hook.patch
-    # or: git apply patches/0001-file-tokenizer-hook.patch
+    git am .patches/000*.patch        # all three, in order
+    # or one: git apply .patches/0001-file-tokenizer-hook.patch
 
 ## Version bumps
 

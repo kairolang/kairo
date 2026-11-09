@@ -93,7 +93,7 @@ Each commit must:
 - Be atomic (one logical change)
 - Have a clear message:
 
-```
+```text
 
 [component] <brief description>
 
@@ -105,13 +105,12 @@ Examples:
 
 `[parser] Fix incorrect handling of nested generics`
 
-```
+```text
 [codegen] Add support for 128-bit integers
 - This adds support for i128 and u128 types in code generation.
 - It required changes to the register allocator and instruction selection.
 - Tests were added to cover basic usage and edge cases.
 ```
-
 
 Avoid vague messages like "fixed things".
 
@@ -121,9 +120,9 @@ Avoid vague messages like "fixed things".
 
 Before submitting:
 
-- Rebase onto latest `canary`
+- Rebase onto latest `main`
 - Ensure clean build
-- Ensure all tests pass
+- Ensure all tests pass. See BUILD.md for building and running the test suite (lit).
 
 PRs must:
 
@@ -147,8 +146,8 @@ Messy PRs will be rejected.
 
 By contributing, you agree that:
 
-- Your contributions are licensed under:
-  **Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION**
+- Code and other material: **Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception**
+- Documentation under `Compiler/Spec/`: **CC BY 4.0**
 
 See `CLA.md` for full terms.
 
@@ -158,7 +157,15 @@ See `CLA.md` for full terms.
 
 All contributors must agree to the Kairo CLA.
 
-By submitting a contribution, you confirm that you have read and agreed to the terms in `CLA.md`.
+By submitting a contribution, you confirm that you have read and agreed to the terms in `CLA.md`. The CLA bot will ask you to accept on your first pull request.
+
+Forks must not use the Kairo name; see `TRADEMARKS.md`.
+
+---
+
+## Security
+
+Do not open public issues for vulnerabilities. Report them as described in `SECURITY.md`.
 
 ---
 
@@ -181,6 +188,4 @@ By submitting a contribution, you confirm that you have read and agreed to the t
 
 ## Final Note
 
-Kairo is being built as a serious compiler infrastructure.
-Contributions should improve the system-not increase complexity without clear benefit.
-If unsure, ask before building.
+Kairo is being built as a serious compiler infrastructure. Contributions should improve the system-not increase complexity without clear benefit. If unsure, ask before building.

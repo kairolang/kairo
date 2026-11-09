@@ -20,12 +20,9 @@ Kairo is a **statically typed compiled general purpose language**, built for sys
 
 ### Current Status
 
-The **Stage 1 compiler**, written in Kairo, now **compiles itself** (November 2026). A release build is bootstrapped by the previous release: it builds a staging compiler from the source, and the staging compiler builds the release. It is checked against a lit suite of about 2,000 tests and builds for 14 targets. The self-hosted source lands with the **0.2.0** release.
+The **Stage 1 compiler**, written in Kairo, is fully self hosted (November 2026). A release build is bootstrapped by the previous release, and having a seed kairo compiler is a strict requirement. there's a lit suite of about 2,000 tests and builds for 14 targets.
 
-The **Stage 0 compiler** (the original C++ transpiler) is retired: it only bootstrapped Stage 1, and **its issues will not be fixed**. Older Stage 0 binaries are still on the [release page](https://github.com/kairolang/kairo/releases).
-> [!WARNING]
-> The [documentation](https://www.kairolang.org/docs) covers the language as Stage 1 implements it, and the [status page](https://www.kairolang.org/docs/status/) lists what is not built yet. The compiler is not ready for production use.
-> If you want to help with documentation, please reach out to us on [Discord](https://discord.gg/VHCnPccDc)
+> [!WARNING] The [documentation](https://www.kairolang.org/docs) covers the language as Stage 1 implements it, and the [status page](https://www.kairolang.org/docs/status/) lists what is not built yet. The compiler is not ready for production use. If you want to help with documentation, please reach out to us on [Discord](https://discord.gg/VHCnPccDc)
 
 ### Why Kairo?
 
@@ -76,9 +73,7 @@ concept ScorableBatch = requires(B& b, const B& cb) {
 
 template <ScorableBatch B>
 int run_from_cxx(B& b) {
-    // A nicer api for c++ side usage of ADT Enums is in the works:
-    // b[0] = packet::Frame<int>::Burst(20, 4);
-    b[0] = packet::Frame<int>{::__kairo_vt<0> {}, 20, 4};
+    b[0] = packet::Frame<int>::Burst(20, 4);
     return b.score() + packet::sum_burst(b[0]);
 }
 
@@ -138,7 +133,7 @@ pub class Batch {
     }
 
     // Destructor: runs when the owning scope ends, C++ or Kairo.
-    fn op delete (self) {
+    fn op finally (self) {
         println("[Kairo] ~Batch()")
     }
 }
@@ -160,7 +155,7 @@ pub fn sum_burst(f: Frame<i32>) -> i32 {
 </div>
 
 ### Where Kairo Semantics Differ from C and C++
- 
+
 These are legal C and C++ calls. `clang++` accepts all three. Kairo rejects them:
 
 <div align="left">
@@ -219,12 +214,13 @@ fn first(v: cxx::std::vector<i32>?) -> i32 {
 
 ### License
 
-Kairo is licensed under the Attribution 4.0 International License. See the [LICENSE](https://github.com/kairolang/kairo/blob/main/license) for more details.
+Kairo is licensed under the Apache License 2.0 with the Kairo Runtime Library Exception. [LICENSE](LICENSE) is the authoritative text. Programs you compile with Kairo are yours: the exception covers the runtime library and the code the compiler generates, so they carry no attribution requirement from Kairo itself (the MIT notice of the runtime's allocator, mimalloc, is embedded in every program automatically, see [NOTICE](NOTICE)).
+
+The design documents under [Compiler/Spec/](Compiler/Spec/) are licensed under [CC BY 4.0](Compiler/Spec/LICENSE).
 
 ### AI Usage Disclosure
 
-[Read The Full Post Here](https://www.kairolang.org/blog/how-ai-is-used-in-kairo/).
-TLDR: Lang design, Compiler, and Architecture are 100% human. No AI-generated code in the compiler and language design stage1 or stage0. Docs have AI usage; mostly used for polishing.
+[Read The Full Post Here](https://www.kairolang.org/blog/how-ai-is-used-in-kairo/). TLDR: Lang design, Compiler, and Architecture are 100% human. No AI-generated code in the compiler and language design stage1 or stage0. Docs have AI usage; mostly used for polishing.
 
 ### Acknowledgements
 

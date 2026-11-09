@@ -19,11 +19,6 @@
 	shallow = true
     branch = kairo-llvm-22.1.0
 
-[submodule "Lib/bootstrap/lib-helix"]
-	path = Lib/bootstrap/lib-helix
-	url = https://github.com/kairolang/lib-helix
-	shallow = true
-
 [submodule "Lib/rt/mimalloc"]
 	path = Lib/rt/mimalloc
 	url = https://github.com/microsoft/mimalloc

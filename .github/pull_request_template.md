@@ -5,9 +5,8 @@ One paragraph. What this PR changes and why.
 ## Affected components
 
 <!-- Check all that apply -->
-- [ ] Stage 0 (C++ bootstrap)
-- [ ] Stage 1 (self-hosted compiler)
-- [ ] kbld / build system
+- [ ] Compiler (kairo, kcc, kld, kfmt)
+- [ ] build.py / build system
 - [ ] Standard library
 - [ ] Documentation
 - [ ] CI / tooling

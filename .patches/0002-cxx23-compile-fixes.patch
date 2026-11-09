@@ -1,0 +1,73 @@
+From 4985477889895898b1ee93c53ec6b8edf2373011 Mon Sep 17 00:00:00 2001
+From: Dhruvan <dkartik@purdue.edu>
+Date: Tue, 28 Jul 2026 15:38:24 +0400
+Subject: [PATCH 2/6] [Interpreter] add module header include to
+ IncrementalParser [libclang] update CXDiagnosticSetImpl constructor
+ definition - move constructor implementation to header file - ensure
+ consistent declaration and definition [Support] include cstdlib for standard
+ library functions in ProgramStack
+
+all changes are for c++23 compile support
+---
+ clang/lib/Interpreter/IncrementalParser.h | 1 +
+ clang/tools/libclang/CIndexDiagnostic.cpp | 3 +++
+ clang/tools/libclang/CIndexDiagnostic.h   | 3 +--
+ llvm/lib/Support/ProgramStack.cpp         | 2 ++
+ 4 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/clang/lib/Interpreter/IncrementalParser.h b/clang/lib/Interpreter/IncrementalParser.h
+index 9b042bc494ef..0d7733edb946 100644
+--- a/clang/lib/Interpreter/IncrementalParser.h
++++ b/clang/lib/Interpreter/IncrementalParser.h
+@@ -15,6 +15,7 @@
+ 
+ #include "llvm/ADT/StringRef.h"
+ #include "llvm/Support/Error.h"
++#include "llvm/IR/Module.h"
+ 
+ #include <list>
+ #include <memory>
+diff --git a/clang/tools/libclang/CIndexDiagnostic.cpp b/clang/tools/libclang/CIndexDiagnostic.cpp
+index d37597e747a8..22fc8f5f9c16 100644
+--- a/clang/tools/libclang/CIndexDiagnostic.cpp
++++ b/clang/tools/libclang/CIndexDiagnostic.cpp
+@@ -27,6 +27,9 @@ using namespace clang::cxloc;
+ using namespace clang::cxdiag;
+ using namespace llvm;
+ 
++CXDiagnosticSetImpl::CXDiagnosticSetImpl(bool isManaged)
++    : IsExternallyManaged(isManaged) {}
++
+ CXDiagnosticSetImpl::~CXDiagnosticSetImpl() {}
+ 
+ void
+diff --git a/clang/tools/libclang/CIndexDiagnostic.h b/clang/tools/libclang/CIndexDiagnostic.h
+index 25589bb57474..6824f3c17042 100644
+--- a/clang/tools/libclang/CIndexDiagnostic.h
++++ b/clang/tools/libclang/CIndexDiagnostic.h
+@@ -28,8 +28,7 @@ class CXDiagnosticSetImpl {
+   std::vector<std::unique_ptr<CXDiagnosticImpl>> Diagnostics;
+   const bool IsExternallyManaged;
+ public:
+-  CXDiagnosticSetImpl(bool isManaged = false)
+-    : IsExternallyManaged(isManaged) {}
++  CXDiagnosticSetImpl(bool isManaged = false);
+ 
+   virtual ~CXDiagnosticSetImpl();
+ 
+diff --git a/llvm/lib/Support/ProgramStack.cpp b/llvm/lib/Support/ProgramStack.cpp
+index 66f74ff660b2..fe8cfd1fc308 100644
+--- a/llvm/lib/Support/ProgramStack.cpp
++++ b/llvm/lib/Support/ProgramStack.cpp
+@@ -10,6 +10,8 @@
+ #include "llvm/Config/config.h"
+ #include "llvm/Support/Compiler.h"
+ 
++#include <cstdlib>
++
+ #ifdef LLVM_ON_UNIX
+ # include <sys/resource.h> // for getrlimit
+ #endif
+-- 
+2.56.0
+

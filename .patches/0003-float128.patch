@@ -1,0 +1,291 @@
+From d5619b45c0fc540ccf26c9f4cf699a6839e109bd Mon Sep 17 00:00:00 2001
+From: Dhruvan <kartd01@purdue.edu>
+Date: Thu, 8 Oct 2026 00:00:00 -0400
+Subject: [PATCH] [Clang][targets] Support __float128 on AArch64, ARM, RISC-V,
+ X86 and WebAssembly
+
+Squash of the fork's four __float128 commits (c20043286c99, a489978e3dce,
+a4f9e83cfb4f, 8f7e268535dd), which Kairo's f128 needs on every release target:
+
+- AArch64 (Darwin included), ARM and RISC-V: enable __float128 with the right
+  ABI handling and define __SIZEOF_FLOAT128__.
+- X86: set HasFloat128 (IEEE binary128).
+- MSVC targets: mangle __float128 as an artificial struct in the __clang
+  namespace.
+- WebAssembly: bf16 / f16 in function signatures and the runtime libcall
+  signatures.
+- compiler-rt: build the binary128 builtins these targets need
+  (CMakeLists.txt, trunctfbf2.c).
+---
+ clang/lib/AST/MicrosoftMangle.cpp                |  8 ++++++++
+ clang/lib/Basic/Targets/AArch64.cpp              | 12 ++++++++++++
+ clang/lib/Basic/Targets/ARM.cpp                  | 12 ++++++++++++
+ clang/lib/Basic/Targets/RISCV.cpp                |  3 +++
+ clang/lib/Basic/Targets/RISCV.h                  |  3 +++
+ clang/lib/Basic/Targets/WebAssembly.h            |  9 +++++++++
+ clang/lib/Basic/Targets/X86.h                    | 14 ++++++++++++++
+ compiler-rt/lib/builtins/CMakeLists.txt          | 16 ++++++++++++++++
+ compiler-rt/lib/builtins/trunctfbf2.c            |  5 ++++-
+ .../WebAssembly/WebAssemblyISelLowering.cpp      | 11 +++++++++++
+ .../WebAssemblyRuntimeLibcallSignatures.cpp      |  7 +++++++
+ 11 files changed, 99 insertions(+), 1 deletion(-)
+
+diff --git a/clang/lib/AST/MicrosoftMangle.cpp b/clang/lib/AST/MicrosoftMangle.cpp
+index 551aa7bf3321..ed8023d959e0 100644
+--- a/clang/lib/AST/MicrosoftMangle.cpp
++++ b/clang/lib/AST/MicrosoftMangle.cpp
+@@ -2813,6 +2813,14 @@ void MicrosoftCXXNameMangler::mangleType(const BuiltinType *T, Qualifiers,
+     mangleArtificialTagType(TagTypeKind::Struct, "__bf16", {"__clang"});
+     break;
+ 
++  // MSVC has no IEEE binary128 type, so there is no spelling to match; spell
++  // it as _Float16 and __bf16 are, an artificial struct in the __clang
++  // namespace, which no real MSVC type can collide with. Kairo's f128 lowers
++  // to __float128 and needs it in signatures on MSVC targets.
++  case BuiltinType::Float128:
++    mangleArtificialTagType(TagTypeKind::Struct, "__float128", {"__clang"});
++    break;
++
+   case BuiltinType::MFloat8:
+     mangleArtificialTagType(TagTypeKind::Struct, "__mfp8", {"__clang"});
+     break;
+diff --git a/clang/lib/Basic/Targets/AArch64.cpp b/clang/lib/Basic/Targets/AArch64.cpp
+index d148705a3628..b42c5467c485 100644
+--- a/clang/lib/Basic/Targets/AArch64.cpp
++++ b/clang/lib/Basic/Targets/AArch64.cpp
+@@ -147,6 +147,13 @@ AArch64TargetInfo::AArch64TargetInfo(const llvm::Triple &Triple,
+   HasFloat16 = true;
+   HasStrictFP = true;
+ 
++  // __float128 is IEEE binary128 in fp128: the same type as long double on
++  // AArch64 Linux and the BSDs, fp128 libcalls where long double is double
++  // (Darwin, Windows). Kairo's f128 lowers to it. On MSVC targets the
++  // Microsoft mangler spells it as an artificial __clang struct.
++  if (Triple.isArch64Bit())
++    HasFloat128 = true;
++
+   if (Triple.isArch64Bit())
+     LongWidth = LongAlign = PointerWidth = PointerAlign = 64;
+   else
+@@ -477,6 +484,11 @@ void AArch64TargetInfo::getTargetDefines(const LangOptions &Opts,
+ 
+   Builder.defineMacro("__ARM_SIZEOF_MINIMAL_ENUM", Opts.ShortEnums ? "1" : "4");
+ 
++  // As X86 does: the macro is how code (compiler-rt's int_types.h included)
++  // detects __float128.
++  if (HasFloat128)
++    Builder.defineMacro("__SIZEOF_FLOAT128__", "16");
++
+   // Clang supports range prefetch intrinsics
+   Builder.defineMacro("__ARM_PREFETCH_RANGE", "1");
+ 
+diff --git a/clang/lib/Basic/Targets/ARM.cpp b/clang/lib/Basic/Targets/ARM.cpp
+index f21e9ebbc903..d1b879e082f3 100644
+--- a/clang/lib/Basic/Targets/ARM.cpp
++++ b/clang/lib/Basic/Targets/ARM.cpp
+@@ -312,6 +312,14 @@ ARMTargetInfo::ARMTargetInfo(const llvm::Triple &Triple,
+   // ARM has atomics up to 8 bytes
+   setAtomic();
+ 
++  // __float128 as IEEE binary128 in fp128, through compiler-rt's tf
++  // libcalls (built with COMPILER_RT_ENABLE_SOFTWARE_INT128). GCC has no
++  // __float128 on ARM, so there is no ABI to match: the backend passes fp128
++  // like i128, in core registers and on the stack. Kairo's f128 lowers to
++  // it. On MSVC targets the Microsoft mangler spells it as an artificial
++  // __clang struct.
++  HasFloat128 = true;
++
+   // Maximum alignment for ARM NEON data types should be 64-bits (AAPCS)
+   // as well the default alignment
+   if (IsAAPCS && !Triple.isAndroid())
+@@ -693,6 +701,10 @@ void ARMTargetInfo::getTargetDefines(const LangOptions &Opts,
+   // Target identification.
+   Builder.defineMacro("__arm");
+   Builder.defineMacro("__arm__");
++  // As X86 and AArch64 do: the macro is how code (compiler-rt's
++  // int_types.h included) detects __float128.
++  if (HasFloat128)
++    Builder.defineMacro("__SIZEOF_FLOAT128__", "16");
+   // For bare-metal none-eabi.
+   if (getTriple().getOS() == llvm::Triple::UnknownOS &&
+       (getTriple().getEnvironment() == llvm::Triple::EABI ||
+diff --git a/clang/lib/Basic/Targets/RISCV.cpp b/clang/lib/Basic/Targets/RISCV.cpp
+index 685925b0773d..3e2e2ae1a086 100644
+--- a/clang/lib/Basic/Targets/RISCV.cpp
++++ b/clang/lib/Basic/Targets/RISCV.cpp
+@@ -148,6 +148,9 @@ void RISCVTargetInfo::getTargetDefines(const LangOptions &Opts,
+   Builder.defineMacro("__riscv");
+   bool Is64Bit = getTriple().isRISCV64();
+   Builder.defineMacro("__riscv_xlen", Is64Bit ? "64" : "32");
++  // As X86 and AArch64 do: the macro is how code detects __float128.
++  if (HasFloat128)
++    Builder.defineMacro("__SIZEOF_FLOAT128__", "16");
+   StringRef CodeModel = getTargetOpts().CodeModel;
+   unsigned FLen = ISAInfo->getFLen();
+   unsigned MinVLen = ISAInfo->getMinVLen();
+diff --git a/clang/lib/Basic/Targets/RISCV.h b/clang/lib/Basic/Targets/RISCV.h
+index 685735b54a45..73a246805f02 100644
+--- a/clang/lib/Basic/Targets/RISCV.h
++++ b/clang/lib/Basic/Targets/RISCV.h
+@@ -49,6 +49,9 @@ public:
+     MCountName = "_mcount";
+     HasFloat16 = true;
+     HasStrictFP = true;
++    // long double is already IEEE binary128 here; __float128 names the same
++    // fp128 type, as on AArch64 Linux. Kairo's f128 lowers to it.
++    HasFloat128 = true;
+   }
+ 
+   bool setCPU(const std::string &Name) override {
+diff --git a/clang/lib/Basic/Targets/WebAssembly.h b/clang/lib/Basic/Targets/WebAssembly.h
+index 3634330ec669..ee4ba52242d9 100644
+--- a/clang/lib/Basic/Targets/WebAssembly.h
++++ b/clang/lib/Basic/Targets/WebAssembly.h
+@@ -88,6 +88,15 @@ public:
+     SigAtomicType = SignedLong;
+     LongDoubleWidth = LongDoubleAlign = 128;
+     LongDoubleFormat = &llvm::APFloat::IEEEquad();
++    // _Float16 and __bf16 as storage types: arithmetic is done in float
++    // (no HasFastHalfType), and the backend promotes scalar f16/bf16 through
++    // compiler-rt's extend/trunc libcalls unless +fp16 makes f16 native.
++    // Kairo's f16 and bf16 lower to them, and Lib/builtin uses both on
++    // every target.
++    HasFloat16 = true;
++    HasBFloat16 = true;
++    BFloat16Width = BFloat16Align = 16;
++    BFloat16Format = &llvm::APFloat::BFloat();
+     MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 64;
+     HasUnalignedAccess = true;
+     if (T.isWALI()) {
+diff --git a/clang/lib/Basic/Targets/X86.h b/clang/lib/Basic/Targets/X86.h
+index 922e32906cd0..5a0817b09e64 100644
+--- a/clang/lib/Basic/Targets/X86.h
++++ b/clang/lib/Basic/Targets/X86.h
+@@ -606,6 +606,11 @@ public:
+       : WindowsX86_32TargetInfo(Triple, Opts) {
+     LongDoubleWidth = LongDoubleAlign = 64;
+     LongDoubleFormat = &llvm::APFloat::IEEEdouble();
++    // __float128 is IEEE binary128 through fp128 libcalls, passed as MinGW
++    // passes it. long double is double here, so this is the only quad type;
++    // Kairo's f128 lowers to it. The tf libcalls need compiler-rt built with
++    // COMPILER_RT_ENABLE_SOFTWARE_INT128, as on every 32-bit target.
++    HasFloat128 = true;
+   }
+ 
+   void getTargetDefines(const LangOptions &Opts,
+@@ -932,6 +937,11 @@ public:
+       : WindowsX86_64TargetInfo(Triple, Opts) {
+     LongDoubleWidth = LongDoubleAlign = 64;
+     LongDoubleFormat = &llvm::APFloat::IEEEdouble();
++    // __float128 is IEEE binary128 through fp128 libcalls. WinX86_64ABIInfo
++    // and CC_X86_Win64_C already treat it as MinGW does (by reference in,
++    // XMM0 out), so only the type was missing. long double is double here;
++    // Kairo's f128 lowers to it.
++    HasFloat128 = true;
+   }
+ 
+   void getTargetDefines(const LangOptions &Opts,
+@@ -1021,6 +1031,10 @@ public:
+     llvm::Triple T = llvm::Triple(Triple);
+     if (T.isiOS())
+       UseSignedCharForObjCBool = false;
++    // __float128 is IEEE binary128 through fp128 libcalls, passed in XMM per
++    // SysV as on x86_64 Linux. long double stays x87 (Kairo's f80). Kairo's
++    // f128 lowers to it.
++    HasFloat128 = true;
+     resetDataLayout();
+   }
+ 
+diff --git a/compiler-rt/lib/builtins/CMakeLists.txt b/compiler-rt/lib/builtins/CMakeLists.txt
+index c3dbd65998f1..c2194f4ed741 100644
+--- a/compiler-rt/lib/builtins/CMakeLists.txt
++++ b/compiler-rt/lib/builtins/CMakeLists.txt
+@@ -403,6 +403,13 @@ else () # MSVC
+     x86_64/floatdidf.c
+     x86_64/floatdisf.c
+   )
++  # clang-cl has __int128 and (in this fork) __float128 on MSVC targets, so
++  # the quad-float (tf) libcalls f128 lowers to build here; cl.exe has
++  # neither and would compile them to nothing. CLANG_CL is only set by
++  # LLVM's own CheckCompilerVersion, so test the compiler ID directly.
++  if (CMAKE_C_COMPILER_ID MATCHES "Clang")
++    list(APPEND x86_64_SOURCES ${GENERIC_TF_SOURCES})
++  endif()
+   set(i386_SOURCES ${GENERIC_SOURCES} ${x86_ARCH_SOURCES})
+ endif () # if (NOT MSVC)
+ 
+@@ -1003,6 +1010,15 @@ else ()
+         list(APPEND ${arch}_SOURCES ${BF16_SOURCES})
+       endif()
+ 
++      # Software int128 also makes the quad-float (tf) routines buildable on
++      # 32-bit targets: they need only __int128 and __float128
++      # (CRT_HAS_TF_MODE), and each source compiles to nothing on a target
++      # without __float128.
++      if (COMPILER_RT_ENABLE_SOFTWARE_INT128)
++        list(APPEND ${arch}_SOURCES ${GENERIC_TF_SOURCES})
++        list(REMOVE_DUPLICATES ${arch}_SOURCES)
++      endif()
++
+       # Remove a generic C builtin when an arch-specific builtin is specified.
+       filter_builtin_sources(${arch}_SOURCES ${arch})
+ 
+diff --git a/compiler-rt/lib/builtins/trunctfbf2.c b/compiler-rt/lib/builtins/trunctfbf2.c
+index cd3c761aa62f..4e1fd8c5453e 100644
+--- a/compiler-rt/lib/builtins/trunctfbf2.c
++++ b/compiler-rt/lib/builtins/trunctfbf2.c
+@@ -8,7 +8,10 @@
+ #define QUAD_PRECISION
+ #include "fp_lib.h"
+ 
+-#if defined(CRT_HAS_TF_MODE) && defined(__x86_64__)
++// Any target with TF mode: nothing below is x86-specific, and the backends
++// of i686, RISC-V and others emit __trunctfbf2 for an f128 -> bf16 cast.
++// The file is only built where __bf16 exists (BF16_SOURCES).
++#if defined(CRT_HAS_TF_MODE)
+ #define SRC_QUAD
+ #define DST_BFLOAT
+ #include "fp_trunc_impl.inc"
+diff --git a/llvm/lib/Target/WebAssembly/WebAssemblyISelLowering.cpp b/llvm/lib/Target/WebAssembly/WebAssemblyISelLowering.cpp
+index 0355d1866eea..7bf5bc799f15 100644
+--- a/llvm/lib/Target/WebAssembly/WebAssemblyISelLowering.cpp
++++ b/llvm/lib/Target/WebAssembly/WebAssemblyISelLowering.cpp
+@@ -160,6 +160,17 @@ WebAssemblyTargetLowering::WebAssemblyTargetLowering(
+     }
+     setLoadExtAction(ISD::EXTLOAD, T, MVT::f16, Expand);
+     setTruncStoreAction(T, MVT::f16, Expand);
++    // bf16 is storage-only here, soft-promoted like f16. Widening is exact (a
++    // 16-bit shift), so it expands inline. Narrowing goes to compiler-rt's
++    // __trunc{s,d}fbf2 rather than the generic expansion: that one truncates
++    // instead of rounding to nearest even, and would give different bits
++    // than x86 and AArch64 for the same Kairo bf16 code.
++    if (T == MVT::f32 || T == MVT::f64) {
++      setOperationAction(ISD::BF16_TO_FP, T, Expand);
++      setOperationAction(ISD::FP_TO_BF16, T, LibCall);
++      setLoadExtAction(ISD::EXTLOAD, T, MVT::bf16, Expand);
++      setTruncStoreAction(T, MVT::bf16, Expand);
++    }
+   }
+ 
+   // Expand unavailable integer operations.
+diff --git a/llvm/lib/Target/WebAssembly/WebAssemblyRuntimeLibcallSignatures.cpp b/llvm/lib/Target/WebAssembly/WebAssemblyRuntimeLibcallSignatures.cpp
+index f3c236ca8c9c..b808fdcd0e3f 100644
+--- a/llvm/lib/Target/WebAssembly/WebAssemblyRuntimeLibcallSignatures.cpp
++++ b/llvm/lib/Target/WebAssembly/WebAssemblyRuntimeLibcallSignatures.cpp
+@@ -297,6 +297,13 @@ struct RuntimeLibcallSignatureTable {
+     Table[RTLIB::FPROUND_F128_F16] = i16_func_i64_i64;
+     Table[RTLIB::FPROUND_F128_F32] = f32_func_i64_i64;
+     Table[RTLIB::FPROUND_F128_F64] = f64_func_i64_i64;
++    // bf16 is soft-promoted like f16, so it crosses calls as i16 the same
++    // way. FP_TO_BF16 is a LibCall on wasm, and getLibcallSignature has no
++    // fallback for an entry left unset.
++    Table[RTLIB::FPEXT_BF16_F32] = f32_func_i16;
++    Table[RTLIB::FPROUND_F32_BF16] = i16_func_f32;
++    Table[RTLIB::FPROUND_F64_BF16] = i16_func_f64;
++    Table[RTLIB::FPROUND_F128_BF16] = i16_func_i64_i64;
+     Table[RTLIB::FPTOSINT_F32_I32] = i32_func_f32;
+     Table[RTLIB::FPTOSINT_F32_I64] = i64_func_f32;
+     Table[RTLIB::FPTOSINT_F32_I128] = i64_i64_func_f32;
+-- 
+2.56.0
+

@@ -1,0 +1,75 @@
+Kairo
+Copyright (c) 2026 Dhruvan Kartik.
+
+Licensed under the Apache License, Version 2.0 with the Kairo Runtime Library
+Exception (LICENSE).
+
+This product includes third-party software. Each component below remains under
+its own license; the Kairo Runtime Library Exception does not change those
+terms. Full license texts ship in LICENSES/ in every release archive, with an
+index in THIRD-PARTY-NOTICES, and live in the source tree at the paths given.
+
+-------------------------------------------------------------------------------
+Components that can end up inside programs compiled with Kairo
+-------------------------------------------------------------------------------
+
+mimalloc (the Kairo runtime's allocator, compiled into every Kairo program)
+  Copyright (c) 2018-2025 Microsoft Corporation, Daan Leijen
+  MIT License. Source: Lib/rt/mimalloc/LICENSE
+  The MIT license asks that its copyright and permission notice accompany
+  copies or substantial portions of the software. Kairo embeds this notice
+  in every program it compiles (the `.kairo.notices` section), so no separate
+  attribution is needed.
+
+Dragonbox (floating-point formatting, Lib/rt/fmt_dragonbox*.c)
+  Copyright 2020-2025 Junekey Jeon
+  Boost Software License 1.0 (or Apache-2.0 WITH LLVM-exception).
+  BSL-1.0 does not require the notice in machine-executable object code.
+
+LLVM runtimes: libc++, libc++abi, libunwind, compiler-rt (Kairo's LLVM fork)
+  Apache License 2.0 with LLVM Exceptions. Source: Lib/llvm-runtimes
+  The LLVM Exception lets you distribute these in compiled programs without
+  the attribution conditions of Sections 4(a), 4(b) and 4(d).
+
+musl libc (static C library for *-linux-musl targets)
+  Copyright (c) 2005-2020 Rich Felker, et al.
+  MIT License. Source: Lib/libc/musl/COPYRIGHT
+  Programs statically linked against a musl sysroot contain musl code; include
+  this notice when distributing them.
+
+mingw-w64 (C runtime, headers and import libraries for *-windows-gnu targets)
+  Zope Public License 2.1 and public-domain portions. Source: Lib/libc/mingw
+
+wasi-libc (C library for wasm32-wasi)
+  Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT. Source: Lib/libc/wasi
+
+-------------------------------------------------------------------------------
+Components of the toolchain and its bundled sysroots
+-------------------------------------------------------------------------------
+
+LLVM, Clang and LLD (Kairo's fork, linked into kairo, kcc, kld, llvm-ar and
+llvm-symbolizer; with the patches in .patches/)
+  Apache License 2.0 with LLVM Exceptions; legacy University of Illinois/NCSA
+  terms for older files. Source: Lib/llvm-runtimes
+
+zlib (linked into the toolchain binaries)
+  Copyright (C) 1995-2022 Jean-loup Gailly and Mark Adler
+  zlib License. Source: Lib/third_party/zlib/LICENSE
+
+Zstandard (linked into the toolchain binaries)
+  Copyright (c) Meta Platforms, Inc. and affiliates.
+  BSD-3-Clause (dual-licensed BSD-3-Clause OR GPL-2.0; used under BSD-3-Clause).
+  Source: Lib/third_party/zstd/LICENSE
+
+Linux kernel UAPI headers (Linux sysroots)
+  GPL-2.0-only WITH Linux-syscall-note
+
+GNU C Library 2.31 headers, crt objects and link stubs (*-linux-gnu sysroots)
+  LGPL-2.1-or-later
+
+FreeBSD 14.4 and NetBSD 10.1 base headers and libraries (BSD sysroots)
+  BSD-2-Clause and BSD-3-Clause, per file
+
+Apple's SDK and Microsoft's MSVC / Windows SDK are never distributed with
+Kairo. Sysroots built from them on your machine (scripts/) stay subject to
+their own license terms.

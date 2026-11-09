@@ -20,10 +20,10 @@ body:
   - type: dropdown
     id: stage
     attributes:
-      label: Compiler stage
+      label: Kairo version
       options:
-        - Stage 0 (C++ bootstrap)
-        - Stage 1 (self-hosted)
+        - 0.2.0 or newer (self-hosted)
+        - 0.1.x (retired C++ bootstrap)
         - Unsure
     validations:
       required: true

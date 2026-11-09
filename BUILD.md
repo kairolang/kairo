@@ -1,216 +1,115 @@
 # Building Kairo from Source
 
-Kairo has two compilers:
+Kairo is self-hosted: the compiler in `Compiler/` is written in Kairo and is built by a previous release of itself. Since 0.2.0 this is the only way to build it.
 
-- **Stage 0** the current compiler, written in C++. Transpiles Kairo to C++. This is what you build first. It does **not** require LLVM.
-- **Stage 1** the self-hosted compiler, written in Kairo (work in progress). Building it requires the Stage 0 compiler **and** the LLVM submodule.
+> **Building without a seed compiler is not possible.** You need a prebuilt Kairo release (0.2.0 or newer, which ships `kairo` and `kcc`) to compile this tree. There is no supported path that starts from a plain C++ toolchain: the old C++ bootstrap compiler (Stage 0) is retired and cannot build the current source. Its last tree is kept, for history only, on the `archive/kairo-0.1.2-stage0-bootstrap` branch.
 
-Most users only need Stage 0. If you just want to compile and run `.k` files, build Stage 0 and stop there.
-
-> **Prefer prebuilt binaries?** Skip this entire guide and grab a release from the
-> [release page](https://github.com/kairolang/kairo/releases). Build from source only
-> if you need the latest unreleased changes or are developing Kairo itself.
+> **Just want to use Kairo?** Skip this guide and grab a release from the [release page](https://github.com/kairolang/kairo/releases). Build from source only to work on Kairo itself or to get unreleased changes.
 
 ---
 
 ## 1. Requirements
 
-Stage 0 requires:
+- **A seed Kairo release** (0.2.0+) for your host, unpacked anywhere. Its `kairo` compiles the tree, and its `kcc` (a clang drop-in) compiles the bundled LLVM fork on the first build.
+- **Python 3** (the build driver is `build.py`).
+- **git**.
+- **CMake** and **Ninja** (used once, to build the patched LLVM fork and its dependencies).
+- **About 30 GB of free disk** for the first build (LLVM), and plenty of RAM: a parallel build of the compiler peaks around 3–4 GB, LLVM's own build more.
 
-- **Clang 18 or newer** (libstdc++ is **not** supported you must use Clang with libc++)
-- **libc++** and **libc++abi**
-- **xmake** (build system)
-- **git**
+You do not need a system Clang, GCC, libc++ or LLVM: the seed's `kcc` and bundled toolchain do the compiling, and the patched LLVM fork is built from the submodule. A system LLVM is never used.
 
-Stage 1 additionally requires the patched LLVM submodule (pulled separately, see #5).
+The seed also provides `llvm-ar` / `llvm-ranlib` for the LLVM build. Put the seed's `bin/` on your `PATH`:
 
-The VSCode extension additionally requires **Node.js** and **npm**.
+```bash
+export PATH="/path/to/kairo-0.2.0/bin:$PATH"
+kairo --version
+```
 
 ---
 
-## 2. Install dependencies
-
-All platforms need **Clang 18+** with libc++ (see Requirements). Each section below shows how to get a satisfying toolchain.
-
-### Linux
-
-**Arch / Manjaro**
-
-Arch's `clang` is current (well past 18), so no version pinning is needed.
-
-```bash
-sudo pacman -S git clang libc++ libc++abi lld cmake ninja xmake
-```
-
-**Ubuntu / Debian**
-
-Clang 18 is the minimum; newer is fine. Run `clang++ --version`, if it reports 18
-or higher, skip the apt.llvm.org step below and just ensure `libc++` and `libc++abi`
-are installed. Otherwise, install Clang 18 from LLVM's apt repo (the distro Clang is
-often older than 18 or defaults to libstdc++):
-
-The distro Clang is often older than 18 or defaults to libstdc++, so install from LLVM's apt repo:
-
-```bash
-wget https://apt.llvm.org/llvm.sh
-chmod +x llvm.sh
-sudo ./llvm.sh 18
-sudo apt-get install -y libc++-18-dev libc++abi-18-dev git
-# make clang-18 the default clang/clang++
-sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-18   100
-sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
-```
-
-**Fedora / RHEL**
-
-Ensure `clang --version` reports 18+. Older RHEL ships an older toolchain you may need a newer LLVM module (`sudo dnf module install llvm-toolset:latest`) to meet the minimum.
-
-```bash
-sudo dnf install -y clang libcxx-devel libcxxabi-devel git cmake ninja-build
-```
-
-Then install xmake (all distros):
-
-```bash
-curl -fsSL https://xmake.io/shget.text | bash
-```
-
-### macOS
-
-Install the LLVM toolchain and xmake via Homebrew:
-
-```bash
-brew install llvm xmake
-```
-
-Then make Homebrew's Clang available on your PATH (Apple's bundled Clang works too, but Homebrew LLVM is recommended for libc++ feature support):
-
-```bash
-echo 'export PATH="'"$(brew --prefix llvm)"'/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-### Windows
-
-Install xmake (PowerShell):
-
-```powershell
-irm https://xmake.io/psget.text | iex
-```
-
-Clang/MSVC toolchain: install **Visual Studio** with the "Desktop development with C++" workload, and "Clang for Windows", or **LLVM for Windows** from [releases.llvm.org](https://releases.llvm.org/). xmake will detect the toolchain automatically.
----
-
-## 3. Clone the repository
+## 2. Clone the repository
 
 ```bash
 git clone https://github.com/kairolang/kairo/
 cd kairo
-git checkout archive/beta-helix-0.0.1
+git submodule update --init --recursive   # the patched LLVM fork, musl, mingw-w64, ...: large
 ```
-
-Pull submodules. **For Stage 0 only**, this is a fast clone (no LLVM):
-
-```bash
-git submodule update --init --recursive
-```
-
-> If you later build Stage 1, you must re-run `git submodule update --init --recursive`
-> after `git checkout canary` the canary branch pulls in the patched LLVM submodule, which is large.
 
 ---
 
-## 4. Build the Stage 0 compiler
+## 3. Build
+
+The first build compiles the patched LLVM fork before the compiler. This is a long, one-time compile; later builds reuse it.
+
+**Release toolchain** (the normal build):
 
 ```bash
-xmake
+python3 build.py --release kairo kcc
 ```
 
-That's it no flags needed. xmake reads the build configuration and produces a
-self-contained compiler. Output lands in `build/release/<platform>/bin/`: `kairo` and `kbld`.
+This is a two-stage bootstrap: the seed builds a staging compiler from the source, and the staging compiler builds the release toolchain. The result lands in `build/<triple>/release/` (for example `build/x86_64-linux-musl/release/` on Linux, a static musl build), and the previous release there is kept as `build/<triple>/N-1/`. On success `build.py` points the `kairo` and `kcc` links on your `PATH` (`~/.local/bin`) at the new toolchain; pass `--no-path` to leave `PATH` alone.
 
-### Add to PATH (recommended)
-
-**Linux / macOS:**
+By default the seed is, in order: `build/<host>/N-1/bin/kairo`, `build/<host>/release/bin/kairo`, then `kairo` on `PATH`. On a fresh checkout that is the release you unpacked; to name it explicitly:
 
 ```bash
-export PATH="$PATH:$(ls -d $(pwd)/build/release/*/bin)"
+python3 build.py --release --kairo /path/to/kairo-0.2.0/bin/kairo kairo kcc
 ```
 
-Add that line to your `~/.bashrc` or `~/.zshrc` to make it permanent.
+**Debug build** (the edit/test loop when working on the compiler):
 
-**Windows (PowerShell):**
-
-```powershell
-$env:Path += ";$((Get-ChildItem -Directory .\build\release\*\bin).FullName)"
+```bash
+python3 build.py --debug kairo kcc
 ```
 
-This sets PATH for the current session. To make it permanent, replace the line above with:
+Output: `build/<host-triple>/debug/bin/` (for example `build/x86_64-linux-gnu/debug/bin/kairo`). Debug builds are compiled by your release compiler, keep debug info and reuse the incremental object cache, so a rebuild after a small change only recompiles what changed.
 
-```powershell
-$binPath = (Get-ChildItem -Directory .\build\release\*\bin).FullName
-[Environment]::SetEnvironmentVariable("Path", "$env:Path;$binPath", "User")
+**Other targets in the toolchain:** `kld` (linker), `kfmt` (formatter), `katar`, `kparse`, `clang-diag-identity`:
+
+```bash
+python3 build.py --release kairo kcc kld kfmt
 ```
 
-(PowerShell only. For Command Prompt, add it via System Properties -> Environment Variables.)
+**Cross builds** (a toolchain that runs on another platform):
 
-### Validate
+```bash
+python3 build.py --release --target aarch64-linux-musl
+```
 
-Create `test.k`:
+Useful options: `-j N` (parallel jobs), `--print-jobs` (show the compile and link commands without building), `--cache-dir DIR` (the incremental object cache), `--compiler-flag FLAG` (pass a flag to every `kairo` invocation). `python3 build.py --help` lists them all.
 
-```kairo
+---
+
+## 4. Validate
+
+```bash
+cat > hello.k <<'EOF'
+import std::io
+
 fn main() -> i32 {
-    var x = 5;
-    var y = 10;
-    std::print(f"Hello, world! Sum of {x} and {y} is {x + y}");
-    return 0;
+    var x = 5
+    var y = 10
+    io::println(f"Hello, world! Sum of {x} and {y} is {x + y}")
+    return 0
 }
+EOF
+kairo hello.k -o hello && ./hello
 ```
 
-Compile and run:
+To run the compiler's test suite (LLVM `lit`, built with the LLVM fork):
 
 ```bash
-kairo test.k
+build/llvm/bin/llvm-lit Tests -s
 ```
+
+`lit` tests the most recently built compiler; set `KAIRO_BIN=/path/to/kairo` to pick one.
 
 ---
 
-## 5. Build the Stage 1 compiler (self-hosted, in development)
+## 5. Editor support
 
-Stage 1 is the self-hosted compiler, written in Kairo. Building it is optional, only do this if you're developing Kairo itself. It requires a working Stage 0 build (from #4) plus the patched LLVM submodule. LLVM is a hard requirement for Stage 1; there is no LLVM-free path.
+The language server ships as part of the compiler, so editors only need to know where `kairo` is.
 
-Kairo carries a **minor fork of LLVM** vendored as a submodule. Use it as-is, do not substitute a system or upstream LLVM, the patches are required.
-
-Windows builds require the **VCPKG** package manager to build LLVM. You may need to set the env var `VCPKG_ROOT` to the root of your vcpkg installation.
-
-```bash
-git checkout main
-git submodule update --init --recursive   # pulls the patched LLVM, large download
-kbld kairo                                # must be on PATH, or use ./build/release/<platform>/bin/kbld
-```
-
-The first `kbld` builds the patched LLVM before building Stage 1. This is a long,
-one-time compile, it has not hung. Subsequent builds reuse it.
-
-You can run test files whose entry point is `fn Test() -> i32 { ... }`:
-
-```bash
-kbld test Compiler/Lexer/Lexer.k
-```
-
----
-
-## 6. VSCode Extension (optional, recommended)
-
-VSCode is currently the only editor with LSP support and `.k` syntax highlighting. The language server ships as part of the compiler, so there's nothing extra to run the extension just needs to know where `kairo` is.
-
-### Install
-
-Pick whichever is easiest:
-
-- **VS Code Marketplace** install directly from [the Kairo extension page](https://marketplace.visualstudio.com/items?itemName=KSF.kairo).
-- **Prebuilt VSIX** grab the latest `.vsix` from [kairo-lsp](https://github.com/kairolang/kairo-lsp/) (e.g. `kairo-0.5.5.vsix`) and in VSCode: **Extensions** tab -> **...**menu -> **Install from VSIX…**
-- **Build from source:**
+**VS Code:** install the Kairo extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=KSF.kairo), or a `.vsix` from [kairo-lsp](https://github.com/kairolang/kairo-lsp/). To build it yourself:
 
 ```bash
 git clone https://github.com/kairolang/kairo-lsp/
@@ -220,38 +119,24 @@ npm run build --omit=dev
 npx @vscode/vsce package
 ```
 
-This produces a `.vsix` you install the same way as above.
+If `kairo` is on your `PATH` the extension finds it; otherwise set `kairo.path` in `settings.json`. **Run Kairo File** runs and attaches the debugger; **Run Kairo File with Args** prompts for comma-separated arguments.
 
-### Configure
-
-If `kairo` is on your PATH, the extension finds it automatically no configuration needed. Otherwise set `kairo.path` in your VSCode `settings.json` to the compiler's location. If it can't find the compiler, you'll get a simple "path not set" warning.
-
-### Debugging
-
-With the extension installed, use:
-
-- **Run Kairo File** runs and attaches the debugger
-- **Run Kairo File with Args** prompts for comma-separated args (e.g. `arg1,arg2,arg3`)
-
-Both work with `fn main()` or `fn Test()` entry points.
-
-> **Warning:** with `fn Test()`, VSCode redirects to a temporary file during debugging.
-> Breakpoints work, but **edits aren't saved back to your original file** re-running the
-> debugger resets everything. Use `fn main()` for active development.
+**Zed:** the extension lives in `Extras/LSPClients/zed-kairo` (install it with Zed's "install dev extension"); the tree-sitter grammar is in `Extras/LSPClients/tree-sitter-kairo`.
 
 ---
 
 ## Troubleshooting
 
-**macOS: "cannot verify this app is free of malware" when running a downloaded release binary.**
-Release binaries aren't yet notarized. Clear the quarantine flag:
+**`no seed: no build/<host>/{N-1,release}/bin/kairo and no kairo on PATH`.** `build.py` found no compiler to start from. Unpack a Kairo release and put its `bin/` on `PATH`, or pass `--kairo /path/to/kairo`.
+
+**The seed is too old.** The tree may use language features newer than your seed. Use the latest release as the seed; if the tree is ahead of every release, build the newest release's source first and use that compiler as the seed.
+
+**macOS: "cannot verify this app is free of malware" when running a downloaded release.** Release binaries aren't notarized yet. Clear the quarantine flag:
 
 ```bash
-xattr -dr com.apple.quarantine ./kairo
+xattr -dr com.apple.quarantine /path/to/kairo-0.2.0
 ```
 
-(This does not affect source builds only binaries downloaded from the release page.)
+**macOS / Windows targets need the platform SDK.** Kairo never ships Apple's SDK or Microsoft's MSVC/Windows SDK. On macOS it uses the installed SDK (`xcode-select --install` if `xcrun --show-sdk-path` fails); on Windows, the installed Visual Studio / Windows SDK. Cross-compiling to those targets needs an SDK you supply with `--sysroot`.
 
-**Build fails with `libstdc++` / `use of undeclared identifier 'requires'` / constexpr errors.**
-Your Clang is defaulting to libstdc++ or an older C++ standard. Confirm `clang++ --version`
-reports 18+ and that libc++ is installed. Kairo requires Clang with libc++ and C++23.
+**The first build seems stuck.** It is compiling LLVM; that takes a long time once. `build/` logs each step.

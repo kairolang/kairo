@@ -43,3 +43,6 @@ EOF
 # Self-host pipeline output (private/SELFHOST.md section 4): rebuilt every run.
 /selfhost/scratch/
 /selfhost/logs/
+
+# Scratch at the repo root (agents and hand runs); never commit it.
+/tmp/
