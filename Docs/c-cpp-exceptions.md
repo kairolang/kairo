@@ -26,7 +26,7 @@ fn main() {
 ```
 
 > [!NOTE]
-> Two limits on reading the message from Kairo for now. `e.what()` is a `*const std::c_char` (C's `const char*`), which can be passed on to C or C++ code, as above, or read through C (`strlen(e.what())`), but an f-string prints it as a pointer, `const c_char @ 0x...`, not as text: there is no C-string formatter yet ([Status](/docs/status/#not-compiled-yet)). And on an arm whose class redeclares `what()` (`cxx::std::runtime_error`), the call is reported as ambiguous (SC064E); read the message through a `cxx::std::exception` arm.
+> One limit on reading the message from Kairo for now. `e.what()` is a `*const std::c_char` (C's `const char*`), which can be passed on to C or C++ code, as above, or read through C (`strlen(e.what())`), but an f-string prints it as a pointer, `const c_char @ 0x...`, not as text: there is no C-string formatter yet. `e.what()` also works on an arm for a class that redeclares it, such as `cxx::std::runtime_error`.
 
 A `catch e: T` arm whose `T` is a C++ type that the `try` body cannot [panic](/docs/language/panic/) with catches a C++ exception of type `T`, by C++'s own rules: an exception of a class derived from `T` matches too, and the arms are tried in order. `e` refers to the exception object. Such an arm is never checked against the panic set and never reported as dead. A C++ type that *is* in the body's panic set is an ordinary panic arm.
 

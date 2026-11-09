@@ -143,7 +143,7 @@ An [`@open`](/docs/language/enums-plain/#closed-and-open-enums) plain enum has n
 
 The field must also copy and destroy as plain bytes. Nesting keeps working: `(Color?)?` is still one byte, stored as 4, since `Color?` leaves values to spare, while `((*Foo)?)?` needs a tag, since the pointer's only spare pattern is taken. No program can observe the difference except through `sizeof`.
 
-The compiler generates a [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators) that switches on the tag to destroy the active variant's fields. Copy and move operations follow the same pattern.
+The compiler generates a [destructor](/docs/language/classes-lifecycle/#destructors---op-finally) that switches on the tag to destroy the active variant's fields. Copy and move operations follow the same pattern.
 
 ## Lifecycle category
 

@@ -47,9 +47,9 @@ Parameters are declared as `name: Type`. Each parameter requires an explicit typ
 ```kairo
 fn greet(name: string, loud: bool) {
     if loud {
-        std::println(f"HELLO, {name}!")
+        std::io::println(f"HELLO, {name}!")
     } else {
-        std::println(f"Hello, {name}.")
+        std::io::println(f"Hello, {name}.")
     }
 }
 ```
@@ -76,11 +76,11 @@ When no return type is specified, the function returns `void`:
 
 ```kairo
 fn log(msg: string) {
-    std::println(msg)
+    std::io::println(msg)
 }
 
 fn log_explicit(msg: string) -> void {   // equivalent
-    std::println(msg)
+    std::io::println(msg)
 }
 ```
 
@@ -104,7 +104,7 @@ Functions that never return (they crash, loop forever, or call a no-return funct
 
 ```kairo
 fn fatal(msg: string) -> ! {
-    std::println(f"Fatal: {msg}")
+    std::io::println(f"Fatal: {msg}")
     crash!()
 }
 
@@ -167,7 +167,7 @@ fn max(a: i32, b: i32) -> i32 {
 }
 
 fn log(msg: string) {
-    std::println(msg)
+    std::io::println(msg)
     return   // explicit return from void function valid but optional
 }
 ```
@@ -211,7 +211,7 @@ For constraints beyond type parameter bounds, attach a `requires` clause after t
 
 ```kairo
 fn <T impl ToString> print_value(value: T) requires sizeof T <= 64 {
-    std::println(value as string)
+    std::io::println(value as string)
 }
 ```
 
@@ -289,7 +289,7 @@ class Vec2 {
 }
 ```
 
-See [Operators](/docs/language/operator-overloading/) for the full list of overloadable operators, special operator syntax (`l++`/`r++`, `op as`, `op in`, `op delete`), and restrictions.
+See [Operators](/docs/language/operator-overloading/) for the full list of overloadable operators, special operator syntax (`l++`/`r++`, `op as`, `op in`, `op finally`), and restrictions.
 
 ---
 
@@ -311,7 +311,7 @@ append(&name, "!")
 fn sink(@move s: string) { /* ... */ }
 
 // Generic with bounds
-fn <T impl Printable> show(value: T) { std::println(value as string) }
+fn <T impl Printable> show(value: T) { std::io::println(value as string) }
 
 // Variadic
 fn <...T> log(...args: T) { /* ... */ }

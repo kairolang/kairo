@@ -13,10 +13,10 @@ var add = fn (a: i32, b: i32) -> i32 {
     return a + b
 }
 
-var double = fn (x: i32) -> i32 = x * 2
+var twice = fn (x: i32) -> i32 = x * 2
 
 add(3, 4)     // 7
-double(10)    // 20
+twice(10)    // 20
 ```
 
 Closures have the same type as [function pointers](/docs/language/functions/#function-pointers) `fn(ParamTypes) -> ReturnType`. There is no separate closure type. The one exception is the raw function pointer `unsafe fn(ParamTypes) -> ReturnType` (a plain C function pointer): a closure that captures nothing converts to it, and a closure that captures does not, since it has no function pointer to give. See [Function Types](/docs/language/type-system/#function-types).
@@ -123,7 +123,7 @@ Closures support [default parameter values](/docs/language/functions-parameters/
 
 ```kairo
 var greet = fn (name: string = "world") {
-    std::println(f"Hello, {name}!")
+    std::io::println(f"Hello, {name}!")
 }
 
 greet()          // "Hello, world!"
@@ -295,7 +295,7 @@ var doubled = map([1, 2, 3], fn (x: i32) -> i32 { return x * 2 })
 var add = fn (a: i32, b: i32) -> i32 { return a + b }
 
 // Expression body
-var double = fn (x: i32) -> i32 = x * 2
+var twice = fn (x: i32) -> i32 = x * 2
 
 // Closure, capture by copy (default)
 var x = 10

@@ -115,37 +115,31 @@ Visibility modifiers control access to members from outside the class:
 |---|---|
 | `pub` | Accessible from any module |
 | `priv` | Accessible within the defining class, and anywhere in the file that declares it, free functions included |
-| `prot` | What `priv` allows, plus every class that derives from the defining class, in any module |
+| `prot` | What `priv` allows, plus every file of the declaring file's [module](/docs/language/modules/#visibility-scopes) (the tree under the nearest `module.k`), plus every class that derives from the defining class, anywhere |
 
 Modifiers are applied per-declaration. There are no visibility blocks (`public:` sections).
 
-Kairo checks visibility itself: using a `priv` member from another file, or a `prot` one outside a subclass, is an error that offers to make the member `pub`. Operators are members like any other: a `priv fn op +` is usable only where a `priv` method would be. A base's members reached through a `derives priv` (or `derives prot`) edge are private (protected) to the deriving class and its file.
+Kairo checks visibility itself: using a `priv` member from another file, or a `prot` one outside its module and outside a subclass, is an error that offers to make the member `pub`. A `prot` member of a class whose file is in no module is refused in another file with a warning naming the missing `module.k`. An [`extend`](/docs/language/extends/) of the class in another file of its module reads its `prot` members, so a large class can be split across the files of one module. Operators are members like any other: a `priv fn op +` is usable only where a `priv` method would be. A base's members reached through a `derives priv` (or `derives prot`) edge are private (protected) to the deriving class and its file.
 
-A subclass in another file uses a `prot` member the way C++ allows a protected one:
+A subclass outside the module uses a `prot` member the way C++ allows a protected one:
 
 - an instance field or method only through an object of the subclass's own type, or of a type deriving from it (`self.hits`, `other_counter.hits`), not through a `*Base` or a sibling subclass;
 - a `prot` constructor only as the base initializer `Base::Base(self, ...)` at the start of its own constructor, not to build a separate `Base`.
 
 `prot` statics and nested types have no such restriction.
 
-The C++ that Kairo generates keeps these levels: a `priv` member is `private:` and a `prot` one `protected:`, and the class names its file's functions and types as friends. A C++ program that includes the module sees the members as Kairo has them (see [What crosses an include](/docs/language/c-cpp-exposing/#what-crosses-an-include)).
+The C++ that Kairo generates keeps these levels: a `priv` member is `private:` and a `prot` one `protected:`, and the class names its file's functions and types as friends. C++ has no "module" access, so in a file under a `module.k` a `prot` member is `public:` in C++, and Kairo alone keeps it to the module. A C++ program that includes the module sees the members as Kairo has them (see [What crosses an include](/docs/language/c-cpp-exposing/#what-crosses-an-include)).
 
 ### Default visibility
 
-| Member kind | Default |
-|---|---|
-| Instance / static / const / eval / thread variables | `priv` |
-| Methods, constructors, destructors | `pub` |
-| Operator overloads | `pub` |
-| Static methods | `pub` |
-| Nested types | `pub` |
+A member with no visibility written is `priv`, or `prot` when the class's file is under a `module.k`, whatever its kind: variables, methods, constructors, operators, static methods, nested types. A class meant to be used from other files marks its interface `pub`, its constructors included. (Compiler-made members, such as an implicit copy constructor or destructor, are available wherever the class is.)
 
 ```kairo
-class Account {
-    var balance: f64                  // priv by default
-    pub var owner: string             // explicitly public
+pub class Account {
+    var balance: f64                      // priv by default (prot under a module.k)
+    pub var owner: string                 // explicitly public
 
-    fn Account(self, owner: string) { // pub by default
+    pub fn Account(self, owner: string) { // a constructor other files may call
         self.owner = owner
         self.balance = 0.0
     }
@@ -278,7 +272,7 @@ See [Variables](/docs/language/variables/#default-initialization) for default in
 
 ---
 
-Destructors are covered in [Destructors - Delete Operators](/docs/language/classes-lifecycle/#destructors---delete-operators).
+Destructors are covered in [Destructors - op finally](/docs/language/classes-lifecycle/#destructors---op-finally).
 
 Lifecycle categories are covered in [Lifecycle Categories](/docs/language/classes-lifecycle/#lifecycle-categories).
 
@@ -444,7 +438,7 @@ class Cache {
         self.hit_count = 0
     }
 
-    fn lookup(const self, index: i32) -> i32 {
+    fn lookup(const self, index: usize) -> i32 {
         self.hit_count += 1   // ok: mutable
         return self.data[index]
     }
@@ -535,7 +529,7 @@ Special operators beyond arithmetic:
 
 | Syntax | Purpose |
 |---|---|
-| `fn op delete(self)` | Destructor |
+| `fn op finally(self)` | Destructor |
 | `fn op as(self) -> TargetType` | Custom type conversion via `as` |
 | `fn <T> op await(self, obj: std::forward<T>) -> T` | Custom awaitable |
 
@@ -590,7 +584,7 @@ Structs and classes are distinct types:
 
 | | Class | Struct |
 |---|---|---|
-| Member default visibility | `priv` for variables | `pub` for all members |
+| Member default visibility | `priv` (`prot` under a `module.k`) | `pub` for all members |
 | Methods in body | Yes | No (use [extends](/docs/language/extends/)) |
 | Aggregate initialization | Only if the class declares no constructor | Yes (`Foo { field: value }`) |
 | Inheritance | `derives` | Not supported |
@@ -635,7 +629,7 @@ class UniqueFile {
         other.handle = &null
     }
 
-    fn op delete(self) {
+    fn op finally(self) {
         close_file(self.handle)
     }
 }

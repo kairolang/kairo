@@ -2,12 +2,15 @@
 
 ## The Toolchain Model
 
-Kairo ships two drivers. Both embed the **same pinned Clang**. Neither invokes a system compiler.
+Kairo ships two drivers, `kairo` and `kcc`, written in Kairo (the compiler compiles itself). Both embed the **same pinned Clang** (an LLVM 22 fork). Neither invokes a system compiler.
+
+A release archive holds `bin/` (`kairo`, `kcc`, `kld`, `kfmt`, `llvm-symbolizer`, `llvm-ar`, `llvm-ranlib`, `llvm-lib`) and `lib/` (including `lib/clang/22`). There are no `clang` or `clang++` binaries: `kairo` and `kcc` run clang in-process and `kld` runs lld in-process. The `lib/` tree holds Clang's resource directory with compiler-rt, and the builtin, std and runtime sources). Archives exist for static musl Linux (x86_64, i686, aarch64, armv7, riscv64), Windows (MinGW; x86_64, i686, aarch64, armv7), FreeBSD (x86_64, aarch64), NetBSD (x86_64) and macOS (x86_64 10.15+, arm64 11+). Only x86_64 Linux is run by the test suite. The sysroots for every cross target are one separate archive, unpacked as `<prefix>/sysroot`.
 
 ### `kairo`: the Kairo compiler
 
 ```sh
-kairo foo.k              # produces foo.out
+kairo foo.k              # links ./a.out
+kairo foo.k -o foo       # names the output
 ```
 
 When `foo.k` contains [`ffi "c++" import "header.h"`](/docs/language/imports/#ffi-header-imports), `kairo` runs the pinned Clang's frontend over `header.h` to extract declarations. At the interop boundary, Kairo hands **that same Clang instance** a token stream containing exactly what it would emit if you requested a C++ header for `foo.k`. The compiler that read the header and the compiler that consumes Kairo's declarations are byte-identical, so there is no version skew to reconcile.
@@ -42,21 +45,21 @@ The same applies to the C++ standard library. A program that uses libc++ must li
 
 ### Cross-compilation
 
-Both `kairo` and `kcc` are full native cross-compilers. Targets are selected by triple, and system libraries come from **curated sysroots** hosted for download rather than from the host machine. A `--target` build is hermetic; a build without one also searches the host's system directories, after the sysroot (see [Host headers and libraries](#host-headers-and-libraries)):
+Both `kairo` and `kcc` are full native cross-compilers. Targets are selected by triple, and system libraries come from **sysroots** that `--target` generates on demand (and caches) rather than from the host machine. Two are never shipped or generated: Apple's SDK and Microsoft's MSVC / Windows SDK. On macOS the installed SDK is used (`xcrun --show-sdk-path`), on Windows the installed MSVC / Windows SDK, and cross-compiling to either from another host needs an SDK you supply with `--sysroot`. A `--target` build is hermetic; a build without one also searches the host's system directories, after the sysroot (see [Host headers and libraries](#host-headers-and-libraries)):
 
 ```sh
 kcc --target=x86_64-pc-windows-msvc foo.cc
 kairo --target=aarch64-unknown-linux-gnu foo.k
 ```
 
-Sysroots are pinned to specific library versions (a particular glibc, a particular Windows SDK), so a build is reproducible across machines. Custom sysroots can be curated and registered locally.
+Sysroots are pinned to specific library versions (a particular glibc, a particular Windows SDK), so a build is reproducible across machines. A sysroot of your own can be given with `--sysroot=<dir>` (without `--target`); its `SYSROOT.toml` describes the layout.
 
 How `--target` finds its sysroot:
 
-- A `--target` uses the sysroot bundled with the compiler: `<prefix>/sysroot/<dir>`, where `<prefix>` is the directory above the one holding `kairo`.
+- A `--target` uses the sysroot generated for it, kept beside the compiler: `<prefix>/sysroot/<dir>`, where `<prefix>` is the directory above the one holding `kairo`.
 - The folder is matched by target, not by spelling. Vendor, OS version, and LLVM's aliases do not matter, but the sub-architecture does. So `x86_64-pc-windows-msvc` finds `x86_64-windows-msvc`, `x86_64-linux-gnu` finds `x86_64-linux-gnu-glibc2.31`, `aarch64-apple-darwin` finds `arm64-apple-macosx`, and `arm64e` does not match `arm64`.
 - `-m32` / `-m64` look up the architecture they switch to: `--target=x86_64-linux-musl -m32` uses `i686-linux-musl`.
-- A bundled sysroot takes precedence over `--sysroot`. With no matching folder, `--sysroot` is used if given; otherwise there are no system headers.
+- A bundled sysroot takes precedence over `--sysroot`. With no matching folder, `--sysroot` is used if given; otherwise the compiler warns ([P008W](/docs/language/diagnostics/)) and there are no system headers.
 - A matching folder without a loadable `SYSROOT.toml` is an error: [P007E](/docs/language/diagnostics/#p007e-bundled-sysroot-for-the-target-is-malformed) "bundled sysroot for the target is malformed".
 
 ### Host headers and libraries
@@ -160,16 +163,54 @@ Every link, with `kcc` or `kairo`, also caches the runtime's C objects (the allo
 
 A template instance used on both sides is instantiated by each, and the linker keeps one: the include carries no `extern template`, because the C++ object and the Kairo object may come from different runs.
 
-### Manual workflow (without `kcc`)
+### Incremental compilation
 
-If you prefer a standard C++ build process, compile the Kairo source to a static library and a generated header, then link normally:
+With `--cache-dir <dir>` (`-Xkairo --cache-dir=<dir>` through `kcc`), `kairo` reuses the object of every Kairo file whose compiled form has not changed since an earlier run against the same directory. Without it nothing is cached and every run is a full build.
 
 ```sh
-kairo my_code.k -c -o my_code -xc++ -header my_code.hh
-kcc main.cpp my_code.o -o main
+kairo main.k -o main --cache-dir build/cache   # first run: every file compiled
+kairo main.k -o main --cache-dir build/cache   # no change: every object reused
 ```
 
-Using a third-party compiler at this step will work, but see [Link-time ABI verification](/docs/language/c-cpp-abi/#link-time-abi-verification) for what you give up.
+The unit is one file. Every run still parses and type-checks the whole program; a reused file skips code generation and the C++ compile behind it, which is most of a build. A file's object is keyed by what its compile would be given, worked out after type checking:
+
+- Editing the body of an ordinary function recompiles only its own file.
+- Changing something an importer compiles against recompiles the file and the importers that use it: a signature, a default argument, a generic or `inline` body, a class's layout (private fields included), or a fact the compiler inferred from a body, such as a function's purity. A declaration no importer uses recompiles nobody else.
+- Editing a C or C++ header the program imports recompiles every Kairo file of the program.
+- Anything that changes objects recompiles everything: another compiler build, another target, or an option that reaches code generation (`-O`, `-g`, `-D`, `-f` flags, sanitizers). `-A`, a Kairo-only `-W`, `--error-format` and link options (`-l`, `-L`, `--rpath`, `--static`) recompile nothing. For now a `-W` that reaches Clang (`-Wall`, say) recompiles everything too, because a reused object must report the same C++ warnings and those are not stored yet.
+
+A reused file still reports its warnings: type checking runs every time, and the compiler's own code-generation warnings are produced again. A file Clang warns about is never stored, so it is compiled, and warns, on every run.
+
+Each object carries its cache key in a section the linker drops (`.kairo.cache` on ELF, `__KAIRO,__cache` on Mach-O, `.kcache` on COFF), so the linked program is byte-identical to a clean build's. Without `-g` the key holds no path of the machine, so a cache directory can be copied to another checkout or machine and is used wherever the keys match. An object whose record is missing, damaged or names another key is never used: the file is compiled again and the entry replaced. Builds with different options or targets keep their objects side by side under `<dir>/kairo-cache-v<N>/`.
+
+On a terminal, a build shows one status line, such as `[codegen 41/338, 297 reused] Sema/Type/CallTyping.k  0:09`, that disappears before any diagnostic prints. `--progress=never` turns it off; `--progress=lines` prints one `@progress phase=sema done=212 total=338 file=...` line per finished file instead, for a script to read. The default, `auto`, shows the line whenever stderr is a terminal (unless `TERM` is `dumb`), and never when output is piped or redirected.
+
+`--print-stats` prints each run's counts (`[stats] incremental: 41 reused, 2 compiled, 2 stored`), `-v` names each file that compiled and the part of its key that changed, and `--force-recompile` compiles every file for one run.
+
+### Driver flags
+
+| Flag | Meaning |
+|---|---|
+| `--progress=auto\|always\|never\|lines` | the status line described above; `auto` (default) only on a terminal |
+| `--sema-threads=N` | threads that type-check import groups in parallel; 0 (default) follows `--threads`, 1 runs one at a time |
+| `--codegen-threads=N` | threads of the per-file C++ compiles; 0 (default) follows `--threads`, never more than the file count |
+| `--interface-pch=auto\|on\|off` | share one precompiled copy of the Kairo interfaces between files; `auto` (default) builds it only for larger programs |
+| `--cache-dir <dir>`, `--force-recompile` | [incremental compilation](#incremental-compilation) |
+| `-Wconst-self` | opt-in lint: a method that never mutates `self` should be declared `const self` (with a fix-it) |
+| `--help-hidden` | also list internal and not-yet-implemented flags |
+
+Pretty diagnostics print the location as `file:line:col`.
+
+### Manual workflow (without `kcc`)
+
+If you prefer a standard C++ build process, compile the Kairo source to an object and write its C++ headers, then link normally. `--emit-headers <dir>` writes one header per module (`gen/my_code.hh`, plus the builtin ones it includes); the C++ file includes `my_code.hh` instead of the `.k`. `--emit-scope=inputs` writes an object for `my_code.k` only, as `clang -c` does, not for every Kairo file the run reaches:
+
+```sh
+kairo my_code.k -c --emit-scope=inputs -o my_code.o --emit-headers gen
+kcc -Igen main.cpp my_code.o -o main
+```
+
+The final link needs Kairo's builtin library and runtime, which `kcc` supplies. Using a third-party compiler for the link means linking those yourself, and gives up the checks described in [Link-time ABI verification](/docs/language/c-cpp-abi/#link-time-abi-verification).
 
 > [!TIP]
 > `kcc` is the simplest path for mixed codebases. The manual workflow is better when Kairo is a dependency consumed by an existing CMake/Meson/Bazel project that manages its own link step.
@@ -178,40 +219,18 @@ Using a third-party compiler at this step will work, but see [Link-time ABI veri
 
 ## Compiler Flags Across the Boundary
 
-Kairo's flags and Clang's flags are not the same set. Some flags exist on one side only. `kcc` and `kairo` perform **bidirectional translation**, not passthrough: a flag given to one driver is translated to its equivalent on the other side when a translation unit is mixed.
-
-Flags fall into three categories.
-
-### 1. Translatable
-
-The flag has an equivalent on both sides. It is translated and applied to both. This is the common case and requires nothing from the user.
-
-### 2. Single-language
-
-The flag exists on one side only. This is legal **as long as the translation unit stays in one language**. The moment the TU becomes mixed (a `.cc` that includes a `.k`, or a `.k` that `ffi`-imports a header), the flag is an error:
+Kairo's flags and Clang's flags are not the same set. `kcc` translates a Clang option into the Kairo flag when Kairo has one (`-O2`, `-g`, `-fno-exceptions`, `-fstack-protector-strong`, `--target`), and any other option reaches the C and C++ compiles as given, never the link. `-Xkairo <word>` and `--cxx-flags=<flag>` say which side a word is for.
 
 ```sh
-kcc foo.cc --fno-float-prec          # fine: foo.cc is pure C++
+kcc main.cpp -fstack-protector-strong     # -> --stack-protector=strong, for both sides
+kcc main.cpp -fno-strict-aliasing         # no Kairo flag: C++ compile only
+kairo main.k --cxx-flags=-Wshadow         # Clang flag for the C/C++ inputs and ffi headers only
 ```
 
-```
-error: '--fno-float-prec' has no Kairo equivalent and cannot be used in a mixed translation unit
-  note: foo.cc:12 includes "bar.k", which makes this translation unit mixed
-  note: remove the flag, or move the Kairo dependency into a separate translation unit
-```
+> [!NOTE]
+> Not yet: a flag that exists on one side only is not rejected in a mixed translation unit, and neither are layout-affecting flags (`-fshort-enums`, struct packing). They are accepted and applied to the C/C++ side alone, so the two sides can silently disagree on a layout. Rejecting them with a diagnostic naming the flag and the include that made the unit mixed is planned. Until then, do not pass a layout-changing flag to a unit that touches Kairo types. `-fno-rtti` is a Kairo flag too (`-f[no-]rtti`), and `kcc` translates it.
 
-The diagnostic always names both the flag and the include that made the TU mixed. A flag that has worked for years being rejected is only actionable if the reason is visible.
-
-### 3. Layout-affecting
-
-Some flags change how C++ lays out types or shapes vtables: `-fno-rtti`, `-fshort-enums`, struct-packing flags. Kairo's ABI is fixed and cannot follow them. These are rejected in any translation unit that touches Kairo types, and unlike category 2 there is no way to make them work:
-
-```
-error: '-fno-rtti' changes C++ type layout and cannot be used in a translation unit containing Kairo types
-  note: Kairo's ABI is fixed; this flag would move it out from under the Kairo side
-```
-
-The distinction matters because the fix differs. Category 2 means *drop the flag*. Category 3 means *this can never work in a mixed TU*.
+An unknown option is an error (`error: unknown argument: '--fno-float-prec'`), as in Clang.
 
 ### Exceptions
 

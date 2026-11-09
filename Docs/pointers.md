@@ -12,7 +12,7 @@ Kairo has two pointer types: safe pointers (`*T`) with compiler-tracked lifetime
 var x = 42
 var p: *i32 = &x     // p points to x
 *p = 100              // dereference and assign, no null check
-std::println(*p)      // 100
+std::io::println(*p)      // 100
 ```
 
 ### Non-Null Guarantee
@@ -33,7 +33,7 @@ If you need a pointer that might be absent, use `*T?`, a nullable pointer (see [
 var p: *i32? = get_pointer()   // might be null
 
 if p? {
-    std::println(*p)   // safe: compiler has verified p is non-null
+    std::io::println(*p)   // safe: compiler has verified p is non-null
 }
 ```
 
@@ -42,7 +42,7 @@ For a raw pointer with no compiler tracking, use `unsafe *T`. It is the only poi
 ```kairo
 var raw: unsafe *i32 = &null   // ok: raw pointers can be null
 if raw != &null {
-    std::println(*raw)
+    std::io::println(*raw)
 }
 ```
 
@@ -289,6 +289,16 @@ var unsafe *raw = unsafe std::alloc<i32>(sizeof i32 * 10)   // raw allocation, 1
 unsafe std::free(raw)
 ```
 
+A heap object is freed with `@destroy p`, which runs the object's destructor ([`fn op finally`](/docs/language/classes-lifecycle/#destructors---op-finally)) and returns the memory to the same allocator `@create` used. Kairo has no `delete` expression.
+
+```kairo
+var *obj = @create Config(8080)
+// ...
+@destroy obj
+```
+
+For memory that comes from or goes to C++ code, `@cxx::new T(args)` is a plain C++ `new` (an `unsafe *T`) and `@cxx::delete p` a plain C++ `delete`; see [C++ memory](/docs/language/c-cpp-memory/#memory-that-belongs-to-c-cxxnew-and-cxxdelete).
+
 See [Tether](/docs/language/tether/) for how allocation interacts with lifetime tracking.
 
 ---
@@ -364,7 +374,7 @@ var q: *i32? = find_ptr()   // might be null must check before use
 var r: unsafe *i32 = &null  // raw pointer, may hold &null, no tracking
 
 if q? {
-    std::println(*q)         // compiler knows q is non-null here
+    std::io::println(*q)         // compiler knows q is non-null here
 }
 
 var *val = q ?? &fallback    // *i32: use fallback pointer if q is null
@@ -389,7 +399,7 @@ var raw: unsafe *i32 = unsafe &x
 // Nullable pointer (*T itself is never null)
 var maybe: *i32? = null
 if maybe? {
-    std::println(*maybe)
+    std::io::println(*maybe)
 }
 
 // Const pointer

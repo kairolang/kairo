@@ -30,7 +30,7 @@ This holds for the files you compile, too. A `.k` named on the command line, or 
 
 `main` is the exception: a file-scope `fn main` is the program's global `int main` in whatever file it is declared, never in a namespace, and so is the `main` a [script](#scripts) gets. A `main` inside a `module foo { }` block is the ordinary function `foo::main`.
 
-A file outside every [search directory](#search-directories-and-library-names) and every [library](#naming-a-library) has no module path. Its declarations are emitted in a namespace named after the file's stem (`/tmp/scratch.k` becomes `namespace scratch`), its `priv` and `internal` declarations sit in an unnamed namespace and cannot be reached from any other translation unit, and it has no header. A file-scope declaration with no visibility written is `pub`.
+A file outside every [search directory](#search-directories-and-library-names) and every [library](#naming-a-library) has no module path. Its declarations are emitted in a namespace named after the file's stem (`/tmp/scratch.k` becomes `namespace scratch`), its `priv` and `internal` declarations sit in an unnamed namespace and cannot be reached from any other translation unit, and it has no header. A file-scope declaration with no visibility written is `priv`, or `prot` when a `module.k` is above the file (see [Visibility on Top-Level Declarations](#visibility-on-top-level-declarations)).
 
 Two files under one root that both open `module codec` reopen one namespace, as in C++. Reopening never crosses a root.
 
@@ -62,12 +62,12 @@ A directory with a `module.k` file is a **library**. The entry file controls wha
 
 ```kairo
 // utils/module.k
-pub import strings    // re-export utils/strings.k
-pub import io         // re-export utils/io.k
-priv import internal  // NOT re-exported (implementation detail)
+pub import self::strings    // re-export utils/strings.k
+pub import self::io         // re-export utils/io.k
+priv import self::internal  // NOT re-exported (implementation detail)
 ```
 
-Imports inside `module.k` are **relative to the directory**. [`pub import strings`](/docs/language/imports/#re-export-pattern) resolves to `utils/strings.k`.
+An entry file reaches the files beside it with [`self::`](/docs/language/imports/#sibling-imports): [`pub import self::strings`](/docs/language/imports/#re-export-pattern) resolves to `utils/strings.k`. In a [named library](#naming-a-library) a plain path works too, since a library's files resolve plain paths from the library's own top directory; `self::` says the same thing in any directory, named or not.
 
 Consumers of the library see only the public API:
 
@@ -95,7 +95,7 @@ A library gets a name from its `module.k`. When the first declaration in `module
 // vendor/geometry/module.k
 module geo
 
-pub import shapes
+pub import self::shapes
 ```
 
 ```kairo
@@ -111,7 +111,7 @@ The bare `module name` declaration is only allowed in a `module.k`, and only as 
 
 The compiler looks for named libraries in each search directory and in its immediate subdirectories. It does not search deeper, because a search directory can be a whole repository. A `module.k` deeper in the tree still names the files under it, but its library cannot be imported by name from outside it. Inside it, its files import each other by the library's name (`import geo::shapes`) or by their path in it (`import shapes`), as in any library.
 
-Import a library by its name. A file in a library never falls back to the search directories: a library does not depend on what one build's command line contains.
+Import a library by its name. A file in a library never falls back to the search directories: a library does not depend on what one build's command line contains. Files beside each other can always use [`self::`](/docs/language/imports/#sibling-imports), and files anywhere in one module [`module::`](/docs/language/imports/#module-imports).
 
 > [!NOTE]
 > Older compilers named a directory after its folder (`-I ~/foo` was library `foo`) or with `-I name=dir`. Both are gone. An `-I` with an `=` that is not an existing directory is now an error that says where the name goes: put `module name` as the first line of that directory's `module.k`.
@@ -123,6 +123,8 @@ One module path must mean one file, so the compiler never chooses between two fi
 - Two libraries with the same name are an error (R018E) before anything is compiled. Rename one library's `module` declaration.
 - The same path in two search directories is an error (R017E) at the import that reaches them. With `./a.k` and `inc/a.k` under `-I inc`, both files are module `a`, so `import a` reports both. Remove or rename one, or give one directory a `module.k` that names it as a library.
 - Two files that end up with one module path any other way are an error (R018E) that names both: a deeper `module.k` claiming a name another library already has, or two files given on one command line from two search directories (`kairo a.k inc/a.k -I inc`, rejected before either is compiled, since both would be module `a` and write one object).
+
+- A file and a library entry with one name in the place an import looks (`util.k` and `util/module.k`) are an error (R005E) at the import that reaches them. Rename or remove one.
 
 Giving the same directory twice (`-I inc -I inc`, or a symlink and the directory it points to) is not a collision, and neither is an `-I` naming the standard library's own directory.
 
@@ -198,11 +200,15 @@ prot module platform {
 
 | Modifier | Scope |
 |---|---|
-| `pub` (default) | Any module that imports this module |
-| `priv` | Current file only |
-| `prot` | Current file and sibling files in the same library subtree |
+| `pub` | Everywhere: any file that imports this one |
+| `prot` | Every file of the declaring file's module |
+| `priv` | The declaring file only |
 
-`prot` (protected) is scoped to the **library subtree**, not the immediate directory. Any file anywhere under a library's directory tree can access `prot` declarations from any other file in that same library. This is analogous to "package-private" in other languages.
+A file's **module** is the directory tree under the nearest directory, at or above the file, that holds a `module.k`. The `module.k` does not have to name a library (an empty one is enough): it marks where a module starts. That directory is also the **module root** that [`import module::x`](/docs/language/imports/#module-imports) resolves from, so the files that share `prot` are exactly the files one `module::` path reaches. `prot` (protected) reaches every file anywhere under that directory, including subdirectories that have no `module.k` of their own; a deeper `module.k` starts a separate module. This is analogous to "package-private" in other languages.
+
+A file with no `module.k` above it belongs to no module, and its `prot` reaches only what `priv` reaches: the file itself (and, for a class member, the classes deriving from it). Using such a `prot` declaration from another file is the same error as using a `priv` one, with a warning (SC272W) on the use that says a `module.k` is missing to share it.
+
+A module (namespace) block written with no modifier takes no visibility of its own: each declaration in it has its own.
 
 ## Module Reopening
 
@@ -217,7 +223,7 @@ pub module codec {
 
 ```kairo
 // compression.k
-import encoding::codec
+import self::encoding::codec
 
 pub module codec {
     pub fn compress(data: [byte]) -> [byte] { ... }
@@ -226,8 +232,8 @@ pub module codec {
 
 ```kairo
 // main.k
-import encoding
-import compression
+import self::encoding
+import self::compression
 
 encoding::codec::encode_base64(data)    // defined in encoding.k
 compression::codec::compress(data)      // defined in compression.k
@@ -245,7 +251,7 @@ The `::` operator resolves names uniformly across all scoping contexts:
 
 | Context | Example |
 |---|---|
-| Module access | `std::println(...)` |
+| Module access | `std::io::println(...)` |
 | Library submodule | `math::vector::cross_product(...)` |
 | Class static members | `Counter::count` |
 | Enum variants | `Direction::North` |
@@ -261,19 +267,19 @@ There is no separate syntax for module access vs type member access, all use `::
 ```kairo
 import std
 
-std::println("hello")
+std::io::println("hello")
 @create i32(42)
 ```
 
 Individual items can be imported selectively:
 
 ```kairo
-import std::{println, create}
+import std::io::println
 
 println("hello")
 ```
 
-[**Core language primitives**](/docs/language/primitives/) (`i32`, `string`, `bool`, `[T]`, etc.) and **built-in syntax** (`if`, `for`, `match`, etc.) are always available without any import. Only **standard library functions and types** (`std::println`, `std::parse`, `std::Shared`, etc.) require an explicit import.
+[**Core language primitives**](/docs/language/primitives/) (`i32`, `string`, `bool`, `[T]`, etc.) and **built-in syntax** (`if`, `for`, `match`, etc.) are always available without any import. Only **standard library functions and types** (`std::io::println`, `std::parse`, `std::Shared`, etc.) require an explicit import.
 
 See [Imports](/docs/language/imports/) for import syntax and the `pub import` pattern for re-exporting.
 
@@ -300,11 +306,11 @@ pub fn fb(n: i32) -> i32 { return fa(n) }
 pub fn common_utility() { ... }
 
 // a.k
-import shared
+import self::shared
 // no import b
 
 // b.k
-import shared
+import self::shared
 // no import a
 ```
 
@@ -312,10 +318,11 @@ Circular dependencies at the module level reflect circular dependencies in the d
 
 ## Visibility on Top-Level Declarations
 
-All top-level declarations (functions, classes, modules, constants, etc.) default to `pub` when no visibility is written. Use `priv` to restrict to the current file and `prot` for library-internal visibility:
+A top-level declaration (function, class, constant, ...) with no visibility written is `priv` to its file, or `prot` to its module when the file is under a `module.k`. Write `pub` on what other modules may use:
 
 ```kairo
 pub fn public_api() { ... }
+fn helper() { ... }              // priv, or prot under a module.k
 priv fn internal_helper() { ... }
 prot fn library_internal() { ... }
 
@@ -326,6 +333,11 @@ pub eval MAX_CONNECTIONS = 1024
 priv static request_count: i32 = 0
 priv thread request_id: u64 = 0
 ```
+
+Using a declaration where it is not visible is an error at the use, with a note at the declaration and a fix-it that makes it `pub`: SC242E when it is reached through its module (`geo::area()`) or named as a type, R047E when an `import geo::*` brought its bare name in.
+
+> [!NOTE]
+> Until 2026-11-08 an unmarked declaration was `pub` (a class's variables `priv`). The standard library and `builtin` still follow that rule until they are marked, and so does the compiler's own source, built with an internal flag.
 
 See [Imports](/docs/language/imports/#visibility-on-imports) for how visibility affects what is re-exported via `pub import`.
 ## See also

@@ -116,7 +116,7 @@ b.x = 9.0
 a.x   // still 1.0
 ```
 
-This is a hard guarantee. Extending a destructor (`fn op delete`), copy assignment (`fn op =`), or move assignment onto a struct is a compile error. If you need custom lifecycle management, use a [class](/docs/language/classes-lifecycle/#the-rule-of-three).
+This is a hard guarantee. Extending a destructor (`fn op finally`), copy assignment (`fn op =`), or move assignment onto a struct is a compile error. If you need custom lifecycle management, use a [class](/docs/language/classes-lifecycle/#the-rule-of-three).
 
 ---
 
@@ -153,7 +153,7 @@ v.length()   // 5.0
 | Allowed | Not allowed |
 |---|---|
 | Methods | Constructors |
-| Static functions | Destructors (`fn op delete`) |
+| Static functions | Destructors (`fn op finally`) |
 | Arithmetic / comparison operators | Copy / move assignment (`fn op =`) |
 | `fn op as` (type conversion) | |
 | `fn op in` (iteration) | |

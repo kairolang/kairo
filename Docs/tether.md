@@ -11,11 +11,11 @@ The answer to that question and only the answer determines what code is generate
 Tether operates on [safe pointers](/docs/language/pointers/#safe-pointers-t) (`*T`) only. [Raw pointers](/docs/language/pointers/#raw-pointers-unsafe-t) (`unsafe *T`) carry no obligations and are never analyzed. The programmer owns their correctness.
 
 > [!WARNING]
-> Tether is not yet implemented. The current compiler is **Stage 1**; Tether development begins at **Stage 2**. The roadmap:
+> Tether is not yet implemented. The current compiler is **Stage 1.5**; Tether development begins at **Stage 2**. The roadmap:
 >
-> - **Stage 0** (frozen): bootstrap compiler written in C++. Kept only to bootstrap Stage 1.
-> - **Stage 1** (current): self-hosted compiler. No lifetime analysis.
-> - **Stage 1.5**: Stage 1 migrated to Kairo's standard library, fully self-hosting.
+> - **Stage 0** (retired): the original compiler, written in C++. It was used only to bootstrap Stage 1.
+> - **Stage 1**: the compiler written in Kairo, built by Stage 0. No lifetime analysis.
+> - **Stage 1.5** (current, 0.2.0): Stage 1 migrated to Kairo's standard library. It compiles itself. No lifetime analysis.
 > - **Stage 2**: compiler rewritten using Kairo's extended feature set. **Tether work begins here.**
 >
 > This page describes the intended design and target semantics. The analysis is the target, not the current state. A separate formal paper will carry the full proofs; this page states the model and the obligations precisely enough to implement against, but is not itself the proof.
@@ -43,16 +43,16 @@ A destructor is **timing-insensitive** if and only if it does nothing but free m
 var *foo = @create SomeClass()    // trivial destructor
 use(foo)
 // @destroy foo inserted here
-std::println(10)
+std::io::println(10)
 ```
 
-**Non-trivial destructors** (a user-defined `op delete`, or any member with one file close, lock release, flush, disconnect) run at the **end of the owning binding's lexical scope**, in reverse declaration order. Tether does not move these to last use:
+**Non-trivial destructors** (a user-defined `op finally`, or any member with one file close, lock release, flush, disconnect) run at the **end of the owning binding's lexical scope**, in reverse declaration order. Tether does not move these to last use:
 
 ```kairo
 fn example() {
     var *cfg = @create Config(8080)    // side-effecting destructor
     use(cfg)
-    std::println(10)
+    std::io::println(10)
 }
 // cfg's destructor runs here, at the brace not after use(cfg)
 ```

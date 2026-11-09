@@ -8,7 +8,7 @@ Parameters can have default values. When a caller omits a defaulted argument, th
 
 ```kairo
 fn greet(name: string = "world") {
-    std::println(f"Hello, {name}!")
+    std::io::println(f"Hello, {name}!")
 }
 
 greet()          // "Hello, world!"
@@ -103,6 +103,15 @@ create_user("Grace", 22)                          // country="USA"
 create_user(name: "Frank", age: 30, country: "CA") // all explicit
 ```
 
+Naming does not need defaults. Any parameter can be named, so a call can list its arguments in any order; they are still evaluated left to right as written (see [Evaluation order](#evaluation-order)). A name that matches no parameter is an error:
+
+```kairo
+fn sub(a: i32, b: i32) -> i32 { return a - b }
+
+sub(b: 1, a: 3)   // 2: matched by name, not position
+sub(x: 1, a: 3)   // error [SC019E]: no parameter named 'x'
+```
+
 ---
 
 ## Variadic Functions
@@ -143,7 +152,7 @@ interface Named {
 
 fn <...T impl Named> print_all(...args: T) {
     for arg in args {
-        std::println(arg as string)
+        std::io::println(arg as string)
     }
 }
 

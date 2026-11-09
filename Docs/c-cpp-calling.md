@@ -10,7 +10,7 @@ ffi "c++" import "my_code.hh";
 
 fn main() {
     var obj = MyClass("Kairo")
-    std::println(f"name = {obj.get_name()}")
+    obj.greet()
     my_function(42)
 }
 ```
@@ -24,13 +24,13 @@ Given this C++ header:
 
 class MyClass {
 public:
-    MyClass(std::string name) : name(name) {}
-    std::string get_name() const { return name; }
+    MyClass(const char *name) : name(name) {}
+    void greet() const { std::cout << "name = " << name << std::endl; }
 private:
     std::string name;
 };
 
-void my_function(int x) {
+inline void my_function(int x) {
     std::cout << "Hello from C++! x = " << x << std::endl;
 }
 ```
@@ -38,7 +38,7 @@ void my_function(int x) {
 Build and run:
 
 ```sh
-kairo main.k
+kairo main.k -o main
 ./main
 ```
 
@@ -49,6 +49,8 @@ Hello from C++! x = 42
 
 > [!NOTE]
 > `ffi "c++"` invokes the pinned Clang's frontend internally to parse the header. All exported declarations (functions, classes, enums, templates) become available in Kairo's scope with their original names and signatures. No code generation or binding step is visible to the user.
+
+Kairo, not clang, decides which declaration a call means. Overload ranking, argument-dependent lookup, template specialization selection and `requires` / SFINAE constraints on imported declarations are all resolved by Kairo's own semantic analysis, with C++'s rules (so a Kairo and a C++ caller of the same overload set get the same answer). Clang is asked for exactly two things: to complete the instance of an imported class template (`cxx::std::vector<i32>` gets its members from clang's instantiation), and to deduce the template arguments of an imported function-template candidate. Everything it is asked is an answer about one declaration, never a choice between several.
 
 An imported function's default arguments are applied by C++, which can only leave out trailing arguments. Naming a later parameter while an earlier defaulted one is omitted is an error (SC107E); pass the earlier ones explicitly. See [Functions](/docs/language/functions-parameters/#defaults-on-imported-c-functions).
 
@@ -102,14 +104,15 @@ In a type, `timezone` is then the struct; in an expression, it is still the vari
 
 ## The `ffi` Keyword
 
-`ffi` controls linkage and name mangling. It can be applied to individual declarations or to blocks.
+`ffi` controls linkage and name mangling. It is written on a declaration.
+
+> [!NOTE]
+> Not yet: the block form `ffi "c++" { fn ... }` type-checks but stops code generation with an internal compiler error (`EmitIR: decl kind FFIBlockDecl has no body to emit`). Write `ffi "c++"` or `ffi "c"` on each declaration.
 
 ```kairo
 // C++ linkage: name mangling, overloading, classes, templates all permitted
-ffi "c++" {
-    fn compute(x: i32) -> i32 {
-        return x + 1;
-    }
+ffi "c++" fn compute(x: i32) -> i32 {
+    return x + 1;
 }
 
 // C linkage: no name mangling, same restrictions as extern "C" in C++
@@ -137,7 +140,7 @@ Name mangling is covered in [ABI Contract & Verification](/docs/language/c-cpp-a
 From Kairo, the C++ standard library is always reached through `cxx::std::`:
 
 ```kairo
-ffi "c++" import <vector>;
+ffi "c++" import "vector"
 
 fn example() {
     var v: cxx::std::vector<i32>
@@ -148,13 +151,16 @@ fn example() {
 Kairo's standard library lands inside `namespace kairo`, which is why a C++ translation unit sees Kairo's library under `kairo::` and its own under the unqualified `std::` it already uses. Nothing is renamed on the C++ side. Your own code lands in its module's namespace, the files you compile included, or, for a file outside every search directory, in a namespace named after the file's stem. See [Modules](/docs/language/modules/#module-paths-are-c-namespaces).
 
 > [!NOTE]
-> `inline "c++"` blocks are not supported from Stage 1 onward. Use `ffi "c++"` to import declarations and call them as ordinary Kairo symbols. The older `__inline_cpp("...")` form is likewise removed.
+> `inline "c++"` blocks are not supported. Use `ffi "c++"` to import declarations and call them as ordinary Kairo symbols. The older `__inline_cpp("...")` form is likewise removed.
 
 ---
 
 ## Inline ASM
 
 For cases where you need to embed hardware-specific instructions, use `inline "asm"` blocks. Kairo uses the extended assembly syntax (outputs, inputs, and clobbers) to allow safe interaction between assembly and Kairo variables.
+
+> [!NOTE]
+> Not yet: an `inline "asm"` block parses and type-checks, but code generation does not emit it. A program containing one stops with an internal compiler error (`EmitIR: inline foreign block; not emitted yet`). The examples below show the intended syntax.
 
 ```kairo
 fn get_timestamp() -> u64 {
@@ -177,7 +183,7 @@ fn get_timestamp() -> u64 {
 fn syscall_example(fd: i32, buf: *u8, len: usize) -> isize {
     var ret: isize
     unsafe {
-        inline "asm" volatile {
+        inline "asm" {
             "syscall"
             : "=a"(ret)
             : "a"(1), "D"(fd), "S"(buf), "d"(len)
@@ -190,7 +196,7 @@ fn syscall_example(fd: i32, buf: *u8, len: usize) -> isize {
 
 ### Constraints and Safety
 
-- **Volatile**: Use `inline "asm" volatile` if the assembly has side effects that the optimizer might otherwise remove (like a syscall or hardware port I/O).
+- **Volatile**: the `volatile` modifier (`inline "asm" volatile { ... }`), meant for assembly with side effects the optimizer might otherwise remove, is not accepted yet: the parser rejects it (S056E).
 - **Clobbers**: Always list registers modified by the assembly (like `memory` or specific registers) to prevent the [Tether analysis](/docs/language/tether-internals/#cc-interop) and LLVM from making incorrect assumptions about the state of the machine.
 - **Unsafe**: Assembly code is inherently unsafe and should be wrapped in an [`unsafe` block](/docs/language/unsafe/#unsafe-blocks) to indicate that the programmer is responsible for ensuring the correctness of the assembly.
 
@@ -202,12 +208,28 @@ Kairo's [pointer model](/docs/language/pointers/) distinguishes safe pointers (`
 
 C++ reference *parameters* (`T&`, `const T&`, `T&&`) are not pointers. They map to Kairo's parameter modes (`@inout x: T`, `x: T`, `@move x: T`). See [Parameter passing modes](/docs/language/functions-parameter-modes/).
 
+So an argument to a non-const `T&` parameter is marked `&x`, as for any `@inout` parameter, and is passed by reference: nothing is copied or moved, and an object of a class derived from `T` binds too. A bare `x` is an error (SC097E) with a fix-it that adds the `&`. A safe `&x` is the marker, so `pick(&x)` calls `pick(int&)` over `pick(int*)`; `pick(unsafe &x)` passes the raw pointer and calls `pick(int*)`.
+
+```kairo
+ffi "c++" import "sstream"
+
+var f = cxx::std::istringstream(cxx::std::string("a\nb\n"))
+var line = cxx::std::string()
+while cxx::std::getline(&f, &line) as bool {   // istream&: f is borrowed, not moved
+    // ...
+}
+```
+
+### Function objects
+
+An object of a C++ class with `operator()` (a lambda's closure type, `std::function`, `llvm::function_ref`) is called as `f(args)`. The call is resolved over the class's `operator()` overloads as C++ resolves it: a const object picks the const overload, and the arguments pick among the rest. The object itself is not moved by the call. Through a pointer, call `(*p)(args)`; a pointer to a function object is not itself callable.
+
 ### Calls that return a reference
 
 A call that returns a C++ reference, such as `v.at(i)`, `*p`, or `cout << x`, is usable directly as an operand and as the target of an assignment:
 
 ```kairo
-ffi "c++" import <vector>;
+ffi "c++" import "vector"
 
 fn main() {
     var v: cxx::std::vector<i32>
@@ -224,6 +246,7 @@ See [Reference returns from C++](/docs/language/functions-parameter-modes/#refer
 ### Safe variable, unsafe pass
 
 ```kairo
+import std::io
 ffi "c++" import "my_code.hh";
 
 fn main() {
@@ -239,32 +262,35 @@ fn main() {
     // for calling c++ with pointers and back, you must use unsafe blocks;
     // shorthand syntax is not allowed: `unsafe add_one(unsafe &x)` is a compile error
 
-    std::println(f"x = {x}")  // x = 42
+    io::println(f"x = {x}")  // x = 42
 }
 ```
 
 `unsafe &` creates a [raw pointer](/docs/language/pointers/#creating-raw-pointers) from a safe binding. The compiler relinquishes tracking for that pointer, and the caller is responsible for lifetime and aliasing correctness.
 
-### Raw pointer from the start
+### Heap value, raw pass
 
-If the value will be passed to C/C++ repeatedly, allocate it as a raw pointer upfront:
+`@create` returns a safe `*T`, never a raw one, so `var x: unsafe *i32 = @create i32(41)` is an error (SC028E). A heap value passed to C/C++ is converted at the call, inside `unsafe`:
 
 ```kairo
+import std::io
 ffi "c++" import "my_code.hh";
 
 fn main() {
-    var x: unsafe *i32 = @create i32(41)
-    add_one(x)  // already unsafe, no block needed
-    std::println(f"x = {*x}")  // x = 42
+    var *x = @create i32(41)
+    unsafe { add_one(x as unsafe *i32) }
+    io::println(f"x = {*x}")  // x = 42
 }
 ```
+
+Passing the safe `*i32` straight to an `int*` parameter is a no-matching-overload error (SC063E).
 
 > [!WARNING]
 > `unsafe *T` pointers can be null. Dereferencing a null `unsafe *T` is undefined behavior. The compiler will not insert a null check.
 
 ### Strings and `const char*`
 
-C's `char` is [`std::c_char`](/docs/language/primitives/#cs-char-stdc_char), so a C++ `const char*` is `*const c_char` in Kairo, and back: a function returning one can be stored, compared with `&null`, indexed and passed on to any C or C++ parameter of that type. `char`, `signed char` and `unsigned char` are three types, as in C++, so a header that overloads on them gives three Kairo overloads (`c_char`, `i8`, `u8`).
+C's `char` is [`std::c_char`](/docs/language/primitives/#cs-char-stdc_char), so a C++ `const char*` is `*const c_char` in Kairo, and back: a function returning one can be stored, compared with `&null`, indexed and passed on to any C or C++ parameter of that type. `char`, `signed char` and `unsigned char` are three types, as in C++, so a header that overloads on them gives three Kairo overloads (`c_char`, `i8`, `u8`). Likewise `wchar_t`, `char16_t` and `char8_t` are `c_wchar`, `c_char16` and `c_char8`, so `f(wchar_t)` beside `f(int)` is two overloads, and a `const wchar_t*` is `*const c_wchar`.
 
 A string **literal** passed to an imported C or C++ function's `const char*` parameter (`*const c_char`, safe or `unsafe`) is the C string itself: the compiler passes the literal's static, NUL-terminated bytes, and no `string` is made. The same holds for a `const unsigned char*` (`*const u8`) parameter and for the `...` of a variadic C function such as `printf`. The parameter must be `const`: a literal's bytes are read-only, so a `char*` parameter does not take one.
 
@@ -314,56 +340,33 @@ fn main() -> i32 {
 
 ## Templates and Concepts
 
-Kairo [generics](/docs/language/generics/) and C++ templates are interchangeable across the boundary. A C++ concept can constrain a Kairo generic parameter, and a Kairo generic type can satisfy a C++ concept.
+Kairo [generics](/docs/language/generics/) and C++ templates meet in both directions. Calling a constrained C++ template from Kairo works; bounding a Kairo generic by a C++ concept does not compile yet.
+
+A C++20 concept imports as a constraint-only interface, and a function template constrained by it imports as a generic:
 
 ```cpp
-// my_code.hh
-#include <concepts>
+// concept.h
+#pragma once
+template <typename T>
+concept Addable = requires(T a, T b) { a + b; };
 
-template<typename T>
-concept Addable = requires(T a, T b) {
-    { a + b } -> std::same_as<T>;
-};
+template <Addable T>
+T add_twice(T a) { return a + a; }
 ```
 
 ```kairo
-// MyInt.k
-ffi "c++" import "my_code.hh";
+import std::io
+ffi "c++" import "concept.h"
 
-class <T> MyInt {
-    pub var value: T
-
-    fn MyInt(self, value: T) {
-        self.value = value
-    }
-
-    fn op + (self, other: MyInt) -> MyInt {
-        return MyInt(self.value + other.value)
-    }
-}
-
-fn <T impl Addable> add(a: T, b: T) -> T {
-    return a + b
+fn main() -> i32 {
+    var x: i32 = 21
+    io::println(f"{add_twice(x)}")      // 42
+    return 0
 }
 ```
 
-```cpp
-// main.cpp
-#include <iostream>
-#include "my_code.hh"
-#include "MyInt.k"
-
-int main() {
-    MyInt<int> a(5), b(10);
-    MyInt<int> c = add(a, b);
-    std::cout << "c.value = " << c.value << std::endl;  // 15
-
-    int x = add(3, 4);
-    std::cout << "x = " << x << std::endl;  // 7
-}
-```
-
-`T impl Addable` in Kairo becomes a `requires` clause on the generated C++ template, naming a concept the compiler emits over the imported one (`requires(Addable_c<T>)`). The constraint is preserved across the boundary, not erased. A bound on a Kairo interface works the same way; a bound on a generic class or struct is not translated (see [Generics](/docs/language/c-cpp-exposing/#generics)).
+> [!NOTE]
+> Not yet: a Kairo generic bounded by an imported concept (`fn <T impl Addable> add(a: T, b: T) -> T { return a + b }`) is rejected with R025E, because the concept's `requires` expression grants no operations on `T`. A bound whose body does not use `T`'s operations type-checks but fails in code generation (CL001E, `no member named '<header>' in the global namespace`). A bound on a Kairo interface works: `fn <T impl Shape> twice(a: T)` becomes a `requires` clause over the concept the compiler emits for `Shape`, and a C++ call with a type that does not satisfy it fails with `'Bad' does not satisfy 'Shape_c'`. A bound on a generic class or struct is not translated (see [Generics](/docs/language/c-cpp-exposing/#generics)).
 
 ### Template arguments, pointers and forwarding
 

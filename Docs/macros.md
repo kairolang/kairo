@@ -49,7 +49,7 @@ A parameter may declare a default token run with `=`. When the caller omits the 
 
 ```kairo
 macro log!(msg, level = "info") {
-    std::println(f"[{level}] {msg}")
+    std::io::println(f"[{level}] {msg}")
 }
 
 log!("started")            // level defaults to "info"
@@ -61,7 +61,7 @@ log!("failed", "error")
 A bare `...` (no name) as the last parameter accepts any number of extra arguments and discards them. Useful for macros that mirror a wider signature:
 
 ```kairo
-macro trace!(msg, ...) { std::println(msg) }
+macro trace!(msg, ...) { std::io::println(msg) }
 
 trace!("hit", state, depth)   // state, depth are consumed and dropped
 ```
@@ -175,10 +175,10 @@ var s = square!(5)   // 25
 
 // No-parameter macro
 macro VERSION! { "1.0.0" }
-std::println(f"version: {VERSION!}")
+std::io::println(f"version: {VERSION!}")
 
 // Built-in macros
-std::println(f"file: {file!}, line: {line!}")
+std::io::println(f"file: {file!}, line: {line!}")
 eval SHADER = embed_str!("shader.glsl")
 eval ICON = embed!("icon.png")
 
@@ -193,7 +193,7 @@ eval if !defined!(__LP64__) {
 // Conditional compilation
 macro DEBUG! { true }
 eval if defined!(DEBUG) {
-    fn trace(msg: string) { std::println(f"[TRACE] {msg}") }
+    fn trace(msg: string) { std::io::println(f"[TRACE] {msg}") }
 }
 
 // Scoped macros

@@ -186,6 +186,20 @@ var d = 200u8 as c_char     // the byte 200, whatever the target's char is
 var n = (c as i32) + 1      // arithmetic on the integer
 ```
 
+### C++'s wide characters: `std::c_wchar`, `std::c_char16`, `std::c_char8`
+
+C++'s `wchar_t`, `char16_t` and `char8_t` are their own types too, and import as `std::c_wchar`, `std::c_char16` and `std::c_char8`, never as the integer of their width: `f(wchar_t)` and `f(int)` are two overloads, a `const wchar_t*` is `*const c_wchar`, and `cxx::std::wstring` is `basic_string<c_wchar>`. They behave as `c_char` does: characters, not numbers, `as` to and from the integers, `==` and `<`, no arithmetic, and no conversion between them. `c_wchar` is 32 bits on most targets and 16 on Windows, signed or not as the target's C++ says, so a literal takes it in 0 through 0xFFFF; `c_char16` (16 bits, unsigned) takes 0 through 0xFFFF and `c_char8` (8 bits, unsigned) 0 through 255. In an f-string each prints its code.
+
+```kairo
+import std::c_wchar
+import std::c_char16
+
+var w: c_wchar = 0x263A     // ok: fits wchar_t on every target
+var u: c_char16 = 0x3B1
+var n = w as u32            // 9786
+// var x: u32 = w           // error SC028E: needs an explicit 'as'
+```
+
 ---
 
 ## Byte

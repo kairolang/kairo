@@ -34,7 +34,7 @@ Keywords are spelled only with ASCII letters, digits and `_`, so a name containi
 
 ```kairo
 var #type: string = "circle"
-std::println(#type)
+std::io::println(#type)
 ```
 
 ---
@@ -441,7 +441,7 @@ var *y = &x
 {
     *y = 15    // ok: x is still alive, y is valid
 }
-std::println(*y)      // Tether error: y's safety cannot be guaranteed at this point
+std::io::println(*y)      // Tether error: y's safety cannot be guaranteed at this point
 ```
 
 See [Tether](/docs/language/tether/) and [Ownership](/docs/language/ownership/) for the full lifetime and borrowing model.

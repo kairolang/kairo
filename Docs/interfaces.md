@@ -529,6 +529,10 @@ interface Invalid {
 
 ---
 
+## Interfaces From a Class (Planned)
+
+Today an interface is always written by hand, even when it only restates the methods a class already has. Once the attribute system is complete, the standard library will provide a way to generate an interface from a given class, so a class's public surface can be turned into a bound without copying every signature.
+
 ## Summary
 
 ```kairo

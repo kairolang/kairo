@@ -2,9 +2,9 @@
 
 How instances of a [class](/docs/language/classes/) are destroyed, and how they are transferred between variables.
 
-## Destructors - Delete Operators
+## Destructors - op finally
 
-Destructors use the `op delete` operator syntax:
+A destructor is written `fn op finally(self)`. It is the same idea as a standalone [`finally { }` block](/docs/language/control-flow/#standalone-finally-scope-exit): code that runs when the object's scope ends, on every way out of it.
 
 ```kairo
 class Resource {
@@ -14,46 +14,37 @@ class Resource {
         self.handle = h
     }
 
-    fn op delete(self) {
+    fn op finally(self) {
         release_handle(self.handle)
     }
 }
 ```
 
+The old spelling `fn op delete(self)` is an error; the diagnostic carries a fix-it that renames it.
+
 Destructors can be defaulted or deleted:
 
 ```kairo
-fn op delete(self) = default   // compiler-generated, memberwise destroy in reverse declaration order
-fn op delete(self) = delete    // prevent destruction (and therefore stack allocation)
+fn op finally(self) = default   // compiler-generated, memberwise destroy in reverse declaration order
+fn op finally(self) = delete    // prevent destruction (and therefore stack allocation)
 ```
 
-Destructors automatically run at the end of the enclosing scope in reverse declaration order. The delete operator can also be called explicitly to clean up a resource before the end of the scope. The recommended design is to make the delete operator idempotent: the first call runs the destructor and releases the resources the members own, and later calls have no effect, so an object can be deleted more than once without double deletion or dangling pointers:
+A destructor runs automatically at the end of the enclosing scope, in reverse declaration order. Kairo has no `delete` expression: running a destructor and freeing memory are separate steps, covered in [Freeing memory](#freeing-memory) below.
+
+### Running cleanup early
+
+**Not implemented yet; planned for 0.3.** `x.finally()` (and its spelling `x.op finally()`) will be an explicit early destructor call: it will end the lifetime of a local `x` before its scope ends, so the destructor runs once, at that point, and not again at scope exit. Until then both spellings are an error (`'finally()' is not implemented yet (planned for 0.3)`, [SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported)).
+
+For now, a local is destroyed when its scope ends, so end the scope early with a block:
 
 ```kairo
-class Resource {
-    var handle: unsafe *void
-
-    fn Resource(self, h: unsafe *void) {
-        self.handle = h
-    }
-
-    fn set_new_handle(self, h: unsafe *void) {
-        self.handle = h
-    }
-
-    fn op delete(self) {
-        if self.handle != &null {
-            release_handle(self.handle)
-            self.handle = &null
-        }
-    }
-}
-
-var r = Resource(open_handle())
-delete r   // explicit cleanup
-r.set_new_handle(open_handle())   // safe: previous handle was released
-delete r   // safe: idempotent delete operator
+{
+    var r = Resource(open_handle())
+    // use r
+}   // r's destructor runs here
 ```
+
+and a heap object is destroyed with `@destroy` (see [Freeing memory](#freeing-memory)). The destructor itself, `fn op finally(self)`, is unchanged.
 
 ### Constructors and destructors never panic
 
@@ -69,9 +60,9 @@ class Conn {
 }
 ```
 
-### `delete` does not free
+### Freeing memory
 
-`delete` in kairo does not free memory. It is a **destruction operation** that runs the [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators) and any side effects, but does not reclaim the allocation. Meaning if the class can be re-constructed with a separate function call, the memory is still valid and can be reused. The `delete` operation is used to explicitly clean up resources without deallocating the memory, which is useful in certain scenarios where you want to manage memory manually or reuse it.
+`op finally` never frees the object's own storage. Heap memory is allocated with `@create T(args)` and freed with `@destroy p`, both through the [allocator in effect](/docs/language/allocators/). `@destroy p` runs the destructor of `*p` and then returns the memory to the allocator that produced it. There is no `delete` expression in Kairo.
 
 ```kairo
 class MyClass {
@@ -83,7 +74,7 @@ class MyClass {
         self.data = unsafe std::alloc<i32>(sizeof i32 * 10) // 10 i32's allocated
     }
 
-    fn op delete(self) {
+    fn op finally(self) {
         if self.data != &null {
             unsafe std::free(self.data)
             self.data = &null
@@ -94,11 +85,15 @@ class MyClass {
 var obj = MyClass() // stack allocated the object itself
 obj.init() // allocate the buffer data points to
 // do something with obj.data
-delete obj // runs obj's destructor, which frees the buffer; obj's own storage is not freed
-obj.init() // obj is still valid storage and can be re-initialized
+
+var heap = @create MyClass()
+heap.init()
+@destroy heap // runs the destructor, then frees the object through the allocator
 ```
 
-What `delete` frees is whatever the destructor frees: here the buffer owned by the `data` member. The object `delete` is applied to is not freed; its storage stays valid.
+`@destroy` runs the destructor, which here frees the buffer owned by the `data` member, and then returns the object's own storage to the allocator. (Running a destructor without freeing, `x.finally()`, is planned for 0.3.)
+
+Memory that comes from or goes to C++ code uses C++'s own allocation: `@cxx::new T(args)` is a plain C++ `new T(args)` (it returns an `unsafe *T`), and `@cxx::delete p` is `delete p`. See [C++ memory](/docs/language/c-cpp-memory/).
 
 ---
 
@@ -199,7 +194,7 @@ class ScopeLock {
     @move
     fn ScopeLock(self, other: Self) = delete
 
-    fn op delete(self) { /* ... */ }
+    fn op finally(self) { /* ... */ }
 }
 ```
 
@@ -209,7 +204,7 @@ The user writes at most three special members:
 
 1. The default constructor (`fn Class(self)`)
 2. **One** transfer constructor (`@copy` or `@move`, never both)
-3. The destructor (`fn op delete(self)`)
+3. The destructor (`fn op finally(self)`)
 
 Each may have a user body, `= default`, or `= delete`. Anything not written is compiler-generated.
 
@@ -233,7 +228,7 @@ class Buffer {
         other.size = 0
     }
 
-    fn op delete(self) {
+    fn op finally(self) {
         unsafe std::free(self.data)
     }
 }
@@ -258,7 +253,7 @@ A polymorphic class whose transfer constructor has a body has no `op =` either. 
 
 Assigning a value whose class has no `op =` is a compile error (SC071E). When the reason is a polymorphic class whose transfer constructor has a body, the error adds: "a polymorphic class whose transfer constructor has a body cannot be assigned; construct a new value".
 
-This implies a consistency rule: if the transfer ctor has a body and `op delete` is `= delete`d, the class fails to compile the auto-derived `op =` needs to invoke the destructor and cannot. Fix by providing a destructor or by changing the transfer ctor to `= default` / `= delete`.
+This implies a consistency rule: if the transfer ctor has a body and `op finally` is `= delete`d, the class fails to compile the auto-derived `op =` needs to invoke the destructor and cannot. Fix by providing a destructor or by changing the transfer ctor to `= default` / `= delete`.
 
 ### Defaulted moves of non-movable members
 
@@ -274,7 +269,7 @@ A class with a custom destructor but no explicit `@copy` or `@move` transfer con
 class UniqueFile {
     var handle: unsafe *void
 
-    fn op delete(self) { close_file(self.handle) }
+    fn op finally(self) { close_file(self.handle) }
     // warning: custom destructor with implicit copy constructor
     //   help: declare as @move:
     //           @move fn UniqueFile(self, other: Self) = default

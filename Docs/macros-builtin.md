@@ -59,7 +59,7 @@ first!(rest!(a, b, c))   // b
 | `module_path!` | Current module path as a string literal |
 
 ```kairo
-std::println(f"logged from {file!}:{line!}")
+std::io::println(f"logged from {file!}:{line!}")
 ```
 
 ## Diagnostics
@@ -120,7 +120,7 @@ Untagged, `unique_id!` produces a fresh identifier on every invocation. The tagg
 
 ```kairo
 eval if defined!(DEBUG_MODE) {
-    fn log(msg: string) { std::println(f"[DEBUG] {msg}") }
+    fn log(msg: string) { std::io::println(f"[DEBUG] {msg}") }
 } else {
     fn log(msg: string) { }
 }

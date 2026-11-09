@@ -24,10 +24,10 @@ import std::AST
 
 macro @add_logging(node: *AST::FunctionDecl) {
     node->body.prepend(
-        AST::parse!(std::println(f"entering {stringify!(node->name)}"))
+        AST::parse!(std::io::println(f"entering {stringify!(node->name)}"))
     )
     node->body.append(
-        AST::parse!(std::println(f"exiting {stringify!(node->name)}"))
+        AST::parse!(std::io::println(f"exiting {stringify!(node->name)}"))
     )
 }
 ```
@@ -43,9 +43,9 @@ After expansion:
 
 ```kairo
 fn process_data(x: i32) -> i32 {
-    std::println("entering process_data")
+    std::io::println("entering process_data")
     var __result = x * 2
-    std::println("exiting process_data")
+    std::io::println("exiting process_data")
     return __result
 }
 ```
@@ -76,7 +76,7 @@ macro @repeat(block: *AST::Block, times: i32) {
 
 @repeat(3)
 {
-    std::println("hello")
+    std::io::println("hello")
 }
 ```
 
@@ -84,9 +84,9 @@ After expansion:
 
 ```kairo
 {
-    { std::println("hello") }
-    { std::println("hello") }
-    { std::println("hello") }
+    { std::io::println("hello") }
+    { std::io::println("hello") }
+    { std::io::println("hello") }
 }
 ```
 
@@ -154,7 +154,7 @@ struct SimdData { ... }
 
 // On a block
 @repeat(3)
-{ std::println("repeated") }
+{ std::io::println("repeated") }
 
 // On a variable (if the attribute accepts VariableDecl)
 @deprecated("use new_config instead")
@@ -281,18 +281,23 @@ See [Exceptions](/docs/language/c-cpp-exceptions/#exceptions) for how C++ except
 ```kairo
 @hot_path fn next(state: *Rng) -> u64 { /* ... */ }
 @cold_path fn report_failure(code: i32) { /* ... */ }
-@pure fn length(v: *Vec3) -> f64 { return sqrt(v->x * v->x + v->y * v->y + v->z * v->z) }
+@pure fn length_sq(v: *Vec3) -> f64 { return v->x * v->x + v->y * v->y + v->z * v->z }
 ```
 
 Each is a promise to the optimizer, written on the function and checked where the compiler can. `@hot_path` together with `@cold_path` on one function is an error, and any of the three on something that is not a function ('`@hot_path` applies only to a function') is an error with a fix-it that removes it.
 
-`@pure` is checked. In its body the compiler reports:
+`@pure` is checked. The function must return a value, must not be `-> !`, `@unwind`, `virtual` or an interface requirement (an override would not be held to the promise), and its result type must not own memory. In its body the compiler reports:
 
 - a write to a global or `static` variable;
-- an assignment through a pointer (`*p = x`, `p->field = x`, `p[i] = x`);
-- a call to anything that is not a const function, another `@pure` function, an `eval fn` or a compiler intrinsic.
+- an assignment through a pointer (`*p = x`, `p->field = x`, `p[i] = x`), to a field of `self`, or to an `@inout` parameter;
+- a call to anything that is not a const function, another `@pure` function, an `eval fn` or a side-effect-free compiler intrinsic; a user operator is a call too, and a call through a function value or an interface requirement is always an error;
+- making a value that owns memory (a `string`, an f-string, a vector, a local of such a type, a by-value copy of one);
+- `assert`, `unwrap!`, an asserting downcast, `delete`, inline C++, `spawn`, `thread` and `await`;
+- a `for ... in` loop over anything but a range (`0..n`) or a fixed-size array.
 
 Reading globals and reading through pointers is allowed; that is the difference between `@pure` and a [const function](/docs/language/functions-declarations/#const-functions), which may read only its own inputs. A `@pure` function whose result changes between calls with the same arguments because something else wrote the memory it reads is fine: the optimizer only merges calls when no write could have happened in between.
+
+By default the compiler also finds the functions that keep the const or `@pure` promise without saying so, by the same rules, and gives them the same C++ attribute, on their declaration in every file that imports them. `-fno-infer-purity` turns this off.
 
 ### Calling conventions
 
@@ -383,7 +388,7 @@ macro @timer(node: *AST::FunctionDecl) {
         AST::parse!(var __start = std::time::now())
     )
     node->body.append(
-        AST::parse!(std::println(f"elapsed: {std::time::now() - __start}ms"))
+        AST::parse!(std::io::println(f"elapsed: {std::time::now() - __start}ms"))
     )
 }
 

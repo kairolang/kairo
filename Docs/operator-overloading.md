@@ -23,7 +23,7 @@ The built-in types follow the same rules. `[T]`, `{T}`, `{K: V}`, `[T;]` and `st
 | `in` (containment) | ok | no | Returns `bool`. |
 | `in` (iteration) | ok | no | Returns `yield T`. |
 | `as` | ok | no | Returns a converted value. Member-only. |
-| `delete` | ok | no | Custom destructor. Member-only. Not C++'s allocation `operator delete`. |
+| `finally` | ok | no | Custom destructor. Member-only. Not C++'s allocation `operator delete`. |
 | `await` | ok | no | Returns the awaited value. |
 | `panic` | ok | no | `fn op panic (const self) -> string`: the optional message for a [panicked](/docs/language/panic/#error-types) value. See [`op panic`](#op-panic). |
 | `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | ok | no | Returns nothing. Declare either this or its binary operator, not both. |
@@ -161,7 +161,7 @@ struct V {
 | `as` | `fn op as (self) -> TargetType` | Type conversion takes no parameters |
 | `in` (containment) | `fn op in (self, other: T) -> bool` | `if item in collection` checks membership |
 | `in` (iteration) | `fn op in (self) -> yield T` | `for x in collection` yields elements |
-| `delete` | `fn op delete (self)` | Custom destructor called when the value goes out of scope |
+| `finally` | `fn op finally (self)` | Custom destructor, run when the value's scope ends (an explicit `x.finally()` is planned for 0.3) |
 | `panic` | `fn op panic (const self) -> string` | The message for an error of this type, used when the error is shown (optional) |
 
 The two `in` signatures are distinguished by context: the compiler uses the `-> bool` variant in `if` expressions and the `-> yield T` variant in `for` loops.
@@ -191,7 +191,7 @@ var s = IntSet { data: [1, 2, 3] }
 if 2 in s { /* ... */ }      // calls the bool variant
 
 for x in s {                 // calls the yield variant
-    std::println(f"{x}")
+    std::io::println(f"{x}")
 }
 ```
 
@@ -281,12 +281,12 @@ var s = b[0..2]    // a new value
 var *p = &b[1]     // *i32 into b.data
 ```
 
-## Delete Operator
+## Finally Operator
 
-`op delete` defines custom destruction logic. If not defined, the compiler generates a [default destructor](/docs/language/classes-lifecycle/#destructors---delete-operators). If any member has a deleted destructor (`fn op delete() = delete`), the containing type's destructor is also deleted and instances must be managed in an [unsafe](/docs/language/unsafe/) context.
+`op finally` defines custom destruction logic. It runs when the value's scope ends, the same idea as a standalone [`finally { }` block](/docs/language/control-flow/#standalone-finally-scope-exit), and, from 0.3, early when called as `x.finally()` (C++'s `x.~T()`; until then it is [SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported)). The old spelling `op delete` is an error with a fix-it. If not defined, the compiler generates a [default destructor](/docs/language/classes-lifecycle/#destructors---op-finally). If any member has a deleted destructor (`fn op finally() = delete`), the containing type's destructor is also deleted and instances must be managed in an [unsafe](/docs/language/unsafe/) context.
 
 > [!NOTE]
-> The `op delete` operator is **not** the same as C++'s `delete` operator. Kairo's `op delete` is simply a cleanup hook that can either be explicitly called or automatically invoked when a value goes out of scope. It is not used to free memory allocated with `@create T()`.
+> The `op finally` operator is **not** the same as C++'s `delete` operator, and Kairo has no `delete` expression. `op finally` is a cleanup hook that runs automatically when a value's scope ends (explicit `x.finally()` is planned for 0.3); it never frees the object's own storage. Memory allocated with `@create T()` is freed with `@destroy p`, which runs the destructor and then returns the memory to the allocator.
 >
 > C++'s allocation operators, `operator new` and `operator delete` and their array forms, are not overloadable in Kairo: a class defines its constructors and its destructor, never its allocation functions. Kairo defines all four for every class, bound to the global allocator, so C++ code that `new`s or `delete`s a Kairo object goes through Kairo's allocator. See [Allocators & Ownership](/docs/language/c-cpp-memory/#class-specific-operator-new-and-operator-delete).
 
@@ -294,7 +294,7 @@ var *p = &b[1]     // *i32 into b.data
 class FileHandle {
     priv var fd: i32
 
-    fn op delete (self) {
+    fn op finally (self) {
         close(self.fd)
     }
 }

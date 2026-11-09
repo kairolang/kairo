@@ -15,7 +15,7 @@ class Animal {
     }
 
     fn speak(self) {
-        std::println(f"{self.name} makes a sound")
+        std::io::println(f"{self.name} makes a sound")
     }
 }
 
@@ -28,7 +28,7 @@ class Dog derives Animal {
     }
 
     fn speak(self) {
-        std::println(f"{self.name} barks")
+        std::io::println(f"{self.name} barks")
     }
 }
 ```
@@ -101,12 +101,12 @@ Code in the base's own file has no such restriction.
 
 ### Destructors and inheritance
 
-A class with a non-trivial destructor (its own `op delete` with a body, or any field or base that has one) may only derive from a **polymorphic** class (one with any `virtual` method, or a `derives virtual` base) if that class's destructor is `virtual`. Otherwise deleting the derived object through a `*Base` runs only the base's destructor and leaks the rest. This is a compile error at the derived class.
+A class with a non-trivial destructor (its own `op finally` with a body, or any field or base that has one) may only derive from a **polymorphic** class (one with any `virtual` method, or a `derives virtual` base) if that class's destructor is `virtual`. Otherwise deleting the derived object through a `*Base` runs only the base's destructor and leaks the rest. This is a compile error at the derived class.
 
 ```kairo
-class Base { virtual fn name(self) -> string { return "base" } fn op delete(self) { } }
+class Base { virtual fn name(self) -> string { return "base" } fn op finally(self) { } }
 class Derived derives Base {          // error: 'Base' has no virtual destructor
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 ```
 
@@ -115,14 +115,14 @@ A base with no virtual methods is exempt: it is not used through a base pointer 
 ```kairo
 class Counted { var refs: i32 = 0 }   // not polymorphic
 class Node derives Counted {          // ok
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 ```
 
 ```kairo
-class Base { virtual fn op delete(self) { } }
+class Base { virtual fn op finally(self) { } }
 class Derived derives Base {          // ok
-    override fn op delete(self) { }
+    override fn op finally(self) { }
 }
 ```
 
@@ -134,11 +134,11 @@ If `B` and `C` both derive from `A`, and `D` derives from both `B` and `C`, then
 
 ```kairo
 class A {
-    fn method(self) { std::println("A") }
+    fn method(self) { std::io::println("A") }
 }
 
-class B derives A { fn method(self) { std::println("B") } }
-class C derives A { fn method(self) { std::println("C") } }
+class B derives A { fn method(self) { std::io::println("B") } }
+class C derives A { fn method(self) { std::io::println("C") } }
 
 class D derives B, C {
     fn method(self) {
@@ -212,7 +212,8 @@ class Circle derives Shape {
     }
 }
 
-var shape: *Shape = &Circle(5.0)
+var circle = Circle(5.0)
+var shape: *Shape = &circle
 shape->area()   // 78.539... dynamic dispatch
 ```
 

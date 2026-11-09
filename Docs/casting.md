@@ -116,7 +116,7 @@ class Node derives Base, Counter<Node> impl Weighted {
 }
 ```
 
-The bound may also reach the source through a chain of bases (`X derives Stmts<X>`, `Stmts<T> derives Rav<T>` lets a `*Rav<X>` cast down to `*X`). Under a [`: type`](/docs/language/generics/#the-type-regime-transitional) parameter the same cast is written as a `static_cast` and checked by the C++ compiler per instantiation. The cast cannot drop `const`; without such a bound (none, an `impl` bound, or a `derives` bound naming another class) a pointer cast between unrelated types is still an error. As in C++, the cast trusts that the object really is an `X`: a class that names `Counter<Other>` for some other `Other` that derives `Counter<Other>` makes it undefined.
+The bound may also reach the source through a chain of bases (`X derives Stmts<X>`, `Stmts<T> derives Rav<T>` lets a `*Rav<X>` cast down to `*X`). The cast cannot drop `const`; without such a bound (none, an `impl` bound, or a `derives` bound naming another class) a pointer cast between unrelated types is still an error. As in C++, the cast trusts that the object really is an `X`: a class that names `Counter<Other>` for some other `Other` that derives `Counter<Other>` makes it undefined.
 
 ### Raw pointer cast
 
@@ -235,10 +235,10 @@ enum <T> ParseResult {
 
 extend <T> ParseResult<T> {
     fn tag(const self) -> u32 {
-        match self {
-            case .Success { 0 }
-            case .Error   { 1 }
-            case .EndOfInput { 2 }
+        return match self {
+            case .Success    => 0
+            case .Error      => 1
+            case .EndOfInput => 2
         }
     }
 }

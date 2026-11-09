@@ -215,7 +215,7 @@ union <A, B> Reinterpret {
 
 var bits: Reinterpret<f32, u32>
 bits.a = 3.14f32
-std::println(f"bits of 3.14: 0x{bits.b:X}")
+std::io::println(f"bits of 3.14: 0x{bits.b:X}")
 
 // Nested in a struct
 struct HardwareRegister {

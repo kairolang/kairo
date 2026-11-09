@@ -94,7 +94,7 @@ class Vec2 {
     var y: f64
 
     pub fn Vec2(self, x: f64, y: f64)
-    pub fn op delete(self)
+    pub fn op finally(self)
     pub fn op +(self, other: Vec2) -> Vec2
 }
 
@@ -103,7 +103,7 @@ fn Vec2::Vec2(self, x: f64, y: f64) {
     self.y = y
 }
 
-fn Vec2::op delete(self) { /* ... */ }
+fn Vec2::op finally(self) { /* ... */ }
 
 fn Vec2::op +(self, other: Vec2) -> Vec2 = Vec2(self.x + other.x, self.y + other.y)
 ```

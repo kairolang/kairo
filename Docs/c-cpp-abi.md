@@ -66,8 +66,8 @@ Later compiler stages emit *more* information, not different information, so the
 
 | Stage | Emits |
 |---|---|
-| Stage 1 | Declarations, definitions, ordering, mangling. |
-| Stage 2 | The same, plus lifetime, aliasing, and ownership attributes derived from Tether analysis. |
+| Stage 1.5 (the current, self-hosted compiler) | Declarations, definitions, ordering, mangling. |
+| Stage 2 (planned) | The same, plus lifetime, aliasing, and ownership attributes derived from Tether analysis. |
 
 Objects from either stage are ABI-compatible. Stage 2's additions give the C++ side more static checking, not a different layout.
 

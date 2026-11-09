@@ -24,6 +24,8 @@ A type with a `@copy` transfer constructor (explicit or implicit) is copyable. A
 class Buffer {
     var data: [i32]
 
+    fn Buffer(self) = default
+
     @copy
     fn Buffer(self, const other: Self) = default
 }
@@ -31,7 +33,7 @@ class Buffer {
 var a = Buffer()
 var b = a          // copy: a and b are independent
 b.data.push(42)
-a.data.length()       // 0 a is unaffected
+a.data.size()       // 0 a is unaffected
 ```
 
 Tether may **elide a copy into a move** when it proves the source is not used after the transfer and the elision is unobservable. This is a pure optimization with no observable semantic difference. Tether does not elide when the destructor has timing-sensitive side effects see [Tether Copy Elision](/docs/language/tether/#copy-elision) for the exact rule.
@@ -45,6 +47,8 @@ A type with a `@move` transfer constructor can only be moved. MOVE types represe
 ```kairo
 class UniqueFile {
     var handle: i32
+
+    fn UniqueFile(self) = default
 
     @move
     fn UniqueFile(self, other: Self) = default
@@ -66,6 +70,8 @@ A type with a deleted transfer constructor (`@copy ... = delete`, `@move ... = d
 
 ```kairo
 class ScopeLock {
+    fn ScopeLock(self) = default
+
     @copy fn ScopeLock(self, const other: Self) = delete
     @move fn ScopeLock(self, other: Self) = delete
 }
@@ -119,7 +125,7 @@ fn inspect(buf: Buffer) {
 
 var b = Buffer()
 inspect(b)
-b.data.length()   // ok: b is still live, inspect got a copy
+b.data.size()   // ok: b is still live, inspect got a copy
 ```
 
 To let a callee write to the caller's object, or to take ownership of a generic argument, use the `@inout` and `@move` parameter modes. See [Parameter passing modes](/docs/language/functions-parameter-modes/#parameter-passing-modes).
@@ -158,7 +164,7 @@ var x = 42
 var p: *i32 = &x
 var q: *i32 = &x
 *p = 100
-std::println(*q)   // 100 defined behavior
+std::io::println(*q)   // 100 defined behavior
 ```
 
 > [!IMPORTANT]
@@ -171,7 +177,7 @@ var x = 42
 var p: *i32 = &x
 var q: *const i32 = &x
 *p = 100
-std::println(*q)   // 100 *const prevents mutation through q, not through p
+std::io::println(*q)   // 100 *const prevents mutation through q, not through p
 ```
 
 `const` is a **semantic check on the binding**, not an aliasing constraint. Of the [two questions a pointer declaration answers](/docs/language/variables/#the-const-binding-rule), "can I change the pointee?" is asked about one pointer only. `*const T` prevents the holder from mutating through that pointer. It does not prevent other pointers from mutating the same value. Tether does not change behavior based on `const` qualifiers it tracks provenance and lifetime independently of mutability.
@@ -199,7 +205,7 @@ When provenance is intact but the epoch cannot be proven equal statically, this 
 var v: [i32] = [1, 2, 3]
 var p: *i32 = &v[0]
 v.push(4)           // may reallocate v's internal buffer
-std::println(*p)    // hard error: p's provenance is invalidated by push
+std::io::println(*p)    // hard error: p's provenance is invalidated by push
 ```
 
 Tether detects this through [`.amt` summaries](/docs/language/tether-internals/#amt-summaries): `push`'s summary records that it may reallocate the backing buffer, so any live pointer into that buffer is flagged at the call site. **Invalidation is a hard error even when Tether can trace the reallocation** it is not a runtime-check fallback. The realloc is provable statically, re-validating every live pointer across every potentially-reallocating call would be expensive, and a use-after-realloc is almost always a real bug, so Tether errors rather than checks. Where the buffer is mutated through a path Tether cannot trace (an opaque container, a raw FFI call), Tether also errors rather than allowing an unprovable access. See [Tether Analysis scope](/docs/language/tether-proof-model/#the-dereference-obligation).
@@ -288,7 +294,7 @@ var closure = fn () {
     file.close()         // operates on the moved-in file
 }
 
-buf.data.length()        // ok: buf was copied, original is still live
+buf.data.size()        // ok: buf was copied, original is still live
 file.handle              // compile error: file was moved into the closure
 ```
 
@@ -421,7 +427,7 @@ var val = 42
 var *p = &val
 var *q = &val
 *p = 100
-std::println(*q)       // 100
+std::io::println(*q)       // 100
 
 // Closure capture by value (default)
 var m = Moveable()

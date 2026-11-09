@@ -36,7 +36,7 @@ var result? = find_user("alice")
 
 if result? {
     // result is non-null here
-    std::println(result.name)
+    std::io::println(result.name)
 }
 ```
 
@@ -61,14 +61,14 @@ An assignment gives the variable the state of the value assigned:
 
 ```kairo
 var x? = 10           // known non-null: a plain i32 was assigned
-std::println(x + 1)   // ok, no check needed
+std::io::println(x + 1)   // ok, no check needed
 
 x = null              // known null
 // x + 1              // compile error: x is always null here
 
 x = lookup()          // lookup() -> i32?: maybe null
 // x + 1              // compile error: x may be null here
-if x? { std::println(x + 1) }   // ok
+if x? { std::io::println(x + 1) }   // ok
 
 var y? = x            // y has x's state
 
@@ -257,7 +257,7 @@ To represent a pointer that might not exist, use `*T?`, a nullable pointer. It r
 var ptr: *i32? = find_pointer()
 
 if ptr? {
-    std::println(*ptr)          // compiler knows ptr is non-null here
+    std::io::println(*ptr)          // compiler knows ptr is non-null here
 }
 
 var *val = ptr ?? &fallback     // *i32: use fallback if null
@@ -269,7 +269,7 @@ For a raw pointer with no compiler tracking, use `unsafe *T`. It is the only poi
 ```kairo
 var raw: unsafe *i32 = &null
 if raw != &null {
-    std::println(*raw)
+    std::io::println(*raw)
 }
 ```
 

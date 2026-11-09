@@ -5,7 +5,7 @@
 Unlike [C++ exceptions](/docs/language/c-cpp-exceptions/), panics use no unwinding tables and no runtime. The codegen is zero-cost: every panic site becomes a tagged return value checked with a branch.
 
 > [!NOTE]
-> Panic is compiled, in generic functions too. Not supported yet: a panic under a [`<T: type>`](/docs/language/generics/#the-type-regime-transitional) parameter, in a generator or an `async` function, a `for` loop over a panicking `op in`, a call of a panicking `op []` that returns a pointer or of a panicking `op as`, a method that implements two requirements (or overrides a method and implements a requirement) whose panic sets differ, and keeping a caught error in another variable. See [Status](/docs/status/#not-compiled-yet).
+> Panic is compiled, in generic functions too. Not supported yet: a panic in a generator or an `async` function, a `for` loop over a panicking `op in`, a call of a panicking `op []` that returns a pointer or of a panicking `op as`, a method that implements two requirements (or overrides a method and implements a requirement) whose panic sets differ, and keeping a caught error in another variable. See [Status](/docs/status/#not-compiled-yet).
 
 ---
 
@@ -90,10 +90,10 @@ fn load_config(path: string) -> Config {
     try {
         port = parse_port(read_file(path))
     } catch e: IOError {
-        std::println(f"cannot read file: {e.path}")
+        std::io::println(f"cannot read file: {e.path}")
         port = 8080
     } catch e: RangeError {
-        std::println(f"bad port: {e.value}")
+        std::io::println(f"bad port: {e.value}")
         port = 8080
     } catch {
         port = 8080   // EmptyInput, and anything std::parse propagates
@@ -352,7 +352,7 @@ Two rules need the arguments:
 - **Arms that meet at an instance.** `catch e: T` beside `catch e: Missing` are two arms in the generic body, but at `T = Missing` both catch the same type. That is the [duplicate-arm](#dead-arms-and-arm-order) error, reported where that instantiation is used (with the chain of generic calls that reached it, when there is one).
 - **Ever-larger arguments.** A function that calls itself at a bigger type (`f(Box<T> { v: x })` inside `f<T>`) and lets that call's errors through would have a set that never stops growing. That is an error; declare the set, or catch what the recursive call raises.
 
-Not supported yet: a panic, or a panicking call, inside a body under a [`<T: type>`](/docs/language/generics/#the-type-regime-transitional) parameter (its member calls are checked by the C++ compiler per instantiation, so there is no set to compute), a generic closure that panics, and a [function type](/docs/language/functions/#function-pointers) whose set names a generic parameter (`fn() panic(E) -> i32`).
+Not supported yet: a generic closure that panics, and a [function type](/docs/language/functions/#function-pointers) whose set names a generic parameter (`fn() panic(E) -> i32`).
 
 ---
 
@@ -437,9 +437,9 @@ fn process_file(path: string) panic {
 }
 ```
 
-A standalone `finally` behaves like the [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators) of a local declared at the same point. It belongs to its enclosing block rather than the function, runs only if execution reached it, and runs in reverse declaration order (LIFO) together with the scope's destructors.
+A standalone `finally` behaves like the [destructor](/docs/language/classes-lifecycle/#destructors---op-finally) of a local declared at the same point. It belongs to its enclosing block rather than the function, runs only if execution reached it, and runs in reverse declaration order (LIFO) together with the scope's destructors.
 
-See [Control Flow](/docs/language/control-flow/#finally) for full `finally` semantics.
+See [Control Flow](/docs/language/control-flow/#standalone-finally-scope-exit) for full `finally` semantics.
 
 ---
 
@@ -483,7 +483,7 @@ fn fatal(msg: string) panic -> ! {
 }
 
 fn fatal(msg: string) -> ! {
-    std::println(msg)
+    std::io::println(msg)
     crash!() // valid: never returns
 }
 ```
@@ -511,7 +511,6 @@ A bad cast or a null unwrap is a programmer error, not a recoverable condition. 
 - **Constructors and destructors.** No constructor or destructor can panic, and no panic may escape one: handle it inside, or stop with `crash!()`. Construction that can fail belongs in a static factory function. See [Class Lifecycle](/docs/language/classes-lifecycle/#constructors-and-destructors-never-panic).
 - **`eval` functions.** `panic` in a function evaluated at compile time is an error. See [Eval](/docs/language/eval/).
 - **Generators and `async`.** For a [generator](/docs/language/functions-generators/) or an [`async`](/docs/language/concurrency/) function, an error surfaces where the caller resumes it: at the `next()` call (including the hidden one in a `for` loop) or the `await`, which handles or propagates it like any other panicking call. A `panic`, or a panicking call, inside a generator or `async` body is not supported yet.
-- **`<T: type>` bodies.** A `panic` function under a [`<T: type>`](/docs/language/generics/#the-type-regime-transitional) parameter, and a `panic` or a panicking call in such a body, are not supported yet ([SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported)): the C++ compiler checks that body per instantiation, so it has no set to compute. Bounded and unbounded generics are fine; see [Generic Functions](#generic-functions).
 
 ---
 
@@ -574,7 +573,7 @@ fn safe_divide(a: i32, b: i32) -> i32 {
     try {
         return divide(a, b)
     } catch e: DivideByZero {
-        std::println("error: division by zero")
+        std::io::println("error: division by zero")
         return 0
     }
 }

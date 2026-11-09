@@ -74,7 +74,7 @@ The rules differ by type:
 | Allowed | Not allowed |
 |---|---|
 | Methods | Constructors |
-| Static functions | Destructors (`fn op delete`) |
+| Static functions | Destructors (`fn op finally`) |
 | Arithmetic / comparison operators | Copy / move assignment (`fn op =`) |
 | `fn op in` (iteration) | Member-only operators (`as`, `[]`, `->`) |
 
@@ -96,12 +96,12 @@ Structs are trivially copyable. Extending lifecycle operations (destructors, cop
 | Methods | Constructors |
 | Static functions | Destructors |
 | Operators other than the member-only ones | Copy / move assignment |
-| | Member-only operators (`as`, `[]`, `->`, `delete`) |
+| | Member-only operators (`as`, `[]`, `->`, `finally`) |
 
 Classes already support methods and operators in their body. `extend` on a class is useful for separating interface conformance or adding functionality in a different section of the codebase (within the same file).
 
 > [!NOTE]
-> Constructors, destructors, and copy/move assignment cannot be added via `extend` on any type. Neither can the member-only operators `as`, `[]`, `->`, and `delete`; declare them in the type's own body. If you need construction logic on a struct, extend a static factory function instead. If you need a destructor, use a [class](/docs/language/classes/).
+> Constructors, destructors, and copy/move assignment cannot be added via `extend` on any type. Neither can the member-only operators `as`, `[]`, `->`, and `finally`; declare them in the type's own body. If you need construction logic on a struct, extend a static factory function instead. If you need a destructor, use a [class](/docs/language/classes/).
 
 ---
 
@@ -232,7 +232,9 @@ extend Point {
 }
 ```
 
-An extension member with no modifier is `pub`. A `priv` extension member is visible only inside the file that contains the `extend` block, not everywhere the type is visible. `prot` has its usual library-internal meaning.
+An extension member with no modifier is `priv`, or `prot` when the `extend` block's file is under a `module.k`, like any other declaration; the members of an `extend X impl I` block are the exception, `pub` unless marked, since they implement the interface wherever the conformance is used. A `priv` extension member is visible only inside the file that contains the `extend` block, not everywhere the type is visible. `prot` reaches every file of the module.
+
+An `extend` in another file of the type's module reads the type's `prot` members (written, or unmarked under the `module.k`), so a large class can be split across the files of one module; its `priv` members stay with the file that declares the type.
 
 ---
 
@@ -266,7 +268,7 @@ extend Point {
 
 ```kairo
 // other.k
-import point::Point
+import self::point::Point
 
 // extend Point { ... }   // compile error: Point is defined in a different file
 ```
@@ -275,7 +277,7 @@ For `extend ... impl` blocks (interface conformance), the rule is looser: either
 
 ```kairo
 // drawable.k
-import point::Point
+import self::point::Point
 
 interface Drawable {
     fn draw(const self) -> string

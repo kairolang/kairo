@@ -10,7 +10,7 @@ fn generate_numbers() -> yield i32 {
 }
 
 for n in generate_numbers() {
-    std::println(n)
+    std::io::println(n)
 }
 ```
 
@@ -41,7 +41,7 @@ fn first_positive(xs: [i32;]) -> yield i32 {
 - inside a [closure](/docs/language/closures/) (closures cannot yield yet);
 - in a function not declared `-> yield T`.
 
-These functions cannot be generators ([SC112E](/docs/language/diagnostics/#sc112e-this-kind-of-function-cannot-be-a-generator)): `main`, constructors, destructors (`op delete`), `eval` functions, C-variadic functions, and functions returning `!`.
+These functions cannot be generators ([SC112E](/docs/language/diagnostics/#sc112e-this-kind-of-function-cannot-be-a-generator)): `main`, constructors, destructors (`op finally`), `eval` functions, C-variadic functions, and functions returning `!`.
 
 ## Generator lifetimes
 

@@ -4,10 +4,10 @@
 
 ```kairo
 match status_code {
-    case 200 { std::println("OK") }
-    case 404 { std::println("Not Found") }
-    case 500 { std::println("Internal Server Error") }
-    default  { std::println(f"Unknown: {status_code}") }
+    case 200 { std::io::println("OK") }
+    case 404 { std::io::println("Not Found") }
+    case 500 { std::io::println("Internal Server Error") }
+    default  { std::io::println(f"Unknown: {status_code}") }
 }
 ```
 
@@ -57,10 +57,10 @@ enum <K, V> LookupResult {
 
 match result {
     case .Found(var key, var value) {
-        std::println(f"{key} = {value}")
+        std::io::println(f"{key} = {value}")
     }
     case .NotFound(var key) {
-        std::println(f"{key} not found")
+        std::io::println(f"{key} not found")
     }
     case .Error(const message) {
         // message cannot be reassigned bound as const
@@ -90,10 +90,10 @@ Append [`where`](/docs/language/where/#where-in-match) followed by a boolean exp
 ```kairo
 match result {
     case .Found(var key, var value) where value > 0 {
-        std::println(f"{key} has positive value")
+        std::io::println(f"{key} has positive value")
     }
     case .Found(var key, var value) {
-        std::println(f"{key} has non-positive value")
+        std::io::println(f"{key} has non-positive value")
     }
     default { }
 }
@@ -139,11 +139,11 @@ Integer cases can match a [range](/docs/language/operators/#ranges) using `..` (
 
 ```kairo
 match http_status {
-    case 200..=299 { std::println("success") }
-    case 300..=399 { std::println("redirect") }
-    case 400..=499 { std::println("client error") }
-    case 500..=599 { std::println("server error") }
-    default        { std::println("unknown") }
+    case 200..=299 { std::io::println("success") }
+    case 300..=399 { std::io::println("redirect") }
+    case 400..=499 { std::io::println("client error") }
+    case 500..=599 { std::io::println("server error") }
+    default        { std::io::println("unknown") }
 }
 ```
 

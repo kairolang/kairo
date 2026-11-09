@@ -62,7 +62,7 @@ Return types are never inferred for block-bodied functions or forward declaratio
 
 ```kairo
 fn add(a: i32, b: i32) -> i32 { return a + b }   // explicit
-fn log(msg: string) { std::println(msg) }        // defaults to void
+fn log(msg: string) { std::io::println(msg) }        // defaults to void
 ```
 
 Expression-bodied functions (`fn foo() = expr`) are the one exception: if the return type annotation is omitted, it is inferred from the expression.
@@ -201,7 +201,7 @@ Interface-satisfying types are not subtypes of the interface. [Interfaces](/docs
 
 ```kairo
 fn fatal(msg: string) -> ! {
-    std::println(msg)
+    std::io::println(msg)
     crash!()
 }
 ```
@@ -292,7 +292,7 @@ Function pointer types are written as `fn(ParamTypes) -> ReturnType`:
 
 ```kairo
 var add: fn(i32, i32) -> i32 = fn (a: i32, b: i32) -> i32 { return a + b }
-var log: fn(string) -> void = std::println
+var log: fn(string) -> void = std::io::println
 ```
 
 The [`panic` modifier](/docs/language/panic/#the-panic-specifier) can appear on function types to indicate the function may panic. On a function type it must name the panic set, `panic(E1, E2)`: a type has no body to infer the set from. Callers must handle the panic via `try`/`catch`:
@@ -369,7 +369,7 @@ A list literal `[a, b, c]` is an array `[T; 3]` unless its target is a slice or 
 
 ```kairo
 eval SIZE = 256
-var buffer: [u8; SIZE] = [0; SIZE]    // ok: SIZE is compile-time
+var buffer: [u8; SIZE]            // ok: SIZE is compile-time
 
 // var dynamic: [u8; runtime_val]     // compile error: N must be compile-time
 ```

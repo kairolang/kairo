@@ -12,41 +12,83 @@ import math::Vector3                     // import a specific symbol
 import math::{Vector3, Matrix4}          // import multiple symbols
 import math::*                           // wildcard import (discouraged)
 import math as m                         // aliased import
+import math::Vector3 as Vec3             // aliased symbol
 import math::{Vector3 as Vec3}           // per-item alias
-import module math                       // library-only (skip file lookup)
+import self::util                        // the file beside this one
+import module::config                    // from this module's root
 ```
+
+The first word after `import` says where the path is looked for: nothing (a library or search directory), `self::` (the importing file's directory) or `module::` (the importing file's [module root](#module-imports)). Every other part of an import combines with either anchor: `import self::json::{parse, Value}`, `import module::util as u`, `import self::shapes::*`.
 
 ## Resolution Semantics
 
-When you write `import Foo`, the compiler resolves it in this order:
+Each import form looks in **exactly one place**:
 
-1. **File first:** look for `Foo.k` as a sibling file.
-2. **Library fallback:** if no `Foo.k` exists, look for `Foo/module.k` ([library entry](/docs/language/modules/#library-entry-files)).
-3. **Ambiguity warning:** if both `Foo.k` and `Foo/module.k` exist, the import resolves to `Foo.k` and the compiler emits a warning:
-   > ambiguous import 'Foo' resolves to Foo.k, but Foo/module.k also exists; rename the file or use `import module Foo` to import the library
+| Form | Looks in |
+|------|----------|
+| `import Foo` | the libraries and search directories: every [named library](/docs/language/modules/#naming-a-library), the working directory, every `-I` directory, `std` and `builtin` |
+| `import self::Foo` | the importing file's own directory |
+| `import module::Foo` | the importing file's [module root](#module-imports): the nearest directory, at or above it, that holds a `module.k` |
 
-The `module` modifier overrides this: `import module Foo` skips step 1 and resolves **only** against `Foo/module.k`. If no library entry exists, the compiler errors.
+In that one place, `Foo` is the file `Foo.k` or the [library entry](/docs/language/modules/#library-entry-files) `Foo/module.k`. If both exist there, the import is an error (R005E) naming the two; rename or remove one.
 
-"Sibling" means the importing file's own directory first, then the [search directories](/docs/language/modules/#search-directories-and-library-names): the working directory and every `-I` directory. A path that starts with a [library's name](/docs/language/modules/#naming-a-library) (`import geo::shapes`) resolves inside that library. Two different files answering one import, a sibling and a search-directory file or files in two search directories, are an error at the import; the compiler never picks one.
+A plain import never looks beside the importing file. Because the working directory is a search directory, a project compiled from its top directory (`kairo main.k`) reaches its top-level files with plain imports (`import router`), but a file in a subdirectory reaches the file next to it only as `import self::helpers`. A path that starts with a [library's name](/docs/language/modules/#naming-a-library) (`import geo::shapes`) resolves inside that library, and a file inside a library also reaches the library's files by their path in it (`import shapes`, from anywhere in the library).
+
+Since an anchored import never consults the search directories, adding a file to a library or an `-I` directory can never change what `import self::x` or `import module::x` means, and a file beside the importer can never change what a plain `import x` means. Two different files answering one plain import from two search directories are an error at the import (R017E); the compiler never picks one.
 
 ### Resolution with `::`
 
-`import Foo::bar` applies the same file-first rule to `Foo`:
+`import Foo::bar` resolves the longest leading part of the path that names a module, then looks up the rest inside it:
 
-1. Resolve `Foo` -> `Foo.k` (or `Foo/module.k` if no `Foo.k`).
-2. Look for symbol `bar` inside the resolved module.
+1. Resolve `Foo::bar` as a module (`Foo/bar.k` or `Foo/bar/module.k`); if there is none,
+2. resolve `Foo` (`Foo.k` or `Foo/module.k`) and look for the symbol `bar` inside it.
 
-The `::` does not change the resolution strategy. If you want `bar` to resolve as a **library submodule** (`Foo/bar/module.k`), use `import module Foo::bar`.
+The anchor applies to the whole path: `import self::Foo::bar` looks for `Foo/bar.k` beside the importing file, then for the symbol `bar` in the `Foo.k` beside it.
 
 ```kairo
-// Given:
+// Given, beside this file:
 //   math.k                 contains `fn add(...)`
-//   math/module.k          library entry
-//   math/vector/module.k   submodule
+//   vector/module.k        library entry
 
-import math::add              // resolves math.k, finds symbol `add`
-import module math::vector    // resolves math/module.k, finds submodule vector
+import self::math::add        // resolves math.k, finds symbol `add`
+import self::vector           // resolves vector/module.k
 ```
+
+### Sibling imports
+
+```kairo
+// app/main.k, with app/util.k and app/net/socket.k beside it
+import self::util                 // app/util.k
+import self::net::socket          // app/net/socket.k
+import self::util::{trim, split}  // symbols from app/util.k
+```
+
+`self::` names the importing file's directory: the file `x.k` or the library `x/module.k` next to it, and anything below it. It is the form for files that belong together but are not a library of their own.
+
+### Module imports
+
+```kairo
+// project/module.k is empty: project/ is a module
+// project/net/http/client.k
+import module::config             // project/config.k
+import module::net::socket        // project/net/socket.k
+```
+
+`module::` starts at the importing file's **module root**: the nearest directory, at or above the file, that holds a `module.k`. It is the same directory that decides who shares `prot` declarations ([Visibility Scopes](/docs/language/modules/#visibility-scopes)), so a file reaches any file of its own module the same way from any depth. The `module.k` may be empty. A file with no `module.k` above it belongs to no module, and `import module::x` there is an error (R069E) that says so; add a `module.k`, or use `self::` for a file beside it.
+
+### Migrating from sibling-first imports
+
+Older compilers looked for a plain `import Foo` beside the importing file first. A plain import that no library or search directory answers, but that finds `Foo` beside the importing file, still resolves to that file, but reports an error (R068E) with a fix-it that inserts `self::`:
+
+```
+app/main.k:1:8: error [R068E]: 'util' is not in any library or search directory; it is the file beside this one, which a plain import no longer reaches: write 'self::util'
+```
+
+The fallback exists only so one stale line does not cascade into unresolved-name errors. When a library or search directory does hold `Foo`, the plain import resolves there and the file beside the importer is ignored.
+
+### Removed: `import module Foo`
+
+`import module Foo` (with a space) forced the library form, `Foo/module.k`. It is removed: now that `Foo.k` and `Foo/module.k` in one place are an error, nothing is left to force. Writing it is an error (S089E) with a fix-it that deletes `module`; then choose the form for where `Foo` is (`import Foo`, `import self::Foo` or `import module::Foo`). Do not confuse it with `import module::Foo`, written with `::`, which anchors at the module root.
 
 ## Visibility on Imports
 
@@ -58,15 +100,17 @@ pub import std::collections     // re-exported to consumers
 prot import std::platform       // visible to sibling files in same library
 ```
 
+An import makes a name reachable, not visible: a name the imported file declares `priv` (or leaves unmarked outside a module), or `prot` in another [module](/docs/language/modules/#visibility-scopes), is an error where it is used (R047E for a bare name from `import m::*`, SC242E for `m::name`), with a fix-it that makes the declaration `pub`.
+
 ### Re-export Pattern
 
 Use `pub import` explicitly in library entry files to curate the public API:
 
 ```kairo
 // network/module.k
-pub import tcp       // consumers of "network" can access tcp
-pub import udp       // consumers of "network" can access udp
-priv import dns      // implementation detail, not re-exported
+pub import self::tcp       // consumers of "network" can access tcp
+pub import self::udp       // consumers of "network" can access udp
+priv import self::dns      // implementation detail, not re-exported
 ```
 
 Consumers see only the public surface:
@@ -129,16 +173,6 @@ m::Vector3(1.0, 2.0, 3.0)
 
 The alias replaces the module name in the current scope. The original name (`math`) is **not** available, only `m`.
 
-## Library-Only Imports
-
-```kairo
-import module math
-```
-
-Skips the file-first lookup and resolves **only** against the library entry (`math/module.k`). Use this when both `math.k` and `math/module.k` exist and you specifically want the library version.
-
-If no `math/module.k` exists, this is a compile error, it does not fall back to `math.k`.
-
 ## FFI Header Imports
 
 C and C++ headers are imported via the [`ffi` keyword](/docs/language/c-cpp-calling/#the-ffi-keyword):
@@ -166,7 +200,7 @@ import std                         // Kairo standard library
 import cxx::std::vector            // C++ std::vector
 import cxx::std::{cout, endl}      // C++ std output stream
 
-std::println("Kairo")
+std::io::println("Kairo")
 cout << "C++" << endl
 ```
 
@@ -223,12 +257,14 @@ A cycle compiles with a warning, [R001W](/docs/language/diagnostics/#r001w-impor
 
 | Form | Resolves to | Notes |
 |------|-------------|-------|
-| `import Foo` | `Foo.k`, fallback `Foo/module.k` | File-first resolution |
-| `import Foo::bar` | Symbol `bar` in `Foo` | `::` does not change resolution |
+| `import Foo` | `Foo.k` or `Foo/module.k` in a library or search directory | Never beside the importer (R068E) |
+| `import self::Foo` | `Foo.k` or `Foo/module.k` beside the importing file | |
+| `import module::Foo` | `Foo.k` or `Foo/module.k` at the module root | R069E outside any module |
+| `import Foo::bar` | Symbol `bar` in `Foo` | Same place as `import Foo` |
 | `import Foo::{a, b}` | Symbols `a`, `b` in `Foo` | Per-item aliases supported |
 | `import Foo::*` | All public symbols from `Foo` | Avoid; prefer selective imports |
-| `import Foo as m` | `Foo.k` or `Foo/module.k`, aliased to `m` | Original name unavailable |
-| `import module Foo` | `Foo/module.k` only | Explicit library import; errors if no entry |
+| `import Foo as m` | `Foo`, aliased to `m` | Original name unavailable |
+| `import module Foo` | removed | S089E; fix-it deletes `module` |
 | `ffi "c++" import "h.hh"` | C++ header | Optional `as` namespace |
 | `ffi "c++" fn foo(...)` | Single decl with C++ linkage | |
 | `ffi "c++" { ... }` | Block of decls with C++ linkage | |

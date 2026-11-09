@@ -16,11 +16,11 @@ Kairo's control flow is block-scoped and brace-delimited. Every statement-form b
 
 ```kairo
 if x > 0 {
-    std::println("positive")
+    std::io::println("positive")
 } else if x == 0 {
-    std::println("zero")
+    std::io::println("zero")
 } else {
-    std::println("negative")
+    std::io::println("negative")
 }
 ```
 
@@ -151,7 +151,7 @@ If the collection yields [tuples](/docs/language/collections/#tuples-t1-t2-), [d
 
 ```kairo
 for (key, value) in some_map {
-    std::println(f"{key} = {value}")
+    std::io::println(f"{key} = {value}")
 }
 
 for (a, b) in pairs {
@@ -172,6 +172,18 @@ for var i = 0; i < 10; i++ {
 ```
 
 The init clause declares a new variable scoped to the loop body. The condition and step are bare expressions.
+
+The init clause may be empty, to loop over a variable declared before the loop:
+
+```kairo
+var i = 0
+for ; i < 10; i += 1 {
+    if i == 3 { continue }   // the step still runs
+    // ...
+}
+```
+
+Unlike the equivalent `while` loop, `continue` in a C-style `for` still runs the step.
 
 ### `while`
 
@@ -242,7 +254,7 @@ try {
     risky_operation()
 } catch {
     // catch-all any panic type
-    std::println("something went wrong")
+    std::io::println("something went wrong")
 }
 ```
 
@@ -264,9 +276,9 @@ fn load_data(path: string) panic(IOError, ParseError) -> Data { /* ... */ }
 try {
     load_data("data.txt")
 } catch e: IOError {
-    std::println(f"IO error: cannot read {e.path}")
+    std::io::println(f"IO error: cannot read {e.path}")
 } catch e: ParseError {
-    std::println(f"parse error on line {e.line}")
+    std::io::println(f"parse error on line {e.line}")
 }
 ```
 
@@ -348,7 +360,7 @@ fn process_file(path: string) panic -> void {
 }
 ```
 
-A standalone `finally` behaves like the [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators) of a local declared at the same point:
+A standalone `finally` behaves like the [destructor](/docs/language/classes-lifecycle/#destructors---op-finally) (`fn op finally(self)`) of a local declared at the same point (the compiler lowers it to exactly that):
 
 - **It is tied to the enclosing block, not the function.** A `finally` inside an `if` body or a loop body runs when that block ends. In a loop it runs at the end of every iteration that reached it.
 - **It only runs if execution reached it.** A `return` or panic before the `finally` statement skips it, just as a local that was never declared is never destroyed.
@@ -616,7 +628,7 @@ Functions that never return (they crash, loop forever, or call a noreturn functi
 
 ```kairo
 fn fatal(msg: string) -> ! {
-    std::println(msg)
+    std::io::println(msg)
     crash!()
 }
 

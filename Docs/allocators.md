@@ -1,6 +1,6 @@
 # Allocators
 
-Allocation goes through [`@create T()`](/docs/language/pointers/#heap-allocation) and `@destroy`; both route to the allocator in effect at that point. `@destroy p` runs the destructor (`delete *p`) and returns the memory to the allocator (`@free p`); `delete` alone never frees. See [`delete` does not free](/docs/language/classes-lifecycle/#delete-does-not-free). Three kinds exist, chosen by scope: **global**, **scoped** and **freestanding**.
+Allocation goes through [`@create T()`](/docs/language/pointers/#heap-allocation) and `@destroy`; both route to the allocator in effect at that point. `@destroy p` runs the destructor (`fn op finally`) of `*p` and returns the memory to the allocator (`@free p`). Kairo has no `delete` expression, and `x.finally()` runs the destructor early without freeing. See [Freeing memory](/docs/language/classes-lifecycle/#freeing-memory). Three kinds exist, chosen by scope: **global**, **scoped** and **freestanding**.
 
 ### Global allocator
 
@@ -109,7 +109,7 @@ On ELF targets (Linux, FreeBSD, NetBSD) and on WebAssembly, the bundled mimalloc
 
 ## Allocators and C++
 
-Exported Kairo classes carry class-specific `operator new` and `operator delete`, defined by the compiler (Kairo code cannot define or overload them), that always bind to the global allocator, so C++ code can `new` and `delete` Kairo objects directly and a C++ global `operator new` override does not affect them. To route Kairo's own allocations through C++'s allocation path instead, set `core::CxxNewAllocator` as the global allocator. See [Allocators & Ownership](/docs/language/c-cpp-memory/) for the details.
+In the C++ an including file sees (a `kcc` `#include "x.k"`, an `--emit-headers` header), every Kairo class, struct and ADT enum carries class-specific `operator new` and `operator delete`, defined by the compiler (Kairo code cannot define or overload them), that always bind to the global allocator. C++ code can `new` and `delete` Kairo objects directly, a C++ `delete` may free what `@create` made (and `@destroy` what C++ `new`ed), and a C++ global `operator new` override does not affect them. In the other direction, memory that must come from or go to C++'s allocator is allocated with `@cxx::new T(args)` (plain C++ `new`, returning `unsafe *T`) and freed with `@cxx::delete p`, never with `@destroy`. To route Kairo's own allocations through C++'s allocation path instead, set `core::CxxNewAllocator` as the global allocator. See [Allocators & Ownership](/docs/language/c-cpp-memory/) for the details.
 
 ## See also
 

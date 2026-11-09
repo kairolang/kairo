@@ -546,7 +546,7 @@ An `@implicit` conversion and `op panic` are called by the language where no cal
 
 ### SC001E: `a constructor cannot panic` / `a destructor cannot panic`
 
-No constructor (one with parameters, the default constructor, a transfer constructor) and no destructor (`op delete`) can [panic](/docs/language/classes-lifecycle/#constructors-and-destructors-never-panic): an object is built whole or not at all, and a destructor runs on every exit, where nothing could take an error. Marking one `panic` is `a constructor cannot panic: an object is either built whole or not at all` (or the destructor's reason), with a fix-it removing `panic`. A panic that would escape one's body is `a constructor cannot panic: '{f}' may panic with '{E}', which is not handled`, with fix-its handling it there or stopping the program with `crash!()`. For a constructor, a note says that construction which can fail belongs in a static factory function.
+No constructor (one with parameters, the default constructor, a transfer constructor) and no destructor (`op finally`) can [panic](/docs/language/classes-lifecycle/#constructors-and-destructors-never-panic): an object is built whole or not at all, and a destructor runs on every exit, where nothing could take an error. Marking one `panic` is `a constructor cannot panic: an object is either built whole or not at all` (or the destructor's reason), with a fix-it removing `panic`. A panic that would escape one's body is `a constructor cannot panic: '{f}' may panic with '{E}', which is not handled`, with fix-its handling it there or stopping the program with `crash!()`. For a constructor, a note says that construction which can fail belongs in a static factory function.
 
 ```kairo
 class Conn {
@@ -648,13 +648,76 @@ A remark, not a warning. A panicking function's result is returned in two regist
 
 ## Imports
 
+### R068E: plain import reaches a file beside the importer
+
+`'{util}' is not in any library or search directory; it is the file beside this one, which a plain import no longer reaches: write 'self::{util}'`
+
+A plain `import util` looks only in the libraries and search directories ([Resolution Semantics](/docs/language/imports/#resolution-semantics)). None of them holds `util`, but the importing file's directory does, which older compilers searched first. The import still resolves to that file, with this error and a fix-it that inserts `self::`.
+
+```kairo
+// app/main.k, with app/util.k beside it
+import util          // error R068E; fix-it: import self::util
+```
+
+**Fix:** apply the fix-it, or write `module::util` for a file at the module root.
+
+---
+
+### R069E: `cannot import 'module::{x}': this file is in no module`
+
+`import module::x` resolves from the importing file's [module root](/docs/language/imports/#module-imports), the nearest directory at or above it that holds a `module.k`, and there is none. A note (R069N) says what is missing.
+
+**Fix:** add a `module.k` (an empty one is enough) to the directory that should be the module root, or write `import self::x` for a file beside this one.
+
+---
+
+### R005E: `ambiguous module '{x}': both '{x.k}' and '{x/module.k}' are that module`
+
+The one place the import looks holds both a file `x.k` and a library entry `x/module.k`, and each would be module `x`. The file answers, so the import does not also fail, but the layout is an error.
+
+**Fix:** rename or remove one of the two.
+
+---
+
+### S089E: `'import module foo' was removed`
+
+`import module foo` (with a space) forced the library form of a module. Each import form now looks in one place where a file and a library entry with one name are already an error, so the form is gone. A fix-it deletes `module`, and the line is then read as a plain `import foo`.
+
+**Fix:** apply the fix-it and pick the form for where `foo` is: `import foo` (a library or search directory), `import self::foo` (beside this file) or `import module::foo` (from the module root).
+
+---
+
+### S090E: `the destructor is spelled 'fn op finally(self)'; 'op delete' is no longer a destructor`
+
+Since 0.2.0 the [destructor](/docs/language/classes-lifecycle/#destructors---op-finally) is `fn op finally(self)`. The old `fn op delete(self)` (and `x.op delete()` in an expression) is an error with a fix-it that renames `delete` to `finally`.
+
+**Fix:** apply the fix-it.
+
+---
+
+### S091E: `Kairo has no 'delete' expression`
+
+Running a destructor and freeing memory are separate steps. Memory from `@create` is freed with `@destroy p` (the fix-it), which runs the destructor and returns the block to the allocator it came from. Memory C++ allocated is freed with `@cxx::delete p`, or `@cxx::delete [] p` for an array (the fix-it for `delete [] p`). `x.finally()` (run a destructor early without freeing) is planned for 0.3 and is an error until then. See [Freeing memory](/docs/language/classes-lifecycle/#freeing-memory).
+
+**Fix:** apply the fix-it, or use `@cxx::delete` for C++ memory.
+
+---
+
+### SC149E: `a class cannot declare its own allocator ('op new')`
+
+A `static fn op new` / `static fn op delete` pair would give a class its own allocator, which breaks the pairing every `@create` / `@destroy` and every C++ `delete` of a Kairo object relies on. Kairo does not allow it.
+
+**Fix:** remove the operator; allocate from a pool through the [allocator interface](/docs/language/allocators/) (`create_in<T, A>`), a scoped allocator, or `@set_global_allocator`.
+
+---
+
 ### R016E: `ambiguous import: '{name}' names more than one non-function symbol`
 
 One imported name refers to more than one thing that is not a function, for example two types imported from two modules. Functions merge into one overload set; other declarations cannot.
 
 ```kairo
-import bar::{Box}
-import baz::{Box}    // error R016E, reported here
+import bar::Box
+import baz::Box    // error R016E, reported here
 ```
 
 When a Kairo import is involved, the error is reported at the import. When every candidate comes from C or C++ headers, it is reported where the name is used, as C++ does, and a note points at each candidate and says what it is (variable, typedef, struct, ...). Importing such headers is not an error by itself.
@@ -784,19 +847,6 @@ The note points at the declaration, and a fix-it replaces the receiver with its 
 
 ## Generics
 
-### SC001E: `'{T}: type' needs -fduck-generics: a generic body is checked against its bounds, not per instance`
-
-A [`: type`](/docs/language/generics/#the-type-regime-transitional) generic parameter in a build with `-fno-duck-generics`. `: type` is a transitional regime in which the C++ compiler checks the body per instantiation instead of Kairo checking it against bounds. It is on by default until the compiler compiles itself; `-fno-duck-generics` turns it off. The label is on `: type`. The code is a placeholder until the error gets its own.
-
-```kairo
-fn <T: type> show(t: T) -> i32 { return t.value() }   // error SC001E; note at 't.value'
-fn <T: type> same(t: T) -> T { return t }             // error SC001E; fix-it deletes ': type'
-```
-
-If the body uses no member of `T`, a fix-it deletes `: type`, since an unbounded `T` accepts the same body. If it does, a note points at the first member use instead. Deleting the bound there would only lead to R051E (an unbounded parameter has no members).
-
-**Fix:** bound the parameter with an interface that declares the members the body uses (`<T impl Valued>`), or drop `-fno-duck-generics` while the code is being migrated.
-
 ### R051E / R025E: `'{op}' on '{T}' needs a bound that declares '{requirement}'`
 
 A generic body uses an operator, a conversion or an interpolation on a value of a type parameter that nothing grants. The body is [checked once against its bounds](/docs/language/generics/#type-parameter-constraints), so the error is at the use, in the generic, whatever the generic is later used with. R051E when the parameter has no bound at all (a note points at it: `'T' is declared with no bound`); R025E, ending `; none of the bounds of 'T' does`, when it has bounds and none declares the requirement. The forms: `'==' on 'T' needs a bound that declares 'op =='` (`!=` names `op !=` or `op ==`, a relational `op <=>`, `+` `op +=`, `+=` `op +`), `'===' on 'T?' compares the values with 'op ==', so it needs a bound on 'T' that declares 'op =='`, `'as string' on 'T' needs a bound that declares 'op as' returning 'string'`, and `formatting a 'T' needs a bound that declares 'fn repr(self) -> string' or 'op as' returning 'string'`.
@@ -807,7 +857,7 @@ interface Same { fn op ==(const self, other: Self) -> bool }
 fn <T impl Same> eq2(a: T, b: T) -> bool = a == b   // ok: the bound's 'op =='
 ```
 
-A `<T: type>` parameter is exempt: C++ checks its operators per instance. A null test on a `T` (`t?`, `t == null`) is the ordinary "is not nullable" error: a `T` is never null.
+A null test on a `T` (`t?`, `t == null`) is the ordinary "is not nullable" error: a `T` is never null.
 
 **Fix:** bound the parameter with an interface that declares the operator, or take the value at its concrete type.
 
@@ -916,6 +966,7 @@ It is reported for:
 
 - iterating a vector, set, map, or string
 - `label!` and `jump!` in user code
+- `x.finally()` and `x.op finally()`, the explicit early destructor call (`'finally()' is not implemented yet (planned for 0.3)`); a local is destroyed at the end of its scope and a heap object with `@destroy`
 - matching a string against a pattern that isn't a string literal or a constant initialized with one
 - matching a record value against a literal-style pattern
 - an initializer on an `eval` field, and one on an array-typed field that is `static`, an array of arrays, or not a list literal
@@ -933,7 +984,7 @@ It is reported for:
 - a `for` loop over a panicking `op in`, a call of a panicking `op []` that returns a pointer (`a call of a panicking place operator ('op []' returning a pointer) is not yet supported`), a cast through a panicking `op as` (`a call of a panicking 'op as' is not yet supported`), and `===` through a panicking `op ==`. Any other panicking operator is called like a function, its derived forms (`!=` from `==`, `<` from `<=>`, `+=` from `+`) included
 - a method that implements two interface requirements, or overrides a method and implements a requirement, whose panic sets differ (`a method meeting both 'Source::read' and 'Stream::read', whose panic sets differ, is not yet supported`), with a note at each. Equal sets, written in any order, are fine
 - a panicking interface requirement whose result names `Self` (`fn add(const self, o: Self) panic(E) -> Self`: `a panicking interface requirement whose result names 'Self' ('add') is not yet supported`); a requirement with a concrete result works, through a bound too
-- a [`panic`](/docs/language/panic/) function under a [`<T: type>`](/docs/language/generics/#the-type-regime-transitional) parameter, a generic `panic` closure, a `panic` generator or `async` function or closure, and a `panic` statement or a call that may panic inside such a body (bounded and unbounded generics are [supported](/docs/language/panic/#generic-functions))
+- a generic `panic` closure, a `panic` generator or `async` function or closure, and a `panic` statement or a call that may panic inside such a body (bounded and unbounded generics are [supported](/docs/language/panic/#generic-functions))
 - a call whose callee's panic set names a generic parameter the call does not bind (no bound declares the requirement it calls)
 - a `fn`, class, struct, union or enum declared in a function body that uses a generic parameter of the function or class around it (`'echo' is declared in a body and uses 'T', a generic parameter of 'wraps'; that is not yet supported`); a note points at the parameter. One that is generic in its own right, or names no outer parameter, compiles
 - an `extend` in a function body
@@ -1042,6 +1093,50 @@ The top level of a [script](/docs/language/modules/#scripts) is a block too: cod
 
 ---
 
+## Const Lint (opt-in)
+
+These warnings are off by default. Turn them on with `-Wconst-self`. Each comes with a fix-it, so a whole tree can be updated in one pass.
+
+### SC273W: a method never mutates `self`
+
+Message: `method '{f}' never mutates 'self'; declare it 'const self'`
+
+The method takes `self`, but nothing in its body changes the object. Every use of `self` reads a field, calls a `const self` method, or passes the object somewhere it is only read. A call to another method of the same file that this warning also finds counts as a read: the methods are decided together.
+
+```kairo
+class Counter {
+    var n: i32 = 0
+
+    fn get(self) -> i32 { return self.n }      // warning SC273W
+    fn twice(self) -> i32 { return self.get() * 2 } // warning SC273W: get() only reads
+    fn bump(self) { self.n += 1 }              // no warning: writes self.n
+}
+```
+
+No warning for a method that writes a field, calls a method that is not `const self` and is not found const-able itself, takes `&self`, or uses `self` inside a closure. Also none for a constructor, `op finally`, an assignment operator, a `virtual` or `override` method (or any method of a class with a polymorphic base), a method of a type or extension that implements an interface, a generic method or a method of a generic type, and an out-of-line definition.
+
+**Fix:** write `const self` (the fix-it inserts `const`).
+
+### SC274W: an `@inout` parameter is never mutated
+
+Message: `'@inout' parameter '{x}' is never mutated; declare it 'const'`
+
+`@inout` tells callers the function may change the argument, so each caller has to pass a mutable place. This body only reads it. `const` passes the argument without a copy too, and a caller may then pass a constant or a temporary.
+
+```kairo
+fn total(@inout xs: [i32]) -> i32 {   // warning SC274W
+    var s = 0
+    for x in xs { s += x }
+    return s
+}
+```
+
+A by-value parameter of a record type that is never mutated is SC224W, which is on by default.
+
+**Fix:** replace `@inout` with `const` (the fix-it does), then drop the `&` at each call: `total(&v)` becomes `total(v)`. The fix-it edits only the declaration, so the calls report an error until they are changed.
+
+---
+
 ## Generators
 
 ### SC111E: `yield` where nothing can yield
@@ -1059,7 +1154,7 @@ fn count() -> i32 {
 
 ### SC112E: this kind of function cannot be a generator
 
-`main`, constructors, destructors (`op delete`), `eval` functions, C-variadic functions, and functions returning `!` cannot be declared `-> yield T`.
+`main`, constructors, destructors (`op finally`), `eval` functions, C-variadic functions, and functions returning `!` cannot be declared `-> yield T`.
 
 ```kairo
 fn main() -> yield i32 { }   // error SC112E
