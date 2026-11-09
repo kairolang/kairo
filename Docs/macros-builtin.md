@@ -152,7 +152,7 @@ Some macros are compiler intrinsics that perform operations beyond token substit
 | `is_trivially_copyable!(T)` | `true` when a `T` is copied as its bytes (C++ `__is_trivially_copyable`) | [Eval](/docs/language/eval/) |
 | `is_trivially_destructible!(T)` | `true` when destroying a `T` runs no code | [Eval](/docs/language/eval/) |
 | `unwrap!(expr)` | Force-unwrap a nullable; aborts the program on null | [Nullables](/docs/language/nullables/#force-unwrap) |
-| `mref!(T)` | Produce an rvalue reference type (`&&T`) | [Library](/docs/library/core/functions/move_refrence/) |
+| `mref!(T)` | Produce an rvalue reference type (`&&T`) | [Core library](/docs/library/core/) |
 
 These use macro syntax (`name!`) to make their usage explicit and searchable in a codebase, but they are not user-definable they are built into the compiler.
 

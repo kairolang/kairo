@@ -61,6 +61,9 @@ Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN`
 
 `<=>` returns an `Ordering`, matching the C++20 spaceship operator.
 
+> [!NOTE]
+> In 0.2.0, `<=>` on two primitive values (`1 <=> 2`) does not yet produce a usable `Ordering`. It works for types that define `op <=>`. On primitives, compare with `<`, `==` and `>` for now.
+
 ### `==` vs `===`
 
 `===` is valid when at least one operand is [nullable](/docs/language/nullables/) (`T?`). `a === b` is true when both are non-null and equal: it reads as `(a? && b?) && a == b`, with `==` applied to the unwrapped values. A non-nullable operand needs no test, so `a === 5` is `a? && a == 5`. On nullable pointers (`*T?`) it compares the values they point to, where `==` compares **addresses**. This goes one level only: on `(**T)?` it compares the `*T` values, which are addresses. Using `===` where neither operand is nullable is an error, including two `*T`. To compare the pointees of two non-null pointers, dereference them and use `==`. When a nullable pointer is involved, both sides must be pointers (`p === 42` is an error), and a nullable raw pointer (`unsafe *T?`) needs an `unsafe` block, since `===` dereferences it. `x === null` is never true, so it is an error, with a fix-it that writes the null test `!x?`.
