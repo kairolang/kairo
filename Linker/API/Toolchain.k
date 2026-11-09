@@ -1546,7 +1546,9 @@ pub class Toolchain {
     static fn emulation_for(const a: string, const os: string, const env: string) -> string {
         var fbsd = LinkText::starts_with(os, "freebsd")
         if a == "x86_64" {
-            if env == "gnux32" {
+            // x32 is an environment of x86_64 for either libc (Z5: muslx32
+            // linked as elf_x86_64 and lld refused every object).
+            if env == "gnux32" || env == "muslx32" {
                 return "elf32_x86_64"
             }
 

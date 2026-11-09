@@ -127,6 +127,10 @@ pub class SysGen {
     pub var input:      string         ///< --input
     pub var quiet:      bool   = false
     pub var jobs:       usize  = 0     ///< -j: compiles in flight, 0 = SysRun::jobs()
+    /// --libc-only (build): the libc stages alone, published as include/ +
+    /// lib/ + SYSROOT.toml, for a target no runtimes table serves yet (the
+    /// root runtimes_recipe.py --headers derives its tables from).
+    pub var libc_only: bool = false
 
     pub fn SysGen(self) = default
 
@@ -478,8 +482,40 @@ pub class SysGen {
         progs.push_back("test.k")
         progs.push_back("floats.k")
         progs.push_back("tfbf.k")
+        // A program spelling a float type the target lacks (clang has no
+        // _Float16 on PowerPC or MIPS, no __bf16 there or on SystemZ, no
+        // __float128 on any of them or LoongArch) cannot build there: SKIP
+        // it, never a pass. One compile per type asks the toolchain itself.
+        var have = cxx::std::vector<string>()
+        var lack = cxx::std::vector<string>()
         for var src: string in progs {
             var want = SysGen::_expected(&exp, src)
+            var need = ""
+            for var e: string in exp {
+                if LinkText::starts_with(e, "types/" + src + "=") {
+                    need = LinkText::slice(e, src.size() + 7, e.size())
+                }
+            }
+
+            var missing = ""
+            if !need.empty() {
+                for var ty: string in SysUtil::split(need, (',' as u8)) {
+                    if !SysGen::_has_type(kcc, m.triple, root, work, ty, &have, &lack) {
+                        missing += if (missing.empty()) => (ty) else => ", " + ty
+                    }
+                }
+            }
+
+            if !missing.empty() {
+                var spad = src + ":"
+                while spad.size() < 14 {
+                    spad += " "
+                }
+
+                rep += f"{spad}SKIP (the target has no {missing})" + "\n"
+                continue
+            }
+
             var dot  = LinkText::find(src, ".", 0)
             var stem = LinkText::slice(src, 0, dot)
             var lang = LinkText::slice(src, dot + 1, src.size())
@@ -880,7 +916,9 @@ pub class SysGen {
 
         // A target neither the template nor the tables serve would fail in
         // the builtins stage, after the libc stages: refuse it before them.
-        if SysUtil::contains(&p.inputs, "runtimes-template") {
+        if self.libc_only {
+            p.row("runtimes_from", "none (--libc-only)")
+        } else if SysUtil::contains(&p.inputs, "runtimes-template") {
             var t = SysTemplate()
             if !t.load(p.share.input_path("runtimes-template")) {
                 return out.refuse(t.error, "")
@@ -945,7 +983,11 @@ pub class SysGen {
         var stages = sys_stages()
         for var i: usize = 0; i < stages.size(); ++i {
             var name = stages[i]
-            var st   = SysStage(c->stage_dir(name, p->stage_keys[i]))
+            if self.libc_only && name != "libc-headers" && name != "libc-libs" {
+                continue
+            }
+
+            var st = SysStage(c->stage_dir(name, p->stage_keys[i]))
             if st.done() {
                 ctx.done_names.push_back(name)
                 ctx.done_dirs.push_back(st.dir)
@@ -1006,7 +1048,40 @@ pub class SysGen {
             }
         }
 
+        if self.libc_only {
+            return SysGen::_publish_libc(&ctx, p, dest, &out)
+        }
+
         return SysGen::_publish(&ctx, p, c, dest, &out)
+    }
+
+    /// --libc-only: the libc-headers and libc-libs products merged into \p
+    /// dest, with the target's SYSROOT.toml. Not a sysroot (no runtimes, no
+    /// validation): never cached, only `ksys build --out`.
+    priv static fn _publish_libc(ctx:        *StageCtx,
+                                 p:          *SysPlan,
+                                 const dest: string,
+                                 @inout out: SysOutcome) -> bool {
+        if dest.empty() {
+            return out.refuse("--libc-only builds with --out only", "")
+        }
+
+        LinkFS::make_dirs(dest)
+        var parts = cxx::std::vector<string>()
+        parts.push_back("libc-headers")
+        parts.push_back("libc-libs")
+        for var n: string in parts {
+            var from = ctx->product(n)
+            if from.empty() || !LinkFS::copy_tree(from, dest) {
+                return out.fail(f"cannot copy the {n} product into {dest}", "")
+            }
+        }
+
+        if !LinkFS::write(dest + "/SYSROOT.toml", SysGen::render_toml(&p->recipe, &p->target)) {
+            return out.fail(f"cannot write {dest}/SYSROOT.toml", "")
+        }
+
+        return true
     }
 
     /// # Generic stages
@@ -1270,10 +1345,63 @@ pub class SysGen {
         while toml.next(&key, &val) {
             if toml.table == "exit" && val.kind == 1 {
                 out.push_back(key + "=" + val.text)
+            } else if toml.table == "types" && val.kind == 3 {
+                // [types] "<file>" = ["f16", ...]: the Kairo float types the
+                // program spells, kept as types/<file>=f16,bf16.
+                out.push_back("types/" + key + "=" + SysUtil::joined(&val.list, ","))
             }
         }
 
         return out
+    }
+
+    /// Whether kcc compiles a declaration of Kairo float type \p ty
+    /// (f16 / bf16 / f128) for \p triple; memoised in \p have / \p lack.
+    /// An unknown name is taken as present (the program then shows it).
+    priv static fn _has_type(const kcc:    string,
+                             const triple: string,
+                             const root:   string,
+                             const work:   string,
+                             const ty:     string,
+                             @inout have:  cxx::std::vector<string>,
+                             @inout lack:  cxx::std::vector<string>) -> bool {
+        if SysUtil::contains(&have, ty) {
+            return true
+        }
+
+        if SysUtil::contains(&lack, ty) {
+            return false
+        }
+
+        var c = ""
+        if ty == "f16" {
+            c = "_Float16"
+        } else if ty == "bf16" {
+            c = "__bf16"
+        } else if ty == "f128" {
+            c = "__float128"
+        } else {
+            return true
+        }
+
+        var src = LinkText::join(work, f"type-{ty}.c")
+        LinkFS::write(src, f"{c} kairo_type_probe;\n")
+        var argv = cxx::std::vector<string>()
+        argv.push_back(kcc)
+        argv.push_back("--target=" + triple)
+        argv.push_back("--sysroot=" + root)
+        argv.push_back("-c")
+        argv.push_back(src)
+        argv.push_back("-o")
+        argv.push_back(LinkText::join(work, f"type-{ty}.o"))
+        var ok = SysRun::run(&argv, LinkText::join(work, f"type-{ty}.log")) == 0
+        if ok {
+            have.push_back(ty)
+        } else {
+            lack.push_back(ty)
+        }
+
+        return ok
     }
 
     priv static fn _expected(@inout exp: cxx::std::vector<string>, const file: string) -> string {
@@ -1327,7 +1455,11 @@ pub class SysGen {
         var harch  = hparts[0]
         var hos    = if (LinkText::contains(host, "linux")) => ("linux") else => host
         var tos    = if (LinkText::starts_with(t->family, "linux")) => ("linux") else => t->family
-        var native = harch == t->arch || harch == "x86_64" && t->arch == "i686"
+        // x32 runs on an x86_64 kernel built with CONFIG_X86_X32_ABI; without
+        // it the run fails rather than SKIPs (qemu-user has no x32 target).
+        var native = harch == t->arch
+            || harch == "x86_64" && t->arch == "i686"
+            || harch == "x86_64" && t->arch == "x32"
         if mode == "link-only" || mode.empty() {
             return "link-only target"
         }
@@ -1390,6 +1522,9 @@ pub class SysGen {
             qa = "arm"
         } else if qa == "i686" {
             qa = "i386"
+        } else if LinkText::starts_with(qa, "powerpc") {
+            // qemu-ppc, qemu-ppc64, qemu-ppc64le
+            qa = "ppc" + LinkText::slice(qa, 7, qa.size())
         }
 
         var qemu = SysGen::find_tool("qemu-" + qa)

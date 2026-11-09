@@ -56,7 +56,7 @@ OBJECT_FILES = {"crtbegin": "clang_rt.crtbegin.o", "crtend": "clang_rt.crtend.o"
 # --- target properties (Linker/Sysroot/Names.k SysNames::properties is the twin) ---
 
 def cpu_of(arch: str) -> str:
-    if arch == "x86_64" or (len(arch) == 4 and arch[0] == "i" and arch.endswith("86")):
+    if arch in ("x86_64", "x32") or (len(arch) == 4 and arch[0] == "i" and arch.endswith("86")):
         return "x86"
     if arch.startswith("aarch64") or arch.startswith("arm64"):
         return "aarch64"
@@ -97,7 +97,8 @@ def props_of(libc: str, arch: str, clang_triple: str) -> dict:
     bits = "64" if arch in B64 or cpu == "aarch64" else "32"
     p = {"libc": libc, "os": os_, "arch": arch, "cpu": cpu, "bits": bits}
     p["objfmt"] = "coff" if os_ == "windows" else ("wasm" if cpu == "wasm" else "elf")
-    p["int128"] = "native" if bits == "64" or cpu == "wasm" else "soft"
+    # x32 (Names.k's arch for gnux32 / muslx32): 32-bit pointers, x86_64's registers.
+    p["int128"] = "native" if bits == "64" or cpu == "wasm" or arch == "x32" else "soft"
     p["endian"] = "big" if big_endian(arch) else "little"
     if cpu == "arm":
         # armv7-linux-gnueabihf has no vendor: the env is the last component.
@@ -106,7 +107,9 @@ def props_of(libc: str, arch: str, clang_triple: str) -> dict:
         p["float"] = "na"
     # compiler-rt's builtins arch (its <arch>_SOURCES): armv6 is arm_min, armv7+ is
     # arm (soft) / armhf (hard), MinGW's is arm; i?86 is i386.
-    if cpu == "x86":
+    if arch == "x32":
+        rt = "x32"
+    elif cpu == "x86":
         rt = "x86_64" if bits == "64" else "i386"
     elif cpu == "aarch64":
         rt = "aarch64"
@@ -389,9 +392,25 @@ def conditional(seqs: dict, relevant: set, props: dict) -> list:
 
 # --- build the template ---
 
+def tree_text(base: Path, key: str):
+    """A build/ or headers/ table and its dir, as comparable content: the `# targets:` comment
+    (which names the targets of the run that derived it) left out."""
+    if not key:
+        return None
+    toml = [l for l in (base / f"{key}.toml").read_text().splitlines() if not l.startswith("# targets:")]
+    files = {}
+    d = base / key
+    if d.is_dir():
+        for p in sorted(d.rglob("*")):
+            if p.is_file():
+                files[str(p.relative_to(d))] = p.read_bytes()
+    return toml, files
+
+
 def build(targets: list) -> dict:
     props = {t.name: t.P for t in targets}
     tmpl = {"flags": {}, "profiles": {}, "archives": {}, "objects": {}, "families": {}}
+    fam_rdir = {}
 
     # [flags].<lang> per runtime: only targets that compile that language care.
     for rt in RUNTIMES:
@@ -443,8 +462,16 @@ def build(targets: list) -> dict:
         f = {"headers_dest": t.t.get("headers_dest", ""), "build": t.t.get("build", ""),
              "headers": t.t.get("headers", "")}
         if fam in tmpl["families"] and tmpl["families"][fam] != f:
-            raise SystemExit(f"{t.name}: family {fam} has two build/headers keys")
+            # Tables derived in separate runtimes_recipe.py runs name the same tree after
+            # different targets (Z5: the new arches' musl-loongarch64+... is the old
+            # musl-aarch64+... byte for byte). Same content is the same family tree.
+            first, frdir = tmpl["families"][fam], fam_rdir[fam]
+            if first["headers_dest"] != f["headers_dest"] or any(
+                    tree_text(frdir / k, first[k]) != tree_text(t.rdir / k, f[k]) for k in ("build", "headers")):
+                raise SystemExit(f"{t.name}: family {fam} has two build/headers keys")
+            continue
         tmpl["families"][fam] = f
+        fam_rdir[fam] = t.rdir
     # Whether a target has an output at all is part of the rule (wasi has no libc++,
     # MinGW no libc++abi.a, the BSDs no crt objects): every target is relevant to
     # every output, one without it a negative for all of its fragments.
@@ -670,7 +697,8 @@ def main():
     tmpl = build(train)
     sources = {}
     for t in train:
-        sources.setdefault(t.t["family"], t.rdir)
+        if t.t.get("build", "") == tmpl["families"].get(t.t["family"], {}).get("build", ""):
+            sources.setdefault(t.t["family"], t.rdir)
 
     if a.out:
         write(tmpl, a.out, sources, train)

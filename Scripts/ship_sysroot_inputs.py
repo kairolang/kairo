@@ -13,10 +13,15 @@ is fetched. Sources, in the order kairo-sysroots' curate/ scripts consumed them:
   musl/           Lib/libc/musl (1.2.6), without git and docs
   linux-uapi/     the kernel headers of the curated *-linux-musl roots, split into the part
                   every arch shares and asm/ (plus arch-only headers) per arch
-  glibc/2.31/<a>/ kairo-sysroots extract/<a>-...-glibc2.31 (Ubuntu focal libc6-dev):
-                  usr/include verbatim, crt objects, libc_nonshared.a; abilist/ read from
-                  the curated roots' focal DSOs (Scripts/glibc_stubs.py). --report rebuilds
-                  every stub DSO from the shipped abilists and compares it with the original.
+  glibc/abilists/ every release's sysdeps/**/*.abilist from glibc git (2.17 .. newest),
+                  merged per ABI with the releases exporting each entry, and the compat-only
+                  bindings from glibc's own source (Scripts/glibc_abilists.py, glibc_compat.py)
+  glibc/headers/  the newest release's install-headers for every arch (glibc's configure +
+                  make, clang as CC), deduplicated (Scripts/glibc_headers.py)
+  glibc/src/, glibc/crt/  the crt objects and libc_nonshared.a as glibc's own make compiles
+                  them, per era and arch, and the source subset they read
+                  (Scripts/glibc_crt_recipe.py). --report rebuilds the 2.31 stubs from the
+                  abilists and compares them with the curated (Ubuntu focal) DSOs.
   mingw/          headers from the curated windows-gnu roots (identical on every arch, so
                   shipped once); crt/<a>/ = the curated lib/ files mingw-crt/ does not build
                   (winpthreads, libssp, ...: P623). Without mingw-crt/ tables: def/<a>/
@@ -62,12 +67,23 @@ sys.path.insert(0, str(ROOT / "Scripts"))
 import glibc_stubs  # noqa: E402
 
 LLVM_VERSION = "22.1.0"
-GLIBC_VERSIONS = ["2.31"]                  # the only version any source on disk covers
+GLIBC_VERSIONS = [f"2.{n}" for n in range(17, 43)]   # every release 2.17 .. 2.42 (glibc/abilists)
+GLIBC_DEFAULT = "2.31"                                # what a name without -glibc<v> means (0.2.0's)
+GLIBC_KEYS = ["glibc/abilists", "glibc/crt", "glibc/headers", "glibc/src"]
 MUSL_ARCH = {"x86_64": "x86_64", "i686": "i386", "aarch64": "aarch64", "armv7": "arm",
              "armv6": "arm", "riscv64": "riscv64", "riscv32": "riscv32"}
 # Kernel headers_install output depends only on the kernel ARCH (the x86_64 and i686 roots
 # carry identical asm/), so arches without a curated root take their kernel twin's set.
 UAPI_TWIN = {"armv6": "armv7", "riscv32": "riscv64"}
+# Kernel ARCHes with no curated root (Z5): asm/<ARCH>/ comes from `make headers_install
+# ARCH=<ARCH>` of the Linux source tree --linux-src names (the same 7.0 the curated roots'
+# headers are). Recipes reach them through [per_arch.uapi_arch].
+UAPI_KERNEL = ["powerpc", "s390", "mips", "loongarch", "sparc"]
+# generic/ files the curated (Alpine linux-headers) set carries in a form a pristine
+# headers_install does not: Alpine's musl-compat patches (if_tunnel.h drops the <linux/if.h>
+# <linux/ip.h> <linux/in6.h> includes, kernel.h guards <linux/sysinfo.h> with __GLIBC__), and
+# musl's own scsi/ headers, which the curated include/ held under a UAPI dir name.
+UAPI_GENERIC_CURATED_ONLY = {"linux/if_tunnel.h", "linux/kernel.h", "scsi/scsi.h", "scsi/scsi_ioctl.h", "scsi/sg.h"}
 UAPI_DIRS = ("asm", "asm-generic", "linux", "drm", "misc", "mtd", "rdma", "scsi", "sound",
              "video", "xen", "cxl", "fwctl", "regulator")
 MINGW_ARCHES = ["x86_64", "i686", "aarch64", "armv7"]
@@ -350,10 +366,14 @@ FAMILIES["musl"] = '''\
 # roots took libc, libc++ and crtbegin/end from Alpine; the generator builds all of them).
 family       = "musl"
 provider     = "musl"
-arches       = ["x86_64", "i686", "aarch64", "aarch64_be", "armv7", "armv6", "thumbv7", "riscv64", "riscv32"]
-name         = "{arch}-linux-musl"
-triple       = "{arch}-linux-musl"
-clang_triple = "{arch}-unknown-linux-musl"        # 32-bit Arm: quirk armv7-musl-hardfloat
+arches       = ["x86_64", "i686", "aarch64", "aarch64_be", "armv7", "armv6", "thumbv7", "riscv64", "riscv32",
+                "powerpc", "powerpc64", "powerpc64le", "s390x", "mips", "mipsel", "mips64", "mips64el",
+                "loongarch64", "x32"]
+# x32 (Names.k arch "x32", x86_64 code with 32-bit pointers) spells its triple through the
+# environment, so the triples are per-arch rows rather than "{arch}-linux-musl" (Z5).
+name         = "{triple}"
+triple       = "{per_arch.triple}"
+clang_triple = "{per_arch.clang_triple}"          # 32-bit Arm: quirk armv7-musl-hardfloat
 inputs       = ["musl", "linux-uapi"]
 runtimes     = ["libunwind", "libcxxabi", "libcxx"]
 crt_objects  = true                               # clang_rt.crtbegin.o / crtend.o
@@ -363,8 +383,52 @@ os_dir       = "linux"
 static_only  = true
 # musl.sh:74 names the dir after the arch, not the clang triple: armv7 is
 # armv7-unknown-linux-musl although it is compiled as ...-musleabihf.
-resource_layout = "compiler-rt/lib/{arch}-unknown-linux-musl"
+resource_layout = "compiler-rt/lib/{per_arch.clang_triple}"
 builtins_name   = "libclang_rt.builtins.a"
+
+[per_arch.triple]                                 # SYSROOT.toml triple = the name
+x86_64      = "x86_64-linux-musl"
+i686        = "i686-linux-musl"
+aarch64     = "aarch64-linux-musl"
+aarch64_be  = "aarch64_be-linux-musl"
+armv7       = "armv7-linux-musl"
+armv6       = "armv6-linux-musl"
+thumbv7     = "thumbv7-linux-musl"
+riscv64     = "riscv64-linux-musl"
+riscv32     = "riscv32-linux-musl"
+powerpc     = "powerpc-linux-musl"
+powerpc64   = "powerpc64-linux-musl"
+powerpc64le = "powerpc64le-linux-musl"
+s390x       = "s390x-linux-musl"
+mips        = "mips-linux-musl"
+mipsel      = "mipsel-linux-musl"
+mips64      = "mips64-linux-musl"
+mips64el    = "mips64el-linux-musl"
+loongarch64 = "loongarch64-linux-musl"
+x32         = "x86_64-linux-muslx32"
+
+# Before the quirks (armv7-musl-hardfloat rewrites 32-bit Arm to -musleabihf); also the
+# compiler-rt dir (musl.sh:74 names it after the arch: armv7-unknown-linux-musl).
+[per_arch.clang_triple]
+x86_64      = "x86_64-unknown-linux-musl"
+i686        = "i686-unknown-linux-musl"
+aarch64     = "aarch64-unknown-linux-musl"
+aarch64_be  = "aarch64_be-unknown-linux-musl"
+armv7       = "armv7-unknown-linux-musl"
+armv6       = "armv6-unknown-linux-musl"
+thumbv7     = "thumbv7-unknown-linux-musl"
+riscv64     = "riscv64-unknown-linux-musl"
+riscv32     = "riscv32-unknown-linux-musl"
+powerpc     = "powerpc-unknown-linux-musl"
+powerpc64   = "powerpc64-unknown-linux-musl"
+powerpc64le = "powerpc64le-unknown-linux-musl"
+s390x       = "s390x-unknown-linux-musl"
+mips        = "mips-unknown-linux-musl"
+mipsel      = "mipsel-unknown-linux-musl"
+mips64      = "mips64-unknown-linux-musl"
+mips64el    = "mips64el-unknown-linux-musl"
+loongarch64 = "loongarch64-unknown-linux-musl"
+x32         = "x86_64-unknown-linux-muslx32"
 
 [per_arch.musl_arch]                              # ARCH= for musl's Makefile (section 4.4)
 x86_64  = "x86_64"
@@ -376,6 +440,21 @@ armv6   = "arm"
 thumbv7 = "arm"
 riscv64 = "riscv64"
 riscv32 = "riscv32"
+# Z5: clang's defaults are the ABIs musl's configure accepts (checked with kcc -dM): ppc64
+# ELFv2 (_CALL_ELF 2, musl refuses ELFv1), ppc32 and ppc64 long double = double (musl's
+# bits/float.h), mips o32 / n64 hard-float (no -sf SUBARCH), loongarch64 lp64d. kcc passes
+# configure's per-arch asm probes too ('d' constraint on ppc, FCSR on loongarch), so no
+# -DBROKEN_* define and no per-arch cflags.
+powerpc     = "powerpc"
+powerpc64   = "powerpc64"
+powerpc64le = "powerpc64"                          # musl's SUBARCH le: same arch/ dir
+s390x       = "s390x"
+mips        = "mips"
+mipsel      = "mips"                               # SUBARCH el
+mips64      = "mips64"                             # n64 (clang's default for mips64-linux)
+mips64el    = "mips64"
+loongarch64 = "loongarch64"
+x32         = "x32"                                # musl configure: x86_64 + __ILP32__
 
 # Kernel headers_install output depends only on the kernel ARCH and not on endianness or the
 # Arm instruction set (P642): linux-uapi/asm/<dir> per arch.
@@ -389,6 +468,17 @@ armv6      = "armv6"
 thumbv7    = "armv7"
 riscv64    = "riscv64"
 riscv32    = "riscv32"
+# Z5: from `make headers_install ARCH=<kernel arch>` (Linux 7.0), dirs named by kernel ARCH.
+powerpc     = "powerpc"
+powerpc64   = "powerpc"
+powerpc64le = "powerpc"
+s390x       = "s390"
+mips        = "mips"
+mipsel      = "mips"
+mips64      = "mips"
+mips64el    = "mips"
+loongarch64 = "loongarch"
+x32         = "x86_64"                             # ARCH=x86: asm/ has unistd_x32.h
 
 [libc]                                            # section 4.6, musl provider
 configure = ["--target={clang_triple}", "--disable-shared"]
@@ -441,16 +531,17 @@ run = "native-or-qemu"
 '''
 
 FAMILIES["glibc"] = '''\
-# Linux / glibc. Reference invocations: kairo-sysroots curate/glibc.sh (layout, [toml]),
-# fetch-glibc.sh (Ubuntu focal inputs), build-glibc-runtimes.sh (builtins + crt + C++ runtimes
-# in one runtimes configure, against the floor version).
+# Linux / glibc, built from glibc's own sources for any release and arch (Z4): stubs from
+# glibc/abilists, headers from glibc/headers, crt + libc_nonshared.a from glibc/src + glibc/crt.
+# Layout and [toml] as kairo-sysroots curate/glibc.sh made the 0.2.0 roots (Ubuntu focal);
+# runtimes as build-glibc-runtimes.sh (builtins + crt + C++ runtimes in one configure).
 family       = "glibc"
 provider     = "glibc"
-arches       = ["x86_64", "i686", "aarch64", "armv7", "riscv64"]
+arches       = ["x86_64", "i686", "aarch64", "armv7", "riscv64", "x32", "aarch64_be", "riscv32", "powerpc", "powerpc64", "powerpc64le", "s390x", "mips", "mipsel", "mips64", "mips64el", "loongarch64", "sparc64"]
 name         = "{triple}-glibc{libc_version}"
 triple       = "{per_arch.triple}"                # glibc.sh triple_of(): the name minus -glibc<v>
 clang_triple = "{triple}"                         # build-glibc-runtimes.sh:58 passes it as is
-inputs       = ["glibc/{libc_version}/{arch}", "linux-uapi"]
+inputs       = ["glibc/abilists", "glibc/headers", "glibc/src", "glibc/crt", "linux-uapi"]
 runtimes     = ["libunwind", "libcxxabi", "libcxx"]
 crt_objects  = true
 runtimes_libc_version = "floor"
@@ -462,24 +553,91 @@ resource_layout = "compiler-rt/lib/{triple}"
 builtins_name   = "libclang_rt.builtins.a"
 
 [per_arch.triple]
-x86_64  = "x86_64-linux-gnu"
-i686    = "i686-linux-gnu"
-aarch64 = "aarch64-linux-gnu"
-armv7   = "armv7-linux-gnueabihf"
-riscv64 = "riscv64-linux-gnu"
+x86_64      = "x86_64-linux-gnu"
+i686        = "i686-linux-gnu"
+aarch64     = "aarch64-linux-gnu"
+armv7       = "armv7-linux-gnueabihf"
+riscv64     = "riscv64-linux-gnu"
+x32         = "x86_64-linux-gnux32"
+aarch64_be  = "aarch64_be-linux-gnu"
+riscv32     = "riscv32-linux-gnu"
+powerpc     = "powerpc-linux-gnu"
+powerpc64   = "powerpc64-linux-gnu"
+powerpc64le = "powerpc64le-linux-gnu"
+s390x       = "s390x-linux-gnu"
+mips        = "mips-linux-gnu"
+mipsel      = "mipsel-linux-gnu"
+mips64      = "mips64-linux-gnu"
+mips64el    = "mips64el-linux-gnu"
+loongarch64 = "loongarch64-linux-gnu"
+sparc64     = "sparc64-linux-gnu"
 
-[per_arch.multiarch]                              # glibc.sh:65 (the dir holding crt1.o)
-x86_64  = "x86_64-linux-gnu"
-i686    = "i386-linux-gnu"
-aarch64 = "aarch64-linux-gnu"
-armv7   = "arm-linux-gnueabihf"
-riscv64 = "riscv64-linux-gnu"
+[per_arch.multiarch]                              # Debian's multiarch dirs (glibc.sh:65): per-arch headers
+x86_64      = "x86_64-linux-gnu"
+i686        = "i386-linux-gnu"
+aarch64     = "aarch64-linux-gnu"
+armv7       = "arm-linux-gnueabihf"
+riscv64     = "riscv64-linux-gnu"
+x32         = "x86_64-linux-gnux32"
+aarch64_be  = "aarch64_be-linux-gnu"
+riscv32     = "riscv32-linux-gnu"
+powerpc     = "powerpc-linux-gnu"
+powerpc64   = "powerpc64-linux-gnu"
+powerpc64le = "powerpc64le-linux-gnu"
+s390x       = "s390x-linux-gnu"
+mips        = "mips-linux-gnu"
+mipsel      = "mipsel-linux-gnu"
+mips64      = "mips64-linux-gnuabi64"
+mips64el    = "mips64el-linux-gnuabi64"
+loongarch64 = "loongarch64-linux-gnu"
+sparc64     = "sparc64-linux-gnu"
 
-[libc]                                            # section 4.6, glibc provider
-include = "glibc/{libc_version}/{arch}/include"   # carries its own UAPI (linux/version.h)
-crt     = "glibc/{libc_version}/{arch}/crt"
-nonshared = "glibc/{libc_version}/{arch}/libc_nonshared.a"
-abilist = "glibc/{libc_version}/{arch}/abilist"   # <stem>.abilist + <stem>.compat, libs.toml (FORMAT.md)
+[per_arch.uapi_arch]                              # linux-uapi/asm/<dir>, as the musl recipe's (new
+x86_64      = "x86_64"                            # arches: dirs named by kernel ARCH)
+i686        = "i686"
+aarch64     = "aarch64"
+armv7       = "armv7"
+riscv64     = "riscv64"
+x32         = "x86_64"
+aarch64_be  = "aarch64"
+riscv32     = "riscv32"
+powerpc     = "powerpc"
+powerpc64   = "powerpc"
+powerpc64le = "powerpc"
+s390x       = "s390"
+mips        = "mips"
+mipsel      = "mips"
+mips64      = "mips"
+mips64el    = "mips"
+loongarch64 = "loongarch"
+sparc64     = "sparc"
+
+[per_arch.output_format]                          # the libc.so / libm.so scripts' OUTPUT_FORMAT
+x86_64      = "elf64-x86-64"
+i686        = "elf32-i386"
+aarch64     = "elf64-littleaarch64"
+armv7       = "elf32-littlearm"
+riscv64     = "elf64-littleriscv"
+x32         = "elf32-x86-64"
+aarch64_be  = "elf64-bigaarch64"
+riscv32     = "elf32-littleriscv"
+powerpc     = "elf32-powerpc"
+powerpc64   = "elf64-powerpc"
+powerpc64le = "elf64-powerpcle"
+s390x       = "elf64-s390"
+mips        = "elf32-tradbigmips"
+mipsel      = "elf32-tradlittlemips"
+mips64      = "elf64-tradbigmips"
+mips64el    = "elf64-tradlittlemips"
+loongarch64 = "elf64-loongarch"
+sparc64     = "elf64-sparc"
+
+[libc]                                            # section 4.6, glibc provider (FORMAT.md glibc/*)
+abilists = "glibc/abilists"                       # <abi>/<stem>.abilist|.nodes|.compat, targets.toml
+headers  = "glibc/headers"                        # generic/ + <arch>/ - [omit], index.toml
+src      = "glibc/src"                            # <era>/: what the crt compiles read
+crt      = "glibc/crt"                            # <era>/<arch>.toml + <arch>/gen/
+uapi     = ["linux-uapi/generic", "linux-uapi/asm/{per_arch.uapi_arch}"]   # copied in this order into include/
 
 [builtins]                                        # built inside the runtimes configure
 source     = "runtimes"
@@ -939,6 +1097,34 @@ target_rewrite = "{arch}-unknown-linux-musleabihf"
 musl_arch      = "arm"
 
 # build-builtins.sh:72-89 (-fforce-enable-int128 + SOFTWARE_INT128, every musl/mingw arch),
+# Z5: libunwind (LLVM 22) on x32 narrows Registers_x86_64's 64-bit link_reg_t into
+# LocalAddressSpace's 32-bit pint_t in an initializer list (DwarfParser.hpp:480), an error
+# by default; the value is an x32 address, so it fits. Kept through the derivation's
+# warning filter (runtimes_recipe.py KEEP_W).
+[quirk.x32-libunwind-narrowing]
+match_arch     = ["x32"]
+cflags_stages  = ["runtimes"]
+cflags_add_cxx = ["-Wno-c++11-narrowing"]
+
+# Z5: 32-bit PowerPC and MIPS have no 8-byte lock-free atomics, so clang emits __atomic_*_8
+# libcalls (the Kairo runtime's mimalloc needs __atomic_load_8), and neither musl nor glibc
+# ships a libatomic (it is GCC's): compiler-rt's atomic.c goes into the builtins, as for MinGW
+# (and riscv32 musl's template fixup, P641).
+[quirk.atomics-in-builtins-32]
+match_family = ["musl", "glibc"]
+match_arch   = ["powerpc", "mips", "mipsel"]
+cmake_stages = ["builtins"]
+cmake_defs   = ["COMPILER_RT_EXCLUDE_ATOMIC_BUILTIN=OFF"]
+
+# Z5: compiler-rt spells 64-bit SPARC sparcv9; with COMPILER_RT_DEFAULT_TARGET_ONLY its arch is
+# the clang triple's first component (COMPILER_RT_DEFAULT_TARGET_TRIPLE is refused then), and
+# sparc64 is not in its list, so no builtins or crt objects were configured at all. LLVM reads
+# sparc64 and sparcv9 as one arch, so every compile names it sparcv9.
+[quirk.sparc64-as-sparcv9]
+match_family   = ["glibc"]
+match_arch     = ["sparc64"]
+target_rewrite = "sparcv9-unknown-linux-gnu"
+
 # build-glibc-runtimes.sh:19-22,72, build-bsd-runtimes.sh:130,138. The scripts pass it on
 # every arch; it only changes anything where __int128 is not native, hence the probe.
 [quirk.int128-software]
@@ -1052,6 +1238,9 @@ VALIDATE = {
     "expect.toml": "# exit code each program must return when the validate stage runs it (section 4.10)\n"
                    "[exit]\n\"t.c\"      = \"7\"\n\"t.cpp\"    = \"12\"\n\"test.k\"   = \"0\"\n"
                    "\"floats.k\" = \"5\"\n\"tfbf.k\"   = \"1\"\n\n"
+                   "# the Kairo float types a program spells: validate SKIPs it where the target lacks one\n"
+                   "# (Z5: no f16 on PowerPC / MIPS, no bf16 there or on SystemZ, no f128 on any of them)\n"
+                   "[types]\n\"floats.k\" = [\"f16\"]\n\"tfbf.k\"   = [\"f128\", \"bf16\"]\n\n"
                    "# defined (T) in every builtins archive (section 4.5); quirks add more.\n"
                    "# build-builtins.sh:106, build-bsd-runtimes.sh:173, build-wasi-builtins.sh:80\n"
                    "[symbols]\nbase_required = [\"__addtf3\", \"__netf2\", \"__divti3\", \"__extendhfsf2\", "
@@ -1192,11 +1381,13 @@ class Ctx:
         self.runtimes_headers = a.runtimes_headers.resolve() if a.runtimes_headers else None
         self.crt_tree = a.crt_tree.resolve()
         self.template_recipes = [Path(x).resolve() for x in a.template_recipes]
+        self.linux_src = a.linux_src.resolve()
         self.seal_notes = {}    # input key -> P612 notes (links.tsv / casefold.tsv)
         self.prov = {}          # input key -> list of provenance lines
         self.dropped_links = {}
         self.mingw_defs = {}    # arch -> {lib name: def name}
         self.glibc_stub_ok = {}  # arch -> {curated DSO file name: abilist stem} (stubs proven equal)
+        self.glibc_git = a.glibc_git.resolve()
 
 
 def build_data(c: Ctx) -> None:
@@ -1214,9 +1405,10 @@ def build_data(c: Ctx) -> None:
     g.mkdir(exist_ok=True)
     vs = ", ".join(f'"{v}"' for v in GLIBC_VERSIONS)
     (g / "VERSIONS.toml").write_text(
-        "# glibc versions this share tree carries. ship-glibc.sh wants 2.28 (floor) .. 2.41;\n"
-        "# only 2.31 has a source on disk (Ubuntu focal), so it is floor, default and only.\n"
-        f"versions = [{vs}]\nfloor    = \"{GLIBC_VERSIONS[0]}\"\ndefault  = \"{GLIBC_VERSIONS[0]}\"\n")
+        "# glibc releases this share tree builds (glibc/abilists, glibc/headers, glibc/crt). The\n"
+        "# floor is the oldest release's abilists read; an arch's own first release is in\n"
+        "# glibc/abilists/targets.toml. default = what a name without -glibc<v> means.\n"
+        f"versions = [{vs}]\nfloor    = \"{GLIBC_VERSIONS[0]}\"\ndefault  = \"{GLIBC_DEFAULT}\"\n")
 
 
 def build_musl(c: Ctx) -> None:
@@ -1279,6 +1471,7 @@ def build_uapi(c: Ctx) -> None:
             shutil.copyfile(inc / r, dst)
             if not r.startswith("asm/") and arch == twin:
                 extra.append(f"{arch}:{r}")
+    kextra = uapi_kernel_arches(c, out)
     ver = (out / "generic" / "linux" / "version.h").read_text()
     m = re.search(r"LINUX_VERSION_MAJOR (\d+).*?PATCHLEVEL (\d+).*?SUBLEVEL (\d+)", ver, re.S)
     c.prov["linux-uapi"] = [
@@ -1287,106 +1480,136 @@ def build_uapi(c: Ctx) -> None:
         "generic/ = files every arch has (checked identical); asm/<arch>/ = asm/ plus arch-only "
         "headers (" + ", ".join(extra) + "); copy generic/ then every entry of asm/<arch>/",
         "asm/armv6 = asm/armv7 and asm/riscv32 = asm/riscv64 (kernel ARCH twins; x86_64 and i686 "
-        "roots carry identical asm/, which is what makes this sound)"]
+        "roots carry identical asm/, which is what makes this sound)",
+        f"asm/{{{','.join(UAPI_KERNEL)}}}/: `make O=<scratch> headers_install ARCH=<a>` of "
+        f"{os.path.relpath(c.linux_src, ROOT) if c.linux_src.is_relative_to(ROOT) else c.linux_src} (Linux "
+        "7.0, the curated version), minus generic/ by name (every non-asm file but the curated-only "
+        "ones checked identical to generic/); arch-only headers: " + (", ".join(kextra) or "none")]
+
+
+def uapi_kernel_arches(c: Ctx, out: Path) -> list:
+    """asm/<ARCH>/ for UAPI_KERNEL from the Linux tree: the headers_install output minus
+    generic/ by name. Every file of it generic/ also has must be byte-identical to generic/'s
+    copy (but UAPI_GENERIC_CURATED_ONLY), so generic/ stays one set for every arch."""
+    if not (c.linux_src / "Makefile").is_file():
+        die(f"linux-uapi: no Linux source tree at {c.linux_src} (--linux-src)")
+    gen = out / "generic"
+    names = {}
+    for d, _, fs in os.walk(gen):
+        for f in fs:
+            rel = os.path.relpath(os.path.join(d, f), gen).replace(os.sep, "/")
+            names[rel[:-6] if rel.endswith(".kcase") else rel] = rel
+    extra = []
+    for ka in UAPI_KERNEL:
+        work = fresh(c.scratch / "uapi" / f"o-{ka}")
+        hdr = c.scratch / "uapi" / f"h-{ka}"
+        if hdr.exists():
+            shutil.rmtree(hdr)
+        # O= keeps the source tree clean (it is shared, and read by other runs)
+        subprocess.run(["make", "-s", "-C", str(c.linux_src), f"O={work}", f"ARCH={ka}",
+                        f"INSTALL_HDR_PATH={hdr}", "headers_install"], check=True, stdout=subprocess.DEVNULL)
+        inc = hdr / "include"
+        for d, _, fs in os.walk(inc):
+            for f in sorted(fs):
+                rel = os.path.relpath(os.path.join(d, f), inc).replace(os.sep, "/")
+                if rel.split("/")[0] not in UAPI_DIRS:
+                    continue
+                if rel in names:
+                    if rel not in UAPI_GENERIC_CURATED_ONLY and file_sha256(inc / rel) != file_sha256(gen / names[rel]):
+                        die(f"linux-uapi: ARCH={ka} {rel} differs from generic/{names[rel]}")
+                    continue
+                if rel.startswith("asm-generic/") or not (rel.startswith("asm/") or rel.startswith("linux/")):
+                    die(f"linux-uapi: ARCH={ka} has {rel}, a shared header generic/ lacks")
+                dst = out / "asm" / ka / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(inc / rel, dst)
+                if not rel.startswith("asm/"):
+                    extra.append(f"{ka}:{rel}")
+        shutil.rmtree(work)
+    return extra
 
 
 def build_glibc(c: Ctx) -> None:
-    rec = load_recipe(FAMILIES["glibc"])
-    for v in GLIBC_VERSIONS:
-        for arch in rec["arches"]:
-            env = target_env(rec, arch, v)
-            name = env["name"]
-            ex = c.ksys / "extract" / name
-            ma = env["per_arch.multiarch"]
-            if not (ex / "usr" / "lib" / ma / "crt1.o").is_file():
-                die(f"no glibc extract at {ex}")
-            out = fresh(c.share / "glibc" / v / arch)
-            copy_tree(ex / "usr" / "include", out / "include")
-            (out / "crt").mkdir()
-            libdir = ex / "usr" / "lib" / ma
-            for o in sorted(libdir.glob("*.o")):
-                shutil.copyfile(o, out / "crt" / o.name)
-            shutil.copyfile(libdir / "libc_nonshared.a", out / "libc_nonshared.a")
-            key = f"glibc/{v}/{arch}"
-            sweep_links(out, c.dropped_links.setdefault(key, []))
-            if not (out / "include" / ma / "gnu" / "lib-names.h").is_file():
-                die(f"{key}: no gnu/lib-names.h")
-            libs = write_abilists(c, out, ma, c.curated / name / "lib")
-            c.prov[key] = [f"kairo-sysroots extract/{name} (Ubuntu focal libc6-dev + linux-libc-dev): "
-                           "usr/include verbatim (multiarch dir kept), usr/lib/<multiarch>/*.o, libc_nonshared.a",
-                           f"abilist/: read from the curated root's focal DSOs ({', '.join(libs)}) by "
-                           "Scripts/glibc_stubs.py, in glibc's abilist.awk format, plus <lib>.compat (@ vs @@ "
-                           "where the newest-is-default rule is wrong) and libs.toml (soname, verdef order)"]
-
-
-# The section 4.6 soname table: lib-names.h macro -> abilist stem (glibc's own file names).
-GLIBC_STUB_LIBS = {"LIBC_SO": "libc", "LD_SO": "ld", "LIBM_SO": "libm", "LIBPTHREAD_SO": "libpthread",
-                   "LIBDL_SO": "libdl", "LIBRT_SO": "librt", "LIBUTIL_SO": "libutil", "LIBANL_SO": "libanl",
-                   "LIBRESOLV_SO": "libresolv", "LIBMVEC_SO": "libmvec"}
-
-
-def glibc_sonames(include: Path, ma: str) -> dict:
-    """abilist stem -> soname, from gnu/lib-names-*.h (the ABI variant this arch installs)."""
-    out = {}
-    for h in sorted((include / ma / "gnu").glob("lib-names*.h")):
-        for m in re.finditer(r'#define\s+(\w+_SO)\s+"([^"]+)"', h.read_text()):
-            if m.group(1) in GLIBC_STUB_LIBS:
-                out[GLIBC_STUB_LIBS[m.group(1)]] = m.group(2)
-    return out
-
-
-def write_abilists(c: Ctx, out: Path, ma: str, dso_dir: Path) -> list:
-    """abilist/<stem>.abilist + <stem>.compat for every soname-table DSO the root has, and
-    libs.toml naming each soname and its version nodes in definition order."""
-    ab = out / "abilist"
-    ab.mkdir()
-    toml = ["# per library: soname and the version nodes in verdef order (the stub's version script)"]
-    done = []
-    for stem, soname in sorted(glibc_sonames(out / "include", ma).items()):
-        dso = dso_dir / soname
-        if not dso.exists():
-            continue                    # libmvec exists on x86_64 only in 2.31
-        d = glibc_stubs.read_dso(dso)
-        if d.soname != soname:
-            die(f"{dso}: SONAME {d.soname}, lib-names.h says {soname}")
-        (ab / f"{stem}.abilist").write_text(glibc_stubs.abilist_text(d))
-        (ab / f"{stem}.compat").write_text(glibc_stubs.compat_text(d))
-        toml += ["", f"[{stem}]", f'soname   = "{soname}"',
-                 "versions = [" + ", ".join(f'"{v}"' for v in d.versions) + "]"]
-        done.append(stem)
-    (ab / "libs.toml").write_text("\n".join(toml) + "\n")
-    for need in ("libc", "ld", "libm", "libpthread", "libdl"):
-        if need not in done:
-            die(f"{out}: no {need} DSO to read an abilist from")
-    return done
+    """glibc/abilists, glibc/headers, glibc/src + glibc/crt from glibc git and Linux source
+    (Scripts/glibc_abilists.py, glibc_headers.py, glibc_crt_recipe.py; their work dirs under
+    <scratch>/glibc keep the configured trees, so a rerun only redoes what changed)."""
+    import glibc_abilists, glibc_compat, glibc_headers, glibc_crt_recipe
+    g = c.share / "glibc"
+    work = c.scratch / "glibc"
+    work.mkdir(parents=True, exist_ok=True)
+    for old in sorted(g.glob("2.*")) if g.is_dir() else []:
+        if old.is_dir():
+            shutil.rmtree(old)                 # the per-release Ubuntu inputs (pre-Z4)
+    tags, per_tag = glibc_abilists.collect(c.glibc_git, work / "abilist-cache")
+    merged = glibc_abilists.merge(tags, per_tag)
+    compat = glibc_compat.compat_rows(c.glibc_git, work / "abilist-cache", tags, merged)
+    glibc_abilists.write(fresh(g / "abilists"), tags, merged, compat)
+    if tags[0] != GLIBC_VERSIONS[0] or tags[-1] != GLIBC_VERSIONS[-1]:
+        die(f"glibc tags {tags[0]}..{tags[-1]} != GLIBC_VERSIONS {GLIBC_VERSIONS[0]}..{GLIBC_VERSIONS[-1]}")
+    py = sys.executable
+    for argv in ([py, str(ROOT / "Scripts/glibc_headers.py"), "build", "--git", str(c.glibc_git),
+                  "--abilists", str(g / "abilists"),
+                  "--linux", str(c.linux_src), "--work", str(work / "build"), "--out", str(fresh(g / "headers"))],
+                 [py, str(ROOT / "Scripts/glibc_crt_recipe.py"), "--git", str(c.glibc_git), "--linux",
+                  str(c.linux_src), "--work", str(work / "build"), "--out", str(work / "crt-out")]):
+        subprocess.run(argv, check=True)
+    for d in ("src", "crt"):
+        fresh(g / d)
+        copy_tree(work / "crt-out" / d, g / d)
+    newest = tags[-1]
+    head = subprocess.run(["git", "-C", str(c.glibc_git), "rev-parse", f"glibc-{newest}^{{commit}}"],
+                          capture_output=True, text=True).stdout.strip()[:12]
+    c.prov["glibc/abilists"] = [
+        f"glibc git ({c.glibc_git}) tags glibc-{tags[0]} .. glibc-{newest}: every sysdeps/**/*.abilist, mapped "
+        "to ABIs (glibc_abilists.ABI_DIRS) and merged with the releases exporting each entry",
+        "<stem>.compat: compat-only bindings found in each tag's source (compat_symbol and friends, "
+        "Scripts/glibc_compat.py); checked against the Ubuntu focal 2.31 DSOs on five arches"]
+    c.prov["glibc/headers"] = [
+        f"glibc-{newest} ({head}) configure + make install-headers per arch, clang as CC, against "
+        f"Linux UAPI from {c.linux_src} (work dir only); gnu/lib-names-<abi>.h from glibc's make, "
+        "gnu/stubs*.h written by glibc_headers.py; generic/ + <arch>/ + [omit] by majority vote",
+        "version gates: features.h __GLIBC_MINOR__ set per target by ksys; glibc_headers.GATES"]
+    c.prov["glibc/src"] = [f"glibc-2.32, glibc-2.33, glibc-{newest} source files the crt compiles read "
+                           "(their -MD dependency lists), unchanged"]
+    c.prov["glibc/crt"] = ["per era and arch: the compiles and -r links glibc's own make ran for csu/"
+                           "{crt1,Scrt1,crti,crtn}.o and every subdir's static-only-routines "
+                           "(libc_nonshared.a), clang as CC; gen/ = the configure/make outputs they include"]
+    for k in GLIBC_KEYS:
+        sweep_links(g / k.split("/", 1)[1], c.dropped_links.setdefault(k, []))
 
 
 def glibc_stub_parity(c: Ctx) -> list:
-    """Regenerate every stub DSO from the SHIPPED abilist files alone and compare it with the
-    curated focal DSO: SONAME and the public versioned dynsym (name, node, @/@@, kind, size)."""
+    """The 2.31 proof: every stub DSO rebuilt from the SHIPPED glibc/abilists projected at 2.31
+    and compared with the curated focal DSO: SONAME and the public versioned dynsym (name,
+    node, @/@@, kind, size). Differences are listed, not hidden."""
+    import glibc_abilists
     rec = load_recipe(FAMILIES["glibc"])
     cc = [str(c.cc)]
-    rows = ["glibc stubs regenerated from abilist/ (kcc + lld) vs curated focal DSOs:",
-            "arch     | lib        | soname                   | symbols | result",
-            "---------|------------|--------------------------|--------:|-------"]
-    for v in GLIBC_VERSIONS:
-        for arch in rec["arches"]:
-            env = target_env(rec, arch, v)
-            ab = c.share / "glibc" / v / arch / "abilist"
-            libs = tomllib.loads((ab / "libs.toml").read_text())
-            for stem, info in sorted(libs.items()):
-                ents = glibc_stubs.parse_abilist((ab / f"{stem}.abilist").read_text(),
-                                                 (ab / f"{stem}.compat").read_text())
-                work = c.scratch / "glibc-stubs" / v / arch / stem
-                so = glibc_stubs.build_stub(cc, env["clang_triple"], info["soname"], ents, info["versions"], work)
-                cur = c.curated / env["name"] / "lib" / info["soname"]
-                diffs = glibc_stubs.compare(glibc_stubs.read_dso(cur), glibc_stubs.read_dso(so))
-                if not diffs:
-                    ok = c.glibc_stub_ok.setdefault(arch, {})
-                    ok[info["soname"]] = stem
-                    ok[os.path.basename(os.path.realpath(cur))] = stem
-                rows.append(f"{arch:<8} | {stem:<10} | {info['soname']:<24} | {len(ents):>7} | "
-                            + ("same" if not diffs else f"{len(diffs)} diffs, e.g. {diffs[0]}"))
+    ab = c.share / "glibc" / "abilists"
+    targets = tomllib.loads((ab / "targets.toml").read_text())
+    rows = ["glibc stubs from glibc/abilists at 2.31 (kcc + lld) vs curated focal DSOs:",
+            "arch     | lib        | soname                       | symbols | result",
+            "---------|------------|------------------------------|--------:|-------"]
+    for arch in ("x86_64", "i686", "aarch64", "armv7", "riscv64"):
+        env = target_env(rec, arch, "2.31")
+        t = targets[arch]
+        for stem in glibc_abilists.STEMS:
+            if not (ab / t["abi"] / f"{stem}.abilist").is_file():
+                continue
+            soname = t["ld"] if stem == "ld" else targets["sonames"][stem]
+            cur = c.curated / env["name"] / "lib" / soname
+            if not cur.exists():
+                continue
+            ents, nodes = glibc_abilists.project(ab / t["abi"], "2.31", stem)
+            work = c.scratch / "glibc-stubs" / arch / stem
+            so = glibc_stubs.build_stub(cc, env["clang_triple"], soname, ents, nodes, work)
+            diffs = glibc_stubs.compare(glibc_stubs.read_dso(cur), glibc_stubs.read_dso(so))
+            if not diffs:
+                ok = c.glibc_stub_ok.setdefault(arch, {})
+                ok[soname] = stem
+                ok[os.path.basename(os.path.realpath(cur))] = stem
+            rows.append(f"{arch:<8} | {stem:<10} | {soname:<28} | {len(ents):>7} | "
+                        + ("same" if not diffs else f"{len(diffs)} diffs, e.g. {diffs[0]}"))
     return rows
 
 
@@ -1614,11 +1837,14 @@ def build_wasi(c: Ctx) -> None:
 def build_licenses(c: Ctx) -> None:
     lt, out = ROOT / "Scripts" / "license-texts", fresh(c.share / "licenses")
     m = ROOT / "Lib" / "libc" / "mingw"
-    gl = c.ksys / "extract" / "x86_64-linux-gnu-glibc2.31" / "usr" / "share" / "doc"
+    # glibc's own notices from the newest tag the inputs come from (ZIG-STUDY 12.4); COPYING
+    # (GPL-2.0) because LICENSES and some build scripts refer to it
+    glibc_src = c.scratch / "glibc" / "build" / "src" / f"glibc-{GLIBC_VERSIONS[-1]}"
     files = {
         "musl": [ROOT / "Lib/libc/musl/COPYRIGHT"],
         "linux-uapi": [lt / "GPL-2.0-only.txt", lt / "Linux-syscall-note.txt"],
-        "glibc": [lt / "LGPL-2.1-or-later.txt", (gl / "libc6" / "copyright", "debian-libc6-copyright")],
+        "glibc": [lt / "LGPL-2.1-or-later.txt", (glibc_src / "COPYING.LIB", "COPYING.LIB"),
+                  (glibc_src / "LICENSES", "LICENSES"), (glibc_src / "COPYING", "COPYING")],
         "mingw": [m / "COPYING", m / "DISCLAIMER", m / "DISCLAIMER.PD"],
         "freebsd": [lt / "FreeBSD-COPYRIGHT.txt"],
         "netbsd": [lt / "NetBSD-COPYRIGHT.txt"],
@@ -1731,7 +1957,7 @@ def stage_runtimes(c: Ctx) -> tuple[str, str, Path]:
 
 def write_registry(c: Ctx, rt_hash: str) -> None:
     keys = ["musl", "linux-uapi", f"wasi/{WASI_VERSION}", "mingw"]
-    keys += [f"glibc/{v}/{a}" for v in GLIBC_VERSIONS for a in load_recipe(FAMILIES["glibc"])["arches"]]
+    keys += GLIBC_KEYS
     keys += [f"{o}/{v}/{a}" for o, (v, arches) in BSD.items() for a in arches]
     if (c.share / "runtimes-recipe" / "index.toml").is_file():
         keys.append("runtimes-recipe")
@@ -1951,21 +2177,19 @@ def classify(c, fam, arch, env, root, rel, p, trim_reason, mcache):
             return "DERIVED", "musl configure + make (4.6; curated: Alpine musl-dev)"
         return "GAP", "Alpine-only file (gcc's libssp_nonshared)" if n == "libssp_nonshared.a" else "no source"
     if fam == "glibc":
-        g = S / "glibc/2.31" / arch
+        # Since Z4 glibc roots are built from source: headers from glibc/headers (newest
+        # release, not focal's 2.31), crt objects and libc_nonshared.a compiled from glibc/src.
         if rel.startswith("include/c++/"):
             return "DERIVED", f"{rt}: libc++ headers (4.7)"
         if rel.startswith("include/"):
-            q = g / rel
-            if (p.is_symlink() and _link_same(p, q)) or _same(p, q):
-                return "VERBATIM", f"glibc/2.31/{arch}/include"
-            return "GAP", "header not in glibc input"
+            return "DERIVED", "glibc/headers (glibc install-headers, newest release) + linux-uapi"
         n = rel[len("lib/"):]
         if n in ("libc++.a", "libc++abi.a", "libc++experimental.a", "libunwind.a"):
             return "DERIVED", f"{rt}: runtimes stage (4.7)"
+        if n in ("crt1.o", "Scrt1.o", "crti.o", "crtn.o", "libc_nonshared.a"):
+            return "DERIVED", "compiled from glibc/src per glibc/crt/2.32/<arch>.toml (4.6)"
         if n.endswith(".o"):
-            return ("VERBATIM", f"glibc/2.31/{arch}/crt") if _same(p, g / "crt" / n) else ("GAP", "crt object missing")
-        if n == "libc_nonshared.a":
-            return ("VERBATIM", f"glibc/2.31/{arch}") if _same(p, g / n) else ("GAP", "libc_nonshared.a differs")
+            return "DROPPED", "gcrt1/Mcrt1/rcrt1/grcrt1: profiling and static-pie start files, not built"
         if n in ("libc.so", "libm.so"):
             return "DERIVED", "linker script the glibc provider writes (4.6)"
         if n.endswith(".a"):
@@ -1975,7 +2199,7 @@ def classify(c, fam, arch, env, root, rel, p, trim_reason, mcache):
         if not stem and p.is_symlink() and ok.get(os.path.basename(os.path.realpath(p))):
             return "DERIVED", "alias link to a stub DSO (Debian's ld-linux.so.3 -> ld-linux-armhf.so.3)"
         if stem:
-            return "DERIVED", f"stub DSO from glibc/2.31/{arch}/abilist/{stem}.abilist (4.6; regenerated, dynsym equal)"
+            return "DERIVED", f"stub DSO from glibc/abilists at 2.31 ({stem}; regenerated, dynsym equal)"
         if n in ("libpthread.so", "libdl.so", "librt.so", "libutil.so", "libanl.so", "libresolv.so", "libmvec.so") \
                 and p.is_symlink():
             return "DERIVED", "dev symlink the glibc provider writes (4.6)"
@@ -2068,6 +2292,11 @@ def main() -> int:
     ap.add_argument("--template-recipes", type=Path, nargs="+", default=[],
                     help="runtimes-template step: runtimes-recipe/ dirs to derive over besides <out>/runtimes-recipe "
                          "(the EXTRA targets' tables, e.g. build/sysgen/b3/rr-with-armv6-riscv32)")
+    ap.add_argument("--linux-src", type=Path, default=ROOT / "build" / "sysgen" / "linux",
+                    help="uapi step: Linux 7.0 source tree for the kernel ARCHes no curated root covers "
+                         "(UAPI_KERNEL: headers_install out of tree, O= under the scratch dir)")
+    ap.add_argument("--glibc-git", type=Path, default=ROOT / "build" / "sysgen" / "glibc",
+                    help="glibc step: glibc git clone with the release tags (abilists, headers, crt sources)")
     ap.add_argument("--only", nargs="+", choices=STEPS, help="rebuild only these inputs (registry is always rewritten)")
     ap.add_argument("--report", action="store_true", help="size report + parity check into <scratch>/")
     ap.add_argument("--legacy-links", action="store_true",

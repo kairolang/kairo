@@ -49,7 +49,13 @@ BUNDLED = {"musl": ["x86_64", "i686", "aarch64", "armv7", "riscv64"],
            "wasi": ["wasm32"]}
 # Targets with no curated root: derived only when --headers holds a libc-headers root for
 # them (a ksys libc-headers stage product + its SYSROOT.toml, under <headers>/<name>/).
-EXTRA = {"musl": ["armv6", "riscv32"]}
+EXTRA = {"musl": ["armv6", "riscv32", "powerpc", "powerpc64", "powerpc64le", "s390x", "mips", "mipsel",
+                  "mips64", "mips64el", "loongarch64", "x32"],
+         "glibc": ["x32", "powerpc", "powerpc64", "powerpc64le", "s390x", "mips", "mipsel", "mips64",
+                   "mips64el", "loongarch64", "sparc64"]}
+# The glibc version a table is named for: the bundled roots' (what the 18 shipped tables say),
+# and for an EXTRA arch the newest the share builds, whose headers the derivation reads (Z5).
+GLIBC_BUNDLED_VERSION = "2.31"
 HEADERS: Path | None = None
 
 
@@ -69,7 +75,9 @@ class Target:
 
     def __init__(self, fam: str, rec: dict, arch: str, quirks: dict, ship):
         self.family, self.rec, self.arch = fam, rec, arch
-        libc_version = ship.GLIBC_VERSIONS[0] if fam == "glibc" else ""
+        libc_version = ""
+        if fam == "glibc":
+            libc_version = GLIBC_BUNDLED_VERSION if arch in BUNDLED["glibc"] else ship.GLIBC_VERSIONS[-1]
         self.env = ship.target_env(rec, arch, libc_version)
         self.env["sysname"] = rec.get("sysname", "")
         self.name = self.env["name"]
@@ -176,7 +184,12 @@ def header_stage(curated: Path, t: Target, dst: Path) -> Path:
 def probe(kcc: Path, t: Target, hdr: Path) -> dict:
     out = subprocess.run([str(kcc), f"--target={t.cc_triple}", f"--sysroot={hdr}", "-dM", "-E", "-x", "c",
                           os.devnull], capture_output=True, text=True).stdout
-    return {"int128": "__SIZEOF_INT128__" in out, "float128": "__SIZEOF_FLOAT128__" in out}
+    # __bf16 has no predefined macro: compile one. clang has no __bf16 on PowerPC, SystemZ or
+    # MIPS at all, so compiler-rt's bf16 check is false there by the target, not by kcc (Z5).
+    bf = subprocess.run([str(kcc), f"--target={t.cc_triple}", f"--sysroot={hdr}", "-x", "c", "-c", "-o",
+                         os.devnull, "-"], input="__bf16 f(__bf16 x) { return x; }\n", capture_output=True,
+                        text=True).returncode == 0
+    return {"int128": "__SIZEOF_INT128__" in out, "float128": "__SIZEOF_FLOAT128__" in out, "bf16": bf}
 
 
 def cmake_cmd(t: Target, stage: str, kit: Path, src: Path, hdr: Path, bld: Path, share: Path) -> list:
@@ -241,7 +254,8 @@ def cmake_cmd(t: Target, stage: str, kit: Path, src: Path, hdr: Path, bld: Path,
 
 def configure(t: Target, kit: Path, src: Path, share: Path, curated: Path, scratch: Path) -> dict:
     hdr = header_stage(curated, t, scratch / "hdr" / t.name)
-    t.apply_probes(probe(kit / "bin" / "kcc", t, hdr))
+    probes = probe(kit / "bin" / "kcc", t, hdr)
+    t.apply_probes(probes)
     stages = []
     if t.rec["builtins"].get("source") == "compiler-rt/lib/builtins":
         stages.append("builtins")
@@ -260,6 +274,8 @@ def configure(t: Target, kit: Path, src: Path, share: Path, curated: Path, scrat
         if rc:
             die(f"{t.name}/{st}: configure failed ({bld / 'configure.log'})")
         for rx in t.rec["builtins"].get("assert_cache_regex", []):
+            if "BFLOAT16" in rx and not probes["bf16"]:
+                continue        # the target has no __bf16 (above): nothing for kcc to get right
             if st == "builtins" or t.rec["builtins"].get("source") == "runtimes":
                 if not re.search(rx, (bld / "CMakeCache.txt").read_text()):
                     die(f"{t.name}/{st}: CMakeCache.txt has no {rx}")
@@ -305,6 +321,9 @@ DROP1 = {"-c", "-MD"}
 DROP2 = {"-o", "-MT", "-MF", "--sysroot", "-target"}
 
 
+KEEP_W = {"-Wno-c++11-narrowing"}
+
+
 def normalise(args: list, srcfile: str, repl: list) -> list:
     """Compile line -> the flags the runner passes (compiler, target, sysroot, -c/-o, deps
     and the source dropped; absolute paths templated)."""
@@ -321,7 +340,12 @@ def normalise(args: list, srcfile: str, repl: list) -> list:
             i += 1
             continue
         # diagnostics only: no effect on the object, and -Werror would make a kcc-only
-        # warning fatal
+        # warning fatal. KEEP_W are the exception: they turn an error (one clang emits
+        # by default) off, so without them the compile fails (quirk x32-libunwind-narrowing).
+        if a in KEEP_W:
+            out.append(a)
+            i += 1
+            continue
         if (a.startswith("-W") and not a.startswith(("-Wa,", "-Wl,", "-Wp,"))) \
                 or a in ("-pedantic", "-fdiagnostics-color", "-fcolor-diagnostics"):
             i += 1
@@ -678,6 +702,9 @@ def make_kit(tree: Path, kit: Path) -> Path:
     for d in ("clang", "builtin", "std", "rt"):
         if (tree / "lib" / d).exists():
             shutil.copytree((tree / "lib" / d).resolve(), kit / "lib" / d, symlinks=False)
+    # A debug tree's kcc is dynamic ($ORIGIN/../lib): its shared libraries come along too.
+    for so in sorted((tree / "lib").glob("*.so*")):
+        os.symlink(so.resolve(), kit / "lib" / so.name)
     return kit
 
 

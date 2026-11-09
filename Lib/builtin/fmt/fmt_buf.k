@@ -276,7 +276,8 @@ pub class FmtBuf {
     // from the value's bytes -- rt/fmt.h prints |v| and ignores it, and
     // `v < 0.0` loses -0.0 and a signed NaN -- through an unsafe *const u8,
     // the one aliasing C++ permits for every type; clang folds the byte
-    // loads into one. Little-endian byte order; every target Kairo has.
+    // loads into one. The byte order is the target's (bitsNN_ below): PowerPC,
+    // SystemZ and MIPS are big-endian.
     //
     // The digits are written INTO the buffer, above everything the padded
     // result can reach, and number_ moves them down: no stack buffer, no
@@ -284,28 +285,44 @@ pub class FmtBuf {
     // because float_open_ reserves both and every reserve_ under it is a
     // compare that fails.
 
-    /// Appends an `f16` hole via the runtime formatter (rt/fmt.h), honouring the sign bit of
-    /// -0.0 and NaN. Precision, width, fill and alignment come from `spec`; the `e` base selects
-    /// exponent form, `E` with the upper flag.
-    pub inline fn put_f16(self, v: f16, spec: u64) {
-        var bits: u16 = 0
-        unsafe { bits = FmtBuf::bits16_((&v) as unsafe *const u8, 0) }
-        var slot = self.float_open_(spec)
-        var n: i32 = 0
-        unsafe { n = kairo_rt_fmt_f16(unsafe &self.data[slot], FmtBuf::float_cap_(spec), bits, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
-        self.number_(&self.data[slot], n as usize, (bits >> 15) != 0, spec)
+    // A put exists only where the target has the type (clang's _Float16, __bf16,
+    // __float128, x87 long double): the library is compiled for every target,
+    // and a declaration naming a type the target lacks fails the whole build
+    // (P700: PowerPC and MIPS have none of f16 / bf16 / f128, SystemZ no bf16
+    // or f128, LoongArch no f128). Without the put, formatting that type is a
+    // Sema error at the hole, not a C++ one.
+
+    // clang defines __FLT16_MAX__ exactly where _Float16 exists.
+    eval if defined!(__FLT16_MAX__) {
+        /// Appends an `f16` hole via the runtime formatter (rt/fmt.h), honouring the sign bit of
+        /// -0.0 and NaN. Precision, width, fill and alignment come from `spec`; the `e` base selects
+        /// exponent form, `E` with the upper flag.
+        pub inline fn put_f16(self, v: f16, spec: u64) {
+            var bits: u16 = 0
+            unsafe { bits = FmtBuf::bits16_((&v) as unsafe *const u8, 0) }
+            var slot = self.float_open_(spec)
+            var n: i32 = 0
+            unsafe { n = kairo_rt_fmt_f16(unsafe &self.data[slot], FmtBuf::float_cap_(spec), bits, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
+            self.number_(&self.data[slot], n as usize, (bits >> 15) != 0, spec)
+        }
     }
 
-    /// Appends an `bf16` hole via the runtime formatter (rt/fmt.h), honouring the sign bit of
-    /// -0.0 and NaN. Precision, width, fill and alignment come from `spec`; the `e` base selects
-    /// exponent form, `E` with the upper flag.
-    pub inline fn put_bf16(self, v: bf16, spec: u64) {
-        var bits: u16 = 0
-        unsafe { bits = FmtBuf::bits16_((&v) as unsafe *const u8, 0) }
-        var slot = self.float_open_(spec)
-        var n: i32 = 0
-        unsafe { n = kairo_rt_fmt_bf16(unsafe &self.data[slot], FmtBuf::float_cap_(spec), bits, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
-        self.number_(&self.data[slot], n as usize, (bits >> 15) != 0, spec)
+    // __bf16 has no feature macro in clang 22 (__BFLT16_MAX__ is never
+    // predefined), so the arches clang gives it: x86 (SSE2), Arm, AArch64,
+    // RISC-V, LoongArch, WebAssembly. Not PowerPC, SystemZ, MIPS or SPARC.
+    eval if defined!(__x86_64__) || defined!(__i386__) || defined!(__aarch64__) || defined!(__arm__)
+         || defined!(__riscv) || defined!(__loongarch__) || defined!(__wasm__) {
+        /// Appends an `bf16` hole via the runtime formatter (rt/fmt.h), honouring the sign bit of
+        /// -0.0 and NaN. Precision, width, fill and alignment come from `spec`; the `e` base selects
+        /// exponent form, `E` with the upper flag.
+        pub inline fn put_bf16(self, v: bf16, spec: u64) {
+            var bits: u16 = 0
+            unsafe { bits = FmtBuf::bits16_((&v) as unsafe *const u8, 0) }
+            var slot = self.float_open_(spec)
+            var n: i32 = 0
+            unsafe { n = kairo_rt_fmt_bf16(unsafe &self.data[slot], FmtBuf::float_cap_(spec), bits, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
+            self.number_(&self.data[slot], n as usize, (bits >> 15) != 0, spec)
+        }
     }
 
     /// Appends an `f32` hole via the runtime formatter (rt/fmt.h), honouring the sign bit of
@@ -356,49 +373,84 @@ pub class FmtBuf {
         self.number_(&self.data[slot], n as usize, neg, spec)
     }
 
-    // FIXME: add back once the Constant Eval Folder is in.
-    // pub inline fn put_f80(self, v: f80, spec: u64) {
-    //     var neg = false
-    //     unsafe { neg = (FmtBuf::bits16_((&v) as unsafe *const u8, 8) >> 15) != 0 }   // x87 extended: the sign is bit 79
-    //     var slot = self.float_open_(spec)
-    //     var n: i32 = 0
-    //     unsafe { n = kairo_rt_fmt_f80(unsafe &self.data[slot], FmtBuf::float_cap_(spec), v, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
-    //     self.number_(&self.data[slot], n as usize, neg, spec)
-    // }
-
-    /// Appends an `f128` hole via the runtime formatter (rt/fmt.h), honouring the sign bit of
-    /// -0.0 and NaN. Precision, width, fill and alignment come from `spec`; the `e` base selects
-    /// exponent form, `E` with the upper flag.
-    pub inline fn put_f128(self, v: f128, spec: u64) {
-        var lo: u64 = 0
-        var hi: u64 = 0
-        unsafe {
-            var unsafe *p = (&v) as unsafe *const u8
-            lo = FmtBuf::bits64_(p, 0)
-            hi = FmtBuf::bits64_(p, 8)
+    // f80 lowers to C++ `long double`, so a put exists where that is x87
+    // extended: x86 but MSVC (binary64) and Android (binary64 on i686,
+    // binary128 on x86_64), as TypeResolve's f80 gate (Target
+    // long_double_is_x87) decides. clang 22 predefines no __SIZEOF_FLOAT80__
+    // and eval if cannot read __LDBL_MANT_DIG__'s value, hence the triple
+    // facts. Elsewhere an f80 hole is LiteralTyping's SC081E.
+    eval if (defined!(__x86_64__) || defined!(__i386__)) && !defined!(_MSC_VER) && !defined!(__ANDROID__) {
+        /// Appends an `f80` hole via the runtime formatter (rt/fmt.h), honouring the sign bit of
+        /// -0.0 and NaN (x87 extended: the sign is bit 79). Precision, width, fill and alignment
+        /// come from `spec`; the `e` base selects exponent form, `E` with the upper flag.
+        pub inline fn put_f80(self, v: f80, spec: u64) {
+            var neg = false
+            unsafe { neg = (FmtBuf::bits16_((&v) as unsafe *const u8, 8) >> 15) != 0 }
+            var slot = self.float_open_(spec)
+            var n: i32 = 0
+            unsafe { n = kairo_rt_fmt_f80(unsafe &self.data[slot], FmtBuf::float_cap_(spec), v, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
+            self.number_(&self.data[slot], n as usize, neg, spec)
         }
-        var slot = self.float_open_(spec)
-        var n: i32 = 0
-        unsafe { n = kairo_rt_fmt_f128(unsafe &self.data[slot], FmtBuf::float_cap_(spec), hi, lo, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
-        self.number_(&self.data[slot], n as usize, (hi >> 63) != 0, spec)
+    }
+
+    // __SIZEOF_FLOAT128__ marks __float128; wasm32 has the type (its long
+    // double is binary128) without the macro.
+    eval if defined!(__SIZEOF_FLOAT128__) || defined!(__wasm__) {
+        /// Appends an `f128` hole via the runtime formatter (rt/fmt.h), honouring the sign bit of
+        /// -0.0 and NaN. Precision, width, fill and alignment come from `spec`; the `e` base selects
+        /// exponent form, `E` with the upper flag.
+        pub inline fn put_f128(self, v: f128, spec: u64) {
+            var lo: u64 = 0
+            var hi: u64 = 0
+            unsafe {
+                var unsafe *p = (&v) as unsafe *const u8
+                // binary128 in memory: the high half first on a big-endian target.
+                eval if defined!(__BIG_ENDIAN__) {
+                    hi = FmtBuf::bits64_(p, 0)
+                    lo = FmtBuf::bits64_(p, 8)
+                } else {
+                    lo = FmtBuf::bits64_(p, 0)
+                    hi = FmtBuf::bits64_(p, 8)
+                }
+            }
+            var slot = self.float_open_(spec)
+            var n: i32 = 0
+            unsafe { n = kairo_rt_fmt_f128(unsafe &self.data[slot], FmtBuf::float_cap_(spec), hi, lo, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
+            self.number_(&self.data[slot], n as usize, (hi >> 63) != 0, spec)
+        }
     }
 
     // TODO(rt): f8e4m3 / f8e5m2 / f256 / f512 wait on ::kairo::rt::* having
     // a C++ definition. The f8 entries in rt/fmt.h take the byte; the corelib
     // pair need an entry taking the limbs. Same shape as the puts above.
 
-    /// Little-endian integer of the bytes at p[off..]. Any pointer may be
-    /// read as bytes; clang turns these into one load.
-    priv static fn bits16_(p: unsafe *const u8, off: usize) -> u16 {
-        return (p[off] as u16) | ((p[off + 1] as u16) << 8)
-    }
+    // The integer the bytes at p[off..] hold in the target's byte order, so
+    // a float's sign bit is the top bit wherever it sits in memory. Any
+    // pointer may be read as bytes; clang turns these into one load.
+    eval if defined!(__BIG_ENDIAN__) {
+        priv static fn bits16_(p: unsafe *const u8, off: usize) -> u16 {
+            return ((p[off] as u16) << 8) | (p[off + 1] as u16)
+        }
 
-    priv static fn bits32_(p: unsafe *const u8, off: usize) -> u32 {
-        return (p[off] as u32) | ((p[off + 1] as u32) << 8) | ((p[off + 2] as u32) << 16) | ((p[off + 3] as u32) << 24)
-    }
+        priv static fn bits32_(p: unsafe *const u8, off: usize) -> u32 {
+            return ((p[off] as u32) << 24) | ((p[off + 1] as u32) << 16) | ((p[off + 2] as u32) << 8) | (p[off + 3] as u32)
+        }
 
-    priv static fn bits64_(p: unsafe *const u8, off: usize) -> u64 {
-        return (FmtBuf::bits32_(p, off) as u64) | ((FmtBuf::bits32_(p, off + 4) as u64) << 32)
+        priv static fn bits64_(p: unsafe *const u8, off: usize) -> u64 {
+            return ((FmtBuf::bits32_(p, off) as u64) << 32) | (FmtBuf::bits32_(p, off + 4) as u64)
+        }
+    } else {
+        priv static fn bits16_(p: unsafe *const u8, off: usize) -> u16 {
+            return (p[off] as u16) | ((p[off + 1] as u16) << 8)
+        }
+
+        priv static fn bits32_(p: unsafe *const u8, off: usize) -> u32 {
+            return (p[off] as u32) | ((p[off + 1] as u32) << 8) | ((p[off + 2] as u32) << 16) | ((p[off + 3] as u32) << 24)
+        }
+
+        priv static fn bits64_(p: unsafe *const u8, off: usize) -> u64 {
+            return (FmtBuf::bits32_(p, off) as u64) | ((FmtBuf::bits32_(p, off + 4) as u64) << 32)
+        }
     }
 
     /// 'g', 'e' or 'E' for the runtime, from the spec's base and upper bits.
