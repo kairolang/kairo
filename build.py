@@ -40,7 +40,7 @@ counterpart this script says so instead of guessing (see STAGE1_GAPS):
 
 Portable: Linux, macOS, Windows. No shell; subprocess with argument lists only.
 """
-import argparse, datetime, hashlib, os, platform, re, shutil, subprocess, sys, threading, time
+import argparse, datetime, hashlib, os, platform, re, shlex, shutil, subprocess, sys, threading, time
 from pathlib import Path
 
 try:  # a pty for the compiler's stderr (POSIX); elsewhere its events are re-drawn
@@ -1240,6 +1240,9 @@ def main() -> int:
                          "CPU or newer, so never for a tree you ship")
     ap.add_argument("--sanitize-ub", action="store_true", help="debug: pass -fsanitize-ub (accepted but unimplemented today, U005W)")
     ap.add_argument("--print-jobs", action="store_true", help="print the planned clang jobs and link, build nothing")
+    ap.add_argument("--print-command", action="store_true",
+                    help="print each tool's exact kairo command line (shell-quoted, after any pre-build steps it "
+                         "depends on) and stop before compiling it")
     ap.add_argument("--no-prebuild", action="store_true", help="skip build_llvm.py (gen_diag.py always runs: ~0.3 s, writes only on change)")
     ap.add_argument("--registry-object", metavar="PATH",
                     help="link this diagnostic-registry object instead of build/.kbld/registry.o (implies "
@@ -1321,7 +1324,7 @@ def main() -> int:
     # (compiled under that flag it exited 0 and wrote nothing: "did not compile (rc 0)"),
     # and there is no tree to stage.
     check_only = any(f in ("--type-check-only", "--syntax-only") for f in a.compiler_flag)
-    staged = (not a.print_jobs) and (not a.no_postbuild) and (not check_only) and bool(STAGED & set(a.targets))
+    staged = (not (a.print_jobs or a.print_command)) and (not a.no_postbuild) and (not check_only) and bool(STAGED & set(a.targets))
     prog = Progress(1 + (0 if a.registry_object else 1) + len(a.targets) + (1 if staged else 0))
     prog.log(f"{stage} {mode_name}, host {triple}" + (f", target {a.target} (static, cross LLVM)" if a.target else ""))
     prog.log(f"  compiler {kairo}")
@@ -1335,7 +1338,7 @@ def main() -> int:
     elif selfhost:
         # Never gen_diag.py into build/.kbld here (that object is Stage 0's, and the
         # repo's kbld build links it); only the LLVM stamp check.
-        if not a.no_prebuild and not a.print_jobs and not a.target:
+        if not a.no_prebuild and not (a.print_jobs or a.print_command) and not a.target:
             run_or_die([sys.executable, str(ROOT / "Scripts" / "build_llvm.py")])
         prog.next("registry (gen_diag.py -> build/registry, Diagnostic::Registry)")
         reg_extra = llvm_include_args(llvm_src, cross_dir(a.target) / "llvm" if a.target else llvm_build)
@@ -1405,7 +1408,7 @@ def main() -> int:
         # The compiler's Win32 calls: the only file that includes <windows.h>,
         # compiled into every binary; it is empty off Windows.
         win32 = src / "Compiler" / "Native" / "Win32.cpp"
-        if not a.print_jobs and not check_only:
+        if not (a.print_jobs or a.print_command) and not check_only:
             # No version define: cc1as_main.cpp does not read it, and it would key this
             # object per tool and per day.
             nargs = [*roots, "--threads", str(a.jobs), *native_common]
@@ -1420,6 +1423,10 @@ def main() -> int:
                 "--cxx-define", "KAIRO_VERSION_EXTERN=1",
                 "--threads", str(a.jobs),
                 "--cache-dir", str(tu_cache), *common]
+        if a.print_command:
+            print(f"# {t} (cwd {ROOT})")
+            print(shlex.join(argv), flush=True)
+            continue
         if a.print_jobs:
             argv.append("--print-jobs")
             say(f"{t}: {entry}")
@@ -1449,7 +1456,7 @@ def main() -> int:
         prog.next("stage tree (Scripts/stage_tree.py)")
         link_sysroot(out, triple, prog)
         postbuild(out, mode_name, tree_triple, cross_dir(a.target) / "llvm" if a.target else None, a.target)
-    if not a.print_jobs:
+    if not (a.print_jobs or a.print_command):
         prog.done()
         for t in sorted(a.targets) if not check_only else []:
             prog.log(f"  {out / 'bin' / (t + target_exe(a.target))}")
