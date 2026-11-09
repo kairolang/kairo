@@ -27,23 +27,27 @@ import API::FS::LinkFS
 import API::Text::LinkText
 
 pub struct TomlValue {
-    var kind: u8                       = 0 ///< 0 none, 1 string, 2 bool, 3 string array, 4 other scalar
-    var text: string
-    var flag: bool                     = false
-    var list: cxx::std::vector<string>
+    pub var kind: u8                       = 0 ///< 0 none, 1 string, 2 bool, 3 string array, 4 other scalar
+    pub var text: string
+    pub var flag: bool                     = false
+    pub var list: cxx::std::vector<string>
 }
 
 pub class TomlLite {
     priv var _s:    string
     priv var _i:    usize  = 0
     pub var  error: string
+    /// The last `[table]` header seen ("" before the first), dots kept:
+    /// `[quirk.wasm-bf16]` is "quirk.wasm-bf16". SYSROOT.toml is flat and
+    /// ignores it; ksys's registry and recipes are not.
+    pub var table: string
 
-    fn TomlLite(self, const text: string) {
+    pub fn TomlLite(self, const text: string) {
         self._s = text
     }
 
     /// Next key/value pair. False at end of input or on error (check error).
-    fn next(self, @inout key: string, @inout val: TomlValue) -> bool {
+    pub fn next(self, @inout key: string, @inout val: TomlValue) -> bool {
         while true {
             self._skip(true)
             if self._i >= self._s.size() {
@@ -54,9 +58,27 @@ pub class TomlLite {
                 break
             }
 
+            var hb = self._i + 1
             while self._i < self._s.size() && self._s[self._i] != ('\n' as u8) {
                 self._i += 1
             }
+
+            var he = hb
+            while he < self._i && self._s[he] != (']' as u8) {
+                he += 1
+            }
+
+            self.table = LinkText::trim(LinkText::slice(self._s, hb, he))
+        }
+
+        // A quoted key: registry.toml's input dirs hold `/` and `.`, which a
+        // bare TOML key cannot.
+        if self._s[self._i] == ('\x22' as u8) {
+            if !self._string(&key) {
+                return false
+            }
+
+            return self._after_key(&key, &val)
         }
 
         var b = self._i
@@ -70,7 +92,10 @@ pub class TomlLite {
         }
 
         key = LinkText::slice(self._s, b, self._i)
+        return self._after_key(&key, &val)
+    }
 
+    priv fn _after_key(self, @inout key: string, @inout val: TomlValue) -> bool {
         self._skip(false)
         if self._i >= self._s.size() || self._s[self._i] != ('=' as u8) {
             return self._fail(f"expected = after {key}")
@@ -248,7 +273,11 @@ pub class SysrootManifest {
     pub var dir:   string ///< its directory: the base for `sysroot`
     pub var error: string
 
-    pub var triple:       string
+    pub var triple: string
+    /// The triple clang is handed (`armv7-unknown-linux-musleabihf` for the
+    /// sysroot named armv7-linux-musl). "" in roots older than ksys: the
+    /// driver then derives it (FlagTranslator::clang_triple).
+    pub var clang_triple: string
     pub var llvm_version: string
     pub var family:       string
     /// glibc_version: the glibc the sysroot's libc is (its "floor"), "" for
@@ -308,6 +337,10 @@ pub class SysrootManifest {
     priv fn _set(self, const key: string, @inout v: TomlValue) -> bool {
         if key == "triple" {
             return self._str(key, &v, &self.triple)
+        }
+
+        if key == "clang_triple" {
+            return self._str(key, &v, &self.clang_triple)
         }
 
         if key == "llvm_version" {

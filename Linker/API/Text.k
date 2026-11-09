@@ -98,7 +98,7 @@ pub class LinkText {
         return LinkText::find(s, p, 0) < s.size()
     }
 
-    static fn trim(const s: string) -> string {
+    pub static fn trim(const s: string) -> string {
         var b: usize = 0
         var e        = s.size()
         while b < e && LinkText::_space(s, b) {
@@ -113,7 +113,7 @@ pub class LinkText {
     }
 
     /// Lines of \p s without their terminators; a trailing CR is dropped.
-    static fn split_lines(s: string) -> cxx::std::vector<string> {
+    pub static fn split_lines(s: string) -> cxx::std::vector<string> {
         var out       = cxx::std::vector<string>()
         var b:  usize = 0
         for var i: usize = 0; i < s.size(); ++i {

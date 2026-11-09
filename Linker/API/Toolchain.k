@@ -1027,6 +1027,13 @@ pub class Toolchain {
     priv fn _rt_triples(self, t: *TargetOptions) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
         var env = if (t->env_name.empty()) => ("") else => f"-{t->env_name}"
+        // A root ksys built names the dir itself (SysRoot.md 4.8:
+        // compiler-rt/lib/<clang_triple>); the spellings below are guesses
+        // for roots older than that key.
+        if self.has_manifest && !self.manifest.clang_triple.empty() {
+            Toolchain::_push_unique(&out, self.manifest.clang_triple)
+        }
+
         Toolchain::_push_unique(&out, self.triple)
         if self.has_manifest {
             // Spelled and normalized: a manifest saying armv7-linux-musl

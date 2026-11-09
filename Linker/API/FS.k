@@ -103,7 +103,7 @@ pub class LinkFS {
     }
 
     /// Creates an empty temp file and returns its path; "" on failure.
-    static fn temp_file(const prefix: string, const suffix: string) -> string {
+    pub static fn temp_file(const prefix: string, const suffix: string) -> string {
         var out: llvm::SmallString<256>
         var ec = llvm::sys::fs::createTemporaryFile(
             llvm::Twine(kairo::sref(prefix)),

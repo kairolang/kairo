@@ -150,6 +150,26 @@ PROJECT = {
 }
 
 
+_RUNTIMES_REV = None
+
+
+def runtimes_revision() -> str:
+    """The LLVM fork revision the runtimes come from, exactly as
+    Scripts/package_release.py writes it to share/kairo/runtimes/REVISION (one
+    function, imported, so the two can never spell it differently). Embedded in
+    every tool (`kairo --print-runtimes-revision`, `ksys --print-runtimes-revision`):
+    ksys refuses a share tree whose REVISION differs. "unknown" without the
+    Lib/llvm-runtimes checkout or git."""
+    global _RUNTIMES_REV
+    if _RUNTIMES_REV is None:
+        try:
+            import package_release
+            _RUNTIMES_REV = package_release.runtimes_revision()
+        except Exception:
+            _RUNTIMES_REV = "unknown"
+    return _RUNTIMES_REV
+
+
 def write_meta(gen_dir: Path, name: str, os_: str, epoch=None, ver: str = None) -> Path:
     """The *_meta.cpp kbld generates: one string in a named section, read back by
     tooling. Section syntax is per object format (ELF / Mach-O / COFF).
@@ -180,6 +200,8 @@ def write_meta(gen_dir: Path, name: str, os_: str, epoch=None, ver: str = None) 
     if ver is not None:
         lit = ver.replace("\\", "\\\\").replace('"', '\\"')
         body += f'extern "C" const char *kairo_version_cstr() noexcept {{ return "{lit}"; }}\n'
+        rev = runtimes_revision().replace("\\", "\\\\").replace('"', '\\"')
+        body += f'extern "C" const char *kairo_runtimes_revision_cstr() noexcept {{ return "{rev}"; }}\n'
     if not p.exists() or p.read_text() != body:
         p.write_text(body)
     return p
@@ -200,15 +222,16 @@ TARGETS = {
     "kparse":              ("Compiler/Tooling/ParseOnceTest.k",       "kairo",  DEV, []),
     "katar":               ("Extras/KaTAR/KTCompress.k",              "kairo",  DEV, ["Extras/KaTAR"]),
     "kfmt":                ("Extras/Formatter/Driver/kfmt.k",         "kairo",  DEV, ["Extras/Formatter"]),
+    "ksys":                ("Linker/Sysroot/Driver/ksys.k",           "ksys",   DEV, []),
     "clang-diag-identity": ("Compiler/Tooling/GenClangDiagIdentity.k", "kairo", DEV, []),
 }
 NOT_MIGRATED = {
     "kbld": "Extras/BuildTool",
     "kals": "Analyzer", "kpkg": "Extras/PackageManager",
 }
-# build.k stages the tree after these (post_build). kld and kfmt ship in the staged tree
+# build.k stages the tree after these (post_build). kld, kfmt and ksys ship in the staged tree
 # beside kairo and kcc, so a build of it alone stages too.
-STAGED = {"kairo", "kcc", "kld", "kfmt"}
+STAGED = {"kairo", "kcc", "kld", "kfmt", "ksys"}
 
 
 # --- LLVM linkage (build.k llvm_static_components / clang_static_components) -
@@ -987,7 +1010,7 @@ def reproducible_args(os_: str, epoch: int, src: Path, out: Path) -> list:
 #
 # Any --out / --src / --print-jobs, or --single builds exactly one tree, as before.
 
-TOOLCHAIN = ["kairo", "kcc", "kld", "kfmt"]   # grows as NOT_MIGRATED tools (kbld, kals, kpkg) migrate
+TOOLCHAIN = ["kairo", "kcc", "kld", "kfmt", "ksys"]   # grows as NOT_MIGRATED tools (kbld, kals, kpkg) migrate
 
 
 class PipelineError(Exception):
