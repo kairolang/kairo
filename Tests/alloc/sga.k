@@ -1,4 +1,4 @@
-// P227, driver half: a file that sets the global allocator makes the driver
+// Driver half: a file that sets the global allocator makes the driver
 // define __KAIRO_GLOBAL_ALLOCATOR_SET for every Kairo file it compiles, the
 // builtin included, so Global is the class over the kairo_global_* symbols
 // and create<T> reaches Counting. Without the define Global is System

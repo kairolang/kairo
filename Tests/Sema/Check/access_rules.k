@@ -63,12 +63,14 @@ fn main() -> i32 { return outside() }
 // DIAG: {{.*}}:27:11: error [SC242E]: field 'shared' of 'Vault' is protected
 // DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{5:5-5:9}:"pub"
 // DIAG-NEXT: {{.*}}/access_rules_lib.k:5:14: note [SC242N]: 'shared' is declared protected here: accessible only in the file that declares 'Vault' and in classes that derive from it
+// DIAG: {{.*}}:27:11: warning [SC272W]: 'shared' is 'prot', but its file has no module.k above it, so it is shared with no other file; add a module.k to the directory that should share it
 // DIAG: {{.*}}:28:11: error [SC242E]: method 'peek' of 'Vault' is private
 // DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{8:5-8:9}:"pub"
 // DIAG-NEXT: {{.*}}/access_rules_lib.k:8:13: note [SC242N]: 'peek' is declared private here: accessible only in the file that declares 'Vault'
 // DIAG: {{.*}}:29:11: error [SC242E]: method 'guard' of 'Vault' is protected
 // DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{9:5-9:9}:"pub"
 // DIAG-NEXT: {{.*}}/access_rules_lib.k:9:13: note [SC242N]: 'guard' is declared protected here: accessible only in the file that declares 'Vault' and in classes that derive from it
+// DIAG: {{.*}}:29:11: warning [SC272W]: 'guard' is 'prot', but its file has no module.k above it, so it is shared with no other file; add a module.k to the directory that should share it
 // DIAG: {{.*}}:30:15: error [SC242E]: static member 'count' of 'Vault' is private
 // DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{7:5-7:5}:"pub "
 // DIAG-NEXT: {{.*}}/access_rules_lib.k:7:12: note [SC242N]: 'count' is private by default (a variable of a class is 'priv' unless marked): accessible only in the file that declares 'Vault'

@@ -1,10 +1,10 @@
-// A generic `where` group (MONO.md G12) is one C++ template signature, so its
+// A generic `where` group is one C++ template signature, so its
 // members must agree on more than a plain group's do: the generic
 // parameters' names (the guards move into the dispatcher, which declares
 // the first member's), and the bounds (one set of constraints). Two
 // unguarded members are two fallbacks. A method whose type parameter no
 // parameter mentions is fine: its candidates are called through `self`
-// with the dispatcher's own parameters written as the arguments (P263).
+// with the dispatcher's own parameters written as the arguments.
 pub interface A { fn a(const self) -> i32 }
 pub interface B { fn b(const self) -> i32 }
 

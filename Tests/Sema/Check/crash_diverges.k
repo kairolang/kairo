@@ -3,7 +3,7 @@
 // function needs nothing after it (no SC104E), and nothing warns about the
 // crash itself (no SC003W). It is not a panic: no `panic` specifier is
 // needed, and `main` may use it. (A statement AFTER a `-> !` call is not
-// reported as unreachable today, crash or not: TICKETS.)
+// reported as unreachable today, crash or not).
 
 fn only_crash() -> i32 {
     crash!()

@@ -7,7 +7,7 @@
 //
 // XFAIL: *
 // Ticket "[Sema] A null test or comparison on a carrier counts as an
-// escape" (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today NullnessFlow
+// escape". Today NullnessFlow
 // treats every use of a pointer-holding local that is not a deref, `->`, a
 // call of it, a local copy or a `*const` argument as an escape, so after
 // `if p? { }` the call `tick()` weakens `x`: SC001E "'x' may be null here".

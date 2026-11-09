@@ -2,7 +2,7 @@
 // written type (PANIC.md §2.2, RESOLUTION.md §T): an unknown name is
 // R021E at the element, in every position the set takes. A bad element
 // poisons a `fn` type, so nothing downstream reports it twice. Whether an
-// element may be panicked at all (movable, not a reference) is P3's check,
+// element may be panicked at all (movable, not a reference) is a separate check,
 // not resolution's: `*E` and `[E]` resolve here.
 
 class E1 { var a: i32 }

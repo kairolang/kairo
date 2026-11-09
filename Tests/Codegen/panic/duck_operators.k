@@ -1,7 +1,7 @@
 // An operator on a `<T: type>` operand is bound by no one until C++
-// instantiates the body (MONO.md D1), like a member call through T, so Sema
-// cannot see that the instance's user operator panics. Before (P261) only
-// member calls were wrapped (P184): `a + b` on a type whose `op +` panics
+// instantiates the body, like a member call through T, so Sema
+// cannot see that the instance's user operator panics. Before only
+// member calls were wrapped: `a + b` on a type whose `op +` panics
 // compiled and dropped the error. Binary, unary and compound operators on a
 // duck operand now go out as `(::__kairo_nopanic(), a + b)` (a compound one
 // on T inside the dependent form's lambda), and the instance with a

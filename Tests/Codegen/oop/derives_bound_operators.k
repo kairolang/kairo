@@ -1,5 +1,5 @@
 // An operator on a value of a `derives`-bounded parameter is looked up in
-// the base's table, as a member step through T is (generics.mdx, MONO.md
+// the base's table, as a member step through T is (generics.mdx,
 // D0): a base that declares the operator binds it at the definition and it
 // is emitted as the member call it is, so every instance runs the base's
 // operator. Before, `T derives Base` was left out of the bounds check and

@@ -1,4 +1,4 @@
-// P239: an expansion of a forwarding pack moves each element (P225), so a
+// An expansion of a forwarding pack moves each element, so a
 // body that reads the pack again after it -- a second expansion, the same
 // one on a loop's next iteration -- was handed moved-from elements. A COPY
 // element passed by value is copied and the pack stays live (Doc: Ownership,

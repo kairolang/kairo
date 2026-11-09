@@ -1,5 +1,5 @@
 // The forms of a type test a function-body `eval if` cannot decide per
-// instantiation (P234): `derives` has no concept yet, and an `impl` test
+// instantiation: `derives` has no concept yet, and an `impl` test
 // must name a generic parameter -- the one subject C++ substitutes.
 
 interface Shape {

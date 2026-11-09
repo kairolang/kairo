@@ -1,4 +1,4 @@
-// Compiler/Native's headers in the Stage 1 world (SELFHOST.md 2.3, P346):
+// Compiler/Native's headers in the Stage 1 world:
 // imported with no lib-helix on any path, they must parse (no CL001E
 // "include/core.hh not found") and every Kairo-facing piece must type-check
 // from Kairo with Kairo's own types in it -- the shapes the self-hosted

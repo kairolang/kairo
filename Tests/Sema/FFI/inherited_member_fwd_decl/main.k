@@ -1,6 +1,6 @@
 // RUN: { %kairo %s -I %S --type-check-only --error-format=basic 2>&1 || true; } | %FileCheck %s --allow-empty
 //
-// G62: members a C++ class inherits (`size`, `push_back`, `data`) were
+// Members a C++ class inherits (`size`, `push_back`, `data`) were
 // "no member named" (R025E) when the template's FIRST header set only
 // declared it (this file, decl.h: as <clang/Lex/DependencyDirectivesScanner.h>
 // declares SmallString) while the demanding TU's set (ext.k, def.h) holds the

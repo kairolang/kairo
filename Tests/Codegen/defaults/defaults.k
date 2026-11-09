@@ -7,7 +7,7 @@ fn chk(c: bool) -> i32 { if c { return 1 } return 0 }
 
 fn f(a: i32, b: i32 = 7) -> i32 { return a * 10 + b }
 fn late(a: i32 = 3, b: i32) -> i32 { return a * 10 + b }
-// `: type`: `+` and `T()` are C++'s to check per instance (MONO.md D1);
+// `: type`: `+` and `T()` are C++'s to check per instance;
 // an unbounded T has neither.
 fn <T: type> pick(a: T, b: T = T()) -> T { return a + b }
 

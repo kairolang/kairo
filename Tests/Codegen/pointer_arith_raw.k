@@ -1,4 +1,4 @@
-// P104, P223: raw pointer arithmetic runs as C++'s own pointer arithmetic.
+// Raw pointer arithmetic runs as C++'s own pointer arithmetic.
 // `unsafe *u8 + n` moves n bytes, `unsafe *i32 + n` moves n * 4, `q - p`
 // counts i32s, and the comparisons order addresses. None of it goes
 // through the unsigned-carrier wrap form integer `+` / `-` use.

@@ -1,6 +1,6 @@
 // generic_static_modules/app.k -- exit 47
 // A static field of a generic class from ANOTHER module, named through an
-// instance (MONO G4): `lib::Pool<i64>::live` is that instance's static, as
+// instance: `lib::Pool<i64>::live` is that instance's static, as
 // is a nested type's (`lib::Pool<i64>::Slot::used`); the instance is homed
 // in this TU, the only one that names it.
 import lib

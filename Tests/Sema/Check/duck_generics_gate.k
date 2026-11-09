@@ -1,10 +1,10 @@
-// `<T: type>` is the transitional C++-checked regime (MONO.md D1). It is on
-// by default until the compiler hosts itself; with -fno-duck-generics every
+// `<T: type>` is the transitional C++-checked regime. It is off
+// by default (internal flag, decided 2026-11-08); without -fduck-generics every
 // `: type` in a program file is an error, labelled at the bound. When the body uses no member of the
 // parameter the fix-it deletes `: type` (an unbounded `T` accepts the same
 // body); when it does, deleting it would only trade this error for R051E,
 // so a note points at the first member use instead. With the regime on
-// (the default, or -fduck-generics spelled out) the file is clean.
+// (-fduck-generics, which build.py passes for the compiler) the file is clean.
 
 fn <T: type> uses(t: T) -> i32 { return t.value() }
 
@@ -35,5 +35,5 @@ fn main() -> i32 { return 0 }
 // RUN: { %kairo %s --type-check-only -fduck-generics 2>&1 || true; } | %FileCheck %s --check-prefix=ON --allow-empty
 // ON-NOT: {{error|warning}}
 
-// No flag is the regime on: the default until self-hosting.
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=ON --allow-empty
+// No flag is the regime off: the default since 2026-11-08.
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=OFF

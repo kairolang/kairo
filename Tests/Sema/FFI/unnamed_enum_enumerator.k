@@ -1,4 +1,4 @@
-// O41: an enumerator of an imported unnamed enum is spelled in the enum's
+// An enumerator of an imported unnamed enum is spelled in the enum's
 // enclosing scope (`::dg::err_x`), never under clang's printed
 // `(unnamed enum at f.h:2:16)` segment, which is no C++ name.
 // REQUIRES: clang

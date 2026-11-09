@@ -13,5 +13,5 @@ pub class Outer {
 pub class Ni {
     pub var ga: Holder<Outer::Inner>
     pub var z: i32 = 2
-    fn Ni(self) {}
+    pub fn Ni(self) {}
 }

@@ -1,6 +1,6 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 //
-// G93: `&null` passed to C++ is C++'s `nullptr`. It deduces `std::nullptr_t`
+// `&null` passed to C++ is C++'s `nullptr`. It deduces `std::nullptr_t`
 // for a forwarding-reference template parameter, is the identity match for a
 // `std::nullptr_t` parameter, and still converts to any pointer parameter.
 // DIAG-NOT: error

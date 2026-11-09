@@ -1,5 +1,5 @@
 // Sema/Types/partial_spec_requires.k
-// A partial specialization selected by its `requires` clause (MONO.md G12):
+// A partial specialization selected by its `requires` clause:
 // `struct <P> X<P> requires pred` beside a primary `X` (the v3 draft's
 // NullableStorage form; its pattern is the head's own parameters, so the
 // parser files it as a second primary and N reclassifies it) and `struct

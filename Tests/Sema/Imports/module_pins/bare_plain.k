@@ -6,7 +6,7 @@
 // module.k may carry one, where it names the directory as a library
 // (geometry/module.k is the accepted side). Here it is an error that points
 // at the block form, the way to declare a module inside a file
-// (PLAN-module-pinning.md decision A: module.k only, for now).
+// (module.k only, for now).
 //
 // One error for the pin, nothing for the block form below it.
 

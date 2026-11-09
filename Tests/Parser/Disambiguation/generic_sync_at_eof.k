@@ -1,4 +1,4 @@
-// P279: a generic-argument list that fails to parse is skipped by
+// A generic-argument list that fails to parse is skipped by
 // _sync_generic_args. Its loop read `while !eof && consumed < 64`, which
 // Stage 0 compiles as `!(eof && consumed < 64)`: once 64 tokens had been
 // skipped and the cursor sat at end of file (where advance() no longer

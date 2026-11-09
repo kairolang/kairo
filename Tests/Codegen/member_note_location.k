@@ -25,7 +25,7 @@ pub class Batch {
     } + (self.tag ?? 0)
 
     pub fn op [](self, idx: usize) -> *Frame<i32> { return &self.frames[idx] }
-    fn op delete(self) { println("[Kairo] Batch::~Batch() RAII dtor fired from C++ scope!") }
+    fn op finally(self) { println("[Kairo] Batch::~Batch() RAII dtor fired from C++ scope!") }
 }
 
 pub fn make_burst(base: i32, count: i32) -> Frame<i32> = .Burst { base: base, count: count }
@@ -49,7 +49,7 @@ pub fn sum_burst(f: Frame<i32>) -> i32 = match f {
 // in-class declaration and its qualifier (`Batch::Batch`) both spell the
 // name exactly, and only one exact token gets the name's byte, so the
 // definition's walked on to 38:72, a comment. Both now sit on the
-// declaration's first byte, and the error lands on the name (P145).
+// declaration's first byte, and the error lands on the name.
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s -c -o %t.o 2>&1 || true; } | %FileCheck %s

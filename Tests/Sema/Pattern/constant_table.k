@@ -1,6 +1,6 @@
 // A match whose every head is a constant or a wildcard -- the shape of a
 // generated table such as the diagnostic registry -- is checked with one set
-// and compiled with one bucketing pass (P404). The verdicts must be the
+// and compiled with one bucketing pass. The verdicts must be the
 // general matrix's: a repeated constant is dead, a default after every
 // constructor is dead, a missing constructor is the witness, and the trees
 // keep their edge order and merges.

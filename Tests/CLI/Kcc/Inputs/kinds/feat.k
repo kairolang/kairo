@@ -58,15 +58,15 @@ pub class Base {
     pub var b: i32 = 5
     @move pub fn Base(self, other: Self) = default
     pub fn Base(self) { }
-    virtual fn who(self) -> i32 { return 1; }
-    virtual fn op delete(self) { }
+    pub virtual fn who(self) -> i32 { return 1; }
+    virtual fn op finally(self) { }
 }
 
 pub class Derived derives Base {
     @move pub fn Derived(self, other: Self) = default
     pub fn Derived(self) { }
-    override fn who(self) -> i32 { return 2; }
-    override fn op delete(self) { }
+    pub override fn who(self) -> i32 { return 2; }
+    override fn op finally(self) { }
 }
 
 pub fn pair(a: i32) -> (i32, i32) {

@@ -1,4 +1,4 @@
-// G9 (Compiler/Sema/NULLABLE.md 2.5): `x?.m` is `if x? => x.m else null`,
+// `x?.m` is `if x? => x.m else null`,
 // `x?.f(args)` the same with the call AND its arguments on the non-null
 // path only, `?->` the same over a nullable pointer, and a chain tests
 // each step on the previous one left to right (CoalesceLowering). Covered:

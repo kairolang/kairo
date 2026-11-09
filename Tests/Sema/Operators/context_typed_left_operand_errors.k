@@ -9,7 +9,7 @@
 //
 // A generic right operand is no type a literal can take: the literal keeps
 // its default and the operator follows the bound rules a `t` on the right
-// always had (MONO.md D0: refused on a bounds-checked parameter). A `.V`
+// always had (refused on a bounds-checked parameter). A `.V`
 // typed against an unbounded `T` is unknown, as `t == .V` is.
 
 enum Dir { North, South }

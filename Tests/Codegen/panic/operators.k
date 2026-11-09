@@ -1,4 +1,4 @@
-// A panicking operator, called through its own syntax (P166). Its call is
+// A panicking operator, called through its own syntax. Its call is
 // lowered and held by PanicLowering, ahead of OperatorLowering, and a
 // derived form tests the call it is made of: `a != b` from a panicking
 // `op ==` is `!(a.op==(b))` with the inner call held, `a < b` from `op <=>`

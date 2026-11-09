@@ -7,7 +7,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// P229: a `thread` global whose initializer is a literal is `constinit` on
+// A `thread` global whose initializer is a literal is `constinit` on
 // lib's definition and on main's `extern` alike, so main reaches `hits` and
 // `LIMIT` directly in TLS: no `_ZTW` wrapper, no weak `_ZTH` init function
 // tested on every access. `seeded` runs a function on first use, so it keeps

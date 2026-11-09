@@ -1,5 +1,5 @@
 // `eval if typeof T == U` over a generic parameter (eval.md "Type-based
-// branching", G67): the branch is known per instance only, so the generic
+// branching"): the branch is known per instance only, so the generic
 // check reports nothing from any branch of it, here one per member set and a
 // final branch invalid for every T. Fallback scope: the branches are typed
 // with diagnostics dropped (ChainBinding and the typer), and nothing checks

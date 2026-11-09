@@ -1,7 +1,7 @@
 // An `eval` constant is a compile-time object, which is never destroyed:
 // its type has no user-written destructor. A generic value parameter takes
 // an integer type or an eval class (Cfg, EVAL.md 7e); `bool` not yet.
-class Res { pub var v: i32  eval fn Res(self) { self.v = 1 }  fn op delete(self) { } }
+class Res { pub var v: i32  eval fn Res(self) { self.v = 1 }  fn op finally(self) { } }
 class Cfg { pub var w: i32  eval fn Cfg(self, w: i32) { self.w = w } }
 eval R = Res()
 fn <eval C: Cfg> use_cfg() -> i32 { return 0 }

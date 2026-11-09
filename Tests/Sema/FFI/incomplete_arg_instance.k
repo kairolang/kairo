@@ -1,4 +1,4 @@
-// G94: a by-value record whose field is `DenseMap<Fwd, int>` (Fwd only
+// A by-value record whose field is `DenseMap<Fwd, int>` (Fwd only
 // declared) made the fill of DenseMapBase's member type
 // `DenseMapPair<Fwd, int>` a hard libc++ error (CL001E, `pair` field of
 // incomplete type) that nothing asked for: ASTContext.h's

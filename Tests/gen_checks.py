@@ -896,7 +896,7 @@ def find_kairo(explicit):
     if os.environ.get("KAIRO_BIN"):
         return str(Path(os.environ["KAIRO_BIN"]).resolve())
     # The debug build: it is what the edit/test loop rebuilds, and lit's own
-    # default (release) is the stale-binary trap CLAUDE.md warns about.
+    # default (release) is the stale-binary trap that bites an unwary test run.
     cands = [c for name in ("kairo", "kairo.exe")
              for c in glob.glob(str(REPO_ROOT / "build" / "*" / "debug" / "bin" / name))]
     if not cands:

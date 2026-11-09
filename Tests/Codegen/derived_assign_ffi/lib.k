@@ -8,5 +8,5 @@ pub class C {
     pub fn C(self, v: i32) { self.v = v }
     @copy
     fn C(self, const other: Self) { self.v = other.v + 10 }
-    fn op delete(self) { self.v = 0 }
+    fn op finally(self) { self.v = 0 }
 }

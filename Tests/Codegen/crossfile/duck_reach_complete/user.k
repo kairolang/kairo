@@ -1,5 +1,5 @@
 // Imported by app.k, not a test of its own. Each body needs a class of
-// nodes.k complete that no typed node of it names by value (O36b).
+// nodes.k complete that no typed node of it names by value.
 import nodes::*
 ffi "c++" import "Inputs/mk.hh";
 

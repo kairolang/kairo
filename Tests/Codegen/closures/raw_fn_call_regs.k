@@ -1,5 +1,5 @@
 // A call through a raw `unsafe fn` field passes its arguments in registers
-// (P231). ScopeFrame (Lib/builtin/base/alloc.k) holds its allocator's
+//. ScopeFrame (Lib/builtin/base/alloc.k) holds its allocator's
 // functions as `unsafe fn` pointers, so `f->alloc(size, align)` is one
 // indirect call with `size` and `align` moved into the argument registers.
 // As `fn` values (`__kairo_fn`, three words) the same call loaded the

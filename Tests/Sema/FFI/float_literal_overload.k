@@ -20,7 +20,7 @@ fn main() -> i32 {
 fn ambiguous() -> i32 { return h(1.5, 2.5) }
 
 // --- lit wiring -----------------------------------------------------------
-// P255: an untyped float literal is C++'s double when overloads differ only
+// An untyped float literal is C++'s double when overloads differ only
 // by float type: identity to f64, a floating conversion to anything else
 // (OverloadResolution::_flit_better). It was SC064E ambiguous, so
 // `cxx::std::sqrt(16.0)` could not be called. Each argument still decides

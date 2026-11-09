@@ -5,7 +5,7 @@
 // `size()` returns its dependent `size_type`, which reaches the typer as an
 // opaque `<ffi type>`: `self.size() / 2` is then rejected with
 // "no operator '/' for operands '<ffi type>' and 'i32'" instead of being
-// deferred to each instance (RESOLUTION.md invariant #5). Since G33 a member
+// deferred to each instance (RESOLUTION.md invariant #5). Since the fix a member
 // call on a dependent C++ instance is decided per instance, and `a.halved()`
 // on the concrete `cont<i32>` is u64.
 

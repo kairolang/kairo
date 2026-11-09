@@ -42,9 +42,19 @@ fn main() -> i32 {
 // so it is unique to clang whatever span it shows, and it does not claim its
 // byte. Kairo elides the statement `;`, so token 150 is synthesized; it
 // anchors on the `4` and takes that byte (30). `}` lands on its own (32).
+//
+// Tokens 152-189 are the `[[gnu::used, gnu::section("__kairo_abi")]]
+// static const unsigned char __kairo_abi_alloc[] = {...};` ABI blob. Its
+// attribute tokens (152-165: `[[`, `gnu::used`, `gnu::section(...)`, `]]`)
+// are synthesized, so they are unanchored like the preamble (divergent, fid
+// printed as the invalid sentinel, wildcarded). They used to borrow file
+// bytes 1-19, which is what made the divergent count 150; 13 more are now
+// unanchored (163). The declaration proper (166 on) still borrows, and its
+// offsets moved down to 1-24 because the attribute no longer claims 20 bytes
+// ahead of it.
 
 // CHECK: CODEGEN TOKEN STREAM: {{.*}}m1_hello.k
-// CHECK-NEXT: -- 191 token(s), 150 divergent --
+// CHECK-NEXT: -- 191 token(s), 163 divergent --
 // CHECK-NEXT: 0  template  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "template"
 // CHECK-NEXT: 1  less  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "<"
 // CHECK-NEXT: 2  class  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "class"
@@ -197,44 +207,44 @@ fn main() -> i32 {
 // CHECK-NEXT: 149  numeric_constant  borrowed   [0:30, 1)  "4"
 // CHECK-NEXT: 150  semi  borrowed   [0:30, 1)  ";"
 // CHECK-NEXT: 151  r_brace  borrowed   [0:32, 1)  "}"
-// CHECK-NEXT: 152  l_square  borrowed   [0:1, 1)  "["
-// CHECK-NEXT: 153  l_square  borrowed   [0:2, 1)  "["
-// CHECK-NEXT: 154  identifier  borrowed   [0:8, 1)  "gnu"
-// CHECK-NEXT: 155  coloncolon  borrowed   [0:9, 1)  "::"
-// CHECK-NEXT: 156  identifier  borrowed   [0:10, 1)  "used"
-// CHECK-NEXT: 157  comma  borrowed   [0:11, 1)  ","
-// CHECK-NEXT: 158  identifier  borrowed   [0:12, 1)  "gnu"
-// CHECK-NEXT: 159  coloncolon  borrowed   [0:13, 1)  "::"
-// CHECK-NEXT: 160  identifier  borrowed   [0:14, 1)  "section"
-// CHECK-NEXT: 161  l_paren  borrowed   [0:15, 1)  "("
+// CHECK-NEXT: 152  l_square  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "["
+// CHECK-NEXT: 153  l_square  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "["
+// CHECK-NEXT: 154  identifier  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "gnu"
+// CHECK-NEXT: 155  coloncolon  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "::"
+// CHECK-NEXT: 156  identifier  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "used"
+// CHECK-NEXT: 157  comma  DIVERGENT  [{{[0-9]+}}:     ?, 1)  ","
+// CHECK-NEXT: 158  identifier  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "gnu"
+// CHECK-NEXT: 159  coloncolon  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "::"
+// CHECK-NEXT: 160  identifier  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "section"
+// CHECK-NEXT: 161  l_paren  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "("
 // CHECK-NEXT: 162  string_literal  DIVERGENT  [{{[0-9]+}}:     ?, 1)  ""__kairo_abi""
-// CHECK-NEXT: 163  r_paren  borrowed   [0:16, 1)  ")"
-// CHECK-NEXT: 164  r_square  borrowed   [0:18, 1)  "]"
-// CHECK-NEXT: 165  r_square  borrowed   [0:19, 1)  "]"
-// CHECK-NEXT: 166  static  borrowed   [0:20, 1)  "static"
-// CHECK-NEXT: 167  const  borrowed   [0:21, 1)  "const"
-// CHECK-NEXT: 168  unsigned  borrowed   [0:22, 1)  "unsigned"
-// CHECK-NEXT: 169  char  borrowed   [0:24, 1)  "char"
-// CHECK-NEXT: 170  identifier  borrowed   [0:25, 1)  "__kairo_abi_alloc"
-// CHECK-NEXT: 171  l_square  borrowed   [0:26, 1)  "["
-// CHECK-NEXT: 172  r_square  borrowed   [0:27, 1)  "]"
-// CHECK-NEXT: 173  equal  borrowed   [0:28, 1)  "="
-// CHECK-NEXT: 174  l_brace  borrowed   [0:29, 1)  "{"
+// CHECK-NEXT: 163  r_paren  DIVERGENT  [{{[0-9]+}}:     ?, 1)  ")"
+// CHECK-NEXT: 164  r_square  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "]"
+// CHECK-NEXT: 165  r_square  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "]"
+// CHECK-NEXT: 166  static  borrowed   [0:1, 1)  "static"
+// CHECK-NEXT: 167  const  borrowed   [0:2, 1)  "const"
+// CHECK-NEXT: 168  unsigned  borrowed   [0:8, 1)  "unsigned"
+// CHECK-NEXT: 169  char  borrowed   [0:9, 1)  "char"
+// CHECK-NEXT: 170  identifier  borrowed   [0:10, 1)  "__kairo_abi_alloc"
+// CHECK-NEXT: 171  l_square  borrowed   [0:11, 1)  "["
+// CHECK-NEXT: 172  r_square  borrowed   [0:12, 1)  "]"
+// CHECK-NEXT: 173  equal  borrowed   [0:13, 1)  "="
+// CHECK-NEXT: 174  l_brace  borrowed   [0:14, 1)  "{"
 // CHECK-NEXT: 175  numeric_constant  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "0x7f"
-// CHECK-NEXT: 176  comma  borrowed   [0:31, 1)  ","
+// CHECK-NEXT: 176  comma  borrowed   [0:15, 1)  ","
 // CHECK-NEXT: 177  numeric_constant  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "0x4b"
-// CHECK-NEXT: 178  comma  borrowed   [0:33, 1)  ","
+// CHECK-NEXT: 178  comma  borrowed   [0:16, 1)  ","
 // CHECK-NEXT: 179  numeric_constant  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "0x41"
-// CHECK-NEXT: 180  comma  borrowed   [0:34, 1)  ","
+// CHECK-NEXT: 180  comma  borrowed   [0:18, 1)  ","
 // CHECK-NEXT: 181  numeric_constant  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "0x42"
-// CHECK-NEXT: 182  comma  borrowed   [0:35, 1)  ","
+// CHECK-NEXT: 182  comma  borrowed   [0:19, 1)  ","
 // CHECK-NEXT: 183  numeric_constant  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "0x49"
-// CHECK-NEXT: 184  comma  borrowed   [0:36, 1)  ","
+// CHECK-NEXT: 184  comma  borrowed   [0:20, 1)  ","
 // CHECK-NEXT: 185  numeric_constant  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "2"
-// CHECK-NEXT: 186  comma  borrowed   [0:37, 1)  ","
+// CHECK-NEXT: 186  comma  borrowed   [0:21, 1)  ","
 // CHECK-NEXT: 187  numeric_constant  DIVERGENT  [{{[0-9]+}}:     ?, 1)  "1"
-// CHECK-NEXT: 188  r_brace  borrowed   [0:38, 1)  "}"
-// CHECK-NEXT: 189  semi  borrowed   [0:39, 1)  ";"
+// CHECK-NEXT: 188  r_brace  borrowed   [0:22, 1)  "}"
+// CHECK-NEXT: 189  semi  borrowed   [0:24, 1)  ";"
 
 // eof anchors at ksize-1, so its offset tracks the length of THIS FILE --
 // including these comments. Wildcarded on purpose: an exact value would make

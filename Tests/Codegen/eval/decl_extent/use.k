@@ -1,6 +1,6 @@
 import lib::*
 
-// EVAL.md §11 (USER): an array length or generic value argument C++
+// EVAL.md §11: an array length or generic value argument C++
 // computes from an eval fn or an eval binding is accepted in a
 // declaration's type -- a field, a signature, a namespace-scope binding --
 // not only in a function body. EmitPlan defines what such a type names
@@ -106,7 +106,8 @@ fn main() -> i32 {
 // HDR:      consteval decltype(sizeof(0)) twice(decltype(sizeof(0)) x) noexcept;
 // HDR:      consteval decltype(sizeof(0)) twice(decltype(sizeof(0)) x) noexcept {
 // HDR:      class Table {
-// HDR-NEXT:     public :
+// HDR-NEXT:     public : __attribute__((exclude_from_explicit_instantiation)) static void* operator new(decltype(sizeof(0)) n) {
+// HDR:          private : public :
 // HDR-NEXT:     signed int rows[::lib::twice(2)] {
 // HDR-NEXT:     };
 // HDR-NOT:  consteval decltype(sizeof(0)) twice(decltype(sizeof(0)) x) noexcept {

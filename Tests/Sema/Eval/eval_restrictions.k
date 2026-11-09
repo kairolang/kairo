@@ -7,7 +7,7 @@
 var counter = 3
 const RUNTIME = 4
 fn plain(x: i32) -> i32 { return x }
-class Res { pub var v: i32  fn op delete(self) { } }
+class Res { pub var v: i32  fn op finally(self) { } }
 class Pt { pub var x: i32  pub var y: i32  fn Pt(self, x: i32) { self.x = x  self.y = 0 } }
 eval fn bad1(p: *i32) -> i32 { return 1 }
 eval fn bad2(x: i32) -> i32 {

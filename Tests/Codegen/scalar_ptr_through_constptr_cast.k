@@ -1,8 +1,8 @@
-// O48: a pointer cast between unrelated scalar pointees (`ConstPtr<u8>` as
+// A pointer cast between unrelated scalar pointees (`ConstPtr<u8>` as
 // `ConstPtr<c_char>`) is no static_cast in C++, also when the operand is typed
 // only per instance (a duck call's result in a generic class): the instance
 // that retypes `const unsigned char *` as `const char *` must still compile.
-// RUN: %kairo %s -o %t.exe
+// RUN: %kairo -fduck-generics %s -o %t.exe
 // RUN: %t.exe
 
 import std::c_char;

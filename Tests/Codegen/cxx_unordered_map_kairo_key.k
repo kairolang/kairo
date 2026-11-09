@@ -1,4 +1,4 @@
-// O43: a Kairo record as the key of an imported C++ hash container. The
+// A Kairo record as the key of an imported C++ hash container. The
 // registry spells `cxx::std::unordered_map<string, i32>` with its default
 // hasher, `std::hash<builtin::string::string>`, whose primary libc++
 // disables for a type C++ was never told about: "call to implicitly-deleted

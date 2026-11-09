@@ -1,4 +1,4 @@
-// P331: a by-value parameter of a COPY record the body never mutates is
+// A by-value parameter of a COPY record the body never mutates is
 // passed as `const T&`, and SC001W says to write the `const` (with the
 // fix-it). A parameter the body mutates, moves out, takes the address of or
 // uses in a closure keeps its by-value copy, and so does every parameter the

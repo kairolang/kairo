@@ -1,11 +1,11 @@
-// G17 (Compiler/Sema/NULLABLE.md 3.7): the analysis follows aliases. A
+// The analysis follows aliases. A
 // pointer value (`var p = &x`) or a closure capturing by non-const pointer
 // (`|*x|`) CARRIES the places it can write; calling it or writing through
 // it weakens them; once it escapes (passed to a parameter, stored in a
 // field), every later call does, while a check with no call after it still
 // narrows. Each `bad_*` has one error, at the marked read; each `ok_*`
 // none. Covered:
-//   - NULLABLE.md 3.7's own example: `clear()` may null `x`;
+//   - the own example: `clear()` may null `x`;
 //   - `var p = &x; *p = null`, and through a copy `var q = p`;
 //   - a pointer that does not escape: calls leave `x` proven;
 //   - escape to a parameter, and a store into a field: every later call;

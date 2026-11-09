@@ -91,7 +91,7 @@ class Dtor {
     pub var v: i64
     pub fn Dtor(self) { self.v = 3 }
     @copy fn Dtor(self, const other: Self) = delete
-    fn op delete(self) {
+    fn op finally(self) {
         finally { mark(self.v) }
         mark(1)
     }

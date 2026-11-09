@@ -1,6 +1,6 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
 //
-// G88: a Kairo `override` of a C++ virtual whose parameter is a reference
+// A Kairo `override` of a C++ virtual whose parameter is a reference
 // spells it as a mode (`const x: T` for `const T&`, `@inout` for `T&`,
 // `@move` for `T&&`), while the imported parameter carries the reference in
 // its TYPE. _same_signature compared the two as different, so the override

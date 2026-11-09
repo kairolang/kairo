@@ -1,5 +1,5 @@
 // One of the constructs Compiler/ is written with, checked on Stage 1 ahead
-// of self-hosting (2026-10-24 probe; tickets in private/IMPORTANT/TICKETS.TXT).
+// of self-hosting.
 //
 // Closures (closures.md): a local closure capturing by copy, called
 // directly and passed where a `fn(i32) -> i32` is expected, beside a named

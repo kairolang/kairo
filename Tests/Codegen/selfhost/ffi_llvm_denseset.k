@@ -1,5 +1,5 @@
 // One of the constructs Compiler/ is written with, checked on Stage 1 ahead
-// of self-hosting (2026-10-24 probe; tickets in private/IMPORTANT/TICKETS.TXT).
+// of self-hosting.
 //
 // Importing llvm/ADT/DenseSet.h, which Compiler/ does in 7 files.
 //

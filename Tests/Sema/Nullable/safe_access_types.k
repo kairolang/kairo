@@ -1,4 +1,4 @@
-// G9 (Compiler/Sema/NULLABLE.md 2.5): the type of `x?.m` / `x?.f()` and
+// The type of `x?.m` / `x?.f()` and
 // the errors around it. Each `t_*` initializes a `bool` from one so the
 // conversion error names the type it got:
 //   - a field `M` is `M?`; a field already `M?` stays `M?`;

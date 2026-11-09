@@ -1,5 +1,5 @@
 // `make_unique<kairo::Arr>(n)` over an incomplete-array alias (`Tok[]`) is a
-// `unique_ptr<Tok[]>` and moves into a `unique_ptr<Tok[]>` parameter (G105).
+// `unique_ptr<Tok[]>` and moves into a `unique_ptr<Tok[]>` parameter.
 
 ffi "c++" import "unique_ptr_array_alias.h"
 

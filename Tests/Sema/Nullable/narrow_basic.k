@@ -1,4 +1,4 @@
-// G11 (Compiler/Sema/NULLABLE.md 3.1-3.3, §4): the nullness analysis in
+// The nullness analysis in
 // straight-line code and conditions. A nullable place proven non-null is
 // READ AS `T` where its value is needed: every `uN = <use> + 0` below is
 // inferred `i32` only because the use was narrowed (without it, `i32? + 0`

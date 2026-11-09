@@ -16,7 +16,7 @@ pub class <T> Box {
         return Combined<T, U>{first: self.val, second: other}
     }
 
-    fn op delete(self) {
+    fn op finally(self) {
         println("Box::~Box()")
     }
 }

@@ -1,4 +1,4 @@
-// P348: inside brackets and in an if / while head, a newline ends nothing.
+// Inside brackets and in an if / while head, a newline ends nothing.
 // An operand ending in a closer -- `(x as i32)`, `(a)`, a call -- left the
 // newline after it under the cursor, so a binary operator leading the next
 // line (or the `,` / `]` / `)` there) was rejected, while the same code

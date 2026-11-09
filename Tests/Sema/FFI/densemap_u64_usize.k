@@ -2,7 +2,7 @@
 //
 // `DenseMap<u64, usize>`: key and mapped value are both `unsigned long` to
 // C++. The usize argument alone claimed that canonical type, so the KEY came
-// back usize as well and `m[k]` / `m.find(k)` with a u64 failed (G91, the
+// back usize as well and `m[k]` / `m.find(k)` with a u64 failed (the
 // migrated NullnessFlow.k / ParamPassInference.k / SemaDump.k). Two
 // arguments of different Kairo types now null the claim, and the ordinary
 // mapping answers for both.

@@ -1,4 +1,4 @@
-// G14 (Compiler/Sema/NULLABLE.md 3.6): a `match` on `T?` runs. CoalesceLowering
+// A `match` on `T?` runs. CoalesceLowering
 // answers `case null` first (`if !x? { arm 0 } else { match <x's value> }`)
 // and the rest matches the unwrapped `T` with PatternCompilation's tree.
 // Covered: integer values and ranges, `case var v` binding the `T`, a

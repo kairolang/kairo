@@ -3,21 +3,21 @@ ffi "c++" import "llvm/ADT/SmallVector.h";
 
 pub class Table {
     pub var n: i32 = 4
-    fn Table(self) {}
+    pub fn Table(self) {}
 }
 pub class Ctx {
     pub var g: unsafe *Table = &null
-    fn Ctx(self) {}
+    pub fn Ctx(self) {}
 }
 pub class Typer {
     pub var sc: unsafe *Ctx = &null
-    fn Typer(self) {}
+    pub fn Typer(self) {}
 }
 // A `<T: type>` body: the chain through T is untyped until C++ instantiates it.
 pub class <T: type> Duck {
     pub var d: unsafe *T = &null
-    fn Duck(self) {}
-    fn read(self) -> i32 { return self.d->sc->g->n; }
+    pub fn Duck(self) {}
+    pub fn read(self) -> i32 { return self.d->sc->g->n; }
 }
 pub class Big {
     pub var a: i32 = 1

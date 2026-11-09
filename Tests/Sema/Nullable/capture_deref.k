@@ -1,4 +1,4 @@
-// P50 (NULLABLE.md 3.7): inside a closure that captures `x` by pointer, `*x`
+// Inside a closure that captures `x` by pointer, `*x`
 // is a place like any other. A check on it narrows it, a read of it needs
 // one, and it starts Maybe: anything holding a pointer to `x` may write it
 // while the closure waits, so it is also made Maybe by every call (as a

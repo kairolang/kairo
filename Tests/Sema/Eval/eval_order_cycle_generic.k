@@ -21,7 +21,7 @@ fn main() -> i32 {
     return 0
 }
 
-// EVAL.md §11 on a generic record (P198, P126): a computed field type, or a
+// EVAL.md §11 on a generic record: a computed field type, or a
 // `requires` value predicate, evaluated in the record's definition from an
 // eval item that needs an instance of the record complete has no order in
 // any instance. Checked on the primary: before, the generic record was

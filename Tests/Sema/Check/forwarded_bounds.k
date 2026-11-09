@@ -1,7 +1,7 @@
 // A bounds-checked parameter passed to a bounded generic must carry the
 // bound itself: the caller's body is checked once, where it is defined,
 // against its own bounds (generics.mdx), so `one(x)` in a `fn <T>` is the
-// bound error in the caller, with a fix-it adding the bound. Before (P259)
+// bound error in the caller, with a fix-it adding the bound. Before
 // it type-checked and was left to the instance. The same holds for a pack
 // forwarded with `args...` (functions-parameters.mdx's log_all). A bound
 // that is the interface, or one deriving it, meets it; a `: type` caller
@@ -35,7 +35,7 @@ fn <...T impl Named> log_named(...args: T) {
 fn <T: type> fwd_duck(x: T) -> string = one(x)
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
+// RUN: { %kairo -fduck-generics %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
 // DIAG: {{.*}}:24:30: error [R051E]: 'one' needs 'T' to implement 'Named'
 // DIAG-NEXT: fix-it:"{{.*}}forwarded_bounds.k":{24:6-24:6}:" impl Named"
 // DIAG-NEXT: {{.*}}:19:5: note [I900N]: required by this bound

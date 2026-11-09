@@ -6,15 +6,9 @@
 // a TYPED i32 still needs `as` (matrix_i32.k), a bare literal does not.
 // 0..255 fit; a negative literal or 256 does not.
 //
-// XFAIL: *
-// Ticket "[Sema] An integer literal does not take `byte` from its context"
-// (2026-10-28). Today each literal below is SC028E "cannot convert 'i32' to
-// 'byte'; the conversion may lose value and needs an explicit 'as'":
-// Conversion.k's literal_fits_int answers false for every non-integer
-// builtin, and has a clause for c_char (0..127) but none for byte (0..255).
-// The literal then defaults to i32 and the lattice refuses it. Codegen must
-// also spell a byte literal (byte is the Byte lang item, a class), so the
-// fix is not Sema alone. When it XPASSes, delete the XFAIL.
+// Fixed 2026-11-08 (§85): literal_fits_int and LiteralTyping.k now treat
+// byte like c_char8 (0..=0xFF), so each literal below types as byte. This test
+// checks Sema only; that codegen spells the literal as a byte is a separate gap.
 
 fn masked(b: byte) -> byte {
     var mask: byte = 0x0F;

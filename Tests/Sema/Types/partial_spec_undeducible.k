@@ -7,8 +7,8 @@
 //
 // XFAIL: *
 // Ticket "[Sema] A partial specialization whose pattern never names one of
-// its parameters is silently inert" (private/IMPORTANT/TICKETS.TXT,
-// 2026-10-25). Today it is accepted without a word and every instance takes
+// its parameters is silently inert" (2026-10-25).
+// Today it is accepted without a word and every instance takes
 // the primary (InstantiationRegistry::_matches never selects it). Passes
 // once TypeResolve::_register_type_spec reports it. The code is not decided;
 // the check asks for an error at the declaration. When it XPASSes, delete

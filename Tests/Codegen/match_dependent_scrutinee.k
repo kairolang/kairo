@@ -1,4 +1,4 @@
-// O7: a match whose scrutinee is a call through a duck-generic mixin's
+// A match whose scrutinee is a call through a duck-generic mixin's
 // `dyn()` (`unsafe *T`) has no type in the generic, so nothing lowered it and
 // EmitIR met a MatchStmt ("match MatchLowering left in place"). The arms test
 // constants of one enum, which is the column; the match lowers in the generic
@@ -33,5 +33,5 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe

@@ -1,11 +1,11 @@
 // One of the constructs Compiler/ is written with, checked on Stage 1 ahead
-// of self-hosting (2026-10-24 probe; tickets in private/IMPORTANT/TICKETS.TXT).
+// of self-hosting.
 //
 // A static method called through a generic class instance,
 // `Box<i32>::zero()` (classes.md, Static Members + Generic Classes).
 //
 // The member's decl is the pattern's, so the call carries the instance it
-// was named through (CallExpr::qualifier, MONO.md G4) and the C++ is
+// was named through (CallExpr::qualifier,) and the C++ is
 // `Box<int>::zero()`, not the bare class template `Box::zero()`. The same
 // through a dependent instance in a generic body (`Box<U>::zero()`), and
 // for a static whose defaulted parameter calls a default thunk.

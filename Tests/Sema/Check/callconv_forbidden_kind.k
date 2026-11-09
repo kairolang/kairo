@@ -9,7 +9,7 @@ priv class Buf {
     fn Buf(self) { self.n = 0 }
 
     @preserve_most
-    fn op delete(self) { }
+    fn op finally(self) { }
 
     @preserve_all
     fn op + (self, other: Buf) -> Buf { return Buf() }

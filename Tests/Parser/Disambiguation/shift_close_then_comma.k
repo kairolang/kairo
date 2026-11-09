@@ -1,4 +1,4 @@
-// P350 (self-host gap G3): a `>>` that closes two generic lists, followed by
+// A `>>` that closes two generic lists, followed by
 // a `,` that belongs to the enclosing parameter list, failed when a later
 // parameter had generics: S049E "expected ',' or '>' after type argument".
 // The inner list consumed the `>>` and left _pending_close_angle for the

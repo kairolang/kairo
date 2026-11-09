@@ -1,4 +1,4 @@
-// O26: `m.flag != Kind::None`, where `m` is a `var m: T::Pending;` local of a
+// `m.flag != Kind::None`, where `m` is a `var m: T::Pending;` local of a
 // duck `<T: type>` mixin, ICEd "unbound member step reached codegen". The
 // member step is dependent and is emitted as written; the comparison with the
 // enum constant is emitted as the C++ `!=` per instance.

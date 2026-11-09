@@ -5,7 +5,7 @@
 //
 // XFAIL: *
 // Ticket "[Sema] The loop pre-scan does not classify a loop-local's value"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today NullLoopScan reads
+//. Today NullLoopScan reads
 // `q = p` before typing, `p`'s inferred type is still null and nothing
 // records that `&a` is never null, so `q` comes back Maybe: SC001E "'q' may
 // be null here" at `*q`. When it XPASSes, delete the XFAIL -- the run below

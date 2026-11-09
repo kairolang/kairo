@@ -1,4 +1,4 @@
-// G1 (Compiler/Sema/NULLABLE.md 1.4): `*T?` is a nullable POINTER,
+// `*T?` is a nullable POINTER,
 // `(*T)?`, as nullables.md and pointers.md write it; a pointer TO a
 // nullable is spelled `*(T?)`. The parser used to bind the `?` to the
 // pointee, so `var p: *i32? = &a` was SC028E and every doc example failed.

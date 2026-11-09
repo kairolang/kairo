@@ -1,5 +1,5 @@
 // A C++ `bool&` (an `array<bool, N>` element) is a condition: it is read as
-// the bool it refers to, as `!` and `&&` already read it (G45).
+// the bool it refers to, as `!` and `&&` already read it.
 
 ffi "c++" import "array";
 

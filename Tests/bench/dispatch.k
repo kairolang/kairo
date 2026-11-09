@@ -6,7 +6,7 @@ class Shape {
     fn Shape(self) { }
     @move fn Shape(self, other: Self) = default
     virtual fn area(const self) -> i64 { return 0 }
-    virtual fn op delete(self) { }
+    virtual fn op finally(self) { }
 }
 
 class Rect derives Shape {

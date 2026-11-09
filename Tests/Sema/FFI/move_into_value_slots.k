@@ -3,7 +3,7 @@
 // `cxx::std::move(x)` of a move-only value lands in a by-value slot without
 // a diagnostic: a tuple element of a Kairo class, a std::string, a by-value
 // move-only C++ parameter (`consumeError(Error)`), and `push_back(T&&)` fed
-// `move(*expected)` where operator* returns T&. (G99 a-c: these were
+// `move(*expected)` where operator* returns T&. (-c: these were
 // reported against the self-host tree; they type clean, locked in here.)
 
 ffi "c++" import "move_into_value_slots.h"

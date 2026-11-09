@@ -2,7 +2,7 @@
 // RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
 //
 // The definition side of a generic. NOTHING here is monomorphized: this pass
-// types the TEMPLATE once, against its bounds (MONO.md D0), and an instance
+// types the TEMPLATE once, against its bounds, and an instance
 // never re-checks it.
 //
 // Two different answers appear in the dump and they are not the same thing:

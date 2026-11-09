@@ -1,4 +1,4 @@
-// P351: a named initializer split over lines, last field with no trailing
+// A named initializer split over lines, last field with no trailing
 // comma. The field list did not suppress newlines, so the newline before `}`
 // ended the list: S054E "expected '}' to close named initializer". The
 // one-line form and a trailing comma parsed (structures.mdx:

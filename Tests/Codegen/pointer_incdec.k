@@ -1,4 +1,4 @@
-// P328: `++it` / `--it` and the postfix forms on a safe pointer run as
+// `++it` / `--it` and the postfix forms on a safe pointer run as
 // C++'s pointer increment: the Stage 0 iterator loop `for it = v.begin();
 // it != v.end(); ++it`, a step back from end(), a postfix whose old
 // pointer is read, and a prefix whose result is the stepped pointer.

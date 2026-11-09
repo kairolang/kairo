@@ -4,7 +4,7 @@
 // `__kairo_tid<unsigned long>` twice. Two sets with one each get one
 // specialization; one set with both is the type id collision error, which
 // says why. `Panic<i32, usize>` and `Panic<i32, u64>` are then one C++
-// type too, explicitly instantiated once (P256, as `Box<usize>` beside a
+// type too, explicitly instantiated once (as `Box<usize>` beside a
 // `Box<u64>` is: Codegen/generics/size_type_one_instance.k).
 fn fu(n: i32) panic(usize) -> i32 { if n == 1 { panic 7 as usize }  return n }
 fn fw(n: i32) panic(u64) -> i32 { if n == 2 { panic 9 as u64 }  return n }

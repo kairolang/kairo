@@ -1,5 +1,5 @@
 // Scripts/Migration/const_value_params.py: generic value parameters
-// `<const N: T>` become `<eval N: T>` (TICKETS: "Compiler/ spells generic
+// `<const N: T>` become `<eval N: T>` ("Compiler/ spells generic
 // value parameters"). The fixture holds several parameters in one list,
 // type parameters mixed in, a member template nested in a
 // generic class, odd spacing, and the shapes that must stay: a comment and

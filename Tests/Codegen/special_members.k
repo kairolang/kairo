@@ -2,7 +2,7 @@
 // in the class, and gets no definition out of line: C++ generates the
 // defaulted one, and a deleted one has none. A `requires` written on a
 // member of a generic record is the member's C++ trailing requires-clause,
-// on its declaration and its definition alike (P235).
+// on its declaration and its definition alike.
 
 class Pair {
     pub var a: i32
@@ -13,7 +13,7 @@ class Pair {
     }
     @copy
     fn Pair(self, const other: Self) = default
-    fn op delete(self) = default
+    fn op finally(self) = default
 }
 
 class Pinned {

@@ -2,7 +2,7 @@
 // named member, minted through LowerTargets::op_panic like `op await`: a
 // type's own as a method, an extension's as the scope's static member
 // (CODEGEN.md §7b). Nothing calls it yet -- the C++ view's what() will
-// (P7) -- so this only pins that a program declaring it compiles, links
+// -- so this only pins that a program declaring it compiles, links
 // and runs. Before the name existed, an extension `op panic` was an ICE in
 // CXXSpell ("has no C++ non-member form").
 

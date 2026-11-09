@@ -7,5 +7,5 @@ class C {
     fn named(self) -> i32 { return self.a }
     static fn make() -> i32 { return 0 }
     fn op == (self, o: Self) -> bool = self.a == o.a
-    fn op delete (self) { }
+    fn op finally (self) { }
 }

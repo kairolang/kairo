@@ -64,7 +64,7 @@ fn main() -> i32 {
 // scope's free (the packed-range scan below the top frame), and a global
 // block freed there must reach Global without a scan (the top frame's
 // bounding box). Then 40 deep again, on the chunks kept from the first run.
-// The P226 warning for `blocks` is expected: the test keeps scope pointers
+// The warning for `blocks` is expected: the test keeps scope pointers
 // on purpose.
 // REQUIRES: clang
 // RUN: rm -rf %t.d

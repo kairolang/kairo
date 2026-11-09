@@ -11,7 +11,7 @@ class Widget {
     pub var id: i32
     pub fn Widget(self, id: i32) { self.id = id; println(f"make {id}") }
     @move fn Widget(self, other: Self) { self.id = other.id; other.id = 0 }
-    fn op delete(self) { if self.id != 0 { println(f"drop {self.id}") } }
+    fn op finally(self) { if self.id != 0 { println(f"drop {self.id}") } }
 }
 
 fn quit() -> bool { return true }

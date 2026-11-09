@@ -1,6 +1,6 @@
 // An UNNAMED C++ enum's enumerators are found in its enclosing scope, as
 // C++ finds them (`clang::diag::err_incomplete_type` is one of an unnamed
-// enum in namespace clang::diag, G64). They were "no member named ... in
+// enum in namespace clang::diag). They were "no member named ... in
 // module 'diag'" because an unnamed enum got no Kairo decl at all.
 
 ffi "c++" import "unnamed_enum_scope.h"

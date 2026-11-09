@@ -1,4 +1,4 @@
-// O28d: `&null as unsafe *T` was emitted `reinterpret_cast<T*>(nullptr)`,
+// `&null as unsafe *T` was emitted `reinterpret_cast<T*>(nullptr)`,
 // which C++ rejects (std::nullptr_t cannot be reinterpreted). The null
 // pointer conversion is a static_cast.
 

@@ -7,7 +7,7 @@
 //
 // A shift's result is its left operand's type, so a literal left operand
 // takes the expected type when there is one, else an integer count's
-// (`1 << 4u8` is a u8 shift, USER 2026-10-28). Two context-typed operands
+// (`1 << 4u8` is a u8 shift, decided 2026-10-28). Two context-typed operands
 // keep their defaults. The inferred types below are the whole assertion.
 
 enum Dir { North, South }

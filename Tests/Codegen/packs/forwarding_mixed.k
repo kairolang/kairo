@@ -1,4 +1,4 @@
-// P225 across shapes: a pack of mixed types forwarded through a static
+// across shapes: a pack of mixed types forwarded through a static
 // method and an instance method into a function, an empty pack, and a
 // move-only element beside copyable ones. (Into a constructor is
 // ctor_from_pack.k, XFAIL.) Every temporary crosses every
@@ -11,7 +11,7 @@ class Tok {
     pub var v: i32
     pub fn Tok(self, v: i32) { self.v = v }
     @move fn Tok(self, other: Self) { self.v = other.v; other.v = -1; moves += 1 }
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 
 class Counted {

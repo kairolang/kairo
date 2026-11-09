@@ -1,4 +1,4 @@
-// P349: a cast directly before the `{` that ends a head. The cast parser
+// A cast directly before the `{` that ends a head. The cast parser
 // rolls `as T` back when a `{` follows the type, since at statement level
 // that brace is a context binding's body (`open(p) as const f { ... }`). In
 // an if / while / for / match head no binding can appear and the brace is

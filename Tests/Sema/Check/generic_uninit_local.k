@@ -5,7 +5,7 @@
 //
 // XFAIL: *
 // Ticket "[Sema] `var x: T` with no initializer in a generic body is not
-// diagnosed" (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today the unbounded
+// diagnosed". Today the unbounded
 // case is accepted (status.mdx, Not Diagnosed). The code is not decided; the
 // check asks for an error at the marked line. When it XPASSes, delete the
 // XFAIL and pin the code and message.

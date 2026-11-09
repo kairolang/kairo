@@ -1,7 +1,7 @@
 // An instance that fails its bound two hops below the use that started it:
 // `hop1<Metric>` reaches `hop2<Wrap<Metric>>`, which reaches
 // `hop3<Wrap<Wrap<Metric>>>`, and `Wrap<Wrap<Metric>>` is not Named. The
-// error is at the use (MONO.md D6), with one note per hop, innermost
+// error is at the use, with one note per hop, innermost
 // first, at the call in the body that needed the instance. `again` and
 // the second `hop1` call need the same failing instance: it is reported
 // once, at its first use, and they add nothing.

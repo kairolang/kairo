@@ -5,7 +5,7 @@
 // from it for the keyword, and with the literal four bytes before the end
 // of e.k that ran past the buffer: an ICE, "TokenSink: span runs past the
 // end of its buffer" at e.k:4:37. e.k must end right after the literal's
-// line, so it carries no comment and no wiring. P192.
+// line, so it carries no comment and no wiring.
 import m::M
 import n
 import e

@@ -1,5 +1,5 @@
 // A STRUCTURAL conformer of a panicking requirement keeps its own result
-// (P202): a class that meets `T impl Src<A>` without declaring `impl` is
+//: a class that meets `T impl Src<A>` without declaring `impl` is
 // not given the requirement's result by PanicLowering (one method may meet
 // many interfaces), so its witness specialization converts what the member
 // returns with `__kairo_pcall<R>`, as a widened `fn` value does. Before,

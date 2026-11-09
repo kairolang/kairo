@@ -1,4 +1,4 @@
-// generics/dependent_explicit_args.k -- exit 0 (P127)
+// generics/dependent_explicit_args.k -- exit 0
 // Explicit generic arguments that name the enclosing generic's parameters
 // are kept in the emitted C++. A call in a generic body has no instance (it
 // is dependent), so the arguments written on it are all there is to spell;

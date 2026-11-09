@@ -1,4 +1,4 @@
-// O35: a call made through a duck parameter (`self.dyn()->...`) to a function
+// A call made through a duck parameter (`self.dyn()->...`) to a function
 // with default parameters was emitted without the defaulted arguments, since the
 // fill happens at the call site and the dependent path skipped it (clang: "too
 // few arguments to function call").
@@ -36,6 +36,6 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // RUN: rm -rf %t.d
-// RUN: { %kairo %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// RUN: { %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: error
 // RUN: %t.exe

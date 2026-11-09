@@ -1,4 +1,4 @@
-// P104, P223: the builtin operators on pointers (pointers.mdx, Pointer
+// The builtin operators on pointers (pointers.mdx, Pointer
 // Arithmetic). `p + n` / `p - n` take any integer and keep the pointer
 // type, on both kinds; `p += n` too. `p - q` is isize, raw pointers only.
 // `<` `<=` `>` `>=` take two pointers of one type, either kind.

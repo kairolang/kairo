@@ -1,4 +1,4 @@
-// P354: a parameter list split over lines whose last parameter's type ends
+// A parameter list split over lines whose last parameter's type ends
 // in a generic `>`, with no trailing comma. The `>` was consumed keeping the
 // newline after it, inside the list's own suppression, so the list saw a
 // newline where `)` was expected: S047E "expected ')' to close the parameter

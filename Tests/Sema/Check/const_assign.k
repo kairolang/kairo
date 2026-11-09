@@ -5,7 +5,7 @@
 //
 // XFAIL: *
 // Ticket "[Sema] Assigning to a `const` local is not diagnosed by Sema"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today both assignments pass
+//. Today both assignments pass
 // --type-check-only; a full build fails in clang (CL001E "cannot assign to
 // variable with const-qualified type" / "no viable overloaded '='").
 // ConstChecking is a TODO in Sema.k. The code is not decided; the checks

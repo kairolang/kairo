@@ -7,7 +7,7 @@
 // order, and a pack takes every one that is left; the parameters after it
 // deduce from the call. `isa<T>(x)` against llvm's `template <typename...
 // To, typename From>` was "'To' is a type pack, deduced from the arguments;
-// it cannot be written as a generic argument yet" (G76).
+// it cannot be written as a generic argument yet".
 
 // DIAG-NOT: error
 

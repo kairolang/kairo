@@ -1,4 +1,4 @@
-// G13 (Compiler/Sema/NULLABLE.md 3.5), run: the loops the analysis keeps a
+// Run: the loops the analysis keeps a
 // nullable proven through compile to `__value()` reads and compute what
 // the source says. A body that only gives `x` proven values; one that
 // nulls it and gives it a value again before the back edge; `while x?`

@@ -1,4 +1,4 @@
-// NULLABLE.md G2: ::builtin::Nullable, the type `T?` lowers to, used from
+//: ::builtin::Nullable, the type `T?` lowers to, used from
 // a C++ host (Inputs/nullable_host: widgets.k, nullable_main.cpp). Both
 // constructors convert implicitly (`= ::builtin::null`, `= 5`), is_null()
 // and `==` / `!=` test it, `__value()` reads the payload. A null nullable

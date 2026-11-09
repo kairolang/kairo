@@ -1,10 +1,10 @@
-// NULLABLE.md G3: every `T?` is ::builtin::Nullable<T> in C++, and every
+//: every `T?` is ::builtin::Nullable<T> in C++, and every
 // implicit conversion into one is a constructor of it: a value becomes the
 // present Nullable, `null` (and `&null` against a nullable pointer, 1.3)
 // the null one. Covered sites: local initialisers, assignment both ways,
 // return, arguments (a `T` and `null`), a default argument, field
 // initialisers, if-expression arms (one arm `null`), `(*i32)?`, `(i32?)?`.
-// No null test or narrowing exists yet (G5+), so nothing reads a nullable
+// No null test or narrowing exists yet, so nothing reads a nullable
 // back: the exit code sums non-nullable results, and the payload's
 // lifecycle is observed through Widget's destructor, which prints for a
 // live Widget only (a moved-from one has id 0). A null `Widget?` holds no
@@ -19,7 +19,7 @@ class Widget {
     pub var id: i32
     pub fn Widget(self, id: i32) { self.id = id }
     @move fn Widget(self, other: Self) { self.id = other.id; other.id = 0 }
-    fn op delete(self) { if self.id != 0 { println(f"~Widget {self.id}") } }
+    fn op finally(self) { if self.id != 0 { println(f"~Widget {self.id}") } }
 }
 
 class Cp {

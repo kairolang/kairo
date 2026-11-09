@@ -1,5 +1,5 @@
 // Clang errors in two TUs of one build: this file and bad_lib.k. TUs are
-// compiled side by side (P216), so both are reported, each TU's own in
+// compiled side by side, so both are reported, each TU's own in
 // source order and the TUs in graph order (the import first), whichever
 // worker finished first. clang's own "N errors generated." line, which two
 // workers once wrote into each other, is not printed at all.

@@ -1,7 +1,7 @@
 // An instance of a Kairo generic has lifecycle facts of its own: the
 // pattern's fields over the instance's arguments (ClassLifecycle, Instances;
-// MONO.md G6). `Opt<Mv>` holds a move-only field, so it is MOVE: `var u = t`
-// moves `t`, and reading `t` after it is a use after move. Before G6 the
+//). `Opt<Mv>` holds a move-only field, so it is MOVE: `var u = t`
+// moves `t`, and reading `t` after it is a use after move. Before the fix the
 // instance read its pattern's facts, Unknown, so the copy went through
 // unreported to clang's deleted copy constructor. `Opt<i32>` is COPY and
 // copies as before. The tuple precedent is move_tuple.k.

@@ -1,6 +1,6 @@
 // An expression statement that only computes a value is a warning, as C++'s
 // -Wunused-value: a newline ends a statement, so `a` NEWLINE `+ b` is two,
-// and the second is thrown away (G44). Calls, assignments, `++`/`--` and the
+// and the second is thrown away. Calls, assignments, `++`/`--` and the
 // short-circuit operators act, and are not.
 
 fn g() -> i32 { return 1; }

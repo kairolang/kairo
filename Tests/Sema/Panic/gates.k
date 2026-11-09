@@ -1,9 +1,9 @@
 // What panic does not support yet (SC116E):
-// - a `<T: type>` body (MONO.md D1, the C++-checked regime behind
+// - a `<T: type>` body (the C++-checked regime behind
 //   -fduck-generics): a call through T is never resolved, so its body has no
 //   set to close at the definition. A `panic` function under such a
 //   parameter, and any panicking site in its body, caught or not -- in a
-//   closure inside it too. (A bounded or opaque generic is P10's: its set is
+//   closure inside it too. (A bounded or opaque generic is checked with the generic-body rules: its set is
 //   computed at the definition, Tests/Sema/Panic/generics.k.)
 // - a generic closure, and a `fn` type whose set names a generic parameter
 //   (deduction never reads a `fn` type's effect);

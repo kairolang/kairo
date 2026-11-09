@@ -1,4 +1,4 @@
-// where/method_explicit.k -- exit 0 (P207, P263)
+// where/method_explicit.k -- exit 0
 // A generic `where` group of METHODS whose parameters C++ cannot deduce
 // from the forwarded arguments: a type parameter no parameter's type
 // mentions, and a value parameter. The dispatcher calls each candidate

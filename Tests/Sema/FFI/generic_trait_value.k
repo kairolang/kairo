@@ -3,13 +3,13 @@
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 110
 //
-// G26: `ns::Trait<T>::value` with T a Kairo generic parameter. The member
+// `ns::Trait<T>::value` with T a Kairo generic parameter. The member
 // comes from a base over a builtin of the arguments (libc++ derives every
 // trait from integral_constant<bool, __is_xxx(T)>), which the pattern does
 // not show, so C++ looks it up per instantiation; it was R025E "no member
 // named 'value' in 'is_trivially_destructible'". As an `eval if` condition it
 // is a compile-time value per instance, not SC001E "this is a run-time value".
-// The concrete `<i32>` form resolves since G18 (generic_scope_step.k).
+// The concrete `<i32>` form resolves since the fix (generic_scope_step.k).
 // Codegen spells the member through the instance (`::std::is_trivially_
 // destructible<T>::value`) and clang decides it per instantiation: the run
 // checks both a trivial and a non-trivial T take their own branch.
@@ -37,7 +37,7 @@ fn <T> branch() -> i32 {
 class Res {
     var n: i32
     fn Res(self) { self.n = 1 }
-    fn op delete(self) { self.n = 0 }
+    fn op finally(self) { self.n = 0 }
     @move fn Res(self, other: Self) = default
 }
 

@@ -5,7 +5,7 @@
 //
 // XFAIL: *
 // Ticket "[Sema][Codegen] Declared-witness edges left by d51202fb /
-// 21e61694" (private/IMPORTANT/TICKETS.TXT, 2026-10-25), item 1: the two
+// 21e61694", item 1: the two
 // declarations give two equivalent partial specializations of the witness
 // keyed by different parameter names (`Box<T>` vs `Box<E>`), EmitPlan's key
 // dedupe misses, and clang reports CL001E "redefinition of

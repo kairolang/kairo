@@ -1,5 +1,5 @@
 // Chains on a bound call's result, end to end (bound_call_member.k is the
-// one-step case). Each call is typed at the bound's arguments (MONO.md D0,
+// one-step case). Each call is typed at the bound's arguments (
 // Sema/ExprTyper/bound_call_result.k), so every later step binds against a
 // concrete type: a field of a record result, a requirement on a `Self`
 // result, a field of a generic requirement's result, and the same through a

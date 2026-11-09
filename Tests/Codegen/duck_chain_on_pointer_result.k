@@ -1,4 +1,4 @@
-// O49: in a duck <T: type> body, `b.first(2).note(3)` where `b` is deduced and `first`
+// In a duck <T: type> body, `b.first(2).note(3)` where `b` is deduced and `first`
 // returns a pointer emitted `.note` on the pointer. The receiver is now normalized to
 // the object whichever the instance returns.
 

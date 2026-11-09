@@ -10,7 +10,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// P240: a passing mode on a pack parameter is an error for now, at the mode.
+// A passing mode on a pack parameter is an error for now, at the mode.
 // It was silently dropped: `bump(&a, &b)` deduced T = *i32 and every layer
 // below passed the pointers by value. The call itself reports nothing more.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not=error

@@ -7,12 +7,12 @@ pub class Base {
 }
 pub class Sub derives Base {
     pub var z: i32 = 2
-    fn Sub(self) {}
+    pub fn Sub(self) {}
 }
 pub struct Elem { pub var v: i32; pub var w: i32 }
 pub class Holder {
     pub var items: cxx::std::vector<Elem>
-    fn Holder(self) {}
+    pub fn Holder(self) {}
 }
 pub fn <T: type> probe(p: unsafe *Base) -> i32 { return T::tag(); }
 pub class Tagged {

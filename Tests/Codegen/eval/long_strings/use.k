@@ -3,10 +3,10 @@
 // string's fields private behind as_ptr()/length(), which are run-time fns:
 // an eval context cannot call them (SC001E), and C++ cannot read them in a
 // constant expression. Flip back when eval code can read a string's bytes
-// and length again. See TICKETS.TXT.
+// and length again.
 import lib::*
 
-// EVAL.md §11 (USER): a compile-time string literal longer than 256 bytes
+// EVAL.md §11: a compile-time string literal longer than 256 bytes
 // is not `::__kairo_estr<b0, b1, ...>` (one template argument per byte) but
 // `::__kairo_estrh_<len>_<hash>`, an `inline constexpr unsigned char[]`
 // named for its content and defined at global scope ahead of every body

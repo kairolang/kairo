@@ -1,4 +1,4 @@
-// generics/method_explicit_args.k -- exit 0 (P263)
+// generics/method_explicit_args.k -- exit 0
 // A generic method called through its receiver keeps its generic
 // arguments: `c.m<i64>()` was written to C++ as `c.m()`, and clang could
 // not infer a T no parameter mentions. Every receiver form: a value, a

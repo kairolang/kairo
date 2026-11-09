@@ -74,7 +74,7 @@ class C {
 
 // --- not yet supported (SC116E) -------------------------------------------
 
-// (A 'panic' member is supported since P6: the dispatcher's set is the
+// (A 'panic' member is supported: the dispatcher's set is the
 // union of its members'. Codegen/panic/where.k runs one.)
 
 fn dflt(x: i32, y: i32 = 2) -> i32 where x > 1 { return y }

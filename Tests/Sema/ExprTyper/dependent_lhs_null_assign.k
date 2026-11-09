@@ -1,10 +1,10 @@
-// RUN: { %kairo --type-check-only %s 2>&1 || true; } | %FileCheck %s --allow-empty
+// RUN: { %kairo -fduck-generics --type-check-only %s 2>&1 || true; } | %FileCheck %s --allow-empty
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe
 //
-// O13: `n->p = &null` in a duck-typed generic, where `n->p` is only known per
-// instance, was SC076E "cannot infer" since O4 typed the right side of an
+// `n->p = &null` in a duck-typed generic, where `n->p` is only known per
+// instance, was SC076E "cannot infer" since the fix typed the right side of an
 // assignment whose left side is unknown. The pointer type is the instance's.
 // CHECK-NOT: SC076E
 

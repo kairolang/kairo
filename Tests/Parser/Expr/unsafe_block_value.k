@@ -3,7 +3,7 @@
 //
 // XFAIL: *
 // Ticket "[Parser] `unsafe { e }` in expression position parses its braces
-// as a set literal" (private/IMPORTANT/TICKETS.TXT, 2026-10-25; GitHub
+// as a set literal" (2026-10-25; GitHub
 // #96). Today the braces after `unsafe` are read as the set literal `{*p}`:
 // SC028E "cannot convert '{i32}' to 'i32'". Passes once the parser reads
 // `unsafe {` in value position as a block expression. When it XPASSes,

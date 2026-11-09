@@ -1,10 +1,10 @@
 // An operator, a conversion or a null test on a value of an associated
 // type is what its own bounds grant, as on a bounded parameter
-// (interfaces.md, Generic Bodies; MONO.md D0): R051E when it has no bound,
+// (interfaces.md, Generic Bodies): R051E when it has no bound,
 // R025E when it has bounds and none declares the requirement. These used to
 // be left for C++ to decide per instance (`r == r`, `a + b` typed
 // silently). An interpolation (`f"{r}"`) is the exception: with no bound
-// granting a string it is formatted per instance (USER 2026-11-03,
+// granting a string it is formatted per instance (decided 2026-11-03,
 // FormatHole::deferred), so `e3` is silent. `a == b` with `type Item impl
 // Eq` is legal and stays silent; the working side is
 // Tests/Codegen/witness/assoc_ops.k.

@@ -1,5 +1,5 @@
 // An `if` expression whose first arm is instantiation-dependent and whose
-// other arm is a bare `&null`, passed as a call argument (G80). No type is
+// other arm is a bare `&null`, passed as a call argument. No type is
 // expected while the arguments are typed, and the first arm lends none yet:
 // the `&null` goes out as `nullptr` and converts to the parameter's pointer
 // in the instance, as a bare `&null` argument to a dependent call does.

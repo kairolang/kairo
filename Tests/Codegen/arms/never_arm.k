@@ -4,7 +4,7 @@
 //
 // XFAIL: *
 // Ticket "[Codegen] An if-expression with a `-> !` arm is a clang error"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today it type-checks, and
+//. Today it type-checks, and
 // EmitIR's _if_expr spells `(c ? 1 : static_cast<int>(die()))`, which clang
 // rejects: CL001E "static_cast from 'void' to 'int' is not allowed". When
 // it XPASSes, delete the XFAIL -- the run below is already the real

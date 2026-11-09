@@ -1,4 +1,4 @@
-// P235: a `requires` on a member of a generic record is the member's C++20
+// A `requires` on a member of a generic record is the member's C++20
 // trailing requires-clause, on the in-class declaration and the out-of-line
 // definition alike. As a static_assert in the body it failed at the
 // record's explicit instantiation (`template class Box<Tracked>;`, which
@@ -20,7 +20,7 @@ class Tracked {
     var v: i32
     fn Tracked(self) { self.v = 1 }
     @copy fn Tracked(self, other: Self) = delete
-    fn op delete(self) { self.v = 0 }
+    fn op finally(self) { self.v = 0 }
 }
 
 fn main() -> i32 {

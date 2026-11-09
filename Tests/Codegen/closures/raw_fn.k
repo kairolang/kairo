@@ -1,4 +1,4 @@
-// The raw function pointer `unsafe fn(A) -> R` (P231): `R(*)(A)` in C++,
+// The raw function pointer `unsafe fn(A) -> R`: `R(*)(A)` in C++,
 // one word, called directly. A named function and a closure that captures
 // nothing are raw; either goes into a raw field, variable, parameter,
 // result, global or nullable, and a raw value widens to a `fn` value where

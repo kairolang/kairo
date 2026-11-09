@@ -1,4 +1,4 @@
-// G16 (Compiler/Sema/NULLABLE.md §4, §5 step 3): every read the nullness
+// Every read the nullness
 // analysis narrowed is the Nullable's UNCHECKED `__value()` in C++
 // (NarrowedAccessLowering), and runs. Covered: a value `i32?` in operators,
 // `+=` both ways and a `T` parameter; a nullable pointer through `*p` and
@@ -38,7 +38,7 @@ class Widget {
     pub var id: i32
     pub fn Widget(self, id: i32) { self.id = id }
     @move fn Widget(self, other: Self) { self.id = other.id; other.id = 0 }
-    fn op delete(self) { if self.id != 0 { println(f"~Widget {self.id}") } }
+    fn op finally(self) { if self.id != 0 { println(f"~Widget {self.id}") } }
 }
 
 var g: i32? = 40

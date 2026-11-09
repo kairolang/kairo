@@ -1,4 +1,4 @@
-// G7 (Compiler/Sema/NULLABLE.md 2.3): what `===` refuses, and what it
+// What `===` refuses, and what it
 // accepts without a check. Accepted: two Maybe `Pt?` from calls compared
 // through Pt's own `op ==` with no "may be null" error (the `==` runs on
 // the unwrapped values only after both tests); `===` narrows both places

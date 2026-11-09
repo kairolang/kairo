@@ -1,4 +1,4 @@
-// P104, P223 in use: a raw pointer walks an array to its end with `<`, an
+// A raw pointer walks an array to its end with `<`, an
 // offset of any integer type and sign scales by the pointee (a 12-byte
 // struct moves 12 bytes per step), and the same arithmetic types inside a
 // generic body, where T's size is only known per instance.

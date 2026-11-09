@@ -4,7 +4,7 @@
 // The C side here (caller.c) passes `twice` to kairo_apply.
 //
 // An `ffi "c"` function's `fn` parameters and result are the raw `unsafe
-// fn` (P66, P231): its C declaration takes `int (*)(int)`, so the C caller's
+// fn`: its C declaration takes `int (*)(int)`, so the C caller's
 // function pointer is what arrives. Until then a Kairo `fn(A) -> R` was the
 // `::__kairo_fn<R(A...)>` class there too, and the program segfaulted.
 

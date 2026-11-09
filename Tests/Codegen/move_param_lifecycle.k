@@ -1,6 +1,6 @@
 // move_param_lifecycle.k -- stdout
 // A move-only class end to end: a user `@move` transfer constructor that
-// leaves its source a recognizable shell, an `op delete` that reports which
+// leaves its source a recognizable shell, an `op finally` that reports which
 // it destroys, a `var b = a` transfer, and the object passed on to a `@move`
 // parameter. Each destructor must run exactly once per object: one live
 // token, one moved-from shell, never a live token twice.
@@ -26,7 +26,7 @@ pub class UniqueToken {
         other.id = -1
     }
 
-    fn op delete(self) {
+    fn op finally(self) {
         if self.id != -1 {
             println(f"[dtor] live #{self.id}")
         } else {

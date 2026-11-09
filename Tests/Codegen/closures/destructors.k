@@ -15,7 +15,7 @@ class Tracked {
     pub var v: i32 = 0
     fn Tracked(self, v: i32) { self.v = v }
     @copy fn Tracked(self, const other: Self) { self.v = other.v; copies += 1 }
-    fn op delete(self) { drops += 1 }
+    fn op finally(self) { drops += 1 }
 }
 
 fn one_closure() {

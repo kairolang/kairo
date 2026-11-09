@@ -1,4 +1,4 @@
-// Panic sets in generic bodies, end to end (PANIC.md P10, MONO.md D0/D2):
+// Panic sets in generic bodies, end to end (PANIC.md):
 // a generic body's set is computed at its definition and may name its type
 // parameters; one C++ template serves every instance, its result
 // `::__kairo_pset<Panic, T, E...>`, which C++ deduplicates and sorts by
@@ -41,7 +41,7 @@ class Big {
         unsafe { other.p = &null }
         live += 1
     }
-    fn op delete(self) {
+    fn op finally(self) {
         if self.p != &null { unsafe { free(self.p as unsafe *void) } }
         live -= 1
     }

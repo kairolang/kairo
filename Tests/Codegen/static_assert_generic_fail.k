@@ -1,4 +1,4 @@
-// A false `assert static` in a generic body is that instance's error, not an ICE (O15).
+// A false `assert static` in a generic body is that instance's error, not an ICE.
 
 ffi "c++" import "type_traits";
 

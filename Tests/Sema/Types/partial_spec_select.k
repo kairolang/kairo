@@ -1,5 +1,5 @@
 // Sema/Types/partial_spec_select.k
-// NULLABLE.md G0: which body an instance of a specialized record takes. The
+//: which body an instance of a specialized record takes. The
 // most specialized pattern that matches wins -- explicit, then the strictly
 // more specialized partial, then the primary -- and member lookup, field
 // types and constructors all read that body: a member only the primary has

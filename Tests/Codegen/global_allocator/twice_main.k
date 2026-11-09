@@ -1,4 +1,4 @@
-// Two files of one program set the global allocator (P227). The importer
+// Two files of one program set the global allocator. The importer
 // and its import are one compile, so the driver sees both before any link
 // and names both files.
 

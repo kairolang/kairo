@@ -1,4 +1,4 @@
-// P295: seven or more closing `>` written together failed to parse (S049E
+// Seven or more closing `>` written together failed to parse (S049E
 // "expected ',' or '>' after type argument"); six worked, and spaced ones
 // worked at any depth. Not the type parser's `>>` split: the lexer took any
 // run of seven `<`, `=` or `>` for a git conflict marker and dropped the

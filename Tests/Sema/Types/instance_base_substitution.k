@@ -1,6 +1,6 @@
 // Derived-to-base between generic instances is decided on the instances'
 // TYPES: a base list is the pattern's, read through the instance's
-// arguments (MONO.md G4). `Const<i32>` of `class <T> Const derives
+// arguments. `Const<i32>` of `class <T> Const derives
 // Source<T>` reaches `Source<i32>` and nothing else, so the f64 instance
 // stays an unrelated type -- for an implicit upcast and for `as` alike.
 // In a generic body the same holds over the parameter: `*Const<U>` is a

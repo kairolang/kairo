@@ -1,4 +1,4 @@
-// P331: `measure`'s and `Bag::add`'s string parameters are never mutated,
+// `measure`'s and `Bag::add`'s string parameters are never mutated,
 // so the header declares them `const ::builtin::string::string &`; the
 // definition in words.o says the same. `grow`'s is mutated: by value.
 

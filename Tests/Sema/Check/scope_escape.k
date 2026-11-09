@@ -1,4 +1,4 @@
-// P226: a pointer from an open AllocatorScope that visibly outlives it is
+// A pointer from an open AllocatorScope that visibly outlives it is
 // SC001W (Sema/Check/ScopeEscapeCheck.k). Positives: returned, stored to a
 // static, stored to a local of an outer block, stored through a parameter.
 // Negatives (no warning): the same pointer kept in a local of the scope's

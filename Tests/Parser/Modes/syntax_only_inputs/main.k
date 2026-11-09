@@ -1,4 +1,4 @@
-// P355: --syntax-only checks the syntax of its inputs only. It used to parse
+// --syntax-only checks the syntax of its inputs only. It used to parse
 // the whole import closure (reporting every imported file's syntax errors,
 // once per input that reached it) and hand every ffi "c++" header to clang,
 // so a self-host run spent 30-60 s per file re-parsing Sema and the driver.

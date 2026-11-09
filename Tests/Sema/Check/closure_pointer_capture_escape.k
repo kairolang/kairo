@@ -5,7 +5,7 @@
 //
 // XFAIL: *
 // Ticket "[Codegen] A `|*x|` closure that outlives `x` dangles"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today it compiles, cdcc738f
+//. Today it compiles, cdcc738f
 // emits `x = &x`, and the returned closure reads a dead stack slot
 // (status.mdx, Not Diagnosed; waits on Tether). The code is not decided; the
 // check asks for an error at the marked line. When it XPASSes, delete the

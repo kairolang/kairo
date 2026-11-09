@@ -1,4 +1,4 @@
-// A type pack is forwarded, not copied, at every layer (P225): `...args: T`
+// A type pack is forwarded, not copied, at every layer: `...args: T`
 // is `T&&... args`, an expansion `args...` is `static_cast<T&&>(args)...`,
 // and `for a in args` binds each element as an lvalue. A temporary reaches
 // the last layer untouched: a MOVE value through two layers is moved once,
@@ -15,7 +15,7 @@ class Tok {
     pub var v: i32
     pub fn Tok(self, v: i32) { self.v = v }
     @move fn Tok(self, other: Self) { self.v = other.v; other.v = -1; moves += 1 }
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 
 class Counted {

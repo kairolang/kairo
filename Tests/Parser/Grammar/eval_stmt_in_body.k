@@ -106,7 +106,7 @@ class K {
 // TREE: -- 0 error(s), 0 warning(s) --
 //
 // Index pass - every branch of an `eval if` is indexed where the branch
-// sits (P110: Sema hoists the taken one, but `<` disambiguation is decided
+// sits (Sema hoists the taken one, but `<` disambiguation is decided
 // before Sema knows which, so `g` from both branches, `LIMIT` and the class
 // body's `y` / `get` are all in), an `eval for` body hoists nothing, and the
 // members after each form, an `else` on its own line and a C-style header

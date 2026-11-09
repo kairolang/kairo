@@ -17,7 +17,7 @@ class Shape {
     virtual fn area(const self) -> i32 { return -1 }
     virtual fn sides(const self) -> i32 { return 0 }
     fn describe(const self) -> i32 { return self.area() * 100 + self.sides() }
-    virtual fn op delete(self) { drops = drops * 10 + 1 }
+    virtual fn op finally(self) { drops = drops * 10 + 1 }
     fn Shape(self) { }
     @copy fn Shape(self, const other: Self) = delete
 }
@@ -28,7 +28,7 @@ class Square derives Shape {
     fn Square(self, s: i32) { self.s = s }
     override fn area(const self) -> i32 { return self.s * self.s }
     override fn sides(const self) -> i32 { return 4 }
-    override fn op delete(self) { drops = drops * 10 + 2 }
+    override fn op finally(self) { drops = drops * 10 + 2 }
 }
 
 class Tagged derives Square {

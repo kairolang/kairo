@@ -1,4 +1,4 @@
-// P408: `(unsafe &self) as unsafe *T` in a CRTP mixin that is NOT the first
+// `(unsafe &self) as unsafe *T` in a CRTP mixin that is NOT the first
 // base. The cast is dependent (T per instance), so CastTyping sees no
 // base_adjust; a reinterpret_cast then misses the mixin's offset in the
 // instance and `self.dyn()->x` reads garbage. A C-style cast is static_cast
@@ -23,7 +23,7 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // RUN: rm -rf %t.d
-// RUN: { %kairo %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// RUN: { %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // RUN: %t.exe; test $? -eq 55
 // DIAG-NOT: C871W
 // DIAG-NOT: error

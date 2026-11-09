@@ -1,5 +1,5 @@
 // The type `@set_global_allocator` names must have the five static
-// functions the kairo_global_* forwarders call (P227): a Kairo error at the
+// functions the kairo_global_* forwarders call: a Kairo error at the
 // attribute, not a clang error in generated code. A method of the same
 // name is not one of them.
 

@@ -1,5 +1,5 @@
 // crossfile/point.k
-pub struct Point { var x: i32; var y: i32; }
+pub struct Point { pub var x: i32; pub var y: i32; }
 
 pub class Box {
     pub struct Inner { var v: i32; }

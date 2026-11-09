@@ -1,4 +1,4 @@
-// O39: an lvalue argument for an imported `T&` parameter, and a receiver
+// An lvalue argument for an imported `T&` parameter, and a receiver
 // typed as an imported `T&`, are places. Bound for evaluation order, each
 // is `auto&&`, never an `auto` snapshot: that copied a non-copyable record
 // (clang: call to deleted constructor) and handed a copyable one's callee a
@@ -13,10 +13,10 @@ ffi "c++" import "Inputs/o39_lref.h"
 class H {
     var c: unsafe *Ctx = &null;
     var k: unsafe *Cnt = &null;
-    fn f(self) -> i32 { return use(*self.c, self.c->n()); }             // 4
+    fn f(self) -> i32 { return use(&*self.c, self.c->n()); }             // 4
     fn g(self, const info: Info) -> i32 { return info.getSM().loc(info.getLoc()); }  // 4
     // The write lands on the caller's Cnt, not on a snapshot of it.
-    fn h(self) -> i32 { add(*self.k, self.k->bump()); return self.k->v; }   // 1 + 1 = 2
+    fn h(self) -> i32 { add(&*self.k, self.k->bump()); return self.k->v; }   // 1 + 1 = 2
 }
 
 fn main() -> i32 {

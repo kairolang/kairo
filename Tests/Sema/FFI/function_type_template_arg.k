@@ -1,6 +1,6 @@
 // A C++ function type used as a template argument (`FRef<bool(int)>`) imports
 // as the written `fn(i32) -> bool`, so the imported parameter of `take` and a
-// `FRef<fn(i32) -> bool>` written in Kairo are one instance (SC063E, G104b).
+// `FRef<fn(i32) -> bool>` written in Kairo are one instance (SC063E).
 
 ffi "c++" import "function_type_template_arg.h"
 

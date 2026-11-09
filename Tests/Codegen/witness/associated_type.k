@@ -3,7 +3,7 @@
 // a generic body names it through its parameter as `T::Node`. One template
 // body for every conformer: `T::Node` is the witness's member type,
 // `typename Graph_witness<G>::Node`, which each conformance's
-// specialization declares (MONO.md G5, D2).
+// specialization declares.
 
 interface Graph {
     type Node

@@ -1,4 +1,4 @@
-// G13 (Compiler/Sema/NULLABLE.md 3.5): a loop body is typed once, from the
+// A loop body is typed once, from the
 // state at the loop's head, so that state must hold on every back edge. A
 // place proven before the loop stays proven at the head unless some path
 // through the body may bring it back holding anything else; that is found

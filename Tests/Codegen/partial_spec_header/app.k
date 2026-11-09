@@ -1,5 +1,5 @@
 // partial_spec_header/app.k -- exit 123
-// NULLABLE.md G0 across a module boundary: store.k's primary, its `<P>
+// across a module boundary: store.k's primary, its `<P>
 // Store<*P>` partial and its `<> Store<bool>` explicit spec, used from
 // another file. The importer's preamble and store's `--emit-headers` header
 // both carry every specialization after the primary (a TU that saw only the

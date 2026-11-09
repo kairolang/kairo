@@ -20,7 +20,7 @@ class Owner {
     pub var id: i32
     pub fn Owner(self, id: i32) { self.id = id; }
     @copy fn Owner(self, const other: Self) = default
-    fn op delete(self) { drops = drops + 1; }
+    fn op finally(self) { drops = drops + 1; }
 }
 
 class Unique {
@@ -34,7 +34,7 @@ class Pinned {
     pub fn Pinned(self, n: i32) { self.n = n; }
     @copy fn Pinned(self, const other: Self) = delete
     @move fn Pinned(self, other: Self) = delete
-    fn op delete(self) { drops = drops + 1; }
+    fn op finally(self) { drops = drops + 1; }
 }
 
 enum <T> Opt { Some { v: T }, None }

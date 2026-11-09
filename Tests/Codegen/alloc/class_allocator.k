@@ -1,9 +1,9 @@
-// P215: `op new` / static `op delete` on a class are its own allocator.
-// create<T> / try_create<T> / destroy<T>, and the `@create` / `@destroy`
-// sugar, route to them (create_in<T, T> / destroy_in<T, T>) whatever
-// allocator is in effect; a class without them still uses the global one.
-// The counters prove which allocator ran, and that sizes and alignments
-// reach the operators unchanged.
+// (deferred) / : `op new` / static `op delete` on a class would be
+// its own allocator. Kairo rejects them (SC149E, 2026-11-08), so this program,
+// which used to run its create / destroy through Pooled's pair, no longer
+// compiles: each operator is an error at its name, and nothing else is.
+// Allocation that counts goes through @set_global_allocator instead
+// (Tests/alloc/class_allocator_counts.k).
 
 import builtin::base::alloc::*
 
@@ -53,10 +53,6 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
-// DIAG-NOT: {{error|warning}}
-
-// REQUIRES: clang
-// RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.exe --cache-dir %t.d
-// RUN: %t.exe; test $? -eq 42
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
+// DIAG: class_allocator.k:18:18: error [SC149E]: a class cannot declare its own allocator ('op new')
+// DIAG: class_allocator.k:23:18: error [SC149E]: a class cannot declare its own allocator ('op delete')

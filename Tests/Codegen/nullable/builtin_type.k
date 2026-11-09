@@ -1,5 +1,5 @@
-// NULLABLE.md G2: the builtin `Nullable<T>` and `null_t` from the Kairo
-// side, before any `T?` lowers to them (G3). Kairo code never names
+//: the builtin `Nullable<T>` and `null_t` from the Kairo
+// side, before any `T?` lowers to them. Kairo code never names
 // Nullable (type-system.md); Sema does not refuse the name yet, so this
 // test does, to build instances of the lang item directly: a null one of
 // a class with no default constructor holds nothing (no destructor runs),
@@ -13,7 +13,7 @@ class Widget {
     pub var id: i32
     pub fn Widget(self, id: i32) { self.id = id }
     @move fn Widget(self, other: Self) { self.id = other.id; other.id = 0 }
-    fn op delete(self) { if self.id != 0 { println(f"~Widget {self.id}") } }
+    fn op finally(self) { if self.id != 0 { println(f"~Widget {self.id}") } }
 }
 
 fn present(id: i32) -> Nullable<Widget> { return Nullable<Widget>::Value { v: Widget(id) } }
@@ -33,7 +33,7 @@ fn main() -> i32 {
         var none: Nullable<Widget> = .Null
         if id_of(none) == -1 { r += 1 }
         // Nullable<Widget> is MOVE, as Widget is (its own lifecycle facts,
-        // MONO.md G6), so even a by-value `const` parameter takes `one`: it is
+        //), so even a by-value `const` parameter takes `one`: it is
         // read once, through the relay.
         var one = present(4)
         if id_of(relay(one)) == 4 { r += 6 }    // the move-only payload moves out; ~Widget 4 with the temporary

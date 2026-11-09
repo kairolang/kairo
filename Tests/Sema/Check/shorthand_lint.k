@@ -1,4 +1,4 @@
-// G21 (Compiler/Sema/NULLABLE.md 1.8): the shorthand lint. A `var` /
+// The shorthand lint. A `var` /
 // `const` / `static` binding with NO annotation and NO shorthand whose
 // inferred type is nullable or a pointer is SC001W, with the fix-it that
 // writes the shorthand (Sema/Check/ShorthandLint.k):

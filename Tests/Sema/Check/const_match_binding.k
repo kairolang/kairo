@@ -4,7 +4,7 @@
 //
 // XFAIL: *
 // Ticket "[Sema] Assigning to a `const` match-pattern binding is not
-// diagnosed by Sema" (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today
+// diagnosed by Sema". Today
 // --type-check-only accepts it and a full build fails in clang (CL001E
 // "cannot assign to variable 'message' with const-qualified type"). The code
 // is not decided; the check asks for an error at the marked line. When it

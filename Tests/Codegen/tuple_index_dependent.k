@@ -1,4 +1,4 @@
-// G69: `.0` on a tuple reached through a dependent receiver (CRTP
+// `.0` on a tuple reached through a dependent receiver (CRTP
 // `self.dyn()->sig()`) is left to each instance; TupleLowering spells it
 // as the field `_0` and must not ICE on the unbound step.
 pub class <T: type> Base {
@@ -23,8 +23,8 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// RUN: { %kairo -fduck-generics %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: Internal Compiler Error
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.exe --cache-dir %t.d/run
+// RUN: %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d/run
 // RUN: %t.exe

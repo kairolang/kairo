@@ -1,4 +1,4 @@
-// P238: a constructor called with a pack expansion inside a generic body,
+// A constructor called with a pack expansion inside a generic body,
 // `Sink(args...)`, is typed as its record even though which constructor
 // wins is the instance's question (clang picks it from the emitted
 // `Sink(args...)`). It reached codegen untyped and ICEd (I011W "untyped

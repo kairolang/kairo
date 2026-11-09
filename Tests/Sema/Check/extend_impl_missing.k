@@ -6,7 +6,7 @@
 //
 // XFAIL: *
 // Tickets "[Sema] An `extend ... impl` missing interface methods is not
-// reported at the `extend`" (private/IMPORTANT/TICKETS.TXT, 2026-10-26;
+// reported at the `extend`" (2026-10-26;
 // status.mdx, Not Diagnosed) and item 4 of "[Sema][Codegen]
 // Declared-witness edges left by d51202fb / 21e61694" (a declared
 // conformance that does not hold is not diagnosed). Today conformance is

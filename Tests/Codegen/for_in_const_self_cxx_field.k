@@ -1,4 +1,4 @@
-// O46: `for x in self.v` in a `const self` method iterates a const
+// `for x in self.v` in a `const self` method iterates a const
 // vector; the range holder must keep the const.
 // RUN: %kairo %s -o %t.exe
 // RUN: %t.exe

@@ -1,4 +1,4 @@
-// G4 (Compiler/Sema/NULLABLE.md 1.6): `var x? = e` declares `x` with the
+// `var x? = e` declares `x` with the
 // type of `e` made nullable, ONE level: `typeof(e)?`, or `typeof(e)` when
 // `e` is already nullable, so `var b? = find()` with `find() -> i32?` is
 // `i32?` and not `(i32?)?` (the shorthand says "may be null", it does not

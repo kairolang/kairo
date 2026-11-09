@@ -1,6 +1,6 @@
 // A type nested in an IMPORTED class's base is named through the derived
 // class, as C++ does (`clang::TargetInfo::IntType` is declared in its base
-// TransferrableTargetInfo, G66). A miss in the class's own table walks the
+// TransferrableTargetInfo). A miss in the class's own table walks the
 // bases, nearest first.
 
 ffi "c++" import "inherited_nested_type.h"

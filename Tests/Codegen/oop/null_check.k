@@ -2,7 +2,7 @@
 // and using the checked value inside the branch as the non-null type:
 // `*p` and `p->m()` on a pointer, the value itself on a `T?`.
 //
-// Was XFAIL until G11/G15/G16 (Compiler/Sema/NULLABLE.md): `p->k()` on a
+// Was XFAIL until the nullness analysis landed: `p->k()` on a
 // `(*A)?` was R027E "'->' requires a pointer on its left" in ChainBinding,
 // and `return p` / `*p` inside `if p?` read `i32?` / `(*i32)?` (SC028E /
 // SC070E). The nullness analysis now proves `p` inside each branch and

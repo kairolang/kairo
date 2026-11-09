@@ -3,7 +3,7 @@
 // over `Ret(Params...)` with a declared-only primary. A written `fn(...)` as a
 // template argument is the C++ function type `R(A)`; spelled as `R(*)(A)` the
 // partial never matched, the instance stayed unfilled and its constructors
-// were invisible (SC038E "declares no constructor taking arguments", G104).
+// were invisible (SC038E "declares no constructor taking arguments").
 
 ffi "c++" import "function_ref_ctor.h"
 

@@ -12,7 +12,7 @@ class Tracer {
     pub var id: i64
     pub fn Tracer(self, id: i64) { self.id = id }
     @copy fn Tracer(self, const other: Self) = delete
-    fn op delete(self) { mark(self.id) }
+    fn op finally(self) { mark(self.id) }
 }
 
 fn lifo() -> bool {

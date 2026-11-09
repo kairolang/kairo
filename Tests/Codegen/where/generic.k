@@ -1,5 +1,5 @@
 // where/generic.k -- exit 0
-// A `where` group on generic functions (where.mdx; MONO.md G12). Overloads
+// A `where` group on generic functions (where.mdx). Overloads
 // equal up to the names of their generic parameters are one group, folded
 // like any other: the dispatcher is the lead's template, each candidate a
 // template over its member's parameters, called with its arguments left to

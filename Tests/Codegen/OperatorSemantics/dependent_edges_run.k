@@ -32,10 +32,10 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: clang
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s --check-prefixes=I32DIV,I8DIV,I32SH,I8SH,I64SH
 // The checks sit inside the integral arm, and the mask is R's.
-// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
+// RUN: { %kairo -fduck-generics %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}dependent_edges_run.k
 // CXX: template<class T> T quot(T a, T b) noexcept {
 // CXX: if constexpr(__is_integral(__kairo_T0) &&(!__is_same(__kairo_T0, bool))) {

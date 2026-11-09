@@ -1,4 +1,4 @@
-// O16: `var u: T::Guard;` under a duck `<T: type>` is spelled `typename T::Guard`
+// `var u: T::Guard;` under a duck `<T: type>` is spelled `typename T::Guard`
 // (it ICEd "unresolved type reached codegen").
 
 class Host derives Mixin<Host> {

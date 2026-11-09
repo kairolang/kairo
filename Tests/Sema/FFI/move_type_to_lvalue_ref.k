@@ -8,7 +8,7 @@
 // borrows instead (`@inout`), so the variable binds as the lvalue it is, and
 // a derived class binds the base subobject: `ci->ExecuteAction(act)` with
 // `act: clang::EmitObjAction` was SC063E "cannot convert argument of type
-// 'EmitObjAction' to parameter 'Act' of type 'FrontendAction&'" (G77).
+// 'EmitObjAction' to parameter 'Act' of type 'FrontendAction&'".
 
 // DIAG-NOT: error
 
@@ -18,5 +18,5 @@ fn main() -> i32 {
     var act = ns::Leaf()
     var h = ns::Host()
     // Leaf::id() is 3 through the base reference both times.
-    return ns::take(act) + h.run(act)
+    return ns::take(&act) + h.run(&act)
 }

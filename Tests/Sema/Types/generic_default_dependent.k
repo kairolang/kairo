@@ -2,7 +2,7 @@
 // (`class <K, V = K> Pair`) is that parameter's argument: `Pair<i32>` is
 // `Pair<i32, i32>`, the same instance as if written out (generics.md,
 // Default Generic Arguments). Inside a generic body `Pair<U>` is
-// `Pair<U, U>`. MONO.md G4: the default was kept as written, so
+// `Pair<U, U>`.: the default was kept as written, so
 // `Pair<i32>` was `Pair<i32, K>`, a dependent type with no instance
 // behind it, and the emitted C++ named a `K` nothing declares.
 

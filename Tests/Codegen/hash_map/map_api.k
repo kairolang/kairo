@@ -1,6 +1,6 @@
 // `{K: V}` (Lib/builtin/containers/hash_map.k): every entry of the API
-// Compiler/ uses of Stage 0's map / unordered_map (private/IMPORTANT/
-// api-surface.md), with integer and string keys. Each check returns its own
+// Compiler/ uses of Stage 0's map / unordered_map (the API surface list
+// is kept outside the repo), with integer and string keys. Each check returns its own
 // number on failure; 100 is success.
 
 fn main() -> i32 {

@@ -1,5 +1,5 @@
-// O39: a class with no transfer constructor is MOVE when a field is
-// (Doc: Classes Lifecycle). Its `op delete` used to cost it C++'s implicit
+// A class with no transfer constructor is MOVE when a field is
+// (Doc: Classes Lifecycle). Its `op finally` used to cost it C++'s implicit
 // move constructor and move assignment, so assigning or returning one fell
 // back to the deleted copy.
 // REQUIRES: clang
@@ -14,14 +14,14 @@ class Alloc {
         self.head = other.head;
         other.head = &null;
     }
-    fn op delete (self) { self.head = &null; }
+    fn op finally (self) { self.head = &null; }
 }
 
 class <T> List {
     priv var owned: Alloc;
     priv var n: usize = 0;
     fn List(self) { }
-    fn op delete (self) { self.n = 0; }
+    fn op finally (self) { self.n = 0; }
     fn push(self, x: T) { self.n += 1; }
     fn size(const self) -> usize { return self.n; }
 }

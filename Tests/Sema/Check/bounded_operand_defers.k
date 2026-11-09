@@ -5,7 +5,7 @@
 // is no user operator at all. Those still defer on a dependent operand, as
 // before bounds were consulted; `x in xs` was briefly an SC066E ("'in'
 // needs an 'op in' on '[T]'"). What the bounds do NOT declare is no longer
-// deferred (MONO.md D0, G11): an `==` none of them declares is R025E, and
+// deferred: an `==` none of them declares is R025E, and
 // `===` on two pointers is SC034E whatever they point to, as it is on any
 // pair that cannot be null.
 

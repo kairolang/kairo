@@ -331,7 +331,7 @@ if os.path.isdir(_clang_tests) and os.path.isfile(_bundled_clang):
         os.path.dirname(os.path.dirname(kairo_bin)), "..", "release", "sysroot", "x86_64-linux-musl"))))
 # A kcc link builds and caches the Kairo library (builtin, std, the runtime)
 # on first use. One cache for the suite, under the build tree, never the
-# user's ~/.cache; parallel tests that race to build it are safe (the
+# user cache directory; parallel tests that race to build it are safe (the
 # library is renamed into place).
 config.environment["KAIRO_CACHE_DIR"] = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(kairo_bin))), "lit-kairo-cache")

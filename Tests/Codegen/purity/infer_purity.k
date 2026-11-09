@@ -52,7 +52,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s -finfer-purity --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=NEG
 // NEG-NOT: (({{const|pure}})) signed int {{(calls_)?}}bumps(
 
-// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=OFF
+// RUN: { %kairo %s -fno-infer-purity --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=OFF
 // OFF-NOT: (({{const|pure}}))
 
 // REQUIRES: clang

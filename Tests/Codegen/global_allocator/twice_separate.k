@@ -1,5 +1,5 @@
 // Two files that set the global allocator, compiled apart and linked
-// together (P227): both objects define the kairo_global_* symbols
+// together: both objects define the kairo_global_* symbols
 // strongly, and the duplicate-symbol errors kld reports for them are one
 // Kairo error naming both objects.
 

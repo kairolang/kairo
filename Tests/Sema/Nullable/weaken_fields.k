@@ -1,4 +1,4 @@
-// G12 (Compiler/Sema/NULLABLE.md 3.4): a field path `foo.data` loses its
+// A field path `foo.data` loses its
 // check when a call may write it through its owner. A method taking a
 // mutable `self` may write any field of its receiver, so it weakens every
 // path under the receiver; a `const self` method does not. Covered: a

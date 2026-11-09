@@ -2,7 +2,7 @@
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 7
 //
-// O4: `res[i] = ns::DR{...}` where `res` is a std::array whose element type
+// `res[i] = ns::DR{...}` where `res` is a std::array whose element type
 // is only known per instantiation left the right side untyped (the assign
 // returned early on the unknown left type), so a C++ aggregate's named
 // initializer reached EmitIR and ICEd.

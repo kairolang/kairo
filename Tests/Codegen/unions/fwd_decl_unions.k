@@ -3,7 +3,7 @@
 // pointer field compiles before the definition.
 //
 // Was an expected failure: a bodiless `union U` (and `struct S`) outside `ffi` was S048E
-// "expected '{' to begin the type body" (TICKETS: "A union or struct cannot
+// "expected '{' to begin the type body" ("A union or struct cannot
 // be forward-declared"). More shapes in Codegen/fwd_decl/. The safe `&p` it
 // was written with is an unsafe pointer's field, so it is `unsafe &p`.
 union Payload    // forward declaration

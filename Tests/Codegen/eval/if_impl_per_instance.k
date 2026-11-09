@@ -1,5 +1,5 @@
 // `eval if A impl I` in a function body is decided once per instantiation
-// (P234): the condition is I's concept in an `if constexpr`, and in the
+//: the condition is I's concept in an `if constexpr`, and in the
 // taken branch A has I's members, as if the bound had been declared. One
 // TU instantiates the template with an allocator that has the capability
 // and one that does not, and each takes its own branch. The taken branch

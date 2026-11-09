@@ -1,6 +1,6 @@
 // mono_reached/main.k -- exit 16
 // An instance reached only through a generic body gets exactly one explicit
-// instantiation, in its home, like a named one (MONO.md G2). ua and ub both
+// instantiation, in its home, like a named one. ua and ub both
 // call `gen::outer(i32)`. `outer<i32>`'s body reaches `inner<Wrap<i32>>` and
 // `Wrap<i32>`, and `inner`'s reaches `leaf<Wrap<Wrap<i32>>>` and
 // `Wrap<Wrap<i32>>`: none of them is named in any file. ConformanceChecking

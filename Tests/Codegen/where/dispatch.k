@@ -77,7 +77,7 @@ pub class Token {
         self.id = other.id
         other.id = -1
     }
-    fn op delete(self) {
+    fn op finally(self) {
         if self.id != -1 { println(f"[dtor] live #{self.id}") }
     }
 }

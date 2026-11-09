@@ -1,4 +1,4 @@
-// P230 in more positions: a hint inside an `else`, on a nested `if`, and
+// in more positions: a hint inside an `else`, on a nested `if`, and
 // `__builtin_expect` as a loop condition each put branch_weights on their
 // own branch at -O2, and the hint does not change the program's result.
 

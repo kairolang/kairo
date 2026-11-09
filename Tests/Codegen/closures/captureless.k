@@ -3,7 +3,7 @@
 // explicit empty list `||`, called directly, stored and called later, and
 // called on the spot. It is a plain function inside its `fn` value: the
 // lambda is converted with unary `+`, and no heap object is made. The
-// closure itself is the raw `unsafe fn` (P231); the `var` it initializes is
+// closure itself is the raw `unsafe fn`; the `var` it initializes is
 // the `fn` value, which the pointer is converted to.
 
 import std::io::println

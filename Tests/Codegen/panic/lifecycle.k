@@ -7,7 +7,7 @@
 // a fall through, `return`, `break`, a re-panic -- destroys it exactly once.
 // The counts below are the minimum the design allows, at -O0 and -O2. A
 // leak or a double destroy shows as `live` != 0; an invalid read under
-// valgrind (PANIC.md §4.5a B and F, re-verified for P6).
+// valgrind (PANIC.md §4.5a B and F).
 ffi "c" import "stdlib.h"
 import std::io::println
 
@@ -29,7 +29,7 @@ class Big {
         live += 1
         moves += 1
     }
-    fn op delete(self) {
+    fn op finally(self) {
         if self.p != &null { unsafe { free(self.p as unsafe *void) } }
         live -= 1
     }

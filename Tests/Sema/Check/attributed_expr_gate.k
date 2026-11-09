@@ -31,7 +31,7 @@ fn g() -> i32 {
 // DIAG: attributed_expr_gate.k:25:31: error [R020E]: use of undeclared identifier 'not_declared'
 
 // `@create T(args)` is no longer gated: it is a call of alloc.k's create
-// (P91, AllocSugarDesugar), bound with no import, so its lines report
+// (AllocSugarDesugar), bound with no import, so its lines report
 // nothing -- no SC037E for `i32(10)`, no overload mismatch at `take` --
 // and the gate runs over the rest of the file.
 // RUN: sed '/not_declared/d' %s > %t.c.k

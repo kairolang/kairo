@@ -1,4 +1,4 @@
-// `@set_global_allocator(A)` (P227): this file defines the five
+// `@set_global_allocator(A)`: this file defines the five
 // kairo_global_* symbols strongly, as forwarders to A's static functions,
 // and they win over the runtime's weak System ones at link time. The
 // program calls each symbol through the runtime header (the builtin's

@@ -1,9 +1,9 @@
-// A generic body is checked once, against its bounds (generics.mdx, MONO.md
+// A generic body is checked once, against its bounds (generics.mdx,
 // D0). An operator, a conversion, a null test or a pattern on a value of an
 // opaque parameter `T` is something only a bound can grant, so each is an
 // error AT THE DEFINITION, naming what would grant it, never a C++ error at
 // some instance (or none, if the template is never used). An interpolation
-// is the exception (USER 2026-11-03): formatted per instance, so only a
+// is the exception (decided 2026-11-03): formatted per instance, so only a
 // format SPEC on it is refused here (SC080E).
 // Under `-fduck-generics` a `: type` parameter keeps the C++ rule: nothing
 // is said here, and C++ checks each instance.
@@ -120,7 +120,7 @@ fn main() -> i32 { return 0 }
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not=error
 //
 // The same bodies under `: type` are C++'s to check: no diagnostic at all
-// (MONO.md D1). Its `as string` and interpolations keep their old refusals,
+//. Its `as string` and interpolations keep their old refusals,
 // so they are left out of the copy.
 // RUN: sed -e 's/fn <T>/fn <T: type>/' -e 's/fn <T impl Scalable>/fn <T: type>/' -e '/as string/d' -e '/f"/d' %s > %t.k
 // Only the generic ADT's match keeps its error: its variants are known

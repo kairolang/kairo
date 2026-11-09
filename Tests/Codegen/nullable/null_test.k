@@ -1,4 +1,4 @@
-// G5 (Compiler/Sema/NULLABLE.md 2.1): `x?` is the null test, typed `bool`,
+// `x?` is the null test, typed `bool`,
 // and lowers to `!x.is_null()` (NullTestLowering, through null_test_of).
 // Covered: a value `i32?`, a pointer `(*i32)?`, a record `W?`, a call's
 // result, `(i32?)?` (only the OUTER level is tested: a present outer

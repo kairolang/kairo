@@ -1,10 +1,10 @@
 // One of the constructs Compiler/ is written with, checked on Stage 1 ahead
-// of self-hosting (2026-10-24 probe; tickets in private/IMPORTANT/TICKETS.TXT).
+// of self-hosting.
 //
 // A closure parameter with a default (closures.md, Default Parameters:
 // "matching the behavior of regular functions").
 //
-// Landed with G53 (d2cc633b): a call through the closure's local takes
+// Landed (d2cc633b): a call through the closure's local takes
 // its literal defaults, so `f(1)` is `f(1, 2)`. The run below asserts it.
 
 fn main() -> i32 {

@@ -1,4 +1,4 @@
-// generics/generic_fn_value.k -- exit 0 (P264)
+// generics/generic_fn_value.k -- exit 0
 // A generic function's instance as a value: `pick<i32>` is the function
 // pointer of that instance, inferred into a `fn` variable (no "no inferred
 // type" internal warning), converted into a declared one, and named

@@ -1,4 +1,4 @@
-// G20 (Compiler/Sema/NULLABLE.md 1.7): `var *y = e` declares `y` with
+// `var *y = e` declares `y` with
 // `e`'s type and states that it is a pointer. A readability marker, never a
 // conversion: `y` is `typeof(e)` whatever is written. The stars must be
 // `e`'s pointer depth, `unsafe` must match the OUTERMOST pointer's safety
@@ -16,7 +16,7 @@
 //
 // The shorthand goes through the same typing as `var y = e`, so the alias
 // analysis still records the carrier: `var *p = &x; *p = null` weakens `x`
-// (G17). The loop pre-scan treats `var *p? = &a` as it treats `var p? = &a`.
+//. The loop pre-scan treats `var *p? = &a` as it treats `var p? = &a`.
 
 fn raw(p: *i32) -> unsafe *i32 { unsafe { return p as unsafe *i32 } }
 fn rawpp(p: *i32) -> unsafe **i32 { return &null }

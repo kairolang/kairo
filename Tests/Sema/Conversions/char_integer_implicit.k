@@ -1,5 +1,5 @@
 // char (a 32-bit Unicode scalar) converts implicitly to and from an integer
-// only when the TARGET is equal or wider. USER RULING 2026-11-04.
+// only when the TARGET is equal or wider. Decided 2026-11-04.
 //   implicit:  char -> u32 u64 u128 i64 i128;  u8 u16 u32 -> char
 //   explicit:  char -> u8 u16 i8 i16 i32 usize isize;  i8 i16 i32 i64 i128
 //              u64 u128 usize isize -> char

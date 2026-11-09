@@ -10,7 +10,7 @@ class A {
     fn f(self, x: i32) -> i32 { return 1 }
     fn only_base(self) -> i32 { return 1 }
     fn A(self) { }
-    virtual fn op delete(self) { }
+    virtual fn op finally(self) { }
 }
 
 class D derives A {
@@ -18,7 +18,7 @@ class D derives A {
     fn f(self, x: f64) -> i32 { return 2 }
     fn only_derived(self) -> i32 { return 2 }
     fn D(self) { }
-    override fn op delete(self) { }
+    override fn op finally(self) { }
 }
 
 class <T> G {

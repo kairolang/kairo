@@ -13,7 +13,7 @@ class Res {
     pub var id: i32
     pub fn Res(self, id: i32) { self.id = id; }
     @copy fn Res(self, const other: Self) = default
-    fn op delete(self) { drops = drops + 1; }
+    fn op finally(self) { drops = drops + 1; }
 }
 
 enum Shape { Circle { r: i32 }, Rect { w: i32, h: i32 }, Empty }

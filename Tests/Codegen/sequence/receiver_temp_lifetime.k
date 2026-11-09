@@ -1,4 +1,4 @@
-// P411: a method chain off a record PRVALUE (`make().first(1)`) whose later
+// A method chain off a record PRVALUE (`make().first(1)`) whose later
 // argument needs pre-statements (an f-string with an adjacent literal) is
 // hoisted by SequenceLowering. The pointer `first` returns points into the
 // temporary, so the temporary itself must be bound and live to the end of
@@ -21,7 +21,7 @@ class B {
     fn first_d(self, x: i32, t: string = "") -> unsafe *Self { return unsafe &self; }
     fn note(self, s: string) -> unsafe *Self { return unsafe &self; }
     fn emit(self) { self.done = true; }
-    fn op delete(self) { if !self.done { dropped += 1; } }
+    fn op finally(self) { if !self.done { dropped += 1; } }
 }
 
 fn make() -> B { return B(); }

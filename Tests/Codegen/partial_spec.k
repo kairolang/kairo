@@ -1,5 +1,5 @@
 // partial_spec.k -- exit 123
-// NULLABLE.md G0: partial and explicit specializations of a generic record,
+//: partial and explicit specializations of a generic record,
 // end to end. `<P> Store<*P>` and `<P> Store<*const P>` are C++ partial
 // specializations (`template <class P> class Store<P*>`), `<> Store<bool>` an
 // explicit one (`template <> class Store<bool>`), each declared after the
@@ -95,7 +95,7 @@ fn main() -> i32 {
 // CXX: template<class P> signed int Store<P *>::tag() const noexcept {
 // CXX: template<class P> signed int Store<const P *>::tag() const noexcept {
 // CXX: {{^ *}}Store<bool>::Store(bool v) noexcept {
-// CXX: {{^ *}}signed int Store<bool>::tag() const noexcept {
+// CXX: {{^ *}}__attribute((const)) signed int Store<bool>::tag() const noexcept {
 // The instances are named, never re-specialized; the explicit one is not
 // instantiated at all.
 // CXX: template class{{ ?}}::{{.*}}::Store<signed int *>;

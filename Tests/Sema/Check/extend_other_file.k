@@ -6,7 +6,7 @@
 //
 // XFAIL: *
 // Ticket "[Sema] The same-file rule for `extend` is not checked"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26; status.mdx, Not Diagnosed).
+//.
 // Today both blocks are accepted without a word. The code is not decided;
 // the checks ask for an error at each `extend`. When it XPASSes, delete the
 // XFAIL and pin the code and message.

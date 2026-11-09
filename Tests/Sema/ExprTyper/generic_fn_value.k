@@ -2,7 +2,7 @@
 // function pointer a plain function is (functions.mdx, Function Pointers):
 // typed, so an operator or a cast on it is checked like one on `twice`.
 // It was untyped, and an operator or cast over it reached finish() in no
-// terminal state, an internal error (P264). A generic function without
+// terminal state, an internal error. A generic function without
 // its arguments, or an overload set, is not a value: SC094E.
 
 pub fn <T> pick(v: T) -> T { return v }

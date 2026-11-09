@@ -1,4 +1,4 @@
-// G15 (Compiler/Sema/NULLABLE.md §4, 4.1, 4.2): reading the VALUE of a
+// Reading the VALUE of a
 // nullable place the analysis has not proven non-null is an error, in
 // every mode, at the read, with a note saying what made it so:
 //   SC001E "'x' may be null here; check it with 'if x?' first"
@@ -14,7 +14,7 @@
 // failing side of a test; Maybe after a join; a global after a call; a
 // place the loop assigns, at the loop's head; a closure assigning its copy
 // of a capture (the check outside does not hold in it); a local written
-// through a pointer to it (G12); a field path. The 4.1 precedence trap gets the
+// through a pointer to it; a field path. The 4.1 precedence trap gets the
 // parenthesizing fix-it, and none when another place in it is unproven.
 // A nullable that is no place (`mk().v`) keeps R025E.
 

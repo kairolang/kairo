@@ -1,5 +1,5 @@
 // A nested type named through an alias of a generic Kairo instance
-// (`type Q = TQ<i32>; Q::Flags`, G65): the instance's own table is empty
+// (`type Q = TQ<i32>; Q::Flags`): the instance's own table is empty
 // until M2 fills it, so the walk reads the pattern, as `TQ<i32>::Flags` does.
 
 class <T> TQ {

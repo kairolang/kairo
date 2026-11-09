@@ -1,5 +1,5 @@
 // A `finally` written right after a `try` / `catch` is the standalone
-// `finally` (PANIC.md §3.3, USER 2026-10-27): it runs when its enclosing
+// `finally` (PANIC.md §3.3, decided 2026-10-27): it runs when its enclosing
 // block is left, not when the `try` finishes, and a `return` / `break` /
 // uncaught panic out of the `try` never reaches it. That is a warning,
 // whether it shares the try's closing line (`} finally {`) or starts the

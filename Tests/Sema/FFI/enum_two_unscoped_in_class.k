@@ -2,7 +2,7 @@
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 0
 //
-// O25: an unscoped enumerator named through its class (`K::b1`) is spelled
+// An unscoped enumerator named through its class (`K::b1`) is spelled
 // under its own enum, never another enum nested in the same class. Guards
 // the value-overlap case; the name is read from the table of the file the
 // enumerator's range lies in (CXXSpell::leaf).

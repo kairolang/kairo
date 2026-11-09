@@ -1,4 +1,4 @@
-// G100a: a literal at an imported template-instance member whose parameter is
+// A literal at an imported template-instance member whose parameter is
 // `const char *` after substitution (`push_back(const T&)` / `push_back(T&&)`
 // with T = const char *) is the C string, raw literals included. An lvalue
 // reference to a non-const pointer cannot bind the decayed literal, as in C++.

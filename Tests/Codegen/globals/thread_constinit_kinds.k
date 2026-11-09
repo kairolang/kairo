@@ -1,4 +1,4 @@
-// P229 over every literal kind: a `thread` global whose initializer is a
+// over every literal kind: a `thread` global whose initializer is a
 // literal -- an integer, a negated one, a float, a bool, a char, `&null` for
 // a raw pointer -- is `constinit` on its extern declaration and its
 // definition alike. One initialized by a call is not: constinit there would

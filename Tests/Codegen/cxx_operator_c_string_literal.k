@@ -1,4 +1,4 @@
-// O14: a string literal at an imported operator's `const char *` parameter is
+// A string literal at an imported operator's `const char *` parameter is
 // the C string itself (c-cpp-calling.md), as it is at a call. `s += "ab"`
 // selected std::string::operator+=(const char *) but emitted the literal as a
 // builtin::string, which clang rejected.

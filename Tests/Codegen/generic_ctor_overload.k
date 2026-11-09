@@ -5,7 +5,7 @@
 // beats a conversion; an unviable candidate is dropped).
 //
 // The instance's arguments bind the pattern's parameters before any
-// argument is ranked (MONO.md G4), so `v: T` is `v: i32` here and never
+// argument is ranked, so `v: T` is `v: i32` here and never
 // deduces T := NullT from the call. A method the same way: `o.set(2)`
 // takes the i32. The rejected forms are Tests/Sema/Types/
 // instance_member_params.k.

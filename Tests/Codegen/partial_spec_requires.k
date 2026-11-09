@@ -1,5 +1,5 @@
 // partial_spec_requires.k -- exit 0
-// Partial specializations selected by `requires` (MONO.md G12), compiled
+// Partial specializations selected by `requires`, compiled
 // and run. The registry selects a partial whose pattern matches and whose
 // clause holds at the instance's arguments; the more specialized pattern
 // wins first (`<P> Store<*P>` over `<P> Store<P>`), the clause after. C++

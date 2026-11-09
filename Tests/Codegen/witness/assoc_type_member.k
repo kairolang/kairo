@@ -1,5 +1,5 @@
 // A member of an associated type, reached through the associated type's
-// OWN bounds (interfaces.md, Associated Types; MONO.md G5.6 left it
+// OWN bounds (interfaces.md, Associated Types.6 left it
 // SC116E): with `type Item impl Display`, a body bounded `T impl Store`
 // may call `x.show()` on `x: T::Item`, and `s.get().show()` on a call
 // result. The call goes through the associated type's witness:

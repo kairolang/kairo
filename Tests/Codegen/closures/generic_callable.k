@@ -5,7 +5,7 @@
 //
 // XFAIL: *
 // Ticket "[Sema] A generic parameter's call `f(x)` is SC062E \"not
-// callable\"" (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today: SC062E
+// callable\"". Today: SC062E
 // "'F' is not callable" at the definition. `fn <T> apply(f: fn(T) -> T, x:
 // T)` works. When it XPASSes, delete the XFAIL -- the run below is already
 // the real assertion.

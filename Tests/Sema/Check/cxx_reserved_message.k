@@ -1,6 +1,6 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 //
-// P372: SC005W says which rule a name broke. `__x` and `_Upper` are reserved
+// SC005W says which rule a name broke. `__x` and `_Upper` are reserved
 // by C++ at every scope ([lex.name]/3). A plain `_lower` is reserved by C++
 // only at global scope; a field, parameter or local spelled so is legal C++,
 // and Kairo refuses it on its own account, at every scope on purpose. The

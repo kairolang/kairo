@@ -7,7 +7,7 @@ pub class Widget {
     pub var id: i32
     pub fn Widget(self, id: i32) { self.id = id }
     @copy fn Widget(self, const other: Self) { self.id = other.id }
-    fn op delete(self) { if self.id != 0 { println(f"  ~Widget {self.id}") } }
+    fn op finally(self) { if self.id != 0 { println(f"  ~Widget {self.id}") } }
     pub fn op ==(const self, const other: Widget) -> bool { return self.id == other.id }
 }
 
@@ -15,7 +15,7 @@ pub class Uniq {
     pub var id: i32
     pub fn Uniq(self, id: i32) { self.id = id }
     @move fn Uniq(self, other: Self) { self.id = other.id; other.id = 0 }
-    fn op delete(self) { if self.id != 0 { println(f"  ~Uniq {self.id}") } }
+    fn op finally(self) { if self.id != 0 { println(f"  ~Uniq {self.id}") } }
 }
 
 /// Nullables built on the Kairo side and handed to the host: `T?` is the

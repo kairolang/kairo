@@ -5,7 +5,7 @@
 //
 // XFAIL: *
 // Ticket "[Sema] An extension member's bounds are not checked at the call
-// site" (private/IMPORTANT/TICKETS.TXT, 2026-10-26; status.mdx, Not
+// site" (2026-10-26; status.mdx, Not
 // Diagnosed). Today `p.max()` on a Pair<Opaque> type-checks: the bound
 // `T impl Comparable` is not checked for T = Opaque, and the error (if
 // any) comes from clang. The code is not decided; the check asks for an

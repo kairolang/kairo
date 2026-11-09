@@ -1,4 +1,4 @@
-// O20: a generic alias applied WITHOUT arguments (`BoxA(x)` over `template
+// A generic alias applied WITHOUT arguments (`BoxA(x)` over `template
 // <class T> using BoxA = Box<T>`, the self-host's `LockGuard(self._mu)`) is
 // deduced by clang. The local's type is the alias's pattern `Box<T>`, whose
 // T is the alias's and not in scope in the emitted body: spelling it gave

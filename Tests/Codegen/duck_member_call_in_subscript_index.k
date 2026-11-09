@@ -1,4 +1,4 @@
-// O32: a member call inside the index of a subscript whose base is a field of a
+// A member call inside the index of a subscript whose base is a field of a
 // duck parameter (`self.dyn()->xs[self.dyn()->xs.size() - 1]`) was never typed,
 // since the unknown base returned before the index; EmitIR ICEd "unbound callee".
 

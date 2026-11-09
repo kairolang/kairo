@@ -1,4 +1,4 @@
-// G20 (Compiler/Sema/NULLABLE.md 1.7): `var *y = e` end to end. The stars
+// `var *y = e` end to end. The stars
 // are a marker, so the C++ is what `var y = e` gives: each binding is the
 // initializer's pointer type, to any depth, and writes through it land in
 // the pointee. `var *y? = &x` is the nullable pointer `(*i32)?` (wrapped

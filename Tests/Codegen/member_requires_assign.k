@@ -19,7 +19,7 @@ class <T> Box {
     fn Box(self, const other: Self) requires __builtin_is_constructible<T, const T>() {
         self.n = other.n + 1
     }
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 
 fn main() -> i32 {
@@ -32,7 +32,7 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: Box & operator =(const{{.*}}Box<T> & o) requires(({{.*}}kairo_rt_is_constructible1<T, const T>()))
+// CXX: Box & operator =(const{{.*}}Box<T> & o) noexcept requires(({{.*}}kairo_rt_is_constructible1<T, const T>()))
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

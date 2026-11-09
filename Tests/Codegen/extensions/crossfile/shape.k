@@ -1,2 +1,2 @@
 // crossfile/shape.k
-pub struct Point { var a: i32; var b: i32; }
+pub struct Point { pub var a: i32; pub var b: i32; }

@@ -1,4 +1,4 @@
-// O42: inside a duck <T: type> body, `s + "::" + t` on strings and `m |= B` on an enum
+// Inside a duck <T: type> body, `s + "::" + t` on strings and `m |= B` on an enum
 // with a free `op |` were emitted as raw C++ `+` / `|=`, which the types do not have:
 // Kairo derives them from `op +=` / `op |`. The dependent form tries C++'s operator and
 // falls back to the derivation.

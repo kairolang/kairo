@@ -4,7 +4,7 @@
 //
 // XFAIL: *
 // Ticket "[Sema/Tether] A generator that outlives its object or `@inout`
-// argument is not diagnosed" (private/IMPORTANT/TICKETS.TXT, 2026-10-26).
+// argument is not diagnosed".
 // Today it compiles and runs against a destroyed temporary (status.mdx, Not
 // Diagnosed; waits on Tether covering generators). The code is not decided;
 // the check asks for an error at the marked line. When it XPASSes, delete the

@@ -1,4 +1,4 @@
-// G6 (Compiler/Sema/NULLABLE.md 2.2): `x == null`, `null == x`,
+// `x == null`, `null == x`,
 // `x != null` and `null != x` are the null test spelled differently, typed
 // `bool` on any nullable, the literal taking the nullable's type. `&null`
 // against a nullable POINTER is that nullable's null (1.3), so `q == &null`

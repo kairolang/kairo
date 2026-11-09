@@ -13,8 +13,8 @@ pub fn apply(f: fn(i32) -> i32, x: i32) -> i32 { return f(x) }
 
 pub class <T> Box {
     pub var v: T
-    fn Box(self, v: T) { self.v = v }
-    fn map_with(self, f: fn(T) -> T) -> T {
+    pub fn Box(self, v: T) { self.v = v }
+    pub fn map_with(self, f: fn(T) -> T) -> T {
         var g = fn () -> T { return f(self.v) }
         return g()
     }

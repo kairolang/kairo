@@ -31,25 +31,25 @@ class DtorDefault {
     var a: i32;
     @copy
     fn DtorDefault(self, const other: Self) = default
-    fn op delete(self) = default
+    fn op finally(self) = default
 }
 class DtorBody {
     var a: i32;
     @copy
     fn DtorBody(self, const other: Self) = default
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 class VirtualDtorDefault {
     var a: i32;
     @copy
     fn VirtualDtorDefault(self, const other: Self) = default
-    virtual fn op delete(self) = default
+    virtual fn op finally(self) = default
 }
 class AddsNothing derives DtorBody {
     var b: i32;
     @copy
     fn AddsNothing(self, const other: Self) = default
-    fn op delete(self) = default            // expect: clean -- a defaulted destructor does no work of its own
+    fn op finally(self) = default            // expect: clean -- a defaulted destructor does no work of its own
 }
 enum HoldsCopyDefault { Has { c: CopyDefault }, Empty }
 enum HoldsCopyBody { Has { c: CopyBody }, Empty }

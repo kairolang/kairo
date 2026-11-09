@@ -1,4 +1,4 @@
-// O17: a call to an overloaded Kairo free function (`is_rec(x)`, two
+// A call to an overloaded Kairo free function (`is_rec(x)`, two
 // candidates) whose argument is deduced from a duck call (`x` of a
 // `<T: type>` type) cannot be picked until an instance fixes the argument.
 // EmitIR used to ICE "unpromoted callee"; it now goes out as written and

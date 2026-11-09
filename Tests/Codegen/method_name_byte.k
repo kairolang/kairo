@@ -14,11 +14,11 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// P253: a clang diagnostic at an out-of-line method definition lands on the
+// A clang diagnostic at an out-of-line method definition lands on the
 // method's name. Only one exact token gets a name's byte (TokenSink::_claim);
 // the in-class declaration, spelled first, took it, so the definition's name
 // walked on to its `{` (6:30). The declaration now sits on the method's first
-// byte and the definition keeps the name, as P145 did for constructors.
+// byte and the definition keeps the name, as before for constructors.
 // The error leans on a clang check Sema does not own yet (a by-value use of a
 // record that is never defined); if Sema starts reporting it, move this test
 // onto another clang error at the definition.

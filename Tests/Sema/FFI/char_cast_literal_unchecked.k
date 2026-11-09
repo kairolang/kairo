@@ -1,5 +1,5 @@
-// G100b: an explicit `as char` from an integer literal that fits u32 is
-// unchecked (ruling 2026-11-04): `0xFFFFFFFF as char` is the sentinel, not a
+// An explicit `as char` from an integer literal that fits u32 is
+// unchecked (decided 2026-11-04): `0xFFFFFFFF as char` is the sentinel, not a
 // trap. The scalar-value range test is for the IMPLICIT literal adaptation:
 // `var c: char = 0xFFFFFFFF` is still SC075E.
 

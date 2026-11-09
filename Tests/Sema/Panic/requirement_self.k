@@ -2,7 +2,7 @@
 // result is spelled outside the witness (every conformer returns it), where
 // `Self` has no C++ type, and codegen stopped on the interface with an
 // internal error (I003E) -- for the declaration alone, a conformer, a call
-// through a bound in method form (`a.add(a)`), and since P166 lowers
+// through a bound in method form (`a.add(a)`), and since that case lowers
 // panicking operators, the operator form (`a + a`) too. It is SC116E at
 // the requirement, with a note at the result. A requirement whose result
 // is a concrete type works, operator form included

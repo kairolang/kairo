@@ -1,10 +1,10 @@
 pub union <T, U> Either {
-    var left: T
-    var right: U
+    pub var left: T
+    pub var right: U
 }
 
 pub union Bits {
-    var i: i32
+    pub var i: i32
     var f: f32
 }
 

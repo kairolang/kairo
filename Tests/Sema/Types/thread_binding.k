@@ -1,7 +1,7 @@
 // A `thread` binding types like a `static` one (variables.mdx): the type is
 // written, inferred from the initializer, or both; `thread const` makes the
 // binding const; a class-scope one is reached as `Self::name` / `Type::name`
-// like a static member; and for nullness it is global storage (NULLABLE.md
+// like a static member; and for nullness it is global storage (
 // 3.8) -- a narrowing does not survive a call, because code on the same
 // thread may write it. A plain local of the same type would stay narrowed.
 // Errors are a `static`'s: neither type nor initializer is SC046E, and an

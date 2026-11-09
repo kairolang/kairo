@@ -1,6 +1,6 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 //
-// G33: a member of a C++ class template instance over a Kairo parameter
+// A member of a C++ class template instance over a Kairo parameter
 // (`self.v[i]`, `self.v.size()` on a `cxx::std::vector<T>`). The pattern's
 // signatures are dependent -- `operator[](size_type)`, size_type being
 // `allocator_traits<A>::size_type` -- and imported as an opaque type no

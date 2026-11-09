@@ -4,8 +4,8 @@
 //
 // XFAIL: *
 // Ticket "[Sema/Codegen] A field with an initializer and no type
-// type-checks, then ICEs in InterfaceEmitter" (private/IMPORTANT/
-// TICKETS.TXT, 2026-10-26). Today --type-check-only accepts it, and a
+// type-checks, then ICEs in InterfaceEmitter" (2026-10-26).
+// Today --type-check-only accepts it, and a
 // build ICEs: "InterfaceEmitter: initializer of an eval or array-typed
 // field reached codegen; FeatureGateCheck rejects it". (The ticket's other
 // option, inferring the type like a VariableDecl, would contradict

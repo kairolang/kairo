@@ -6,7 +6,7 @@
 //
 // XFAIL: *
 // Ticket "[Driver] Bring clang's options into kairo (the \"clang flags
-// pass\")" (private/IMPORTANT/TICKETS.TXT, 2026-10-24): the doc's error
+// pass\")": the doc's error
 // for a layout-affecting flag (and for a single-language flag in a mixed
 // TU) is not implemented. Today kcc passes `-fno-rtti` through without a
 // word and the compile succeeds. The diagnostic's code is not decided; the

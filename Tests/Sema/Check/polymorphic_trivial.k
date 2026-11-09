@@ -17,7 +17,7 @@ class VBase derives virtual Plain {
 }
 class VDtor {
     var a: i32;
-    virtual fn op delete(self) = default
+    virtual fn op finally(self) = default
 }
 class HoldsPoly { var p: Poly; }
 enum PolyPayload { Has { p: Poly }, Empty }

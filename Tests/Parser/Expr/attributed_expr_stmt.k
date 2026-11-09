@@ -78,7 +78,7 @@ fn f(p: *T) {
 //
 // The expression attributes, and only those, are gated. `@create` and
 // `@destroy` are not among them: they are calls of alloc.k's create /
-// destroy (P91, AllocSugarDesugar), bound with no import, so they report
+// destroy (AllocSugarDesugar), bound with no import, so they report
 // nothing and the gate runs over the whole file. It is checked again with
 // those three lines removed, as before the sugar needed no import.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=SUGAR --implicit-check-not="error [" --implicit-check-not="warning ["

@@ -3,7 +3,7 @@
 // instance upcasts to the matching base instance and dispatches through it.
 //
 // An instance's bases are its pattern's list read through its arguments
-// (MONO.md G4): `Const<i32>` derives `Source<i32>`, and `Leaf<i32>` of
+//: `Const<i32>` derives `Source<i32>`, and `Leaf<i32>` of
 // `derives Mid<*T>` derives `Mid<*i32>` and through it `Source<*i32>`.
 // The mismatched instances stay unrelated: Tests/Sema/Types/
 // instance_base_substitution.k.

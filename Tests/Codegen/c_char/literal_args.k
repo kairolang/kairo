@@ -1,4 +1,4 @@
-// P301: a string LITERAL passed to a C or C++ `const char *` parameter is
+// A string LITERAL passed to a C or C++ `const char *` parameter is
 // the C string itself (c-cpp-calling.mdx, Strings and const char*): its
 // static, NUL-terminated bytes, with no `string` made. So is one passed to
 // `const unsigned char *` (`*const u8`) and to C's `...` tail. A string

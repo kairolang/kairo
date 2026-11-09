@@ -3,7 +3,7 @@
 // by one TU (sees.k, other.k). One conformance cannot have two
 // implementations: every TU's C++ carries the one witness specialization
 // `Scalable_witness<Metric>` (ODR), so the second TU to check its use is an
-// error naming both. Before D7 it silently reused the first TU's row, and
+// error naming both. Before the fix it silently reused the first TU's row, and
 // so called the other file's `scale`.
 //
 // ea.k / ec.k extend Metric impl Scalable in a file that is neither

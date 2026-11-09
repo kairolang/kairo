@@ -24,7 +24,7 @@ class Cp {
         (*self.p) = *other.p
         live += 1
     }
-    fn op delete(self) {
+    fn op finally(self) {
         unsafe { free(self.p as unsafe *void) }
         live -= 1
     }
@@ -44,7 +44,7 @@ class Mv {
         unsafe { other.p = &null }
         live += 1
     }
-    fn op delete(self) {
+    fn op finally(self) {
         if self.p != &null { unsafe { free(self.p as unsafe *void) } }
         live -= 1
     }

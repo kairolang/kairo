@@ -48,7 +48,7 @@ fn main() -> i32 {
 // CXX-NEXT:     class Vault {
 // CXX-NEXT:         signed int secret = 7;
 // CXX-NEXT:         protected: signed int shared = 1;
-// CXX-NEXT:         private: signed int peek() const noexcept;
+// CXX-NEXT:         private: __attribute((pure)) signed int peek() const noexcept;
 // CXX-NEXT:         public: signed int pick(signed int k) noexcept;
 // CXX-NEXT:         private: signed int __kairo_where_pick_0(signed int k) noexcept;
 // CXX-NEXT:         signed int __kairo_where_pick_1(signed int k) noexcept;

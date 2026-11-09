@@ -1,4 +1,4 @@
-// G10 (Compiler/Sema/NULLABLE.md 2.6): `unwrap!(x)` is `if x? => x else
+// `unwrap!(x)` is `if x? => x else
 // <abort>`, run for real. On null it is not a panic: it writes "unwrap!(...)
 // on null at <file>:<line>:<col>" to stderr and aborts, so the process
 // dies of SIGABRT (status 134) with nothing after it run. Covered on the
@@ -15,7 +15,7 @@ class Widget {
     pub var id: i32
     pub fn Widget(self, id: i32) { self.id = id }
     @move fn Widget(self, other: Self) { self.id = other.id; other.id = 0 }
-    fn op delete(self) { if self.id != 0 { println(f"~Widget {self.id}") } }
+    fn op finally(self) { if self.id != 0 { println(f"~Widget {self.id}") } }
 }
 
 class Foo { pub var v: i32 = 1 }

@@ -1,7 +1,7 @@
 // `usize` is a type of its own to Kairo, but on Linux size_t IS u64's
 // `unsigned long`: `Box<usize>` and `Box<u64>` are two Kairo instances and
 // one C++ class, so explicitly instantiating both was clang's "duplicate
-// explicit instantiation of 'Box<unsigned long>'" (P256). One line is
+// explicit instantiation of 'Box<unsigned long>'". One line is
 // written per C++ entity, nested and function instances alike.
 class <T> Box { pub var v: T }
 class <T> Pair { pub var a: T  pub var b: T }

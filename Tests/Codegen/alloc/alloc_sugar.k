@@ -1,4 +1,4 @@
-// P91: `@create` / `@destroy` are sugar for alloc.k's create / destroy, in
+// `@create` / `@destroy` are sugar for alloc.k's create / destroy, in
 // both spellings: the generic call (`@create<T>(args)`, `@destroy<T>(p)`)
 // and the docs' attribute form (`@create T(args)`, `@destroy p`,
 // `@destroy(p)`). Each pair below must construct, read back and free, and
@@ -12,7 +12,7 @@ class P2 {
     pub var a: i64
     pub var b: i64
     fn P2(self, a: i64, b: i64) { self.a = a; self.b = b }
-    fn op delete(self) { dropped = dropped + 1 }
+    fn op finally(self) { dropped = dropped + 1 }
     @move fn P2(self, other: Self) = default
 }
 

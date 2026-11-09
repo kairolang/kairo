@@ -47,7 +47,7 @@ class Cp {
     fn Cp(self) { self.v = 0; made += 1 }
     fn Cp(self, v: i32) { self.v = v; made += 1 }
     @copy fn Cp(self, const other: Self) { self.v = other.v; copied += 1 }
-    fn op delete(self) { dropped += 1 }
+    fn op finally(self) { dropped += 1 }
 }
 
 // --- a MOVE element: a move empties the source --------------------------------
@@ -66,7 +66,7 @@ class Mv {
         other.live = false
         mv_moves += 1
     }
-    fn op delete(self) { if self.live { mv_live_drops += 1 } }
+    fn op finally(self) { if self.live { mv_live_drops += 1 } }
 }
 
 fn cp_vectors() -> i32 {

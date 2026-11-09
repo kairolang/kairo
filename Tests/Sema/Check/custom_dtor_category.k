@@ -5,19 +5,19 @@ class Unique {
 }
 class OwnsInt {
     var n: i32;
-    fn op delete(self) { }                  // expect: warning SC060W -- every field copies, so the class silently does
+    fn op finally(self) { }                  // expect: warning SC060W -- every field copies, so the class silently does
 }
 class OwnsUnique {
     var u: Unique;
-    fn op delete(self) { }                  // expect: clean -- a move-only field makes it MOVE
+    fn op finally(self) { }                  // expect: clean -- a move-only field makes it MOVE
 }
 class OwnsMutex {
     var m: cxx::std::mutex;
-    fn op delete(self) { }                  // expect: clean -- std::mutex makes it NON_TRANSFER
+    fn op finally(self) { }                  // expect: clean -- std::mutex makes it NON_TRANSFER
 }
 class <T> OwnsT {
     var v: T;
-    fn op delete(self) { }                  // expect: clean -- T decides, per instance
+    fn op finally(self) { }                  // expect: clean -- T decides, per instance
 }
 
 // --- lit wiring -----------------------------------------------------------

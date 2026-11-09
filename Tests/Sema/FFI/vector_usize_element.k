@@ -3,7 +3,7 @@
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 9
 //
-// G87: an element of `cxx::std::vector<usize>` is usize. The instance is
+// An element of `cxx::std::vector<usize>` is usize. The instance is
 // `vector<unsigned long>` to C++ and `unsigned long` canonicalizes to u64,
 // so `v[i]`, `*it` and a ranged-for binding came back u64: SC028E into a
 // usize, SC033E in `v[0] + n`, SC063E as an argument. Inside the fill the

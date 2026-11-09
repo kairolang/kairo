@@ -1,6 +1,6 @@
 // A declaration-scope `eval if` chooses members once for every instance of
 // a generic, and a generic is one C++ template with no class-scope
-// `if constexpr` (MONO.md §2): a condition on a type parameter is an error
+// `if constexpr` ): a condition on a type parameter is an error
 // whose note spells the partial specialization that selects a type instead.
 // The same kind of condition naming no parameter folds (EVAL.md 4.2b).
 struct Plain { var x: i32 }

@@ -1,4 +1,4 @@
-// P91: `@create` / `@destroy` lower to alloc.k's create / destroy
+// `@create` / `@destroy` lower to alloc.k's create / destroy
 // (::builtin::base::alloc), so a program that writes the sugar needs no
 // import at all -- in every spelling. The name is bound at the lowering,
 // not looked up: a local `create` does not capture it, and a hand-written
@@ -9,7 +9,7 @@ static dropped: i32 = 0
 class P {
     pub var a: i64
     fn P(self, a: i64) { self.a = a }
-    fn op delete(self) { dropped = dropped + 1 }
+    fn op finally(self) { dropped = dropped + 1 }
     @move fn P(self, other: Self) = default
 }
 

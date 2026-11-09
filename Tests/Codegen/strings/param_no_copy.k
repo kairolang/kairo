@@ -1,4 +1,4 @@
-// P331: a call to a function whose string parameter is never mutated binds
+// A call to a function whose string parameter is never mutated binds
 // the caller's string (`const string&`), so passing an OWNED string costs
 // no allocation. Counted by a global allocator that forwards to System. A
 // parameter the body mutates still gets its copy (one block per call), and
@@ -40,9 +40,9 @@ fn main() -> i32 {
     base = allocs
     var f = reads
     for var i: usize = 0; i < 10; ++i { total += f(s) }
-    // Two blocks per call, as before P331: __kairo_fn's by-value argument,
+    // Two blocks per call, as before the fix: __kairo_fn's by-value argument,
     // then its forward into the adapter's (a move of a COPY string copies
-    // until P299's successor lands).
+    // until its successor lands).
     if allocs - base != 20 { return 4 }
     if s.length() != 1000 { return 5 }
     return 42

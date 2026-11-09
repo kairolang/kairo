@@ -47,7 +47,7 @@ fn main() -> i32 { return 0 }
 // XKAIRO: error [U011E]: {{.*}}native_add.cc: -x kairo requires a .k file
 
 // Assembly is a clang input like any other: the driver plans a -cc1as job,
-// which runs in-process (P427). CUDA / HIP go to clang's driver too, and what
+// which runs in-process. CUDA / HIP go to clang's driver too, and what
 // they need (a CUDA install) is clang's call, so nothing machine-independent
 // is checked for them here.
 // RUN: %kairo %S/Inputs/native_asm.s -c -o %t.d/asm.o

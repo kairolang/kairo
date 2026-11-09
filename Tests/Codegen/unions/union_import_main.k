@@ -37,15 +37,15 @@ fn main() -> i32 {
 // SEMA-NEXT:   <tu>::main
 // SEMA-NEXT:     make_bits   @ 5:19     -> fn make_bits @ 11:5  [import overlay]
 // SEMA-NEXT:     b           @ 6:8      -> var b @ 5:5  [local frame 0]
-// SEMA-NEXT:     .i          @ 6:10     -> field i @ 7:5
+// SEMA-NEXT:     .i          @ 6:10     -> field i @ 7:9
 // SEMA-NEXT:     e           @ 11:5     -> var e @ 10:5  [local frame 0]
-// SEMA-NEXT:     .left       @ 11:7     -> field left @ 2:5
+// SEMA-NEXT:     .left       @ 11:7     -> field left @ 2:9
 // SEMA-NEXT:     left_of     @ 12:8     -> fn left_of @ 17:5  [import overlay]
 // SEMA-NEXT:     e           @ 12:16    -> var e @ 10:5  [local frame 0]
 // SEMA-NEXT:     g           @ 16:5     -> var g @ 15:5  [local frame 0]
-// SEMA-NEXT:     .right      @ 16:7     -> field right @ 3:5
+// SEMA-NEXT:     .right      @ 16:7     -> field right @ 3:9
 // SEMA-NEXT:     g           @ 17:8     -> var g @ 15:5  [local frame 0]
-// SEMA-NEXT:     .right      @ 17:10    -> field right @ 3:5
+// SEMA-NEXT:     .right      @ 17:10    -> field right @ 3:9
 // SEMA-NEXT: -- expression types --
 // SEMA-NEXT:   <tu>::main
 // SEMA-NEXT:     CallExpr                @ 5:19     : Bits  [arg_map 0]
@@ -94,15 +94,15 @@ fn main() -> i32 {
 // LOWERED-NEXT:   <tu>::main
 // LOWERED-NEXT:     make_bits   @ 5:19     -> fn make_bits @ 11:5  [import overlay]
 // LOWERED-NEXT:     b           @ 6:8      -> var b @ 5:5  [local frame 0]
-// LOWERED-NEXT:     .i          @ 6:10     -> field i @ 7:5
+// LOWERED-NEXT:     .i          @ 6:10     -> field i @ 7:9
 // LOWERED-NEXT:     e           @ 11:5     -> var e @ 10:5  [local frame 0]
-// LOWERED-NEXT:     .left       @ 11:7     -> field left @ 2:5
+// LOWERED-NEXT:     .left       @ 11:7     -> field left @ 2:9
 // LOWERED-NEXT:     left_of     @ 12:8     -> fn left_of @ 17:5  [import overlay]
 // LOWERED-NEXT:     e           @ 12:16    -> var e @ 10:5  [local frame 0]
 // LOWERED-NEXT:     g           @ 16:5     -> var g @ 15:5  [local frame 0]
-// LOWERED-NEXT:     .right      @ 16:7     -> field right @ 3:5
+// LOWERED-NEXT:     .right      @ 16:7     -> field right @ 3:9
 // LOWERED-NEXT:     g           @ 17:8     -> var g @ 15:5  [local frame 0]
-// LOWERED-NEXT:     .right      @ 17:10    -> field right @ 3:5
+// LOWERED-NEXT:     .right      @ 17:10    -> field right @ 3:9
 // LOWERED-NEXT: -- expression types --
 // LOWERED-NEXT:   <tu>::main
 // LOWERED-NEXT:     CallExpr                @ 5:19     : Bits

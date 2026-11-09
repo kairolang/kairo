@@ -1,4 +1,4 @@
-// An associated type inherited from a GENERIC interface (MONO.md G5.6 left
+// An associated type inherited from a GENERIC interface (.6 left
 // it SC116E): `S::Item` through `S impl IntSource`, IntSource deriving
 // `Source<i32>`, is Source's Item at Source<i32> -- the instance the
 // composed requirement list says IntSource reaches it through. The same

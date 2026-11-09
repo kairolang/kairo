@@ -1,6 +1,6 @@
 // A generic panicking function and a generic interface's requirement
 // declared in one TU (Inputs/generics_tu/lib.k) and instantiated only in
-// its importer (PANIC.md P10): the instances' facts -- each result at its
+// its importer (PANIC.md): the instances' facts -- each result at its
 // arguments, the `__kairo_tid` of every element -- are the importer's to
 // form (M2, PanicInstances), and lib.k's template orders each instance's
 // set in C++ (`__kairo_pset`), one of them collapsing two elements into

@@ -50,11 +50,11 @@ fn foo_a(m: MaybeFoo) -> i32 = match m {
     case .Empty      => -1
 }
 
-// Box<i32> is an instance with lifecycle facts of its own (MONO.md G6):
+// Box<i32> is an instance with lifecycle facts of its own:
 // trivial, so Opt<Box<i32>> is trivial and niche-free, and the outer Opt is
 // niche-filled on the inner one's tag -- Sema decides it, the match reads
 // that tag directly, and the static_assert beside the instantiation pins
-// that C++ chose the same layout. (Before G6 the instance read its pattern's
+// that C++ chose the same layout. (Before the fix the instance read its pattern's
 // Unknown facts, and the match asked __kairo_which().)
 struct <T> Box { var v: T }
 

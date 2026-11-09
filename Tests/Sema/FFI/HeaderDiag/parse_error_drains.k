@@ -15,7 +15,7 @@ fn main() -> i32 {
 // DIAG-DAG:  unknown_type.h:3:12: error [CL001E]: unknown type name 'bar'
 // DIAG-NOT:  Internal Compiler Error
 
-// --syntax-only hands no header to clang (P355): only the parse error.
+// --syntax-only hands no header to clang: only the parse error.
 // RUN: { %kairo %s --syntax-only 2>&1 || true; } | %FileCheck %s --check-prefix=SYN
 // SYN-NOT:   unknown_type.h
 // SYN:       parse_error_drains.k:9:20: error [S058E]: expected 'var' or 'const' to begin a binding

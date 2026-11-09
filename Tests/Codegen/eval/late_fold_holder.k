@@ -7,7 +7,7 @@ struct Plain { var x: i32 }
 
 class Owner {
     @move fn Owner(self, other: Self) = default
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 
 class Holder {

@@ -1,4 +1,4 @@
-// P301: only a string LITERAL is its own C string. A `string` that is not
+// Only a string LITERAL is its own C string. A `string` that is not
 // one passes its bytes with `.c_str()`, the fix-it, at a `const char *`
 // parameter and at C's `...` tail (where a C++ class cannot go at all).
 // A `char *` may be written, and a literal's bytes are read-only. A Kairo

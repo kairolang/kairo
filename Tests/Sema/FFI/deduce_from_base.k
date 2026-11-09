@@ -16,7 +16,7 @@ fn main() -> i32 {
     var d: Derived
     d.v = 4
     // get: 4 + 1 = 5; pick(d): 10
-    return get(d) + pick(d)
+    return get(&d) + pick(&d)
 }
 
 // DIAG-NOT: error

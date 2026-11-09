@@ -3,7 +3,7 @@
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 21
 //
-// G43: a C++ container of a Kairo class that DERIVES (or of a member type
+// A C++ container of a Kairo class that DERIVES (or of a member type
 // of one). Filling `vector<X>` needs a C++ stand-in for X, and a stand-in
 // was refused for any class with a base, so the instance stayed unfilled
 // and its members came from the pattern, whose `size_type` is dependent:
@@ -16,7 +16,7 @@ ffi "c++" import "vector";
 
 class VBase {
     virtual fn emit(self, n: i32) -> i32 { return n }
-    virtual fn op delete (self) { }
+    virtual fn op finally (self) { }
 }
 
 class <T> Mixin { var tag: u32 = 0 }

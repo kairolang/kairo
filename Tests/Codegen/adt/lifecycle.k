@@ -20,14 +20,14 @@ class Cp {
     pub var id: i32
     pub fn Cp(self, id: i32) { self.id = id; }
     @copy fn Cp(self, const other: Self) { self.id = other.id; copies = copies + 1; }
-    fn op delete(self) { drops = drops + 1; }
+    fn op finally(self) { drops = drops + 1; }
 }
 
 class Mv {
     pub var id: i32
     pub fn Mv(self, id: i32) { self.id = id; }
     @move fn Mv(self, other: Self) { self.id = other.id; moves = moves + 1; }
-    fn op delete(self) { drops = drops + 1; }
+    fn op finally(self) { drops = drops + 1; }
 }
 
 enum <T> Slot { One { v: T }, Two { a: T, b: T }, Empty }

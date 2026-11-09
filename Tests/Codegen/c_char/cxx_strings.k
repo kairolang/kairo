@@ -1,4 +1,4 @@
-// A C++ function returning `const char*`, used from Kairo (TICKETS: "A C++
+// A C++ function returning `const char*`, used from Kairo ("A C++
 // `const char*` in an f-string or passed as `*const i8` is a C++ error").
 // It imported as `unsafe *const i8`, spelled `const signed char*`, so
 // binding the C++ result to it failed in the C++ step (CL001E "cannot

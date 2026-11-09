@@ -1,4 +1,4 @@
-// A static field named through a generic class's instance (MONO G4) is that
+// A static field named through a generic class's instance is that
 // instance's: `Box<i32>::count` spells `Box<int>::count`, never the bare
 // class template `Box::count`, which names no class (CL001E "use of class
 // template requires template arguments"). Each instance has its own static,

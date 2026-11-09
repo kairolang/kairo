@@ -4,10 +4,10 @@
 //
 // It used to ICE ("EmitIR: match MatchLowering left in place"): the
 // patterns were never resolved against a dependent scrutinee, so no decision
-// tree was built. Under MONO.md D0 they are: `Rep<T>`'s variants are its
+// tree was built. Under they are: `Rep<T>`'s variants are its
 // pattern's, a payload binder reads through the instance (`v: T`), the
 // match is checked for exhaustiveness here, and the tag is read through
-// `__kairo_which()` because C++ picks each instance's layout (G11).
+// `__kairo_which()` because C++ picks each instance's layout.
 
 enum <T> Rep {
     Some { v: T },

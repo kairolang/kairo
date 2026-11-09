@@ -4,8 +4,8 @@
 //
 // XFAIL: *
 // Ticket "[Sema] A tuple literal does not convert element-wise into a
-// tuple with nullable elements" (private/IMPORTANT/TICKETS.TXT,
-// 2026-10-25). Today `(5, 1)` is SC028E "cannot convert '(i32, i32)' to
+// tuple with nullable elements" (2026-10-25).
+// Today `(5, 1)` is SC028E "cannot convert '(i32, i32)' to
 // '(i32?, i32)'" (`(null, 1)` is accepted: the literal takes the expected
 // type there). When it XPASSes, delete the XFAIL -- the run below is
 // already the real assertion.

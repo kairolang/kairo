@@ -1,6 +1,6 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck --allow-empty %s
 //
-// P378: `typeof T` over a type operand (a generic parameter, a class) has no
+// `typeof T` over a type operand (a generic parameter, a class) has no
 // value type but denotes one; the node used to reach finish() in no terminal
 // state, an internal error, on `eval if typeof T == X`.
 //

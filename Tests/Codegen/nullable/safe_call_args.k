@@ -4,7 +4,7 @@
 //
 // XFAIL: *
 // Ticket "[Sema] `x?.f(args)`: the arguments are not typed under `x`'s
-// check" (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today the arguments
+// check". Today the arguments
 // are typed in the environment before the call: SC001E "'x' may be null
 // here" at `x.v`, and a cascading SC063E on the call. When it XPASSes,
 // delete the XFAIL -- the run below is already the real assertion.

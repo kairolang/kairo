@@ -1,7 +1,7 @@
 // A failure seven hops below its use: `hop8<Wrap^7<Metric>>` is not
 // Named. The chain notes are capped at --cmax-generic-backtrace (5): the
 // innermost three, a note counting the hops left out, the outermost two
-// (MONO.md D6). The flag at 0 shows every hop.
+//. The flag at 0 shows every hop.
 
 pub interface Scalable {
     fn scale(const self, factor: i32) -> i32

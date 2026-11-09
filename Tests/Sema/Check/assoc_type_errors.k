@@ -1,6 +1,6 @@
 // Naming an associated type wrongly is diagnosed where it is named, at
 // type resolution, never deferred to an ICE (interfaces.md, Associated
-// Types; MONO.md G5):
+// Types):
 //  - one no bound declares, or one two bounds both declare;
 //  - one outside its interface, with no type parameter to reach it;
 //  - a default that breaks the order rule (it sees only earlier ones);

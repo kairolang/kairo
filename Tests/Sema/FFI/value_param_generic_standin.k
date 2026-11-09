@@ -1,6 +1,6 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
 //
-// G56: a Kairo generic with a VALUE parameter (`class <eval N: usize>`) gets a
+// A Kairo generic with a VALUE parameter (`class <eval N: usize>`) gets a
 // C++ stand-in template with a non-type parameter, so a C++ template over an
 // instance of it (a pointer to `TB<16>`, a tuple holding one) is filled and its
 // members resolve. The field `[u32; N]` is substituted per instance.

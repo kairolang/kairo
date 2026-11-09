@@ -1,4 +1,4 @@
-// P483: a const function (`[[gnu::const]]`, LLVM memory(none)) must never
+// A const function (`[[gnu::const]]`, LLVM memory(none)) must never
 // read memory its caller can change. ParamPassInference used to pass a
 // never-mutated COPY record parameter as `const T&`, so `first` read `b`
 // through a reference while clang believed it read nothing, and merged

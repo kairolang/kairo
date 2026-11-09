@@ -37,7 +37,7 @@ fn <T: type> dep_shr(a: T, n: i32) -> T = a >> n
 fn main() -> i32 { return dep_shr(-8i8, 1) as i32 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s
+// RUN: { %kairo -fduck-generics %s --print-ir 2>&1 || true; } | %FileCheck %s
 // CHECK-LABEL: masked({{.*}}) noexcept {
 // CHECK: s1 = static_cast<unsigned char>(static_cast<unsigned int>(a) <<(static_cast<unsigned int>(n) & static_cast<unsigned int>(31)));
 // CHECK-NEXT: s2 = static_cast<signed char>(static_cast<int>(b) >>(static_cast<unsigned int>(n) & static_cast<unsigned int>(31)));

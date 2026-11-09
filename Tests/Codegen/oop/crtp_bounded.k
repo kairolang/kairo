@@ -4,7 +4,7 @@
 // `&self as *X` is crtp_self_cast.k).
 //
 // The `X impl Impl` bound is checked by Kairo at `derives Mixin<Seven>`,
-// once Seven is complete (D0). It used to be emitted as a requires-clause
+// once Seven is complete. It used to be emitted as a requires-clause
 // on Mixin's class head as well, and clang evaluates that at
 // `class Seven : Mixin<Seven>`, where Seven is still incomplete: CL001E
 // "constraints not satisfied for class template 'Mixin'". A primary

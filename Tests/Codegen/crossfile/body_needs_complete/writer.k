@@ -1,6 +1,6 @@
 // Imported by app.k, not a test of its own. Every body here names nodes.k's
 // classes only through pointers or template arguments, yet C++ needs each
-// one complete in THIS TU (O36).
+// one complete in THIS TU.
 import nodes::*
 
 // `return n` is a static_cast<Base *>: Sub complete to relate the two.

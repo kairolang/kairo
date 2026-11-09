@@ -1,10 +1,10 @@
 // A non-generic ADT gets exactly one form of each special member, picked
 // from its payloads' lifecycle facts. A payload that is an instance of a
 // generic record has facts of its own -- its pattern's fields over its
-// arguments (ClassLifecycle, Instances; MONO.md G6) -- so `Box<i32>` is as
+// arguments (ClassLifecycle, Instances) -- so `Box<i32>` is as
 // known as `Known` and nothing here is reported: not the enum over the
 // instance, not the one over scalars and a non-generic class, not the generic
-// one, whose members clang picks per instance. (Before G6 the first was
+// one, whose members clang picks per instance. (Before the fix the first was
 // SC116E, "not known until instantiation": an instance read its pattern.)
 
 class <T> Box { pub var v: T }

@@ -1,7 +1,7 @@
 // A member of a C++ class template instance over a Kairo parameter
 // (`self.v.push_back(x)`, `self.v[i]`, `self.v.size()` on a `vector<T>`) is
 // decided per instance, so it goes out as written and clang resolves it in
-// each one (G33/G37). The field spells as `vector<T>` alone: the defaulted
+// each one. The field spells as `vector<T>` alone: the defaulted
 // allocator still names T and is left to C++.
 
 ffi "c++" import "vector";

@@ -1,5 +1,5 @@
 // `{T}` (Lib/builtin/containers/hash_set.k): every entry of the API
-// Compiler/ uses of Stage 0's set (private/IMPORTANT/api-surface.md), with
+// Compiler/ uses of Stage 0's set, with
 // integer and string elements. Each check returns its own number on
 // failure; 100 is success.
 

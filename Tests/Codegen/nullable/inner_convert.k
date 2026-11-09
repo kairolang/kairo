@@ -2,15 +2,11 @@
 // `var b: i64? = find(3)` (find -> i32?) and `*Dog? -> *Animal?`, so the
 // program must build: null stays null, a value converts.
 //
-// XFAIL: *
-// Ticket "[Sema/Codegen] `T? -> U?` with different inners type-checks and
-// fails in clang" (private/IMPORTANT/TICKETS.TXT, 2026-10-25). Today it
-// type-checks and clang rejects the emitted C++: CL001E "no matching
-// conversion for static_cast from '::builtin::Nullable<int>' to
-// '::builtin::Nullable<long>'" -- Nullable has no converting constructor.
-// Passes once Nullable gets one (not applying when T is itself a Nullable)
-// -- or, if the conversion is refused in Sema instead, rewrite this as a
-// diagnostic test. When it XPASSes, delete the XFAIL.
+// Was XFAIL until : Nullable has no converting constructor, so the
+// static_cast the conversion was emitted as was CL001E in clang. EmitIR now
+// tests the source once and converts only the value
+// (EmitIR::_nullable_convert); Tests/Codegen/nullable/pointer_convert.k
+// covers the pointer cases.
 
 fn find(k: i32) -> i32? {
     if k > 0 { return k }

@@ -1,4 +1,4 @@
-// A partial specialization whose pattern holds a pack expansion (P138). The
+// A partial specialization whose pattern holds a pack expansion. The
 // registry cannot select it (InstantiationRegistry::_match binds one type
 // per parameter), while clang selects it per instance: dropped silently,
 // Sema typed `Traits<Box<i32>, i32>` through the primary's body and C++

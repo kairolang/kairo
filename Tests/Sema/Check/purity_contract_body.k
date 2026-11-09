@@ -1,7 +1,7 @@
 // What the body of a const / @pure function may not do, beyond the old
 // rules (const_fn_errors.k): own memory (a string local, result, literal,
 // f-string, a by-value copy), read a parameter passed by reference in a
-// const fn (P483: memory(none) lets clang move the call across a store
+// const fn (memory(none) lets clang move the call across a store
 // to it), stop the program (assert, unwrap!, a trap), or call what it
 // cannot see (a function value, a user operator that made no promise, a
 // parameter's default, a container for-in). One SC200E each; `sums` is clean.

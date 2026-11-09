@@ -1,5 +1,5 @@
 // `@set_global_allocator(A)` stands on a line of its own at file scope and
-// is taken there, never stamped on the next declaration (P227). A file sets
+// is taken there, never stamped on the next declaration. A file sets
 // it once; anywhere the annotation buffer gets it, it is refused rather
 // than dropped.
 

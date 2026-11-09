@@ -22,7 +22,7 @@ fn map3(const data: [i32; 3], transform: fn(i32) -> i32) -> i32 {
 
 fn <T> apply_g(f: fn(T) -> T, x: T) -> T { return f(x) }
 
-// `: type`: an unbounded T has no `+` (MONO.md D0); C++ checks this one.
+// `: type`: an unbounded T has no `+`; C++ checks this one.
 fn <T: type> add_to(x: T, y: T) -> T {
     var g = fn (z: T) -> T { return z + x }
     return g(y)
@@ -39,7 +39,7 @@ fn main() -> i32 {
     println(f"map: {map3(data, fn (x: i32) -> i32 { return x * 2 })}")
     println(f"generic: {apply_g(triple, 4)} {apply_g(fn (s: f64) -> f64 = s / 2.0, 3.0)}")
     println(f"generic body: {add_to(40, 2)}")
-    // A C function pointer parameter is the raw `unsafe fn` (P231): a
+    // A C function pointer parameter is the raw `unsafe fn`: a
     // named function and a closure that captures nothing go there, and so
     // does a variable declared raw. A `fn` value does not (it may hold a
     // capturing closure): see Sema/Check/raw_fn_conversions.k.

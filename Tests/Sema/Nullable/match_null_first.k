@@ -1,4 +1,4 @@
-// G14 (Compiler/Sema/NULLABLE.md 3.6): a match on `T?` answers null in its
+// A match on `T?` answers null in its
 // FIRST arm, `case null` alone and unguarded, or it is an error (SC001E):
 // with a fix-it inserting the arm when there is none (statement form), a
 // note at a `case null` that is out of place, guarded or in an

@@ -2,7 +2,7 @@ import lib::*
 
 ffi "c++" import "vector"
 
-// O20: a struct nested in a class is defined inside the class's body, so a
+// A struct nested in a class is defined inside the class's body, so a
 // by-value field of an imported class in it needs that class complete
 // before the OUTER class. The plan saw only the outer's own fields (here a
 // vector of the nested struct), put the outer first, and clang reported

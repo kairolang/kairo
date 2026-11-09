@@ -1,4 +1,4 @@
-// What cannot become a raw `unsafe fn` (P231): a closure that captures,
+// What cannot become a raw `unsafe fn`: a closure that captures,
 // and a `fn` value, which may hold one. Both are SC001E where they are
 // converted -- an initializer, an argument, a C function pointer parameter
 // (an imported C pointer is raw), a field -- instead of the run-time trap

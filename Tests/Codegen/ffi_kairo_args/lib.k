@@ -6,7 +6,7 @@ pub enum <T> Slot { Full { v: T }, Hole }
 
 pub class Item {
     pub var w: i32
-    fn Item(self, w: i32) { self.w = w }
+    pub fn Item(self, w: i32) { self.w = w }
 }
 
 pub fn heavy(v: cxx::std::vector<Level>) -> i32 {

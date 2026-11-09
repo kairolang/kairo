@@ -1,4 +1,4 @@
-// G10 (Compiler/Sema/NULLABLE.md 2.6): `unwrap!(x)` typed. Each `t_*`
+// `unwrap!(x)` typed. Each `t_*`
 // initializes a `bool` from one so the conversion error names its type:
 // `T` for `T?`, one level for `(i32?)?`, `*i32` for `(*i32)?`, `T` for a
 // generic `T?`. It is not a read of `x` (no check needed), and afterwards

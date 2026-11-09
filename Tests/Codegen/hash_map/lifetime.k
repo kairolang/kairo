@@ -27,7 +27,7 @@ class Tracked {
     fn Tracked(self) { self.v = 0; live += 1 }
     fn Tracked(self, v: i64) { self.v = v; live += 1 }
     @copy fn Tracked(self, const o: Tracked) { self.v = o.v; live += 1 }
-    fn op delete(self) { live -= 1 }
+    fn op finally(self) { live -= 1 }
 }
 
 /// A key with a destructor.
@@ -35,7 +35,7 @@ class Key impl Hash {
     pub var k: i64
     fn Key(self, k: i64) { self.k = k; live += 1 }
     @copy fn Key(self, const o: Key) { self.k = o.k; live += 1 }
-    fn op delete(self) { live -= 1 }
+    fn op finally(self) { live -= 1 }
     pub fn hash(const self) -> usize = to_usize(mix64(self.k as u64))
     pub fn op ==(const self, const other: Key) -> bool = self.k == other.k
 }

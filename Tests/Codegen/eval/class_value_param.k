@@ -3,7 +3,7 @@
 // string's fields private, and a class-value generic parameter must be
 // structural -- C++ requires every member public -- so a Config holding a
 // string is SC001E. Flip back when string is structural again (or the lang
-// item is special-cased). See TICKETS.TXT.
+// item is special-cased).
 // EVAL.md 7e: an eval class is a generic value argument when its type is
 // structural -- every field `pub`, none a pointer to mutable memory, every
 // constructor `eval` -- and is a C++20 class-type template parameter. The

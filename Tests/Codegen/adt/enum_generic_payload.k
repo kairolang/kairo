@@ -2,7 +2,7 @@
 // class, `Box<i32>` (enums-adt.mdx): the instance is concrete, so its copy,
 // move and destruction are known.
 // ClassLifecycle computes them per instance, from Box's fields over its
-// argument (MONO.md G6), so the enum is laid out like any other. Was SC116E
+// argument, so the enum is laid out like any other. Was SC116E
 // "an enum whose payload's lifecycle is not known until instantiation"
 // while an instance read its pattern's facts (GitHub #85).
 

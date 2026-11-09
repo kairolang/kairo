@@ -5,7 +5,7 @@
 //
 // XFAIL: *
 // Ticket "[Sema/Tether] A slice literal passed to a function that stores it
-// is not diagnosed" (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today it
+// is not diagnosed". Today it
 // compiles, and the stored slice dangles (status.mdx, Not Diagnosed; waits on
 // Tether). The code is not decided; the check asks for an error at the marked
 // line. When it XPASSes, delete the XFAIL and pin the code and message.

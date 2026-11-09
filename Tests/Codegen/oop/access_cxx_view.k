@@ -27,7 +27,11 @@
 //
 // The class, whitespace removed (each view renders its own): the access
 // levels, then the friend lines naming every function of vault.k.
-// VIEW: classVault{signedintsecret=7;protected:signedintshared=11;public:Vault()noexcept;private:Vault(signedints)noexcept;signedintpeek()constnoexcept;public:signedintopen()constnoexcept;friendsignedinthelper(::vault::Vault*v)noexcept;friendsignedintinline_read(::vault::Vault*v)noexcept;template<class__kairo_ft0>friendsignedintgen_read(::vault::Vault*v,__kairo_ft0t)noexcept;friend::vault::Vaultmake(signedints)noexcept;};
+// The C++-facing views (header, kcc stream) open the class with the
+// class-scope operator new / delete block (public: ... private:, §75,
+// Compiler/Spec/Codegen.md#c-allocation-operators); the own and importer
+// IR have none. Everything after it is the one text in every view.
+// VIEW: classVault{{{(public:.*private:)?}}signedintsecret=7;protected:signedintshared=11;public:Vault()noexcept;private:Vault(signedints)noexcept;__attribute{{(__)?}}((pure))signedintpeek()constnoexcept;public:__attribute{{(__)?}}((pure))signedintopen()constnoexcept;friendsignedinthelper(::vault::Vault*v)noexcept;friendsignedintinline_read(::vault::Vault*v)noexcept;template<class__kairo_ft0>friendsignedintgen_read(::vault::Vault*v,__kairo_ft0t)noexcept;friend::vault::Vaultmake(signedints)noexcept;};
 //
 // RUN: cd %S/Inputs/access_cxx_view && %kairo app.k -o %t.d/app --cache-dir %t.d/c3
 // RUN: %t.d/app

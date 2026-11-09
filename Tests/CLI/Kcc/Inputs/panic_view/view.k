@@ -25,7 +25,7 @@ pub class Big {
         self.p = other.p
         unsafe { other.p = &null }
     }
-    fn op delete(self) {
+    fn op finally(self) {
         if self.p != &null { unsafe { free(self.p as unsafe *void) } }
     }
     pub fn get(const self) -> i32 { return *self.p }

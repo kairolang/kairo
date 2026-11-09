@@ -2,9 +2,9 @@
 // Pointers and Nullable Types), including after a derived-to-base step,
 // and `??` picks the fallback only when it is null.
 //
-// Spelled `(*T)?`, which `*T?` also means since NULLABLE.md G1.
+// Spelled `(*T)?`, which `*T?` also means since.
 //
-// Runs since G8 (NULLABLE.md 2.4, CoalesceLowering): `p ?? q` on a
+// Runs since CoalesceLowering landed: `p ?? q` on a
 // `(*A)?` is `if p? => p else q`, then the virtual call dispatches on what
 // it chose.
 

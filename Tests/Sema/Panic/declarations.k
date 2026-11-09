@@ -2,7 +2,7 @@
 // - `main` can never panic, and nothing may reach it: each unhandled call
 //   is an error whose edit handles it or stops with `crash!()`;
 // - `panic` with `-> !` is contradictory: a panic returns its error;
-// - no constructor (any kind) or destructor can panic (USER 2026-10-27);
+// - no constructor (any kind) or destructor can panic (decided 2026-10-27);
 // - what is called where no call is written cannot panic, since nothing
 //   could handle it there: an `@implicit` conversion, `op panic` itself.
 // Each gets an edit removing `panic`.
@@ -20,7 +20,7 @@ class Res {
     fn Res(self) panic { self.n = thrower() }
     fn Res(self, n: i32) panic { self.n = n }
     @move fn Res(self, other: Res) panic { self.n = other.n }
-    fn op delete(self) panic { }
+    fn op finally(self) panic { }
     @implicit fn op as (self) panic -> i32 { return self.n }
     fn op panic (const self) panic -> string { return "res" }
 }
@@ -49,9 +49,9 @@ fn main() panic -> i32 {
 // CHECK-NEXT: fix-it:"{{.*}}declarations.k":{22:36-22:41}:""
 // CHECK-NEXT: declarations.k:22:11: note [SC215N]: 'Res' is declared here
 // CHECK-NEXT: declarations.k:22:11: note [SC215N]: construction that can fail belongs in a static factory function that may panic and returns the object
-// CHECK: declarations.k:23:24: error [SC215E]: a destructor cannot panic: it runs on every exit from the object's scope, where nothing could take an error
-// CHECK-NEXT: fix-it:"{{.*}}declarations.k":{23:24-23:29}:""
-// CHECK-NEXT: declarations.k:23:5: note [SC215N]: 'op delete' is declared here
+// CHECK: declarations.k:23:25: error [SC215E]: a destructor cannot panic: it runs on every exit from the object's scope, where nothing could take an error
+// CHECK-NEXT: fix-it:"{{.*}}declarations.k":{23:25-23:30}:""
+// CHECK-NEXT: declarations.k:23:5: note [SC215N]: 'op finally' is declared here
 // CHECK: declarations.k:24:31: error [SC215E]: an '@implicit' conversion cannot panic: it runs where no call is written, so nothing could handle the error
 // CHECK-NEXT: fix-it:"{{.*}}declarations.k":{24:31-24:36}:""
 // CHECK-NEXT: declarations.k:24:15: note [SC215N]: 'op as' is declared here

@@ -1,4 +1,4 @@
-// G7 (Compiler/Sema/NULLABLE.md 2.3): `a === b` is `(a? && b?) && a == b`,
+// `a === b` is `(a? && b?) && a == b`,
 // built by CoalesceLowering and run. Covered: two `i32?` (equal, unequal,
 // null on either side, both null); a non-nullable side (`a === 5`, only
 // `a` is tested) and a literal typed against the other side's `T`
@@ -8,7 +8,7 @@
 // pointee, where `==` compares addresses; a nullable and a plain pointer;
 // call operands bound once, left to right, and not skipped by the test;
 // `===` narrowing its places in the true branch; a generic `T?` body,
-// whose `==` is its bound's (MONO.md D0: an unbounded T has none).
+// whose `==` is its bound's (an unbounded T has none).
 // Each line prints, so a wrong value shows which case broke.
 
 import std::io::println

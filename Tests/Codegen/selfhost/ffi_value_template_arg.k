@@ -1,5 +1,5 @@
 // One of the constructs Compiler/ is written with, checked on Stage 1 ahead
-// of self-hosting (2026-10-24 probe; tickets in private/IMPORTANT/TICKETS.TXT).
+// of self-hosting.
 //
 // An imported C++ class template with a non-type argument:
 // `std::array<i32, 4>` (and llvm::SmallVector<T, N>, which Compiler/

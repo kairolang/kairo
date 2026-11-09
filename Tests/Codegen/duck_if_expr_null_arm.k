@@ -1,4 +1,4 @@
-// O26b: `var id = if (x != &null && isa<..>(x)) => (cast<..>(x)) else => &null;`
+// `var id = if (x != &null && isa<..>(x)) => (cast<..>(x)) else => &null;`
 // in a duck `<T: type>` mixin left the `&null` arm untyped beside a dependent
 // arm, then `id->resolved_decl` ICEd "unbound member step reached codegen".
 // An if-expression with a duck-rooted arm is the instance's: the local is

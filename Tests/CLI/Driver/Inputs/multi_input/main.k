@@ -1,5 +1,5 @@
 import std::io::println
-import foo
+import self::foo
 
 fn main() -> i32 {
     println(f"main {foo::f(2)}");

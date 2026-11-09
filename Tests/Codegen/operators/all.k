@@ -43,7 +43,7 @@ struct Full {
     fn op in(self) -> yield i32                                          // __kairo_iter   (declaration only until YieldLowering)
     fn op as(self) -> i32 { return self.v }                              // operator int
     fn op await(self) -> i32 { return self.v }                           // __kairo_await  (declaration emits; no use until the async lowering)
-    fn op delete(self) { }                                               // ~Full
+    fn op finally(self) { }                                               // ~Full
 }
 
 // Place operators, with the array field they point into.
@@ -238,7 +238,7 @@ fn main() -> i32 {
 // CXX-DAG: __kairo_iter(
 // CXX-DAG: __kairo_pow(
 // CXX-DAG: __kairo_await(
-// CXX-DAG: {{^ *}}signed int& operator[](
+// CXX-DAG: {{^ *}}__attribute__((pure)) signed int& operator[](
 // CXX-DAG: const signed int& operator[]({{.*}}) const noexcept;
 // CXX-DAG: signed int* operator->() noexcept;
 // CXX-DAG: void operator+=(::all::Compound o) noexcept;

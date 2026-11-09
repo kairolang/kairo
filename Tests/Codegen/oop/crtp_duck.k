@@ -4,7 +4,7 @@
 // bounded spelling.
 //
 // `: type` is the transitional C++-checked regime behind -fduck-generics
-// (MONO.md D1): Sema leaves `d->value()` unbound on purpose, EmitIR spells
+// Sema leaves `d->value()` unbound on purpose, EmitIR spells
 // the call as written, and clang resolves it in each instance. It used to
 // ICE there ("EmitIR: unbound callee reached codegen"). Without the flag
 // the same file is an error at each `: type` (duck_generics_gate.k).

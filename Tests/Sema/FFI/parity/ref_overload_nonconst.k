@@ -7,7 +7,7 @@ ffi "c++" import "../ref_overload.h"
 
 fn use_nonconst() {
     var t = T()
-    var r = h(t)
+    var r = h(&t)
 }
 
 // SEMA:      -- inferred decls --

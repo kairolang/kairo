@@ -1,4 +1,4 @@
-// packs/empty_pack_for.k -- exit 0 (P258)
+// packs/empty_pack_for.k -- exit 0
 // `for x in xs` over an empty pack: the `&&` fold over no elements is the
 // bare `true`, which as a statement was clang's "expression result unused"
 // (C1119W at the `for`). The fold is spelled `(void)(... && ...)`.

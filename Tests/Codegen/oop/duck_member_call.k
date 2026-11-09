@@ -1,10 +1,10 @@
-// Member calls through a `<T: type>` parameter (-fduck-generics, MONO.md D1)
+// Member calls through a `<T: type>` parameter (-fduck-generics,)
 // go out as written and clang resolves each one per instance: `.f(...)` on
 // a value, `->f(...)` through a pointer, `.template f<A>(...)` with explicit
 // generic arguments, and `T::f(...)` for a static member -- the shape of
 // Compiler/'s `isa<T>(n)` (`T::classof(n)`). crtp_duck.k is the CRTP case.
 // Only a chain rooted at a `: type` parameter goes out unbound; an unbound
-// step in a bounded body still ICEs (witness/bound_call_member.k, G7).
+// step in a bounded body still ICEs (witness/bound_call_member.k).
 
 struct In { var w: i32 }
 

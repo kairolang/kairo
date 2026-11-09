@@ -1,4 +1,4 @@
-// The user's case (MONO.md G5 tickets): a generic requirement returning the
+// The reported case: a generic requirement returning the
 // interface's associated type, called through the bound, its result held
 // in a `var x: T::Node`, and a `T::Node` built in the body. A generic body
 // builds an associated type only through a constructor its bounds promise

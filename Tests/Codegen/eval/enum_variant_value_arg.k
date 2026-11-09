@@ -3,7 +3,7 @@
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 123
 //
-// G30: a plain enum's variant as an explicit generic VALUE argument
+// A plain enum's variant as an explicit generic VALUE argument
 // (`define<FlagKind::Bool>()`, generics.md "Value parameters": the argument
 // is evaluable at compile time, and a variant is). The path parses as a type,
 // as `Ring<CAP>` does, and its last segment was R023E "'Bool' does not name

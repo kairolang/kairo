@@ -1,6 +1,6 @@
 // RUN: { %kairo %S/first.k %s --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
 //
-// G88b: `make_unique<K>()` where K is a Kairo class deriving a C++ class
+// `make_unique<K>()` where K is a Kairo class deriving a C++ class
 // from a header set <memory>'s never saw. libc++ declares make_unique twice
 // (non-array, and a deleted bounded-array one told apart by SFINAE), and
 // with K unspellable in <memory>'s set clang was never asked, so both tied

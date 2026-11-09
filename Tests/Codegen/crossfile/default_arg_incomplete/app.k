@@ -1,6 +1,6 @@
 import lib::*
 
-// O51: the C++ default argument `= __kairo_default_put_text()` is written on
+// The C++ default argument `= __kairo_default_put_text()` is written on
 // the declaration, and clang builds that call where the declaration is, so
 // the thunk's return type (`string`) must be Complete in every TU holding it.
 // Here app's TU only names Sink and never string by value.

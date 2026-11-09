@@ -2,7 +2,7 @@
 // (explicit, `type Node = i64`) and Map (structural, `type Node = City`).
 // `G::Node` in the body is `typename Graph_witness<G>::Node`, and each row's
 // specialization declares it, so the one template is right for both
-// instances (MONO.md G5, D2). At the call, `pick(Map())` IS a City: the
+// instances. At the call, `pick(Map())` IS a City: the
 // instance fact `G::Node := City`, computed by substitution.
 
 interface Graph {

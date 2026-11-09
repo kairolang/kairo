@@ -1,4 +1,4 @@
-// O40: a member of a class template declared in one header and defined in
+// A member of a class template declared in one header and defined in
 // another (libc++'s <__fwd/string.h> and <string>) is named from the
 // defining header's table. Read from the forward declaration's, `npos` came
 // out as `cend`: "call to non-static member function without an object".

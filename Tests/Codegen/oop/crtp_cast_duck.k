@@ -1,6 +1,6 @@
 // The CRTP downcast under a duck parameter: in `class <T: type> Counter`
 // nothing Kairo-side relates T to Counter<T>, but `: type` is the
-// C++-checked regime (MONO.md D1), so `&self as *T` is written as C++'s
+// C++-checked regime, so `&self as *T` is written as C++'s
 // static_cast and clang checks each instance. An instance whose T does not
 // derive the mixin is clang's error there, never a reinterpret.
 //

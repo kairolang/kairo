@@ -1,4 +1,4 @@
-// P113: what `typeof` cannot do yet is an error, never a crash. In an
+// What `typeof` cannot do yet is an error, never a crash. In an
 // expression position it is a TypeInfo value (type-system.mdx), and
 // TypeInfo does not exist; in a type position only a variable's whole
 // declared type is resolved, so a typeof nested in another type or in a

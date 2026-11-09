@@ -1,4 +1,4 @@
-// O45: `<` between two cxx::std::strings is operator< (a bool), not a
+// `<` between two cxx::std::strings is operator< (a bool), not a
 // three-way compare cast to a narrow integer.
 // RUN: %kairo %s -o %t.exe
 // RUN: %t.exe

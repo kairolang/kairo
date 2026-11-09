@@ -1,4 +1,4 @@
-// The panicking operators PanicLowering does not lower yet (P166 lowers
+// The panicking operators PanicLowering does not lower yet (lowers
 // the rest, Tests/Codegen/panic/operators.k): an `op as`, which C++ spells
 // as a conversion function returning its target type, and a place `op []`
 // returning `*T`, which C++ declares returning `T&`. Each call is SC116E;

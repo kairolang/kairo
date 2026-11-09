@@ -40,15 +40,15 @@ Notes
 
 | # | Status |
 |---|---|
-| 01 | new: P315 |
-| 02 | new: P316 (same family as P312) |
-| 03 | new: P317 |
-| 04 | new: P318 (perf) |
-| 05 | new: P319 |
+| 01 | new: |
+| 02 | new: (same family as ) |
+| 03 | new: |
+| 04 | new: (perf) |
+| 05 | new: |
 | 06 | fixed by d32371d3 (slice subscripts take `const self`); exits 9 now |
-| 07 | new: P320 |
-| 08 | new: P321 |
+| 07 | new: |
+| 08 | new: |
 | 09 | in progress: string `op <=>` (branch bi-string) |
-| 09b | duplicate: the 2026-10-26 c_str ticket and P301; `c_str()` in progress on bi-string |
-| 10 | user error (an arm is one `=> expr`; `=> ({ code = e.code; (10); })` works, exit 11), unclear message: P322 |
-| 11 | duplicate: P300 |
+| 09b | duplicate: the 2026-10-26 c_str ticket; `c_str()` in progress on bi-string |
+| 10 | user error (an arm is one `=> expr`; `=> ({ code = e.code; (10); })` works, exit 11), unclear message: |
+| 11 | duplicate: |

@@ -1,5 +1,5 @@
 // An element of a C++ vector whose argument is a record nested in a generic
-// class (`self.ops[j].kind`, O31) is the instance's: `vector<Op>` is
+// class (`self.ops[j].kind`) is the instance's: `vector<Op>` is
 // instantiation-dependent, so the member step goes out as written and clang
 // resolves it per instance instead of ICEing "unbound member step".
 

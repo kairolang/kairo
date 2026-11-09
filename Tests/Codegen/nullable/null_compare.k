@@ -1,8 +1,8 @@
-// G6 (Compiler/Sema/NULLABLE.md 2.2): the four comparisons with `null`
+// The four comparisons with `null`
 // run as the null test they desugar to -- `x == null` / `null == x` is
 // `x.is_null()`, `x != null` / `null != x` is `!x.is_null()` -- on a value,
 // a record, a call's result and a nullable pointer, where `&null` is the
-// same null as `null` (1.3). Before G5/G6 every one of them ICEd in EmitIR
+// same null as `null` (1.3). Before the fix every one of them ICEd in EmitIR
 // ("user operator; OperatorLowering must rewrite it into a call"): the
 // lowered `null` made the comparison a record operator nobody rewrote.
 //

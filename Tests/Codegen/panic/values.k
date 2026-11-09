@@ -11,13 +11,13 @@ class Cp {
     pub var id: i32
     pub fn Cp(self, id: i32) { self.id = id; }
     @copy fn Cp(self, const other: Self) { self.id = other.id; copies = copies + 1; }
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 class Big {
     pub var id: i32
     pub fn Big(self, id: i32) { self.id = id; }
     @move fn Big(self, other: Self) { self.id = other.id; moves = moves + 1; }
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 fn n1(f: bool) panic(E) -> i32? { if f { panic E { c: 1 } } return null }
 fn n2() panic(E) -> i32? { return 3 }

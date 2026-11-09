@@ -1,4 +1,4 @@
-// P352: `self` in a closure's capture list names the receiver. It was S047E
+// `self` in a closure's capture list names the receiver. It was S047E
 // "expected capture name or '*' in capture list". A closure already captures
 // the receiver it uses, list or no list (ClosureCaptures, CaptureMode::
 // Receiver), so naming it changes nothing for `self` -- but it is what lets

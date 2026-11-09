@@ -1,2 +1,2 @@
-import y
+import self::y
 module geo

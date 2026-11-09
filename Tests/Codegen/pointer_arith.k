@@ -1,6 +1,6 @@
 // Offset arithmetic on a safe pointer, in units of the pointee (pointers.mdx,
 // Pointer Arithmetic, On safe pointers: `*(p + 1)`, `p = p - 1`).
-// P104: the offset is scaled by sizeof T, so `p + 3` lands on arr[3].
+// The offset is scaled by sizeof T, so `p + 3` lands on arr[3].
 
 fn main() -> i32 {
     var arr: [i32; 4] = [10, 20, 30, 40]

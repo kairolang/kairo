@@ -1,7 +1,7 @@
 // RUN: { %kairo %s --type-check-only --error-format=basic 2>&1 || true; } | %FileCheck %s
 //
 // An if-expression arm is a value: a C++ `T&` arm (`v[i]`) beside a `T` arm
-// joins as T. Before G78 this was SC039E "'u64&' ... does not unify with
+// joins as T. Before the fix this was SC039E "'u64&' ... does not unify with
 // the earlier 'u64'" (ImportProbe.k).
 
 ffi "c++" import "vector"

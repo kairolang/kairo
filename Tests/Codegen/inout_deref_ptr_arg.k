@@ -1,4 +1,4 @@
-// O44: an `@inout` argument that is `*p` (marked `&`), followed by an
+// An `@inout` argument that is `*p` (marked `&`), followed by an
 // argument with an effect, is sequenced; the sequencing must bind the pointee
 // itself, not a copy that the callee's `T&` parameter then cannot bind.
 // RUN: %kairo %s -o %t.exe

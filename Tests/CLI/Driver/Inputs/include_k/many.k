@@ -1,3 +1,3 @@
-import twice
-import moved
-import greet
+import self::twice
+import self::moved
+import self::greet

@@ -12,6 +12,6 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: clang
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe 2> %t.err; test $? -eq 134
 // RUN: grep -q 'kairo: division by zero' %t.err

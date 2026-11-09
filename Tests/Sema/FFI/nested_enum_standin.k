@@ -3,7 +3,7 @@
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 7
 //
-// G36: a C++ container of a Kairo record that holds a MEMBER enum
+// A C++ container of a Kairo record that holds a MEMBER enum
 // (`Label::Style`), and of anything holding such a container
 // (`vector<unsafe *Diag>`, Diag holding a `vector<Label>`). Filling the
 // instance needs a C++ stand-in for the element; a member enum's stand-in

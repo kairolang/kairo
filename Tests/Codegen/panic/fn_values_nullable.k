@@ -1,5 +1,5 @@
 // A `fn` value converted to a NULLABLE `fn` type with a wider panic set
-// (P167): EmitIR::_fn_effect_value looks through the `?`, so the value is
+//: EmitIR::_fn_effect_value looks through the `?`, so the value is
 // wrapped as it is for a plain `fn` target and the wrapper becomes the
 // Nullable. Before, the target was not seen and the C++ step failed ("no
 // matching conversion for static_cast ... to Nullable<__kairo_fn<...>>").

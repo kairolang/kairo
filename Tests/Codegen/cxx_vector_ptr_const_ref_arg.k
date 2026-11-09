@@ -1,4 +1,4 @@
-// O38: copying a `vector<*S>` element into another `vector<*S>` passes it as
+// Copying a `vector<*S>` element into another `vector<*S>` passes it as
 // `push_back(const value_type&)`. The const of that parameter qualifies the
 // pointer, so it is spelled `S *const &`; a prefix `const S *&` (const
 // pointee) is a reference clang refuses to bind to the `S *` element.

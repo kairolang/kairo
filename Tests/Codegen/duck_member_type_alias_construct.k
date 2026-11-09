@@ -1,4 +1,4 @@
-// O16: a nested type of a duck `<T: type>` parameter (`T::Guard`) has no type
+// A nested type of a duck `<T: type>` parameter (`T::Guard`) has no type
 // until an instance names T. As a local's type, an alias body, and through the
 // alias as a construction (`G(x)`) it is spelled `typename T::Guard` and clang
 // resolves it per instance, instead of an "unresolved type reached codegen" ICE.
@@ -8,7 +8,7 @@ class Host derives Mixin<Host> {
     class Guard {
         priv var _p: unsafe *Host;
         fn Guard(self, p: unsafe *Host) { self._p = p; p->pos = p->pos + 10; }
-        fn op delete (self) { self._p->pos = self._p->pos + 1; }
+        fn op finally (self) { self._p->pos = self._p->pos + 1; }
     }
 }
 

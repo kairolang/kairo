@@ -1,4 +1,4 @@
-// P353: a lexer warning is reported once. A file is tokenized more than once
+// A lexer warning is reported once. A file is tokenized more than once
 // (the import scan, then the preprocessor walk), and each lex reported its
 // diagnostics again: this octal escape printed S025W three times. The
 // diagnostic engine now drops a repeat of a delivered diagnostic (same code,

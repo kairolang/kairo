@@ -1,4 +1,4 @@
-// G1 (Compiler/Sema/NULLABLE.md 1.4): a `?` after a pointer type applies to
+// A `?` after a pointer type applies to
 // the POINTER: `*T?` is `(*T)?`, `**T?` is `(**T)?`, `*const T?` is
 // `(*const T)?`. Parentheses are the only way to put it on the pointee,
 // `*(T?)`, and the printer keeps them, so the tree shows which one parsed.

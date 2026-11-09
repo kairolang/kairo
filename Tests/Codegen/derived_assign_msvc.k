@@ -9,7 +9,7 @@ class C {
     pub fn C(self, v: i32) { self.v = v }
     @copy
     fn C(self, const other: Self) { self.v = other.v + 1 }
-    fn op delete(self) { self.v = 0 }
+    fn op finally(self) { self.v = 0 }
 }
 
 class M {
@@ -17,7 +17,7 @@ class M {
     pub fn M(self, v: i32) { self.v = v }
     @move
     fn M(self, other: Self) { self.v = other.v + 2 }
-    fn op delete(self) { self.v = 0 }
+    fn op finally(self) { self.v = 0 }
 }
 
 class <X> Box {
@@ -25,7 +25,7 @@ class <X> Box {
     pub fn Box(self, v: X) { self.v = v }
     @copy
     fn Box(self, const other: Self) { self.v = other.v }
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 
 fn main() -> i32 {

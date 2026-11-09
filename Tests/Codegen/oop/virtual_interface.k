@@ -4,7 +4,7 @@
 //
 // XFAIL: *
 // Ticket "[Codegen] Virtual interfaces are not compiled"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today `virtual interface` and
+//. Today `virtual interface` and
 // calls through `*Iface` are not compiled (status.mdx, Not Compiled Yet).
 // When it XPASSes, delete the XFAIL -- the run below is already the real
 // assertion.

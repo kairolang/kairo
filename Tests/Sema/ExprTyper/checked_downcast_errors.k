@@ -1,4 +1,4 @@
-// G18 (casting.md, Downcasting): what the checked downcast `p as (*D)?`
+// What the checked downcast `p as (*D)?`
 // refuses. A base with no virtual method has no runtime type to check
 // (SC025E, note at the base), `as static` never downcasts (SC024E), and
 // unrelated classes are no downcast at all (SC091E). Accepted: a

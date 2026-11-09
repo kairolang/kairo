@@ -31,9 +31,9 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: clang
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s --check-prefixes=ADD,DIV,BUMP
-// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
+// RUN: { %kairo -fduck-generics %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}dependent_run.k
 // CXX: template<class T> T add(T a, T b) noexcept {
 // CXX: auto && __kairo_a0 =(a);

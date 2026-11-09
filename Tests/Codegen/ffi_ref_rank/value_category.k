@@ -19,10 +19,10 @@ fn main() -> i32 {
     if bind(gcl()) != 1 { return 16; }          // `const int&` result
     if bind(x + 1) != 2 { return 17; }          // arithmetic: prvalue
 
-    if lbind(x) != 3 { return 20; }             // non-const lvalue: T&
+    if lbind(&x) != 3 { return 20; }             // non-const lvalue: T&
     if lbind(cx) != 4 { return 21; }            // const lvalue: const T&
     if lbind(1) != 4 { return 22; }             // rvalue: const T& only
-    if lbind(gl()) != 3 { return 23; }
+    if lbind(&gl()) != 3 { return 23; }
 
     if wide(x) != 2 { return 30; }              // i32 lvalue -> long long temporary
     if wide(4) != 2 { return 31; }

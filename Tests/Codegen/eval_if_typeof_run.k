@@ -1,4 +1,4 @@
-// `eval if typeof T == U` (eval.md "Type-based branching", G67): the
+// `eval if typeof T == U` (eval.md "Type-based branching"): the
 // comparison of two types is a compile-time bool, and the unselected
 // branches are not type-checked. Covered: a non-dependent condition (with
 // `!`, `&&`, `!=`, a bare primitive operand) folded in Sema, whose untaken

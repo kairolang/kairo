@@ -1,4 +1,4 @@
-// O29: a friend function also declared at namespace scope was imported as a
+// A friend function also declared at namespace scope was imported as a
 // hidden friend and spelled bare (`begin(...)`), which clang resolves to
 // std::begin ("use of undeclared identifier 'begin'"). Redeclared outside the
 // class it is a namespace member and is spelled qualified.

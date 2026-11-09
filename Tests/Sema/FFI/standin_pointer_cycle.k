@@ -1,12 +1,12 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 //
-// G55: a stand-in with a by-value field of an imported instance segfaulted
+// A stand-in with a by-value field of an imported instance segfaulted
 // the type-check inside clang (Sema::LookupSpecialMember). CS's stand-in
 // got its `vector<unsafe *E>` field from template_id, which only DECLARES
 // the specialization, so CS was a completed record around an incomplete
 // subobject. `pair<u64, CS>` asks whether CS is copy-assignable; declaring
 // CS's implicit copy assignment walked into the vector's missing
-// definition. Reachable once a derived class (E) has a stand-in (G43).
+// definition. Reachable once a derived class (E) has a stand-in.
 // A by-value class field is now completed first, and a pointer names its
 // pointee by a declaration only.
 

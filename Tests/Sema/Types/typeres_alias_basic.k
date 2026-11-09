@@ -65,8 +65,8 @@ fn use_module_alias(m: M::Local) -> i32 { return m.v }
 // the application, then substitutes the argument into the aliased body
 // (RESOLUTION.md §2.6): `WrapAlias<i32>` IS `Wrapper<i32>`, the same
 // canonical and the same instance as if written out. So `.val` through it
-// binds to the field like any member of `Wrapper<i32>`. (Before MONO.md
-// G4 the application stayed instantiation-dependent with no canonical,
+// binds to the field like any member of `Wrapper<i32>`. (Before
+// the application stayed instantiation-dependent with no canonical,
 // and `.val` was deferred with no answer.) Applications that stay
 // dependent are Tests/Sema/Types/generic_alias_application.k's.
 //

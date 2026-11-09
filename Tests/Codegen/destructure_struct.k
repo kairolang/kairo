@@ -4,7 +4,7 @@
 //
 // XFAIL: *
 // Ticket "[Sema/Codegen] Struct destructuring (`var {a, b} = s`) is SC116E"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today: SC116E "destructuring a
+//. Today: SC116E "destructuring a
 // struct by field name is not yet supported". When it XPASSes, delete the
 // XFAIL -- the run below is already the real assertion.
 

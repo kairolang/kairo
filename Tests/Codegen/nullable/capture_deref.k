@@ -1,4 +1,4 @@
-// P50 (NULLABLE.md 3.7), run: inside a `|*x|` closure, `(*x)?` narrows `*x`,
+// Run: inside a `|*x|` closure, `(*x)?` narrows `*x`,
 // and the narrowed read lowers to `(*x).__value()`, which reads (and
 // writes) the captured variable itself. The error forms are
 // Sema/Nullable/capture_deref.k.

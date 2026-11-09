@@ -9,5 +9,5 @@
 ffi "c++" import "Inputs/si1_noncopy.h"
 
 fn main() -> i32 {
-    return take_two(getd(), getd(), 3)
+    return take_two(&getd(), &getd(), 3)
 }

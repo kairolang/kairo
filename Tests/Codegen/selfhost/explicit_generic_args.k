@@ -1,5 +1,5 @@
 // One of the constructs Compiler/ is written with, checked on Stage 1 ahead
-// of self-hosting (2026-10-24 probe; tickets in private/IMPORTANT/TICKETS.TXT).
+// of self-hosting.
 //
 // Explicit generic arguments for a parameter the call arguments cannot
 // deduce: `zero<i32>()`, `width<u64>()` -- the shape of Casting.k's

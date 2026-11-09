@@ -1,4 +1,4 @@
-// G12 (Compiler/Sema/NULLABLE.md 3.4): a call that may write a place the
+// A call that may write a place the
 // analysis cannot see the value of ends its check. Each `bad_*` reads a
 // place the check proved, after a call that weakens it, and is the SC265E
 // with a note naming that call; each `ok_*` is a use the rule leaves

@@ -1,6 +1,6 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
 //
-// G82: a derived pointer reaches `*Base` and `*const Base` at the same rank;
+// A derived pointer reaches `*Base` and `*const Base` at the same rank;
 // C++ takes the less qualified one ([over.ics.rank]/3.2.1), so the call is
 // not ambiguous. `cast(p)` and `is_recovery(p)` in the compiler's own tree
 // were SC064E for every derived `p`.

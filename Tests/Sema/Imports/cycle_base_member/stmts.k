@@ -4,7 +4,7 @@
 // the cycle runs each phase in lockstep. ChainBinding ran inside each TU's
 // T, so entered at this file, lower.k bound `n->range` before this TU's T
 // had resolved `LabeledStmt derives Stmt`: R025E "no member named 'range'"
-// (G31, ~1400 of the self-host's R025E). Every TU's T now runs first.
+// (~1400 of the self-host's R025E). Every TU's T now runs first.
 // CHECK-NOT: error
 
 import base::*

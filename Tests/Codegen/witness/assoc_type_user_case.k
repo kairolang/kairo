@@ -1,4 +1,4 @@
-// The user's original case (MONO.md G5), with the missing `return` added:
+// The originally reported case, with the missing `return` added:
 // a generic requirement `fn <T> foo(self, x: T) -> Node` and a bounded body
 // `-> T::Node`. Bare `Node` inside the interface and the class is legal and
 // draws the readability lint (SC001W, 4be237fd): expected here, and the

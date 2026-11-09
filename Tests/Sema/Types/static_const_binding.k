@@ -4,7 +4,7 @@
 // pointee) is the type's business and unchanged.
 //
 // Assigning to one is not diagnosed by Sema yet: no const binding's is
-// (TICKETS.TXT "Assigning to a `const` local is not diagnosed by Sema");
+//;
 // clang refuses the generated assignment. The const type below is what a
 // ConstChecking pass will read.
 

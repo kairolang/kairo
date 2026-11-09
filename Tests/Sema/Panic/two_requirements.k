@@ -1,5 +1,5 @@
 // A method that meets two panicking requirements -- two interfaces, or an
-// override that is also a conformer -- whose panic sets differ (P174). C++
+// override that is also a conformer -- whose panic sets differ. C++
 // gets ONE return type for it, the first requirement's panic result, and
 // the other's witness (or the vtable) names its own: before, that failed in
 // C++ ("no viable conversion from 'Panic<int, Missing>' to 'Panic<int,

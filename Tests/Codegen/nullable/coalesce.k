@@ -1,4 +1,4 @@
-// G8 (Compiler/Sema/NULLABLE.md 2.4): `x ?? y` is `if x? => x else y`,
+// `x ?? y` is `if x? => x else y`,
 // built by CoalesceLowering and run. Covered: values and pointers, a place
 // read twice (`a`, `x.cache`, `self.cache`) with no temporary; a call on
 // the left bound ONCE (its side effects counted) and its value MOVED out of
@@ -15,7 +15,7 @@ class Widget {
     pub var id: i32
     pub fn Widget(self, id: i32) { self.id = id; println(f"+Widget {id}") }
     @move fn Widget(self, other: Self) { self.id = other.id; other.id = 0 }
-    fn op delete(self) { if self.id != 0 { println(f"~Widget {self.id}") } }
+    fn op finally(self) { if self.id != 0 { println(f"~Widget {self.id}") } }
 }
 
 class Box {

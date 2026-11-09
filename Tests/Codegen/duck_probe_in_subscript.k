@@ -1,4 +1,4 @@
-// A dependent operator probe (O42) or pointer-step wrapper (O49) is a C++ lambda;
+// A dependent operator probe or pointer-step wrapper is a C++ lambda;
 // as a subscript index, `v[[](...)...]` opens a C++ attribute and clang rejects
 // it ("consecutive left square brackets"). The probes are parenthesized.
 

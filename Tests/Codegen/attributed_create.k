@@ -1,6 +1,6 @@
 // Heap allocation with `@create T(args)` in expression position
 // (attributes.mdx; modules.mdx: `var *p = @create i32(42)`). The sugar is a
-// call of alloc.k's create (P91, Sema/Expand/AllocSugarDesugar.k), so alloc.k
+// call of alloc.k's create (Sema/Expand/AllocSugarDesugar.k), so alloc.k
 // must be visible: the builtin prelude does not re-export it.
 
 import builtin::base::alloc::*

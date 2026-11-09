@@ -4,7 +4,7 @@
 //
 // XFAIL: *
 // Ticket "[Lib] `std::alloc` / `std::free` do not exist"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today: R025E "no member named
+//. Today: R025E "no member named
 // 'alloc' in module 'std'" (and 'free'). When they land they must require an
 // unsafe context: the docs' Buffer example in classes-lifecycle.mdx calls
 // them without one, filed as a docs bug. When it XPASSes, delete the XFAIL --

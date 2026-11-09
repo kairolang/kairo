@@ -1,4 +1,4 @@
-// G8 (Compiler/Sema/NULLABLE.md 2.4): the type of `x ?? y` is the join of
+// The type of `x ?? y` is the join of
 // the arms of `if x? => x else y`. Each `t_*` initializes a `bool` from a
 // `??` so the conversion error names the type the operator got:
 //   - `i32? ?? i32` is `i32`; `i32? ?? i32?` is `i32?`; a chain `a ?? b ?? 4`

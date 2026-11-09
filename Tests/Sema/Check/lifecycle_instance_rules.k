@@ -1,12 +1,12 @@
 // The lifecycle rules a generic class's declaration cannot decide -- its
 // facts hang on T -- are asked of each instance a use needs, with the
-// instance's own facts (ClassLifecycle::instance_failures; MONO.md G6), and
-// reported at that use with the instantiation chain (D6), like an unmet
+// instance's own facts (ClassLifecycle::instance_failures), and
+// reported at that use with the instantiation chain, like an unmet
 // bound: a defaulted @copy over a field the instance cannot copy (SC129E),
 // a category that no longer matches the base's (SC061E), a non-trivial
 // destructor over a base without a virtual one (SC056E). An instance that
 // meets them (`Cell<i32>`, `Der<i32>`) is not reported, and neither is the
-// generic declaration itself. Before G6 every one was silently accepted.
+// generic declaration itself. Before the fix every one was silently accepted.
 
 class Mv {
     pub var id: i32
@@ -62,4 +62,4 @@ fn main() -> i32 { return 0; }
 // DIAG-NEXT: lifecycle_instance_rules.k:34:1: note [I900N]: base declared here
 // DIAG: lifecycle_instance_rules.k:47:13: error [SC056E]: class 'Der<string>' has a non-trivial destructor, but its base 'Base' does not have a virtual destructor; deleting a 'Der<string>' through a '*Base' would run only 'Base''s destructor and leak the rest
 // DIAG-NEXT: lifecycle_instance_rules.k:39:23: note [I900N]: 'Base' is a base of 'Der<string>' here
-// DIAG-NEXT: lifecycle_instance_rules.k:34:1: note [I900N]: declare 'virtual fn op delete(self)' in 'Base'
+// DIAG-NEXT: lifecycle_instance_rules.k:34:1: note [I900N]: declare 'virtual fn op finally(self)' in 'Base'

@@ -9,13 +9,13 @@ class Base {
     var a: i64
     fn Base(self) { self.a = 1 }
     @copy fn Base(self, other: Self) = delete
-    virtual fn op delete(self) { }
+    virtual fn op finally(self) { }
 }
 class Derived derives Base {
     var b: [i64; 8]
     fn Derived(self) { self.a = 2 }
     @copy fn Derived(self, other: Self) = delete
-    override fn op delete(self) { }
+    override fn op finally(self) { }
 }
 // No destructor of its own: it inherits Derived's virtual one, and its
 // layout too must be its own.

@@ -1,11 +1,11 @@
 // `===` on nullables compares the values with their `==`, one level down
 // on nullable pointers (nullables.mdx, Null-aware equality). In a generic
-// body that `==` is T's, and under MONO.md D0 T has only what its bounds
+// body that `==` is T's, and under T has only what its bounds
 // grant: an unbounded `T` has no `==`, so `same` is refused at its
 // definition. This test used to be an XFAIL asking that `same` at
 // `T = *i32` compare the pointees; that is not expressible under D0
 // (nothing a bound says makes T a pointer, and the body is typed once), so
-// the decision (MONO.md G11) is the error below. With a bound declaring
+// the decision is the error below. With a bound declaring
 // `op ==`, `===` on a `T?` runs through the bound's witness
 // (witness/bound_ops.k); a `(*T)?` written as such compares pointees, whose
 // `==` is again T's.

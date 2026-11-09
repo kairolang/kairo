@@ -1,4 +1,4 @@
-// O39: a `const` parameter of a generic record's own instance type is a
+// A `const` parameter of a generic record's own instance type is a
 // reference (Doc: Parameter passing modes), not a by-value copy, so a
 // move-only record passes; and it borrows a MOVE argument, which stays live.
 // REQUIRES: clang
@@ -13,14 +13,14 @@ class Alloc {
         self.head = other.head;
         other.head = &null;
     }
-    fn op delete (self) { self.head = &null; }
+    fn op finally (self) { self.head = &null; }
 }
 
 class <T> List {
     priv var owned: Alloc;
     priv var n: usize = 0;
     fn List(self) { }
-    fn op delete (self) { self.n = 0; }
+    fn op finally (self) { self.n = 0; }
     fn push(self, x: T) { self.n += 1; }
     fn size(const self) -> usize { return self.n; }
 }

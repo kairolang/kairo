@@ -1,9 +1,9 @@
-// G18 (Compiler/Sema/NULLABLE.md; casting.md, Downcasting): the checked
+// The checked
 // downcast `p as (*D)?` is C++'s dynamic_cast on a pointer, its null
 // pointer the NULL nullable (storage is tagged: a `Nullable<D*>` holding
 // nullptr would be present). Null when the dynamic type is not D or a
 // class below it; the right pointer -- adjusted, from a second base --
-// when it is. Spelled `as (*Dog)?` (`*Dog?` means the same since G1).
+// when it is. Spelled `as (*Dog)?` (`*Dog?` means the same since the fix).
 // Covered: a hit, a miss, a class below the target, a second base, a
 // `*const` source, `if d?` narrowing the result, and the cast in generic
 // bodies (target pointee `T`, source pointee `T`), where C++ checks it per

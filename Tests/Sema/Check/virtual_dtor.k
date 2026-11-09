@@ -1,18 +1,18 @@
 class Base {
     @copy fn Base(self, other: Self) = delete
-    fn op delete(self) { } virtual fn area(self) -> i32 { return 0 }
+    fn op finally(self) { } virtual fn area(self) -> i32 { return 0 }
 }
 class Derived derives Base {                // expect: error class 'Derived' has a non-trivial destructor, but its base 'Base' does not have a virtual destructor
     @copy fn Derived(self, other: Self) = delete
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 class VBase {
     @copy fn VBase(self, other: Self) = delete
-    virtual fn op delete(self) { }
+    virtual fn op finally(self) { }
 }
 class VDerived derives VBase {              // expect: clean
     @copy fn VDerived(self, other: Self) = delete
-    override fn op delete(self) { }
+    override fn op finally(self) { }
 }
 class Plain derives Base {                  // expect: clean -- trivial derived dtor
     @copy fn Plain(self, other: Self) = delete
@@ -23,22 +23,22 @@ class Holder derives Base {                 // expect: error -- a non-trivial fi
 }
 class Deep derives VDerived {               // expect: clean -- virtual inherited through VDerived
     @copy fn Deep(self, other: Self) = delete
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 class Mixin {                               // no virtual method: never deleted through
     @copy fn Mixin(self, other: Self) = delete
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 class UsesMixin derives Mixin {             // expect: clean -- a non-polymorphic base is exempt (clang's -Wdelete-non-virtual-dtor)
     @copy fn UsesMixin(self, other: Self) = delete
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 class Mid derives Base {                    // polymorphic through Base, trivial dtor
     @copy fn Mid(self, other: Self) = delete
 }
 class Leaf derives Mid {                    // expect: error -- Mid is polymorphic by inheritance
     @copy fn Leaf(self, other: Self) = delete
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 
 // --- lit wiring -----------------------------------------------------------

@@ -1,4 +1,4 @@
-// generics/static_member_value.k -- exit 0 (P222)
+// generics/static_member_value.k -- exit 0
 // A static member used as a VALUE inside a generic is spelled through what
 // names it. A static requirement through a bounded parameter (`A::make`) is
 // the witness's member, as a `::` call is -- the requirement itself is no

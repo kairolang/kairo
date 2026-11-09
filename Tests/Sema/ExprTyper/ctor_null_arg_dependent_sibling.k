@@ -1,11 +1,11 @@
-// RUN: { %kairo %s --type-check-only --error-format=basic 2>&1 || true; } | %FileCheck %s --allow-empty
+// RUN: { %kairo -fduck-generics %s --type-check-only --error-format=basic 2>&1 || true; } | %FileCheck %s --allow-empty
 //
 // `Ded(self.dyn()->sc, &null)` inside a generic class: the first argument is
 // instantiation-dependent, so the constructor is undecided and the bare
 // `&null` has no parameter to take its pointer type from. It stays untyped
 // (it goes out as `nullptr`, converting to whichever pointer the instance's
 // constructor takes), as `_type_args_dependent` does for a member call,
-// instead of SC076E "cannot infer the pointer type of '&null'" (G99 d,
+// instead of SC076E "cannot infer the pointer type of '&null'" (
 // MemberTyping.k).
 
 class Ctx { pub var x: i32 = 0 }

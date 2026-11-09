@@ -1,6 +1,6 @@
-// G4 (Compiler/Sema/NULLABLE.md 1.6): `var x? = e` is the nullable
+// `var x? = e` is the nullable
 // shorthand. The `?` belongs to the declaration, not to the initializer:
-// before G4 it was left for the statement parser and read as the start of
+// before the fix it was left for the statement parser and read as the start of
 // an expression (S052E "expected expression, found '?'"). It is accepted on
 // `var`, `const` and `static` bindings, local or at file scope, and the
 // tree keeps it on the name (`var a?`) with no type: Sema infers one.

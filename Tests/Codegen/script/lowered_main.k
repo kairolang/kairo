@@ -1,7 +1,7 @@
 // The shape of a lowered script, from --print-lowered: the deferred
 // globals keep their names with `T?` storage, and `main` is a synthesized
 // function whose first statement is the teardown `finally` (a record
-// whose `op delete` nulls the globals, last-declared first), followed by
+// whose `op finally` nulls the globals, last-declared first), followed by
 // each deferred line's assignment and each statement in source order. A
 // read in main after its line is the narrowed `__value()` read; the
 // constant `K` is no global main touches.
@@ -17,7 +17,7 @@ b = a + b + K
 // RUN: %kairo %s --type-check-only --print-lowered | %FileCheck %s --check-prefix=LOW
 // LOW:      ===== SEMA fid {{[0-9]+}}: {{.*}}lowered_main.k =====
 // LOW:      -- name bindings --
-// LOW-NEXT:   <tu>::main::__kairo_Fin0::op delete
+// LOW-NEXT:   <tu>::main::__kairo_Fin0::op finally
 // LOW-NEXT:     b           @ 13:1     -> var b @ 13:1  [pre-bound: not resolved by N(b)]
 // LOW-NEXT:     a           @ 12:1     -> var a @ 12:1  [pre-bound: not resolved by N(b)]
 // LOW-NEXT:   <tu>::main

@@ -3,7 +3,7 @@
 // RUN: { %kairo %S/sizes.k %S/words.k --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
 // RUN: { %kairo %S/words.k %S/sizes.k --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
 //
-// G108: on LP64 `vector<usize>` and `vector<u64>` are ONE clang
+// On LP64 `vector<usize>` and `vector<u64>` are ONE clang
 // specialization, `vector<unsigned long>`, but two Kairo instances. Their
 // members had one Kairo decl each (one USR), and each fill re-defined them
 // with its own argument mapping, so whichever instance filled LAST decided

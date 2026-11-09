@@ -1,4 +1,4 @@
-// A `<T: type>` record is C++-checked per instance (MONO.md D1): a member
+// A `<T: type>` record is C++-checked per instance: a member
 // body that uses an operator T lacks is an error only for an instance that
 // CALLS it. The explicit instantiation `template class FL<NoEq>;` the plan
 // writes for every instance instantiates EVERY member, so FL<NoEq> failed
@@ -31,11 +31,11 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
+// RUN: { %kairo -fduck-generics %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}duck_unused_member_no_explicit_inst.k
 // CXX-NOT:   template class{{.*}}FL<
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.exe --cache-dir %t.d/run
+// RUN: %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d/run
 // RUN: %t.exe

@@ -1,4 +1,4 @@
-// Kairo classes with an `op delete` as std::variant alternatives
+// Kairo classes with an `op finally` as std::variant alternatives
 // (Inputs/variant_dtor: shapes2.k, variant_main.cpp). std::visit reads
 // their fields; `emplace` of the other alternative destroys the held Cat
 // exactly once, and the variant's own destruction destroys the Dog: each

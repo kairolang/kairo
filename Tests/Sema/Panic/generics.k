@@ -1,4 +1,4 @@
-// Panic sets in generic bodies (PANIC.md P10, MONO.md D0/D5): a generic
+// Panic sets in generic bodies (PANIC.md): a generic
 // body's set is computed once, at its definition -- what it raises, its
 // concrete callees' sets, and the DECLARED sets of the bound requirements
 // it calls, read at the bound's arguments -- and is checked there like any

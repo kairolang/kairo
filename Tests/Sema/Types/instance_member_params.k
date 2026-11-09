@@ -1,6 +1,6 @@
 // A member of a generic record, reached through a concrete instance, takes
 // the instance's arguments for the record's parameters before any call
-// argument is ranked (MONO.md G4): on `Box<i32>`, `fn set(self, v: T)` is
+// argument is ranked: on `Box<i32>`, `fn set(self, v: T)` is
 // `set(v: i32)`. Deduced from the arguments instead, T became whatever was
 // passed -- `b.set(NullT {})` was accepted as T := NullT, and a constructor
 // taking `T` tied an exact one (Tests/Codegen/generic_ctor_overload.k).

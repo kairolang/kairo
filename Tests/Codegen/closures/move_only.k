@@ -14,7 +14,7 @@ class Handle {
     pub var id: i32 = 0
     fn Handle(self, id: i32) { self.id = id; live += 1 }
     @move fn Handle(self, other: Self) { self.id = other.id; other.id = 0 }
-    fn op delete(self) { if self.id != 0 { live -= 1 } }
+    fn op finally(self) { if self.id != 0 { live -= 1 } }
 }
 
 fn read_once() -> i32 {

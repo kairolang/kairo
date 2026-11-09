@@ -1,6 +1,6 @@
 // A member call through a `<T: type>` parameter is bound by no one until
-// C++ instantiates the body (MONO.md D1), so Sema cannot see that the
-// callee panics. Before (P184), `drop_it(Boom())` compiled and ran: the
+// C++ instantiates the body, so Sema cannot see that the
+// callee panics. Before, `drop_it(Boom())` compiled and ran: the
 // discarded `Panic<int, int>` raised only clang's nodiscard warning, and
 // the panic was dropped. Every such call now goes out as
 // `(::__kairo_nopanic(), t.value())`, whose `operator,` static_asserts that

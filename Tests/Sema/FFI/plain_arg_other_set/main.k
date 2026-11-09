@@ -1,6 +1,6 @@
 // RUN: { %kairo %S/first.k %S/second.k %s --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
 //
-// G80: `vector` is first.k's set's, which never includes item.h, and
+// `vector` is first.k's set's, which never includes item.h, and
 // `cq::Item` is second.k's set's. An argument that is a plain record of a
 // THIRD set had no spelling in either, so the instance never filled and
 // `size` / `push_back` were "no member named" (R025E). The record is now

@@ -1,6 +1,6 @@
 // Every member of `[T]` (Lib/builtin/containers/vector.k) on a trivially
 // copyable element: the API Compiler/ uses of Stage 0's vec
-// (private/IMPORTANT/api-surface.md), plus `push` (collections.mdx) and the
+//, plus `push` (collections.mdx) and the
 // `[T;]` view. Each check returns its own exit code, so a failure names
 // itself; 0 is a pass.
 

@@ -2,9 +2,9 @@
 // two extension files, Scalable from ea.k and Named from eb.k. u1.k imports
 // them in one order and u2.k in the other (and sits deeper in the DAG, so it
 // is checked second). An instance's rows are the union over every TU that
-// checked it, in first-found order (MONO.md D7), so both TUs' C++ carry the
+// checked it, in first-found order, so both TUs' C++ carry the
 // same two witness specializations in the same order, whatever each
-// imported first. (A pin, not a regression test: before D7 the first TU's
+// imported first. (A pin, not a regression test: before the fix the first TU's
 // list was kept, and here it was already the same.)
 //
 // Its extensions break the not-yet-diagnosed orphan rule on purpose; see

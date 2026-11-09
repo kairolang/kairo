@@ -1,4 +1,4 @@
-// P110: a generic declared in a branch of an imported file's file-scope
+// A generic declared in a branch of an imported file's file-scope
 // `eval if` is known to this file's `<` disambiguation. The index pass walks
 // every branch (taken or not, which only Sema decides), so `pick<i32> + 1`
 // is a generic name, not `pick < i32 > +1`. The call shape `pick<i32>(1)`

@@ -1,4 +1,4 @@
-// O29: a value-initialised local of a hidden-tag type (`struct ::stat`,
+// A value-initialised local of a hidden-tag type (`struct ::stat`,
 // MMapRegion's `kairo::posix_stat()`) was emitted as `struct::stat()`, which
 // is no expression ("expected expression"); an elaborated type specifier is
 // not a simple-type-specifier. The head is spelled `__typeof__(struct ::stat)`.

@@ -3,7 +3,7 @@ class Handle {
 
     pub fn Handle(self, fd: i32) { self.fd = fd }
     @move fn Handle(self, other: Self) { self.fd = other.fd; other.fd = -1 }
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 
 class Plain {

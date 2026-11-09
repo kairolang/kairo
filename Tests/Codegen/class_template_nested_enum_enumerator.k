@@ -1,4 +1,4 @@
-// O27: an enumerator of an enum nested in a class template, named inside the
+// An enumerator of an enum nested in a class template, named inside the
 // template's own members, is spelled over the template's parameters
 // (`::stem::G<T>::E::B`); the argument-less `::stem::G::E::B` is a clang
 // "use of class template requires template arguments".

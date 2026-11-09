@@ -1,4 +1,4 @@
-// A branch hint reaches the branch (P230). `__builtin_expect(c, e)` is
+// A branch hint reaches the branch. `__builtin_expect(c, e)` is
 // clang's builtin at the call site, not a call to a library function that
 // wraps it: behind that call the hint weighted the callee's return and the
 // caller's branch kept none. `@likely if` / `@unlikely if` are C++'s

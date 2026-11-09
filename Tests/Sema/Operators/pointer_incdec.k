@@ -1,4 +1,4 @@
-// P328: `++p` / `--p` (and the postfix forms) on a pointer are `p += 1` /
+// `++p` / `--p` (and the postfix forms) on a pointer are `p += 1` /
 // `p -= 1` (pointers.mdx, Pointer Arithmetic), on both kinds: a safe
 // pointer is allowed, staying inside its allocation is Tether's to prove,
 // as for `p + 1`. A prefix one is the pointer place again; a postfix one

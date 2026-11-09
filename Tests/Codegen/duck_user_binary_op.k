@@ -1,4 +1,4 @@
-// O24: `start | self.dyn()->prev().range` -- a user `op |` whose right operand is
+// `start | self.dyn()->prev().range` -- a user `op |` whose right operand is
 // duck-typed (no type) under a `<T: type>` mixin -- ICEd "user operator;
 // OperatorLowering must rewrite it into a call". It is emitted as the C++
 // operator expression and clang picks the instance's operator.
@@ -35,5 +35,5 @@ fn main() -> i32 {
 // --- lit wiring ---
 // REQUIRES: clang
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 7

@@ -27,7 +27,7 @@ pub class Batch {
     // Move-only: a custom destructor over an implicit copy is SC060W, now
     // that Frame<i32> has lifecycle facts of its own and Batch reads as COPY.
     @move fn Batch(self, other: Self) = default
-    fn op delete(self) { println("[Kairo] Batch::~Batch() RAII dtor fired from C++ scope!") }
+    fn op finally(self) { println("[Kairo] Batch::~Batch() RAII dtor fired from C++ scope!") }
 }
 
 pub fn make_burst(base: i32, count: i32) -> Frame<i32> = .Burst { base: base, count: count }

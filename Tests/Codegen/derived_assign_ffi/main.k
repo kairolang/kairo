@@ -34,7 +34,7 @@ fn main() -> i32 {
 // RUN: cat $(find %t.h -name lib.hh) | %FileCheck %s --check-prefix=HDR
 // HDR:      #pragma once
 // HDR-NEXT: #include <new>
-// HDR:      C& operator=(const{{ ?}}::{{.*}}C& o) {
+// HDR:      C& operator=(const{{ ?}}::{{.*}}C& o) noexcept {
 // RUN: %clangxx -std=c++20 -fsyntax-only -include $(find %t.h -name lib.hh) -include vector -x c++ - < /dev/null
 // RUN: %clangxx -std=c++20 -fsyntax-only -include vector -include $(find %t.h -name lib.hh) -x c++ - < /dev/null
 // RUN: %clangxx -std=c++2c -fsyntax-only -include $(find %t.h -name lib.hh) -include vector -x c++ - < /dev/null

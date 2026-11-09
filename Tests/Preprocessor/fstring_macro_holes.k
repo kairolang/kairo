@@ -1,4 +1,4 @@
-// P267: an f-string is one token, and its holes are token buffers the
+// An f-string is one token, and its holes are token buffers the
 // preprocessor's walk never visited. A macro parameter written in a hole
 // (`macro g!(x) { f"v={x}" }`) was not substituted and an invocation in a
 // hole (`f"v={m!}"`) was not expanded: the parser met the raw `x` / `m`

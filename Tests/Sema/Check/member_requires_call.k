@@ -1,4 +1,4 @@
-// P235: a call of a generic record's member whose `requires` does not hold
+// A call of a generic record's member whose `requires` does not hold
 // for the receiver's arguments is a Kairo error at the call, naming the
 // predicate that is false -- not clang's at the member's trailing clause.
 // A predicate Sema cannot decide is left to C++; one that holds is silent.
@@ -18,7 +18,7 @@ class Tracked {
     var v: i32
     fn Tracked(self) { self.v = 1 }
     @copy fn Tracked(self, other: Self) = delete
-    fn op delete(self) { self.v = 0 }
+    fn op finally(self) { self.v = 0 }
 }
 
 fn bad(bt: *Box<Tracked>) -> *Tracked { return bt->get() }

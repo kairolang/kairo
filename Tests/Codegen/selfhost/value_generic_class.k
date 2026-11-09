@@ -1,5 +1,5 @@
 // One of the constructs Compiler/ is written with, checked on Stage 1 ahead
-// of self-hosting (2026-10-24 probe; tickets in private/IMPORTANT/TICKETS.TXT).
+// of self-hosting.
 //
 // A class generic over a constant, the TokenBuffer shape
 // (`class <const CHUNK_SIZE: usize> TokenBuffer` in Stage 0 syntax, ~100

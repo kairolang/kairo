@@ -3,7 +3,7 @@
 // string's fields private behind as_ptr()/length(), which are run-time fns:
 // an eval context cannot call them (SC001E), and C++ cannot read them in a
 // constant expression. Flip back when eval code can read a string's bytes
-// and length again. See TICKETS.TXT.
+// and length again.
 // EVAL.md 2a: a string literal is eval-able. Where C++ reads one at compile
 // time -- an eval binding, an eval fn's body, an argument of an eval call
 // made from run-time code, an eval class's field -- its bytes are

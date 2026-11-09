@@ -2,7 +2,7 @@
 // RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
 //
 // The result of a call through a bound is the requirement's declared return
-// type at the BOUND's arguments (MONO.md D0: the body is checked once, against
+// type at the BOUND's arguments (the body is checked once, against
 // its bounds). `c.shine()` through `C impl Fancy<i32>` is an i32, so it is an
 // ordinary value from there on: a member of it binds (`c.wrap().w`), a call
 // on it chains, and it is checked where it lands (bound_call_result_err.k).

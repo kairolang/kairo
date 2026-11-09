@@ -1,4 +1,4 @@
-// P113: `typeof e` in a type position is the type `var y = e` would infer
+// `typeof e` in a type position is the type `var y = e` would infer
 // for that variable (type-system.mdx, "Typeof Identity Semantics"). It used
 // to crash twice over: the operand was parsed as a whole expression, so
 // `var y: typeof x = 100` was `typeof (x = 100)` with no initializer, and

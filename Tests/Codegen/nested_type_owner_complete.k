@@ -1,4 +1,4 @@
-// O28: a member signature naming `Holder::Inner` is spelled through Holder in
+// A member signature naming `Holder::Inner` is spelled through Holder in
 // C++, which must be complete at that declaration. User sits ahead of Holder
 // in the source, so the plan must still emit Holder's definition first
 // ("incomplete type named in nested name specifier").

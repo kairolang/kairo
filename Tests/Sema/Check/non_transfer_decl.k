@@ -4,7 +4,7 @@ class ScopeLock {
     fn ScopeLock(self, const other: Self) = delete
     @move
     fn ScopeLock(self, other: Self) = delete   // expect: clean -- X(X&&) beside X(const X&)
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 class TwoCopies {
     var n: i32;

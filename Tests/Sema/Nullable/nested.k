@@ -1,4 +1,4 @@
-// NULLABLE.md 1.5 (G3): `(T?)?` is a type of its own, Nullable<Nullable<T>>,
+//: `(T?)?` is a type of its own, Nullable<Nullable<T>>,
 // never collapsed to `T?`. Written by hand it is warned about (S055W, with
 // a note: outside generic code it is usually a mistake) and kept nested;
 // reached by substitution (`V?` with `V = i32?`) it is the same nested

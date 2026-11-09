@@ -1,5 +1,5 @@
 // Associated types resolve once, at the definition, through the bound
-// (interfaces.md, Associated Types; MONO.md D0). `Self::Node` inside the
+// (interfaces.md, Associated Types). `Self::Node` inside the
 // interface and `T::Node` in a body bounded `T impl Graph` are one abstract
 // type, so a requirement returning `Self::Node` called through the bound
 // types as `T::Node` and initializes a `var x: T::Node`. An inherited

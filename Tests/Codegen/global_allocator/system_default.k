@@ -1,7 +1,7 @@
 // With no `@set_global_allocator` in the program, the kairo_global_*
 // symbols are the runtime's weak definitions (Lib/rt/global_alloc.c):
 // System, malloc up to 2 * sizeof(void *) and the aligned entry points
-// past it, exactly as alloc.k's System (P227).
+// past it, exactly as alloc.k's System.
 
 ffi "c++" import "rt/global_alloc.h"
 

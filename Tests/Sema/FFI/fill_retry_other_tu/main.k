@@ -1,6 +1,6 @@
 // RUN: { %kairo %S/first.k %s -I %S --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
 //
-// G101: first.k demands the fill of unique_ptr<Thing> first, from a set
+// First.k demands the fill of unique_ptr<Thing> first, from a set
 // that cannot spell Thing (nor can <memory>'s primary set). That failure
 // was sticky, so this TU -- whose own set sees thing.h -- found the
 // instance unfilled too: `pointer` stayed '<ffi type>' and the constructor

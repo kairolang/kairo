@@ -4,7 +4,7 @@
 // instance as if written out, so members, overloads and conversions see
 // through it. An application over a generic parameter (`B<U>`) is that
 // body over U, dependent like any other use of U, and deduces as `Box<U>`
-// would. MONO.md G4: before, every application stayed
+// would.: before, every application stayed
 // instantiation-dependent with no canonical, so `b.v` had no answer and
 // `gen(b)` could not deduce U.
 

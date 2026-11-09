@@ -42,6 +42,7 @@ fn main() -> i32 { return outside() }
 // DIAG: {{.*}}:21:15: error [SC242E]: operator 'op -' of 'Num' is protected
 // DIAG-NEXT: fix-it:"{{.*}}/access_operators_lib.k":{7:5-7:9}:"pub"
 // DIAG-NEXT: {{.*}}/access_operators_lib.k:7:16: note [SC242N]: 'op -' is declared protected here: accessible only in the file that declares 'Num' and in classes that derive from it
+// DIAG: {{.*}}:21:15: warning [SC272W]: 'op -' is 'prot', but its file has no module.k above it, so it is shared with no other file; add a module.k to the directory that should share it
 // DIAG: {{.*}}:23:13: error [SC242E]: operator 'op []' of 'Num' is private
 // DIAG-NEXT: fix-it:"{{.*}}/access_operators_lib.k":{9:5-9:9}:"pub"
 // DIAG-NEXT: {{.*}}/access_operators_lib.k:9:16: note [SC242N]: 'op []' is declared private here: accessible only in the file that declares 'Num'

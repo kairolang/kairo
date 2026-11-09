@@ -4,7 +4,7 @@
 //
 // XFAIL: *
 // Ticket "[Codegen] `async` closures and functions emit as plain ones"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today an `async` function
+//. Today an `async` function
 // compiles to an ordinary function returning its plain result, so `await f()`
 // is SC086E "'await' requires a 'Future', not 'i32'". Nothing makes a Future.
 // (Until async is lowered it should be gated SC116E.) When it XPASSes, delete

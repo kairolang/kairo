@@ -1,13 +1,13 @@
-// G4 (Compiler/Sema/NULLABLE.md 1.6): `var x? = e` end to end. Each binding
+// `var x? = e` end to end. Each binding
 // is the ::builtin::Nullable of its initializer's type, one level (a `T?`
 // initializer is not wrapped again), and holds the value it was given:
 // a present Widget is destroyed exactly once, at reassignment, at `= null`
 // or at scope exit, and a moved-in Widget leaves its source empty. No null
-// test exists before G5, so nothing reads a value back here; what runs is
+// test exists before the fix, so nothing reads a value back here; what runs is
 // the declaration, its conversions and its lifecycle.
 // The once-rule is decided when the body is typed: in a generic body
 // `var x? = t` is `T?`, so `T = i32?` gives `(i32?)?` (substitution never
-// collapses, NULLABLE.md 1.5). A destructuring binder `(a?, b)` shares the
+// collapses,). A destructuring binder `(a?, b)` shares the
 // rule: `a` from an `i32?` element is `i32?`.
 
 import std::io::println
@@ -16,7 +16,7 @@ class Widget {
     pub var id: i32
     pub fn Widget(self, id: i32) { self.id = id }
     @move fn Widget(self, other: Self) { self.id = other.id; other.id = 0 }
-    fn op delete(self) { if self.id != 0 { println(f"~Widget {self.id}") } }
+    fn op finally(self) { if self.id != 0 { println(f"~Widget {self.id}") } }
 }
 
 struct P { var x: i32 = 1 }

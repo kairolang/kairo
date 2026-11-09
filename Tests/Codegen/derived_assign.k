@@ -19,7 +19,7 @@ class C {
         copies = copies + 1
         order = order * 10 + 2
     }
-    fn op delete(self) {
+    fn op finally(self) {
         drops = drops + 1
         order = order * 10 + 1
     }
@@ -33,7 +33,7 @@ class M {
         self.v = other.v
         moves = moves + 1
     }
-    fn op delete(self) { drops = drops + 1 }
+    fn op finally(self) { drops = drops + 1 }
 }
 
 class <X> Box {
@@ -44,7 +44,7 @@ class <X> Box {
         self.v = other.v
         copies = copies + 1
     }
-    fn op delete(self) { drops = drops + 1 }
+    fn op finally(self) { drops = drops + 1 }
 }
 
 // Every part trivial: the derived `op =` is C++'s own.
@@ -146,22 +146,22 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}generator.k
 // CXX-NEXT:  #include <new>
-// CXX:       Yield& operator=({{ ?}}::builtin::coro::generator::Yield<T>&& o) {
+// CXX:       Yield& operator=({{ ?}}::builtin::coro::generator::Yield<T>&& o) noexcept {
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}suspend.k
 // CXX-NOT:   #include <new>
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}future.k
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}derived_assign.k
 // CXX-NEXT:  #include <new>
 // CXX:       class C {
-// CXX:       C& operator=(const{{ ?}}::derived_assign::C& o) {
+// CXX:       C& operator=(const{{ ?}}::derived_assign::C& o) noexcept {
 // CXX-NEXT:  if{{ ?}}(this{{ ?}}!={{ ?}}&{{ ?}}o) {
 // CXX-NEXT:  ~C();
 // CXX-NEXT:  new{{ ?}}(static_cast<void{{ ?}}*>(this)) C(o);
 // CXX:       class M {
-// CXX:       M& operator=({{ ?}}::derived_assign::M&& o) {
+// CXX:       M& operator=({{ ?}}::derived_assign::M&& o) noexcept {
 // CXX:       new{{ ?}}(static_cast<void{{ ?}}*>(this)) M(static_cast<M&&>(o));
 // CXX:       template<class X> class Box {
-// CXX:       Box& operator=(const{{ ?}}::derived_assign::Box<X>& o) requires{{ ?}}(__is_destructible(X)) {
+// CXX:       Box& operator=(const{{ ?}}::derived_assign::Box<X>& o) noexcept requires{{ ?}}(__is_destructible(X)) {
 // CXX:       Box& operator=(const{{ ?}}::derived_assign::Box<X>&) requires{{ ?}}(!{{ ?}}(__is_destructible(X))) = delete;
 // CXX:       class T {
 // CXX:       T& operator=(const{{ ?}}::derived_assign::T&) = default;

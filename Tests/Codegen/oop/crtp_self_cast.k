@@ -1,7 +1,7 @@
 // CRTP without `unsafe`: inside `class <X derives Mixin<X>> Mixin` the bound
 // says every X is a Mixin<X>, so `&self as *const X` is a downcast whose
 // target is known statically -- no vtable needed, like C++'s static_cast in
-// CRTP (user decision 2026-10-28: allowed when the bound proves the
+// CRTP (decided 2026-10-28: allowed when the bound proves the
 // relation, lowered to static_cast; every other unrelated pointer cast
 // stays SC091E, Tests/Sema/ExprTyper/crtp_cast_errors.k).
 //

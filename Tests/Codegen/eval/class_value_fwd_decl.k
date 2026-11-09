@@ -29,7 +29,7 @@ fn main() -> i32 {
 // got none ("no template named 'Widget'"), and its argument `Pt(2, 3)`
 // needed Pt complete ("invalid use of incomplete type"). Widget's forward
 // declaration now follows Pt's definition, and Holder's definition follows
-// both (P160).
+// both.
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty

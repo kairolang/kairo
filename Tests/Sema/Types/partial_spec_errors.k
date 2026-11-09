@@ -1,10 +1,10 @@
 // Sema/Types/partial_spec_errors.k
-// NULLABLE.md G0: the specializations Sema refuses. Two partials that both
+//: the specializations Sema refuses. Two partials that both
 // match and neither more specialized (C++ [temp.class.order]) make the
 // instance ambiguous, reported once at its first written mention, with both
 // candidates; `Pair<f64, f64>` is not ambiguous, `<W> Pair<W, W>` alone
 // matches it. A partial selected by a `requires` clause is legal since
-// MONO.md G12 (Sema/Types/partial_spec_requires.k): `Pair<*Z, *Z>` here
+// (Sema/Types/partial_spec_requires.k): `Pair<*Z, *Z>` here
 // simply matches none of the instances used.
 pub struct <A, B> Pair { pub var a: A; pub var b: B }
 pub struct <X> Pair<X, i32> { pub var left: X }

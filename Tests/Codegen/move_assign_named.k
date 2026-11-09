@@ -16,7 +16,7 @@ class M {
         self.v = other.v
         moves = moves + 1
     }
-    fn op delete(self) { drops = drops + 1 }
+    fn op finally(self) { drops = drops + 1 }
 }
 
 fn named() -> i32 {

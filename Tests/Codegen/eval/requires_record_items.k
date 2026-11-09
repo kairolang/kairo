@@ -1,5 +1,5 @@
 // A generic record's `requires` value predicate that names an eval fn or an
-// eval constant (P126). The template head is written before any of them is
+// eval constant. The template head is written before any of them is
 // declared, so such a predicate is a static_assert in the record's body,
 // evaluated per instance, with the items it names defined ahead of the
 // record (EmitPlan's early items). The self-contained predicate stays on the

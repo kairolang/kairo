@@ -11,7 +11,7 @@
 // CHECK: note [I900N]: 'get' names it here
 // Trap C: two different defaults for one associated type:
 // CHECK: interface_algebra_errors.k:43:27: error [SC168E]: associated type 'K' is given two different defaults, 'i32' and 'f64'
-// No requirements, written or composed (D8):
+// No requirements, written or composed:
 // CHECK: interface_algebra_errors.k:45:1: error [SC165E]: interface 'Empty' has no requirements; every type conforms to it, so it constrains nothing. Remove it
 // CHECK: interface_algebra_errors.k:46:1: error [SC165E]: interface 'Gone' has no requirements; every type conforms to it, so it constrains nothing. Remove it
 // A leaf that is not an interface:

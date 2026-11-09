@@ -3,7 +3,7 @@
 // string's fields private behind as_ptr()/length(), which are run-time fns:
 // an eval context cannot call them (SC001E), and C++ cannot read them in a
 // constant expression. Flip back when eval code can read a string's bytes
-// and length again. See TICKETS.TXT.
+// and length again.
 import lib::*
 
 // EVAL.md 1.2b: an eval binding is `inline constexpr`, and its definition

@@ -1,4 +1,4 @@
-// G17 (Compiler/Sema/NULLABLE.md 3.7), run: the writes through an alias
+// Run: the writes through an alias
 // the analysis refuses to ignore are real. `*p = null` through `var p = &x`
 // and through a copy `var q = p` null `x`; a pointer passed to `keep`,
 // which stores it in a global, lets a LATER call (`clobber()`) null `x`;

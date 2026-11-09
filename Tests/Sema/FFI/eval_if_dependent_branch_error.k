@@ -1,4 +1,4 @@
-// O23: a branch of an `eval if typeof T == U` over a generic parameter is typed
+// A branch of an `eval if typeof T == U` over a generic parameter is typed
 // once with its diagnostics held back (which branch runs is per instance).
 // An error in it that was only dropped left a poisoned node, no diagnostic at
 // type-check and an EmitIR ICE at -c. It is reported now. Here `usize > u32`

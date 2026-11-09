@@ -1,4 +1,4 @@
-// O5: a member of a concrete C++ instance (`out.push_back(x)` on a
+// A member of a concrete C++ instance (`out.push_back(x)` on a
 // `vector<*A>`) whose ARGUMENT is dependent (`cur as *A`, `cur` of a
 // `<T: type>` type) is left to its overload set by Sema. EmitIR used to ICE
 // "unpromoted callee step"; it now goes out as written and clang picks the
@@ -27,5 +27,5 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 1

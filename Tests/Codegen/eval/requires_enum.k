@@ -1,4 +1,4 @@
-// An enum's `requires` value predicate (P254), as requires.mdx writes it:
+// An enum's `requires` value predicate, as requires.mdx writes it:
 // `enum <T> Compact requires sizeof T <= 8`. The clause did not parse on an
 // enum, and Codegen spelled value predicates on a class, struct or union
 // only, so every instance was accepted. An ADT enum is written as its

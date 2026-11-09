@@ -10,7 +10,7 @@ class Node {
 
     @move fn Node(self, other: Self) = default
 
-    fn op delete(self) {
+    fn op finally(self) {
         if self.left? { @destroy(self.left) }
         if self.right? { @destroy(self.right) }
     }

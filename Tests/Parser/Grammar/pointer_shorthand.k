@@ -1,13 +1,13 @@
-// G20 (Compiler/Sema/NULLABLE.md 1.7): `var *y = e` is the pointer
+// `var *y = e` is the pointer
 // declaration shorthand. Any number of stars, an optional `unsafe` before
 // the first, and the nullable `?` after the name combine (`var *y? = e`).
-// Before G20 the star was read where the name belongs: S046E "expected a
+// Before the fix the star was read where the name belongs: S046E "expected a
 // name after the binding keyword". Accepted on `var`, `const` and
 // `static`, local or at file scope; the tree keeps the stars on the name
 // with no type (Sema infers one and checks the stars against it).
 //
 // Two spellings are refused here (S058E, invalid binding syntax), the same
-// two G4 refuses for `?`:
+// two refuses for `?`:
 //  - `var *y: T`: the stars restate the annotation; the fix-it drops them
 //    and the annotation is kept;
 //  - a field `var *f: T`: a field's type is declared, never inferred.

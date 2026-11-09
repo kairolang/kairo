@@ -1,6 +1,6 @@
 // A CRTP base whose parameter carries an interface bound, beyond
 // crtp_bounded.k's one shape. Kairo checks `X impl I` at the use, once X is
-// complete (D0); the C++ class template carries no `requires` on its head,
+// complete; the C++ class template carries no `requires` on its head,
 // because clang would check it at `class S : Mixin<S>`, where S is still
 // incomplete. The home TU pins the bound with a static_assert after the
 // explicit instantiation instead.

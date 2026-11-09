@@ -1,6 +1,6 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
 //
-// G107: `make_unique<Gen>(inc_ref)` where the argument's class is only
+// `make_unique<Gen>(inc_ref)` where the argument's class is only
 // forward-declared in the call's header set. The quiet attempt at clang's
 // deduction treated EVERY failure as undecided, including the plain `enable_if`
 // removal of libc++'s deleted bounded-array overload, so it tied with the

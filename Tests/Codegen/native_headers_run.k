@@ -1,4 +1,4 @@
-// Compiler/Native's runtime pieces, compiled by Stage 1 and RUN (P346): the
+// Compiler/Native's runtime pieces, compiled by Stage 1 and run, the
 // behaviour the compiler relies on, with Kairo types in the C++ templates.
 //
 //   StackBuf  keeps N inline and grows to the heap past them; the elements

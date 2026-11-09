@@ -1,4 +1,4 @@
-// witness/static_decltype_return.k -- exit 0 (P221)
+// witness/static_decltype_return.k -- exit 0
 // A requirement whose return type C++ spells with parentheses of its own
 // (`-> usize` is `decltype(sizeof(0))`) gets a well-formed member-pointer
 // gate in the witness. The gate's type was made by splitting the signature

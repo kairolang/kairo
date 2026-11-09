@@ -1,11 +1,11 @@
 // witness/visibility/late.k -- a row is a program-wide fact, but a TU may
 // only USE one whose implementing extension it (transitively) imports
-// (MONO.md D7; RESOLUTION.md §2b, Visibility). sees.k imports ea.k, whose
+// (RESOLUTION.md §2b, Visibility). sees.k imports ea.k, whose
 // `extend Metric impl Scalable` makes `twice<Metric>` conform there; blind.k
 // imports neither ea.k nor anything that does, and calls the same
 // `twice<Metric>`. The c1-c3 chain only orders the TUs so that blind.k is
 // checked AFTER sees.k: the row and the live instance already exist when
-// blind.k meets them. Before D7 blind.k reused both and was silently
+// blind.k meets them. Before the fix blind.k reused both and was silently
 // accepted; now it is checked against what it can see, and the note names
 // the extension it does not import.
 //

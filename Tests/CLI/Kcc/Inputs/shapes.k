@@ -14,7 +14,7 @@ pub class Tracer {
 
     pub fn Tracer(self) { println("Tracer()"); }
     @move pub fn Tracer(self, other: Self) = default;
-    pub fn op delete(self) { println("~Tracer()"); }
+    pub fn op finally(self) { println("~Tracer()"); }
 
     pub fn hit(self, n: i32) -> i32 {
         self.hits += n;

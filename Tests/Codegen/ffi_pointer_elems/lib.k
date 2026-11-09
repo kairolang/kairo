@@ -3,7 +3,7 @@ ffi "c++" import "vector"
 
 pub class Node {
     pub var id: i32
-    fn Node(self, id: i32) { self.id = id }
+    pub fn Node(self, id: i32) { self.id = id }
 }
 
 pub fn total(v: cxx::std::vector<*Node>) -> i32 {

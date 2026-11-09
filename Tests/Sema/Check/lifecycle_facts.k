@@ -9,7 +9,7 @@ class ScopeLock {
     fn ScopeLock(self, const other: Self) = delete
     @move
     fn ScopeLock(self, other: Self) = delete
-    fn op delete(self) { }
+    fn op finally(self) { }
 }
 enum Mode { Read, Write }
 enum Num { One { n: i32 }, Two { p: *i32 } }

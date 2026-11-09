@@ -1,4 +1,4 @@
-// P331 across the C++ boundary: a Kairo function whose string parameter is
+// across the C++ boundary: a Kairo function whose string parameter is
 // never mutated is declared `const string&` in what `#include "words.k"`
 // gives the host, and defined so in words.o, built by a separate run. A
 // host that takes its address with the header's signature links against

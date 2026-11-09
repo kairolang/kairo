@@ -1,6 +1,6 @@
 // The CRTP shapes Compiler/ is written with (93 `class X derives
 // Y::<X>` sites over 7 mixin templates, ~1,300 `self.dyn()->` calls),
-// reduced to their Stage-1 spelling under `: type` (-fduck-generics, MONO.md
+// reduced to their Stage-1 spelling under `: type` (-fduck-generics,
 // D1) and run:
 //
 //  - RecursiveASTVisitor / ASTWriter: a dispatcher in the mixin that calls

@@ -1,11 +1,11 @@
-// G5 (Compiler/Sema/NULLABLE.md 2.1): `x?` tests a nullable, and nothing
+// `x?` tests a nullable, and nothing
 // else. On a non-nullable value -- a primitive, a safe or raw pointer, a
 // record, a call's result -- it is SC066E (no operator for this operand
 // type) naming the operand, with a note at the declaration that made it
 // non-nullable when the operand is a name. The node is poisoned, so the
 // condition it sits in reports nothing further. On a nullable it is `bool`
 // (--print-sema: `ok` and `nn` infer bool), including `(i32?)?` and a
-// generic `T?`; a bare `t?` on a generic `T` is the same SC066E (MONO.md D0).
+// generic `T?`; a bare `t?` on a generic `T` is the same SC066E.
 
 struct P { var x: i32 = 1 }
 

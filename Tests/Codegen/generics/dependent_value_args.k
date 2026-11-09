@@ -1,4 +1,4 @@
-// P127 with VALUE arguments: a call in a generic body that passes the
+// with VALUE arguments: a call in a generic body that passes the
 // enclosing generic's value parameter, or an expression of it, keeps the
 // argument in the emitted C++, as a type argument does
 // (dependent_explicit_args.k).

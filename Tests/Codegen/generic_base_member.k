@@ -1,7 +1,7 @@
 // A member a generic BASE declares, reached through a derived receiver,
 // reads through the base instance the receiver derives: on `class Fixed
 // derives Base<i32>`, Base's `fn get(self) -> T` is an i32 and its field
-// `t` too. The receiver's own arguments were bound before (MONO.md G4.2),
+// `t` too. The receiver's own arguments were bound before (.2),
 // its bases' were not, so the result stayed `T`: unknown at type-check and
 // an unbound member step in codegen (`f.wrap().t`).
 //

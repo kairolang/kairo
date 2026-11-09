@@ -3,7 +3,7 @@
 // one decl registered under the nested record's USR.
 ffi "c++" import "../traits_typedef.h"
 
-fn make() -> holder<alloc>::node {
+pub fn make() -> holder<alloc>::node {
     var n: holder<alloc>::node
     return n
 }

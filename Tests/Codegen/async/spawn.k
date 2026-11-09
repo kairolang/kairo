@@ -2,8 +2,8 @@
 // compiles; the program does not depend on the detached work.
 //
 // XFAIL: *
-// Ticket "[Codegen] `spawn` and the `thread` expression ICE in EmitIR"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today `spawn work()` type-
+// Ticket "[Codegen] `spawn` and the `thread` expression ICE in EmitIR".
+// Today `spawn work()` type-
 // checks and ICEs: "EmitIR: spawn; the async lowering owns it" (`thread
 // work()` likewise: "EmitIR: thread; the async lowering owns it"). status.mdx
 // says they "do nothing yet"; until they are lowered they should be SC116E,

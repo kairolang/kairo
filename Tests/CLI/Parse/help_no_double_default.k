@@ -1,11 +1,11 @@
-// --help appends the rendered default only when the description does not
+// --help (and --help-hidden, which lists the unimplemented --xray) appends the rendered default only when the description does not
 // already state one, so no line carries two "(default" groups, and -O keeps
 // its "-O0 (default)" wording without a second default.
 
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: %kairo --help | %FileCheck %s
+// RUN: %kairo --help-hidden | %FileCheck %s
 // CHECK: --xray <value>
 // CHECK-SAME: (default: none)
 // CHECK-NOT: (default: none) (default: none)

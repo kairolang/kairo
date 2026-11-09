@@ -1,4 +1,4 @@
-// P338: a write through the mutable `[]` keeps codepoints() right. The
+// A write through the mutable `[]` keeps codepoints() right. The
 // operator hands out a raw byte place and never sees the store, so it
 // marks the count stale and codepoints() counts the bytes (string.k,
 // CPS_STALE). Each write below changes what the bytes encode: an ASCII

@@ -1,4 +1,4 @@
-// G12 (Compiler/Sema/NULLABLE.md 3.4), run: the writes that end a check
+// Run: the writes that end a check
 // are real. Each case checks a place, lets a call change it, re-checks,
 // and prints what the re-check found, which is what the analysis refused
 // to assume: an `@inout` argument nulled (`bump(&x)`), a field nulled

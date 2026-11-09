@@ -5,8 +5,8 @@
 //
 // XFAIL: *
 // Ticket "[Sema] `T(args)` in a bounded body is not checked against the
-// bound's constructor requirement" (private/IMPORTANT/TICKETS.TXT,
-// 2026-10-24). Today CallTyping::_param_ctor_call matches the ARITY only,
+// bound's constructor requirement" (2026-10-24).
+// Today CallTyping::_param_ctor_call matches the ARITY only,
 // so `T("seven")` type-checks and clang decides it per instance. The error
 // code is not decided; the check below asks for an error at the call. When
 // it XPASSes, delete the XFAIL and pin the code and message.

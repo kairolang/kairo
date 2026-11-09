@@ -126,7 +126,7 @@ def classify(s, t):
     nonnum = s if s.cat in ("bool", "char", "byte") else t
     other = t if nonnum is s else s
     if nonnum.cat == "char" and other.cat == "int":
-        # USER RULING 2026-11-04: char (32-bit scalar) <-> integer is implicit
+        # Decided 2026-11-04: char (32-bit scalar) <-> integer is implicit
         # only when the target is equal or wider; the pointer-sized types and
         # everything else need `as`.
         if other.ptr:

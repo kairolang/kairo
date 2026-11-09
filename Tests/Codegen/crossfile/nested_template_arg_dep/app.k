@@ -1,6 +1,6 @@
 import lib::*
 
-// O30: `Outer::Inner` as an argument of a template that holds it only by
+// `Outer::Inner` as an argument of a template that holds it only by
 // pointer. Outer was admitted at forward strength (the argument is not by
 // value), yet C++ needs it complete to resolve the nested-name-specifier:
 // clang reported "incomplete type 'Outer' named in nested name specifier".

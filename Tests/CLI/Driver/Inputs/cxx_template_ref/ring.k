@@ -27,7 +27,7 @@ pub class <T> RingBuf {
         return &self.data[idx]
     }
 
-    fn op delete(self) {
+    fn op finally(self) {
         println("  [Kairo] RingBuf::~RingBuf() destroyed!")
     }
 }

@@ -1,6 +1,6 @@
 // What a body may not do with an associated type it names correctly,
 // each a diagnostic at the use (interfaces.md, Generic Bodies: a body uses
-// exactly what its bounds declare; MONO.md G5):
+// exactly what its bounds declare):
 //  - build one without a constructor bound (`{ }`, `()`), or with a field
 //    list, which no bound can promise;
 //  - fall off the end of a body declared to return one (SC104E), as any

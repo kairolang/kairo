@@ -1,4 +1,4 @@
-// O42: a range-for over a C++ vector inside a class that declares its own `op ==`
+// A range-for over a C++ vector inside a class that declares its own `op ==`
 // emitted the iterator test as `operator ==(it, end)`; the member found by name
 // lookup hid the std one from ADL. A free imported operator is now written infix.
 

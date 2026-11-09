@@ -1,4 +1,4 @@
-// O33: a `#` (or non-ASCII) name is one Kairo identifier but no C++ token;
+// A `#` (or non-ASCII) name is one Kairo identifier but no C++ token;
 // the declaration and every use must spell it the same mangled way, not ICE
 // in EmitSink::spell. Exit 0 means all three names resolved and summed right.
 // RUN: %kairo %s -o %t.exe

@@ -23,7 +23,7 @@ class <T> Box {
 struct <R, A> Traits { }
 
 // Over a pack (`<T, ...Args> Traits<Box<T>, Args...>`) the partial is SC116E,
-// P138: Tests/Sema/Types/partial_spec_pack.k.
+// Tests/Sema/Types/partial_spec_pack.k.
 struct <T, A> Traits<Box<T>, A> {
     pub type P = Box<T>::Elem
 }
