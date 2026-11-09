@@ -169,4 +169,4 @@ Both are CRTP: a pass derives one and overrides only the hooks it needs.
 
 ## Grammar
 
-[Grammar.ebnf](Grammar.ebnf) is an informative EBNF sketch of the language. It is not generated from the parser and not checked against it, and it is known to be out of date; the productions in `Compiler/Parser/` are the authority, and the language reference defines what each construct means.
+[Grammar.ebnf](Grammar.ebnf) is the language's grammar in W3C-style EBNF, generated from the tree-sitter grammar (`Extras/LSPClients/tree-sitter-kairo/grammar.js`) by `Scripts/gen_grammar_ebnf.py`; `--check` reports whether it is current. It leaves out what EBNF cannot say: operator precedence and associativity, and the tree-sitter grammar's declared conflicts. The productions in `Compiler/Parser/` remain the authority where the two disagree, and the language reference defines what each construct means.

@@ -1,291 +1,606 @@
-// Kairo grammar sketch. Status: informative only.
+// Kairo grammar, W3C-style EBNF.
 //
-// This file is not generated from the parser and is not verified against it.
-// It predates much of the current syntax and is known to be out of date (for
-// example: fixed arrays are written `[T; N]`, the power operator is `^^`,
-// `intl`, `noreturn` and `switch` are not keywords, and identifiers may contain
-// `#` and non-ASCII letters). The authority for syntax is the parser in
-// Compiler/Parser/ (see Compiler/Spec/Parsing.md); the authority for meaning
-// is the language reference. Do not cite this file for either.
-
-/* Base */
-delimiter   ::= "\t" | "\n" | "EOF" | ' '  | ','  | ';' ;
-ident       ::= [A-Za-z_][A-Za-z0-9_]*;
-digit       ::= [0-9];
-bin_digit   ::= [0-1];
-octal_digit ::= [0-7];
-hex_digit   ::= [0-9a-fA-F];
-
-/* Utils */
-// generic only allows for const or eval'd expressions to be used, they can be variables but must
-// be const and known at compile time
-self      ::= '&'? "self";                                // self  == *this | &self == this
-generic   ::= '<' (type | expr) (',' (type | expr))* '>'; // <T, V, R> | <i32, 1>
-fn_return ::= "->" type;                                  // -> T
-
-// change this to a binary operator
-operator_path   ::= "op" operator;                                   // op+ | op-
-scoped_path_elm ::= "*"* (ident | operator_path) '?'? generic?;      // x | op+ | self | x<T> | *x | Foo <T>
-member_path     ::= expr '.' scoped_path_elm;                        // x.y | x<T>.y   | x::V.y | x::V[T].*y.z
-scoped_path     ::= ("::")? scoped_path_elm ("::" scoped_path_elm)*; // ::V | V | V[T] | V[T]::R
-
-visibility ::= "pub"    | "priv"  | "prot" | "intl";
-specifiers ::= "unsafe" | "const" | "eval" | "static" | "async" | "inline" ;
-qualifier  ::= "unsafe" | "const" | "eval" | "static" | "async" | "inline" | "noreturn";
-
-param           ::= ident ':' type;                                         // x: i32
-untyped_param   ::= '*'* ident '?'?;                                        // x | *x | x? | *x? | **x | **x?
-implicit_params ::= (param | untyped_param) (',' (param | untyped_param))*; // e: i32 | e: i32, x: i32
-default_param   ::= param '=' expr;                                         // x: i32 = 1
-parameters      ::= ("const"? (param | default_param)) (',' "const"? (param | default_param))*; // (x: i32, y: i32 = 1) | (x: i32) | ()
-
-named_argument        ::= ident ':' expr; // x: 1
-argument_seq          ::= (named_argument | expr) (',' (named_argument | expr))*; // (x: 1, y: 2) | (1, 2) | ()
-implicit_argument_seq ::= ('.'? named_argument) (',' ('.'? named_argument))*;     // if a dot is found all the following named args must have a .
-explicit_argument_seq ::= named_argument (',' named_argument)*;                   // if a dot is found all the following named args must have a .
-
-/* Literals */
-// blank expressions only need to be used if the type is questionable otherwise for something like
-// `var x: [i32; 5];` is default initialized
-
-// ---- base ---- //
-numeric_suffix      ::= primitives | ident;                                     // i32 | f32 | u8 | ...
-exponent_part       ::= ('e' | 'E' | 'p' | 'P') ('+' | '-')? digit+;            // e-3 | p+3
-binary              ::= "0b"   bin_digit+;                                      // 0b1
-octal               ::= '0'    octal_digit+ ;                                   // 0o1
-hexadecimal         ::= "0x" ((hex_digit+ ('.' hex_digit*)?) | '.' hex_digit+); // 0x1 | 0x1.2 | 0x1p-3
-floating            ::= (digit+ '.' digit+ (exponent_part)?)                    // 1.2 | 1.2e-3
-                    |   ('.'   digit+ (exponent_part)?)                         // .2 | .2e-3
-                    |   (digit+ exponent_part);                                 // 1e-3
-
-fixed_point    ::= binary      | octal;     // 1 | 0b1 | 0o1 | 0x1
-floating_point ::= hexadecimal | floating ; // 0x1.2p-3 | 1.2e-3 | 1.2
-
-// ---- derived ---- //
-boolean    ::= "true" | "false";                               // true | false
-null       ::= '&'? "null";                                    // &null == nullptr
-numeric    ::= (floating_point | fixed_point) numeric_suffix?; // 1.2f32 | 1.2e-3f32 | 1.2 | 1.2e-3 | 0b1 | 0o1 | 0x1 | 1
-string     ::= ident? '"'   [^"]* '"';                         // "hello" | f"hello {1}" | custom_suffix "hello"
-raw_string ::= ident? '"""' [^"]* '"""';                       // """hello""" | f"""hello "{names[1]}" welcome!""" | custom_suffix """hello"""
-character  ::= ident? "'"   [^']  "'";                         // 'a'  | f'{a}' | custom_suffix 'a'
-array      ::= '[' expr (',' expr)* ']';                       // [1, 2, 3]
-set        ::= '{' expr (',' expr)* '}';                       // {1, 2, 3}
-map        ::= '{' expr  ':' expr  (',' expr ':' expr)* '}';   // {1: 2, 3: 4}
-
-string_literal ::= string  | raw_string     | character;
-literal        ::= numeric | string_literal | boolean | null | array | set | map;
-
-/* Operators */
-assignment_operators ::= '=' | '+=' | '-=' | '*=' | '/=' | '%=' | '&=' | '|=' | '^=' | '<<=' | '>>=' | '**=' | '@=';
-binary_operators ::= '::' | '.' | '.*' | '->' | '->*'
-                 |   'as' | 'in' | 'impl' | 'derives';
-logical_operators ::= '!' | '&&' | '|' | '==' | '===' | '!=' | '>' | '<' | '>=' | '<=';
-bitwise_operators ::= '~' | '&'  | '|' | '^' | '<<' | '>>';
-arithmetic_operators ::= '+' | '-' | '*' | '/' | '%' | ',' | '@' | '**';
-
-// FIXME: det if derives is needed or can we expand extend to cover this
-special_operators ::= "impl" | "derives";
-
-unary_operators ::=  ".." | "..="; // omnidirectional unary operators
-unary_postfix   ::=  'r'? ('++' | '--' | '?' | '...' | '?.' );
-unary_prefix    ::= ('l'? ('+' | '-'       | '~'      | '!'     | '++'    | '--'     | '&' | '*' ))
-                    ("delete"  | "await"   | "async"  | "panic" | "yield" | "thread" |
-                     "sizeof"  | "alignof" | "typeof" | "const" | "unsafe");
-
-operator        ::= ('::' | unary_prefix) | unary_postfix | binary_operators | logical_operators | bitwise_operators | arithmetic_operators | special_operators;
-
-/* Types */
-primitives ::= "void" | "bool" | "usize" | "isize" | "f32"  | "f64"  | "f80"
-           |   "f128" | "u8"   | "u16"   | "u32"   | "u64"  | "u128" | "u256"
-           |   "i8"   | "i16"  | "i32"   | "i64"   | "i128" | "i256" | '?'; // ? == questionable void
-
-fn_pointer ::= "fn' '(" type (',' type)* ')' fn_return; // fn (T, V) -> R | fn () -> void
-tuple      ::= '(' type ((',' type)*) ')';  // (T, V) | (T, V, R)
-array      ::= '[' type 'of' expr ']';      // [6 of T] (N of T) // TODO: change syntax
-vec        ::= '[' type ']';                // [T]
-map        ::= '{' type ':' type '}';       // {T: V}
-set        ::= '{' type '}';                // {T}
-
-built_in ::= fn_pointer | primitives | tuple | array | vec | map | set;
-
-// FIXME: remove eval from here if it's not needed
-type_modifiers ::= "const" | "unsafe" | "yield" | "async" | "eval"; // const T | unsafe T | yield T | async T | eval T
-type_hint  ::= "interface" // interface T (interfaces arn't types)
-           |   "struct"    // struct T
-           |   "class"     // class  T
-           |   "enum"      // enum   T
-           |   "type"      // type   T
-           |   "module";   // module T
-
-
-pointer  ::= '*' type; // *T
-question ::= type '?'; // ?T
-
-type_path ::= '::' type generic?; // ::T
-type      ::= (type_modifiers? type_hint? (built_in | pointer | question | primitives) generic? (type_path+)?) | type_path;
-
-/* Expressions */
-explicit_initializer ::= type '{' explicit_argument_seq? '}'; // T {  x: 1,  y: 2 }
-implicit_initializer ::= '{' implicit_argument_seq? '}';      //   { .x: 1, .y: 2 }
-
-inline_try_catch   ::= "try" ':' expr ("catch" implicit_params? ':' expr)+;  // var x: i32 = try: foo() catch e: 1 catch: 2
-inline_if_else     ::= "if" expr ':' expr "else" ':' expr;    // if z: x else: y
-sub_script         ::= expr '[' expr ']';                     // x[1] | x::V[1] | x::V<T>.y[1]
-parenthesized_expr ::= '(' expr ')';                          // (1 + 2)
-function_call      ::= expr '(' argument_seq? ')';            // x(1, 2, 3) | x::V(1, b: 2) | x()
-match_var          ::= ("var" | "const") (ident | param);     // var x
-
-/* FIXME: [MAYBE] add requires here */
-lambda             ::= "fn" '(' parameters? ')' qualifier* fn_return? block;  // fn (x: i32, y: i32) -> i32 { x + y }
-tuple_expr         ::= '(' expr (',' expr)+ ')';                   // (1, 2, 3)
-array_expr         ::= '[' expr (',' expr)* ']';                   // [1, 2, 3]
-set_expr           ::= '{' expr (',' expr)* '}';                   // {1, 2, 3}
-map_expr           ::= '{' expr ':' expr (',' expr ':' expr)* '}'; // {1: 2, 3: 4}
-
-binary_expr  ::= expr (assignment_operators | logical_operators | bitwise_operators | arithmetic_operators | special_operators | binary_operators) expr; // x + y | x = y
-unary_expr   ::= ((unary_prefix expr) | (expr unary_postfix)) | ((unary_operators expr) | (expr unary_operators));    // ++x | x++
-cast_expr    ::= expr "as"      type; // x as i32
-impl_expr    ::= type "impl"    type; // x impl T
-derives_expr ::= type "derives" type; // x derives T
-
-array_initializer ::= '[' expr ';' type  ("=" expr)? ']';          // [N; i32]        | [N; i32 = 1]
-vec_initializer   ::= '[' type ',' "..." ("=" expr)? ']';          // [i32, ...]      | [i32, ... = 1]
-map_initializer   ::= '{' type ':' type ',' "..." ("=" expr)? '}'; // {i32: i32, ...} | {i32: i32, ... = 1}
-set_initializer   ::= '{' type ',' "..." ("=" expr)? '}';          // {i32, ...}      | {i32, ... = 1}
-
-primary_expr ::= array_initializer | vec_initializer      | map_initializer
-             |   set_initializer   | inline_try_catch     | inline_if_else
-             |   sub_script        | parenthesized_expr   | lambda | match_var
-             |   literal           | implicit_initializer | self   | map_expr
-             |   tuple_expr        | array_expr           | set_expr;
-
-expr  ::= member_path  | scoped_path | binary_expr  | unary_expr
-      |   cast_expr    | impl_expr   | derives_expr | function_call
-      |   primary_expr | explicit_initializer ;
-
-/* Statements */
-block         ::= '{' (statement)* '}'; // { var x: i32 = 1; }
-
-assert        ::= "assert" expr "," string_literal;  // assert x, "x is not true"
-context       ::=  expr "as" implicit_params? block; // x as T | x as T, y: V | foo as { var x: i32 = 1 }
-
-return        ::= "return" expr;   // return x
-panic         ::= "panic" expr;    // panic x
-unsafe_block  ::= "unsafe" block;  // unsafe { ... }
-finally_block ::= "finally" block; // finally { ... }
-break         ::= "break" ident?;  // break | break x
-continue      ::= "continue" ident?; // continue | continue x
-
-catch_block   ::= "catch" block;            // catch { ... }
-try_block     ::= "try" block catch_block*; // try { ... }
-
-else_block ::= "else" (if_block | block);                // else { ... }
-if_block   ::= ("if" | "unless") expr block else_block*; // if x { ... } else { ... }
-
-while_block ::= "while" expr block; // while x { ... }
-// FIXME: [MAYBE] change the eval to be a @unroll() macro, if it can be done using a proc macro
-for_block   ::= "eval"? "for" (implicit_params | ('(' implicit_params ')')) "in" expr block; // for x in y { ... }
-c_for_block ::= "eval"? "for" '(' (expr | var_decl) ';' expr ';' expr ')' block; // for (x; y; z) { ... }
-
-// match in kairo would work like this
-// match x {
-//    case 1: ...
-//    case 2: ...
-//    case 3, 4, 5: ...
-//    case var y if y > 5: ...
-//    default: ...
-// }
-// with objects:
-// match point_obj {
-//    case Point { x: 1, y: 2 }: ...
-//    case Point { x: var x, y: var y } if x == y: ...
-//    case Point { x, y } if x > y: ...
-//    case Point { x, y }: ... // same as default
-//    default: ..
-// }
-
-match_case  ::= expr; /// FIXME: REWORK THIS
-match_block ::= "match" expr '{' match_case* '}';                                  // match x { ... }
-
-statement ::= (ffi? (assert      | context      | return        | panic     | unsafe_block
-              |      try_block   | if_block     | while_block   | for_block | c_for_block
-              |      match_block | finally_block | expr      ))
-              |      primary_declaration;
-
-/* Declarations */
-// static { x: i32 = 1; } | const { x: i32 = 1; } | eval { static x: i32 = 1; }
-structured_binding ::= '(' (untyped_param | param) (',' (untyped_param | param))* ')'; // (x, y) | (x, y = 1)
-var_param          ::= (untyped_param ('=' expr) | param ('=' expr)?);
-var_decl           ::= visibility? (specifiers* | "var") ((var_param (',' var_param)*) | (structured_binding '=' expr));
-
-generic_bound ::= "requires" expr; // requires x impl T
-generic_param ::= "const"? type_hint? (param | ident) ('=' expr | type)?;
-generic_decl  ::= '<' (generic_param (',' (generic_param))*)? '>'; // <T, V = 1> | <class T, V: i32>
-
-implements     ::= "impl" (type (',' type)*);     // impl Foo, Bar | impl Foo
-derives        ::= "derives" (visibility? type (',' visibility? type)*);  // derives Foo, Bar | derives Foo
-
-// add union support to this
+// Generated from the tree-sitter grammar (Extras/LSPClients/tree-sitter-kairo/grammar.js,
+// via its src/grammar.json) by Scripts/gen_grammar_ebnf.py. Do not edit by hand:
+// change grammar.js, run `tree-sitter generate`, then rerun the script.
 //
-// union Some {
-//    x: i32,
-//    y: (f32 | i32, i32),
-// }
+// The parser in Compiler/Parser/ remains the authority for syntax (see
+// Compiler/Spec/Parsing.md), and the language reference for meaning. This grammar
+// describes the same language for tooling; where they disagree, the parser wins.
 //
-// var val: Some = Some::x(1);
-// var val2 Some::y(1, 2);
+// Notation: `::=` defines, `|` separates alternatives, `?` `*` `+` are optional,
+// zero-or-more and one-or-more, `( )` groups, quoted text is literal, /.../ is a
+// regular expression over characters, and ε is the empty sequence.
+//
+// Not expressed here: operator precedence and associativity, which the tree-sitter
+// grammar encodes with prec annotations; and its 63 declared GLR conflicts.
+// The start symbol is `source_file`. Keywords are lexed as the word token
+// `identifier`.
+//
+// Allowed between any two tokens (tree-sitter extras): /\s/, line_comment, block_comment.
+//
+// Produced by the external scanner (src/scanner.c), not defined below:
+//   _newline, block_comment, raw_block, _init_open, _dot_float, _fstring, _error_sentinel.
 
-struct_decl    ::= visibility? "struct"    generic_decl? scoped_path implements? generic_bound? block?; // struct Foo { ... }
-class_decl     ::= visibility? "class"     generic_decl? scoped_path implements? derives? generic_bound? block?; // class Foo { ... }
-interface_decl ::= visibility? "interface" generic_decl? scoped_path implements? generic_bound? block?; // interface Foo { ... }
-extend_decl    ::= "extend" generic_decl? scoped_path implements? derives? generic_bound? block; // extend Foo { ... }
+source_file ::= ( _item _terminator | _item | _terminator )*
 
-enum_values    ::= ident ('=' expr)? (',' ident ('=' expr)?)*; // A = 1, B = 2
-enum_decl      ::= visibility? "enum" generic_decl? scoped_path derives? generic_bound? '{' enum_values? '}'; // enum Foo { A = 1, B = 2 }
+_item ::= _declaration | _statement
 
-type_alias     ::= visibility? "type" generic_decl? scoped_path generic_bound? '=' type; // type <T> Foo = i32
-module_decl    ::= visibility? "inline"? "module" scoped_path block; // module Foo { ... }
+_terminator ::= _newline | ";"
 
-// both override and visibility cant be used together
-func_decl      ::= visibility? ("override" | "final")? "fn" scoped_path '(' parameters? ')' qualifier* fn_return? block?; // fn foo(x: i32) -> i32 { ... }
-//                              |-------------------------< ^^^^^^^^^^^
-//                              |-> also covers operators with op+, ... being a part of scoped_path
+annotation ::= "@" _annotation_name argument_list?
 
-test_decl ::= "test" string_literal block; // test "foo" { ... }
-ffi       ::= "ffi" string_literal; // ffi "c++" import "include/lang/panic.h";
+_annotation_name ::= identifier
+                   | ( "inline" | "const" | "unsafe" | "static" | "final" | "override" | "virtual" | "eval" | "type" )
 
-primary_declaration ::= var_decl | struct_decl | class_decl | interface_decl | extend_decl | enum_decl | type_alias | func_decl
-declaration         ::= (proc_macro_invoke* ffi? primary_declaration) | test_decl | module_decl;
+hash_attribute ::= "#[" identifier argument_list? "]"
 
-/* Macros */
-macro      ::= "macro" ident '!' ('(' parameters? ')')? (('{' ... '}') | (':' ...)) ';';
-proc_macro ::= "macro" '@' ident ('(' parameters? ')')? (('{' ... '}') | (':' ...)) ';';
+visibility ::= "pub" | "priv" | "prot"
 
-proc_macro_invoke ::= '@' function_call?; // @foo(1, 2, 3)
-macro_invoke      ::= scoped_path '!' ('(' argument_seq? ')')?; // foo!(1, 2, 3) | foo!
+decl_modifiers ::= _decl_modifier+
 
-/* Imports */
-// the scoped path here allows any a-zA-Z0-9_ token so keywords are allowed to be used as identifiers here
-qualified_import   ::= scoped_path ('::' (('{' (scoped_import (',' scoped_import)*) '}') | ('*')))?;
-scoped_import      ::= qualified_import ('as' ident)?;
-string_import      ::= string_literal   ('as' ident)?;
-single_import      ::= (type_hint? scoped_import) | string_import;
+_decl_modifier ::= annotation
+                 | hash_attribute
+                 | visibility
+                 | "static"
+                 | "virtual"
+                 | "override"
+                 | "final"
+                 | "inline"
+                 | "eval"
+                 | "const"
+                 | "async"
+                 | "unsafe"
+                 | "mutable"
 
-import       ::= ffi? 'import' single_import ';';
-multi_import ::= ffi? 'import' '{' (single_import ',')* '}';
+_declaration ::= function_decl
+               | class_decl
+               | struct_decl
+               | union_decl
+               | interface_decl
+               | enum_decl
+               | extend_decl
+               | type_alias_decl
+               | module_decl
+               | module_pin
+               | test_decl
+               | macro_decl
+               | import_decl
+               | ffi_decl
+               | visibility_block
+               | eval_block
+               | variable_decl
+               | destructuring_decl
 
-/* Program */
-built_in_directives ::= '@' "volatile"     '(' ')' // makes the compiler not optimize the variable or dereference it in any way
-                    |   '@' "packed"       '(' ')' // packs the struct or class to the smallest size possible
-                    |   '@' "unlikely"     '(' ')' // marks the branch as unlikely to be taken
-                    |   '@' "likely"       '(' ')' // marks the branch as likely to be taken
-                    |   '@' "internal"     '(' ')' // makes the function or variable only accessible within the module
-                    |   '@' "experimental" '(' ')' // marks the function or variable as experimental (warning if used)
-                    |   '@' "force_inline" '(' ')' // forces the compiler to inline the function
-                    |   '@' "no_inline"    '(' ')' // forces the compiler to not inline the function
-                    |   '@' "deprecated"   '(' StringLiteral? ')'  // marks the function or variable as deprecated (warning if used)
-                    |   '@' "must_use"     '(' StringLiteral? ')'  // marks the function or variable as must use (warning if not used)
-                    |   '@' "alignas"      '(' Number         ')'; // sets the alignment of the variable/declaration
-built_in_macros     ::= "__file__" '!' | "__line__" '!' | "__column__" '!' | "__function__" '!' | "__module__" '!';
+declaration_list ::= "{" ( _member _terminator | _member | _terminator )* "}"
 
-program ::= (declaration | (import | multi_import) | macro | proc_macro | statement | expr)*;
+_member ::= _declaration | _statement
+
+visibility_block ::= visibility declaration_list
+
+eval_block ::= "eval" declaration_list
+
+module_pin ::= decl_modifiers? "module" path
+
+module_decl ::= decl_modifiers? "module" path? declaration_list
+
+test_decl ::= decl_modifiers? "test" string? block
+
+path ::= "::"? identifier ( "::" identifier )*
+
+generic_params ::= "<" generic_param ( "," generic_param )* ","?? ">"
+
+generic_param ::= ( "eval" | "const" ) identifier ":" _type ( "=" _generic_arg )?
+                | "..."? identifier ( ":" kind_bound )? heritage* ( "=" _generic_arg )?
+
+kind_bound ::= "class" | "struct" | "enum" | "union" | "type"
+
+heritage ::= ( "derives" | "impl" ) heritage_edge ( "," heritage_edge )*
+
+heritage_edge ::= "virtual"? visibility? _type
+
+requires_clause ::= "requires" _expression
+
+where_clause ::= "where" _expression
+
+function_decl ::= decl_modifiers? "fn" generic_params? _fn_name parameter_list fn_modifiers? ( "->" _return_type )? requires_clause? where_clause? _fn_body?
+
+_fn_name ::= ( ( identifier | "Self" ) generic_args? "::" )* ( "op" operator_name | ( identifier | "self" | "Self" ) generic_args? )
+
+operator_name ::= "(" ")"
+                | "[" "]"
+                | "<" ">"
+                | ">" ">"
+                | ">" ">" "="
+                | ">" "="
+                | "+"
+                | "-"
+                | "*"
+                | "/"
+                | "%"
+                | "^^"
+                | "<"
+                | ">"
+                | "<<"
+                | "and"
+                | "or"
+                | "xor"
+                | "bitand"
+                | "bitor"
+                | "not"
+                | "compl"
+                | "not_eq"
+                | "and_eq"
+                | "or_eq"
+                | "xor_eq"
+                | "^"
+                | "|"
+                | "&"
+                | "~"
+                | "!"
+                | "=="
+                | "!="
+                | "<=>"
+                | "==="
+                | "&&"
+                | "||"
+                | "<="
+                | ">="
+                | "++"
+                | "--"
+                | "l++"
+                | "r++"
+                | "l--"
+                | "r--"
+                | "="
+                | "+="
+                | "-="
+                | "*="
+                | "/="
+                | "%="
+                | "&="
+                | "|="
+                | "^="
+                | "<<="
+                | ">>="
+                | "->"
+                | "?"
+                | ".."
+                | "..="
+                | "..."
+                | "??"
+                | "in"
+                | "as"
+                | "await"
+                | "spawn"
+                | "thread"
+                | "delete"
+                | "yield"
+                | "panic"
+                | "new"
+
+_return_type ::= "!" | _type
+
+parameter_list ::= "(" ( param ( "," param )* ","? )? ")"
+
+param ::= annotation* _binding_const? "self"
+        | annotation* _binding_const? "..."? ( identifier "?"? ":" )? _type ( "=" _expression )?
+        | annotation* "..."
+
+fn_modifiers ::= ( "const" | "volatile" | "unsafe" | "eval" | "async" | "final" | "inline" | "override" | "virtual" | "static" | panic_clause )+
+
+panic_clause ::= "panic" panic_set?
+
+panic_set ::= "(" ( _type ( "," _type )* ","? )? ")"
+
+_fn_body ::= block | "=" ( ( "default" | "delete" | "virtual" ) | _expression )
+
+class_decl ::= decl_modifiers? "class" _type_head type_body?
+
+struct_decl ::= decl_modifiers? "struct" _type_head type_body?
+
+union_decl ::= decl_modifiers? "union" _type_head type_body?
+
+interface_decl ::= decl_modifiers? "interface" generic_params? identifier generic_args? ( "derives" _expression ( "," _expression )* )? requires_clause? type_body?
+
+_type_head ::= generic_params? identifier generic_args? heritage* requires_clause?
+
+extend_decl ::= decl_modifiers? "extend" generic_params? _type heritage* requires_clause? type_body
+
+type_body ::= declaration_list
+
+enum_decl ::= decl_modifiers? "enum" generic_params? identifier generic_args? ( "derives" _type )? requires_clause? enum_body?
+
+enum_body ::= "{" _newline* ( enum_variant ( ( "," | _newline ) _newline* enum_variant )* ","? _newline* )? "}"
+
+enum_variant ::= annotation* identifier ( "{" ( field_spec ( "," field_spec )* ","? )? "}" | "(" ( _type ( "," _type )* ","? )? ")" | "=" _expression )?
+
+field_spec ::= identifier ":" _type
+
+type_alias_decl ::= decl_modifiers? "type" generic_params? identifier generic_args? ( "impl" _type ( "," _type )* ","? )? ( "=" _type )?
+
+macro_decl ::= decl_modifiers? "macro" identifier "!" ( "(" ( macro_param ( "," macro_param )* ","? )? ")" )? block
+             | decl_modifiers? "macro" "@" identifier parameter_list? ( "->" _type )? block
+
+macro_param ::= "..." identifier?
+              | identifier "..."
+              | identifier ( ":" _type )? ( "=" _expression )?
+
+import_decl ::= decl_modifiers? "import" "module"? import_path ( "as" identifier "!"? )?
+
+import_path ::= "::"? _import_segment ( "::" _import_segment )* ( "::" ( "*" | import_list ) )?
+
+_import_segment ::= identifier "!"?
+
+import_list ::= "{" ( import_item ( "," import_item )* ","? )? "}"
+
+import_item ::= "*"
+              | _import_segment ( "::" _import_segment )* ( "::" ( "*" | import_list ) )? ( "as" identifier "!"? )?
+
+ffi_decl ::= decl_modifiers? "ffi" string ( "import" string ( "as" identifier )? | declaration_list | _declaration )
+
+variable_decl ::= decl_modifiers? storage_head pointer_shorthand? identifier "?"? ( ":" _type )? ( "=" _expression )?
+
+storage_head ::= "var"
+               | "const" ( "static" "thread"? | "thread" | "eval" )?
+               | "static" "thread"? "const"?
+               | "thread" "const"?
+               | "eval" "const"?
+
+pointer_shorthand ::= "unsafe"? "*"+
+
+destructuring_decl ::= decl_modifiers? ( "var" | "const" ) ( "(" binding ( "," binding )* ","? ")" | "{" binding ( "," binding )* ","? "}" ) ( ":" _type )? "=" _expression
+
+binding ::= ( "var" | _binding_const )? ( "unsafe"? "*" )? ( identifier | "_" ) "?"? ( ":" _type )?
+
+binding_spec ::= ( "var" | _binding_const ) ( binding | "(" binding ( "," binding )* ","? ")" )
+
+_statement ::= expression_stmt
+             | block
+             | if_stmt
+             | while_stmt
+             | loop_stmt
+             | for_stmt
+             | match_stmt
+             | return_stmt
+             | break_stmt
+             | continue_stmt
+             | panic_stmt
+             | yield_stmt
+             | assert_stmt
+             | try_stmt
+             | finally_stmt
+             | unsafe_block
+             | inline_block
+             | labeled_stmt
+             | context_binding_stmt
+
+block ::= "{" ( _member _terminator | _member | _terminator )* "}"
+
+expression_stmt ::= _expression
+
+if_stmt ::= ( "eval" | annotation )? "if" _expression block ( annotation? "else" ( if_stmt | block ) )?
+
+while_stmt ::= "while" _expression block
+
+loop_stmt ::= "loop" block
+
+for_stmt ::= "eval"? "for" ( ( "var" | _binding_const )? ( binding | "(" binding ( "," binding )* ","? ")" ) "in" _expression | for_init ";" _expression? ";" _expression? ) block
+
+for_init ::= ( "var" | "const" ) binding ( "=" _expression )?
+
+labeled_stmt ::= identifier ":" ( while_stmt | loop_stmt | for_stmt )
+
+match_stmt ::= "match" _expression match_body
+
+match_body ::= "{" ( match_arm | _terminator | "," )* "}"
+
+match_arm ::= ( "case" _pattern ( "," _pattern )* ","? where_clause? | "default" ) ( block | "=>" _expression )
+
+return_stmt ::= "return" _expression?
+
+break_stmt ::= "break" identifier?
+
+continue_stmt ::= "continue" identifier?
+
+panic_stmt ::= "panic" _expression?
+
+yield_stmt ::= "yield" _expression?
+
+assert_stmt ::= "assert" "static"? _expression ( "," _expression )?
+
+try_stmt ::= "try" block catch_clause+ finally_clause?
+
+catch_clause ::= "catch" ( "var" | _binding_const )? ( ( identifier | "_" ) ( ":" _type )? )? block
+
+finally_clause ::= "finally" block
+
+finally_stmt ::= "finally" block
+
+unsafe_block ::= "unsafe" block
+
+inline_block ::= "inline" string raw_block
+
+context_binding_stmt ::= _expression "as" binding_spec block
+
+_expression ::= assignment_expr
+              | binary_expr
+              | range_expr
+              | cast_expr
+              | unary_expr
+              | attributed_expr
+              | postfix_expr
+              | call_expr
+              | index_expr
+              | member_expr
+              | scope_expr
+              | initializer_expr
+              | identifier_expr
+              | generic_path_expr
+              | global_expr
+              | dotted_variant_expr
+              | macro_invocation
+              | sizeof_expr
+              | typeof_expr
+              | number
+              | float
+              | string
+              | char
+              | boolean
+              | null
+              | paren_expr
+              | tuple_expr
+              | stmt_expr
+              | list_expr
+              | set_expr
+              | map_expr
+              | anon_initializer_expr
+              | closure_expr
+              | if_expr
+              | try_expr
+              | match_expr
+              | unsafe_expr
+              | builtin
+
+assignment_expr ::= _expression ( "and_eq" | "or_eq" | "xor_eq" | "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | "@=" | ">" ">" "=" ) _expression
+
+binary_expr ::= _expression "??" _expression
+              | _expression ( "||" | "or" ) _expression
+              | _expression ( "&&" | "and" ) _expression
+              | _expression ( "|" | "bitor" ) _expression
+              | _expression ( "^" | "xor" ) _expression
+              | _expression ( "&" | "bitand" ) _expression
+              | _expression ( "==" | "!=" | "===" | "not_eq" ) _expression
+              | _expression ( "<" | ">" | "<=" | ">" "=" | "<=>" | "in" | "not" "in" ) _expression
+              | _expression ( "<<" | ">" ">" ) _expression
+              | _expression ( "+" | "-" ) _expression
+              | _expression ( "*" | "/" | "%" ) _expression
+              | _expression "^^" _expression
+              | _expression ( ".*" | "->*" | "?.*" | "?->*" ) _expression
+              | _expression ( "impl" | "derives" ) _type
+
+range_expr ::= _expression ( ".." | "..=" ) _expression? | ( ".." | "..=" ) _expression | ".."
+
+cast_expr ::= _expression "as" "static"? _type
+
+unary_expr ::= ( "!" | "not" | "+" | "-" | "~" | "compl" | "&" | "*" | "++" | "--" | "..." | "await" | "spawn" | "thread" | "eval" | "yield" ) _expression
+             | "delete" ( "[" "]" )? _expression
+
+unsafe_expr ::= "unsafe" _expression
+
+sizeof_expr ::= ( "sizeof" | "alignof" ) ( "(" ( _type | _expression ) ")" | _expression | _type_only )
+
+typeof_expr ::= "typeof" _expression
+
+attributed_expr ::= "@" _annotation_name generic_args? argument_list? _expression?
+
+postfix_expr ::= _expression ( "++" | "--" | "..." | "?" | "!" )
+
+call_expr ::= _expression argument_list
+
+argument_list ::= "(" ( _call_arg ( "," _call_arg )* ","? )? ")"
+
+_call_arg ::= named_argument | _expression | _type_only
+
+named_argument ::= identifier ":" _expression
+
+index_expr ::= _expression "[" ( _expression ( "," _expression )* ","? )? "]"
+
+member_expr ::= _expression ( "." | "->" | "?." | "?->" ) _member_target
+
+scope_expr ::= _expression "::" ( _member_target | generic_args )
+
+_member_target ::= "op" operator_name generic_args?
+                 | ( _decimal | _tuple_float )
+                 | _member_name generic_args?
+
+_member_name ::= identifier | ( "self" | "Self" | "type" | "delete" ) | builtin
+
+initializer_expr ::= ( identifier_expr | generic_path_expr | scope_expr | global_expr | dotted_variant_expr ) initializer_list
+
+initializer_list ::= _init_open field_initializer ( "," field_initializer )* ","? "}" | "{" "}"
+
+field_initializer ::= ( identifier | "." identifier ) ":" _expression
+
+identifier_expr ::= identifier | "self" | "Self"
+
+generic_path_expr ::= identifier_expr generic_args
+
+global_expr ::= "::" _member_name generic_args?
+
+dotted_variant_expr ::= "." identifier
+
+macro_invocation ::= identifier "!" macro_arguments?
+
+macro_arguments ::= "(" ( ( _expression | _type_only | named_argument | block ) ( "," ( _expression | _type_only | named_argument | block ) )* ","? )? ")"
+
+paren_expr ::= "(" _expression ")"
+
+tuple_expr ::= "(" ( _expression "," | _expression ( "," _expression )+ ","? ) ")"
+
+stmt_expr ::= "(" block ")"
+
+list_expr ::= "[" ( _expression ( "," _expression )* ","? )? "]"
+
+set_expr ::= "{" ( _expression ( "," _expression )* ","? )? "}"
+
+map_expr ::= "{" map_entry ( "," map_entry )* ","? "}"
+
+map_entry ::= _expression ":" _expression
+
+anon_initializer_expr ::= "{" "." field_initializer_tail ( "," "." field_initializer_tail )* ","? "}"
+
+field_initializer_tail ::= identifier ":" _expression
+
+closure_expr ::= "fn" generic_params? parameter_list? capture_list? fn_modifiers? ( "->" _return_type )? ( block | "=" _expression )
+
+capture_list ::= "||" | "|" ( capture ( "," capture )* ","? )? "|"
+
+capture ::= _binding_const? "*"? ( identifier | "self" ) | _binding_const? "*" | "="
+
+if_expr ::= "if" _expression "=>" _expression ( "else" "if" _expression "=>" _expression )* ( "else" "=>" _expression )?
+
+try_expr ::= "try" _expression catch_arm+
+
+catch_arm ::= "catch" ( "var" | _binding_const )? ( ( identifier | "_" ) ( ":" _type )? )? "=>" ( _expression | block | return_stmt | break_stmt | continue_stmt | panic_stmt )
+
+match_expr ::= "match" _expression match_body
+
+builtin ::= "__file__" | "__line__" | "__column__" | "__function__" | "__module__"
+
+_type ::= qualified_type | _type_atom
+
+qualified_type ::= annotation* type_qualifiers _type_atom
+
+type_qualifiers ::= _type_qualifier+
+
+_binding_const ::= "const"
+
+_type_qualifier ::= "const"
+                  | "volatile"
+                  | "atomic"
+                  | "unsafe"
+                  | "eval"
+                  | "mutable"
+                  | "yield"
+                  | "async"
+                  | "thread"
+
+_type_only ::= qualified_type | pointer_type | nullable_type | array_type | map_type | function_type
+
+_type_atom ::= path_type
+             | macro_type
+             | pointer_type
+             | nullable_type
+             | pack_type
+             | tuple_type
+             | paren_type
+             | list_type
+             | array_type
+             | set_type
+             | map_type
+             | function_type
+             | typeof_type
+             | annotated_type
+
+annotated_type ::= annotation _type_atom
+
+path_type ::= "::"? path_type_segment ( "::" ( path_type_segment | generic_args ) )*
+
+path_type_segment ::= ( identifier | "Self" | "self" ) generic_args?
+
+macro_type ::= identifier "!" macro_arguments
+
+pointer_type ::= ( "*" | "&" ) _type
+
+nullable_type ::= _type_atom "?"
+
+pack_type ::= _type_atom "..."
+
+paren_type ::= "(" _type ")"
+
+tuple_type ::= "(" ( _type "," ( _type ( "," _type )* ","? )? )? ")"
+
+list_type ::= "[" _type "]"
+
+array_type ::= "[" _type ";" _expression? "]"
+
+set_type ::= "{" _type "}"
+
+map_type ::= "{" _type ":" _type "}"
+
+function_type ::= "fn" "(" ( annotation* ( identifier ":" )? _type ( "," annotation* ( identifier ":" )? _type )* ","? )? ")" ( annotation | "const" | "volatile" | "unsafe" | "eval" | "async" | panic_clause )* ( "->" _return_type )?
+
+typeof_type ::= "typeof" _expression
+
+generic_args ::= "<" ( _generic_arg_entry ( "," _generic_arg_entry )* ","? )? ">"
+
+_generic_arg_entry ::= _generic_arg | identifier ":" _generic_arg
+
+_generic_arg ::= _type | _expression
+
+_pattern ::= wildcard_pattern
+           | binding_pattern
+           | tuple_pattern
+           | slice_pattern
+           | dotted_pattern
+           | range_pattern
+           | constructor_pattern
+           | literal_pattern
+
+wildcard_pattern ::= "_"
+
+binding_pattern ::= ( "var" | _binding_const ) ( "unsafe"? "*" )? ( identifier | "_" ) "?"? ( ":" _type )?
+
+tuple_pattern ::= "(" ( _pattern ( "," _pattern )* ","? )? ")"
+
+slice_pattern ::= "[" ( ( ".." identifier? | _pattern ) ( "," ( ".." identifier? | _pattern ) )* ","? )? "]"
+
+dotted_pattern ::= "." identifier ( "(" ( _pattern ( "," _pattern )* ","? )? ")" )?
+
+range_pattern ::= _pattern_lead ( ".." | "..=" ) _expression? | ( ".." | "..=" ) _expression
+
+constructor_pattern ::= _pattern_lead ( "(" ( _pattern ( "," _pattern )* ","? )? ")" )?
+
+literal_pattern ::= "-"? ( number | float ) | string | char | boolean | null
+
+_pattern_lead ::= "-"? ( number | float )
+                | string
+                | char
+                | boolean
+                | null
+                | identifier_expr
+                | generic_path_expr
+                | scope_expr
+                | global_expr
+
+identifier ::= /[\p{XID_Start}_#][\p{XID_Continue}#]*/
+
+boolean ::= "true" | "false"
+
+null ::= "null"
+
+number ::= _decimal | _radix_int
+
+_decimal ::= /[0-9][0-9_]*/ /[a-zA-Z][a-zA-Z0-9_]*/?
+
+_radix_int ::= ( /0[xX][0-9a-fA-F_]+(\.[0-9a-fA-F_]*)?[pP][+-]?[0-9_]+/ /[a-zA-Z][a-zA-Z0-9_]*/? | /0[xX][0-9a-fA-F_]+/ /[g-zG-Z_][a-zA-Z0-9_]*/? | /0[bB][01_]+/ /[a-zA-Z][a-zA-Z0-9_]*/? | /0[oO][0-7_]+/ /[a-zA-Z][a-zA-Z0-9_]*/? )
+
+float ::= _tuple_float | _dot_float
+
+_tuple_float ::= /[0-9][0-9_]*\.[0-9][0-9_]*/ /[eE][+-]?[0-9_]+/? /[a-zA-Z][a-zA-Z0-9_]*/?
+               | /[0-9][0-9_]*[eE][+-]?[0-9_]+/ /[a-zA-Z][a-zA-Z0-9_]*/?
+
+string ::= _string_piece+
+
+_string_piece ::= string_literal | _fstring | raw_string_literal | multiline_string_literal
+
+multiline_string_literal ::= ( "f" | "r" | "b" | "rf" | "fr" | "rb" | "br" )? '"""' ( /[^"\\]/ | /\\(.|\n)/ | /"[^"]/ | /""[^"]/ )* '"""'
+
+string_literal ::= "b"? '"' ( /[^"\\\n]+/ | /\\(.|\n)/ )* '"' /[a-zA-Z_][a-zA-Z0-9_]*/?
+
+raw_string_literal ::= ( "r" | "rf" | "fr" | "rb" | "br" ) '"' /[^"]*/ '"'
+
+char ::= ( "f" | "r" | "b" )? "'" ( /[^'\\\n]/ | /\\./ | /\\[xuU]\{?[0-9a-fA-F]+\}?/ )+ "'"
+
+line_comment ::= "//" /[^\n]*/

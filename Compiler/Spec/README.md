@@ -36,7 +36,7 @@ The authoritative pass order and the cross-pass invariants are in [Pipeline.md](
 | [Pipeline.md](Pipeline.md) | Compilation phases, Sema pass order, phase barriers, invariants |
 | [Lexing.md](Lexing.md) | Source files, tokens, keywords, literals, preprocessor, macros |
 | [Parsing.md](Parsing.md) | Parser structure, disambiguation, error recovery, AST |
-| [Grammar.ebnf](Grammar.ebnf) | Informative grammar (the parser is the authority) |
+| [Grammar.ebnf](Grammar.ebnf) | The grammar in EBNF, generated from the tree-sitter grammar (the parser is the authority) |
 
 ### Semantic analysis
 
