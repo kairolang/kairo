@@ -1,0 +1,474 @@
+From a26664f6051c51eb870822efab1fcfa7a60dced8 Mon Sep 17 00:00:00 2001
+From: Dhruvan <kartd01@purdue.edu>
+Date: Mon, 9 Nov 2026 17:35:26 -0500
+Subject: [PATCH 4/5] [targets] add __int128 on 32-bit i386, ARM, RISC-V,
+ PowerPC and MIPS o32 - hasInt128Type() is true on X86_32, ARM, RISCV32, PPC32
+ (not AIX) and   MIPS o32, so __int128, __int128_t and __SIZEOF_INT128__ exist
+ without   -fforce-enable-int128, with the layout that flag gives (size 16,
+ align 16) - CodeGenModule's data-layout consistency check (asserts builds)
+ skips   __int128 on 32-bit targets, as it already did under the flag: ARM,
+ RV32,   PPC32 and MIPS data layouts have no i128 entry (alignment 8) -
+ compiler-rt builtins: -fforce-enable-int128 on i386/i686/arm*/thumb*/  
+ powerpc/powerpcspe/mips/mipsel under clang, so the ti builtins  
+ (CRT_HAS_128BIT) are always built there. Every one of these backends   calls
+ __floattidf/__fixdfti and friends for i128<->fp; PowerPC and MIPS   also call
+ __divti3/__umodti3. Mul, shifts and (elsewhere) division expand   inline. -
+ tests: new CodeGen/Preprocessor/Sema kairo-int128-32bit.c; updated the  
+ tests that asserted __int128 was missing on these targets (128bitint.c,  
+ Driver/types.c, atomic-ops.c, builtins-arm-exclusive.c,  
+ builtins-ppc-quadword.c, mips-type-sizes-int128.c, Frontend/int128.cpp,  
+ microsoft-vs-float128.cpp)
+
+ABI note: libc++ keys on __SIZEOF_INT128__, so on i686 and armv7 (and the
+others) std::filesystem::file_time_type becomes duration<__int128> and
+extra __int128 formatter instantiations appear (Kairo ticket P605). A
+libc++ built by a compiler without this patch is not link-compatible with
+code built by one with it: every already-built sysroot for these targets
+must be rebuilt by the patched compiler (ksys builds libc++ and user code
+with the same compiler, so a fresh sysroot is consistent).
+---
+ clang/lib/Basic/Targets/ARM.h                 | 12 ++++++
+ clang/lib/Basic/Targets/Mips.h                | 10 +++--
+ clang/lib/Basic/Targets/PPC.h                 | 10 +++++
+ clang/lib/Basic/Targets/RISCV.h               |  7 ++++
+ clang/lib/Basic/Targets/X86.h                 | 10 +++++
+ clang/lib/CodeGen/CodeGenModule.cpp           |  3 ++
+ .../CodeGen/PowerPC/builtins-ppc-quadword.c   |  5 ++-
+ clang/test/CodeGen/kairo-int128-32bit.c       | 37 +++++++++++++++++++
+ clang/test/CodeGen/mips-type-sizes-int128.c   |  9 ++---
+ clang/test/Driver/types.c                     |  6 +--
+ clang/test/Frontend/int128.cpp                |  5 ++-
+ clang/test/Preprocessor/kairo-int128-32bit.c  | 20 ++++++++++
+ clang/test/Sema/128bitint.c                   |  3 +-
+ clang/test/Sema/atomic-ops.c                  |  5 +--
+ clang/test/Sema/builtins-arm-exclusive.c      | 12 +++---
+ clang/test/Sema/kairo-int128-32bit.c          | 24 ++++++++++++
+ clang/test/SemaCXX/microsoft-vs-float128.cpp  |  5 ++-
+ compiler-rt/lib/builtins/CMakeLists.txt       | 11 +++++-
+ 18 files changed, 168 insertions(+), 26 deletions(-)
+ create mode 100644 clang/test/CodeGen/kairo-int128-32bit.c
+ create mode 100644 clang/test/Preprocessor/kairo-int128-32bit.c
+ create mode 100644 clang/test/Sema/kairo-int128-32bit.c
+
+diff --git a/clang/lib/Basic/Targets/ARM.h b/clang/lib/Basic/Targets/ARM.h
+index 43c4718f4735..cc09fb1220e0 100644
+--- a/clang/lib/Basic/Targets/ARM.h
++++ b/clang/lib/Basic/Targets/ARM.h
+@@ -181,6 +181,18 @@ public:
+     return false;
+   }
+ 
++  // __int128 on every ARM target, what -fforce-enable-int128 gives. AAPCS
++  // has no 128-bit integer and GCC has none here, so there is no ABI to
++  // match: the backend passes i128 as four words (core registers, then the
++  // stack) and expands its arithmetic inline; i128<->fp conversions call
++  // compiler-rt (__floattidf, ...). Int128Align stays 128 as with
++  // the flag, so objects built with and without it agree; the data layout
++  // says 64 (CodeGenModule's consistency check exempts 32-bit targets).
++  // Kairo's i128 lowers to it. ABI note: libc++ switches file_time_type to
++  // duration<__int128> when it sees __SIZEOF_INT128__, so a libc++ built by
++  // a compiler without this is not link-compatible.
++  bool hasInt128Type() const override { return true; }
++
+   void getTargetDefinesARMV81A(const LangOptions &Opts,
+                                MacroBuilder &Builder) const;
+   void getTargetDefinesARMV82A(const LangOptions &Opts,
+diff --git a/clang/lib/Basic/Targets/Mips.h b/clang/lib/Basic/Targets/Mips.h
+index 4c09390c3c6d..bb4ab803354b 100644
+--- a/clang/lib/Basic/Targets/Mips.h
++++ b/clang/lib/Basic/Targets/Mips.h
+@@ -421,9 +421,13 @@ public:
+     return llvm::ArrayRef(NewABIRegAliases);
+   }
+ 
+-  bool hasInt128Type() const override {
+-    return (ABI == "n32" || ABI == "n64") || getTargetOpts().ForceEnableInt128;
+-  }
++  // __int128 on o32 too, what -fforce-enable-int128 gives (n32 and n64 have
++  // it natively). GCC has none on o32, so there is no ABI to match: the
++  // backend passes i128 in a0-a3 / on the stack and returns it through
++  // sret. Division and i128<->fp conversion are libcalls (__divti3, ...),
++  // which compiler-rt builds once __SIZEOF_INT128__ is defined. Kairo's
++  // i128 lowers to it.
++  bool hasInt128Type() const override { return true; }
+ 
+   unsigned getUnwindWordWidth() const override;
+ 
+diff --git a/clang/lib/Basic/Targets/PPC.h b/clang/lib/Basic/Targets/PPC.h
+index 664c9e15d8d1..ac78bbb8725c 100644
+--- a/clang/lib/Basic/Targets/PPC.h
++++ b/clang/lib/Basic/Targets/PPC.h
+@@ -428,6 +428,16 @@ public:
+   std::pair<unsigned, unsigned> hardwareInterferenceSizes() const override {
+     return std::make_pair(32, 32);
+   }
++
++  // __int128 on 32-bit PowerPC (not AIX, which keeps its own rule), what
++  // -fforce-enable-int128 gives. GCC has none here, so there is no ABI to
++  // match: the backend passes i128 in four GPRs or on the stack. Division
++  // and i128<->fp conversion are libcalls (__divti3, __floattidf, ...), which
++  // compiler-rt builds once __SIZEOF_INT128__ is defined (CRT_HAS_128BIT).
++  // Kairo's i128 lowers to it.
++  bool hasInt128Type() const override {
++    return !getTriple().isOSAIX() || TargetInfo::hasInt128Type();
++  }
+ };
+ 
+ // Note: ABI differences may eventually require us to have a separate
+diff --git a/clang/lib/Basic/Targets/RISCV.h b/clang/lib/Basic/Targets/RISCV.h
+index 73a246805f02..bd5e3fe978d1 100644
+--- a/clang/lib/Basic/Targets/RISCV.h
++++ b/clang/lib/Basic/Targets/RISCV.h
+@@ -202,6 +202,13 @@ public:
+     if (ISAInfo->hasExtension("zalrsc"))
+       MaxAtomicInlineWidth = 32;
+   }
++
++  // __int128 on RV32, what -fforce-enable-int128 gives (compiler-rt's
++  // RV32 builtins already build with that flag). The psABI rule for
++  // scalars wider than 2*XLEN passes it by reference; the backend expands
++  // its arithmetic inline and calls compiler-rt for i128<->fp conversions.
++  // Kairo's i128 lowers to it.
++  bool hasInt128Type() const override { return true; }
+ };
+ class LLVM_LIBRARY_VISIBILITY RISCV64TargetInfo : public RISCVTargetInfo {
+ public:
+diff --git a/clang/lib/Basic/Targets/X86.h b/clang/lib/Basic/Targets/X86.h
+index 5a0817b09e64..583d3aa46f7d 100644
+--- a/clang/lib/Basic/Targets/X86.h
++++ b/clang/lib/Basic/Targets/X86.h
+@@ -473,6 +473,16 @@ public:
+     MaxAtomicInlineWidth = 32;
+   }
+ 
++  // __int128 as on x86_64, what -fforce-enable-int128 gives: Int128Align
++  // 128 matches the i386 data layout's i128:128. The backend expands i128
++  // arithmetic inline (division through ExpandLargeDivRem); i128<->fp
++  // conversions call compiler-rt (__floattidf, ...), which has them once
++  // __SIZEOF_INT128__ is defined. Kairo's i128 lowers to it. ABI note:
++  // libc++ switches file_time_type to duration<__int128> when it sees
++  // __SIZEOF_INT128__, so a libc++ built by a compiler without this is not
++  // link-compatible.
++  bool hasInt128Type() const override { return true; }
++
+   BuiltinVaListKind getBuiltinVaListKind() const override {
+     return TargetInfo::CharPtrBuiltinVaList;
+   }
+diff --git a/clang/lib/CodeGen/CodeGenModule.cpp b/clang/lib/CodeGen/CodeGenModule.cpp
+index 85ed38f14462..a17f5e06d012 100644
+--- a/clang/lib/CodeGen/CodeGenModule.cpp
++++ b/clang/lib/CodeGen/CodeGenModule.cpp
+@@ -367,7 +367,10 @@ static void checkDataLayoutConsistency(const TargetInfo &Target,
+     Check("long long", llvm::Type::getIntNTy(Context, Target.LongLongWidth),
+           Target.LongLongAlign);
+   // FIXME: There are int128 alignment mismatches on multiple targets.
++  // 32-bit targets get __int128 as -fforce-enable-int128 would (this fork),
++  // with its Int128Align of 128 against a data layout that has no i128 entry.
+   if (Target.hasInt128Type() && !Target.getTargetOpts().ForceEnableInt128 &&
++      Target.getPointerWidth(LangAS::Default) >= 64 &&
+       !Triple.isAMDGPU() && !Triple.isSPIRV() &&
+       Triple.getArch() != llvm::Triple::ve)
+     Check("__int128", llvm::Type::getIntNTy(Context, 128), Target.Int128Align);
+diff --git a/clang/test/CodeGen/PowerPC/builtins-ppc-quadword.c b/clang/test/CodeGen/PowerPC/builtins-ppc-quadword.c
+index 01fa6c6ad17e..d1d76a7ee1b0 100644
+--- a/clang/test/CodeGen/PowerPC/builtins-ppc-quadword.c
++++ b/clang/test/CodeGen/PowerPC/builtins-ppc-quadword.c
+@@ -6,8 +6,9 @@
+ // RUN: -triple powerpc64le-unknown-unknown -emit-llvm %s -o - \
+ // RUN: | FileCheck %s -check-prefix=CHECK-LE
+ 
+-// RUN: not %clang_cc1 -target-feature +altivec -triple powerpc-unknown-unknown \
+-// RUN: -emit-llvm %s -o - 2>&1 | FileCheck %s -check-prefix=CHECK-PPC
++// The CHECK-PPC lines below were for 32-bit PowerPC without __int128; this
++// fork gives 32-bit PowerPC __int128 (PPC32TargetInfo::hasInt128Type), so the
++// run that checked them is gone and they are inert.
+ #include <altivec.h>
+ 
+ // CHECK-PPC: error: __int128 is not supported on this target
+diff --git a/clang/test/CodeGen/kairo-int128-32bit.c b/clang/test/CodeGen/kairo-int128-32bit.c
+new file mode 100644
+index 000000000000..0afe6eaae808
+--- /dev/null
++++ b/clang/test/CodeGen/kairo-int128-32bit.c
+@@ -0,0 +1,37 @@
++// Kairo's fork gives __int128 to the 32-bit targets Kairo ships (i386, ARM,
++// RV32, 32-bit PowerPC, MIPS o32) without -fforce-enable-int128, with the
++// layout that flag gives: size 16, align 16, passed as an i128 in IR. MIPS
++// marks it signext/zeroext as it does every integer argument.
++
++// RUN: %clang_cc1 -triple i686-linux-gnu -emit-llvm -o - %s \
++// RUN:   | FileCheck %s --check-prefixes=CHECK,PLAIN
++// RUN: %clang_cc1 -triple armv7-linux-gnueabihf -emit-llvm -o - %s \
++// RUN:   | FileCheck %s --check-prefixes=CHECK,PLAIN
++// RUN: %clang_cc1 -triple thumbv7em-none-eabi -emit-llvm -o - %s \
++// RUN:   | FileCheck %s --check-prefixes=CHECK,PLAIN
++// RUN: %clang_cc1 -triple riscv32-linux-gnu -emit-llvm -o - %s \
++// RUN:   | FileCheck %s --check-prefixes=CHECK,PLAIN
++// RUN: %clang_cc1 -triple powerpc-linux-gnu -emit-llvm -o - %s \
++// RUN:   | FileCheck %s --check-prefixes=CHECK,PLAIN
++// RUN: %clang_cc1 -triple mips-linux-gnu -emit-llvm -o - %s \
++// RUN:   | FileCheck %s --check-prefixes=CHECK,MIPS
++// RUN: %clang_cc1 -triple mipsel-linux-gnu -emit-llvm -o - %s \
++// RUN:   | FileCheck %s --check-prefixes=CHECK,MIPS
++
++// CHECK: @size = {{.*}}global i32 16
++int size = sizeof(__int128);
++// CHECK: @align = {{.*}}global i32 16
++int align = _Alignof(__int128);
++
++// PLAIN-LABEL: define{{.*}} i128 @add(i128 noundef %a, i128 noundef %b)
++// MIPS-LABEL: define{{.*}} i128 @add(i128 noundef signext %a, i128 noundef signext %b)
++// CHECK: add nsw i128
++__int128 add(__int128 a, __int128 b) { return a + b; }
++
++unsigned __int128 ext(unsigned __int128);
++
++// PLAIN-LABEL: define{{.*}} i128 @call(i128 noundef %x)
++// PLAIN: call i128 @ext(i128 noundef
++// MIPS-LABEL: define{{.*}} i128 @call(i128 noundef zeroext %x)
++// MIPS: call i128 @ext(i128 noundef zeroext
++unsigned __int128 call(unsigned __int128 x) { return ext(x); }
+diff --git a/clang/test/CodeGen/mips-type-sizes-int128.c b/clang/test/CodeGen/mips-type-sizes-int128.c
+index 6ca2907018de..78eef2a5951e 100644
+--- a/clang/test/CodeGen/mips-type-sizes-int128.c
++++ b/clang/test/CodeGen/mips-type-sizes-int128.c
+@@ -1,13 +1,12 @@
+-// RUN: not %clang_cc1 -triple mips-none-linux-gnu -emit-llvm -w -o - %s 2> %t1
+-// RUN: FileCheck --check-prefix=O32 %s < %t1
++// RUN: %clang_cc1 -triple mips-none-linux-gnu -emit-llvm -w -o - %s | FileCheck --check-prefix=NEW %s
+ 
+ // RUN: %clang_cc1 -triple mips64-none-linux-gnu -emit-llvm -w -target-abi n32 -o - %s | FileCheck --check-prefix=NEW %s
+ // RUN: %clang_cc1 -triple mips64-none-linux-gnu -emit-llvm -w -o - %s | FileCheck --check-prefix=NEW %s
+ 
+-// O32 does not support __int128 so it must be tested separately
+-// N32/N64 behave the same way so their tests have been combined into NEW
++// O32 has __int128 too in this fork (MipsTargetInfo::hasInt128Type), the
++// same as N32/N64, so all three share NEW.
+ 
+ int check_int128(void) {
+-  return sizeof(__int128); // O32: :[[@LINE]]:17: error: __int128 is not supported on this target
++  return sizeof(__int128);
+ // NEW: ret i32 16
+ }
+diff --git a/clang/test/Driver/types.c b/clang/test/Driver/types.c
+index 76823ad702b6..51316b49a028 100644
+--- a/clang/test/Driver/types.c
++++ b/clang/test/Driver/types.c
+@@ -1,12 +1,12 @@
+ // Check whether __int128_t and __uint128_t are supported.
+ 
+-// RUN: not %clang -c --target=riscv32-unknown-linux-gnu -fsyntax-only %s \
++// RUN: not %clang -c --target=sparc-unknown-linux-gnu -fsyntax-only %s \
+ // RUN: 2>&1 | FileCheck %s
+ 
+-// RUN: %clang -c --target=riscv32-unknown-linux-gnu -fsyntax-only %s \
++// RUN: %clang -c --target=sparc-unknown-linux-gnu -fsyntax-only %s \
+ // RUN: -fno-force-enable-int128 -fforce-enable-int128
+ 
+-// RUN: not %clang -c --target=riscv32-unknown-linux-gnu -fsyntax-only %s \
++// RUN: not %clang -c --target=sparc-unknown-linux-gnu -fsyntax-only %s \
+ // RUN: -fforce-enable-int128 -fno-force-enable-int128
+ 
+ // RUN: not %clang -c --target=powerpc-ibm-aix -fsyntax-only %s \
+diff --git a/clang/test/Frontend/int128.cpp b/clang/test/Frontend/int128.cpp
+index 145144a03d61..3096e80627a6 100644
+--- a/clang/test/Frontend/int128.cpp
++++ b/clang/test/Frontend/int128.cpp
+@@ -1,6 +1,9 @@
+ // RUN: %clang_cc1 -x c   -std=gnu99   -dM -E -triple x86_64-pc-linux %s | FileCheck -check-prefix=NO %s
+ // RUN: %clang_cc1 -x c++ -std=c++11   -dM -E -triple x86_64-pc-linux %s | FileCheck -check-prefix=NO %s
+-// RUN: %clang_cc1 -x c++ -std=gnu++11 -dM -E -triple i686-pc-linux   %s | FileCheck -check-prefix=NO %s
++// i686 has __int128 in this fork (X86_32TargetInfo::hasInt128Type); 32-bit
++// SPARC still has none.
++// RUN: %clang_cc1 -x c++ -std=gnu++11 -dM -E -triple sparc-pc-linux  %s | FileCheck -check-prefix=NO %s
++// RUN: %clang_cc1 -x c++ -std=gnu++11 -dM -E -triple i686-pc-linux   %s | FileCheck -check-prefix=YES %s
+ // RUN: %clang_cc1 -x c++ -std=gnu++11 -dM -E -triple x86_64-pc-linux %s | FileCheck -check-prefix=YES %s
+ // RUN: %clang_cc1 -x c++ -std=gnu++1y -dM -E -triple x86_64-pc-linux %s | FileCheck -check-prefix=YES %s
+ // PR23156
+diff --git a/clang/test/Preprocessor/kairo-int128-32bit.c b/clang/test/Preprocessor/kairo-int128-32bit.c
+new file mode 100644
+index 000000000000..039cfad78471
+--- /dev/null
++++ b/clang/test/Preprocessor/kairo-int128-32bit.c
+@@ -0,0 +1,20 @@
++// __SIZEOF_INT128__ (and, for GNU C++, __GLIBCXX_TYPE_INT_N_0) on the 32-bit
++// targets this fork gives __int128; still absent where it does not.
++
++// RUN: %clang_cc1 -E -dM -triple=i686-linux-gnu < /dev/null | FileCheck %s
++// RUN: %clang_cc1 -E -dM -triple=armv7-linux-gnueabihf < /dev/null | FileCheck %s
++// RUN: %clang_cc1 -E -dM -triple=armv6-linux-gnueabihf < /dev/null | FileCheck %s
++// RUN: %clang_cc1 -E -dM -triple=riscv32-linux-gnu < /dev/null | FileCheck %s
++// RUN: %clang_cc1 -E -dM -triple=powerpc-linux-musl < /dev/null | FileCheck %s
++// RUN: %clang_cc1 -E -dM -triple=mips-linux-gnu < /dev/null | FileCheck %s
++// RUN: %clang_cc1 -E -dM -triple=mipsel-linux-musl < /dev/null | FileCheck %s
++// RUN: %clang_cc1 -x c++ -std=gnu++17 -E -dM -triple=i686-linux-gnu < /dev/null \
++// RUN:   | FileCheck %s --check-prefixes=CHECK,GXX
++// RUN: %clang_cc1 -E -dM -triple=sparc-linux-gnu < /dev/null \
++// RUN:   | FileCheck %s --check-prefix=NONE
++// RUN: %clang_cc1 -E -dM -triple=powerpc-ibm-aix < /dev/null \
++// RUN:   | FileCheck %s --check-prefix=NONE
++
++// GXX: #define __GLIBCXX_TYPE_INT_N_0 __int128
++// CHECK: #define __SIZEOF_INT128__ 16
++// NONE-NOT: __SIZEOF_INT128__
+diff --git a/clang/test/Sema/128bitint.c b/clang/test/Sema/128bitint.c
+index e5fb4ab77200..bc1d8d292240 100644
+--- a/clang/test/Sema/128bitint.c
++++ b/clang/test/Sema/128bitint.c
+@@ -1,5 +1,6 @@
+ // RUN: %clang_cc1 -fsyntax-only -verify -triple x86_64-apple-darwin9 %s -DHAVE
+-// RUN: %clang_cc1 -fsyntax-only -verify -triple i686-linux-gnu %s -DHAVE_NOT
++// RUN: %clang_cc1 -fsyntax-only -verify -triple i686-linux-gnu %s -DHAVE
++// RUN: %clang_cc1 -fsyntax-only -verify -triple sparc-unknown-linux-gnu %s -DHAVE_NOT
+ // RUN: %clang_cc1 -fsyntax-only -verify -triple powerpc64-ibm-aix-xcoff %s -DHAVE
+ // RUN: %clang_cc1 -fsyntax-only -verify -triple powerpc-ibm-aix-xcoff %s -DHAVE_NOT
+ 
+diff --git a/clang/test/Sema/atomic-ops.c b/clang/test/Sema/atomic-ops.c
+index 0e39777a0172..431c8803400e 100644
+--- a/clang/test/Sema/atomic-ops.c
++++ b/clang/test/Sema/atomic-ops.c
+@@ -1,6 +1,6 @@
+-// RUN: %clang_cc1 %s -verify=expected,fp80,noi128 -fgnuc-version=4.2.1 -ffreestanding \
++// RUN: %clang_cc1 %s -verify=expected,fp80 -fgnuc-version=4.2.1 -ffreestanding \
+ // RUN:   -Wno-default-const-init-unsafe -fsyntax-only -triple=i686-linux-gnu -std=c11
+-// RUN: %clang_cc1 %s -verify=expected,noi128 -fgnuc-version=4.2.1 -ffreestanding \
++// RUN: %clang_cc1 %s -verify=expected -fgnuc-version=4.2.1 -ffreestanding \
+ // RUN:   -Wno-default-const-init-unsafe -fsyntax-only -triple=i686-linux-android -std=c11
+ // RUN: %clang_cc1 %s -verify -fgnuc-version=4.2.1 -ffreestanding \
+ // RUN:   -Wno-default-const-init-unsafe -fsyntax-only -triple=powerpc64-linux-gnu -std=c11
+@@ -73,7 +73,6 @@ _Static_assert(atomic_is_lock_free((atomic_short*)0), "");
+ _Static_assert(atomic_is_lock_free((atomic_int*)0), "");
+ _Static_assert(atomic_is_lock_free((atomic_long*)0), "");
+ #ifndef PPC64_PWR8
+-// noi128-error@+1 {{__int128 is not supported on this target}}
+ _Static_assert(atomic_is_lock_free((_Atomic(__int128)*)0), ""); // expected-error {{not an integral constant expression}}
+ #else
+ _Static_assert(atomic_is_lock_free((_Atomic(__int128)*)0), ""); // expected-no-error
+diff --git a/clang/test/Sema/builtins-arm-exclusive.c b/clang/test/Sema/builtins-arm-exclusive.c
+index dbb3de51be41..181a8999e069 100644
+--- a/clang/test/Sema/builtins-arm-exclusive.c
++++ b/clang/test/Sema/builtins-arm-exclusive.c
+@@ -29,7 +29,7 @@ int test_ldrex(char *addr) {
+   // types at the moment.
+   sum += __builtin_arm_ldrex((struct Simple *)addr).a; // expected-error {{address argument to atomic builtin must be a pointer to}}
+ 
+-  sum += __builtin_arm_ldrex((__int128 *)addr); // expected-error {{__int128 is not supported on this target}} expected-error {{address argument to load or store exclusive builtin must be a pointer to 1,2,4 or 8 byte type}}
++  sum += __builtin_arm_ldrex((__int128 *)addr); // expected-error {{address argument to load or store exclusive builtin must be a pointer to 1,2,4 or 8 byte type}}
+ 
+   __builtin_arm_ldrex(); // expected-error {{too few arguments to function call}}
+   __builtin_arm_ldrex(1, 2); // expected-error {{too many arguments to function call}}
+@@ -56,7 +56,7 @@ int test_strex(char *addr) {
+   res |= __builtin_arm_strex(var, (struct Simple **)addr); // expected-error {{passing 'struct Simple' to parameter of incompatible type 'struct Simple *'}}
+   res |= __builtin_arm_strex(&var, (struct Simple **)addr).a; // expected-error {{is not a structure or union}}
+ 
+-  res |= __builtin_arm_strex(1, (__int128 *)addr); // expected-error {{__int128 is not supported on this target}} expected-error {{address argument to load or store exclusive builtin must be a pointer to 1,2,4 or 8 byte type}}
++  res |= __builtin_arm_strex(1, (__int128 *)addr); // expected-error {{address argument to load or store exclusive builtin must be a pointer to 1,2,4 or 8 byte type}}
+ 
+   __builtin_arm_strex(1); // expected-error {{too few arguments to function call}}
+   __builtin_arm_strex(1, 2, 3); // expected-error {{too many arguments to function call}}
+@@ -80,7 +80,7 @@ int test_ldrexd(char *addr) {
+   // types at the moment.
+   sum += __builtin_arm_ldrexd((struct Simple *)addr).a; // expected-error {{address argument to atomic builtin must be a pointer to}}
+ 
+-  sum += __builtin_arm_ldrexd((__int128 *)addr); // expected-error {{__int128 is not supported on this target}} expected-error {{address argument to load or store exclusive builtin must be a pointer to 8 byte type}}
++  sum += __builtin_arm_ldrexd((__int128 *)addr); // expected-error {{address argument to load or store exclusive builtin must be a pointer to 8 byte type}}
+ 
+   __builtin_arm_ldrexd(); // expected-error {{too few arguments to function call}}
+   __builtin_arm_ldrexd(1, 2); // expected-error {{too many arguments to function call}}
+@@ -107,7 +107,7 @@ int test_strexd(char *addr) {
+   res |= __builtin_arm_strexd(var, (struct Simple **)addr); // expected-error {{passing 'struct Simple' to parameter of incompatible type 'struct Simple *'}} expected-error {{address argument to load or store exclusive builtin must be a pointer to 8 byte type}}
+   res |= __builtin_arm_strexd(&var, (struct Simple **)addr).a; // expected-error {{is not a structure or union}} expected-error {{address argument to load or store exclusive builtin must be a pointer to 8 byte type}}
+ 
+-  res |= __builtin_arm_strexd(1, (__int128 *)addr); // expected-error {{__int128 is not supported on this target}} expected-error {{address argument to load or store exclusive builtin must be a pointer to 8 byte type}}
++  res |= __builtin_arm_strexd(1, (__int128 *)addr); // expected-error {{address argument to load or store exclusive builtin must be a pointer to 8 byte type}}
+ 
+   __builtin_arm_strexd(1); // expected-error {{too few arguments to function call}}
+   __builtin_arm_strexd(1, 2, 3); // expected-error {{too many arguments to function call}}
+@@ -131,7 +131,7 @@ int test_ldaex(char *addr) {
+   // types at the moment.
+   sum += __builtin_arm_ldaex((struct Simple *)addr).a; // expected-error {{address argument to atomic builtin must be a pointer to}}
+ 
+-  sum += __builtin_arm_ldaex((__int128 *)addr); // expected-error {{__int128 is not supported on this target}} expected-error {{address argument to load or store exclusive builtin must be a pointer to 1,2,4 or 8 byte type}}
++  sum += __builtin_arm_ldaex((__int128 *)addr); // expected-error {{address argument to load or store exclusive builtin must be a pointer to 1,2,4 or 8 byte type}}
+ 
+   __builtin_arm_ldaex(); // expected-error {{too few arguments to function call}}
+   __builtin_arm_ldaex(1, 2); // expected-error {{too many arguments to function call}}
+@@ -158,7 +158,7 @@ int test_stlex(char *addr) {
+   res |= __builtin_arm_stlex(var, (struct Simple **)addr); // expected-error {{passing 'struct Simple' to parameter of incompatible type 'struct Simple *'}}
+   res |= __builtin_arm_stlex(&var, (struct Simple **)addr).a; // expected-error {{is not a structure or union}}
+ 
+-  res |= __builtin_arm_stlex(1, (__int128 *)addr); // expected-error {{__int128 is not supported on this target}} expected-error {{address argument to load or store exclusive builtin must be a pointer to 1,2,4 or 8 byte type}}
++  res |= __builtin_arm_stlex(1, (__int128 *)addr); // expected-error {{address argument to load or store exclusive builtin must be a pointer to 1,2,4 or 8 byte type}}
+ 
+   __builtin_arm_stlex(1); // expected-error {{too few arguments to function call}}
+   __builtin_arm_stlex(1, 2, 3); // expected-error {{too many arguments to function call}}
+diff --git a/clang/test/Sema/kairo-int128-32bit.c b/clang/test/Sema/kairo-int128-32bit.c
+new file mode 100644
+index 000000000000..4e72993f688e
+--- /dev/null
++++ b/clang/test/Sema/kairo-int128-32bit.c
+@@ -0,0 +1,24 @@
++// __int128 is accepted on the 32-bit targets this fork gives it, and the
++// __int128_t / __uint128_t typedefs exist.
++
++// RUN: %clang_cc1 -fsyntax-only -verify -triple i686-linux-gnu %s
++// RUN: %clang_cc1 -fsyntax-only -verify -triple i686-w64-windows-gnu %s
++// RUN: %clang_cc1 -fsyntax-only -verify -triple armv7-linux-gnueabihf %s
++// RUN: %clang_cc1 -fsyntax-only -verify -triple thumbv7em-none-eabi %s
++// RUN: %clang_cc1 -fsyntax-only -verify -triple riscv32-linux-gnu %s
++// RUN: %clang_cc1 -fsyntax-only -verify -triple powerpc-linux-gnu %s
++// RUN: %clang_cc1 -fsyntax-only -verify -triple mips-linux-gnu %s
++// expected-no-diagnostics
++
++__int128 a = (__int128)-1;
++unsigned __int128 b = (unsigned __int128)-1;
++__int128_t c;
++__uint128_t d;
++
++_Static_assert(sizeof(__int128) == 16, "");
++_Static_assert(_Alignof(__int128) == 16, "");
++_Static_assert(__SIZEOF_INT128__ == 16, "");
++_Static_assert((unsigned __int128)-1 > (unsigned long long)-1, "");
++_Static_assert(((__int128)1 << 100) / ((__int128)1 << 99) == 2, "");
++
++__int128 mul(__int128 x, __int128 y) { return x * y; }
+diff --git a/clang/test/SemaCXX/microsoft-vs-float128.cpp b/clang/test/SemaCXX/microsoft-vs-float128.cpp
+index 77d249881290..7dbe91f96b88 100644
+--- a/clang/test/SemaCXX/microsoft-vs-float128.cpp
++++ b/clang/test/SemaCXX/microsoft-vs-float128.cpp
+@@ -1,5 +1,8 @@
+ // RUN: %clang_cc1 -triple x86_64-linux-gnu -fms-compatibility -fms-extensions -fsyntax-only -verify -std=c++11 %s
+-// RUN: %clang_cc1 -triple i686-pc-win32 -fms-compatibility -fms-extensions -fsyntax-only -verify -std=c++11 -DMS %s
++// In this fork Win32 has __float128 (MicrosoftMangle spells it) and
++// __int128 (X86_32TargetInfo::hasInt128Type), so it takes the non-MS branch;
++// the MS branch has no run left.
++// RUN: %clang_cc1 -triple i686-pc-win32 -fms-compatibility -fms-extensions -fsyntax-only -verify -std=c++11 %s
+ 
+ template <bool> struct enable_if {};
+ template<> struct enable_if<true> { typedef void type; };
+diff --git a/compiler-rt/lib/builtins/CMakeLists.txt b/compiler-rt/lib/builtins/CMakeLists.txt
+index c2194f4ed741..9d6a8cd79b5c 100644
+--- a/compiler-rt/lib/builtins/CMakeLists.txt
++++ b/compiler-rt/lib/builtins/CMakeLists.txt
+@@ -1030,8 +1030,17 @@ else ()
+ 
+       # For RISCV32 and 32-bit SPARC, we must force enable int128 for compiling long
+       # double routines.
++      # This fork's clang has __int128 on i386, ARM, RV32, 32-bit PowerPC and
++      # MIPS o32 by default. Every one of these backends calls compiler-rt for
++      # i128<->fp conversions (__floattidf, __fixdfti, ...), and PowerPC and
++      # MIPS also for division (__divti3, __umodti3). The ti builtins exist
++      # only under CRT_HAS_128BIT (__SIZEOF_INT128__), so force the type for
++      # these arches too: the library then has them even when an older clang
++      # builds it.
+       if (COMPILER_RT_ENABLE_SOFTWARE_INT128 OR ("${arch}" MATCHES "riscv32|sparc$"
+-        AND NOT CMAKE_COMPILER_IS_GNUCC))
++        AND NOT CMAKE_COMPILER_IS_GNUCC) OR
++        ("${arch}" MATCHES "^(i386|i686|arm.*|thumb.*|powerpc|powerpcspe|mips|mipsel)$"
++        AND CMAKE_C_COMPILER_ID MATCHES "Clang"))
+         list(APPEND BUILTIN_CFLAGS_${arch} -fforce-enable-int128)
+       endif()
+ 
+-- 
+2.56.0
+

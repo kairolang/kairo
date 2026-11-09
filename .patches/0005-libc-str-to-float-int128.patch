@@ -1,0 +1,29 @@
+From a47beecca7198bb65cc363bb2e674fdc68bd42ce Mon Sep 17 00:00:00 2001
+From: Dhruvan <kartd01@purdue.edu>
+Date: Mon, 9 Nov 2026 18:09:04 -0500
+Subject: [PATCH 5/5] [libc] str_to_float: convert an x87 mantissa to UInt128
+ explicitly - with __int128 on i386 (a26664f6051c) UInt128 is unsigned
+ __int128, and FPBits<long double>::StorageType on i386 is BigInt<96>, whose
+ conversion to a builtin integer is explicit; libc++ (which includes this
+ header) failed to compile for i686
+
+---
+ libc/src/__support/str_to_float.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/libc/src/__support/str_to_float.h b/libc/src/__support/str_to_float.h
+index 873a11378065..fd55238315aa 100644
+--- a/libc/src/__support/str_to_float.h
++++ b/libc/src/__support/str_to_float.h
+@@ -206,7 +206,7 @@ eisel_lemire<long double>(ExpandedFloat<long double> init_num,
+   using FPBits = typename fputil::FPBits<long double>;
+   using StorageType = typename FPBits::StorageType;
+ 
+-  UInt128 mantissa = init_num.mantissa;
++  UInt128 mantissa = static_cast<UInt128>(init_num.mantissa);
+   int32_t exp10 = init_num.exponent;
+ 
+   // Exp10 Range
+-- 
+2.56.0
+

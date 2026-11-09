@@ -61,9 +61,38 @@ needs it:
   `compiler-rt/lib/builtins/{CMakeLists.txt,trunctfbf2.c}`,
   `llvm/lib/Target/WebAssembly/{WebAssemblyISelLowering,WebAssemblyRuntimeLibcallSignatures}.cpp`
 
+### 0004-int128-32bit.patch
+
+`__int128` on 32-bit targets, fork commit `a26664f6051c` (2026-11-09); Kairo's `i128`
+and `u128` need it everywhere:
+
+- `hasInt128Type()` is true on i386 (Windows i686 included), ARM, RISC-V 32,
+  PowerPC 32 (not AIX) and MIPS o32, with the layout `-fforce-enable-int128` gives
+  (size 16, align 16); `__SIZEOF_INT128__` is defined.
+- CodeGenModule's data-layout consistency check skips `__int128` on 32-bit targets,
+  as it already did under the flag.
+- compiler-rt: the ti builtins (`__floattidf`, `__divti3`, ...) are always built on
+  those arches.
+- ABI: libc++'s `file_time_type` becomes `duration<__int128>` on i686 and armv7, so
+  a sysroot built by an unpatched compiler must be rebuilt (ksys keys its cache on
+  the compiler, so its roots rebuild on their own).
+- Files: `clang/lib/Basic/Targets/{ARM,Mips,PPC,RISCV,X86}.h`,
+  `clang/lib/CodeGen/CodeGenModule.cpp`, `compiler-rt/lib/builtins/CMakeLists.txt`,
+  new and updated clang tests.
+
+### 0005-libc-str-to-float-int128.patch
+
+Fork commit `a47beecca719` (2026-11-09), needed by 0004: with `__int128` on i386,
+LLVM libc's `UInt128` is `unsigned __int128`, and the x87 `long double` mantissa
+(`BigInt<96>`) converts to it only explicitly. libc++ includes this header, so it
+failed to compile for i686.
+
+- Files: `libc/src/__support/str_to_float.h` (one line)
+
 One file per change, in order (2026-11-08): 0001 and 0002 are one fork commit each, 0003
 squashes the four `__float128` commits. Applied in order onto `llvmorg-22.1.0` they reproduce the fork's HEAD
-(`8f7e268535dd`) exactly. 0001 is exported from `kairo/file-tokenizer-hook`
+(`a47beecca719` since 2026-11-09; `8f7e268535dd` before 0004/0005) exactly. 0004 and 0005
+are `git format-patch` exports of one fork commit each. 0001 is exported from `kairo/file-tokenizer-hook`
 (`fcee6a01`), whose diff is identical to the fork commit `2091b018` ("code").
 
 ## Applying manually
@@ -72,7 +101,7 @@ The fork branch already includes these, so a normal recursive checkout of
 the submodule needs no manual step. To apply onto a fresh upstream tree:
 
     git checkout -b <branch> llvmorg-22.1.0
-    git am .patches/000*.patch        # all three, in order
+    git am .patches/000*.patch        # all five, in order
     # or one: git apply .patches/0001-file-tokenizer-hook.patch
 
 ## Version bumps
