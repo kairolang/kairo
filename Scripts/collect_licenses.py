@@ -41,6 +41,12 @@ LLVM = ROOT / "Lib" / "llvm-runtimes"
 DEB = SYSROOTS_PROJECT / "extract" / "x86_64-linux-gnu-glibc2.31" / "usr" / "share" / "doc"
 
 KAIRO_LICENSE = "Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception"
+
+
+def kairo_version() -> str:
+    sys.path.insert(0, str(ROOT))
+    import build  # noqa: E402
+    return build.KAIRO_VERSION
 LLVM_LICENSE = "Apache-2.0 WITH LLVM-exception"
 
 
@@ -80,13 +86,16 @@ def T(name: str) -> Path:
 
 
 TABLE: list[Component] = [
-    Component("kairo", "Kairo (kairo, kcc, kld, kfmt, builtin, std, rt, scripts)", KAIRO_LICENSE, "0.2.0",
-              "bin/kairo, bin/kcc, bin/kld, bin/kfmt, lib/builtin, lib/std, lib/rt, "
-              "scripts/darwin-sysroot.sh, scripts/msvc-sysroot.{sh,ps1}",
+    Component("kairo", "Kairo (kairo, kcc, kld, kfmt, ksys, builtin, std, rt, scripts)", KAIRO_LICENSE, "",
+              "bin/kairo, bin/kcc, bin/kld, bin/kfmt, bin/ksys, lib/builtin, lib/std, lib/rt, "
+              "scripts/darwin-sysroot.sh, scripts/msvc-sysroot.{sh,ps1}; share/kairo/sysroot's own files "
+              "(registry.toml, families/, quirks.toml, shims/, validate/; its inputs are listed per component)",
               [("LICENSE", [C("LICENSE")])],
-              claims=["bin/kairo*", "bin/kcc*", "bin/kld*", "bin/kfmt*",
+              # share/kairo/sysroot is claimed whole here; installed() then reads its
+              # registry.toml [licenses] and pulls in the component of every input dir.
+              claims=["bin/kairo*", "bin/kcc*", "bin/kld*", "bin/kfmt*", "bin/ksys*",
                       "lib/builtin", "lib/std", "lib/rt", "scripts/darwin-sysroot.sh",
-                      "scripts/msvc-sysroot.sh", "scripts/msvc-sysroot.ps1"]),
+                      "scripts/msvc-sysroot.sh", "scripts/msvc-sysroot.ps1", "share/kairo/sysroot"]),
     Component("llvm", "LLVM, clang, lld, compiler-rt, libc++, libc++abi, libunwind (Kairo fork)",
               LLVM_LICENSE + " (legacy NCSA / MIT sections for older files)", "22.1.0",
               "linked into bin/kairo, bin/kcc, bin/kld, bin/llvm-ar, bin/llvm-symbolizer; "
@@ -94,6 +103,8 @@ TABLE: list[Component] = [
               "(sysroot/*/{lib,compiler-rt,libcxx,include/c++}); share/kairo/runtimes (compiler-rt builtins, LLVM-libc headers, "
               "libunwind, libc++abi, libc++ source for scripts/*.sh); share/kairo/sdk-overlays (libc++ and "
               "compiler-rt builtins prebuilt for the macOS and MSVC roots scripts/*.sh assemble); "
+              "share/kairo/sysroot/runtimes-recipe (compile tables and generated libc++ headers "
+              "ksys builds the runtimes of every generated root from); "
               "the .patches/ are under this license",
               [("LICENSE.TXT", [LLVM / "LICENSE.TXT"]),
                ("compiler-rt-LICENSE.TXT", [LLVM / "compiler-rt" / "LICENSE.TXT"]),
@@ -131,26 +142,27 @@ TABLE: list[Component] = [
               [("BSL-1.0.txt", [T("BSL-1.0.txt")])]),
     Component("musl", "musl libc", "MIT", "1.2.6",
               "statically linked into the musl-hosted toolchain binaries; sysroot/*-linux-musl "
-              "(headers, libc.a, crt objects)",
+              "(headers, libc.a, crt objects); share/kairo/sysroot/musl (the source ksys builds libc.a from)",
               [("COPYRIGHT", [C("Lib", "libc", "musl", "COPYRIGHT")])],
               rev_of=C("Lib", "libc", "musl"), families=("linux-musl",)),
     Component("linux-uapi", "Linux kernel UAPI headers", "GPL-2.0-only WITH Linux-syscall-note",
               "6.12 (musl roots), Ubuntu linux-libc-dev 5.4 (glibc roots)",
-              "sysroot/*/include/{linux,asm,asm-generic}",
+              "sysroot/*/include/{linux,asm,asm-generic}; share/kairo/sysroot/linux-uapi",
               [("COPYING-syscall-note", [T("Linux-syscall-note.txt")]),
                ("GPL-2.0-only.txt", [T("GPL-2.0-only.txt")]),
                ("ubuntu-linux-libc-dev-copyright", [DEB / "linux-libc-dev" / "copyright"])],
               families=("linux-musl", "linux-gnu")),
     Component("glibc", "GNU C Library headers, crt objects and link stubs (Ubuntu glibc 2.31)",
               "LGPL-2.1-or-later", "2.31",
-              "sysroot/*-linux-gnu-glibc2.31 (headers, crt1.o, libc stubs)",
+              "sysroot/*-linux-gnu-glibc2.31 (headers, crt1.o, libc stubs); "
+              "share/kairo/sysroot/glibc (headers, crt objects, abilists the stubs are generated from)",
               [("COPYING.LIB", [T("LGPL-2.1-or-later.txt")]),
                ("GPL-2.0-only.txt", [T("GPL-2.0-only.txt")]),
                ("ubuntu-libc6-copyright", [DEB / "libc6-dev" / "copyright"])],
               families=("linux-gnu",)),
     Component("mingw-w64", "mingw-w64 (headers, CRT, import libs, winpthreads)",
               "ZPL-2.1 AND LicenseRef-mingw-w64-public-domain", "13.0.0",
-              "sysroot/*-windows-gnu",
+              "sysroot/*-windows-gnu; share/kairo/sysroot/mingw",
               [("COPYING", [C("Lib", "libc", "mingw", "COPYING")]),
                ("DISCLAIMER", [C("Lib", "libc", "mingw", "DISCLAIMER")]),
                ("DISCLAIMER.PD", [C("Lib", "libc", "mingw", "DISCLAIMER.PD")]),
@@ -159,18 +171,18 @@ TABLE: list[Component] = [
               rev_of=C("Lib", "libc", "mingw"), families=("windows-gnu",)),
     Component("freebsd", "FreeBSD base (headers, crt objects, libc.a and friends), 14.4",
               "BSD-2-Clause AND BSD-3-Clause (per file, see the FreeBSD COPYRIGHT)", "14.4",
-              "sysroot/*-unknown-freebsd",
+              "sysroot/*-unknown-freebsd; share/kairo/sysroot/freebsd",
               [("COPYRIGHT", [T("FreeBSD-COPYRIGHT.txt")])],
               families=("freebsd",)),
     Component("netbsd", "NetBSD base (headers, crt objects, libc.a and friends), 10.1",
               "BSD-2-Clause AND BSD-3-Clause (per file; holders are named in each header)", "10.1",
-              "sysroot/x86_64-unknown-netbsd",
+              "sysroot/x86_64-unknown-netbsd; share/kairo/sysroot/netbsd",
               [("COPYRIGHT", [T("NetBSD-COPYRIGHT.txt")])],
               families=("netbsd",)),
     Component("wasi-libc", "wasi-libc (headers, libc.a, crt1)",
               "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT (plus the musl and CloudABI parts "
               "named in its LICENSE)", "",
-              "sysroot/wasm32-wasi",
+              "sysroot/wasm32-wasi; share/kairo/sysroot/wasi",
               [("LICENSE", [C("Lib", "libc", "wasi", "LICENSE")]),
                ("LICENSE-APACHE", [C("Lib", "libc", "wasi", "LICENSE-APACHE")]),
                ("LICENSE-APACHE-LLVM", [C("Lib", "libc", "wasi", "LICENSE-APACHE-LLVM")]),
@@ -191,6 +203,13 @@ FAMILY_COMPONENTS = {
 }
 # The sysroot roots' own metadata: not a component, no license needed.
 SYSROOT_META = {"manifest.json"}
+# share/kairo/sysroot input dirs (the first segment of a registry.toml [inputs] key) ->
+# the component that licenses them. A segment not here is an error: a new input is a decision.
+SHARE_INPUT_COMPONENTS = {
+    "musl": "musl", "linux-uapi": "linux-uapi", "glibc": "glibc", "mingw": "mingw-w64",
+    "freebsd": "freebsd", "netbsd": "netbsd", "wasi": "wasi-libc",
+    "runtimes": "llvm", "runtimes-recipe": "llvm",
+}
 
 
 def log(m: str) -> None:
@@ -251,9 +270,59 @@ def installed(tree: Path, triple: str) -> tuple[set[str], list[str]]:
                 errors.append(f"sysroot/{e.name}: family '{fam}' has no license entry")
                 continue
             need |= set(FAMILY_COMPONENTS[fam])
+    errors += share_inputs(tree, need)
     if (tree / "sysroot").is_dir() or (tree / "lib" / "clang").is_dir():
         need.add("llvm")
     return need, errors
+
+
+def share_inputs(tree: Path, need: set[str]) -> list[str]:
+    """share/kairo/sysroot: every [inputs] dir of its registry.toml brings in the component
+    of its first segment, needs an SPDX id in [licenses], and needs its own license texts
+    under share/kairo/sysroot/licenses/<segment>/ (ksys copies those into every root it
+    builds, SysRoot.md section 15). Adds to `need`; returns errors."""
+    import tomllib
+    share = tree / "share" / "kairo" / "sysroot"
+    if not share.is_dir():
+        return []
+    reg = share / "registry.toml"
+    if not reg.is_file():
+        return ["share/kairo/sysroot: no registry.toml, cannot tell its inputs"]
+    with open(reg, "rb") as f:
+        d = tomllib.load(f)
+    errors = []
+    lic = d.get("licenses", {})
+    for key in sorted(d.get("inputs", {})):
+        seg = key.split("/")[0]
+        if seg not in SHARE_INPUT_COMPONENTS:
+            errors.append(f"share/kairo/sysroot/{key}: input '{seg}' has no license entry "
+                          "(SHARE_INPUT_COMPONENTS in Scripts/collect_licenses.py)")
+            continue
+        if not lic.get(key):
+            errors.append(f"share/kairo/sysroot/{key}: no SPDX id in registry.toml [licenses]")
+        texts = share / "licenses" / seg
+        if not (texts.is_dir() and any(p.is_file() for p in texts.iterdir())):
+            errors.append(f"share/kairo/sysroot/{key}: no license texts in share/kairo/sysroot/licenses/{seg}/")
+        need.add(SHARE_INPUT_COMPONENTS[seg])
+    return errors
+
+
+def share_notice_lines(tree: Path) -> list[str]:
+    """The notices index's per-input table for share/kairo/sysroot (from registry.toml)."""
+    import tomllib
+    reg = tree / "share" / "kairo" / "sysroot" / "registry.toml"
+    if not reg.is_file():
+        return []
+    with open(reg, "rb") as f:
+        d = tomllib.load(f)
+    lines = ["share/kairo/sysroot (the inputs ksys builds sysroots from; each generated root carries",
+             "its own LICENSES/ copied from share/kairo/sysroot/licenses/):", ""]
+    for key, spdx in sorted(d.get("licenses", {}).items()):
+        seg = key.split("/")[0]
+        texts = sorted(p.name for p in (reg.parent / "licenses" / seg).glob("*"))
+        lines += [f"  {key}", f"    component : {SHARE_INPUT_COMPONENTS.get(seg, '?')}", f"    SPDX      : {spdx}",
+                  f"    files     : " + ", ".join(f"share/kairo/sysroot/licenses/{seg}/{t}" for t in texts)]
+    return lines + [""]
 
 
 def copy_texts(c: Component, out: Path) -> list[str]:
@@ -293,13 +362,15 @@ def collect(tree: Path, triple: str) -> list[str]:
         c = by_id[cid]
         errors += copy_texts(c, tree)
         got = sorted(p.name for p in (tree / "LICENSES" / cid).glob("*"))
-        rows.append((c, version_of(c), got))
-    lines = ["Kairo 0.2.0 third-party notices", "=" * 31, "",
+        rows.append((c, kairo_version() if c.id == "kairo" else version_of(c), got))
+    title = f"Kairo {kairo_version()} third-party notices"
+    lines = [title, "=" * len(title), "",
              "Kairo itself is " + KAIRO_LICENSE + " (LICENSE). This archive also contains the",
              "components below; their license texts are in LICENSES/<component>/.", ""]
     for c, ver, got in rows:
         lines += [f"{c.name}", f"  component : {c.id}", f"  version   : {ver}", f"  SPDX      : {c.spdx}",
                   f"  ships in  : {c.ships}", f"  files     : " + ", ".join(f"LICENSES/{c.id}/{g}" for g in got), ""]
+    lines += share_notice_lines(tree)
     (tree / "THIRD-PARTY-NOTICES").write_text("\n".join(lines))
     log(f"{len(rows)} components: " + ", ".join(c.id for c, _, _ in rows))
     return errors

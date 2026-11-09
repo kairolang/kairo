@@ -5,14 +5,22 @@
     python3 Scripts/package_release.py --out build/ship/dist --work build/ship/work x86_64-linux-musl
     python3 Scripts/package_release.py --all                  # every tree that is built
     python3 Scripts/package_release.py --sysroots none ...    # compiler only
+    python3 Scripts/package_release.py --legacy-sysroots ...  # 0.2.0 layout: all 18 roots prebuilt
+    python3 Scripts/package_release.py --stage-only --work build/sysgen/c/stage x86_64-linux-musl
 
 The archive is an ALLOWLIST of build/<triple>/release, not a copy of it (that tree keeps
 clang, lld and the dev tools, which dev builds want on disk; kairo and kcc run clang and
 lld in-process, and a user never needs the binaries):
 
-  bin/      kairo kcc kld kfmt llvm-symbolizer llvm-ar + alias links llvm-ranlib llvm-lib
+  bin/      kairo kcc kld kfmt ksys llvm-symbolizer llvm-ar + alias links llvm-ranlib llvm-lib
   lib/      clang/<ver> (resource dir), builtin, std, rt        (copies, never symlinks)
-  sysroot/  the redistributable roots named in sysroot/manifest.json, and nothing else
+  sysroot/  the host's own prebuilt roots (HOST_ROOTS below), and a manifest.json naming
+            just those; every other target is built by ksys on first use, from:
+  share/kairo/sysroot/  the ksys input tree (Scripts/ship_sysroot_inputs.py writes it to
+            build/sysroot-share; its contract is that tree's FORMAT.md). Copied, then every
+            registry.toml [inputs] hash is recomputed on the staged copy, "runtimes" against
+            the share/kairo/runtimes staged beside it, so a share tree generated from other
+            runtimes than the ones shipped (ksys would refuse every build) never archives.
   scripts/  darwin-sysroot.sh, msvc-sysroot.{sh,ps1}: build the macOS / MSVC roots a release
             cannot ship, from the user's own Apple SDK / Microsoft CRT+SDK
             (source: Scripts/release-scripts/; the msvc one is a sh/PowerShell polyglot)
@@ -24,6 +32,9 @@ lld in-process, and a user never needs the binaries):
             one canonical build/sdk-overlays (Scripts/build_sdk_overlays.py); their REVISION
             must match the runtimes', and every file must be on the overlay allowlist.
   LICENSE, NOTICE, LICENSES/, THIRD-PARTY-NOTICES               (Scripts/collect_licenses.py)
+
+--legacy-sysroots ships all 18 redistributable roots of sysroot/manifest.json, as 0.2.0 did
+(the share tree and ksys still ship: additive, and a prebuilt root shadows the build).
 
 Sysroots: Apple and MSVC roots exist in a development sysroot/ and are never packaged
 (Compiler/Spec/SysRoot.md section 12). They are excluded by SYSROOT.toml family
@@ -63,7 +74,7 @@ import build_sdk_overlays  # noqa: E402
 # link time (mingw import libs ship prebuilt in the sysroots); only the unimplemented
 # sysroot generator (SysRoot.md 4.6) would.
 SHIP_BIN = {
-    "kairo": [], "kcc": [], "kld": [], "kfmt": [],
+    "kairo": [], "kcc": [], "kld": [], "kfmt": [], "ksys": [],
     "llvm-symbolizer": [],
     "llvm-ar": ["llvm-ranlib", "llvm-lib"],
 }
@@ -88,8 +99,11 @@ def log(m: str) -> None:
     print(f"[package] {m}", flush=True)
 
 
+TREE_OVERRIDE: Path | None = None    # --tree: package another release tree (a dry run)
+
+
 def tree_of(triple: str) -> Path:
-    return ROOT / "build" / triple / "release"
+    return TREE_OVERRIDE or ROOT / "build" / triple / "release"
 
 
 def exe_suffix(triple: str) -> str:
@@ -382,46 +396,175 @@ def copy_root(src: Path, dst: Path) -> int:
     return len(dropped)
 
 
-def stage_sysroots(triple: str, dst: Path) -> None:
+# The prebuilt roots a host archive keeps (the rest come from ksys, share/kairo/sysroot).
+# The rule: the roots a user of that host most likely targets first, so the common
+# `--target <host>` and the native-libc case need no first-use build (about 5-25 s, and a
+# working kcc + the runtimes source). Linux hosts are musl-hosted toolchains whose users
+# build for both libcs of their own arch: the musl root and the glibc one (glibc's name
+# carries its version and, on armv7, the gnueabihf ABI, so names are spelled out here,
+# never derived). Windows keeps its own -windows-gnu root (the default target there);
+# the BSDs keep their own root. macOS keeps none: its native root is the user's Apple SDK
+# plus share/kairo/sdk-overlays (scripts/darwin-sysroot.sh, run by the installer).
+# Every key of cross_llvm.FAMILIES must be here: a new host is a decision, not a default.
+HOST_ROOTS = {
+    "x86_64-linux-musl":        ["x86_64-linux-musl", "x86_64-linux-gnu-glibc2.31"],
+    "i686-linux-musl":          ["i686-linux-musl", "i686-linux-gnu-glibc2.31"],
+    "aarch64-linux-musl":       ["aarch64-linux-musl", "aarch64-linux-gnu-glibc2.31"],
+    "armv7-linux-musl":         ["armv7-linux-musl", "armv7-linux-gnueabihf-glibc2.31"],
+    "riscv64-linux-musl":       ["riscv64-linux-musl", "riscv64-linux-gnu-glibc2.31"],
+    "x86_64-windows-gnu":       ["x86_64-windows-gnu"],
+    "i686-windows-gnu":         ["i686-windows-gnu"],
+    "aarch64-windows-gnu":      ["aarch64-windows-gnu"],
+    "armv7-windows-gnu":        ["armv7-windows-gnu"],
+    "x86_64-unknown-freebsd":   ["x86_64-unknown-freebsd"],
+    "aarch64-unknown-freebsd":  ["aarch64-unknown-freebsd"],
+    "x86_64-unknown-netbsd":    ["x86_64-unknown-netbsd"],
+    "arm64-apple-macosx11.0":   [],
+    "x86_64-apple-macosx10.15": [],
+}
+
+
+def stage_sysroots(triple: str, dst: Path, legacy: bool) -> None:
+    """sysroot/: the host's HOST_ROOTS (default) or every redistributable root (legacy)."""
     sr = (tree_of(triple) / "sysroot").resolve()
     manifest = json.loads((sr / "manifest.json").read_text())
     want = set(manifest["targets"])
     cand = {p.name for p in sr.iterdir() if (p / "SYSROOT.toml").is_file()}
-    shipped = set()
+    redist = set()
     for name in sorted(cand):
         ok, why = redistributable(sr / name)
         if not ok:
             log(f"sysroot/{name}: not packaged ({why})")
             continue
-        shipped.add(name)
-    if shipped != want:
-        die(f"sysroot roots differ from manifest.json: only on disk {sorted(shipped - want)}, "
-            f"only in manifest {sorted(want - shipped)}")
+        redist.add(name)
+    if legacy:
+        if redist != want:
+            die(f"sysroot roots differ from manifest.json: only on disk {sorted(redist - want)}, "
+                f"only in manifest {sorted(want - redist)}")
+        shipped = redist
+    else:
+        if triple not in HOST_ROOTS:
+            die(f"{triple} has no HOST_ROOTS entry in Scripts/package_release.py: decide which "
+                "prebuilt roots its archive keeps ([] = none, ksys builds every target)")
+        shipped = set(HOST_ROOTS[triple])
+        bad = sorted(n for n in shipped if n not in want or n not in redist)
+        if bad:
+            die(f"HOST_ROOTS[{triple}] names {bad}: not a redistributable root of {sr} / its manifest.json")
+    if not shipped:
+        log("sysroot/: no prebuilt roots for this host (ksys builds every target)")
+        return
     (dst / "sysroot").mkdir()
-    shutil.copy2(sr / "manifest.json", dst / "sysroot" / "manifest.json")
+    # The manifest names only what ships: a 0.2.0 reader took it as the list of roots on disk.
+    kept = dict(manifest, targets={n: t for n, t in manifest["targets"].items() if n in shipped})
+    (dst / "sysroot" / "manifest.json").write_text(json.dumps(kept, indent=2) + "\n")
     dangling = 0
     for name in sorted(shipped):
         log(f"sysroot/{name}")
         dangling += copy_root(sr / name, dst / "sysroot" / name)
-    log(f"sysroots: {len(shipped)} roots, {dangling} dangling links dropped (musl libc.so -> loader, FreeBSD libxo test.enc)")
+    log(f"sysroots: {len(shipped)} of {len(want)} roots prebuilt{' (legacy)' if legacy else ''}, "
+        f"{dangling} dangling links dropped (musl libc.so -> loader, FreeBSD libxo test.enc)")
+
+
+SYSROOT_SHARE = ROOT / "build" / "sysroot-share"
+# What of build/sysroot-share ships, besides the [inputs] dirs registry.toml names. Anything
+# else at its top level is an error: a new entry is a decision. FORMAT.md is the maintainer
+# contract between the producer and ksys, not something an install reads.
+SHARE_META = {"registry.toml", "quirks.toml", "provenance.toml", "families", "shims", "validate",
+              "licenses"}
+SHARE_SKIP = {"FORMAT.md"}
+
+
+def stage_share(dst: Path, src: Path) -> None:
+    """share/kairo/sysroot from build/sysroot-share (or --share). Copied with its symlinks
+    (the BSD inputs' relative usr/lib links, a 23 MB include dir among them: resolving them
+    would double that payload), then checked on the staged copy: every registry hash, the
+    "runtimes" one against share/kairo/runtimes staged beside it, no link leaving its input,
+    and a non-empty licenses/<component>/ for every input."""
+    import ship_sysroot_inputs   # lazily: it imports this module back
+    reg_src = src / "registry.toml"
+    if not reg_src.is_file():
+        die(f"no ksys input tree at {src}: build it with python3 Scripts/ship_sysroot_inputs.py "
+            "(or pass --legacy-sysroots for the 0.2.0 layout)")
+    with open(reg_src, "rb") as f:
+        reg = tomllib.load(f)
+    inputs, lic = reg.get("inputs", {}), reg.get("licenses", {})
+    if not inputs or set(inputs) != set(lic):
+        die(f"{reg_src}: [inputs] and [licenses] must name the same dirs "
+            f"(only inputs {sorted(set(inputs) - set(lic))}, only licenses {sorted(set(lic) - set(inputs))})")
+    tops = {k.split("/")[0] for k in inputs}
+    out = dst / "share" / "kairo" / "sysroot"
+    out.mkdir(parents=True)
+    for e in sorted(src.iterdir()):
+        if e.name in SHARE_SKIP:
+            continue
+        if e.name == "runtimes":
+            die(f"{e}: the share tree carries its own runtimes/; package_release ships one copy, "
+                "share/kairo/runtimes (FORMAT.md fallback)")
+        if e.name not in SHARE_META and e.name not in tops:
+            die(f"{e}: not an input dir of registry.toml nor a known share file; decide whether it ships "
+                "(SHARE_META in Scripts/package_release.py)")
+        if e.is_dir():
+            shutil.copytree(e, out / e.name, symlinks=True, ignore=shutil.ignore_patterns(".git*", "__pycache__"))
+        else:
+            shutil.copy2(e, out / e.name)
+    # A link must stay inside its own input dir (FORMAT.md, producer notes): the hash
+    # follows links, so one escaping into a sibling, or out of the tree, would hash here
+    # and dangle (or differ) in an install.
+    for d, dirs, files in os.walk(out):
+        for n in dirs + files:
+            p = Path(d) / n
+            if not p.is_symlink():
+                continue
+            t = os.readlink(p)
+            rel = p.relative_to(out).as_posix()
+            owner = next((k for k in inputs if rel.startswith(k + "/")), None)
+            target = (p.parent / t).resolve()
+            if os.path.isabs(t) or owner is None or not target.exists() \
+                    or not target.is_relative_to((out / owner).resolve()):
+                die(f"share/kairo/sysroot/{rel} -> {t}: a link must be relative and resolve inside its input dir")
+    runtimes = dst / "share" / "kairo" / "runtimes"
+    if not (runtimes / "REVISION").is_file():
+        die("stage_share runs after stage_runtimes: share/kairo/runtimes is not staged")
+    bad = []
+    for k, want in sorted(inputs.items()):
+        d = runtimes if k == "runtimes" else out / k
+        if not d.is_dir():
+            bad.append(f"{k}: missing")
+            continue
+        got = ship_sysroot_inputs.tree_sha256(d)
+        if got != want:
+            bad.append(f"{k}: registry {want[:12]}, staged {got[:12]}")
+    if bad:
+        die("share/kairo/sysroot/registry.toml does not match what was staged (ksys would refuse these "
+            "targets); regenerate the share tree with python3 Scripts/ship_sysroot_inputs.py:\n  "
+            + "\n  ".join(bad))
+    have = {p.name for p in (out / "licenses").iterdir() if p.is_dir()} if (out / "licenses").is_dir() else set()
+    empty = sorted(c for c in have if not any((out / "licenses" / c).iterdir()))
+    if tops != have or empty:
+        die(f"share/kairo/sysroot/licenses must hold one non-empty dir per input component: "
+            f"missing {sorted(tops - have)}, unexpected {sorted(have - tops)}, empty {empty}")
+    size = sum(p.stat().st_size for p in out.rglob("*") if p.is_file() and not p.is_symlink())
+    log(f"share/kairo/sysroot: {len(inputs)} inputs verified against registry.toml "
+        f"({size / (1 << 20):.1f} MiB unpacked)")
 
 
 def check_banned(dst: Path) -> None:
     """The release must never contain an Apple or MSVC root. Checked on the staged tree by
     SYSROOT.toml family and by path, so a file that slipped in under any name is caught."""
     sr = dst / "sysroot"
-    if not sr.is_dir():
-        return
-    for root in sr.iterdir():
+    for root in (sr.iterdir() if sr.is_dir() else ()):
         if root.is_dir():
             ok, why = redistributable(root)
             if not ok:
                 die(f"{root.relative_to(dst)} is in the archive tree but is not redistributable ({why})")
-    for d, dirs, files in os.walk(sr):
-        for n in dirs + files:
-            rel = str((Path(d) / n).relative_to(dst))
-            if any(b in rel for b in BANNED_PATH_PARTS):
-                die(f"{rel} looks like Apple/MSVC content and must never be in an archive")
+    # The ksys input tree too: its darwin/msvc recipes are ours (families/*.toml), but an
+    # input dir of SDK content under any name must never ship.
+    for top in (sr, dst / "share" / "kairo" / "sysroot"):
+        for d, dirs, files in os.walk(top):
+            for n in dirs + files:
+                rel = str((Path(d) / n).relative_to(dst))
+                if any(b in rel for b in BANNED_PATH_PARTS):
+                    die(f"{rel} looks like Apple/MSVC content and must never be in an archive")
 
 
 def check_names(names, what: str) -> None:
@@ -439,7 +582,7 @@ def check_names(names, what: str) -> None:
 
 
 def stage_dir(triple: str, ver: str, sysroots: str, work: Path, allow_missing: set[str],
-              overlays: bool = True) -> Path:
+              overlays: bool = True, legacy: bool = False, share: Path = SYSROOT_SHARE) -> Path:
     name = f"kairo-{ver}-{triple}"
     dst = work / name
     shutil.rmtree(dst, ignore_errors=True)
@@ -451,7 +594,8 @@ def stage_dir(triple: str, ver: str, sysroots: str, work: Path, allow_missing: s
     if overlays:
         stage_sdk_overlays(dst)
     if sysroots == "bundled":
-        stage_sysroots(triple, dst)
+        stage_share(dst, share)
+        stage_sysroots(triple, dst, legacy)
         check_banned(dst)
     errs = collect_licenses.collect(dst, triple)
     if errs:
@@ -498,7 +642,16 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("triples", nargs="*")
     ap.add_argument("--all", action="store_true", help="every target whose release tree exists")
-    ap.add_argument("--sysroots", choices=["bundled", "none"], default="bundled")
+    ap.add_argument("--sysroots", choices=["bundled", "none"], default="bundled",
+                    help="none: no sysroot/ and no share/kairo/sysroot (compiler only)")
+    ap.add_argument("--legacy-sysroots", action="store_true",
+                    help="prebuild all 18 redistributable roots (the 0.2.0 layout) instead of the host's HOST_ROOTS")
+    ap.add_argument("--share", type=Path, default=SYSROOT_SHARE,
+                    help="the ksys input tree to ship as share/kairo/sysroot (default: build/sysroot-share)")
+    ap.add_argument("--tree", type=Path,
+                    help="package this release tree instead of build/<triple>/release (one triple)")
+    ap.add_argument("--stage-only", action="store_true",
+                    help="stage into --work and stop: no archive, no SHA256SUMS, nothing written to --out")
     ap.add_argument("--no-strip", action="store_true", help="keep debug info in bin/ (default: --strip-debug)")
     ap.add_argument("--out", help="output directory (default: dist/<version>)")
     ap.add_argument("--work", help="scratch directory for the staged tree (default: <out>/.stage)")
@@ -507,13 +660,28 @@ def main() -> int:
     ap.add_argument("--allow-missing", action="append", default=[], metavar="TOOL",
                     help="package without this bin/ tool instead of failing (a test archive)")
     a = ap.parse_args()
-    global STRIP
+    global STRIP, TREE_OVERRIDE
     STRIP = not a.no_strip
     ver = version()
+    if a.tree:
+        if a.all or len(a.triples) != 1:
+            die("--tree packages one tree: name exactly one triple, without --all")
+        TREE_OVERRIDE = a.tree.resolve()
     triples = [t for t in cross_llvm.FAMILIES if (tree_of(t) / "bin").is_dir()] if a.all else a.triples
     if not triples:
         log("nothing to package")
         return 1
+    if a.stage_only:
+        # Returns before anything touches --out (default dist/<ver>, the real release dir).
+        if not a.work:
+            die("--stage-only needs --work DIR (the staged tree is left there)")
+        for t in triples:
+            if not (tree_of(t) / "bin").is_dir():
+                die(f"{t}: no tree at {tree_of(t)}")
+            dst = stage_dir(t, ver, a.sysroots, Path(a.work).resolve(), set(a.allow_missing),
+                            not a.no_sdk_overlays, a.legacy_sysroots, a.share.resolve())
+            log(f"{t}: staged {dst} (--stage-only: not archived)")
+        return 0
     out = Path(a.out).resolve() if a.out else ROOT / "dist" / ver
     work = Path(a.work).resolve() if a.work else out / ".stage"
     out.mkdir(parents=True, exist_ok=True)
@@ -521,10 +689,11 @@ def main() -> int:
         if not (tree_of(t) / "bin").is_dir():
             log(f"{t}: no tree at {tree_of(t)}; build it: python3 build.py --target {t} kairo kcc")
             return 1
-        dst = stage_dir(t, ver, a.sysroots, work, set(a.allow_missing), not a.no_sdk_overlays)
+        dst = stage_dir(t, ver, a.sysroots, work, set(a.allow_missing), not a.no_sdk_overlays,
+                        a.legacy_sysroots, a.share.resolve())
         p = archive(dst, t, out)
-        # Each staged tree is ~3.4 GB (the sysroots); keeping all of them until the end
-        # needs ~48 GB for --all, so drop each one as soon as its archive is written.
+        # A staged tree is ~1.5-2 GB (the share tree + the host roots; ~3.4 GB with
+        # --legacy-sysroots), so drop each one as soon as its archive is written.
         shutil.rmtree(dst, ignore_errors=True)
         log(f"{t}: {p.name} ({p.stat().st_size / (1 << 20):.0f} MiB)")
     shutil.rmtree(work, ignore_errors=True)
