@@ -1,0 +1,35 @@
+
+1. Runtime library. As an exception, if, as a result of compiling your
+   source code, portions of the Runtime Library are embedded into an
+   Object form of such source code, you may redistribute such embedded
+   portions in such Object form without complying with the conditions of
+   Sections 4(a), 4(b) and 4(d) of the License.
+
+   "Runtime Library" means the files in the following directories of the
+   Kairo source distribution, and their compiled forms:
+
+       Lib/rt/
+       Lib/builtin/
+       Lib/std/
+
+   This exception does not apply to the Kairo compiler, linker, build
+   tools or any other component of the toolchain when distributed as
+   standalone software, and does not apply to third-party components
+   distributed under their own licenses (see NOTICE).
+
+2. Compiler output. Code that the Kairo toolchain generates and places in
+   its output (including object files, executables, libraries, generated
+   C++ headers, and token streams produced for C or C++ translation
+   units) is not a Derivative Work of the toolchain by reason of that
+   generation. You may use, modify and distribute such output under terms
+   of your choice, without the conditions of Section 4 of the License.
+
+3. GPLv2 compatibility. In addition, if you combine or link compiled forms
+   of this Software with software that is licensed under the GPLv2
+   ("Combined Software") and if a court of competent jurisdiction
+   determines that the patent provision (Section 3), the indemnity
+   provision (Section 9) or other Section of the License conflicts with
+   the conditions of the GPLv2, you may retroactively and prospectively
+   choose to deem waived or otherwise exclude such Section(s) of the
+   License, but only in their entirety and only with respect to the
+   Combined Software.
