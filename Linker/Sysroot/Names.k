@@ -26,6 +26,10 @@
 ///   it is the provider's and the runtimes template's question, asked later
 ///   with a refusal of their own, not the parser's.
 ///
+///   x32 (x86_64-linux-gnux32, x86_64-linux-muslx32) has the arch "x32":
+///   x86_64 code with 32-bit pointers, its own recipe rows and properties
+///   (bits=32, int128 native, rt_arch x32), never matched as x86_64.
+///
 ///   A glibc version is `-glibc<X.Y>` (ours, and the name's) or Zig's
 ///   `.<X.Y>` after the environment: x86_64-linux-gnu.2.17 is
 ///   x86_64-linux-gnu-glibc2.17.
@@ -218,7 +222,18 @@ pub class SysNames {
         // 32-bit Arm on Linux is hard-float (eabihf) here, whatever the
         // sub-arch: the names carry no float ABI, and every root is hard-float.
         var arm = SysNames::cpu_of(arch) == "arm"
-        if family == "linux-musl" {
+        if arch == "x32" && (family == "linux-musl" || family == "linux-gnu") {
+            // x32 is x86_64 code with 32-bit pointers: the name and triple
+            // spell it as the environment does (x86_64-linux-gnux32), the
+            // arch is "x32" so recipes key it apart from x86_64 (_generic).
+            var env = if (family == "linux-musl") => ("muslx32") else => "gnux32"
+            t.clang_triple = f"x86_64-unknown-linux-{env}"
+            t.name         = f"x86_64-linux-{env}"
+            if family == "linux-gnu" {
+                t.name         = t.name + f"-glibc{glibc}"
+                t.libc_version = glibc
+            }
+        } else if family == "linux-musl" {
             t.name = f"{arch}-linux-musl"
             t.clang_triple = if (arm) => (f"{arch}-unknown-linux-musleabihf")
                              else => f"{arch}-unknown-linux-musl"
@@ -395,6 +410,10 @@ pub class SysNames {
                 return false
             }
 
+            if arch == "x86_64" && (env == "gnux32" || env == "muslx32") {
+                arch = "x32"
+            }
+
             // The roots are hard-float: a soft-float Arm environment would
             // get a hard-float root under a name that does not say so.
             if SysNames::cpu_of(arch) == "arm" && (env == "musleabi" || env == "gnueabi") {
@@ -437,6 +456,7 @@ pub class SysNames {
     /// The CPU family of an arch as a name or triple spells it.
     pub static fn cpu_of(const arch: string) -> string {
         if arch == "x86_64"
+            || arch == "x32"
             || arch.size() == 4 && arch[0] == ('i' as u8) && LinkText::ends_with(arch, "86") {
             return "x86"
         }
@@ -547,7 +567,8 @@ pub class SysNames {
         var bits = if (b64) => ("64") else => "32"
         var objfmt = if (os == "windows") => ("coff")
                      else => if (cpu == "wasm") => ("wasm") else => "elf"
-        var int128 = if (b64 || cpu == "wasm") => ("native") else => "soft"
+        // x32 has 32-bit pointers but x86_64's registers: __int128 is native.
+        var int128 = if (b64 || cpu == "wasm" || arch == "x32") => ("native") else => "soft"
         var big    = SysNames::is_big_endian(arch)
         var fl     = "na"
         if cpu == "arm" {
@@ -560,7 +581,9 @@ pub class SysNames {
         // arm_min, armv7 and later arm (soft) / armhf (hard), MinGW's arm,
         // i?86 i386.
         var rt = arch
-        if cpu == "x86" {
+        if arch == "x32" {
+            rt = "x32"
+        } else if cpu == "x86" {
             rt = if (b64) => ("x86_64") else => "i386"
         } else if cpu == "aarch64" {
             rt = "aarch64"
@@ -627,6 +650,7 @@ pub class SysNames {
 
         var ta = llvm::Triple(llvm::Triple::normalize(kairo::sref(a)))
         var tb = llvm::Triple(llvm::Triple::normalize(kairo::sref(b)))
-        return ta.getSubArch() == tb.getSubArch()
+        // gnux32 / muslx32 are x86_64 to the toolchain match, not to a root.
+        return ta.getSubArch() == tb.getSubArch() && ta.isX32() == tb.isX32()
     }
 }

@@ -49,8 +49,9 @@ fn ksys_usage() -> string {
     u += "usage: ksys [--share DIR] [--cache DIR] [-j N] [-q] <command>\n"
     u += "  probe <target>                               parse and probe; print the table\n"
     u += "  ensure <target> [--glibc=X.Y] [--input DIR]  the cached sysroot (built if missing); path on stdout\n"
-    u += "  build <target> [--glibc=X.Y] [--input DIR] --out DIR\n"
-    u += "                                               build into DIR, uncached\n"
+    u += "  build <target> [--glibc=X.Y] [--input DIR] [--libc-only] --out DIR\n"
+    u += "                                               build into DIR, uncached (--libc-only:\n"
+    u += "                                               the libc stages only, include/ lib/ SYSROOT.toml)\n"
     u += "  tables <target> --out DIR                    the runtimes tables the target compiles from, unbuilt\n"
     u += "  validate <dir>                               check a sysroot\n"
     u += "  verify-share                                 re-hash every input of the share tree\n"
@@ -153,6 +154,8 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
             gen.input = v
         } else if ksys_opt(&args, &i, "--out", &v) {
             out_dir = v
+        } else if a == "--libc-only" {
+            gen.libc_only = true
         } else if ksys_opt(&args, &i, "--jobs", &v)
             || ksys_opt(&args, &i, "-j", &v)
             || LinkText::starts_with(a, "-j") && a.size() > 2 {

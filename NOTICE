@@ -64,11 +64,21 @@ Zstandard (linked into the toolchain binaries)
 Linux kernel UAPI headers (Linux sysroots)
   GPL-2.0-only WITH Linux-syscall-note
 
-GNU C Library 2.31 headers, crt objects and link stubs (*-linux-gnu sysroots)
-  LGPL-2.1-or-later
+GNU C Library headers, start-file sources and ABI lists (*-linux-gnu sysroots;
+glibc 2.17 .. 2.42, the files taken from glibc's own release tags)
+  LGPL-2.1-or-later (the start files also carry glibc's link exception);
+  glibc's COPYING.LIB and LICENSES ship in the sysroot's LICENSES/glibc/
 
 FreeBSD 14.4 and NetBSD 10.1 base headers and libraries (BSD sysroots)
   BSD-2-Clause and BSD-3-Clause, per file
+
+The sysroot generator (Linker/Sysroot/, Scripts/ship_sysroot_inputs.py and
+related maintainer scripts) follows designs from the Zig project
+(https://ziglang.org, https://codeberg.org/ziglang/zig): glibc stub shared
+objects generated from abilist data with version gating, the
+majority-vote deduplication of per-target libc headers into a generic tree
+plus per-target overrides, and libc start files compiled from a shipped
+source subset. No Zig code or data is included.
 
 Apple's SDK and Microsoft's MSVC / Windows SDK are never distributed with
 Kairo. Sysroots built from them on your machine (scripts/) stay subject to

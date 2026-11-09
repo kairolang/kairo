@@ -15,6 +15,23 @@
 ///   libc.so and (where libmvec exists) libm.so are the GNU ld scripts glibc
 ///   installs, names only, so the root has no absolute path in it.
 ///
+///   Two input layouts (FORMAT.md). The per-release one (glibc/<X.Y>/<arch>:
+///   Ubuntu's headers and crt objects, one abilist set) is read when the
+///   recipe's [libc] has no `abilists`. The from-source one builds any
+///   release for any arch from four inputs, the design after Zig's
+///   src/libs/glibc.zig (no code copied):
+///     glibc/abilists  every release's abilists merged, each entry with the
+///                     releases that export it (Scripts/glibc_abilists.py);
+///                     the stubs are the target release's projection;
+///     glibc/headers   the newest release's install-headers for every arch,
+///                     deduplicated: generic/ + <arch>/ (into include/ and
+///                     include/<multiarch>/) minus [omit]; features.h gets
+///                     the target's __GLIBC_MINOR__ (Scripts/glibc_headers.py);
+///     glibc/src, glibc/crt  the crt objects and libc_nonshared.a, compiled
+///                     from glibc's own sources with the compiles glibc's
+///                     make ran, per era (2.32, 2.33, 2.34+) and arch
+///                     (Scripts/glibc_crt_recipe.py).
+///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
@@ -61,6 +78,31 @@ pub struct GlibcLib {
     pub var versions: cxx::std::vector<string>
 }
 
+/// glibc/abilists/targets.toml: one arch's row and the [sonames] table.
+pub struct GlibcRow {
+    pub var abi:     string
+    pub var ld:      string
+    pub var floor:   string
+    pub var so_keys: cxx::std::vector<string>
+    pub var so_vals: cxx::std::vector<string>
+}
+
+/// One [compile.*] or [link.*] of a glibc/crt/<era>/<arch>.toml.
+pub struct GlibcStep {
+    pub var out:  string
+    pub var args: cxx::std::vector<string> ///< compile: the argv after the program; link: inputs
+}
+
+/// glibc/crt/<era>/<arch>.toml (FORMAT.md "glibc/crt").
+pub struct GlibcCrtTable {
+    pub var era:       string
+    pub var releases:  string                      ///< "2.17-2.32", "2.34-newest"
+    pub var crt:       cxx::std::vector<string>
+    pub var nonshared: cxx::std::vector<string>
+    pub var compiles:  cxx::std::vector<GlibcStep>
+    pub var links:     cxx::std::vector<GlibcStep>
+}
+
 pub class GlibcProvider derives SysrootProvider {
     pub fn GlibcProvider(self) = default
 
@@ -74,6 +116,10 @@ pub class GlibcProvider derives SysrootProvider {
                             ctx:        *StageCtx,
                             const dst:  string,
                             @inout out: SysOutcome) -> bool {
+        if !ctx->recipe.str("libc", "headers").empty() {
+            return GlibcProvider::source_headers(ctx, dst, &out)
+        }
+
         var from = ctx->share_path(ctx->recipe.str("libc", "include"))
         if !LinkFS::is_dir(from) {
             return out.refuse(f"share input {from} missing", "")
@@ -105,6 +151,10 @@ pub class GlibcProvider derives SysrootProvider {
     }
 
     pub override fn libs(self, ctx: *StageCtx, const dst: string, @inout out: SysOutcome) -> bool {
+        if !ctx->recipe.str("libc", "abilists").empty() {
+            return GlibcProvider::source_libs(ctx, dst, &out)
+        }
+
         var crt = ctx->share_path(ctx->recipe.str("libc", "crt"))
         var ns  = ctx->share_path(ctx->recipe.str("libc", "nonshared"))
         var abi = ctx->share_path(ctx->recipe.str("libc", "abilist"))
@@ -138,9 +188,7 @@ pub class GlibcProvider derives SysrootProvider {
             return out.refuse(f"share input {abi}/libs.toml: {why}", "")
         }
 
-        var work = ctx->stage + "/stubs"
-        var jobs = SysJobs()
-        jobs.limit(ctx->jobs)
+        var all = cxx::std::vector<cxx::std::vector<GlibcSym>>()
         for var l: GlibcLib in libs {
             var ab = ""
             var co = ""
@@ -149,7 +197,26 @@ pub class GlibcProvider derives SysrootProvider {
             }
 
             LinkFS::read(abi + "/" + l.stem + ".compat", &co)
-            var syms = GlibcProvider::parse_abilist(ab, co)
+            all.push_back(GlibcProvider::parse_abilist(ab, co))
+        }
+
+        return GlibcProvider::link_stubs(ctx, lib, fmt, &libs, &all, &out)
+    }
+
+    /// The stub DSOs of \p libs (symbols \p all, index for index) into
+    /// \p lib, then the libc.so / libm.so scripts and the dev links.
+    pub static fn link_stubs(ctx:         *StageCtx,
+                             const lib:   string,
+                             const fmt:   string,
+                             @inout libs: cxx::std::vector<GlibcLib>,
+                             @inout all:  cxx::std::vector<cxx::std::vector<GlibcSym>>,
+                             @inout out:  SysOutcome) -> bool {
+        var work = ctx->stage + "/stubs"
+        var jobs = SysJobs()
+        jobs.limit(ctx->jobs)
+        for var li: usize = 0; li < libs.size(); ++li {
+            var l    = libs[li]
+            var syms = all[li]
             var c    = ""
             var map  = ""
             GlibcProvider::stub_sources(&syms, &l.versions, &c, &map)
@@ -188,8 +255,13 @@ pub class GlibcProvider derives SysrootProvider {
             argv.push_back("-shared")
             argv.push_back("-soname")
             argv.push_back(l.soname)
-            argv.push_back("--version-script")
-            argv.push_back(dir + "/stub.map")
+            // A library with no version node (a 2.34+ placeholder library on a
+            // port newer than 2.34) has no script: lld rejects an empty one.
+            if !l.versions.empty() {
+                argv.push_back("--version-script")
+                argv.push_back(dir + "/stub.map")
+            }
+
             argv.push_back("-o")
             argv.push_back(lib + "/" + GlibcProvider::file_name(&l, ctx->target.libc_version))
             argv.push_back(dir + "/stub.o")
@@ -215,7 +287,7 @@ pub class GlibcProvider derives SysrootProvider {
         var libm    = GlibcProvider::_soname(&libs, "libm")
         var libmvec = GlibcProvider::_soname(&libs, "libmvec")
         if libc.empty() || ld.empty() || libm.empty() {
-            return out.refuse(f"share input {abi}/libs.toml lacks libc, ld or libm", "")
+            return out.refuse("the glibc libraries lack libc, ld or libm", "")
         }
 
         var script = "/* GNU ld script\n   Use the shared library, but some functions are only in\n   the static library, so try that secondarily.  */\n"
@@ -253,6 +325,520 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         return true
+    }
+
+    /// The from-source include/: glibc/headers generic/ into include/, the
+    /// arch's own files into include/<multiarch>/ (searched first, as
+    /// SYSROOT.toml's include_dirs order it), the [omit] paths the arch's
+    /// install lacks removed, then the UAPI, and features.h set to the
+    /// target's __GLIBC_MINOR__ (the one change a release needs here:
+    /// glibc_headers.py's gates key on it).
+    pub static fn source_headers(ctx:        *StageCtx,
+                                 const dst:  string,
+                                 @inout out: SysOutcome) -> bool {
+        var hroot = ctx->share_path(ctx->recipe.str("libc", "headers"))
+        var arch  = ctx->target.arch
+        var row   = GlibcRow{}
+        if !GlibcProvider::target_row(ctx, &row, &out) {
+            return false
+        }
+
+        var text = ""
+        if !LinkFS::read(hroot + "/index.toml", &text) || !LinkFS::is_dir(hroot + "/generic") {
+            return out.refuse(f"share input {hroot} lacks index.toml or generic/", "")
+        }
+
+        var arches = cxx::std::vector<string>()
+        var omit   = cxx::std::vector<string>()
+        var toml   = TomlLite(text)
+        var key    = ""
+        var val    = TomlValue{}
+        while toml.next(&key, &val) {
+            if toml.table.empty() && key == "arches" && val.kind == 3 {
+                arches = val.list
+            } else if toml.table == "omit" && key == arch && val.kind == 3 {
+                omit = val.list
+            }
+        }
+
+        if !SysUtil::contains(&arches, arch) {
+            return out.refuse(f"share input {hroot} has no headers for {arch}", "")
+        }
+
+        var ma = ctx->recipe.expand("{per_arch.multiarch}", &ctx->target)
+        if LinkText::contains(ma, "{") {
+            return out.refuse(f"the glibc recipe has no [per_arch.multiarch] for {arch}", "")
+        }
+
+        var inc = dst + "/include"
+        if !ctx->materialise(hroot + "/generic", inc, &out) {
+            return false
+        }
+
+        for var r: string in omit {
+            LinkFS::remove(inc + "/" + r)
+        }
+
+        if LinkFS::is_dir(hroot + "/" + arch)
+            && !ctx->materialise(hroot + "/" + arch, inc + "/" + ma, &out) {
+            return false
+        }
+
+        for var u: string in ctx->recipe.list("libc", "uapi") {
+            var from = ctx->share_path(u)
+            if !LinkFS::is_dir(from) {
+                return out.refuse(f"share input {from} missing", "")
+            }
+
+            if !ctx->materialise(from, inc, &out) {
+                return false
+            }
+        }
+
+        var fh = inc + "/" + ma + "/features.h"
+        if !LinkFS::is_file(fh) {
+            fh = inc + "/features.h"
+        }
+
+        var ft = ""
+        if !LinkFS::read(fh, &ft) {
+            return out.refuse(f"share input {hroot}: no features.h for {arch}", "")
+        }
+
+        var v     = ctx->target.libc_version
+        var dot   = LinkText::find(v, ".", 0)
+        var minor = LinkText::slice(v, dot + 1, v.size())
+        var fixed = ""
+        var hits  = 0
+        for var line: string in LinkText::split_lines(ft) {
+            var w = GlibcProvider::_words(line)
+            if w.size() == 3 && w[0] == "#define" && w[1] == "__GLIBC_MINOR__" {
+                line = "#define\t__GLIBC_MINOR__\t" + minor
+                hits += 1
+            }
+
+            fixed += line + "\n"
+        }
+
+        if hits != 1 {
+            return out.fail(f"{fh}: expected one #define __GLIBC_MINOR__, found {hits}", "")
+        }
+
+        // A materialised file may be a hard link into the share: replace it,
+        // never write through it.
+        LinkFS::remove(fh)
+        if !LinkFS::write(fh, fixed) {
+            return out.fail(f"cannot write {fh}", "")
+        }
+
+        return true
+    }
+
+    /// The from-source lib/: stub DSOs projected from glibc/abilists at the
+    /// target release, then crt*.o and libc_nonshared.a compiled.
+    pub static fn source_libs(ctx: *StageCtx, const dst: string, @inout out: SysOutcome) -> bool {
+        var ab  = ctx->share_path(ctx->recipe.str("libc", "abilists"))
+        var row = GlibcRow{}
+        if !GlibcProvider::target_row(ctx, &row, &out) {
+            return false
+        }
+
+        var fmt = ctx->recipe.expand("{per_arch.output_format}", &ctx->target)
+        if LinkText::contains(fmt, "{") {
+            fmt = GlibcProvider::output_format(ctx->target.arch)
+        }
+
+        if fmt.empty() {
+            return out.refuse(
+                f"glibc: no linker-script OUTPUT_FORMAT known for {ctx->target.arch}",
+                "",
+            )
+        }
+
+        var v      = ctx->target.libc_version
+        var folded = !SysUtil::version_less(v, "2.34")
+        var libs   = cxx::std::vector<GlibcLib>()
+        var all    = cxx::std::vector<cxx::std::vector<GlibcSym>>()
+        for var stem: string in GlibcProvider::stems() {
+            var l = GlibcLib{}
+            l.stem = stem
+            l.soname = if (stem == "ld") => (row.ld)
+                       else => GlibcProvider::_lookup(&row.so_keys, &row.so_vals, stem)
+            var syms = cxx::std::vector<GlibcSym>()
+            var file = ab + "/" + row.abi + "/" + stem
+            if LinkFS::is_file(file + ".abilist") {
+                var a = ""
+                var n = ""
+                var c = ""
+                LinkFS::read(file + ".abilist", &a)
+                LinkFS::read(file + ".nodes", &n)
+                LinkFS::read(file + ".compat", &c)
+                syms = GlibcProvider::project(a, n, c, v, &l.versions)
+            }
+
+            // 2.34 folded these into libc and still installs them, empty or
+            // placeholders only: a link naming -lpthread must find one.
+            var keep = folded
+                && (stem == "libpthread"
+                    || stem == "libdl"
+                    || stem == "librt"
+                    || stem == "libutil"
+                    || stem == "libanl")
+            if syms.empty() && !keep {
+                continue
+            }
+
+            if l.soname.empty() {
+                return out.refuse(f"share input {ab}/targets.toml names no soname for {stem}", "")
+            }
+
+            libs.push_back(l)
+            all.push_back(syms)
+        }
+
+        var lib = dst + "/lib"
+        LinkFS::make_dirs(lib)
+        if !GlibcProvider::link_stubs(ctx, lib, fmt, &libs, &all, &out) {
+            return false
+        }
+
+        return GlibcProvider::source_crt(ctx, lib, &out)
+    }
+
+    /// crt1.o, Scrt1.o, crti.o, crtn.o and libc_nonshared.a from the era's
+    /// table: its compiles as glibc's make ran them, its `-r` links, the
+    /// archive in member order.
+    pub static fn source_crt(ctx: *StageCtx, const lib: string, @inout out: SysOutcome) -> bool {
+        var croot = ctx->share_path(ctx->recipe.str("libc", "crt"))
+        var sroot = ctx->share_path(ctx->recipe.str("libc", "src"))
+        var arch  = ctx->target.arch
+        var v     = ctx->target.libc_version
+        var t     = GlibcCrtTable{}
+        var found = false
+        for var era: string in LinkFS::list_dir(croot) {
+            var path = croot + "/" + era + "/" + arch + ".toml"
+            if !LinkFS::is_file(path) {
+                continue
+            }
+
+            var c   = GlibcCrtTable{}
+            var why = ""
+            if !GlibcProvider::read_crt(path, &c, &why) {
+                return out.refuse(f"share input {path}: {why}", "")
+            }
+
+            if GlibcProvider::in_ranges(c.releases, v) {
+                t     = c
+                found = true
+                break
+            }
+        }
+
+        if !found {
+            return out.refuse(
+                f"share input {croot} has no start-file table for {arch} at glibc {v}",
+                "",
+            )
+        }
+
+        var src  = sroot + "/" + t.era
+        var gen  = croot + "/" + t.era + "/" + arch + "/gen"
+        var work = ctx->stage + "/work/crt"
+        var uapi = ctx->stage + "/work/uapi"
+        LinkFS::remove_tree(work)
+        LinkFS::remove_tree(uapi)
+        for var u: string in ctx->recipe.list("libc", "uapi") {
+            if !ctx->materialise(ctx->share_path(u), uapi, &out) {
+                return false
+            }
+        }
+
+        var jobs = SysJobs()
+        jobs.limit(ctx->jobs)
+        for var i: usize = 0; i < t.compiles.size(); ++i {
+            var c    = t.compiles[i]
+            var argv = ctx->kcc(ctx->stage)
+            for var a: string in c.args {
+                var x = SysUtil::fill(a, "src", src)
+                x = SysUtil::fill(x, "gen", gen)
+                x = SysUtil::fill(x, "uapi", uapi)
+                x = SysUtil::fill(x, "out", work)
+                argv.push_back(x)
+            }
+
+            argv.push_back(f"-ffile-prefix-map={src}=glibc-{t.era}")
+            argv.push_back(f"-ffile-prefix-map={gen}=glibc-gen")
+            LinkFS::make_dirs(LinkFS::parent(work + "/" + c.out))
+            if !jobs.add(&argv, f"{ctx->log_dir}/glibc-crt-{i}.log") {
+                break
+            }
+        }
+
+        if !jobs.wait_all() {
+            return out.fail(f"glibc start-file compile failed, see {jobs.failed_log}", "")
+        }
+
+        for var i: usize = 0; i < t.links.size(); ++i {
+            var l    = t.links[i]
+            var argv = cxx::std::vector<string>()
+            argv.push_back(ctx->tool("kld"))
+            argv.push_back("-flavor")
+            argv.push_back("gnu")
+            argv.push_back("-r")
+            argv.push_back("-o")
+            argv.push_back(work + "/" + l.out)
+            for var x: string in l.args {
+                argv.push_back(work + "/" + x)
+            }
+
+            if SysRun::run(&argv, f"{ctx->log_dir}/glibc-crt-link-{i}.log") != 0 {
+                return out.fail(
+                    f"glibc start-file link {l.out} failed, see {ctx->log_dir}/glibc-crt-link-{i}.log",
+                    "",
+                )
+            }
+        }
+
+        for var name: string in t.crt {
+            var from = ""
+            for var l: GlibcStep in t.links {
+                if LinkFS::filename(l.out) == name {
+                    from = work + "/" + l.out
+                }
+            }
+
+            for var c: GlibcStep in t.compiles {
+                if from.empty() && LinkFS::filename(c.out) == name {
+                    from = work + "/" + c.out
+                }
+            }
+
+            if from.empty() || !SysRun::put_file(from, lib + "/" + name, false) {
+                return out.fail(f"glibc start file {name} was not built", "")
+            }
+        }
+
+        var members = cxx::std::vector<string>()
+        for var m: string in t.nonshared {
+            members.push_back(work + "/" + m)
+        }
+
+        if !LinkFS::write_archive(lib + "/libc_nonshared.a", &members) {
+            return out.fail(f"cannot write {lib}/libc_nonshared.a", "")
+        }
+
+        LinkFS::remove_tree(work)
+        LinkFS::remove_tree(uapi)
+        return true
+    }
+
+    /// The abilist stems a root is stubbed from, in glibc_abilists.py STEMS order.
+    pub static fn stems() -> cxx::std::vector<string> {
+        var v = cxx::std::vector<string>()
+        v.push_back("ld")
+        v.push_back("libc")
+        v.push_back("libm")
+        v.push_back("libpthread")
+        v.push_back("libdl")
+        v.push_back("librt")
+        v.push_back("libutil")
+        v.push_back("libanl")
+        v.push_back("libresolv")
+        v.push_back("libmvec")
+        return v
+    }
+
+    /// glibc/abilists/targets.toml for the target's arch: its abi dir, ld.so
+    /// soname and floor, plus [sonames]; refuses a release below the floor.
+    pub static fn target_row(ctx: *StageCtx, @inout row: GlibcRow, @inout out: SysOutcome) -> bool {
+        var ab   = ctx->share_path(ctx->recipe.str("libc", "abilists"))
+        var arch = ctx->target.arch
+        var text = ""
+        if !LinkFS::read(ab + "/targets.toml", &text) {
+            return out.refuse(f"share input {ab}/targets.toml missing", "")
+        }
+
+        var toml = TomlLite(text)
+        var key  = ""
+        var val  = TomlValue{}
+        while toml.next(&key, &val) {
+            if toml.table == "sonames" && val.kind == 1 {
+                row.so_keys.push_back(key)
+                row.so_vals.push_back(val.text)
+            } else if toml.table == arch && val.kind == 1 {
+                if key == "abi" {
+                    row.abi = val.text
+                } else if key == "ld" {
+                    row.ld = val.text
+                } else if key == "floor" {
+                    row.floor = val.text
+                }
+            }
+        }
+
+        if !toml.error.empty() {
+            return out.refuse(f"share input {ab}/targets.toml: {toml.error}", "")
+        }
+
+        if row.abi.empty() || row.ld.empty() {
+            return out.refuse(f"glibc has no port for {arch} (share input {ab}/targets.toml)", "")
+        }
+
+        var v = ctx->target.libc_version
+        if !row.floor.empty() && SysUtil::version_less(v, row.floor) {
+            return out.refuse(f"glibc {v} predates the {arch} port (first release {row.floor})", "")
+        }
+
+        return true
+    }
+
+    /// One release of a merged abilist (glibc_abilists.py project): the
+    /// entries whose releases hold \p v, @ / @@ by the newest-is-default
+    /// rule unless a .compat row active at \p v says compat, the absolute
+    /// version-name symbol of every node defined by \p v; \p nodes gets
+    /// those nodes in order.
+    pub static fn project(const abilist:    string,
+                          const nodes_text: string,
+                          const compat:     string,
+                          const v:          string,
+                          @inout nodes:     cxx::std::vector<string>) -> cxx::std::vector<GlibcSym> {
+        var text = ""
+        for var line: string in LinkText::split_lines(abilist) {
+            var w = GlibcProvider::_words(line)
+            if w.size() < 4 || !GlibcProvider::in_ranges(w[w.size() - 1], v) {
+                continue
+            }
+
+            text += w[0] + " " + w[1] + " " + w[2]
+            if w.size() > 4 {
+                text += " " + w[3]
+            }
+
+            text += "\n"
+        }
+
+        var co = ""
+        for var line: string in LinkText::split_lines(compat) {
+            var w = GlibcProvider::_words(line)
+            if w.size() == 4 && GlibcProvider::in_ranges(w[3], v) {
+                co += w[0] + " " + w[1] + " " + w[2] + "\n"
+            }
+        }
+
+        nodes.clear()
+        for var line: string in LinkText::split_lines(nodes_text) {
+            var w = GlibcProvider::_words(line)
+            if w.size() == 2 && !SysUtil::version_less(v, w[1]) {
+                nodes.push_back(w[0])
+                text += w[0] + " " + w[0] + " A\n"
+            }
+        }
+
+        // .nodes is in version order already; parse_abilist keeps line order
+        return GlibcProvider::parse_abilist(text, co)
+    }
+
+    /// `2.17`, `2.17-2.33`, `2.34-newest`, or a comma list of those: whether
+    /// \p v is in it (a bare release means from it to the newest).
+    pub static fn in_ranges(const spec: string, const v: string) -> bool {
+        for var r: string in SysUtil::split(spec, (',' as u8)) {
+            var dash = LinkText::find(r, "-", 0)
+            var lo   = if (dash < r.size()) => (LinkText::slice(r, 0, dash)) else => r
+            var hi   = if (dash < r.size()) => (LinkText::slice(r, dash + 1, r.size())) else => ""
+            if SysUtil::version_less(v, lo) {
+                continue
+            }
+
+            if hi.empty() || hi == "newest" || !SysUtil::version_less(hi, v) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// glibc/crt/<era>/<arch>.toml.
+    pub static fn read_crt(const path: string,
+                           @inout t:   GlibcCrtTable,
+                           @inout why: string) -> bool {
+        var text = ""
+        if !LinkFS::read(path, &text) {
+            why = "cannot read the file"
+            return false
+        }
+
+        var toml = TomlLite(text)
+        var key  = ""
+        var val  = TomlValue{}
+        var last = ""
+        while toml.next(&key, &val) {
+            var tb    = toml.table
+            var fresh = tb != last
+            last = tb
+            if tb.empty() {
+                if key == "era" {
+                    t.era = val.text
+                } else if key == "releases" {
+                    t.releases = val.text
+                } else if key == "crt" {
+                    t.crt = val.list
+                } else if key == "nonshared" {
+                    t.nonshared = val.list
+                }
+            } else if LinkText::starts_with(tb, "compile.") || LinkText::starts_with(tb, "link.") {
+                var link = LinkText::starts_with(tb, "link.")
+                if fresh {
+                    if link {
+                        t.links.push_back(GlibcStep{})
+                    } else {
+                        t.compiles.push_back(GlibcStep{})
+                    }
+                }
+
+                var n = if (link) => (t.links.size()) else => t.compiles.size()
+                if n == 0 {
+                    continue
+                }
+
+                if key == "out" {
+                    if link {
+                        t.links[n - 1].out = val.text
+                    } else {
+                        t.compiles[n - 1].out = val.text
+                    }
+                } else if (key == "args" || key == "inputs") && val.kind == 3 {
+                    if link {
+                        t.links[n - 1].args = val.list
+                    } else {
+                        t.compiles[n - 1].args = val.list
+                    }
+                }
+            }
+        }
+
+        if !toml.error.empty() {
+            why = toml.error
+            return false
+        }
+
+        if t.era.empty() || t.releases.empty() || t.crt.empty() {
+            why = "no era, releases or crt"
+            return false
+        }
+
+        return true
+    }
+
+    priv static fn _lookup(@inout keys: cxx::std::vector<string>,
+                           @inout vals: cxx::std::vector<string>,
+                           const k:     string) -> string {
+        for var i: usize = 0; i < keys.size(); ++i {
+            if keys[i] == k {
+                return vals[i]
+            }
+        }
+
+        return ""
     }
 
     /// The file a library's stub is written to. Before 2.34 glibc installs
