@@ -410,7 +410,7 @@ def render_lookup_k(
         "///",
         "/// ------------------------------------------------------------------------ ///",
         "",
-        "import Support::EvalHash::*;",
+        "import Support::EvalHash::compute_hash;",
         "",
         "eval fn clang_diag_number(group: string) -> u32 {",
         "    var h = compute_hash(&group);",

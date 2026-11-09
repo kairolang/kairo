@@ -203,10 +203,68 @@ TOOL_HINTS = {
 # Linux
 # ---------------------------------------------------------------------------
 
+# The compiler that builds the fork on Linux: a COPY of the fork's own clang, in
+# build/llvm-host (outside build/llvm, which ninja would rewrite mid-build). With
+# ThinLTO the static lld archives are bitcode, readable only by an lld of the same
+# or a newer LLVM: built by the host clang they were LLVM 23.1.3 bitcode the moment
+# the distro upgraded clang, and kairo (linked by the fork's lld 22) failed with
+# "Not an int attribute (Producer: 'LLVM23.1.3' Reader: 'LLVM 22.1.0')".
+# Seeded once from build/llvm; refresh by deleting build/llvm-host. A first build
+# with no build/llvm uses the host clang, and only if its major is the fork's.
+HOST_TC = BUILD_DIR / "llvm-host"
+
+
+def fork_major() -> str:
+    m = re.search(r"set\(LLVM_VERSION_MAJOR (\d+)\)",
+                  (LLVM_SRC / "cmake" / "Modules" / "LLVMVersion.cmake").read_text())
+    if not m:
+        die("cannot read LLVM_VERSION_MAJOR from the fork")
+    return m.group(1)
+
+
+def seed_host_toolchain(major: str) -> bool:
+    src_bin, src_lib = LLVM_BUILD / "bin", LLVM_BUILD / "lib"
+    clang = src_bin / f"clang-{major}"
+    if not (clang.is_file() and (src_bin / "lld").is_file() and (src_lib / "clang" / major).is_dir()):
+        return False
+    log(f"seeding {HOST_TC} from {LLVM_BUILD} (clang-{major}, lld, resource dir, shared libs)")
+    tmp = HOST_TC.with_name(HOST_TC.name + ".tmp")
+    shutil.rmtree(tmp, ignore_errors=True)
+    (tmp / "bin").mkdir(parents=True)
+    (tmp / "lib").mkdir()
+    shutil.copy2(clang, tmp / "bin" / clang.name)
+    shutil.copy2(src_bin / "lld", tmp / "bin" / "lld")
+    for l in ("clang", "clang++"):
+        os.symlink(clang.name, tmp / "bin" / l)
+    os.symlink("lld", tmp / "bin" / "ld.lld")
+    # clang-<major> and lld load these through RUNPATH $ORIGIN/../lib.
+    for so in src_lib.glob("lib*.so*"):
+        if so.name.startswith(("libLLVM", "libclang-cpp")):
+            shutil.copy2(so, tmp / "lib" / so.name, follow_symlinks=False)
+    shutil.copytree(src_lib / "clang" / major, tmp / "lib" / "clang" / major)
+    shutil.rmtree(HOST_TC, ignore_errors=True)
+    tmp.rename(HOST_TC)
+    return True
+
+
+def host_compilers() -> tuple[str, str]:
+    major = fork_major()
+    if (HOST_TC / "bin" / "clang++").exists() or seed_host_toolchain(major):
+        return str(HOST_TC / "bin" / "clang"), str(HOST_TC / "bin" / "clang++")
+    r = subprocess.run(["clang", "-dumpversion"], capture_output=True, text=True)
+    host = r.stdout.strip().split(".")[0] if r.returncode == 0 else "?"
+    if host != major:
+        die(f"no build/llvm to seed {HOST_TC} from, and the host clang is {host}, not {major}:\n"
+            f"its ThinLTO bitcode would not load in the fork's lld. Install clang {major}, "
+            f"or put a clang {major} at {HOST_TC}/bin.")
+    return "clang", "clang++"
+
+
 def linux_args() -> list[str]:
+    cc, cxx = host_compilers()
     return [
-        "-DCMAKE_C_COMPILER=clang",
-        "-DCMAKE_CXX_COMPILER=clang++",
+        f"-DCMAKE_C_COMPILER={cc}",
+        f"-DCMAKE_CXX_COMPILER={cxx}",
         *SHARED_ARGS,
         "-DLLVM_ENABLE_LTO=Thin",
         # ThinLTO objects are bitcode; GNU ld only links them if the LLVMgold
@@ -684,7 +742,12 @@ def main() -> None:
     built = MARKER.is_file()
 
     if built and stamp == digest:
-        log("patched llvm already built, skipping rebuild.")
+        # The stamp covers the configure args only, not the fork's sources: when the
+        # submodule moved (a4f9e83 -> 8f7e268, 2026-10-08) this path skipped ninja and
+        # build/llvm stayed a commit behind for a month. ninja itself knows what
+        # changed; on an up-to-date tree it is a no-op in about a second.
+        log("configure unchanged; incremental build of the fork's sources...")
+        run([tools["ninja"], "-C", str(LLVM_BUILD), f"-j{JOBS}"], env, None)
         build_test_tools()
         stage()
         return

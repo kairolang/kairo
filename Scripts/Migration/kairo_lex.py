@@ -4,7 +4,7 @@
 # Kairo CODE, so a rewrite never fires inside a comment, a string literal or an
 # inline "c++" body.
 #
-# Split out of private/port_dryrun.py, which carried all six transforms and
+# Split out of an earlier dry-run script that carried all six transforms and
 # this lexer in one file and wrote unconditionally because it ran on a
 # throwaway copy of the tree. Each transform is now its own script, and each
 # reports by default -- pass --apply to write.

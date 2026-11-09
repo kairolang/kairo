@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Generic value parameters: <const N: T> -> <eval N: T>.
 #
-# Stage 1 spells a value parameter `eval N: T` (EVAL.md 3); `const N: T` is
+# Stage 1 spells a value parameter `eval N: T` (Compiler/Spec/Eval.md#generic-value-parameters); `const N: T` is
 # S001E there, with a fix-it that replaces the `const` keyword with `eval` and
 # nothing else (DeclParse.k, _parse_one_generic_param). This is that fix-it,
 # applied to a tree: only the keyword token changes, spacing and everything

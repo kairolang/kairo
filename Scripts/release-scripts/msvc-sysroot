@@ -1,0 +1,728 @@
+#!/usr/bin/env bash
+set "x\" <# " "$@"
+shift
+# msvc-sysroot: build a windows-msvc sysroot (x86_64, aarch64 a.k.a. arm64,
+# i686 a.k.a. i386) for this Kairo install from YOUR copy of the Microsoft CRT
+# and Windows SDK, plus libc++ and compiler-rt builtins compiled against it
+# from the LLVM runtimes source that ships in <install>/share/kairo/runtimes.
+#
+# ONE file for sh/bash (Linux, WSL, macOS) and PowerShell (Windows PowerShell
+# 5.1, pwsh 7 on any OS); it ships as scripts/msvc-sysroot.sh and
+# scripts/msvc-sysroot.ps1, which are identical. Line 2 is a harmless `set`
+# to sh (the arguments come back with the shift), while PowerShell starts a
+# block comment there that ends below the sh half. So: never write the
+# PowerShell block-comment close marker in the sh half, and keep the file
+# ASCII with LF line endings.
+#
+# Kairo cannot ship these roots: Microsoft's license forbids redistributing
+# the CRT and SDK. Two ways to get your own copy:
+#
+#  * Windows, with Visual Studio or the Build Tools installed (the "Desktop
+#    development with C++" workload, which brings the Windows SDK): nothing to
+#    fetch. The PowerShell half finds them with vswhere and the registry.
+#
+#      powershell -ExecutionPolicy Bypass -File <install>\scripts\msvc-sysroot.ps1 x86_64
+#
+#  * Any host: an xwin splat. Running xwin is where you accept the license.
+#
+#      cargo install xwin        (or a release binary: github.com/Jake-Shadle/xwin)
+#      xwin --accept-license --arch x86_64,aarch64,x86 splat --output ~/xwin
+#      XWIN=~/xwin <install>/scripts/msvc-sysroot.sh x86_64          (or: aarch64 i686)
+#      $env:XWIN = "$HOME\xwin"; <install>\scripts\msvc-sysroot.ps1 x86_64
+#
+#    On a case-insensitive filesystem (the macOS default) add
+#    --disable-symlinks to the splat: its case-variant links
+#    (Windows.h -> windows.h) would collide.
+#
+# Then `kairo --target x86_64-windows-msvc main.k -o main.exe` finds the root
+# with no flags.
+#
+# Two layers, one directory (<root> = <install>/sysroot/<arch>-windows-msvc):
+#   <root>/msvc/                  Microsoft CRT + SDK, copied from the splat or
+#                                 the installed VC tools and Windows Kits.
+#                                 SYSROOT.toml lists it in local_only.
+#   <root>/include/c++/v1, lib/, compiler-rt/
+#                                 libc++ and builtins, built here (LLVM 22,
+#                                 Apache-2.0 WITH LLVM-exception).
+#
+# Header order matters: include/c++/v1, then clang's resource headers, then
+# the CRT/SDK dirs. The UCRT's stddef.h lacks max_align_t, and searched before
+# clang's it hides the one libc++ needs. Kairo orders include_dirs that way
+# (c++ dirs, resource dir, the rest); the build below uses -idirafter for the
+# same effect.
+#
+# Static CRT (/MT: libcmt + libvcruntime + libucrt): a Kairo binary needs no
+# vcruntime140.dll / VC++ redistributable on the target. libc++ uses the
+# vcruntime ABI (exceptions/RTTI come from vcruntime), so there is no
+# libc++abi or libunwind here.
+#
+# libc++ is compiled with _CRT_STDIO_ISO_WIDE_SPECIFIERS, and the UCRT stamps
+# every object with /failifmismatch on it: every TU linked against this
+# sysroot must define it too (SYSROOT.toml cc_defines), or the link refuses.
+#
+# Toolchain: only this install's own tools. kcc (the Kairo C/C++ driver)
+# replaces clang and clang-cl: it compiles every C, C++ and assembly source,
+# in its GNU-style driver mode with an MSVC --target. kld (-flavor link)
+# replaces lld-link for the symbol probe, llvm-ar / llvm-lib archive. No host
+# compiler, LLVM install or Kairo checkout is used.
+#
+# Host requirements: cmake (3.20+), ninja and python3 (the LLVM runtimes build
+# runs it); bash and the usual POSIX tools for the sh half. On Windows, cmake
+# and ninja may come from PATH or from Visual Studio's own copies.
+#
+# Usage: msvc-sysroot.sh [x86_64|aarch64|arm64|i686|i386 ...]   (default: all three)
+#   XWIN=...    xwin splat dir (required for the sh half; optional on Windows)
+#   OUT=...     default: <install>/sysroot; each root lands in OUT/<arch>-windows-msvc
+#   WORK=...    build scratch (default: <install>/.sysroot-work/msvc; removed on success)
+#   JOBS=...    parallel compile jobs (default: CPU count, at most 8)
+#   KEEP_WORK=1 keep the build scratch after a successful run
+# (PowerShell reads the same names from $env:.)
+set -euo pipefail
+
+die() { echo "!! $*" >&2; exit 1; }
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+KAIRO="$(cd "$HERE/.." && pwd -P)"
+BIN="$KAIRO/bin"
+KCC="$BIN/kcc"; KLD="$BIN/kld"; LLVM_AR="$BIN/llvm-ar"; LLVM_LIB="$BIN/llvm-lib"
+SRC="$KAIRO/share/kairo/runtimes"
+STAGE="${OUT:-$KAIRO/sysroot}"
+WORK="${WORK:-$KAIRO/.sysroot-work/msvc}"
+
+[ $# -eq 0 ] && set -- x86_64 aarch64 i686
+
+for t in "$KCC" "$KLD" "$LLVM_AR" "$LLVM_LIB"; do
+  [ -x "$t" ] || die "$t is missing: run this script from inside a Kairo install (<install>/scripts/msvc-sysroot.sh)"
+done
+[ -f "$SRC/runtimes/CMakeLists.txt" ] || die "no LLVM runtimes source at $SRC (it ships in the release archive)"
+for t in cmake ninja python3 find cp tar sed grep du mkdir; do
+  command -v "$t" >/dev/null 2>&1 || die "need '$t' on PATH (cmake and ninja come from your package manager)"
+done
+[ -n "${XWIN:-}" ] || die "set XWIN=<dir> to an xwin splat (see the top of $0 for the xwin command)"
+XWIN="$(cd "$XWIN" && pwd -P)" || die "XWIN=$XWIN does not exist"
+[ -f "$XWIN/sdk/include/um/Windows.h" ] || [ -f "$XWIN/sdk/include/um/windows.h" ] \
+  || die "$XWIN is not an xwin splat (no sdk/include/um/Windows.h): run xwin splat first"
+
+if [ -z "${JOBS:-}" ]; then
+  JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+  [ "$JOBS" -gt 8 ] && JOBS=8
+fi
+# kcc looks for <install>/sysroot/<target> on its own; pointing it at an empty
+# root keeps the build hermetic (only the flags below reach the compiles).
+NOROOT="$WORK/noroot"
+
+# <root name> <xwin arch>  ->  SYSROOT.toml
+emit_toml() {
+  local triple="$1" xa="$2"
+  cat >"$3" <<EOF
+triple        = "$triple"
+llvm_version  = "22.1.0"
+family        = "windows-msvc"
+sysroot       = "."
+include_dirs  = ["include/c++/v1", "msvc/crt/include", "msvc/sdk/include/ucrt", "msvc/sdk/include/um", "msvc/sdk/include/shared"]
+lib_dirs      = ["lib", "msvc/crt/lib/$xa", "msvc/sdk/lib/um/$xa", "msvc/sdk/lib/ucrt/$xa"]
+has_libcxx    = true
+static        = true
+crt_startup   = []
+crt_end       = []
+libc_link     = ["libcmt.lib", "libvcruntime.lib", "libucrt.lib", "oldnames.lib", "kernel32.lib", "user32.lib", "advapi32.lib", "shell32.lib", "uuid.lib"]
+libcxx_link   = ["libc++.lib", "libcpmt.lib"]
+rtlib         = "compiler-rt"
+linker        = "lld-link"
+resource_dir  = "compiler-rt"
+msvc_crt      = "static"
+local_only    = ["msvc"]
+cc_defines    = ["_CRT_STDIO_ISO_WIDE_SPECIFIERS"]
+cc_isolation  = ["-nostdlibinc", "-nostdinc++"]
+EOF
+}
+
+# Microsoft's half: headers for every arch, libs for this arch only. cp -a
+# keeps xwin's case-variant symlinks (Windows.h -> windows.h), which is what
+# lets the SDK's mixed-case #includes resolve on a case-sensitive filesystem.
+stage_msvc() {   # $1 = xwin arch, $2 = dst
+  local xa="$1" m="$2/msvc" d
+  [ -d "$XWIN/crt/lib/$xa" ] || die "$XWIN has no crt/lib/$xa: re-run xwin with --arch including $xa"
+  mkdir -p "$m/crt/lib" "$m/sdk/include" "$m/sdk/lib/um" "$m/sdk/lib/ucrt"
+  cp -a "$XWIN/crt/include"             "$m/crt/"
+  cp -a "$XWIN/crt/lib/$xa"             "$m/crt/lib/"
+  for d in ucrt um shared winrt; do
+    if [ -d "$XWIN/sdk/include/$d" ]; then cp -a "$XWIN/sdk/include/$d" "$m/sdk/include/"; fi
+  done
+  cp -a "$XWIN/sdk/lib/um/$xa"          "$m/sdk/lib/um/"
+  cp -a "$XWIN/sdk/lib/ucrt/$xa"        "$m/sdk/lib/ucrt/"
+}
+
+# The CRT/SDK headers go AFTER clang's resource headers (see the top).
+# -fms-runtime-lib=static is /MT. --target is spelled out: CMake adds it from
+# *_COMPILER_TARGET only for a compiler it identifies as clang, which for ASM
+# it does by the --version banner (kcc's is its own), so .S files would
+# otherwise be assembled for the host.
+cc_flags() {   # $1 = dst, $2 = clang triple
+  local m="$1/msvc"
+  echo "--target=$2 --sysroot=$NOROOT -fms-runtime-lib=static -idirafter $m/crt/include -idirafter $m/sdk/include/ucrt -idirafter $m/sdk/include/um -idirafter $m/sdk/include/shared"
+}
+
+# configure_build <label> <log dir> <source dir> <ninja target> <cmake args...>
+configure_build() {
+  local label="$1" b="$2" src="$3" target="$4"
+  shift 4
+  rm -rf "$b"; mkdir -p "$b"
+  echo ">> [$label] configuring"
+  cmake -G Ninja -S "$src" -B "$b" "$@" >"$b/configure.log" 2>&1 \
+    || { tail -30 "$b/configure.log" >&2; die "[$label] configure failed ($b/configure.log)"; }
+  echo ">> [$label] building (-j$JOBS)"
+  ninja -C "$b" -j "$JOBS" "$target" >"$b/build.log" 2>&1 \
+    || { grep -m30 -A8 "^FAILED" "$b/build.log" | grep -v "^/" >&2; die "[$label] build failed ($b/build.log)"; }
+}
+
+build_runtimes() {   # $1 = clang triple, $2 = xwin arch, $3 = dst, $4 = builtins arch
+  local triple="$1" xa="$2" dst="$3" rtarch="$4" out="$WORK/$1-out"
+  local flags
+  flags=$(cc_flags "$dst" "$triple")
+  rm -rf "$out"
+  # kcc is a GNU-style driver, so CMake drives it like clang targeting MSVC
+  # (Windows-Clang, GNU front end). try_compile stays compile-only: there is
+  # no libc++ or builtins to link until this build makes them. Nothing here
+  # links an executable, so no linker, rc or mt is configured.
+  set -- -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$out" \
+    -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_SYSTEM_VERSION=10.0 \
+    -DCMAKE_SYSTEM_PROCESSOR="${triple%%-*}" \
+    -DCMAKE_C_COMPILER="$KCC" -DCMAKE_CXX_COMPILER="$KCC" -DCMAKE_ASM_COMPILER="$KCC" \
+    -DCMAKE_C_COMPILER_TARGET="$triple" -DCMAKE_CXX_COMPILER_TARGET="$triple" \
+    -DCMAKE_ASM_COMPILER_TARGET="$triple" \
+    -DCMAKE_AR="$LLVM_AR" -DCMAKE_RANLIB="$BIN/llvm-ranlib" \
+    -DCMAKE_C_FLAGS="$flags" -DCMAKE_CXX_FLAGS="$flags" -DCMAKE_ASM_FLAGS="$flags" \
+    -DCMAKE_C_STANDARD_LIBRARIES="" -DCMAKE_CXX_STANDARD_LIBRARIES="" \
+    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+    -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded \
+    -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF
+  # compiler-rt builtins, standalone. The fork picks its MSVC source list
+  # (no x87 long double, no MinGW __chkstk/_alloca, TF via clang's
+  # __float128) by CMake's MSVC variable, which only a cl front end sets;
+  # MSVC=ON selects it with kcc's GNU spelling. The /flags it adds are all
+  # behind compiler checks, which fail for a GNU driver and add nothing.
+  configure_build "$triple builtins" "$WORK/$triple-builtins" "$SRC/compiler-rt/lib/builtins" install "$@" \
+    -DMSVC=ON \
+    -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON \
+    -DCOMPILER_RT_ENABLE_SOFTWARE_INT128=ON \
+    -DCOMPILER_RT_INCLUDE_TESTS=OFF
+  # libc++ (vcruntime ABI, static only) through the runtimes glue.
+  configure_build "$triple libc++" "$WORK/$triple-libcxx" "$SRC/runtimes" install "$@" \
+    -DLLVM_ENABLE_RUNTIMES=libcxx \
+    -DLLVM_DEFAULT_TARGET_TRIPLE="$triple" \
+    -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_DOCS=OFF \
+    -DLIBCXX_CXX_ABI=vcruntime \
+    -DLIBCXX_ENABLE_SHARED=OFF -DLIBCXX_ENABLE_STATIC=ON \
+    -DLIBCXX_INCLUDE_TESTS=OFF -DLIBCXX_INCLUDE_BENCHMARKS=OFF \
+    -DLIBCXX_INCLUDE_DOCS=OFF
+  local b="$WORK/$triple-builtins"
+
+  # The GNU front end may name the archives lib*.a; the root's names are the
+  # ones SYSROOT.toml and the driver expect.
+  local cxx rt
+  cxx=$(find "$out" -type f \( -name 'libc++.lib' -o -name 'c++.lib' -o -name 'libc++.a' \) | head -1)
+  rt=$(find "$out" -type f \( -name 'clang_rt.builtins*.lib' -o -name 'libclang_rt.builtins*.a' \) | head -1)
+  [ -n "$cxx" ] && [ -n "$rt" ] || die "[$triple] runtimes incomplete (libc++: '$cxx', builtins: '$rt')"
+  [ -d "$out/include/c++/v1" ] || die "[$triple] no libc++ headers installed"
+  mkdir -p "$dst/include" "$dst/lib" "$dst/compiler-rt/lib/windows"
+  cp -a "$out/include/c++" "$dst/include/"
+  cp "$cxx" "$dst/lib/libc++.lib"
+  rt_lib="$dst/compiler-rt/lib/windows/clang_rt.builtins-$rtarch.lib"
+  cp "$rt" "$rt_lib"
+  add_tf_compare_aliases "$triple" "$dst" "$rt_lib" "$b"
+  probe_builtins "$triple" "$rt_lib" "$b" \
+    __addtf3 __trunctfbf2 __truncsfbf2 __eqtf2 __netf2 __lttf2 __gttf2 __cmptf2
+  grep '_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS' "$dst/include/c++/v1/__config_site" >/dev/null \
+    || die "[$triple] __config_site is not static-only (would import __imp_ symbols)"
+}
+
+# comparetf2.c defines __letf2 / __getf2 and makes __eqtf2, __lttf2, __netf2,
+# __gttf2 (and __cmptf2) aliases of them. COMPILER_RT_ALIAS expands to nothing
+# on _WIN32 (COFF has no symbol aliases), so on these targets those names do
+# not exist and any f128 comparison fails to link (undefined __netf2). Add
+# them as forwarding functions, built with the same headers so CMP_RESULT and
+# fp_t match, into the builtins archive.
+add_tf_compare_aliases() {   # $1 = triple, $2 = dst, $3 = builtins .lib (rewritten), $4 = build dir
+  local triple="$1" dst="$2" lib="$3" w="$4/tf-compare-aliases"
+  local B="$SRC/compiler-rt/lib/builtins"
+  mkdir -p "$w"
+  cat >"$w/tf_compare_aliases.c" <<'EOC'
+#define QUAD_PRECISION
+#include "fp_lib.h"
+#if defined(CRT_HAS_TF_MODE)
+#include "fp_compare_impl.inc"
+COMPILER_RT_ABI CMP_RESULT __letf2(fp_t a, fp_t b);
+COMPILER_RT_ABI CMP_RESULT __getf2(fp_t a, fp_t b);
+COMPILER_RT_ABI CMP_RESULT __cmptf2(fp_t a, fp_t b) { return __letf2(a, b); }
+COMPILER_RT_ABI CMP_RESULT __eqtf2(fp_t a, fp_t b) { return __letf2(a, b); }
+COMPILER_RT_ABI CMP_RESULT __lttf2(fp_t a, fp_t b) { return __letf2(a, b); }
+COMPILER_RT_ABI CMP_RESULT __netf2(fp_t a, fp_t b) { return __letf2(a, b); }
+COMPILER_RT_ABI CMP_RESULT __gttf2(fp_t a, fp_t b) { return __getf2(a, b); }
+#else
+#error "no TF mode: __float128 / int128 missing on this target"
+#endif
+EOC
+  # shellcheck disable=SC2046
+  "$KCC" $(cc_flags "$dst" "$triple") -fforce-enable-int128 -O2 -I"$B" \
+    -c "$w/tf_compare_aliases.c" -o "$w/tf_compare_aliases.obj" \
+    || die "[$triple] tf_compare_aliases.c failed to compile"
+  "$LLVM_LIB" /nologo /out:"$w/merged.lib" "$lib" "$w/tf_compare_aliases.obj" \
+    || die "[$triple] llvm-lib could not merge the compare aliases"
+  mv "$w/merged.lib" "$lib"
+}
+
+# Symbol check without nm: a probe that takes the address of every required
+# builtin, linked by kld (lld-link flavor) against the builtins archive alone.
+# An undefined symbol fails the link, which is exactly "the archive lacks it".
+probe_builtins() {   # $1 = triple, $2 = builtins .lib, $3 = build dir, $4... = symbols
+  local triple="$1" lib="$2" w="$3/probe" mach s
+  shift 3
+  case "$triple" in
+    x86_64-*) mach=x64 ;; aarch64-*) mach=arm64 ;; i686-*) mach=x86 ;;
+  esac
+  mkdir -p "$w"
+  {
+    # The CRT's float marker, which every float-using object references.
+    echo "int _fltused = 0;"
+    for s in "$@"; do echo "extern void $s(void);"; done
+    echo "__declspec(dllexport) void *const kairo_probe[] = {"
+    for s in "$@"; do echo "  (void *)&$s,"; done
+    echo "};"
+  } >"$w/probe.c"
+  "$KCC" --target="$triple" --sysroot="$NOROOT" -O0 -c "$w/probe.c" -o "$w/probe.obj" \
+    || die "[$triple] symbol probe failed to compile"
+  "$KLD" -flavor link /nologo /dll /noentry /nodefaultlib /machine:"$mach" \
+    /out:"$w/probe.dll" "$w/probe.obj" "$lib" >"$w/probe.log" 2>&1 \
+    || { cat "$w/probe.log" >&2; die "[$triple] builtins lack a required symbol (TF/bf16 routines compiled empty?)"; }
+}
+
+# The Kairo-shaped check: C++ with a thrown and caught exception, compiled
+# and linked by kcc from SYSROOT.toml alone (no include or library flags).
+validate() {   # $1 = root name, $2 = dst
+  local name="$1" r="$2" t="$WORK/$1-test"
+  mkdir -p "$t"
+  cat >"$t/t.cpp" <<'EOF'
+#include <cstdio>
+#include <stdexcept>
+#include <string>
+#include <vector>
+int main() {
+  std::vector<std::string> v{"a", "b"};
+  try { throw std::runtime_error(v[0] + v[1]); }
+  catch (const std::exception &e) { std::printf("%s\n", e.what()); }
+  return 0;
+}
+EOF
+  "$KCC" --target="$name" --sysroot="$r" -std=c++20 -O1 "$t/t.cpp" -o "$t/t.exe" >"$t/link.log" 2>&1 \
+    || { cat "$t/link.log" >&2; die "[$name] validation link failed (kcc --target=$name --sysroot=$r)"; }
+  echo "   validated: kcc linked a C++ program from SYSROOT.toml ($t/t.exe)"
+}
+
+echo ">> install: $KAIRO"
+echo ">> runtimes source: $SRC (rev $(cat "$SRC/REVISION" 2>/dev/null || echo unknown))"
+for arch in "$@"; do
+  case "$arch" in
+    x86_64|amd64|x64) arch=x86_64;  xa=x86_64;  rtarch=x86_64 ;;
+    aarch64|arm64)    arch=aarch64; xa=aarch64; rtarch=aarch64 ;;
+    i686|i386|x86)    arch=i686;    xa=x86;     rtarch=i386 ;;
+    *) die "unknown arch $arch (x86_64, aarch64/arm64, i686/i386)" ;;
+  esac
+  triple="$arch-pc-windows-msvc"
+  name="$arch-windows-msvc"
+  dst="$STAGE/$name"
+  echo ">> [$name] staging from $XWIN -> $dst"
+  # Assembled under WORK and moved into place only when complete: kcc picks
+  # up <install>/sysroot/<name> by itself (ahead of --sysroot), so neither an
+  # old root nor a half-built one may sit there during the build.
+  root="$WORK/$name-root"
+  rm -rf "$dst" "$root"; mkdir -p "$root" "$NOROOT"
+  stage_msvc "$xa" "$root"
+  build_runtimes "$triple" "$xa" "$root" "$rtarch"
+  emit_toml "$name" "$xa" "$root/SYSROOT.toml"
+  mkdir -p "$STAGE"; mv "$root" "$dst"
+  validate "$name" "$dst"
+  echo ">> [$name] staged ($(du -sh "$dst" | cut -f1))"
+done
+if [ "${KEEP_WORK:-0}" != 1 ]; then rm -rf "$WORK"; rmdir "$(dirname "$WORK")" 2>/dev/null || true; fi
+echo "msvc sysroots ready. Try: kairo --target ${name:-x86_64-windows-msvc} main.k -o main.exe"
+echo "(They contain Microsoft's CRT and SDK: keep them local, never redistribute them.)"
+exit 0
+# Never reached; this heredoc only hides the PowerShell half from sh (its terminator is
+# the lone # on the file's last line, a harmless PowerShell comment).
+: <<\#
+
+#>
+# ---------------------------------------------------------------------------------------
+# PowerShell half (Windows PowerShell 5.1 and pwsh 7, any OS). Everything above is a
+# comment here. Same steps, same layout and the same SYSROOT.toml as the sh half; on
+# Windows it can also take the CRT and SDK from the installed Visual Studio + Windows Kits.
+# ---------------------------------------------------------------------------------------
+$ErrorActionPreference = 'Stop'
+
+function Die([string]$m) { [Console]::Error.WriteLine("!! $m"); exit 1 }
+
+$OnWindows = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
+$Kairo = (Resolve-Path -LiteralPath (Join-Path (Split-Path -Parent $PSCommandPath) '..')).Path
+$Bin = Join-Path $Kairo 'bin'
+$Src = Join-Path $Kairo 'share/kairo/runtimes'
+
+# A tool of this install, with or without .exe (the Windows archive has .exe).
+function Tool([string]$n) {
+    foreach ($c in @("$n.exe", $n)) {
+        $p = Join-Path $Bin $c
+        if (Test-Path -LiteralPath $p -PathType Leaf) { return $p }
+    }
+    Die "$Bin has no $n`: run this script from inside a Kairo install (<install>\scripts\msvc-sysroot.ps1)"
+}
+$KCC = Tool 'kcc'; $KLD = Tool 'kld'; $LLVM_AR = Tool 'llvm-ar'; $LLVM_LIB = Tool 'llvm-lib'
+$LLVM_RANLIB = Tool 'llvm-ranlib'
+
+# CMake wants forward slashes on every host.
+function Fwd([string]$p) { return $p.Replace('\', '/') }
+function Env([string]$n, [string]$def) {
+    $v = [Environment]::GetEnvironmentVariable($n)
+    if ($v) { return $v } else { return $def }
+}
+
+# Runs a native command; output to $log (shown on failure), or to the console.
+function Run([string]$what, [string]$exe, [string[]]$argv, [string]$log) {
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'   # 5.1 turns native stderr into terminating errors
+    try {
+        if ($log) { & $exe @argv 2>&1 | ForEach-Object { "$_" } | Out-File -LiteralPath $log -Encoding utf8 }
+        else { & $exe @argv }
+        $rc = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $old }
+    if ($rc -ne 0) {
+        if ($log -and (Test-Path -LiteralPath $log)) {
+            Get-Content -LiteralPath $log -Tail 30 | ForEach-Object { [Console]::Error.WriteLine($_) }
+        }
+        Die "$what failed$(if ($log) { " ($log)" })"
+    }
+}
+
+function Find-Program([string]$n, [string[]]$extra) {
+    $c = Get-Command $n -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($c) { return $c.Source }
+    foreach ($p in $extra) { if ($p -and (Test-Path -LiteralPath $p -PathType Leaf)) { return $p } }
+    return $null
+}
+
+# ---- the Microsoft half: an xwin splat, or the installed VC tools + Windows Kits ----
+$Xwin = Env 'XWIN' ''
+$VS = $null
+if ($OnWindows) {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (Test-Path -LiteralPath $vswhere) {
+        $VS = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        if (-not $VS) { $VS = & $vswhere -latest -products * -property installationPath }
+        if ($VS) { $VS = @($VS)[0] }
+    }
+}
+if ($Xwin) {
+    $Xwin = (Resolve-Path -LiteralPath $Xwin).Path
+    if (-not ((Test-Path -LiteralPath (Join-Path $Xwin 'sdk/include/um/Windows.h')) -or
+              (Test-Path -LiteralPath (Join-Path $Xwin 'sdk/include/um/windows.h')))) {
+        Die "$Xwin is not an xwin splat (no sdk/include/um/Windows.h): run xwin splat first"
+    }
+    $From = "xwin splat $Xwin"
+} elseif ($OnWindows) {
+    if (-not $VS) {
+        Die ("no Visual Studio / Build Tools with the C++ tools found (vswhere). Install the " +
+             "'Desktop development with C++' workload, or set `$env:XWIN to an xwin splat.")
+    }
+    $verFile = Join-Path $VS 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt'
+    if (-not (Test-Path -LiteralPath $verFile)) { Die "$VS has no VC tools ($verFile)" }
+    $VcVer = (Get-Content -LiteralPath $verFile -TotalCount 1).Trim()
+    $VC = Join-Path $VS "VC\Tools\MSVC\$VcVer"
+    $roots = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots' -ErrorAction SilentlyContinue
+    if (-not $roots -or -not $roots.KitsRoot10) { Die 'no Windows 10/11 SDK found (HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots KitsRoot10)' }
+    $Kits = $roots.KitsRoot10
+    $SdkVer = Get-ChildItem -LiteralPath (Join-Path $Kits 'Include') -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^10\.' -and (Test-Path -LiteralPath (Join-Path $_.FullName 'um\Windows.h')) } |
+        Sort-Object { [version]$_.Name } | Select-Object -Last 1
+    if (-not $SdkVer) { Die "no Windows SDK version with um\Windows.h under $Kits\Include" }
+    $SdkVer = $SdkVer.Name
+    $From = "MSVC $VcVer + Windows SDK $SdkVer"
+} else {
+    Die 'set XWIN=<dir> to an xwin splat (see the top of this script for the xwin command)'
+}
+
+# ---- host tools: cmake, ninja (PATH, else Visual Studio's copies), python ----
+$vsCMake = if ($VS) { Join-Path $VS 'Common7\IDE\CommonExtensions\Microsoft\CMake' } else { '' }
+$CMake = Find-Program 'cmake' @($(if ($vsCMake) { Join-Path $vsCMake 'CMake\bin\cmake.exe' }))
+$Ninja = Find-Program 'ninja' @($(if ($vsCMake) { Join-Path $vsCMake 'Ninja\ninja.exe' }))
+if (-not $CMake) { Die "need cmake (3.20+): on PATH, or Visual Studio's 'C++ CMake tools for Windows'" }
+if (-not $Ninja) { Die "need ninja: on PATH, or Visual Studio's 'C++ CMake tools for Windows'" }
+if (-not ((Find-Program 'python3' @()) -or (Find-Program 'python' @()) -or (Find-Program 'py' @()))) {
+    Die 'need Python 3 (the LLVM runtimes build runs it): python.org, winget install Python.Python.3, or your package manager'
+}
+if (-not (Test-Path -LiteralPath (Join-Path $Src 'runtimes/CMakeLists.txt'))) {
+    Die "no LLVM runtimes source at $Src (it ships in the release archive)"
+}
+
+$Stage = Env 'OUT' (Join-Path $Kairo 'sysroot')
+$Work = Env 'WORK' (Join-Path $Kairo '.sysroot-work/msvc')
+$Jobs = [int](Env 'JOBS' ([Math]::Min([Environment]::ProcessorCount, 8)))
+# kcc looks for <install>/sysroot/<target> on its own; pointing it at an empty
+# root keeps the build hermetic (only the flags below reach the compiles).
+$NoRoot = Join-Path $Work 'noroot'
+
+function Copy-Tree([string]$from, [string]$to) {
+    if (-not (Test-Path -LiteralPath $from)) { Die "missing $from" }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to) | Out-Null
+    if ($OnWindows) { Copy-Item -LiteralPath $from -Destination $to -Recurse -Force }
+    # cp -a keeps xwin's case-variant symlinks (Windows.h -> windows.h).
+    else { Run "copy $from" 'cp' @('-a', $from, $to) $null }
+}
+
+# Microsoft's half: headers for every arch, libs for this arch only. $xa is the
+# xwin arch name (x86_64, aarch64, x86); $ms the VC/Kits one (x64, arm64, x86).
+function Stage-Msvc([string]$xa, [string]$ms, [string]$dst) {
+    $m = Join-Path $dst 'msvc'
+    if ($Xwin) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Xwin "crt/lib/$xa"))) { Die "$Xwin has no crt/lib/$xa`: re-run xwin with --arch including $xa" }
+        Copy-Tree (Join-Path $Xwin 'crt/include') (Join-Path $m 'crt/include')
+        Copy-Tree (Join-Path $Xwin "crt/lib/$xa") (Join-Path $m "crt/lib/$xa")
+        foreach ($d in 'ucrt', 'um', 'shared', 'winrt') {
+            $s = Join-Path $Xwin "sdk/include/$d"
+            if (Test-Path -LiteralPath $s) { Copy-Tree $s (Join-Path $m "sdk/include/$d") }
+        }
+        Copy-Tree (Join-Path $Xwin "sdk/lib/um/$xa") (Join-Path $m "sdk/lib/um/$xa")
+        Copy-Tree (Join-Path $Xwin "sdk/lib/ucrt/$xa") (Join-Path $m "sdk/lib/ucrt/$xa")
+    } else {
+        if (-not (Test-Path -LiteralPath (Join-Path $VC "lib\$ms"))) { Die "$VC has no lib\$ms`: add the VC tools for $ms in the Visual Studio Installer" }
+        Copy-Tree (Join-Path $VC 'include') (Join-Path $m 'crt/include')
+        Copy-Tree (Join-Path $VC "lib\$ms") (Join-Path $m "crt/lib/$xa")
+        foreach ($d in 'ucrt', 'um', 'shared', 'winrt') {
+            $s = Join-Path $Kits "Include\$SdkVer\$d"
+            if (Test-Path -LiteralPath $s) { Copy-Tree $s (Join-Path $m "sdk/include/$d") }
+        }
+        Copy-Tree (Join-Path $Kits "Lib\$SdkVer\um\$ms") (Join-Path $m "sdk/lib/um/$xa")
+        Copy-Tree (Join-Path $Kits "Lib\$SdkVer\ucrt\$ms") (Join-Path $m "sdk/lib/ucrt/$xa")
+    }
+}
+
+# The CRT/SDK headers go AFTER clang's resource headers (see the top). --target
+# is spelled out: CMake identifies an ASM compiler as clang by its --version
+# banner (kcc's is its own), so it would not add one for .S files.
+function Cc-Flags([string]$dst, [string]$triple) {
+    $m = Join-Path $dst 'msvc'
+    $f = @("--target=$triple", "--sysroot=$NoRoot", '-fms-runtime-lib=static')
+    foreach ($d in 'crt/include', 'sdk/include/ucrt', 'sdk/include/um', 'sdk/include/shared') {
+        $f += @('-idirafter', (Join-Path $m $d))
+    }
+    return $f
+}
+
+# The settings go through an initial-cache file, not -D: Windows PowerShell
+# mangles native arguments that hold quotes, and a flags string with a path
+# containing spaces needs them.
+function Cmake-Quote([string]$s) { return '"' + $s.Replace('\', '/').Replace('"', '\"') + '"' }
+function Configure-Build([string]$label, [string]$b, [string]$source, [hashtable]$vars) {
+    if (Test-Path -LiteralPath $b) { Remove-Item -LiteralPath $b -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $b | Out-Null
+    $init = foreach ($k in ($vars.Keys | Sort-Object)) { "set($k $(Cmake-Quote $vars[$k]) CACHE STRING `"`" FORCE)" }
+    $initFile = Join-Path $b 'kairo-init.cmake'
+    [IO.File]::WriteAllText($initFile, (($init -join "`n") + "`n"))
+    Write-Host ">> [$label] configuring"
+    Run "[$label] configure" $CMake @('-G', 'Ninja', '-S', $source, '-B', $b, '-C', $initFile) (Join-Path $b 'configure.log')
+    Write-Host ">> [$label] building (-j$Jobs)"
+    Run "[$label] build" $Ninja @('-C', $b, '-j', "$Jobs", 'install') (Join-Path $b 'build.log')
+}
+
+function Build-Runtimes([string]$triple, [string]$dst, [string]$rtarch) {
+    $out = Join-Path $Work "$triple-out"
+    if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
+    $flags = (Cc-Flags $dst $triple | ForEach-Object { if ($_ -match ' ') { '"' + (Fwd $_) + '"' } else { Fwd $_ } }) -join ' '
+    # kcc is a GNU-style driver, so CMake drives it like clang targeting MSVC
+    # (Windows-Clang, GNU front end). try_compile stays compile-only: there is
+    # no libc++ or builtins to link until this build makes them. Nothing here
+    # links an executable, so no linker, rc or mt is configured.
+    $common = @{
+        CMAKE_BUILD_TYPE = 'Release'; CMAKE_INSTALL_PREFIX = (Fwd $out)
+        CMAKE_SYSTEM_NAME = 'Windows'; CMAKE_SYSTEM_VERSION = '10.0'
+        CMAKE_SYSTEM_PROCESSOR = $triple.Split('-')[0]
+        CMAKE_C_COMPILER = (Fwd $KCC); CMAKE_CXX_COMPILER = (Fwd $KCC); CMAKE_ASM_COMPILER = (Fwd $KCC)
+        CMAKE_C_COMPILER_TARGET = $triple; CMAKE_CXX_COMPILER_TARGET = $triple; CMAKE_ASM_COMPILER_TARGET = $triple
+        CMAKE_AR = (Fwd $LLVM_AR); CMAKE_RANLIB = (Fwd $LLVM_RANLIB)
+        CMAKE_C_FLAGS = $flags; CMAKE_CXX_FLAGS = $flags; CMAKE_ASM_FLAGS = $flags
+        CMAKE_C_STANDARD_LIBRARIES = ''; CMAKE_CXX_STANDARD_LIBRARIES = ''
+        CMAKE_TRY_COMPILE_TARGET_TYPE = 'STATIC_LIBRARY'
+        CMAKE_POLICY_DEFAULT_CMP0091 = 'NEW'; CMAKE_MSVC_RUNTIME_LIBRARY = 'MultiThreaded'
+        LLVM_ENABLE_PER_TARGET_RUNTIME_DIR = 'OFF'
+        CMAKE_MAKE_PROGRAM = (Fwd $Ninja)
+    }
+    # compiler-rt builtins, standalone. The fork picks its MSVC source list
+    # (no x87 long double, no MinGW __chkstk/_alloca, TF via clang's
+    # __float128) by CMake's MSVC variable, which only a cl front end sets;
+    # MSVC=ON selects it with kcc's GNU spelling.
+    $bt = $common.Clone()
+    $bt.MSVC = 'ON'; $bt.COMPILER_RT_DEFAULT_TARGET_ONLY = 'ON'
+    $bt.COMPILER_RT_ENABLE_SOFTWARE_INT128 = 'ON'; $bt.COMPILER_RT_INCLUDE_TESTS = 'OFF'
+    $b = Join-Path $Work "$triple-builtins"
+    Configure-Build "$triple builtins" $b (Join-Path $Src 'compiler-rt/lib/builtins') $bt
+    # libc++ (vcruntime ABI, static only) through the runtimes glue.
+    $cx = $common.Clone()
+    $cx.LLVM_ENABLE_RUNTIMES = 'libcxx'; $cx.LLVM_DEFAULT_TARGET_TRIPLE = $triple
+    $cx.LLVM_INCLUDE_TESTS = 'OFF'; $cx.LLVM_INCLUDE_DOCS = 'OFF'
+    $cx.LIBCXX_CXX_ABI = 'vcruntime'; $cx.LIBCXX_ENABLE_SHARED = 'OFF'; $cx.LIBCXX_ENABLE_STATIC = 'ON'
+    $cx.LIBCXX_INCLUDE_TESTS = 'OFF'; $cx.LIBCXX_INCLUDE_BENCHMARKS = 'OFF'; $cx.LIBCXX_INCLUDE_DOCS = 'OFF'
+    Configure-Build "$triple libc++" (Join-Path $Work "$triple-libcxx") (Join-Path $Src 'runtimes') $cx
+
+    # The GNU front end may name the archives lib*.a; the root's names are the
+    # ones SYSROOT.toml and the driver expect.
+    $files = Get-ChildItem -LiteralPath $out -Recurse -File
+    $cxx = $files | Where-Object { $_.Name -in 'libc++.lib', 'c++.lib', 'libc++.a' } | Select-Object -First 1
+    $rt = $files | Where-Object { $_.Name -like 'clang_rt.builtins*.lib' -or $_.Name -like 'libclang_rt.builtins*.a' } | Select-Object -First 1
+    if (-not $cxx -or -not $rt) { Die "[$triple] runtimes incomplete (libc++: '$cxx', builtins: '$rt')" }
+    if (-not (Test-Path -LiteralPath (Join-Path $out 'include/c++/v1'))) { Die "[$triple] no libc++ headers installed" }
+    New-Item -ItemType Directory -Force -Path (Join-Path $dst 'lib'), (Join-Path $dst 'compiler-rt/lib/windows') | Out-Null
+    Copy-Tree (Join-Path $out 'include/c++') (Join-Path $dst 'include/c++')
+    Copy-Item -LiteralPath $cxx.FullName -Destination (Join-Path $dst 'lib/libc++.lib')
+    $rtLib = Join-Path $dst "compiler-rt/lib/windows/clang_rt.builtins-$rtarch.lib"
+    Copy-Item -LiteralPath $rt.FullName -Destination $rtLib
+    Add-TfCompareAliases $triple $dst $rtLib $b
+    Probe-Builtins $triple $rtLib $b @('__addtf3', '__trunctfbf2', '__truncsfbf2', '__eqtf2', '__netf2', '__lttf2', '__gttf2', '__cmptf2')
+    if (-not (Select-String -LiteralPath (Join-Path $dst 'include/c++/v1/__config_site') -Pattern '_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS' -Quiet)) {
+        Die "[$triple] __config_site is not static-only (would import __imp_ symbols)"
+    }
+}
+
+# comparetf2.c makes __eqtf2, __lttf2, __netf2, __gttf2 and __cmptf2 aliases of
+# __letf2 / __getf2, but COMPILER_RT_ALIAS expands to nothing on _WIN32 (COFF
+# has no symbol aliases), so any f128 comparison would fail to link. Add them
+# as forwarding functions into the builtins archive.
+function Add-TfCompareAliases([string]$triple, [string]$dst, [string]$lib, [string]$b) {
+    $w = Join-Path $b 'tf-compare-aliases'
+    New-Item -ItemType Directory -Force -Path $w | Out-Null
+    $c = @(
+        '#define QUAD_PRECISION'
+        '#include "fp_lib.h"'
+        '#if defined(CRT_HAS_TF_MODE)'
+        '#include "fp_compare_impl.inc"'
+        'COMPILER_RT_ABI CMP_RESULT __letf2(fp_t a, fp_t b);'
+        'COMPILER_RT_ABI CMP_RESULT __getf2(fp_t a, fp_t b);'
+        'COMPILER_RT_ABI CMP_RESULT __cmptf2(fp_t a, fp_t b) { return __letf2(a, b); }'
+        'COMPILER_RT_ABI CMP_RESULT __eqtf2(fp_t a, fp_t b) { return __letf2(a, b); }'
+        'COMPILER_RT_ABI CMP_RESULT __lttf2(fp_t a, fp_t b) { return __letf2(a, b); }'
+        'COMPILER_RT_ABI CMP_RESULT __netf2(fp_t a, fp_t b) { return __letf2(a, b); }'
+        'COMPILER_RT_ABI CMP_RESULT __gttf2(fp_t a, fp_t b) { return __getf2(a, b); }'
+        '#else'
+        '#error "no TF mode: __float128 / int128 missing on this target"'
+        '#endif'
+    ) -join "`n"
+    $srcFile = Join-Path $w 'tf_compare_aliases.c'; $obj = Join-Path $w 'tf_compare_aliases.obj'
+    [IO.File]::WriteAllText($srcFile, $c + "`n")
+    $argv = @(Cc-Flags $dst $triple) + @('-fforce-enable-int128', '-O2',
+        "-I$(Join-Path $Src 'compiler-rt/lib/builtins')", '-c', $srcFile, '-o', $obj)
+    Run "[$triple] tf_compare_aliases.c" $KCC $argv (Join-Path $w 'compile.log')
+    $merged = Join-Path $w 'merged.lib'
+    Run "[$triple] llvm-lib merge" $LLVM_LIB @('/nologo', "/out:$merged", $lib, $obj) (Join-Path $w 'lib.log')
+    Move-Item -LiteralPath $merged -Destination $lib -Force
+}
+
+# Symbol check without nm: a probe that takes the address of every required
+# builtin, linked by kld (lld-link flavor) against the builtins archive alone.
+function Probe-Builtins([string]$triple, [string]$lib, [string]$b, [string[]]$syms) {
+    $mach = switch -Wildcard ($triple) { 'x86_64-*' { 'x64' } 'aarch64-*' { 'arm64' } 'i686-*' { 'x86' } }
+    $w = Join-Path $b 'probe'
+    New-Item -ItemType Directory -Force -Path $w | Out-Null
+    $c = @('int _fltused = 0;') + ($syms | ForEach-Object { "extern void $_(void);" }) +
+         @('__declspec(dllexport) void *const kairo_probe[] = {') + ($syms | ForEach-Object { "  (void *)&$_," }) + @('};')
+    $srcFile = Join-Path $w 'probe.c'; $obj = Join-Path $w 'probe.obj'
+    [IO.File]::WriteAllText($srcFile, ($c -join "`n") + "`n")
+    Run "[$triple] symbol probe compile" $KCC @("--target=$triple", "--sysroot=$NoRoot", '-O0', '-c', $srcFile, '-o', $obj) (Join-Path $w 'compile.log')
+    Run "[$triple] builtins symbol probe (a required TF/bf16 symbol is missing)" $KLD @('-flavor', 'link', '/nologo', '/dll', '/noentry', '/nodefaultlib',
+        "/machine:$mach", "/out:$(Join-Path $w 'probe.dll')", $obj, $lib) (Join-Path $w 'probe.log')
+}
+
+function Write-Toml([string]$name, [string]$xa, [string]$path) {
+    $t = @(
+        "triple        = `"$name`""
+        'llvm_version  = "22.1.0"'
+        'family        = "windows-msvc"'
+        'sysroot       = "."'
+        'include_dirs  = ["include/c++/v1", "msvc/crt/include", "msvc/sdk/include/ucrt", "msvc/sdk/include/um", "msvc/sdk/include/shared"]'
+        "lib_dirs      = [`"lib`", `"msvc/crt/lib/$xa`", `"msvc/sdk/lib/um/$xa`", `"msvc/sdk/lib/ucrt/$xa`"]"
+        'has_libcxx    = true'
+        'static        = true'
+        'crt_startup   = []'
+        'crt_end       = []'
+        'libc_link     = ["libcmt.lib", "libvcruntime.lib", "libucrt.lib", "oldnames.lib", "kernel32.lib", "user32.lib", "advapi32.lib", "shell32.lib", "uuid.lib"]'
+        'libcxx_link   = ["libc++.lib", "libcpmt.lib"]'
+        'rtlib         = "compiler-rt"'
+        'linker        = "lld-link"'
+        'resource_dir  = "compiler-rt"'
+        'msvc_crt      = "static"'
+        'local_only    = ["msvc"]'
+        'cc_defines    = ["_CRT_STDIO_ISO_WIDE_SPECIFIERS"]'
+        'cc_isolation  = ["-nostdlibinc", "-nostdinc++"]'
+    )
+    [IO.File]::WriteAllText($path, ($t -join "`n") + "`n")
+}
+
+# The Kairo-shaped check: C++ with a thrown and caught exception, compiled and
+# linked by kcc from SYSROOT.toml alone (no include or library flags).
+function Validate([string]$name, [string]$r) {
+    $t = Join-Path $Work "$name-test"
+    New-Item -ItemType Directory -Force -Path $t | Out-Null
+    $c = @(
+        '#include <cstdio>', '#include <stdexcept>', '#include <string>', '#include <vector>'
+        'int main() {'
+        '  std::vector<std::string> v{"a", "b"};'
+        '  try { throw std::runtime_error(v[0] + v[1]); }'
+        '  catch (const std::exception &e) { std::printf("%s\n", e.what()); }'
+        '  return 0;'
+        '}'
+    ) -join "`n"
+    [IO.File]::WriteAllText((Join-Path $t 't.cpp'), $c + "`n")
+    Run "[$name] validation link (kcc --target=$name --sysroot=$r)" $KCC @("--target=$name", "--sysroot=$r", '-std=c++20', '-O1',
+        (Join-Path $t 't.cpp'), '-o', (Join-Path $t 't.exe')) (Join-Path $t 'link.log')
+    Write-Host "   validated: kcc linked a C++ program from SYSROOT.toml ($(Join-Path $t 't.exe'))"
+}
+
+$arches = if ($args.Count) { $args } else { @('x86_64', 'aarch64', 'i686') }
+Write-Host ">> install: $Kairo"
+$rev = Get-Content -LiteralPath (Join-Path $Src 'REVISION') -TotalCount 1 -ErrorAction SilentlyContinue
+Write-Host ">> runtimes source: $Src (rev $(if ($rev) { $rev } else { 'unknown' }))"
+Write-Host ">> CRT + SDK: $From"
+$name = 'x86_64-windows-msvc'
+foreach ($a in $arches) {
+    switch -Regex ($a) {
+        '^(x86_64|amd64|x64)$' { $arch = 'x86_64'; $xa = 'x86_64'; $ms = 'x64'; $rtarch = 'x86_64'; break }
+        '^(aarch64|arm64)$' { $arch = 'aarch64'; $xa = 'aarch64'; $ms = 'arm64'; $rtarch = 'aarch64'; break }
+        '^(i686|i386|x86)$' { $arch = 'i686'; $xa = 'x86'; $ms = 'x86'; $rtarch = 'i386'; break }
+        default { Die "unknown arch $a (x86_64, aarch64/arm64, i686/i386)" }
+    }
+    $triple = "$arch-pc-windows-msvc"
+    $name = "$arch-windows-msvc"
+    $dst = Join-Path $Stage $name
+    Write-Host ">> [$name] staging -> $dst"
+    # Assembled under WORK and moved into place only when complete: kcc picks
+    # up <install>/sysroot/<name> by itself (ahead of --sysroot), so neither an
+    # old root nor a half-built one may sit there during the build.
+    $root = Join-Path $Work "$name-root"
+    foreach ($p in $dst, $root) { if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force } }
+    New-Item -ItemType Directory -Force -Path $root, $NoRoot, $Stage | Out-Null
+    Stage-Msvc $xa $ms $root
+    Build-Runtimes $triple $root $rtarch
+    Write-Toml $name $xa (Join-Path $root 'SYSROOT.toml')
+    try { Move-Item -LiteralPath $root -Destination $dst }
+    catch { Copy-Tree $root $dst; Remove-Item -LiteralPath $root -Recurse -Force }   # across volumes
+    Validate $name $dst
+    $size = (Get-ChildItem -LiteralPath $dst -Recurse -File | Measure-Object -Property Length -Sum).Sum
+    Write-Host (">> [$name] staged ({0:N0} MiB)" -f ($size / 1MB))
+}
+if ((Env 'KEEP_WORK' '0') -ne '1') {
+    Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue
+    $parent = Split-Path -Parent $Work
+    if ((Test-Path -LiteralPath $parent) -and -not (Get-ChildItem -LiteralPath $parent -Force)) {
+        Remove-Item -LiteralPath $parent -Force
+    }
+}
+Write-Host "msvc sysroots ready. Try: kairo --target $name main.k -o main.exe"
+Write-Host "(They contain Microsoft's CRT and SDK: keep them local, never redistribute them.)"
+exit 0
+#

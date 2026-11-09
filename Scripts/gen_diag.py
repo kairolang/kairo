@@ -1,13 +1,30 @@
 #!/usr/bin/env python3
 """
-Reads diag.toml, generates DiagRegistry.k (public decls) + TempRegistry.k (impls),
-then invokes kairo to compile the impls into an object file.
+Reads the *.diag.toml files and writes the diagnostic registry as Stage 1 Kairo:
+
+  --output       Compiler/Diagnostic/Registry.k: DiagID and the declarations of
+                 diag_meta / diag_explain / diag_from_string / Diag::<cat>. What every
+                 compiler file imports.
+  --full-output  the same declarations plus every body, as ONE module. build.py
+                 compiles it with the compiler doing the build into the registry object
+                 and puts its root first on the include path, so for that one compile it
+                 shadows the declarations-only file.
 
 Usage:
-    python3 gen_diag.py <folder with .diag.toml files> --lib-output=<path.o> --output=<Registry.k path>
+    python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen \
+        --output=Compiler/Diagnostic/Registry.k --full-output=build/registry/Compiler/Diagnostic/Registry.k
+
+DiagID values are compute_hash::<"CODE">() folded at generation time
+(Scripts/Migration/eval_hash.py, the same function as Support/EvalHash.k), so the enum
+needs no compile-time evaluation. A file is rewritten only when its text changes, so an
+unchanged TOML set leaves build.py's registry stamp valid.
 """
 
-import sys, tomllib, textwrap, os, subprocess, argparse, hashlib, shutil
+import sys, tomllib, textwrap, os, argparse
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "Migration"))
+from eval_hash import compute_hash, FNV_OFFSET_BASIS, FNV_PRIME, GOLDEN_RATIO_MIX, RESERVED_LOW  # noqa: E402
 
 CAT_MAP = {
     "S": "Syntax", "U": "Uncategorized", "C": "CodeGen",
@@ -32,10 +49,10 @@ def parse_base_code(code: str):
 def parse_args():
     p = argparse.ArgumentParser(add_help=False)
     p.add_argument("folder")
-    p.add_argument("--lib-output", required=True,
-                    help="path to the compiled object file, e.g. build/cache/tbldgen.o")
     p.add_argument("--output", required=True,
-                    help="path to the public registry file, e.g. Registery.k")
+                   help="the declarations-only registry, Compiler/Diagnostic/Registry.k")
+    p.add_argument("--full-output",
+                   help="the declarations plus bodies, compiled by build.py into the registry object")
     return p.parse_args()
 
 
@@ -94,13 +111,16 @@ def load_diags(folder):
 
 def license_header():
     return [
-        "/// --- The Kairo Project -------------------------------------------------- ///",
+        "/// --- The Kairo Project ------------------------ Diagnostic/Registry.k --- ///",
+        "///",
+        "///   The diagnostic registry, generated from Diagnostic/TableGen/*.diag.toml:",
+        "///   every DiagID with its code, severity, message and explain text.",
         "///",
         "///   Part of the Kairo Project, under the Apache License v2.0 with the",
         "///   Kairo Runtime Library Exception.",
         "///",
-        "///   See: https://www.kairolang.org/LICENSE.txt",
-        "///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION",
+        "///   See: https://www.kairolang.org/LICENSE",
+        "///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception",
         "///   Copyright (c) 2026 Dhruvan Kartik",
         "///",
         "/// ------------------------------------------------------------------------ ///",
@@ -116,218 +136,188 @@ def autogen_banner():
         "///--------------------------------------------------------------------------///",
         "////////////////////////////////////////////////////////////////////////////////",
         "",
-        "#[trivially_import(true)]",
-        "",
     ]
 
 
-def gen_registry(diags):
-    """Public interface: enum + fwd decls only, no bodies, not eval."""
+def hashed(code):
+    return f'{compute_hash(code)} /* "{code}" */'
+
+
+def kairo_imports(uses):
+    """Kairo import lines for {module path: [names]}, in the formatter's layout
+    (Extras/Formatter/README rules 5.1-5.4): sorted by path; one name is
+    `import A::b;`; two to six names, or any long one, are the block form, one
+    per line with a trailing comma and no `;` after the `}`; more than six
+    short names are the grid form, column-aligned rows under the 80-column
+    width. Only names the generated code uses: a wildcard would import a
+    module's whole surface into a 65k-line file for three of its names."""
+    width, indent, short = 80, 4, 24
+    out = []
+    for path in sorted(uses):
+        names = sorted(set(uses[path]))
+        if len(names) == 1:
+            out.append(f"import {path}::{names[0]};")
+            continue
+        out.append(f"import {path}::{{")
+        if len(names) <= 6 or any(len(n) > short for n in names):
+            out += [f"{' ' * indent}{n}," for n in names]
+        else:
+            cells = [f"{n}," for n in names]
+            col = max(len(c) for c in cells) + 1
+            per_row = max(1, (width - indent) // col)
+            for i in range(0, len(cells), per_row):
+                row = cells[i:i + per_row]
+                out.append(" " * indent + "".join(c.ljust(col) for c in row[:-1]) + row[-1])
+        out.append("}")
+    return out
+
+
+def gen_decls(diags, extra_uses=None, ffi_imports=()):
+    """DiagID, then the declarations. Shared verbatim by both outputs, but for
+    the imports: the bodies name more (DiagCategory) and need the C++ header,
+    and an `ffi` import goes first (rule 5.3)."""
+    uses = {"Diagnostic::Meta": ["DiagMeta"], "Diagnostic::Severity": ["DiagSeverity"]}
+    for path, names in (extra_uses or {}).items():
+        uses.setdefault(path, []).extend(names)
     lines = []
     lines += license_header()
     lines += autogen_banner()
+    if ffi_imports:
+        lines += [*ffi_imports, ""]
+    lines += kairo_imports(uses)
     lines += [
-        "import Support::EvalHash::*;",
-        "import Diagnostic::Meta::*;",
         "",
-        "enum DiagID derives u32 {",
+        # @open: diag_from_string casts any hash to DiagID, and an unknown code's hash
+        # names no variant.
+        "@open pub enum DiagID derives u32 {",
         "  Invalid = 0,",
     ]
     for code, *_ in diags:
-        lines.append(f'  {code} = compute_hash::<r"{code}">(),')
-    lines.append("}")
-    lines.append("")
-
-    lines.append("fn diag_meta(id: DiagID) -> DiagMeta;")
-    lines.append("fn diag_explain(id: DiagID) -> string;")
-    lines.append("fn diag_from_string(code_str: string) -> DiagID;")
-    lines.append("")
-    lines.append("module Diag {")
+        lines.append(f"  {code} = {hashed(code)},")
+    lines += [
+        "}",
+        "",
+        "pub fn diag_meta(id: DiagID) -> DiagMeta;",
+        "pub fn diag_explain(id: DiagID) -> string;",
+        "pub fn diag_from_string(code_str: string) -> DiagID;",
+        "",
+        "pub module Diag {",
+    ]
     for prefix in CAT_MAP:
-        lines.append(f"  fn {prefix}(num: u32, sev: DiagSeverity) -> DiagID;")
+        lines.append(f"  pub fn {prefix}(num: u32, sev: DiagSeverity) -> DiagID;")
     lines.append("}")
+    return lines
 
-    return "\n".join(lines) + "\n"
+
+def escape(text, quote=True):
+    """A string-literal body. `'` needs no escape in a "..." literal; explain text
+    escapes it anyway (as Stage 0 did), brief/group text does not."""
+    if not quote:
+        return text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    return (text.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'")
+            .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+            .replace("\0", "\\0").replace("\x0b", "\\v").replace("\x1b", "\\e"))
 
 
-def gen_temp_registry(diags, registry_module_name):
-    """Private impls: full bodies, fns. Compiled into the dylib, never shipped."""
-    lines = []
-    lines += license_header()
-    lines += autogen_banner()
-    lines.append(f"import {registry_module_name}::*;")
-    lines.append("")
+def gen_registry(diags):
+    return "\n".join(gen_decls(diags)) + "\n"
 
-    lines.append("fn diag_meta(id: DiagID) -> DiagMeta {")
-    lines.append("  switch id {")
+
+def gen_full_registry(diags):
+    lines = gen_decls(diags, {"Diagnostic::Category": ["DiagCategory"]}, ['ffi "c++" import "Native/Types.hh";'])
+    lines += ["", "", "/// # Bodies", ""]
+
+    lines.append("pub fn diag_meta(id: DiagID) -> DiagMeta {")
+    lines.append("  match id {")
     lines.append("    case DiagID::Invalid { return DiagMeta{}; }")
     for code, cat, num, sev, brief, group, _ in diags:
-        brief_esc = brief.replace('"', '\\"')
-        lines.append(f"    case DiagID::{code} {{")
-        lines.append(f"      return DiagMeta{{")
-        lines.append(f'        brief: "{brief_esc}",')
-        lines.append(f'        group: "{group}",')
-        lines.append(f"        number: {num},")
-        lines.append(f"        hash: static_cast::<u32>(compute_hash::<r\"{code}\">()),")
-        lines.append(f"        category: DiagCategory::{cat},")
-        lines.append(f"        severity: DiagSeverity::{sev}")
-        lines.append(f"      }};")
-        lines.append(f"    }}")
-    # A value no variant names (diag_from_string's hash of an unknown code; DiagID
-    # is @open in Stage 1, a C++ enum in Stage 0) takes the default, as Stage 0's
-    # switch fell through to the return below.
-    lines.append("    default { return DiagMeta{}; }")
-    lines.append("  }")
-    lines.append("  return DiagMeta{};")
-    lines.append("}")
-    lines.append("")
+        lines += [
+            f"    case DiagID::{code} {{",
+            "      return DiagMeta{",
+            f'        brief: "{escape(brief, False)}",',
+            f'        group: "{escape(group, False)}",',
+            f"        number: {num},",
+            f"        hash: ({hashed(code)} as u32),",
+            f"        category: DiagCategory::{cat},",
+            f"        severity: DiagSeverity::{sev}",
+            "      };",
+            "    }",
+        ]
+    # A value no variant names (diag_from_string's hash of an unknown code; DiagID is
+    # @open) takes the default.
+    lines += ["    default { return DiagMeta{}; }", "  }", "  return DiagMeta{};", "}", ""]
 
-    lines.append("fn diag_explain(id: DiagID) -> string {")
-    lines.append("  switch id {")
-    # Stage 1 matches are exhaustive: Invalid has no explanation.
+    lines.append("pub fn diag_explain(id: DiagID) -> string {")
+    lines.append("  match id {")
     lines.append('    case DiagID::Invalid { return ""; }')
     for code, _, _, _, _, _, explain in diags:
-        explain_esc = (explain.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'")
-                       .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-                       .replace("\0", "\\0").replace("\x0b", "\\v").replace("\x1b", "\\e"))
-        lines.append(f'    case DiagID::{code} {{ return "{explain_esc}"; }}')
-    lines.append('    default { return ""; }')
-    lines.append("  }")
-    lines.append('  return "";')
-    lines.append("}")
-    lines.append("")
+        lines.append(f'    case DiagID::{code} {{ return "{escape(explain)}"; }}')
+    lines += ['    default { return ""; }', "  }", '  return "";', "}", ""]
 
-    lines.append("fn diag_from_string(code_str: string) -> DiagID {")
-    lines.append("  var h = compute_hash(&code_str);")
-    # DiagID derives u32 and the hash is u64: Stage 1 casts to an enum only from its
+    # DiagID derives u32 and the hash is u64: a cast to an enum is only from its
     # underlying type (SC127E), so narrow first.
-    lines.append("  return static_cast::<DiagID>(static_cast::<u32>(h));")
-    lines.append("}")
-    lines.append("")
+    #
+    # The hash is EvalHash.k's run-time compute_hash(*const string), written out rather
+    # than called: build.py links this object into EVERY tool, and kld /
+    # clang-diag-identity / katar never compile EvalHash.k, so a call left an undefined
+    # symbol. The object may reference nothing a tool's own graph does not define.
+    # Constants from eval_hash.py, the Python copy every variant's value comes from.
+    # Wrapping u64 arithmetic, as in EvalHash.k; an empty spelling is HASH_MAX there.
+    lines += [
+        "pub fn diag_from_string(code_str: string) -> DiagID {",
+        "  const len: usize = code_str.length();",
+        "  if len == 0 { return (0xFFFFFFFF as u32) as DiagID; }",
+        f"  var h: u64 = {FNV_OFFSET_BASIS:#x};",
+        "  for var i: usize = 0; i < len; ++i {",
+        "    h = h ^ ((code_str[i] as u8) as u64);",
+        f"    h = h * {FNV_PRIME:#x};",
+        "    h = h ^ (i as u64);",
+        "  }",
+        f"  h = (h ^ ((len as u64) * {GOLDEN_RATIO_MIX:#x})) + {RESERVED_LOW:#x};",
+        "  return (((h >> 32) ^ h) as u32) as DiagID;",
+        "}",
+        "",
+    ]
 
-    lines.append("module Diag {")
+    lines.append("pub module Diag {")
     for prefix, cat in CAT_MAP.items():
-        lines.append(f"  fn {prefix}(num: u32, sev: DiagSeverity) -> DiagID {{")
-        lines.append(f"    switch sev {{")
-        for sev_char, sev_name in SEV_MAP.items():
+        lines.append(f"  pub fn {prefix}(num: u32, sev: DiagSeverity) -> DiagID {{")
+        lines.append("    match sev {")
+        for sev_name in SEV_MAP.values():
             lines.append(f"      case DiagSeverity::{sev_name} {{")
-            lines.append(f"        switch num {{")
+            lines.append("        match num {")
             for code, c, n, s, _, _, _ in diags:
                 if c == cat and s == sev_name:
                     lines.append(f"          case {n} {{ return DiagID::{code}; }}")
-            lines.append(f"          default {{ std::crash(std::Error::RuntimeError(\"invalid diag number for {prefix} and severity {sev_name}\")); }}")
-            lines.append(f"        }}")
-            lines.append(f"      }}")
-        lines.append(f"      default {{ std::crash(std::Error::RuntimeError(\"invalid diag severity\")); }}")
-        lines.append(f"    }}")
-        lines.append(f"    std::crash(std::Error::RuntimeError(\"reached unreachable code in Diag::{prefix}\"));")
-        lines.append(f"    return DiagID::Invalid; // unreachable")
-        lines.append(f"  }}")
+            lines.append(f'          default {{ kairo::std::ice_fail("invalid diag number for {prefix} and severity {sev_name}"); }}')
+            lines.append("        }")
+            lines.append("      }")
+        lines.append('      default { kairo::std::ice_fail("invalid diag severity"); }')
+        lines.append("    }")
+        lines.append(f'    kairo::std::ice_fail("reached unreachable code in Diag::{prefix}");')
+        lines.append("    return DiagID::Invalid; // unreachable")
+        lines.append("  }")
     lines.append("}")
-
     return "\n".join(lines) + "\n"
 
 
-def registry_hash(merged_toml):
-    """Hash of everything registry.o depends on, not just the .diag.toml:
-    this script, the Stage 0 binary and its core/ headers.
-
-    The object is compiled by Stage 0 against its runtime headers (the
-    `core/` copy installed beside the kairo binary, which every TU gets via
-    `-include core.hh`). A corelib or Stage 0 change used to leave a stale
-    registry.o compiled against the old `string`, surfacing much later as a
-    link error. The kairo binary and every file under its core/ are hashed in.
-    """
-    h = hashlib.sha256(merged_toml.encode("utf-8"))
-    # This generator too: a change to what it writes (a new arm, a new
-    # spelling) must regenerate even when no .diag.toml changed; otherwise
-    # the stamp keeps the old output until someone deletes registry.o by hand.
-    with open(os.path.abspath(__file__), "rb") as f:
-        h.update(hashlib.sha256(f.read()).digest())
-
-    kairo = shutil.which("kairo")
-    if kairo is not None:
-        kairo = os.path.realpath(kairo)
-        with open(kairo, "rb") as f:
-            h.update(hashlib.sha256(f.read()).digest())
-
-        core = os.path.join(os.path.dirname(os.path.dirname(kairo)), "core")
-        for root, dirs, files in os.walk(core):
-            dirs.sort()
-            for name in sorted(files):
-                path = os.path.join(root, name)
-                h.update(os.path.relpath(path, core).encode("utf-8"))
-                with open(path, "rb") as f:
-                    h.update(hashlib.sha256(f.read()).digest())
-
-    return h.hexdigest()
+def write_if_changed(path, text):
+    path = Path(path)
+    if path.exists() and path.read_text(encoding="utf-8") == text:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+    return True
 
 
 def main():
     args = parse_args()
-
-    diags, merged_toml = load_diags(args.folder)
-    content_hash = registry_hash(merged_toml)
-
-    output_path = args.output
-    lib_output_path = args.lib_output
-
-    output_dir = os.path.dirname(os.path.abspath(output_path)) or "."
-    lib_output_dir = os.path.dirname(os.path.abspath(lib_output_path)) or "."
-    stamp_file = os.path.join(lib_output_dir, ".gen_diag.hash")
-
-    def read_stamp():
-        try:
-            with open(stamp_file, "r") as f:
-                return f.read().strip()
-        except FileNotFoundError:
-            return None
-
-    if (read_stamp() == content_hash
-            and os.path.exists(output_path)
-            and os.path.exists(lib_output_path)):
-        return  # nothing changed, exit quietly
-
-    os.makedirs(lib_output_dir, exist_ok=True)
-
-    registry_basename = os.path.splitext(os.path.basename(output_path))[0]
-    temp_registry_path = os.path.join(lib_output_dir, f"Temp{os.path.basename(output_path)}")
-
-    # 1. Registery.k -- public interface
-    with open(output_path, "w") as f:
-        f.write(gen_registry(diags))
-
-    # 2. TempRegistery.k -- private impls, next to --lib-output
-    with open(temp_registry_path, "w") as f:
-        f.write(gen_temp_registry(diags, registry_basename))
-
-    # 3. compile TempRegistery.k into the object file
-    cmd = [
-        "kairo", temp_registry_path,
-        "-I", output_dir,
-        "-I", "Compiler/",
-        "--",
-        "-I", "build/llvm/include",
-        "-I", "Lib/llvm-runtimes/llvm/include",
-        "-o", lib_output_path,
-        "-c",
-        "-fno-lto",
-        "-fuse-ld=lld"
-    ]
-    if sys.platform == "win32":
-        cmd += [
-            "-fms-runtime-lib=dll",
-            "-DNOMINMAX"
-        ]
-
-    print(f"+ {' '.join(cmd)}", file=sys.stderr)
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
-        print(f"ERROR: kairo build failed with exit code {result.returncode}", file=sys.stderr)
-        sys.exit(result.returncode)
-
-    with open(stamp_file, "w") as f:
-        f.write(content_hash)
+    diags, _ = load_diags(args.folder)
+    write_if_changed(args.output, gen_registry(diags))
+    if args.full_output:
+        write_if_changed(args.full_output, gen_full_registry(diags))
 
 
 if __name__ == "__main__":

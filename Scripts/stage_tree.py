@@ -69,7 +69,12 @@ from pathlib import Path
 import host_sysroot  # Scripts/, beside this file
 
 HOST = platform.system()  # Linux | Darwin | Windows
-EXE  = ".exe" if HOST == "Windows" else ""
+# KAIRO_TREE_OS: the OS the tree is FOR, when build.py --target stages another
+# target's tree on this host (Linux | Darwin | Windows). Its file names, links and
+# bundling follow that OS; the tools this script runs stay the host's.
+TREE_OS = os.environ.get("KAIRO_TREE_OS") or HOST
+EXE  = ".exe" if TREE_OS == "Windows" else ""
+HOST_EXE = ".exe" if HOST == "Windows" else ""
 GLIBC_FLOOR: str | None = None  # main() sets it; see --glibc-floor
 
 
@@ -107,18 +112,22 @@ elif HOST == "Darwin":
 else:
     TRIPLE = getenv("KBLD_TRIPLE", f"{host_arch()}-windows-msvc")
 
-LLVM_BUILD = BUILD_DIR / "llvm"
+# KAIRO_LLVM_BUILD: a cross target's LLVM (Scripts/cross_llvm.py); its clang and
+# lld are the ones that tree ships. The resource dir's headers are the same fork's.
+LLVM_BUILD = Path(os.environ["KAIRO_LLVM_BUILD"]) if os.environ.get("KAIRO_LLVM_BUILD") else BUILD_DIR / "llvm"
 LIB_SRC    = ROOT / "Lib"
 # The staged copy is always there after stage_tools(); it reads ELF, Mach-O
 # and PE alike, so the gates need no host binutils.
-OBJDUMP    = LLVM_BUILD / "bin" / ("llvm-objdump" + EXE)
+OBJDUMP    = BUILD_DIR / "llvm" / "bin" / ("llvm-objdump" + HOST_EXE)
 
 # (real binary, names that are symlinks to it). The real binaries are
 # required: without them there is no clang beside the compiler. clang's is
 # clang-<major>, the major being the resource dir's version.
 def required_tools(ver: str) -> list[tuple[str, list[str]]]:
+    # LLVM's Windows build names the driver clang.exe (no clang-<major>.exe beside it).
+    clang = "clang" if TREE_OS == "Windows" else f"clang-{ver}"
     return [
-        (f"clang-{ver}", ["clang", "clang++", "clang-cpp", "clang-cl"]),
+        (clang, [n for n in ("clang", "clang++", "clang-cpp", "clang-cl") if n != clang]),
         ("lld",          ["ld.lld", "ld64.lld", "lld-link", "wasm-ld"]),
     ]
 OPTIONAL_TOOLS = [
@@ -250,7 +259,7 @@ def stage_tools(bin_dir: Path, ver: str) -> list[str]:
         copy_file(src / (real + EXE), bin_dir / (real + EXE))
         staged.append(real)
         for l in links:
-            if HOST == "Windows":
+            if TREE_OS == "Windows":
                 copy_file(src / (real + EXE), bin_dir / (l + EXE))  # no symlinks without privilege
             else:
                 symlink(real + EXE, bin_dir / (l + EXE))
@@ -430,6 +439,18 @@ def ldd(f: Path) -> tuple[list[tuple[str, str]], list[str]]:
 
 
 def bundle_linux(tree: Path, lib: Path) -> list[str]:
+    # 0. Refresh what the tree already bundled from the LLVM build. Step 1 cannot:
+    #    once a binary's RUNPATH is $ORIGIN/../lib, ldd resolves libLLVM.so to
+    #    the tree's OWN copy, so a rebuilt LLVM was never copied in and binaries
+    #    linked against the new libs ran on the old ones (stage1.5/debug had the
+    #    pre-8f7e268 libLLVM / libclang-cpp). copy_dep unlinks first, so a
+    #    process still mapping the old file keeps its inode.
+    src_lib = LLVM_BUILD / "lib"
+    for f in sorted(lib.glob("lib*.so*")):
+        src = src_lib / f.name
+        if src.is_file() and not f.is_symlink() and stale(src.resolve(), f):
+            copy_dep(src, f)
+
     # 1. Copy non-system deps until nothing new resolves outside lib/.
     added = True
     while added:
@@ -643,7 +664,13 @@ def bundle_tree(tree: Path) -> bool:
         return True
     lib = tree / "lib"
     log(f"{tree.name}: bundle")
-    if HOST == "Linux":
+    if TREE_OS != HOST:
+        # Another OS's tree (build.py --target): static on Linux and Windows, and on
+        # Apple linked only to the OS (libSystem, libc++); nothing to copy, and the
+        # host's ldd / otool / dumpbin cannot read it. Its gates run on that OS.
+        log(f"{tree.name}: {TREE_OS} tree on a {HOST} host: not bundled")
+        fails = []
+    elif HOST == "Linux":
         fails = bundle_linux(tree, lib)
     elif HOST == "Darwin":
         fails = bundle_darwin(tree, lib)
@@ -703,7 +730,7 @@ def main() -> None:
     for t in trees:
         # Symlinks only where the tree is the edit loop's; a release tree is
         # the one that ships.
-        link_lib = (t.name == "debug") and not a.copy and HOST != "Windows"
+        link_lib = (t.name == "debug") and not a.copy and TREE_OS != "Windows"
         stage_tree(t, link_lib)
         if not a.no_bundle and not bundle_tree(t):
             ok = False
