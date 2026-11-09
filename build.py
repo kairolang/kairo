@@ -980,7 +980,10 @@ def reproducible_args(os_: str, epoch: int, src: Path, out: Path) -> list:
     if os_ == "linux":
         a += ["--build-id", "none"]
     elif os_ == "macos":
-        a += ["--ld-flags=-no_uuid"]
+        # No -no_uuid: dyld refuses a Mach-O with no LC_UUID ("missing LC_UUID load
+        # command", abort at launch), and ld64.lld already derives the UUID from a hash
+        # of the output, so the binary stays reproducible with it.
+        pass
     else:
         a += ["--ld-flags=/Brepro", "--ld-flags=/INCREMENTAL:NO"]
     return a
@@ -1221,8 +1224,8 @@ def main() -> int:
     ap.add_argument("--no-postbuild", action="store_true", help="skip stage_tree.py")
     ap.add_argument("--reproducible", action=argparse.BooleanOptionalAction, default=None,
                     help="output depends only on (source tree, compiler, flags): fixed epoch and version date, "
-                         "path prefix maps, no build-id/uuid/timestamps, per-out generated files. Default ON for a "
-                         "self-host release build, OFF for --debug (real paths, so a debugger finds the sources)")
+                         "path prefix maps, no build-id/timestamps, per-out generated files. OFF unless asked for: a plain release "
+                         "build keeps real paths and the real build date")
     ap.add_argument("--source-date-epoch", type=int, default=None,
                     help="--reproducible: the epoch to embed (default $SOURCE_DATE_EPOCH, else the source tree's HEAD commit time)")
     ap.add_argument("--explain-gaps", action="store_true", help="list the build.k flags Stage 1 cannot express, and exit")
@@ -1265,9 +1268,9 @@ def main() -> int:
     tu_cache = cache_root / "tu"
     # Reproducible remaps every source path in the debug info to /kairo-root, /kairo-src,
     # /kairo-out (so two builds are bit-identical), and then a debugger cannot find the
-    # sources. Default: on for a self-host RELEASE build only; a debug build keeps real
-    # paths. run.py's fixedpoint/reprocheck pass --reproducible explicitly.
-    repro = (selfhost and not debug) if a.reproducible is None else a.reproducible
+    # sources. So it is opt-in for every profile: `build.py --release --reproducible`.
+    # run.py's fixedpoint/reprocheck pass --reproducible explicitly.
+    repro = bool(a.reproducible)
     epoch = source_epoch(src, a.source_date_epoch) if repro else None
     kairo = find_kairo(a.kairo, triple).resolve()
     if out / "bin" in kairo.parents:

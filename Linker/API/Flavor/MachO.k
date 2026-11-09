@@ -253,9 +253,9 @@ pub class MachOArgs {
             argv.push_back(o->map_file)
         }
 
-        if o->build_id == "none" {
-            argv.push_back("-no_uuid")
-        }
+        // --build-id none is not mapped to -no_uuid: dyld aborts a Mach-O with no
+        // LC_UUID at launch, and ld64.lld's UUID is a hash of the output, so it is
+        // already reproducible.
 
         // --entry names a source-level symbol. Mach-O C symbols carry a
         // leading underscore, so main is _main.
