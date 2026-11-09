@@ -4,7 +4,7 @@
  *   query cannot be chosen in Kairo; the C preprocessor chooses here, the
  *   way write.h chooses write(2)'s header.
  *
- *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+ *   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
  *   Copyright (c) 2026 Dhruvan Kartik
  *
  * ------------------------------------------------------------------------ */

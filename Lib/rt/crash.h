@@ -27,7 +27,7 @@
  *   signal(SIGABRT, SIG_DFL) (no mask to clear), abort(). wasm/WASI: the
  *   write, no signals, abort() (which is a trap there).
  *
- *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+ *   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
  *   Copyright (c) 2026 Dhruvan Kartik
  */
 #ifndef KAIRO_RT_CRASH_H

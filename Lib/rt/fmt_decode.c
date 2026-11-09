@@ -3,7 +3,7 @@
  *   A float's bit pattern -> its class and, when finite and nonzero, its
  *   exact value m * 2^e.
  *
- *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+ *   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
  *   Copyright (c) 2026 Dhruvan Kartik
  */
 #include "rt/fmt_impl.h"

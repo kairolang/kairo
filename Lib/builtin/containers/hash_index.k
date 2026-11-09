@@ -27,7 +27,7 @@
 ///     pointer's address, libc++'s identity `std::hash<int>`, a user's sum
 ///     of fields -- for one `imul`.
 ///
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -35,35 +35,39 @@
 import base::intrinsics::*
 import base::alloc::*
 
-/// Not an entry index: what a miss returns.
+/// The "not found" result of an entry-index lookup. Never a valid entry index.
 pub eval HASH_NPOS: usize = ~0usize
 
-/// The smallest entry capacity a table is made with.
+/// The smallest entry capacity a table is created with (8).
 pub eval HASH_MIN_CAP: usize = 8
 
-/// The slot tag of a hash: its Fibonacci product's high 32 bits.
+/// Returns the slot tag of hash `h`: the high 32 bits of `h * 0x9e3779b97f4a7c15` (Fibonacci
+/// hashing). Mixing makes the table robust against weak `hash()` implementations.
 pub inline fn tag_of(h: usize) -> u32 {
     return (((h as u64) * 0x9e3779b97f4a7c15u64) >> 32) as u32
 }
 
-/// The slot word for tag t and entry index e.
+/// Packs tag `t` and entry index `e` into a slot word (tag in the high 32 bits, index + 1 in the
+/// low).
 pub inline fn slot_word(t: u32, e: usize) -> u64 { return ((t as u64) << 32) | ((e as u64) + 1) }
 
-/// The entry index a non-empty slot word names.
+/// Returns the entry index a non-empty slot word names (the low half minus 1).
 pub inline fn slot_entry(s: u64) -> usize { return ((s as u32) - 1) as usize }
 
-/// The tag a slot word carries.
+/// Returns the tag stored in a slot word.
 pub inline fn slot_tag(s: u64) -> u32 { return (s >> 32) as u32 }
 
 /// log2 of a power of two.
 inline fn log2_pow2(n: usize) -> u32 { return __builtin_ctz(n) }
 
-/// The home-slot shift for a table of `nslots` (a power of two): the tag's
-/// top log2(nslots) bits are the home.
+/// Returns the shift that maps a tag to its home slot in a table of `nslots` slots (a power of
+/// two): `32 - log2(nslots)`.
 pub inline fn shift_for(nslots: usize) -> u32 { return 32 - log2_pow2(nslots) }
 
-/// Bytes of a table of entry capacity `cap` whose entries are `esize` bytes:
-/// 2 * cap slots, then the entries. Traps on overflow.
+/// Returns the byte size of a table block: `2 * cap` 8-byte slots followed by `cap` entries of
+/// `esize` bytes.
+///
+/// \panics when the size overflows (traps).
 pub inline fn block_bytes(cap: usize, esize: usize) -> usize {
     var e: usize = 0
     if __builtin_mul_overflow(cap, esize, &e) { __builtin_trap() }
@@ -74,11 +78,11 @@ pub inline fn block_bytes(cap: usize, esize: usize) -> usize {
     return t
 }
 
-/// The block's alignment: a slot's, or the entry's if larger.
+/// Returns the alignment of a table block: 8, or `ealign` when the entries need more.
 pub inline fn block_align(ealign: usize) -> usize { return (if ealign > 8 => ealign else => 8usize) }
 
-/// A table block from the allocator in effect, its slots zeroed; runs the
-/// OOM hook on failure.
+/// Allocates a table block for `cap` entries of `esize` bytes from the allocator in effect, with
+/// the slots zeroed and the entries uninitialized. Runs the OOM hook on failure.
 pub fn block_alloc(cap: usize, esize: usize, ealign: usize) -> unsafe *u8 {
     var bytes = block_bytes(cap, esize)
     var align = block_align(ealign)
@@ -88,30 +92,31 @@ pub fn block_alloc(cap: usize, esize: usize, ealign: usize) -> unsafe *u8 {
     return b
 }
 
-/// Gives a block back to the allocator it came from.
+/// Frees a block from `block_alloc`; a no-op when `cap` is 0 (the empty block is not allocated).
 pub inline fn block_free(b: unsafe *u8, cap: usize, esize: usize, ealign: usize) {
     if cap == 0 { return }
     free_raw(b, block_bytes(cap, esize), block_align(ealign))
 }
 
-/// What an empty table's block is: no allocation, but a non-null pointer
-/// aligned for the entries, so `block_entries(b, 0)` is a valid empty array.
+/// Returns the block of an empty table: no allocation, but a non-null pointer aligned for the
+/// entries.
 pub inline fn block_empty(ealign: usize) -> unsafe *u8 { return dangling(block_align(ealign)) }
 
-/// The slots of a block, and its entries.
+/// Returns the slot array of a block (its first `2 * cap` words).
 pub inline fn block_slots(b: unsafe *u8) -> unsafe *u64 { unsafe { return b as unsafe *u64 } }
+/// Returns the entry array of a block: the bytes after its `2 * cap` slots.
 pub inline fn block_entries(b: unsafe *u8, cap: usize) -> unsafe *u8 { unsafe { return b + cap * 16 } }
 
-/// The first empty slot of k's probe sequence from tag t: where a new key
-/// with that tag goes. The table is never full.
+/// Returns the first empty slot on the probe sequence for tag `t` (linear probing from the home
+/// slot). The table is never full, so this terminates.
 pub inline fn empty_slot(slots: unsafe *u64, mask: usize, shift: u32, t: u32) -> usize {
     var i = (t >> shift) as usize
     unsafe { while slots[i] != 0 { i = (i + 1) & mask } }
     return i
 }
 
-/// Copies every occupied slot of `old` into the zeroed `slots` at its home
-/// in the new geometry. Indices are unchanged: the entries keep their places.
+/// Re-places every occupied slot of `old` (`old_n` slots) into the zeroed table `slots`, using the
+/// new `mask` and `shift`. Entry indices are unchanged and no key is rehashed.
 pub fn rebuild(slots: unsafe *u64, mask: usize, shift: u32, old: unsafe *u64, old_n: usize) {
     var i: usize = 0
     unsafe {
@@ -123,7 +128,7 @@ pub fn rebuild(slots: unsafe *u64, mask: usize, shift: u32, old: unsafe *u64, ol
     }
 }
 
-/// The slot holding entry index e, whose tag is t. It is there.
+/// Returns the index of the slot that holds entry `e` (whose tag is `t`). The slot must exist.
 pub inline fn slot_of_entry(slots: unsafe *u64, mask: usize, shift: u32, t: u32, e: usize) -> usize {
     var want = slot_word(t, e)
     var i = (t >> shift) as usize
@@ -131,9 +136,8 @@ pub inline fn slot_of_entry(slots: unsafe *u64, mask: usize, shift: u32, t: u32,
     return i
 }
 
-/// Empties slot i and closes the gap: every later slot of the same cluster
-/// whose home is not cyclically in (i, k] moves back into it (backward-shift
-/// deletion), so no probe ever needs a tombstone.
+/// Empties slot `i` and closes the gap by backward-shifting later slots of the cluster (no
+/// tombstones are ever left).
 pub fn remove_slot(slots: unsafe *u64, mask: usize, shift: u32, i: usize) {
     var hole = i
     var k = (i + 1) & mask
@@ -152,8 +156,8 @@ pub fn remove_slot(slots: unsafe *u64, mask: usize, shift: u32, i: usize) {
     }
 }
 
-/// After the entries above index e moved down by one (an order-keeping
-/// erase): every slot naming an index past e names one less.
+/// After the entries above index `e` moved down by one (an order-preserving erase), decrements
+/// every slot that names an index greater than `e`. O(nslots).
 pub fn shift_down_after(slots: unsafe *u64, nslots: usize, e: usize) {
     var i: usize = 0
     var lim = (e as u64) + 1
@@ -166,7 +170,10 @@ pub fn shift_down_after(slots: unsafe *u64, nslots: usize, e: usize) {
     }
 }
 
-/// The entry capacity to grow to from cap so that `want` entries fit.
+/// Returns the entry capacity to grow to from `cap` so that `want` entries fit: 8 from empty,
+/// otherwise doubled until `want` fits.
+///
+/// \panics when the result would exceed 2^31 entries (traps): slots hold 32-bit indices.
 pub inline fn grown_cap(cap: usize, want: usize) -> usize {
     var c = (if cap == 0 => HASH_MIN_CAP else => cap * 2)
     while c < want { c *= 2 }
@@ -175,9 +182,8 @@ pub inline fn grown_cap(cap: usize, want: usize) -> usize {
     return c
 }
 
-/// Moves the entry at src to the uninitialized dst, leaving src's storage
-/// uninitialized: bytes when the entry is trivially relocatable, else a copy
-/// and the source destroyed (a COPY class has no move constructor to use).
+/// Moves the entry at `src` to the uninitialized `dst`, leaving `src`'s storage uninitialized:
+/// a byte copy when E is trivially relocatable, else a copy-construct plus destroy.
 pub inline fn <E> relocate_entry(dst: unsafe *u8, src: unsafe *E) {
     if __builtin_is_trivially_relocatable<E>() {
         unsafe { __builtin_copy(dst, src as unsafe *u8, sizeof E) }

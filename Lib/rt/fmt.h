@@ -11,7 +11,7 @@
  *   0.100000001490116119384765625; as an f32 its shortest text is 0.1, as
  *   an f64 it is 0.10000000149011612. Widening erases which one was meant.
  *
- *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+ *   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
  *   Copyright (c) 2026 Dhruvan Kartik
  */
 #ifndef KAIRO_RT_FMT_H

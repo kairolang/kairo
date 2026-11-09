@@ -4,7 +4,7 @@
  *   pattern, then format_float (fmt_layout.c). f32 and f64 take
  *   Dragonbox's shortest digits directly when they can.
  *
- *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+ *   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
  *   Copyright (c) 2026 Dhruvan Kartik
  */
 #include "rt/fmt_impl.h"

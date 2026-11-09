@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------------ Lib/std/rt/Float8.k --- ///
+/// --- The Kairo Project -------------------------- Lib/std/rt/Float8.k --- ///
 ///
 ///   \brief The two OCP FP8 formats as corelib structs: F8E4M3 and F8E5M2.
 ///
@@ -37,8 +37,8 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -49,12 +49,21 @@
 // conversion below goes through its bit pattern rather than through
 // arithmetic, because arithmetic would round twice.
 
-/// Reinterpret an f32 as its IEEE bit pattern.
+/// Returns the IEEE binary32 bit pattern of `x`.
+///
+/// \note Currently a numeric `as` conversion, not a bit cast (see the TODO in the source), so
+/// it does not yet reinterpret the bits.
+///
+/// \param x   the value
 pub fn f32_bits(x: f32) -> u32 {
     return x as u32;                 // TODO(stage1): bit_cast, not numeric.
 }
 
-/// Reinterpret an IEEE bit pattern as an f32.
+/// Returns the `f32` whose IEEE binary32 bit pattern is `b`.
+///
+/// \note Currently a numeric `as` conversion, not a bit cast (see the TODO in the source).
+///
+/// \param b   the bit pattern
 pub fn bits_f32(b: u32) -> f32 {
     return b as f32;                 // TODO(stage1): bit_cast, not numeric.
 }
@@ -79,17 +88,27 @@ class F {
 ///
 ///        Precision, not range. This is the weights-and-activations format.
 pub struct F8E4M3 {
+    /// Exponent bias.
     pub static BIAS:     i32 = 7;
+    /// Number of mantissa bits.
     pub static MANT:     u32 = 3;
+    /// Largest finite magnitude, 448.0.
     pub static MAX_FIN:  f32 = 448.0;
+    /// Encoding of NaN.
     pub static NAN_BITS: u8  = 0x7F;
 
+    /// The raw 8-bit encoding: sign, 4 exponent bits, 3 mantissa bits.
     pub var bits: u8 = 0;
 }
 
 extend F8E4M3 {
+    /// Constructs a zero (all bits clear).
     pub fn F8E4M3(self) { self.bits = 0; }
 
+    /// Constructs the nearest E4M3 value to `v`, rounding to nearest even; overflow saturates to
+    /// +/-448.
+    ///
+    /// \param v   the value to encode
     pub fn F8E4M3(self, v: f32) { self.bits = Self::from_f32_bits(v); }
 
     /// f32 -> E4M3FN, round-to-nearest-even, saturating.
@@ -185,9 +204,12 @@ extend F8E4M3 {
         return bits_f32((sign << 31) | (e32 << 23) | (m8 << 20));
     }
 
+    /// Returns whether the value is NaN: exponent and mantissa all ones, the only NaN encoding.
     pub fn is_nan(self)  -> bool { return (self.bits & 0x7F) == 0x7F; }
+    /// Returns whether the value is zero (positive or negative).
     pub fn is_zero(self) -> bool { return (self.bits & 0x7F) == 0x00; }
 
+    /// Converts to `f32` with `as`; same as `to_f32`.
     pub fn op as (self) -> f32 { return self.to_f32(); }
 }
 
@@ -208,17 +230,27 @@ extend F8E4M3 {
 ///        which is why f16 <-> e5m2 is a shift rather than a
 ///        renormalization. This is the gradients format.
 pub struct F8E5M2 {
+    /// Exponent bias.
     pub static BIAS:     i32 = 15;
+    /// Number of mantissa bits.
     pub static MANT:     u32 = 2;
+    /// Largest finite magnitude, 57344.0.
     pub static MAX_FIN:  f32 = 57344.0;
+    /// Encoding of positive infinity.
     pub static INF_BITS: u8 = 0x7C;
 
+    /// The raw 8-bit encoding: sign, 5 exponent bits, 2 mantissa bits.
     pub var bits: u8 = 0;
 }
 
 extend F8E5M2 {
+    /// Constructs a zero (all bits clear).
     pub fn F8E5M2(self) { self.bits = 0; }
 
+    /// Constructs the nearest E5M2 value to `v`, rounding to nearest even; overflow gives an
+    /// infinity.
+    ///
+    /// \param v   the value to encode
     pub fn F8E5M2(self, v: f32) { self.bits = Self::from_f32_bits(v); }
 
     /// f32 -> E5M2, round-to-nearest-even. Overflow produces INFINITY here,
@@ -293,12 +325,16 @@ extend F8E5M2 {
         return bits_f32((sign << 31) | (e32 << 23) | (m8 << 21));
     }
 
+    /// Returns whether the value is a NaN: exponent all ones and a nonzero mantissa.
     pub fn is_nan(self) -> bool {
         return (((self.bits >> 2) & 0x1F) == 0x1F) && ((self.bits & 0x03) != 0);
     }
+    /// Returns whether the value is an infinity (either sign).
     pub fn is_inf(self) -> bool { return (self.bits & 0x7F) == 0x7C; }
+    /// Returns whether the value is zero (positive or negative).
     pub fn is_zero(self) -> bool { return (self.bits & 0x7F) == 0x00; }
 
+    /// Converts to `f32` with `as`; same as `to_f32`.
     pub fn op as (self) -> f32 { return self.to_f32(); }
 }
 
@@ -319,9 +355,16 @@ extend F8E5M2 {
 // type is code that will lose precision.
 
 extend F8E4M3 {
+    /// Adds after promoting both operands to `f32`; the result is an `f32`, not an `F8E4M3`.
+    ///
+    /// Arithmetic returns `f32` on purpose: narrowing back to fp8 after every operation would
+    /// round at each step. Narrow once, at the final assignment.
     pub fn op + (self, const rhs: F8E4M3) -> f32 { return self.to_f32() + rhs.to_f32(); }
+    /// Subtracts after promoting both operands to `f32`; the result is an `f32`, not an `F8E4M3`.
     pub fn op - (self, const rhs: F8E4M3) -> f32 { return self.to_f32() - rhs.to_f32(); }
+    /// Multiplies after promoting both operands to `f32`; the result is an `f32`, not an `F8E4M3`.
     pub fn op * (self, const rhs: F8E4M3) -> f32 { return self.to_f32() * rhs.to_f32(); }
+    /// Divides after promoting both operands to `f32`; the result is an `f32`, not an `F8E4M3`.
     pub fn op / (self, const rhs: F8E4M3) -> f32 { return self.to_f32() / rhs.to_f32(); }
 
     /// Bitwise equality, NOT numeric. Two encodings of the same value do not
@@ -333,10 +376,19 @@ extend F8E4M3 {
 }
 
 extend F8E5M2 {
+    /// Adds after promoting both operands to `f32`; the result is an `f32`, not an `F8E5M2`.
+    ///
+    /// Arithmetic returns `f32` on purpose: narrowing back to fp8 after every operation would
+    /// round at each step. Narrow once, at the final assignment.
     pub fn op + (self, const rhs: F8E5M2) -> f32 { return self.to_f32() + rhs.to_f32(); }
+    /// Subtracts after promoting both operands to `f32`; the result is an `f32`, not an `F8E5M2`.
     pub fn op - (self, const rhs: F8E5M2) -> f32 { return self.to_f32() - rhs.to_f32(); }
+    /// Multiplies after promoting both operands to `f32`; the result is an `f32`, not an `F8E5M2`.
     pub fn op * (self, const rhs: F8E5M2) -> f32 { return self.to_f32() * rhs.to_f32(); }
+    /// Divides after promoting both operands to `f32`; the result is an `f32`, not an `F8E5M2`.
     pub fn op / (self, const rhs: F8E5M2) -> f32 { return self.to_f32() / rhs.to_f32(); }
+    /// Bitwise equality of the encodings, not IEEE numeric equality: a NaN equals an identical NaN
+    /// here, and `-0.0` differs from `+0.0`. Convert with `to_f32` for numeric comparison.
     pub fn op == (self, const rhs: F8E5M2) -> bool { return self.bits == rhs.bits; }
 }
 
@@ -362,6 +414,11 @@ pub fn verify_e4m3_roundtrip() -> bool {
     return true;
 }
 
+/// Checks that every non-NaN E5M2 bit pattern survives bits -> f32 -> bits unchanged.
+///
+/// NaN payloads are skipped because they are not preserved.
+///
+/// \returns `true` when every non-NaN encoding round-trips.
 pub fn verify_e5m2_roundtrip() -> bool {
     for var i: u32 = 0; i < 256; ++i {
         var a = F8E5M2{};
@@ -387,6 +444,10 @@ pub fn verify_e4m3_known() -> bool {
     return true;
 }
 
+/// Spot-checks the E5M2 encodings the OCP spec names: 0, 1, 2, max finite (57344), overflow to
+/// infinity, and -1.
+///
+/// \returns `true` when every spot-check encodes to the expected bit pattern.
 pub fn verify_e5m2_known() -> bool {
     if F8E5M2(0.0).bits     != 0x00 { return false; }
     if F8E5M2(1.0).bits     != 0x3C { return false; }  // exp 15, mant 0

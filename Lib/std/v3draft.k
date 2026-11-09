@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------------------------- std-draft.k --- ///
+/// --- The Kairo Project ---------------------------- Lib/std/v3draft.k --- ///
 ///
 ///   \brief Working draft of the Kairo standard library.
 ///

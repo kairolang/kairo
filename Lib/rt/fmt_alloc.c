@@ -4,7 +4,7 @@
  *   (fmt_layout.c). FmtBuf itself allocates through Lib/builtin/base/alloc.k
  *   now, the allocator the string it finishes frees with.
  *
- *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+ *   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
  *   Copyright (c) 2026 Dhruvan Kartik
  */
 #include "rt/fmt.h"

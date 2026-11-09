@@ -1,18 +1,9 @@
 /// --- The Kairo Project --------------------------------- Lib/std/io.k --- ///
 ///
-///   `print`, `println`, `eprint`, `eprintln`, `flush`.
+///   Unbuffered, length-delimited writes to stdout and stderr: `print`,
+///   `println`, `eprint`, `eprintln`, and `flush` for C stdio output.
 ///
-///   `println`: in builtin, not std, because it is the target FStringLowering
-///   will write puts against directly once `println(f"...")` is lowered
-///   without a FmtBuf, and a lowering target is a lang item.
-///
-///   Length-delimited and unbuffered: no printf, no NUL, one write(2) when
-///   a line fits a stack page. A buffered writer is std's, later. Because
-///   nothing here buffers, stdout and stderr interleave in call order under
-///   2>&1; C stdio output is the one thing that can come out of order, and
-///   `flush` is for that boundary.
-///
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -21,24 +12,50 @@ ffi "c" import "write.h"   // unistd.h, or io.h on Windows; stdio.h for flush
 
 import string::*
 
-/// `s` and a newline to stdout.
+/// Writes `s` followed by a newline to standard output.
+///
+/// Unbuffered: the bytes are out when the call returns. A line shorter than 4096 bytes goes
+/// out in a single `write(2)`, so concurrent lines from different threads are not split.
+/// Longer lines take two writes (the text, then the newline). Write errors are ignored.
+///
+/// \param s   the text to write
+/// \example
+/// ```kairo
+/// import std::io
+///
+/// fn main() -> i32 {
+///     io::println("hello")
+///     return 0
+/// }
+/// ```
 pub fn println(const s: string) { write_line_(1, s) }
 
-/// `s` to stdout, no newline.
+/// Writes `s` to standard output without a trailing newline.
+///
+/// Unbuffered, like `println`. Write errors are ignored.
+///
+/// \param s   the text to write
 pub fn print(const s: string) { write_all_(1, s.as_ptr(), s.length()) }
 
-/// `s` and a newline to stderr.
+/// Writes `s` followed by a newline to standard error.
+///
+/// Same single-write behaviour as `println`. Because neither stream is buffered, output to
+/// stdout and stderr interleaves in call order when both go to the same place (`2>&1`).
+///
+/// \param s   the text to write
 pub fn eprintln(const s: string) { write_line_(2, s) }
 
-/// `s` to stderr, no newline.
+/// Writes `s` to standard error without a trailing newline.
+///
+/// \param s   the text to write
 pub fn eprint(const s: string) { write_all_(2, s.as_ptr(), s.length()) }
 
-/// Pushes out whatever the C runtime's stdio is still buffering, on every
-/// stream. Nothing in this file buffers -- each call above is out by the time
-/// it returns -- so this is for ordering against C and C++ code that writes
-/// through stdio (printf, fwrite(stdout), a C++ library): stdout is
-/// block-buffered when it is a pipe or a file, so bytes such code wrote
-/// BEFORE a print here can land AFTER it unless flushed first.
+/// Flushes the C runtime's stdio buffers on every stream.
+///
+/// Nothing in `std::io` buffers, so this exists only for ordering against C and C++ code that
+/// writes through stdio (`printf`, `fwrite(stdout)`, a C++ library). stdout is block-buffered
+/// when it is a pipe or a file, so bytes such code wrote before a print here can otherwise
+/// appear after it. Call `flush` at that boundary.
 pub fn flush() {
     unsafe { kstd_flush_stdio() }
 }

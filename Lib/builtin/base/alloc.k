@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------------- Lib/builtin/base/alloc.k --- ///
+/// --- The Kairo Project --------------------- Lib/builtin/base/alloc.k --- ///
 ///
 ///   \brief The allocator model: typed uninitialized storage, the allocation
 ///          front end and the AllocatorScope guard, over the byte layer in
@@ -36,8 +36,8 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -60,14 +60,17 @@ inline fn byte_offset(p: unsafe *u8, n: usize) -> unsafe *u8 {
 
 // --- typed uninitialized storage --------------------------------------------
 
-/// Storage for one T that holds no T. Move-only. Turn it into an object with
-/// construct, or give it back with release_in.
+/// Storage for one `T` that holds no `T`. Move-only.
+///
+/// Turn it into an object with `construct`, or give it back with `release_in`. This is the typed
+/// layer between an allocator's bytes and a live object.
 pub class <T> Uninitialized {
     priv var ptr: unsafe *u8
 
     /// Wraps raw bytes. The caller vouches for size and alignment.
     pub inline fn Uninitialized(self, ptr: unsafe *u8) { self.ptr = ptr }
 
+    /// Move constructor: takes over other's storage.
     @move
     pub fn Uninitialized(self, other: Self) = default
 
@@ -84,6 +87,7 @@ pub class <T> Uninitialized {
         unsafe { return __builtin_launder(self.ptr as unsafe *T as *T) }
     }
 
+    /// Returns the storage as raw bytes.
     pub inline fn as_bytes(const self) -> unsafe *u8 { return self.ptr }
 
     /// Reinterprets the storage for a U of the same or smaller size and
@@ -94,20 +98,26 @@ pub class <T> Uninitialized {
     }
 }
 
-/// Runs the destructor and hands the storage back.
+/// Runs `*p`'s destructor and returns its storage as an `Uninitialized<T>`.
+///
+/// \safety `p` must point at a live `T` that is not used afterwards.
 pub inline fn <T> uninitialized_from(p: *T) -> Uninitialized<T> {
     __builtin_destruct_at(p)
     unsafe { return Uninitialized<T>(p as unsafe *u8) }
 }
 
-/// Storage for cap Ts, of which [0, len) are live. Dropping it destroys only
-/// the live prefix; the storage itself goes back via destroy_slice or
-/// destroy_slice_in.
+/// Storage for `cap` Ts, of which `[0, len)` are live.
+///
+/// Dropping it destroys only the live prefix; the storage itself goes back through `destroy_slice`
+/// or `destroy_slice_in`. Move-only: a moved-from slice is left empty so its drop destroys nothing.
 pub class <T> UninitializedSlice {
     priv var ptr: unsafe *u8
     priv var cap: usize
     priv var len: usize
 
+    /// Wraps `cap` Ts' worth of raw bytes, with none of them live.
+    ///
+    /// \safety `ptr` must be valid for `cap * sizeof T` bytes at `alignof T`.
     pub inline fn UninitializedSlice(self, ptr: unsafe *u8, cap: usize) {
         self.ptr = ptr
         self.cap = cap
@@ -127,10 +137,16 @@ pub class <T> UninitializedSlice {
         other.len = 0
     }
 
+    /// Returns the number of live elements.
     pub inline fn size(const self) -> usize { return self.len }
+    /// Returns the number of elements the storage has room for.
     pub inline fn capacity(const self) -> usize { return self.cap }
+    /// Returns the storage as raw bytes.
     pub inline fn as_bytes(const self) -> unsafe *u8 { return self.ptr }
 
+    /// Constructs a `T` from `args` in the next free slot.
+    ///
+    /// \panics Traps (`__builtin_trap`) when the slice is full.
     pub inline fn <...A> push(self, ...args: A) {
         @unlikely if self.len == self.cap { __builtin_trap() }
         __builtin_construct_at<T>(byte_offset(self.ptr, self.len * sizeof T), args...)
@@ -161,17 +177,27 @@ pub class <T> UninitializedSlice {
 // --- the front end ----------------------------------------------------------
 // Zero-size requests never reach an allocator.
 
+/// Allocates `size` bytes from allocator `A`. Returns `&null` on failure; a zero `size` returns
+/// `dangling(align)` without calling `A`.
+///
+/// \param align  A power of two (asserted).
 pub inline fn <A impl Allocator> alloc_bytes(size: usize, align: usize) -> unsafe *u8 {
     assert is_pow2(align), "alignment must be a power of two"
     if size == 0 { return dangling(align) }
     return A::alloc(size, align)
 }
 
+/// Frees a block to allocator `A`; a zero `size` is a no-op.
+///
+/// \safety `ptr` must be a block `A` returned for this `size` and `align`.
 pub inline fn <A impl Allocator> free_bytes(ptr: unsafe *u8, size: usize, align: usize) {
     if size == 0 { return }
     A::free(ptr, size, align)
 }
 
+/// Allocates `size` zeroed bytes from allocator `A`. Returns `&null` on failure.
+///
+/// \param align  A power of two (asserted).
 pub inline fn <A impl FullAllocator> alloc_zeroed(size: usize, align: usize) -> unsafe *u8 {
     assert is_pow2(align), "alignment must be a power of two"
     if size == 0 { return dangling(align) }
@@ -209,6 +235,9 @@ pub inline fn <T, A impl Allocator> create_slice_in(n: usize) -> UninitializedSl
     return UninitializedSlice<T>(p, n)
 }
 
+/// Gives the storage of an `Uninitialized<T>` back to allocator `A`.
+///
+/// \safety The storage must have come from `A`.
 pub inline fn <T, A impl Allocator> release_in(@move u: Uninitialized<T>) {
     free_bytes<A>(u.as_bytes(), sizeof T, alignof T)
 }
@@ -287,15 +316,21 @@ pub inline fn <T> destroy_slice(@move s: UninitializedSlice<T>) {
 // (alloc_raw.hh comes in with string.hh), because header emission does not
 // declare the witness its member bodies call through (ticket candidate).
 
-/// Opens a scoped allocator for the rest of the enclosing block: every
-/// allocation through the non-_in family, in this function and everything it
-/// calls on this thread, comes from A until the guard is destroyed. Movable:
-/// the frame lives in the thread's scope stack, not in the guard.
+/// Opens a scoped allocator for the rest of the enclosing block: every allocation through the
+/// non-`_in` family (`create`, `alloc_raw`, containers), in this function and everything it calls
+/// on this thread, comes from `A` until the guard is destroyed.
+///
+/// Movable: the frame lives in the thread's scope stack, not in the guard. Scopes must close in
+/// reverse order of opening, and a block freed inside a scope goes back to whichever allocator's
+/// range holds it, so a global-heap block freed inside a scope still reaches the global heap.
 pub class <A impl ScopedFullAllocator> AllocatorScope {
     priv var mark:   usize
     priv var depth:  usize
     priv var active: bool
 
+    /// Opens the scope: calls `A::enter()` and pushes a frame holding `A`'s functions and range.
+    ///
+    /// \panics Crashes when `A::range()` overlaps the range of an open scope.
     pub inline fn AllocatorScope(self) {
         self.mark = A::enter()
         var r = A::range()

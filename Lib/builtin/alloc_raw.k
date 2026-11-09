@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------------- Lib/builtin/alloc_raw.k --- ///
+/// --- The Kairo Project ---------------------- Lib/builtin/alloc_raw.k --- ///
 ///
 ///   \brief The allocator model's byte layer: the allocator interfaces, the
 ///          OOM hook, the global allocator (Global, System), the per-thread
@@ -23,8 +23,8 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -34,55 +34,88 @@ ffi "c++" import "rt/alloc.h"
 
 // --- interfaces -------------------------------------------------------------
 
-/// Everything a type must have to be used as an allocator.
+/// Everything a type must have to be used as an allocator: `alloc` and `free`, both static.
+///
+/// Failure is `&null`; an allocator never aborts or panics (the OOM policy belongs to the front
+/// end). See `base/alloc.k` for the full contract.
 pub interface Allocator {
+    /// Returns `size` bytes aligned to `align`, or `&null` on failure.
+    ///
+    /// \param size   Nonzero; the front end never forwards a zero-size request.
+    /// \param align  A power of two.
     static fn alloc(size: usize, align: usize) -> unsafe *u8
+    /// Gives a block back.
+    ///
+    /// \safety `ptr` must be a non-null block this allocator returned, and `size` and `align` must
+    /// be
+    /// the values it was allocated (or last successfully resized) with.
     static fn free(ptr: unsafe *u8, size: usize, align: usize)
 }
 
-/// Grows or shrinks a block without moving it. false: nothing changed.
+/// An allocator that can grow or shrink a block without moving it.
 pub interface Resizer derives Allocator {
+    /// Resizes the block in place. Returns false, with the block untouched, when it cannot.
     static fn resize(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool
 }
 
-/// Grows or shrinks a block, moving it if it has to. &null: nothing changed.
+/// An allocator that can grow or shrink a block, moving it if it has to.
 pub interface Reallocator derives Allocator {
+    /// Resizes the block, moving it if needed, and returns the new pointer. Returns `&null`, with
+    /// the
+    /// original block untouched, on failure.
     static fn realloc(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8
 }
 
-/// Zeroed memory, for allocators that get it for free (fresh pages, calloc).
+/// An allocator that gets zeroed memory for free (fresh pages, `calloc`).
 pub interface ZeroAllocator derives Allocator {
+    /// Like `alloc`, but every returned byte is zero. Returns `&null` on failure.
     static fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8
 }
 
-/// Used with AllocatorScope. enter()
-/// returns a token that leave() takes back; range() is the address range
-/// every block it hands out lies in while the scope is open.
+/// An allocator usable with `AllocatorScope`.
+///
+/// `enter()` returns a token that `leave()` takes back, and `range()` is the address range every
+/// block it hands out lies in while the scope is open. No two open scopes may have overlapping
+/// ranges.
 pub interface ScopedAllocator derives Allocator {
+    /// Called when a scope opens; returns a token that is passed back to `leave`.
     static fn enter() -> usize
+    /// Called when the scope closes, with the token `enter` returned.
     static fn leave(mark: usize)
+    /// Returns the half-open address range `[lo, hi)` that all of this allocator's blocks lie in.
     static fn range() -> (unsafe *u8, unsafe *u8)
 }
 
-/// What the front end and @set_global_allocator take, until eval if can test a
-/// capability per instantiation; then the front end takes Allocator and
-/// falls back where a capability is missing.
+/// An allocator with every capability: `Allocator` plus resize, realloc and zeroed allocation.
+///
+/// What the front end and `@set_global_allocator` take until `eval if` can test a capability per
+/// instantiation; then the front end will take `Allocator` and fall back where one is missing.
 pub interface FullAllocator derives Resizer + Reallocator + ZeroAllocator { }
 
-/// What AllocatorScope takes.
+/// A `FullAllocator` that is also a `ScopedAllocator`: what `AllocatorScope` takes.
 pub interface ScopedFullAllocator derives ScopedAllocator + FullAllocator { }
 
 // --- helpers ----------------------------------------------------------------
 
+/// Returns true when `v` is a power of two (zero is not).
 pub inline fn is_pow2(v: usize) -> bool { return v != 0 && (v & (v - 1)) == 0 }
 
+/// Rounds `v` up to the next multiple of `align`.
+///
+/// \param align  A power of two.
 pub inline fn align_up(v: usize, align: usize) -> usize { return (v + align - 1) & ~(align - 1) }
 
-/// A non-null, aligned pointer that owns nothing: what a zero-size request gets.
+/// Returns a non-null, aligned pointer that owns nothing: what a zero-size request gets.
+///
+/// \safety Never dereference or free the result.
 pub inline fn dangling(align: usize) -> unsafe *u8 { unsafe { return align as unsafe *u8 } }
 
 
-/// realloc for an allocator with no faster path: alloc, copy, free.
+/// A `realloc` for an allocator with no faster path: allocates, copies, frees the old block.
+///
+/// Returns `&null`, with the original block untouched, when the new allocation fails.
+///
+/// \safety `ptr` must be a block `A` allocated with `old_size` and `align`.
 pub fn <A impl Allocator> realloc_by_copy(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
     var unsafe *n = A::alloc(new_size, align)
     if n == &null { return &null }
@@ -103,11 +136,13 @@ fn default_oom(size: usize, align: usize) -> ! {
     __builtin_crash(&OOM_MSG[0], 20, 134)
 }
 
-/// Replaces what create does when the allocator returns &null.
+/// Replaces what `create` does when the allocator returns `&null`.
+///
+/// The handler never returns. The default writes `kairo: out of memory` to stderr and exits with
+/// code 134. The handler is process-wide, not per thread, and the call is not synchronized.
 pub fn set_oom_handler(h: fn(usize, usize) -> !) { oom_handler = h }
 
-/// Runs the handler. The handler is typed -> !, and the compiler emits
-/// __builtin_unreachable after a call through a -> ! fn value.
+/// Runs the OOM handler for a failed allocation of `size` bytes at `align`; never returns.
 pub fn oom(size: usize, align: usize) -> ! {
     oom_handler(size, align)
 }
@@ -127,8 +162,20 @@ pub fn oom(size: usize, align: usize) -> ! {
 /// file it compiles. Otherwise Global is System itself, inlined into every
 /// caller.
 eval if !defined!(__KAIRO_GLOBAL_ALLOCATOR_SET) {
+    /// The program's global allocator.
+    ///
+    /// Chosen when the program links: the `kairo_global_*` symbols are defined weakly as `System`,
+    /// and
+    /// the file that writes `@set_global_allocator(A)` defines them strongly as `A`. Without LTO
+    /// those
+    /// symbols cost a call per allocation, so they are used only when some file sets an allocator
+    /// (the driver then defines `__KAIRO_GLOBAL_ALLOCATOR_SET`); otherwise `Global` is `System`
+    /// itself, inlined into every caller. A freestanding target defines the symbols itself, or uses
+    /// the `*_in` family with an allocator of its own.
     pub type Global = System
 } else {
+    /// The program's global allocator, forwarding to the `kairo_global_*` symbols; see the alias
+    /// above.
     pub class Global impl FullAllocator {
         static inline fn alloc(size: usize, align: usize) -> unsafe *u8 {
             return kairo_global_alloc(size, align)
@@ -365,7 +412,14 @@ prot inline fn scope_pop(d: usize) {
 
 // --- the current-allocator family -------------------------------------------
 
-/// size bytes from the allocator in effect. &null on failure.
+/// Allocates `size` bytes from the allocator in effect: the innermost open `AllocatorScope`, else
+/// `Global`. Returns `&null` on failure.
+///
+/// A zero `size` returns `dangling(align)`. Pair the block with `free_raw`.
+///
+/// \param align  A power of two (asserted).
+/// \safety The result is uninitialized memory; free it with `free_raw` using the same `size` and
+/// `align`.
 pub inline fn alloc_raw(size: usize, align: usize) -> unsafe *u8 {
     assert is_pow2(align)   // alignment must be a power of two
     if size == 0 { return dangling(align) }
@@ -374,8 +428,14 @@ pub inline fn alloc_raw(size: usize, align: usize) -> unsafe *u8 {
     unsafe { return f->alloc(size, align) }
 }
 
-/// Gives a block back to whichever allocator it came from. With no scope
-/// open this is one TLS load, one test and a tail call to Global::free.
+/// Gives a block back to whichever allocator it came from: the open scope whose range holds it,
+/// else `Global`.
+///
+/// With no scope open this is one thread-local load, one test and a tail call to `Global::free`.
+/// A zero `size` is a no-op.
+///
+/// \safety `ptr` must come from `alloc_raw` / `resize_raw` (or `dangling` for size 0), with the
+/// `size` and `align` it was last allocated with.
 pub inline fn free_raw(ptr: unsafe *u8, size: usize, align: usize) {
     if size == 0 { return }
     @likely if scope_top == &null { Global::free(ptr, size, align); return }
@@ -402,7 +462,13 @@ fn free_below(ptr: unsafe *u8, size: usize, align: usize) {
     unsafe { f->free(ptr, size, align) }
 }
 
-/// Resizes with the allocator the block came from. &null: nothing changed.
+/// Resizes a block with the allocator it came from: in place if that allocator can, else moved.
+/// Returns the (possibly new) pointer, or `&null` with the block untouched on failure.
+///
+/// A `new_size` of 0 frees the block and returns `dangling(align)`; an `old_size` of 0 is an
+/// `alloc_raw`.
+///
+/// \safety `ptr` must come from `alloc_raw` / `resize_raw` with `old_size` and `align`.
 pub fn resize_raw(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
     if new_size == 0 { free_raw(ptr, old_size, align); return dangling(align) }
     if old_size == 0 { return alloc_raw(new_size, align) }
@@ -430,17 +496,24 @@ eval MAX_ALIGN: usize = 2 * sizeof usize
 /// mimalloc's small-object limit, 128 words (rt/alloc.h kairo_rt_small_max).
 eval SMALL_MAX: usize = 128 * sizeof usize
 
+/// The default global allocator: mimalloc (`rt/mimalloc.c`).
+///
+/// On ELF and wasm targets it is also the C heap, so C, C++ and Kairo share one heap. Alignments up
+/// to 2 * `sizeof usize` use the plain malloc paths; larger ones use the aligned entry points.
 pub class System impl FullAllocator {
+    /// Allocates from mimalloc.
     static inline fn alloc(size: usize, align: usize) -> unsafe *u8 {
         @likely if align <= MAX_ALIGN { return kairo_rt_malloc(size) }
         return kairo_rt_aligned_alloc(size, align)
     }
 
+    /// Allocates zeroed memory from mimalloc.
     static inline fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 {
         @likely if align <= MAX_ALIGN { return kairo_rt_calloc(size) }
         return kairo_rt_aligned_calloc(size, align)
     }
 
+    /// Frees to mimalloc.
     static inline fn free(ptr: unsafe *u8, size: usize, align: usize) {
         @likely if align <= MAX_ALIGN { kairo_rt_free(ptr, size); return }
         kairo_rt_aligned_free(ptr, size, align)
@@ -454,6 +527,7 @@ pub class System impl FullAllocator {
         return !(align <= MAX_ALIGN && new_size <= SMALL_MAX && old_size > SMALL_MAX)
     }
 
+    /// Reallocates through mimalloc, moving the block if it has to.
     static fn realloc(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
         @likely if align <= MAX_ALIGN { return kairo_rt_realloc(ptr, old_size, new_size) }
         return kairo_rt_aligned_realloc(ptr, new_size, align)

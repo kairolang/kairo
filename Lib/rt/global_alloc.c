@@ -12,7 +12,7 @@
  *   aligned entry points past that alignment. See rt/alloc.h for the
  *   invariant the small free relies on.
  *
- *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+ *   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
  *   Copyright (c) 2026 Dhruvan Kartik
  */
 #include "rt/global_alloc.h"

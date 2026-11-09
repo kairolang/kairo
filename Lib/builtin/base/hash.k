@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------- Lib/builtin/base/hash.k --- ///
+/// --- The Kairo Project ---------------------- Lib/builtin/base/hash.k --- ///
 ///
 ///   \brief The Hash lang item: what a `{K: V}` / `{T}` key conforms to, and
 ///          its conformances for the primitives, pointers and `string`.
@@ -44,7 +44,7 @@
 ///     Not provided: i256..i512 / u256..u512 and the f8 / f16 / f128-and-up
 ///     floats (no key use yet; extend them here when one appears).
 ///
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -52,10 +52,17 @@
 import base::intrinsics::*
 import string::*
 
-/// A key: a hash and an equality consistent with it. `other` is `const`
-/// (by reference), so comparing two strings copies neither.
+/// The requirements for a `{K: V}` / `{T}` key: a hash and an equality consistent with it.
+///
+/// If `a == b` then `a.hash() == b.hash()`. Hashes are deterministic: no per-process seed, so a
+/// map's layout is the same on every run. The primitives, pointers and `string` conform out of the
+/// box; a key type conforms like any type conforms to an interface (its own members, an
+/// `extend X impl Hash`, or structurally). `other` is `const`, so comparing two keys copies
+/// neither.
 pub interface Hash {
+    /// Returns the key's hash, to be folded into a table slot by the container.
     fn hash(const self) -> usize
+    /// Returns true when the keys are equal; must agree with `hash`.
     fn op ==(const self, const other: Self) -> bool
 }
 
@@ -190,26 +197,37 @@ pub fn hash_bytes_seeded(p: unsafe *const u8, len: usize, seed: u64) -> u64 {
 // --- the primitives ------------------------------------------------------------
 // `op ==` is each type's own (ConformanceChecking::_native_implementation).
 
+/// `true` and `false` hash as 1 and 0 through `mix64`.
 extend bool impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(if self => 1u64 else => 0u64)) }
+/// Unsigned integers (and `char`) hash through `mix64` of their value.
 extend u8   impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self)) }
 extend u16  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self)) }
 extend u32  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self)) }
 extend u64  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self)) }
+/// Signed integers hash through `mix64` of their value sign-extended to 64 bits.
 extend i8   impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
 extend i16  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
 extend i32  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
 extend i64  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
+/// Pointer-sized integers hash through `mix64` of their value widened to 64 bits.
 extend usize impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
 extend isize impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
+/// A `char` hashes through `mix64` of its value.
 extend char impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self)) }
 
+/// A 128-bit integer hashes as `fold_mul` of its two 64-bit halves.
 extend u128 impl Hash {
     pub inline fn hash(const self) -> usize = to_usize(fold_mul((self as u64) ^ HASH_S0, ((self >> 64) as u64) ^ HASH_S1))
 }
+/// A 128-bit integer hashes as `fold_mul` of its two 64-bit halves.
 extend i128 impl Hash {
     pub inline fn hash(const self) -> usize = to_usize(fold_mul((self as u64) ^ HASH_S0, (((self as u128) >> 64) as u64) ^ HASH_S1))
 }
 
+/// A float hashes through `mix64` of its bit pattern, with `+0.0` and `-0.0` hashing alike.
+///
+/// A NaN compares unequal to everything, itself included, so a NaN key can be inserted but never
+/// found again. Do not key a map by a float that may be NaN.
 extend f32 impl Hash {
     /// -0.0 == +0.0, so both hash as +0.0's bits (0).
     pub inline fn hash(const self) -> usize {
@@ -217,6 +235,9 @@ extend f32 impl Hash {
         return to_usize(mix64(__builtin_bitcast<u32>(self)))
     }
 }
+/// A float hashes through `mix64` of its bit pattern, with `+0.0` and `-0.0` hashing alike.
+///
+/// A NaN key can be inserted but never found again; see the `f32` conformance.
 extend f64 impl Hash {
     pub inline fn hash(const self) -> usize {
         if self == 0.0 { return to_usize(mix64(0)) }
@@ -228,6 +249,7 @@ extend f64 impl Hash {
 // `op ==` is string's own, derived from string.k's `op <=>` (length first,
 // then one memcmp); `hash` stays here, beside the other conformances.
 
+/// A `string` hashes its bytes with `hash_bytes` (rapidhash v1).
 extend string impl Hash {
     pub inline fn hash(const self) -> usize {
         unsafe { return to_usize(hash_bytes(self.as_ptr() as unsafe *const u8, self.length())) }

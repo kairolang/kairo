@@ -19,7 +19,7 @@
 //   infinities and max finite 240. APFloat spells them semFloat8E4M3FN and
 //   semFloat8E4M3.
 //
-//   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+//   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 //   Copyright (c) 2026 Dhruvan Kartik
 //
 //===----------------------------------------------------------------------===//

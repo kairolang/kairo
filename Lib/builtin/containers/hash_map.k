@@ -42,7 +42,7 @@
 ///   Allocation is the allocator in effect (base/alloc.k's alloc_raw /
 ///   free_raw): one block per map, nothing for an empty one.
 ///
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -53,18 +53,35 @@ import base::hash::*
 import containers::slice::*
 import containers::hash_index::*
 
-/// One key and its value, as a map stores them. No constructor: it is a
-/// C++ aggregate, built in place as `MapEntry(k, v)` and `MapEntry(k)` (C++20
-/// parenthesized aggregate initialization; the value value-initialized), so
-/// each member is constructed directly from its argument. A Kairo
-/// constructor would default-construct `key` before assigning it: a field of
-/// a generic type is not one CtorInitLowering initializes in place, and a
-/// key with no default constructor would not compile.
+/// One key and its value, as a HashMap stores and iterates them (`m.find(k)`, `m.begin()`,
+/// `m.entries()`).
+///
+/// No constructor: it is a C++ aggregate built in place as `MapEntry(k, v)` or `MapEntry(k)`.
 pub class <K, V> MapEntry {
+    /// The entry's key. Do not change it through a pointer from the map: the index is keyed on it.
     pub var key:   K
+    /// The entry's value. May be assigned through a pointer from `find` / `begin` / `entries`.
     pub var value: V
 }
 
+/// Hash map from `K` to `V`. `{K: V}` desugars to `HashMap<K, V>`, and `{k: v, ...}` builds one.
+///
+/// Entries are stored densely in insertion order, so iteration order is deterministic. Lookup,
+/// insert and `erase` are O(1) expected; `erase_ordered` is O(n). K must implement `Hash` (a
+/// `hash()` method and `==`).
+///
+/// Inserting or erasing invalidates every pointer from `find` / `get` / `begin` / `[]` and must
+/// not happen during `for ... in m`. A copy is a deep copy.
+///
+/// \see HashSet
+/// \example
+/// ```kairo
+/// var m: {i32: i32} = {}
+/// m[1] = 10
+/// m.insert(2, 20)
+/// var found = false
+/// if let v = m.get(2) { found = (*v == 20) }
+/// ```
 pub class <K impl Hash, V> HashMap {
     /// slots, then entries: one block (hash_index.k). Never null: while
     /// cap == 0 it is a dangling pointer aligned for the entries, so the
@@ -75,6 +92,7 @@ pub class <K impl Hash, V> HashMap {
     priv var cap:   usize
     priv var shift: u32
 
+    /// Creates an empty map. Allocates nothing.
     pub inline fn HashMap(self) {
         self.block = block_empty(alignof MapEntry<K, V>)
         self.len = 0
@@ -82,8 +100,10 @@ pub class <K impl Hash, V> HashMap {
         self.shift = 0
     }
 
-    /// `{k: v, ...}` (ListLiteralLowering): the entries in written order; a
-    /// repeated key keeps its first place and takes its last value.
+    /// Creates a map from `(key, value)` pairs, as `{k: v, ...}` lowers to.
+    ///
+    /// Entries keep written order; a repeated key keeps its first place and takes its last value.
+    /// V must be default-constructible (each value is assigned after the entry is created).
     pub fn HashMap(self, const items: [(K, V);]) {
         self.block = block_empty(alignof MapEntry<K, V>)
         self.len = 0
@@ -128,30 +148,40 @@ pub class <K impl Hash, V> HashMap {
 
     // --- size ---------------------------------------------------------------
 
+    /// Returns the number of entries. O(1).
     pub inline fn size(const self) -> usize { return self.len }
+    /// Returns true when the map has no entries. O(1).
     pub inline fn empty(const self) -> bool { return self.len == 0 }
-    /// Entries that fit before the next growth.
+    /// Returns how many entries fit before the next growth.
     pub inline fn capacity(const self) -> usize { return self.cap }
 
     // --- lookup -------------------------------------------------------------
 
+    /// Returns true when `k` is a key of the map. O(1) expected.
     pub inline fn contains(const self, const k: K) -> bool { return self.index_of(k) != HASH_NPOS }
 
-    /// The entry for k, or end().
+    /// Returns a pointer to the entry for `k`, or `end()` when absent. O(1) expected.
+    ///
+    /// Compare against `end()` to test for a miss; the pointer is valid until the next
+    /// insert/erase.
     pub inline fn find(self, const k: K) -> *MapEntry<K, V> {
         var e = self.index_of(k)
         if e == HASH_NPOS { return self.end() }
         unsafe { return (self.entry_array() + e) as *MapEntry<K, V> }
     }
 
-    /// k's value, or null.
+    /// Returns a pointer to `k`'s value, or null when `k` is absent. O(1) expected.
+    ///
+    /// The nullable form of `find`; the pointer is valid until the next insert/erase.
     pub inline fn get(self, const k: K) -> *V? {
         var e = self.index_of(k)
         if e == HASH_NPOS { return null }
         unsafe { return &(self.entry_array() + e)->value as unsafe *V as *V }
     }
 
-    /// k's value as a place, inserted default-constructed when absent.
+    /// Returns `k`'s value as a place, inserting a default-constructed value when `k` is absent.
+    ///
+    /// So even a read through `m[k]` can insert. V must be default-constructible. O(1) expected.
     pub inline fn op [] (self, const k: K) -> *V {
         var t = tag_of(k.hash())
         var slot: usize = 0
@@ -163,23 +193,24 @@ pub class <K impl Hash, V> HashMap {
 
     // --- iteration (insertion order) -----------------------------------------
 
-    /// The first entry; end() when empty.
+    /// Returns a pointer to the first entry in insertion order; equal to `end()` when empty.
     pub inline fn begin(self) -> *MapEntry<K, V> {
         unsafe { return self.entry_array() as *MapEntry<K, V> }
     }
 
-    /// One past the last entry.
+    /// Returns a pointer one past the last entry. Not dereferenceable.
     pub inline fn end(self) -> *MapEntry<K, V> {
         unsafe { return (self.entry_array() + self.len) as *MapEntry<K, V> }
     }
 
-    /// Every entry, in order, as a view: `for *e in m.entries()` walks them
-    /// with no copy.
+    /// Returns every entry, in order, as a view: `for *e in m.entries()` walks them with no copy.
+    ///
+    /// The view is invalidated by an insert or erase.
     pub inline fn entries(self) -> [MapEntry<K, V>;] {
         unsafe { return Slice<MapEntry<K, V>>(self.entry_array() as *MapEntry<K, V>, self.len) }
     }
 
-    /// `for (k, v) in m`: each key and value, copied, in order.
+    /// Iterates `(key, value)` pairs in insertion order: `for (k, v) in m`. Each pair is a copy.
     pub fn op in (self) -> yield (K, V) {
         var i: usize = 0
         while i < self.len {
@@ -196,8 +227,9 @@ pub class <K impl Hash, V> HashMap {
 
     // --- insertion ------------------------------------------------------------
 
-    /// Adds (k, v) when k is absent; true if it did. A present key keeps its
-    /// value and its place.
+    /// Adds `(k, v)` when `k` is absent and returns true; returns false and changes nothing when
+    /// `k`
+    /// is present (the old value and its place are kept). O(1) amortized.
     pub inline fn insert(self, const k: K, const v: V) -> bool {
         var t = tag_of(k.hash())
         var slot: usize = 0
@@ -207,17 +239,21 @@ pub class <K impl Hash, V> HashMap {
     }
 
     /// Stage 0's `emplace(k, v)`: insert.
+    /// Stage 0's `emplace(k, v)`: the same as `insert`.
     pub inline fn emplace(self, const k: K, const v: V) -> bool { return self.insert(k, v) }
 
     /// Room for n entries without growing.
+    /// Ensures room for `n` entries without growing. O(size()) when it grows.
     pub fn reserve(self, n: usize) {
         if n > self.cap { self.grow(n) }
     }
 
     // --- removal ----------------------------------------------------------------
 
-    /// Removes k; true if it was there. O(1): the last entry moves into k's
-    /// place (see the header on order).
+    /// Removes `k` and returns true, or returns false when it was absent. O(1) expected.
+    ///
+    /// The last entry moves into the removed entry's place (swap-remove), so insertion order is
+    /// kept except for that one entry. Use `erase_ordered` to keep the order exactly.
     pub fn erase(self, const k: K) -> bool {
         if self.len == 0 { return false }
         var t = tag_of(k.hash())
@@ -241,8 +277,9 @@ pub class <K impl Hash, V> HashMap {
         return true
     }
 
-    /// Removes k keeping every other entry's order; true if it was there.
-    /// O(len): the entries after k move down one, and every slot is renumbered.
+    /// Removes `k` keeping every other entry's order; returns true if it was there. O(n): the
+    /// entries
+    /// after `k` move down one and the index is renumbered.
     pub fn erase_ordered(self, const k: K) -> bool {
         if self.len == 0 { return false }
         var t = tag_of(k.hash())
@@ -262,7 +299,7 @@ pub class <K impl Hash, V> HashMap {
         return true
     }
 
-    /// Removes every entry; keeps the capacity.
+    /// Removes every entry, keeping the capacity. O(capacity).
     pub fn clear(self) {
         if self.cap == 0 { return }
         self.destroy_entries()

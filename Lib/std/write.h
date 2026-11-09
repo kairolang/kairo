@@ -10,7 +10,7 @@
  *   stream so its bytes order against write(2). A wrapper because the NULL
  *   is the point, and Kairo has no null pointer to pass.
  *
- *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+ *   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
  *   Copyright (c) 2026 Dhruvan Kartik
  *
  * ------------------------------------------------------------------------ */

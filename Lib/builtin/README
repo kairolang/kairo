@@ -83,7 +83,7 @@ What module.k declares itself, and why it cannot move yet:
   __builtin_niche_of, __builtin_type_id, __builtin_panic_site
                     Expression-bodied fns. One that is the last declaration
                     of its file ICEs in codegen (TokenSink: "span runs past
-                    the end of its buffer"; TICKETS.TXT), so a file of only
+                    the end of its buffer"), so a file of only
                     these cannot be built until that is fixed.
   crash!            A prelude macro is found in the root's own scope only:
                     the preprocessor does not follow a `pub import` for
@@ -113,7 +113,7 @@ warned R001W on every compile.
 
 Vector (containers/vector.k) is the whole of `[T]`: layout, constructors,
 the deep @copy, the destructor, `op []`, `op in`, `op as [T;]` and every
-method Compiler/ calls on Stage 0's vec (private/IMPORTANT/api-surface.md).
+method Compiler/ calls on Stage 0's vec.
 All of it is in the one file, not split into Lib/std: a record's members
 are one declaration, and `extend` can neither add constructors or the
 member-only operators nor reach a type in another file (extends.mdx).

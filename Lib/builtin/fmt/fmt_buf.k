@@ -22,7 +22,7 @@
 ///   Written to the C++ core EmitIR emits today (if-chains, indexed for,
 ///   loop); nothing here needs more than that.
 ///
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -39,16 +39,40 @@ static DIGIT_PAIRS: [u8; 200] = [48, 48, 48, 49, 48, 50, 48, 51, 48, 52, 48, 53,
 /// Bytes FmtBuf holds in itself before it spills to the heap, NUL included.
 eval FMTBUF_INLINE: usize = 128
 
+/// The buffer an f-string is built in. FStringLowering turns `f"a {x} b"` into one FmtBuf and a
+/// call per part (`text`, `put_*`), then `finish()`; users can also keep one to format into
+/// repeatedly.
+///
+/// Up to 127 bytes live inside the object; longer text spills to the heap (from the allocator in
+/// effect, the same one `string` uses). Not copyable or movable: `data` points into the object.
+///
+/// Every `put_*` takes a `spec`, a packed u64 format spec (width, precision, fill, alignment, base,
+/// flags; layout in the file header). `0` means defaults.
+///
+/// \example
+/// ```kairo
+/// var b = FmtBuf()
+/// b.write(f"x = {42}")
+/// var s = b.view()
+/// ```
 pub class FmtBuf {
+    /// Pointer to the bytes: the inline storage until the first spill, then the heap block. Null
+    /// after `finish()`.
     pub var data:   *u8          // inline_ until the first spill, then the heap
+    /// Bytes written so far.
     pub var len:    usize
+    /// Codepoints written so far (what the finished string's `codepoints()` reports).
     pub var cp_len: usize
+    /// Usable bytes before the next growth; the block has `cap + 1` bytes for the NUL.
     pub var cap:    usize        // usable bytes; data has cap + 1 (the NUL)
+    /// The inline storage, used until the text outgrows it.
     var inline_:    [u8; 128]
 
-    /// A bound of `cap` bytes. Up to FMTBUF_INLINE - 1 the buffer is inline_
-    /// and the heap is never touched unless the text outgrows it; past that
-    /// the heap block is taken now, sized once.
+    /// Creates a buffer bounded to `cap` bytes, as the lowering does with a compile-time bound.
+    ///
+    /// Below 128 it uses the inline storage (growing to the heap only if the text outgrows it);
+    /// from
+    /// 128 up the heap block is allocated now, sized once.
     pub fn FmtBuf(self, cap: usize) {
         self.len    = 0
         self.cp_len = 0
@@ -65,8 +89,8 @@ pub class FmtBuf {
         }
     }
 
-    /// An empty buffer on its inline storage: what a user declares to format
-    /// into repeatedly (`var b = FmtBuf()`, then `b.write(f"...")`).
+    /// Creates an empty buffer on its inline storage, for formatting repeatedly (`var b =
+    /// FmtBuf()`).
     pub fn FmtBuf(self) {
         self.len    = 0
         self.cp_len = 0
@@ -75,10 +99,13 @@ pub class FmtBuf {
     }
 
     /// Room for `n` more bytes, so the puts that follow never grow.
+    /// Ensures room for `n` more bytes, so the puts that follow do not grow.
     pub inline fn reserve(self, n: usize) { self.reserve_(n) }
 
-    /// Appends a string as `{s}` would. `b.write(f"...")` never reaches this:
-    /// the lowering writes the f-string's parts straight onto `b`.
+    /// Appends `s` as `{s}` would.
+    ///
+    /// `b.write(f"...")` never calls this: the lowering writes the f-string's parts straight onto
+    /// `b`.
     pub inline fn write(self, const s: string) { self.text(s.as_ptr(), s.length(), s.codepoints()) }
 
     /// data points into the object itself: never copied, never moved. Every
@@ -97,8 +124,8 @@ pub class FmtBuf {
 
     // --- the API the lowering calls -----------------------------------------
 
-    /// Literal bytes: `n` of them, encoding `cp` codepoints. Both are
-    /// constants at every call site.
+    /// Appends `n` literal bytes at `p` that encode `cp` codepoints. Both counts are trusted, not
+    /// checked (constants at every lowered call site).
     pub inline fn text(self, p: *const u8, n: usize, cp: usize) {
         self.reserve_(n)
         for var i: usize = 0; i < n; ++i { self.data[self.len + i] = p[i] }
@@ -106,6 +133,11 @@ pub class FmtBuf {
         self.cp_len += cp
     }
 
+    /// Appends a string hole. With `spec == 0` the string is copied as is; otherwise precision
+    /// truncates to that many codepoints, `?` quotes and escapes, and width/fill/alignment pad
+    /// (default left-aligned).
+    ///
+    /// \note With `?`, width and alignment are not applied (the quoted text is written unpadded).
     pub inline fn put_str(self, const s: string, spec: u64) {
         if spec == 0 {
             self.text(s.as_ptr(), s.length(), s.codepoints())
@@ -134,12 +166,15 @@ pub class FmtBuf {
         self.pad_(right, FmtBuf::fill_(spec))
     }
 
+    /// Appends `true` or `false`, padded per `spec` (default left-aligned).
     pub inline fn put_bool(self, v: bool, spec: u64) {
         var t = "true"
         var f = "false"
         if v { self.ascii_(t.as_ptr(), 4, spec, 1) } else { self.ascii_(f.as_ptr(), 5, spec, 1) }
     }
 
+    /// Appends one character UTF-8 encoded, padded per `spec`; `?` writes it quoted and escaped
+    /// (`'a'`).
     pub fn put_char(self, c: char, spec: u64) {
         var tmp: [u8; 4]
         var n = FmtBuf::encode_(c, &tmp[0])
@@ -157,7 +192,8 @@ pub class FmtBuf {
         self.pad_(right, FmtBuf::fill_(spec))
     }
 
-    /// Storage, not a number: two hex digits, `#` adds `0x`.
+    /// Appends a `byte` as two lowercase hex digits (`ff`); `#` adds `0x`. A byte is storage, not a
+    /// number, so there is no decimal form.
     pub fn put_byte(self, b: byte, spec: u64) {
         var v = b as u8
         var tmp: [u8; 2]
@@ -168,21 +204,69 @@ pub class FmtBuf {
         self.number_(&tmp[0], 2, false, spec | hex)
     }
 
+    /// Appends a `i8` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_i8(self,    v: i8,    spec: u64) { self.int64_(v as u64, v < 0, spec) }
+    /// Appends a `i16` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_i16(self,   v: i16,   spec: u64) { self.int64_(v as u64, v < 0, spec) }
+    /// Appends a `i32` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_i32(self,   v: i32,   spec: u64) { self.int64_(v as u64, v < 0, spec) }
+    /// Appends a `i64` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_i64(self,   v: i64,   spec: u64) { self.int64_(v as u64, v < 0, spec) }
+    /// Appends a `isize` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_isize(self, v: isize, spec: u64) { self.int64_(v as u64, v < 0, spec) }
+    /// Appends a `u8` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_u8(self,    v: u8,    spec: u64) { self.int64_(v, false, spec) }
+    /// Appends a `u16` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_u16(self,   v: u16,   spec: u64) { self.int64_(v, false, spec) }
+    /// Appends a `u32` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_u32(self,   v: u32,   spec: u64) { self.int64_(v, false, spec) }
+    /// Appends a `u64` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_u64(self,   v: u64,   spec: u64) { self.int64_(v, false, spec) }
+    /// Appends a `usize` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_usize(self, v: usize, spec: u64) { self.int64_(v as u64, false, spec) }
+    /// Appends a `i128` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_i128(self,  v: i128,  spec: u64) { self.int128_(v as u128, v < 0, spec) }
+    /// Appends a `u128` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_u128(self,  v: u128,  spec: u64) { self.int128_(v, false, spec) }
+    /// Appends a `i256` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_i256(self,  v: i256,  spec: u64) { self.int512_(v as u512, v < 0, spec) }
+    /// Appends a `u256` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_u256(self,  v: u256,  spec: u64) { self.int512_(v as u512, false, spec) }
+    /// Appends a `i512` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_i512(self,  v: i512,  spec: u64) { self.int512_(v as u512, v < 0, spec) }
+    /// Appends a `u512` hole in decimal, or in the base the spec selects (`x`, `o`, `b`, with `#`
+    /// for a prefix and `+` for a sign). Width, fill, alignment and `0` padding come from `spec`;
+    /// numbers default to right-aligned.
     pub inline fn put_u512(self,  v: u512,  spec: u64) { self.int512_(v, false, spec) }
 
     // --- floats --------------------------------------------------------------------
@@ -200,6 +284,9 @@ pub class FmtBuf {
     // because float_open_ reserves both and every reserve_ under it is a
     // compare that fails.
 
+    /// Appends an `f16` hole via the runtime formatter (rt/fmt.h), honouring the sign bit of
+    /// -0.0 and NaN. Precision, width, fill and alignment come from `spec`; the `e` base selects
+    /// exponent form, `E` with the upper flag.
     pub inline fn put_f16(self, v: f16, spec: u64) {
         var bits: u16 = 0
         unsafe { bits = FmtBuf::bits16_((&v) as unsafe *const u8, 0) }
@@ -209,6 +296,9 @@ pub class FmtBuf {
         self.number_(&self.data[slot], n as usize, (bits >> 15) != 0, spec)
     }
 
+    /// Appends an `bf16` hole via the runtime formatter (rt/fmt.h), honouring the sign bit of
+    /// -0.0 and NaN. Precision, width, fill and alignment come from `spec`; the `e` base selects
+    /// exponent form, `E` with the upper flag.
     pub inline fn put_bf16(self, v: bf16, spec: u64) {
         var bits: u16 = 0
         unsafe { bits = FmtBuf::bits16_((&v) as unsafe *const u8, 0) }
@@ -218,6 +308,10 @@ pub class FmtBuf {
         self.number_(&self.data[slot], n as usize, (bits >> 15) != 0, spec)
     }
 
+    /// Appends an `f32` hole via the runtime formatter (rt/fmt.h), honouring the sign bit of
+    /// -0.0 and NaN. Precision, width, fill and alignment come from `spec`; the `e` base selects
+    /// exponent form, `E` with the upper flag. With `spec == 0` it writes the shortest round-trip
+    /// digits in place.
     pub inline fn put_f32(self, v: f32, spec: u64) {
         var neg = false
         unsafe { neg = (FmtBuf::bits32_((&v) as unsafe *const u8, 0) >> 31) != 0 }
@@ -237,6 +331,10 @@ pub class FmtBuf {
         self.number_(&self.data[slot], n as usize, neg, spec)
     }
 
+    /// Appends an `f64` hole via the runtime formatter (rt/fmt.h), honouring the sign bit of
+    /// -0.0 and NaN. Precision, width, fill and alignment come from `spec`; the `e` base selects
+    /// exponent form, `E` with the upper flag. With `spec == 0` it writes the shortest round-trip
+    /// digits in place.
     pub inline fn put_f64(self, v: f64, spec: u64) {
         var neg = false
         unsafe { neg = (FmtBuf::bits64_((&v) as unsafe *const u8, 0) >> 63) != 0 }
@@ -268,6 +366,9 @@ pub class FmtBuf {
     //     self.number_(&self.data[slot], n as usize, neg, spec)
     // }
 
+    /// Appends an `f128` hole via the runtime formatter (rt/fmt.h), honouring the sign bit of
+    /// -0.0 and NaN. Precision, width, fill and alignment come from `spec`; the `e` base selects
+    /// exponent form, `E` with the upper flag.
     pub inline fn put_f128(self, v: f128, spec: u64) {
         var lo: u64 = 0
         var hi: u64 = 0
@@ -324,8 +425,12 @@ pub class FmtBuf {
         return self.len + head + digits
     }
 
-    /// `<name> @ 0x<hex>`, or `&null`. `name` is the pointee's spelling, a
-    /// constant at the call site.
+    /// Appends a pointer hole as `<name> @ 0x<hex>`, or `&null` for address 0.
+    ///
+    /// \param addr      the pointer's address.
+    /// \param name      the pointee's spelling, a constant at the call site.
+    /// \param name_len  byte length of `name`.
+    /// \note `spec` is currently ignored.
     pub fn put_ptr(self, addr: usize, name: *const u8, name_len: usize, spec: u64) {
         if addr == 0 {
             var s = "&null"
@@ -340,7 +445,11 @@ pub class FmtBuf {
         self.int64_(addr as u64, false, hex)
     }
 
-    /// Hands the buffer over. The result owns it: cap > 0.
+    /// Hands the buffer over as an owned `string`, NUL-terminated, and empties this FmtBuf.
+    ///
+    /// A spilled buffer's heap block is passed on as is; an inline one is copied to a new
+    /// allocation of exactly `len + 1` bytes. Afterwards `data` is null and the buffer may be
+    /// written again.
     pub inline fn finish(self) -> string {
         var s = string()
         if self.spilled_() {
@@ -364,8 +473,12 @@ pub class FmtBuf {
         return s
     }
 
-    /// The text so far as a borrowed string (capacity 0): valid until this
-    /// FmtBuf is written again or destroyed. NUL-terminated like every string.
+    /// Returns the text so far as a borrowed `string` (capacity 0), without copying.
+    ///
+    /// Valid until this FmtBuf is written again, cleared or destroyed.
+    ///
+    /// \note Calling it after `finish()`, before anything is written again, writes through a
+    /// null `data` and crashes.
     pub inline fn view(self) -> string {
         self.data[self.len] = 0
         var s = string()

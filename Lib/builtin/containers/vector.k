@@ -46,7 +46,7 @@
 ///   constructors, `op []` or `op as`, nor extend a type from another file
 ///   (extends.mdx, "Same-File Restriction").
 ///
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -68,19 +68,40 @@ fn vector_out_of_range() -> ! {
     __builtin_trap()
 }
 
-/// Growable, owning.
+/// Growable, owning, contiguous array. `[T]` desugars to `Vector<T>`, and the list literal
+/// `[a, b, c]` against a `[T]` target builds one.
+///
+/// Elements live in one heap block from the allocator in effect. Indexing, `front`, `back` and
+/// `pop_back` check bounds and trap (see \panics on each); growth is geometric (twice the
+/// capacity, at least 4), so `push_back` is O(1) amortized. A copy is a deep copy; a `[MoveOnly]`
+/// has no copy and no `Vector(n)` / `resize(n, value)` (those members need T to be copyable /
+/// default-constructible).
+///
+/// References and pointers into a vector (`v[i]`, `begin()`, `data()`) are invalidated by any
+/// operation that grows, inserts, erases or clears.
+///
+/// \see Slice
+/// \example
+/// ```kairo
+/// var v: [i32] = [1, 2, 3]
+/// v.push(4)
+/// var sum: i32 = 0
+/// for x in v { sum += x }
+/// ```
 pub class <T> Vector {
     var buf: *T
     var len: usize
     var cap: usize
 
     /// Empty, no storage.
+    /// Creates an empty vector. Allocates nothing; `capacity()` is 0.
     pub inline fn Vector(self) {
         self.set_empty()
     }
 
-    /// A copy of every element of items: `[a, b, c]` against a `[T]`
-    /// target, and `s as [T]`.
+    /// Creates a vector holding a copy of every element of `items`.
+    ///
+    /// This is what `[a, b, c]` lowers to against a `[T]` target, and what `s as [T]` calls. O(n).
     pub fn Vector(self, const items: [T;]) requires __builtin_is_constructible<T, const T>() {
         self.set_empty()
         if items.len == 0 { return }
@@ -88,7 +109,9 @@ pub class <T> Vector {
         self.copy_from(items.data, items.len)
     }
 
-    /// n default-constructed elements.
+    /// Creates a vector of `n` default-constructed elements, with capacity exactly `n`. O(n).
+    ///
+    /// Only available when T is default-constructible.
     pub fn Vector(self, n: usize) requires __builtin_is_default_constructible<T>() {
         self.set_empty()
         if n == 0 { return }
@@ -129,44 +152,62 @@ pub class <T> Vector {
 
     // --- access ------------------------------------------------------------
 
-    /// The element at i, as a place. Out of range traps.
+    /// Returns the element at index `i` as a place, so `v[i] = x` assigns.
+    ///
+    /// \panics when `i >= size()` (traps; no message).
     pub inline fn op [] (self, i: usize) -> *T {
         @unlikely if i >= self.len { vector_out_of_range() }
         return &self.buf[i]
     }
 
+    /// Returns the element at index `i` through a const vector.
+    ///
+    /// \panics when `i >= size()` (traps; no message).
     pub inline fn op [] (const self, i: usize) -> *const T {
         @unlikely if i >= self.len { vector_out_of_range() }
         return &self.buf[i]
     }
 
+    /// Returns the number of live elements. O(1).
     pub inline fn size(const self) -> usize { return self.len }
+    /// Returns true when the vector holds no elements. O(1).
     pub inline fn empty(const self) -> bool { return self.len == 0 }
+    /// Returns how many elements fit before the next reallocation. O(1).
     pub inline fn capacity(const self) -> usize { return self.cap }
 
-    /// One accessor for const and mutable receivers alike: a method cannot
-    /// be overloaded on `const self` (R041E; `op []` can).
+    /// Returns a pointer to the first element (never null: a dangling, aligned pointer while the
+    /// vector has no storage).
+    ///
+    /// One accessor for const and mutable receivers alike: it returns a mutable `*T` even from a
+    /// `const self`.
     pub inline fn data(const self) -> *T { return self.buf }
 
-    /// The first element and one past the last: the pointer pair C++
-    /// algorithms take (`sort(v.begin(), v.end())`) and erase / insert
-    /// positions are spelled in.
+    /// Returns a pointer to the first element; equal to `end()` when empty.
+    ///
+    /// Together with `end()` this is the pointer pair `insert` / `erase` positions are spelled in.
     pub inline fn begin(const self) -> *T { return self.buf }
+    /// Returns a pointer one past the last element. Not dereferenceable.
     pub inline fn end(const self) -> *T { return &self.buf[self.len] }
 
-    /// Empty traps.
+    /// Returns a pointer to the first element.
+    ///
+    /// \panics when the vector is empty (traps).
     pub inline fn front(const self) -> *T {
         @unlikely if self.len == 0 { vector_out_of_range() }
         return &self.buf[0]
     }
+    /// Returns a pointer to the last element.
+    ///
+    /// \panics when the vector is empty (traps).
     pub inline fn back(const self) -> *T {
         @unlikely if self.len == 0 { vector_out_of_range() }
         return &self.buf[self.len - 1]
     }
 
-    /// `for x in v`, `for *x in v`: yields each element itself (the
-    /// generator's yield_value takes it by reference), so `*x` is the
-    /// element's address.
+    /// Iterates the elements in order: `for x in v` / `for *x in v`.
+    ///
+    /// `for x in v` binds each element as a value; `for *x in v` binds a pointer to the element
+    /// itself, so it can be modified. Do not grow or erase while iterating.
     pub fn op in (const self) -> yield T {
         var i: usize = 0
         while i < self.len {
@@ -177,10 +218,10 @@ pub class <T> Vector {
 
     // --- adding ------------------------------------------------------------
 
-    /// Appends v. By value: the caller copies an lvalue it keeps and moves
-    /// one it does not (a MOVE T always moves), and the slot is
-    /// move-constructed from the parameter. Being the callee's own value,
-    /// it stays valid across the growth (`v.push_back(v[0])`).
+    /// Appends `v` to the end. O(1) amortized; reallocates when full.
+    ///
+    /// `v` is taken by value, so it stays valid across the growth (`v.push_back(v[0])` is fine).
+    /// A copyable lvalue is copied, a MOVE value is moved.
     pub inline fn push_back(self, v: T) {
         @unlikely if self.len == self.cap { self.push_grow(v); return }
         __builtin_construct_at<T>(self.slot(self.len), v)
@@ -188,15 +229,17 @@ pub class <T> Vector {
     }
 
     /// push_back under the name collections.mdx documents.
+    /// Appends `v` to the end; the name `collections` documents for `push_back`. Same cost.
     pub inline fn push(self, v: T) {
         @unlikely if self.len == self.cap { self.push_grow(v); return }
         __builtin_construct_at<T>(self.slot(self.len), v)
         self.len += 1
     }
 
-    /// Appends a T built in place from args. Growth builds it in the new
-    /// storage before moving the old elements, so an argument that refers
-    /// into this vector is still valid when it is read.
+    /// Appends a T constructed in place from `args` and returns a pointer to it. O(1) amortized.
+    ///
+    /// On growth the new element is built in the new block before the old ones move, so an argument
+    /// that refers into this vector is still valid when read.
     pub inline fn <...A> emplace_back(self, ...args: A) -> *T {
         @unlikely if self.len == self.cap { return self.emplace_grow(args...) }
         var p: *T = __builtin_construct_at<T>(self.slot(self.len), args...)
@@ -204,8 +247,11 @@ pub class <T> Vector {
         return p
     }
 
-    /// Inserts v before pos (a pointer in [begin(), end()]); returns the
-    /// new element.
+    /// Inserts `v` before `pos` and returns a pointer to the new element. O(n): later elements
+    /// shift up one slot.
+    ///
+    /// \param pos  a pointer in `[begin(), end()]`; `end()` appends.
+    /// \panics when `pos` is outside that range (traps).
     pub fn insert(self, pos: *T, v: T) -> *T {
         var at = self.index_of(pos)
         if at > self.len { vector_out_of_range() }
@@ -227,28 +273,35 @@ pub class <T> Vector {
 
     // --- removing ----------------------------------------------------------
 
-    /// Destroys the last element. Empty traps.
+    /// Destroys the last element. O(1).
+    ///
+    /// \panics when the vector is empty (traps).
     pub inline fn pop_back(self) {
         @unlikely if self.len == 0 { vector_out_of_range() }
         self.len -= 1
         if !__builtin_is_trivially_destructible<T>() { __builtin_destruct_at(&self.buf[self.len]) }
     }
 
-    /// Destroys every element; keeps the storage.
+    /// Destroys every element and sets the size to 0. Keeps the storage. O(n), O(1) for trivial T.
     pub inline fn clear(self) {
         if !__builtin_is_trivially_destructible<T>() { self.destroy_range(0, self.len) }
         self.len = 0
     }
 
-    /// Removes the element at pos; returns the position after it (now
-    /// holding the next element).
+    /// Removes the element at `pos` and returns a pointer to the element that followed it (now at
+    /// `pos`). O(n): later elements shift down one slot.
+    ///
+    /// \panics when `pos` is not in `[begin(), end())` (traps).
     pub fn erase(self, pos: *T) -> *T {
         var at = self.index_of(pos)
         if at >= self.len { vector_out_of_range() }
         return self.erase_range(at, at + 1)
     }
 
-    /// Removes [first, last).
+    /// Removes the elements in `[first, last)` and returns a pointer to the element that followed
+    /// them. O(n). An empty range removes nothing.
+    ///
+    /// \panics when `first > last` or `last > end()` (traps).
     pub fn erase(self, first: *T, last: *T) -> *T {
         var lo = self.index_of(first)
         var hi = self.index_of(last)
@@ -258,12 +311,14 @@ pub class <T> Vector {
 
     // --- capacity ----------------------------------------------------------
 
-    /// Capacity for at least n elements. Never shrinks.
+    /// Ensures capacity for at least `n` elements. Never shrinks. O(size()) when it reallocates.
     pub inline fn reserve(self, n: usize) {
         if n > self.cap { self.reallocate(n) }
     }
 
-    /// n elements: the tail destroyed, or default-constructed ones appended.
+    /// Resizes to `n` elements: destroys the tail, or appends default-constructed elements.
+    ///
+    /// Only available when T is default-constructible. O(|n - size()|).
     pub fn resize(self, n: usize) requires __builtin_is_default_constructible<T>() {
         if n <= self.len {
             if !__builtin_is_trivially_destructible<T>() { self.destroy_range(n, self.len) }
@@ -277,7 +332,9 @@ pub class <T> Vector {
         }
     }
 
-    /// n elements: the tail destroyed, or copies of value appended.
+    /// Resizes to `n` elements: destroys the tail, or appends copies of `value`.
+    ///
+    /// `value` may be an element of this vector. Only available when T is copyable.
     pub fn resize(self, n: usize, const value: T) requires __builtin_is_constructible<T, const T>() {
         if n <= self.len {
             if !__builtin_is_trivially_destructible<T>() { self.destroy_range(n, self.len) }

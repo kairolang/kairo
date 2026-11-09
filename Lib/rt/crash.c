@@ -4,7 +4,7 @@
  *   async-signal-safe functions (write, sigaction, sigprocmask, abort) or
  *   is a compiler builtin; keep it that way.
  *
- *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+ *   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
  *   Copyright (c) 2026 Dhruvan Kartik
  */
 /* The runtime builds as strict ISO C, which hides sigaction and

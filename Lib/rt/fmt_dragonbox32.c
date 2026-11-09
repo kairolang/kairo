@@ -6,7 +6,7 @@
  *   Copyright 2020-2025 Junekey Jeon, used under the Boost Software License
  *   1.0 (alternatively Apache-2.0 WITH LLVM-exception).
  *
- *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+ *   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
  *   Copyright (c) 2026 Dhruvan Kartik
  */
 #include "rt/fmt_impl.h"

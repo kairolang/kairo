@@ -5,7 +5,7 @@
  *   fixed precision by long division. Slow by Dragonbox's standard,
  *   exact by any.
  *
- *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+ *   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
  *   Copyright (c) 2026 Dhruvan Kartik
  */
 #include "rt/fmt_impl.h"

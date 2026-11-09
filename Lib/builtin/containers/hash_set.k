@@ -16,7 +16,7 @@
 ///     (Stage 0's `.second`); `erase(x)` returns whether x was there;
 ///     iterator loops become `for x in s` or `for *p in s.items()`.
 ///
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -27,6 +27,19 @@ import base::hash::*
 import containers::slice::*
 import containers::hash_index::*
 
+/// Hash set of `T`. `{T}` desugars to `HashSet<T>`, and `{a, b, ...}` builds one.
+///
+/// Elements are stored densely in insertion order, so iteration order is deterministic. `insert`,
+/// `contains` and `erase` are O(1) expected. T must implement `Hash`. The mutation and
+/// invalidation rules are HashMap's: do not insert or erase during iteration.
+///
+/// \see HashMap
+/// \example
+/// ```kairo
+/// var s: {i32} = {1, 2, 3}
+/// s.insert(2)
+/// var n = s.size()
+/// ```
 pub class <T impl Hash> HashSet {
     /// slots, then elements: one block (hash_index.k); never null (a
     /// dangling, aligned pointer while cap == 0: HashMap's `block` note).
@@ -35,6 +48,7 @@ pub class <T impl Hash> HashSet {
     priv var cap:   usize
     priv var shift: u32
 
+    /// Creates an empty set. Allocates nothing.
     pub inline fn HashSet(self) {
         self.block = block_empty(alignof T)
         self.len = 0
@@ -42,8 +56,9 @@ pub class <T impl Hash> HashSet {
         self.shift = 0
     }
 
-    /// `{a, b, ...}` (ListLiteralLowering): the elements in written order; a
-    /// repeated element keeps its first place.
+    /// Creates a set from `items`, as `{a, b, ...}` lowers to. Elements keep written order; a
+    /// repeated
+    /// element keeps its first place.
     pub fn HashSet(self, const items: [T;]) {
         self.block = block_empty(alignof T)
         self.len = 0
@@ -87,15 +102,19 @@ pub class <T impl Hash> HashSet {
 
     // --- size ---------------------------------------------------------------
 
+    /// Returns the number of elements. O(1).
     pub inline fn size(const self) -> usize { return self.len }
+    /// Returns true when the set has no elements. O(1).
     pub inline fn empty(const self) -> bool { return self.len == 0 }
+    /// Returns how many elements fit before the next growth.
     pub inline fn capacity(const self) -> usize { return self.cap }
 
     // --- lookup -------------------------------------------------------------
 
+    /// Returns true when an element equal to `x` is present. O(1) expected.
     pub inline fn contains(const self, const x: T) -> bool { return self.index_of(x) != HASH_NPOS }
 
-    /// The element equal to x, or end().
+    /// Returns a pointer to the element equal to `x`, or `end()` when absent. O(1) expected.
     pub inline fn find(self, const x: T) -> *T {
         var e = self.index_of(x)
         if e == HASH_NPOS { return self.end() }
@@ -104,20 +123,23 @@ pub class <T impl Hash> HashSet {
 
     // --- iteration (insertion order) -----------------------------------------
 
+    /// Returns a pointer to the first element in insertion order; equal to `end()` when empty.
     pub inline fn begin(self) -> *T {
         unsafe { return self.item_array() as *T }
     }
 
+    /// Returns a pointer one past the last element. Not dereferenceable.
     pub inline fn end(self) -> *T {
         unsafe { return (self.item_array() + self.len) as *T }
     }
 
-    /// Every element, in order, as a view (`for *p in s.items()`: no copy).
+    /// Returns every element, in order, as a view: `for *p in s.items()` walks them with no copy.
+    /// The view is invalidated by an insert or erase.
     pub inline fn items(self) -> [T;] {
         unsafe { return Slice<T>(self.item_array() as *T, self.len) }
     }
 
-    /// `for x in s`: each element, copied, in order.
+    /// Iterates the elements in insertion order: `for x in s`. Each element is a copy.
     pub fn op in (self) -> yield T {
         var i: usize = 0
         while i < self.len {
@@ -131,7 +153,8 @@ pub class <T impl Hash> HashSet {
 
     // --- insertion ------------------------------------------------------------
 
-    /// Adds x when absent; true if it did.
+    /// Adds `x` when absent and returns true; returns false when an equal element is present.
+    /// O(1) amortized.
     pub inline fn insert(self, const x: T) -> bool {
         var t = tag_of(x.hash())
         var slot: usize = 0
@@ -140,14 +163,18 @@ pub class <T impl Hash> HashSet {
         return true
     }
 
+    /// Ensures room for `n` elements without growing. O(size()) when it grows.
     pub fn reserve(self, n: usize) {
         if n > self.cap { self.grow(n) }
     }
 
     // --- removal ----------------------------------------------------------------
 
-    /// Removes x; true if it was there. O(1): the last element moves into
-    /// x's place.
+    /// Removes `x` and returns true, or returns false when it was absent. O(1) expected.
+    ///
+    /// The last element moves into the removed one's place (swap-remove). Use `erase_ordered` to
+    /// keep
+    /// the order.
     pub fn erase(self, const x: T) -> bool {
         if self.len == 0 { return false }
         var t = tag_of(x.hash())
@@ -171,7 +198,7 @@ pub class <T impl Hash> HashSet {
         return true
     }
 
-    /// Removes x keeping the others' order; true if it was there. O(len).
+    /// Removes `x` keeping the others' order; returns true if it was there. O(n).
     pub fn erase_ordered(self, const x: T) -> bool {
         if self.len == 0 { return false }
         var t = tag_of(x.hash())
@@ -191,7 +218,7 @@ pub class <T impl Hash> HashSet {
         return true
     }
 
-    /// Removes every element; keeps the capacity.
+    /// Removes every element, keeping the capacity. O(capacity).
     pub fn clear(self) {
         if self.cap == 0 { return }
         self.destroy_items()
@@ -231,7 +258,7 @@ pub class <T impl Hash> HashSet {
                     var e = slot_entry(s)
                     // `es[e]`, not `*(es + e)`: a dereference as an operand
                     // of `==` on a T is emitted as C++'s own `==`, not the
-                    // bound's witness (a compiler bug; TICKETS).
+                    // bound's witness (a compiler bug).
                     if es[e] == x { (*slot) = i; return e }
                 }
                 i = (i + 1) & mask

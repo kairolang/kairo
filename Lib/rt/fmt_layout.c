@@ -4,7 +4,7 @@
  *   per-byte checks, and format_float, which picks a digit generator
  *   (fmt_dragonbox*.c or fmt_exact.c) and lays its digits out.
  *
- *   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+ *   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
  *   Copyright (c) 2026 Dhruvan Kartik
  */
 #include "rt/fmt_impl.h"
