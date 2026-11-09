@@ -63,6 +63,14 @@ int kairo_rt_fmt_f128(unsigned char *out, size_t cap, uint64_t hi, uint64_t lo, 
     return kairo_rt_fmt_format_float_(out, cap, &f, 0, 0, 36, prec, conv);
 }
 
+/* IBM double-double (glibc PowerPC: two doubles, 106 significand bits) has
+ * no f80 entry. Kairo's f80 is x87 extended only: TypeResolution refuses it
+ * on PowerPC and fmt_buf.k gates put_f80 to x86, so nothing here calls it,
+ * and formatting the pair as one value is not something this file can do
+ * exactly (hi and lo can sit further apart than any IEEE format holds).
+ * Leaving the definition out keeps a stray call a link error, never wrong
+ * digits. (P703) */
+#if !(defined(__LONG_DOUBLE_IBM128__) || LDBL_MANT_DIG == 106)
 int kairo_rt_fmt_f80(unsigned char *out, size_t cap, long double v, int prec, unsigned char conv) {
 #if LDBL_MANT_DIG == 64
     /* Little-endian x87: 8 bytes of significand, then sign|exponent. */
@@ -90,6 +98,7 @@ int kairo_rt_fmt_f80(unsigned char *out, size_t cap, long double v, int prec, un
 #endif
     return kairo_rt_fmt_f128(out, cap, hi, lo, prec, conv);
 #else
-#error "long double is none of binary64, x87 extended or binary128"
+#error "long double is none of binary64, x87 extended, binary128 or IBM double-double"
 #endif
 }
+#endif

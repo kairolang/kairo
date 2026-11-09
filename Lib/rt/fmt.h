@@ -59,8 +59,10 @@ void           kairo_rt_fmt_free(unsigned char *p) KAIRO_RT_NOEXCEPT;
  * f16/bf16/f8 take the bit pattern because C has no portable spelling for
  * the type. f128 takes the pattern as two halves, lo being bits 0..63.
  * f80 takes long double: x87 extended on x86, and whatever long double is
- * on a target without one (binary64 or binary128), so the symbol always
- * links; TypeResolution has already refused `f80` there anyway.
+ * on a target without one (binary64 or binary128), so the symbol links;
+ * TypeResolution has already refused `f80` there anyway. Where long double
+ * is IBM double-double (glibc PowerPC) the entry is not defined at all: no
+ * put_f80 exists there to call it (P703).
  */
 int kairo_rt_fmt_f16   (unsigned char *out, size_t cap, uint16_t    bits, int prec, unsigned char conv) KAIRO_RT_NOEXCEPT;
 int kairo_rt_fmt_bf16  (unsigned char *out, size_t cap, uint16_t    bits, int prec, unsigned char conv) KAIRO_RT_NOEXCEPT;
