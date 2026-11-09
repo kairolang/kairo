@@ -210,17 +210,17 @@ fn first(v: cxx::std::vector<i32>?) -> i32 {
 
 **Build from source:** see [BUILD.md](BUILD.md) - covers the quick install script, manual setup, PATH configuration, the VSCode extension, and debugging.
 
-**Code reference:** the [Compiler directory](https://github.com/kairolang/kairo/tree/main/Compiler) is the Stage 1 compiler, written in Kairo. [Compiler/README.txt](Compiler/README.txt) maps every directory, and [Compiler/Spec](Compiler/Spec) holds the compiler's design specs.
+**Code reference:** the [Compiler directory](https://github.com/kairolang/kairo/tree/main/Compiler) is the Stage 1 compiler, written in Kairo. [Compiler/README.txt](Compiler/README.txt), and [Compiler/Spec](Compiler/Spec) holds the compiler's design specs.
 
 ### License
 
-Kairo is licensed under the Apache License 2.0 with the Kairo Runtime Library Exception. [LICENSE](LICENSE) is the authoritative text. Programs you compile with Kairo are yours: the exception covers the runtime library and the code the compiler generates, so they carry no attribution requirement from Kairo itself (the MIT notice of the runtime's allocator, mimalloc, is embedded in every program automatically, see [NOTICE](NOTICE)).
+Kairo is licensed under the [Apache License 2.0 with the Kairo Runtime Library Exception](LICENSE)
 
 The design documents under [Compiler/Spec/](Compiler/Spec/) are licensed under [CC BY 4.0](Compiler/Spec/LICENSE).
 
 ### AI Usage Disclosure
 
-[Read The Full Post Here](https://www.kairolang.org/blog/how-ai-is-used-in-kairo/). TLDR: Lang design, Compiler, and Architecture are 100% human. No AI-generated code in the compiler and language design stage1 or stage0. Docs have AI usage; mostly used for polishing.
+[Read The Full Post Here](https://www.kairolang.org/blog/how-ai-is-used-in-kairo/). TLDR: Lang design, Compiler, and Architecture are 100% human. No AI was used for the core logic or passes in the compiler and language design. Docs have AI usage; mostly used for polishing.
 
 ### Acknowledgements
 
