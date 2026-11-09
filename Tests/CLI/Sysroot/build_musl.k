@@ -5,8 +5,8 @@
 // three .k programs against it and running them natively. A second ensure is a
 // lookup: no stage runs and stdout is the same path.
 //
-// The builtins and runtimes stages still copy their archives from the bundled root
-// of the same name (TODO(SYSROOT-RT)); ksys runs from a scratch toolchain prefix
+// The builtins and runtimes stages compile the runtimes source that ksys_env.py
+// stages into the share view; ksys runs from a scratch toolchain prefix
 // with no sysroot/ so that validation builds against the generated root, not a
 // bundled one (the driver prefers <prefix>/sysroot/<name> over --sysroot).
 
@@ -15,7 +15,7 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: ksys, ksys-share, shell, host-linux, host-x86_64
 // RUN: rm -rf %t && %sysgen_env %ksys %sysgen_share %t
-// RUN: echo 'env KAIRO_SYSROOT_CACHE=%t/cache KSYS_RT_FALLBACK=%sysgen_rt %t/tc/bin/ksys --share %t/share "$@"' > %t/ksys.sh
+// RUN: echo 'env KAIRO_SYSROOT_CACHE=%t/cache %t/tc/bin/ksys --share %t/share "$@"' > %t/ksys.sh
 //
 // RUN: sh %t/ksys.sh ensure x86_64-linux-musl > %t/path1 2> %t/err1
 // RUN: %FileCheck %s --check-prefix=FIRST < %t/err1

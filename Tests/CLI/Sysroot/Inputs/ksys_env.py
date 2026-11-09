@@ -5,11 +5,13 @@ OUT/tc/   a toolchain prefix with no sysroot/: the binaries beside KSYS hard-lin
           symlinked executable resolves back to its own prefix), every other dir
           symlinked. The driver takes a bundled <prefix>/sysroot/<name> over --sysroot,
           so validation run from KSYS's own prefix would test the bundled root instead.
-OUT/share/ SHARE's entries symlinked, plus a runtimes/ holding only the REVISION this
-          ksys wants and registry.toml with that dir's tree hash: the builtins and
-          runtimes stages do not read the runtimes source yet (TODO(SYSROOT-RT)).
+OUT/share/ SHARE's entries symlinked, plus a real runtimes/ source staged by
+          Scripts/package_release.py stage_runtimes() exactly as a release ships it (the
+          builtins and runtimes stages compile it), its REVISION the one this ksys wants,
+          and registry.toml carrying that tree's hash.
 """
 import hashlib, os, shutil, subprocess, sys
+from pathlib import Path
 
 
 def tree_sha256(root):
@@ -46,21 +48,26 @@ def main():
         if d not in ("bin", "sysroot"):
             os.symlink(os.path.join(prefix, d), os.path.join(tc, d))
 
+    sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "Scripts"))
+    import package_release
+    stage = Path(out) / "rt"
+    package_release.stage_runtimes(stage)
+    rt = stage / "share" / "kairo" / "runtimes"
+    rev = subprocess.run([ksys, "--print-runtimes-revision"], check=True, capture_output=True,
+                         text=True).stdout.strip()
+    (rt / "REVISION").write_text(rev + "\n")
+
     view = os.path.join(out, "share")
-    os.makedirs(os.path.join(view, "runtimes"))
+    os.makedirs(view)
     for n in os.listdir(share):
         if n not in ("registry.toml", "runtimes"):
             os.symlink(os.path.join(share, n), os.path.join(view, n))
-    rev = subprocess.run([ksys, "--print-runtimes-revision"], check=True, capture_output=True,
-                         text=True).stdout.strip()
-    with open(os.path.join(view, "runtimes", "REVISION"), "w") as f:
-        f.write(rev + "\n")
-    sha = tree_sha256(os.path.join(view, "runtimes"))
+    os.symlink(str(rt), os.path.join(view, "runtimes"))
+    sha = tree_sha256(str(rt))
     lines = []
     with open(os.path.join(share, "registry.toml")) as f:
         for line in f:
-            if line.startswith('"runtimes"') and "=" in line and len(line.split('"')) >= 4 \
-                    and len(line.split('"')[3]) == 64:
+            if line.startswith('"runtimes"') and len(line.split('"')) >= 4 and len(line.split('"')[3]) == 64:
                 line = f'"runtimes" = "{sha}"\n'
             lines.append(line)
     with open(os.path.join(view, "registry.toml"), "w") as f:

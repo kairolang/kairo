@@ -22,8 +22,7 @@ fn main() -> i32 { return 0 }
 // RUN: %FileCheck %s --check-prefix=FIRST < %t/first.out
 // FIRST:      ksys: riscv32-linux-musl: key [[KEY:[0-9a-f]{64}]]
 // FIRST-NEXT: ksys: riscv32-linux-musl: stage libc-headers
-// FIRST-NEXT: ksys: error [P009E]: the musl provider is not implemented yet: cannot build riscv32-linux-musl
-// FIRST-NEXT: ksys: note [P009N]: SysRoot.md section 11 step 5
+// FIRST-NEXT: ksys: error [P009E]: musl has no ARCH for riscv32: the recipe has no [per_arch.musl_arch] entry
 // FIRST-NEXT: exit 2
 // A refusal leaves no stage dir (and no .tmp / .failed); the lock and the
 // input verification memo stay.

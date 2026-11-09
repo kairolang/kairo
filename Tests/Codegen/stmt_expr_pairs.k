@@ -24,5 +24,5 @@ fn main() -> i32 { return 0 }
 // RUN: { %kairo %S/Inputs/stmt_expr_match.k -c -W C195W --cache-dir %t.d/m 2>&1 || true; } | %FileCheck %s --check-prefix=OBJ --allow-empty
 // RUN: { %kairo %S/Inputs/stmt_expr_sequence.k -c -W C195W --cache-dir %t.d/s 2>&1 || true; } | %FileCheck %s --check-prefix=OBJ --allow-empty
 // OBJ-NOT: warning
-// RUN: find %t.d/m -name '*.o' | grep -q .
-// RUN: find %t.d/s -name '*.o' | grep -q .
+// RUN: find %t.d/m -name '*.o' | grep . >/dev/null
+// RUN: find %t.d/s -name '*.o' | grep . >/dev/null

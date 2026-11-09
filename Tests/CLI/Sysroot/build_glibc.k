@@ -3,14 +3,14 @@
 // generated from the abilists (kcc compiles, kld links, one per library), the
 // libc.so / libm.so linker scripts and the dev links; then validation links the
 // probes against the stubs and runs them on the host's glibc. TOML byte-identical
-// to the curated root's. Builtins and runtimes as in build_musl.k (TODO(SYSROOT-RT)).
+// to the curated root's. Builtins and runtimes as in build_musl.k.
 
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: ksys, ksys-share, shell, host-linux, host-x86_64
 // RUN: rm -rf %t && %sysgen_env %ksys %sysgen_share %t
-// RUN: echo 'env KAIRO_SYSROOT_CACHE=%t/cache KSYS_RT_FALLBACK=%sysgen_rt %t/tc/bin/ksys --share %t/share "$@"' > %t/ksys.sh
+// RUN: echo 'env KAIRO_SYSROOT_CACHE=%t/cache %t/tc/bin/ksys --share %t/share "$@"' > %t/ksys.sh
 //
 // RUN: sh %t/ksys.sh ensure x86_64-linux-gnu-glibc2.31 > %t/path 2> %t/err
 // RUN: %FileCheck %s --check-prefix=VAL < %t/err

@@ -9,11 +9,11 @@ fn main() -> i32 { return 0 }
 // REQUIRES: ksys
 // RUN: rm -rf %t && mkdir -p %t/root/include %t/root/lib %t/empty
 // RUN: printf 'triple = "x86_64-linux-musl"\nclang_triple = "x86_64-unknown-linux-musl"\ninclude_dirs = ["include"]\nlib_dirs = ["lib"]\n' > %t/root/SYSROOT.toml
-// RUN: { %ksys validate %t/root 2>&1; echo "exit $?"; } | %FileCheck %s --check-prefix=OK
+// RUN: { %ksys --share %t/empty validate %t/root 2>&1; echo "exit $?"; } | %FileCheck %s --check-prefix=OK
 // OK: triple:       x86_64-linux-musl (linux-musl)
 // OK: clang_triple: x86_64-unknown-linux-musl
 // OK: structure:    ok
-// OK: ksys: error [P009E]: validation steps symbols, replay, kairo and run are not implemented yet
+// OK: ksys: error [P009E]: validation needs the share tree: its validate/ programs and the family recipe
 // OK: exit 2
 //
 // RUN: { %ksys validate %t/empty 2>&1; echo "exit $?"; } | %FileCheck %s --check-prefix=NOMANIFEST
@@ -21,6 +21,6 @@ fn main() -> i32 { return 0 }
 // NOMANIFEST: exit 3
 //
 // RUN: rmdir %t/root/lib
-// RUN: { %ksys validate %t/root 2>&1; echo "exit $?"; } | %FileCheck %s --check-prefix=NOLIB
+// RUN: { %ksys --share %t/empty validate %t/root 2>&1; echo "exit $?"; } | %FileCheck %s --check-prefix=NOLIB
 // NOLIB: ksys: error [P010E]: validation failed at manifest: lib_dirs entry lib is not a directory under {{.*}}root
 // NOLIB: exit 3

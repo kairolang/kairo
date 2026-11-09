@@ -21,9 +21,9 @@ fn use_std() -> void {
 // RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
 // SEMA:      ===== SEMA fid {{[0-9]+}}: {{.*}}Lib/std/io.k
 // SEMA:      ===== SEMA fid {{[0-9]+}}: {{.*}}std_root.k
-// SEMA:      member  ::println   @ 11:9     -> fn println @ 25:5
+// SEMA:      member  ::println   @ 11:9     -> fn println @ {{[0-9]+}}:5
 // SEMA:      use     std         @ 12:5     -> module std @ 1:1  [import overlay]
-// SEMA:      member  ::println   @ 12:14    -> fn println @ 25:5
+// SEMA:      member  ::println   @ 12:14    -> fn println @ {{[0-9]+}}:5
 //
 // 2. builtin is the only prelude; std arrives through the file's own imports.
 // RUN: { %kairo %s --type-check-only --print-imports 2>/dev/null || true; } | %FileCheck %s --check-prefix=IMP

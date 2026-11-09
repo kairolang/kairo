@@ -34,4 +34,4 @@ fn use_all() -> u32 {
 // RUN: %kairo %s -c --cache-dir %t.d 2>&1 | %FileCheck %s --check-prefix=OBJ --allow-empty
 // OBJ-NOT: I011W
 // OBJ-NOT: Internal Compiler Error
-// RUN: find %t.d -name '*.o' | grep -q .
+// RUN: find %t.d -name '*.o' | grep . >/dev/null
