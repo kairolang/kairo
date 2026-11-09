@@ -14,8 +14,9 @@ is fetched. Sources, in the order kairo-sysroots' curate/ scripts consumed them:
   linux-uapi/     the kernel headers of the curated *-linux-musl roots, split into the part
                   every arch shares and asm/ (plus arch-only headers) per arch
   glibc/2.31/<a>/ kairo-sysroots extract/<a>-...-glibc2.31 (Ubuntu focal libc6-dev):
-                  usr/include verbatim, crt objects, libc_nonshared.a. No abilist exists on
-                  disk, so the stub DSOs (section 4.6) have no source: a reported gap.
+                  usr/include verbatim, crt objects, libc_nonshared.a; abilist/ read from
+                  the curated roots' focal DSOs (Scripts/glibc_stubs.py). --report rebuilds
+                  every stub DSO from the shipped abilists and compares it with the original.
   mingw/          headers from the curated windows-gnu roots (identical on every arch, so
                   shipped once), def/<a>/ preprocessed from Lib/libc/mingw's mingw-w64-crt
                   (in git, outside the sparse checkout) and kept only where llvm-dlltool
@@ -49,6 +50,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "Scripts"))
+import glibc_stubs  # noqa: E402
 
 LLVM_VERSION = "22.1.0"
 GLIBC_VERSIONS = ["2.31"]                  # the only version any source on disk covers
@@ -300,7 +302,7 @@ riscv64 = "riscv64-linux-gnu"
 include = "glibc/{libc_version}/{arch}/include"   # carries its own UAPI (linux/version.h)
 crt     = "glibc/{libc_version}/{arch}/crt"
 nonshared = "glibc/{libc_version}/{arch}/libc_nonshared.a"
-abilist = "glibc/{libc_version}/{arch}/abilist"   # absent in this tree: see provenance.toml
+abilist = "glibc/{libc_version}/{arch}/abilist"   # <stem>.abilist + <stem>.compat, libs.toml (FORMAT.md)
 
 [builtins]                                        # built inside the runtimes configure
 source     = "runtimes"
@@ -1006,9 +1008,11 @@ class Ctx:
         self.curated = a.curated.resolve()
         self.ksys = a.kairo_sysroots.resolve()
         self.bsd_trim = a.bsd_trim.resolve()
+        self.cc = a.cc
         self.prov = {}          # input key -> list of provenance lines
         self.dropped_links = {}
         self.mingw_defs = {}    # arch -> {lib name: def name}
+        self.glibc_stub_ok = {}  # arch -> {curated DSO file name: abilist stem} (stubs proven equal)
 
 
 def build_data(c: Ctx) -> None:
@@ -1123,10 +1127,83 @@ def build_glibc(c: Ctx) -> None:
             sweep_links(out, c.dropped_links.setdefault(key, []))
             if not (out / "include" / ma / "gnu" / "lib-names.h").is_file():
                 die(f"{key}: no gnu/lib-names.h")
+            libs = write_abilists(c, out, ma, c.curated / name / "lib")
             c.prov[key] = [f"kairo-sysroots extract/{name} (Ubuntu focal libc6-dev + linux-libc-dev): "
                            "usr/include verbatim (multiarch dir kept), usr/lib/<multiarch>/*.o, libc_nonshared.a",
-                           "GAP: abilist/ missing (no glibc source tree or abilist on disk); the stub "
-                           "DSOs of section 4.6 cannot be generated from this input"]
+                           f"abilist/: read from the curated root's focal DSOs ({', '.join(libs)}) by "
+                           "Scripts/glibc_stubs.py, in glibc's abilist.awk format, plus <lib>.compat (@ vs @@ "
+                           "where the newest-is-default rule is wrong) and libs.toml (soname, verdef order)"]
+
+
+# The section 4.6 soname table: lib-names.h macro -> abilist stem (glibc's own file names).
+GLIBC_STUB_LIBS = {"LIBC_SO": "libc", "LD_SO": "ld", "LIBM_SO": "libm", "LIBPTHREAD_SO": "libpthread",
+                   "LIBDL_SO": "libdl", "LIBRT_SO": "librt", "LIBUTIL_SO": "libutil", "LIBANL_SO": "libanl",
+                   "LIBRESOLV_SO": "libresolv", "LIBMVEC_SO": "libmvec"}
+
+
+def glibc_sonames(include: Path, ma: str) -> dict:
+    """abilist stem -> soname, from gnu/lib-names-*.h (the ABI variant this arch installs)."""
+    out = {}
+    for h in sorted((include / ma / "gnu").glob("lib-names*.h")):
+        for m in re.finditer(r'#define\s+(\w+_SO)\s+"([^"]+)"', h.read_text()):
+            if m.group(1) in GLIBC_STUB_LIBS:
+                out[GLIBC_STUB_LIBS[m.group(1)]] = m.group(2)
+    return out
+
+
+def write_abilists(c: Ctx, out: Path, ma: str, dso_dir: Path) -> list:
+    """abilist/<stem>.abilist + <stem>.compat for every soname-table DSO the root has, and
+    libs.toml naming each soname and its version nodes in definition order."""
+    ab = out / "abilist"
+    ab.mkdir()
+    toml = ["# per library: soname and the version nodes in verdef order (the stub's version script)"]
+    done = []
+    for stem, soname in sorted(glibc_sonames(out / "include", ma).items()):
+        dso = dso_dir / soname
+        if not dso.exists():
+            continue                    # libmvec exists on x86_64 only in 2.31
+        d = glibc_stubs.read_dso(dso)
+        if d.soname != soname:
+            die(f"{dso}: SONAME {d.soname}, lib-names.h says {soname}")
+        (ab / f"{stem}.abilist").write_text(glibc_stubs.abilist_text(d))
+        (ab / f"{stem}.compat").write_text(glibc_stubs.compat_text(d))
+        toml += ["", f"[{stem}]", f'soname   = "{soname}"',
+                 "versions = [" + ", ".join(f'"{v}"' for v in d.versions) + "]"]
+        done.append(stem)
+    (ab / "libs.toml").write_text("\n".join(toml) + "\n")
+    for need in ("libc", "ld", "libm", "libpthread", "libdl"):
+        if need not in done:
+            die(f"{out}: no {need} DSO to read an abilist from")
+    return done
+
+
+def glibc_stub_parity(c: Ctx) -> list:
+    """Regenerate every stub DSO from the SHIPPED abilist files alone and compare it with the
+    curated focal DSO: SONAME and the public versioned dynsym (name, node, @/@@, kind, size)."""
+    rec = load_recipe(FAMILIES["glibc"])
+    cc = [str(c.cc)]
+    rows = ["glibc stubs regenerated from abilist/ (kcc + lld) vs curated focal DSOs:",
+            "arch     | lib        | soname                   | symbols | result",
+            "---------|------------|--------------------------|--------:|-------"]
+    for v in GLIBC_VERSIONS:
+        for arch in rec["arches"]:
+            env = target_env(rec, arch, v)
+            ab = c.share / "glibc" / v / arch / "abilist"
+            libs = tomllib.loads((ab / "libs.toml").read_text())
+            for stem, info in sorted(libs.items()):
+                ents = glibc_stubs.parse_abilist((ab / f"{stem}.abilist").read_text(),
+                                                 (ab / f"{stem}.compat").read_text())
+                work = c.scratch / "glibc-stubs" / v / arch / stem
+                so = glibc_stubs.build_stub(cc, env["clang_triple"], info["soname"], ents, info["versions"], work)
+                cur = c.curated / env["name"] / "lib" / info["soname"]
+                diffs = glibc_stubs.compare(glibc_stubs.read_dso(cur), glibc_stubs.read_dso(so))
+                if not diffs:
+                    ok = c.glibc_stub_ok.setdefault(arch, {})
+                    ok[info["soname"]] = stem
+                    ok[os.path.basename(os.path.realpath(cur))] = stem
+                rows.append(f"{arch:<8} | {stem:<10} | {info['soname']:<24} | {len(ents):>7} | "
+                            + ("same" if not diffs else f"{len(diffs)} diffs, e.g. {diffs[0]}"))
+    return rows
 
 
 def mingw_def_sources(c: Ctx) -> Path:
@@ -1559,6 +1636,15 @@ def classify(c, fam, arch, env, root, rel, p, trim_reason, mcache):
             return "DERIVED", "linker script the glibc provider writes (4.6)"
         if n.endswith(".a"):
             return "DROPPED", "static glibc archive: the recipe links glibc dynamically (static = false)"
+        ok = c.glibc_stub_ok.get(arch, {})
+        stem = ok.get(n)
+        if not stem and p.is_symlink() and ok.get(os.path.basename(os.path.realpath(p))):
+            return "DERIVED", "alias link to a stub DSO (Debian's ld-linux.so.3 -> ld-linux-armhf.so.3)"
+        if stem:
+            return "DERIVED", f"stub DSO from glibc/2.31/{arch}/abilist/{stem}.abilist (4.6; regenerated, dynsym equal)"
+        if n in ("libpthread.so", "libdl.so", "librt.so", "libutil.so", "libanl.so", "libresolv.so", "libmvec.so") \
+                and p.is_symlink():
+            return "DERIVED", "dev symlink the glibc provider writes (4.6)"
         base = re.sub(r"(-2\.31)?\.so(\.[0-9]+)*$", "", n)
         if base in ("libc", "libm", "libpthread", "libdl", "librt", "libutil", "libanl", "libresolv", "libcrypt",
                     "libmvec") or base.startswith("ld"):
@@ -1629,6 +1715,8 @@ def main() -> int:
     ap.add_argument("--curated", type=Path, default=ROOT / "build" / "x86_64-linux-gnu" / "release" / "sysroot")
     ap.add_argument("--kairo-sysroots", type=Path, default=Path.home() / "linux-dev" / "projects" / "kairo-sysroots")
     ap.add_argument("--bsd-trim", type=Path, default=ROOT / "build" / "sysgen" / "bsd-trim")
+    ap.add_argument("--cc", type=Path, default=ROOT / "build" / "x86_64-linux-gnu" / "release" / "bin" / "kcc",
+                    help="compiler driver for the glibc stub check (--report)")
     ap.add_argument("--only", nargs="+", choices=STEPS, help="rebuild only these inputs (registry is always rewritten)")
     ap.add_argument("--report", action="store_true", help="size report + parity check into <scratch>/")
     a = ap.parse_args()
@@ -1655,8 +1743,10 @@ def main() -> int:
     if a.report:
         log("== size report")
         rep = size_report(c, rt)
+        log("== glibc stubs")
+        stubs = glibc_stub_parity(c)
         log("== parity")
-        rep += ["", *parity(c)]
+        rep += ["", *stubs, "", *parity(c)]
         (c.scratch / "report.txt").write_text("\n".join(rep) + "\n")
         print("\n".join(rep))
     return 0
