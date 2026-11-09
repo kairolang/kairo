@@ -27,6 +27,15 @@ set "x\" <# "
 #                     a file:// URL works, for testing a local dist/ directory)
 #   KAIRO_TRIPLE     override the detected target (e.g. armv7-windows-gnu, or a musl build
 #                    on a glibc host)
+#   KAIRO_NO_SYSROOT=1  skip the sysroot step below
+#
+# After installing, the vendor-SDK sysroot for the host is assembled when it can be done in
+# seconds: macOS (scripts/darwin-sysroot.sh, from the Command Line Tools' SDK) and Windows
+# (scripts/msvc-sysroot.ps1, from Visual Studio's C++ tools + the Windows SDK; a bonus, as the
+# default windows-gnu target is bundled). Kairo may not ship those SDKs, so the archive carries
+# only our half, prebuilt (share/kairo/sdk-overlays/); the step runs only when that overlay
+# is in the archive, and never the full CMake build. It never fails the install: a missing
+# SDK or a failure prints the command to run later.
 
 VERSION_DEFAULT=0.2.0
 BUILD_CMD='python3 build.py --release kairo kcc kld kfmt'
@@ -98,6 +107,58 @@ sha256_of() {
     else die "need sha256sum, shasum, sha256 or openssl to verify the download"; fi
 }
 
+# The macOS sysroot: our prebuilt half (the overlay) plus the user's own SDK, at
+# $DEST/sysroot/<arch>-apple-macosx, where the driver looks with no flags. Every way out
+# returns 0: a compiler without the root still installed fine.
+setup_sysroot() {   # $1 = install dir
+    # Test hooks, deliberately undocumented: KAIRO_TEST_FORCE_OS=Darwin runs this on another
+    # OS, KAIRO_TEST_CLT_SDKS replaces the Command Line Tools' SDKs dir, and
+    # KAIRO_TEST_SYSROOT_DRY=1 prints the command instead of running it.
+    [ "${KAIRO_TEST_FORCE_OS:-$(uname -s)}" = Darwin ] || return 0
+    if [ "${KAIRO_NO_SYSROOT:-0}" = 1 ]; then
+        say "KAIRO_NO_SYSROOT=1: skipped the macOS sysroot"
+        return 0
+    fi
+    # The installed toolchain's default target decides the arch (detect_triple already
+    # maps Apple Silicon under Rosetta to arm64).
+    case "$TRIPLE" in
+        arm64-*|aarch64-*) sarch=arm64 ;;
+        *) sarch=x86_64 ;;
+    esac
+    script="$1/scripts/darwin-sysroot.sh"
+    cmd="$script $sarch"
+    # Without the overlay (archives before it shipped) the script would do the full
+    # CMake build, which needs cmake/ninja/python3 and minutes: never start that unasked.
+    if [ ! -f "$1/share/kairo/sdk-overlays/darwin-$sarch/usr/lib/libc++.a" ] || [ ! -f "$script" ]; then
+        say "the macOS sysroot can be built later (needs the Command Line Tools): $cmd"
+        return 0
+    fi
+    sdk=
+    # xcode-select -p first: without the tools, /usr/bin/xcrun pops up an install dialog.
+    if have xcode-select && xcode-select -p >/dev/null 2>&1 && have xcrun; then
+        sdk=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null) || sdk=
+    fi
+    if [ -z "$sdk" ] || [ ! -f "$sdk/SDKSettings.json" ]; then
+        clt="${KAIRO_TEST_CLT_SDKS:-/Library/Developer/CommandLineTools/SDKs}"
+        if [ -f "$clt/MacOSX.sdk/SDKSettings.json" ]; then sdk="$clt/MacOSX.sdk"; else sdk=; fi
+    fi
+    if [ -z "$sdk" ]; then
+        say "no macOS SDK found, so no sysroot yet. Install the Command Line Tools with \`xcode-select --install\`, then run: $cmd"
+        return 0
+    fi
+    say "setting up the macOS sysroot ($sarch) from $sdk"
+    if [ "${KAIRO_TEST_SYSROOT_DRY:-0}" = 1 ]; then
+        say "(test mode) would run: SDK=$sdk bash $cmd"
+        return 0
+    fi
+    if SDK="$sdk" bash "$script" "$sarch"; then
+        say "macOS sysroot ready: $1/sysroot/$sarch-apple-macosx"
+    else
+        say "warning: the macOS sysroot step failed (the compiler itself is installed); rerun it with: SDK=$sdk $cmd"
+    fi
+    return 0
+}
+
 main() {
     VERSION="${KAIRO_VERSION:-$VERSION_DEFAULT}"
     PREFIX="${KAIRO_PREFIX:-$HOME/.local}"
@@ -165,6 +226,7 @@ main() {
            say "  sh/bash/zsh:  export PATH=\"$BIN:\$PATH\""
            say "  fish:         fish_add_path $BIN" ;;
     esac
+    setup_sysroot "$DEST" || true
     "$BIN/kairo" --version 2>/dev/null || true
 }
 
@@ -182,6 +244,64 @@ function Get-Remote([string]$Url, [string]$Dest) {
     # file:// is for testing a local dist/ directory; Invoke-WebRequest only does it on 5.1.
     if ($Url -like 'file://*') { Copy-Item -LiteralPath ([Uri]$Url).LocalPath -Destination $Dest -Force }
     else { Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $Dest }
+}
+
+# The MSVC sysroot: our prebuilt half (the overlay) plus the installed VC tools and Windows
+# SDK, at <dest>\sysroot\<arch>-windows-msvc, where the driver looks with no flags. A bonus
+# (the default x86_64-windows-gnu target is bundled), so nothing here may fail the install.
+# Test hooks, deliberately undocumented: KAIRO_TEST_VSWHERE and KAIRO_TEST_KITSROOT replace
+# vswhere.exe and the registry's KitsRoot10; KAIRO_TEST_SYSROOT_DRY=1 prints the command.
+function Install-MsvcSysroot([string]$dest, [string]$triple) {
+    if ($env:KAIRO_NO_SYSROOT -eq '1') { Write-Host 'kairo-install: KAIRO_NO_SYSROOT=1: skipped the MSVC sysroot'; return }
+    $arch = switch -Regex ($triple) { '^x86_64-' { 'x86_64'; break } '^aarch64-' { 'aarch64'; break } default { $null } }
+    if (-not $arch) { return }
+    $script = Join-Path $dest 'scripts\msvc-sysroot.ps1'
+    $cmd = "powershell -ExecutionPolicy Bypass -File `"$script`" $arch"
+    # Without the overlay (archives before it shipped) the script would do the full CMake
+    # build, which needs cmake/ninja/python and minutes: never start that unasked.
+    if (-not ((Test-Path -LiteralPath (Join-Path $dest "share\kairo\sdk-overlays\msvc-$arch\lib\libc++.lib") -PathType Leaf) -and
+              (Test-Path -LiteralPath $script -PathType Leaf))) {
+        Write-Host "kairo-install: the optional MSVC sysroot (for --target $arch-windows-msvc) can be built later: $cmd"
+        return
+    }
+    $vswhere = if ($env:KAIRO_TEST_VSWHERE) { $env:KAIRO_TEST_VSWHERE }
+               elseif (${env:ProgramFiles(x86)}) { Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe' }
+    $vs = $null
+    if ($vswhere -and (Test-Path -LiteralPath $vswhere)) {
+        $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+        if (-not $vs) { $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath | Select-Object -First 1 }
+    }
+    $haveVc = $vs -and (Test-Path -LiteralPath (Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt'))
+    $kits = if ($env:KAIRO_TEST_KITSROOT) { $env:KAIRO_TEST_KITSROOT }
+            else { (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots' -ErrorAction SilentlyContinue).KitsRoot10 }
+    $haveSdk = $kits -and (Test-Path -LiteralPath (Join-Path $kits 'Include'))
+    if ($env:XWIN) { $from = "the xwin splat $env:XWIN" }
+    elseif ($haveVc -and $haveSdk) { $from = "Visual Studio ($vs) + the Windows SDK" }
+    else {
+        $what = if ($haveVc) { 'a Windows 10/11 SDK' } elseif ($haveSdk) { "Visual Studio's C++ tools" } else { "Visual Studio's C++ tools and a Windows SDK" }
+        Write-Host ("kairo-install: no MSVC sysroot yet: $what not found. It is optional (the default " +
+            "$arch-windows-gnu target is bundled). For --target $arch-windows-msvc, install the Visual Studio " +
+            "Build Tools with the 'Desktop development with C++' workload (winget install " +
+            "Microsoft.VisualStudio.2022.BuildTools, or https://aka.ms/vs/17/release/vs_BuildTools.exe), then run: $cmd")
+        return
+    }
+    Write-Host "kairo-install: setting up the MSVC sysroot ($arch) from $from"
+    # A child PowerShell with -ExecutionPolicy Bypass: an `irm | iex` session may run under a
+    # policy that refuses to run a .ps1 directly.
+    $ps = if ($PSVersionTable.PSVersion.Major -ge 6) { Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' }) }
+          else { Join-Path $PSHOME 'powershell.exe' }
+    if ($env:KAIRO_TEST_SYSROOT_DRY -eq '1') {
+        Write-Host "kairo-install: (test mode) would run: $ps -NoProfile -ExecutionPolicy Bypass -File $script $arch"
+        return
+    }
+    $rc = 1
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'   # 5.1 turns native stderr into terminating errors
+    try { & $ps -NoProfile -ExecutionPolicy Bypass -File $script $arch; $rc = $LASTEXITCODE }
+    catch { [Console]::Error.WriteLine("kairo-install: $($_.Exception.Message)") }
+    finally { $ErrorActionPreference = $old }
+    if ($rc -eq 0) { Write-Host "kairo-install: MSVC sysroot ready: $(Join-Path $dest "sysroot\$arch-windows-msvc")" }
+    else { Write-Host "kairo-install: warning: the MSVC sysroot step failed (the compiler itself is installed); rerun it with: $cmd" }
 }
 
 function Install-Kairo {
@@ -283,6 +403,8 @@ function Install-Kairo {
         }
         if (-not (($env:Path -split ';') | Where-Object { $_ -and ((& $norm $_) -ieq (& $norm $bin)) })) { $env:Path = "$bin;$env:Path" }
         Write-Host "kairo-install: $bin is on your user Path (new terminals pick it up; this session already has it)"
+        try { Install-MsvcSysroot $dest $triple }
+        catch { Write-Host "kairo-install: warning: the MSVC sysroot step failed: $($_.Exception.Message)" }
         $exe = Join-Path $bin 'kairo.exe'
         if ($onWindows -and (Test-Path -LiteralPath $exe)) { try { & $exe --version } catch { } }
     } finally {

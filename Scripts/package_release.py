@@ -18,6 +18,11 @@ lld in-process, and a user never needs the binaries):
             (source: Scripts/release-scripts/; the msvc one is a sh/PowerShell polyglot)
   share/kairo/runtimes/  the LLVM runtimes source those scripts compile (compiler-rt
             builtins, libunwind, libc++abi, libc++, cmake glue; no tests/docs/benchmarks/utils)
+  share/kairo/sdk-overlays/  our half of those roots prebuilt (libc++ + compiler-rt builtins,
+            darwin-{arm64,x86_64}, msvc-{x86_64,aarch64,i686}), so the scripts copy instead of
+            compiling. Target-specific, so the SAME overlays go into every host archive, from
+            one canonical build/sdk-overlays (Scripts/build_sdk_overlays.py); their REVISION
+            must match the runtimes', and every file must be on the overlay allowlist.
   LICENSE, NOTICE, LICENSES/, THIRD-PARTY-NOTICES               (Scripts/collect_licenses.py)
 
 Sysroots: Apple and MSVC roots exist in a development sysroot/ and are never packaged
@@ -51,6 +56,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "Scripts"))
 import cross_llvm  # noqa: E402
 import collect_licenses  # noqa: E402
+import build_sdk_overlays  # noqa: E402
 
 # bin/: name -> alias links to it. An alias is a symlink (a copy on Windows).
 # llvm-dlltool is dropped: nothing in Compiler/, Linker/ or the sysroot flow uses it at
@@ -246,6 +252,16 @@ def git_out(*args: str) -> bytes:
     return subprocess.run(["git", "-C", str(LLVM_SRC), *args], check=True, capture_output=True).stdout
 
 
+def runtimes_revision() -> str:
+    """The fork commit the runtimes come from, with a diff hash when the checkout is dirty.
+    share/kairo/sdk-overlays/REVISION is the same string, so a stale overlay is caught."""
+    rev = git_out("rev-parse", "HEAD").decode().strip()
+    diff = git_out("diff", "HEAD", "--", *RUNTIMES_REV_PATHS)
+    if diff:
+        rev += "+" + hashlib.sha256(diff).hexdigest()[:12]
+    return rev
+
+
 def stage_runtimes(dst: Path) -> None:
     """share/kairo/runtimes: the sources scripts/*.sh build, plus REVISION (the fork commit,
     with a diff hash when the checkout is dirty) and compiler-rt/lib/builtins/sources.toml."""
@@ -265,10 +281,7 @@ def stage_runtimes(dst: Path) -> None:
     for f in RUNTIMES_FILES:
         (out / f).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(LLVM_SRC / f, out / f)
-    rev = git_out("rev-parse", "HEAD").decode().strip()
-    diff = git_out("diff", "HEAD", "--", *RUNTIMES_REV_PATHS)
-    if diff:
-        rev += "+" + hashlib.sha256(diff).hexdigest()[:12]
+    rev = runtimes_revision()
     (out / "REVISION").write_text(rev + "\n")
     # Source lists a no-cmake builder can read, scraped so they follow the fork.
     cm = (out / "compiler-rt" / "lib" / "builtins" / "CMakeLists.txt").read_text()
@@ -287,6 +300,38 @@ def stage_runtimes(dst: Path) -> None:
             die(f"curated runtimes lack {must}")
     size = sum(p.stat().st_size for p in out.rglob("*") if p.is_file() and not p.is_symlink())
     log(f"share/kairo/runtimes: rev {rev} ({size / (1 << 20):.1f} MiB unpacked)")
+
+
+SDK_OVERLAYS = ROOT / "build" / "sdk-overlays"
+
+
+def stage_sdk_overlays(dst: Path) -> None:
+    """share/kairo/sdk-overlays from the canonical build/sdk-overlays. Checked twice over:
+    the allowlist (only libc++/builtins files the runtimes source accounts for; never a
+    .tbd, an SDK header, an msvc/ tree or a vendor library) and the revision (an overlay
+    built from other runtimes than the ones beside it is stale)."""
+    if not (SDK_OVERLAYS / "REVISION").is_file():
+        die(f"no SDK overlays at {SDK_OVERLAYS}: build them with Scripts/build_sdk_overlays.py "
+            "(or pass --no-sdk-overlays for an archive without the macOS/MSVC fast path)")
+    runtimes = dst / "share" / "kairo" / "runtimes"
+    want, got = (runtimes / "REVISION").read_text().strip(), (SDK_OVERLAYS / "REVISION").read_text().strip()
+    if want != got:
+        die(f"{SDK_OVERLAYS} is rev {got}, share/kairo/runtimes is rev {want}: rebuild the overlays")
+    missing = [n for n in build_sdk_overlays.ALL if not (SDK_OVERLAYS / n).is_dir()]
+    if missing:
+        die(f"{SDK_OVERLAYS} lacks {', '.join(missing)}: rebuild the overlays")
+    errs = build_sdk_overlays.check_overlays(SDK_OVERLAYS, runtimes)
+    if errs:
+        die("SDK overlay content check failed:\n  " + "\n  ".join(errs))
+    out = dst / "share" / "kairo" / "sdk-overlays"
+    shutil.copytree(SDK_OVERLAYS, out, symlinks=False)
+    # Checked again on the copy: what ships, not what was meant to.
+    errs = build_sdk_overlays.check_overlays(out, runtimes)
+    if errs:
+        die("SDK overlay content check failed on the staged copy:\n  " + "\n  ".join(errs))
+    size = sum(p.stat().st_size for p in out.rglob("*") if p.is_file())
+    log(f"share/kairo/sdk-overlays: rev {got}, {len(build_sdk_overlays.ALL)} overlays "
+        f"({size / (1 << 20):.1f} MiB unpacked)")
 
 
 def redistributable(root: Path) -> tuple[bool, str]:
@@ -379,7 +424,10 @@ def check_banned(dst: Path) -> None:
 
 def check_names(names, what: str) -> None:
     for n in names:
-        if any(b in n for b in BANNED_PATH_PARTS):
+        # Match below the top directory: a macOS host archive is itself named
+        # kairo-<ver>-arm64-apple-macosx11.0/, so its own name would match every member.
+        inner = "/".join(Path(n).parts[1:])
+        if any(b in inner for b in BANNED_PATH_PARTS):
             die(f"{what}: {n} looks like Apple/MSVC content and must never be in an archive")
         parts = Path(n).parts
         if len(parts) >= 3 and parts[1] == "bin" and parts[2].split(".")[0] in (
@@ -388,7 +436,8 @@ def check_names(names, what: str) -> None:
             die(f"{what}: {n} must not ship")
 
 
-def stage_dir(triple: str, ver: str, sysroots: str, work: Path, allow_missing: set[str]) -> Path:
+def stage_dir(triple: str, ver: str, sysroots: str, work: Path, allow_missing: set[str],
+              overlays: bool = True) -> Path:
     name = f"kairo-{ver}-{triple}"
     dst = work / name
     shutil.rmtree(dst, ignore_errors=True)
@@ -397,6 +446,8 @@ def stage_dir(triple: str, ver: str, sysroots: str, work: Path, allow_missing: s
     stage_lib(triple, dst)
     stage_scripts(dst)
     stage_runtimes(dst)
+    if overlays:
+        stage_sdk_overlays(dst)
     if sysroots == "bundled":
         stage_sysroots(triple, dst)
         check_banned(dst)
@@ -449,6 +500,8 @@ def main() -> int:
     ap.add_argument("--no-strip", action="store_true", help="keep debug info in bin/ (default: --strip-debug)")
     ap.add_argument("--out", help="output directory (default: dist/<version>)")
     ap.add_argument("--work", help="scratch directory for the staged tree (default: <out>/.stage)")
+    ap.add_argument("--no-sdk-overlays", action="store_true",
+                    help="leave out share/kairo/sdk-overlays (the macOS/MSVC scripts then do the full build)")
     ap.add_argument("--allow-missing", action="append", default=[], metavar="TOOL",
                     help="package without this bin/ tool instead of failing (a test archive)")
     a = ap.parse_args()
@@ -466,7 +519,7 @@ def main() -> int:
         if not (tree_of(t) / "bin").is_dir():
             log(f"{t}: no tree at {tree_of(t)}; build it: python3 build.py --target {t} kairo kcc")
             return 1
-        dst = stage_dir(t, ver, a.sysroots, work, set(a.allow_missing))
+        dst = stage_dir(t, ver, a.sysroots, work, set(a.allow_missing), not a.no_sdk_overlays)
         p = archive(dst, t, out)
         # Each staged tree is ~3.4 GB (the sysroots); keeping all of them until the end
         # needs ~48 GB for --all, so drop each one as soon as its archive is written.

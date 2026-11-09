@@ -30,10 +30,22 @@
 #
 # sh only: there is no PowerShell half. On Windows run it under WSL with SDK=.
 #
+# Fast path: a release ships our half of each root prebuilt, in
+# <install>/share/kairo/sdk-overlays/darwin-<arch>/ (libc++ headers and
+# archives, the TF/bf16 builtins; LLVM code, so it may ship, unlike the SDK).
+# When that overlay exists the script stages your SDK, copies the overlay over
+# it and writes SYSROOT.toml: seconds, and nothing beyond this install and the
+# SDK is needed. arm64e has no overlay (kld cannot link it, so nothing could
+# validate one) and always takes the full build.
+#
+# Full build (no overlay, arm64e, or --from-source): about 10 minutes per arch.
 # Host requirements: bash, cmake (3.20+), ninja, python3 (the LLVM runtimes
 # build needs it), and the usual POSIX tools; xcrun when SDK= is not given.
 #
-# Usage: <install>/scripts/darwin-sysroot.sh [arm64|arm64e|x86_64 ...]
+# Usage: <install>/scripts/darwin-sysroot.sh [--from-source] [arm64|arm64e|x86_64 ...]
+#   --from-source       compile libc++ and the builtins even when an overlay exists
+#   --overlay-only DIR  full build, but write only our half to DIR/darwin-<arch>
+#                       (how a release's overlays are made: Scripts/build_sdk_overlays.py)
 #   SDK=...        default: xcrun --sdk macosx --show-sdk-path
 #   OUT=...        default: <install>/sysroot; each root lands in OUT/<arch>-apple-macosx
 #   MIN_MACOS=...  default: 11.0 (arm64, arm64e), 10.15 (x86_64)
@@ -54,18 +66,49 @@ KAIRO="$(cd "$HERE/.." && pwd -P)"
 BIN="$KAIRO/bin"
 KCC="$BIN/kcc"; KLD="$BIN/kld"; LLVM_AR="$BIN/llvm-ar"; LLVM_RANLIB="$BIN/llvm-ranlib"
 SRC="$KAIRO/share/kairo/runtimes"
+OVERLAYS="$KAIRO/share/kairo/sdk-overlays"
 STAGE="${OUT:-$KAIRO/sysroot}"
 WORK="${WORK:-$KAIRO/.sysroot-work/darwin}"
 
+FROM_SOURCE=0; OVERLAY_OUT=
+# Options first, then arches. Rebuilt in place (no arrays: bash 3.2 + set -u).
+n=$#
+while [ "$n" -gt 0 ]; do
+  a="$1"; shift; n=$((n - 1))
+  case "$a" in
+    --from-source) FROM_SOURCE=1 ;;
+    --overlay-only)
+      [ "$n" -gt 0 ] || die "--overlay-only needs a directory"
+      OVERLAY_OUT="$1"; shift; n=$((n - 1)) ;;
+    -*) die "unknown option $a (--from-source, --overlay-only DIR)" ;;
+    *) set -- "$@" "$a" ;;
+  esac
+done
 [ $# -eq 0 ] && set -- arm64
+
+# An arch takes the fast path when this install ships its overlay. arm64e has
+# none on purpose; --overlay-only is the full build by definition.
+use_overlay() {   # $1 = arch
+  [ "$FROM_SOURCE" = 0 ] && [ -z "$OVERLAY_OUT" ] && [ "$1" != arm64e ] \
+    && [ -f "$OVERLAYS/darwin-$1/usr/lib/libc++.a" ]
+}
+NEED_BUILD=0
+for arch in "$@"; do use_overlay "$arch" || NEED_BUILD=1; done
 
 for t in "$KCC" "$KLD" "$LLVM_AR" "$LLVM_RANLIB"; do
   [ -x "$t" ] || die "$t is missing: run this script from inside a Kairo install (<install>/scripts/darwin-sysroot.sh)"
 done
-[ -f "$SRC/runtimes/CMakeLists.txt" ] || die "no LLVM runtimes source at $SRC (it ships in the release archive)"
-for t in cmake ninja python3 find cp tar sed grep du mkdir; do
-  command -v "$t" >/dev/null 2>&1 || die "need '$t' on PATH (cmake and ninja: Homebrew, MacPorts or your package manager)"
+for t in cp tar du mkdir; do
+  command -v "$t" >/dev/null 2>&1 || die "need '$t' on PATH"
 done
+# The fast path copies; only a full build compiles, so only it asks for the
+# build tools (a Mac with just the Command Line Tools has no cmake or ninja).
+if [ "$NEED_BUILD" = 1 ]; then
+  [ -f "$SRC/runtimes/CMakeLists.txt" ] || die "no LLVM runtimes source at $SRC (it ships in the release archive)"
+  for t in cmake ninja python3 find sed grep; do
+    command -v "$t" >/dev/null 2>&1 || die "need '$t' on PATH for the full build (cmake and ninja: Homebrew, MacPorts or your package manager)"
+  done
+fi
 if [ -z "${SDK:-}" ]; then
   [ "$(uname -s)" = Darwin ] || die "run on macOS, or set SDK=<path to MacOSX.sdk>"
   command -v xcrun >/dev/null 2>&1 || die "no xcrun: install the Command Line Tools (xcode-select --install) or set SDK="
@@ -82,8 +125,10 @@ fi
 # kcc looks for <install>/sysroot/<target> on its own; pointing it at an empty
 # root keeps the build hermetic. kcc compiles with -nostdsysteminc, so the
 # SDK's usr/include is named explicitly, after clang's resource headers.
+# -ffile-prefix-map: libc++abi's asserts embed __FILE__, and a shipped overlay
+# must not carry the build machine's paths (it also makes rebuilds comparable).
 NOROOT="$WORK/noroot"
-SDK_FLAGS="--sysroot=$NOROOT -isysroot $SDK -idirafter $SDK/usr/include"
+SDK_FLAGS="--sysroot=$NOROOT -isysroot $SDK -idirafter $SDK/usr/include -ffile-prefix-map=$SRC=kairo-runtimes"
 
 # Binary128 needs the fork's HasFloat128 on the Darwin target of EACH arch;
 # without it compiler-rt's int_types.h finds no tf_float and the TF sources
@@ -146,7 +191,10 @@ stage_sdk() {   # $1 = dst
   fi
 }
 
-build_libcxx() {   # $1 = arch, $2 = min, $3 = dst
+# The full build writes our half into its own directory (the overlay), never
+# straight into the root: the fast path then installs a shipped overlay with
+# the very same copy, so the two paths cannot drift apart.
+build_libcxx() {   # $1 = arch, $2 = min, $3 = overlay dir
   local arch="$1" min="$2" dst="$3" b="$WORK/libcxx-$arch"
   rm -rf "$b"; mkdir -p "$b"
   echo ">> [$arch] configuring libc++"
@@ -189,8 +237,8 @@ build_libcxx() {   # $1 = arch, $2 = min, $3 = dst
   rm -f "$dst/usr/lib/libc++abi.a"
 }
 
-build_tf_builtins() {   # $1 = arch, $2 = min, $3 = dst
-  local arch="$1" min="$2" dst="$3" b="$WORK/tf-$arch"
+build_tf_builtins() {   # $1 = arch, $2 = min, $3 = overlay dir, $4 = staged root (for the probe's libSystem)
+  local arch="$1" min="$2" dst="$3" root="$4" b="$WORK/tf-$arch"
   local B="$SRC/compiler-rt/lib/builtins"
   local srcs bf f
   srcs=$(sed -n '/^set(GENERIC_TF_SOURCES/,/)/p' "$B/CMakeLists.txt" | grep -oE '[a-z0-9_]+\.c' || true)
@@ -220,7 +268,7 @@ build_tf_builtins() {   # $1 = arch, $2 = min, $3 = dst
   rm -f "$a"
   "$LLVM_AR" --format=darwin rcs "$a" "$b"/*.o || die "[$arch] llvm-ar failed"
   "$LLVM_RANLIB" "$a" || die "[$arch] llvm-ranlib failed"
-  probe_builtins "$arch" "$min" "$dst" "$a" __addtf3 __fe_getround __truncsfbf2
+  probe_builtins "$arch" "$min" "$root" "$a" __addtf3 __fe_getround __truncsfbf2
 }
 
 # Symbol check without nm: a probe that calls every required builtin, linked by kld (ld64 flavor) against the archive and libSystem. An
@@ -280,7 +328,9 @@ EOF
 }
 
 echo ">> install: $KAIRO"
-echo ">> runtimes source: $SRC (rev $(cat "$SRC/REVISION" 2>/dev/null || echo unknown))"
+if [ "$NEED_BUILD" = 1 ]; then
+  echo ">> runtimes source: $SRC (rev $(cat "$SRC/REVISION" 2>/dev/null || echo unknown))"
+fi
 mkdir -p "$NOROOT"
 for arch in "$@"; do
   case "$arch" in
@@ -292,9 +342,9 @@ for arch in "$@"; do
     x86_64) min="${MIN_MACOS:-10.15}" ;;
     *) die "unknown arch $arch (arm64, arm64e, x86_64)" ;;
   esac
-  check_float128 "$arch" "$min"
   triple="$arch-apple-macosx"
   dst="$STAGE/$triple"
+  if [ -n "$OVERLAY_OUT" ]; then dst="$WORK/$triple"; fi
   echo ">> [$triple] staging from $SDK (min $min) -> $dst"
   # Assembled under WORK and moved into place only when complete: kcc picks
   # up <install>/sysroot/<triple> by itself (ahead of --sysroot), so neither
@@ -302,10 +352,19 @@ for arch in "$@"; do
   root="$WORK/$triple-root"
   rm -rf "$dst" "$root"; mkdir -p "$root"
   stage_sdk "$root"
-  build_libcxx "$arch" "$min" "$root"
-  build_tf_builtins "$arch" "$min" "$root"
+  if use_overlay "$arch"; then
+    ov="$OVERLAYS/darwin-$arch"
+    echo ">> [$triple] prebuilt libc++ + builtins: $ov (rev $(cat "$OVERLAYS/REVISION" 2>/dev/null || echo unknown))"
+  else
+    check_float128 "$arch" "$min"
+    ov="$WORK/overlay-$arch"
+    rm -rf "$ov"; mkdir -p "$ov"
+    build_libcxx "$arch" "$min" "$ov"
+    build_tf_builtins "$arch" "$min" "$ov" "$root"
+  fi
+  copy_tree "$ov" "$root"
   emit_toml "$triple" "$root/SYSROOT.toml"
-  mkdir -p "$STAGE"; mv "$root" "$dst"
+  mkdir -p "$(dirname "$dst")"; mv "$root" "$dst"
 
   [ -f "$dst/usr/include/stdio.h" ]       || die "[$triple] no stdio.h"
   [ -f "$dst/usr/include/c++/v1/vector" ] || die "[$triple] no libc++ headers"
@@ -314,6 +373,14 @@ for arch in "$@"; do
   [ -f "$dst/usr/lib/libc++.a" ]          || die "[$triple] no libc++.a"
   if ls "$dst"/usr/lib/libc++*.tbd >/dev/null 2>&1; then die "[$triple] Apple libc++ stub leaked"; fi
   validate "$triple" "$dst" "$min"
+  if [ -n "$OVERLAY_OUT" ]; then
+    # Only our half leaves WORK; the SDK-bearing root is scratch.
+    mkdir -p "$OVERLAY_OUT"; rm -rf "$OVERLAY_OUT/darwin-$arch"
+    copy_tree "$ov" "$OVERLAY_OUT/darwin-$arch"
+    rm -rf "$dst"
+    echo ">> [$triple] overlay written: $OVERLAY_OUT/darwin-$arch ($(du -sh "$OVERLAY_OUT/darwin-$arch" | cut -f1))"
+    continue
+  fi
   echo ">> [$triple] staged ($(du -sh "$dst" | cut -f1))"
 done
 if [ "${KEEP_WORK:-0}" != 1 ]; then rm -rf "$WORK"; rmdir "$(dirname "$WORK")" 2>/dev/null || true; fi

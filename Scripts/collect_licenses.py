@@ -92,7 +92,9 @@ TABLE: list[Component] = [
               "linked into bin/kairo, bin/kcc, bin/kld, bin/llvm-ar, bin/llvm-symbolizer; "
               "lib/clang/22 (resource dir); libc++/libc++abi/libunwind/compiler-rt in every sysroot "
               "(sysroot/*/{lib,compiler-rt,libcxx,include/c++}); share/kairo/runtimes (compiler-rt builtins, LLVM-libc headers, "
-              "libunwind, libc++abi, libc++ source for scripts/*.sh); the .patches/ are under this license",
+              "libunwind, libc++abi, libc++ source for scripts/*.sh); share/kairo/sdk-overlays (libc++ and "
+              "compiler-rt builtins prebuilt for the macOS and MSVC roots scripts/*.sh assemble); "
+              "the .patches/ are under this license",
               [("LICENSE.TXT", [LLVM / "LICENSE.TXT"]),
                ("compiler-rt-LICENSE.TXT", [LLVM / "compiler-rt" / "LICENSE.TXT"]),
                ("compiler-rt-CREDITS.TXT", [LLVM / "compiler-rt" / "CREDITS.TXT"]),
@@ -106,7 +108,8 @@ TABLE: list[Component] = [
                ("patches-README", [C(".patches", "README")])],
               # trailing * so the Windows .exe names match too, as the kairo claims do
               claims=["bin/llvm-ar*", "bin/llvm-ranlib*", "bin/llvm-lib*", "bin/llvm-dlltool*",
-                      "bin/llvm-symbolizer*", "lib/clang", "share/kairo"],
+                      "bin/llvm-symbolizer*", "lib/clang", "share/kairo/runtimes",
+                      "share/kairo/sdk-overlays"],
               rev_of=LLVM),
     Component("zlib", "zlib (statically linked into the toolchain binaries)", "Zlib", "",
               "linked into bin/kairo, bin/kcc, bin/kld",
@@ -220,12 +223,16 @@ def installed(tree: Path, triple: str) -> tuple[set[str], list[str]]:
     def claimed(rel: str) -> bool:
         return any(fnmatch.fnmatch(rel, p) for p in claims)
 
-    for top in ("bin", "lib", "scripts", "share"):
+    # share/kairo holds unrelated payloads side by side (runtimes source, prebuilt
+    # overlays), so it is claimed one level down: a new share/kairo/<x> needs its own entry.
+    for top in ("bin", "lib", "scripts", "share", "share/kairo"):
         d = tree / top
         if not d.is_dir():
             continue
         for e in sorted(d.iterdir()):
             rel = f"{top}/{e.name}"
+            if rel == "share/kairo":
+                continue
             if e.name.endswith((".log", ".tmp")):
                 continue
             if not claimed(rel):

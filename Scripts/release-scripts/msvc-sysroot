@@ -66,11 +66,21 @@ shift
 # replaces lld-link for the symbol probe, llvm-ar / llvm-lib archive. No host
 # compiler, LLVM install or Kairo checkout is used.
 #
-# Host requirements: cmake (3.20+), ninja and python3 (the LLVM runtimes build
-# runs it); bash and the usual POSIX tools for the sh half. On Windows, cmake
-# and ninja may come from PATH or from Visual Studio's own copies.
+# Fast path: a release ships the second layer prebuilt, in
+# <install>/share/kairo/sdk-overlays/msvc-<arch>/ (LLVM code, so it may ship,
+# unlike the CRT and SDK). When that overlay exists the script copies the CRT
+# and SDK, copies the overlay beside them and writes SYSROOT.toml: seconds,
+# and nothing beyond this install, the CRT and the SDK is needed.
 #
-# Usage: msvc-sysroot.sh [x86_64|aarch64|arm64|i686|i386 ...]   (default: all three)
+# Full build (no overlay, or --from-source): about 10 minutes per arch. Host
+# requirements: cmake (3.20+), ninja and python3 (the LLVM runtimes build runs
+# it); bash and the usual POSIX tools for the sh half. On Windows, cmake and
+# ninja may come from PATH or from Visual Studio's own copies.
+#
+# Usage: msvc-sysroot.sh [--from-source] [x86_64|aarch64|arm64|i686|i386 ...]   (default: all three)
+#   --from-source       compile libc++ and the builtins even when an overlay exists
+#   --overlay-only DIR  full build, but write only the second layer to DIR/msvc-<arch>
+#                       (how a release's overlays are made: Scripts/build_sdk_overlays.py)
 #   XWIN=...    xwin splat dir (required for the sh half; optional on Windows)
 #   OUT=...     default: <install>/sysroot; each root lands in OUT/<arch>-windows-msvc
 #   WORK=...    build scratch (default: <install>/.sysroot-work/msvc; removed on success)
@@ -86,18 +96,57 @@ KAIRO="$(cd "$HERE/.." && pwd -P)"
 BIN="$KAIRO/bin"
 KCC="$BIN/kcc"; KLD="$BIN/kld"; LLVM_AR="$BIN/llvm-ar"; LLVM_LIB="$BIN/llvm-lib"
 SRC="$KAIRO/share/kairo/runtimes"
+OVERLAYS="$KAIRO/share/kairo/sdk-overlays"
 STAGE="${OUT:-$KAIRO/sysroot}"
 WORK="${WORK:-$KAIRO/.sysroot-work/msvc}"
 
+FROM_SOURCE=0; OVERLAY_OUT=
+# Options first, then arches. Rebuilt in place (no arrays: bash 3.2 + set -u).
+n=$#
+while [ "$n" -gt 0 ]; do
+  a="$1"; shift; n=$((n - 1))
+  case "$a" in
+    --from-source) FROM_SOURCE=1 ;;
+    --overlay-only)
+      [ "$n" -gt 0 ] || die "--overlay-only needs a directory"
+      OVERLAY_OUT="$1"; shift; n=$((n - 1)) ;;
+    -*) die "unknown option $a (--from-source, --overlay-only DIR)" ;;
+    *) set -- "$@" "$a" ;;
+  esac
+done
 [ $# -eq 0 ] && set -- x86_64 aarch64 i686
+
+# The canonical arch name (the overlay's and the root's) for any accepted spelling.
+canon_arch() {
+  case "$1" in
+    x86_64|amd64|x64) echo x86_64 ;;
+    aarch64|arm64)    echo aarch64 ;;
+    i686|i386|x86)    echo i686 ;;
+    *) echo "$1" ;;
+  esac
+}
+# An arch takes the fast path when this install ships its overlay;
+# --overlay-only is the full build by definition.
+use_overlay() {   # $1 = canonical arch
+  [ "$FROM_SOURCE" = 0 ] && [ -z "$OVERLAY_OUT" ] && [ -f "$OVERLAYS/msvc-$1/lib/libc++.lib" ]
+}
+NEED_BUILD=0
+for a in "$@"; do use_overlay "$(canon_arch "$a")" || NEED_BUILD=1; done
 
 for t in "$KCC" "$KLD" "$LLVM_AR" "$LLVM_LIB"; do
   [ -x "$t" ] || die "$t is missing: run this script from inside a Kairo install (<install>/scripts/msvc-sysroot.sh)"
 done
-[ -f "$SRC/runtimes/CMakeLists.txt" ] || die "no LLVM runtimes source at $SRC (it ships in the release archive)"
-for t in cmake ninja python3 find cp tar sed grep du mkdir; do
-  command -v "$t" >/dev/null 2>&1 || die "need '$t' on PATH (cmake and ninja come from your package manager)"
+for t in cp du mkdir grep; do
+  command -v "$t" >/dev/null 2>&1 || die "need '$t' on PATH"
 done
+# The fast path copies; only a full build compiles, so only it asks for the
+# build tools.
+if [ "$NEED_BUILD" = 1 ]; then
+  [ -f "$SRC/runtimes/CMakeLists.txt" ] || die "no LLVM runtimes source at $SRC (it ships in the release archive)"
+  for t in cmake ninja python3 find tar sed; do
+    command -v "$t" >/dev/null 2>&1 || die "need '$t' on PATH for the full build (cmake and ninja come from your package manager)"
+  done
+fi
 [ -n "${XWIN:-}" ] || die "set XWIN=<dir> to an xwin splat (see the top of $0 for the xwin command)"
 XWIN="$(cd "$XWIN" && pwd -P)" || die "XWIN=$XWIN does not exist"
 [ -f "$XWIN/sdk/include/um/Windows.h" ] || [ -f "$XWIN/sdk/include/um/windows.h" ] \
@@ -160,7 +209,9 @@ stage_msvc() {   # $1 = xwin arch, $2 = dst
 # otherwise be assembled for the host.
 cc_flags() {   # $1 = dst, $2 = clang triple
   local m="$1/msvc"
-  echo "--target=$2 --sysroot=$NOROOT -fms-runtime-lib=static -idirafter $m/crt/include -idirafter $m/sdk/include/ucrt -idirafter $m/sdk/include/um -idirafter $m/sdk/include/shared"
+  # -ffile-prefix-map: the builtins embed __FILE__, and a shipped overlay must
+  # not carry the build machine's paths (it also makes rebuilds comparable).
+  echo "--target=$2 --sysroot=$NOROOT -fms-runtime-lib=static -ffile-prefix-map=$SRC=kairo-runtimes -idirafter $m/crt/include -idirafter $m/sdk/include/ucrt -idirafter $m/sdk/include/um -idirafter $m/sdk/include/shared"
 }
 
 # configure_build <label> <log dir> <source dir> <ninja target> <cmake args...>
@@ -176,10 +227,13 @@ configure_build() {
     || { grep -m30 -A8 "^FAILED" "$b/build.log" | grep -v "^/" >&2; die "[$label] build failed ($b/build.log)"; }
 }
 
-build_runtimes() {   # $1 = clang triple, $2 = xwin arch, $3 = dst, $4 = builtins arch
-  local triple="$1" xa="$2" dst="$3" rtarch="$4" out="$WORK/$1-out"
+# The full build writes the second layer into its own directory (the
+# overlay), never straight into the root: the fast path then installs a
+# shipped overlay with the very same copy, so the two paths cannot drift.
+build_runtimes() {   # $1 = clang triple, $2 = xwin arch, $3 = staged root (CRT/SDK headers), $4 = builtins arch, $5 = overlay dir
+  local triple="$1" xa="$2" root="$3" rtarch="$4" dst="$5" out="$WORK/$1-out"
   local flags
-  flags=$(cc_flags "$dst" "$triple")
+  flags=$(cc_flags "$root" "$triple")
   rm -rf "$out"
   # kcc is a GNU-style driver, so CMake drives it like clang targeting MSVC
   # (Windows-Clang, GNU front end). try_compile stays compile-only: there is
@@ -230,7 +284,7 @@ build_runtimes() {   # $1 = clang triple, $2 = xwin arch, $3 = dst, $4 = builtin
   cp "$cxx" "$dst/lib/libc++.lib"
   rt_lib="$dst/compiler-rt/lib/windows/clang_rt.builtins-$rtarch.lib"
   cp "$rt" "$rt_lib"
-  add_tf_compare_aliases "$triple" "$dst" "$rt_lib" "$b"
+  add_tf_compare_aliases "$triple" "$root" "$rt_lib" "$b"
   probe_builtins "$triple" "$rt_lib" "$b" \
     __addtf3 __trunctfbf2 __truncsfbf2 __eqtf2 __netf2 __lttf2 __gttf2 __cmptf2
   grep '_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS' "$dst/include/c++/v1/__config_site" >/dev/null \
@@ -267,7 +321,9 @@ EOC
   "$KCC" $(cc_flags "$dst" "$triple") -fforce-enable-int128 -O2 -I"$B" \
     -c "$w/tf_compare_aliases.c" -o "$w/tf_compare_aliases.obj" \
     || die "[$triple] tf_compare_aliases.c failed to compile"
-  "$LLVM_LIB" /nologo /out:"$w/merged.lib" "$lib" "$w/tf_compare_aliases.obj" \
+  # From inside $w: llvm-lib names a member by the path it was given, and a
+  # shipped overlay must not carry the build machine's paths.
+  (cd "$w" && "$LLVM_LIB" /nologo /out:merged.lib "$lib" tf_compare_aliases.obj) \
     || die "[$triple] llvm-lib could not merge the compare aliases"
   mv "$w/merged.lib" "$lib"
 }
@@ -319,8 +375,19 @@ EOF
   echo "   validated: kcc linked a C++ program from SYSROOT.toml ($t/t.exe)"
 }
 
+# copy_overlay <overlay dir> <root>: cp -R, not tar (the fast path asks for no
+# more than cp). The root holds only msvc/ at this point, so nothing merges.
+copy_overlay() {
+  local d
+  for d in include lib compiler-rt; do
+    cp -R "$1/$d" "$2/" || die "could not copy $1/$d"
+  done
+}
+
 echo ">> install: $KAIRO"
-echo ">> runtimes source: $SRC (rev $(cat "$SRC/REVISION" 2>/dev/null || echo unknown))"
+if [ "$NEED_BUILD" = 1 ]; then
+  echo ">> runtimes source: $SRC (rev $(cat "$SRC/REVISION" 2>/dev/null || echo unknown))"
+fi
 for arch in "$@"; do
   case "$arch" in
     x86_64|amd64|x64) arch=x86_64;  xa=x86_64;  rtarch=x86_64 ;;
@@ -331,6 +398,7 @@ for arch in "$@"; do
   triple="$arch-pc-windows-msvc"
   name="$arch-windows-msvc"
   dst="$STAGE/$name"
+  if [ -n "$OVERLAY_OUT" ]; then dst="$WORK/$name"; fi
   echo ">> [$name] staging from $XWIN -> $dst"
   # Assembled under WORK and moved into place only when complete: kcc picks
   # up <install>/sysroot/<name> by itself (ahead of --sysroot), so neither an
@@ -338,10 +406,28 @@ for arch in "$@"; do
   root="$WORK/$name-root"
   rm -rf "$dst" "$root"; mkdir -p "$root" "$NOROOT"
   stage_msvc "$xa" "$root"
-  build_runtimes "$triple" "$xa" "$root" "$rtarch"
+  if use_overlay "$arch"; then
+    ov="$OVERLAYS/msvc-$arch"
+    echo ">> [$name] prebuilt libc++ + builtins: $ov (rev $(cat "$OVERLAYS/REVISION" 2>/dev/null || echo unknown))"
+  else
+    ov="$WORK/overlay-$arch"
+    rm -rf "$ov"; mkdir -p "$ov"
+    build_runtimes "$triple" "$xa" "$root" "$rtarch" "$ov"
+  fi
+  copy_overlay "$ov" "$root"
+  grep '_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS' "$root/include/c++/v1/__config_site" >/dev/null \
+    || die "[$name] __config_site is not static-only (would import __imp_ symbols)"
   emit_toml "$name" "$xa" "$root/SYSROOT.toml"
-  mkdir -p "$STAGE"; mv "$root" "$dst"
+  mkdir -p "$(dirname "$dst")"; mv "$root" "$dst"
   validate "$name" "$dst"
+  if [ -n "$OVERLAY_OUT" ]; then
+    # Only the second layer leaves WORK; the CRT/SDK-bearing root is scratch.
+    mkdir -p "$OVERLAY_OUT"; rm -rf "$OVERLAY_OUT/msvc-$arch"; mkdir -p "$OVERLAY_OUT/msvc-$arch"
+    copy_overlay "$ov" "$OVERLAY_OUT/msvc-$arch"
+    rm -rf "$dst"
+    echo ">> [$name] overlay written: $OVERLAY_OUT/msvc-$arch ($(du -sh "$OVERLAY_OUT/msvc-$arch" | cut -f1))"
+    continue
+  fi
   echo ">> [$name] staged ($(du -sh "$dst" | cut -f1))"
 done
 if [ "${KEEP_WORK:-0}" != 1 ]; then rm -rf "$WORK"; rmdir "$(dirname "$WORK")" 2>/dev/null || true; fi
@@ -366,6 +452,37 @@ $OnWindows = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
 $Kairo = (Resolve-Path -LiteralPath (Join-Path (Split-Path -Parent $PSCommandPath) '..')).Path
 $Bin = Join-Path $Kairo 'bin'
 $Src = Join-Path $Kairo 'share/kairo/runtimes'
+$Overlays = Join-Path $Kairo 'share/kairo/sdk-overlays'
+
+# Options first, then arches; the canonical arch name is the overlay's and the root's.
+$FromSource = $false; $OverlayOut = $null; $arches = @()
+for ($i = 0; $i -lt $args.Count; $i++) {
+    switch -Regex ([string]$args[$i]) {
+        '^--from-source$' { $FromSource = $true; break }
+        '^--overlay-only$' {
+            if ($i + 1 -ge $args.Count) { [Console]::Error.WriteLine('!! --overlay-only needs a directory'); exit 1 }
+            $i++; $OverlayOut = [string]$args[$i]; break
+        }
+        '^-' { [Console]::Error.WriteLine("!! unknown option $($args[$i]) (--from-source, --overlay-only DIR)"); exit 1 }
+        default { $arches += [string]$args[$i] }
+    }
+}
+if (-not $arches.Count) { $arches = @('x86_64', 'aarch64', 'i686') }
+function Canon-Arch([string]$a) {
+    switch -Regex ($a) {
+        '^(x86_64|amd64|x64)$' { return 'x86_64' }
+        '^(aarch64|arm64)$' { return 'aarch64' }
+        '^(i686|i386|x86)$' { return 'i686' }
+    }
+    return $a
+}
+# An arch takes the fast path when this install ships its overlay;
+# --overlay-only is the full build by definition.
+function Use-Overlay([string]$arch) {
+    return (-not $FromSource) -and (-not $OverlayOut) -and
+        (Test-Path -LiteralPath (Join-Path $Overlays "msvc-$arch/lib/libc++.lib") -PathType Leaf)
+}
+$NeedBuild = [bool]($arches | Where-Object { -not (Use-Overlay (Canon-Arch $_)) })
 
 # A tool of this install, with or without .exe (the Windows archive has .exe).
 function Tool([string]$n) {
@@ -450,16 +567,19 @@ if ($Xwin) {
 }
 
 # ---- host tools: cmake, ninja (PATH, else Visual Studio's copies), python ----
-$vsCMake = if ($VS) { Join-Path $VS 'Common7\IDE\CommonExtensions\Microsoft\CMake' } else { '' }
-$CMake = Find-Program 'cmake' @($(if ($vsCMake) { Join-Path $vsCMake 'CMake\bin\cmake.exe' }))
-$Ninja = Find-Program 'ninja' @($(if ($vsCMake) { Join-Path $vsCMake 'Ninja\ninja.exe' }))
-if (-not $CMake) { Die "need cmake (3.20+): on PATH, or Visual Studio's 'C++ CMake tools for Windows'" }
-if (-not $Ninja) { Die "need ninja: on PATH, or Visual Studio's 'C++ CMake tools for Windows'" }
-if (-not ((Find-Program 'python3' @()) -or (Find-Program 'python' @()) -or (Find-Program 'py' @()))) {
-    Die 'need Python 3 (the LLVM runtimes build runs it): python.org, winget install Python.Python.3, or your package manager'
-}
-if (-not (Test-Path -LiteralPath (Join-Path $Src 'runtimes/CMakeLists.txt'))) {
-    Die "no LLVM runtimes source at $Src (it ships in the release archive)"
+# The fast path copies; only a full build compiles, so only it asks for these.
+if ($NeedBuild) {
+    $vsCMake = if ($VS) { Join-Path $VS 'Common7\IDE\CommonExtensions\Microsoft\CMake' } else { '' }
+    $CMake = Find-Program 'cmake' @($(if ($vsCMake) { Join-Path $vsCMake 'CMake\bin\cmake.exe' }))
+    $Ninja = Find-Program 'ninja' @($(if ($vsCMake) { Join-Path $vsCMake 'Ninja\ninja.exe' }))
+    if (-not $CMake) { Die "need cmake (3.20+) for the full build: on PATH, or Visual Studio's 'C++ CMake tools for Windows'" }
+    if (-not $Ninja) { Die "need ninja for the full build: on PATH, or Visual Studio's 'C++ CMake tools for Windows'" }
+    if (-not ((Find-Program 'python3' @()) -or (Find-Program 'python' @()) -or (Find-Program 'py' @()))) {
+        Die 'need Python 3 for the full build (the LLVM runtimes build runs it): python.org, winget install Python.Python.3, or your package manager'
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $Src 'runtimes/CMakeLists.txt'))) {
+        Die "no LLVM runtimes source at $Src (it ships in the release archive)"
+    }
 }
 
 $Stage = Env 'OUT' (Join-Path $Kairo 'sysroot')
@@ -509,7 +629,9 @@ function Stage-Msvc([string]$xa, [string]$ms, [string]$dst) {
 # banner (kcc's is its own), so it would not add one for .S files.
 function Cc-Flags([string]$dst, [string]$triple) {
     $m = Join-Path $dst 'msvc'
-    $f = @("--target=$triple", "--sysroot=$NoRoot", '-fms-runtime-lib=static')
+    # -ffile-prefix-map: the builtins embed __FILE__, and a shipped overlay must
+    # not carry the build machine's paths.
+    $f = @("--target=$triple", "--sysroot=$NoRoot", '-fms-runtime-lib=static', "-ffile-prefix-map=$(Fwd $Src)=kairo-runtimes")
     foreach ($d in 'crt/include', 'sdk/include/ucrt', 'sdk/include/um', 'sdk/include/shared') {
         $f += @('-idirafter', (Join-Path $m $d))
     }
@@ -532,10 +654,13 @@ function Configure-Build([string]$label, [string]$b, [string]$source, [hashtable
     Run "[$label] build" $Ninja @('-C', $b, '-j', "$Jobs", 'install') (Join-Path $b 'build.log')
 }
 
-function Build-Runtimes([string]$triple, [string]$dst, [string]$rtarch) {
+# The full build writes the second layer into its own directory (the overlay,
+# $dst), never straight into the root: the fast path then installs a shipped
+# overlay with the very same copy, so the two paths cannot drift apart.
+function Build-Runtimes([string]$triple, [string]$root, [string]$rtarch, [string]$dst) {
     $out = Join-Path $Work "$triple-out"
     if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
-    $flags = (Cc-Flags $dst $triple | ForEach-Object { if ($_ -match ' ') { '"' + (Fwd $_) + '"' } else { Fwd $_ } }) -join ' '
+    $flags = (Cc-Flags $root $triple | ForEach-Object { if ($_ -match ' ') { '"' + (Fwd $_) + '"' } else { Fwd $_ } }) -join ' '
     # kcc is a GNU-style driver, so CMake drives it like clang targeting MSVC
     # (Windows-Clang, GNU front end). try_compile stays compile-only: there is
     # no libc++ or builtins to link until this build makes them. Nothing here
@@ -583,11 +708,14 @@ function Build-Runtimes([string]$triple, [string]$dst, [string]$rtarch) {
     Copy-Item -LiteralPath $cxx.FullName -Destination (Join-Path $dst 'lib/libc++.lib')
     $rtLib = Join-Path $dst "compiler-rt/lib/windows/clang_rt.builtins-$rtarch.lib"
     Copy-Item -LiteralPath $rt.FullName -Destination $rtLib
-    Add-TfCompareAliases $triple $dst $rtLib $b
+    Add-TfCompareAliases $triple $root $rtLib $b
     Probe-Builtins $triple $rtLib $b @('__addtf3', '__trunctfbf2', '__truncsfbf2', '__eqtf2', '__netf2', '__lttf2', '__gttf2', '__cmptf2')
-    if (-not (Select-String -LiteralPath (Join-Path $dst 'include/c++/v1/__config_site') -Pattern '_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS' -Quiet)) {
-        Die "[$triple] __config_site is not static-only (would import __imp_ symbols)"
-    }
+}
+
+# The overlay's three trees into a root that holds only msvc/ so far, so each
+# target is new: Copy-Item -Recurse into an existing directory would nest it.
+function Copy-Overlay([string]$ov, [string]$root) {
+    foreach ($d in 'include', 'lib', 'compiler-rt') { Copy-Tree (Join-Path $ov $d) (Join-Path $root $d) }
 }
 
 # comparetf2.c makes __eqtf2, __lttf2, __netf2, __gttf2 and __cmptf2 aliases of
@@ -619,7 +747,11 @@ function Add-TfCompareAliases([string]$triple, [string]$dst, [string]$lib, [stri
         "-I$(Join-Path $Src 'compiler-rt/lib/builtins')", '-c', $srcFile, '-o', $obj)
     Run "[$triple] tf_compare_aliases.c" $KCC $argv (Join-Path $w 'compile.log')
     $merged = Join-Path $w 'merged.lib'
-    Run "[$triple] llvm-lib merge" $LLVM_LIB @('/nologo', "/out:$merged", $lib, $obj) (Join-Path $w 'lib.log')
+    # From inside $w: llvm-lib names a member by the path it was given, and a
+    # shipped overlay must not carry the build machine's paths.
+    Push-Location -LiteralPath $w
+    try { Run "[$triple] llvm-lib merge" $LLVM_LIB @('/nologo', '/out:merged.lib', $lib, 'tf_compare_aliases.obj') (Join-Path $w 'lib.log') }
+    finally { Pop-Location }
     Move-Item -LiteralPath $merged -Destination $lib -Force
 }
 
@@ -683,10 +815,11 @@ function Validate([string]$name, [string]$r) {
     Write-Host "   validated: kcc linked a C++ program from SYSROOT.toml ($(Join-Path $t 't.exe'))"
 }
 
-$arches = if ($args.Count) { $args } else { @('x86_64', 'aarch64', 'i686') }
 Write-Host ">> install: $Kairo"
-$rev = Get-Content -LiteralPath (Join-Path $Src 'REVISION') -TotalCount 1 -ErrorAction SilentlyContinue
-Write-Host ">> runtimes source: $Src (rev $(if ($rev) { $rev } else { 'unknown' }))"
+if ($NeedBuild) {
+    $rev = Get-Content -LiteralPath (Join-Path $Src 'REVISION') -TotalCount 1 -ErrorAction SilentlyContinue
+    Write-Host ">> runtimes source: $Src (rev $(if ($rev) { $rev } else { 'unknown' }))"
+}
 Write-Host ">> CRT + SDK: $From"
 $name = 'x86_64-windows-msvc'
 foreach ($a in $arches) {
@@ -698,7 +831,7 @@ foreach ($a in $arches) {
     }
     $triple = "$arch-pc-windows-msvc"
     $name = "$arch-windows-msvc"
-    $dst = Join-Path $Stage $name
+    $dst = if ($OverlayOut) { Join-Path $Work $name } else { Join-Path $Stage $name }
     Write-Host ">> [$name] staging -> $dst"
     # Assembled under WORK and moved into place only when complete: kcc picks
     # up <install>/sysroot/<name> by itself (ahead of --sysroot), so neither an
@@ -707,11 +840,34 @@ foreach ($a in $arches) {
     foreach ($p in $dst, $root) { if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force } }
     New-Item -ItemType Directory -Force -Path $root, $NoRoot, $Stage | Out-Null
     Stage-Msvc $xa $ms $root
-    Build-Runtimes $triple $root $rtarch
+    if (Use-Overlay $arch) {
+        $ov = Join-Path $Overlays "msvc-$arch"
+        $orev = Get-Content -LiteralPath (Join-Path $Overlays 'REVISION') -TotalCount 1 -ErrorAction SilentlyContinue
+        Write-Host ">> [$name] prebuilt libc++ + builtins: $ov (rev $(if ($orev) { $orev } else { 'unknown' }))"
+    } else {
+        $ov = Join-Path $Work "overlay-$arch"
+        if (Test-Path -LiteralPath $ov) { Remove-Item -LiteralPath $ov -Recurse -Force }
+        New-Item -ItemType Directory -Force -Path $ov | Out-Null
+        Build-Runtimes $triple $root $rtarch $ov
+    }
+    Copy-Overlay $ov $root
+    if (-not (Select-String -LiteralPath (Join-Path $root 'include/c++/v1/__config_site') -Pattern '_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS' -Quiet)) {
+        Die "[$name] __config_site is not static-only (would import __imp_ symbols)"
+    }
     Write-Toml $name $xa (Join-Path $root 'SYSROOT.toml')
     try { Move-Item -LiteralPath $root -Destination $dst }
     catch { Copy-Tree $root $dst; Remove-Item -LiteralPath $root -Recurse -Force }   # across volumes
     Validate $name $dst
+    if ($OverlayOut) {
+        # Only the second layer leaves WORK; the CRT/SDK-bearing root is scratch.
+        $o = Join-Path $OverlayOut "msvc-$arch"
+        if (Test-Path -LiteralPath $o) { Remove-Item -LiteralPath $o -Recurse -Force }
+        New-Item -ItemType Directory -Force -Path $o | Out-Null
+        Copy-Overlay $ov $o
+        Remove-Item -LiteralPath $dst -Recurse -Force
+        Write-Host ">> [$name] overlay written: $o"
+        continue
+    }
     $size = (Get-ChildItem -LiteralPath $dst -Recurse -File | Measure-Object -Property Length -Sum).Sum
     Write-Host (">> [$name] staged ({0:N0} MiB)" -f ($size / 1MB))
 }
