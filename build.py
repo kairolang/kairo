@@ -236,13 +236,8 @@ STAGED = {"kairo", "kcc", "kld", "kfmt", "ksys"}
 
 # --- LLVM linkage (build.k llvm_static_components / clang_static_components) -
 
+LLVM_STATIC_CORE = "Core Support Demangle Target TargetParser".split()
 LLVM_STATIC = """
-Core Support Demangle Target TargetParser
-X86CodeGen X86AsmParser X86Desc X86Disassembler X86Info X86TargetMCA
-AArch64CodeGen AArch64AsmParser AArch64Desc AArch64Disassembler AArch64Info AArch64Utils
-WebAssemblyCodeGen WebAssemblyAsmParser WebAssemblyDesc WebAssemblyDisassembler WebAssemblyInfo WebAssemblyUtils
-ARMCodeGen ARMAsmParser ARMDesc ARMDisassembler ARMInfo ARMUtils
-RISCVCodeGen RISCVAsmParser RISCVDesc RISCVDisassembler RISCVInfo RISCVTargetMCA
 CodeGen CodeGenTypes AsmPrinter SelectionDAG GlobalISel MCA
 ScalarOpts InstCombine AggressiveInstCombine TransformUtils Vectorize SandboxIR
 Analysis ProfileData ipo Passes Plugins Linker CGData
@@ -267,6 +262,35 @@ StaticAnalyzerCore StaticAnalyzerCheckers StaticAnalyzerFrontend
 Format ToolingCore ToolingInclusions ToolingInclusionsStdlib ToolingRefactoring ToolingASTDiff
 ToolingSyntax Transformer Tooling DependencyScanning DirectoryWatcher Support
 """.split()
+# Every component library a backend can have (lib/Target/<T>/**/CMakeLists.txt): not every
+# backend has every one (NVPTX and SPIRV have no AsmParser or Disassembler; Utils,
+# TargetMCA and SPIRV's Analysis are per target).
+TARGET_COMPONENTS = ["CodeGen", "AsmParser", "Desc", "Disassembler", "Info", "Utils", "TargetMCA", "Analysis"]
+
+
+def llvm_static_libs(llvm_build: Path) -> list:
+    """The LLVM archives a static link names: the core, each built backend's components,
+    then the rest. The backends are read from the build's own Targets.def, the list
+    InitializeAllTargets() and friends expand at compile time, so a link names exactly the
+    backends its headers register (Scripts/build_llvm.py TARGETS, or LLVM_TARGETS for a
+    narrower build): a hardcoded list left every backend added to the build an undefined
+    LLVMInitialize<T>* on the static (Windows, cross) links. A component the backend does
+    not have is skipped by its absence from lib/."""
+    defs = llvm_build / "include" / "llvm" / "Config" / "Targets.def"
+    if not defs.is_file():
+        die(f"{defs} is missing; is {llvm_build} a configured LLVM build?")
+    lib = llvm_build / "lib"
+    targets = re.findall(r"^LLVM_TARGET\((\w+)\)", defs.read_text(), re.M)
+    have = {f.name for f in lib.iterdir()} if lib.is_dir() else set()
+    out = []
+    for t in targets:
+        for c in TARGET_COMPONENTS:
+            n = f"LLVM{t}{c}"
+            if f"lib{n}.a" in have or f"{n}.lib" in have:
+                out.append(f"{t}{c}")
+    return LLVM_STATIC_CORE + out + LLVM_STATIC
+
+
 WINDOWS_SYSTEM_LIBS = ["version", "advapi32", "shell32", "ole32", "uuid", "ntdll",
                        "ws2_32", "psapi", "onecore", "zstd", "zlib"]
 # LLD is not in llvm-config: a fixed bundle (the lldCommon <-> flavor cycle is the
@@ -293,7 +317,7 @@ def llvm_args(llvm_src: Path, llvm_build: Path, out_lib: Path, os_: str) -> list
             a += ["--cxx-define", d]
         for l in CLANG_STATIC:
             a += ["-l", f"static:clang{l}"]
-        for l in LLVM_STATIC:
+        for l in llvm_static_libs(llvm_build):
             a += ["-l", f"static:LLVM{l}"]
         for l in WINDOWS_SYSTEM_LIBS:
             a += ["-l", l]
@@ -370,7 +394,7 @@ def cross_llvm_args(llvm_src: Path, target: str) -> list:
         a += ["-l", f"static:{l}"]
     for l in CLANG_STATIC:
         a += ["-l", f"static:clang{l}"]
-    for l in LLVM_STATIC:
+    for l in llvm_static_libs(llvm_build):
         a += ["-l", f"static:LLVM{l}"]
     a += ["-l", "static:zstd", "-l", "static:z"]
     if tos == "linux":

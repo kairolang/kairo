@@ -30,12 +30,18 @@ import os
 import shutil
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+# One backend list for every LLVM we build: the host build and each cross host must
+# agree, or a tree for one host refuses a --target another accepts.
+from build_llvm import EXPERIMENTAL_TARGETS, TARGETS  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 HOST_TRIPLE = "x86_64-linux-gnu"
 NATIVE_BIN = ROOT / "build" / "llvm" / "bin"
-TARGETS = "X86;AArch64;ARM;RISCV;WebAssembly"   # as build_llvm.py
 
 def find_kcc() -> Path:
     """The kcc that builds LLVM: the SEED's (build.py find_seed: build/<host>/N-1, else
@@ -205,6 +211,7 @@ def build_llvm(triple: str, out: Path, kcc: Path, march: list, jobs: int, link_j
     args = [
         "-DLLVM_ENABLE_PROJECTS=clang;lld",
         f"-DLLVM_TARGETS_TO_BUILD={TARGETS}",
+        f"-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD={EXPERIMENTAL_TARGETS}",
         f"-DLLVM_HOST_TRIPLE={triple}",
         f"-DLLVM_DEFAULT_TARGET_TRIPLE={triple}",
         "-DLLVM_ENABLE_RTTI=ON", "-DLLVM_ENABLE_EH=ON",
@@ -262,9 +269,16 @@ def main() -> None:
                                   "build/<host>/release/bin, else PATH)")
     ap.add_argument("--march", help="override the CPU floor flags, e.g. '-march=x86-64-v3'")
     ap.add_argument("--step", choices=["all", "deps", "llvm"], default="all")
-    ap.add_argument("-j", "--jobs", type=int, default=os.cpu_count() or 8)
-    ap.add_argument("--link-jobs", type=int, default=2,
-                    help="concurrent links; each ThinLTO link is itself multi-threaded and large")
+    ap.add_argument("-j", "--jobs", type=int, default=os.cpu_count() or 8,
+                    help="the TOTAL job budget; with --parallel N each build gets jobs/N")
+    ap.add_argument("--link-jobs", type=int, default=None,
+                    help="concurrent links per build (default 2, or 1 with --parallel > 1); each "
+                         "ThinLTO link is itself multi-threaded and large")
+    ap.add_argument("--parallel", type=int, default=3, metavar="N",
+                    help="build up to N triples at once, splitting -j between them (default 3); "
+                         "1 builds them in order, as before")
+    ap.add_argument("--log-dir", default=str(ROOT / "build" / "cross-llvm" / "logs"),
+                    help="with --parallel > 1: one <triple>.log per build here")
     a = ap.parse_args()
     real = Path(os.path.abspath(a.kcc)) if a.kcc else Path(os.path.abspath(find_kcc()))
     if not real.exists():
@@ -280,17 +294,61 @@ def main() -> None:
             kcc.unlink()
         kcc.symlink_to(real)
     log(f"kcc: {real}")
-    for t in [a.triple] + a.triples:
+    triples = list(dict.fromkeys([a.triple] + a.triples))
+    for t in triples:
         if t not in FAMILIES:
             die(f"unknown triple {t} (known: {', '.join(FAMILIES)})")
+    n = max(1, min(a.parallel, len(triples)))
+    if n > 1:
+        run_parallel(triples, n, a, real)
+        return
+    link_jobs = a.link_jobs if a.link_jobs is not None else 2
+    for t in triples:
         march = a.march.split() if a.march else FAMILIES[t][2]
         out = ROOT / "build" / "cross-llvm" / t
         out.mkdir(parents=True, exist_ok=True)
-        log(f"{t}: kcc {kcc}, floor {' '.join(march) or '(sysroot default)'}, -j{a.jobs}, link jobs {a.link_jobs}")
+        log(f"{t}: kcc {kcc}, floor {' '.join(march) or '(sysroot default)'}, -j{a.jobs}, link jobs {link_jobs}")
         if a.step in ("all", "deps"):
             build_deps(t, out, kcc, march, a.jobs)
         if a.step in ("all", "llvm"):
-            build_llvm(t, out, kcc, march, a.jobs, a.link_jobs)
+            build_llvm(t, out, kcc, march, a.jobs, link_jobs)
+
+
+def run_parallel(triples: list, n: int, a, kcc: Path) -> None:
+    """N builds at once, each a child run of this script for one triple with jobs/N
+    compile jobs. The budget is split, not multiplied: three -j24 ninjas on 24 threads
+    thrash, and three ThinLTO links at full width are what exhausts RAM. Links default
+    to one per build here for the same reason. Each child writes its own log, so a
+    failure names its triple and the others keep going; the run fails at the end if
+    any did."""
+    jobs = max(1, a.jobs // n)
+    link_jobs = a.link_jobs if a.link_jobs is not None else 1
+    logs = Path(a.log_dir)
+    logs.mkdir(parents=True, exist_ok=True)
+    log(f"{len(triples)} builds, {n} at a time, -j{jobs} and {link_jobs} link job(s) each; logs in {logs}")
+
+    def one(t: str):
+        argv = [sys.executable, str(Path(__file__).resolve()), t, "--parallel", "1", "--kcc", str(kcc),
+                "--step", a.step, "-j", str(jobs), "--link-jobs", str(link_jobs)]
+        if a.march:
+            argv.append(f"--march={a.march}")
+        logfile = logs / f"{t}.log"
+        log(f"{t}: started (log {logfile})")
+        t0 = time.monotonic()
+        with open(logfile, "w") as f:
+            rc = subprocess.run(argv, stdout=f, stderr=subprocess.STDOUT).returncode
+        secs = time.monotonic() - t0
+        log(f"{t}: {'done' if rc == 0 else f'FAILED ({rc})'} in {secs / 60:.1f} min")
+        return t, rc, secs
+
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        results = list(pool.map(one, triples))
+    log("summary:")
+    for t, rc, secs in results:
+        log(f"  {t:28} {'ok' if rc == 0 else f'FAILED ({rc})':12} {secs / 60:6.1f} min")
+    failed = [t for t, rc, _ in results if rc != 0]
+    if failed:
+        die(f"{len(failed)} build(s) failed: {', '.join(failed)} (logs in {logs})")
 
 
 if __name__ == "__main__":

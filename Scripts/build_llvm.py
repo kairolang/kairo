@@ -131,7 +131,14 @@ ROOT      = Path(getenv("KBLD_ROOT", str(Path(__file__).resolve().parent.parent)
 BUILD_DIR = Path(getenv("KBLD_BUILD_DIR", str(ROOT / "build")))
 MODE      = getenv("KBLD_MODE", "release")
 JOBS      = cpu_count()
-TARGETS   = getenv("LLVM_TARGETS", "X86;AArch64;ARM;RISCV;WebAssembly")
+# The backends every LLVM we build carries: this host build and every cross host
+# (Scripts/cross_llvm.py imports both values; build.py derives its static link list from
+# the configured Targets.def). Widened 2026-11-09 to every target a kcc user might name:
+# the toolchain is one compiler for every target, so a missing backend is a refused
+# --target, not a smaller download. Xtensa is still experimental in the fork (LLVM 22).
+TARGETS   = getenv("LLVM_TARGETS", "X86;AArch64;ARM;RISCV;WebAssembly;PowerPC;SystemZ;Mips;"
+                                   "LoongArch;Sparc;AVR;MSP430;BPF;NVPTX;AMDGPU;SPIRV")
+EXPERIMENTAL_TARGETS = getenv("LLVM_EXPERIMENTAL_TARGETS", "Xtensa")
 
 LLVM_SRC   = ROOT / "Lib" / "llvm-runtimes"
 LLVM_BUILD = BUILD_DIR / "llvm"
@@ -168,6 +175,7 @@ COMMON_ARGS = [
     "-DCMAKE_BUILD_TYPE=Release",
     "-DLLVM_ENABLE_PROJECTS=clang;lld",
     f"-DLLVM_TARGETS_TO_BUILD={TARGETS}",
+    f"-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD={EXPERIMENTAL_TARGETS}",
     "-DLLVM_ENABLE_RTTI=ON",
     "-DLLVM_ENABLE_EH=ON",
     "-DLLVM_INCLUDE_TESTS=OFF",
@@ -676,7 +684,7 @@ def main() -> None:
     log(f"out_lib:     {OUT_LIB}")
     log(f"jobs:        {JOBS}")
     log(f"link_jobs:   {LINK_JOBS}")
-    log(f"targets:     {TARGETS}")
+    log(f"targets:     {TARGETS} (+ experimental {EXPERIMENTAL_TARGETS or 'none'})")
 
     if not a.dry_run and not (LLVM_SRC / "llvm" / "CMakeLists.txt").is_file():
         die("Lib/llvm-runtimes is not checked out.\n"
@@ -729,14 +737,16 @@ def main() -> None:
 
     # The test suite disassembles and lists symbols with llvm-objdump and
     # llvm-nm on every host (their flags are not GNU binutils'), and
-    # LLVM_BUILD_TOOLS=OFF leaves them out of `all`. Build just those, and
-    # only when missing, so an up-to-date tree pays nothing.
+    # LLVM_BUILD_TOOLS=OFF leaves them out of `all`; CLANG_BUILD_TOOLS=OFF does
+    # the same to the clang driver the staged tree ships. Name them to ninja on
+    # every run, not only when missing: they compile InitializeAllTargets() in
+    # from Targets.def, so a "built once" check left them registering the old
+    # backend list after a target was added (2026-11-09, P660). ninja makes an
+    # up-to-date tool a no-op.
     def build_test_tools():
-        exe = ".exe" if HOST == "Windows" else ""
-        want = [t for t in TEST_TOOLS if not (LLVM_BUILD / "bin" / (t + exe)).is_file()]
-        if want:
-            log(f"building test tools: {' '.join(want)}")
-            run([tools["ninja"], "-C", str(LLVM_BUILD), f"-j{JOBS}", *want], env, None)
+        want = ["clang", *TEST_TOOLS]
+        log(f"building tools outside `all`: {' '.join(want)}")
+        run([tools["ninja"], "-C", str(LLVM_BUILD), f"-j{JOBS}", *want], env, None)
 
     stamp = STAMP.read_text().strip() if STAMP.is_file() else None
     built = MARKER.is_file()
