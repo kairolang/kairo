@@ -1205,8 +1205,11 @@ pub class TypeImport {
                 return self.store->builtin(BuiltinKind::F64)
             }
 
-            if bits == 128 {
-                // x86: 80-bit extended padded to 16 bytes. PPC double-double
+            // i386 stores x87 extended in 12 bytes, x86_64 in 16: without the
+            // 96 case `long double` imported opaque on i686 and every f80 call
+            // into C (fmt_buf.k's kairo_rt_fmt_f80) failed overload (P742).
+            if bits == 96 || bits == 128 {
+                // x86: 80-bit extended padded to 12 or 16 bytes. PPC double-double
                 // and true binary128 also report 128; ask the format.
                 var *fmt = &self.cctx->getFloatTypeSemantics(clang::QualType(bt, 0))
                 if fmt == &llvm::APFloat::x87DoubleExtended() {
