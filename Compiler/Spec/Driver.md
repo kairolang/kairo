@@ -233,6 +233,7 @@ A staged tree ([BuildSystem.md](BuildSystem.md#staged-trees)) runs with no root 
 | standard library | `<prefix>/lib/std` | `--std-dir` |
 | bundled sysroots | `<prefix>/sysroot/<triple>` | `--sysroot` |
 | out-of-process linker | `<prefix>/bin/kld[.exe]` | |
+| sysroot generator inputs | `<prefix>/share/kairo/sysroot` | `$KAIRO_SYSROOT_SHARE` |
 
 ### Root discovery
 
@@ -249,6 +250,7 @@ The sysroot is chosen by `_use_bundled_sysroot`:
 - `--native`: the host is the sysroot (`/`); the bundle for the host's C library still supplies libc++ and compiler-rt.
 - `--target`, or no `--sysroot`: `<prefix>/sysroot/<triple>`, or the one directory there naming the same target in another spelling (same arch, sub-arch, OS and environment). A bundle that is not a directory, lacks `SYSROOT.toml`, or has a malformed one is P007E.
 - `--sysroot` without `--target`: that directory, as given.
+- `--target` with no bundle and no `--sysroot`: the sysroot generator's cache, then its `ensure` in-process (`_sysroot_from_generator`; [SysRoot.md](SysRoot.md#8-cli-and-driver-hook)). A refusal is P009E and exit 2; `--no-sysroot-build` makes the missing root that refusal instead of a build. Without a share tree to build from, the run keeps the P008W below.
 
 `_check_sysroot` then reports P008W when no sysroot was found or the given one is not a directory, unless `--freestanding` asked for none or `--macos-sdk` stands in for one.
 

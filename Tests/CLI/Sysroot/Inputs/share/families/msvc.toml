@@ -1,0 +1,6 @@
+family       = "msvc"
+provider     = "user"
+arches       = ["x86_64", "i686", "aarch64"]
+clang_triple = "{arch}-pc-windows-msvc"
+inputs       = []
+runtimes     = []

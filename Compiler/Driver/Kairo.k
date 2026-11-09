@@ -202,7 +202,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     /// # Validate CLI args
     if !ci->args_ok() {
         ci->flush_errors()
-        return 1
+        return ci->failure_status()
     }
 
     // Before anything reads the current directory: initialize() takes

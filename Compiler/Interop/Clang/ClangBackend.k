@@ -101,7 +101,11 @@ const NATIVE_GROUP: u8 = 13
 
 
 pub struct ClangBackendConfig {
-    pub var triple:       string ///< effective target triple
+    pub var triple: string ///< effective target triple
+    /// SYSROOT.toml's clang_triple: what clang is handed for this sysroot,
+    /// so the driver no longer derives it. "" (an older root, no root)
+    /// keeps FlagTranslator::clang_triple.
+    pub var clang_triple: string
     pub var resource_dir: string ///< clang resource dir ("" = skip)
     pub var sysroot:      string ///< sysroot dir ("" = host headers): -isysroot
     /// Header roots a SYSROOT.toml declares (or an Apple SDK implies), already
@@ -705,7 +709,7 @@ pub class ClangBackend {
         var dargv: cxx::std::vector<kairo::std::ConstPtr<c_char>>
         var words                                                 = cxx::std::vector<string>()
         words.push_back("clang")
-        words.push_back("--target=" + FlagTranslator::clang_triple(self._cfg.triple))
+        words.push_back("--target=" + self._clang_triple())
         words.push_back(f"-std={self._cfg.cxx_std}")
         for *w in self._cfg.driver_words {
             words.push_back(*w)
@@ -901,6 +905,23 @@ pub class ClangBackend {
         return self._cfg.triple
     }
 
+    /// The sysroot's clang_triple, "" when its SYSROOT.toml has none.
+    pub fn sysroot_clang_triple(self) -> string {
+        return self._cfg.clang_triple
+    }
+
+    /// The triple clang's words carry: the sysroot's own clang_triple when
+    /// it names one, else derived from the build's triple. The sysroot's
+    /// spelling still goes through FlagTranslator::clang_triple: its
+    /// wasm32-unknown-wasi names the compiler-rt dir, and clang wants wasip1.
+    priv fn _clang_triple(self) -> string {
+        if !self._cfg.clang_triple.empty() {
+            return FlagTranslator::clang_triple(self._cfg.clang_triple)
+        }
+
+        return FlagTranslator::clang_triple(self._cfg.triple)
+    }
+
     /// Whether host env search paths are dropped from driver lines.
     fn strip_env(self) -> bool {
         return self._cfg.strip_env
@@ -933,7 +954,7 @@ pub class ClangBackend {
                         is_c:    bool,
                         kairo_v: bool) {
         self._arg(&*argv, "-triple")
-        self._arg(&*argv, FlagTranslator::clang_triple(self._cfg.triple))
+        self._arg(&*argv, self._clang_triple())
         for var a: string in self._driver_target_args() {
             self._arg(&*argv, a)
         }

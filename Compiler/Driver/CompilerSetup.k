@@ -56,7 +56,17 @@ import Diagnostic::Registry::DiagID
 import Driver::CompilerInstance::CompilerInstance
 import Interop::Clang::ClangBackend::ClangBackendConfig
 import Support::FileIO::Path::Path
+import Sysroot::Cache::SysCache
+import Sysroot::Generator::SysGen
+import Sysroot::Names::{
+    SysNames,
+    SysTarget,
+    glibc_default_version,
+}
+import Sysroot::Outcome::SysOutcome
+import Sysroot::Share::ShareTree
 import std::env
+import std::io
 
 extend CompilerInstance {
     /// # Identity actions
@@ -161,6 +171,8 @@ extend CompilerInstance {
             for *d in m.cc_defines {
                 bcfg.defines.push_back(*d)
             }
+
+            bcfg.clang_triple = m.clang_triple
         } else if darwin {
             dirs.push_back(LinkText::join(sr, "usr/include/c++/v1"))
             dirs.push_back(LinkText::join(sr, "usr/include"))
@@ -233,7 +245,7 @@ extend CompilerInstance {
 
         var dir = self._bundled_sysroot_dir(want)
         if dir.empty() {
-            return true
+            return self._sysroot_from_generator(want)
         }
 
         var why   = ""
@@ -260,6 +272,110 @@ extend CompilerInstance {
 
         tg->sysroot = dir
         return true
+    }
+
+    /// SysRoot.md section 8, steps 2 and 3, for a --target with no bundled
+    /// sysroot: the generator's cache (<cache>/by-name/<name>), then `ksys
+    /// ensure`, in-process, as the linker library is called rather than kld.
+    ///
+    /// Only for an explicit --target with no --sysroot: an explicit
+    /// --sysroot outranks anything built, and an implicit target is the
+    /// host's, which the bundle covers. Not under --freestanding or
+    /// --macos-sdk (no root wanted, or one given), and not for Apple / MSVC
+    /// targets on hosts without their SDK: those stay _check_sysroot's
+    /// P008E, which names the scripts that build them. The build itself is
+    /// skipped for --help, --version and the info queries, which must not
+    /// spend minutes on a root they never read.
+    ///
+    /// No share tree (a development tree, or a toolchain that ships no
+    /// inputs) keeps today's P008W: there is nothing to build from, and the
+    /// warning already says to pass --sysroot. --no-sysroot-build makes
+    /// the missing root a refusal either way.
+    ///
+    /// \return false on a refusal or failure (reported; _sysroot_status set).
+    priv fn _sysroot_from_generator(self, const want: string) -> bool {
+        var *inv = self.invocation()
+        var *tg  = &inv->target
+        if tg->triple.empty() || !tg->sysroot.empty() {
+            return true
+        }
+
+        if inv->lang.freestanding || inv->linker.freestanding || !inv->linker.macos_sdk.empty() {
+            return true
+        }
+
+        if self._unshipped_sdk(want) {
+            return true
+        }
+
+        var tgt   = SysTarget{}
+        var cands = cxx::std::vector<string>()
+        var why   = ""
+        var name  = want
+        if SysNames::parse(want, glibc_default_version(), &tgt, &cands, &why) {
+            name = tgt.name
+        }
+
+        var cache  = SysCache(SysCache::default_root())
+        var cached = if (cache.root.empty()) => ("") else => cache.lookup(name)
+        if !cached.empty() && LinkFS::is_file(LinkText::join(cached, "SYSROOT.toml")) {
+            tg->sysroot = cached
+            return true
+        }
+
+        if inv->args.get_bool("no-sysroot-build") {
+            self._diag->report(
+                DiagID::P009E,
+                f"no sysroot for target \x27{want}\x27: none is installed or cached, and --no-sysroot-build forbids building one",
+            ).emit()
+            self._diag->report(
+                DiagID::P009N,
+                "pass --sysroot=<dir>, or drop --no-sysroot-build to let ksys build it",
+            ).emit()
+            self._sysroot_status = 2
+            return false
+        }
+
+        if !ShareTree::present(ShareTree::locate("")) {
+            return true
+        }
+
+        if self.wants_help()
+            || self.wants_version()
+            || self.wants_explain()
+            || self.wants_info_query() {
+            return true
+        }
+
+        io::eprintln(f"building sysroot for {name}, first time only")
+        var gen  = SysGen()
+        var path = ""
+        var o    = SysOutcome()
+        if gen.ensure(want, &path, &o) {
+            tg->sysroot = path
+            return true
+        }
+
+        var id = if (o.status == 3) => (DiagID::P010E) else => DiagID::P009E
+        self._diag->report(id, o.message).emit()
+        if !o.note.empty() {
+            self._diag->report(DiagID::P009N, o.note).emit()
+        }
+
+        self._sysroot_status = o.status
+        return false
+    }
+
+    /// An Apple or MSVC target on a host that does not have its SDK: never
+    /// shipped, never generated without --input (SysRoot.md section 12).
+    priv fn _unshipped_sdk(self, const want: string) -> bool {
+        var want_tri = llvm::Triple(llvm::Triple::normalize(kairo::sref(want)))
+        var host_tri = llvm::Triple(
+            llvm::Triple::normalize(kairo::sref(self.get_default_target_triple())),
+        )
+
+        return want_tri.isOSDarwin() && !host_tri.isOSDarwin()
+            || want_tri.isWindowsMSVCEnvironment() && !host_tri.isOSWindows()
     }
 
     /// The triple whose bundled sysroot this run looks up: --target, else
@@ -764,20 +880,20 @@ extend CompilerInstance {
                 want = self._effective_triple()
             }
 
-            var root     = LinkText::join(CompilerInstance::_toolchain_prefix(), "sysroot")
-            var want_tri = llvm::Triple(llvm::Triple::normalize(kairo::sref(want)))
-            var host_tri = llvm::Triple(
-                llvm::Triple::normalize(kairo::sref(self.get_default_target_triple())),
-            )
-
-            var unshipped = want_tri.isOSDarwin() && !host_tri.isOSDarwin()
-                || want_tri.isWindowsMSVCEnvironment() && !host_tri.isOSWindows()
-            if unshipped {
+            var root = LinkText::join(CompilerInstance::_toolchain_prefix(), "sysroot")
+            if self._unshipped_sdk(want) {
+                var want_tri = llvm::Triple(llvm::Triple::normalize(kairo::sref(want)))
+                var script = if (want_tri.isOSDarwin()) => ("darwin-sysroot.sh")
+                             else => "msvc-sysroot.sh"
+                var scripts = LinkText::join(CompilerInstance::_toolchain_prefix(), "scripts")
                 self._diag->report(
                     DiagID::P008E,
                     f"no sysroot for target '{want}': its SDK is never shipped with the compiler",
                 ).emit()
-                self._diag->report(DiagID::P008N, note).emit()
+                self._diag->report(
+                    DiagID::P008N,
+                    f"{note}; or build one from your own SDK with {scripts}/{script}",
+                ).emit()
                 return false
             }
 

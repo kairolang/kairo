@@ -229,3 +229,54 @@ group = "portability"
 
     [P008.N]
     explain = "Says which flag to pass."
+
+[P009]
+brief = "sysroot generator refused to build"
+group = "target"
+
+    [P009.E]
+    explain = """
+    # sysroot generator refused
+
+    `ksys` (and the driver, for a `--target` with no installed or cached sysroot) builds a
+    sysroot from the toolchain's `share/kairo/sysroot` inputs. Before building anything it checks
+    that it can: the target is a sysroot it knows, the inputs are present and match their
+    recorded hashes, the runtimes revision matches the compiler, the LLVM backend is compiled in,
+    and the tools it runs are installed. When one of those does not hold it refuses, with one
+    line saying which, and builds nothing. It never downloads anything.
+
+    `--no-sysroot-build` turns the driver's automatic build into this refusal.
+
+    ## example
+
+    ```
+    kairo --target=riscv32-linux-musl --no-sysroot-build hello.k
+    ```
+
+    ## how to fix
+
+    do what the message says: pass `--sysroot=<dir>`, name a target from `ksys probe`, pass
+    `--input DIR` for an SDK the toolchain cannot ship, or reinstall the toolchain when its
+    inputs do not match it. The exit status is 2.
+    """
+
+    [P009.N]
+    explain = "Says what to do about the refusal."
+
+[P010]
+brief = "sysroot build or validation failed"
+group = "target"
+
+    [P010.E]
+    explain = """
+    # sysroot build failed
+
+    a stage of the sysroot build (or its validation) ran and failed. The message names the
+    stage and the log directory; the failed stage is kept as `<stage dir>.failed` and is retried
+    on the next build. The exit status is 3.
+
+    ## how to fix
+
+    read the log the message names. A failure that repeats with the same inputs is a toolchain
+    bug: report it with that log.
+    """

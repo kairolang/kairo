@@ -1,0 +1,5 @@
+family       = "glibc"
+provider     = "glibc"
+arches       = ["x86_64"]
+inputs       = ["linux-uapi"]
+runtimes     = []

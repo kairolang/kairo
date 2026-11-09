@@ -292,6 +292,14 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     )
 
     cmd->define<FlagKind::Bool>(
+        "print-runtimes-revision",
+        "",
+        "print-runtimes-revision",
+        "print the LLVM runtimes revision this compiler was built from (share/kairo/runtimes/REVISION must match) and exit",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
         "print-dirs",
         "",
         "print-dirs",
@@ -434,6 +442,14 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "sysroot",
         "system root for headers and linking; a --target with a bundled <prefix>/sysroot/<target> uses that instead",
         "",
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "no-sysroot-build",
+        "",
+        "no-sysroot-build",
+        "a --target with no installed or cached sysroot is refused (exit 2) instead of built by ksys",
+        false,
     )
 
     cmd->define<FlagKind::String>(

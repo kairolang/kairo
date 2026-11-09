@@ -1173,14 +1173,23 @@ pub class FlagTranslator {
     ///          (glibc, msvc), and the C/C++ objects would not match the
     ///          Kairo objects in the same link. --cxx-flags words go last, so
     ///          they win.
+    ///
+    /// \param clang_tri the sysroot's own clang_triple (SYSROOT.toml), or ""
+    ///        to derive it from \p triple.
     pub static fn to_driver(@inout inv:      CompilerInvocation,
                             const triple:    string,
+                            const clang_tri: string,
                             const lang:      string,
                             missing_plugins: unsafe *cxx::std::vector<string>) -> cxx::std::vector<string> {
         var o   = cxx::std::vector<string>()
         var cgo = inv.codegen
         var tgt = inv.target
-        _fx_push(&o, "--target=" + FlagTranslator::clang_triple(triple))
+        if clang_tri.empty() {
+            _fx_push(&o, "--target=" + FlagTranslator::clang_triple(triple))
+        } else {
+            _fx_push(&o, "--target=" + FlagTranslator::clang_triple(clang_tri))
+        }
+
         for var a: string in FlagTranslator::march_driver(&tgt) {
             _fx_push(&o, a)
         }

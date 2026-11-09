@@ -318,6 +318,14 @@ if os.path.isfile(kcc_bin):
     config.available_features.add("kcc")
     _kcc_x = "".join(" -Xkairo " + _sh(w) for w in ["--error-format=basic", _kairo_threads.strip()] + _shlex.split(kairo_roots))
     config.substitutions.append(("%kcc", _sh(kcc_bin) + _kcc_x))
+# --- ksys ---------------------------------------------------------------------
+# The sysroot generator (Linker/Sysroot/Driver/ksys.k, Compiler/Spec/SysRoot.md):
+# $KSYS_BIN, else the one beside the kairo under test. Tests that use it
+# REQUIRE: ksys.
+ksys_bin = os.environ.get("KSYS_BIN") or os.path.join(os.path.dirname(kairo_bin), "ksys")
+if os.path.isfile(ksys_bin):
+    config.available_features.add("ksys")
+    config.substitutions.append(("%ksys", _sh(ksys_bin)))
 # clang's own test corpus, run through kcc (Tests/CLI/Kcc/ClangCorpus): the
 # fork's clang/test and the bundled clang the preprocessor mode compares with.
 _repo = os.path.dirname(config.test_source_root)

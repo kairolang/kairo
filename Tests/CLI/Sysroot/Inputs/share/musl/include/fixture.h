@@ -1,0 +1,1 @@
+#define FIXTURE 1

@@ -53,6 +53,12 @@ import Interop::Clang::ClangJobs::ClangJobs
 import Support::FileIO::Path::Path
 import Support::ShellQuote::shell_quote
 import Support::TermRenderer::TermRenderer
+import Sysroot::Cache::SysCache
+import Sysroot::Names::{
+    SysNames,
+    SysTarget,
+    glibc_default_version,
+}
 import std::env
 import std::io
 
@@ -99,6 +105,26 @@ extend CompilerInstance {
             var dir = self._bundled_sysroot_dir(want)
             if !dir.empty() {
                 return dir
+            }
+
+            // Then the generator's cache, as the --target hook looks: never
+            // a build, --version only reports.
+            if self.invocation()->target.sysroot.empty() {
+                var tgt   = SysTarget{}
+                var cands = cxx::std::vector<string>()
+                var why   = ""
+                var name  = want
+                if SysNames::parse(want, glibc_default_version(), &tgt, &cands, &why) {
+                    name = tgt.name
+                }
+
+                var cache = SysCache(SysCache::default_root())
+                if !cache.root.empty() {
+                    var cached = cache.lookup(name)
+                    if !cached.empty() {
+                        return cached
+                    }
+                }
             }
         }
 
@@ -458,6 +484,14 @@ extend CompilerInstance {
 
         if self.invocation()->args.get_bool("print-from-clang") {
             return self.print_from_clang()
+        }
+
+        if self.invocation()->args.get_bool("print-runtimes-revision") {
+            io::println(
+                f"{string(unsafe ((kairo::runtimes_revision_string() as unsafe *const u8) as *const u8))}",
+            )
+
+            return 0
         }
 
         if self.invocation()->args.get_bool("print-cfg") {

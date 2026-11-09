@@ -123,6 +123,12 @@ inline constexpr int llvm_version_major() noexcept { return LLVM_VERSION_MAJOR; 
 /// tools could not share one object cache (Compiler/Spec/Incremental.md).
 extern "C" const char *kairo_version_cstr() noexcept;
 inline const char *version_string() noexcept { return kairo_version_cstr(); }
+/// The LLVM fork revision the runtimes come from (build.py
+/// runtimes_revision(), the same string Scripts/package_release.py writes to
+/// share/kairo/runtimes/REVISION). ksys refuses a share tree whose REVISION
+/// differs: its runtimes would not match this compiler's headers and ABI.
+extern "C" const char *kairo_runtimes_revision_cstr() noexcept;
+inline const char *runtimes_revision_string() noexcept { return kairo_runtimes_revision_cstr(); }
 #else
 inline const char *version_string() noexcept {
 #ifdef VERSION
@@ -131,6 +137,7 @@ inline const char *version_string() noexcept {
     return "unknown";
 #endif
 }
+inline const char *runtimes_revision_string() noexcept { return "unknown"; }
 #endif
 
 /// Uses of a header set's clang AST after it was released early

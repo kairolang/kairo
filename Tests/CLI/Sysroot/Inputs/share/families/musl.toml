@@ -1,0 +1,12 @@
+# Fixture recipe (build/sysroot-share/FORMAT.md): only the keys ksys reads in
+# step 3. runtimes = [] so no cmake / ninja and no runtimes input are needed.
+family       = "musl"
+provider     = "musl"
+arches       = ["x86_64", "aarch64", "armv7", "riscv32"]
+triple       = "{arch}-linux-musl"
+clang_triple = "{arch}-unknown-linux-musl"
+inputs       = ["musl", "linux-uapi"]
+runtimes     = []
+
+[per_arch.musl_arch]
+x86_64 = "x86_64"

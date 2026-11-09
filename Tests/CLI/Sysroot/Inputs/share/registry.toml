@@ -1,0 +1,11 @@
+# Fixture registry (FORMAT.md). The hashes are FORMAT.md's tree_sha256 of the
+# dirs beside this file; change a file there and recompute them.
+schema = 1
+
+[inputs]
+"musl"       = "86142f0649e4e8ba9834438fefe73ecb05b5e6d54d33bb552e6dc9b8c9749f70"
+"linux-uapi" = "84522053eeecbd99c37441e2598276279121022d1008fb355df4371f6bc3d65b"
+
+[licenses]
+"musl"       = "MIT"
+"linux-uapi" = "GPL-2.0-only WITH Linux-syscall-note"

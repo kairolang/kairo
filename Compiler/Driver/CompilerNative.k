@@ -315,7 +315,7 @@ extend CompilerInstance {
         // Plugins that do not exist were reported when the backend's
         // configuration was built; here they are only left out.
         var missing = cxx::std::vector<string>()
-        for var a: string in FlagTranslator::to_driver(&*self.invocation(), be->triple(), k.type_name(), unsafe &missing) {
+        for var a: string in FlagTranslator::to_driver(&*self.invocation(), be->triple(), be->sysroot_clang_triple(), k.type_name(), unsafe &missing) {
             w.push_back(a)
         }
 

@@ -1,0 +1,11 @@
+[quirk.armv7-musl-hardfloat]
+match_family   = ["musl"]
+match_arch     = ["armv7"]
+target_rewrite = "{arch}-unknown-linux-musleabihf"
+musl_arch      = "arm"
+
+[quirk.int128-software]
+match_family  = ["musl"]
+match_probe   = ["!int128"]
+cflags_stages = ["builtins"]
+cflags_add    = ["-fforce-enable-int128"]

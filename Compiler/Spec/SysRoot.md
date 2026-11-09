@@ -1,4 +1,4 @@
-# kairo sysroot: on-demand sysroot construction
+# ksys: on-demand sysroot construction
 
 Status: spec, to implement after 0.2.0. Owner: Dhruvan. Revision 2 (2026-11-08): adds section 12 (what 0.2.0 ships before this exists), section 13 (assumptions checked against the tree), section 14 (target table) and section 15 (licensing of generated sysroots).
 
@@ -21,7 +21,9 @@ Style: match surrounding files; comments say why, not what; no AI traces in code
 
 ## 1. What it is
 
-`kairo sysroot` builds a sysroot for a target name from the release's `share/kairo/sysroot/` input tree, with no network, using only kcc, kld, kar and (until phase 2) cmake + ninja. The driver calls it when `--target T` is given without `--sysroot` and no sysroot for T is installed or cached.
+`ksys` builds a sysroot for a target name from the release's `share/kairo/sysroot/` input tree, with no network, using only kcc, kld, kar and (until phase 2) cmake + ninja. The driver calls it when `--target T` is given without `--sysroot` and no sysroot for T is installed or cached.
+
+Shape (decided 2026-11-09, replacing a `kairo sysroot` subcommand): the generator is a library, `Linker/Sysroot/`, as the linker is `Linker/API/`. `ksys` (`Linker/Sysroot/Driver/ksys.k`) is a thin standalone binary over it for running it by hand, as `kld` is over the linker library. The kairo driver links the library and calls its `ensure` in-process; it never spawns `ksys`. The share tree's format is `build/sysroot-share/FORMAT.md` (the contract with the maintainer-side producer, `Scripts/ship_sysroot_inputs.py`).
 
 Non-goals: downloading anything; monomorphic prebuilt sysroots beyond the two host roots in `<install>/sysroot/`; Microsoft / Apple SDK handling beyond `--input`.
 
@@ -32,11 +34,11 @@ Two fields, kept apart everywhere:
 - name:          `armv7-linux-musl`, `x86_64-linux-gnu-glibc2.31`, `wasm32-wasi` (dir name, TOML `triple`, what --target matches)
 - clang_triple:  `armv7-unknown-linux-musleabihf`, `x86_64-unknown-linux-gnu` (every --target= passed to kcc/cmake)
 
-Grammar: `<arch>-<os>[-<env>][-glibc<ver>]`, vendor dropped except BSD names keep `unknown` as today. The family recipe gives `clang_triple` as a template; quirks may rewrite it. `kairo sysroot` accepts either form on the command line; a clang triple is normalised via `kcc --target=X -print-target-triple` then mapped to a name. Ambiguous input is an error that lists the candidates. SYSROOT.toml gains `clang_triple` (write now; read in Toolchain.k in the same change so Kairo stops deriving it).
+Grammar: `<arch>-<os>[-<env>][-glibc<ver>]`, vendor dropped except BSD names keep `unknown` as today. The family recipe gives `clang_triple` as a template; quirks may rewrite it. `ksys` accepts either form on the command line; a clang triple is normalised in-process through `llvm::Triple` (what `kcc --target=X -print-target-triple` would print, without the spawn) and mapped to a name. Ambiguous input is an error that lists the candidates. SYSROOT.toml gains `clang_triple` (write now; read in Toolchain.k in the same change so Kairo stops deriving it).
 
 ## 3. Inputs (shipped tree)
 
-`<install>/share/kairo/sysroot/`: registry.toml  runtimes/  families/  quirks.toml  shims/  validate/ musl/  linux-uapi/  glibc/<X.Y>/<arch>/  mingw/  freebsd/<v>/<arch>/ netbsd/<v>/<arch>/  wasi/<v>/ The maintainer side (kairo-sysroots `curate/ship.sh`) produces it; its layout is the contract. `registry.toml` lists every input dir with `tree_sha256`; `kairo sysroot verify-share` recomputes them. `runtimes/REVISION` must equal the revision embedded in the compiler (expose it: `kairo --print-runtimes-revision`); mismatch is a refusal.
+`<install>/share/kairo/sysroot/`: registry.toml  runtimes/  families/  quirks.toml  shims/  validate/ musl/  linux-uapi/  glibc/<X.Y>/<arch>/  mingw/  freebsd/<v>/<arch>/ netbsd/<v>/<arch>/  wasi/<v>/ The maintainer side (kairo-sysroots `curate/ship.sh`) produces it; its layout is the contract. `registry.toml` lists every input dir with `tree_sha256`; `ksys verify-share` recomputes them. `runtimes/REVISION` must equal the revision embedded in the compiler (`kairo --print-runtimes-revision`, and the same from `ksys --print-runtimes-revision`); mismatch is a refusal.
 
 ## 4. Pipeline
 
@@ -54,7 +56,7 @@ Resolve name, family recipe, arch, clang_triple, libc_version (glibc: `--glibc=X
 - int128: `kcc --target=T -dM -E -x c /dev/null` contains __SIZEOF_INT128__ -> feeds the `int128` predicate.
 - quirk `assert_compiles` entries (wasm bf16).
 - provider.supports(arch): recipe `arches` contains it; `host_only` matches the host; `user` providers have a valid `--input` (marker file present).
-- tools: kcc, kld, kar on PATH or beside `kairo`; cmake + ninja for any recipe whose `runtimes` list is non-empty. Every probe failure is a refusal (section 9). `kairo sysroot probe T` runs this stage alone and prints a table.
+- tools: kcc, kld, kar on PATH or beside `kairo`; cmake + ninja for any recipe whose `runtimes` list is non-empty. Every probe failure is a refusal (section 9). `ksys probe T` runs this stage alone and prints a table.
 
 ### 4.3 inputs
 
@@ -91,7 +93,7 @@ Lay out `<sysroots>/<key>/` per family: musl/glibc:  include/ (hdr + c++/v1), li
 
 ### 4.9 toml
 
-SYSROOT.toml = recipe [toml] with templates filled ({xa} for msvc), plus: triple = <name>, clang_triple, llvm_version = "22.1.0", family, sysroot = ".", libc_version (musl/glibc), glibc_version (glibc, kept for compat), os_version (bsd), redistributable (darwin false), generated_by = "kairo sysroot <kairo version> <compiler build id>". Also `.kairo-sysroot.json`: the full key object + every stage key + quirk ids applied + input tree hashes. Key order and formatting fixed so two builds of the same key produce byte-identical TOML.
+SYSROOT.toml = recipe [toml] with templates filled ({xa} for msvc), plus: triple = <name>, clang_triple, llvm_version = "22.1.0", family, sysroot = ".", libc_version (musl/glibc), glibc_version (glibc, kept for compat), os_version (bsd), redistributable (darwin false), generated_by = "ksys <kairo version> <compiler build id>". Also `.kairo-sysroot.json`: the full key object + every stage key + quirk ids applied + input tree hashes. Key order and formatting fixed so two builds of the same key produce byte-identical TOML.
 
 ### 4.10 validate
 
@@ -132,12 +134,12 @@ key = sha256 of canonical JSON {schema:1, name, clang_triple, provider, libc_ver
 ## 8. CLI and driver hook
 
 ```text
-kairo sysroot probe    <target>
-kairo sysroot ensure   <target> [--glibc=X.Y] [--input DIR]      # path on stdout, logs on stderr
-kairo sysroot build    <target> [...] --out DIR                   # uncached
-kairo sysroot validate <dir>
-kairo sysroot verify-share
-kairo sysroot ls | gc | rm <name>
+ksys probe    <target>
+ksys ensure   <target> [--glibc=X.Y] [--input DIR]      # path on stdout, logs on stderr
+ksys build    <target> [...] --out DIR                   # uncached
+ksys validate <dir>
+ksys verify-share
+ksys ls | gc | rm <name>
 ```
 
 Exit codes: 0 ok; 2 refusal (reason on stderr, one line, actionable); 3 build/validate failure (stage, log path).
@@ -147,6 +149,10 @@ Driver: `--target T` without `--sysroot`:
   1. <install>/sysroot/<name>
   2. <cache>/by-name/<name>
   3. ensure (stderr: "building sysroot for <name>, first time only") `--no-sysroot-build` turns step 3 into refusal 2. Toolchain.k keeps rejecting a TOML whose `triple` != name.
+
+As built (step 6, `CompilerSetup._sysroot_from_generator`): step 3 is the library's `SysGen.ensure`, in-process. Steps 2-3 run only for an explicit `--target` with no `--sysroot`, `--freestanding` or `--macos-sdk`; Apple / MSVC targets on a host without their SDK stay P008E (its note names `<prefix>/scripts/darwin-sysroot.sh` / `msvc-sysroot.sh`). Step 3 runs only when a share tree is present (`$KAIRO_SYSROOT_SHARE`, else `<prefix>/share/kairo/sysroot`); without one the driver keeps P008W, since there is nothing to build from. `--no-sysroot-build` is the refusal either way. The build is skipped for `--help`, `--version`, `--explain` and the info queries. A refusal is P009E (+ P009N) and exit 2, a build failure P010E and exit 3. `--version` reports a cached root (step 2) but never builds.
+
+The cache root is `$KAIRO_SYSROOT_CACHE`, else `<toolchain cache root>/sysroot` (Driver.md's `$KAIRO_CACHE_DIR` / `$XDG_CACHE_HOME/kairo` / `~/.cache/kairo` / `%LOCALAPPDATA%/kairo`). A `by-name` entry is a symlink; where one cannot be made (Windows without the privilege) it is a one-line file holding the key, and lookup reads both.
 
 ## 9. Refusals (exit 2), exact wording owned by TableGen
 
@@ -165,7 +171,7 @@ Driver: `--target T` without `--sysroot`:
 
 - parse/: name<->triple round trips, ambiguous input, every family name.
 - probe/: refusal text for a fake unsupported arch; quirk application table.
-- toml/: for each of the 18 existing sysroots, `kairo sysroot build` output TOML diffed against the curated one (byte-identical except the added keys; glibc: include_dirs differs by the dropped multiarch dir - expected).
+- toml/: for each of the 18 existing sysroots, `ksys build` output TOML diffed against the curated one (byte-identical except the added keys; glibc: include_dirs differs by the dropped multiarch dir - expected).
 - build/: x86_64-linux-musl and x86_64-linux-gnu-glibc2.31 built from the share tree, validated, and the three .k programs run. Gated on cmake.
 - cache/: second ensure is a no-op; a changed quirk file rebuilds only the stages whose effects changed; concurrent ensure waits.
 - hook/: `--target x86_64-linux-musl` without --sysroot finds the installed root; with a fake name and --no-sysroot-build gives refusal 2.
@@ -193,7 +199,7 @@ None of sections 1-11 is implemented in 0.2.0. Until step 6 (driver hook) lands,
 - Apple (`arm64-apple-macosx`, `arm64e-apple-macosx`, `x86_64-apple-macosx`) and MSVC (`aarch64-`, `i686-`, `x86_64-windows-msvc`) roots exist in a development `sysroot/` but are never packaged. `Scripts/package_release.py` must exclude them by family (any SYSROOT.toml with `family` darwin/msvc, or `redistributable = false`), not by name, and the packaging smoke test fails if any such file is in an archive.
 - `--target` naming an Apple or MSVC triple without `--sysroot` is a refusal (exit 2 / a P-category diagnostic naming `--sysroot`): on a macOS host the driver uses `xcrun --show-sdk-path`, and on Windows the installed MSVC / Windows SDK. Elsewhere the user supplies the SDK.
 - No network access, ever: the driver never fetches a manifest asset. `manifest.json` is a packaging input, validated offline by `Scripts/check_manifest_urls.py --offline`.
-- `kairo sysroot` does not exist in 0.2.0. It must not appear in `--help` or the docs until step 3 lands.
+- `ksys` does not exist in 0.2.0. It must not appear in `--help` or the docs until step 3 lands.
 
 When the generator lands (step 6), the prebuilt roots stop shipping one family at a time, as each family passes TOML parity (section 10 toml/) and validation. The release then ships `share/kairo/sysroot/` (section 3) instead, which is much smaller: no runtimes are prebuilt per target.
 
@@ -227,5 +233,9 @@ A generated sysroot is something the user may redistribute (inside a container i
 
 - Assemble (4.8) copies `<share>/licenses/<component>/` into `<root>/LICENSES/` for every input it used: musl (MIT), Linux UAPI (GPL-2.0 WITH Linux-syscall-note), glibc stubs (LGPL-2.1+: the stubs are generated from abilists, and the notice still applies to the headers), mingw-w64 (its COPYING set), FreeBSD / NetBSD base (BSD), wasi-libc (its LICENSE set), compiler-rt / libc++ / libc++abi / libunwind (Apache-2.0 WITH LLVM-exception).
 - `.kairo-sysroot.json` lists the license ids it copied. Validation (4.10) fails if an input in the key has no license entry. This is the same rule the release packaging enforces for the shipped tree.
-- `user`-provider roots (Apple, MSVC) get no LICENSES copy and are marked `redistributable = false` in SYSROOT.toml. `kairo sysroot` never puts them anywhere but the local cache.
+- `user`-provider roots (Apple, MSVC) get no LICENSES copy and are marked `redistributable = false` in SYSROOT.toml. `ksys` never puts them anywhere but the local cache.
+
+## 16. State after step 3 (2026-11-09)
+
+Implemented: names (section 2, the section 14 table built in, recipes override `clang_triple`), parse, probe (backend through the TargetRegistry in-process; `int128` derived from the triple as clang's TargetInfo decides it, 64-bit pointers or wasm, rather than a `kcc -dM -E` spawn; quirk matching; provider support; tools beside the binary then PATH), inputs (registry `tree_sha256`, memoised by name + size + mtime under `<cache>/verify/`), keys (section 7; `compiler_build_id` covers kairo, kcc, kld, llvm-ar but not yet their ldd closure), the cache layout, `.tmp` / `.ok` / `.failed` stage dirs, flock'ed locks, `ls` / `gc` / `rm`, `verify-share`, the refusals (P009E/P009N, exit 2; P010E, exit 3), the driver hook (section 8). `validate` checks the manifest and the dirs it names and refuses the four build-and-run steps. Every provider stage refuses ("not implemented yet") and so do builtins, runtimes, assemble, toml and validate: ensure verifies, keys, locks and stops at libc-headers. Not done: `assert_compiles` quirks are matched and keyed but never compiled.
 

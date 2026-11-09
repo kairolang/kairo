@@ -275,6 +275,10 @@ pub class CompilerInstance {
     priv var _claimed: llvm::DenseSet<u64>
     /// A C/C++ input includes a .k (_discover_includes).
     prot var _includes_kairo: bool = false
+    /// The sysroot generator refused (or failed) for this --target
+    /// (_sysroot_from_generator): the run exits 2 (3 on a failed build)
+    /// rather than 1, as `ksys ensure` would (Compiler/Spec/SysRoot.md 8).
+    prot var _sysroot_status: i32 = 0
     /// The Kairo library's objects for this link (_kairo_lib): lazily, after
     /// everything else (LinkJob::lazy_objects).
     prot var _lib_lazy: cxx::std::vector<string>
@@ -722,6 +726,12 @@ pub class CompilerInstance {
         return self.invocation()->ok
     }
 
+    /// The exit status of a run args_ok() rejected: 1, or the sysroot
+    /// generator's own 2 (refusal) / 3 (failure).
+    pub fn failure_status(self) -> i32 {
+        return if (self._sysroot_status != 0) => (self._sysroot_status) else => 1
+    }
+
     /// True when any info flag is present whose subsystem is not yet live.
     fn wants_info_query(self) -> bool {
         return self.invocation()->args.get_bool("print-targets")
@@ -732,6 +742,7 @@ pub class CompilerInstance {
             || self.invocation()->args.get_bool("print-from-clang")
             || self.invocation()->args.get_bool("print-target-info")
             || self.invocation()->args.get_bool("print-cfg")
+            || self.invocation()->args.get_bool("print-runtimes-revision")
     }
 
     /// The ICE hook: drain every TU's buffered sink into the engine, then
