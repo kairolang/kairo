@@ -23,16 +23,33 @@ shift
 #
 #      powershell -ExecutionPolicy Bypass -File <install>\scripts\msvc-sysroot.ps1 x86_64
 #
-#  * Any host: an xwin splat. Running xwin is where you accept the license.
+#  * Any host: an xwin splat (github.com/Jake-Shadle/xwin), which downloads
+#    the CRT and SDK from Microsoft. The script does this for you:
 #
-#      cargo install xwin        (or a release binary: github.com/Jake-Shadle/xwin)
+#      <install>/scripts/msvc-sysroot.sh x86_64          (or: aarch64 i686)
+#      <install>\scripts\msvc-sysroot.ps1 x86_64
+#
+#    It shows Microsoft's license and asks you to accept it (--accept-license
+#    or KAIRO_ACCEPT_MSVC_LICENSE=1 accept it up front, for CI; a
+#    non-interactive run without either stops), then uses xwin from
+#    $XWIN_BIN, else PATH, else <install>/share/kairo/tools/xwin-<ver>/, else
+#    downloads the pinned xwin release for this host into that directory and
+#    checks its sha256. The splat lands in <install>/share/kairo/msvc-cache/
+#    and is reused by later runs (re-splatted when an arch is missing). xwin
+#    publishes no macOS build: there the script builds it with cargo
+#    (https://rustup.rs) when cargo is on PATH. Or bring your own splat:
+#
 #      xwin --accept-license --arch x86_64,aarch64,x86 splat --output ~/xwin
-#      XWIN=~/xwin <install>/scripts/msvc-sysroot.sh x86_64          (or: aarch64 i686)
+#      XWIN=~/xwin <install>/scripts/msvc-sysroot.sh x86_64
 #      $env:XWIN = "$HOME\xwin"; <install>\scripts\msvc-sysroot.ps1 x86_64
 #
 #    On a case-insensitive filesystem (the macOS default) add
-#    --disable-symlinks to the splat: its case-variant links
-#    (Windows.h -> windows.h) would collide.
+#    --disable-symlinks to your own splat: its case-variant links
+#    (Windows.h -> windows.h) would collide. The script's splat does.
+#
+#    Fetching needs tar, gzip, curl or wget, and sha256sum or shasum (sh), or
+#    tar.exe (Windows 10 1803+ ships it), Invoke-WebRequest and Get-FileHash
+#    (PowerShell); all are checked before anything is downloaded.
 #
 # Then `kairo --target x86_64-windows-msvc main.k -o main.exe` finds the root
 # with no flags.
@@ -81,7 +98,13 @@ shift
 #   --from-source       compile libc++ and the builtins even when an overlay exists
 #   --overlay-only DIR  full build, but write only the second layer to DIR/msvc-<arch>
 #                       (how a release's overlays are made: Scripts/build_sdk_overlays.py)
-#   XWIN=...    xwin splat dir (required for the sh half; optional on Windows)
+#   --accept-license    accept Microsoft's license for the xwin download (no prompt)
+#   -h, --help          print this text
+#   XWIN=...    an existing xwin splat dir (default: the script's own, see above;
+#               on Windows the installed Visual Studio comes first)
+#   XWIN_BIN=...  the xwin executable to run (default: PATH, then the tools cache)
+#   KAIRO_ACCEPT_MSVC_LICENSE=1  same as --accept-license
+#   MSVC_CACHE=...  default: <install>/share/kairo/msvc-cache (splat + xwin's downloads)
 #   OUT=...     default: <install>/sysroot; each root lands in OUT/<arch>-windows-msvc
 #   WORK=...    build scratch (default: <install>/.sysroot-work/msvc; removed on success)
 #   JOBS=...    parallel compile jobs (default: CPU count, at most 8)
@@ -100,17 +123,20 @@ OVERLAYS="$KAIRO/share/kairo/sdk-overlays"
 STAGE="${OUT:-$KAIRO/sysroot}"
 WORK="${WORK:-$KAIRO/.sysroot-work/msvc}"
 
-FROM_SOURCE=0; OVERLAY_OUT=
+FROM_SOURCE=0; OVERLAY_OUT=; ACCEPT_LICENSE=0
 # Options first, then arches. Rebuilt in place (no arrays: bash 3.2 + set -u).
 n=$#
 while [ "$n" -gt 0 ]; do
   a="$1"; shift; n=$((n - 1))
   case "$a" in
     --from-source) FROM_SOURCE=1 ;;
+    --accept-license) ACCEPT_LICENSE=1 ;;
     --overlay-only)
       [ "$n" -gt 0 ] || die "--overlay-only needs a directory"
       OVERLAY_OUT="$1"; shift; n=$((n - 1)) ;;
-    -*) die "unknown option $a (--from-source, --overlay-only DIR)" ;;
+    # The header comment is the help: line 4 up to the first command.
+    -h|--help) sed -n '4,/^set -euo pipefail/p' "$0" | sed -e '$d' -e 's/^# \{0,1\}//'; exit 0 ;;
+    -*) die "unknown option $a (--from-source, --overlay-only DIR, --accept-license, --help)" ;;
     *) set -- "$@" "$a" ;;
   esac
 done
@@ -147,8 +173,205 @@ if [ "$NEED_BUILD" = 1 ]; then
     command -v "$t" >/dev/null 2>&1 || die "need '$t' on PATH for the full build (cmake and ninja come from your package manager)"
   done
 fi
-[ -n "${XWIN:-}" ] || die "set XWIN=<dir> to an xwin splat (see the top of $0 for the xwin command)"
-XWIN="$(cd "$XWIN" && pwd -P)" || die "XWIN=$XWIN does not exist"
+
+# ---- the Microsoft half: $XWIN, else the cached splat, else xwin makes one ----
+# xwin release pinned by version and by the sha256 of each asset (the GitHub
+# release's own digest, its .sha256 sidecar and a fresh download all agree).
+# 0.10.0 publishes exactly these three; no macOS or Windows-on-ARM binary.
+XWIN_VERSION=0.10.0
+xwin_asset_sha256() {   # $1 = asset triple -> pinned lowercase sha256, or nothing
+  case "$1" in
+    x86_64-unknown-linux-musl)  echo d870eb4b2f390878af6da1ccd3cf321d22fcb72720984853b4be732ae597fc88 ;;
+    aarch64-unknown-linux-musl) echo 6d56d28537a86f37aa3d041318898f25ee3100c6b6ec332ad873c28faf37be23 ;;
+    x86_64-pc-windows-msvc)     echo 96e83665ef5c1406aabd0be603a8d08e67e604f36fda630b6807ee948a614e26 ;;
+  esac
+}
+MSVC_LICENSE_URL="https://go.microsoft.com/fwlink/?LinkId=2086102"
+TOOLS="$KAIRO/share/kairo/tools"
+MSVC_CACHE="${MSVC_CACHE:-$KAIRO/share/kairo/msvc-cache}"
+HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
+HOST_CPU="$(uname -m 2>/dev/null || echo unknown)"
+
+# The command that installs $1 on this host, for a "need X" message.
+pkg_hint() {
+  case "$HOST_OS" in
+    Darwin) echo "brew install $1 (Homebrew) or sudo port install $1 (MacPorts)" ;;
+    FreeBSD) echo "pkg install $1" ;;
+    MINGW*|MSYS*) echo "pacman -S $1 (MSYS2), or run msvc-sysroot.ps1 from PowerShell instead" ;;
+    CYGWIN*) echo "the Cygwin installer (package $1), or run msvc-sysroot.ps1 from PowerShell instead" ;;
+    *)
+      if command -v apt-get >/dev/null 2>&1; then echo "sudo apt-get install $1"
+      elif command -v dnf >/dev/null 2>&1; then echo "sudo dnf install $1"
+      elif command -v pacman >/dev/null 2>&1; then echo "sudo pacman -S $1"
+      elif command -v zypper >/dev/null 2>&1; then echo "sudo zypper install $1"
+      elif command -v apk >/dev/null 2>&1; then echo "apk add $1"
+      else echo "your package manager (package $1)"
+      fi ;;
+  esac
+}
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# The xwin asset that runs on this host, or nothing.
+xwin_host_asset() {
+  case "$HOST_OS-$HOST_CPU" in
+    Linux-x86_64|Linux-amd64)  echo x86_64-unknown-linux-musl ;;
+    Linux-aarch64|Linux-arm64) echo aarch64-unknown-linux-musl ;;
+    MINGW*-x86_64|MSYS*-x86_64|CYGWIN*-x86_64) echo x86_64-pc-windows-msvc ;;
+  esac
+}
+XWIN_EXE=xwin
+case "$HOST_OS" in MINGW*|MSYS*|CYGWIN*) XWIN_EXE=xwin.exe ;; esac
+XWIN_TOOL_DIR="$TOOLS/xwin-$XWIN_VERSION"
+
+# The requested arches in xwin's spelling, for --arch and the reuse check.
+XWIN_ARCHES=
+add_xwin_arch() {
+  case ",$XWIN_ARCHES," in
+    *",$1,"*) ;;
+    *) XWIN_ARCHES="${XWIN_ARCHES:+$XWIN_ARCHES,}$1" ;;
+  esac
+}
+for a in "$@"; do
+  case "$(canon_arch "$a")" in
+    x86_64) add_xwin_arch x86_64 ;; aarch64) add_xwin_arch aarch64 ;; i686) add_xwin_arch x86 ;;
+    *) die "unknown arch $a (x86_64, aarch64/arm64, i686/i386)" ;;
+  esac
+done
+
+# A splat is usable when it has the SDK headers and every requested arch's CRT.
+splat_has_arches() {   # $1 = splat dir
+  [ -f "$1/sdk/include/um/Windows.h" ] || [ -f "$1/sdk/include/um/windows.h" ] || return 1
+  for sa in $(echo "$XWIN_ARCHES" | tr ',' ' '); do
+    [ -d "$1/crt/lib/$sa" ] || return 1
+  done
+  return 0
+}
+
+# Microsoft's license is the user's to accept, never ours: an explicit flag or
+# variable, or a yes typed at a terminal. A CI job with neither stops here
+# rather than hanging on a prompt nobody can answer.
+accept_msvc_license() {
+  if [ "$ACCEPT_LICENSE" = 1 ] || [ "${KAIRO_ACCEPT_MSVC_LICENSE:-0}" = 1 ]; then
+    echo ">> Microsoft license accepted (--accept-license / KAIRO_ACCEPT_MSVC_LICENSE=1): $MSVC_LICENSE_URL"
+    return 0
+  fi
+  cat >&2 <<EOF
+
+  The MSVC CRT and the Windows SDK are Microsoft software. xwin downloads them
+  from Microsoft's servers for you, under Microsoft's license terms (the
+  license xwin asks you to accept):
+
+      $MSVC_LICENSE_URL
+
+  The copy is for your own use on this machine. Kairo does not ship it, and
+  the license does not let you redistribute it.
+
+EOF
+  [ -t 0 ] || die "Microsoft's license was not accepted, and there is no terminal to ask at. Read it ($MSVC_LICENSE_URL), then re-run with --accept-license or KAIRO_ACCEPT_MSVC_LICENSE=1."
+  printf 'Do you accept the license? [y/N] ' >&2
+  ans=
+  read -r ans || ans=
+  case "$ans" in
+    y|Y|yes|Yes|YES) ;;
+    *) die "license not accepted; nothing was downloaded" ;;
+  esac
+}
+
+fetch_url() {   # $1 = url, $2 = output file
+  if have curl; then curl -fsSL --retry 3 --proto '=https' -o "$2" "$1"
+  else wget -q -O "$2" "$1"
+  fi
+}
+sha256_of() {   # $1 = file -> lowercase hex
+  if have sha256sum; then sha256sum "$1"; else shasum -a 256 "$1"; fi \
+    | cut -d' ' -f1 | tr 'ABCDEF' 'abcdef'
+}
+
+# Downloads, verifies and unpacks the pinned xwin into $XWIN_TOOL_DIR. The
+# directory appears only complete (built as .tmp, then moved), so a broken
+# run never leaves something the next one would take for a cached xwin.
+install_xwin() {
+  asset="$(xwin_host_asset)"
+  want="$(xwin_asset_sha256 "$asset")"
+  tmp="$XWIN_TOOL_DIR.tmp"
+  rm -rf "$tmp"; mkdir -p "$tmp"
+  if [ -n "$want" ]; then
+    url="https://github.com/Jake-Shadle/xwin/releases/download/$XWIN_VERSION/xwin-$XWIN_VERSION-$asset.tar.gz"
+    echo ">> downloading xwin $XWIN_VERSION ($asset)"
+    fetch_url "$url" "$tmp/xwin.tar.gz" || die "could not download $url"
+    got="$(sha256_of "$tmp/xwin.tar.gz")"
+    [ "$got" = "$want" ] || die "xwin download failed its checksum: got sha256 $got, pinned $want ($url)"
+    tar -xzf "$tmp/xwin.tar.gz" -C "$tmp" || die "could not unpack $tmp/xwin.tar.gz"
+    mv "$tmp/xwin-$XWIN_VERSION-$asset/$XWIN_EXE" "$tmp/$XWIN_EXE" || die "the xwin archive has no $XWIN_EXE"
+    rm -rf "$tmp/xwin.tar.gz" "$tmp/xwin-$XWIN_VERSION-$asset"
+  else
+    # No release binary for this host (macOS, Windows on ARM, BSD): build
+    # the same pinned version from crates.io.
+    echo ">> building xwin $XWIN_VERSION with cargo (no release binary for $HOST_OS $HOST_CPU)"
+    cargo install xwin --version "$XWIN_VERSION" --locked --root "$tmp/cargo" \
+      || die "cargo install xwin $XWIN_VERSION failed"
+    mv "$tmp/cargo/bin/$XWIN_EXE" "$tmp/$XWIN_EXE" || die "cargo installed no $XWIN_EXE"
+    rm -rf "$tmp/cargo"
+  fi
+  chmod +x "$tmp/$XWIN_EXE"
+  rm -rf "$XWIN_TOOL_DIR"; mv "$tmp" "$XWIN_TOOL_DIR"
+}
+
+if [ -n "${XWIN:-}" ]; then
+  # Your own splat: you accepted the license when you ran xwin.
+  XWIN="$(cd "$XWIN" && pwd -P)" || die "XWIN=$XWIN does not exist"
+elif splat_has_arches "$MSVC_CACHE/splat"; then
+  XWIN="$(cd "$MSVC_CACHE/splat" && pwd -P)"
+  echo ">> CRT + SDK: cached splat $XWIN"
+else
+  # Every tool this needs is checked before anything is downloaded or asked.
+  if [ -n "${XWIN_BIN:-}" ]; then
+    [ -x "$XWIN_BIN" ] || die "XWIN_BIN=$XWIN_BIN is not an executable"
+    XWIN_CMD="$XWIN_BIN"
+  elif have xwin; then
+    XWIN_CMD="$(command -v xwin)"
+  elif [ -x "$XWIN_TOOL_DIR/$XWIN_EXE" ]; then
+    XWIN_CMD="$XWIN_TOOL_DIR/$XWIN_EXE"
+  else
+    XWIN_CMD=
+    if [ -n "$(xwin_asset_sha256 "$(xwin_host_asset)")" ]; then
+      have curl || have wget || die "need curl or wget to download xwin: $(pkg_hint curl)"
+      have tar || die "need 'tar' to unpack xwin: $(pkg_hint tar)"
+      have gzip || die "need 'gzip' to unpack xwin: $(pkg_hint gzip)"
+      have sha256sum || have shasum || die "need sha256sum or shasum to verify xwin: $(pkg_hint coreutils)"
+      for t in cut tr; do have "$t" || die "need '$t' on PATH: $(pkg_hint coreutils)"; done
+    else
+      have cargo || die "xwin $XWIN_VERSION has no release binary for $HOST_OS $HOST_CPU. Install Rust (https://rustup.rs) so this script can build it with cargo, or run: cargo install xwin --version $XWIN_VERSION --locked, then re-run (or set XWIN_BIN=, or XWIN= to a splat)."
+    fi
+  fi
+  accept_msvc_license
+  if [ -z "$XWIN_CMD" ]; then install_xwin; XWIN_CMD="$XWIN_TOOL_DIR/$XWIN_EXE"; fi
+  echo ">> xwin: $XWIN_CMD ($("$XWIN_CMD" --version 2>/dev/null || echo 'version unknown'))"
+  # Re-splat with the union of what the cache had and what is asked for, so
+  # adding an arch never drops one. xwin's download cache sits beside the
+  # splat: a re-splat reuses it instead of downloading again.
+  for sa in x86_64 aarch64 x86; do
+    if [ -d "$MSVC_CACHE/splat/crt/lib/$sa" ]; then add_xwin_arch "$sa"; fi
+  done
+  # The case-variant symlinks (Windows.h -> windows.h) collide on a
+  # case-insensitive filesystem, the macOS and Windows default.
+  NOLINKS=
+  case "$HOST_OS" in Darwin|MINGW*|MSYS*|CYGWIN*) NOLINKS=--disable-symlinks ;; esac
+  mkdir -p "$MSVC_CACHE"
+  rm -rf "$MSVC_CACHE/splat.tmp"
+  echo ">> [xwin] downloading and splatting the CRT + SDK for $XWIN_ARCHES into $MSVC_CACHE (several GB, a few minutes)"
+  # shellcheck disable=SC2086
+  "$XWIN_CMD" --accept-license --cache-dir "$MSVC_CACHE/xwin-cache" --arch "$XWIN_ARCHES" \
+    splat $NOLINKS --output "$MSVC_CACHE/splat.tmp" \
+    || die "xwin splat failed (its download cache is kept in $MSVC_CACHE/xwin-cache; re-run to resume)"
+  splat_has_arches "$MSVC_CACHE/splat.tmp" || die "xwin's splat in $MSVC_CACHE/splat.tmp lacks the SDK headers or a requested arch"
+  rm -rf "$MSVC_CACHE/splat"; mv "$MSVC_CACHE/splat.tmp" "$MSVC_CACHE/splat"
+  # The unpacked packages are moved into the splat and the rest is scratch;
+  # the downloads stay for a later re-splat.
+  rm -rf "$MSVC_CACHE/xwin-cache/unpack"
+  XWIN="$(cd "$MSVC_CACHE/splat" && pwd -P)"
+  echo ">> CRT + SDK: new splat $XWIN"
+fi
 [ -f "$XWIN/sdk/include/um/Windows.h" ] || [ -f "$XWIN/sdk/include/um/windows.h" ] \
   || die "$XWIN is not an xwin splat (no sdk/include/um/Windows.h): run xwin splat first"
 
@@ -455,15 +678,24 @@ $Src = Join-Path $Kairo 'share/kairo/runtimes'
 $Overlays = Join-Path $Kairo 'share/kairo/sdk-overlays'
 
 # Options first, then arches; the canonical arch name is the overlay's and the root's.
-$FromSource = $false; $OverlayOut = $null; $arches = @()
+$FromSource = $false; $OverlayOut = $null; $AcceptLicense = $false; $arches = @()
 for ($i = 0; $i -lt $args.Count; $i++) {
     switch -Regex ([string]$args[$i]) {
         '^--from-source$' { $FromSource = $true; break }
+        '^--accept-license$' { $AcceptLicense = $true; break }
+        '^(-h|--help)$' {
+            # The header comment is the help: line 4 up to the first sh command.
+            $lines = Get-Content -LiteralPath $PSCommandPath
+            for ($j = 3; $j -lt $lines.Count -and $lines[$j] -ne 'set -euo pipefail'; $j++) {
+                Write-Host ($lines[$j] -replace '^# ?', '')
+            }
+            exit 0
+        }
         '^--overlay-only$' {
             if ($i + 1 -ge $args.Count) { [Console]::Error.WriteLine('!! --overlay-only needs a directory'); exit 1 }
             $i++; $OverlayOut = [string]$args[$i]; break
         }
-        '^-' { [Console]::Error.WriteLine("!! unknown option $($args[$i]) (--from-source, --overlay-only DIR)"); exit 1 }
+        '^-' { [Console]::Error.WriteLine("!! unknown option $($args[$i]) (--from-source, --overlay-only DIR, --accept-license, --help)"); exit 1 }
         default { $arches += [string]$args[$i] }
     }
 }
@@ -526,7 +758,7 @@ function Find-Program([string]$n, [string[]]$extra) {
     return $null
 }
 
-# ---- the Microsoft half: an xwin splat, or the installed VC tools + Windows Kits ----
+# ---- the Microsoft half: $env:XWIN, Visual Studio + Windows Kits, the cached splat, or xwin ----
 $Xwin = Env 'XWIN' ''
 $VS = $null
 if ($OnWindows) {
@@ -537,37 +769,10 @@ if ($OnWindows) {
         if ($VS) { $VS = @($VS)[0] }
     }
 }
-if ($Xwin) {
-    $Xwin = (Resolve-Path -LiteralPath $Xwin).Path
-    if (-not ((Test-Path -LiteralPath (Join-Path $Xwin 'sdk/include/um/Windows.h')) -or
-              (Test-Path -LiteralPath (Join-Path $Xwin 'sdk/include/um/windows.h')))) {
-        Die "$Xwin is not an xwin splat (no sdk/include/um/Windows.h): run xwin splat first"
-    }
-    $From = "xwin splat $Xwin"
-} elseif ($OnWindows) {
-    if (-not $VS) {
-        Die ("no Visual Studio / Build Tools with the C++ tools found (vswhere). Install the " +
-             "'Desktop development with C++' workload, or set `$env:XWIN to an xwin splat.")
-    }
-    $verFile = Join-Path $VS 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt'
-    if (-not (Test-Path -LiteralPath $verFile)) { Die "$VS has no VC tools ($verFile)" }
-    $VcVer = (Get-Content -LiteralPath $verFile -TotalCount 1).Trim()
-    $VC = Join-Path $VS "VC\Tools\MSVC\$VcVer"
-    $roots = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots' -ErrorAction SilentlyContinue
-    if (-not $roots -or -not $roots.KitsRoot10) { Die 'no Windows 10/11 SDK found (HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots KitsRoot10)' }
-    $Kits = $roots.KitsRoot10
-    $SdkVer = Get-ChildItem -LiteralPath (Join-Path $Kits 'Include') -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^10\.' -and (Test-Path -LiteralPath (Join-Path $_.FullName 'um\Windows.h')) } |
-        Sort-Object { [version]$_.Name } | Select-Object -Last 1
-    if (-not $SdkVer) { Die "no Windows SDK version with um\Windows.h under $Kits\Include" }
-    $SdkVer = $SdkVer.Name
-    $From = "MSVC $VcVer + Windows SDK $SdkVer"
-} else {
-    Die 'set XWIN=<dir> to an xwin splat (see the top of this script for the xwin command)'
-}
 
 # ---- host tools: cmake, ninja (PATH, else Visual Studio's copies), python ----
 # The fast path copies; only a full build compiles, so only it asks for these.
+# Checked before any download below, so a missing one costs nothing.
 if ($NeedBuild) {
     $vsCMake = if ($VS) { Join-Path $VS 'Common7\IDE\CommonExtensions\Microsoft\CMake' } else { '' }
     $CMake = Find-Program 'cmake' @($(if ($vsCMake) { Join-Path $vsCMake 'CMake\bin\cmake.exe' }))
@@ -580,6 +785,219 @@ if ($NeedBuild) {
     if (-not (Test-Path -LiteralPath (Join-Path $Src 'runtimes/CMakeLists.txt'))) {
         Die "no LLVM runtimes source at $Src (it ships in the release archive)"
     }
+}
+
+# xwin release pinned by version and by the sha256 of each asset (the GitHub
+# release's own digest, its .sha256 sidecar and a fresh download all agree).
+# 0.10.0 publishes exactly these three; no macOS or Windows-on-ARM binary.
+$XwinVersion = '0.10.0'
+$XwinSha256 = @{
+    'x86_64-unknown-linux-musl'  = 'd870eb4b2f390878af6da1ccd3cf321d22fcb72720984853b4be732ae597fc88'
+    'aarch64-unknown-linux-musl' = '6d56d28537a86f37aa3d041318898f25ee3100c6b6ec332ad873c28faf37be23'
+    'x86_64-pc-windows-msvc'     = '96e83665ef5c1406aabd0be603a8d08e67e604f36fda630b6807ee948a614e26'
+}
+$MsvcLicenseUrl = 'https://go.microsoft.com/fwlink/?LinkId=2086102'
+$MsvcCache = Env 'MSVC_CACHE' (Join-Path $Kairo 'share/kairo/msvc-cache')
+$XwinExe = if ($OnWindows) { 'xwin.exe' } else { 'xwin' }
+$XwinToolDir = Join-Path $Kairo "share/kairo/tools/xwin-$XwinVersion"
+$OnMac = (-not $OnWindows) -and $IsMacOS
+
+# The xwin asset that runs on this host, or $null. Windows on ARM takes the
+# x86_64 build: Windows 11 runs x64 binaries under emulation, and xwin only
+# downloads and copies files, so speed does not matter. (Windows 10 on ARM
+# cannot; there xwin fails to start and the message points at cargo.)
+function Xwin-HostAsset {
+    if ($OnWindows) {
+        $cpu = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+        if ($cpu -eq 'AMD64' -or $cpu -eq 'ARM64') { return 'x86_64-pc-windows-msvc' }
+        return $null
+    }
+    if ($IsLinux) {
+        $cpu = [string][System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+        if ($cpu -eq 'X64') { return 'x86_64-unknown-linux-musl' }
+        if ($cpu -eq 'Arm64') { return 'aarch64-unknown-linux-musl' }
+    }
+    return $null
+}
+
+# The requested arches in xwin's spelling, for --arch and the reuse check.
+$XwinArches = @()
+foreach ($a in $arches) {
+    switch (Canon-Arch $a) {
+        'x86_64' { $sa = 'x86_64' } 'aarch64' { $sa = 'aarch64' } 'i686' { $sa = 'x86' }
+        default { Die "unknown arch $a (x86_64, aarch64/arm64, i686/i386)" }
+    }
+    if ($XwinArches -notcontains $sa) { $XwinArches += $sa }
+}
+# A splat is usable when it has the SDK headers and every requested arch's CRT.
+function Splat-HasArches([string]$d) {
+    if (-not ((Test-Path -LiteralPath (Join-Path $d 'sdk/include/um/Windows.h')) -or
+              (Test-Path -LiteralPath (Join-Path $d 'sdk/include/um/windows.h')))) { return $false }
+    foreach ($sa in $XwinArches) { if (-not (Test-Path -LiteralPath (Join-Path $d "crt/lib/$sa"))) { return $false } }
+    return $true
+}
+
+# The command that installs $what on this host, for a "need X" message.
+function Pkg-Hint([string]$what) {
+    if ($OnWindows) { return "Windows 10 1803+ ships tar.exe in System32; on older Windows put a tar on PATH (Git for Windows has one)" }
+    if ($OnMac) { return "brew install $what (Homebrew)" }
+    foreach ($pm in @(@('apt-get', 'sudo apt-get install'), @('dnf', 'sudo dnf install'), @('pacman', 'sudo pacman -S'),
+                      @('zypper', 'sudo zypper install'), @('apk', 'apk add'))) {
+        if (Find-Program $pm[0] @()) { return "$($pm[1]) $what" }
+    }
+    return "your package manager (package $what)"
+}
+
+# Microsoft's license is the user's to accept, never ours: an explicit flag or
+# variable, or a yes typed at a console. A CI job with neither stops here
+# rather than hanging on a prompt nobody can answer.
+function Accept-MsvcLicense {
+    if ($AcceptLicense -or ((Env 'KAIRO_ACCEPT_MSVC_LICENSE' '0') -eq '1')) {
+        Write-Host ">> Microsoft license accepted (--accept-license / KAIRO_ACCEPT_MSVC_LICENSE=1): $MsvcLicenseUrl"
+        return
+    }
+    $notice = @(
+        ''
+        '  The MSVC CRT and the Windows SDK are Microsoft software. xwin downloads them'
+        "  from Microsoft's servers for you, under Microsoft's license terms (the"
+        '  license xwin asks you to accept):'
+        ''
+        "      $MsvcLicenseUrl"
+        ''
+        '  The copy is for your own use on this machine. Kairo does not ship it, and'
+        '  the license does not let you redistribute it.'
+        ''
+    )
+    foreach ($l in $notice) { [Console]::Error.WriteLine($l) }
+    if ([Console]::IsInputRedirected -or -not [Environment]::UserInteractive) {
+        Die "Microsoft's license was not accepted, and there is no console to ask at. Read it ($MsvcLicenseUrl), then re-run with --accept-license or `$env:KAIRO_ACCEPT_MSVC_LICENSE = '1'."
+    }
+    $ans = Read-Host 'Do you accept the license? [y/N]'
+    if ($ans -notmatch '^(y|yes)$') { Die 'license not accepted; nothing was downloaded' }
+}
+
+# Downloads, verifies and unpacks the pinned xwin into $XwinToolDir, which
+# appears only complete (built as .tmp, then moved), so a broken run never
+# leaves something the next one would take for a cached xwin.
+function Install-Xwin([string]$asset) {
+    $tmp = "$XwinToolDir.tmp"
+    if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+    if ($asset) {
+        $url = "https://github.com/Jake-Shadle/xwin/releases/download/$XwinVersion/xwin-$XwinVersion-$asset.tar.gz"
+        $tgz = Join-Path $tmp 'xwin.tar.gz'
+        Write-Host ">> downloading xwin $XwinVersion ($asset)"
+        # Windows PowerShell 5.1 defaults to TLS 1.0, which GitHub refuses, and
+        # its progress bar slows the download to a crawl.
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $oldProgress = $ProgressPreference; $ProgressPreference = 'SilentlyContinue'
+        try { Invoke-WebRequest -Uri $url -OutFile $tgz -UseBasicParsing }
+        catch { Die "could not download $url ($($_.Exception.Message))" }
+        finally { $ProgressPreference = $oldProgress }
+        $got = (Get-FileHash -LiteralPath $tgz -Algorithm SHA256).Hash.ToLowerInvariant()
+        $want = $XwinSha256[$asset]
+        if ($got -ne $want) { Die "xwin download failed its checksum: got sha256 $got, pinned $want ($url)" }
+        Run 'unpack xwin' $Tar @('-xzf', $tgz, '-C', $tmp) $null
+        Move-Item -LiteralPath (Join-Path $tmp "xwin-$XwinVersion-$asset/$XwinExe") -Destination (Join-Path $tmp $XwinExe)
+        Remove-Item -LiteralPath $tgz, (Join-Path $tmp "xwin-$XwinVersion-$asset") -Recurse -Force
+    } else {
+        # No release binary for this host (macOS, Linux on another CPU): build
+        # the same pinned version from crates.io.
+        Write-Host ">> building xwin $XwinVersion with cargo (no release binary for this host)"
+        Run "cargo install xwin $XwinVersion" $Cargo @('install', 'xwin', '--version', $XwinVersion, '--locked', '--root', (Join-Path $tmp 'cargo')) $null
+        Move-Item -LiteralPath (Join-Path $tmp "cargo/bin/$XwinExe") -Destination (Join-Path $tmp $XwinExe)
+        Remove-Item -LiteralPath (Join-Path $tmp 'cargo') -Recurse -Force
+    }
+    if (-not $OnWindows) { Run 'chmod xwin' 'chmod' @('+x', (Join-Path $tmp $XwinExe)) $null }
+    if (Test-Path -LiteralPath $XwinToolDir) { Remove-Item -LiteralPath $XwinToolDir -Recurse -Force }
+    Move-Item -LiteralPath $tmp -Destination $XwinToolDir
+}
+
+$MsSplat = Join-Path $MsvcCache 'splat'
+if ($Xwin) {
+    # Your own splat: you accepted the license when you ran xwin.
+    $Xwin = (Resolve-Path -LiteralPath $Xwin).Path
+    if (-not ((Test-Path -LiteralPath (Join-Path $Xwin 'sdk/include/um/Windows.h')) -or
+              (Test-Path -LiteralPath (Join-Path $Xwin 'sdk/include/um/windows.h')))) {
+        Die "$Xwin is not an xwin splat (no sdk/include/um/Windows.h): run xwin splat first"
+    }
+    $From = "xwin splat $Xwin"
+} elseif ($VS -and (Test-Path -LiteralPath (Join-Path $VS 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt'))) {
+    # A Visual Studio without the C++ tools falls through to xwin below.
+    $verFile = Join-Path $VS 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt'
+    $VcVer = (Get-Content -LiteralPath $verFile -TotalCount 1).Trim()
+    $VC = Join-Path $VS "VC\Tools\MSVC\$VcVer"
+    $roots = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots' -ErrorAction SilentlyContinue
+    if (-not $roots -or -not $roots.KitsRoot10) { Die 'no Windows 10/11 SDK found (HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots KitsRoot10)' }
+    $Kits = $roots.KitsRoot10
+    $SdkVer = Get-ChildItem -LiteralPath (Join-Path $Kits 'Include') -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^10\.' -and (Test-Path -LiteralPath (Join-Path $_.FullName 'um\Windows.h')) } |
+        Sort-Object { [version]$_.Name } | Select-Object -Last 1
+    if (-not $SdkVer) { Die "no Windows SDK version with um\Windows.h under $Kits\Include" }
+    $SdkVer = $SdkVer.Name
+    $From = "MSVC $VcVer + Windows SDK $SdkVer"
+} elseif (Splat-HasArches $MsSplat) {
+    $Xwin = (Resolve-Path -LiteralPath $MsSplat).Path
+    $From = "cached xwin splat $Xwin"
+} else {
+    # Every tool this needs is checked before anything is downloaded or asked.
+    $XwinCmd = $null; $asset = $null; $Tar = $null; $Cargo = $null
+    $xb = Env 'XWIN_BIN' ''
+    if ($xb) {
+        if (-not (Test-Path -LiteralPath $xb -PathType Leaf)) { Die "XWIN_BIN=$xb is not a file" }
+        $XwinCmd = $xb
+    } elseif ($c = Find-Program 'xwin' @()) {
+        $XwinCmd = $c
+    } elseif (Test-Path -LiteralPath (Join-Path $XwinToolDir $XwinExe) -PathType Leaf) {
+        $XwinCmd = Join-Path $XwinToolDir $XwinExe
+    } else {
+        $asset = Xwin-HostAsset
+        if ($asset) {
+            foreach ($cmd in 'Invoke-WebRequest', 'Get-FileHash') {
+                if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) { Die "need $cmd (PowerShell 5.1 or later) to download xwin" }
+            }
+            # Windows' own bsdtar first: an MSYS tar on PATH reads C:\... as a remote host.
+            $sysTar = if ($OnWindows) { Join-Path $env:SystemRoot 'System32\tar.exe' } else { '' }
+            $Tar = if ($sysTar -and (Test-Path -LiteralPath $sysTar -PathType Leaf)) { $sysTar } else { Find-Program 'tar' @() }
+            if (-not $Tar) { Die "need tar to unpack xwin: $(Pkg-Hint 'tar')" }
+        } else {
+            $Cargo = Find-Program 'cargo' @()
+            if (-not $Cargo) {
+                Die ("xwin $XwinVersion has no release binary for this host. Install Rust (https://rustup.rs) so this " +
+                     "script can build it with cargo, or run: cargo install xwin --version $XwinVersion --locked, then " +
+                     "re-run (or set `$env:XWIN_BIN, or `$env:XWIN to a splat).")
+            }
+        }
+    }
+    Accept-MsvcLicense
+    if (-not $XwinCmd) { Install-Xwin $asset; $XwinCmd = Join-Path $XwinToolDir $XwinExe }
+    Write-Host ">> xwin: $XwinCmd"
+    # Re-splat with the union of what the cache had and what is asked for, so
+    # adding an arch never drops one. xwin's download cache sits beside the
+    # splat: a re-splat reuses it instead of downloading again.
+    foreach ($sa in 'x86_64', 'aarch64', 'x86') {
+        if ((Test-Path -LiteralPath (Join-Path $MsSplat "crt/lib/$sa")) -and ($XwinArches -notcontains $sa)) { $XwinArches += $sa }
+    }
+    $tmpSplat = Join-Path $MsvcCache 'splat.tmp'
+    New-Item -ItemType Directory -Force -Path $MsvcCache | Out-Null
+    if (Test-Path -LiteralPath $tmpSplat) { Remove-Item -LiteralPath $tmpSplat -Recurse -Force }
+    $xargv = @('--accept-license', '--cache-dir', (Join-Path $MsvcCache 'xwin-cache'), '--arch', ($XwinArches -join ','), 'splat')
+    # The case-variant symlinks (Windows.h -> windows.h) collide on a
+    # case-insensitive filesystem (the Windows and macOS default), and Windows
+    # symlinks need a privilege most users lack.
+    if ($OnWindows -or $OnMac) { $xargv += '--disable-symlinks' }
+    $xargv += @('--output', $tmpSplat)
+    Write-Host ">> [xwin] downloading and splatting the CRT + SDK for $($XwinArches -join ',') into $MsvcCache (several GB, a few minutes)"
+    Run "xwin splat (its download cache is kept in $(Join-Path $MsvcCache 'xwin-cache'); re-run to resume)" $XwinCmd $xargv $null
+    if (-not (Splat-HasArches $tmpSplat)) { Die "xwin's splat in $tmpSplat lacks the SDK headers or a requested arch" }
+    if (Test-Path -LiteralPath $MsSplat) { Remove-Item -LiteralPath $MsSplat -Recurse -Force }
+    Move-Item -LiteralPath $tmpSplat -Destination $MsSplat
+    # The unpacked packages are moved into the splat and the rest is scratch;
+    # the downloads stay for a later re-splat.
+    $unpack = Join-Path $MsvcCache 'xwin-cache/unpack'
+    if (Test-Path -LiteralPath $unpack) { Remove-Item -LiteralPath $unpack -Recurse -Force }
+    $Xwin = (Resolve-Path -LiteralPath $MsSplat).Path
+    $From = "new xwin splat $Xwin"
 }
 
 $Stage = Env 'OUT' (Join-Path $Kairo 'sysroot')
