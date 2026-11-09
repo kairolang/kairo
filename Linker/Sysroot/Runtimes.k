@@ -26,6 +26,12 @@
 ///   builtins archive at <out>/<builtins_name>, every [layout] gather item at
 ///   <out>/<item>, crt objects at <out>/crt/<name>.
 ///
+///   The tables come from runtimes-template/ when the share tree registers
+///   it (SysTemplate::instantiate writes them, in this layout, under the
+///   stage's work dir), else from runtimes-recipe/: the template is the
+///   rule, the tables the targets it was derived from, and a target either
+///   serves gets the same compiles from both.
+///
 ///   Every compile gets --sysroot = a libc-headers root made from the
 ///   libc-headers stage (its include dirs, with no c++/ dir anywhere, plus
 ///   the target's SYSROOT.toml): an old libc++ on the include path would be
@@ -47,6 +53,10 @@ ffi "c++" import "vector"
 
 import API::FS::LinkFS
 import API::Text::LinkText
+import Sysroot::Names::{
+    SysNames,
+    SysTarget,
+}
 import Sysroot::Outcome::SysOutcome
 import Sysroot::Provider::StageCtx
 import Sysroot::Share::SysRecipe
@@ -55,6 +65,7 @@ import Sysroot::SysRun::{
     SysRun,
 }
 import Sysroot::SysUtil::SysUtil
+import Sysroot::Template::SysTemplate
 
 /// The runtimes the runtimes stage compiles, in the reference runner's
 /// order (builtins is its own stage).
@@ -70,12 +81,13 @@ fn rt_runtimes() -> cxx::std::vector<string> {
 /// What one stage's compiles need: the paths the table templates name and
 /// the target's own table.
 pub class RtEnv {
-    pub var recipe:  string    ///< <share>/runtimes-recipe
-    pub var src:     string    ///< the runtimes source: {src}
-    pub var work:    string    ///< scratch under the stage dir: build/, obj/, sysroot/
-    pub var build:   string    ///< {build}
-    pub var sysroot: string    ///< {sysroot}, also --sysroot
-    pub var share:   string    ///< {share}
+    pub var tables:  string ///< targets/ and <runtime>/: runtimes-recipe/, or the instantiated template
+    pub var trees:   string ///< build/ and headers/: runtimes-recipe/ or runtimes-template/
+    pub var src:     string ///< the runtimes source: {src}
+    pub var work:    string ///< scratch under the stage dir: build/, obj/, sysroot/
+    pub var build:   string ///< {build}
+    pub var sysroot: string ///< {sysroot}, also --sysroot
+    pub var share:   string ///< {share}
     pub var target:  SysRecipe ///< targets/<name>.toml
 }
 
@@ -203,6 +215,30 @@ pub class SysRuntimes {
         return true
     }
 
+    /// The template \p tmpl instantiated for the stage's target into \p dst
+    /// (targets/ and <runtime>/, the runtimes-recipe/ layout). False with
+    /// \p why set when the template cannot serve the target.
+    pub static fn from_template(tgt:        *SysTarget,
+                                r:          *SysRecipe,
+                                const tmpl: string,
+                                const dst:  string,
+                                @inout why: string) -> bool {
+        var t = SysTemplate()
+        if !t.load(tmpl) {
+            why = t.error
+            return false
+        }
+
+        var p = SysNames::properties(tgt)
+        if !t.fits(tgt, &p, &why) {
+            return false
+        }
+
+        // Not wiped first: the stage's work dir is fresh already, and
+        // `ksys tables` may put several targets' tables in one dir.
+        return t.instantiate(tgt, &p, r, dst, &why)
+    }
+
     /// A [layout] gather item (an install path: include/..., lib/...) at
     /// its place in the root: the recipe's first include / lib dir.
     pub static fn layout_path(r: *SysRecipe, const g: string) -> string {
@@ -231,10 +267,15 @@ pub class SysRuntimes {
         // Both are verified inputs (plan() hashed them against
         // registry.toml) or the stage cannot run: never a path that was
         // not checked.
-        env.recipe = ctx->input_dir("runtimes-recipe")
+        var tmpl = ctx->input_dir("runtimes-template")
+        env.tables = ctx->input_dir("runtimes-recipe")
         env.src    = ctx->input_dir("runtimes")
-        if env.recipe.empty() || env.src.empty() {
-            var miss = if (env.recipe.empty()) => ("runtimes-recipe") else => "runtimes"
+        if env.tables.empty() && !tmpl.empty() {
+            env.tables = tmpl
+        }
+
+        if env.tables.empty() || env.src.empty() {
+            var miss = if (env.tables.empty()) => ("runtimes-recipe") else => "runtimes"
             return out.refuse(
                 f"share input {miss} is not listed in {ctx->share}/registry.toml",
                 "the builtins and runtimes stages compile from runtimes/ with the runtimes-recipe/ tables",
@@ -251,10 +292,36 @@ pub class SysRuntimes {
             )
         }
 
-        var tpath = f"{env.recipe}/targets/{ctx->target.name}.toml"
+        env.share   = ctx->share
+        env.work    = ctx->stage + "/work"
+        env.build   = env.work + "/build"
+        env.sysroot = env.work + "/sysroot"
+        env.trees   = env.tables
+        LinkFS::remove_tree(env.work)
+        if !LinkFS::make_dirs(env.work) {
+            return out.fail(f"cannot create {env.work}", "")
+        }
+
+        if !tmpl.empty() {
+            var why = ""
+            if !SysRuntimes::from_template(
+                &ctx->target,
+                &ctx->recipe,
+                tmpl,
+                env.work + "/tables",
+                &why,
+            ) {
+                return out.refuse(why, "")
+            }
+
+            env.tables = env.work + "/tables"
+            env.trees  = tmpl
+        }
+
+        var tpath = f"{env.tables}/targets/{ctx->target.name}.toml"
         if !LinkFS::is_file(tpath) {
             return out.refuse(
-                f"no runtimes recipe for {ctx->target.name} in {env.recipe}",
+                f"no runtimes recipe for {ctx->target.name} in {env.tables}",
                 "runtimes-recipe/index.toml lists the targets it was derived for",
             )
         }
@@ -274,23 +341,14 @@ pub class SysRuntimes {
             )
         }
 
-        env.share   = ctx->share
-        env.work    = ctx->stage + "/work"
-        env.build   = env.work + "/build"
-        env.sysroot = env.work + "/sysroot"
-        LinkFS::remove_tree(env.work)
-        if !LinkFS::make_dirs(env.work) {
-            return out.fail(f"cannot create {env.work}", "")
-        }
-
         if !SysRuntimes::_header_root(ctx, toml, env.sysroot, &out) {
             return false
         }
 
         var bkey = env.target.str("", "build")
         if with_build && !bkey.empty() {
-            var man = f"{env.recipe}/build/{bkey}.toml"
-            var gen = f"{env.recipe}/build/{bkey}"
+            var man = f"{env.trees}/build/{bkey}.toml"
+            var gen = f"{env.trees}/build/{bkey}"
             if !SysRuntimes::_materialise(man, gen, env.src, env.build, true, &out) {
                 return false
             }
@@ -495,7 +553,7 @@ pub class SysRuntimes {
                 continue
             }
 
-            var tpath = f"{env->recipe}/{rt}/{key}.toml"
+            var tpath = f"{env->tables}/{rt}/{key}.toml"
             var t     = SysRecipe()
             if !t.load(tpath) {
                 return out.refuse(f"{tpath}: {t.error}", "")
@@ -617,8 +675,8 @@ pub class SysRuntimes {
         }
 
         LinkFS::remove_tree(to)
-        var man = f"{env->recipe}/headers/{key}.toml"
-        var gen = f"{env->recipe}/headers/{key}"
+        var man = f"{env->trees}/headers/{key}.toml"
+        var gen = f"{env->trees}/headers/{key}"
         return SysRuntimes::_materialise(man, gen, env->src, to, false, &out)
     }
 

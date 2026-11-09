@@ -73,6 +73,7 @@ import Sysroot::SysUtil::{
     SysJsonField,
     SysUtil,
 }
+import Sysroot::Template::SysTemplate
 import std::env
 import std::io
 
@@ -203,6 +204,62 @@ pub class SysGen {
 
         path = done_dir
         return c.publish(p.target.name, p.key)
+    }
+
+    /// `ksys tables <target> --out DIR`: the runtimes tables the builtins
+    /// and runtimes stages would compile from, written in the
+    /// runtimes-recipe/ layout (targets/<name>.toml, <runtime>/<name>.toml)
+    /// and not built: the template instantiated, else the shipped tables
+    /// copied. What a parity check diffs against the derived tables.
+    pub fn tables(self,
+                  const target:  string,
+                  const out_dir: string,
+                  @inout out:    SysOutcome) -> bool {
+        var p = SysPlan()
+        if !self.plan(target, &p, &out, true) {
+            return false
+        }
+
+        if SysUtil::contains(&p.inputs, "runtimes-template") {
+            var why  = ""
+            var tmpl = p.share.input_path("runtimes-template")
+            if !SysRuntimes::from_template(&p.target, &p.recipe, tmpl, out_dir, &why) {
+                return out.refuse(why, "")
+            }
+
+            return true
+        }
+
+        if !SysUtil::contains(&p.inputs, "runtimes-recipe") {
+            return out.refuse(f"{p.target.name} builds no runtimes from this share tree", "")
+        }
+
+        var rdir = p.share.input_path("runtimes-recipe")
+        var tt   = SysRecipe()
+        var tp   = f"{rdir}/targets/{p.target.name}.toml"
+        if !tt.load(tp) {
+            return out.refuse(f"{tp}: {tt.error}", "")
+        }
+
+        LinkFS::make_dirs(out_dir + "/targets")
+        if !SysRun::put_file(tp, f"{out_dir}/targets/{p.target.name}.toml", false) {
+            return out.fail(f"cannot copy {tp}", "")
+        }
+
+        for var rt: string in SysTemplate::runtimes() {
+            var key = tt.str("", rt)
+            if key.empty() {
+                continue
+            }
+
+            LinkFS::make_dirs(out_dir + "/" + rt)
+            var from = f"{rdir}/{rt}/{key}.toml"
+            if !SysRun::put_file(from, f"{out_dir}/{rt}/{p.target.name}.toml", false) {
+                return out.fail(f"cannot copy {from}", "")
+            }
+        }
+
+        return true
     }
 
     /// `ksys build <target> --out DIR`: the same pipeline, uncached.
@@ -632,8 +689,15 @@ pub class SysGen {
             return out.refuse(f"{rpath}: {p.recipe.error}", "")
         }
 
+        // A recipe template keyed on a [per_arch] table has no row for an
+        // arch it does not port (glibc's {per_arch.triple}): keep the
+        // built-in triple then, so the backend probe and the provider's
+        // refusal name the target and not the template.
         if !p.recipe.clang_triple.empty() {
-            p.target.clang_triple = p.recipe.expand(p.recipe.clang_triple, &p.target)
+            var ct = p.recipe.expand(p.recipe.clang_triple, &p.target)
+            if !LinkText::contains(ct, "{") {
+                p.target.clang_triple = ct
+            }
         }
 
         /// ## probe (4.2)
@@ -701,6 +765,15 @@ pub class SysGen {
 
         if !prov->supports(&p.target, &p.recipe, &out) {
             p.row("supports", "no")
+            // What the target is still worth showing: the probe of an arch
+            // no provider ports yet is where its properties get checked.
+            var np = SysNames::properties(&p.target)
+            np.put(
+                "backend",
+                string(unsafe ((backend->getName() as unsafe *const u8) as *const u8)),
+            )
+
+            p.row("properties", np.text())
             return false
         }
 
@@ -727,6 +800,10 @@ pub class SysGen {
         }
 
         p.row("tools", "ok")
+        var props = SysNames::properties(&p.target)
+        var be    = string(unsafe ((backend->getName() as unsafe *const u8) as *const u8))
+        props.put("backend", be)
+        p.row("properties", props.text())
         if !with_inputs {
             return true
         }
@@ -743,12 +820,24 @@ pub class SysGen {
         // up front when the recipe builds C++ runtimes; otherwise (wasi:
         // builtins only) taken when the registry lists them, and the
         // builtins stage refuses if it does not.
-        var c    = self.cache()
-        var rtin = cxx::std::vector<string>()
+        // runtimes-template/ is the rule the tables follow and serves any
+        // target in its domain; when the registry lists it the tables are
+        // not needed (and taken only when listed too). Without it the
+        // tables are required as before.
+        var c        = self.cache()
+        var has_tmpl = !p.share.registered("runtimes-template").empty()
+        var rtin     = cxx::std::vector<string>()
         rtin.push_back("runtimes")
+        rtin.push_back("runtimes-template")
         rtin.push_back("runtimes-recipe")
         for var rt: string in rtin {
             var need = !p.recipe.runtimes.empty() || !p.share.registered(rt).empty()
+            if rt == "runtimes-template" {
+                need = has_tmpl
+            } else if rt == "runtimes-recipe" && has_tmpl {
+                need = !p.share.registered(rt).empty()
+            }
+
             if need && !SysUtil::contains(&rels, rt) {
                 rels.push_back(rt)
             }
@@ -775,9 +864,24 @@ pub class SysGen {
             p.in_sha.push_back(got)
         }
 
-        // A target the tables were not derived for would fail in the
-        // builtins stage, after the libc stages: refuse it before them.
-        if SysUtil::contains(&p.inputs, "runtimes-recipe") {
+        // A target neither the template nor the tables serve would fail in
+        // the builtins stage, after the libc stages: refuse it before them.
+        if SysUtil::contains(&p.inputs, "runtimes-template") {
+            var t = SysTemplate()
+            if !t.load(p.share.input_path("runtimes-template")) {
+                return out.refuse(t.error, "")
+            }
+
+            var why = ""
+            if !t.fits(&p.target, &props, &why) {
+                return out.refuse(
+                    why,
+                    "runtimes-template/index.toml [domain] lists what its rules were derived over",
+                )
+            }
+
+            p.row("runtimes_from", "template")
+        } else if SysUtil::contains(&p.inputs, "runtimes-recipe") {
             var rdir = p.share.input_path("runtimes-recipe")
             if !LinkFS::is_file(f"{rdir}/targets/{p.target.name}.toml") {
                 return out.refuse(

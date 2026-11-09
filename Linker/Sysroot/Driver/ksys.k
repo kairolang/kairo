@@ -51,6 +51,7 @@ fn ksys_usage() -> string {
     u += "  ensure <target> [--glibc=X.Y] [--input DIR]  the cached sysroot (built if missing); path on stdout\n"
     u += "  build <target> [--glibc=X.Y] [--input DIR] --out DIR\n"
     u += "                                               build into DIR, uncached\n"
+    u += "  tables <target> --out DIR                    the runtimes tables the target compiles from, unbuilt\n"
     u += "  validate <dir>                               check a sysroot\n"
     u += "  verify-share                                 re-hash every input of the share tree\n"
     u += "  ls                                           cached sysroots by name\n"
@@ -190,12 +191,14 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     var want = if (cmd == "probe"
                    || cmd == "ensure"
                    || cmd == "build"
+                   || cmd == "tables"
                    || cmd == "validate"
                    || cmd == "rm") => (1)
                else => 0
     if cmd != "probe"
         && cmd != "ensure"
         && cmd != "build"
+        && cmd != "tables"
         && cmd != "validate"
         && cmd != "verify-share"
         && cmd != "ls"
@@ -228,6 +231,15 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         }
 
         gen.build(words[1], out_dir, &o)
+        return ksys_report(&o)
+    }
+
+    if cmd == "tables" {
+        if out_dir.empty() {
+            return ksys_usage_error("tables needs --out DIR")
+        }
+
+        gen.tables(words[1], out_dir, &o)
         return ksys_report(&o)
     }
 
