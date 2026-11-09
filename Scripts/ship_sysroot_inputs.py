@@ -25,6 +25,9 @@ is fetched. Sources, in the order kairo-sysroots' curate/ scripts consumed them:
   freebsd/, netbsd/  build/sysgen/bsd-trim/<name> when bsd-trim/DONE exists, else the curated
                   root; minus libcxx/, compiler-rt/ and usr/include/c++ (built from runtimes)
   wasi/33/        the curated wasm32-wasi root minus noeh/ and compiler-rt/
+  runtimes-recipe/  Scripts/runtimes_recipe.py: per-runtime compile tables (sources, flags,
+                  archive layout) + generated headers, from a CMake configure of each family
+                  recipe; the generator's no-CMake runtimes stage (Scripts/build_runtimes_direct.py)
   families/ quirks.toml shims/ validate/   written from the tables in this file; each recipe
                   renders the curated SYSROOT.toml byte for byte (checked by --report)
 
@@ -79,6 +82,7 @@ LICENSES = {   # input key prefix -> SPDX (sources.toml in kairo-sysroots)
     "netbsd": "BSD-2-Clause",
     "wasi": "Apache-2.0 WITH LLVM-exception AND MIT AND CC0-1.0",
     "runtimes": "Apache-2.0 WITH LLVM-exception",
+    "runtimes-recipe": "Apache-2.0 WITH LLVM-exception",   # tables + generated headers from it
 }
 
 
@@ -230,8 +234,11 @@ cxx_flags  = ["-nostdlibinc", "-nostdinc++", "-isystem", "{stage}/include"]
 asm_flags  = ["-nostdlibinc", "-isystem", "{stage}/include"]
 assert_cache_regex = ["COMPILER_RT_HAS_[a-z0-9_]+_BFLOAT16:INTERNAL=1"]   # build-builtins.sh:95
 
+# LIBCXX_HAS_MUSL_LIBC: without it __config_site says glibc and <__locale> #errors (P604).
+# LIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL=OFF: musl has none; a compile-only try_compile "finds" it
+# and libc++abi then needs it strongly (Alpine's references it weakly, as this gives) (P606).
 [runtimes_cmake]                                  # as glibc (build-glibc-runtimes.sh); the
-cmake_defs = ["CMAKE_BUILD_TYPE=Release", "CMAKE_SYSTEM_NAME={sysname}", "CMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY", "CMAKE_POSITION_INDEPENDENT_CODE=ON", "LLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF", "LLVM_INCLUDE_TESTS=OFF", "COMPILER_RT_BUILD_CRT=ON", "COMPILER_RT_BUILD_SANITIZERS=OFF", "COMPILER_RT_BUILD_XRAY=OFF", "COMPILER_RT_BUILD_LIBFUZZER=OFF", "COMPILER_RT_BUILD_PROFILE=OFF", "COMPILER_RT_BUILD_MEMPROF=OFF", "COMPILER_RT_BUILD_ORC=OFF", "COMPILER_RT_BUILD_CTX_PROFILE=OFF", "COMPILER_RT_INCLUDE_TESTS=OFF", "LIBUNWIND_ENABLE_SHARED=OFF", "LIBUNWIND_USE_COMPILER_RT=ON", "LIBCXXABI_ENABLE_SHARED=OFF", "LIBCXXABI_USE_LLVM_UNWINDER=ON", "LIBCXXABI_USE_COMPILER_RT=ON", "LIBCXX_ENABLE_SHARED=OFF", "LIBCXX_CXX_ABI=libcxxabi", "LIBCXX_USE_COMPILER_RT=ON", "LIBCXX_INCLUDE_BENCHMARKS=OFF", "LIBCXX_ENABLE_STATIC_ABI_LIBRARY=OFF"]
+cmake_defs = ["CMAKE_BUILD_TYPE=Release", "CMAKE_SYSTEM_NAME={sysname}", "CMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY", "CMAKE_POSITION_INDEPENDENT_CODE=ON", "LLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF", "LLVM_INCLUDE_TESTS=OFF", "COMPILER_RT_BUILD_CRT=ON", "COMPILER_RT_BUILD_SANITIZERS=OFF", "COMPILER_RT_BUILD_XRAY=OFF", "COMPILER_RT_BUILD_LIBFUZZER=OFF", "COMPILER_RT_BUILD_PROFILE=OFF", "COMPILER_RT_BUILD_MEMPROF=OFF", "COMPILER_RT_BUILD_ORC=OFF", "COMPILER_RT_BUILD_CTX_PROFILE=OFF", "COMPILER_RT_INCLUDE_TESTS=OFF", "LIBUNWIND_ENABLE_SHARED=OFF", "LIBUNWIND_USE_COMPILER_RT=ON", "LIBCXXABI_ENABLE_SHARED=OFF", "LIBCXXABI_USE_LLVM_UNWINDER=ON", "LIBCXXABI_USE_COMPILER_RT=ON", "LIBCXX_ENABLE_SHARED=OFF", "LIBCXX_CXX_ABI=libcxxabi", "LIBCXX_USE_COMPILER_RT=ON", "LIBCXX_INCLUDE_BENCHMARKS=OFF", "LIBCXX_ENABLE_STATIC_ABI_LIBRARY=OFF", "LIBCXX_HAS_MUSL_LIBC=ON", "LIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL=OFF"]
 c_flags    = ["-fPIC"]                            # curated musl runtimes were Alpine's (no
 cxx_flags  = ["-fPIC"]                            # fork recipe); this mirrors the glibc one
 
@@ -1009,6 +1016,7 @@ class Ctx:
         self.ksys = a.kairo_sysroots.resolve()
         self.bsd_trim = a.bsd_trim.resolve()
         self.cc = a.cc
+        self.kcc_tree = a.kcc_tree.resolve()
         self.prov = {}          # input key -> list of provenance lines
         self.dropped_links = {}
         self.mingw_defs = {}    # arch -> {lib name: def name}
@@ -1392,6 +1400,7 @@ def build_licenses(c: Ctx) -> None:
         "netbsd": [lt / "NetBSD-COPYRIGHT.txt"],
         "wasi": sorted((ROOT / "Lib/libc/wasi").glob("LICENSE*")),
         "runtimes": [ROOT / "Lib/llvm-runtimes/LICENSE.TXT"],
+        "runtimes-recipe": [ROOT / "Lib/llvm-runtimes/LICENSE.TXT"],
     }
     for comp, srcs in files.items():
         d = out / comp
@@ -1404,18 +1413,38 @@ def build_licenses(c: Ctx) -> None:
         (out / "mingw" / n).write_bytes(txt)
 
 
+def build_runtimes_recipe(c: Ctx) -> None:
+    """runtimes-recipe/: the direct-compile tables for every bundled target (Scripts/
+    runtimes_recipe.py). Configures each family recipe with CMake against a libc-headers
+    stage of the curated root (scratch: <scratch>/runtimes-recipe); compiles nothing."""
+    import runtimes_recipe
+    rev, _, rt = stage_runtimes(c)
+    tree = c.kcc_tree
+    runtimes_recipe.derive(c.share, rt, c.curated, tree, c.scratch / "runtimes-recipe")
+    c.prov["runtimes-recipe"] = [
+        f"Scripts/runtimes_recipe.py: CMake configure of each family recipe ([builtins], [runtimes_cmake], "
+        f"quirks) for the bundled targets, runtimes REVISION {rev}, kcc {tree / 'bin' / 'kcc'}; "
+        "ninja -t compdb + build.ninja archive edges, normalised and deduplicated; generated headers "
+        "(__config_site, module.modulemap, libcxx.imp) copied from the configure"]
+
+
 def stage_runtimes(c: Ctx) -> tuple[str, str, Path]:
+    if getattr(c, "_rt_stage", None):
+        return c._rt_stage
     import package_release
     dst = fresh(c.scratch / "runtimes-stage")
     package_release.stage_runtimes(dst)
     rt = dst / "share" / "kairo" / "runtimes"
-    return (rt / "REVISION").read_text().strip(), tree_sha256(rt), rt
+    c._rt_stage = ((rt / "REVISION").read_text().strip(), tree_sha256(rt), rt)
+    return c._rt_stage
 
 
 def write_registry(c: Ctx, rt_hash: str) -> None:
     keys = ["musl", "linux-uapi", f"wasi/{WASI_VERSION}", "mingw"]
     keys += [f"glibc/{v}/{a}" for v in GLIBC_VERSIONS for a in load_recipe(FAMILIES["glibc"])["arches"]]
     keys += [f"{o}/{v}/{a}" for o, (v, arches) in BSD.items() for a in arches]
+    if (c.share / "runtimes-recipe" / "index.toml").is_file():
+        keys.append("runtimes-recipe")
     keys = sorted(keys)
     hashes = {k: tree_sha256(c.share / k) for k in keys}
     hashes["runtimes"] = rt_hash
@@ -1705,7 +1734,7 @@ def classify(c, fam, arch, env, root, rel, p, trim_reason, mcache):
 
 # ---------------------------------------------------------------- main
 
-STEPS = ["data", "musl", "uapi", "glibc", "mingw", "bsd", "wasi", "licenses"]
+STEPS = ["data", "musl", "uapi", "glibc", "mingw", "bsd", "wasi", "runtimes-recipe", "licenses"]
 
 
 def main() -> int:
@@ -1717,6 +1746,9 @@ def main() -> int:
     ap.add_argument("--bsd-trim", type=Path, default=ROOT / "build" / "sysgen" / "bsd-trim")
     ap.add_argument("--cc", type=Path, default=ROOT / "build" / "x86_64-linux-gnu" / "release" / "bin" / "kcc",
                     help="compiler driver for the glibc stub check (--report)")
+    ap.add_argument("--kcc-tree", type=Path, default=ROOT / "build" / "x86_64-linux-musl" / "release",
+                    help="toolchain tree whose kcc configures the runtimes-recipe step (its bin/ and lib/ "
+                         "are linked into a kit without sysroot/: kcc prefers <prefix>/sysroot/<target>)")
     ap.add_argument("--only", nargs="+", choices=STEPS, help="rebuild only these inputs (registry is always rewritten)")
     ap.add_argument("--report", action="store_true", help="size report + parity check into <scratch>/")
     a = ap.parse_args()
@@ -1725,7 +1757,8 @@ def main() -> int:
     c.scratch.mkdir(parents=True, exist_ok=True)
     steps = a.only or STEPS
     fn = {"data": build_data, "musl": build_musl, "uapi": build_uapi, "glibc": build_glibc,
-          "mingw": build_mingw, "bsd": build_bsd, "wasi": build_wasi, "licenses": build_licenses}
+          "mingw": build_mingw, "bsd": build_bsd, "wasi": build_wasi, "runtimes-recipe": build_runtimes_recipe,
+          "licenses": build_licenses}
     for s in steps:
         log(f"== {s}")
         fn[s](c)

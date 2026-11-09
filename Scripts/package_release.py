@@ -199,7 +199,9 @@ RUNTIMES_TREES = ["compiler-rt/cmake", "compiler-rt/include", "compiler-rt/lib/b
                   # (cmake/Modules/FindLibcCommonUtils.cmake puts libc/ on the include path):
                   # the closure of libc/shared/*.h's includes lives in these dirs.
                   "libc/shared", "libc/hdr", "libc/include/llvm-libc-macros",
-                  "libc/include/llvm-libc-types", "libc/src/__support"]
+                  "libc/include/llvm-libc-types", "libc/src/__support",
+                  # aarch64 builtins: emupac.cpp includes <siphash/SipHash.h> (P603)
+                  "third-party/siphash"]
 RUNTIMES_PRUNED = ["libunwind", "libcxxabi", "libcxx", "runtimes"]   # minus RUNTIMES_DROP
 RUNTIMES_DROP = {"test", "tests", "docs", "benchmarks", "utils", "__pycache__"}
 # libcxx/utils stays (unlike ship-runtimes.sh): libcxx/CMakeLists.txt add_subdirectory()s it
