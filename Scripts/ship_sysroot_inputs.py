@@ -4,7 +4,7 @@
     python3 Scripts/ship_sysroot_inputs.py                  # build/sysroot-share
     python3 Scripts/ship_sysroot_inputs.py --report         # + size report and parity check
     python3 Scripts/ship_sysroot_inputs.py --only mingw     # rebuild one input family
-                                  # (--only leaves provenance.toml as the last full run wrote it)
+                                  # (--only rewrites only its own provenance.toml sections)
 
 Maintainer tool, never shipped. It replaces the 18 prebuilt cross sysroots a release
 carries with the inputs the generator builds them from. Everything comes from disk; nothing
@@ -71,6 +71,9 @@ MINGW_DLLTOOL_M = {"x86_64": "i386:x86-64", "i686": "i386", "armv7": "arm", "aar
 MINGW_FROM_RUNTIMES = {"libc++.a", "libc++abi.a", "libc++experimental.a", "libunwind.a",
                        "libc++.dll.a", "libunwind.dll.a", "libc++.modules.json"}
 BSD = {"freebsd": ("14.4", ["x86_64", "aarch64"]), "netbsd": ("10.1", ["x86_64"])}
+# From-source inputs (Zig-style: the libc built from shipped sources + tables, no prebuilt
+# per-target base). Registered whenever their dir exists, so a run that skips them keeps them.
+EXTRA_KEYS = ["mingw-crt", "wasi-libc"]
 WASI_VERSION = "33"
 
 LICENSES = {   # input key prefix -> SPDX (sources.toml in kairo-sysroots)
@@ -83,6 +86,8 @@ LICENSES = {   # input key prefix -> SPDX (sources.toml in kairo-sysroots)
     "wasi": "Apache-2.0 WITH LLVM-exception AND MIT AND CC0-1.0",
     "runtimes": "Apache-2.0 WITH LLVM-exception",
     "runtimes-recipe": "Apache-2.0 WITH LLVM-exception",   # tables + generated headers from it
+    "mingw-crt": "ZPL-2.1 AND LicenseRef-mingw-w64-public-domain",   # mingw-w64-crt sources + tables
+    "wasi-libc": "Apache-2.0 WITH LLVM-exception AND MIT AND CC0-1.0",   # wasi-libc sources + tables
 }
 
 
@@ -104,13 +109,45 @@ def file_sha256(p: Path) -> str:
     return h.hexdigest()
 
 
-def tree_sha256(root: Path) -> str:
-    """FORMAT.md's algorithm, byte for byte: follow symlinks, skip dangling ones."""
+# Registry schema. 2 (P612): an input holds no symlinks at all (links.tsv / casefold.tsv
+# record what ksys recreates), and tree_sha256 never follows a link: a link is an error. On a
+# link-free tree both rules give the same hash, which is what makes a Windows unzip and a
+# Linux untar of the same archive verify identically. --legacy-links writes schema 1.
+SCHEMA = 2
+LINKS_TSV = "links.tsv"
+CASEFOLD_TSV = "casefold.tsv"
+CASE_SUFFIX = ".kcase"
+
+
+def registry_schema(share: Path) -> int | None:
+    """The `schema = N` of <share>/registry.toml, None without one."""
+    reg = Path(share) / "registry.toml"
+    if not reg.is_file():
+        return None
+    m = re.search(r"^schema\s*=\s*\"?(\d+)", reg.read_text(), re.M)
+    return int(m.group(1)) if m else None
+
+
+def tree_sha256(root: Path, legacy: bool | None = None) -> str:
+    """FORMAT.md's algorithm, byte for byte. Schema 2: no link may exist (die). Schema 1
+    (--legacy-links): follow symlinks, skip dangling ones. `legacy` unset: the rule of the
+    share the dir sits in (the nearest registry.toml above it), so a verifier such as
+    package_release.py checks a schema 1 tree by schema 1's rule; no registry: SCHEMA."""
+    if legacy is None:
+        for up in [Path(root), *Path(root).resolve().parents]:
+            sch = registry_schema(up)
+            if sch is not None:
+                legacy = sch == 1
+                break
+        else:
+            legacy = SCHEMA == 1
     rels = []
-    for d, _, files in os.walk(root, followlinks=True):
-        for f in files:
+    for d, dirs, files in os.walk(root, followlinks=legacy):
+        for f in files + ([] if legacy else dirs):
             p = os.path.join(d, f)
-            if os.path.isfile(p):
+            if not legacy and os.path.islink(p):
+                die(f"tree_sha256: {p} is a symlink; schema 2 inputs hold none (record it in links.tsv)")
+            if f in files and os.path.isfile(p):
                 rels.append(os.path.relpath(p, root).replace(os.sep, "/"))
     h = hashlib.sha256()
     for r in sorted(rels, key=lambda r: r.encode()):
@@ -173,6 +210,117 @@ def sweep_links(root: Path, dropped: list) -> None:
             if os.path.isabs(t) or not inside or not os.path.exists(p):
                 dropped.append(f"{p.relative_to(root).as_posix()} -> {t}")
                 p.unlink()
+
+
+def seal_input(root: Path) -> list[str]:
+    """P612: make one input dir portable to a case-insensitive, link-less filesystem (a Windows
+    unzip). Every symlink becomes a row of <root>/links.tsv and is removed; every name that
+    collides with another in the same dir under case folding (Linux netfilter's xt_MARK.h /
+    xt_mark.h) except the bytewise-greatest of its group is stored as <name>.kcase and listed
+    in <root>/casefold.tsv. Idempotent: rows already recorded are kept, so a rerun over a
+    sealed dir changes nothing. Returns notes for provenance."""
+    links = {}
+    lt = root / LINKS_TSV
+    if lt.is_file():
+        for line in lt.read_text().splitlines():
+            rel, target, kind = line.split("\t")
+            links[rel] = (target, kind)
+    found = []
+    for d, dirs, files in os.walk(root):
+        for n in sorted(dirs + files):
+            p = Path(d, n)
+            if p.is_symlink():
+                rel = p.relative_to(root).as_posix()
+                t = os.readlink(p)
+                if os.path.isabs(t) or "\\" in t or "\t" in t or "\n" in t:
+                    die(f"{p}: link text {t!r} cannot be recorded (absolute or unportable)")
+                found.append((rel, t, "d" if p.is_dir() else "f"))
+    # A dir link's target must exist as a real dir once every link is gone: unlink files first,
+    # dirs last, then check every recorded target resolves to a real entry inside root.
+    for rel, t, kind in sorted(found, key=lambda e: e[2] == "d"):
+        (root / rel).unlink()
+        links[rel] = (t, kind)
+    for rel, (t, kind) in links.items():
+        res = resolve_recorded(root, rel, links)
+        if res is None:
+            die(f"{root}: link {rel} -> {t} does not resolve inside the input once links are gone")
+        if (root / res).is_dir() != (kind == "d"):
+            die(f"{root}: link {rel} -> {t}: kind {kind} does not match its target")
+    if links:
+        rows = [f"{r}\t{links[r][0]}\t{links[r][1]}" for r in sorted(links, key=str.encode)]
+        lt.write_text("\n".join(rows) + "\n")
+    folds = {}
+    ct = root / CASEFOLD_TSV
+    if ct.is_file():
+        for line in ct.read_text().splitlines():
+            stored, rel = line.split("\t")
+            folds[stored] = rel
+    for d, dirs, files in os.walk(root):
+        groups = {}
+        for n in dirs + files:
+            groups.setdefault(n.casefold(), []).append(n)
+        for g in groups.values():
+            if len(g) < 2:
+                continue
+            for n in sorted(g, key=str.encode)[:-1]:
+                if Path(d, n).is_dir():
+                    die(f"{d}: case-colliding directory {n}; casefold.tsv covers files only")
+                rel = Path(d, n).relative_to(root).as_posix()
+                stored = rel + CASE_SUFFIX
+                if (root / stored).exists():
+                    die(f"{root}: {stored} already exists")
+                os.rename(root / rel, root / stored)
+                folds[stored] = rel
+    if folds:
+        rows = [f"{s}\t{folds[s]}" for s in sorted(folds, key=str.encode)]
+        ct.write_text("\n".join(rows) + "\n")
+    notes = []
+    if links:
+        notes.append(f"{len(links)} symlinks recorded in links.tsv (none on disk; ksys recreates them)")
+    if folds:
+        notes.append(f"{len(folds)} case-colliding files stored as <name>{CASE_SUFFIX}, listed in casefold.tsv")
+    return notes
+
+
+def resolve_recorded(root: Path, rel: str, links: dict) -> str | None:
+    """The real (link-free) path inside root that recorded link `rel` names, following chains
+    and dir links on the way, as the OS would; None if it escapes root, loops or dangles.
+    FORMAT.md's links.tsv rule; ksys's copy fallback resolves the same way."""
+    parts, seen = rel.split("/"), 0
+    done = []
+    while parts:
+        cur = "/".join(done + [parts[0]])
+        if cur in links:
+            seen += 1
+            if seen > 64:
+                return None
+            t = links[cur][0]
+            parts = t.split("/") + parts[1:]
+            continue
+        head = parts.pop(0)
+        if head in ("", "."):
+            continue
+        if head == "..":
+            if not done:
+                return None
+            done.pop()
+            continue
+        done.append(head)
+    res = "/".join(done)
+    return res if res and (root / res).exists() else None
+
+
+def windows_hazards(root: Path) -> list[str]:
+    """Names a Windows extract cannot create: reserved device basenames, forbidden characters,
+    a trailing dot or space. (Case collisions are sealed away by seal_input.)"""
+    reserved = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.I)
+    bad = re.compile(r'[<>:"\\|?*\x00-\x1f]')
+    out = []
+    for d, dirs, files in os.walk(root):
+        for n in dirs + files:
+            if reserved.match(n) or bad.search(n) or n.endswith((".", " ")):
+                out.append(Path(d, n).relative_to(root).as_posix())
+    return out
 
 
 def remove_empty_dirs(root: Path) -> None:
@@ -1018,6 +1166,8 @@ class Ctx:
         self.cc = a.cc
         self.kcc_tree = a.kcc_tree.resolve()
         self.runtimes_headers = a.runtimes_headers.resolve() if a.runtimes_headers else None
+        self.crt_tree = a.crt_tree.resolve()
+        self.seal_notes = {}    # input key -> P612 notes (links.tsv / casefold.tsv)
         self.prov = {}          # input key -> list of provenance lines
         self.dropped_links = {}
         self.mingw_defs = {}    # arch -> {lib name: def name}
@@ -1402,6 +1552,8 @@ def build_licenses(c: Ctx) -> None:
         "wasi": sorted((ROOT / "Lib/libc/wasi").glob("LICENSE*")),
         "runtimes": [ROOT / "Lib/llvm-runtimes/LICENSE.TXT"],
         "runtimes-recipe": [ROOT / "Lib/llvm-runtimes/LICENSE.TXT"],
+        "mingw-crt": [m / "COPYING", m / "DISCLAIMER", m / "DISCLAIMER.PD"],
+        "wasi-libc": sorted((ROOT / "Lib/libc/wasi").glob("LICENSE*")),
     }
     for comp, srcs in files.items():
         d = out / comp
@@ -1409,9 +1561,16 @@ def build_licenses(c: Ctx) -> None:
         for s in srcs:
             s, n = (s if isinstance(s, tuple) else (s, s.name))
             shutil.copyfile(s, d / n)
-    for n in ("COPYING.MinGW-w64-runtime", "COPYING.MinGW-w64"):   # not in the sparse checkout
-        txt = subprocess.run(["git", "-C", str(m), "show", f"HEAD:{n}"], check=True, capture_output=True).stdout
-        (out / "mingw" / n).write_bytes(txt)
+    # Not in the sparse checkout. Each is a DIR holding <name>.txt: `git show HEAD:<dir>` printed a
+    # tree listing, which is what licenses/mingw/ carried until P620.
+    import mingw_crt_recipe
+    for comp, rev in (("mingw", "HEAD"), ("mingw-crt", mingw_crt_recipe.PIN)):
+        for n in ("COPYING.MinGW-w64-runtime", "COPYING.MinGW-w64"):
+            txt = subprocess.run(["git", "-C", str(m), "show", f"{rev}:{n}/{n}.txt"], check=True,
+                                 capture_output=True).stdout
+            (out / comp / f"{n}.txt").write_bytes(txt)
+    for f in (ROOT / "Lib/libc/wasi/libc-top-half/musl").glob("COPYRIGHT"):
+        shutil.copyfile(f, out / "wasi-libc" / "musl-COPYRIGHT")
 
 
 def build_runtimes_recipe(c: Ctx) -> None:
@@ -1430,6 +1589,32 @@ def build_runtimes_recipe(c: Ctx) -> None:
         "(__config_site, module.modulemap, libcxx.imp) copied from the configure"]
 
 
+def build_mingw_crt(c: Ctx) -> None:
+    """mingw-crt/: mingw-w64-crt sources at mingw_crt_recipe.PIN + per-arch tables derived from
+    its configure + `make -n` (Scripts/mingw_crt_recipe.py); built once per arch from the full
+    checkout to learn which sources and headers src/ must hold."""
+    import mingw_crt_recipe as M
+    if not (c.share / "mingw" / "include").is_dir():
+        die("mingw-crt needs mingw/include (run the mingw step first)")
+    stats = M.make_all(c.share, c.scratch / "mingw-crt", c.curated, ROOT / "build" / "relcand" / "bin" / "kcc",
+                       c.crt_tree)
+    c.prov["mingw-crt"] = [
+        f"src/: Lib/libc/mingw mingw-w64-crt at {M.PIN[:12]} (git archive; the last commit before llvm-mingw "
+        "20260224, the release mingw/include and the curated roots are), only the files the tables name plus "
+        "the headers a reference build read (-MD) and def-include/",
+        "<arch>.toml: configure --host=<arch>-w64-mingw32 " + " ".join(M.COMMON_CONFIGURE) + " CFLAGS=-O2 (llvm-mingw "
+        "build-mingw-w64.sh's flags; -g dropped), then `make -n all V=1` parsed: compiles, .def.in cpp, dlltool "
+        "import libs, ar cru, MRI merges (flattened to addlib), cp aliases (resolved into [install])",
+        *[f"{a}: {n[0]} compiles, {n[1]} defs, {n[2]} archives, {n[3]} installed files" for a, n in stats.items()],
+        "gen/<arch>/: configure's config.h, the Makefile's _libm_dummy.c"]
+
+
+def build_wasi_libc(c: Ctx) -> None:
+    import wasi_libc_recipe as W
+    W.make_all(c.share, c.scratch / "wasi-libc", c.crt_tree)
+    c.prov["wasi-libc"] = W.provenance()
+
+
 def stage_runtimes(c: Ctx) -> tuple[str, str, Path]:
     if getattr(c, "_rt_stage", None):
         return c._rt_stage
@@ -1437,7 +1622,7 @@ def stage_runtimes(c: Ctx) -> tuple[str, str, Path]:
     dst = fresh(c.scratch / "runtimes-stage")
     package_release.stage_runtimes(dst)
     rt = dst / "share" / "kairo" / "runtimes"
-    c._rt_stage = ((rt / "REVISION").read_text().strip(), tree_sha256(rt), rt)
+    c._rt_stage = ((rt / "REVISION").read_text().strip(), tree_sha256(rt, legacy=SCHEMA == 1), rt)
     return c._rt_stage
 
 
@@ -1447,31 +1632,46 @@ def write_registry(c: Ctx, rt_hash: str) -> None:
     keys += [f"{o}/{v}/{a}" for o, (v, arches) in BSD.items() for a in arches]
     if (c.share / "runtimes-recipe" / "index.toml").is_file():
         keys.append("runtimes-recipe")
+    keys += [k for k in EXTRA_KEYS if (c.share / k).is_dir()]
     keys = sorted(keys)
-    hashes = {k: tree_sha256(c.share / k) for k in keys}
+    hazards = []
+    for k in keys:
+        if SCHEMA >= 2:
+            c.seal_notes[k] = seal_input(c.share / k)
+        hazards += [f"{k}/{h}" for h in windows_hazards(c.share / k)]
+    if hazards:
+        die("names a Windows extract cannot create: " + ", ".join(hazards[:10]))
+    hashes = {k: tree_sha256(c.share / k, legacy=SCHEMA == 1) for k in keys}
     hashes["runtimes"] = rt_hash
     keys = sorted(hashes)
     w = max(len(k) for k in keys) + 2
     lines = ["# generated by Scripts/ship_sysroot_inputs.py; do not edit. Format: FORMAT.md.",
-             "schema = 1", "", "[inputs]"]
+             f"schema = {SCHEMA}", "", "[inputs]"]
     lines += [f'{chr(34) + k + chr(34):<{w}} = "{hashes[k]}"' for k in keys]
     lines += ["", "[licenses]"]
     lines += [f'{chr(34) + k + chr(34):<{w}} = "{LICENSES[k.split("/")[0]]}"' for k in keys]
     (c.share / "registry.toml").write_text("\n".join(lines) + "\n")
 
 
-def write_provenance(c: Ctx, rev: str) -> None:
+def write_provenance(c: Ctx, rev: str, merge: bool = False) -> None:
     """Human/audit record; ksys never reads it (not part of FORMAT.md's contract)."""
     def q(s: str) -> str:
         return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
     lines = ["# where every input came from; generated by Scripts/ship_sysroot_inputs.py", ""]
     c.prov["runtimes"] = [f"not copied: share/kairo/runtimes as Scripts/package_release.py stages it (REVISION {rev})"]
-    for k in sorted(c.prov):
+    old = {}
+    if merge and (c.share / "provenance.toml").is_file():
+        # --only: keep every section this run did not rebuild, as the last run wrote it
+        old = tomllib.loads((c.share / "provenance.toml").read_text())
+    keys = sorted(set(c.prov) | set(old))
+    for k in keys:
+        how = list(c.prov.get(k, old.get(k, {}).get("how", [])))
+        how += [n for n in c.seal_notes.get(k, []) if n not in how]
         lines.append(f"[{q(k)}]")
-        lines.append("how = [" + ", ".join(q(s) for s in c.prov[k]) + "]")
-        dl = c.dropped_links.get(k, [])
-        if dl:
-            lines.append(f"dropped_symlinks = {len(dl)}   # absolute, escaping or dangling")
+        lines.append("how = [" + ", ".join(q(s) for s in how) + "]")
+        n = len(c.dropped_links.get(k, [])) if k in c.prov else old.get(k, {}).get("dropped_symlinks", 0)
+        if n:
+            lines.append(f"dropped_symlinks = {n}   # absolute, escaping or dangling")
         lines.append("")
     (c.share / "provenance.toml").write_text("\n".join(lines))
 
@@ -1736,7 +1936,8 @@ def classify(c, fam, arch, env, root, rel, p, trim_reason, mcache):
 
 # ---------------------------------------------------------------- main
 
-STEPS = ["data", "musl", "uapi", "glibc", "mingw", "bsd", "wasi", "runtimes-recipe", "licenses"]
+STEPS = ["data", "musl", "uapi", "glibc", "mingw", "bsd", "wasi", "runtimes-recipe", "mingw-crt", "wasi-libc",
+         "licenses"]
 
 
 def main() -> int:
@@ -1754,16 +1955,33 @@ def main() -> int:
     ap.add_argument("--runtimes-headers", type=Path, default=None,
                     help="runtimes-recipe step: dir of <name>/ libc-headers roots for targets with no curated "
                          "root (armv6/riscv32 musl; Scripts/runtimes_recipe.py --headers)")
+    ap.add_argument("--crt-tree", type=Path, default=ROOT / "build" / "relcand",
+                    help="toolchain whose kcc builds the mingw-crt / wasi-libc reference builds (linked into a "
+                         "kit without sysroot/, P610)")
     ap.add_argument("--only", nargs="+", choices=STEPS, help="rebuild only these inputs (registry is always rewritten)")
     ap.add_argument("--report", action="store_true", help="size report + parity check into <scratch>/")
+    ap.add_argument("--legacy-links", action="store_true",
+                    help="schema 1: keep the BSD symlinks on disk and hash following them (the reader "
+                         "before P612); the default (schema 2) records them in links.tsv instead")
+    ap.add_argument("--upgrade-schema", action="store_true",
+                    help="allow writing schema 2 over an existing schema 1 tree (a ksys that reads only "
+                         "schema 1 then refuses it: flip a shared tree only with its reader)")
     a = ap.parse_args()
+    global SCHEMA
+    if a.legacy_links:
+        SCHEMA = 1
+    have = registry_schema(a.out)
+    if have is not None and have != SCHEMA and not (a.upgrade_schema and SCHEMA > have):
+        die(f"{a.out} is registry schema {have}, this run would write schema {SCHEMA}: pass "
+            + ("--legacy-links to keep schema 1, or --upgrade-schema to flip it (P612)" if have == 1
+               else "no --legacy-links (a schema 2 tree is never downgraded in place)"))
     c = Ctx(a)
     c.share.mkdir(parents=True, exist_ok=True)
     c.scratch.mkdir(parents=True, exist_ok=True)
     steps = a.only or STEPS
     fn = {"data": build_data, "musl": build_musl, "uapi": build_uapi, "glibc": build_glibc,
           "mingw": build_mingw, "bsd": build_bsd, "wasi": build_wasi, "runtimes-recipe": build_runtimes_recipe,
-          "licenses": build_licenses}
+          "mingw-crt": build_mingw_crt, "wasi-libc": build_wasi_libc, "licenses": build_licenses}
     for s in steps:
         log(f"== {s}")
         fn[s](c)
@@ -1775,8 +1993,7 @@ def main() -> int:
     log("== runtimes (hash only)")
     rev, rt_hash, rt = stage_runtimes(c)
     write_registry(c, rt_hash)
-    if not a.only:
-        write_provenance(c, rev)
+    write_provenance(c, rev, merge=bool(a.only))
     log(f"registry: {c.share / 'registry.toml'}")
     if a.report:
         log("== size report")

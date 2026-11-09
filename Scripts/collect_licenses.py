@@ -209,6 +209,7 @@ SHARE_INPUT_COMPONENTS = {
     "musl": "musl", "linux-uapi": "linux-uapi", "glibc": "glibc", "mingw": "mingw-w64",
     "freebsd": "freebsd", "netbsd": "netbsd", "wasi": "wasi-libc",
     "runtimes": "llvm", "runtimes-recipe": "llvm",
+    "mingw-crt": "mingw-w64", "wasi-libc": "wasi-libc",     # from-source inputs (Z1): same projects
 }
 
 
