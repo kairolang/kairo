@@ -22,7 +22,6 @@ import Sysroot::Provider::{
     StageCtx,
     SysrootProvider,
 }
-import Sysroot::SysRun::SysRun
 
 pub class BundleProvider derives SysrootProvider {
     pub fn BundleProvider(self) = default
@@ -45,7 +44,6 @@ pub class BundleProvider derives SysrootProvider {
             return out.refuse(f"the {ctx->target.recipe} recipe has no [bundle_layout]", "")
         }
 
-        var none = cxx::std::vector<string>()
         for var k: string in keys {
             var from = base + "/" + k
             var to   = dst + "/" + ctx->recipe.str("bundle_layout", k)
@@ -53,8 +51,8 @@ pub class BundleProvider derives SysrootProvider {
                 return out.refuse(f"share input {from} missing", "")
             }
 
-            if !SysRun::copy_tree(from, to, &none) {
-                return out.fail(f"cannot copy {from} to {to}", "")
+            if !ctx->materialise(from, to, &out) {
+                return false
             }
         }
 

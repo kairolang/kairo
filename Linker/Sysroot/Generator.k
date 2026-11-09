@@ -572,7 +572,16 @@ pub class SysGen {
             }
 
             var err = ""
-            var got = SysUtil::tree_sha256(path, &err)
+            var got = SysUtil::tree_sha256(path, share.follows_links(), &err)
+            if !err.empty() {
+                io::println(f"ERROR     {rel}")
+                if first.empty() {
+                    first = f"share input {err}"
+                }
+
+                continue
+            }
+
             if got != share.input_sha[i] {
                 io::println(f"MISMATCH  {rel}")
                 if first.empty() {
@@ -854,7 +863,12 @@ pub class SysGen {
                 return out.refuse(f"share input {path} missing", "")
             }
 
-            var got = SysGen::_verified_sha(&c, path)
+            var err = ""
+            var got = SysGen::_verified_sha(&c, path, p.share.follows_links(), &err)
+            if !err.empty() {
+                return out.refuse(f"share input {err}", "")
+            }
+
             if got != reg {
                 return out.refuse(f"share input {path}: tree hash mismatch (registry.toml)", "")
             }
@@ -924,6 +938,7 @@ pub class SysGen {
         ctx.inputs      = p->in_paths
         ctx.input       = self.input
         ctx.tools       = p->tools
+        ctx.ar          = SysGen::find_tool("llvm-ar")
         ctx.jobs        = self.jobs
         ctx.input_names = p->inputs
 
@@ -1126,36 +1141,7 @@ pub class SysGen {
 
     /// The SYSROOT.toml text for \p t; "" when the recipe has no [toml].
     pub static fn render_toml(r: *SysRecipe, t: *SysTarget) -> string {
-        var text = ""
-        for var key: string in r->keys_of("toml") {
-            var v   = r->value("toml", key)
-            var val = ""
-            if v->kind == 2 {
-                val = if (v->flag) => ("true") else => "false"
-            } else if v->kind == 3 {
-                val = "["
-                for var i: usize = 0; i < v->list.size(); ++i {
-                    if i > 0 {
-                        val += ", "
-                    }
-
-                    val += "\x22" + r->expand(v->list[i], t) + "\x22"
-                }
-
-                val += "]"
-            } else {
-                val = "\x22" + r->expand(v->text, t) + "\x22"
-            }
-
-            var k = key
-            while k.size() < 13 {
-                k += " "
-            }
-
-            text += k + " = " + val + "\n"
-        }
-
-        return text
+        return r->render_toml(t)
     }
 
     /// Stage validate (4.10) on the assembled root plus its SYSROOT.toml.
@@ -1400,7 +1386,7 @@ pub class SysGen {
         }
 
         var qa = t->arch
-        if qa == "armv7" || qa == "armv6" {
+        if SysNames::cpu_of(qa) == "arm" {
             qa = "arm"
         } else if qa == "i686" {
             qa = "i386"
@@ -1538,8 +1524,11 @@ pub class SysGen {
 
     /// tree_sha256 of \p dir, memoised by the tree's names, sizes and mtimes
     /// (4.3): a rebuild does not re-read hundreds of MB of unchanged input.
-    priv static fn _verified_sha(c: *SysCache, const dir: string) -> string {
-        var stamp = SysUtil::tree_stamp(dir)
+    priv static fn _verified_sha(c:          *SysCache,
+                                 const dir:  string,
+                                 follow:     bool,
+                                 @inout err: string) -> string {
+        var stamp = SysUtil::tree_stamp(dir, follow)
         var memo  = ""
         if !c->root.empty() {
             memo = f"{c->root}/verify/{SysUtil::sha256(dir)}"
@@ -1552,8 +1541,7 @@ pub class SysGen {
             }
         }
 
-        var err = ""
-        var sha = SysUtil::tree_sha256(dir, &err)
+        var sha = SysUtil::tree_sha256(dir, follow, &err)
         if !sha.empty() && !memo.empty() {
             LinkFS::make_dirs(LinkFS::parent(memo))
             LinkFS::write(memo, f"{stamp} {sha}\n")

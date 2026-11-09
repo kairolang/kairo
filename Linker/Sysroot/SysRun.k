@@ -5,9 +5,12 @@
 ///   tree copies the stages lay roots out with.
 ///
 ///   Tree copies keep symlinks as symlinks: the BSD bases link usr/lib/*.so
-///   to ../../lib, glibc's headers carry a few, and a link that became a
-///   file would be a second copy that drifts from the first. Windows, where
-///   a symlink needs a privilege, copies the target instead.
+///   to ../../lib, and a link that became a file would be a second copy that
+///   drifts from the first. Windows, where a symlink needs a privilege,
+///   copies the target instead. A schema 2 share input holds no links at
+///   all (a zip cannot carry them to Windows, P612): materialise() makes
+///   them in the root from the input's links.tsv, and restores the
+///   case-colliding names casefold.tsv records.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -31,6 +34,7 @@ ffi "c++" import "vector"
 
 import API::FS::LinkFS
 import API::Text::LinkText
+import Sysroot::SysUtil::SysUtil
 
 pub class SysRun {
     /// Runs \p argv (argv[0] a path) with stdout and stderr both in \p log
@@ -176,6 +180,227 @@ pub class SysRun {
         )
 
         return cec.value() == 0
+    }
+
+    /// Copies \p from, a dir inside the share input \p root ("" when it is
+    /// in none), to \p to, then recreates what a schema 2 input records
+    /// instead of holding (FORMAT.md "schema 2"): each <root>/links.tsv row
+    /// under \p from as the same symlink, or as a copy of what the row
+    /// resolves to where no link can be made; each <root>/casefold.tsv row
+    /// renamed back to its real name, or dropped when \p to cannot tell the
+    /// two names apart. Neither file sits under a copied subdir, so neither
+    /// reaches a root. False with \p err set on any failure.
+    pub static fn materialise(const root: string,
+                              const from: string,
+                              const to:   string,
+                              @inout err: string) -> bool {
+        var none = cxx::std::vector<string>()
+        if !SysRun::copy_tree(from, to, &none) {
+            err = f"cannot copy {from} to {to}"
+            return false
+        }
+
+        if root.empty() {
+            return true
+        }
+
+        var sub = if (from == root) => ("")
+                  else => LinkText::slice(from, root.size() + 1, from.size())
+        var rels = cxx::std::vector<string>()
+        var tgts = cxx::std::vector<string>()
+        var text = ""
+        if LinkFS::read(root + "/links.tsv", &text) {
+            for var line: string in LinkText::split_lines(text) {
+                if line.empty() {
+                    continue
+                }
+
+                var cols = SysUtil::split(line, ('\t' as u8))
+                if cols.size() != 3 {
+                    err = f"{root}/links.tsv: malformed row \x27{line}\x27"
+                    return false
+                }
+
+                rels.push_back(cols[0])
+                tgts.push_back(cols[1])
+            }
+        }
+
+        // Rows are independent: a chain may dangle until its last link is
+        // made. Copies wait until every link that could be made is.
+        var copies = cxx::std::vector<usize>()
+        for var i: usize = 0; i < rels.size(); ++i {
+            var at = SysRun::_mapped(sub, rels[i], to)
+            if at.empty() {
+                continue
+            }
+
+            LinkFS::make_dirs(LinkFS::parent(at))
+            // llvm's create_link is a hard link on Windows, resolved against
+            // the working directory: never a substitute for the row.
+            var linked = false
+            eval if defined!(_WIN32) {
+                linked = false
+            } else {
+                linked = SysRun::symlink(tgts[i], at)
+            }
+
+            if !linked {
+                copies.push_back(i)
+            }
+        }
+
+        for var i: usize in copies {
+            var at  = SysRun::_mapped(sub, rels[i], to)
+            var res = SysRun::_resolve_recorded(root, rels[i], &rels, &tgts)
+            if res.empty() {
+                err = f"{root}/links.tsv: {rels[i]} -> {tgts[i]} does not resolve inside the input"
+                return false
+            }
+
+            var src = root + "/" + res
+            LinkFS::remove(at)
+            var ok = if (LinkFS::is_dir(src)) => (SysRun::copy_tree(src, at, &none))
+                     else => SysRun::put_file(src, at, false)
+            if !ok {
+                err = f"cannot copy {src} to {at} (in place of the link {rels[i]})"
+                return false
+            }
+        }
+
+        text = ""
+        if !LinkFS::read(root + "/casefold.tsv", &text) {
+            return true
+        }
+
+        var stored = cxx::std::vector<string>()
+        var real   = cxx::std::vector<string>()
+        for var line: string in LinkText::split_lines(text) {
+            if line.empty() {
+                continue
+            }
+
+            var cols = SysUtil::split(line, ('\t' as u8))
+            if cols.size() != 2 {
+                err = f"{root}/casefold.tsv: malformed row \x27{line}\x27"
+                return false
+            }
+
+            var s = SysRun::_mapped(sub, cols[0], to)
+            if !s.empty() {
+                stored.push_back(s)
+                real.push_back(SysRun::_mapped(sub, cols[1], to))
+            }
+        }
+
+        if stored.empty() {
+            return true
+        }
+
+        // The destination decides, not the host: a case-sensitive volume
+        // on Windows or macOS keeps both names.
+        var folds = SysRun::case_insensitive(to)
+        for var i: usize = 0; i < stored.size(); ++i {
+            if folds {
+                LinkFS::remove(stored[i])
+            } else if !LinkFS::rename(stored[i], real[i]) {
+                err = f"cannot rename {stored[i]} to {real[i]}"
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// Whether the filesystem holding \p dir folds case: one probe file,
+    /// looked up under its upper-case name.
+    pub static fn case_insensitive(const dir: string) -> bool {
+        var probe = dir + "/.kairo-case-probe"
+        if !LinkFS::write(probe, "") {
+            return false
+        }
+
+        var folds = LinkFS::exists(dir + "/.KAIRO-CASE-PROBE")
+        LinkFS::remove(probe)
+        return folds
+    }
+
+    /// \p rel (input-relative) under the copied subdir \p sub, as a path
+    /// under \p to; "" when \p rel is not under \p sub.
+    priv static fn _mapped(const sub: string, const rel: string, const to: string) -> string {
+        if sub.empty() {
+            return to + "/" + rel
+        }
+
+        if !LinkText::starts_with(rel, sub + "/") {
+            return ""
+        }
+
+        return to + "/" + LinkText::slice(rel, sub.size() + 1, rel.size())
+    }
+
+    /// The link-free path inside \p root that the recorded link \p rel
+    /// names, through chains and dir links as the OS would resolve them;
+    /// "" when it escapes \p root, loops or dangles. The twin of
+    /// Scripts/ship_sysroot_inputs.py resolve_recorded().
+    priv static fn _resolve_recorded(const root:  string,
+                                     const rel:   string,
+                                     @inout rels: cxx::std::vector<string>,
+                                     @inout tgts: cxx::std::vector<string>) -> string {
+        var parts       = SysUtil::split(rel, ('/' as u8))
+        var done        = cxx::std::vector<string>()
+        var seen: usize = 0
+        var head: usize = 0
+        while head < parts.size() {
+            var cur = SysUtil::joined(&done, "/")
+            cur = if (cur.empty()) => (parts[head]) else => cur + "/" + parts[head]
+            var hit = rels.size()
+            for var i: usize = 0; i < rels.size(); ++i {
+                if rels[i] == cur {
+                    hit = i
+                }
+            }
+
+            if hit < rels.size() {
+                seen += 1
+                if seen > 64 {
+                    return ""
+                }
+
+                var next = SysUtil::split(tgts[hit], ('/' as u8))
+                for var i: usize = head + 1; i < parts.size(); ++i {
+                    next.push_back(parts[i])
+                }
+
+                parts = next
+                head  = 0
+                continue
+            }
+
+            var h = parts[head]
+            head += 1
+            if h.empty() || h == "." {
+                continue
+            }
+
+            if h == ".." {
+                if done.empty() {
+                    return ""
+                }
+
+                done.pop_back()
+                continue
+            }
+
+            done.push_back(h)
+        }
+
+        var res = SysUtil::joined(&done, "/")
+        if res.empty() || !LinkFS::exists(root + "/" + res) {
+            return ""
+        }
+
+        return res
     }
 
     priv static fn _tree(const from:  string,

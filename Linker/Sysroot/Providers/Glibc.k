@@ -79,10 +79,9 @@ pub class GlibcProvider derives SysrootProvider {
             return out.refuse(f"share input {from} missing", "")
         }
 
-        var inc  = dst + "/include"
-        var none = cxx::std::vector<string>()
-        if !SysRun::copy_tree(from, inc, &none) {
-            return out.fail(f"cannot copy {from}", "")
+        var inc = dst + "/include"
+        if !ctx->materialise(from, inc, &out) {
+            return false
         }
 
         if LinkFS::is_file(inc + "/linux/version.h") {
@@ -93,8 +92,12 @@ pub class GlibcProvider derives SysrootProvider {
         uapi.push_back(ctx->share + "/linux-uapi/generic")
         uapi.push_back(ctx->share + "/linux-uapi/asm/" + ctx->target.arch)
         for var u: string in uapi {
-            if !LinkFS::is_dir(u) || !SysRun::copy_tree(u, inc, &none) {
-                return out.fail(f"cannot copy {u} into {inc}", "")
+            if !LinkFS::is_dir(u) {
+                return out.refuse(f"share input {u} missing", "")
+            }
+
+            if !ctx->materialise(u, inc, &out) {
+                return false
             }
         }
 
@@ -102,12 +105,11 @@ pub class GlibcProvider derives SysrootProvider {
     }
 
     pub override fn libs(self, ctx: *StageCtx, const dst: string, @inout out: SysOutcome) -> bool {
-        var crt  = ctx->share_path(ctx->recipe.str("libc", "crt"))
-        var ns   = ctx->share_path(ctx->recipe.str("libc", "nonshared"))
-        var abi  = ctx->share_path(ctx->recipe.str("libc", "abilist"))
-        var fmt  = GlibcProvider::output_format(ctx->target.arch)
-        var lib  = dst + "/lib"
-        var none = cxx::std::vector<string>()
+        var crt = ctx->share_path(ctx->recipe.str("libc", "crt"))
+        var ns  = ctx->share_path(ctx->recipe.str("libc", "nonshared"))
+        var abi = ctx->share_path(ctx->recipe.str("libc", "abilist"))
+        var fmt = GlibcProvider::output_format(ctx->target.arch)
+        var lib = dst + "/lib"
         if !LinkFS::is_dir(crt) || !LinkFS::is_file(ns) || !LinkFS::is_file(abi + "/libs.toml") {
             return out.refuse(
                 f"share input {LinkFS::parent(crt)} is missing crt/, libc_nonshared.a or abilist/",
@@ -122,8 +124,11 @@ pub class GlibcProvider derives SysrootProvider {
             )
         }
 
-        if !SysRun::copy_tree(crt, lib, &none)
-            || !SysRun::put_file(ns, lib + "/libc_nonshared.a", false) {
+        if !ctx->materialise(crt, lib, &out) {
+            return false
+        }
+
+        if !SysRun::put_file(ns, lib + "/libc_nonshared.a", false) {
             return out.fail(f"cannot copy the crt objects into {lib}", "")
         }
 

@@ -103,8 +103,8 @@ TABLE: list[Component] = [
               "(sysroot/*/{lib,compiler-rt,libcxx,include/c++}); share/kairo/runtimes (compiler-rt builtins, LLVM-libc headers, "
               "libunwind, libc++abi, libc++ source for scripts/*.sh); share/kairo/sdk-overlays (libc++ and "
               "compiler-rt builtins prebuilt for the macOS and MSVC roots scripts/*.sh assemble); "
-              "share/kairo/sysroot/runtimes-recipe (compile tables and generated libc++ headers "
-              "ksys builds the runtimes of every generated root from); "
+              "share/kairo/sysroot/runtimes-recipe and runtimes-template (compile tables, the rule they "
+              "follow, and generated libc++ headers ksys builds the runtimes of every generated root from); "
               "the .patches/ are under this license",
               [("LICENSE.TXT", [LLVM / "LICENSE.TXT"]),
                ("compiler-rt-LICENSE.TXT", [LLVM / "compiler-rt" / "LICENSE.TXT"]),
@@ -208,7 +208,7 @@ SYSROOT_META = {"manifest.json"}
 SHARE_INPUT_COMPONENTS = {
     "musl": "musl", "linux-uapi": "linux-uapi", "glibc": "glibc", "mingw": "mingw-w64",
     "freebsd": "freebsd", "netbsd": "netbsd", "wasi": "wasi-libc",
-    "runtimes": "llvm", "runtimes-recipe": "llvm",
+    "runtimes": "llvm", "runtimes-recipe": "llvm", "runtimes-template": "llvm",
     "mingw-crt": "mingw-w64", "wasi-libc": "wasi-libc",     # from-source inputs (Z1): same projects
 }
 

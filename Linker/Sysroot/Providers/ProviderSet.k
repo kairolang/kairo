@@ -19,6 +19,7 @@ import Sysroot::Providers::Glibc::GlibcProvider
 import Sysroot::Providers::Mingw::MingwProvider
 import Sysroot::Providers::Musl::MuslProvider
 import Sysroot::Providers::User::UserProvider
+import Sysroot::Providers::Wasi::WasiProvider
 
 pub class ProviderSet {
     /// A new provider for \p id (the caller destroys it); null for an
@@ -34,6 +35,10 @@ pub class ProviderSet {
 
         if id == "mingw" {
             return unsafe (kairo::std::create<MingwProvider>() as unsafe *SysrootProvider)
+        }
+
+        if id == "wasi" {
+            return unsafe (kairo::std::create<WasiProvider>() as unsafe *SysrootProvider)
         }
 
         if id == "bundle" {

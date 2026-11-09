@@ -23,7 +23,10 @@ import API::SysrootManifest::{
     TomlValue,
 }
 import API::Text::LinkText
-import Sysroot::Names::SysTarget
+import Sysroot::Names::{
+    SysNames,
+    SysTarget,
+}
 import Sysroot::SysUtil::SysUtil
 import std::env
 
@@ -179,6 +182,43 @@ pub class SysRecipe {
         s = SysUtil::fill(s, "libc_version", t->libc_version)
         return SysUtil::fill(s, "os_version", self.os_version)
     }
+
+    /// The SYSROOT.toml text for \p t; "" when the recipe has no [toml].
+    /// Keys in table order, `f"{key:<13} = {value}"`, templates expanded
+    /// (FORMAT.md "[toml] rendering"). Here and not in the generator: the
+    /// providers that compile against a libc-headers root render it too.
+    pub fn render_toml(self, t: *SysTarget) -> string {
+        var text = ""
+        for var key: string in self.keys_of("toml") {
+            var v   = self.value("toml", key)
+            var val = ""
+            if v->kind == 2 {
+                val = if (v->flag) => ("true") else => "false"
+            } else if v->kind == 3 {
+                val = "["
+                for var i: usize = 0; i < v->list.size(); ++i {
+                    if i > 0 {
+                        val += ", "
+                    }
+
+                    val += "\x22" + self.expand(v->list[i], t) + "\x22"
+                }
+
+                val += "]"
+            } else {
+                val = "\x22" + self.expand(v->text, t) + "\x22"
+            }
+
+            var k = key
+            while k.size() < 13 {
+                k += " "
+            }
+
+            text += k + " = " + val + "\n"
+        }
+
+        return text
+    }
 }
 
 /// glibc/VERSIONS.toml.
@@ -221,6 +261,7 @@ pub class GlibcVersions {
 pub struct SysQuirk {
     pub var id:                   string
     pub var match_arch:           cxx::std::vector<string>
+    pub var match_cpu:            cxx::std::vector<string> ///< SysNames::cpu_of the arch
     pub var match_family:         cxx::std::vector<string>
     pub var match_os:             cxx::std::vector<string>
     pub var match_env:            cxx::std::vector<string>
@@ -300,6 +341,10 @@ pub class QuirkSet {
                 continue
             }
 
+            if !q.match_cpu.empty() && !SysUtil::contains(&q.match_cpu, SysNames::cpu_of(t->arch)) {
+                continue
+            }
+
             if !q.match_family.empty() && !SysUtil::contains(&q.match_family, t->recipe) {
                 continue
             }
@@ -354,6 +399,8 @@ pub class QuirkSet {
 
         if key == "match_arch" {
             q->match_arch = v.list
+        } else if key == "match_cpu" {
+            q->match_cpu = v.list
         } else if key == "match_family" {
             q->match_family = v.list
         } else if key == "match_os" {
@@ -398,17 +445,21 @@ pub class ShareTree {
     /// registry.toml [licenses], same keys.
     pub var license_dirs: cxx::std::vector<string>
     pub var license_ids:  cxx::std::vector<string>
+    /// registry.toml `schema`: "1" (inputs may hold symlinks, the hash
+    /// follows them) or "2" (none on disk; links.tsv / casefold.tsv say
+    /// what to recreate in a root, FORMAT.md "schema 2").
+    pub var schema: string
 
     /// \p flag (--share), else $KAIRO_SYSROOT_SHARE, else
     /// <prefix>/share/kairo/sysroot with <prefix> the dir above bin/.
     pub static fn locate(const flag: string) -> string {
         if !flag.empty() {
-            return LinkText::strip_slash(flag)
+            return ShareTree::_absolute(LinkText::strip_slash(flag))
         }
 
         var e = LinkFS::env("KAIRO_SYSROOT_SHARE")
         if !e.empty() {
-            return LinkText::strip_slash(e)
+            return ShareTree::_absolute(LinkText::strip_slash(e))
         }
 
         var prefix = LinkFS::parent(LinkFS::parent(env::exe_path()))
@@ -449,12 +500,18 @@ pub class ShareTree {
             return false
         }
 
-        if schema != "1" {
-            self.error = f"{path}: schema is \x27{schema}\x27, this ksys reads schema 1"
+        if schema != "1" && schema != "2" {
+            self.error = f"{path}: schema is \x27{schema}\x27, this ksys reads schema 1 and 2"
             return false
         }
 
+        self.schema = schema
         return true
+    }
+
+    /// Whether tree hashes follow symlinks: schema 1's rule.
+    pub fn follows_links(self) -> bool {
+        return self.schema == "1"
     }
 
     /// The registered tree_sha256 of input dir \p rel; "" when unlisted.
@@ -477,6 +534,18 @@ pub class ShareTree {
         }
 
         return p
+    }
+
+    /// \p p as an absolute path (resolved against the working directory
+    /// only when it is relative). The stages hand input paths to
+    /// -ffile-prefix-map, which a relative path does not match: the compiler
+    /// records the headers it finds absolute, and the share's location then
+    /// ends up in every object (P670).
+    priv static fn _absolute(const p: string) -> string {
+        var abs = LinkText::starts_with(p, "/")
+            || LinkText::starts_with(p, "\\")
+            || p.size() > 2 && p[1] == (':' as u8)
+        return if (abs) => (p) else => LinkFS::real(p)
     }
 
     /// runtimes/REVISION, trimmed; "" when absent.

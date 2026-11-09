@@ -113,7 +113,7 @@ Root: $KAIRO_SYSROOT_CACHE or ${XDG_CACHE_HOME:-~/.cache}/kairo/sysroot/. stage/
 
 ```text
 interface SysrootProvider {
-  fn id() -> string                      // "musl" | "glibc" | "mingw" | "bundle" | "user"
+  fn id() -> string                      // "musl" | "glibc" | "mingw" | "wasi" | "bundle" | "user"
   fn supports(t: &Target, r: &Recipe) -> Support      // Ok | Refuse(reason)
   fn headers(ctx: &StageCtx, dst: &Path)
   fn libs(ctx: &StageCtx, dst: &Path)
@@ -125,7 +125,7 @@ Providers never run CMake; stages 4.5 and 4.7 are generic and read the recipe. O
 
 ## 6. Quirks
 
-Load `quirks.toml`; validate the schema on load (unknown key = error naming the quirk id). Match on parsed target components + probe results. Effects: target_rewrite (at most one match, else error), cflags{stages,add,add_cxx}, cmake{stages,defs}, force_include{stages,file}, post_archive, required_symbols, assert_file_contains, assert_compiles, musl_arch. Applied quirk ids are recorded in `.kairo-sysroot.json` and printed by `probe`.
+Load `quirks.toml`; validate the schema on load (unknown key = error naming the quirk id). Match on parsed target components (arch, cpu: `match_cpu`, the arch's Names.k cpu_of, since Z3; family, os, env) + probe results. Effects: target_rewrite (at most one match, else error), cflags{stages,add,add_cxx}, cmake{stages,defs}, force_include{stages,file}, post_archive, required_symbols, assert_file_contains, assert_compiles, musl_arch. Applied quirk ids are recorded in `.kairo-sysroot.json` and printed by `probe`.
 
 ## 7. Keys
 
@@ -221,7 +221,7 @@ When the generator lands (step 6), the prebuilt roots stop shipping one family a
 | x86_64-, aarch64-, i686-, riscv64-linux-gnu-glibc2.31, armv7-linux-gnueabihf-glibc2.31 | glibc | 7 | native-or-qemu-with-root |
 | x86_64-, aarch64-, i686-, armv7-windows-gnu | mingw | 4 | wine-if-present |
 | x86_64-unknown-freebsd, aarch64-unknown-freebsd, x86_64-unknown-netbsd | bundle | 4 | link-only |
-| wasm32-wasi | bundle | 4 | wasmtime-or-node-if-present |
+| wasm32-wasi | wasi (bundle before Z3) | 4 | wasmtime-or-node-if-present |
 | x86_64-, aarch64-, i686-windows-msvc | user | 8 | native-if-host |
 | x86_64-, arm64-, arm64e-apple-macosx | user (host-only) | 8 | native-if-host |
 
@@ -275,3 +275,25 @@ Fixups (applied to the input tables before derivation, printed by the script): a
 **Proof.** (a) The script: 20/20 targets (18 shipped + B3's CMake tables for armv6/riscv32 musl) instantiate to their tables. (b) ksys: `ksys tables` for all 20 equals the CMake tables (for armv6/riscv32: with the two fixups applied) semantically (member -> source + full flag list, archive paths and member order, objects; build/sysgen/z2/cmp_tables.py). (c) Bytes: all 18 roots from a template-only share and from a tables-only share, same toolchain prefix without sysroot/: every archive, crt object, c++/v1 tree and the rest of the root byte-identical (LICENSES/<input> named after the input), `kcc -###` against each root shows `-isysroot <root>` and no bundled sysroot (build/sysgen/z2/parity.py; transitively equal to Scripts/build_runtimes_direct.py, which B3 showed the tables path matches). Run on the binary one reformat before the final one; (b) was re-run on the final binary. (d) armv6-linux-musl and riscv32-linux-musl build from the template and validate under qemu (t.c 7, t.cpp 12, test.k 0, floats.k 5, tfbf.k 1).
 
 **Generality, measured** (with the fixups). Leaving each of the 20 targets out of the derivation in turn: crt 12/12, libunwind 16/20, libc++abi 16/19, libc++ 16/20 and builtins 5/20 come back identical. Builtins needs compiler-rt's per-arch source lists, which only a table for that arch carries. So the template serves the targets it was derived from plus new combinations of their property values, best effort; a new rt_arch / libc / cpu (thumbv7em, a `none` OS) is refused, not guessed. aarch64_be and thumbv7 musl parse and have the backends, but are refused at the provider: the musl recipe has no `arches` / `[per_arch.musl_arch]` / `linux-uapi/asm/<arch>` for them, and the armv7-musl-hardfloat quirk matches armv7/armv6 only, so thumbv7 would also lose its `hf`. Not done: a no-threads variant (libc++'s `__config_site` comes from the family's headers tree, one per family) and bare metal (section 4 stretch).
+
+
+## 20. State after wave Z3 (2026-11-09): schema 2 share, libc from source, the template registered
+
+**Schema 2 reader** (P612; FORMAT.md "schema 2"). `ShareTree` reads `schema = 1` and `2` and refuses any other. Under schema 2 `SysUtil::tree_sha256` / `tree_stamp` never follow a link and a link below an input root is a refusal naming it (`verify-share` prints `ERROR <key>`); the input root itself may be a link (share views). Every provider copies an input subdir through `StageCtx::materialise` (`SysRun::materialise`): the files, then each `links.tsv` row under it as the same symlink (on Windows, or where a link fails, a copy of what the row resolves to inside the input: the twin of `resolve_recorded`), then each `casefold.tsv` row renamed back, or its `.kcase` dropped when the destination folds case (probed in the destination). `--share` / `KAIRO_SYSROOT_SHARE` are made absolute (P670: a relative path missed `-ffile-prefix-map` and put the share's path into the runtimes objects). build/sysroot-share is schema 2 (`ship_sysroot_inputs.py --upgrade-schema`); a ksys from before Z3 refuses it (P674).
+
+**mingw: lib/ from mingw-crt** (FORMAT.md "mingw-crt"; port of Scripts/build_mingw_crt_direct.py). `Linker/Sysroot/CrtTable.k` reads mingw-crt/<arch>.toml and wasi-libc/<name>.toml in one pass (`SysCrtTable`) and runs their compiles (`SysCrt::compile`: every `[def.*]` through `kcc -E -P -x c ... -o`, then `strip_at`, and every `[group.*]` entry, one `SysJobs` window). `MingwProvider` builds from it whenever mingw-crt is a verified input (the recipe lists `inputs = ["mingw", "mingw-crt"]`): `{sysroot}` = `SysRuntimes::header_root` (mingw/include + the rendered SYSROOT.toml, now `SysRecipe::render_toml`), `[files]`, compiles, archives in table order (import libraries through the in-process dlltool, then `llvm-ar qc` for members in parallel, then `llvm-ar qcL` for the MRI `addlib` merges, an empty archive where nothing was written), `mingw/crt/<arch>` (the 9 files mingw-w64-crt does not build, P623) and then `[install]` into lib/. Without mingw-crt, the old defs + crt path. mingw/def/ is gone from the share (P622).
+
+**wasi: the libc from wasi-libc** (FORMAT.md "wasi-libc"). New provider `wasi` (`SysNames::provider_of`; Providers/Wasi.k): libc-headers = the wasi/<v> base per `[bundle_layout]` (libc++ `eh/` `noeh/`, `lib/wasm32-wasi/llvm-lto`) + the table's `[headers]`; libc-libs (after builtins) = `{sysroot}` from `[headers]`, SYSROOT.toml and the builtins archive, the compiles, GNU archives in-process, `empty` archives, then every `[link.*]` with `kld -flavor wasm` (never a kcc link, P591), `[install]` into `{sysroot}` after the archives and after each link; lib/ is the product. wasi/33 no longer ships the 232 files this builds (P624).
+
+**Runtimes template registered.** `ship_sysroot_inputs.py` step `runtimes-template` (`--template-recipes build/sysgen/b3/rr-with-armv6-riscv32`): registry key, `licenses/runtimes-template/`, provenance; runtimes-recipe stays registered. plan() takes the template, so armv6 and riscv32 musl build from the real share.
+
+**P642**: musl `arches` + aarch64_be, thumbv7; `[per_arch.musl_arch]` rows; `[per_arch.uapi_arch]` + `uapi = [..., "linux-uapi/asm/{per_arch.uapi_arch}"]`; quirk key `match_cpu` (Names.k `cpu_of`; Scripts/runtimes_recipe.py reads it too), and armv7-musl-hardfloat matches `match_cpu = ["arm"]`; the qemu runner maps every cpu=arm arch to qemu-arm. Both build and validate under qemu; thumbv7 is A32 code as clang's driver makes it (P672).
+
+**Proof** (build/sysgen/z3: setup.py, parity.py, hello.py; logs there). Final debug binary, toolchain prefix without sysroot/, scratch caches.
+- Schema: the sealed share with its `links.tsv` / `casefold.tsv` undone in a hard-link copy hashes (schema 1 rule) to every pre-Z3 registry value; Python-zipfile and tar extracts of the whole share both verify all 17 keys, 0 links; FreeBSD x86_64 built from the zip extract = built from the tree; built from schema 1 = from schema 2 (links included).
+- From source vs the reference runners: wasm32-wasi lib/ + headers 232/232 and x86_64-windows-gnu [install] 938/938 byte-identical.
+- 20 targets (18 bundled + armv6/riscv32 musl) from the upgraded share, 353.7 s in all (glibc 11-13 s, BSD 11-12 s, wasi 16 s, musl 20-21 s, mingw 20-31 s). The 15 non-mingw/wasi roots are byte-identical (every file and link but .kairo-sysroot.json) to the pre-Z3 ksys's (build/sysgen/z2/tc) from the same inputs as a schema 1 view. Against the curated roots: wasi 19/19 differing libs same defined-symbol set and member lists, headers identical; mingw (x86_64 / i686 / aarch64 / armv7) 80/91/66/71 lib/ files differ in bytes, all but libc++.a (the known runtimes provenance delta) with the curated defined-symbol set, and every differing archive with the curated member list; the rest as before Z3.
+- Hellos (C; C++ iostream/thread/filesystem/thread_local dtor/exception; Kairo), `-###` shows the root, no bundled one: native x86_64/i686 musl + glibc, qemu aarch64/armv7/armv6/riscv64/riscv32 musl, node wasm, Proton wine x86_64/i686 MinGW; link-only aarch64/armv7 MinGW, BSD, non-x86 glibc.
+- `package_release.py --stage-only x86_64-linux-musl` (relcand tree, hard-linked): the staged share verifies (17 inputs; ksys verify-share: 17 ok, 0 links).
+
+Not done: copy fallback and case-insensitive casefold never ran on a filesystem that needs them; wasi libc++ and llvm-lto from source (P624, P626); noeh/ still shipped (P671); Tests/CLI/Sysroot/build_runtimes.k NORECIPE (P673).

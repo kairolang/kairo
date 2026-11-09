@@ -66,7 +66,7 @@ pub struct SysTarget {
     /// The share tree's recipe id (families/<recipe>.toml, quirks'
     /// match_family): musl glibc mingw freebsd netbsd wasi msvc darwin.
     pub var recipe:       string
-    pub var provider:     string         ///< musl | glibc | mingw | bundle | user
+    pub var provider:     string         ///< musl | glibc | mingw | wasi | bundle | user
     pub var libc_version: string         ///< glibc only
     pub var host_only:    bool   = false ///< darwin: built on a macOS host only
 }
@@ -199,6 +199,10 @@ pub class SysNames {
 
         if family == "windows-msvc" || family == "darwin" {
             return "user"
+        }
+
+        if family == "wasi" {
+            return "wasi"
         }
 
         return "bundle"

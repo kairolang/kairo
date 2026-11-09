@@ -341,7 +341,7 @@ pub class SysRuntimes {
             )
         }
 
-        if !SysRuntimes::_header_root(ctx, toml, env.sysroot, &out) {
+        if !SysRuntimes::header_root(ctx, toml, env.sysroot, &out) {
             return false
         }
 
@@ -362,10 +362,11 @@ pub class SysRuntimes {
     /// already taken skipped) with no c++/ dir at any depth, and the
     /// SYSROOT.toml itself, so kcc puts exactly those dirs on the path.
     /// wasi's eh/ and noeh/ are its libc++ variants: C++ only, skipped too.
-    priv static fn _header_root(ctx:        *StageCtx,
-                                const toml: string,
-                                const dst:  string,
-                                @inout out: SysOutcome) -> bool {
+    /// The mingw provider compiles mingw-w64-crt against the same root.
+    pub static fn header_root(ctx:        *StageCtx,
+                              const toml: string,
+                              const dst:  string,
+                              @inout out: SysOutcome) -> bool {
         var prod = ctx->product("libc-headers")
         if prod.empty() {
             return out.fail("the libc-headers stage has not run", "")

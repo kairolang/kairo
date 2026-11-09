@@ -83,6 +83,10 @@ class Target:
             return False
         if "match_arch" in q and self.arch not in q["match_arch"]:
             return False
+        if "match_cpu" in q:
+            import runtimes_template
+            if runtimes_template.cpu_of(self.arch) not in q["match_cpu"]:
+                return False
         return True
 
     def apply_probes(self, probes: dict) -> None:

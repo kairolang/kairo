@@ -124,15 +124,14 @@ pub class MuslProvider derives SysrootProvider {
             return out.fail(f"musl install-headers ARCH={ma} into {inc} failed", "")
         }
 
-        var none = cxx::std::vector<string>()
         for var u: string in ctx->recipe.list("libc", "uapi") {
             var from = ctx->share_path(u)
             if !LinkFS::is_dir(from) {
                 return out.refuse(f"share input {from} missing", "")
             }
 
-            if !SysRun::copy_tree(from, inc, &none) {
-                return out.fail(f"cannot copy {from} into {inc}", "")
+            if !ctx->materialise(from, inc, &out) {
+                return false
             }
         }
 

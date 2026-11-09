@@ -18,16 +18,22 @@ is fetched. Sources, in the order kairo-sysroots' curate/ scripts consumed them:
                   the curated roots' focal DSOs (Scripts/glibc_stubs.py). --report rebuilds
                   every stub DSO from the shipped abilists and compares it with the original.
   mingw/          headers from the curated windows-gnu roots (identical on every arch, so
-                  shipped once), def/<a>/ preprocessed from Lib/libc/mingw's mingw-w64-crt
-                  (in git, outside the sparse checkout) and kept only where llvm-dlltool
-                  regenerates the curated import library exactly, crt/<a>/ = every other
-                  archive and object of the curated lib/ verbatim
+                  shipped once); crt/<a>/ = the curated lib/ files mingw-crt/ does not build
+                  (winpthreads, libssp, ...: P623). Without mingw-crt/ tables: def/<a>/
+                  preprocessed from Lib/libc/mingw's mingw-w64-crt (in git, outside the sparse
+                  checkout), kept only where llvm-dlltool regenerates the curated import
+                  library exactly, and crt/<a>/ = every other archive and object of lib/
   freebsd/, netbsd/  build/sysgen/bsd-trim/<name> when bsd-trim/DONE exists, else the curated
                   root; minus libcxx/, compiler-rt/ and usr/include/c++ (built from runtimes)
-  wasi/33/        the curated wasm32-wasi root minus noeh/ and compiler-rt/
+  wasi/33/        the curated wasm32-wasi root minus compiler-rt/ and minus what wasi-libc/
+                  builds (P624): libc++ (eh/, noeh/) and the LTO libc
   runtimes-recipe/  Scripts/runtimes_recipe.py: per-runtime compile tables (sources, flags,
                   archive layout) + generated headers, from a CMake configure of each family
                   recipe; the generator's no-CMake runtimes stage (Scripts/build_runtimes_direct.py)
+  runtimes-template/  Scripts/runtimes_template.py over runtimes-recipe/ and --template-recipes
+                  (EXTRA targets' tables): the rule the tables follow, which ksys compiles from
+  mingw-crt/, wasi-libc/  sources + tables the mingw and wasi providers build the libc from
+                  (Scripts/mingw_crt_recipe.py, Scripts/wasi_libc_recipe.py)
   families/ quirks.toml shims/ validate/   written from the tables in this file; each recipe
                   renders the curated SYSROOT.toml byte for byte (checked by --report)
 
@@ -73,7 +79,7 @@ MINGW_FROM_RUNTIMES = {"libc++.a", "libc++abi.a", "libc++experimental.a", "libun
 BSD = {"freebsd": ("14.4", ["x86_64", "aarch64"]), "netbsd": ("10.1", ["x86_64"])}
 # From-source inputs (Zig-style: the libc built from shipped sources + tables, no prebuilt
 # per-target base). Registered whenever their dir exists, so a run that skips them keeps them.
-EXTRA_KEYS = ["mingw-crt", "wasi-libc"]
+EXTRA_KEYS = ["mingw-crt", "wasi-libc", "runtimes-template"]
 WASI_VERSION = "33"
 
 LICENSES = {   # input key prefix -> SPDX (sources.toml in kairo-sysroots)
@@ -86,6 +92,7 @@ LICENSES = {   # input key prefix -> SPDX (sources.toml in kairo-sysroots)
     "wasi": "Apache-2.0 WITH LLVM-exception AND MIT AND CC0-1.0",
     "runtimes": "Apache-2.0 WITH LLVM-exception",
     "runtimes-recipe": "Apache-2.0 WITH LLVM-exception",   # tables + generated headers from it
+    "runtimes-template": "Apache-2.0 WITH LLVM-exception",   # the rule the tables follow, same headers
     "mingw-crt": "ZPL-2.1 AND LicenseRef-mingw-w64-public-domain",   # mingw-w64-crt sources + tables
     "wasi-libc": "Apache-2.0 WITH LLVM-exception AND MIT AND CC0-1.0",   # wasi-libc sources + tables
 }
@@ -343,10 +350,10 @@ FAMILIES["musl"] = '''\
 # roots took libc, libc++ and crtbegin/end from Alpine; the generator builds all of them).
 family       = "musl"
 provider     = "musl"
-arches       = ["x86_64", "i686", "aarch64", "armv7", "armv6", "riscv64", "riscv32"]
+arches       = ["x86_64", "i686", "aarch64", "aarch64_be", "armv7", "armv6", "thumbv7", "riscv64", "riscv32"]
 name         = "{arch}-linux-musl"
 triple       = "{arch}-linux-musl"
-clang_triple = "{arch}-unknown-linux-musl"        # armv7/armv6: quirk armv7-musl-hardfloat
+clang_triple = "{arch}-unknown-linux-musl"        # 32-bit Arm: quirk armv7-musl-hardfloat
 inputs       = ["musl", "linux-uapi"]
 runtimes     = ["libunwind", "libcxxabi", "libcxx"]
 crt_objects  = true                               # clang_rt.crtbegin.o / crtend.o
@@ -363,16 +370,31 @@ builtins_name   = "libclang_rt.builtins.a"
 x86_64  = "x86_64"
 i686    = "i386"
 aarch64 = "aarch64"
+aarch64_be = "aarch64"                            # musl's SUBARCH _be: same arch/ dir
 armv7   = "arm"
 armv6   = "arm"
+thumbv7 = "arm"
 riscv64 = "riscv64"
 riscv32 = "riscv32"
+
+# Kernel headers_install output depends only on the kernel ARCH and not on endianness or the
+# Arm instruction set (P642): linux-uapi/asm/<dir> per arch.
+[per_arch.uapi_arch]
+x86_64     = "x86_64"
+i686       = "i686"
+aarch64    = "aarch64"
+aarch64_be = "aarch64"
+armv7      = "armv7"
+armv6      = "armv6"
+thumbv7    = "armv7"
+riscv64    = "riscv64"
+riscv32    = "riscv32"
 
 [libc]                                            # section 4.6, musl provider
 configure = ["--target={clang_triple}", "--disable-shared"]
 cflags    = ["-O2", "-fPIC"]
 targets   = ["lib/libc.a", "lib/crt1.o", "lib/Scrt1.o", "lib/rcrt1.o", "lib/crti.o", "lib/crtn.o", "lib/libcrypt.a", "lib/libdl.a", "lib/libm.a", "lib/libpthread.a", "lib/libresolv.a", "lib/librt.a", "lib/libutil.a", "lib/libxnet.a"]
-uapi      = ["linux-uapi/generic", "linux-uapi/asm/{arch}"]   # copied in this order into include/
+uapi      = ["linux-uapi/generic", "linux-uapi/asm/{per_arch.uapi_arch}"]   # copied in this order into include/
 
 [builtins]                                        # build-builtins.sh:75-92
 source     = "compiler-rt/lib/builtins"
@@ -500,16 +522,18 @@ run = "native-or-qemu-with-root"
 FAMILIES["mingw"] = '''\
 # Windows / MinGW-w64 (UCRT). Reference invocations: kairo-sysroots curate/mingw.sh (layout,
 # [toml]; the curated roots are llvm-mingw 20260224's per-arch trees), build-builtins.sh
-# (builtins), ship-mingw.sh (the def/ + crt/ split).
+# (builtins). The crt (crt objects, libmingw*, the CRT and import libraries) is built from
+# mingw-crt/ (mingw-w64-crt sources + tables, Scripts/mingw_crt_recipe.py); mingw/crt/<arch>
+# holds only what mingw-w64-crt does not build (P623).
 family       = "mingw"
 provider     = "mingw"
 arches       = ["x86_64", "i686", "aarch64", "armv7"]
 name         = "{arch}-windows-gnu"
 triple       = "{arch}-windows-gnu"
 clang_triple = "{arch}-w64-windows-gnu"           # build-builtins.sh:55
-inputs       = ["mingw"]
+inputs       = ["mingw", "mingw-crt"]
 runtimes     = ["libunwind", "libcxxabi", "libcxx"]
-crt_objects  = false                              # crtbegin.o / crtend.o come from crt/<arch>
+crt_objects  = false                              # crtbegin.o / crtend.o come from mingw-crt
 cxx_abi      = "libcxxabi"
 cxxabi_merged_into_cxx = true                     # libc++.a carries the abi, as llvm-mingw's
 sysname      = "Windows"
@@ -532,9 +556,7 @@ armv7   = "arm"
 
 [libc]                                            # section 4.6, mingw provider
 include = "mingw/include"                         # one set: byte-identical on all four arches
-defs    = "mingw/def/{arch}"                      # kar --dlltool -m {dlltool_machine} -k -d X.def -l libX.a
-dlltool_flags = ["-k"]                            # mingw-w64-crt Makefile.am AM_DLLTOOLFLAGS
-crt     = "mingw/crt/{arch}"                      # copied into lib/ verbatim
+crt     = "mingw/crt/{arch}"                      # winpthreads, libssp, ...: copied into lib/ verbatim
 
 [builtins]                                        # build-builtins.sh:75-92
 source     = "compiler-rt/lib/builtins"
@@ -686,15 +708,16 @@ run = "link-only"
 
 FAMILIES["wasi"] = '''\
 # WASI (wasi-sdk 33). Reference invocations: kairo-sysroots curate/wasi.sh (layout, [toml]),
-# build-wasi-builtins.sh (builtins). libc++ is the bundle's EH build (same fork commit).
+# build-wasi-builtins.sh (builtins). The libc is built from wasi-libc/ (sources + tables,
+# Scripts/wasi_libc_recipe.py); libc++ is wasi/<v>'s EH build (same fork commit, P624).
 family       = "wasi"
-provider     = "bundle"
+provider     = "wasi"
 arches       = ["wasm32"]
 os_version   = "33"
 name         = "wasm32-wasi"
 triple       = "wasm32-wasi"
 clang_triple = "wasm32-unknown-wasi"
-inputs       = ["wasi/{os_version}"]
+inputs       = ["wasi/{os_version}", "wasi-libc"]
 runtimes     = []                                 # the builtins stage (4.5) still runs cmake
 crt_objects  = false
 cxx_abi      = "libcxxabi"
@@ -907,10 +930,11 @@ QUIRKS = '''\
 #     builtins stage's own flags (msvc.sh:211-214)
 
 # build-builtins.sh:48-50, fetch-musl-compiler-rt.sh:25: Alpine armv7 is AAPCS-VFP
-# (musleabihf); a plain -musl triple makes clang assume soft-float, another call ABI.
+# (musleabihf); a plain -musl triple makes clang assume soft-float, another call ABI. Every
+# 32-bit Arm musl name is hard-float (names carry no float ABI), thumbv7 too (P642).
 [quirk.armv7-musl-hardfloat]
 match_family   = ["musl"]
-match_arch     = ["armv7", "armv6"]
+match_cpu      = ["arm"]
 target_rewrite = "{arch}-unknown-linux-musleabihf"
 musl_arch      = "arm"
 
@@ -1167,6 +1191,7 @@ class Ctx:
         self.kcc_tree = a.kcc_tree.resolve()
         self.runtimes_headers = a.runtimes_headers.resolve() if a.runtimes_headers else None
         self.crt_tree = a.crt_tree.resolve()
+        self.template_recipes = [Path(x).resolve() for x in a.template_recipes]
         self.seal_notes = {}    # input key -> P612 notes (links.tsv / casefold.tsv)
         self.prov = {}          # input key -> list of provenance lines
         self.dropped_links = {}
@@ -1435,6 +1460,26 @@ def build_mingw(c: Ctx) -> None:
             die(f"mingw headers of {a} differ from x86_64's; ship them per arch")
     copy_tree(roots["x86_64"] / "include", out / "include", skip)
 
+    built = mingw_crt_installed(c)
+    if built:
+        # P622: mingw-crt/ builds every crt file and import library mingw-w64-crt has, so mingw/
+        # carries no def/ and crt/<arch> only what mingw-w64-crt does not build (P623).
+        stats = []
+        for a in MINGW_ARCHES:
+            (out / "crt" / a).mkdir(parents=True)
+            keep = [f for f in sorted((roots[a] / "lib").iterdir())
+                    if f.is_file() and f.name not in MINGW_FROM_RUNTIMES and not f.name.endswith(".la")
+                    and f"lib/{f.name}" not in built[a]]
+            for f in keep:
+                shutil.copyfile(f, out / "crt" / a / f.name)
+            stats.append(f"{a}: crt/ = {len(keep)} files mingw-w64-crt does not build ({', '.join(f.name for f in keep)})")
+        c.prov["mingw"] = [
+            "include/: the curated windows-gnu roots' include/ (llvm-mingw 20260224), minus c++/ and "
+            "libunwind's headers; byte-identical on all four arches, so shipped once",
+            "crt/<arch>/: the curated lib/ files that mingw-crt/<arch>.toml [install] does not build "
+            "(winpthreads, libssp, winstorecompat, windowsappcompat, libomp's import lib: P623), verbatim; "
+            "no def/ (mingw-crt builds every import library, P622)", *stats]
+        return
     crt_src = mingw_def_sources(c)
     clang, dlltool = find_tool("clang"), shutil.which("llvm-dlltool")
     if not clang or not dlltool:
@@ -1484,6 +1529,28 @@ def build_mingw(c: Ctx) -> None:
         "libmingw*.a, mixed import+code libs such as libkernel32.a, umbrella libs)", *stats]
 
 
+def mingw_crt_installed(c: Ctx) -> dict:
+    """arch -> the root paths mingw-crt/<arch>.toml [install] builds; {} unless every arch has a
+    table (then mingw/ need not carry what they build)."""
+    out = {}
+    for a in MINGW_ARCHES:
+        t = c.share / "mingw-crt" / f"{a}.toml"
+        if not t.is_file():
+            return {}
+        out[a] = set(tomllib.loads(t.read_text())["install"])
+    return out
+
+
+def wasi_libc_built(c: Ctx) -> set:
+    """The root paths wasi-libc/<name>.toml builds (headers, installed libs, empty archives);
+    empty without the table."""
+    t = c.share / "wasi-libc" / "wasm32-wasi.toml"
+    if not t.is_file():
+        return set()
+    w = tomllib.loads(t.read_text())
+    return set(w["headers"]) | set(w["install"]) | set(w.get("empty", []))
+
+
 def tree_sha256_filtered(root: Path, skip) -> str:
     h = hashlib.sha256()
     rels = []
@@ -1528,14 +1595,20 @@ def build_bsd(c: Ctx) -> None:
 def build_wasi(c: Ctx) -> None:
     src = c.curated / "wasm32-wasi"
     out = fresh(c.share / "wasi") / WASI_VERSION
-    noeh = lambda r: r == "noeh"
-    copy_tree(src / "include", out / "include", noeh)
-    copy_tree(src / "lib", out / "lib", noeh)
-    for must in ("lib/wasm32-wasi/crt1-command.o", "lib/wasm32-wasi/eh/libc++.a"):
-        if not (out / must).is_file():
-            die(f"wasi: no {must}")
-    c.prov[f"wasi/{WASI_VERSION}"] = ["curated wasm32-wasi root (wasi-sdk 33 sysroot): include/ and lib/ "
-                                      "minus noeh/ (the recipe links the EH libc++) and compiler-rt/"]
+    # P624: what wasi-libc/ builds (the libc headers and libraries) is not shipped twice. This
+    # skip only ever matched a top-level noeh/, so the noeh/ trees under wasm32-wasi/ ship (P671).
+    built = wasi_libc_built(c)
+    for d in ("include", "lib"):
+        copy_tree(src / d, out / d, lambda r, d=d: r == "noeh" or f"{d}/{r}" in built)
+    remove_empty_dirs(out)
+    must = ["lib/wasm32-wasi/eh/libc++.a"] + ([] if built else ["lib/wasm32-wasi/crt1-command.o"])
+    for m in must:
+        if not (out / m).is_file():
+            die(f"wasi: no {m}")
+    c.prov[f"wasi/{WASI_VERSION}"] = [
+        "curated wasm32-wasi root (wasi-sdk 33 sysroot): include/ and lib/ minus compiler-rt/"
+        + (f", minus the {len(built)} libc headers and libraries wasi-libc/ builds (P624): libc++ "
+           "(eh/, noeh/) and the LTO libc (lib/wasm32-wasi/llvm-lto/, not built from source: P626)" if built else "")]
 
 
 def build_licenses(c: Ctx) -> None:
@@ -1552,6 +1625,7 @@ def build_licenses(c: Ctx) -> None:
         "wasi": sorted((ROOT / "Lib/libc/wasi").glob("LICENSE*")),
         "runtimes": [ROOT / "Lib/llvm-runtimes/LICENSE.TXT"],
         "runtimes-recipe": [ROOT / "Lib/llvm-runtimes/LICENSE.TXT"],
+        "runtimes-template": [ROOT / "Lib/llvm-runtimes/LICENSE.TXT"],
         "mingw-crt": [m / "COPYING", m / "DISCLAIMER", m / "DISCLAIMER.PD"],
         "wasi-libc": sorted((ROOT / "Lib/libc/wasi").glob("LICENSE*")),
     }
@@ -1587,6 +1661,35 @@ def build_runtimes_recipe(c: Ctx) -> None:
         f"quirks) for the bundled targets, runtimes REVISION {rev}, kcc {tree / 'bin' / 'kcc'}; "
         "ninja -t compdb + build.ninja archive edges, normalised and deduplicated; generated headers "
         "(__config_site, module.modulemap, libcxx.imp) copied from the configure"]
+
+
+def build_runtimes_template(c: Ctx) -> None:
+    """runtimes-template/ (FORMAT.md "runtimes-template/"): Scripts/runtimes_template.py over
+    <out>/runtimes-recipe plus every --template-recipes dir (a later one wins per target), so
+    its fragments are as general as every CMake table there is. The script re-instantiates each
+    input target from what it wrote and exits 1 on any difference."""
+    recipes = [c.share / "runtimes-recipe", *c.template_recipes]
+    for r in recipes:
+        if not (r / "index.toml").is_file():
+            die(f"runtimes-template: {r} is not a runtimes-recipe/ dir (no index.toml)")
+    out = c.share / "runtimes-template"
+    if out.exists():
+        shutil.rmtree(out)
+    cmd = [sys.executable, str(ROOT / "Scripts" / "runtimes_template.py")]
+    for r in recipes:
+        cmd += ["--recipe", str(r)]
+    r = subprocess.run(cmd + ["--out", str(out)], capture_output=True, text=True)
+    if r.returncode != 0:
+        die(f"runtimes_template.py failed:\n{r.stdout[-2000:]}{r.stderr[-2000:]}")
+    head = next((l for l in r.stdout.splitlines() if l.startswith("template:")), "")
+    derived = tomllib.loads((out / "index.toml").read_text())["derived"]
+    extra = sorted(set(derived) - set(tomllib.loads((c.share / "runtimes-recipe" / "index.toml").read_text())["targets"]))
+    c.prov["runtimes-template"] = [
+        "Scripts/runtimes_template.py over runtimes-recipe/" + "".join(
+            f" + {os.path.relpath(x, ROOT) if x.is_relative_to(ROOT) else x}" for x in c.template_recipes)
+        + f" ({head.strip() or f'{len(derived)} targets'}; every one re-instantiated and compared IDENTICAL)",
+        "targets with no shipped table, derived from the extra CMake tables: " + (", ".join(extra) or "none"),
+        "build/ and headers/ per family: the runtimes-recipe trees of that family"]
 
 
 def build_mingw_crt(c: Ctx) -> None:
@@ -1901,6 +2004,8 @@ def classify(c, fam, arch, env, root, rel, p, trim_reason, mcache):
             return "DROPPED", "shared-runtime import lib / module map: static_only recipe"
         if n.endswith(".la"):
             return "DROPPED", "libtool metadata (build-host paths)"
+        if rel in mingw_crt_installed(c).get(arch, set()):
+            return "DERIVED", f"mingw-crt/{arch}.toml (built from mingw-w64-crt sources)"
         if n in c.mingw_defs.get(arch, {}):
             return "DERIVED", f"kar --dlltool from mingw/def/{arch}/{c.mingw_defs[arch][n]} (regenerated, equal)"
         if _same(p, m / "crt" / arch / n):
@@ -1928,6 +2033,8 @@ def classify(c, fam, arch, env, root, rel, p, trim_reason, mcache):
     if fam == "wasi":
         if "/noeh/" in rel or rel.endswith("/noeh"):
             return "DROPPED", "noeh libc++ variant: the recipe links eh/"
+        if rel in wasi_libc_built(c):
+            return "DERIVED", "wasi-libc/wasm32-wasi.toml (built from wasi-libc sources)"
         if _same(p, S / "wasi" / WASI_VERSION / rel):
             return "VERBATIM", f"wasi/{WASI_VERSION}"
         return "GAP", "not in wasi input"
@@ -1936,8 +2043,8 @@ def classify(c, fam, arch, env, root, rel, p, trim_reason, mcache):
 
 # ---------------------------------------------------------------- main
 
-STEPS = ["data", "musl", "uapi", "glibc", "mingw", "bsd", "wasi", "runtimes-recipe", "mingw-crt", "wasi-libc",
-         "licenses"]
+STEPS = ["data", "musl", "uapi", "glibc", "mingw", "bsd", "wasi", "runtimes-recipe", "runtimes-template",
+         "mingw-crt", "wasi-libc", "licenses"]
 
 
 def main() -> int:
@@ -1958,6 +2065,9 @@ def main() -> int:
     ap.add_argument("--crt-tree", type=Path, default=ROOT / "build" / "relcand",
                     help="toolchain whose kcc builds the mingw-crt / wasi-libc reference builds (linked into a "
                          "kit without sysroot/, P610)")
+    ap.add_argument("--template-recipes", type=Path, nargs="+", default=[],
+                    help="runtimes-template step: runtimes-recipe/ dirs to derive over besides <out>/runtimes-recipe "
+                         "(the EXTRA targets' tables, e.g. build/sysgen/b3/rr-with-armv6-riscv32)")
     ap.add_argument("--only", nargs="+", choices=STEPS, help="rebuild only these inputs (registry is always rewritten)")
     ap.add_argument("--report", action="store_true", help="size report + parity check into <scratch>/")
     ap.add_argument("--legacy-links", action="store_true",
@@ -1981,6 +2091,7 @@ def main() -> int:
     steps = a.only or STEPS
     fn = {"data": build_data, "musl": build_musl, "uapi": build_uapi, "glibc": build_glibc,
           "mingw": build_mingw, "bsd": build_bsd, "wasi": build_wasi, "runtimes-recipe": build_runtimes_recipe,
+          "runtimes-template": build_runtimes_template,
           "mingw-crt": build_mingw_crt, "wasi-libc": build_wasi_libc, "licenses": build_licenses}
     for s in steps:
         log(f"== {s}")
@@ -1988,7 +2099,7 @@ def main() -> int:
     if a.only and "mingw" not in steps:
         # mingw_defs feeds parity; rebuild the mapping from what is on disk
         for arch in MINGW_ARCHES:
-            for d in sorted((c.share / "mingw" / "def" / arch).glob("*.def")):
+            for d in sorted((c.share / "mingw" / "def" / arch).glob("*.def")) if (c.share / "mingw" / "def").is_dir() else []:
                 c.mingw_defs.setdefault(arch, {})[f"lib{d.stem}.a"] = d.name
     log("== runtimes (hash only)")
     rev, rt_hash, rt = stage_runtimes(c)

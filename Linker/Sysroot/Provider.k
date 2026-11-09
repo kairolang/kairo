@@ -21,12 +21,14 @@
 
 ffi "c++" import "vector"
 
+import API::Text::LinkText
 import Sysroot::Names::SysTarget
 import Sysroot::Outcome::SysOutcome
 import Sysroot::Share::{
     SysQuirk,
     SysRecipe,
 }
+import Sysroot::SysRun::SysRun
 import Sysroot::SysUtil::SysUtil
 
 /// What a stage hands a provider.
@@ -40,7 +42,8 @@ pub class StageCtx {
     pub var input:       string ///< --input DIR (user provider), "" otherwise
     pub var stage:       string ///< the stage dir being written (<dir>.tmp)
     pub var log_dir:     string
-    pub var tools:       string ///< the dir kcc, kld and llvm-ar were found in
+    pub var tools:       string ///< the dir kcc and kld were found in
+    pub var ar:          string ///< llvm-ar (beside them or on PATH)
     pub var jobs:        usize                      = 0 ///< compiles in flight, 0 = SysRun::jobs()
     /// The stages that ran before this one: names and their committed dirs,
     /// each holding its product under out/.
@@ -68,6 +71,31 @@ pub class StageCtx {
         }
 
         return ""
+    }
+
+    /// The verified input dir \p path lies in (the longest that holds it);
+    /// "" when it lies in none.
+    pub fn input_root(self, const path: string) -> string {
+        var best = ""
+        for var d: string in self.inputs {
+            if (path == d || LinkText::starts_with(path, d + "/")) && d.size() > best.size() {
+                best = d
+            }
+        }
+
+        return best
+    }
+
+    /// Copies the share dir \p from into \p to as a root must hold it: the
+    /// files, then the links and case-colliding names its input records
+    /// (SysRun::materialise). Every provider copies input subdirs this way.
+    pub fn materialise(self, const from: string, const to: string, @inout out: SysOutcome) -> bool {
+        var err = ""
+        if !SysRun::materialise(self.input_root(from), from, to, &err) {
+            return out.fail(err, "")
+        }
+
+        return true
     }
 
     /// The absolute share path of the recipe template \p tmpl (a [libc]
@@ -104,7 +132,7 @@ pub class SysrootProvider {
 
     virtual fn op finally(self) { }
 
-    /// "musl" | "glibc" | "mingw" | "bundle" | "user"
+    /// "musl" | "glibc" | "mingw" | "wasi" | "bundle" | "user"
     pub virtual fn id(self) -> string {
         return ""
     }

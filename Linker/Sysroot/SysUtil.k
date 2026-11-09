@@ -5,8 +5,11 @@
 ///   JSON for cache keys, dotted version compares.
 ///
 ///   tree_sha256 is a contract with the share-tree producer (Python), so its
-///   byte stream is fixed: every regular file under the dir, symlinks
-///   followed, as `rel\n<sha256 hex>\n`, sorted by the UTF-8 bytes of rel.
+///   byte stream is fixed: every regular file under the dir as
+///   `rel\n<sha256 hex>\n`, sorted by the UTF-8 bytes of rel. Registry
+///   schema 1 follows symlinks; schema 2 inputs hold none, and one there is
+///   an error (P612: a Windows unzip turns a link into a file holding its
+///   text, so a followed link hashes differently per host).
 ///   build/sysroot-share/FORMAT.md has the reference implementation.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
@@ -56,11 +59,19 @@ pub class SysUtil {
         return SysUtil::_hex(llvm::SHA256::hash(llvm::arrayRefFromStringRef(mb.get()->getBuffer())))
     }
 
-    /// The share tree's tree_sha256 of \p dir (FORMAT.md). "" with \p err
-    /// set when a file cannot be read.
-    pub static fn tree_sha256(const dir: string, @inout err: string) -> string {
-        var rels = cxx::std::vector<string>()
-        SysUtil::_walk(dir, "", 0, &rels)
+    /// The share tree's tree_sha256 of \p dir (FORMAT.md). \p follow is
+    /// schema 1's rule; without it (schema 2) a symlink below \p dir is an
+    /// error naming it. \p dir itself may be one: a share view links whole
+    /// inputs in. "" with \p err set on either failure.
+    pub static fn tree_sha256(const dir: string, follow: bool, @inout err: string) -> string {
+        var rels  = cxx::std::vector<string>()
+        var links = cxx::std::vector<string>()
+        SysUtil::_walk(dir, "", 0, follow, &rels, &links)
+        if !links.empty() {
+            err = f"{LinkText::join(dir, links[0])} is a symlink; a schema 2 input holds none (links.tsv records them)"
+            return ""
+        }
+
         cxx::std::sort(rels.begin(), rels.end())
 
         var stream = ""
@@ -82,16 +93,22 @@ pub class SysUtil {
 
     /// What tree_sha256 would read, by name, size and mtime only: the
     /// verification cache (SysRoot.md 4.3) re-hashes a dir only when this
-    /// changes, which is a walk with no reads.
-    pub static fn tree_stamp(const dir: string) -> string {
-        var rels = cxx::std::vector<string>()
-        SysUtil::_walk(dir, "", 0, &rels)
+    /// changes, which is a walk with no reads. A link under a schema 2
+    /// input is in it, so a memo never hides one.
+    pub static fn tree_stamp(const dir: string, follow: bool) -> string {
+        var rels  = cxx::std::vector<string>()
+        var links = cxx::std::vector<string>()
+        SysUtil::_walk(dir, "", 0, follow, &rels, &links)
         cxx::std::sort(rels.begin(), rels.end())
 
-        var stream = ""
+        var stream = if (follow) => ("schema 1\n") else => "schema 2\n"
         for var r: string in rels {
             var p = LinkText::join(dir, r)
             stream += f"{r} {SysUtil::file_size(p)} {LinkFS::mtime(p)}\n"
+        }
+
+        for var l: string in links {
+            stream += f"link {l}\n"
         }
 
         return SysUtil::sha256(stream)
@@ -267,13 +284,16 @@ pub class SysUtil {
         return v
     }
 
-    /// Regular files under \p dir, symlinks followed, as `/`-joined paths
-    /// relative to the walk's root. Depth-capped: a symlink loop in a share
-    /// tree must end the walk, not the process.
-    priv static fn _walk(const dir:  string,
-                         const rel:  string,
-                         depth:      u32,
-                         @inout out: cxx::std::vector<string>) {
+    /// Regular files under \p dir as `/`-joined paths relative to the
+    /// walk's root, symlinks followed when \p follow, else each symlink's
+    /// path into \p links and not descended. Depth-capped: a symlink loop
+    /// in a share tree must end the walk, not the process.
+    priv static fn _walk(const dir:    string,
+                         const rel:    string,
+                         depth:        u32,
+                         follow:       bool,
+                         @inout out:   cxx::std::vector<string>,
+                         @inout links: cxx::std::vector<string>) {
         if depth > 64 {
             return
         }
@@ -281,8 +301,10 @@ pub class SysUtil {
         for var name: string in LinkFS::list_dir(dir) {
             var p = LinkText::join(dir, name)
             var r = if (rel.empty()) => (name) else => rel + "/" + name
-            if LinkFS::is_dir(p) {
-                SysUtil::_walk(p, r, depth + 1, &out)
+            if !follow && llvm::sys::fs::is_symlink_file(llvm::Twine(kairo::sref(p))) {
+                links.push_back(r)
+            } else if LinkFS::is_dir(p) {
+                SysUtil::_walk(p, r, depth + 1, follow, &out, &links)
             } else if LinkFS::is_file(p) {
                 out.push_back(r)
             }
