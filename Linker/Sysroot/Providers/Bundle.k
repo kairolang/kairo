@@ -1,10 +1,9 @@
 /// --- The Kairo Project --------------------------- Providers/Bundle.k --- ///
 ///
-///   The bundle provider: a prebuilt base system copied as is (FreeBSD, NetBSD, WASI; 4.4, nothing in 4.6).
-///
-///   A stub until SysRoot.md section 11 step 4: every stage refuses (exit 2),
-///   so `ksys ensure` and the driver hook stop with a clear reason instead
-///   of a half-built root.
+///   The bundle provider: a prebuilt base system copied as is (FreeBSD,
+///   NetBSD, WASI). Stage libc-headers copies every [bundle_layout] entry
+///   (input subdir -> root subdir), headers and libraries alike, symlinks
+///   kept; stage libc-libs has nothing left to do (SysRoot.md 4.4, 4.6).
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -15,11 +14,15 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "vector"
+
+import API::FS::LinkFS
 import Sysroot::Outcome::SysOutcome
 import Sysroot::Provider::{
     StageCtx,
     SysrootProvider,
 }
+import Sysroot::SysRun::SysRun
 
 pub class BundleProvider derives SysrootProvider {
     pub fn BundleProvider(self) = default
@@ -32,16 +35,33 @@ pub class BundleProvider derives SysrootProvider {
                             ctx:        *StageCtx,
                             const dst:  string,
                             @inout out: SysOutcome) -> bool {
-        return out.refuse(
-            f"the bundle provider is not implemented yet: cannot build {ctx->target.name}",
-            "SysRoot.md section 11 step 4",
-        )
+        if ctx->inputs.empty() {
+            return out.refuse(f"the {ctx->target.recipe} recipe names no input to bundle", "")
+        }
+
+        var base = ctx->inputs[0]
+        var keys = ctx->recipe.keys_of("bundle_layout")
+        if keys.empty() {
+            return out.refuse(f"the {ctx->target.recipe} recipe has no [bundle_layout]", "")
+        }
+
+        var none = cxx::std::vector<string>()
+        for var k: string in keys {
+            var from = base + "/" + k
+            var to   = dst + "/" + ctx->recipe.str("bundle_layout", k)
+            if !LinkFS::is_dir(from) {
+                return out.refuse(f"share input {from} missing", "")
+            }
+
+            if !SysRun::copy_tree(from, to, &none) {
+                return out.fail(f"cannot copy {from} to {to}", "")
+            }
+        }
+
+        return true
     }
 
     pub override fn libs(self, ctx: *StageCtx, const dst: string, @inout out: SysOutcome) -> bool {
-        return out.refuse(
-            f"the bundle provider is not implemented yet: cannot build {ctx->target.name}",
-            "SysRoot.md section 11 step 4",
-        )
+        return LinkFS::make_dirs(dst) || out.fail(f"cannot create {dst}", "")
     }
 }

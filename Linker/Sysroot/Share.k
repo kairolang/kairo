@@ -42,7 +42,13 @@ pub class SysRecipe {
     pub var arches:        cxx::std::vector<string> ///< empty = the built-in list
     pub var inputs:        cxx::std::vector<string> ///< templates
     pub var runtimes:      cxx::std::vector<string>
-    pub var error:         string
+    /// Every key of the file as read, in file order: the later stages read
+    /// [libc], [layout], [toml] and the rest through str() / list() /
+    /// keys_of(), so a recipe key needs no field here to be usable.
+    pub var raw_tables: cxx::std::vector<string>
+    pub var raw_keys:   cxx::std::vector<string>
+    pub var raw_vals:   cxx::std::vector<TomlValue>
+    pub var error:      string
 
     pub fn load(self, const path: string) -> bool {
         self.path = path
@@ -56,6 +62,9 @@ pub class SysRecipe {
         var key  = ""
         var val  = TomlValue{}
         while toml.next(&key, &val) {
+            self.raw_tables.push_back(toml.table)
+            self.raw_keys.push_back(key)
+            self.raw_vals.push_back(val)
             if LinkText::starts_with(toml.table, "per_arch.") && val.kind == 1 {
                 var v = LinkText::slice(toml.table, 9, toml.table.size())
                 self.per_arch_keys.push_back(v + "." + key)
@@ -90,6 +99,60 @@ pub class SysRecipe {
         }
 
         return true
+    }
+
+    /// The raw value of \p key in \p table ("" = top level); null when
+    /// the recipe has no such key.
+    pub fn value(self, const table: string, const key: string) -> unsafe *TomlValue {
+        for var i: usize = 0; i < self.raw_keys.size(); ++i {
+            if self.raw_tables[i] == table && self.raw_keys[i] == key {
+                return unsafe &self.raw_vals[i]
+            }
+        }
+
+        return &null
+    }
+
+    /// A string key, unexpanded; "" when absent or not a string.
+    pub fn str(self, const table: string, const key: string) -> string {
+        var v = self.value(table, key)
+        if v == &null || v->kind != 1 {
+            return ""
+        }
+
+        return v->text
+    }
+
+    /// A bool key; \p dflt when absent or not a bool.
+    pub fn flag(self, const table: string, const key: string, dflt: bool) -> bool {
+        var v = self.value(table, key)
+        if v == &null || v->kind != 2 {
+            return dflt
+        }
+
+        return v->flag
+    }
+
+    /// A string-array key, unexpanded; empty when absent.
+    pub fn list(self, const table: string, const key: string) -> cxx::std::vector<string> {
+        var v = self.value(table, key)
+        if v == &null || v->kind != 3 {
+            return cxx::std::vector<string>()
+        }
+
+        return v->list
+    }
+
+    /// The keys of \p table, in file order.
+    pub fn keys_of(self, const table: string) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
+        for var i: usize = 0; i < self.raw_keys.size(); ++i {
+            if self.raw_tables[i] == table {
+                out.push_back(self.raw_keys[i])
+            }
+        }
+
+        return out
     }
 
     /// \p tmpl with {per_arch.<var>}, {triple}, {arch}, {libc_version} and

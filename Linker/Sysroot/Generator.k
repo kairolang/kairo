@@ -7,11 +7,13 @@
 ///     parse -> probe -> inputs -> libc-headers -> builtins -> libc-libs
 ///           -> runtimes -> assemble -> toml -> validate -> cache
 ///
-///   parse, probe, inputs, keys and the cache are real. The provider stages
-///   are the providers' (stubs that refuse until SysRoot.md section 11
-///   steps 4, 5, 7, 8); builtins, runtimes, assemble, toml and validate
-///   refuse as not implemented until step 4. Every refusal is exit 2 with
-///   one actionable line, never a half-built root.
+///   Every stage writes its product under <stage dir>/out/ and reads the
+///   earlier ones' through StageCtx::product. The provider stages are the
+///   providers'; assemble, toml, validate and the cache publish are here.
+///   builtins and runtimes are the seam the compiler-rt / libc++ build
+///   lands behind (_stage_builtins, _stage_runtimes); until it does they
+///   take the archives from a bundled root of the same name. Every refusal
+///   is exit 2 with one actionable line, never a half-built root.
 ///
 ///   No network, ever (section 1): every input comes from the share tree or
 ///   --input.
@@ -28,13 +30,19 @@
 ffi "c++" import "llvm/ADT/StringRef.h"
 ffi "c++" import "llvm/MC/TargetRegistry.h"
 ffi "c++" import "llvm/Support/Program.h"
+ffi "c++" import "llvm/TargetParser/Host.h"
 ffi "c++" import "llvm/TargetParser/Triple.h"
 ffi "c++" import "Native/KShims.hh"
 ffi "c++" import "Native/Types.hh"
+ffi "c++" import "algorithm"
 ffi "c++" import "vector"
 
 import API::FS::LinkFS
-import API::SysrootManifest::SysrootManifest
+import API::SysrootManifest::{
+    SysrootManifest,
+    TomlLite,
+    TomlValue,
+}
 import API::Text::LinkText
 import Sysroot::Cache::{
     SysCache,
@@ -59,6 +67,7 @@ import Sysroot::Share::{
     SysQuirk,
     SysRecipe,
 }
+import Sysroot::SysRun::SysRun
 import Sysroot::SysUtil::{
     SysJsonField,
     SysUtil,
@@ -215,8 +224,11 @@ pub class SysGen {
         return ok
     }
 
-    /// `ksys validate <dir>`. The structural checks run; steps 1-4 of
-    /// SysRoot.md 4.10 (symbols, replay, kairo, run) refuse until step 4.
+    /// `ksys validate <dir>` (SysRoot.md 4.10): the manifest and the dirs it
+    /// names, then t.c / t.cpp and the three .k programs built against the
+    /// root through its SYSROOT.toml alone, and run where the recipe's
+    /// [validate] run mode and the host allow. A step that cannot run is
+    /// printed SKIP, never counted a pass.
     pub fn validate(self, const dir: string, @inout out: SysOutcome) -> bool {
         var mpath = LinkText::join(dir, "SYSROOT.toml")
         if !LinkFS::is_file(mpath) {
@@ -235,42 +247,247 @@ pub class SysGen {
             return out.fail(f"validation failed at manifest: triple: {why}", "")
         }
 
-        io::println(f"manifest:     {mpath}")
-        io::println(f"triple:       {m.triple} ({t.family})")
-        if m.clang_triple.empty() {
-            io::println("clang_triple: (none: a root older than ksys)")
-        } else {
-            io::println(f"clang_triple: {m.clang_triple}")
+        // The share tree holds the programs and the recipe's run mode; the
+        // structural checks need neither, so a missing tree is reported
+        // after them (validate_root refuses on an empty \p share).
+        var sdir   = ShareTree::locate(self.share_flag)
+        var recipe = SysRecipe()
+        var rpath  = LinkText::join(sdir, f"families/{t.recipe}.toml")
+        if !ShareTree::present(sdir) {
+            sdir = ""
+        } else if !recipe.load(rpath) {
+            return out.refuse(f"{rpath}: {recipe.error}", "")
         }
 
-        var root = m.dir
+        var log = LinkFS::temp_dir("ksys-validate")
+        if log.empty() {
+            return out.fail("cannot create a temporary directory for validation", "")
+        }
+
+        var rep = ""
+        var ok = SysGen::validate_root(
+            dir,
+            &t,
+            &recipe,
+            sdir,
+            SysGen::_tools_dir(),
+            log,
+            &rep,
+            &out,
+        )
+
+        io::print(rep)
+        if ok {
+            LinkFS::remove_tree(log)
+        }
+
+        return ok
+    }
+
+    /// The checks of `ksys validate` on \p root for target \p t, logs and
+    /// scratch under \p work. One line per step goes to \p rep: a caller
+    /// with a path to print on stdout (ensure) must not have it mixed in.
+    pub static fn validate_root(const root:  string,
+                                t:           *SysTarget,
+                                recipe:      *SysRecipe,
+                                const share: string,
+                                const tools: string,
+                                const work:  string,
+                                @inout rep:  string,
+                                @inout out:  SysOutcome) -> bool {
+        var mpath = LinkText::join(root, "SYSROOT.toml")
+        var m     = SysrootManifest()
+        if !SysrootManifest::load(mpath, &m) {
+            return out.fail(f"validation failed at manifest: {mpath}: {m.error}", "")
+        }
+
+        rep += f"manifest:     {mpath}" + "\n"
+        rep += f"triple:       {m.triple} ({t->family})" + "\n"
+        if m.clang_triple.empty() {
+            rep += "clang_triple: (none: derived by the driver)" + "\n"
+        } else {
+            rep += f"clang_triple: {m.clang_triple}" + "\n"
+        }
+
+        var base = m.dir
         if !m.sysroot.empty() && m.sysroot != "." {
-            root = LinkText::join(m.dir, m.sysroot)
+            base = LinkText::join(m.dir, m.sysroot)
         }
 
         for var d: string in m.include_dirs {
-            if !LinkFS::is_dir(LinkText::join(root, d)) {
+            if !LinkFS::is_dir(LinkText::join(base, d)) {
                 return out.fail(
-                    f"validation failed at manifest: include_dirs entry {d} is not a directory under {root}",
+                    f"validation failed at manifest: include_dirs entry {d} is not a directory under {base}",
                     "",
                 )
             }
         }
 
         for var d: string in m.lib_dirs {
-            if !LinkFS::is_dir(LinkText::join(root, d)) {
+            if !LinkFS::is_dir(LinkText::join(base, d)) {
                 return out.fail(
-                    f"validation failed at manifest: lib_dirs entry {d} is not a directory under {root}",
+                    f"validation failed at manifest: lib_dirs entry {d} is not a directory under {base}",
                     "",
                 )
             }
         }
 
-        io::println("structure:    ok")
-        return out.refuse(
-            "validation steps symbols, replay, kairo and run are not implemented yet",
-            "SysRoot.md section 11 step 4",
-        )
+        rep += "structure:    ok" + "\n"
+        if share.empty() {
+            return out.refuse(
+                "validation needs the share tree: its validate/ programs and the family recipe",
+                SysGen::_share_note(),
+            )
+        }
+
+        var kcc   = SysGen::_exe(tools, "kcc")
+        var kairo = SysGen::_exe(tools, "kairo")
+        if !LinkFS::is_file(kcc) || !LinkFS::is_file(kairo) {
+            return out.refuse(
+                f"validation needs kcc and kairo beside {tools}",
+                "reinstall the toolchain",
+            )
+        }
+
+        LinkFS::make_dirs(work)
+        var vdir = LinkText::join(share, "validate")
+        var exp  = SysGen::_expectations(LinkText::join(vdir, "expect.toml"))
+        if exp.empty() {
+            return out.refuse(f"share input {vdir}/expect.toml missing or empty", "")
+        }
+
+        // Every build names the manifest's own triple: the driver checks
+        // it against --target, and a glibc name's -glibc<v> tag is not a
+        // triple clang reads.
+        // The driver takes a bundled <prefix>/sysroot/<name> over --sysroot:
+        // prove this toolchain builds against \p root before believing a
+        // single result.
+        var real_root = LinkFS::real(root)
+        var probe     = cxx::std::vector<string>()
+        probe.push_back(kcc)
+        probe.push_back("--target=" + m.triple)
+        probe.push_back("--sysroot=" + root)
+        probe.push_back("-###")
+        probe.push_back(LinkText::join(vdir, "t.c"))
+        probe.push_back("-o")
+        probe.push_back(LinkText::join(work, "probe"))
+        var plog = LinkText::join(work, "probe.log")
+        SysRun::run(&probe, plog)
+        var ptext = ""
+        LinkFS::read(plog, &ptext)
+        var seen = SysGen::_sysroots_in(ptext)
+        for var r: string in seen {
+            if LinkFS::real(r) != real_root {
+                return out.refuse(
+                    f"cannot validate {root}: this toolchain builds {t->name} against {r} (a bundled root shadows --sysroot)",
+                    "run ksys from a toolchain without <prefix>/sysroot/" + t->name,
+                )
+            }
+        }
+
+        // replay-validate.sh passes the TOML's extra_cflags itself: the
+        // driver does not read them yet (P590), and wasm's
+        // -fwasm-exceptions is what makes a C++ catch work there.
+        var extra = cxx::std::vector<string>()
+        var mtext = ""
+        LinkFS::read(mpath, &mtext)
+        var mtoml = TomlLite(mtext)
+        var mkey  = ""
+        var mval  = TomlValue{}
+        while mtoml.next(&mkey, &mval) {
+            if mtoml.table.empty() && mkey == "extra_cflags" && mval.kind == 3 {
+                extra = mval.list
+            }
+        }
+
+        var mode   = recipe->str("validate", "run")
+        var runner = cxx::std::vector<string>()
+        var skip   = SysGen::_runner(t, mode, work, &runner)
+        var ext    = ""
+        if t->family == "windows-gnu" || t->family == "windows-msvc" {
+            ext = ".exe"
+        } else if t->family == "wasi" {
+            ext = ".wasm"
+        }
+
+        var progs = cxx::std::vector<string>()
+        progs.push_back("t.c")
+        if m.has_libcxx {
+            progs.push_back("t.cpp")
+        }
+
+        progs.push_back("test.k")
+        progs.push_back("floats.k")
+        progs.push_back("tfbf.k")
+        for var src: string in progs {
+            var want = SysGen::_expected(&exp, src)
+            var dot  = LinkText::find(src, ".", 0)
+            var stem = LinkText::slice(src, 0, dot)
+            var lang = LinkText::slice(src, dot + 1, src.size())
+            var bin  = LinkText::join(work, stem + "-" + lang + ext)
+            var argv = cxx::std::vector<string>()
+            if lang == "k" {
+                argv.push_back(kairo)
+                argv.push_back(LinkText::join(vdir, src))
+                argv.push_back("--target")
+                argv.push_back(m.triple)
+                argv.push_back("--sysroot")
+                argv.push_back(root)
+                argv.push_back("-o")
+                argv.push_back(bin)
+            } else {
+                argv.push_back(kcc)
+                if lang == "cpp" {
+                    argv.push_back("--driver-mode=g++")
+                }
+
+                argv.push_back("--target=" + m.triple)
+                argv.push_back("--sysroot=" + root)
+                for var x: string in extra {
+                    argv.push_back(x)
+                }
+
+                argv.push_back(LinkText::join(vdir, src))
+                argv.push_back("-o")
+                argv.push_back(bin)
+            }
+
+            var blog = LinkText::join(work, stem + "-" + lang + ".build.log")
+            var rc   = SysRun::run(&argv, blog)
+            var pad  = src + ":"
+            while pad.size() < 14 {
+                pad += " "
+            }
+
+            if rc != 0 {
+                var text = ""
+                LinkFS::read(blog, &text)
+                return out.fail(
+                    f"validation failed at {src}: the build exited {rc}: {SysGen::_first_line(text)}",
+                    f"log: {blog}",
+                )
+            }
+
+            if !skip.empty() {
+                rep += f"{pad}built; run SKIP ({skip})" + "\n"
+                continue
+            }
+
+            var run = runner
+            run.push_back(bin)
+            var rlog = LinkText::join(work, stem + "-" + lang + ".run.log")
+            var got  = SysRun::run(&run, rlog)
+            if f"{got}" != want {
+                return out.fail(
+                    f"validation failed at {src}: it exited {got}, expected {want}",
+                    f"log: {rlog}",
+                )
+            }
+
+            rep += f"{pad}built, ran, exit {got}" + "\n"
+        }
+
+        return true
     }
 
     /// `ksys verify-share`: every registry input re-hashed, no memo. Lists
@@ -565,9 +782,10 @@ pub class SysGen {
         return true
     }
 
-    /// The stages after inputs. Each is skipped when its key dir holds
-    /// `.ok`; a refusal leaves nothing behind, a failure leaves
-    /// `<dir>.failed/log`.
+    /// The stages after inputs, then the publish. Each stage is skipped
+    /// when its key dir holds `.ok`; a refusal leaves nothing behind, a
+    /// failure leaves `<dir>.failed/log`. \p dest "" publishes into the
+    /// cache as sysroots/<key>, else into \p dest (`ksys build --out`).
     priv fn _run_stages(self,
                         p:          *SysPlan,
                         c:          *SysCache,
@@ -578,11 +796,22 @@ pub class SysGen {
             kairo::std::destroy(prov)
         }
 
+        var ctx = StageCtx()
+        ctx.target = p->target
+        ctx.recipe = p->recipe
+        ctx.quirks = p->quirks
+        ctx.share  = p->share.dir
+        ctx.inputs = p->in_paths
+        ctx.input  = self.input
+        ctx.tools  = p->tools
+
         var stages = sys_stages()
         for var i: usize = 0; i < stages.size(); ++i {
             var name = stages[i]
             var st   = SysStage(c->stage_dir(name, p->stage_keys[i]))
             if st.done() {
+                ctx.done_names.push_back(name)
+                ctx.done_dirs.push_back(st.dir)
                 continue
             }
 
@@ -591,31 +820,33 @@ pub class SysGen {
             }
 
             self._log(f"{p->target.name}: stage {name}")
-            var ctx = StageCtx{}
-            ctx.target  = p->target
-            ctx.share   = p->share.dir
-            ctx.inputs  = p->in_paths
-            ctx.input   = self.input
             ctx.stage   = st.tmp()
             ctx.log_dir = st.log_dir()
-            ctx.tools   = p->tools
+            var dst = st.tmp() + "/out"
+            LinkFS::make_dirs(dst)
 
             var ok = false
             if name == "libc-headers" {
-                ok = prov->headers(&ctx, st.tmp(), &out)
+                ok = prov->headers(&ctx, dst, &out)
             } else if name == "libc-libs" {
-                ok = prov->libs(&ctx, st.tmp(), &out)
+                ok = prov->libs(&ctx, dst, &out)
+            } else if name == "builtins" {
+                ok = SysGen::_stage_builtins(&ctx, &out)
+            } else if name == "runtimes" {
+                ok = SysGen::_stage_runtimes(&ctx, &out)
+            } else if name == "assemble" {
+                ok = SysGen::_stage_assemble(&ctx, p, &out)
+            } else if name == "toml" {
+                ok = SysGen::_stage_toml(&ctx, &out)
             } else {
-                ok = out.refuse(
-                    f"stage {name} is not implemented yet",
-                    "SysRoot.md section 11 step 4",
-                )
+                ok = SysGen::_stage_validate(&ctx, &out)
             }
 
             if !ok {
                 if out.status == 3 {
                     var log = st.fail(out.message)
                     out.message = f"stage {name} failed: {out.message} (log: {log})"
+                    out.note    = SysGen::_moved(out.note, st.tmp(), st.dir + ".failed")
                 } else {
                     st.abandon()
                 }
@@ -626,14 +857,561 @@ pub class SysGen {
             if !st.commit() {
                 return out.fail(f"stage {name} failed: cannot rename {st.tmp()}", "")
             }
+
+            ctx.done_names.push_back(name)
+            ctx.done_dirs.push_back(st.dir)
+            if name == "validate" {
+                var rep = ""
+                LinkFS::read(st.dir + "/out/report.txt", &rep)
+                for var line: string in LinkText::split_lines(rep) {
+                    self._log(f"{p->target.name}: validate: {line}")
+                }
+            }
         }
 
-        // Reached only once every stage is real: assemble wrote the root to
-        // the stage dir, and the cache (or --out) takes it from there.
-        return out.refuse(
-            "the sysroot cache stage is not implemented yet",
-            "SysRoot.md section 11 step 4",
+        return SysGen::_publish(&ctx, p, c, dest, &out)
+    }
+
+    /// # Generic stages
+
+    /// Stage builtins (4.5): <out>/<builtins_name>, the compiler-rt builtins
+    /// archive for the target.
+    priv static fn _stage_builtins(ctx: *StageCtx, @inout out: SysOutcome) -> bool {
+        var name = ctx->recipe.expand(ctx->recipe.str("", "builtins_name"), &ctx->target)
+        var rl   = ctx->recipe.expand(ctx->recipe.str("", "resource_layout"), &ctx->target)
+        // TODO(SYSROOT-RT): the compiler-rt builtins compile loop (wave B2,
+        // build/sysroot-share/runtimes-recipe/) replaces this. Until it
+        // lands the archive comes from the bundled root of the same name.
+        var from = SysGen::_rt_fallback(&ctx->target) + "/" + rl + "/" + name
+        if !LinkFS::is_file(from) {
+            return out.refuse(
+                f"the builtins stage cannot compile compiler-rt yet, and there is no {from} to take it from",
+                "set KSYS_RT_FALLBACK to a dir holding a bundled root of this name",
+            )
+        }
+
+        if !SysRun::put_file(from, ctx->stage + "/out/" + name, false) {
+            return out.fail(f"cannot copy {from}", "")
+        }
+
+        return true
+    }
+
+    /// Stage runtimes (4.7): an install prefix under <out>: every [layout]
+    /// gather item at its install path (lib/libc++.a, include/c++/v1, ...),
+    /// and crt/clang_rt.crtbegin.o / crtend.o when the recipe has
+    /// crt_objects.
+    priv static fn _stage_runtimes(ctx: *StageCtx, @inout out: SysOutcome) -> bool {
+        var gather = ctx->recipe.list("layout", "gather")
+        var crt    = ctx->recipe.flag("", "crt_objects", false)
+        if gather.empty() && !crt {
+            return true
+        }
+
+        // TODO(SYSROOT-RT): the libunwind / libc++abi / libc++ compile loops
+        // (wave B2) replace this. Until they land the runtimes come from the
+        // bundled root of the same name, mapped back through [layout].
+        var base = SysGen::_rt_fallback(&ctx->target)
+        if !LinkFS::is_dir(base) {
+            return out.refuse(
+                f"the runtimes stage cannot build libc++ yet, and there is no {base} to take it from",
+                "set KSYS_RT_FALLBACK to a dir holding a bundled root of this name",
+            )
+        }
+
+        var none = cxx::std::vector<string>()
+        var dst  = ctx->stage + "/out"
+        for var g: string in gather {
+            var from = base + "/" + SysGen::_layout_path(&ctx->recipe, g)
+            if LinkFS::is_dir(from) {
+                if !SysRun::copy_tree(from, dst + "/" + g, &none) {
+                    return out.fail(f"cannot copy {from}", "")
+                }
+            } else if !LinkFS::is_file(from) || !SysRun::put_file(from, dst + "/" + g, false) {
+                return out.fail(f"runtimes: {from} missing", "")
+            }
+        }
+
+        if crt {
+            var rl = ctx->recipe.expand(ctx->recipe.str("", "resource_layout"), &ctx->target)
+            for var n: string in SysGen::_crt_names() {
+                var from = base + "/" + rl + "/" + n
+                if !LinkFS::is_file(from) || !SysRun::put_file(from, dst + "/crt/" + n, false) {
+                    return out.fail(f"runtimes: {from} missing", "")
+                }
+            }
+        }
+
+        return true
+    }
+
+    /// Stage assemble (4.8): the root, from the stages' products, per the
+    /// recipe's [layout]; LICENSES/ per input (section 15); the
+    /// __config_site and assert_file_contains checks.
+    priv static fn _stage_assemble(ctx: *StageCtx, p: *SysPlan, @inout out: SysOutcome) -> bool {
+        var root  = ctx->stage + "/out"
+        var none  = cxx::std::vector<string>()
+        var parts = cxx::std::vector<string>()
+        parts.push_back("libc-headers")
+        parts.push_back("libc-libs")
+        for var part: string in parts {
+            var from = ctx->product(part)
+            if !SysRun::link_tree(from, root, &none) {
+                return out.fail(f"cannot lay {from} into {root}", "")
+            }
+        }
+
+        var rl   = ctx->recipe.expand(ctx->recipe.str("", "resource_layout"), &ctx->target)
+        var bn   = ctx->recipe.expand(ctx->recipe.str("", "builtins_name"), &ctx->target)
+        var bsrc = ctx->product("builtins") + "/" + bn
+        if !LinkFS::is_file(bsrc) || !SysRun::put_file(bsrc, root + "/" + rl + "/" + bn, true) {
+            return out.fail(f"the builtins stage left no {bn}", "")
+        }
+
+        var rt = ctx->product("runtimes")
+        for var g: string in ctx->recipe.list("layout", "gather") {
+            var from = rt + "/" + g
+            var to   = root + "/" + SysGen::_layout_path(&ctx->recipe, g)
+            if LinkFS::is_dir(from) {
+                if !SysRun::link_tree(from, to, &none) {
+                    return out.fail(f"cannot lay {from} into {to}", "")
+                }
+            } else if !LinkFS::is_file(from) || !SysRun::put_file(from, to, true) {
+                return out.fail(f"the runtimes stage left no {g}", "")
+            }
+
+            if g == "include/c++/v1" && !LinkFS::is_file(to + "/__config_site") {
+                return out.fail(f"{to} has no __config_site beside the libc++ headers", "")
+            }
+        }
+
+        if ctx->recipe.flag("", "crt_objects", false) {
+            for var n: string in SysGen::_crt_names() {
+                if !SysRun::put_file(rt + "/crt/" + n, root + "/" + rl + "/" + n, true) {
+                    return out.fail(f"the runtimes stage left no crt/{n}", "")
+                }
+            }
+        }
+
+        // Section 15: every input's notices travel with the root, and the
+        // compiler-rt / libc++ ones always (the builtins are in every root).
+        var comps = cxx::std::vector<string>()
+        for var rel: string in p->inputs {
+            var lic = ""
+            for var i: usize = 0; i < p->share.license_dirs.size(); ++i {
+                if p->share.license_dirs[i] == rel {
+                    lic = p->share.license_ids[i]
+                }
+            }
+
+            if lic.empty() {
+                return out.refuse(f"share input {rel} has no [licenses] entry in registry.toml", "")
+            }
+
+            var comp = SysUtil::split(rel, ('/' as u8))[0]
+            if !SysUtil::contains(&comps, comp) {
+                comps.push_back(comp)
+            }
+        }
+
+        if !SysUtil::contains(&comps, "runtimes") {
+            comps.push_back("runtimes")
+        }
+
+        for var comp: string in comps {
+            var from = ctx->share + "/licenses/" + comp
+            if !LinkFS::is_dir(from)
+                || !SysRun::copy_tree(from, root + "/LICENSES/" + comp, &none) {
+                return out.refuse(f"share input {from} missing", "")
+            }
+        }
+
+        for var q: SysQuirk in ctx->quirks {
+            for var a: string in q.assert_file_contains {
+                var colon = LinkText::find(a, ":", 0)
+                var file  = root + "/" + LinkText::slice(a, 0, colon)
+                var want  = LinkText::slice(a, colon + 1, a.size())
+                var text  = ""
+                if !LinkFS::read(file, &text) || !LinkText::contains(text, want) {
+                    return out.fail(f"quirk {q.id}: {file} does not contain {want}", "")
+                }
+            }
+        }
+
+        return true
+    }
+
+    /// Stage toml (4.9): SYSROOT.toml from the recipe's [toml], keys in
+    /// table order, `f"{key:<13} = {value}"`, templates expanded.
+    priv static fn _stage_toml(ctx: *StageCtx, @inout out: SysOutcome) -> bool {
+        var text = SysGen::render_toml(&ctx->recipe, &ctx->target)
+        if text.empty() {
+            return out.refuse(f"the {ctx->target.recipe} recipe has no [toml] table", "")
+        }
+
+        if !LinkFS::write(ctx->stage + "/out/SYSROOT.toml", text) {
+            return out.fail(f"cannot write {ctx->stage}/out/SYSROOT.toml", "")
+        }
+
+        return true
+    }
+
+    /// The SYSROOT.toml text for \p t; "" when the recipe has no [toml].
+    pub static fn render_toml(r: *SysRecipe, t: *SysTarget) -> string {
+        var text = ""
+        for var key: string in r->keys_of("toml") {
+            var v   = r->value("toml", key)
+            var val = ""
+            if v->kind == 2 {
+                val = if (v->flag) => ("true") else => "false"
+            } else if v->kind == 3 {
+                val = "["
+                for var i: usize = 0; i < v->list.size(); ++i {
+                    if i > 0 {
+                        val += ", "
+                    }
+
+                    val += "\x22" + r->expand(v->list[i], t) + "\x22"
+                }
+
+                val += "]"
+            } else {
+                val = "\x22" + r->expand(v->text, t) + "\x22"
+            }
+
+            var k = key
+            while k.size() < 13 {
+                k += " "
+            }
+
+            text += k + " = " + val + "\n"
+        }
+
+        return text
+    }
+
+    /// Stage validate (4.10) on the assembled root plus its SYSROOT.toml.
+    /// The root is a hard-link copy, removed after: the stage keeps only
+    /// its logs.
+    priv static fn _stage_validate(ctx: *StageCtx, @inout out: SysOutcome) -> bool {
+        var rep  = ""
+        var root = ctx->stage + "/root"
+        var none = cxx::std::vector<string>()
+        var asm_ = ctx->product("assemble")
+        var tom  = ctx->product("toml") + "/SYSROOT.toml"
+        if !SysRun::link_tree(asm_, root, &none)
+            || !SysRun::put_file(tom, root + "/SYSROOT.toml", false) {
+            return out.fail(f"cannot lay out {root} for validation", "")
+        }
+
+        var ok = SysGen::validate_root(
+            root,
+            &ctx->target,
+            &ctx->recipe,
+            ctx->share,
+            ctx->tools,
+            ctx->log_dir + "/validate",
+            &rep,
+            &out,
         )
+
+        LinkFS::write(ctx->stage + "/out/report.txt", rep)
+        LinkFS::remove_tree(root)
+        return ok
+    }
+
+    /// The finished root into sysroots/<key> (or \p dest), with
+    /// SYSROOT.toml and .kairo-sysroot.json; renamed into place whole, so a
+    /// reader sees no root or a complete one.
+    priv static fn _publish(ctx:        *StageCtx,
+                            p:          *SysPlan,
+                            c:          *SysCache,
+                            const dest: string,
+                            @inout out: SysOutcome) -> bool {
+        var fin  = if (dest.empty()) => (c->sysroot_dir(p->key)) else => LinkText::strip_slash(dest)
+        var tmp  = fin + ".tmp"
+        var none = cxx::std::vector<string>()
+        LinkFS::remove_tree(tmp)
+        var tom = ctx->product("toml") + "/SYSROOT.toml"
+        if !SysRun::link_tree(ctx->product("assemble"), tmp, &none)
+            || !SysRun::put_file(tom, tmp + "/SYSROOT.toml", false) {
+            LinkFS::remove_tree(tmp)
+            return out.fail(f"cannot write {tmp}", "")
+        }
+
+        var f = cxx::std::vector<SysJsonField>()
+        SysUtil::field(&f, "key", SysUtil::json_str(p->key))
+        SysUtil::field(&f, "key_object", p->key_json)
+        var stages = sys_stages()
+        var sk     = cxx::std::vector<string>()
+        for var i: usize = 0; i < stages.size(); ++i {
+            sk.push_back(stages[i] + "=" + p->stage_keys[i])
+        }
+
+        SysUtil::field(&f, "stage_keys", SysUtil::json_list(&sk))
+        var qids = cxx::std::vector<string>()
+        for var q: SysQuirk in p->quirks {
+            qids.push_back(q.id)
+        }
+
+        SysUtil::field(&f, "quirks", SysUtil::json_list(&qids))
+        var ins = cxx::std::vector<string>()
+        for var i: usize = 0; i < p->inputs.size(); ++i {
+            ins.push_back(p->inputs[i] + "=" + p->in_sha[i])
+        }
+
+        SysUtil::field(&f, "inputs", SysUtil::json_list(&ins))
+        var lics = LinkFS::list_dir(tmp + "/LICENSES")
+        cxx::std::sort(lics.begin(), lics.end())
+        SysUtil::field(&f, "licenses", SysUtil::json_list(&lics))
+        SysUtil::field(&f, "clang_triple", SysUtil::json_str(p->target.clang_triple))
+        SysUtil::field(&f, "libc_version", SysUtil::json_str(p->target.libc_version))
+        var by = "ksys " + SysGen::tool_version()
+        SysUtil::field(&f, "generated_by", SysUtil::json_str(by))
+        if !LinkFS::write(tmp + "/.kairo-sysroot.json", SysUtil::json_object(&f) + "\n") {
+            LinkFS::remove_tree(tmp)
+            return out.fail(f"cannot write {tmp}/.kairo-sysroot.json", "")
+        }
+
+        if dest.empty() && !LinkFS::write(tmp + "/.ok", "") {
+            LinkFS::remove_tree(tmp)
+            return out.fail(f"cannot write {tmp}/.ok", "")
+        }
+
+        LinkFS::remove_tree(fin)
+        if !LinkFS::rename(tmp, fin) {
+            LinkFS::remove_tree(tmp)
+            return out.fail(f"cannot rename {tmp} to {fin}", "")
+        }
+
+        return true
+    }
+
+    /// A [layout] gather item (an install path: include/..., lib/...) at
+    /// its place in the root: the recipe's first include / lib dir.
+    priv static fn _layout_path(r: *SysRecipe, const g: string) -> string {
+        var inc = r->list("layout", "include")
+        var lib = r->list("layout", "lib")
+        if LinkText::starts_with(g, "include/") && !inc.empty() {
+            return inc[0] + LinkText::slice(g, 7, g.size())
+        }
+
+        if LinkText::starts_with(g, "lib/") && !lib.empty() {
+            return lib[0] + LinkText::slice(g, 3, g.size())
+        }
+
+        return g
+    }
+
+    priv static fn _crt_names() -> cxx::std::vector<string> {
+        var v = cxx::std::vector<string>()
+        v.push_back("clang_rt.crtbegin.o")
+        v.push_back("clang_rt.crtend.o")
+        return v
+    }
+
+    /// TODO(SYSROOT-RT): where the builtins / runtimes stand-ins come from:
+    /// $KSYS_RT_FALLBACK/<name>, else the toolchain's own bundled
+    /// <prefix>/sysroot/<name>.
+    priv static fn _rt_fallback(t: *SysTarget) -> string {
+        var base = LinkFS::env("KSYS_RT_FALLBACK")
+        if base.empty() {
+            base = LinkText::join(LinkFS::parent(LinkFS::parent(env::exe_path())), "sysroot")
+        }
+
+        return LinkText::join(LinkText::strip_slash(base), t->name)
+    }
+
+    /// The dir the toolchain binaries are in: kcc's, as plan() finds it.
+    priv static fn _tools_dir() -> string {
+        var k = SysGen::find_tool("kcc")
+        return if (k.empty()) => (LinkFS::parent(env::exe_path())) else => LinkFS::parent(k)
+    }
+
+    priv static fn _exe(const dir: string, const name: string) -> string {
+        var p = LinkText::join(dir, name)
+        eval if defined!(_WIN32) {
+            p = p + ".exe"
+        }
+
+        return p
+    }
+
+    /// validate/expect.toml [exit] as `file=code` lines.
+    priv static fn _expectations(const path: string) -> cxx::std::vector<string> {
+        var out  = cxx::std::vector<string>()
+        var text = ""
+        if !LinkFS::read(path, &text) {
+            return out
+        }
+
+        var toml = TomlLite(text)
+        var key  = ""
+        var val  = TomlValue{}
+        while toml.next(&key, &val) {
+            if toml.table == "exit" && val.kind == 1 {
+                out.push_back(key + "=" + val.text)
+            }
+        }
+
+        return out
+    }
+
+    priv static fn _expected(@inout exp: cxx::std::vector<string>, const file: string) -> string {
+        for var e: string in exp {
+            if LinkText::starts_with(e, file + "=") {
+                return LinkText::slice(e, file.size() + 1, e.size())
+            }
+        }
+
+        return "0"
+    }
+
+    /// Every --sysroot=<dir> in a driver's -### output.
+    priv static fn _sysroots_in(const text: string) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
+        var pat = "--sysroot="
+        var i   = LinkText::find(text, pat, 0)
+        while i < text.size() {
+            var b = i + pat.size()
+            var e = b
+            while e < text.size()
+                && text[e] != (' ' as u8)
+                && text[e] != ('\x22' as u8)
+                && text[e] != ('\n' as u8) {
+                e += 1
+            }
+
+            var r = LinkText::slice(text, b, e)
+            if !SysUtil::contains(&out, r) {
+                out.push_back(r)
+            }
+
+            i = LinkText::find(text, pat, e)
+        }
+
+        return out
+    }
+
+    /// How validation runs a program for \p t under run mode \p mode:
+    /// \p argv receives the runner prefix (empty = run directly). Returns
+    /// "" when it can run, else why it cannot (printed as SKIP).
+    priv static fn _runner(t:           *SysTarget,
+                           const mode:  string,
+                           const work:  string,
+                           @inout argv: cxx::std::vector<string>) -> string {
+        var host = string(
+            unsafe ((llvm::sys::getProcessTriple().c_str() as unsafe *const u8) as *const u8),
+        )
+
+        var hparts = SysUtil::split(host, ('-' as u8))
+        var harch  = hparts[0]
+        var hos    = if (LinkText::contains(host, "linux")) => ("linux") else => host
+        var tos    = if (LinkText::starts_with(t->family, "linux")) => ("linux") else => t->family
+        var native = harch == t->arch || harch == "x86_64" && t->arch == "i686"
+        if mode == "link-only" || mode.empty() {
+            return "link-only target"
+        }
+
+        if mode == "wine-if-present" {
+            var wine = SysGen::find_tool("wine")
+            if wine.empty() {
+                return "no wine on PATH"
+            }
+
+            argv.push_back(wine)
+            return ""
+        }
+
+        if mode == "wasmtime-or-node-if-present" {
+            // node first: clang's -fwasm-exceptions emits the legacy EH
+            // encoding, which node runs (behind its exnref flag) and
+            // wasmtime rejects.
+            var node = SysGen::find_tool("node")
+            if !node.empty() {
+                var js   = LinkText::join(work, "run-wasi.mjs")
+                var q    = "\x27"
+                var code = "import { readFile } from " + q + "node:fs/promises" + q + ";\n"
+                code += "import { WASI } from " + q + "node:wasi" + q + ";\n"
+                code += "const wasi = new WASI({ version: " + q + "preview1" + q + ", args: process.argv.slice(2) });\n"
+                code += "const mod = await WebAssembly.compile(await readFile(process.argv[2]));\n"
+                code += "const inst = await WebAssembly.instantiate(mod, wasi.getImportObject());\n"
+                code += "process.exit(wasi.start(inst));\n"
+                LinkFS::write(js, code)
+                argv.push_back(node)
+                argv.push_back("--no-warnings")
+                argv.push_back("--experimental-wasm-exnref")
+                argv.push_back(js)
+                return ""
+            }
+
+            var wt = SysGen::find_tool("wasmtime")
+            if wt.empty() {
+                return "no wasmtime or node on PATH"
+            }
+
+            argv.push_back(wt)
+            argv.push_back("run")
+            argv.push_back("-W")
+            argv.push_back("exceptions=y")
+            return ""
+        }
+
+        if mode == "native-if-host" {
+            return if (native && hos == tos) => ("") else => f"not a {t->family} {t->arch} host"
+        }
+
+        // native-or-qemu, native-or-qemu-with-root: Linux targets.
+        if native && hos == tos {
+            return ""
+        }
+
+        var qa = t->arch
+        if qa == "armv7" || qa == "armv6" {
+            qa = "arm"
+        } else if qa == "i686" {
+            qa = "i386"
+        }
+
+        var qemu = SysGen::find_tool("qemu-" + qa)
+        if qemu.empty() {
+            return f"no qemu-{qa} on PATH"
+        }
+
+        argv.push_back(qemu)
+        if mode == "native-or-qemu-with-root" {
+            var qroot = LinkFS::env("KAIRO_QEMU_ROOT_" + t->arch)
+            if qroot.empty() {
+                return f"a dynamic {t->arch} binary under qemu needs KAIRO_QEMU_ROOT_{t->arch}"
+            }
+
+            argv.push_back("-L")
+            argv.push_back(qroot)
+        }
+
+        return ""
+    }
+
+    /// \p s with the path prefix \p from (a stage's .tmp, renamed on
+    /// failure) spelled \p to.
+    priv static fn _moved(const s: string, const from: string, const to: string) -> string {
+        var at = LinkText::find(s, from, 0)
+        if at >= s.size() {
+            return s
+        }
+
+        return LinkText::slice(s, 0, at) + to + LinkText::slice(s, at + from.size(), s.size())
+    }
+
+    priv static fn _first_line(const text: string) -> string {
+        for var l: string in LinkText::split_lines(text) {
+            if LinkText::contains(l, "error") {
+                return LinkText::trim(l)
+            }
+        }
+
+        var lines = LinkText::split_lines(text)
+        return if (lines.empty()) => ("(no output)") else => LinkText::trim(lines[0])
     }
 
     /// kcc, kld, llvm-ar, cmake, ninja: beside the running binary first (a
@@ -762,6 +1540,17 @@ pub class SysGen {
         bins.push_back(LinkText::join(tools_dir, "kcc"))
         bins.push_back(LinkText::join(tools_dir, "kld"))
         bins.push_back(SysGen::find_tool("llvm-ar"))
+        // The generator's code shapes every stage and is linked into both
+        // kairo (the driver's hook) and ksys: both are in the id, whichever
+        // runs, so the two key a target alike.
+        var ksys = LinkText::join(bin, "ksys")
+        eval if defined!(_WIN32) {
+            ksys = ksys + ".exe"
+        }
+
+        if LinkFS::is_file(ksys) {
+            bins.push_back(ksys)
+        }
 
         var stamp = ""
         for var b: string in bins {
