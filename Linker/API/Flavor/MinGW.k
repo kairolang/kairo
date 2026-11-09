@@ -1,8 +1,9 @@
-/// --- The Kairo Project ----------------- Linker/API/Flavor/MinGW.k ------ ///
+/// --- The Kairo Project --------------------------- API/Flavor/MinGW.k --- ///
 ///
-///   \brief LinkJob + Toolchain -> ld.lld argv for MinGW-w64 targets
-///          (<arch>-windows-gnu). MSVC targets go through COFF.k.
-///          Decides nothing the Toolchain did not resolve and runs nothing.
+///   Renders a LinkJob and Toolchain to ld.lld arguments (MinGW-w64).
+///
+///   For MinGW-w64 targets (<arch>-windows-gnu); MSVC targets go through
+///   COFF.k. Decides nothing the Toolchain did not resolve and runs nothing.
 ///
 ///   argv[0] stays ld.lld. lld's dispatcher hands a GNU-flavor link whose
 ///   -m names a PE emulation (i386pep, i386pe, arm64pe, thumb2pe) to its
@@ -41,269 +42,462 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Config::Linker::*;
-import Linker::API::Text::*;
-import Linker::API::LinkDiag::*;
-import Linker::API::LinkJob::*;
-import Linker::API::Toolchain::*;
+ffi "c++" import "vector"
 
-class MinGWArgs {
-    static fn build(job: ref!(LinkJob), tc: ref!(Toolchain),
-                    argv: ref!(vec::<string>), msgs: ref!(vec::<LinkMessage>)) -> bool {
-        var errs0 = LinkDiag::error_count(msgs);
-        var o     = job.opts;
+import API::LinkDiag::{
+    LinkDiag,
+    LinkMessage,
+    LinkSeverity,
+}
+import API::LinkJob::LinkJob
+import API::Text::LinkText
+import API::Toolchain::Toolchain
+import Config::Linker::LinkerOptions
+
+pub class MinGWArgs {
+    static fn build(@inout job:  LinkJob,
+                    @inout tc:   Toolchain,
+                    @inout argv: cxx::std::vector<string>,
+                    @inout msgs: cxx::std::vector<LinkMessage>) -> bool {
+        var errs0 = LinkDiag::error_count(&msgs)
+        var *o    = job.opts
 
         if job.output.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, "link: no output path"));
-            return false;
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error, "link: no output path"))
+            return false
         }
+
         if tc.emulation.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                f"no PE emulation for {tc.arch}; pass --emulation"));
-            return false;
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    f"no PE emulation for {tc.arch}; pass --emulation",
+                ),
+            )
+
+            return false
         }
+
         if o->shared && o->static_link {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, "--shared and --static are mutually exclusive"));
-            return false;
-        }
-        if (!o->shared) && o->no_entry {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                "--no-entry: a PE executable needs an entry point; only a DLL can go without one"));
-            return false;
+            msgs.push_back(
+                LinkDiag::make(LinkSeverity::Error, "--shared and --static are mutually exclusive"),
+            )
+
+            return false
         }
 
-        var shared    = o->shared;
-        var want_stat = o->static_link || tc.static_only;
-        var no_crt    = o->no_crt || o->no_entry || o->freestanding;
-        var no_libs   = o->no_default_libs || o->freestanding;
+        if !o->shared && o->no_entry {
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "--no-entry: a PE executable needs an entry point; only a DLL can go without one",
+                ),
+            )
 
-        MinGWArgs::_elf_only(o, msgs);
+            return false
+        }
 
-        // --- options -------------------------------------------------------
-        // No --color-diagnostics: the MinGW driver has no such option, and
-        // neither capture path is a tty, so lld never colors here anyway.
-        argv.push_back("ld.lld");
-        argv.push_back("-m");
-        argv.push_back(tc.emulation);
-        argv.push_back("--error-limit=0");
-        if job.threads > 0 { argv.push_back(f"--threads={job.threads}"); }
+        var shared    = o->shared
+        var want_stat = o->static_link || tc.static_only
+        var no_crt    = o->no_crt || o->no_entry || o->freestanding
+        var no_libs   = o->no_default_libs || o->freestanding
 
-        if shared { argv.push_back("--shared"); }
-        argv.push_back(("-Bstatic") if (want_stat) else ("-Bdynamic"));
+        MinGWArgs::_elf_only(o, &msgs)
+
+        /// # options
+        /// No --color-diagnostics: the MinGW driver has no such option, and
+        /// neither capture path is a tty, so lld never colors here anyway.
+        argv.push_back("ld.lld")
+        argv.push_back("-m")
+        argv.push_back(tc.emulation)
+        argv.push_back("--error-limit=0")
+        if job.threads > 0 {
+            argv.push_back(f"--threads={job.threads}")
+        }
+
+        if shared {
+            argv.push_back("--shared")
+        }
+
+        argv.push_back(if (want_stat) => ("-Bstatic") else => "-Bdynamic")
 
         if shared {
             if o->no_entry {
                 // The MinGW driver has no --no-entry; -Xlink passes lld-link's
                 // /noentry through.
-                argv.push_back("-Xlink=-noentry");
+                argv.push_back("-Xlink=-noentry")
             } else {
-                argv.push_back("-e");
-                argv.push_back(("_DllMainCRTStartup@12") if (tc.arch == "i386") else ("DllMainCRTStartup"));
+                argv.push_back("-e")
+                argv.push_back(
+                    if (tc.arch == "i386") => ("_DllMainCRTStartup@12") else => "DllMainCRTStartup",
+                )
             }
-            argv.push_back("--enable-auto-image-base");
+
+            argv.push_back("--enable-auto-image-base")
         }
 
-        if o->build_id == "none"      { argv.push_back("--build-id=none"); }
-        else if !o->build_id.empty()  { argv.push_back("--build-id"); }
+        if o->build_id == "none" {
+            argv.push_back("--build-id=none")
+        } else if !o->build_id.empty() {
+            argv.push_back("--build-id")
+        }
 
-        argv.push_back("-o");
-        argv.push_back(job.output);
+        argv.push_back("-o")
+        argv.push_back(job.output)
 
-        // --- crt startup ---------------------------------------------------
+        /// # crt startup
         if !no_crt {
-            if tc.has_manifest && (!tc.manifest.crt_startup.empty()) {
-                for n: string in tc.manifest.crt_startup {
-                    var name = n;
-                    if shared && LinkText::starts_with(n, "crt1") { name = "dllcrt1.o"; }
-                    if shared && LinkText::starts_with(n, "crt2") { name = "dllcrt2.o"; }
-                    MinGWArgs::_crt(tc, name, argv, msgs);
+            if tc.has_manifest && !tc.manifest.crt_startup.empty() {
+                for var n: string in tc.manifest.crt_startup {
+                    var name = n
+                    if shared && LinkText::starts_with(n, "crt1") {
+                        name = "dllcrt1.o"
+                    }
+
+                    if shared && LinkText::starts_with(n, "crt2") {
+                        name = "dllcrt2.o"
+                    }
+
+                    MinGWArgs::_crt(&tc, name, &argv, &msgs)
                 }
             } else {
-                MinGWArgs::_crt(tc, ("dllcrt2.o") if (shared) else ("crt2.o"), argv, msgs);
-                var cb = tc.crt_object("crtbegin", "");
-                if !cb.empty() { argv.push_back(cb); }
+                MinGWArgs::_crt(&tc, if (shared) => ("dllcrt2.o") else => "crt2.o", &argv, &msgs)
+                var cb = tc.crt_object("crtbegin", "")
+                if !cb.empty() {
+                    argv.push_back(cb)
+                }
             }
         }
 
-        // --- search path, user's first ----------------------------------------
-        for d: string in o->lib_dirs { argv.push_back(f"-L{d}"); }
-        if !tc.toolchain_lib.empty() { argv.push_back(f"-L{tc.toolchain_lib}"); }
-        if !tc.gcc_dir.empty()       { argv.push_back(f"-L{tc.gcc_dir}"); }
-        for d: string in tc.lib_dirs { argv.push_back(f"-L{d}"); }
+        /// # search path, user's first
+        for var d: string in o->lib_dirs {
+            argv.push_back(f"-L{d}")
+        }
 
-        // --- behavior -------------------------------------------------------
-        // A PE image exports nothing unless asked. --export-dynamic means
-        // "plugins can bind to me", which on PE is exporting everything.
-        if o->export_dynamic { argv.push_back("--export-all-symbols"); }
-        if o->f_gc_sections == 1 { argv.push_back("--gc-sections");    }
-        if o->f_gc_sections == 0 { argv.push_back("--no-gc-sections"); }
+        if !tc.toolchain_lib.empty() {
+            argv.push_back(f"-L{tc.toolchain_lib}")
+        }
+
+        if !tc.gcc_dir.empty() {
+            argv.push_back(f"-L{tc.gcc_dir}")
+        }
+
+        for var d: string in tc.lib_dirs {
+            argv.push_back(f"-L{d}")
+        }
+
+        /// # behavior
+        /// A PE image exports nothing unless asked. --export-dynamic means
+        /// "plugins can bind to me", which on PE is exporting everything.
+        if o->export_dynamic {
+            argv.push_back("--export-all-symbols")
+        }
+
+        if o->f_gc_sections == 1 {
+            argv.push_back("--gc-sections")
+        }
+
+        if o->f_gc_sections == 0 {
+            argv.push_back("--no-gc-sections")
+        }
+
         if o->icf {
-            if (o->icf_mode != "safe") && (o->icf_mode != "all") {
-                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                    f"unknown --icf-mode {o->icf_mode}; expected safe or all"));
+            if o->icf_mode != "safe" && o->icf_mode != "all" {
+                msgs.push_back(
+                    LinkDiag::make(
+                        LinkSeverity::Error,
+                        f"unknown --icf-mode {o->icf_mode}; expected safe or all",
+                    ),
+                )
             } else {
-                argv.push_back(f"--icf={o->icf_mode}");
+                argv.push_back(f"--icf={o->icf_mode}")
             }
         }
-        if o->strip            { argv.push_back("--strip-all");   }
-        else if o->strip_debug { argv.push_back("--strip-debug"); }
-        if !o->map_file.empty() { argv.push_back(f"--Map={o->map_file}"); }
-        MinGWArgs::_pe_options(o, argv, msgs);
+
+        if o->strip {
+            argv.push_back("--strip-all")
+        } else if o->strip_debug {
+            argv.push_back("--strip-debug")
+        }
+
+        if !o->map_file.empty() {
+            argv.push_back(f"--Map={o->map_file}")
+        }
+
+        MinGWArgs::_pe_options(o, &argv, &msgs)
 
         // With crt, crt2's mainCRTStartup is the entry and calls main. The
         // MinGW driver strips i386's leading underscore itself, so the name
         // goes in undecorated.
-        if no_crt && (!shared) && (!o->entry.empty()) {
-            argv.push_back("-e");
-            argv.push_back(o->entry);
+        if no_crt && !shared && !o->entry.empty() {
+            argv.push_back("-e")
+            argv.push_back(o->entry)
         }
-        for f: string in o->ld_flags { argv.push_back(f); }
 
-        // --- inputs ----------------------------------------------------------
-        for obj: string in job.objects { argv.push_back(obj); }
+        for var f: string in o->ld_flags {
+            argv.push_back(f)
+        }
+
+        /// # inputs
+        for var obj: string in job.objects {
+            argv.push_back(obj)
+        }
+
         // The MinGW driver has no --start-lib: job.lazy_objects come as
         // their archive, which every linker reads lazily. Eagerly they would
         // clash with a run's own builtin objects.
         if !job.lazy_archive.empty() {
-            argv.push_back(job.lazy_archive);
+            argv.push_back(job.lazy_archive)
         } else if job.lazy_objects.size() > 0 {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Warning, "the Kairo library has no archive for this MinGW link; builtin and std symbols may be undefined"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Warning,
+                    "the Kairo library has no archive for this MinGW link; builtin and std symbols may be undefined",
+                ),
+            )
         }
+
         // The MinGW driver has no --def: a .def file is an input, like any
         // other, and the driver reads the exports from it.
-        if !o->def.empty() { argv.push_back(o->def); }
-        for spec: string in o->link_libs { MinGWArgs::_user_lib(spec, want_stat, argv, msgs); }
+        if !o->def.empty() {
+            argv.push_back(o->def)
+        }
 
-        if !no_libs { MinGWArgs::_default_libs(tc, o, want_stat, argv, msgs); }
+        for var spec: string in o->link_libs {
+            MinGWArgs::_user_lib(spec, want_stat, &argv, &msgs)
+        }
 
-        // --- crt end ---------------------------------------------------------
+        if !no_libs {
+            MinGWArgs::_default_libs(&tc, o, want_stat, &argv, &msgs)
+        }
+
+        /// # crt end
         if !no_crt {
-            if tc.has_manifest && (!tc.manifest.crt_end.empty()) {
-                for n: string in tc.manifest.crt_end { MinGWArgs::_crt(tc, n, argv, msgs); }
+            if tc.has_manifest && !tc.manifest.crt_end.empty() {
+                for var n: string in tc.manifest.crt_end {
+                    MinGWArgs::_crt(&tc, n, &argv, &msgs)
+                }
             } else {
-                var ce = tc.crt_object("crtend", "");
-                if !ce.empty() { argv.push_back(ce); }
+                var ce = tc.crt_object("crtend", "")
+                if !ce.empty() {
+                    argv.push_back(ce)
+                }
             }
         }
 
-        return LinkDiag::error_count(msgs) == errs0;
+        return LinkDiag::error_count(&msgs) == errs0
     }
 
     /// PE header and output-file options, in the MinGW driver's spellings
     /// (--disable-<x> rather than <x>:no). Emitted only when asked for.
-    priv static fn _pe_options(o: *LinkerOptions, argv: ref!(vec::<string>),
-                               msgs: ref!(vec::<LinkMessage>)) {
+    priv static fn _pe_options(o:           *LinkerOptions,
+                               @inout argv: cxx::std::vector<string>,
+                               @inout msgs: cxx::std::vector<LinkMessage>) {
         if o->subsystem_set {
             if Toolchain::pe_subsystem_ok(o->subsystem) {
-                argv.push_back(f"--subsystem={o->subsystem}");
+                argv.push_back(f"--subsystem={o->subsystem}")
             } else {
-                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                    f"unknown --subsystem {o->subsystem}; expected console, windows, native, posix, efi_application, efi_boot_service_driver, efi_rom, efi_runtime_driver or boot_application"));
+                msgs.push_back(
+                    LinkDiag::make(
+                        LinkSeverity::Error,
+                        f"unknown --subsystem {o->subsystem}; expected console, windows, native, posix, efi_application, efi_boot_service_driver, efi_rom, efi_runtime_driver or boot_application",
+                    ),
+                )
             }
         }
-        if !o->pdb.empty()    { argv.push_back(f"--pdb={o->pdb}"); }
-        if !o->implib.empty() { argv.push_back(f"--out-implib={o->implib}"); }
+
+        if !o->pdb.empty() {
+            argv.push_back(f"--pdb={o->pdb}")
+        }
+
+        if !o->implib.empty() {
+            argv.push_back(f"--out-implib={o->implib}")
+        }
+
         // The MinGW driver has no manifest option; -Xlink hands lld-link's
         // through. A custom manifest is only valid with /manifest:embed.
-        if o->manifest || (!o->manifest_file.empty()) { argv.push_back("-Xlink=-manifest:embed"); }
-        if !o->manifest_file.empty() { argv.push_back(f"-Xlink=-manifestinput:{o->manifest_file}"); }
-        if o->kill_at { argv.push_back("--kill-at"); }
-        if o->stack_size > 0 { argv.push_back(f"--stack={o->stack_size}"); }
-        if o->heap_size > 0  { argv.push_back(f"--heap={o->heap_size}"); }
-        if o->f_high_entropy_va == 1 { argv.push_back("--high-entropy-va"); }
-        if o->f_high_entropy_va == 0 { argv.push_back("--disable-high-entropy-va"); }
-        if o->f_dynamicbase == 1 { argv.push_back("--dynamicbase"); }
-        if o->f_dynamicbase == 0 { argv.push_back("--disable-dynamicbase"); }
-        if o->f_nxcompat == 1 { argv.push_back("--nxcompat"); }
-        if o->f_nxcompat == 0 { argv.push_back("--disable-nxcompat"); }
-        if o->f_guard_cf == 1 { argv.push_back("--guard-cf"); }
-        if o->f_guard_cf == 0 { argv.push_back("--no-guard-cf"); }
-        if o->f_tsaware == 1 { argv.push_back("--tsaware"); }
-        if o->f_tsaware == 0 { argv.push_back("--disable-tsaware"); }
+        if o->manifest || !o->manifest_file.empty() {
+            argv.push_back("-Xlink=-manifest:embed")
+        }
+
+        if !o->manifest_file.empty() {
+            argv.push_back(f"-Xlink=-manifestinput:{o->manifest_file}")
+        }
+
+        if o->kill_at {
+            argv.push_back("--kill-at")
+        }
+
+        if o->stack_size > 0 {
+            argv.push_back(f"--stack={o->stack_size}")
+        }
+
+        if o->heap_size > 0 {
+            argv.push_back(f"--heap={o->heap_size}")
+        }
+
+        if o->f_high_entropy_va == 1 {
+            argv.push_back("--high-entropy-va")
+        }
+
+        if o->f_high_entropy_va == 0 {
+            argv.push_back("--disable-high-entropy-va")
+        }
+
+        if o->f_dynamicbase == 1 {
+            argv.push_back("--dynamicbase")
+        }
+
+        if o->f_dynamicbase == 0 {
+            argv.push_back("--disable-dynamicbase")
+        }
+
+        if o->f_nxcompat == 1 {
+            argv.push_back("--nxcompat")
+        }
+
+        if o->f_nxcompat == 0 {
+            argv.push_back("--disable-nxcompat")
+        }
+
+        if o->f_guard_cf == 1 {
+            argv.push_back("--guard-cf")
+        }
+
+        if o->f_guard_cf == 0 {
+            argv.push_back("--no-guard-cf")
+        }
+
+        if o->f_tsaware == 1 {
+            argv.push_back("--tsaware")
+        }
+
+        if o->f_tsaware == 0 {
+            argv.push_back("--disable-tsaware")
+        }
     }
 
     /// Options that mean something on ELF and nothing here. Diagnosed only
     /// where dropping them silently changes the output.
-    priv static fn _elf_only(o: *LinkerOptions, msgs: ref!(vec::<LinkMessage>)) {
+    priv static fn _elf_only(o: *LinkerOptions, @inout msgs: cxx::std::vector<LinkMessage>) {
         if !o->linker_script.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                "PE has no linker scripts; place sections with --section-alignment, --image-base or an order file through ld flags"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "PE has no linker scripts; place sections with --section-alignment, --image-base or an order file through ld flags",
+                ),
+            )
         }
+
         if !o->version_script.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                "version scripts are ELF-only; control DLL exports with a .def file passed as an input"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "version scripts are ELF-only; control DLL exports with a .def file passed as an input",
+                ),
+            )
         }
+
         if !o->rpath.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
-                "Windows has no rpath: DLLs load from the executable's directory, then the system directories and PATH; -rpath ignored"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Warning,
+                    "Windows has no rpath: DLLs load from the executable's directory, then the system directories and PATH; -rpath ignored",
+                ),
+            )
         }
+
         if !o->rpath_link.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
-                "-rpath-link has no PE equivalent; ignored"));
+            msgs.push_back(
+                LinkDiag::make(LinkSeverity::Warning, "-rpath-link has no PE equivalent; ignored"),
+            )
         }
+
         if !o->dynamic_linker.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
-                "PE images load through the Windows loader; --dynamic-linker ignored"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Warning,
+                    "PE images load through the Windows loader; --dynamic-linker ignored",
+                ),
+            )
         }
     }
 
-    priv static fn _crt(tc: ref!(Toolchain), name: string,
-                        argv: ref!(vec::<string>), msgs: ref!(vec::<LinkMessage>)) {
-        var p = tc.find_lib_file(name);
+    priv static fn _crt(@inout tc:   Toolchain,
+                        const name:  string,
+                        @inout argv: cxx::std::vector<string>,
+                        @inout msgs: cxx::std::vector<LinkMessage>) {
+        var p = tc.find_lib_file(name)
         if p.empty() {
-            var _where = (tc.crt_dir) if (!tc.crt_dir.empty()) else (tc.sysroot);
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                f"cannot find startup object {name} (searched {_where} and the sysroot library directories)"));
-            return;
+            var _where = if (!tc.crt_dir.empty()) => (tc.crt_dir) else => tc.sysroot
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    f"cannot find startup object {name} (searched {_where} and the sysroot library directories)",
+                ),
+            )
+
+            return
         }
-        argv.push_back(p);
+
+        argv.push_back(p)
     }
 
     /// `-l foo`, `-l static:foo`, `-l dynamic:foo`, or a path to an archive,
     /// import library, object, DLL or .def, which goes in as an input.
     /// Unlike ELF, `dynamic:` survives a static link: -Bstatic only changes
     /// which file a -l prefers, and system DLLs load either way.
-    priv static fn _user_lib(spec: string, want_stat: bool,
-                             argv: ref!(vec::<string>), msgs: ref!(vec::<LinkMessage>)) {
-        var name = spec;
-        var mode = "";
+    priv static fn _user_lib(const spec:  string,
+                             want_stat:   bool,
+                             @inout argv: cxx::std::vector<string>,
+                             @inout msgs: cxx::std::vector<LinkMessage>) {
+        var name = spec
+        var mode = ""
         if LinkText::starts_with(spec, "static:") {
-            mode = "static";
-            name = LinkText::slice(spec, 7, spec.size());
+            mode = "static"
+            name = LinkText::slice(spec, 7, spec.size())
         } else if LinkText::starts_with(spec, "dynamic:") {
-            mode = "dynamic";
-            name = LinkText::slice(spec, 8, spec.size());
+            mode = "dynamic"
+            name = LinkText::slice(spec, 8, spec.size())
         }
+
         if name.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, f"-l {spec}: no library name"));
-            return;
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error, f"-l {spec}: no library name"))
+            return
         }
-        if LinkText::contains(name, "/") || LinkText::ends_with(name, ".a")
-        || LinkText::ends_with(name, ".o") || LinkText::ends_with(name, ".obj")
-        || LinkText::ends_with(name, ".lib") || LinkText::ends_with(name, ".dll")
-        || LinkText::ends_with(name, ".def") {
-            argv.push_back(name);
-            return;
+
+        if LinkText::contains(name, "/")
+            || LinkText::ends_with(name, ".a")
+            || LinkText::ends_with(name, ".o")
+            || LinkText::ends_with(name, ".obj")
+            || LinkText::ends_with(name, ".lib")
+            || LinkText::ends_with(name, ".dll")
+            || LinkText::ends_with(name, ".def") {
+            argv.push_back(name)
+            return
         }
-        if (mode == "static") && (!want_stat) {
-            argv.push_back("-Bstatic");
-            argv.push_back(f"-l{name}");
-            argv.push_back("-Bdynamic");
-            return;
+
+        if mode == "static" && !want_stat {
+            argv.push_back("-Bstatic")
+            argv.push_back(f"-l{name}")
+            argv.push_back("-Bdynamic")
+            return
         }
-        if (mode == "dynamic") && want_stat {
-            argv.push_back("-Bdynamic");
-            argv.push_back(f"-l{name}");
-            argv.push_back("-Bstatic");
-            return;
+
+        if mode == "dynamic" && want_stat {
+            argv.push_back("-Bdynamic")
+            argv.push_back(f"-l{name}")
+            argv.push_back("-Bstatic")
+            return
         }
-        argv.push_back(f"-l{name}");
+
+        argv.push_back(f"-l{name}")
     }
 
     /// libc++ and the unwinder (static, see the header), the builtins, then
@@ -314,61 +508,94 @@ class MinGWArgs {
     /// As clang does, -lmsvcrt is dropped when the user links a CRT
     /// themselves (-l ucrt, -l msvcr120, ...): two CRTs in one image is two
     /// heaps and two sets of stdio.
-    priv static fn _default_libs(tc: ref!(Toolchain), o: *LinkerOptions, want_stat: bool,
-                                 argv: ref!(vec::<string>), msgs: ref!(vec::<LinkMessage>)) {
-        var cxx  = vec::<string>();
-        var libc = vec::<string>();
+    priv static fn _default_libs(@inout tc:   Toolchain,
+                                 o:           *LinkerOptions,
+                                 want_stat:   bool,
+                                 @inout argv: cxx::std::vector<string>,
+                                 @inout msgs: cxx::std::vector<LinkMessage>) {
+        var cxx_v = cxx::std::vector<string>()
+        var libc  = cxx::std::vector<string>()
         if tc.has_manifest {
             if !tc.manifest.has_libcxx {
-                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                    f"the sysroot {tc.sysroot} has no libc++ (has_libcxx = false), and Kairo objects need it"));
+                msgs.push_back(
+                    LinkDiag::make(
+                        LinkSeverity::Error,
+                        f"the sysroot {tc.sysroot} has no libc++ (has_libcxx = false), and Kairo objects need it",
+                    ),
+                )
             }
-            cxx  = tc.manifest.libcxx_link;
-            libc = tc.manifest.libc_link;
+
+            cxx_v = tc.manifest.libcxx_link
+            libc  = tc.manifest.libc_link
         } else {
-            cxx.push_back("-lc++");
-            if tc.unwindlib == "libunwind"   { cxx.push_back("-lunwind"); }
-            else if tc.unwindlib == "libgcc" { cxx.push_back("-lgcc_eh"); }
-            libc.push_back("-lmingw32");
-            libc.push_back("-lmoldname");
-            libc.push_back("-lmingwex");
-            libc.push_back("-lmsvcrt");
-            libc.push_back("-ladvapi32");
-            libc.push_back("-lshell32");
-            libc.push_back("-luser32");
-            libc.push_back("-lkernel32");
+            cxx_v.push_back("-lc++")
+            if tc.unwindlib == "libunwind" {
+                cxx_v.push_back("-lunwind")
+            } else if tc.unwindlib == "libgcc" {
+                cxx_v.push_back("-lgcc_eh")
+            }
+
+            libc.push_back("-lmingw32")
+            libc.push_back("-lmoldname")
+            libc.push_back("-lmingwex")
+            libc.push_back("-lmsvcrt")
+            libc.push_back("-ladvapi32")
+            libc.push_back("-lshell32")
+            libc.push_back("-luser32")
+            libc.push_back("-lkernel32")
         }
 
-        if !want_stat { argv.push_back("-Bstatic"); }
-        for x: string in cxx { argv.push_back(x); }
-        if !want_stat { argv.push_back("-Bdynamic"); }
+        if !want_stat {
+            argv.push_back("-Bstatic")
+        }
+
+        for var x: string in cxx_v {
+            argv.push_back(x)
+        }
+
+        if !want_stat {
+            argv.push_back("-Bdynamic")
+        }
 
         if tc.rtlib == "compiler-rt" {
-            if !tc.builtins.empty() { argv.push_back(tc.builtins); }
+            if !tc.builtins.empty() {
+                argv.push_back(tc.builtins)
+            }
         } else {
-            argv.push_back("-lgcc");
+            argv.push_back("-lgcc")
         }
 
-        var user_crt = MinGWArgs::_user_links_crt(o);
-        for x: string in libc {
-            if user_crt && LinkText::starts_with(x, "-l")
-            && MinGWArgs::_is_crt(LinkText::slice(x, 2, x.size())) { continue; }
-            argv.push_back(x);
+        var user_crt = MinGWArgs::_user_links_crt(o)
+        for var x: string in libc {
+            if user_crt
+                && LinkText::starts_with(x, "-l")
+                && MinGWArgs::_is_crt(LinkText::slice(x, 2, x.size())) {
+                continue
+            }
+
+            argv.push_back(x)
         }
     }
 
     priv static fn _user_links_crt(o: *LinkerOptions) -> bool {
-        for spec: string in o->link_libs {
-            var n = spec;
-            var c = LinkText::find(spec, ":", 0);
-            if c < spec.size() { n = LinkText::slice(spec, c + 1, spec.size()); }
-            if MinGWArgs::_is_crt(n) { return true; }
+        for var spec: string in o->link_libs {
+            var n = spec
+            var c = LinkText::find(spec, ":", 0)
+            if c < spec.size() {
+                n = LinkText::slice(spec, c + 1, spec.size())
+            }
+
+            if MinGWArgs::_is_crt(n) {
+                return true
+            }
         }
-        return false;
+
+        return false
     }
 
-    priv static fn _is_crt(name: string) -> bool {
-        return LinkText::starts_with(name, "msvcr") || LinkText::starts_with(name, "ucrt")
-            || LinkText::starts_with(name, "crtdll");
+    priv static fn _is_crt(const name: string) -> bool {
+        return LinkText::starts_with(name, "msvcr")
+            || LinkText::starts_with(name, "ucrt")
+            || LinkText::starts_with(name, "crtdll")
     }
 }

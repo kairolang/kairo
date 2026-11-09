@@ -1,7 +1,8 @@
-/// --- The Kairo Project ----------------- Linker/API/Flavor/MachO.k ------ ///
+/// --- The Kairo Project --------------------------- API/Flavor/MachO.k --- ///
 ///
-///   \brief LinkJob + Toolchain -> ld64.lld argv. Decides nothing the
-///          Toolchain did not resolve and runs nothing.
+///   Renders a LinkJob and Toolchain to ld64.lld arguments (Mach-O).
+///
+///   Decides nothing the Toolchain did not resolve and runs nothing.
 ///
 ///   Order is clang's Darwin linker order, so a line from here diffs cleanly
 ///   against `clang++ -fuse-ld=lld -###` for the same target:
@@ -30,309 +31,487 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Config::Linker::*;
-import Linker::API::Text::*;
-import Linker::API::FS::*;
-import Linker::API::LinkDiag::*;
-import Linker::API::LinkJob::*;
-import Linker::API::Toolchain::*;
+ffi "c++" import "vector"
 
-class MachOArgs {
-    static fn build(job: ref!(LinkJob), tc: ref!(Toolchain),
-                    argv: ref!(vec::<string>), msgs: ref!(vec::<LinkMessage>)) -> bool {
-        var errs0 = LinkDiag::error_count(msgs);
-        var o     = job.opts;
+import API::FS::LinkFS
+import API::LinkDiag::{
+    LinkDiag,
+    LinkMessage,
+    LinkSeverity,
+}
+import API::LinkJob::LinkJob
+import API::Text::LinkText
+import API::Toolchain::Toolchain
+import Config::Linker::LinkerOptions
+
+pub class MachOArgs {
+    static fn build(@inout job:  LinkJob,
+                    @inout tc:   Toolchain,
+                    @inout argv: cxx::std::vector<string>,
+                    @inout msgs: cxx::std::vector<LinkMessage>) -> bool {
+        var errs0 = LinkDiag::error_count(&msgs)
+        var *o    = job.opts
 
         if job.output.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, "link: no output path"));
-            return false;
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error, "link: no output path"))
+            return false
         }
+
         if o->static_link || tc.static_only {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                "static Mach-O executables are not supported: lld does not implement -static, and libSystem ships only as a dylib"));
-            return false;
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "static Mach-O executables are not supported: lld does not implement -static, and libSystem ships only as a dylib",
+                ),
+            )
+
+            return false
         }
 
-        var shared  = o->shared;
-        var no_libs = o->no_default_libs || o->freestanding;
-        var arm     = LinkText::starts_with(tc.darwin_arch, "arm64");
+        var shared  = o->shared
+        var no_libs = o->no_default_libs || o->freestanding
+        var arm     = LinkText::starts_with(tc.darwin_arch, "arm64")
 
-        MachOArgs::_elf_only(o, msgs);
+        MachOArgs::_elf_only(o, &msgs)
 
-        // --- options -------------------------------------------------------
-        argv.push_back("ld64.lld");
-        argv.push_back("--color-diagnostics=never");
-        argv.push_back("--error-limit=0");
-        if job.threads > 0 { argv.push_back(f"--threads={job.threads}"); }
-        argv.push_back("-demangle");
-        argv.push_back("-dynamic");
-        if shared { argv.push_back("-dylib"); }
+        /// # options
+        argv.push_back("ld64.lld")
+        argv.push_back("--color-diagnostics=never")
+        argv.push_back("--error-limit=0")
+        if job.threads > 0 {
+            argv.push_back(f"--threads={job.threads}")
+        }
 
-        if (!shared) && (o->f_pie == 0) {
+        argv.push_back("-demangle")
+        argv.push_back("-dynamic")
+        if shared {
+            argv.push_back("-dylib")
+        }
+
+        if !shared && o->f_pie == 0 {
             if arm {
-                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                    f"-fno-pie: {tc.darwin_arch} Mach-O executables are always position independent"));
+                msgs.push_back(
+                    LinkDiag::make(
+                        LinkSeverity::Error,
+                        f"-fno-pie: {tc.darwin_arch} Mach-O executables are always position independent",
+                    ),
+                )
             } else {
-                argv.push_back("-no_pie");
+                argv.push_back("-no_pie")
             }
         }
 
-        argv.push_back("-arch");
-        argv.push_back(tc.darwin_arch);
-        argv.push_back("-platform_version");
-        argv.push_back(tc.platform);
-        argv.push_back(tc.min_version);
-        argv.push_back(tc.sdk_version);
-        argv.push_back("-syslibroot");
-        argv.push_back(tc.sysroot);
+        argv.push_back("-arch")
+        argv.push_back(tc.darwin_arch)
+        argv.push_back("-platform_version")
+        argv.push_back(tc.platform)
+        argv.push_back(tc.min_version)
+        argv.push_back(tc.sdk_version)
+        argv.push_back("-syslibroot")
+        argv.push_back(tc.sysroot)
 
         // Only a dylib has an install name; on an executable ld64 would
         // accept and ignore it, so say so instead of looking like it worked.
-        if (!o->install_name.empty()) && (!shared) {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
-                "--install-name only applies to a dylib (--shared); ignored"));
+        if !o->install_name.empty() && !shared {
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Warning,
+                    "--install-name only applies to a dylib (--shared); ignored",
+                ),
+            )
         }
-        if shared && (!MachOArgs::_has_flag(o->ld_flags, "-install_name")) {
-            argv.push_back("-install_name");
-            if !o->install_name.empty() { argv.push_back(o->install_name); }
-            else { argv.push_back(f"@rpath/{LinkFS::filename(job.output)}"); }
+
+        if shared && !MachOArgs::_has_flag(&o->ld_flags, "-install_name") {
+            argv.push_back("-install_name")
+            if !o->install_name.empty() {
+                argv.push_back(o->install_name)
+            } else {
+                argv.push_back(f"@rpath/{LinkFS::filename(job.output)}")
+            }
         }
+
         if o->headerpad > 0 {
             // ld64.lld reads the size as hex.
-            argv.push_back("-headerpad");
-            argv.push_back(MachOArgs::_hex(o->headerpad));
+            argv.push_back("-headerpad")
+            argv.push_back(MachOArgs::_hex(o->headerpad))
         }
 
-        argv.push_back("-o");
-        argv.push_back(job.output);
+        argv.push_back("-o")
+        argv.push_back(job.output)
 
-        // --- search path, user's first ---------------------------------------
-        // The SDK's usr/lib comes from -syslibroot. A manifest sysroot may list
-        // others, which lld would not find on its own.
-        for d: string in o->lib_dirs { argv.push_back(f"-L{d}"); }
-        if !tc.toolchain_lib.empty() { argv.push_back(f"-L{tc.toolchain_lib}"); }
+        /// # search path, user's first
+        /// The SDK's usr/lib comes from -syslibroot. A manifest sysroot may list
+        /// others, which lld would not find on its own.
+        for var d: string in o->lib_dirs {
+            argv.push_back(f"-L{d}")
+        }
+
+        if !tc.toolchain_lib.empty() {
+            argv.push_back(f"-L{tc.toolchain_lib}")
+        }
+
         if tc.has_manifest {
-            for d: string in tc.lib_dirs { argv.push_back(f"-L{d}"); }
+            for var d: string in tc.lib_dirs {
+                argv.push_back(f"-L{d}")
+            }
         }
 
-        for r: string in o->rpath { argv.push_back("-rpath"); argv.push_back(r); }
+        for var r: string in o->rpath {
+            argv.push_back("-rpath")
+            argv.push_back(r)
+        }
+
         if !o->rpath_origin.empty() {
             // Only the two dyld-relative anchors (optionally followed by a
             // subpath): @rpath is what -rpath entries are searched through, so
             // an rpath that is itself @rpath/... would never resolve.
-            var ro = o->rpath_origin;
-            var ok = false;
-            var anchors = MachOArgs::_anchors();
-            for a: string in anchors {
-                if ro == a { ok = true; }
-                if LinkText::starts_with(ro, a + "/") { ok = true; }
+            var ro      = o->rpath_origin
+            var ok      = false
+            var anchors = MachOArgs::_anchors()
+            for var a: string in anchors {
+                if ro == a {
+                    ok = true
+                }
+
+                if LinkText::starts_with(ro, a + "/") {
+                    ok = true
+                }
             }
+
             if ok {
-                argv.push_back("-rpath");
-                argv.push_back(ro);
+                argv.push_back("-rpath")
+                argv.push_back(ro)
             } else {
-                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                    f"--rpath-origin={ro}: expected @loader_path or @executable_path, optionally followed by /<subpath>"));
+                msgs.push_back(
+                    LinkDiag::make(
+                        LinkSeverity::Error,
+                        f"--rpath-origin={ro}: expected @loader_path or @executable_path, optionally followed by /<subpath>",
+                    ),
+                )
             }
-        }
-        if (!no_libs) && (!tc.toolchain_lib.empty()) {
-            argv.push_back("-rpath");
-            argv.push_back(tc.toolchain_lib);
-            msgs.push_back(LinkDiag::make(LinkSeverity::Verbose,
-                f"added -rpath {tc.toolchain_lib}: libc++ is linked from outside the SDK"));
         }
 
-        // --- behavior -------------------------------------------------------
-        if o->export_dynamic { argv.push_back("-export_dynamic"); }
+        if !no_libs && !tc.toolchain_lib.empty() {
+            argv.push_back("-rpath")
+            argv.push_back(tc.toolchain_lib)
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Verbose,
+                    f"added -rpath {tc.toolchain_lib}: libc++ is linked from outside the SDK",
+                ),
+            )
+        }
+
+        /// # behavior
+        if o->export_dynamic {
+            argv.push_back("-export_dynamic")
+        }
+
         // -fdead-strip is the Mach-O spelling; -fgc-sections maps to it too.
         // An explicit -fno-dead-strip wins over -fgc-sections.
-        if (o->f_dead_strip == 1) || ((o->f_dead_strip == -1) && (o->f_gc_sections == 1)) {
-            argv.push_back("-dead_strip");
+        if o->f_dead_strip == 1 || o->f_dead_strip == -1 && o->f_gc_sections == 1 {
+            argv.push_back("-dead_strip")
         }
+
         // Each archive is loaded whole, so its unreferenced members (plugin
         // registrars, static initializers) are not dropped by the linker.
-        for a: string in o->force_load { argv.push_back("-force_load"); argv.push_back(a); }
+        for var a: string in o->force_load {
+            argv.push_back("-force_load")
+            argv.push_back(a)
+        }
+
         if o->icf {
-            if (o->icf_mode != "safe") && (o->icf_mode != "all") {
-                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                    f"unknown --icf-mode {o->icf_mode}; expected safe or all"));
+            if o->icf_mode != "safe" && o->icf_mode != "all" {
+                msgs.push_back(
+                    LinkDiag::make(
+                        LinkSeverity::Error,
+                        f"unknown --icf-mode {o->icf_mode}; expected safe or all",
+                    ),
+                )
             } else {
-                argv.push_back(f"--icf={o->icf_mode}");
+                argv.push_back(f"--icf={o->icf_mode}")
             }
         }
+
         // The global symbol table of a linked image cannot go: dyld binds
         // through it. -x drops the locals, -S the debug map.
-        if o->strip            { argv.push_back("-S"); argv.push_back("-x"); }
-        else if o->strip_debug { argv.push_back("-S"); }
-        if !o->map_file.empty() { argv.push_back("-map"); argv.push_back(o->map_file); }
-        if o->build_id == "none" { argv.push_back("-no_uuid"); }
+        if o->strip {
+            argv.push_back("-S")
+            argv.push_back("-x")
+        } else if o->strip_debug {
+            argv.push_back("-S")
+        }
+
+        if !o->map_file.empty() {
+            argv.push_back("-map")
+            argv.push_back(o->map_file)
+        }
+
+        if o->build_id == "none" {
+            argv.push_back("-no_uuid")
+        }
 
         // --entry names a source-level symbol. Mach-O C symbols carry a
         // leading underscore, so main is _main.
-        if (!shared) && (!o->no_entry) && (!o->entry.empty()) {
-            argv.push_back("-e");
-            argv.push_back("_" + o->entry);
+        if !shared && !o->no_entry && !o->entry.empty() {
+            argv.push_back("-e")
+            argv.push_back("_" + o->entry)
         }
-        for f: string in o->ld_flags { argv.push_back(f); }
 
-        // --- inputs ----------------------------------------------------------
-        for obj: string in job.objects { argv.push_back(obj); }
+        for var f: string in o->ld_flags {
+            argv.push_back(f)
+        }
+
+        /// # inputs
+        for var obj: string in job.objects {
+            argv.push_back(obj)
+        }
+
         if job.lazy_objects.size() > 0 {
-            argv.push_back("--start-lib");
-            for obj: string in job.lazy_objects { argv.push_back(obj); }
-            argv.push_back("--end-lib");
+            argv.push_back("--start-lib")
+            for var obj: string in job.lazy_objects {
+                argv.push_back(obj)
+            }
+
+            argv.push_back("--end-lib")
         }
-        for spec: string in o->link_libs { MachOArgs::_user_lib(spec, o, tc, argv, msgs); }
 
-        if !no_libs { MachOArgs::_default_libs(tc, argv, msgs); }
+        for var spec: string in o->link_libs {
+            MachOArgs::_user_lib(spec, o, &tc, &argv, &msgs)
+        }
 
-        return LinkDiag::error_count(msgs) == errs0;
+        if !no_libs {
+            MachOArgs::_default_libs(&tc, &argv, &msgs)
+        }
+
+        return LinkDiag::error_count(&msgs) == errs0
     }
 
     /// Options that mean something on ELF and nothing here. Diagnosed only
     /// where dropping them silently changes the output.
-    priv static fn _elf_only(o: *LinkerOptions, msgs: ref!(vec::<LinkMessage>)) {
+    priv static fn _elf_only(o: *LinkerOptions, @inout msgs: cxx::std::vector<LinkMessage>) {
         if !o->linker_script.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                "Mach-O has no linker scripts; lay out sections with -sectcreate, -segaddr or -order_file through ld flags"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "Mach-O has no linker scripts; lay out sections with -sectcreate, -segaddr or -order_file through ld flags",
+                ),
+            )
         }
+
         if !o->version_script.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                "version scripts are ELF-only; control exports with -exported_symbols_list <file> through ld flags"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "version scripts are ELF-only; control exports with -exported_symbols_list <file> through ld flags",
+                ),
+            )
         }
+
         if !o->rpath_link.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
-                "-rpath-link has no Mach-O equivalent; ignored"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Warning,
+                    "-rpath-link has no Mach-O equivalent; ignored",
+                ),
+            )
         }
+
         if !o->emulation.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
-                "--emulation is ELF-only; ignored"));
+            msgs.push_back(
+                LinkDiag::make(LinkSeverity::Warning, "--emulation is ELF-only; ignored"),
+            )
         }
+
         if !o->dynamic_linker.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
-                "Mach-O executables always load through /usr/lib/dyld; --dynamic-linker ignored"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Warning,
+                    "Mach-O executables always load through /usr/lib/dyld; --dynamic-linker ignored",
+                ),
+            )
         }
     }
 
     /// `-l foo`, `-l static:foo`, `-l dynamic:foo`, `-l weak:foo`,
     /// `-l framework:Foo`, or a path to an archive, object, dylib or .tbd,
     /// which goes in as an input.
-    priv static fn _user_lib(spec: string, o: *LinkerOptions, tc: ref!(Toolchain),
-                             argv: ref!(vec::<string>), msgs: ref!(vec::<LinkMessage>)) {
-        var name = spec;
-        var mode = "";
-        var c    = LinkText::find(spec, ":", 0);
+    priv static fn _user_lib(const spec:  string,
+                             o:           *LinkerOptions,
+                             @inout tc:   Toolchain,
+                             @inout argv: cxx::std::vector<string>,
+                             @inout msgs: cxx::std::vector<LinkMessage>) {
+        var name = spec
+        var mode = ""
+        var c    = LinkText::find(spec, ":", 0)
         if c < spec.size() {
-            mode = LinkText::slice(spec, 0, c);
-            name = LinkText::slice(spec, c + 1, spec.size());
+            mode = LinkText::slice(spec, 0, c)
+            name = LinkText::slice(spec, c + 1, spec.size())
         }
+
         if name.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, f"-l {spec}: no library name"));
-            return;
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error, f"-l {spec}: no library name"))
+            return
         }
 
         if mode == "framework" {
-            argv.push_back("-framework");
-            argv.push_back(name);
-            return;
+            argv.push_back("-framework")
+            argv.push_back(name)
+            return
         }
 
-        if LinkText::contains(name, "/") || LinkText::ends_with(name, ".a")
-        || LinkText::ends_with(name, ".o") || LinkText::ends_with(name, ".dylib")
-        || LinkText::ends_with(name, ".tbd") {
-            argv.push_back(name);
-            return;
+        if LinkText::contains(name, "/")
+            || LinkText::ends_with(name, ".a")
+            || LinkText::ends_with(name, ".o")
+            || LinkText::ends_with(name, ".dylib")
+            || LinkText::ends_with(name, ".tbd") {
+            argv.push_back(name)
+            return
         }
 
         if mode == "static" {
             // No -Bstatic: ld64 takes the first of libfoo.dylib / libfoo.tbd /
             // libfoo.a in each directory, so a static request is a path.
-            var a = MachOArgs::_find_archive(name, o, tc);
+            var a = MachOArgs::_find_archive(name, o, &tc)
             if a.empty() {
-                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                    f"-l static:{name}: no lib{name}.a in the library search path"));
-                return;
+                msgs.push_back(
+                    LinkDiag::make(
+                        LinkSeverity::Error,
+                        f"-l static:{name}: no lib{name}.a in the library search path",
+                    ),
+                )
+
+                return
             }
-            argv.push_back(a);
-            return;
+
+            argv.push_back(a)
+            return
         }
-        if mode == "weak" { argv.push_back(f"-weak-l{name}"); return; }
-        if (!mode.empty()) && (mode != "dynamic") {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                f"-l {spec}: unknown kind {mode}; expected static, dynamic, weak or framework"));
-            return;
+
+        if mode == "weak" {
+            argv.push_back(f"-weak-l{name}")
+            return
         }
-        argv.push_back(f"-l{name}");
+
+        if !mode.empty() && mode != "dynamic" {
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    f"-l {spec}: unknown kind {mode}; expected static, dynamic, weak or framework",
+                ),
+            )
+
+            return
+        }
+
+        argv.push_back(f"-l{name}")
     }
 
-    priv static fn _find_archive(name: string, o: *LinkerOptions, tc: ref!(Toolchain)) -> string {
-        var file = f"lib{name}.a";
-        for d: string in o->lib_dirs {
-            var p = LinkText::join(d, file);
-            if LinkFS::is_file(p) { return p; }
+    priv static fn _find_archive(const name: string,
+                                 o:          *LinkerOptions,
+                                 @inout tc:  Toolchain) -> string {
+        var file = f"lib{name}.a"
+        for var d: string in o->lib_dirs {
+            var p = LinkText::join(d, file)
+            if LinkFS::is_file(p) {
+                return p
+            }
         }
+
         if !tc.toolchain_lib.empty() {
-            var p = LinkText::join(tc.toolchain_lib, file);
-            if LinkFS::is_file(p) { return p; }
+            var p = LinkText::join(tc.toolchain_lib, file)
+            if LinkFS::is_file(p) {
+                return p
+            }
         }
-        for d: string in tc.lib_dirs {
-            var p = LinkText::join(d, file);
-            if LinkFS::is_file(p) { return p; }
+
+        for var d: string in tc.lib_dirs {
+            var p = LinkText::join(d, file)
+            if LinkFS::is_file(p) {
+                return p
+            }
         }
-        return "";
+
+        return ""
     }
 
     /// libc++ (Kairo objects always need it; the SDK's libc++.tbd re-exports
     /// libc++abi), libSystem (libc, libm, pthread, the unwinder, dyld's
     /// stub binder), then the builtins archive when one was found. Matches
     /// clang: -lc++ -lSystem <resource>/lib/darwin/libclang_rt.<os>.a
-    priv static fn _default_libs(tc: ref!(Toolchain), argv: ref!(vec::<string>),
-                                 msgs: ref!(vec::<LinkMessage>)) {
-        var cxx  = vec::<string>();
-        var libc = vec::<string>();
+    priv static fn _default_libs(@inout tc:   Toolchain,
+                                 @inout argv: cxx::std::vector<string>,
+                                 @inout msgs: cxx::std::vector<LinkMessage>) {
+        var cxx_v = cxx::std::vector<string>()
+        var libc  = cxx::std::vector<string>()
         if tc.has_manifest {
             if !tc.manifest.has_libcxx {
-                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                    f"the sysroot {tc.sysroot} has no libc++ (has_libcxx = false), and Kairo objects need it"));
+                msgs.push_back(
+                    LinkDiag::make(
+                        LinkSeverity::Error,
+                        f"the sysroot {tc.sysroot} has no libc++ (has_libcxx = false), and Kairo objects need it",
+                    ),
+                )
             }
-            cxx  = tc.manifest.libcxx_link;
-            libc = tc.manifest.libc_link;
-        }
-        if cxx.empty()  { cxx.push_back("-lc++"); }
-        if libc.empty() { libc.push_back("-lSystem"); }
 
-        for x: string in cxx  { argv.push_back(x); }
-        for x: string in libc { argv.push_back(x); }
-        if !tc.builtins.empty() { argv.push_back(tc.builtins); }
+            cxx_v = tc.manifest.libcxx_link
+            libc  = tc.manifest.libc_link
+        }
+
+        if cxx_v.empty() {
+            cxx_v.push_back("-lc++")
+        }
+
+        if libc.empty() {
+            libc.push_back("-lSystem")
+        }
+
+        for var x: string in cxx_v {
+            argv.push_back(x)
+        }
+
+        for var x: string in libc {
+            argv.push_back(x)
+        }
+
+        if !tc.builtins.empty() {
+            argv.push_back(tc.builtins)
+        }
     }
 
-    priv static fn _anchors() -> vec::<string> {
-        var v = vec::<string>();
-        v.push_back("@loader_path");
-        v.push_back("@executable_path");
-        return v;
+    priv static fn _anchors() -> cxx::std::vector<string> {
+        var v = cxx::std::vector<string>()
+        v.push_back("@loader_path")
+        v.push_back("@executable_path")
+        return v
     }
 
     priv static fn _hex(n: i32) -> string {
-        var digits = "0123456789abcdef";
-        var out = "";
-        var v = n;
+        var digits = "0123456789abcdef"
+        var out    = ""
+        var v      = n
         while v > 0 {
-            var d = usize(v % 16);
-            out = LinkText::slice(digits, d, d + 1) + out;
-            v = v / 16;
+            var d = ((v % 16) as usize)
+            out = LinkText::slice(digits, d, d + 1) + out
+            v   = v / 16
         }
-        return out;
+
+        return out
     }
 
-    priv static fn _has_flag(xs: ref!(vec::<string>), f: string) -> bool {
-        for x: string in xs { if x == f { return true; } }
-        return false;
+    priv static fn _has_flag(@inout xs: cxx::std::vector<string>, const f: string) -> bool {
+        for var x: string in xs {
+            if x == f {
+                return true
+            }
+        }
+
+        return false
     }
 }

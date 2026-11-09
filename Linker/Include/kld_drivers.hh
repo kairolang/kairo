@@ -2,7 +2,7 @@
 //
 // Part of the Kairo Project, under the Apache License v2.0 with the
 // Kairo Runtime Library Exception.
-// SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+// SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 // Copyright (c) 2026 Dhruvan Kartik
 //
 //===----------------------------------------------------------------------===//
@@ -29,5 +29,8 @@ LLD_HAS_DRIVER(macho)
 LLD_HAS_DRIVER(wasm)
 
 static const lld::DriverDef kld_drivers[] = LLD_ALL_DRIVERS;
+
+/// The drivers as the ArrayRef lld::lldMain takes (Kairo cannot build one from the array).
+inline llvm::ArrayRef<lld::DriverDef> kld_driver_list() { return llvm::ArrayRef<lld::DriverDef>(kld_drivers); }
 
 #endif // KAIRO_LINKER_DRIVER_KLD_DRIVERS_H

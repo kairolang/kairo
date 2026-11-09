@@ -1,9 +1,10 @@
-/// --- The Kairo Project ------------------ Linker/API/Flavor/COFF.k ------ ///
+/// --- The Kairo Project ---------------------------- API/Flavor/COFF.k --- ///
 ///
-///   \brief LinkJob + Toolchain -> lld-link argv for MSVC targets
-///          (<arch>-windows-msvc). Decides nothing the Toolchain did not
-///          resolve and runs nothing. MinGW-w64 targets go through MinGW.k;
-///          this is lld's coff driver proper.
+///   Renders a LinkJob and Toolchain to lld-link arguments (MSVC).
+///
+///   For MSVC targets (<arch>-windows-msvc). Decides nothing the Toolchain did
+///   not resolve and runs nothing. MinGW-w64 targets go through MinGW.k; this
+///   is lld's coff driver proper.
 ///
 ///   Options are spelled with '-', never '/': lld-link takes both, and on
 ///   a POSIX host a '/'-spelled option is one typo from a path. Inputs are
@@ -51,180 +52,349 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Config::Linker::*;
-import Linker::API::Text::*;
-import Linker::API::FS::*;
-import Linker::API::LinkDiag::*;
-import Linker::API::LinkJob::*;
-import Linker::API::Toolchain::*;
+ffi "c++" import "vector"
 
-class COFFArgs {
-    static fn build(job: ref!(LinkJob), tc: ref!(Toolchain),
-                    argv: ref!(vec::<string>), msgs: ref!(vec::<LinkMessage>)) -> bool {
-        var errs0 = LinkDiag::error_count(msgs);
-        var o     = job.opts;
+import API::FS::LinkFS
+import API::LinkDiag::{
+    LinkDiag,
+    LinkMessage,
+    LinkSeverity,
+}
+import API::LinkJob::LinkJob
+import API::Text::LinkText
+import API::Toolchain::Toolchain
+import Config::Linker::LinkerOptions
+
+pub class COFFArgs {
+    static fn build(@inout job:  LinkJob,
+                    @inout tc:   Toolchain,
+                    @inout argv: cxx::std::vector<string>,
+                    @inout msgs: cxx::std::vector<LinkMessage>) -> bool {
+        var errs0 = LinkDiag::error_count(&msgs)
+        var *o    = job.opts
 
         if job.output.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, "link: no output path"));
-            return false;
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error, "link: no output path"))
+            return false
         }
+
         if o->shared && o->static_link {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, "--shared and --static are mutually exclusive"));
-            return false;
-        }
-        if (!o->shared) && o->no_entry {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                "--no-entry: a PE executable needs an entry point; only a DLL can go without one"));
-            return false;
+            msgs.push_back(
+                LinkDiag::make(LinkSeverity::Error, "--shared and --static are mutually exclusive"),
+            )
+
+            return false
         }
 
-        var machine = Toolchain::msvc_machine(tc.arch);
+        if !o->shared && o->no_entry {
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "--no-entry: a PE executable needs an entry point; only a DLL can go without one",
+                ),
+            )
+
+            return false
+        }
+
+        var machine = Toolchain::msvc_machine(tc.arch)
         if machine.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, f"lld-link has no machine type for {tc.arch}"));
-            return false;
+            msgs.push_back(
+                LinkDiag::make(LinkSeverity::Error, f"lld-link has no machine type for {tc.arch}"),
+            )
+
+            return false
         }
 
-        var shared  = o->shared;
-        var no_crt  = o->no_crt || o->freestanding;
-        var no_libs = o->no_default_libs || o->freestanding;
+        var shared  = o->shared
+        var no_crt  = o->no_crt || o->freestanding
+        var no_libs = o->no_default_libs || o->freestanding
 
-        if no_crt && (!shared) && o->entry.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                "without the CRT there is no mainCRTStartup; pass --entry"));
-            return false;
+        if no_crt && !shared && o->entry.empty() {
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "without the CRT there is no mainCRTStartup; pass --entry",
+                ),
+            )
+
+            return false
         }
 
-        COFFArgs::_ignored(o, msgs);
+        COFFArgs::_ignored(o, &msgs)
 
-        // --- options -------------------------------------------------------
-        argv.push_back("lld-link");
-        argv.push_back("-nologo");
-        argv.push_back("-errorlimit:0");
-        if job.threads > 0 { argv.push_back(f"-threads:{job.threads}"); }
-        argv.push_back(f"-machine:{machine}");
-        if shared { argv.push_back("-dll"); }
-        argv.push_back(f"-out:{job.output}");
+        /// # options
+        argv.push_back("lld-link")
+        argv.push_back("-nologo")
+        argv.push_back("-errorlimit:0")
+        if job.threads > 0 {
+            argv.push_back(f"-threads:{job.threads}")
+        }
+
+        argv.push_back(f"-machine:{machine}")
+        if shared {
+            argv.push_back("-dll")
+        }
+
+        argv.push_back(f"-out:{job.output}")
 
         // With the CRT, -entry would skip its initialization; the entry flag
         // only names the entry when there is no CRT to own it.
         if shared && o->no_entry {
-            argv.push_back("-noentry");
-        } else if no_crt && (!o->entry.empty()) {
-            argv.push_back(f"-entry:{o->entry}");
+            argv.push_back("-noentry")
+        } else if no_crt && !o->entry.empty() {
+            argv.push_back(f"-entry:{o->entry}")
         }
+
         // Objects carry /DEFAULTLIB for the CRT they were compiled against.
-        if no_crt { argv.push_back("-nodefaultlib"); }
+        if no_crt {
+            argv.push_back("-nodefaultlib")
+        }
 
-        // --- search path, user's first ----------------------------------------
-        for d: string in o->lib_dirs { argv.push_back(f"-libpath:{d}"); }
-        if !tc.toolchain_lib.empty() { argv.push_back(f"-libpath:{tc.toolchain_lib}"); }
-        for d: string in tc.lib_dirs { argv.push_back(f"-libpath:{d}"); }
+        /// # search path, user's first
+        for var d: string in o->lib_dirs {
+            argv.push_back(f"-libpath:{d}")
+        }
 
-        // --- behavior -------------------------------------------------------
-        if (!o->strip) && (!o->strip_debug) { argv.push_back("-debug"); }
-        if o->build_id == "none"     { argv.push_back("-build-id:no"); }
-        else if !o->build_id.empty() { argv.push_back("-build-id"); }
+        if !tc.toolchain_lib.empty() {
+            argv.push_back(f"-libpath:{tc.toolchain_lib}")
+        }
 
-        if o->f_gc_sections == 1 { argv.push_back("-opt:ref");   }
-        if o->f_gc_sections == 0 { argv.push_back("-opt:noref"); }
+        for var d: string in tc.lib_dirs {
+            argv.push_back(f"-libpath:{d}")
+        }
+
+        /// # behavior
+        if !o->strip && !o->strip_debug {
+            argv.push_back("-debug")
+        }
+
+        if o->build_id == "none" {
+            argv.push_back("-build-id:no")
+        } else if !o->build_id.empty() {
+            argv.push_back("-build-id")
+        }
+
+        if o->f_gc_sections == 1 {
+            argv.push_back("-opt:ref")
+        }
+
+        if o->f_gc_sections == 0 {
+            argv.push_back("-opt:noref")
+        }
+
         // lld-link turns ICF on whenever -opt:ref is on. Kairo's --icf is
         // opt-in on every other target, so it is spelled out both ways.
         if o->icf {
-            if o->icf_mode == "all"       { argv.push_back("-opt:icf"); }
-            else if o->icf_mode == "safe" { argv.push_back("-opt:safeicf"); }
-            else {
-                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                    f"unknown --icf-mode {o->icf_mode}; expected safe or all"));
+            if o->icf_mode == "all" {
+                argv.push_back("-opt:icf")
+            } else if o->icf_mode == "safe" {
+                argv.push_back("-opt:safeicf")
+            } else {
+                msgs.push_back(
+                    LinkDiag::make(
+                        LinkSeverity::Error,
+                        f"unknown --icf-mode {o->icf_mode}; expected safe or all",
+                    ),
+                )
             }
         } else {
-            argv.push_back("-opt:noicf");
+            argv.push_back("-opt:noicf")
         }
-        if !o->map_file.empty() { argv.push_back(f"-map:{o->map_file}"); }
-        COFFArgs::_pe_options(o, argv, msgs);
-        for f: string in o->ld_flags { argv.push_back(f); }
 
-        // --- inputs ----------------------------------------------------------
-        for obj: string in job.objects { argv.push_back(obj); }
+        if !o->map_file.empty() {
+            argv.push_back(f"-map:{o->map_file}")
+        }
+
+        COFFArgs::_pe_options(o, &argv, &msgs)
+        for var f: string in o->ld_flags {
+            argv.push_back(f)
+        }
+
+        /// # inputs
+        for var obj: string in job.objects {
+            argv.push_back(obj)
+        }
+
         if job.lazy_objects.size() > 0 {
-            argv.push_back("-start-lib");
-            for obj: string in job.lazy_objects { argv.push_back(obj); }
-            argv.push_back("-end-lib");
+            argv.push_back("-start-lib")
+            for var obj: string in job.lazy_objects {
+                argv.push_back(obj)
+            }
+
+            argv.push_back("-end-lib")
         }
-        for spec: string in o->link_libs { COFFArgs::_user_lib(spec, argv, msgs); }
 
-        if !no_libs { COFFArgs::_default_libs(tc, o, no_crt, argv, msgs); }
+        for var spec: string in o->link_libs {
+            COFFArgs::_user_lib(spec, &argv, &msgs)
+        }
 
-        return LinkDiag::error_count(msgs) == errs0;
+        if !no_libs {
+            COFFArgs::_default_libs(&tc, o, no_crt, &argv, &msgs)
+        }
+
+        return LinkDiag::error_count(&msgs) == errs0
     }
 
     /// PE header and output-file options. Every feature toggle is emitted only
     /// when asked for: lld-link's own defaults (ASLR, NX, TS-aware on) already
     /// match the help text, so an unset flag must leave the line alone.
-    priv static fn _pe_options(o: *LinkerOptions, argv: ref!(vec::<string>),
-                               msgs: ref!(vec::<LinkMessage>)) {
+    priv static fn _pe_options(o:           *LinkerOptions,
+                               @inout argv: cxx::std::vector<string>,
+                               @inout msgs: cxx::std::vector<LinkMessage>) {
         if o->subsystem_set {
             if Toolchain::pe_subsystem_ok(o->subsystem) {
-                argv.push_back(f"-subsystem:{o->subsystem}");
+                argv.push_back(f"-subsystem:{o->subsystem}")
             } else {
-                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                    f"unknown --subsystem {o->subsystem}; expected console, windows, native, posix, efi_application, efi_boot_service_driver, efi_rom, efi_runtime_driver or boot_application"));
+                msgs.push_back(
+                    LinkDiag::make(
+                        LinkSeverity::Error,
+                        f"unknown --subsystem {o->subsystem}; expected console, windows, native, posix, efi_application, efi_boot_service_driver, efi_rom, efi_runtime_driver or boot_application",
+                    ),
+                )
             }
         }
-        if !o->pdb.empty()    { argv.push_back(f"-pdb:{o->pdb}"); }
-        if !o->def.empty()    { argv.push_back(f"-def:{o->def}"); }
-        if !o->implib.empty() { argv.push_back(f"-implib:{o->implib}"); }
+
+        if !o->pdb.empty() {
+            argv.push_back(f"-pdb:{o->pdb}")
+        }
+
+        if !o->def.empty() {
+            argv.push_back(f"-def:{o->def}")
+        }
+
+        if !o->implib.empty() {
+            argv.push_back(f"-implib:{o->implib}")
+        }
+
         // A custom manifest is only valid with /manifest:embed, so naming one
         // implies embedding it.
-        if o->manifest || (!o->manifest_file.empty()) { argv.push_back("-manifest:embed"); }
-        if !o->manifest_file.empty() { argv.push_back(f"-manifestinput:{o->manifest_file}"); }
-        if o->kill_at { argv.push_back("-kill-at"); }
-        if o->stack_size > 0 { argv.push_back(f"-stack:{o->stack_size}"); }
-        if o->heap_size > 0  { argv.push_back(f"-heap:{o->heap_size}"); }
-        if o->f_high_entropy_va == 1 { argv.push_back("-highentropyva"); }
-        if o->f_high_entropy_va == 0 { argv.push_back("-highentropyva:no"); }
-        if o->f_dynamicbase == 1 { argv.push_back("-dynamicbase"); }
-        if o->f_dynamicbase == 0 { argv.push_back("-dynamicbase:no"); }
-        if o->f_nxcompat == 1 { argv.push_back("-nxcompat"); }
-        if o->f_nxcompat == 0 { argv.push_back("-nxcompat:no"); }
-        if o->f_guard_cf == 1 { argv.push_back("-guard:cf"); }
-        if o->f_guard_cf == 0 { argv.push_back("-guard:no"); }
-        if o->f_tsaware == 1 { argv.push_back("-tsaware"); }
-        if o->f_tsaware == 0 { argv.push_back("-tsaware:no"); }
+        if o->manifest || !o->manifest_file.empty() {
+            argv.push_back("-manifest:embed")
+        }
+
+        if !o->manifest_file.empty() {
+            argv.push_back(f"-manifestinput:{o->manifest_file}")
+        }
+
+        if o->kill_at {
+            argv.push_back("-kill-at")
+        }
+
+        if o->stack_size > 0 {
+            argv.push_back(f"-stack:{o->stack_size}")
+        }
+
+        if o->heap_size > 0 {
+            argv.push_back(f"-heap:{o->heap_size}")
+        }
+
+        if o->f_high_entropy_va == 1 {
+            argv.push_back("-highentropyva")
+        }
+
+        if o->f_high_entropy_va == 0 {
+            argv.push_back("-highentropyva:no")
+        }
+
+        if o->f_dynamicbase == 1 {
+            argv.push_back("-dynamicbase")
+        }
+
+        if o->f_dynamicbase == 0 {
+            argv.push_back("-dynamicbase:no")
+        }
+
+        if o->f_nxcompat == 1 {
+            argv.push_back("-nxcompat")
+        }
+
+        if o->f_nxcompat == 0 {
+            argv.push_back("-nxcompat:no")
+        }
+
+        if o->f_guard_cf == 1 {
+            argv.push_back("-guard:cf")
+        }
+
+        if o->f_guard_cf == 0 {
+            argv.push_back("-guard:no")
+        }
+
+        if o->f_tsaware == 1 {
+            argv.push_back("-tsaware")
+        }
+
+        if o->f_tsaware == 0 {
+            argv.push_back("-tsaware:no")
+        }
     }
 
-    priv static fn _ignored(o: *LinkerOptions, msgs: ref!(vec::<LinkMessage>)) {
+    priv static fn _ignored(o: *LinkerOptions, @inout msgs: cxx::std::vector<LinkMessage>) {
         if !o->linker_script.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                "PE has no linker scripts; place sections with -merge, -section or -order through ld flags"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "PE has no linker scripts; place sections with -merge, -section or -order through ld flags",
+                ),
+            )
         }
+
         if !o->version_script.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                "version scripts are ELF-only; control DLL exports with a .def file passed as an input, or __declspec(dllexport)"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "version scripts are ELF-only; control DLL exports with a .def file passed as an input, or __declspec(dllexport)",
+                ),
+            )
         }
+
         if o->export_dynamic {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                "--export-dynamic has no MSVC equivalent: an image exports what a .def file or __declspec(dllexport) names"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "--export-dynamic has no MSVC equivalent: an image exports what a .def file or __declspec(dllexport) names",
+                ),
+            )
         }
+
         if !o->rpath.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
-                "Windows has no rpath: DLLs load from the executable's directory, then the system directories and PATH; -rpath ignored"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Warning,
+                    "Windows has no rpath: DLLs load from the executable's directory, then the system directories and PATH; -rpath ignored",
+                ),
+            )
         }
+
         if !o->rpath_link.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Warning, "-rpath-link has no PE equivalent; ignored"));
+            msgs.push_back(
+                LinkDiag::make(LinkSeverity::Warning, "-rpath-link has no PE equivalent; ignored"),
+            )
         }
+
         if !o->dynamic_linker.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
-                "PE images load through the Windows loader; --dynamic-linker ignored"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Warning,
+                    "PE images load through the Windows loader; --dynamic-linker ignored",
+                ),
+            )
         }
+
         if !o->emulation.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
-                "lld-link takes the machine from the target, not an emulation; --emulation ignored"));
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Warning,
+                    "lld-link takes the machine from the target, not an emulation; --emulation ignored",
+                ),
+            )
         }
     }
 
@@ -232,105 +402,158 @@ class COFFArgs {
     /// library the same way, so static: and dynamic: change nothing and the
     /// search path picks. A path to a .lib, .obj or .res goes in as an
     /// input; a .def goes in as -def.
-    priv static fn _user_lib(spec: string, argv: ref!(vec::<string>), msgs: ref!(vec::<LinkMessage>)) {
-        var name = spec;
-        var mode = "";
-        var c    = LinkText::find(spec, ":", 0);
+    priv static fn _user_lib(const spec:  string,
+                             @inout argv: cxx::std::vector<string>,
+                             @inout msgs: cxx::std::vector<LinkMessage>) {
+        var name = spec
+        var mode = ""
+        var c    = LinkText::find(spec, ":", 0)
         if c < spec.size() {
-            mode = LinkText::slice(spec, 0, c);
-            name = LinkText::slice(spec, c + 1, spec.size());
+            mode = LinkText::slice(spec, 0, c)
+            name = LinkText::slice(spec, c + 1, spec.size())
         }
-        if (!mode.empty()) && (mode != "static") && (mode != "dynamic") {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                f"-l {spec}: unknown kind {mode}; expected static or dynamic"));
-            return;
+
+        if !mode.empty() && mode != "static" && mode != "dynamic" {
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    f"-l {spec}: unknown kind {mode}; expected static or dynamic",
+                ),
+            )
+
+            return
         }
+
         if name.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, f"-l {spec}: no library name"));
-            return;
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error, f"-l {spec}: no library name"))
+            return
         }
+
         if LinkText::ends_with(name, ".def") {
-            argv.push_back(f"-def:{name}");
-            return;
+            argv.push_back(f"-def:{name}")
+            return
         }
-        if LinkText::contains(name, "/") || LinkText::ends_with(name, ".lib")
-        || LinkText::ends_with(name, ".obj") || LinkText::ends_with(name, ".o")
-        || LinkText::ends_with(name, ".a") || LinkText::ends_with(name, ".res") {
-            argv.push_back(name);
-            return;
+
+        if LinkText::contains(name, "/")
+            || LinkText::ends_with(name, ".lib")
+            || LinkText::ends_with(name, ".obj")
+            || LinkText::ends_with(name, ".o")
+            || LinkText::ends_with(name, ".a")
+            || LinkText::ends_with(name, ".res") {
+            argv.push_back(name)
+            return
         }
-        argv.push_back(f"{name}.lib");
+
+        argv.push_back(f"{name}.lib")
     }
 
     /// libc++, the builtins when asked for, the CRT, oldnames (POSIX names
     /// like write -> _write), kernel32.
-    priv static fn _default_libs(tc: ref!(Toolchain), o: *LinkerOptions, no_crt: bool,
-                                 argv: ref!(vec::<string>), msgs: ref!(vec::<LinkMessage>)) {
-        var cxx = vec::<string>();
-        var crt = vec::<string>();
+    priv static fn _default_libs(@inout tc:   Toolchain,
+                                 o:           *LinkerOptions,
+                                 no_crt:      bool,
+                                 @inout argv: cxx::std::vector<string>,
+                                 @inout msgs: cxx::std::vector<LinkMessage>) {
+        var cxx_v = cxx::std::vector<string>()
+        var crt   = cxx::std::vector<string>()
 
         if tc.has_manifest {
             if !tc.manifest.has_libcxx {
-                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                    f"the sysroot {tc.sysroot} has no libc++ (has_libcxx = false), and Kairo objects need it"));
+                msgs.push_back(
+                    LinkDiag::make(
+                        LinkSeverity::Error,
+                        f"the sysroot {tc.sysroot} has no libc++ (has_libcxx = false), and Kairo objects need it",
+                    ),
+                )
             }
-            cxx = tc.manifest.libcxx_link;
-            if !no_crt { crt = tc.manifest.libc_link; }
+
+            cxx_v = tc.manifest.libcxx_link
+            if !no_crt {
+                crt = tc.manifest.libc_link
+            }
         } else {
-            var s = COFFArgs::_lib(tc, "libc++.lib");
+            var s = COFFArgs::_lib(&tc, "libc++.lib")
             if !s.empty() {
-                cxx.push_back(s);
+                cxx_v.push_back(s)
             } else {
-                var d = COFFArgs::_lib(tc, "c++.lib");
+                var d = COFFArgs::_lib(&tc, "c++.lib")
                 if d.empty() {
-                    msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                        f"no libc++ for {tc.triple}: neither libc++.lib nor c++.lib is in the library search path, and Kairo objects need it"));
+                    msgs.push_back(
+                        LinkDiag::make(
+                            LinkSeverity::Error,
+                            f"no libc++ for {tc.triple}: neither libc++.lib nor c++.lib is in the library search path, and Kairo objects need it",
+                        ),
+                    )
                 } else {
-                    cxx.push_back(d);
-                    msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
-                        "libc++ is only available as an import library (c++.lib): the output needs c++.dll beside it"));
+                    cxx_v.push_back(d)
+                    msgs.push_back(
+                        LinkDiag::make(
+                            LinkSeverity::Warning,
+                            "libc++ is only available as an import library (c++.lib): the output needs c++.dll beside it",
+                        ),
+                    )
                 }
             }
 
             if !no_crt {
                 if COFFArgs::_user_links_crt(o) {
-                    argv.push_back("-nodefaultlib:libcmt.lib");
-                    argv.push_back("-nodefaultlib:libvcruntime.lib");
-                    argv.push_back("-nodefaultlib:libucrt.lib");
+                    argv.push_back("-nodefaultlib:libcmt.lib")
+                    argv.push_back("-nodefaultlib:libvcruntime.lib")
+                    argv.push_back("-nodefaultlib:libucrt.lib")
                 } else {
-                    crt.push_back("libcmt.lib");
-                    crt.push_back("libvcruntime.lib");
-                    crt.push_back("libucrt.lib");
+                    crt.push_back("libcmt.lib")
+                    crt.push_back("libvcruntime.lib")
+                    crt.push_back("libucrt.lib")
                 }
-                crt.push_back("oldnames.lib");
+
+                crt.push_back("oldnames.lib")
             }
-            crt.push_back("kernel32.lib");
+
+            crt.push_back("kernel32.lib")
         }
 
-        for x: string in cxx { argv.push_back(x); }
-        if (tc.rtlib == "compiler-rt") && (!tc.builtins.empty()) { argv.push_back(tc.builtins); }
-        for x: string in crt { argv.push_back(x); }
+        for var x: string in cxx_v {
+            argv.push_back(x)
+        }
+
+        if tc.rtlib == "compiler-rt" && !tc.builtins.empty() {
+            argv.push_back(tc.builtins)
+        }
+
+        for var x: string in crt {
+            argv.push_back(x)
+        }
     }
 
-    priv static fn _lib(tc: ref!(Toolchain), name: string) -> string {
+    priv static fn _lib(@inout tc: Toolchain, const name: string) -> string {
         if !tc.toolchain_lib.empty() {
-            var p = LinkText::join(tc.toolchain_lib, name);
-            if LinkFS::is_file(p) { return p; }
+            var p = LinkText::join(tc.toolchain_lib, name)
+            if LinkFS::is_file(p) {
+                return p
+            }
         }
-        return tc.find_lib_file(name);
+
+        return tc.find_lib_file(name)
     }
 
     priv static fn _user_links_crt(o: *LinkerOptions) -> bool {
-        for spec: string in o->link_libs {
-            var n = spec;
-            var c = LinkText::find(spec, ":", 0);
-            if c < spec.size() { n = LinkText::slice(spec, c + 1, spec.size()); }
-            if LinkText::starts_with(n, "msvcrt") || LinkText::starts_with(n, "libcmt")
-            || LinkText::starts_with(n, "ucrt") || LinkText::starts_with(n, "libucrt")
-            || LinkText::starts_with(n, "vcruntime") || LinkText::starts_with(n, "libvcruntime") {
-                return true;
+        for var spec: string in o->link_libs {
+            var n = spec
+            var c = LinkText::find(spec, ":", 0)
+            if c < spec.size() {
+                n = LinkText::slice(spec, c + 1, spec.size())
+            }
+
+            if LinkText::starts_with(n, "msvcrt")
+                || LinkText::starts_with(n, "libcmt")
+                || LinkText::starts_with(n, "ucrt")
+                || LinkText::starts_with(n, "libucrt")
+                || LinkText::starts_with(n, "vcruntime")
+                || LinkText::starts_with(n, "libvcruntime") {
+                return true
             }
         }
-        return false;
+
+        return false
     }
 }

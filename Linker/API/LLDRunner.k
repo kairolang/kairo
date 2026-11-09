@@ -1,7 +1,6 @@
-/// --- The Kairo Project --------------------- Linker/API/LLDRunner.k ----- ///
+/// --- The Kairo Project ------------------------------ API/LLDRunner.k --- ///
 ///
-///   \brief Runs an lld argv, in process or through kld, and captures what
-///          it printed. The only file in the compiler that touches lld.
+///   Runs an lld argv in process or through kld and captures its output.
 ///
 ///   \par In process
 ///     lld::lldMain runs on a global CommonLinkerContext and destroys it on
@@ -35,202 +34,287 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/Types.hh";
-ffi "c++" import "lld/Common/Driver.h";
-ffi "c++" import "llvm/ADT/ArrayRef.h";
-ffi "c++" import "llvm/ADT/StringRef.h";
-ffi "c++" import "llvm/Support/CrashRecoveryContext.h";
-ffi "c++" import "llvm/Support/Program.h";
-ffi "c++" import "llvm/Support/raw_ostream.h";
-ffi "c++" import "Include/kld_drivers.hh";
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "lld/Common/Driver.h"
+ffi "c++" import "llvm/ADT/ArrayRef.h"
+ffi "c++" import "llvm/ADT/StringRef.h"
+ffi "c++" import "llvm/Support/CrashRecoveryContext.h"
+ffi "c++" import "llvm/Support/Program.h"
+ffi "c++" import "llvm/Support/raw_ostream.h"
+ffi "c++" import "Include/kld_drivers.hh"
+ffi "c++" import "vector"
+ffi "c++" import "string"
+ffi "c++" import "optional"
 
-import Linker::API::Text::*;
-import Linker::API::FS::*;
+import API::FS::LinkFS
+import API::Text::LinkText
+import std::c_char
 
-struct LLDRun {
-    var ret:          i32  = 1;
-    var in_process:   bool = true;
-    var poisoned_now: bool = false;   ///< this run latched the poison flag
-    var stdout_text:  string;
-    var stderr_text:  string;
-    var spawn_error:  string;         ///< set only when nothing ran
+pub struct LLDRun {
+    var ret:          i32    = 1
+    var in_process:   bool   = true
+    var poisoned_now: bool   = false ///< this run latched the poison flag
+    var stdout_text:  string
+    var stderr_text:  string
+    var spawn_error:  string         ///< set only when nothing ran
 }
 
-class LLDRunner {
+pub class LLDRunner {
     /// \p argv[0] carries the flavor: ld.lld, ld64.lld, lld-link, wasm-ld.
-    static fn run(argv: ref!(vec::<string>), kld_path: string, force_process: bool) -> LLDRun {
-        if force_process || LLDRunner::poisoned() || LLDRunner::needs_process(argv) {
-            return LLDRunner::_spawn(argv, kld_path);
+    static fn run(@inout argv:    cxx::std::vector<string>,
+                  const kld_path: string,
+                  force_process:  bool) -> LLDRun {
+        if force_process || LLDRunner::poisoned() || LLDRunner::needs_process(&argv) {
+            return LLDRunner::_spawn(&argv, kld_path)
         }
-        return LLDRunner::_in_process(argv);
+
+        return LLDRunner::_in_process(&argv)
     }
 
-    static fn poisoned() -> bool { return LLDRunner::_poison()->load(); }
+    static fn poisoned() -> bool {
+        return LLDRunner::_poison()->load()
+    }
 
-    static fn needs_process(argv: ref!(vec::<string>)) -> bool {
-        for a: string in argv {
-            if (a == "-mllvm") || (a == "--mllvm") { return true; }
-            if LinkText::starts_with(a, "-mllvm=") || LinkText::starts_with(a, "--mllvm=") { return true; }
-            if LinkText::starts_with(a, "-plugin-opt=-") || LinkText::starts_with(a, "--plugin-opt=-") { return true; }
+    static fn needs_process(@inout argv: cxx::std::vector<string>) -> bool {
+        for var a: string in argv {
+            if a == "-mllvm" || a == "--mllvm" {
+                return true
+            }
+
+            if LinkText::starts_with(a, "-mllvm=") || LinkText::starts_with(a, "--mllvm=") {
+                return true
+            }
+
+            if LinkText::starts_with(a, "-plugin-opt=-")
+                || LinkText::starts_with(a, "--plugin-opt=-") {
+                return true
+            }
         }
-        return false;
+
+        return false
     }
 
-    static fn flavor_of(argv0: string) -> string {
-        if argv0 == "ld64.lld" { return "darwin"; }
-        if argv0 == "lld-link" { return "link";   }
-        if argv0 == "wasm-ld"  { return "wasm";   }
-        return "gnu";
+    static fn flavor_of(const argv0: string) -> string {
+        if argv0 == "ld64.lld" {
+            return "darwin"
+        }
+
+        if argv0 == "lld-link" {
+            return "link"
+        }
+
+        if argv0 == "wasm-ld" {
+            return "wasm"
+        }
+
+        return "gnu"
     }
 
-    // --- in process -----------------------------------------------------------
+    /// # in process
 
-    priv static fn _mu() -> *std::Mutex {
-        static var mu: std::Mutex;
-        return &mu;
+    priv static fn _mu() -> unsafe *kairo::std::Mutex {
+        static mu: kairo::std::Mutex
+        return unsafe &mu
     }
 
-    priv static fn _poison() -> *std::Atomic::<bool> {
-        static var p: std::Atomic::<bool> = false;
-        return &p;
+    priv static fn _poison() -> unsafe *kairo::std::Atomic<bool> {
+        static p: kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(false)
+        return unsafe &p
     }
 
-    priv static fn _in_process(argv: ref!(vec::<string>)) -> LLDRun {
-        var res  = LLDRun{};
-        var lock = std::LockGuard(*(LLDRunner::_mu()));
+    priv static fn _in_process(@inout argv: cxx::std::vector<string>) -> LLDRun {
+        var res  = LLDRun{}
+        var lock = kairo::std::LockGuard(*LLDRunner::_mu())
 
-        llvm::CrashRecoveryContext::Enable();
+        llvm::CrashRecoveryContext::Enable()
 
         // Pointers straight into argv's own (NUL-terminated) bytes: lld keeps
         // them for the whole link, and argv is the caller's and outlives it.
         // Indexed, not `for a in`: a by-value loop variable would hand lld a
         // pointer into a copy that dies at the end of each iteration.
-        var cargv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
-        cargv.reserve(argv.size());
-        for var i: usize = 0; i < argv.size(); ++i { cargv.push_back(argv[i].c_str()); }
+        var cargv: cxx::std::vector<kairo::std::ConstPtr<c_char>>
+        cargv.reserve(argv.size())
+        for var i: usize = 0; i < argv.size(); ++i {
+            cargv.push_back(argv[i].c_str())
+        }
 
-        var out_buf: libcxx::string;
-        var err_buf: libcxx::string;
-        var out_os = llvm::raw_string_ostream(out_buf);
-        var err_os = llvm::raw_string_ostream(err_buf);
+        var out_buf: cxx::std::string
+        var err_buf: cxx::std::string
+        var out_os                    = llvm::raw_string_ostream(&out_buf)
+        var err_os                    = llvm::raw_string_ostream(&err_buf)
 
         var r = lld::lldMain(
-            llvm::ArrayRef::<std::ConstPtr::<std::Legacy::char>>(cargv),
-            out_os, err_os, kld_drivers);
-        out_os.flush();
-        err_os.flush();
+            llvm::ArrayRef<kairo::std::ConstPtr<c_char>>(cargv),
+            &out_os,
+            &err_os,
+            kld_driver_list(),
+        )
 
-        res.ret         = r.retCode;
-        res.stdout_text = string(out_buf);
-        res.stderr_text = string(err_buf);
+        out_os.flush()
+        err_os.flush()
+
+        res.ret = r.retCode
+        res.stdout_text = string(
+            unsafe ((out_buf.data() as unsafe *const u8) as *const u8),
+            out_buf.size(),
+        )
+
+        res.stderr_text = string(
+            unsafe ((err_buf.data() as unsafe *const u8) as *const u8),
+            err_buf.size(),
+        )
+
         if !r.canRunAgain {
-            LLDRunner::_poison()->store(true);
-            res.poisoned_now = true;
+            LLDRunner::_poison()->store(true)
+            res.poisoned_now = true
         }
-        return res;
+
+        return res
     }
 
-    // --- out of process ----------------------------------------------------
+    /// # out of process
 
-    priv static fn _spawn(argv: ref!(vec::<string>), kld_path: string) -> LLDRun {
-        var res = LLDRun{};
-        res.in_process = false;
+    priv static fn _spawn(@inout argv: cxx::std::vector<string>, kld_path: string) -> LLDRun {
+        var res = LLDRun{}
+        res.in_process = false
 
-        if kld_path.empty() || (!LinkFS::is_file(kld_path)) {
-            var _where = ("<unset>") if (kld_path.empty()) else (kld_path);
-            res.spawn_error = f"this link has to run out of process, and kld was not found at {_where}";
-            return res;
+        if kld_path.empty() || !LinkFS::is_file(kld_path) {
+            var _where = if (kld_path.empty()) => ("<unset>") else => kld_path
+            res.spawn_error = f"this link has to run out of process, and kld was not found at {_where}"
+            return res
         }
 
         // kld is a generic lld: the flavor goes in as -flavor at argv[1],
         // which lld reads before any response file is expanded.
-        var flavor = LLDRunner::flavor_of(argv[0]);
-        var rest   = vec::<string>();
-        for var i: usize = 1; i < argv.size(); ++i { rest.push_back(argv[i]); }
-
-        var out_path = LinkFS::temp_file("kld-out", "txt");
-        var err_path = LinkFS::temp_file("kld-err", "txt");
-        var rsp_path = "";
-        finally {
-            if !out_path.empty() { LinkFS::remove(out_path); }
-            if !err_path.empty() { LinkFS::remove(err_path); }
-            if !rsp_path.empty() { LinkFS::remove(rsp_path); }
+        var flavor = LLDRunner::flavor_of(argv[0])
+        var rest   = cxx::std::vector<string>()
+        for var i: usize = 1; i < argv.size(); ++i {
+            rest.push_back(argv[i])
         }
 
-        var args = vec::<string>();
-        args.push_back(kld_path);
-        args.push_back("-flavor");
-        args.push_back(flavor);
-        for a: string in rest { args.push_back(a); }
+        var out_path = LinkFS::temp_file("kld-out", "txt")
+        var err_path = LinkFS::temp_file("kld-err", "txt")
+        var rsp_path = ""
+        finally {
+            if !out_path.empty() {
+                LinkFS::remove(out_path)
+            }
 
-        if !LLDRunner::_fits(args) {
-            rsp_path = LinkFS::temp_file("kld", "rsp");
-            var text = "";
-            for a: string in rest {
-                text += LinkText::quote_rsp(a);
-                text += "\n";
+            if !err_path.empty() {
+                LinkFS::remove(err_path)
             }
-            if rsp_path.empty() || (!LinkFS::write(rsp_path, text)) {
-                res.spawn_error = "cannot write the linker response file";
-                return res;
+
+            if !rsp_path.empty() {
+                LinkFS::remove(rsp_path)
             }
-            args.clear();
-            args.push_back(kld_path);
-            args.push_back("-flavor");
-            args.push_back(flavor);
+        }
+
+        var args = cxx::std::vector<string>()
+        args.push_back(kld_path)
+        args.push_back("-flavor")
+        args.push_back(flavor)
+        for var a: string in rest {
+            args.push_back(a)
+        }
+
+        if !LLDRunner::_fits(&args) {
+            rsp_path = LinkFS::temp_file("kld", "rsp")
+            var text = ""
+            for var a: string in rest {
+                text += LinkText::quote_rsp(a)
+                text += "\n"
+            }
+
+            if rsp_path.empty() || !LinkFS::write(rsp_path, text) {
+                res.spawn_error = "cannot write the linker response file"
+                return res
+            }
+
+            args.clear()
+            args.push_back(kld_path)
+            args.push_back("-flavor")
+            args.push_back(flavor)
             // quote_rsp escapes backslashes GNU-style. lld-link defaults to
             // Windows tokenization, which would keep both of them.
-            if (flavor == "gnu") || (flavor == "wasm") || (flavor == "link") { args.push_back("--rsp-quoting=posix"); }
-            args.push_back(f"@{rsp_path}");
+            if flavor == "gnu" || flavor == "wasm" || flavor == "link" {
+                args.push_back("--rsp-quoting=posix")
+            }
+
+            args.push_back(f"@{rsp_path}")
         }
 
         // Views of args' own bytes; args is not touched again while refs lives.
-        var refs:  libcxx::vector::<llvm::StringRef>;
-        refs.reserve(args.size());
-        for var i: usize = 0; i < args.size(); ++i { refs.push_back(sref(args[i])); }
+        var refs: cxx::std::vector<llvm::StringRef>
+        refs.reserve(args.size())
+        for var i: usize = 0; i < args.size(); ++i {
+            refs.push_back(kairo::sref(args[i]))
+        }
 
-        var nout = out_path.std_string();
-        var nerr = err_path.std_string();
-        var redir: libcxx::vector::<libcxx::optional::<llvm::StringRef>>;
-        redir.push_back(libcxx::nullopt);
-        if nout.empty() { redir.push_back(libcxx::nullopt); }
-        else            { redir.push_back(libcxx::optional::<llvm::StringRef>(llvm::StringRef(nout))); }
-        if nerr.empty() { redir.push_back(libcxx::nullopt); }
-        else            { redir.push_back(libcxx::optional::<llvm::StringRef>(llvm::StringRef(nerr))); }
+        var nout = kairo::std::to_std_string(out_path)
+        var nerr = kairo::std::to_std_string(err_path)
+        var redir: cxx::std::vector<cxx::std::optional<llvm::StringRef>>
+        redir.push_back(cxx::std::optional<llvm::StringRef>(cxx::std::nullopt))
+        if nout.empty() {
+            redir.push_back(cxx::std::optional<llvm::StringRef>(cxx::std::nullopt))
+        } else {
+            redir.push_back(cxx::std::optional<llvm::StringRef>(llvm::StringRef(nout)))
+        }
 
-        var emsg: libcxx::string;
-        var failed = false;
+        if nerr.empty() {
+            redir.push_back(cxx::std::optional<llvm::StringRef>(cxx::std::nullopt))
+        } else {
+            redir.push_back(cxx::std::optional<llvm::StringRef>(llvm::StringRef(nerr)))
+        }
+
+        var emsg:  cxx::std::string
+        var failed                  = false
         var rc = llvm::sys::ExecuteAndWait(
             refs[0],
-            llvm::ArrayRef::<llvm::StringRef>(refs),
-            libcxx::nullopt,
-            llvm::ArrayRef::<libcxx::optional::<llvm::StringRef>>(redir),
-            0, 0, &emsg, &failed);
+            llvm::ArrayRef<llvm::StringRef>(refs),
+            cxx::std::optional<llvm::ArrayRef<llvm::StringRef>>(cxx::std::nullopt),
+            llvm::ArrayRef<cxx::std::optional<llvm::StringRef>>(redir),
+            0,
+            0,
+            unsafe &emsg,
+            unsafe &failed,
+        )
 
         if failed {
-            res.spawn_error = f"cannot run {kld_path}: {string(emsg)}";
-            return res;
+            res.spawn_error = f"cannot run {kld_path}: {string(unsafe ((emsg.data() as unsafe *const u8) as *const u8), emsg.size())}"
+            return res
         }
 
-        res.ret = rc;
-        var t = "";
-        if (!out_path.empty()) && LinkFS::read(out_path, t) { res.stdout_text = t; }
-        t = "";
-        if (!err_path.empty()) && LinkFS::read(err_path, t) { res.stderr_text = t; }
-        return res;
+        res.ret = rc
+        var t = ""
+        if !out_path.empty() && LinkFS::read(out_path, &t) {
+            res.stdout_text = t
+        }
+
+        t = ""
+        if !err_path.empty() && LinkFS::read(err_path, &t) {
+            res.stderr_text = t
+        }
+
+        return res
     }
 
-    priv static fn _fits(args: ref!(vec::<string>)) -> bool {
+    priv static fn _fits(@inout args: cxx::std::vector<string>) -> bool {
         // Views of args' own bytes; args is not touched again while refs lives.
-        var refs:  libcxx::vector::<llvm::StringRef>;
-        refs.reserve(args.size());
-        for var i: usize = 0; i < args.size(); ++i { refs.push_back(sref(args[i])); }
-        return llvm::sys::commandLineFitsWithinSystemLimits(refs[0], llvm::ArrayRef::<llvm::StringRef>(refs));
+        var refs: cxx::std::vector<llvm::StringRef>
+        refs.reserve(args.size())
+        for var i: usize = 0; i < args.size(); ++i {
+            refs.push_back(kairo::sref(args[i]))
+        }
+
+        return llvm::sys::commandLineFitsWithinSystemLimits(
+            refs[0],
+            llvm::ArrayRef<llvm::StringRef>(refs),
+        )
     }
 }
