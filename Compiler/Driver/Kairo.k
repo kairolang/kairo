@@ -5,8 +5,8 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -28,69 +28,42 @@
 ///   sub-option structs, not here.
 ///
 
-import Driver::CompilerInstance::*;
-import Support::TimeReport::*;
-import Tooling::ParseAPI::*;
-import AST::Visitor::ASTWriter::*;
+ffi "c++" import "Native/KLocale.hh" // init_process_locale
+ffi "c++" import "Native/KTimeReport.hh" // strcmp/strncmp for _scan_timing_flags
+ffi "c++" import "llvm/Support/InitLLVM.h"
+ffi "c++" import "llvm/Support/Locale.h"
+ffi "c++" import "llvm/MC/TargetRegistry.h"
+ffi "c++" import "llvm/MC/MCSubtargetInfo.h"
+ffi "c++" import "llvm/Support/TargetSelect.h"
+ffi "c++" import "llvm/Support/raw_ostream.h"
+ffi "c++" import "llvm/TargetParser/Triple.h"
+ffi "c++" import "llvm/TargetParser/Host.h"
+ffi "c++" import "llvm/Target/TargetMachine.h"
+ffi "c++" import "llvm/Target/TargetOptions.h"
+ffi "c++" import "llvm/Support/CodeGen.h"
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/GlobalRecycler.hh"
+ffi "c++" import "locale"
+ffi "c++" import "sstream"
+ffi "c++" import "cstring"
+ffi "c++" import "cstdio"
 
-ffi "c++" import "Native/KLocale.hh";      // init_process_locale
-ffi "c++" import "Native/KTimeReport.hh";  // strcmp/strncmp for _scan_timing_flags
-ffi "c++" import "llvm/Support/InitLLVM.h";
-ffi "c++" import "llvm/Support/Locale.h";
-ffi "c++" import "llvm/MC/TargetRegistry.h";
-ffi "c++" import "llvm/MC/MCSubtargetInfo.h";
-ffi "c++" import "llvm/Support/TargetSelect.h";
-ffi "c++" import "llvm/Support/raw_ostream.h";
-ffi "c++" import "llvm/TargetParser/Triple.h";
-ffi "c++" import "llvm/TargetParser/Host.h";
-ffi "c++" import "llvm/Target/TargetMachine.h";
-ffi "c++" import "llvm/Target/TargetOptions.h";
-ffi "c++" import "llvm/Support/CodeGen.h";
-
-/// \return the InitLLVM guard; main destroys it before returning.
-///
-/// \details Not a function-local static: its destructor runs llvm_shutdown,
-///          and as a static, built first, it was destroyed LAST -- after the
-///          parallel executor lld's parallelFor creates on first use, a static
-///          built later and so destroyed earlier. llvm_shutdown then stopped
-///          that dead executor and locked its freed mutex: an intermittent
-///          crash at exit, on the runs that linked.
-fn init_runtime(argc: i32, argv: *(*kairo::std::Legacy::char)) -> *llvm::InitLLVM {
-    var init_llvm = std::create::<llvm::InitLLVM>(argc, argv);
-    llvm::InitializeAllTargetInfos();
-    llvm::InitializeAllTargets();
-    llvm::InitializeAllTargetMCs();
-    llvm::InitializeAllAsmParsers();
-    llvm::InitializeAllAsmPrinters();
-
-    llvm::setBugReportMsg(
-        r"PLEASE submit a bug report to https://github.com/kairolang/kairo/issues and include the crash backtrace.\n"
-    );
-
-    // Locale from the environment, LC_CTYPE forced to UTF-8 if that did not
-    // give one (Native/KLocale.hh says why), eagerly on the main thread
-    // before any worker starts.
-    kairo::init_process_locale();
-
-    libcxx::use_facet::<libcxx::num_put::<std::Legacy::char>>(libcxx::locale());
-    libcxx::use_facet::<libcxx::num_get::<std::Legacy::char>>(libcxx::locale());
-
-    { // Force narrow char locale facets used by stringstream/to_string
-        var oss: libcxx::ostringstream;
-        oss << static_cast::<usize>(1) << 1.0;
-        oss.str();
-    }
-
-    const eval if defined(__linux__) {
-        var attr: pthread_attr_t;
-        pthread_attr_init(&attr);
-        pthread_attr_setstacksize(&attr, static_cast::<usize>(64 * 1024 * 1024));
-        // pthread_setattr_default_np(&attr);
-        pthread_attr_destroy(&attr);
-    }
-
-    return init_llvm;
+import Diagnostic::Registry::DiagID
+import Driver::CompilerInstance::CompilerInstance
+import Driver::Progress::progress_configure
+import Driver::Runtime::init_runtime
+import Support::FileIO::Path::Path
+import Support::TimeReport::{
+    TimeRegion,
+    time_enable,
+    time_finish,
+    time_print,
+    time_write_trace,
 }
+import std::c_char
+import std::env
+import std::io
 
 /// \brief raw argv scan for the timing switches, before any option machinery
 ///        exists.
@@ -107,162 +80,205 @@ fn init_runtime(argc: i32, argv: *(*kairo::std::Legacy::char)) -> *llvm::InitLLV
 ///
 /// \param trace_out set when any form of --time-trace is present.
 /// \return true if timing should be armed.
-fn _scan_timing_flags(
-    argc:      i32,
-    argv:      *(*kairo::std::Legacy::char),
-    trace_out: *bool
-) -> bool {
-    var on = false;
-    (*trace_out) = false;
+pub fn _scan_timing_flags(argc:      i32,
+                          argv:      unsafe *(unsafe *c_char),
+                          trace_out: unsafe *bool) -> bool {
+    var on = false
+    *trace_out = false
 
     for var i: i32 = 1; i < argc; ++i {
-        var a = argv[i];
-        if a == &null { continue; }
-        if libcxx::strcmp(a, r"--time-passes") == 0 { on = true; continue; }
+        var unsafe *a = argv[i]
+        if a == &null {
+            continue
+        }
+
+        if cxx::std::strcmp(a, r"--time-passes") == 0 {
+            on = true
+            continue
+        }
+
         // --print-stats / --stats-file reuse the --time-passes report.
-        if libcxx::strcmp(a, r"--print-stats") == 0 { on = true; continue; }
-        if libcxx::strncmp(a, r"--stats-file", 12) == 0 { on = true; continue; }
-        if libcxx::strncmp(a, r"--time-trace", 12) == 0 {
+        if cxx::std::strcmp(a, r"--print-stats") == 0 {
+            on = true
+            continue
+        }
+
+        if cxx::std::strncmp(a, r"--stats-file", 12) == 0 {
+            on = true
+            continue
+        }
+
+        if cxx::std::strncmp(a, r"--time-trace", 12) == 0 {
             // --time-trace, --time-trace=PATH, --time-trace PATH
-            on = true;
-            (*trace_out) = true;
-            continue;
+            on         = true
+            *trace_out = true
+            continue
         }
     }
 
-    return on;
+    return on
 }
 
 /// \brief writes the timing report to \p path instead of stderr.
 ///
 /// \details --stats-file. The report engine takes any FILE*; the Kairo
 ///          wrapper (time_print) only knows stderr, hence the direct call.
-fn _time_print_to(path: string) -> bool {
-    var p  = path;
-    var ok = false;
-    var f = libcxx::fopen(p.c_str(), r"wb");
+pub fn _time_print_to(const path: string) -> bool {
+    var        p  = path
+    var        ok = false
+    var unsafe *f = cxx::std::fopen(p.c_str(), r"wb")
     if f != &null {
-        kairo::TimeReport::print(f);
-        libcxx::fclose(f);
-        ok = true;
+        kairo::TimeReport::print(f)
+        cxx::std::fclose(f)
+        ok = true
     }
-    return ok;
+
+    return ok
 }
 
-fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
-    var want_tt = false;
-    var want_tp = _scan_timing_flags(argc, argv, &want_tt);
-    if want_tp { time_enable(true, want_tt); }
+pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
+    var want_tt = false
+    var want_tp = _scan_timing_flags(argc, argv, unsafe &want_tt)
+    if want_tp {
+        time_enable(true, want_tt)
+    }
 
-    var ci: *CompilerInstance = &null;
-    var llvm_init: *llvm::InitLLVM = &null;
+    var ci:        unsafe *CompilerInstance = &null
+    var llvm_init: unsafe *llvm::InitLLVM   = &null
 
     {
-        var _t_startup = TimeRegion("Startup");
+        var _t_startup = TimeRegion("Startup")
 
         {
-            var _t_rt = TimeRegion("Runtime");
-            Logger::init(Logger::Level::Trace);
-            llvm_init = init_runtime(argc, argv);
+            var _t_rt = TimeRegion("Runtime")
+            kairo::Logger::init(kairo::Logger::Level::Trace)
+            llvm_init = init_runtime(argc, argv)
         }
 
         {
-            var _t_inst = TimeRegion("Instance");
-            ci = std::create::<CompilerInstance>(argc, argv);
+            var _t_inst = TimeRegion("Instance")
+            ci = kairo::std::create<CompilerInstance>(argc, argv)
         }
     }
 
 
     finally {
-        Logger::set_dump_path(
-            Path::join_str(Path::parent_of(std::get_exe_path()), "kairo.log")
-        );
-        Logger::dump_to_file();
-        Logger::shutdown();
-        GlobalRecycler::shutdown_allocator_runtime();
+        kairo::Logger::set_dump_path(Path::join_str(Path::parent_of(env::exe_path()), "kairo.log"))
+        kairo::Logger::dump_to_file()
+        kairo::Logger::shutdown()
+        kairo::GlobalRecycler::shutdown_allocator_runtime()
         // llvm_shutdown, while every static it reaches is still alive (see
         // init_runtime). Last: nothing after this touches LLVM.
-        std::destroy(llvm_init);
+        kairo::std::destroy(llvm_init)
     }
 
-    finally { std::destroy(ci); }
+    finally {
+        kairo::std::destroy(ci)
+    }
 
-    // --- Identity: help / version / explain ------------------------------
-    //   These exit before any compilation state is needed.
-    if ci->wants_help()    { ci->print_help();    return 0; }
-    if ci->wants_version() { ci->print_version(); return 0; }
-    if ci->wants_explain() { return ci->run_explain();      }
+    /// # Identity: help / version / explain
+    ///   These exit before any compilation state is needed.
+    if ci->wants_help() {
+        ci->print_help()
+        return 0
+    }
 
-    // --- Info queries: --print-targets, --print-cfg, etc. ----------------
-    //   Most are stubs until their subsystems exist. run_info_query() handles
-    //   the implemented subset (currently --print-cfg).
-    if ci->wants_info_query() { return ci->run_info_query(); }
+    if ci->wants_version() {
+        ci->print_version()
+        return 0
+    }
 
-    // --- Validate CLI args -----------------------------------------------
+    if ci->wants_explain() {
+        return ci->run_explain()
+    }
+
+    /// # Info queries: --print-targets, --print-cfg, etc.
+    ///   Most are stubs until their subsystems exist. run_info_query() handles
+    ///   the implemented subset (currently --print-cfg).
+    if ci->wants_info_query() {
+        return ci->run_info_query()
+    }
+
+    /// # Validate CLI args
     if !ci->args_ok() {
-        ci->flush_errors();
-        return 1;
+        ci->flush_errors()
+        return 1
     }
 
     // Before anything reads the current directory: initialize() takes
     // Path::cwd() and every relative input path resolves against it.
     if !ci->apply_input_options() {
-        ci->flush_errors();
-        return 1;
+        ci->flush_errors()
+        return 1
     }
 
-    var fe_time = ci->invocation().frontend;
-    var want_stats = fe_time.print_stats || (!fe_time.stats_file.empty());
+    var fe_time    = ci->invocation()->frontend
+    var want_stats = fe_time.print_stats || !fe_time.stats_file.empty()
     if fe_time.time_passes || want_stats || !fe_time.time_trace.empty() {
-        want_tp = true;
-        want_tt = want_tt || !fe_time.time_trace.empty();
-        time_enable(true, want_tt);
+        want_tp = true
+        want_tt = want_tt || !fe_time.time_trace.empty()
+        time_enable(true, want_tt)
     }
 
     {
-        var _t_init = TimeRegion("Initialize");
-        ci->initialize(Path::cwd());
+        var _t_init = TimeRegion("Initialize")
+        ci->initialize(Path::cwd())
     }
 
-    // --- Layer 3: execute the FrontendAction pipeline --------------------
-    //
-    // The action strategy is encoded in CompilerInvocation::frontend.action.
-    // FrontendOptions::stops_at_* helpers gate each pipeline stage.
-    var result = ci->execute();
-    ci->flush_errors();
+    /// # Layer 3: execute the FrontendAction pipeline
+    ///
+    /// The action strategy is encoded in CompilerInvocation::frontend.action.
+    /// FrontendOptions::stops_at_* helpers gate each pipeline stage.
+
+    // auto stays off under --verbose: the log lines would share the pinned
+    // line's row.
+    if !progress_configure(ci->invocation()->args.get_string("progress"), fe_time.verbose) {
+        ci->diag()->report(
+            DiagID::U001E,
+            f"invalid --progress value '{ci->invocation()->args.get_string("progress")}'; expected one of: auto, always, never, lines",
+        ).emit()
+        ci->flush_errors()
+        return 1
+    }
+
+    var result = ci->execute()
+    ci->flush_errors()
 
     // An unwritable report/trace path is an error, not a note: the run
     // exited 0 with no file, which a script cannot tell from success.
-    var out_failed = false;
+    var out_failed = false
     if want_tp {
-        time_finish();
+        time_finish()
         // --stats-file alone replaces the stderr table; --time-passes still
         // asks for stderr, so it keeps it.
-        if fe_time.time_passes || (!want_stats) || (fe_time.stats_file.empty()) {
-            time_print();
+        if fe_time.time_passes || !want_stats || fe_time.stats_file.empty() {
+            time_print()
         }
+
         if !fe_time.stats_file.empty() {
             if !_time_print_to(fe_time.stats_file) {
-                std::eprintln(f"error [U001E]: cannot write statistics to '{fe_time.stats_file}\x27");
-                out_failed = true;
+                io::eprintln(f"error [U023E]: cannot write statistics to '{fe_time.stats_file}'")
+                out_failed = true
             }
         }
 
         if want_tt {
             if time_write_trace(fe_time.time_trace) {
-                std::eprintln(f"time trace written to '{fe_time.time_trace}\x27");
+                io::eprintln(f"time trace written to '{fe_time.time_trace}'")
             } else {
-                std::eprintln(f"error [U001E]: cannot write time trace to '{fe_time.time_trace}\x27");
+                io::eprintln(f"error [U023E]: cannot write time trace to '{fe_time.time_trace}'")
                 // A bare --time-trace names no path at all; that was never a
                 // write failure, so it keeps its old exit status.
-                if !fe_time.time_trace.empty() { out_failed = true; }
+                if !fe_time.time_trace.empty() {
+                    out_failed = true
+                }
             }
         }
     }
 
-    if ci->invocation().frontend.verbose {
-        std::eprintln(f"compilation: {result.summary()}");
+    if ci->invocation()->frontend.verbose {
+        io::eprintln(f"compilation: {result.summary()}")
     }
 
-    return 0 if (result.ok() && (!out_failed)) else 1;
+    return if (result.ok() && !out_failed) => 0 else => 1
 }

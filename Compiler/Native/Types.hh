@@ -1,10 +1,13 @@
-/// --- The Kairo Project -------------------------------------------------- ///
+/// --- The Kairo Project ------------------------------ Native/Types.hh --- ///
+///
+///   The C++ base layer under the compiler: ownership aliases, std re-exports,
+///   SmallFunction, Expected, StackBuf, target queries and the ICE hook.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -59,7 +62,7 @@
 #include <tuple>
 
 #if defined(_WIN32)
-#include <windows.h>
+#include "Win32.hh"   // never <windows.h> here: see Win32.hh
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
 #elif defined(__linux__)
@@ -83,7 +86,10 @@
 #define _simd_available() 1
 #define _aarch64_simd
 #elif defined(__riscv)
-#define _thread_pause() asm volatile("pause" ::: "memory")
+// The raw encoding of `pause` (a FENCE hint): the mnemonic needs Zihintpause in
+// the target features, which the rv64gc baseline lacks; cores without it run it as
+// a no-op fence.
+#define _thread_pause() asm volatile(".4byte 0x0100000f" ::: "memory")
 #define _simd_available() 0
 #else
 #include <thread>
@@ -95,20 +101,6 @@ namespace kairo {
 /// `_thread_pause()` as a function: a C macro is no name a Kairo file can use.
 inline void thread_pause() noexcept { _thread_pause(); }
 
-#if !KAIRO_NATIVE_STAGE0
-/// \brief Calls a C++ callable object: Stage 0's `f(args...)` on a functor.
-///
-/// \details An imported C++ functor (a class with operator(), such as
-///          SmallFunction<64>) is not callable as `f()` from Kairo (SC062E;
-///          user decision 2026-11-03, no language change). The self-host
-///          migration writes `kairo::invoke(unsafe &f, args...)` instead. A
-///          pointer, because passing the C++ variable itself would move it
-///          (TODO(CXX-LVALUE-ARG)).
-template <class F, class... Args>
-decltype(auto) invoke(F *f, Args &&...args) {
-    return (*f)(::std::forward<Args>(args)...);
-}
-#endif
 }  // namespace kairo
 
 #include <llvm/ADT/StringRef.h>
@@ -638,18 +630,30 @@ template <class S>
     return ::std::string(v.data(), v.size());
 }
 
-/// \brief std::getline through pointers: Stage 0's `getline(stream, line)`.
+/// \brief A Kairo string copied from a std::string (the reverse of to_std_string).
 ///
-/// \details In Stage 1 a move-only C++ variable passed to a C++ call is
-///          moved (Kairo has no std::move; user decision 2026-11-03), so a
-///          stream handed to std::getline's `istream&` would be gone after
-///          the first line. The self-host migration passes pointers here
-///          instead (TODO(CXX-LVALUE-ARG)). Returns the stream's state, as
-///          `if (std::getline(s, l))` reads it.
-template <class Stream, class Str>
-bool getline(Stream *stream, Str *line) {
-    return static_cast<bool>(::std::getline(*stream, *line));
+/// \details S is the Kairo string type, passed by the caller as
+///          `from_std_string<string>(x)`: no Native header can name the Stage 1
+///          builtin string. Copies the bytes and their count, so an embedded NUL
+///          survives. Ruling 2026-11-04: no implicit C++ converting constructors,
+///          so `string(std_string)` is written through this (TODO(STD-STRING)).
+template <class S>
+S from_std_string(const ::std::string &s) {
+    return S(reinterpret_cast<const unsigned char *>(s.data()), static_cast<::std::size_t>(s.size()));
 }
+
+/// \brief A Kairo string copied from an llvm::StringRef (see from_std_string).
+template <class S>
+S from_sref(llvm::StringRef r) {
+    return S(reinterpret_cast<const unsigned char *>(r.data()), static_cast<::std::size_t>(r.size()));
+}
+
+/// \brief The offset of a stream position as i64: `fpos` converts to streamoff only implicitly.
+template <class P>
+long long fpos_off(const P &p) {
+    return static_cast<long long>(p);
+}
+
 #endif
 
 ///
@@ -1045,23 +1049,10 @@ void eprintln(Args &&...t) {
 /// hands it to llvm::sys::path, which takes the bytes as they are.
 inline kairo::string get_exe_path() noexcept {
 #if defined(_WIN32)
-    wchar_t buf[32768];
-    DWORD   len = GetModuleFileNameW(nullptr, buf, 32768);
-    if (len == 0 || len == 32768) {
-        return {};
-    }
-    int n = WideCharToMultiByte(CP_UTF8, 0, buf, static_cast<int>(len), nullptr, 0, nullptr, nullptr);
-    if (n <= 0) {
-        return {};
-    }
-    libcxx::string out(static_cast<size_t>(n), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, buf, static_cast<int>(len), out.data(), n, nullptr, nullptr);
-    for (auto &c : out) {
-        if (c == '\\') {
-            c = '/';
-        }
-    }
-    return kairo::string(out.data(), out.size());
+    // 32767 UTF-16 units, at most 3 UTF-8 bytes each.
+    libcxx::string buf(3 * 32768, '\0');
+    size_t n = kairo::win32::exe_path_utf8(buf.data(), buf.size());
+    return kairo::string(buf.data(), n);
 
 #elif defined(__APPLE__)
     char     buf[4096];
@@ -1246,6 +1237,11 @@ inline IceFlushHook &ice_flush_hook() {
 inline void set_ice_flush_hook(ice_flush_fn f, void *ctx) {
     ice_flush_hook().ctx.store(ctx);
     ice_flush_hook().fn.store(f);
+}
+/// Clears the hook; Kairo has no null function value to pass to set_ice_flush_hook.
+inline void clear_ice_flush_hook() {
+    ice_flush_hook().fn.store(nullptr);
+    ice_flush_hook().ctx.store(nullptr);
 }
 
 template <class S>

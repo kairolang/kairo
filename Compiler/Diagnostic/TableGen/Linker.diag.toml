@@ -3,8 +3,8 @@
 #   Part of the Kairo Project, under the Apache License v2.0 with the
 #   Kairo Runtime Library Exception.
 #
-#   See: https://www.kairolang.org/LICENSE.txt
-#   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+#   See: https://www.kairolang.org/LICENSE
+#   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 #   Copyright (c) 2026 Dhruvan Kartik
 #
 # ------------------------------------------------------------------------ #
@@ -28,3 +28,162 @@ group = "Uncategorized"
     explain = "This is placeholder diagnostics. (Error)"
     [L001.F]
     explain = "This is placeholder diagnostics. (Fatal)"
+
+[L002]
+brief = "message from the linker"
+group = "linker"
+
+    [L002.E]
+    explain = """
+    # message from the linker
+
+    the linker reported this text; the compiler passes it on at the severity the linker gave it. Verbose and debug messages show only with --verbose.
+
+    ## how to fix
+
+    see the linker's text; undefined symbols are fixed by adding the object or library that defines them.
+    """
+
+    [L002.F]
+    explain = """
+    # message from the linker
+
+    the linker reported this text; the compiler passes it on at the severity the linker gave it. Verbose and debug messages show only with --verbose.
+
+    ## how to fix
+
+    see the linker's text; undefined symbols are fixed by adding the object or library that defines them.
+    """
+
+    [L002.W]
+    explain = """
+    # message from the linker
+
+    the linker reported this text; the compiler passes it on at the severity the linker gave it. Verbose and debug messages show only with --verbose.
+
+    ## how to fix
+
+    see the linker's text; undefined symbols are fixed by adding the object or library that defines them.
+    """
+
+    [L002.R]
+    explain = """
+    # message from the linker
+
+    the linker reported this text; the compiler passes it on at the severity the linker gave it. Verbose and debug messages show only with --verbose.
+
+    ## how to fix
+
+    see the linker's text; undefined symbols are fixed by adding the object or library that defines them.
+    """
+
+    [L002.V]
+    explain = """
+    # message from the linker
+
+    the linker reported this text; the compiler passes it on at the severity the linker gave it. Verbose and debug messages show only with --verbose.
+
+    ## how to fix
+
+    see the linker's text; undefined symbols are fixed by adding the object or library that defines them.
+    """
+
+    [L002.D]
+    explain = """
+    # message from the linker
+
+    the linker reported this text; the compiler passes it on at the severity the linker gave it. Verbose and debug messages show only with --verbose.
+
+    ## how to fix
+
+    see the linker's text; undefined symbols are fixed by adding the object or library that defines them.
+    """
+
+    [L002.I]
+    explain = """
+    # message from the linker
+
+    the linker reported this text; the compiler passes it on at the severity the linker gave it. Verbose and debug messages show only with --verbose.
+
+    ## how to fix
+
+    see the linker's text; undefined symbols are fixed by adding the object or library that defines them.
+    """
+
+    [L002.N]
+    explain = "Points at the related declaration."
+
+[L003]
+brief = "object file was never written"
+group = "linker"
+
+    [L003.E]
+    explain = """
+    # object file was never written
+
+    a compile job ended without producing the object file, so there is nothing to link.
+
+    ## how to fix
+
+    fix the earlier error that stopped the job.
+    """
+
+[L004]
+brief = "cannot create a temporary directory"
+group = "linker"
+
+    [L004.F]
+    explain = """
+    # cannot create a temporary directory
+
+    the object files of the run are staged in a temporary directory, and it could not be created.
+
+    ## how to fix
+
+    check TMPDIR and the free space there.
+    """
+
+[L005]
+brief = "link command line"
+group = "linker"
+
+    [L005.V]
+    explain = """
+    # link command line
+
+    the exact command the compiler runs to link, shown with --verbose.
+
+    ## how to fix
+
+    nothing to fix.
+    """
+
+[L006]
+brief = "linker input is unused"
+group = "linker"
+
+    [L006.W]
+    explain = """
+    # linker input is unused
+
+    an object or library was given on the command line, but the run does not link.
+
+    ## how to fix
+
+    drop the input, or ask for a link.
+    """
+
+[L007]
+brief = "the Kairo library cannot be used"
+group = "linker"
+
+    [L007.E]
+    explain = """
+    # the Kairo library cannot be used
+
+    the Kairo runtime library in the directory could not be built, or the build left it incomplete.
+
+    ## how to fix
+
+    rebuild the library, or check that the directory is writable.
+    """

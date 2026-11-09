@@ -1,135 +1,157 @@
 /// --- The Kairo Project ----------------------------- Support/Assert.k --- ///
 ///
-///   <short description>
+///   Assert: a small test-assertion harness that times the code under test.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/KShims.hh";   // volatile_i64
+ffi "c++" import "Native/KShims.hh" // volatile_i64
+ffi "c++" import "chrono"
 
-class Assert {
-    var passes:      usize = 0;
-    var fails:       usize = 0;
-    var overhead_ns: i64;
-    var name:        string;
+import std::io
+
+pub class Assert {
+    var passes:      usize  = 0
+    var fails:       usize  = 0
+    var overhead_ns: i64
+    var name:        string
 
     /// we can count the number of tests run by checking passes + fails
-    fn Assert(self, n: string) {
-        self.name = n;
-        self.overhead_ns = self.measure_timer_overhead();
+    pub fn Assert(self, const n: string) {
+        self.name        = n
+        self.overhead_ns = self.measure_timer_overhead()
     }
 
     // (libcxx::wcout) << f"  \033[90m({(self.passes) + (self.fails) + 1}) ●\033[0m {m}".raw_string() << (libcxx::endl);
 
     fn summary(self) {
-        var total = (self.passes) + (self.fails);
-        std::print(f"\n=== Test Summary: {self.name} ===");
-        std::print(f"  Passed: \033[32m{self.passes}\033[0m");
-        std::print(f"  Failed: \033[31m{self.fails}\033[0m");
-        std::print(f"  Total:  {total}");
+        var total = self.passes + self.fails
+        io::println(f"\n=== Test Summary: {self.name} ===")
+        io::println(f"  Passed: \x1b[32m{self.passes}\x1b[0m")
+        io::println(f"  Failed: \x1b[31m{self.fails}\x1b[0m")
+        io::println(f"  Total:  {total}")
     }
 
-    priv fn test_success(self, m: string, time: string) {
-        ++(self.passes);
-        std::print(f"\033[32m({(self.passes) + (self.fails)})\t[PASS]\033[0m\t\033[90m({time})\033[0m\t{m}");
+    priv fn test_success(self, const m: string, const time: string) {
+        ++self.passes
+        io::println(
+            f"\x1b[32m({(self.passes) + (self.fails)})\t[PASS]\x1b[0m\t\x1b[90m({time})\x1b[0m\t{m}",
+        )
     }
 
     priv fn <T> test_failure(self, m: string, e: T, v: T, time: string) {
-        ++(self.fails);
-        std::print(f"\033[31m({(self.passes) + (self.fails)}) \t[FAIL]\033[0m \t\033[90m({time})\033[0m \t{m}");
-        std::print(f"    \033[90m|>>>\033[0m expected: \033[33m{e}\033[0m");
-        std::print(f"    \033[90m|>>>\033[0m actual:   \033[31m{v}\033[0m");
+        ++self.fails
+        io::println(
+            f"\x1b[31m({(self.passes) + (self.fails)}) \t[FAIL]\x1b[0m \t\x1b[90m({time})\x1b[0m \t{m}",
+        )
+
+        io::println(f"    \x1b[90m|>>>\x1b[0m expected: \x1b[33m{e}\x1b[0m")
+        io::println(f"    \x1b[90m|>>>\x1b[0m actual:   \x1b[31m{v}\x1b[0m")
     }
 
     fn measure_timer_overhead(self) -> i64 {
-        const var iterations = 1000;
-        var total = libcxx::chrono::nanoseconds(0);
-        var dummy: kairo::volatile_i64 = 0;
+        const iterations                     = 1000
+        var   total                          = cxx::std::chrono::nanoseconds(0)
+        var   dummy:     kairo::volatile_i64 = 0
 
-        for (var i = 0; i < iterations; ++i) {
-            const var s = libcxx::chrono::steady_clock::now();
-            dummy = s.time_since_epoch().count();  // force materialization
-            const var e = libcxx::chrono::steady_clock::now();
-            total += libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(e - s);
+        for var i = 0; i < iterations; ++i {
+            const s = cxx::std::chrono::steady_clock::now()
+            dummy = s.time_since_epoch().count() // force materialization
+            const e = cxx::std::chrono::steady_clock::now()
+            total += cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(e - s)
         }
 
-        return total.count() / iterations;
+        return total.count() / iterations
     }
 
     priv fn <T> time_and_run(self, c: fn () -> T, iters: usize) -> (T, string) {
-        const var start = libcxx::chrono::steady_clock::now();
-        
-        var v: T;
+        const start = cxx::std::chrono::steady_clock::now()
+
+        var v: T
         for var i: usize = 0; i < iters; ++i {
-            v = c();
+            v = c()
         }
 
-        const var end =   libcxx::chrono::steady_clock::now();
-        const var dur =   libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - start);
-        
-        const var ns  = (((dur.count())) / iters) - (self.overhead_ns);
-        const var us  = (static_cast::<f64>(ns)) / (1000.0);
-        const var ms  = (static_cast::<f64>(ns)) / (1000000.0);
-        const var s   = (static_cast::<f64>(ns)) / (1000000000.0);
+        const end = cxx::std::chrono::steady_clock::now()
+        const dur = cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(end - start)
+
+        const ns = (dur.count() as u64) / (iters as u64) - (self.overhead_ns as u64)
+        const us = (ns as f64) / 1000.0
+        const ms = (ns as f64) / 1000000.0
+        const s  = (ns as f64) / 1000000000.0
 
         if us < 10.0 {
-            if (iters > 1) {
-                return (v, f"mean: {ns}ns,\titers: {iters}");
+            if iters > 1 {
+                return (v, f"mean: {ns}ns,\titers: {iters}")
             }
-            return (v, f"{ns}ns");
-        } if ms < 10.0 {
-            if (iters > 1) {
-                return (v, f"mean: {us}us,\titers: {iters}");
-            }
-            return (v, f"{us}us");
-        } if s < 10.0 {
-            if (iters > 1) {
-                return (v, f"mean: {ms}ms,\titers: {iters}");
-            }
-            return (v, f"{ms}ms");
+
+            return (v, f"{ns}ns")
         }
-        if (iters > 1) {
-            return (v, f"mean: {s}s,\titers: {iters}");
+
+        if ms < 10.0 {
+            if iters > 1 {
+                return (v, f"mean: {us}us,\titers: {iters}")
+            }
+
+            return (v, f"{us}us")
         }
-        return (v, f"{s}s");
+
+        if s < 10.0 {
+            if iters > 1 {
+                return (v, f"mean: {ms}ms,\titers: {iters}")
+            }
+
+            return (v, f"{ms}ms")
+        }
+
+        if iters > 1 {
+            return (v, f"mean: {s}s,\titers: {iters}")
+        }
+
+        return (v, f"{s}s")
     }
 
-    fn <T> equal(self, m: string, e: T, c: fn () -> T, iters: usize = 1) {
-        var res      = self.time_and_run::<T>(c, iters);
-        var v        = libcxx::get::<0>(res);
-        var time_str = libcxx::get::<1>(res);
+    // TODO(DUCK-GENERIC): T uses op ==. Stage 0 was duck-typed; bound it or keep `: type`.
+    pub fn <T: type> equal(self, m: string, e: T, c: fn () -> T, iters: usize = 1) {
+        var res      = self.time_and_run<T>(c, iters)
+        var v        = res.0
+        var time_str = res.1
 
         if e == v {
-            self.test_success(m, time_str);
+            self.test_success(m, time_str)
         } else {
-            self.test_failure(m, e, v, time_str);
+            self.test_failure(m, e, v, time_str)
         }
     }
 
-    fn <T> not_equal(self, m: string, e: T, c: fn () -> T, iters: usize = 1) {
-        var res      = self.time_and_run::<T>(c, iters);
-        var v        = libcxx::get::<0>(res);
-        var time_str = libcxx::get::<1>(res);
+    // TODO(DUCK-GENERIC): T uses op !=. Stage 0 was duck-typed; bound it or keep `: type`.
+    fn <T: type> not_equal(self, m: string, e: T, c: fn () -> T, iters: usize = 1) {
+        var res      = self.time_and_run<T>(c, iters)
+        var v        = res.0
+        var time_str = res.1
 
         if e != v {
-            self.test_success(m, time_str);
+            self.test_success(m, time_str)
         } else {
-            self.test_failure(m, e, v, time_str);
+            self.test_failure(m, e, v, time_str)
         }
     }
 
-    fn op delete (self) {
-        self.summary();
+    // Not transferable: the destructor prints the summary, so a copy would print it twice.
+    @copy fn Assert(self, const other: Self) = delete
+
+    fn op finally (self) {
+        self.summary()
     }
 
     fn reset(self) {
-        self.passes = 0;
-        self.fails  = 0;
+        self.passes = 0
+        self.fails  = 0
     }
 }

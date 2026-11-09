@@ -16,8 +16,8 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://kairo-lang.org/LICENSE.txt
-///   SPDX-License-Identifier: ApKairo Software Foundationache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -33,18 +33,15 @@
 ///     Scope / context modifiers
 ///     Compile-time blocks
 ///
-enum StmtKind derives u8 {
-    // -----------------------------------------------------------------------
-    //  Sentinel
-    // -----------------------------------------------------------------------
+
+pub enum StmtKind derives u8 {
+    /// # Sentinel
 
     /// Parser error sentinel. Carries the bad source range.
     /// `recovery_kind` on the Stmt base stores what we were trying to parse.
     RecoveryStmt = 0,
 
-    // -----------------------------------------------------------------------
-    //  Structural statements
-    // -----------------------------------------------------------------------
+    /// # Structural statements
 
     /// Compound statement / block:  { stmt* }
     /// Introduces a lexical scope. Destructors run at the closing brace
@@ -64,9 +61,7 @@ enum StmtKind derives u8 {
     /// Node: DeclStmt wraps a *Decl.
     DeclStmt,
 
-    // -----------------------------------------------------------------------
-    //  Jump / signal statements
-    // -----------------------------------------------------------------------
+    /// # Jump / signal statements
 
     /// Return from current function:  return | return expr
     /// Node: ReturnStmt with optional value *Expr.
@@ -114,9 +109,7 @@ enum StmtKind derives u8 {
     /// Node: JumpIntrinsicStmt with target name Token.
     JumpIntrinsicStmt,
 
-    // -----------------------------------------------------------------------
-    //  Control-flow statements
-    // -----------------------------------------------------------------------
+    /// # Control-flow statements
 
     /// Conditional statement:  if expr block (else if expr block)* (else block)?
     /// Both branches are CompoundStmt. `else_` is nullable.
@@ -163,9 +156,7 @@ enum StmtKind derives u8 {
     /// Node: LabeledStmt with label Token + inner *Stmt.
     LabeledStmt,
 
-    // -----------------------------------------------------------------------
-    //  Exception handling
-    // -----------------------------------------------------------------------
+    /// # Exception handling
 
     /// Try / catch block:  try { } catch [pattern] { } catch { } ...
     /// Catch arms can filter by panic type or catch-all. Sema enforces that
@@ -187,9 +178,7 @@ enum StmtKind derives u8 {
     /// Node: UnsafeBlockStmt with body *CompoundStmt.
     UnsafeBlockStmt,
 
-    // -----------------------------------------------------------------------
-    //  Scope / context modifiers
-    // -----------------------------------------------------------------------
+    /// # Scope / context modifiers
 
     /// Context / with statement:  expr as binding { body }
     ///   file as f { f.write("hello") }
@@ -214,9 +203,7 @@ enum StmtKind derives u8 {
     /// Node: InlineBlockStmt with lang Token + raw body span.
     InlineBlockStmt,
 
-    // -----------------------------------------------------------------------
-    //  Compile-time blocks
-    // -----------------------------------------------------------------------
+    /// # Compile-time blocks
 
     /// Eval block (decl-only):  eval { decl* }
     /// Wraps one or more declarations that must be const-evaluable. Sema
@@ -226,48 +213,77 @@ enum StmtKind derives u8 {
     /// Node: EvalBlockStmt with body FrozenList<*Decl>.
     EvalBlockStmt,
 
-    // -- Lowering-only ---------------------------------------------------
+    /// ## Lowering-only
+
     /// `switch (v) { case lo [... hi]: goto L; default: goto D | <policy> }`.
     /// Minted by MatchLowering; never parsed.
     /// Node: SwitchDispatchStmt.
     SwitchDispatchStmt,
 
-    // -----------------------------------------------------------------------
-    //  Marker
-    // -----------------------------------------------------------------------
+    /// # Marker
     StmtKindCount,
 }
 
-fn to_string(s: StmtKind) -> string {
-    switch s {
-        case StmtKind::RecoveryStmt { return "RecoveryStmt"; }
-        case StmtKind::CompoundStmt { return "CompoundStmt"; }
-        case StmtKind::ExpressionStmt { return "ExpressionStmt"; }
-        case StmtKind::DeclStmt { return "DeclStmt"; }
-        case StmtKind::ReturnStmt { return "ReturnStmt"; }
-        case StmtKind::BreakStmt { return "BreakStmt"; }
-        case StmtKind::ContinueStmt { return "ContinueStmt"; }
-        case StmtKind::PanicStmt { return "PanicStmt"; }
-        case StmtKind::YieldStmt { return "YieldStmt"; }
-        case StmtKind::RuntimeAssertStmt { return "RuntimeAssertStmt"; }
-        case StmtKind::StaticAssertStmt { return "StaticAssertStmt"; }
-        case StmtKind::LabelIntrinsicStmt { return "LabelIntrinsicStmt"; }
-        case StmtKind::JumpIntrinsicStmt { return "JumpIntrinsicStmt"; }
-        case StmtKind::ConditionalStmt { return "ConditionalStmt"; }
-        case StmtKind::WhileLoopStmt { return "WhileLoopStmt"; }
-        case StmtKind::LoopStmt { return "LoopStmt"; }
-        case StmtKind::RangedForStmt { return "RangedForStmt"; }
-        case StmtKind::IndexedForStmt { return "IndexedForStmt"; }
-        case StmtKind::MatchStmt { return "MatchStmt"; }
-        case StmtKind::LabeledStmt { return "LabeledStmt"; }
-        case StmtKind::TryCatchStmt { return "TryCatchStmt"; }
-        case StmtKind::FinallyStmt { return "FinallyStmt"; }
-        case StmtKind::UnsafeBlockStmt { return "UnsafeBlockStmt"; }
-        case StmtKind::ContextBindingStmt { return "ContextBindingStmt"; }
-        case StmtKind::DestructuringDeclStmt { return "DestructuringDeclStmt"; }
-        case StmtKind::InlineBlockStmt { return "InlineBlockStmt"; }
-        case StmtKind::EvalBlockStmt { return "EvalBlockStmt"; }
-        case StmtKind::SwitchDispatchStmt { return "SwitchDispatchStmt"; }
-        case StmtKind::StmtKindCount { return "StmtKindCount"; }
+pub fn to_string(s: StmtKind) -> string {
+    match s {
+        case StmtKind::RecoveryStmt {
+            return "RecoveryStmt"
+        } case StmtKind::CompoundStmt {
+            return "CompoundStmt"
+        } case StmtKind::ExpressionStmt {
+            return "ExpressionStmt"
+        } case StmtKind::DeclStmt {
+            return "DeclStmt"
+        } case StmtKind::ReturnStmt {
+            return "ReturnStmt"
+        } case StmtKind::BreakStmt {
+            return "BreakStmt"
+        } case StmtKind::ContinueStmt {
+            return "ContinueStmt"
+        } case StmtKind::PanicStmt {
+            return "PanicStmt"
+        } case StmtKind::YieldStmt {
+            return "YieldStmt"
+        } case StmtKind::RuntimeAssertStmt {
+            return "RuntimeAssertStmt"
+        } case StmtKind::StaticAssertStmt {
+            return "StaticAssertStmt"
+        } case StmtKind::LabelIntrinsicStmt {
+            return "LabelIntrinsicStmt"
+        } case StmtKind::JumpIntrinsicStmt {
+            return "JumpIntrinsicStmt"
+        } case StmtKind::ConditionalStmt {
+            return "ConditionalStmt"
+        } case StmtKind::WhileLoopStmt {
+            return "WhileLoopStmt"
+        } case StmtKind::LoopStmt {
+            return "LoopStmt"
+        } case StmtKind::RangedForStmt {
+            return "RangedForStmt"
+        } case StmtKind::IndexedForStmt {
+            return "IndexedForStmt"
+        } case StmtKind::MatchStmt {
+            return "MatchStmt"
+        } case StmtKind::LabeledStmt {
+            return "LabeledStmt"
+        } case StmtKind::TryCatchStmt {
+            return "TryCatchStmt"
+        } case StmtKind::FinallyStmt {
+            return "FinallyStmt"
+        } case StmtKind::UnsafeBlockStmt {
+            return "UnsafeBlockStmt"
+        } case StmtKind::ContextBindingStmt {
+            return "ContextBindingStmt"
+        } case StmtKind::DestructuringDeclStmt {
+            return "DestructuringDeclStmt"
+        } case StmtKind::InlineBlockStmt {
+            return "InlineBlockStmt"
+        } case StmtKind::EvalBlockStmt {
+            return "EvalBlockStmt"
+        } case StmtKind::SwitchDispatchStmt {
+            return "SwitchDispatchStmt"
+        } case StmtKind::StmtKindCount {
+            return "StmtKindCount"
+        }
     }
 }

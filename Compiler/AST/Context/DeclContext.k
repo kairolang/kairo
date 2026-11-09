@@ -9,16 +9,24 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Memory::ArenaList::*;
-import AST::Context::ASTContext::*;
-import AST::Context::SymbolTable::*;
-import AST::Node::Base::*;
+import AST::Context::ASTContext::ASTContext
+import AST::Context::DisambigTable::{
+    DisambigNode,
+    LookupResult,
+}
+import AST::Context::SymbolTable::{
+    DeclName,
+    OverloadCell,
+    SymbolTable,
+}
+import AST::Node::Base::Decl
+import Memory::ArenaList::ArenaList
 
 /// \enum DeclContextKind
 /// \brief Discriminates the kind of scope a DeclContext represents.
@@ -34,14 +42,14 @@ import AST::Node::Base::*;
 ///          They overlap but are not 1:1 (e.g. GenericParams is a
 ///          ScopeKind only its params are owned by the enclosing
 ///          class/fn DeclContext, not a context of their own).
-enum DeclContextKind derives u8 {
+pub enum DeclContextKind derives u8 {
     /// The root context one per parsed file. Owns all top-level decls.
     TranslationUnit,
 
     /// module Foo { } | inline module Foo { } | anonymous module { }
     Module,
 
-    // -- Type scopes (is_type_scope() returns true for all of these) -----
+    /// # Type scopes (is_type_scope() returns true for all of these)
 
     /// class Foo<T> derives Bar impl Baz { }
     Class,
@@ -62,7 +70,7 @@ enum DeclContextKind derives u8 {
     /// existing type. Owns the decls written inside the extend body.
     Extension,
 
-    // -- Executable scopes -----------------------------------------------
+    /// # Executable scopes
 
     /// A free function or method body. Owns params (ParamDecl), local
     /// decls, and nested decls.
@@ -81,48 +89,62 @@ enum DeclContextKind derives u8 {
 
 /// A scope that owns declarations.
 /// Mixed into concrete decl nodes (ClassDecl, FunctionDecl, etc).
-class DeclContext {
-    pub var dc_kind:    DeclContextKind;
-    pub var dc_parent:  obs::<DeclContext>;      // lexical parent scope
-    pub var dc_owner:   obs::<Decl>;             // the Decl that owns this context (null for TU)
-    pub var dc_decls:   ArenaList::<*Decl>;      // owned decls, in source order (parser ordering)
-    pub var dc_scope:   obs::<DisambigNode>;     // hoisted scope node for lookup; populated by indexer
-    pub var dc_symbols: obs::<SymbolTable>;
+pub class DeclContext {
+    pub var dc_kind:    DeclContextKind
+    pub var dc_parent:  unsafe *DeclContext // lexical parent scope
+    pub var dc_owner:   unsafe *Decl // the Decl that owns this context (null for TU)
+    pub var dc_decls:   ArenaList<unsafe *Decl> // owned decls, in source order (parser ordering)
+    pub var dc_scope:   unsafe *DisambigNode // hoisted scope node for lookup; populated by indexer
+    pub var dc_symbols: unsafe *SymbolTable
 
-    fn init_dc(self, kind: DeclContextKind, ctx: *ASTContext, parent: *DeclContext, owner: *Decl) {
-        self.dc_kind    = kind;
-        self.dc_parent  = parent;
-        self.dc_owner   = owner;
-        self.dc_decls.set_allocator(&(ctx->ast_alloc));
-        self.dc_scope   = &null;
-        self.dc_symbols = &null;
+    pub fn init_dc(self,
+                   kind:   DeclContextKind,
+                   ctx:    unsafe *ASTContext,
+                   parent: unsafe *DeclContext,
+                   owner:  unsafe *Decl) {
+        self.dc_kind   = kind
+        self.dc_parent = parent
+        self.dc_owner  = owner
+        self.dc_decls.set_allocator(unsafe &ctx->ast_alloc)
+        self.dc_scope   = &null
+        self.dc_symbols = &null
     }
 
     /// Wire the hoisted scope node in after the index pass. The indexer
     /// owns population of the DisambigNode; the parser links it here so
     /// lookup_local() can delegate.
-    fn set_scope(self, scope: *DisambigNode) {
-        self.dc_scope = scope;
+    pub fn set_scope(self, scope: unsafe *DisambigNode) {
+        self.dc_scope = scope
     }
 
-    fn set_symbols(self, t: *SymbolTable) {
-        self.dc_symbols = t;
+    pub fn set_symbols(self, t: unsafe *SymbolTable) {
+        self.dc_symbols = t
     }
 
-    fn symbols(self) -> *SymbolTable { return self.dc_symbols; }
+    pub fn symbols(self) -> unsafe *SymbolTable {
+        return self.dc_symbols
+    }
 
     /// Append a child decl in source order. NOTE: this updates the flat
     /// ordered list only the lookup index (dc_scope) is populated by the
     /// indexer during hoisting, not here. The two containers serve
     /// different roles: dc_decls preserves order for codegen/printing,
     /// dc_scope answers name queries in O(1).
-    fn add_decl(self, d: *Decl) {
-        self.dc_decls.push(d);
+    pub fn add_decl(self, d: unsafe *Decl) {
+        self.dc_decls.push(d)
     }
 
-    fn parent_context(self) -> *DeclContext { return self.dc_parent; }
-    fn owner_decl(self)     -> *Decl        { return self.dc_owner;  }
-    fn context_kind(self)   -> DeclContextKind { return self.dc_kind; }
+    pub fn parent_context(self) -> unsafe *DeclContext {
+        return self.dc_parent
+    }
+
+    pub fn owner_decl(self) -> unsafe *Decl {
+        return self.dc_owner
+    }
+
+    pub fn context_kind(self) -> DeclContextKind {
+        return self.dc_kind
+    }
 
     /// Looks up a name in THIS scope only (no parent walk). Delegates to
     /// the hoisted scope node. Returns not_found if the scope isn't wired
@@ -133,46 +155,68 @@ class DeclContext {
     ///          non-generic callables, and macros are never hoisted. Sema
     ///          must not use this as a member table; it builds its own.
     fn lookup_local(self, name: u32) -> LookupResult {
-        if self.dc_scope == &null { return LookupResult::not_found(); }
-        var entries = self.dc_scope->lookup(name);
-        if entries == &null { return LookupResult::not_found(); }
-        var r = LookupResult{};
-        r.entries = entries;
-        r.node    = self.dc_scope;
-        return r;
+        if self.dc_scope == &null {
+            return LookupResult::not_found()
+        }
+
+        var unsafe *entries = self.dc_scope->lookup(name)
+        if entries == &null {
+            return LookupResult::not_found()
+        }
+
+        var r = LookupResult{}
+        r.entries = entries
+        r.node    = self.dc_scope
+        return r
     }
 
     /// Sema-facing lookup in THIS scope only. Null if the table isn't built
     /// or the name is absent. Unqualified lookup are NameResolutions job built
     /// on this primitive.
-    fn lookup_symbol(self, name: DeclName) -> *OverloadCell {
-        if self.dc_symbols == &null { return &null; }
-        return self.dc_symbols->lookup(name);
+    pub fn lookup_symbol(self, name: DeclName) -> unsafe *OverloadCell {
+        if self.dc_symbols == &null {
+            return &null
+        }
+
+        return self.dc_symbols->lookup(name)
     }
 
-    fn lookup_symbol_ident(self, imm: u32) -> *OverloadCell {
-        if self.dc_symbols == &null { return &null; }
-        return self.dc_symbols->lookup_ident(imm);
+    pub fn lookup_symbol_ident(self, imm: u32) -> unsafe *OverloadCell {
+        if self.dc_symbols == &null {
+            return &null
+        }
+
+        return self.dc_symbols->lookup_ident(imm)
     }
 
     /// Walks up the parent chain looking for a context of the given kind.
-    fn enclosing(self, kind: DeclContextKind) -> *DeclContext {
-        var c = self.dc_parent;
+    fn enclosing(self, kind: DeclContextKind) -> unsafe *DeclContext {
+        var unsafe *c = self.dc_parent
         while c != &null {
-            if c->dc_kind == kind { return c; }
-            c = c->dc_parent;
+            if c->dc_kind == kind {
+                return c
+            }
+
+            c = c->dc_parent
         }
-        return &null;
+
+        return &null
     }
 
-    fn is_translation_unit(self) -> bool { return self.dc_kind == DeclContextKind::TranslationUnit; }
-    fn is_function(self)        -> bool { return self.dc_kind == DeclContextKind::Function; }
-    fn is_type_scope(self)      -> bool {
+    pub fn is_translation_unit(self) -> bool {
+        return self.dc_kind == DeclContextKind::TranslationUnit
+    }
+
+    pub fn is_function(self) -> bool {
+        return self.dc_kind == DeclContextKind::Function
+    }
+
+    pub fn is_type_scope(self) -> bool {
         return self.dc_kind == DeclContextKind::Class
             || self.dc_kind == DeclContextKind::Struct
             || self.dc_kind == DeclContextKind::Enum
             || self.dc_kind == DeclContextKind::Union
             || self.dc_kind == DeclContextKind::Interface
-            || self.dc_kind == DeclContextKind::Extension;
+            || self.dc_kind == DeclContextKind::Extension
     }
 }

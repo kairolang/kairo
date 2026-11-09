@@ -10,146 +10,172 @@
 ///         in create. FrozenList members are populated via from_buf(..., ctx)
 ///         even when empty (size 0).
 ///
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// --------------------------------------------------------------------- ///
 
-import AST::Node::Base::*;
-import AST::Context::ASTContext::*;
-import AST::ASTSupport::*;
-import AST::Node::PrimaryExpressions::*;
-import Location::SourceRange::*;
-import Token::Token::*;
+import AST::ASTSupport::FrozenList
+import AST::Context::ASTContext::ASTContext
+import AST::Kind::PatternKind::PatternKind
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Pattern,
+    Type,
+}
+import Location::SourceRange::SourceRange
+import Token::Token::Token
 
 ///  WildcardPattern :  _
-class WildcardPattern derives Pattern {
-    static fn create(ctx: *ASTContext, range: SourceRange) -> *WildcardPattern {
-        var node   = ctx->alloc::<WildcardPattern>();
-        node->kind  = PatternKind::WildcardPattern;
-        node->range = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+pub class WildcardPattern derives Pattern {
+    pub static fn create(ctx: *ASTContext, range: SourceRange) -> unsafe *WildcardPattern {
+        var unsafe *node = ctx->alloc<WildcardPattern>()
+        node->kind  = PatternKind::WildcardPattern
+        node->range = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *WildcardPattern {
-        var node            = ctx->alloc::<WildcardPattern>();
-        node->kind          = PatternKind::RecoveryPattern;
-        node->recovery_kind = PatternKind::WildcardPattern;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *WildcardPattern {
+        var unsafe *node = ctx->alloc<WildcardPattern>()
+        node->kind          = PatternKind::RecoveryPattern
+        node->recovery_kind = PatternKind::WildcardPattern
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
-    /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
-        return ptr->kind == PatternKind::WildcardPattern;
+
+    /* OVERRIDE */
+    static fn classof(ptr: *const Pattern) -> bool {
+        return ptr->kind == PatternKind::WildcardPattern
     }
-    /* OVERRIDE */ static fn pattern_kind() -> PatternKind {
-        return PatternKind::WildcardPattern;
+
+    /* OVERRIDE */
+    static fn pattern_kind() -> PatternKind {
+        return PatternKind::WildcardPattern
     }
 }
 
 ///  LiteralPattern :  1 | "foo" | true | null | 'a'
 ///  `value` is the literal expr (IntegerLiteralExpr, StringLiteralExpr, etc).
-class LiteralPattern derives Pattern {
-    pub var value: *Expr;
+pub class LiteralPattern derives Pattern {
+    pub var value: unsafe *Expr
 
-    static fn create(ctx: *ASTContext, range: SourceRange, value: *Expr) -> *LiteralPattern {
-        var node   = ctx->alloc::<LiteralPattern>();
-        node->kind  = PatternKind::LiteralPattern;
-        node->range = range;
-        node->value = value;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:   *ASTContext,
+                         range: SourceRange,
+                         value: unsafe *Expr) -> unsafe *LiteralPattern {
+        var unsafe *node = ctx->alloc<LiteralPattern>()
+        node->kind  = PatternKind::LiteralPattern
+        node->range = range
+        node->value = value
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *LiteralPattern {
-        var node            = ctx->alloc::<LiteralPattern>();
-        node->kind          = PatternKind::RecoveryPattern;
-        node->recovery_kind = PatternKind::LiteralPattern;
-        node->range         = range;
-        node->value         = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *LiteralPattern {
+        var unsafe *node = ctx->alloc<LiteralPattern>()
+        node->kind          = PatternKind::RecoveryPattern
+        node->recovery_kind = PatternKind::LiteralPattern
+        node->range         = range
+        node->value         = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
-    /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
-        return ptr->kind == PatternKind::LiteralPattern;
+
+    /* OVERRIDE */
+    static fn classof(ptr: *const Pattern) -> bool {
+        return ptr->kind == PatternKind::LiteralPattern
     }
-    /* OVERRIDE */ static fn pattern_kind() -> PatternKind {
-        return PatternKind::LiteralPattern;
+
+    /* OVERRIDE */
+    static fn pattern_kind() -> PatternKind {
+        return PatternKind::LiteralPattern
     }
 }
 
 ///  BindingPattern :  var x | const x | var x: i32
 ///  Type-ascribed binding folds in here: type_ non-null when `: T` was written.
 ///  `is_const` is the resolved mutability. `name` is the bound identifier.
-class BindingPattern derives Pattern {
-    pub var name:     Token;
-    pub var is_const: bool  = false;
-    pub var type_:    *Type = &null;   ///< explicit `: T` ascription; null if none.
+pub class BindingPattern derives Pattern {
+    pub var name:     Token
+    pub var is_const: bool         = false
+    pub var type_:    unsafe *Type = &null ///< explicit `: T` ascription; null if none.
 
     /// The DECLARATION this pattern introduces (`case var n` declares `n`).
     /// Filled by PatternParse so the binder always has a Decl for uses in the
     /// arm body to bind to; see Statements.k Binding::decl for the rationale.
     /// Not in any symbol table (locals are excluded by design).
-    pub var decl:     *Decl = &null;   ///< always a VariableDecl; see Binding::decl.
+    pub var decl: unsafe *Decl = &null ///< always a VariableDecl; see Binding::decl.
 
-    static fn create(
-        ctx:      *ASTContext,
-        range:    SourceRange,
-        name:     Token,
-        is_const: bool,
-        type_:    *Type
-    ) -> *BindingPattern {
-        var node      = ctx->alloc::<BindingPattern>();
-        node->kind     = PatternKind::BindingPattern;
-        node->range    = range;
-        node->name     = name;
-        node->is_const = is_const;
-        node->type_    = type_;
-        node->init_annotations(&(ctx->ast_alloc));;
+    pub static fn create(ctx:      *ASTContext,
+                         range:    SourceRange,
+                         name:     Token,
+                         is_const: bool,
+                         type_:    unsafe *Type) -> unsafe *BindingPattern {
+        var unsafe *node = ctx->alloc<BindingPattern>()
+        node->kind     = PatternKind::BindingPattern
+        node->range    = range
+        node->name     = name
+        node->is_const = is_const
+        node->type_    = type_
+        node->init_annotations(unsafe &ctx->ast_alloc)
         // `decl` is filled by PatternParse (which can see Declarations.k);
         // this file must not import it.
-        return node;
+        return node
     }
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *BindingPattern {
-        var node            = ctx->alloc::<BindingPattern>();
-        node->kind          = PatternKind::RecoveryPattern;
-        node->recovery_kind = PatternKind::BindingPattern;
-        node->range         = range;
-        node->type_         = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *BindingPattern {
+        var unsafe *node = ctx->alloc<BindingPattern>()
+        node->kind          = PatternKind::RecoveryPattern
+        node->recovery_kind = PatternKind::BindingPattern
+        node->range         = range
+        node->type_         = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
-    /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
-        return ptr->kind == PatternKind::BindingPattern;
+
+    /* OVERRIDE */
+    static fn classof(ptr: *const Pattern) -> bool {
+        return ptr->kind == PatternKind::BindingPattern
     }
-    /* OVERRIDE */ static fn pattern_kind() -> PatternKind {
-        return PatternKind::BindingPattern;
+
+    /* OVERRIDE */
+    static fn pattern_kind() -> PatternKind {
+        return PatternKind::BindingPattern
     }
 }
 
 ///  TupleDestructurePattern :  (p, p, ...)
-class TupleDestructurePattern derives Pattern {
-    pub var elements: FrozenList::<*Pattern>;
+pub class TupleDestructurePattern derives Pattern {
+    pub var elements: FrozenList<unsafe *Pattern>
 
-    static fn create(ctx: *ASTContext, range: SourceRange) -> *TupleDestructurePattern {
-        var node   = ctx->alloc::<TupleDestructurePattern>();
-        node->kind  = PatternKind::TupleDestructurePattern;
-        node->range = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx: *ASTContext, range: SourceRange) -> unsafe *TupleDestructurePattern {
+        var unsafe *node = ctx->alloc<TupleDestructurePattern>()
+        node->kind  = PatternKind::TupleDestructurePattern
+        node->range = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *TupleDestructurePattern {
-        var node            = ctx->alloc::<TupleDestructurePattern>();
-        node->kind          = PatternKind::RecoveryPattern;
-        node->recovery_kind = PatternKind::TupleDestructurePattern;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+
+    pub static fn create_error(ctx:   *ASTContext,
+                               range: SourceRange) -> unsafe *TupleDestructurePattern {
+        var unsafe *node = ctx->alloc<TupleDestructurePattern>()
+        node->kind          = PatternKind::RecoveryPattern
+        node->recovery_kind = PatternKind::TupleDestructurePattern
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
-    /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
-        return ptr->kind == PatternKind::TupleDestructurePattern;
+
+    /* OVERRIDE */
+    static fn classof(ptr: *const Pattern) -> bool {
+        return ptr->kind == PatternKind::TupleDestructurePattern
     }
-    /* OVERRIDE */ static fn pattern_kind() -> PatternKind {
-        return PatternKind::TupleDestructurePattern;
+
+    /* OVERRIDE */
+    static fn pattern_kind() -> PatternKind {
+        return PatternKind::TupleDestructurePattern
     }
 }
 
@@ -162,49 +188,52 @@ class TupleDestructurePattern derives Pattern {
 ///  the `.Ident`. `is_dotted` selects between them. `subpatterns` is the paren
 ///  payload, empty for a bare `.Variant` or `Foo` with no parens.
 ///  `has_parens` distinguishes `Foo` (nullary path pattern) from `Foo()`.
-class ConstructorPattern derives Pattern {
-    pub var head:        *Expr  = &null;          ///< resolved path (ChainExpr / NamedIdentExpr); null when is_dotted.
-    pub var dotted_name: Token;                   ///< the `.Ident`; valid when is_dotted.
-    pub var is_dotted:   bool   = false;
-    pub var has_parens:  bool   = false;          ///< `Foo()` / `.V()` vs `Foo` / `.V`.
-    pub var subpatterns: FrozenList::<*Pattern>;
+pub class ConstructorPattern derives Pattern {
+    pub var head:        unsafe *Expr                = &null ///< resolved path (ChainExpr / NamedIdentExpr); null when is_dotted.
+    pub var dotted_name: Token ///< the `.Ident`; valid when is_dotted.
+    pub var is_dotted:   bool                        = false
+    pub var has_parens:  bool                        = false ///< `Foo()` / `.V()` vs `Foo` / `.V`.
+    pub var subpatterns: FrozenList<unsafe *Pattern>
 
-    static fn create(
+    pub static fn create(
         ctx:        *ASTContext,
         range:      SourceRange,
-        head:       *Expr,                        // <-- was *Type
+        head:       unsafe *Expr,                        // <-- was *Type
         dotted:     Token,
         is_dotted:  bool,
         has_parens: bool
-    ) -> *ConstructorPattern {
-        var node        = ctx->alloc::<ConstructorPattern>();
-        node->kind       = PatternKind::ConstructorPattern;
-        node->range      = range;
-        node->head       = head;
-        node->dotted_name = dotted;
-        node->is_dotted  = is_dotted;
-        node->has_parens = has_parens;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    ) -> unsafe *ConstructorPattern {
+        var unsafe *node = ctx->alloc<ConstructorPattern>()
+        node->kind        = PatternKind::ConstructorPattern
+        node->range       = range
+        node->head        = head
+        node->dotted_name = dotted
+        node->is_dotted   = is_dotted
+        node->has_parens  = has_parens
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *ConstructorPattern {
-        var node            = ctx->alloc::<ConstructorPattern>();
-        node->kind          = PatternKind::RecoveryPattern;
-        node->recovery_kind = PatternKind::ConstructorPattern;
-        node->range         = range;
-        node->head          = &null;
-        node->is_dotted     = false;
-        node->has_parens    = false;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *ConstructorPattern {
+        var unsafe *node = ctx->alloc<ConstructorPattern>()
+        node->kind          = PatternKind::RecoveryPattern
+        node->recovery_kind = PatternKind::ConstructorPattern
+        node->range         = range
+        node->head          = &null
+        node->is_dotted     = false
+        node->has_parens    = false
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
-        return ptr->kind == PatternKind::ConstructorPattern;
+    /* OVERRIDE */
+    static fn classof(ptr: *const Pattern) -> bool {
+        return ptr->kind == PatternKind::ConstructorPattern
     }
-    /* OVERRIDE */ static fn pattern_kind() -> PatternKind {
-        return PatternKind::ConstructorPattern;
+
+    /* OVERRIDE */
+    static fn pattern_kind() -> PatternKind {
+        return PatternKind::ConstructorPattern
     }
 }
 
@@ -213,42 +242,46 @@ class ConstructorPattern derives Pattern {
 ///  Identical shape to ConstructorPattern minus the dotted case (dotted never
 ///  misses). Distinct kind so sema runs one "resolve-or-error" path instead of
 ///  re-deriving hit vs miss. Never produced for `.Variant`.
-class UnresolvedConstructorPattern derives Pattern {
-    pub var head:        *Expr = &null;           ///< the unresolved path (ChainExpr / NamedIdentExpr).
-    pub var has_parens:  bool  = false;
-    pub var subpatterns: FrozenList::<*Pattern>;
+pub class UnresolvedConstructorPattern derives Pattern {
+    pub var head:        unsafe *Expr                = &null ///< the unresolved path (ChainExpr / NamedIdentExpr).
+    pub var has_parens:  bool                        = false
+    pub var subpatterns: FrozenList<unsafe *Pattern>
 
-    static fn create(
+    pub static fn create(
         ctx:        *ASTContext,
         range:      SourceRange,
-        head:       *Expr,                        // <-- was *Type
+        head:       unsafe *Expr,                        // <-- was *Type
         has_parens: bool
-    ) -> *UnresolvedConstructorPattern {
-        var node        = ctx->alloc::<UnresolvedConstructorPattern>();
-        node->kind       = PatternKind::UnresolvedConstructorPattern;
-        node->range      = range;
-        node->head       = head;
-        node->has_parens = has_parens;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    ) -> unsafe *UnresolvedConstructorPattern {
+        var unsafe *node = ctx->alloc<UnresolvedConstructorPattern>()
+        node->kind       = PatternKind::UnresolvedConstructorPattern
+        node->range      = range
+        node->head       = head
+        node->has_parens = has_parens
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *UnresolvedConstructorPattern {
-        var node            = ctx->alloc::<UnresolvedConstructorPattern>();
-        node->kind          = PatternKind::RecoveryPattern;
-        node->recovery_kind = PatternKind::UnresolvedConstructorPattern;
-        node->range         = range;
-        node->head          = &null;
-        node->has_parens    = false;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx:   *ASTContext,
+                           range: SourceRange) -> unsafe *UnresolvedConstructorPattern {
+        var unsafe *node = ctx->alloc<UnresolvedConstructorPattern>()
+        node->kind          = PatternKind::RecoveryPattern
+        node->recovery_kind = PatternKind::UnresolvedConstructorPattern
+        node->range         = range
+        node->head          = &null
+        node->has_parens    = false
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
-        return ptr->kind == PatternKind::UnresolvedConstructorPattern;
+    /* OVERRIDE */
+    static fn classof(ptr: *const Pattern) -> bool {
+        return ptr->kind == PatternKind::UnresolvedConstructorPattern
     }
-    /* OVERRIDE */ static fn pattern_kind() -> PatternKind {
-        return PatternKind::UnresolvedConstructorPattern;
+
+    /* OVERRIDE */
+    static fn pattern_kind() -> PatternKind {
+        return PatternKind::UnresolvedConstructorPattern
     }
 }
 
@@ -256,71 +289,79 @@ class UnresolvedConstructorPattern derives Pattern {
 ///  the `|` or-pattern. The match parser builds the comma list into MatchCase
 ///  patterns; this node is for `|` inside a single pattern position once we
 ///  add it. Reserved now so sema and the printer have the kind.)
-class AlternationPattern derives Pattern {
-    pub var alternatives: FrozenList::<*Pattern>;
+pub class AlternationPattern derives Pattern {
+    pub var alternatives: FrozenList<unsafe *Pattern>
 
-    static fn create(ctx: *ASTContext, range: SourceRange) -> *AlternationPattern {
-        var node   = ctx->alloc::<AlternationPattern>();
-        node->kind  = PatternKind::AlternationPattern;
-        node->range = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create(ctx: *ASTContext, range: SourceRange) -> unsafe *AlternationPattern {
+        var unsafe *node = ctx->alloc<AlternationPattern>()
+        node->kind  = PatternKind::AlternationPattern
+        node->range = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *AlternationPattern {
-        var node            = ctx->alloc::<AlternationPattern>();
-        node->kind          = PatternKind::RecoveryPattern;
-        node->recovery_kind = PatternKind::AlternationPattern;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *AlternationPattern {
+        var unsafe *node = ctx->alloc<AlternationPattern>()
+        node->kind          = PatternKind::RecoveryPattern
+        node->recovery_kind = PatternKind::AlternationPattern
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
-    /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
-        return ptr->kind == PatternKind::AlternationPattern;
+
+    /* OVERRIDE */
+    static fn classof(ptr: *const Pattern) -> bool {
+        return ptr->kind == PatternKind::AlternationPattern
     }
-    /* OVERRIDE */ static fn pattern_kind() -> PatternKind {
-        return PatternKind::AlternationPattern;
+
+    /* OVERRIDE */
+    static fn pattern_kind() -> PatternKind {
+        return PatternKind::AlternationPattern
     }
 }
 
 ///  RangePattern :  lo..hi | lo..=hi   bounds are *Expr (sema enforces const).
 ///  Either bound may be null for open ranges (..hi, lo..) if we allow them in
 ///  pattern position; parser fills what's present.
-class RangePattern derives Pattern {
-    pub var lo:           *Expr = &null;
-    pub var hi:           *Expr = &null;
-    pub var is_inclusive: bool  = false;   ///< `..=`
+pub class RangePattern derives Pattern {
+    pub var lo:           unsafe *Expr = &null
+    pub var hi:           unsafe *Expr = &null
+    pub var is_inclusive: bool         = false ///< `..=`
 
-    static fn create(
-        ctx:          *ASTContext,
-        range:        SourceRange,
-        lo:           *Expr,
-        hi:           *Expr,
-        is_inclusive: bool
-    ) -> *RangePattern {
-        var node          = ctx->alloc::<RangePattern>();
-        node->kind         = PatternKind::RangePattern;
-        node->range        = range;
-        node->lo           = lo;
-        node->hi           = hi;
-        node->is_inclusive = is_inclusive;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:          *ASTContext,
+                         range:        SourceRange,
+                         lo:           unsafe *Expr,
+                         hi:           unsafe *Expr,
+                         is_inclusive: bool) -> unsafe *RangePattern {
+        var unsafe *node = ctx->alloc<RangePattern>()
+        node->kind         = PatternKind::RangePattern
+        node->range        = range
+        node->lo           = lo
+        node->hi           = hi
+        node->is_inclusive = is_inclusive
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *RangePattern {
-        var node            = ctx->alloc::<RangePattern>();
-        node->kind          = PatternKind::RecoveryPattern;
-        node->recovery_kind = PatternKind::RangePattern;
-        node->range         = range;
-        node->lo            = &null;
-        node->hi            = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *RangePattern {
+        var unsafe *node = ctx->alloc<RangePattern>()
+        node->kind          = PatternKind::RecoveryPattern
+        node->recovery_kind = PatternKind::RangePattern
+        node->range         = range
+        node->lo            = &null
+        node->hi            = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
-    /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
-        return ptr->kind == PatternKind::RangePattern;
+
+    /* OVERRIDE */
+    static fn classof(ptr: *const Pattern) -> bool {
+        return ptr->kind == PatternKind::RangePattern
     }
-    /* OVERRIDE */ static fn pattern_kind() -> PatternKind {
-        return PatternKind::RangePattern;
+
+    /* OVERRIDE */
+    static fn pattern_kind() -> PatternKind {
+        return PatternKind::RangePattern
     }
 }
 
@@ -329,40 +370,43 @@ class RangePattern derives Pattern {
 ///  marks the `..`; `rest_binding` is the optional `..name` (null for bare `..`
 ///  or no rest). Without a rest, all elements live in `prefix` and suffix is
 ///  empty.
-class SlicePattern derives Pattern {
-    pub var prefix:       FrozenList::<*Pattern>;
-    pub var suffix:       FrozenList::<*Pattern>;
-    pub var has_rest:     bool  = false;
-    pub var rest_binding: *Pattern = &null;   ///< BindingPattern for `..name`; null otherwise.
+pub class SlicePattern derives Pattern {
+    pub var prefix:       FrozenList<unsafe *Pattern>
+    pub var suffix:       FrozenList<unsafe *Pattern>
+    pub var has_rest:     bool                        = false
+    pub var rest_binding: unsafe *Pattern             = &null ///< BindingPattern for `..name`; null otherwise.
 
-    static fn create(
-        ctx:          *ASTContext,
-        range:        SourceRange,
-        has_rest:     bool,
-        rest_binding: *Pattern
-    ) -> *SlicePattern {
-        var node          = ctx->alloc::<SlicePattern>();
-        node->kind         = PatternKind::SlicePattern;
-        node->range        = range;
-        node->has_rest     = has_rest;
-        node->rest_binding = rest_binding;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:          *ASTContext,
+                         range:        SourceRange,
+                         has_rest:     bool,
+                         rest_binding: unsafe *Pattern) -> unsafe *SlicePattern {
+        var unsafe *node = ctx->alloc<SlicePattern>()
+        node->kind         = PatternKind::SlicePattern
+        node->range        = range
+        node->has_rest     = has_rest
+        node->rest_binding = rest_binding
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *SlicePattern {
-        var node            = ctx->alloc::<SlicePattern>();
-        node->kind          = PatternKind::RecoveryPattern;
-        node->recovery_kind = PatternKind::SlicePattern;
-        node->range         = range;
-        node->has_rest      = false;
-        node->rest_binding  = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *SlicePattern {
+        var unsafe *node = ctx->alloc<SlicePattern>()
+        node->kind          = PatternKind::RecoveryPattern
+        node->recovery_kind = PatternKind::SlicePattern
+        node->range         = range
+        node->has_rest      = false
+        node->rest_binding  = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
-    /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
-        return ptr->kind == PatternKind::SlicePattern;
+
+    /* OVERRIDE */
+    static fn classof(ptr: *const Pattern) -> bool {
+        return ptr->kind == PatternKind::SlicePattern
     }
-    /* OVERRIDE */ static fn pattern_kind() -> PatternKind {
-        return PatternKind::SlicePattern;
+
+    /* OVERRIDE */
+    static fn pattern_kind() -> PatternKind {
+        return PatternKind::SlicePattern
     }
 }

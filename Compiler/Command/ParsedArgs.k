@@ -1,93 +1,142 @@
 /// --- The Kairo Project ------------------------- Command/ParsedArgs.k --- ///
 ///
-///   <short description>
+///   ParsedArgs, the parsed flag values and input files of one command line.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Command::FlagUtils::*;
+ffi "c++" import "vector"
+ffi "c++" import "llvm/ADT/StringMap.h"
+ffi "c++" import "Native/Types.hh"
 
-class ParsedArgs {
-    pub var files: vec::<string>; ///< positional file paths
+import Command::FlagUtils::FlagValue
+
+pub class ParsedArgs {
+    pub var files: cxx::std::vector<string> ///< positional file paths
     /// Parallel to files: the -x language in force when each was seen ("" =
     /// by extension). Filled only when the Command tags positionals.
-    pub var file_langs: vec::<string>;
-    pub var ok:    bool = true;   ///< false if required fields missing / bounds violated
+    pub var file_langs: cxx::std::vector<string>
+    pub var ok:         bool                     = true ///< false if required fields missing / bounds violated
 
-    priv var _map: map::<string, FlagValue>;
+    /// StringMap, not DenseMap: _cell and get_list hand out pointers into
+    /// the values, and a StringMap entry is its own allocation that a rehash
+    /// never moves. Never iterated.
+    priv var _map: llvm::StringMap<FlagValue>
 
-    fn has(self, key: string) -> bool {
-        return self._map.contains(key);
+    fn has(self, const key: string) -> bool {
+        return self._map.contains(kairo::sref(key))
     }
 
-    fn is_set(self, key: string) -> bool {
-        if !self._map.contains(key) { return false; }
-        return self._map[key].is_set;
+    pub fn is_set(self, const key: string) -> bool {
+        if !self._map.contains(kairo::sref(key)) {
+            return false
+        }
+
+        return self._map[kairo::sref(key)].is_set
     }
 
-    fn get_bool(self, key: string) -> bool {
-        if !self._map.contains(key) { return false; }
-        return self._map[key].as_bool();
+    pub fn get_bool(self, const key: string) -> bool {
+        if !self._map.contains(kairo::sref(key)) {
+            return false
+        }
+
+        return self._map[kairo::sref(key)].as_bool()
     }
 
-    fn get_string(self, key: string) -> string {
-        if !self._map.contains(key) { return ""; }
-        return self._map[key].as_string();
+    pub fn get_string(self, const key: string) -> string {
+        if !self._map.contains(kairo::sref(key)) {
+            return ""
+        }
+
+        return self._map[kairo::sref(key)].as_string()
     }
 
-    fn get_i32(self, key: string) -> i32 {
-        if !self._map.contains(key) { return 0; }
-        return self._map[key].as_i32();
+    pub fn get_i32(self, const key: string) -> i32 {
+        if !self._map.contains(kairo::sref(key)) {
+            return 0
+        }
+
+        return self._map[kairo::sref(key)].as_i32()
     }
 
-    fn get_f64(self, key: string) -> f64 {
-        if !self._map.contains(key) { return 0.0; }
-        return self._map[key].as_f64();
+    fn get_f64(self, const key: string) -> f64 {
+        if !self._map.contains(kairo::sref(key)) {
+            return 0.0
+        }
+
+        return self._map[kairo::sref(key)].as_f64()
     }
 
-    fn get_list(self, key: string) -> ref!(vec::<string>) {
-        return self._map[key].as_list();
+    pub fn get_list(self, const key: string) -> unsafe *cxx::std::vector<string> {
+        return self._map[kairo::sref(key)].as_list()
     }
 
     /// \brief returns -1 (unset), 0 (-fno-{key}), or 1 (-f{key})
-    fn get_feature(self, key: string) -> i32 {
-        if !self._map.contains(key) { return -1; }
-        return self._map[key].as_feature();
+    pub fn get_feature(self, const key: string) -> i32 {
+        if !self._map.contains(kairo::sref(key)) {
+            return -1
+        }
+
+        return self._map[kairo::sref(key)].as_feature()
     }
 
     /// \brief config flag getters - key is without the 'c' CLI prefix
-    fn get_cfg_bool(self, key: string) -> bool {
-        var k = f"c:{key}";
-        if !self._map.contains(k) { return false; }
-        return self._map[k].as_bool();
-    }
-    fn get_cfg_i32(self, key: string) -> i32 {
-        var k = f"c:{key}";
-        if !self._map.contains(k) { return 0; }
-        return self._map[k].as_i32();
-    }
-    fn get_cfg_f64(self, key: string) -> f64 {
-        var k = f"c:{key}";
-        if !self._map.contains(k) { return 0.0; }
-        return self._map[k].as_f64();
-    }
-    fn get_cfg_str(self, key: string) -> string {
-        var k = f"c:{key}";
-        if !self._map.contains(k) { return ""; }
-        return self._map[k].as_string();
-    }
-    fn cfg_is_set(self, key: string) -> bool {
-        var k = f"c:{key}";
-        if !self._map.contains(k) { return false; }
-        return self._map[k].is_set;
+    fn get_cfg_bool(self, const key: string) -> bool {
+        var k = f"c:{key}"
+        if !self._map.contains(kairo::sref(k)) {
+            return false
+        }
+
+        return self._map[kairo::sref(k)].as_bool()
     }
 
-    fn _init(self, key: string, dfl: FlagValue) { self._map[key] = dfl; }
-    fn _cell(self, key: string) -> *FlagValue    { return &(self._map[key]); }
+    pub fn get_cfg_i32(self, const key: string) -> i32 {
+        var k = f"c:{key}"
+        if !self._map.contains(kairo::sref(k)) {
+            return 0
+        }
+
+        return self._map[kairo::sref(k)].as_i32()
+    }
+
+    pub fn get_cfg_f64(self, const key: string) -> f64 {
+        var k = f"c:{key}"
+        if !self._map.contains(kairo::sref(k)) {
+            return 0.0
+        }
+
+        return self._map[kairo::sref(k)].as_f64()
+    }
+
+    fn get_cfg_str(self, const key: string) -> string {
+        var k = f"c:{key}"
+        if !self._map.contains(kairo::sref(k)) {
+            return ""
+        }
+
+        return self._map[kairo::sref(k)].as_string()
+    }
+
+    pub fn cfg_is_set(self, const key: string) -> bool {
+        var k = f"c:{key}"
+        if !self._map.contains(kairo::sref(k)) {
+            return false
+        }
+
+        return self._map[kairo::sref(k)].is_set
+    }
+
+    fn _init(self, const key: string, const dfl: FlagValue) {
+        self._map[kairo::sref(key)] = dfl
+    }
+
+    fn _cell(self, const key: string) -> *FlagValue {
+        return &self._map[kairo::sref(key)]
+    }
 }

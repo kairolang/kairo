@@ -14,11 +14,11 @@
 ///     X bound (`string_ctor`); nothing is looked up.
 ///
 ///     A literal C++ reads at compile time (StringLiteralExpr::const_eval,
-///     EVAL.md 2a) passes its bytes uncast: EmitIR spells them as
+///     Compiler/Spec/Eval.md#strings-at-compile-time) passes its bytes uncast: EmitIR spells them as
 ///     `__kairo_estr<...>`, a `const unsigned char` array.
 ///
 ///     A literal CallTyping marked as a C string argument
-///     (StringLiteralExpr::c_string, P301) becomes the bytes alone:
+///     (StringLiteralExpr::c_string) becomes the bytes alone:
 ///       strlen("ab")         ->  strlen("ab")
 ///
 ///     Only a literal typed `string` is rewritten. The byte literals this
@@ -36,117 +36,167 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::SemaContext::*;
-import Sema::Type::TypeUtil::*;
-import Sema::Lower::LowerSynth::*;
-import AST::Visitor::ASTWriter::*;
-import AST::ASTSupport::*;
-import AST::Context::ASTContext::*;
-import AST::LangItems::*;
-import AST::Node::Base::*;
-import AST::Node::Expressions::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Statements::*;
-import AST::Node::Declarations::*;
-import AST::Node::CanonicalNodes::*;
-import AST::Node::Casting::*;
-import AST::Kind::ExprKind::*;
-import Lexer::Immediate::*;
-import Token::Token::*;
-import Token::TokenKind::*;
-import Location::SourceRange::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
 
-class StringLowering derives ASTWriter::<StringLowering> {
-    pub var sc: *SemaContext;
-    priv var tu: TypeUtil;
-    priv var synth: LowerSynth;
+import AST::Kind::ExprKind::to_string
+import AST::LangItems::{
+    WellKnownType,
+    to_string,
+}
+import AST::Node::Base::Expr
+import AST::Node::CanonicalNodes::{
+    BuiltinKind,
+    QUAL_CONST,
+    canon_unqual,
+}
+import AST::Node::Casting::cast
+import AST::Node::Expressions::CastMode
+import AST::Node::PrimaryExpressions::StringLiteralExpr
+import AST::Visitor::ASTWriter::ASTWriter
+import Lexer::Immediate::Immediate
+import Sema::Lower::LowerSynth::LowerSynth
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+import Sema::Type::TypeUtil::TypeUtil
 
-    fn StringLowering(self, sc: *SemaContext) {
-        self.sc    = sc;
-        self.ctx   = sc->ctx;
-        self.tu    = TypeUtil(sc);
-        self.synth = LowerSynth(sc);
+pub class StringLowering derives ASTWriter<StringLowering> {
+    pub var  sc:    unsafe *SemaContext
+    priv var tu:    TypeUtil
+    priv var synth: LowerSynth
+
+    fn StringLowering(self, sc: unsafe *SemaContext) {
+        self.sc    = sc
+        self.ctx   = sc->ctx
+        self.tu    = TypeUtil(sc)
+        self.synth = LowerSynth(sc)
     }
 
     fn run(self) {
-        self.sc->require_phase(SemaPhase::Checked);
-        if self.sc->tu == &null { return; }
-        ASTWriter::<StringLowering>::run(self.sc->tu);
+        self.sc->require_phase(SemaPhase::Checked)
+        if self.sc->tu == &null {
+            return
+        }
+
+        ASTWriter<StringLowering>::run(self, self.sc->tu)
     }
 
-    fn transform_string_literal_expr(self, n: *StringLiteralExpr) -> *Expr {
-        var out = ASTWriter::<StringLowering>::transform_string_literal_expr(n);
-        ICE_IF(n->is_format(), "StringLowering: f-string survived FStringLowering; check Sema::_stage_lowerings order");
-        if n->is_poisoned() || (n->imm == &null) { return out; }
-        if (n->type_ == &null) || (!self.tu.is_string(n->type_)) { return out; }   // a minted byte literal.
-        ICE_IF(n->string_ctor == &null, "StringLowering: literal with no constructor bound; LiteralTyping must bind it");
+    fn transform_string_literal_expr(self, n: unsafe *StringLiteralExpr) -> unsafe *Expr {
+        var unsafe *out = ASTWriter<StringLowering>::transform_string_literal_expr(self, n)
+        if n->is_format() {
+            kairo::std::ice_fail(
+                "StringLowering: f-string survived FStringLowering; check Sema::_stage_lowerings order",
+            )
+        }
 
-        var bytes = vec::<u8>();
-        self._collect(n, &bytes);
-        var cp = LowerSynth::cp_count(&bytes);
+        if n->is_poisoned() || n->imm == &null {
+            return out
+        }
 
-        var u8t  = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST());
-        var pu8  = self.sc->types->pointer(u8t);
+        if n->type_ == &null || !self.tu.is_string(n->type_) { // a minted byte literal.
+            return out
+        }
 
-        // A literal at a C string parameter (P301): the static bytes ARE
+        if n->string_ctor == &null {
+            kairo::std::ice_fail(
+                "StringLowering: literal with no constructor bound; LiteralTyping must bind it",
+            )
+        }
+
+        var bytes = cxx::std::vector<u8>()
+        self._collect(n, unsafe &bytes)
+        var cp = LowerSynth::cp_count(bytes)
+
+        var unsafe *u8t = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST)
+        var unsafe *pu8 = self.sc->types->pointer(u8t)
+
+        // A literal at a C string parameter: the static bytes ARE
         // the argument, and no string is made. `"..."` is C++'s `const
         // char *`, which a `c_char` target is; a `*const u8` one is the
         // same cast the constructor's `data` takes.
         if n->c_string != &null {
-            var ct = n->c_string;
+            var unsafe *ct = n->c_string
             if self.tu.is_builtin(canon_unqual(self.tu.pointee(ct)), BuiltinKind::CChar) {
-                return self.synth.bytes_literal(n->range, &bytes, ct);
+                return self.synth.bytes_literal(n->range, unsafe &bytes, ct)
             }
-            return self.synth.cast_to(n->range, self.synth.bytes_literal(n->range, &bytes, pu8), ct, CastMode::Unsafe);
+
+            return self.synth.cast_to(
+                n->range,
+                self.synth.bytes_literal(n->range, unsafe &bytes, pu8),
+                ct,
+                CastMode::Unsafe,
+            )
         }
-        var lit  = self.synth.bytes_literal(n->range, &bytes, pu8);
-        var data = lit;
+
+        var unsafe *lit  = self.synth.bytes_literal(n->range, unsafe &bytes, pu8)
+        var unsafe *data = lit
         if n->const_eval {
-            // C++ reads it at compile time (EVAL.md 2a): the bytes become
+            // C++ reads it at compile time (Compiler/Spec/Eval.md#strings-at-compile-time): the bytes become
             // `__kairo_estr<...>`, already `const unsigned char`, and the
             // literal constructor is constexpr. No cast, which a constant
             // expression could not contain.
-            cast::<StringLiteralExpr>(lit)->const_eval = true;
-            self.sc->tu->has_eval_string = true;
+            cast<StringLiteralExpr>(lit)->const_eval = true
+            self.sc->tu->has_eval_string             = true
         } else {
-            data = self.synth.cast_to(n->range, lit, pu8, CastMode::Unsafe);   // `"..."` is const char*; the parameter is const unsigned char*.
+            data = self.synth.cast_to(n->range, lit, pu8, CastMode::Unsafe) // `"..."` is const char*; the parameter is const unsigned char*.
         }
 
-        var args = self.list_builder::<*Expr>();
-        args.push(data);
-        args.push(self.synth.int_literal(n->range, static_cast::<u64>(bytes.size()), BuiltinKind::USize));
-        args.push(self.synth.int_literal(n->range, static_cast::<u64>(cp), BuiltinKind::USize));
-        return self.synth.ctor_call(n->range, n->string_ctor, to_string(WellKnownType::String), &args, n->type_);
+        var args = self.list_builder<unsafe *Expr>()
+        args.push(data)
+        args.push(self.synth.int_literal(n->range, bytes.size() as u64, BuiltinKind::USize))
+        args.push(self.synth.int_literal(n->range, cp as u64, BuiltinKind::USize))
+        return self.synth.ctor_call(
+            n->range,
+            n->string_ctor,
+            to_string(WellKnownType::String),
+            &args,
+            n->type_,
+        )
     }
 
     /// The literal's decoded bytes: its own body, then every chained part.
     /// A segment with owned text (stringify!, file!) is already decoded.
-    priv fn _collect(self, n: *StringLiteralExpr, out: *vec::<u8>) {
+    priv fn _collect(self, n: unsafe *StringLiteralExpr, out: unsafe *cxx::std::vector<u8>) {
         // The chain lives in the table that holds n->imm: the file that
         // wrote the literal, which for an imported macro's body is not this
         // one (the parser found it through get_payload_table). Following
         // `next` in ours read some other literal, or past the end (null).
-        var tbl = self.sc->imm_table();
-        if n->ctx != &null { tbl = n->ctx->get_payload_table(n->token); }
-        var seg = n->imm;
-        var raw = n->is_raw();
+        var unsafe *tbl = self.sc->imm_table()
+        if n->ctx != &null {
+            tbl = n->ctx->get_payload_table(n->token)
+        }
+
+        var unsafe *seg = n->imm
+        var        raw  = n->is_raw()
         while seg != &null {
             if seg->has_owned_text() {
-                for var i: usize = 0; i < static_cast::<usize>(seg->owned_len); ++i { out->push_back(seg->owned_ptr[i]); }
+                for var i: usize = 0; i < (seg->owned_len as usize); ++i {
+                    out->push_back(seg->owned_ptr[i])
+                }
             } else {
-                ICE_IF(!self.synth.decode_text(seg->body, raw, out),
-                    "StringLowering: escape the lexer accepted but the decoder does not know; keep Lexer::is_valid_escape and LowerSynth::decode_text in step");
+                if !self.synth.decode_text(seg->body, raw, out) {
+                    kairo::std::ice_fail(
+                        "StringLowering: escape the lexer accepted but the decoder does not know; keep Lexer::is_valid_escape and LowerSynth::decode_text in step",
+                    )
+                }
             }
-            if seg->next == u32(-1) { break; }
-            seg = tbl->get::<Immediate::StringData>(seg->next);
-            raw = (static_cast::<u8>(seg->prefix_kind) & static_cast::<u8>(Immediate::TextPrefixKind::Raw)) != 0;
+
+            if seg->next == u32::MAX {
+                break
+            }
+
+            seg = tbl->get<Immediate::StringData>(seg->next)
+            raw = seg->prefix_kind.has(Immediate::TextPrefixKind::Raw)
         }
-        n->imm->next = u32(-1);   // one literal now; the chain is spent.
+
+        n->imm->next = u32::MAX // one literal now; the chain is spent.
     }
 }

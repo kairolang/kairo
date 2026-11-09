@@ -1,101 +1,73 @@
 /// --- The Kairo Project ----------------------------- Support/Limits.k --- ///
 ///
-///   <short description>
+///   Integer limits for every builtin width, under the compiler's names.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
 ///
 /// \file Limits.k
-/// \brief integer limits for every builtin width, spelled so stage 0 gets
-///        them right.
+/// \brief integer limits for every builtin width, under one set of names.
 ///
 /// \details
-/// most of these are ordinary literals and exist only so the compiler sources
-/// have one place to reach for a bound. three of them cannot be written as the
-/// obvious literal at all, because the stage-0 compiler that builds this file
-/// mis-evaluates the expression. use the constants; do not re-derive them.
-///
-/// ### trap 1: the [2^31, 2^32) literal band
-///
-/// stage 0 types an integer literal needing exactly 32 bits as *signed* 32-bit
-/// rather than promoting it, so `0xFFFFFFFF` evaluates to `-1`. silently; there
-/// is no diagnostic. two things break as a result:
-///
-///   - a comparison against a `u64`/`usize` never fires, because the `-1`
-///     widens to `0xFFFFFFFFFFFFFFFF`. `if v > 0xFFFFFFFF` is dead code.
-///   - a mask becomes a no-op. `val & 0xFFFFFFFF` returns `val` unchanged
-///     instead of its low 32 bits, for the same reason.
-///
-/// only 64-bit operands are affected. a `u32`-typed operand is correct, since
-/// both sides land on the same 32-bit pattern, which is why `U32_MAX` below is
-/// declared `u32` and widens correctly into `u64` expressions.
-///
-/// integer suffixes are not a way out; stage 0 rejects `0xFFFFFFFFu64` with
-/// "invalid suffix 'u64' on integer constant". the bound has to be built from
-/// small literals, which is what `U32_MAX` does.
-///
-/// ### trap 2: unary minus binds looser than a binary operator when folded
-///
-/// stage 0 folds `-127 - 1` as `-(127 - 1)`, i.e. `-126`, and `-10 + 5` as
-/// `-(10 + 5)`, i.e. `-15`. the wrong value propagates into runtime code with
-/// no diagnostic. the idiomatic way to spell a signed minimum, `-MAX - 1`, is
-/// therefore WRONG here; parenthesise the unary operand (`(-MAX) - 1`) or use
-/// a direct literal. the direct literals below (`-128`, `-2147483648`,
-/// `-9223372036854775808`) were each verified to evaluate correctly.
-///
-/// \note remove the workarounds once stage 0 fixes both; until then, never
-///       spell a 32-bit bound in a 64-bit context, and never write `-X - 1`.
+/// each constant is the language limit (`u32::MAX`, `i64::MIN`, ...) with the
+/// type it has always had here; the names predate those limits and the
+/// compiler sources still use them. `U32_MAX` is `u32`, so it widens into a
+/// `u64` expression for a range check (`v > U32_MAX`) or a low-32 mask
+/// (`v & U32_MAX`).
 ///
 
-// --- unsigned maxima --------------------------------------------------------
+/// # unsigned maxima
 
-const U8_MAX:  u8  = 255;
-const U16_MAX: u16 = 65535;
+pub
+const U8_MAX: u8 = u8::MAX
+pub
+const U16_MAX: u16 = u16::MAX
+pub
+const U32_MAX: u32 = u32::MAX
+pub
+const U64_MAX: u64 = u64::MAX
 
-/// \brief largest value representable in 32 bits.
-/// \details built from small literals; see trap 1. `u32`-typed on purpose, so
-///          it widens correctly for both range checks (`v > U32_MAX`) and
-///          low-32 masks (`v & U32_MAX`) on 64-bit operands.
-const U32_MAX: u32 = static_cast::<u32>((static_cast::<u64>(1) << 32) - 1);
+/// # unsigned minima
+/// present for symmetry, so generic code can name a lower bound per width.
 
-const U64_MAX: u64 = 0xFFFFFFFFFFFFFFFF;
+pub
+const U8_MIN: u8 = 0
+pub
+const U16_MIN: u16 = 0
+pub
+const U32_MIN: u32 = 0
+pub
+const U64_MIN: u64 = 0
 
-// --- unsigned minima --------------------------------------------------------
-// present for symmetry, so generic code can name a lower bound per width.
+/// # signed maxima
 
-const U8_MIN:  u8  = 0;
-const U16_MIN: u16 = 0;
-const U32_MIN: u32 = 0;
-const U64_MIN: u64 = 0;
+pub
+const I8_MAX: i8 = i8::MAX
+pub
+const I16_MAX: i16 = i16::MAX
+pub
+const I32_MAX: i32 = i32::MAX
+pub
+const I64_MAX: i64 = i64::MAX
 
-// --- signed maxima ----------------------------------------------------------
+/// # signed minima
 
-const I8_MAX:  i8  = 127;
-const I16_MAX: i16 = 32767;
-const I32_MAX: i32 = 2147483647;
-const I64_MAX: i64 = 0x7FFFFFFFFFFFFFFF;
+pub
+const I8_MIN: i8 = i8::MIN
+pub
+const I16_MIN: i16 = i16::MIN
+pub
+const I32_MIN: i32 = i32::MIN
+pub
+const I64_MIN: i64 = i64::MIN
 
-// --- signed minima ----------------------------------------------------------
-// direct literals, NOT `-MAX - 1`; see trap 2.
-
-const I8_MIN:  i8  = -128;
-const I16_MIN: i16 = -32768;
-const I32_MIN: i32 = -2147483648;
-const I64_MIN: i64 = -9223372036854775808;
-
-// --- pointer-width ----------------------------------------------------------
-// derived rather than assumed, so a 32-bit target stays correct.
-
-const USIZE_MIN: usize = 0;
-const USIZE_MAX: usize = ~usize(0);
-
-/// \note the trailing `- 1` needs the unary minus parenthesised; see trap 2.
-const ISIZE_MAX: isize = static_cast::<isize>((~usize(0)) >> 1);
-const ISIZE_MIN: isize = (-static_cast::<isize>((~usize(0)) >> 1)) - 1;
+/// # Pointer width
+/// None here: `usize::MAX`, `isize::MIN` and `isize::MAX` are language limits that take
+/// the target's width.

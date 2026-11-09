@@ -1,12 +1,12 @@
 /// --- The Kairo Project ------------------ Support/FileIO/FileSystem.k --- ///
 ///
-///   <short description>
+///   FileType and FileOutMode, the filesystem aliases and enums.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -27,15 +27,15 @@
 /// \see Path, VirtualFileManager
 ///
 
-ffi "c++" import "llvm/Support/FileSystem.h";
+ffi "c++" import "llvm/Support/FileSystem.h"
 
 /// filesystem entry type alias (llvm::sys::fs, what Path stats with)
-type FileType = llvm::sys::fs::file_type;
+pub type FileType = llvm::sys::fs::file_type
 
 /// file output modes used for low-level i/o operations
-enum FileOutMode {
-    Read,      ///< open for reading only
-    Write,     ///< open for writing, overwriting if exists
-    Append,    ///< open for writing at end of file
-    Truncate   ///< open and clear existing file contents
+pub enum FileOutMode {
+    Read,    ///< open for reading only
+    Write,   ///< open for writing, overwriting if exists
+    Append,  ///< open for writing at end of file
+    Truncate ///< open and clear existing file contents
 }

@@ -1,1114 +1,287 @@
-# Imports: the full contract
+# Imports
 
-Design spec for how a name written in one file comes to refer to a
-declaration in another, and how that reference survives lowering to C++.
-Companion to RESOLUTION.md (§2 "I ImportResolution" is the lookup half of
-this document; §2b is member lookup). Where the two disagree, this one is
-newer and wins.
+How a name written in one file comes to refer to a declaration in another: how an import path finds a file, how a library is named, and how phase I turns a file's imports into the overlay that name lookup reads. Imports of C and C++ headers (`ffi` imports) share phase I and are described in [Interop](Interop.md#ffi-imports). What an import means to a Kairo programmer is in the language reference ([imports](README.md#language-reference), [modules](README.md#language-reference)).
 
-Status legend used throughout:
+## Model
 
-    [DONE]     implemented and tested against a dump
-    [BROKEN]   implemented, produces the wrong result; fix is specified below
-    [MISSING]  not implemented; owner and shape are specified below
-    [DECIDED]  a rule with no code behind it yet; do not relitigate
+Imports are erased at name resolution. After N and ChainBinding every use site holds a `*Decl`, and the declaration knows its own home through its DeclContext parent chain. No pass after sema reads an `ImportDecl` ([invariants](Pipeline.md#invariants)). Codegen regenerates, per TU, the declarations a C++ header would have provided, from those `*Decl` links ([EmitPlan](Codegen.md#emitplan)). The only `#include` lines in emitted C++ come from `ffi` imports, plus `<new>` where a class's derived assignment rebuilds a value in place ([Codegen](Codegen.md#emitplan)).
 
----
+What each stage contributes:
 
-## 0. The one-sentence model
+| Stage | Import work | Code |
+|---|---|---|
+| PP | resolves import paths to file ids and stamps the node; the only writer of path to file | `Compiler/Preprocessor/FileImportIndex.k`, `Compiler/Resolution/` |
+| Index | hoists declaration heads for `<` disambiguation; imported generics are found through import edges | `Compiler/AST/Context/GlobalDisambigTable.k` |
+| Parse | builds the AST and freezes one `SymbolTable` per scope | `Compiler/Parser/ASTParse.k` |
+| I | folds each imported file's frozen table into this TU's overlay | `Compiler/Sema/Resolve/ImportResolution.k` |
+| N, T, ChainBinding | read the overlay like any other scope; imports are invisible to them | [Name resolution](NameResolution.md#name-resolution), [Chain binding](TypeResolution.md#chain-binding) |
+| EmitPlan | plans the per-TU C++ interface from resolved links | [EmitPlan](Codegen.md#emitplan) |
 
-**Imports are erased at name resolution.** After N and ChainBinding, every
-use site holds a `*Decl`; the decl knows its own home through the
-DeclContext parent chain; nothing after sema reads an `ImportDecl`. Codegen
-regenerates, per TU, the declarations a C++ header would have provided,
-derived from those `*Decl` links. The only `#include` in emitted C++ is an
-`ffi` import, and `<new>` in a TU or header that writes a class whose
-derived assignment rebuilds a value in place (CODEGEN.md §5).
+Sema runs the pipeline per file in import-DAG order, so an imported file's overlay is complete and its types are canonical before an importer reads them ([phase barriers](Pipeline.md#phase-barriers)).
 
-Everything below is a consequence of that sentence.
+## Import forms
 
----
-
-## 1. The seven forms
-
-Grammar: `Parser/Shared/ImportGrammar.k` (one grammar, three drivers: parser,
-PP, dep-scanner). All seven parse today. What each one MEANS, and what it
-becomes after phase I:
+One grammar, `Compiler/Parser/Shared/ImportGrammar.k`, serves the parser, the preprocessor and the dependency scanner.
 
 | # | Form | Example | Binds in the overlay |
-|---|------|---------|----------------------|
-| 1 | plain | `import foo` | `foo` -> ModuleHandle(foo's ModuleDecl) |
-| 2 | aliased plain | `import foo as f` | `f` -> ModuleHandle(foo) |
-| 3 | symbol path | `import foo::MyClass` | `MyClass` -> Type(foo::MyClass) |
-| 4 | aliased symbol | `import foo::add as my_add` | `my_add` -> FunctionSet(foo::add cell) |
-| 5 | selective | `import foo::{A, b as c, x::Y}` | `A`, `c`, `Y` -> each target |
-| 6 | wildcard | `import foo::*` | every ident-keyed name in foo's table |
-| 7 | module-only | `import module foo` | as (1), but resolves `foo/module.k` only, never `foo.k` |
+|---|---|---|---|
+| 1 | plain | `import foo` | `foo` to a module handle for foo's `ModuleDecl` |
+| 2 | aliased plain | `import foo as f` | `f` to a module handle for foo |
+| 3 | symbol path | `import foo::MyClass` | `MyClass` to the type `foo::MyClass` |
+| 4 | aliased symbol | `import foo::add as my_add` | `my_add` to the function set of `foo::add` |
+| 5 | selective | `import foo::{A, b as c, x::Y}` | `A`, `c`, `Y`, each to its target |
+| 6 | wildcard | `import foo::*` | every identifier-keyed name in foo's table |
+| 7 | anchored | `import self::foo`, `import module::foo` | as (1) to (6), with the path looked for in one directory ([Path resolution](#path-resolution)) |
+| 8 | ffi bare | `ffi "c++" import "h.hh"` | see [FFI imports](Interop.md#ffi-imports) |
+| 9 | ffi aliased | `ffi "c++" import "h.hh" as my_h` | see [FFI imports](Interop.md#ffi-imports) |
 
-Plus the two ffi forms, which are imports of *headers*, not of Kairo files:
+A mixed form (`import foo::{*, A as B}`) is form 5 with a wildcard item and works by composition, and an anchor combines with every native form: `import self::json::{a, b}`, `import module::x as y`, `import self::j::*`. `pub` or `prot` on any form makes it a [re-export](#re-exports).
 
-| # | Form | Binds |
-|---|------|-------|
-| 8 | ffi bare | `ffi "c++" import "h.hh"` | every ident-keyed name of every header in h.hh's include closure |
-| 9 | ffi aliased | `ffi "c++" import "h.hh" as my_h` | `my_h` -> one ModuleHandle per closure header (each header TU's module_self) |
+The anchor is `ImportSpec::kind`, carried to `ImportDecl::import_kind` (`Native`, `SelfRelative`, `ModuleRelative`); the `self`/`module` keyword is never one of `path_segments`, so the bound name, `file_seg_count` and the symbol walk read an anchored path exactly as a plain one. The AST printer and the import-use dump (`"anchor"`) show it.
 
-Mixed forms (`import foo::{*, A as B}`) are (5) with a wildcard item, and
-work by composition. `pub`/`prot` on any form is re-export (§4.4).
+`import module foo`, with a space, is removed: S089E, with a fix-it deleting `module`, after which the line parses on as plain `import foo`. It forced the directory form, which nothing needs now that `foo.k` beside `foo/module.k` in one place is an error (R005E). `import self` or `import module::` with no path after the `::` is S046E.
 
-**The importer never learns which form was used.** By N, all seven look
-identical: an overlay entry keyed by this TU's imm, holding targets.
+The importer never learns which form was used. After phase I all seven are overlay entries keyed by this TU's identifier indices, holding targets.
 
----
+## Path resolution
 
-## 2. Pipeline: what happens at each stage
+The PP walks the import graph (`FileImportIndex`), resolves each path through `ImportResolver` (`Compiler/Resolution/ImportProbe.k`), loads the file and stamps the `ImportDecl`:
 
-    PP     resolve import PATHS to fids; stamp the node       [DONE]
-    Index  hoist decl heads for parser disambiguation         [DONE]
-    Parse  build AST; freeze per-DC symbol tables             [DONE]
-    I      ImportResolution: build this TU's overlay          [DONE]
-    N      NameResolution: bind heads through the overlay     [DONE]
-    T      TypeResolution: canonicalize types                 [DONE]
-    CB     ChainBinding: bind `::` and `.` steps              [DONE]
-    ...
-    EP     EmitPlan: plan the per-TU C++ interface            [DONE]
-           EmitPlan: EMIT it                                 [MISSING]
-    CG     TokenSink: emit                                    [needs one rule]
+| Field | Meaning |
+|---|---|
+| `ImportDecl::resolved_fid` | the file the path named; 0 when unresolved |
+| `ImportDecl::file_seg_count` | how many leading segments named the file, from the segment count the resolver consumed (`ResolveOut::seg_count`); equals the path length for a module import, 0 for an unresolved or ffi import |
+| `TranslationUnit::import_edges` | `(fid, decl)` per import, in declaration order |
 
-### 2.1 PP path resolution
-
-`Preprocessor/FileImportIndex.k` walks the import graph, resolves each path
-through `ImportResolver` (file-first: `foo.k`, fallback `foo/module.k`;
-`import module` is fallback-only), loads the file, and stamps
-`ImportDecl::resolved_fid`. It also records `TranslationUnit::import_edges`
-(fid, decl) in declaration order. **The PP is the one writer of path->file.**
 Phase I never touches the filesystem.
 
-[DONE] `import foo::MyClass`. The PP now stamps
+### Search dirs
 
-    ImportDecl::file_seg_count: u32   // leading segments that named the FILE
+The current directory and every `-I dir` (and `--macro-search-path dir`) are search dirs with no name. A file under one, and under no [pinned library](#module-pinning), has its path relative to that dir as its module path: `./a.k` is `a`, and `inc/sub/b.k` under `-I inc` is `sub::b`. The folder's own name is never part of the path.
 
-next to `resolved_fid`, from the segment count `ImportResolver` actually
-consumed (`ResolveOut::seg_count` = the `try_len` that resolved), not
-guessed from the path string. `== path_segments.size()` for a plain module
-import, `0` for unresolved or ffi. See §4.1.
+`-I` is also clang's `-I`: the same directory is a header path for C and C++ inputs, ffi headers and `#include "x.k"` (`CompilerInvocation::clang_include_dirs`). `--ffi-include` and `--cxx-include` are clang-only. An `-I` spec containing `=` that is not an existing directory is U007E; the old `-I name=dir` form no longer exists, and when the part before `=` could be a library name the message gives the `module.k` line that would pin it (`CompilerInstance::_add_root`).
 
-[DONE] **Module roots and paths.**
+A directory given twice (`-I inc -I inc`, an `-I` naming the current directory, a symlink and its target, compared by real path) is one search dir.
 
-A module path is `[library name] + directories + file`, and every part of
-that is fixed by where the file sits, never by who imports it.
+A file's module path, and so its identity and C++ namespace, is a function of the search-dir set. Every TU of one build must therefore receive the identical `-I` list: R018E catches two files claiming one path within a run, never two runs that disagree about one file.
 
-- **Search dirs are unnamed.** The cwd and every `-I dir` (and
-  `--macro-search-path dir`) is a search dir with NO name: a file under one,
-  and under no pinned library, is its path relative to that dir, so `./a.k`
-  is `a` and `inc/sub/b.k` under `-I inc` is `sub::b`. The folder's own name
-  is never part of it -- it used to be, which made every
-  `-I .../include` the same root `include` (TICKETS.TXT:210, F20). `-I` is
-  also clang's -I: the same dir is a header path for C/C++ inputs, ffi
-  headers and `#include "x.k"` (`CompilerInvocation::clang_include_dirs`),
-  so a .k beside the headers of one -I dir is reachable both ways.
-  `--ffi-include` / `--cxx-include` stay clang-only. The old
-  `-I name=dir` form is gone: every -I spec containing `=` that is not an
-  existing directory is U001E, whatever the part before the `=` looks like;
-  when that part could be a pin, the message gives the module.k line.
-- **A library has a name, and the name is a module PATH.** A `module.k`
-  whose FIRST declaration is the bare `module a::b` (a module path, ended
-  by a newline or `;`) makes its directory the root of library `a::b`,
-  named by the declaration and not the folder: `geometry/module.k` saying
-  `module geo` is imported as `geo`, and `geometry/inner/x.k` is
-  `geo::inner::x`. A name may have several segments: Kairo's own standard
-  library is `kairo::std`, so `Lib/std/vec.k` is `kairo::std::vec`.
-  `module.k` names its directory -- and at a root's TOP level the directory
-  IS the root, so `Lib/std/module.k` is `kairo::std`, not
-  `kairo::std::module`. `module X { }` inside a file appends `X`.
-- **A file's library is found by walking UP from the file.** Its module
-  path is a property of the FILE, not of the run: `canonical_module_path`
-  (`_library_of`) walks from the file's directory up to the nearest
-  directory that is a NAMED root or whose module.k pins a name -- past the
-  cwd and past any -I dir that holds the file, bounded by the filesystem
-  root, one cached stat per directory and never downward -- and uses that
-  name as the prefix. So `cd geometry/inner && kairo x.k`, `-I
-  geometry/inner`, `kairo /abs/.../geometry/inner/x.k` from anywhere, and
-  an importer above the library all give `geo::inner::x`, and a `kcc -c`
-  from inside a library links against its importers. Only a file with no
-  library above it takes its path relative to the deepest search dir
-  holding it.
-- **Where libraries are registered.** In each search dir itself (an -I dir
-  whose own module.k pins is that library) and in its immediate
-  subdirectories (one readdir per root, one small read per module.k, never
-  a recursive walk). Either way the pin registers a library root
-  (`SearchRoot::discovered`) reached by its name only -- the "every other
-  root with the path as written" fallback skips it, so `-I libfoo` over
-  `module foo` does not make `libfoo/x.k` importable as `x` as well as
-  `foo::x`. A pinned directory deeper than that, or above every root, is
-  not registered: it cannot be imported by name from OUTSIDE it. INSIDE it,
-  its own files resolve their imports against it -- with the path as
-  written and by its name as a leading segment (`_pinned_root_for`, a
-  transient root like a sibling root) -- so `geometry/inner/x.k` writing
-  `import geo::shapes` or `import shapes` resolves however x.k was reached.
-- **The driver's names win, and are checked.** The driver's `builtin` and
-  `kairo::std` registrations are the only names given outside a pin
-  (`Builder::add_include(path, name, spelling)`; std's spelling `std` is
-  not expressible as a pin). They name their directories whatever the
-  directories' own module.k say, and `build_index` checks the two agree:
-  `Lib/std/module.k` pins `kairo::std` and `Lib/builtin/module.k` pins
-  `builtin`, and a pin naming anything else is R001E (placeholder). A
-  directory given twice -- `-I inc -I inc`, an -I naming the cwd, or a
-  symlink and its target, compared by REAL path -- is one root; an -I
-  naming std's or builtin's directory is folded into the driver's
-  registration, in the -I's search position, with the registration's name
-  and spelling, whichever came first. Explicit names, not pins, so the
-  fallback probe still reaches them.
-- **A pin outside module.k is an error.** The bare form parses in any
-  file (the parser records it on `TranslationUnit::pin_segments`), but
-  only a module.k may carry one; elsewhere it is R001E (placeholder),
-  pointing at the block form `module foo { ... }` (PLAN-module-pinning.md
-  decision A, "for now"). The rule is one function,
-  `ModulePinCheck::pin_allowed` (a Verify pass), so the meanings left open
-  -- the pin names the file itself, or wraps the rest of the file -- are a
-  change there and to its diagnostic, never to the parser or the resolver.
-  In a module.k the pin must be the FIRST declaration, the one the resolver
-  reads (`read_module_pin`, before any parse); a pin after an import or a
-  decl would be parsed and silently ignored, so it is R001E
-  (`ModulePinCheck::pin_counts`, which runs the resolver's own scanner over
-  the file rather than restate its rule). A second pin is R001E too.
-- **Library names match longest first.** An import path is matched against
-  each library's segment list on its LEADING segments, longest name
-  winning: with `kairo::std` and a hypothetical `kairo`,
-  `import kairo::std::vec` is the former's `vec.k` and never the latter's
-  `std/vec.k`. Longest-first is what makes prefix pairs legal; only EQUAL
-  names are the collision below. A name that consumes the whole path names
-  the library itself and resolves to its own `module.k` -- that is how
-  `import builtin` and `import kairo::std` resolve.
-- **Inputs are modules.** A `.k` on the command line, or one a C++ input
-  `#include`s, takes the module path an import of it would get
-  (`ImportResolver::input_module_path`, from `canonical_module_path`;
-  PLAN-module-pinning.md decision C). `lib/y.k` compiled from the cwd is
-  `lib::y` whether it is compiled, imported or included, so
-  `kcc -c lib/y.k` emits the `lib::y::f` a separately compiled importer
-  calls, and its priv decls keep external linkage. Only a PATHLESS file
-  keeps the old entry rules (`CXXSpell::is_entry_tu`: namespace = file
-  stem, priv/internal decls in the unnamed namespace, no header): one
-  outside every search dir and every library, or one whose path under an unnamed dir starts
-  with a named root's name (`./builtin.k` would claim the builtin
-  library's path, which an import never reaches it by), and the driver's
-  virtual library entry. `main` is the program's global `int main`
-  wherever it is declared at file scope, in any TU (`CXXSpell::is_main`);
-  one inside a `module foo { }` block is `foo::main`. A module.k at the top
-  of an unnamed, unpinned dir is pathless too (its directory has no name).
-  The driver's `_kairo_order` (importers before the inputs they import)
-  existed to let the importer decide identity; it no longer does, and can
-  go.
-- **A file's path is fixed by its root.** `~/foo/b.k` writing `import a`,
-  under a `~/foo/module.k` pinning `foo`, resolves inside its own library to
-  `~/foo/a.k`, and that file is still `foo::a` -- same file, same path, same
-  C++ namespace from every importer. This is what invariant #9 requires and
-  why a library's name cannot come from search order.
-- **Resolution order for an import path:** the importing file's own root
-  first, then its own library when no root registered it (with the path as
-  written), then libraries matched by leading segment (that library among
-  them), then the other undiscovered roots with the path as written. A
-  file in a library (registered, or found walking up) never falls back
-  into an unnamed search dir: a library cannot depend on what one build's
-  command line happens to hold.
-- **One path, two files, is an error -- never first-wins.** Two libraries
-  with one name (or one spelling) are R018E from the ImportResolver, before
-  anything is parsed; unnamed search dirs never collide that way (an empty
-  name prefixes nothing). Two unnamed search dirs answering one import path
-  with two different files (`./a.k` and `inc/a.k` under `-I inc`, both
-  module `a`) is R017E at the import, naming both files
-  (`ModuleResolution::cross_root`) -- the same rule as sibling-vs-root, one
-  level out. Every unnamed dir is probed once one answers, so the
-  importer's own dir winning the search cannot hide a twin. The same
-  directory given twice (`-I inc -I inc`, `-I .`) is one search dir.
-  Any two files that land on one module path some other way are R018E as
-  well, naming both: a pinned directory the walk up finds claiming a
-  registered library's name (or one another such directory claims), and
-  two INPUTS from two search dirs (`kairo a.k inc/a.k -I inc`), which the
-  driver claims before compiling either, since nothing imports them and
-  both would write `a.o` (`ImportResolver::claim_identity`, keyed by the
-  file's real path; `CompilerInstance::_claim_input_identities`).
-- **Reopening never crosses a root.** Two files under the same root
-  producing the same path are one module (§4.3). `module a { }` in a
-  cwd file reopens `a`, never `foo::a`.
-- **One module is one C++ namespace and obeys C++'s definition rules,
-  checked by Kairo.** Across every reopening of a module: a forward
-  declaration plus one definition of a signature is a redecl chain; two
-  definitions of the same signature is a redefinition error at the
-  second, noted at the first. This needs signatures (T) and every
-  reopening (cross-TU), so it lives at the M2 sync point. Until then the
-  use site still errors (an identical-signature candidate pair is
-  ambiguous at overload resolution); the definition site does not.
+### One place per form
 
-Mechanically: `ImportResolver::Builder::add_include(path, name)`;
-`SearchRoot::name` carries it (empty = an unnamed search dir);
-`canonical_module_path` prefixes it -- or the nearest pin above the file,
-found walking up -- so `module_base` for a file in a library is `[library
-name] + relative directories`. `-I path` registers an
-unnamed root unless the directory's own module.k pins a name. `build_index`
-then registers each pinned immediate subdirectory of every root as a root
-named by its pin (`read_module_pin`: a byte scan of the file's first
-declaration, no lex, cached per directory in `_dir_pins`).
-`resolve_module_rel` probes the importing file's OWN root with the path as
-written, then any root whose name is the leading segment with the rest of
-the path, then the remaining roots -- except that a file under a named root
-never falls back into an unnamed one -- and, when the answer came from an
-unnamed root, every other unnamed root for a twin. Two roots claiming one
-name is an R018E from the driver before anything is parsed
-(`take_root_collisions`).
+Each form looks in exactly one place:
 
-**The std root.** `Lib/std` is a named root with a NAME and a SPELLING
-(`SearchRoot::name` / `::spelling`). The name is the two-segment path
-`kairo::std` (`<resource-dir>/std`; `--std-dir` overrides, `--no-stdlib` skips
-it): it is the root's identity, so `Lib/std/io.k` is `kairo::std::io` and emits
-into `::kairo::std`, which can never collide with C++'s `std`. The spelling is
-`std`: what source writes to reach it. `resolve_module_rel` matches roots on
-their spelling, longest first; `canonical_module_path` reads only the name, so
-the spelling never reaches the emitted namespace. Every other root's spelling
-is its name. Two roots with one name OR one spelling are the R018E collision.
-
-There is no std prelude. Nothing reaches std without importing it:
-`import std::io` binds `io`, `import std` binds `std` (the root's `module.k`),
-and bare `std` in a file that did neither is an ordinary unresolved name. The
-PP does not fold std into the graph either; an import of it does.
-
-**Prelude handles.** A real import of a name EVICTS a prelude `ModuleHandle`
-of the same name, and a prelude handle never lands on a name a real import
-already bound (`ImportResolution::_add`): two handles under one key would
-otherwise UNION into a multi-scope module (`non_function_count` exempts
-ModuleHandle so reopened namespaces and ffi closures work, §4.3) and
-`is_ambiguous()` would never fire. The rule was written for the std alias,
-which is gone; builtin's wildcard folds Type and FunctionSet targets, never
-handles, so today it never fires. A user import colliding with a builtin
-name is still the R016E it always was.
-
-**The builtin root.** `Lib/builtin` is a named root (`builtin`) the
-compiler always registers (`<resource-dir>/builtin`; `--builtins-dir`
-overrides). Every non-builtin TU receives one synthesized `ImportDecl` with
-`is_prelude = true`, `resolved_fid` stamped directly (no path to resolve),
-folded by I like any wildcard import; `module.k`'s `pub import`s re-export
-through the ordinary path. `--print-imports` labels it `<prelude>`; the AST
-printer hides it. A one-segment import of a named root (`import builtin`)
-resolves to the root itself (ImportProbe no longer requires two segments).
-
-### 2.2 Index + Parse
-
-Index mode hoists decl heads into `DisambigTable` so the parser can
-disambiguate `<`. Imported generics are found lazily through
-`import_edges` (`GlobalDisambigTable::lookup_in`), never merged.
-Full parse builds the AST and `ASTParse::_build_symbols` freezes one
-`SymbolTable` per decl-owning scope. `_synthesize_module_self` gives every
-non-root file a real `ModuleDecl` that *shares* the TU's table, so a plain
-import has a genuine `*Decl` to bind.
-
-Nothing here reads another TU's AST.
-
-### 2.3 I ImportResolution
-
-`Sema/Resolve/ImportResolution.k`. For each `ImportDecl`, fold the source
-TU's **frozen symbol table** into this TU's `ImportOverlay`, keyed by THIS
-TU's imms (spell once, re-intern once hard invariant #2). Targets are thin
-references into the source arena; nothing is copied.
-
-After I the TU is self-contained: unqualified lookup is
-`DC chain -> overlay -> miss`. Later phases only READ other TUs: frozen
-tables, canonical type slots, and (ConformanceChecking's reach) an imported
-generic's typed body; that is what DAG order guarantees. The only
-cross-TU writes go to the two locked build-wide structures, the canonical
-store and the instantiation registry (RESOLUTION.md invariant 4).
-
-**Ordering.** `CompilerInstance::_sema` runs the pipeline per fid in
-reverse tree order = import-DAG order. Load-bearing for I (source overlay
-complete before an importer folds re-exports) and for T (imported file's
-type nodes canonical before an importer expands an alias through them).
-Do not change that loop order.
-
-[DONE] The three defects in I, and re-export:
-
-1. `_rebuild_merged` admits `ModuleHandle` targets (a Kairo module, or a
-   C++ header's under an ffi alias). A name denoting a scope is a
-   legitimate lookup answer; excluding them made `foo` after `import foo`
-   resolve to an EMPTY cell.
-2. `OverlayEntry::non_function_count` exempts that kind, and counts
-   DISTINCT entities rather than targets so `import foo::MyClass`
-   alongside `import foo::*` is not an ambiguity either.
-3. Symbol-path imports fold through `_fold_symbol_path`. See §4.1.
-4. Re-export is folded. See §4.4.
-
-A module handle records `Public` as its ACCESS fact. `vis` is
-what N reads to say "exists but is private"; recording the import edge's
-own pub/prot there made every plain `import foo` report "'foo' is
-imported but is declared private in its module". Whether the edge
-re-exports is a separate question, answered from `origin` in §4.4.
-A folded decl records its OWN visibility the same way, and one that writes
-none records `Public` (top-level declarations default to `pub`, modules.md);
-falling back to the edge's made every unannotated function or class used
-through a plain `import m::*` R047E (`ImportResolution::_cell_vis`; test:
-Tests/Sema/Imports/per_form/main_unannotated.k).
-
-### 2.4 N NameResolution
-
-Binds every *head*: unqualified idents, params, locals, binders, pattern
-binders, out-of-line qualifiers, attribute names. Lookup order is locals ->
-DC chain -> overlay. A private-decl name reached ONLY through the overlay is
-the "exists but is private" error, emitted here from the visibility fact I
-recorded. Protected is not enforced (needs member-lookup provenance).
-
-N hands every chain step through untouched. [DONE]
-
-### 2.5 T TypeResolution
-
-Canonicalizes every type node. Expands aliases on demand across TUs (safe
-under DAG order). Imports are invisible here: `var m: MyClass` resolves
-`MyClass` through the overlay exactly like a local name. [DONE]
-
-### 2.6 CB ChainBinding
-
-Binds `::` and `.`/`->`/`?.` steps from what the previous step denotes:
-module table, type members (own + extensions + base DAG, merge-not-hide),
-or a value's declared type's members. Aliases are transparent: `f::add`
-after `import foo as f` steps into foo's shared table because `f` is bound
-to foo's `ModuleDecl`. [DONE]
-
-[DONE] Reopened namespaces. An all-`ModuleDecl` candidate set is a
-`Module` anchor with N scopes (`Anchor.scopes`); `::` steps search every
-one and union the hits; a genuine ambiguity is still `_commit`'s to
-diagnose.
-
-[DONE] No ffi special case. An ffi alias binds the header TUs' own
-ModuleDecls, so a step off it is an ordinary multi-scope `Module` step
-into tables Sema/Foreign filled. See §5.
-
-[DONE] Cross-TU probes are spelled, not imm-keyed. `in_context` probed a
-foreign module's table with THIS TU's imm index, which is right only when
-the two interners happen to agree (`bar::id` resolved, `bar::Box` did
-not); the record walk had the same fault, so a member of an imported type
-never resolved. `MemberLookup::in_scope` re-interns per scope. Rendering
-a foreign decl is the same problem: `NameLookup::ctx_of` answers where a
-decl's names live, and the dump and diagnostics ask it first.
-
-### 2.7 EP EmitPlan [DONE]
-
-The codegen half; CODEGEN.md is the full description. InterfaceEmitter
-emits every declaration into either sink; EmitIR emits bodies for the
-C++-shaped core, method and extension-member definitions, and template
-member bodies into home TUs; explicit instantiation definitions follow
-every body. One object per non-foreign TU.
-
----
-
-## 3. Invariants (add to RESOLUTION.md §3)
-
-8. **Imports are erased.** No pass after N/CB reads an `ImportDecl`. A
-   codegen decision that needs "how was this imported" is a bug; ask the
-   decl where it lives (`is_imported()` for a C++ header's).
-9. **One namespace per decl, derived, never stored per use.** A decl's C++
-   namespace is its DC parent chain -> `ModuleDecl::module_path`. Every TU
-   that emits that decl computes the same path from the same node.
-9a. **Nothing outside the source tree reaches the ABI.** A decl's C++
-    namespace is a function of its root's declared name and its path
-    within that root, plus any `module X { }` blocks enclosing it — and of
-    nothing else: not the checkout's directory name, not a flag, not the
-    importer's spelling. Two builds of one tree emit byte-identical
-    interfaces. A pathless TU (a file outside every search dir and every
-    library) declares no
-    root, so its namespace is its FILE STEM (CODEGEN.md §5) -- and the stem
-    is inside the source tree, so the invariant is unchanged. `main` is
-    always the global one. A path segment is a file or directory name, so
-    it is spelled as a C++ identifier the way the stem is
-    (`CXXSpell::cxx_segment`: `operator.k` is `operator_`).
-9b. **Compiler-invented names come from one file.** `AST/LangItems.k` holds
-    both kinds: LANG ITEMS (a decl a user could have written, arriving
-    through ordinary imports, filled once per build on the
-    GlobalDisambigTable) and LOWER TARGETS (a fragment of a C++ name that
-    no Kairo declaration spells -- `__kairo_contains` for `op in`,
-    `__kairo_pow` for `op ^^`). Nothing else in the compiler carries a copy
-    of any of those strings, and `CxxNameCheck` rejects a user identifier
-    that starts with the reserved prefix, so an invented name can never
-    collide with a written one.
-10. **Aliases are TU-local.** An alias never appears in an exported
-    interface. C++ consumers see canonical names only.
-11. **Class granularity.** A class enters a TU's emitted interface whole
-    (every member declared) or not at all. Never a subset.
-12. **Bodies are out-of-line.** A class body contains no function bodies
-    anywhere, including in its home TU. This is what makes the class
-    definition byte-identical across TUs (C++ ODR). A body is emitted in
-    its home TU only, EXCEPT the bodies that are part of the interface:
-    templates (CODEGEN.md §7) and `inline` functions, which every TU and
-    header that can see the declaration also emits, out of line, as C++
-    `inline`, with the same text. They are interface because an importer
-    has to compile them: clang instantiates templates Kairo never lists,
-    and `inline` is the author saying the importer should. Exception:
-    members the compiler synthesizes (ADT special members, rendered from
-    adt_role/adt_form, and derived assignment operators) carry their
-    bodies inside the class; they have no Kairo source counterpart, and no
-    user-written function body is ever emitted in-class.
-13. **Kairo enumerates every instance it can see.** Every generic
-    instantiation Kairo can see is enumerated by Kairo sema (M1, the
-    registry's worklist), checked once against its bounds, and emitted
-    explicitly in its home TU. Clang instantiates only what Kairo never
-    names -- a coroutine's promise, std::sort calling a Kairo comparator,
-    a C++ host -- from the visible bodies (CODEGEN.md §7). Emitted
-    templates carry no `requires` except the interface concepts
-    EmitWitness derives (CODEGEN.md §7b.7), one conjunct per interface
-    bound, true for every instance Kairo enumerated, and a record's
-    self-contained value predicates (CXXSpell); for the instances only C++
-    sees, those are the real check. ADT special members carry C++
-    constraints rendered by InterfaceEmitter from adt_role/adt_form, and a
-    generic record's derived assignment operators from its assign_form;
-    they are not Kairo constraints and have no requires_clause.
-
----
-
-## 4. Lookup-side work items (sema)
-
-### 4.1 Symbol-path imports [DONE]
-
-Forms 3 and 4, and multi-segment items in form 5.
-
-In `_resolve_one`, before the wildcard/items dispatch:
-
-    if file_seg_count > 0 && file_seg_count < path_segments.size():
-        _fold_symbol_path(id, overlay, src_tu, src_syms, src_imms, fid)
-        return
-
-`_fold_symbol_path` walks `path_segments[file_seg_count..]`:
-`lookup_foreign(src_syms, src_imms, spelling)` for the first, then
-`context_of(decl)->dc_symbols` per following segment (through the redecl
-canonical; aliases are NOT expanded here an alias as an intermediate
-segment is an error at I, "cannot import through a type alias", because
-expansion is T's and T has not run for this TU). The final cell folds via
-`_fold_cell` under `alias` or the last spelling. `_fold_selective` must
-route items with `sub_path.size() > 1` through the same walker; today it
-reads only the last token and looks it up at top level.
-
-Error homes: missing intermediate or final segment -> `R015E` here, nowhere
-else. `_walk_segment` is the one walker; `_fold_symbol_path` and
-`_fold_selective` both go through it, so a single-segment item is that walk
-with one step.
-
-A module named through a symbol path folds as a `ModuleHandle`, not a
-`Type`, so §4.3's exemption covers `import u1::util` / `import u2::util`
-as well as two plain imports.
-
-### 4.2 Module handles in `merged` [DONE]
-
-`_rebuild_merged`: append `t.decl` for `Type` and `ModuleHandle` targets.
-Only `FunctionSet` unions cells.
-
-### 4.3 Reopened namespaces [DONE]
-
-`non_function_count`: skip `ModuleHandle`. The same exemption makes an ffi
-alias over N closure headers one scope, not N ambiguous entities.
-TypeResolve's qualified walk applies the rule in TYPE position too (`mods`):
-while a segment's cell is all modules, the next `::` segment is looked up in
-every one of them, so `std::vector<i32>` finds `vector` whichever of libc++'s
-many `std` openings declared it.
-ChainBinding: `Anchor.scopes: vec<*DeclContext>`; all-module candidate
-sets become a multi-scope `Module` anchor; `::` searches every scope.
-
-Same TU, `module Util { }` written twice: one entity, N scopes, linked as a
-redecl ring by N(a). Three rules make the ring behave as one block:
-- **Not a redefinition.** Every module block is a definition; N(a)'s
-  two-definitions check skips modules (`_reopenable`). A type member
-  declared in two blocks is judged as one cell would be
-  (`_judge_reopenings`, after the ring links): a forward declaration in
-  one block chains to its definition in another, and two definitions or
-  two record keywords are R029E / R001E as within one block. Functions
-  across blocks, and a variable beside a type, are still item 13a's
-  question, at M2.
-- **Unqualified sees the ring.** `NameLookup::unqualified`, on a miss in a
-  module scope, tries every other block of its ring (`module_scopes`), so
-  `a` declared in block 1 is in scope in block 2 -- and block 2's names in
-  block 1: no declaration-order rule, "as if one block".
-- **A collapsed decl expands.** N binds `Util` to the ring's canonical as a
-  single decl, so ChainBinding's single-decl Module anchor and T's `mods`
-  walk both push `module_scopes(d)` (deduped), not `context_of(d)`.
-  `tests: Tests/Sema/Lookup/lookup_module_reopen.k`.
-Two FILES both writing `module Util` are two rings; merging those is the
-cross-reopening question at M2 (item 13a).
-
-A C++ namespace is the exception: Sema/Foreign links every header's
-ModuleDecl for one qualified namespace into ONE ring as it mints them
-(ForeignRegistry::link_namespace), because C++ has one `std` however many
-headers reopen it. Each header keeps its own table; the ring is what makes
-`std` one entity to the readers above, and what argument-dependent lookup
-walks (MemberLookup::_enclosing_modules): libc++ forward-declares
-`__wrap_iter` in one header and declares its `operator==` in another.
-`tests: Tests/Sema/FFI/ns_reopen.k, Tests/Sema/FFI/op_lookup.k`.
-
-A pathless TU (§2.1 "Inputs are modules") is NOT the unnamed namespace
-either: it reopens `namespace <file stem>`, and only its `priv`/`internal`
-decls go one level deeper into an unnamed namespace nested there.
-CODEGEN.md §5 has the rule; invariant 9a is unchanged, because the stem is
-inside the source tree.
-
-### 4.4 Re-export [DONE]
-
-RESOLUTION.md §2 already decides the rule: a `pub`/`prot` import is
-surface. A re-exported name lives in the source TU's OVERLAY, never in its
-symbol table, and a plain `import foo` binds foo's ModuleDecl whose shared
-table IS that symbol table so the two ways of reaching a re-export need
-two mechanisms:
-
-- A **wildcard** import folds the source's re-exported targets into this
-  TU's overlay (`_fold_reexports`), carrying each target's own kind, vis,
-  cell/decl and src_fid. DAG order guarantees the source overlay is
-  complete, and already transitively closed. A **selective** import names
-  exactly what it takes, so it folds none.
-- A **plain** import reaches them through `foo::name`, so ChainBinding's
-  module step consults the source overlay after missing in the table
-  (`MemberLookup::reexport_lookup`, name re-interned into the source TU's
-  imm space, probe-only, never interning).
-
-Both paths accept a target only when its `origin` import is pub/prot, so
-wall 1 holds: a `priv` import edge in the source is never surface. A folded
-re-export takes THIS TU's import as its `origin` (the edge it arrived
-through), so it is surface here only if that edge is pub/prot too. Kept
-with the source's origin, every target that once crossed a `pub import`
-(all of builtin's surface, through each prelude) leaked through private
-edges, and each overlay entry grew one duplicate per import path: phase I
-of a TU deep in the self-host DAG ran for minutes (P368; test:
-Tests/Sema/Imports/reexport_wall/main.k).
-
-Note what a form re-exports. `pub import bar` re-exports the NAME `bar`,
-so an importer of foo writes `foo::bar::f()`. `pub import bar::*`
-re-exports bar's contents, so it writes `foo::f()`. The overlay records
-what the import bound, and re-export hands exactly that on.
-
-### 4.5 Protected-import enforcement [MISSING]
-
-Needs member-lookup provenance (same library?). Home: `AccessCheck.k`,
-after ChainBinding. Not an import problem; listed for completeness.
-
----
-
-## 5. ffi imports
-
-[DONE] An ffi import imports real declarations. Clang parses the header;
-Sema/Foreign translates what it declares into ordinary Kairo decls, one TU
-per header; phase I folds them exactly as it folds a Kairo file. No pass
-after I asks where a decl came from except through `FFILinkage`
-(`is_imported()`, the C++ spellings, layout, `ffi_c_variadic`,
-`ffi_explicit`, `clang_decl`).
-
-    PP       PPWalker::_handle_ffi builds the ImportDecl (header, alias,
-             linkage) and appends the unquoted spelling to the file's
-             ORDERED header list; _finalize requests one HeaderSet for the
-             list (HeaderSetCache::request). The clang parse runs on the
-             pool (HEADER_BUILD_GROUP), overlapping the Kairo parse.
-    driver   FrontendAction::_sema, before any sema: wait_all; per fid with
-             a set, HeaderIndex::index (a fid + TU per header clang touched,
-             in touch order; DeclImport declare then define; freeze), then
-             _attach_ffi_edges: closure_of(spelling) -> resolved_fid (the
-             header's own fid), ffi_closure_fids (its transitive include
-             closure), one ImportEdge per closure header.
-    I        _resolve_ffi. Aliased: one ModuleHandle per closure header, all
-             under the ONE alias key -- the reopened-namespace shape (§4.3),
-             so `my_h::f` searches every header's table. Bare:
-             _fold_all_cells over every closure header, as the `#include`
-             it stands for would, MINUS the name `std` (see below).
-
-**`cxx::std` is C++'s `std`.** Bare `std` is Kairo's (`kairo::std`, §2.1), so
-C++'s needs a spelling of its own. Once per TU with any ffi import, phase I
-synthesizes a `ModuleDecl` named `cxx` owning exactly ONE binding: `std` ->
-every top-level `std` ModuleDecl in that TU's ffi closure, collected while
-`_resolve_ffi` folds each closure header (for the aliased shape too -- an
-aliased ffi import still puts C++'s std in the closure). It folds into the
-overlay as a `ModuleHandle` under the key `cxx`. A TU with no ffi import binds
-nothing and `cxx::std` is an ordinary miss.
-
-It is a TRANSPARENT alias: it binds a name and nothing else. The decls it
-reaches are the header TUs' own, they keep their own DC chains and their own
-paths, and codegen spells them `::std::…` exactly as it did when bare `std`
-reached them. Nothing after I knows the overlay exists.
-
-No new lookup arm. `cxx::std::cout` walks the path that already exists: `cxx`
-is a Module anchor (`module_scopes` on a ring of one yields its own scope),
-`std` under it is an all-module cell -- §4.3's multi-scope rule -- and `cout`
-searches every reopening. If ChainBinding or TypeResolve's `mods` walk ever
-needs a change for this, that is a bug in the reopened-namespace support and
-is fixed there.
-
-`_fold_all_cells` takes a `skip_std` flag rather than checking the name
-inline, because it has three callers: the bare ffi fold, `import foo::*`, and
-a `*` item in a selective import. Only the first passes true. Every other
-top-level C++ name folds as before, so `boost::`, `absl::` and friends are
-unaffected -- `cxx` is one alias for one name, not a general prefix.
-
-`cxx` used alone as a value or a type is `R053E`: "'cxx' names the C++ std
-overlay; write `cxx::std`". A user shadowing `cxx` with their own module or
-root is legal and not diagnosed. This is the one SymbolTable built outside
-`ASTParse::_build_symbols`; it holds foreign decls by reference, never copies,
-and is frozen before anything reads it -- the same shape `OverlayEntry::merged`
-already has, so hard invariant #2 stands.
-
-Note for Stage 1.5: the ~750 `libcxx::` sites in the compiler's own source are
-a Stage 0 bootstrap namespace with nothing behind them in Stage 1 resolution.
-Their target spelling is `cxx::std::`, not `std::`.
-    N/T/CB   nothing special. Cross-TU probes spell through in_scope; a
-             header TU has an ImmediateTable (TCM::ensure_imm_table) and no
-             tokens.
-    typer    a C `...` tail ranks Converted, unchecked (OverloadResolution);
-             an `explicit` ctor is not a converting ctor (CastTyping 5d);
-             ADL (MemberLookup::associated_scopes) finds `std::op <<`.
-    codegen  CodegenBackend::run mounts each set's PCH in the backend's
-             in-memory VFS and loads the MAIN file's set as the implicit
-             PCH; a header's decls are never re-emitted (EmitPlan::_admit).
-
-**Unresolved header.** A spelling clang cannot find leaves resolved_fid 0
-and phase I binds nothing, so each use of its names is an ordinary R020E
-miss. The set's own clang diagnostics go through a ClangDiagAdapter into
-the Kairo engine (HeaderSet::begin_diag), mapping locations through the
-set's cfid_to_kfid table: at build time into the set's diag_buf, drained
-into the driver's engine once the build joins (those predate the header
-fids, so they carry clang's file:line:col in their text), and during a fill
-into the demanding TU's sink with real spans. The TextDiagnosticPrinter is
-only the fallback client between them.
-
-**The bare-ffi miss gate is gone**, and with it `NamedIdentExpr::foreign`,
-`TraceRow::foreign_gate`, `AnchorKind::Foreign`, `MemberOutcome::Foreign`
-and `OverlayTargetKind::FfiAnchor`. A typo in a TU with a bare ffi import
-is a typo again.
-
-**One PCH per clang TU.** A Kairo TU whose import graph spans two header
-sets loads the main file's set as the PCH and `#include`s every other
-set's headers textually by resolved path. Correct, just re-parsed.
-
-**Instances of imported templates.** `cont<i32>` for an imported `cont` is a
-registry shell like any instance (#12), but clang fills it, never M2
-(`MemberLookup::filled_by_clang`). The first member lookup into the shell
-calls `ForeignInstantiate::fill`: the registry entry's args are spelled back
-as clang types in the primary's set (`TypeExport`), clang declares and
-completes the specialization (`CheckTemplateIdType` + `RequireCompleteType`,
-under the set's `sema_lock`), and DeclImport in fill mode imports the
-ClassTemplateSpecializationDecl's members into the shell, which is then
-`instantiated`. So `size()` returns clang's answer for `size_type`, not the
-pattern's dependent spelling. The members LIVE in the primary's header
-(scope, tables, bindings), but each name TOKEN is minted in the header it
-is written in (`DeclImport::_home_at`): a token's text is read back through
-its range's TU, and a name interned in `<__fwd/vector.h>` but ranged in
-`<__vector/vector.h>` rendered as whatever identifier held that index
-there (`.size` as `cend`). A fill that cannot run -- an arg with no clang
-spelling (a decl from another set, a Kairo record TypeExport cannot mirror),
-or a specialization clang rejects -- is sticky (`foreign_fill_failed`) and
-lookup walks the pattern, as it did before fills existed.
-
-[DONE] Value arguments (`array<i32, 4>`, `SmallVector<T, N>`). A value
-argument's canonical is the exact integer (`CanonicalTypeStore::value_arg`),
-on both sides: TypeImport reads clang's `Integral` template arguments (and a
-non-type parameter's default, when clang can fold it) into it, so the
-instance a header names and the one the user spells are ONE registry entry,
-whatever C++ type the parameter has. The type is not part of the identity;
-TypeExport recovers it from the template's parameter when it spells the
-argument for a fill (`size_t`, `bool`, an enum, `unsigned char`, a type an
-earlier argument supplies), and refuses a value the parameter cannot hold
-(clang then rejects the emitted C++ at the use). An instance's C++ spelling
-prints every value argument with its type
-(`PrintingPolicy::AlwaysIncludeTypeForTemplateArgument`): bare, an `unsigned
-char` 255 printed as the plain-char literal `'\xff'`, which is -1.
-
-[DONE] Pointer arguments keep their flavour. `*Node` and `unsafe *Node` are
-both `Node*` to C++, and a `Node*` read out of a header imports as `unsafe
-*Node`. Inside a fill, every pointer level of every argument is recorded
-against the clang type it spells (`TypeImport::note_pointer_arg`), and a
-member type naming that clang type reads back as the argument: so
-`vector<*Node>::push_back` takes `const *Node&` and its iterator's
-`reference` is `*Node&`. A Kairo record is reachable from a header only
-through the arguments, which is what makes the argument the right answer.
-A nullable pointer `*Node?` is NOT `Node*` to C++: it is
-`::builtin::Nullable<Node*>`, which the fill spells through the Nullable
-lang item's stand-in (below) and records like any instance argument, so the
-`Node*` inside it reads back as `*Node` too. Two flavours of one pointee in one
-program (`vector<*Node>` and `vector<unsafe *Node>`) are two shells over ONE
-clang specialization, whose members are registered once by USR: the second
-shares the first's member decls (known gap, ticketed).
-
-[DONE] Kairo-native args (`std::vector<S>`). Phase A has never heard of `S`,
-so TypeExport declares a STAND-IN in the set's AST: a complete struct with
-S's non-static fields in order, under exactly the name EmitIR emits
-(`CXXSpell::ns_segments` + `leaf`, e.g. `::stem::S`). The name is the point:
-every spelling the fill records (`::std::vector<::stem::S>`, a member
-typedef's path) is printed from phase A and compiled in phase B against the
-real `S`. The stand-in's USR is registered to S itself in ForeignRegistry,
-so TypeImport reads `reference` back as `S&` -- the Kairo record, whose own
-members and extensions then resolve. It mirrors layout only (no methods, no
-user destructor or deleted copy), which is all declaring members needs.
-A generic record's instance (`vector<G<i32>>`) is an explicit
-specialization of a stand-in TEMPLATE, so it prints `::stem::G<int>`.
-
-[DONE] Kairo enums and `T?` (`vector<Color>`, `map<i32, Shape>`,
-`vector<Opt<i32>>`, `vector<i32?>`). A plain enum's stand-in is a scoped
-enum of its underlying word (`enum_niche_kind`, the rule InterfaceEmitter
-writes). An ADT's -- generic or not -- is a struct of its tag word
-(`adt_declared_tag_kind`, the rule EnumLayoutLowering builds the tag from)
-followed by every variant's payload fields IN SEQUENCE: a fill runs during
-typing, before EnumLayoutLowering has built the real record, and phase A's
-member declarations ask a type's traits (copyable, trivially copyable,
-destructible), never its size. A union of the payloads would have the
-size and the wrong traits (a non-trivial member deletes a union's copy;
-the real record copies exactly when every payload does), so the sequence
-mirrors the traits and over-states the size. `T?` is the Nullable lang
-item's instance over T, exactly as NullableTypeLowering later lowers it,
-so `vector<*Node?>` prints `::std::vector<::builtin::Nullable<::stem::Node
-*>>`. The way back is symmetric and build-wide: TypeImport reads any
-specialization of the Nullable lang item as `T?`, never as the record
-(whose C++ surface Kairo code cannot call before NullableTypeLowering). A
-Kairo instance a fill names first (`Nullable<i32>`, which no Kairo
-expression names) is homed in the TU that demanded the fill, so that TU
-writes its explicit instantiation.
-
-Refused, and the fill fails as before: records nested in a type, classes
-with a base, generics with a pack or value parameter, an ADT with a
-pack-expanded variant, a field whose type has no export, and a name a
-header already owns. A Kairo `fn(A) -> R` exports as the C pointer
-`R(*)(A)` it imports from, not as `::__kairo_fn`, so a container of
-closures is not one of these shapes.
-
-[DONE] The fill trigger is ONE entry point, `MemberLookup::ensure_filled`,
-called by both readers of a shell's table: member lookup (`c.size`) and
-TypeResolve's `::` step (`TypeResolve::_scope_of`), so an alias target, a
-generic argument and a bare `X<A>::Y` in a signature all fill from the same
-place. A `Foo<Args>::Y` whose `Foo` is imported and whose args are concrete
-steps into the registry instance rather than deferring as dependent; it
-defers only when the fill failed (its table is empty and the pattern's
-spellings are dependent). Fills nest (define imports a type that is a path
-into another shell): `ForeignInstantiate::_mu` and the set's `sema_lock` are
-recursive, and a shell already mid-fill on this thread returns false at once.
-
-A failed fill's clang errors reach the demanding TU's sink through the
-engine, spanned in the header. [MISSING] a Kairo note pointing at the USE
-that demanded the fill; stand-ins for the Kairo records refused above.
-
-**Nested records.** Implicit instantiation of `holder<alloc>` DECLARES
-`holder<alloc>::node` but defines it only when something requires it
-complete, so walk_declare (correctly) declares `node` and walks nothing in
-it. The fill then completes every nested record its OWN walk reached --
-an incomplete CXXRecordDecl instantiated from a member class of the
-specialization -- with `RequireCompleteType`, under the locks the fill
-already holds, and walks it into the same list before the define pass
-(`ForeignInstantiate::_complete_nested`). A completed record's own nested
-records join the list, so `A<T>::B::C` completes to any depth (a visited set
-on clang decls; an ICE if it passes 4096). Records a member SIGNATURE merely
-mentions are not reached and stay on demand -- completing transitively would
-have the first <vector> fill instantiate half of libc++. A record clang
-cannot complete is left memberless and logged, like a failed fill. Each
-nested record is declared under its own USR into the shell's table, so
-`holder<alloc>::node` from any TU is the one decl. Instances of nested
-templates (`outer<alloc>::inner<i32>`) are ordinary registry shells and fill
-on their own trigger.
-
-**Lifetime.** Header TUs live for the build (CompilerInstance::release
-refuses one). A set's clang instance lives until HeaderSetCache::release_all
-at the end of execute(); per-set release once its last importer passes
-Checked is the refinement. Fills need it alive: ForeignInstantiate ICEs on
-a released set rather than read a dangling `clang_decl`.
-
-### 5.1 Tags, ordinary names, and lazy ambiguity [DONE]
-
-C and C++ keep tags (struct/class/union/enum names) apart from ordinary
-names (variables, functions, typedefs, enumerators), so glibc declares
-both `struct timezone` (<sys/time.h>) and `extern long timezone` (<time.h>),
-`struct stat` beside `stat()`, `struct sigaction` beside `sigaction()`.
-Kairo has one namespace per scope, so the C++ hiding rule
-([basic.scope.hiding]) is applied wherever the two meet, and only between
-IMPORTED decls -- a Kairo decl never hides and is never hidden this way:
-
-| Header shape | Plain name binds | The tag |
+| Form | Place | Resolver entry |
 |---|---|---|
-| `struct T` + ordinary `T` (var, fn, typedef of something else, enumerator) | the ordinary decl | bound only under the internal key `struct T` |
-| `typedef struct T T` | the tag (one entity) | the typedef is not bound by name |
-| `struct T` alone | the tag | |
-| two ordinary `T` (inline namespaces) | nothing: lazy R016E at the use | |
+| `import foo` | the search roots: the libraries, the unnamed search dirs (the current directory, every `-I`), std and builtin, in the [order below](#resolution-order) | `resolve_module_rel` |
+| `import self::foo` | the importing file's own directory | `resolve_module_in(path, file_dir)` |
+| `import module::foo` | the importing file's module root: the nearest directory at or above it holding a `module.k`, pinned or not | `resolve_module_in(path, module_dir_at_or_above(file_dir))` |
 
-Three places, one rule:
+The module root is the directory `prot` is shared across ([Visibility](#visibility)): `Resolution::SearchRoot::module_dir_at_or_above` is the one walk, and `VisibilityFacts::module_dir_of_path` calls it. A file with no `module.k` above it has no module root, and `import module::foo` there is R069E (with an R069N note saying what is missing) instead of R011E.
 
-- **DeclImport::_bind_named**, per header set. Clang's own lookup over the
-  whole set decides (`_hidden_tag_keyword`), so a tag in one header and
-  its hider in another are seen together. A hidden tag is bound under
-  `struct timezone` -- a spelling no source can produce -- and stamped
-  `FFILinkage::ffi_tag_keyword`, monotonic across sets.
-- **ImportResolution::_apply_hiding**, per overlay entry. A header's table
-  is filled by the FIRST set that indexes it; a later set that also sees
-  the hider cannot rebind it. The overlay entry marks such a target
-  `hidden` (out of `merged`, out of `non_function_count`). Same scope only:
-  scope is read off the qualified C++ spelling, so a tag in an inline
-  namespace beside a global variable stays an ambiguity, as C++ has it.
-  A header cell with more than one entity folds one target per entity
-  (`_fold_ffi_cell`), not just its first.
-- **ChainBinding::_commit** (`ffi_hide_tags`), for `h::timezone` through
-  an alias, whose scopes are every closure header's.
+The current directory is a search root, so a file in it reaches `./foo.k` as plain `import foo`; a file anywhere else reaches the file beside it only as `import self::foo`. An anchored path is resolved in a transient root over that one directory (`ImportResolver::_sibling_root_for`), never against the search roots, so no file added to a search root changes what it means. Its identity is still `canonical_module_path`'s: a file is one module however it was reached.
 
-The type stays reachable through everything that names it -- TypeImport
-goes by the clang decl, never by name -- so `gettimeofday(*timeval,
-*timezone)` types its parameter as the struct. CXXSpell writes a hidden
-tag elaborated, `struct ::timezone`, since bare `::timezone` is the
-variable in C++. Source names a hidden tag with a foreign forward
-declaration (§5.2).
+`FileImportIndex::_resolve` (the PP) and `DepScanner::_scan_one_import` (the graph) apply the same rule through the same two entry points, so the graph reaches every file the walk resolves.
 
-**Lazy ambiguity.** An overlay entry whose collision is between header
-entities only (`OverlayEntry::lazy`) is not reported by I: C++ reports
-such a collision where the name is used, and a header set routinely
-declares names nobody uses. N (expression heads) and T (type names) report
-R016E at the use, one R016N note per candidate naming its kind
-(`MemberLookup::report_lazy_ambiguity`). A collision any Kairo import
-takes part in is still reported eagerly, at the import, as before: the
-Kairo import itself is the mistake, and §2.3's one-home rule stands for
-it. `--print-imports` marks a lazy entry `(reported at use)` and a hidden
-target `hidden`.
-`tests: Tests/Sema/FFI/tag_hiding.k, tag_hiding_ambiguous.k,
-tag_hiding_ambiguous_type.k`.
+### Migration
 
-### 5.2 Naming a tag: `ffi "c" struct T` [DONE]
+The plain form used to probe the importing file's directory first and report R017E when a search root answered too. Now a plain import that every root misses, for every prefix of its path, is retried in the importing file's directory; a hit there resolves (to the file the import always meant) and reports R068E at the first path segment, with a fix-it inserting `self::`. A root answer always wins, so a plain import of a library is never affected by a same-named file beside the importer.
 
-A bodiless `struct` / `class` / `union` under an `ffi` prefix or in an
-`ffi { }` block is a foreign forward declaration (outside ffi it is a
-plain Kairo forward declaration, as a bodiless `class` always was; the ffi
-linkage is what makes it a tag probe). Phase I (`_bind_ffi_forwards`) looks the
-name up in the TU's ffi closure -- a hidden tag's internal key first, then
-a visible tag -- and stamps the match on the declaration
-(`FFILinkage::ffi_tag_target`). `NameLookup::representative` answers with
-the header's decl, so every type built from the forward declaration is
-the header's entity and EmitPlan never emits it. No match leaves it a
-Kairo forward declaration, as before.
+R068 is an error (it was a warning while the tests migrated; `FileImportIndex::_legacy_sibling` now reports `R068E`), but the import still resolves so it does not cascade. Removing the fallback entirely afterwards is the two `_resolve_greedy(..., true, self._dir)` / `_resolve_place(..., true, ...)` calls.
 
-The declaration sits in the TU's own table, so it would shadow the
-imported ordinary name. It does not in a VALUE position: N
-(`_prefer_ordinary_over_ffi_forward`) takes the overlay's imported
-ordinary decl instead, so `timezone` in an expression is still the
-variable while `*timezone` in a type is the struct -- the C split. The
-cost is that the head of an expression that means the TYPE (a struct
-literal) reaches the variable; C spells that `(struct timezone){...}` too.
-Enums are not covered: a C++ enum forward declaration needs its
-underlying type. `tests: Tests/Sema/FFI/tag_forward.k`.
+### Files and module.k
 
----
+In its one place, a path segment `foo` is `foo.k` or `foo/module.k`. Both present is R005E naming the two (`ModuleResolution::file_dir`, `dir_path`); the file answers so the import does not also fail. A `module.k` names its directory, and at a root's top level the directory is the root itself: `Lib/std/module.k` is `kairo::std`, not `kairo::std::module`. A name that consumes a library's whole path resolves to that library's `module.k`, which is how `import builtin` and `import kairo::std` resolve. `module X { }` inside a file appends `X` to the file's path.
 
-## 6. Codegen: EmitPlan
+A path segment is a file or directory name, spelled as a C++ identifier the same way a file stem is (`CXXSpell::cxx_segment`: `operator.k` is `operator_`).
 
-Per emitted TU, produce the declarations a header would have provided.
-Reads sema's links. Reads no `ImportDecl` except for §5.
+### Resolution order
 
-### 6.1 Root set [DONE]
+For a plain import, `ImportResolver::resolve_module_rel` tries, in order:
 
-RAV over this TU. Collect the canonical redecl link of every decl reached
-through `NamedIdentExpr::resolved_decl`, `ChainExpr::Step::resolved_decl`,
-every entry of a `candidate_cell`, and every `Type::canonical` that is a
-`RecordType` (its `decl`). Keep those whose DC chain bottoms out in a
-different fid. Skip decls imported from a C++ header (`is_imported()`):
-the header declares them.
+1. the importing file's own root, with the path as written;
+2. its own library when no root registered it, with the path as written;
+3. libraries whose spelling matches the path's leading segments, longest spelling first;
+4. the remaining undiscovered roots, with the path as written.
 
-### 6.2 Closure [DONE]
+The importing file's own directory is not on the list (it is `self::`'s place), except as the [migration](#migration) fallback after all four miss.
 
-Repeat until no growth. Two edge kinds:
+A file inside a library, registered or found by walking up, never falls back into an unnamed search dir: a library cannot depend on what one build's command line holds.
 
-    fwd      : the target need only be declared (`class X;`)
-    complete : the target's full body-less definition must precede
+Longest-first matching is what makes prefix names legal. With `kairo::std` and a hypothetical `kairo` both registered, `import kairo::std::vec` is the former's `vec.k` and never the latter's `std/vec.k`. Only equal names collide.
 
-    FunctionDecl   -> param types, return type            : fwd
-    Class/Struct   -> bases                               : complete
-                   -> by-value field types                : complete
-                   -> pointer/nullable field pointees     : fwd
-                   -> method signature types              : fwd
-                   -> nested types                        : part of this definition
-    Union          -> field types                         : complete
-    Enum           -> underlying                          : nothing (builtin)
-    TypeAlias      -> target                              : complete
-    generic primary-> as its kind, interface only
+### Collisions
 
-Whole class or nothing (invariant 11). `main` never imported `bar`, but
-`foo::F` holds a `bar::B` by value => `B` lands in main.cpp. That is what
-"bar depends on something foo brought in" means and it is handled here, not
-by import order.
+One module path naming two files is an error, never first-wins:
 
-### 6.3 Ordering [DONE]
+| Case | Diagnostic |
+|---|---|
+| two libraries with one name or one spelling | R018E, from the driver before anything is parsed (`ImportResolver::take_root_collisions`) |
+| two unnamed search dirs answering one import path with different files (`./a.k` and `inc/a.k` under `-I inc`) | R017E at the import, naming both (`cross_root`). Once one unnamed dir answers, every other is probed, so the importer's own dir winning cannot hide a twin. |
+| a pinned directory found walking up that claims a registered library's name, or another such directory's | R018E |
+| two inputs from two search dirs with one module path (`kairo a.k inc/a.k -I inc`) | R018E, claimed by the driver before compiling either (`ImportResolver::claim_identity`, keyed by real path; `CompilerInstance::_claim_input_identities`) |
 
-    Tier 0  every type in the set as a forward declaration, grouped by
-            namespace. Breaks all pointer cycles up front.
-    Tier 1  type definitions, topologically sorted on `complete` edges
-            only. A cycle is a Kairo error owned by TypeCycleCheck [DONE];
-            the plan asserts.
-    Tier 2  function declarations. Any order.
+Unnamed search dirs never collide by name: an empty name prefixes nothing.
 
-Tie-break inside a tier: (source fid, source order). Output is
-deterministic.
+### The std and builtin roots
 
-### 6.4 Namespace wrapping [DONE]
+The driver registers two named roots (`ImportResolver::Builder::add_include(path, name, spelling)`):
 
-Each decl in `namespace a::b { ... }`, from `CXXSpell::ns_segments` (§3
-invariant 9a). Reopening is free in C++, so one wrapper per decl is
-correct; InterfaceEmitter merges consecutive same-namespace tier-0 entries,
-EmitIR does not merge at all. A pathless TU's decls go in a namespace
-named for the FILE STEM, not the global one; a `priv` or `internal` one
-goes into an unnamed namespace nested inside that. `main` (a file-scope
-`main` in ANY TU, `CXXSpell::is_main`) is the exception everywhere: C++
-requires it at global scope, so it gets no declaration in the interface or
-a header at all. CODEGEN.md §5 is the rule; qualified names do not change, because C++
-reaches into the unnamed namespace through its implicit using-directive.
+| Root | Name (identity, C++ namespace) | Spelling (what source writes) | Directory | Override |
+|---|---|---|---|---|
+| std | `kairo::std` | `std` | `<resource-dir>/std` | `--std-dir`; `--no-stdlib` skips it |
+| builtin | `builtin` | `builtin` | `<resource-dir>/builtin` | `--builtins-dir` |
 
-### 6.5 Alias tail [DECIDED: none]
+`SearchRoot::name` is the root's identity: `Lib/std/io.k` is `kairo::std::io` and emits into `::kairo::std`, which cannot collide with C++'s `std`. `SearchRoot::spelling` is what `resolve_module_rel` matches; `canonical_module_path` reads only the name, so the spelling never reaches an emitted namespace. Every other root's spelling is its name.
 
-After the interface block, TU-local only, never exported:
+There is no std prelude. `import std::io` binds `io`, `import std` binds `std` (the root's `module.k`), and a bare `std` in a file that did neither is an ordinary unresolved name. The PP does not add std to the graph either; an import of it does. C++'s `std` is reached as [`cxx::std`](Interop.md#ffi-imports).
 
-    import foo as f              -> namespace f = foo;
-    import foo::add as my_add    -> using my_add = ...;  (types)
-                                    inline auto& my_add = foo::add; (values, or just qualify at use)
-    import foo::*                -> using namespace foo;  (or qualify at use)
+builtin is the one prelude: every non-builtin TU receives a synthesized `ImportDecl` with `is_prelude = true` and `resolved_fid` stamped directly (`FrontendAction::_sema`), which phase I folds like any wildcard import. `Lib/builtin/module.k`'s `pub import`s re-export through the ordinary path. `--print-imports` labels the prelude `<prelude>`; the AST printer hides it.
 
-[DECIDED] No alias tail. `TokenSink` prints every use fully qualified from
-`resolved_decl`. The alias tail exists only to make the generated C++ read
-like the Kairo, which is worth nothing against invariant 10 (an alias is
-TU-local and never appears in an exported interface) and costs a second
-naming mechanism codegen would have to keep consistent with the first.
-Qualified-at-use is fewer moving parts; do not relitigate.
+## Import resolution
 
-Use-site exactness is codegen's: every argument whose type differs from the
-parameter's canonical is cast to it (CODEGEN.md §6), so C++ overload
-resolution has one Exact candidate.
+Phase I, `Compiler/Sema/Resolve/ImportResolution.k`. For each `ImportDecl` it folds the source TU's frozen symbol table into this TU's `ImportOverlay` (`Compiler/AST/Context/ImportOverlay.k`), keyed by this TU's identifier indices: each name is spelled once and re-interned once. Targets are references into the source TU's arena; nothing is copied.
 
-### 6.6 Emitter reuse [DONE]
+After I the TU is self-contained: unqualified lookup is DeclContext chain, then overlay, then miss. Later phases only read other TUs (frozen tables, canonical type slots, an imported generic's typed body). The only cross-TU writes go to the two locked build-wide structures, the canonical type store and the instantiation registry ([invariants](Pipeline.md#invariants)).
 
-`InterfaceEmitter(plan) -> EmitSink` (TokenSink for the build, TextSink for
-`--print-cxx` and headers). Two callers:
+Import cycles are legal: the files of a cycle run I as one group in lockstep, and the group's re-exports are refolded to a fixpoint after I ([Pipeline.md](Pipeline.md#compilation-phases)); cycle reporting (R058W) is the preprocessor's ([Lexing.md](Lexing.md#preprocessor)).
 
-    EmitPlan        roots = every own decl + foreign reached      (PlanMode::Preamble)
-    EmitCXXHeader   roots = own `pub` decls + foreign reached     (PlanMode::Header)
+### What phase I reads
 
-Zero new logic for the header. A C++ consumer of the header sees canonical
-namespaced names and nothing else.
+Index mode hoists declaration heads into the `DisambigTable` so the parser can disambiguate `<`. Imported generics are found lazily through `import_edges` (`GlobalDisambigTable::lookup_in`), never merged into the importer's table. The full parse freezes one `SymbolTable` per declaration-owning scope (`ASTParse::_build_symbols`), and `ASTParse::_synthesize_module_self` gives every non-root file a `ModuleDecl` that shares the TU's table, so a plain import has a real `*Decl` to bind. Nothing before I reads another TU's AST.
 
----
+### Symbol paths
 
-## 7. Generics
+Forms 3 and 4, and multi-segment items of form 5. When `0 < file_seg_count < path_segments.size()`, `_resolve_one` hands the import to `_fold_symbol_path`, which walks `path_segments[file_seg_count..]` with `_walk_segment`: `lookup_foreign` in the source table for the first segment, then the named declaration's own table (through its redeclaration canonical) for each following one. `_fold_selective` routes every item through the same walker, so a single-segment item is a walk of one step. The final cell folds under the alias, or under the last spelling.
 
-[DECIDED] Kairo has no monomorphizer: no body is cloned or re-typed per
-instance (MONO.md D0). Sema enumerates every `(template, canonical args)`
-it can see and checks each against the template's bounds; the body was
-checked once, at its definition. Codegen emits explicit instantiations.
+| Failure | Diagnostic |
+|---|---|
+| missing intermediate or final segment | R015E, here and nowhere else |
+| a type alias as an intermediate segment | R015E "cannot import through a type alias": alias expansion is T's, and T has not run for this TU |
 
-    home TU   : template <typename T> T add(T, T) { ... }   // body
-                template i32 add<i32>(i32, i32);            // explicit instantiation DEFINITION
-    other TUs : template <typename T> T add(T, T);          // interface: signature only
-                extern template i32 add<i32>(i32, i32);     // explicit instantiation DECLARATION
+A module named through a symbol path folds as a module handle, not a type, so `import u1::util` beside `import u2::util` gets the [reopened-namespace](#reopened-namespaces) exemption like two plain imports.
 
-Registry (the content of M1): `(template decl, canonical args) -> home
-fid`, closed transitively over the instances a body reaches
-(ConformanceChecking's reach substitutes a body's dependent uses per
-instance). Home = the first TU to name the instance, in DAG order
-(`InstanceEntry::home_fid`, MONO.md D3): for direct naming that is the
-template's own TU when it uses the instance itself, else its first user;
-an instance reached or substituted in a TU is homed there. Exactly one
-definition per instantiation build-wide; zero is a link error, so the
-registry is authoritative.
+### Prelude handles
 
-Value-predicate `requires`, kind bounds, conformance: checked in Kairo at
-the instantiation site BEFORE emission. The emitted template carries only
-the constraints CODEGEN.md §7b.7 derives (`requires I_c<...>` per
-interface bound) and a record's self-contained value predicates; they hold
-for every instance Kairo accepted, and they are the check for the
-instances only C++ sees.
-`where` guards are not constraints and take no part in this: they are
-runtime dispatch, and WhereDispatchLowering folds a group into one
-ordinary function before emission (RESOLUTION.md §2.10). A guarded
-generic function is SC116E (MONO.md G12: its calls to the candidates need
-per-instance entries); a method of a generic record dispatches inside the
-class template and needs nothing here.
+`ImportResolution::_add` never lets a prelude module handle and a real import share a key: a real import evicts a prelude handle of the same name, and a prelude handle never lands on a name a real import bound. Two handles under one key would otherwise union into a multi-scope module and `is_ambiguous()` would never fire. The builtin wildcard folds types and function sets, not handles, so the rule does not fire today. A user import colliding with a builtin name is R016E.
 
-The lang records are no exception. `Slice<i32>`, `Vector<i32>` and their
-kin instantiate through this same registry whenever the arguments are
-concrete, because everything that builds one goes through
-`SemaContext::lang_record` (CODEGEN.md §0): the sugar `[i32;]`, a literal
-that took `[i32;]`, and the spelled-out `Slice<i32>` name ONE instance,
-with one home TU and one explicit instantiation.
+## Overlays and visibility
 
-Note: template member bodies are emitted into the template's own TU always,
-and into every TU that homes one of its instances (the explicit
-instantiation definition needs the body visible). The header carries them.
+### Overlay entries
 
-Emission ORDER inside a TU follows from that. The `extern template`
-DECLARATIONS stay in the preamble, where they have to precede any use, but
-the explicit instantiation DEFINITIONS are emitted AFTER every body in the
-TU. An explicit instantiation only instantiates the members that are
-defined at the point it appears, so a definition emitted with the preamble
-yields an instance with no members -- and the importing TU's `extern
-template` then correctly refuses to supply its own, so the member is
-missing at link time with no diagnostic anywhere. That is the whole reason
-the Backend runs `InterfaceEmitter::emit_home_instantiations` as a second
-pass after `EmitIR::emit_tu`, rather than emitting tier 3 with tiers 0-2.
+An `OverlayEntry` holds the targets folded under one key and a `merged` cell that lookup reads.
 
----
+| Target kind | Into `merged` |
+|---|---|
+| `Type` | its declaration |
+| `ModuleHandle` (a Kairo module, or a header's under an ffi alias) | its declaration: a name denoting a scope is a lookup answer |
+| `FunctionSet` | its cell, unioned with the other function sets (overloads across imports) |
 
-## 8. Ordered work list
+`OverlayEntry::non_function_count` decides ambiguity. It skips module handles and counts distinct entities, not targets, so `import foo::MyClass` beside `import foo::*` is one entity. Two distinct non-function entities under one key are R016E at the import, with one R016N note per candidate. The error is contained: every use of the name is poisoned where it is looked up (`MemberLookup::report_use_ambiguity`), so the TU's signatures still resolve. A collision among header entities only is reported lazily, at the use ([FFI imports](Interop.md#ffi-imports)). A header entity colliding with a prelude entity is designed to defer to the use the same way; today it is R016E at the import.
 
-Each item is independently testable. Do them in this order.
+### Visibility
 
-    1. ImportDecl::file_seg_count stamped by PP           PP         DONE
-    2. _fold_symbol_path; route multi-seg items through it  I        DONE
-    3. ModuleHandle into `merged`                         I          DONE
-    4. non_function_count exemption                       I          DONE
-    5. Anchor.scopes, multi-module `::`                   CB         DONE
-    6. Foreign anchor + Foreign outcome                   CB, trace  REMOVED by 15
-    7. Bare-ffi miss gate in N                            N          REMOVED by 15
-    8. Re-export fold                                     I          DONE
-    9. Named roots: add_include(name), SearchRoot.name, module_base prefix   PP/Resolution DONE
-   10. TypeCycleCheck                                     Sema/Check DONE
-   11. EmitPlan collector + closure + tiers               Codegen    DONE
-   12. InterfaceEmitter                                   Codegen    DONE (declarations and bodies)
-   12b. Cross-fid TokenSink (locmap-translated locations) Codegen    DONE
-   13. Instantiation registry + extern template           M1/M2      tier 3 extern/explicit DONE, reached instances included (M1 worklist, MONO.md G2); discovery fixpoint G3; M2 = instance facts, no fill (D0)
-   13a. Cross-reopening redefinition check (same signature, two definitions) at M2 sync
-        OPEN, and not a codegen item: a module reopened in two files can define
-        one signature twice, and nothing diagnoses it. Codegen cannot: each TU
-        sees one half, emits it, and the collision surfaces as a LINKER
-        duplicate-symbol error naming the mangled C++ name. Belongs in the M2
-        sync point, where every TU's decls are visible at once; the error is
-        N(a)'s (redefinition), with a note on the other definition.
-   14. EmitCXXHeader via the same emitter                 Codegen    DONE
-   15. Clang extraction pass (removes the §5 gate)        Interop, Sema/Foreign  DONE (§5)
-   16. Per-TU object emission (_codegen loop, obj dir)    Codegen    DONE
-   17. Builtin root + prelude                             PP/driver  DONE
-   18. Container migration (items 2-9)                    Sema/Codegen  IN PROGRESS
-   19. std root named `kairo::std`, spelled `std`          Resolution/driver  DONE
-        Multi-segment SearchRoot::name, SearchRoot::spelling (matched by
-        resolve_module_rel, never by canonical_module_path), longest-first
-        root matching, `module.k` at a root's top level naming the ROOT. No
-        std prelude: `import std::io`. Tests: Tests/Sema/Imports/std_root.k,
-        Tests/Sema/Imports/std_shadow.k.
-   20. `cxx::std` overlay                                 I          DONE
-        Tests: Tests/Sema/Imports/cxx_overlay.k, Tests/Sema/Imports/cxx_overlay_no_ffi.k.
-        OPEN: the link test (a TU calling `cxx::std::strlen` and a
-        `kairo::std` function in one body, compiled and run) needs std's own
-        object on the link line, which the single-`-o` driver path does not
-        emit for a graph TU yet.
+Phase I records an access fact (`vis`) per target, and N reads it:
 
-Test for 1–9: `Tests/Sema/Imports/imports_all_forms`. `main.k` imports `foo.k`
-under every form in §1, plus `module util` reopened across two files, plus
-a re-export through `pub import bar::*`, plus an aliased ffi header.
-`--print-sema` shows every head bound `[import overlay]` and every step
-bound, the ffi one included, with exactly two diagnostics: a name behind a PRIVATE
-import edge and one deliberate typo. `main.sema.golden` is the whole dump,
-for diffing what a change did beyond the asserted lines. Named roots (9)
-are covered separately: two roots each holding `a.k`, imported as `a` and
-`foo::a`, binding to two different decls.
+- A module handle records `Public`. The import edge's own `pub`/`prot` is a separate question, answered from the target's `origin` ([re-exports](#re-exports)).
+- A folded declaration records its own visibility; one that writes none records what its file's default makes it (`ImportResolution::_cell_vis`, `AST/VisibilityFacts.k`): `Private`, or `Protected` when a `module.k` is above the file; `Public` under the old rule (`-fdefault-visibility=pub`, and builtin and std, which keep it until marked).
+- N reports R047E when no target of a name reached through the overlay is visible: a private one never is, a protected one only from a file of the same module (`NameResolution::_overlay_access_ok`). The report says why, notes the declaration, offers `pub`, and chains SC272W when a `prot` failed for want of a `module.k`.
+- The same rule for a declaration reached through a module handle (`geo::area`) or a bare type name is AccessCheck's ([SemanticChecks.md](SemanticChecks.md#accesscheck)).
 
-Test for 10: `Tests/Sema/Types/type_cycle_*.k`, one file per edge kind.
-Six cycles (`_direct` self, `_mutual`, `_array_tuple` fixed array + tuple,
-`_nullable` a `T?` of the record, `_base` bases, `_generic` a generic
-argument the template stores by value), each closed by a `DIAG-NOT`, and
-the non-cycles (`_indirection`: pointer, nullable pointer, vector, map,
-set; `_generic`: a generic argument the template only points at). Both
-halves matter: the edge set is the whole content of the pass, and the
-second half is what a naive "does it mention itself" check gets wrong.
+A file's module is the directory tree under the nearest `module.k` at or above it, pinned or not (`VisibilityFacts::module_dir_of_path`); the driver stamps every TU's module directory before Sema (`FrontendAction::_sema`), since parallel Sema reads another TU's from any worker.
 
-Test for 11: `Tests/Sema/Imports/emit_plan`. `main.k` imports `foo`, never `bar`;
-`foo::F` holds a `bar::B` by value and a `bar::Deep` behind a pointer.
-`--print-emit-plan` then has to show B in tier 1 (transitivity through a
-file main never named), Deep in tier 0 only (edge strength), `foo::Unused`
-nowhere (reachability), and B before F in tier 1 whatever order the two
-files were written in. Those four are the four independent ways the plan
-can be wrong.
+### Reopened namespaces
 
-Test for 12: foo.cpp + main.cpp compiled together with
-`-fsanitize=undefined -Wodr`; main.cpp's preamble diffed against a
-hand-written one.
+A cell whose candidates are all `ModuleDecl`s is one module with several scopes. ChainBinding turns it into a `Module` anchor whose `Anchor.scopes` lists every scope, and a `::` step searches all of them and unions the hits; a genuine ambiguity among the hits is still `_commit`'s to report. TypeResolve's qualified walk applies the same rule in type position (the `mods` list), so `std::vector<i32>` finds `vector` in whichever of libc++'s `std` openings declared it.
 
-Test for 13: a two-TU generic call that links.
+Within one TU, `module Util { }` written twice is one entity with several scopes, linked as a redeclaration ring by N:
+
+- Every module block is a definition, and N's two-definitions check skips modules (`_reopenable`). A type member declared in two blocks is judged as one cell (`_judge_reopenings`): a forward declaration in one block chains to a definition in another; two definitions are R029E, two record keywords R063E.
+- `NameLookup::unqualified`, on a miss in a module scope, tries every other block of the ring (`module_scopes`), in both directions: the blocks behave as one block with no declaration-order rule.
+- N binds `Util` to the ring's canonical, so ChainBinding's single-decl anchor and T's `mods` walk both expand it to `module_scopes(d)`.
+
+Two files that each write `module Util` form two rings. A module reopened in two files can define one signature twice, and nothing diagnoses it before the link (a duplicate-symbol error naming the mangled name). The check belongs at the cross-TU sync point where every TU's declarations are visible; it is not implemented.
+
+A C++ namespace is one ring across headers: `ForeignRegistry::link_namespace` links every header's `ModuleDecl` for one qualified namespace as it mints them, because C++ has one `std` however many headers reopen it. Each header keeps its own table; argument-dependent lookup walks the ring (`MemberLookup::_enclosing_modules`).
+
+### Cross-TU probes
+
+A foreign module's table is probed by spelling, never by this TU's identifier index: `MemberLookup::in_scope` re-interns the name per scope, and `NameLookup::ctx_of` answers which context a declaration's names live in for dumps and diagnostics. Two TUs' interners agree on an index only by accident.
+
+### Import-use dump
+
+`--dump-import-uses=<path.json>` writes, after Sema, every TU's written imports and each name the overlay answered, attributed to the import(s) whose targets hold it (`OverlayTarget::origin`), with the spelled use sites (`FrontendAction::_dump_import_uses`). The overlay is the one place an import answers a name, so `NameLookup::unqualified` logs each overlay hit into `ImportOverlay::uses` (an `ImportUseLog`, allocated by I only under the flag; one null check otherwise). The site is `NameLookup::use_at`, set around the lookup by the callers that hold a token (N's identifier and out-of-line qualifier heads, an `extend` target, T's type heads); a hit with no site (lang items, operator fallbacks, attributes) is counted as `implicit`, and one outside the TU's file (a macro body, an imported node T read) as `foreign`. Extensions are indexed build-wide (`MemberLookup::index_extensions`), not through imports, so they need no import edge.
+
+`Scripts/import_lint.py` reads the dumps (one per configuration and entry, unioned) and reports or rewrites wildcard, dead and misordered imports; its docstring has the rules.
+
+## Re-exports
+
+A `pub` or `prot` import is part of its file's surface. A re-exported name lives in the source TU's overlay, never in its symbol table, while a plain `import foo` binds foo's `ModuleDecl`, whose table is that symbol table. The two ways of reaching a re-export therefore need two mechanisms:
+
+| Importer writes | Mechanism |
+|---|---|
+| `import foo::*` | `_fold_reexports` folds the source overlay's re-exported targets into this overlay, each with its own kind, `vis`, cell or declaration and source fid. DAG order guarantees the source overlay is complete and already transitively closed. |
+| `import foo::{...}` | folds no re-exports; a selective import names exactly what it takes |
+| `import foo`, then `foo::name` | ChainBinding's module step consults the source overlay after missing in the table (`MemberLookup::reexport_lookup`, name re-interned into the source TU's index space, probe-only) |
+
+Both accept a target only when its `origin` import is `pub` or `prot`, so a private import edge in the source is never surface. A folded re-export takes this TU's import as its `origin`, so it is surface here only if that edge is `pub`/`prot` too. Keeping the source's origin instead leaked every target that once crossed a `pub import` through private edges and grew one duplicate per import path.
+
+A form re-exports what it bound. `pub import bar` re-exports the name `bar`, so an importer of foo writes `foo::bar::f()`; `pub import bar::*` re-exports bar's contents, so it writes `foo::f()`.
+
+## Module pinning
+
+A library is named by a declaration in its `module.k`, never by its folder or by the command line. The design follows from one requirement: a file's module path, and so its C++ namespace and symbol names, is a property of the file. `kcc -c lib/y.k` and a run that reaches `y.k` through an import must agree on `y`'s symbols, or separately compiled objects do not link ([kcc](Interop.md#kcc)).
+
+### The pin
+
+A `module.k` whose first declaration is the bare `module a::b` (a module path ended by a newline or `;`) makes its directory the root of library `a::b`. `geometry/module.k` saying `module geo` is imported as `geo`, and `geometry/inner/x.k` is `geo::inner::x`. A name may have several segments: `Lib/std/module.k` pins `kairo::std`.
+
+The resolver reads a pin with `read_module_pin` (`Compiler/Resolution/SearchRoot.k`): a byte scan of the file's first declaration, no lex, cached per directory (`_dir_pins`).
+
+### Placement
+
+The parser accepts the bare form in any file and records it on `TranslationUnit::pin_segments`. `ModulePinCheck` (`Compiler/Sema/Verify/ModulePinCheck.k`, a Verify pass) enforces where it may stand, all as R064E:
+
+| Rule | Function |
+|---|---|
+| only a file named `module.k` may carry a pin; elsewhere the error points at the block form `module foo { ... }` | `pin_allowed` |
+| the pin must be the file's first declaration, the one the resolver reads; checked by running the resolver's own scanner over the file | `pin_counts` |
+| a second pin | `run` |
+
+The module.k-only rule is one predicate by design. Two other meanings for a pin outside `module.k` were considered and left open: naming the file itself (`utils/strings.k` saying `module text` is `utils::text`), or wrapping the rest of the file (`module foo { <rest> }`). Adopting either changes `pin_allowed` and its diagnostic, never the parser or the resolver.
+
+### Finding a file's library
+
+`ImportResolver::canonical_module_path` (`_library_of`) walks up from the file's directory to the nearest directory that is a named root or whose `module.k` pins a name, past the current directory and past any `-I` dir holding the file, bounded by the filesystem root, with one cached stat per directory and never downward. That name prefixes the path. So `cd geometry/inner && kairo x.k`, `-I geometry/inner`, `kairo /abs/.../geometry/inner/x.k` and an importer above the library all give `geo::inner::x`. Only a file with no library above it takes its path relative to the deepest search dir holding it.
+
+### Registration
+
+Libraries are registered in each search dir itself (an `-I` dir whose own `module.k` pins is that library) and in its immediate subdirectories: one `readdir` per root and one small read per `module.k`, never a recursive walk (`ImportResolver::build_index`). A pin registers a library root (`SearchRoot::discovered`) reachable by its name only: `-I libfoo` over `module foo` does not make `libfoo/x.k` importable as `x` as well as `foo::x`.
+
+A pinned directory deeper than that, or above every root, is not registered and cannot be imported by name from outside it. Its own files resolve their imports against it, with the path as written and by its name as a leading segment (`_pinned_root_for`, a transient root), so `geometry/inner/x.k` writing `import geo::shapes` or `import shapes` resolves however `x.k` was reached.
+
+The driver's `builtin` and `kairo::std` registrations are the only names given outside a pin (std's spelling `std` cannot be written as a pin). `build_index` checks that each agrees with its directory's own pin; a disagreement is R059E. An `-I` naming std's or builtin's directory is folded into the driver's registration, in the `-I`'s search position.
+
+### Inputs are modules
+
+A `.k` on the command line, or one a C++ input includes, takes the module path an import of it would get (`ImportResolver::input_module_path`). `lib/y.k` compiled from the current directory is `lib::y` whether it is compiled, imported or included, and its `priv` declarations keep external linkage.
+
+A pathless TU keeps the entry rules (`CXXSpell::is_entry_tu`): namespace is the file stem, `priv`/`internal` declarations go in an unnamed namespace nested in it, and no header is emitted ([Codegen](Codegen.md#cxxspell)). A TU is pathless when it is outside every search dir and every library, when its path under an unnamed dir starts with a named root's name (`./builtin.k` would claim the builtin library's path), when it is the driver's virtual library entry, or when it is a `module.k` at the top of an unnamed, unpinned dir.
+
+`main` declared at file scope in any TU is the program's global `int main` (`CXXSpell::is_main`); one inside a `module foo { }` block is `foo::main`.
+
+The driver's `_kairo_order` (importers before the inputs they import) no longer decides identity; it remains only because the importer still claims the file it reaches first, and its fid-0 placeholder is still needed.
+
+### Consequences
+
+- A file's path is fixed by its root. `~/foo/b.k` writing `import a`, under a `~/foo/module.k` pinning `foo`, resolves to `~/foo/a.k`, which is `foo::a` from every importer.
+- Reopening never crosses a root. `module a { }` in a current-directory file reopens `a`, never `foo::a`.
+- Nothing outside the source tree reaches the ABI ([invariants](Pipeline.md#invariants)).
+
+### Decisions
+
+| Id | Question | Decision |
+|---|---|---|
+| A | a bare `module foo` outside `module.k` | an error for now, behind the single predicate `pin_allowed` |
+| B | `-I name=dir` | removed; `-I dir` is both a Kairo search dir and a clang `-I` |
+| C | the entry file | every input is a module; `main` is global wherever declared |
+| D | std's name | `Lib/std/module.k` pins `kairo::std`; the driver keeps the spelling `std` |
+| E | one module path from two search dirs | an error (R017E at an import, R018E for inputs) |

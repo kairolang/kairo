@@ -1,4 +1,4 @@
-/// --- The Kairo Project --------------------- Sema/Verify/LoopContextCheck.k --- ///
+/// --- The Kairo Project --------------- Sema/Verify/LoopContextCheck.k --- ///
 ///
 ///   \brief Verify break/continue appear in a legal context. Pure
 ///          structural check: no names, no types, no symbol tables.
@@ -35,120 +35,143 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ----------------------------------------------------------------- ///
 
-import Sema::SemaContext::*;
-import AST::Context::ASTContext::*;
-import AST::Context::TranslationUnit::*;
-import AST::ASTSupport::*;
-import AST::Node::Base::*;
-import AST::Node::Program::*;
-import AST::Node::Statements::*;
-import AST::Node::Expressions::*;
-import AST::Node::Declarations::*;
-import AST::Node::Casting::*;
-import AST::Kind::StmtKind::*;
-import AST::Visitor::RecursiveASTVisitor::*;
-import Token::Token::*;
-import Diagnostic::Registry::*;
+ffi "c++" import "vector"
 
-class LoopContextCheck derives RecursiveASTVisitor::<LoopContextCheck> {
-    pub var sc: *SemaContext;
+import AST::Node::Declarations::FunctionDecl
+import AST::Node::Expressions::ClosureExpr
+import AST::Node::Program::TopLevelKind
+import AST::Node::Statements::{
+    BreakStmt,     ContinueStmt, FinallyStmt,   IndexedForStmt, LabeledStmt, LoopStmt, PanicStmt,
+    RangedForStmt, ReturnStmt,   WhileLoopStmt, YieldStmt,
+}
+import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import Diagnostic::Registry::DiagID
+import Sema::SemaContext::SemaContext
+import Token::Token::Token
 
-    var loop_depth:  u32   = 0;       ///< enclosing loops this side of the barrier.
-    var labels:      vec::<Token>;    ///< enclosing loop labels, stack order.
-    var label_floor: usize = 0;       ///< labels below this index are behind a fn/closure barrier.
-    var finally_depth: u32 = 0;       ///< enclosing finally bodies this side of the barrier.
-    var body_depth: u32 = 0;          ///< enclosing function or closure bodies; 0 is file scope.
+pub class LoopContextCheck derives RecursiveASTVisitor<LoopContextCheck> {
+    pub var sc: *SemaContext
+
+    var loop_depth:    u32                     = 0 ///< enclosing loops this side of the barrier.
+    var labels:        cxx::std::vector<Token> ///< enclosing loop labels, stack order.
+    var label_floor:   usize                   = 0 ///< labels below this index are behind a fn/closure barrier.
+    var finally_depth: u32                     = 0 ///< enclosing finally bodies this side of the barrier.
+    var body_depth:    u32                     = 0 ///< enclosing function or closure bodies; 0 is file scope.
 
     fn LoopContextCheck(self, sc: *SemaContext) {
-        self.sc = sc;
+        self.sc = sc
     }
 
     fn run(self) {
-        var tu = self.sc->tu;
-        if tu == &null { return; }
-        if tu->program == &null { return; }
-        
-        var items = &(tu->program->items);
+        var unsafe *tu = self.sc->tu
+        if tu == &null {
+            return
+        }
+
+        if tu->program == &null {
+            return
+        }
+
+        var *items = &tu->program->items
         for var i: usize = 0; i < items->size(); i++ {
-            var item = *(items->get(i));
-            switch item.kind {
-                case TopLevelKind::Decl { self.dispatch_decl(item.as_decl()); }
-                case TopLevelKind::Stmt { self.dispatch_stmt(item.as_stmt()); }
-                case TopLevelKind::Expr { self.dispatch_expr(item.as_expr()); }
-                default { 0; }
+            var item = *items->get(i)
+            match item.kind {
+                case TopLevelKind::Decl {
+                    self.dispatch_decl(item.as_decl())
+                } case TopLevelKind::Stmt {
+                    self.dispatch_stmt(item.as_stmt())
+                } case TopLevelKind::Expr {
+                    self.dispatch_expr(item.as_expr())
+                }
             }
         }
     }
 
     /// Is \p label the name of any enclosing loop label above the barrier?
     priv fn _label_visible(self, label: Token) -> bool {
-        var i: usize = self.labels.size();
+        var i: usize = self.labels.size()
         while i > self.label_floor {
-            i = i - 1;
-            if self.labels[i].imm == label.imm { return true; }
+            i = i - 1
+            if self.labels[i].imm == label.imm {
+                return true
+            }
         }
 
-        return false;
+        return false
     }
 
     fn visit_break_stmt(self, n: *BreakStmt) -> bool {
         if n->has_label {
             if !self._label_visible(n->label) {
-                self.sc->diag->report(DiagID::SC012E, n->range.start,
-                    "`break` label does not name an enclosing loop"
-                ).first(n->range).emit();
+                self.sc->diag->report(
+                    DiagID::SC012E,
+                    n->range.start,
+                    "`break` label does not name an enclosing loop",
+                ).first(n->range)->emit()
             }
-            return true;
+
+            return true
         }
 
         if self.loop_depth == 0 {
             if self.finally_depth > 0 {
-                self.sc->diag->report(DiagID::SC014E, n->range.start,
+                self.sc->diag->report(
+                    DiagID::SC014E,
+                    n->range.start,
                     "`break` cannot escape a `finally` block; the body runs "
                     "as the destructor of a scope guard, when no enclosing "
-                    "loop is live"
-                ).first(n->range).emit();
+                    "loop is live",
+                ).first(n->range)->emit()
             } else {
-                self.sc->diag->report(DiagID::SC013E, n->range.start,
-                    "`break` outside of a loop"
-                ).first(n->range).emit();
+                self.sc->diag->report(
+                    DiagID::SC013E,
+                    n->range.start,
+                    "`break` outside of a loop",
+                ).first(n->range)->emit()
             }
         }
 
-        return true;
+        return true
     }
 
     fn visit_continue_stmt(self, n: *ContinueStmt) -> bool {
         if n->has_label {
             if !self._label_visible(n->label) {
-                self.sc->diag->report(DiagID::SC012E, n->range.start,
-                    "`continue` label does not name an enclosing loop"
-                ).first(n->range).emit();
+                self.sc->diag->report(
+                    DiagID::SC012E,
+                    n->range.start,
+                    "`continue` label does not name an enclosing loop",
+                ).first(n->range)->emit()
             }
-            return true;
+
+            return true
         }
 
         if self.loop_depth == 0 {
             if self.finally_depth > 0 {
-                self.sc->diag->report(DiagID::SC014E, n->range.start,
+                self.sc->diag->report(
+                    DiagID::SC014E,
+                    n->range.start,
                     "`continue` cannot escape a `finally` block; the body "
                     "runs as the destructor of a scope guard, when no "
-                    "enclosing loop is live"
-                ).first(n->range).emit();
+                    "enclosing loop is live",
+                ).first(n->range)->emit()
             } else {
-                self.sc->diag->report(DiagID::SC013E, n->range.start,
-                    "`continue` outside of a loop"
-                ).first(n->range).emit();
+                self.sc->diag->report(
+                    DiagID::SC013E,
+                    n->range.start,
+                    "`continue` outside of a loop",
+                ).first(n->range)->emit()
             }
         }
 
-        return true;
+        return true
     }
 
     /// `return` in a finally body would return from the desugared cleanup
@@ -156,14 +179,16 @@ class LoopContextCheck derives RecursiveASTVisitor::<LoopContextCheck> {
     /// INSIDE the finally resets finally_depth, so its returns stay legal.
     fn visit_return_stmt(self, n: *ReturnStmt) -> bool {
         if self.finally_depth > 0 {
-            self.sc->diag->report(DiagID::SC014E, n->range.start,
+            self.sc->diag->report(
+                DiagID::SC014E,
+                n->range.start,
                 "`return` is not allowed inside a `finally` block; the body "
                 "is the destructor of a scope guard and cannot alter the "
-                "function's control flow"
-            ).first(n->range).emit();
+                "function's control flow",
+            ).first(n->range)->emit()
         }
 
-        return true;
+        return true
     }
 
     /// A `yield` in a finally body would suspend the guard's destructor, not
@@ -171,203 +196,289 @@ class LoopContextCheck derives RecursiveASTVisitor::<LoopContextCheck> {
     /// are the destructor rule `return` is, and are reported the same way.
     fn visit_yield_stmt(self, n: *YieldStmt) -> bool {
         if self.finally_depth > 0 {
-            self.sc->diag->report(DiagID::SC014E, n->range.start,
+            self.sc->diag->report(
+                DiagID::SC014E,
+                n->range.start,
                 "`yield` is not allowed inside a `finally` block; the body "
                 "is the destructor of a scope guard and runs outside the "
-                "generator"
-            ).first(n->range).emit();
+                "generator",
+            ).first(n->range)->emit()
         }
-        return true;
+
+        return true
     }
 
     fn visit_panic_stmt(self, n: *PanicStmt) -> bool {
         if self.finally_depth > 0 {
-            self.sc->diag->report(DiagID::SC014E, n->range.start,
+            self.sc->diag->report(
+                DiagID::SC014E,
+                n->range.start,
                 "`panic` is not allowed inside a `finally` block; the body "
                 "is the destructor of a scope guard and has no error to "
-                "return"
-            ).first(n->range).emit();
+                "return",
+            ).first(n->range)->emit()
         }
-        return true;
+
+        return true
     }
 
     /// finally body = barrier (a destructor's scope): no outer loops, no
     /// outer labels visible inside.
     fn traverse_finally_stmt(self, n: *FinallyStmt) -> *FinallyStmt {
-        if self.dyn()->walkup_finally_stmt(n) == false { return n; }
+        if self.dyn()->walkup_finally_stmt(n) == false {
+            return n
+        }
+
         // A file-scope statement has no enclosing function, so there is no
         // body for the guard record to be local to and no scope whose exit
         // runs it; FinallyLowering and MoveCheck both assume one.
         if self.body_depth == 0 {
-            self.sc->diag->report(DiagID::SC001E, n->range.start,
+            self.sc->diag->report(
+                DiagID::SC239E,
+                n->range.start,
                 "`finally` outside of a function body; it runs when its "
-                "enclosing scope is left, and file scope is never left"
-            ).first(n->range).emit();
-            return n;
+                "enclosing scope is left, and file scope is never left",
+            ).first(n->range)->emit()
+            return n
         }
-        var saved_depth = self.loop_depth;
-        var saved_floor = self.label_floor;
-        self.loop_depth    = 0;
-        self.label_floor   = self.labels.size();
-        self.finally_depth = self.finally_depth + 1;
-        n->body = self.dyn()->traverse_block(n->body);
-        self.finally_depth = self.finally_depth - 1;
-        self.loop_depth    = saved_depth;
-        self.label_floor   = saved_floor;
-        return n;
+
+        var saved_depth = self.loop_depth
+        var saved_floor = self.label_floor
+        self.loop_depth    = 0
+        self.label_floor   = self.labels.size()
+        self.finally_depth = self.finally_depth + 1
+        n->body            = self.dyn()->traverse_block(n->body)
+        self.finally_depth = self.finally_depth - 1
+        self.loop_depth    = saved_depth
+        self.label_floor   = saved_floor
+        return n
     }
 
     fn traverse_while_loop_stmt(self, n: *WhileLoopStmt) -> *WhileLoopStmt {
-        if self.dyn()->walkup_while_loop_stmt(n) == false { return n; }
-        if n->cond != &null { n->cond = self.dyn()->dispatch_expr(n->cond); }
-        
-        self.loop_depth = self.loop_depth + 1;
-        n->body = self.dyn()->traverse_block(n->body);
-        
-        self.loop_depth = self.loop_depth - 1;
-        return n;
+        if self.dyn()->walkup_while_loop_stmt(n) == false {
+            return n
+        }
+
+        if n->cond != &null {
+            n->cond = self.dyn()->dispatch_expr(n->cond)
+        }
+
+        self.loop_depth = self.loop_depth + 1
+        n->body         = self.dyn()->traverse_block(n->body)
+
+        self.loop_depth = self.loop_depth - 1
+        return n
     }
 
     fn traverse_loop_stmt(self, n: *LoopStmt) -> *LoopStmt {
-        if self.dyn()->walkup_loop_stmt(n) == false { return n; }
-        
-        self.loop_depth = self.loop_depth + 1;
-        n->body = self.dyn()->traverse_block(n->body);
-        
-        self.loop_depth = self.loop_depth - 1;
-        return n;
+        if self.dyn()->walkup_loop_stmt(n) == false {
+            return n
+        }
+
+        self.loop_depth = self.loop_depth + 1
+        n->body         = self.dyn()->traverse_block(n->body)
+
+        self.loop_depth = self.loop_depth - 1
+        return n
     }
 
-    fn traverse_ranged_for_stmt(self, n: *RangedForStmt) -> *RangedForStmt {
-        if self.dyn()->walkup_ranged_for_stmt(n) == false { return n; }
-        if n->iterable != &null { n->iterable = self.dyn()->dispatch_expr(n->iterable); }
-        
-        self.loop_depth = self.loop_depth + 1;
-        n->body = self.dyn()->traverse_block(n->body);
-        
-        self.loop_depth = self.loop_depth - 1;
-        return n;
+    fn traverse_ranged_for_stmt(self, n: unsafe *RangedForStmt) -> unsafe *RangedForStmt {
+        if self.dyn()->walkup_ranged_for_stmt(n) == false {
+            return n
+        }
+
+        if n->iterable != &null {
+            n->iterable = self.dyn()->dispatch_expr(n->iterable)
+        }
+
+        self.loop_depth = self.loop_depth + 1
+        n->body         = self.dyn()->traverse_block(n->body)
+
+        self.loop_depth = self.loop_depth - 1
+        return n
     }
 
-    fn traverse_indexed_for_stmt(self, n: *IndexedForStmt) -> *IndexedForStmt {
-        if self.dyn()->walkup_indexed_for_stmt(n) == false { return n; }
-        if n->init   != &null { n->init   = self.dyn()->dispatch_stmt(n->init); }
-        if n->cond   != &null { n->cond   = self.dyn()->dispatch_expr(n->cond); }
-        if n->update != &null { n->update = self.dyn()->dispatch_expr(n->update); }
-        
-        self.loop_depth = self.loop_depth + 1;
-        n->body = self.dyn()->traverse_block(n->body);
-        
-        self.loop_depth = self.loop_depth - 1;
-        return n;
+    fn traverse_indexed_for_stmt(self, n: unsafe *IndexedForStmt) -> unsafe *IndexedForStmt {
+        if self.dyn()->walkup_indexed_for_stmt(n) == false {
+            return n
+        }
+
+        if n->init != &null {
+            n->init = self.dyn()->dispatch_stmt(n->init)
+        }
+
+        if n->cond != &null {
+            n->cond = self.dyn()->dispatch_expr(n->cond)
+        }
+
+        if n->update != &null {
+            n->update = self.dyn()->dispatch_expr(n->update)
+        }
+
+        self.loop_depth = self.loop_depth + 1
+        n->body         = self.dyn()->traverse_block(n->body)
+
+        self.loop_depth = self.loop_depth - 1
+        return n
     }
 
     fn traverse_labeled_stmt(self, n: *LabeledStmt) -> *LabeledStmt {
-        if self.dyn()->walkup_labeled_stmt(n) == false { return n; }
-        if self._label_visible(n->label) {
-            self.sc->diag->report(DiagID::SC015W, n->range.start,
-                "label shadows an identical enclosing label; the outer "
-                "label is unreachable from inside this loop"
-            ).first(n->range).emit();
+        if self.dyn()->walkup_labeled_stmt(n) == false {
+            return n
         }
 
-        self.labels.push_back(n->label);
-        if n->inner != &null { n->inner = self.dyn()->dispatch_stmt(n->inner); }
-        
-        self.labels.pop_back();
-        return n;
+        if self._label_visible(n->label) {
+            self.sc->diag->report(
+                DiagID::SC015W,
+                n->range.start,
+                "label shadows an identical enclosing label; the outer "
+                "label is unreachable from inside this loop",
+            ).first(n->range)->emit()
+        }
+
+        self.labels.push_back(n->label)
+        if n->inner != &null {
+            n->inner = self.dyn()->dispatch_stmt(n->inner)
+        }
+
+        self.labels.pop_back()
+        return n
     }
 
-    fn traverse_function_decl(self, n: *FunctionDecl) -> *FunctionDecl {
-        var saved_depth = self.loop_depth;
-        var saved_floor = self.label_floor;
-        var saved_fin   = self.finally_depth;
-        self.loop_depth    = 0;
-        self.label_floor   = self.labels.size();
-        self.finally_depth = 0;
-        self.body_depth    = self.body_depth + 1;
+    fn traverse_function_decl(self, n: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
+        var saved_depth = self.loop_depth
+        var saved_floor = self.label_floor
+        var saved_fin   = self.finally_depth
+        self.loop_depth    = 0
+        self.label_floor   = self.labels.size()
+        self.finally_depth = 0
+        self.body_depth    = self.body_depth + 1
 
         if self.dyn()->walkup_function_decl(n) {
             for var i: usize = 0; i < n->generic_params.size(); i++ {
-                if self.stop { break; }
-                self.dyn()->dispatch_decl(*(n->generic_params.get(i)));  // discard
+                if self.stop {
+                    break
+                }
+
+                self.dyn()->dispatch_decl(*n->generic_params.get(i)) // discard
             }
 
             if !self.stop {
                 for var i: usize = 0; i < n->spec_args.size(); i++ {
-                    if self.stop { break; }
-                    self.dyn()->dispatch_type(*(n->spec_args.get(i)));  // discard
+                    if self.stop {
+                        break
+                    }
+
+                    self.dyn()->dispatch_type(*n->spec_args.get(i)) // discard
                 }
             }
 
             if !self.stop {
-                if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
+                if n->requires_clause != &null {
+                    n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause)
+                }
             }
 
             if !self.stop {
-                if n->where_clause != &null { n->where_clause = self.dyn()->dispatch_expr(n->where_clause); }
+                if n->where_clause != &null {
+                    n->where_clause = self.dyn()->dispatch_expr(n->where_clause)
+                }
+
                 for var i: usize = 0; i < n->params.size(); i++ {
-                    if self.stop { break; }
-                    self.dyn()->dispatch_decl(*(n->params.get(i)));      // discard
+                    if self.stop {
+                        break
+                    }
+
+                    self.dyn()->dispatch_decl(*n->params.get(i)) // discard
                 }
             }
 
             if !self.stop {
-                if n->return_type != &null { n->return_type = self.dyn()->dispatch_type(n->return_type); }
-                if n->qualifier   != &null { n->qualifier   = self.dyn()->dispatch_expr(n->qualifier); }
-                if n->body_block  != &null { n->body_block  = self.dyn()->traverse_block(n->body_block); }
-                if n->body_expr   != &null { n->body_expr   = self.dyn()->dispatch_expr(n->body_expr); }
+                if n->return_type != &null {
+                    n->return_type = self.dyn()->dispatch_type(n->return_type)
+                }
+
+                if n->qualifier != &null {
+                    n->qualifier = self.dyn()->dispatch_expr(n->qualifier)
+                }
+
+                if n->body_block != &null {
+                    n->body_block = self.dyn()->traverse_block(n->body_block)
+                }
+
+                if n->body_expr != &null {
+                    n->body_expr = self.dyn()->dispatch_expr(n->body_expr)
+                }
             }
         }
 
-        self.loop_depth    = saved_depth;
-        self.label_floor   = saved_floor;
-        self.body_depth    = self.body_depth - 1;
-        self.finally_depth = saved_fin;
-        return n;
+        self.loop_depth    = saved_depth
+        self.label_floor   = saved_floor
+        self.body_depth    = self.body_depth - 1
+        self.finally_depth = saved_fin
+        return n
     }
 
-    fn traverse_closure_expr(self, n: *ClosureExpr) -> *ClosureExpr {
-        var saved_depth = self.loop_depth;
-        var saved_floor = self.label_floor;
-        var saved_fin   = self.finally_depth;
-        self.loop_depth    = 0;
-        self.label_floor   = self.labels.size();
-        self.finally_depth = 0;
-        self.body_depth    = self.body_depth + 1;
+    fn traverse_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *ClosureExpr {
+        var saved_depth = self.loop_depth
+        var saved_floor = self.label_floor
+        var saved_fin   = self.finally_depth
+        self.loop_depth    = 0
+        self.label_floor   = self.labels.size()
+        self.finally_depth = 0
+        self.body_depth    = self.body_depth + 1
 
         if self.dyn()->walkup_closure_expr(n) {
             for var i: usize = 0; i < n->generic_params.size(); i++ {
-                if self.stop { break; }
-                self.dyn()->dispatch_decl(*(n->generic_params.get(i)));  // discard
+                if self.stop {
+                    break
+                }
+
+                self.dyn()->dispatch_decl(*n->generic_params.get(i)) // discard
             }
 
             if !self.stop {
                 for var i: usize = 0; i < n->params.size(); i++ {
-                    if self.stop { break; }
-                    self.dyn()->dispatch_decl(*(n->params.get(i)));      // discard
+                    if self.stop {
+                        break
+                    }
+
+                    self.dyn()->dispatch_decl(*n->params.get(i)) // discard
                 }
             }
 
             if !self.stop {
                 for var i: usize = 0; i < n->captures.size(); i++ {
-                    if self.stop { break; }
-                    var cap = n->captures.get(i);
-                    if cap->name != &null { self.dyn()->dispatch_expr(cap->name); }  // discard
+                    if self.stop {
+                        break
+                    }
+
+                    var unsafe *cap = n->captures.get(i)
+                    if cap->name != &null { // discard
+                        self.dyn()->dispatch_expr(cap->name)
+                    }
                 }
             }
 
             if !self.stop {
-                if n->return_type != &null { n->return_type = self.dyn()->dispatch_type(n->return_type); }
-                if n->body_block  != &null { n->body_block  = self.dyn()->traverse_block(n->body_block); }
-                if n->body_expr   != &null { n->body_expr   = self.dyn()->dispatch_expr(n->body_expr); }
+                if n->return_type != &null {
+                    n->return_type = self.dyn()->dispatch_type(n->return_type)
+                }
+
+                if n->body_block != &null {
+                    n->body_block = self.dyn()->traverse_block(n->body_block)
+                }
+
+                if n->body_expr != &null {
+                    n->body_expr = self.dyn()->dispatch_expr(n->body_expr)
+                }
             }
         }
 
-        self.loop_depth    = saved_depth;
-        self.label_floor   = saved_floor;
-        self.body_depth    = self.body_depth - 1;
-        self.finally_depth = saved_fin;
-        return n;
+        self.loop_depth    = saved_depth
+        self.label_floor   = saved_floor
+        self.body_depth    = self.body_depth - 1
+        self.finally_depth = saved_fin
+        return n
     }
 }

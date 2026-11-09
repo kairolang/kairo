@@ -1,13 +1,12 @@
-/// --- The Kairo Project -------------------- Command/FlagTranslator.k --- ///
+/// --- The Kairo Project --------------------- Command/FlagTranslator.k --- ///
 ///
-///   The one home where kairo flags meet clang's: kairo -> cc1, kairo ->
-///   clang driver, and clang driver -> kairo.
+///   Translates flags between kairo, clang cc1 and the clang driver.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -38,102 +37,144 @@
 ///   it) and the per-TU plumbing (-emit-obj, the placeholder input).
 ///
 
-ffi "c++" import "Native/Types.hh";
-ffi "c++" import "clang/Options/Options.h";
-ffi "c++" import "llvm/Option/Arg.h";
-ffi "c++" import "llvm/Option/ArgList.h";
-ffi "c++" import "llvm/Option/Option.h";
-ffi "c++" import "llvm/Option/OptTable.h";
-ffi "c++" import "llvm/TargetParser/Triple.h";
-ffi "c++" import "llvm/Support/FileSystem.h";
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "clang/Options/Options.h"
+ffi "c++" import "llvm/Option/Arg.h"
+ffi "c++" import "llvm/Option/ArgList.h"
+ffi "c++" import "llvm/Option/Option.h"
+ffi "c++" import "llvm/Option/OptTable.h"
+ffi "c++" import "llvm/TargetParser/Triple.h"
+ffi "c++" import "llvm/Support/FileSystem.h"
+ffi "c++" import "vector"
+ffi "c++" import "string"
 
-import Config::Invocation::*;
-import Config::CodeGen::*;
-import Config::Target::*;
-import Config::Language::*;
-import Config::Diagnostic::*;
-import Diagnostic::ClangDiagLookup::*;
+import Config::CodeGen::CodeGenOptions
+import Config::Diagnostic::DiagnosticOptions
+import Config::Invocation::CompilerInvocation
+import Config::Target::TargetOptions
+import Diagnostic::ClangDiagLookup::clang_diag_group
+import std::c_char
 
 /// Which clang command line a word is for.
-enum ClangSpelling derives u8 {
-    CC1,     ///< clang -cc1: the frontend's own option names
-    Driver,  ///< clang / clang++: the user-facing names
+pub enum ClangSpelling derives u8 {
+    CC1,    ///< clang -cc1: the frontend's own option names
+    Driver, ///< clang / clang++: the user-facing names
 }
 
-// --- small helpers -------------------------------------------------------- //
+/// # small helpers
 
-fn _fx_push(o: *vec::<string>, a: string) { o->push_back(a); }
-fn _fx_push2(o: *vec::<string>, a: string, b: string) { o->push_back(a); o->push_back(b); }
+pub fn _fx_push(@inout o: cxx::std::vector<string>, const a: string) {
+    o.push_back(a)
+}
+
+pub fn _fx_push2(@inout o: cxx::std::vector<string>, const a: string, const b: string) {
+    o.push_back(a)
+    o.push_back(b)
+}
 
 /// A cc1-only word reaching cc1 through the driver: `-Xclang <w>`.
-fn _fx_xclang(o: *vec::<string>, w: string) { o->push_back("-Xclang"); o->push_back(w); }
+pub fn _fx_xclang(@inout o: cxx::std::vector<string>, const w: string) {
+    o.push_back("-Xclang")
+    o.push_back(w)
+}
 
 /// \brief extracts the numeric part of a diagnostic code: "S025W" -> 25,
 ///        "C889" -> 889, 0 when there is no digit.
-fn _fx_code_number(code: string) -> u32 {
-    var n = code.length();
-    var i: usize = 0;
-    var val: u32 = 0;
-    var seen: bool = false;
+pub fn _fx_code_number(const code: string) -> u32 {
+    var n           = code.length()
+    var i:    usize = 0
+    var val:  u32   = 0
+    var seen: bool  = false
     while i < n {
-        var c = code[i];
-        if c >= '0' && c <= '9' {
-            seen = true;
-            val = val * 10 + static_cast::<u32>(c - '0');
+        var c = code[i]
+        if c >= ('0' as u8) && c <= ('9' as u8) {
+            seen = true
+            val  = val * 10 + ((c - ('0' as u8)) as u32)
         } else if seen {
-            break; // digit run ended; ignore any trailing severity letter
+            break // digit run ended; ignore any trailing severity letter
         }
-        i += 1;
+
+        i += 1
     }
-    return val;
+
+    return val
 }
 
 /// True for a clang-sourced C-code (C followed by a digit: C889, C889W);
 /// CL... (Lowering) and the native categories have no clang warning group.
-fn _fx_is_clang_code(code: string) -> bool {
-    var n = code.length();
-    var i: usize = 0;
-    while i < n && (code[i] == ' ' || code[i] == '\t') { i += 1; }
-    if i >= n { return false; }
-    if !(code[i] == 'C' || code[i] == 'c') { return false; }
-    i += 1;
-    if i >= n { return false; }
-    return code[i] >= '0' && code[i] <= '9';
+pub fn _fx_is_clang_code(const code: string) -> bool {
+    var n        = code.length()
+    var i: usize = 0
+    while i < n && (code[i] == (' ' as u8) || code[i] == ('\t' as u8)) {
+        i += 1
+    }
+
+    if i >= n {
+        return false
+    }
+
+    if !(code[i] == ('C' as u8) || code[i] == ('c' as u8)) {
+        return false
+    }
+
+    i += 1
+    if i >= n {
+        return false
+    }
+
+    return code[i] >= ('0' as u8) && code[i] <= ('9' as u8)
 }
 
 /// The standards kairo's --cxx-std / --c-std accept (FlagRegistry's
 /// _cxx_std_choices / _c_std_choices); anything else stays a clang word.
-fn _fx_known_cxx_std(v: string) -> bool {
-    return (v == "c++20") || (v == "c++23") || (v == "c++26")
-        || (v == "gnu++20") || (v == "gnu++23") || (v == "gnu++26");
-}
-fn _fx_known_c_std(v: string) -> bool {
-    return (v == "c89") || (v == "c99") || (v == "c11") || (v == "c17") || (v == "c23")
-        || (v == "gnu89") || (v == "gnu99") || (v == "gnu11") || (v == "gnu17") || (v == "gnu23");
+pub fn _fx_known_cxx_std(const v: string) -> bool {
+    return v == "c++20"
+        || v == "c++23"
+        || v == "c++26"
+        || v == "gnu++20"
+        || v == "gnu++23"
+        || v == "gnu++26"
 }
 
-// --- reverse table ---------------------------------------------------------- //
+pub fn _fx_known_c_std(const v: string) -> bool {
+    return v == "c89"
+        || v == "c99"
+        || v == "c11"
+        || v == "c17"
+        || v == "c23"
+        || v == "gnu89"
+        || v == "gnu99"
+        || v == "gnu11"
+        || v == "gnu17"
+        || v == "gnu23"
+}
+
+/// # reverse table
 
 /// How a clang driver option becomes kairo words.
-enum RevShape derives u8 {
-    Flag,       ///< no value: kairo words verbatim
-    Value,      ///< one value: kairo prefix + value (prefix ending in '=' joins)
-    ValueSep,   ///< one value: kairo flag, then the value as its own word
-    Commas,     ///< -Wl,a,b: one kairo word per comma piece
+pub enum RevShape derives u8 {
+    Flag,     ///< no value: kairo words verbatim
+    Value,    ///< one value: kairo prefix + value (prefix ending in '=' joins)
+    ValueSep, ///< one value: kairo flag, then the value as its own word
+    Commas,   ///< -Wl,a,b: one kairo word per comma piece
+    LdPair,   ///< a linker option and its value (-framework X): both to the link, as two words
 }
 
-class RevRow {
-    pub var clang: string;   ///< the option's prefixed name as clang's OptTable reports it
-    pub var kairo: string;   ///< the kairo spelling (a prefix for valued rows)
-    pub var shape: RevShape = RevShape::Flag;
+pub class RevRow {
+    pub var clang: string ///< the option's prefixed name as clang's OptTable reports it
+    pub var kairo: string ///< the kairo spelling (a prefix for valued rows)
+    pub var shape: RevShape = RevShape::Flag
 }
 
-fn _fx_row(rows: *vec::<RevRow>, clang: string, kairo: string, shape: RevShape) {
-    var r = RevRow();
-    (r.clang) = clang;
-    (r.kairo) = kairo;
-    (r.shape) = shape;
-    rows->push_back(r);
+pub fn _fx_row(@inout rows:   cxx::std::vector<RevRow>,
+               const clang:   string,
+               const kairo_v: string,
+               shape:         RevShape) {
+    var r = RevRow()
+    r.clang = clang
+    r.kairo = kairo_v
+    r.shape = shape
+    rows.push_back(r)
 }
 
 /// \brief every clang driver option kairo has a flag for.
@@ -148,144 +189,157 @@ fn _fx_row(rows: *vec::<RevRow>, clang: string, kairo: string, shape: RevShape) 
 ///          direction. A kairo flag that gains a clang spelling gets its row
 ///          here and its forward spelling in the matching function, in the
 ///          same commit.
-fn _fx_reverse_rows() -> vec::<RevRow> {
-    var r = vec::<RevRow>();
-    // -- action / output ------------------------------------------------------
-    _fx_row(&r, "-c",             "-c",               RevShape::Flag);
-    _fx_row(&r, "-S",             "-S",               RevShape::Flag);
-    _fx_row(&r, "-E",             "--preprocess",     RevShape::Flag);   // kairo -E is --error
-    _fx_row(&r, "-fsyntax-only",  "--syntax-only",    RevShape::Flag);
-    _fx_row(&r, "-o",             "-o",               RevShape::ValueSep);
-    _fx_row(&r, "-x",             "-x",               RevShape::ValueSep);
-    _fx_row(&r, "-v",             "-v",               RevShape::Flag);
-    _fx_row(&r, "-save-temps",    "--save-temps",     RevShape::Flag);
-    // -- target -----------------------------------------------------------------
-    _fx_row(&r, "--target=",      "--target=",        RevShape::Value);
-    _fx_row(&r, "-target",        "--target=",        RevShape::Value);
-    _fx_row(&r, "-m32",           "--m32",            RevShape::Flag);
-    _fx_row(&r, "-m64",           "--m64",            RevShape::Flag);
-    _fx_row(&r, "-march=",        "--march=",         RevShape::Value);
-    _fx_row(&r, "-mcpu=",         "--mcpu=",          RevShape::Value);
-    _fx_row(&r, "-mtune=",        "--mtune=",         RevShape::Value);
-    _fx_row(&r, "-mabi=",         "--mabi=",          RevShape::Value);
-    _fx_row(&r, "--sysroot=",     "--sysroot=",       RevShape::Value);
-    _fx_row(&r, "--sysroot",      "--sysroot=",       RevShape::Value);
-    _fx_row(&r, "-resource-dir",  "--resource-dir=",  RevShape::Value);
-    _fx_row(&r, "-resource-dir=", "--resource-dir=",  RevShape::Value);
-    // -- optimization / debug ------------------------------------------------
-    _fx_row(&r, "-O",             "-O",               RevShape::Value);
-    _fx_row(&r, "-O0",            "-O0",              RevShape::Flag);
-    _fx_row(&r, "-O4",            "-O3",              RevShape::Flag);   // clang: -O4 is -O3
-    _fx_row(&r, "-g",             "-g",               RevShape::Flag);
-    _fx_row(&r, "-g0",            "--g0",             RevShape::Flag);
-    _fx_row(&r, "-gdwarf-2",      "-g --dwarf-version=2", RevShape::Flag);
-    _fx_row(&r, "-gdwarf-3",      "-g --dwarf-version=3", RevShape::Flag);
-    _fx_row(&r, "-gdwarf-4",      "-g --dwarf-version=4", RevShape::Flag);
-    _fx_row(&r, "-gdwarf-5",      "-g --dwarf-version=5", RevShape::Flag);
-    _fx_row(&r, "-fdebug-macro",  "--debug-macros",   RevShape::Flag);
-    _fx_row(&r, "-gembed-source", "--embed-source",   RevShape::Flag);
-    // -- language ---------------------------------------------------------------
-    _fx_row(&r, "-std=",          "-std=",            RevShape::Value);  // split into c/cxx below
-    _fx_row(&r, "-I",             "-I",               RevShape::ValueSep);  // kairo -I is clang's too, AND a .k search dir
-    _fx_row(&r, "-D",             "--cxx-define=",    RevShape::Value);  // kairo -D is a Kairo macro
-    _fx_row(&r, "-U",             "--cxx-undefine=",  RevShape::Value);
-    _fx_row(&r, "-fexceptions",          "-fexceptions",          RevShape::Flag);
-    _fx_row(&r, "-fno-exceptions",       "-fno-exceptions",       RevShape::Flag);
-    _fx_row(&r, "-frtti",                "-frtti",                RevShape::Flag);
-    _fx_row(&r, "-fno-rtti",             "-fno-rtti",             RevShape::Flag);
-    // -- codegen toggles --------------------------------------------------------
-    _fx_row(&r, "-fno-inline",           "-fno-inline",           RevShape::Flag);
-    _fx_row(&r, "-funroll-loops",        "-funroll-loops",        RevShape::Flag);
-    _fx_row(&r, "-fno-unroll-loops",     "-fno-unroll-loops",     RevShape::Flag);
-    _fx_row(&r, "-ffunction-sections",   "-ffunction-sections",   RevShape::Flag);
-    _fx_row(&r, "-fno-function-sections","-fno-function-sections",RevShape::Flag);
-    _fx_row(&r, "-fdata-sections",       "-fdata-sections",       RevShape::Flag);
-    _fx_row(&r, "-fno-data-sections",    "-fno-data-sections",    RevShape::Flag);
-    _fx_row(&r, "-fomit-frame-pointer",  "-fomit-frame-pointer",  RevShape::Flag);
-    _fx_row(&r, "-fno-omit-frame-pointer","-fno-omit-frame-pointer",RevShape::Flag);
-    _fx_row(&r, "-ffast-math",           "-ffast-math",           RevShape::Flag);
-    _fx_row(&r, "-fno-fast-math",        "-fno-fast-math",        RevShape::Flag);
-    _fx_row(&r, "-fvectorize",           "-fvectorize",           RevShape::Flag);
-    _fx_row(&r, "-fno-vectorize",        "-fno-vectorize",        RevShape::Flag);
-    _fx_row(&r, "-fsplit-stack",         "-fsplit-stack",         RevShape::Flag);
-    _fx_row(&r, "-fstack-protector",     "-fstack-protector",     RevShape::Flag);
-    _fx_row(&r, "-fno-stack-protector",  "-fno-stack-protector",  RevShape::Flag);
-    _fx_row(&r, "-fstack-protector-strong", "--stack-protector=strong", RevShape::Flag);
-    _fx_row(&r, "-fstack-protector-all",    "--stack-protector=all",    RevShape::Flag);
-    _fx_row(&r, "-fstack-clash-protection", "--stack-clash",      RevShape::Flag);
-    _fx_row(&r, "-fcf-protection=",      "--cf-protection=",      RevShape::Value);
-    _fx_row(&r, "-fcf-protection",       "--cf-protection=full",  RevShape::Flag);
-    _fx_row(&r, "-fzero-call-used-regs=","--zero-call-used-regs=",RevShape::Value);
-    _fx_row(&r, "-ftrivial-auto-var-init=", "--trivial-auto-var-init=", RevShape::Value);
-    _fx_row(&r, "-fdelete-null-pointer-checks",    "-fdelete-null-pointer-checks",    RevShape::Flag);
-    _fx_row(&r, "-fno-delete-null-pointer-checks", "-fno-delete-null-pointer-checks", RevShape::Flag);
-    _fx_row(&r, "-ftls-model=",          "--tls-model=",          RevShape::Value);
-    _fx_row(&r, "-fvisibility=",         "--visibility=",         RevShape::Value);
-    _fx_row(&r, "-fvisibility-inlines-hidden",    "-fvisibility-inlines-hidden",    RevShape::Flag);
-    _fx_row(&r, "-fno-visibility-inlines-hidden", "-fno-visibility-inlines-hidden", RevShape::Flag);
-    _fx_row(&r, "-fplt",                 "-fplt",                 RevShape::Flag);
-    _fx_row(&r, "-fno-plt",              "-fno-plt",              RevShape::Flag);
-    _fx_row(&r, "-mred-zone",            "-fred-zone",            RevShape::Flag);
-    _fx_row(&r, "-mno-red-zone",         "-fno-red-zone",         RevShape::Flag);
-    _fx_row(&r, "-mcmodel=",             "--mcmodel=",            RevShape::Value);
-    _fx_row(&r, "-fPIC",                 "--pic-level=2",         RevShape::Flag);
-    _fx_row(&r, "-fpic",                 "--pic-level=1",         RevShape::Flag);   // small-GOT PIC, not -fPIC
-    _fx_row(&r, "-fno-PIC",              "-fno-pic",              RevShape::Flag);
-    _fx_row(&r, "-fno-pic",              "-fno-pic",              RevShape::Flag);
-    _fx_row(&r, "-fwrapv",               "--signed-wrap",         RevShape::Flag);
-    _fx_row(&r, "-finstrument-functions","--instrument-functions",RevShape::Flag);
-    _fx_row(&r, "-mno-implicit-float",   "--no-implicit-float",   RevShape::Flag);
-    _fx_row(&r, "-msoft-float",          "-fsoft-float",          RevShape::Flag);
-    _fx_row(&r, "-ffp-model=",           "--fp-model=",           RevShape::Value);
-    _fx_row(&r, "-ffp-contract=",        "--fp-contract=",        RevShape::Value);
-    _fx_row(&r, "-mthread-model",        "--thread-model=",       RevShape::Value);
-    _fx_row(&r, "-fpass-plugin=",        "--pass-plugin=",        RevShape::Value);
-    _fx_row(&r, "-ffile-prefix-map=",    "--remap-path-prefix=",  RevShape::Value);
-    _fx_row(&r, "-fdebug-prefix-map=",   "--debug-prefix-map=",   RevShape::Value);
-    _fx_row(&r, "-fcoverage-prefix-map=","--coverage-prefix-map=",RevShape::Value);
-    _fx_row(&r, "-mllvm",                "--mllvm=",              RevShape::Value);
-    // -- warnings -----------------------------------------------------------------
-    _fx_row(&r, "-w",             "-w",               RevShape::Flag);
-    _fx_row(&r, "-Wall",          "--Wall",           RevShape::Flag);   // kairo -W<x> enables a code
-    _fx_row(&r, "-Wextra",        "--Wextra",         RevShape::Flag);
-    _fx_row(&r, "-Wpedantic",     "--Wpedantic",      RevShape::Flag);
-    _fx_row(&r, "-pedantic",      "--Wpedantic",      RevShape::Flag);
-    _fx_row(&r, "-Werror",        "--Werror",         RevShape::Flag);
-    // -- link -----------------------------------------------------------------------
-    _fx_row(&r, "-L",             "-L",               RevShape::ValueSep);
-    _fx_row(&r, "-l",             "-l",               RevShape::ValueSep);
-    _fx_row(&r, "-shared",        "--shared",         RevShape::Flag);
-    _fx_row(&r, "-s",             "--strip",          RevShape::Flag);
-    _fx_row(&r, "-rdynamic",      "--ld-flags=--export-dynamic", RevShape::Flag);
-    _fx_row(&r, "-nostdlib",      "--no-crt --no-default-libs",  RevShape::Flag);
-    _fx_row(&r, "-nostartfiles",  "--no-crt",         RevShape::Flag);
-    _fx_row(&r, "-nodefaultlibs", "--no-default-libs", RevShape::Flag);
-    _fx_row(&r, "-static",        "--static",         RevShape::Flag);
-    _fx_row(&r, "-Wl,",           "--ld-flags=",      RevShape::Commas);
-    _fx_row(&r, "-Xlinker",       "--ld-flags=",      RevShape::Value);
-    return r;
+pub fn _fx_reverse_rows() -> cxx::std::vector<RevRow> {
+    var r = cxx::std::vector<RevRow>()
+    /// ### action / output
+    _fx_row(&r, "-c", "-c", RevShape::Flag)
+    _fx_row(&r, "-S", "-S", RevShape::Flag)
+    _fx_row(&r, "-E", "--preprocess", RevShape::Flag) // kairo -E is --error
+    _fx_row(&r, "-fsyntax-only", "--syntax-only", RevShape::Flag)
+    _fx_row(&r, "-o", "-o", RevShape::ValueSep)
+    _fx_row(&r, "-x", "-x", RevShape::ValueSep)
+    _fx_row(&r, "-v", "-v", RevShape::Flag)
+    _fx_row(&r, "-save-temps", "--save-temps", RevShape::Flag)
+    /// ### target
+    _fx_row(&r, "--target=", "--target=", RevShape::Value)
+    _fx_row(&r, "-target", "--target=", RevShape::Value)
+    _fx_row(&r, "-m32", "--m32", RevShape::Flag)
+    _fx_row(&r, "-m64", "--m64", RevShape::Flag)
+    _fx_row(&r, "-march=", "--march=", RevShape::Value)
+    _fx_row(&r, "-mcpu=", "--mcpu=", RevShape::Value)
+    _fx_row(&r, "-mtune=", "--mtune=", RevShape::Value)
+    _fx_row(&r, "-mabi=", "--mabi=", RevShape::Value)
+    _fx_row(&r, "--sysroot=", "--sysroot=", RevShape::Value)
+    _fx_row(&r, "--sysroot", "--sysroot=", RevShape::Value)
+    _fx_row(&r, "-resource-dir", "--resource-dir=", RevShape::Value)
+    _fx_row(&r, "-resource-dir=", "--resource-dir=", RevShape::Value)
+    /// ### optimization / debug
+    _fx_row(&r, "-O", "-O", RevShape::Value)
+    _fx_row(&r, "-O0", "-O0", RevShape::Flag)
+    _fx_row(&r, "-O4", "-O3", RevShape::Flag) // clang: -O4 is -O3
+    _fx_row(&r, "-g", "-g", RevShape::Flag)
+    _fx_row(&r, "-g0", "--g0", RevShape::Flag)
+    _fx_row(&r, "-gdwarf-2", "-g --dwarf-version=2", RevShape::Flag)
+    _fx_row(&r, "-gdwarf-3", "-g --dwarf-version=3", RevShape::Flag)
+    _fx_row(&r, "-gdwarf-4", "-g --dwarf-version=4", RevShape::Flag)
+    _fx_row(&r, "-gdwarf-5", "-g --dwarf-version=5", RevShape::Flag)
+    _fx_row(&r, "-fdebug-macro", "--debug-macros", RevShape::Flag)
+    _fx_row(&r, "-gembed-source", "--embed-source", RevShape::Flag)
+    /// ### language
+    _fx_row(&r, "-std=", "-std=", RevShape::Value) // split into c/cxx below
+    _fx_row(&r, "-I", "-I", RevShape::ValueSep) // kairo -I is clang's too, AND a .k search dir
+    _fx_row(&r, "-D", "--cxx-define=", RevShape::Value) // kairo -D is a Kairo macro
+    _fx_row(&r, "-U", "--cxx-undefine=", RevShape::Value)
+    _fx_row(&r, "-fexceptions", "-fexceptions", RevShape::Flag)
+    _fx_row(&r, "-fno-exceptions", "-fno-exceptions", RevShape::Flag)
+    _fx_row(&r, "-frtti", "-frtti", RevShape::Flag)
+    _fx_row(&r, "-fno-rtti", "-fno-rtti", RevShape::Flag)
+    /// ### codegen toggles
+    _fx_row(&r, "-fno-inline", "-fno-inline", RevShape::Flag)
+    _fx_row(&r, "-funroll-loops", "-funroll-loops", RevShape::Flag)
+    _fx_row(&r, "-fno-unroll-loops", "-fno-unroll-loops", RevShape::Flag)
+    _fx_row(&r, "-ffunction-sections", "-ffunction-sections", RevShape::Flag)
+    _fx_row(&r, "-fno-function-sections", "-fno-function-sections", RevShape::Flag)
+    _fx_row(&r, "-fdata-sections", "-fdata-sections", RevShape::Flag)
+    _fx_row(&r, "-fno-data-sections", "-fno-data-sections", RevShape::Flag)
+    _fx_row(&r, "-fomit-frame-pointer", "-fomit-frame-pointer", RevShape::Flag)
+    _fx_row(&r, "-fno-omit-frame-pointer", "-fno-omit-frame-pointer", RevShape::Flag)
+    _fx_row(&r, "-ffast-math", "-ffast-math", RevShape::Flag)
+    _fx_row(&r, "-fno-fast-math", "-fno-fast-math", RevShape::Flag)
+    _fx_row(&r, "-fvectorize", "-fvectorize", RevShape::Flag)
+    _fx_row(&r, "-fno-vectorize", "-fno-vectorize", RevShape::Flag)
+    _fx_row(&r, "-fsplit-stack", "-fsplit-stack", RevShape::Flag)
+    _fx_row(&r, "-fstack-protector", "-fstack-protector", RevShape::Flag)
+    _fx_row(&r, "-fno-stack-protector", "-fno-stack-protector", RevShape::Flag)
+    _fx_row(&r, "-fstack-protector-strong", "--stack-protector=strong", RevShape::Flag)
+    _fx_row(&r, "-fstack-protector-all", "--stack-protector=all", RevShape::Flag)
+    _fx_row(&r, "-fstack-clash-protection", "--stack-clash", RevShape::Flag)
+    _fx_row(&r, "-fcf-protection=", "--cf-protection=", RevShape::Value)
+    _fx_row(&r, "-fcf-protection", "--cf-protection=full", RevShape::Flag)
+    _fx_row(&r, "-fzero-call-used-regs=", "--zero-call-used-regs=", RevShape::Value)
+    _fx_row(&r, "-ftrivial-auto-var-init=", "--trivial-auto-var-init=", RevShape::Value)
+    _fx_row(&r, "-fdelete-null-pointer-checks", "-fdelete-null-pointer-checks", RevShape::Flag)
+    _fx_row(
+        &r,
+        "-fno-delete-null-pointer-checks",
+        "-fno-delete-null-pointer-checks",
+        RevShape::Flag,
+    )
+
+    _fx_row(&r, "-ftls-model=", "--tls-model=", RevShape::Value)
+    _fx_row(&r, "-fvisibility=", "--visibility=", RevShape::Value)
+    _fx_row(&r, "-fvisibility-inlines-hidden", "-fvisibility-inlines-hidden", RevShape::Flag)
+    _fx_row(&r, "-fno-visibility-inlines-hidden", "-fno-visibility-inlines-hidden", RevShape::Flag)
+    _fx_row(&r, "-fplt", "-fplt", RevShape::Flag)
+    _fx_row(&r, "-fno-plt", "-fno-plt", RevShape::Flag)
+    _fx_row(&r, "-mred-zone", "-fred-zone", RevShape::Flag)
+    _fx_row(&r, "-mno-red-zone", "-fno-red-zone", RevShape::Flag)
+    _fx_row(&r, "-mcmodel=", "--mcmodel=", RevShape::Value)
+    _fx_row(&r, "-fPIC", "--pic-level=2", RevShape::Flag)
+    _fx_row(&r, "-fpic", "--pic-level=1", RevShape::Flag) // small-GOT PIC, not -fPIC
+    _fx_row(&r, "-fno-PIC", "-fno-pic", RevShape::Flag)
+    _fx_row(&r, "-fno-pic", "-fno-pic", RevShape::Flag)
+    _fx_row(&r, "-fwrapv", "--signed-wrap", RevShape::Flag)
+    _fx_row(&r, "-finstrument-functions", "--instrument-functions", RevShape::Flag)
+    _fx_row(&r, "-mno-implicit-float", "--no-implicit-float", RevShape::Flag)
+    _fx_row(&r, "-msoft-float", "-fsoft-float", RevShape::Flag)
+    _fx_row(&r, "-ffp-model=", "--fp-model=", RevShape::Value)
+    _fx_row(&r, "-ffp-contract=", "--fp-contract=", RevShape::Value)
+    _fx_row(&r, "-mthread-model", "--thread-model=", RevShape::Value)
+    _fx_row(&r, "-fpass-plugin=", "--pass-plugin=", RevShape::Value)
+    _fx_row(&r, "-ffile-prefix-map=", "--remap-path-prefix=", RevShape::Value)
+    _fx_row(&r, "-fdebug-prefix-map=", "--debug-prefix-map=", RevShape::Value)
+    _fx_row(&r, "-fcoverage-prefix-map=", "--coverage-prefix-map=", RevShape::Value)
+    _fx_row(&r, "-mllvm", "--mllvm=", RevShape::Value)
+    /// ### warnings
+    _fx_row(&r, "-w", "-w", RevShape::Flag)
+    _fx_row(&r, "-Wall", "--Wall", RevShape::Flag) // kairo -W<x> enables a code
+    _fx_row(&r, "-Wextra", "--Wextra", RevShape::Flag)
+    _fx_row(&r, "-Wpedantic", "--Wpedantic", RevShape::Flag)
+    _fx_row(&r, "-pedantic", "--Wpedantic", RevShape::Flag)
+    _fx_row(&r, "-Werror", "--Werror", RevShape::Flag)
+    /// ### link
+    _fx_row(&r, "-L", "-L", RevShape::ValueSep)
+    _fx_row(&r, "-l", "-l", RevShape::ValueSep)
+    _fx_row(&r, "-shared", "--shared", RevShape::Flag)
+    _fx_row(&r, "-dynamiclib", "--shared", RevShape::Flag) // Apple's spelling
+    _fx_row(&r, "-s", "--strip", RevShape::Flag)
+    // kairo's own --export-dynamic, which each linker flavor spells (-export_dynamic for
+    // ld64, --export-all-symbols for MinGW); a raw ELF --export-dynamic broke ld64.
+    _fx_row(&r, "-rdynamic", "--export-dynamic", RevShape::Flag)
+    _fx_row(&r, "-nostdlib", "--no-crt --no-default-libs", RevShape::Flag)
+    _fx_row(&r, "-nostartfiles", "--no-crt", RevShape::Flag)
+    _fx_row(&r, "-nodefaultlibs", "--no-default-libs", RevShape::Flag)
+    _fx_row(&r, "-static", "--static", RevShape::Flag)
+    _fx_row(&r, "-Wl,", "--ld-flags=", RevShape::Commas)
+    _fx_row(&r, "-Xlinker", "--ld-flags=", RevShape::Value)
+    // Apple frameworks: clang hands them to ld64; as unknown words they only
+    // reached the compile, and a link needing CoreServices (clang's DirectoryWatcher)
+    // failed on every FSEvents symbol.
+    _fx_row(&r, "-framework", "--ld-flags=", RevShape::LdPair)
+    _fx_row(&r, "-weak_framework", "--ld-flags=", RevShape::LdPair)
+    return r
 }
 
-class FlagTranslator {
-
-    // === forward: one function per concern ================================ //
+pub class FlagTranslator {
+    /// ## forward: one function per concern
 
     /// \brief the -ffast-math bundle as cc1 spells it (the driver has the
     ///        single word -ffast-math, and expands it to exactly this).
-    static fn fast_math_cc1(complex_range: string) -> vec::<string> {
-        var o = vec::<string>();
-        o.push_back("-menable-no-infs");
-        o.push_back("-menable-no-nans");
-        o.push_back("-fapprox-func");
-        o.push_back("-funsafe-math-optimizations");
-        o.push_back("-fno-signed-zeros");
-        o.push_back("-mreassociate");
-        o.push_back("-freciprocal-math");
-        o.push_back("-ffp-contract=fast");
-        o.push_back("-ffast-math");
-        o.push_back("-ffinite-math-only");
-        o.push_back(f"-complex-range={complex_range}");
-        return o;
+    static fn fast_math_cc1(const complex_range: string) -> cxx::std::vector<string> {
+        var o = cxx::std::vector<string>()
+        o.push_back("-menable-no-infs")
+        o.push_back("-menable-no-nans")
+        o.push_back("-fapprox-func")
+        o.push_back("-funsafe-math-optimizations")
+        o.push_back("-fno-signed-zeros")
+        o.push_back("-mreassociate")
+        o.push_back("-freciprocal-math")
+        o.push_back("-ffp-contract=fast")
+        o.push_back("-ffast-math")
+        o.push_back("-ffinite-math-only")
+        o.push_back(f"-complex-range={complex_range}")
+        return o
     }
 
     /// \brief the floating-point semantics Kairo's own code has whatever the
@@ -306,10 +360,10 @@ class FlagTranslator {
     ///          defaults back through header_fp_pragmas: an imported header
     ///          keeps C++ semantics, and the same expression written in Kairo
     ///          keeps Kairo's.
-    static fn kairo_fp_cc1() -> vec::<string> {
-        var o = vec::<string>();
-        o.push_back("-ffp-contract=off");
-        return o;
+    pub static fn kairo_fp_cc1() -> cxx::std::vector<string> {
+        var o = cxx::std::vector<string>()
+        o.push_back("-ffp-contract=off")
+        return o
     }
 
     /// \brief the pragma lines that open and close an ffi header region,
@@ -339,35 +393,61 @@ class FlagTranslator {
     ///          so none is written: errno cannot be restored there anyway,
     ///          and with no push/pop the close line puts Kairo's contraction
     ///          back by hand.
-    static fn header_fp_pragmas(cxx_contract: string, cxx_math_errno: bool,
-                                user_cc1: ref!(vec::<string>), float_control: bool,
-                                open: *vec::<string>, close: *vec::<string>) {
-        var contract = cxx_contract;
-        var kairo_contract = "off";                    // kairo_fp_cc1's pin
-        var fast = false;
-        for w: string in user_cc1 {
-            if w.starts_with("-ffp-contract=") {
-                contract = string(w.raw() + 14, w.size() - 14);
-                kairo_contract = contract;
+    pub static fn header_fp_pragmas(const cxx_contract: string,
+                                    cxx_math_errno:     bool,
+                                    @inout user_cc1:    cxx::std::vector<string>,
+                                    float_control:      bool,
+                                    @inout open:        cxx::std::vector<string>,
+                                    @inout close:       cxx::std::vector<string>) {
+        var contract       = cxx_contract
+        var kairo_contract = "off"        // kairo_fp_cc1's pin
+        var fast           = false
+        for *w in user_cc1 {
+            if w->starts_with("-ffp-contract=") {
+                contract = string(
+                    unsafe (((w->raw() as unsafe *const u8) + 14) as *const u8),
+                    w->size() - 14,
+                )
+
+                kairo_contract = contract
             }
-            if w == "-ffast-math" { fast = true; }
+
+            if *w == "-ffast-math" {
+                fast = true
+            }
         }
+
         // `#pragma clang fp contract` takes on|off|fast; the honor-pragmas
         // variant only differs in how it treats pragmas like this one.
-        if contract == "fast-honor-pragmas" { contract = "fast"; }
-        if kairo_contract == "fast-honor-pragmas" { kairo_contract = "fast"; }
-        if contract.empty() { contract = "off"; }
-        if kairo_contract.empty() { kairo_contract = "off"; }
+        if contract == "fast-honor-pragmas" {
+            contract = "fast"
+        }
+
+        if kairo_contract == "fast-honor-pragmas" {
+            kairo_contract = "fast"
+        }
+
+        if contract.empty() {
+            contract = "off"
+        }
+
+        if kairo_contract.empty() {
+            kairo_contract = "off"
+        }
 
         if !float_control {
-            open->push_back(f"#pragma clang fp contract({contract})");
-            close->push_back(f"#pragma clang fp contract({kairo_contract})");
-            return;
+            open.push_back(f"#pragma clang fp contract({contract})")
+            close.push_back(f"#pragma clang fp contract({kairo_contract})")
+            return
         }
-        open->push_back("#pragma float_control(push)");
-        if cxx_math_errno && (!fast) { open->push_back("#pragma float_control(precise, on)"); }
-        open->push_back(f"#pragma clang fp contract({contract})");
-        close->push_back("#pragma float_control(pop)");
+
+        open.push_back("#pragma float_control(push)")
+        if cxx_math_errno && !fast {
+            open.push_back("#pragma float_control(precise, on)")
+        }
+
+        open.push_back(f"#pragma clang fp contract({contract})")
+        close.push_back("#pragma float_control(pop)")
     }
 
     /// \brief the triple as clang is handed it, which is not always the
@@ -379,9 +459,25 @@ class FlagTranslator {
     ///          still finds the `wasm32-wasi` sysroot; only the words that
     ///          reach clang (the -triple, the driver probe, C/C++ inputs'
     ///          driver line) say wasip1.
-    static fn clang_triple(triple: string) -> string {
-        if triple.ends_with("-wasi") { return triple + "p1"; }
-        return triple;
+    pub static fn clang_triple(triple: string) -> string {
+        if triple.ends_with("-wasi") {
+            return triple + "p1"
+        }
+
+        // 32-bit Windows on ARM is Thumb-2 only. clang's driver turns arm*-windows
+        // into thumb* itself, but the -cc1 -triple here is ours: armv7-windows-gnu
+        // reached codegen as ARM and debug info died with "target architecture
+        // doesn't map to a CodeView CPUType". The sysroot keeps its armv7 name.
+        if triple.starts_with("arm")
+            && !triple.starts_with("arm64")
+            && !(cxx::std::string::npos == kairo::std::to_std_string(triple).find(r"-windows")) {
+            return "thumb" + string(
+                unsafe (((triple.raw() as unsafe *const u8) + 3) as *const u8),
+                triple.size() - 3,
+            )
+        }
+
+        return triple
     }
 
     /// \brief the code-generation flags: target ISA tuning, -f[no-] toggles,
@@ -400,207 +496,389 @@ class FlagTranslator {
     ///
     /// \param missing_plugins receives each --pass-plugin path that is not a
     ///        file; the caller reports them (this file reports nothing).
-    static fn codegen(inv: ref!(CompilerInvocation), triple: string, sp: ClangSpelling,
-                      missing_plugins: *vec::<string>) -> vec::<string> {
-        var o   = vec::<string>();
-        var cgo = inv.codegen;
-        var tgt = inv.target;
-        var lg  = inv.lang;
-        var cc1 = sp == ClangSpelling::CC1;
+    pub static fn codegen(@inout inv:      CompilerInvocation,
+                          const triple:    string,
+                          sp:              ClangSpelling,
+                          missing_plugins: unsafe *cxx::std::vector<string>) -> cxx::std::vector<string> {
+        var o   = cxx::std::vector<string>()
+        var cgo = inv.codegen
+        var tgt = inv.target
+        var lg  = inv.lang
+        var cc1 = sp == ClangSpelling::CC1
 
-        // -- target ISA ----------------------------------------------------
-        // (--march rides the driver probe; --mcpu is in target(), which the
-        // caller places so a cpu given there wins over a march's.)
+        /// ### target ISA
+        /// (--march rides the driver probe; --mcpu is in target(), which the
+        /// caller places so a cpu given there wins over a march's.)
         if !tgt.mtune.empty() {
-            if cc1 { _fx_push2(&o, "-tune-cpu", tgt.mtune); } else { _fx_push(&o, f"-mtune={tgt.mtune}"); }
-        }
-        if !tgt.mabi.empty() {
-            if cc1 { _fx_push2(&o, "-target-abi", tgt.mabi); } else { _fx_push(&o, f"-mabi={tgt.mabi}"); }
-        }
-        for ft: string in tgt.feature_list() {
-            // The driver has one -m<feature> per feature, not a generic one.
-            if cc1 { _fx_push2(&o, "-target-feature", ft); }
-            else   { _fx_xclang(&o, "-target-feature"); _fx_xclang(&o, ft); }
+            if cc1 {
+                _fx_push2(&o, "-tune-cpu", tgt.mtune)
+            } else {
+                _fx_push(&o, f"-mtune={tgt.mtune}")
+            }
         }
 
-        // -- optimization toggles ------------------------------------------
-        if cgo.f_inline == 0          { _fx_push(&o, "-fno-inline"); }
-        if cgo.f_unroll_loops == 1    { _fx_push(&o, "-funroll-loops"); }
-        if cgo.f_unroll_loops == 0    { _fx_push(&o, "-fno-unroll-loops"); }
+        if !tgt.mabi.empty() {
+            if cc1 {
+                _fx_push2(&o, "-target-abi", tgt.mabi)
+            } else {
+                _fx_push(&o, f"-mabi={tgt.mabi}")
+            }
+        }
+
+        for var ft: string in tgt.feature_list() {
+            // The driver has one -m<feature> per feature, not a generic one.
+            if cc1 {
+                _fx_push2(&o, "-target-feature", ft)
+            } else {
+                _fx_xclang(&o, "-target-feature")
+                _fx_xclang(&o, ft)
+            }
+        }
+
+        /// ### optimization toggles
+        if cgo.f_inline == 0 {
+            _fx_push(&o, "-fno-inline")
+        }
+
+        if cgo.f_unroll_loops == 1 {
+            _fx_push(&o, "-funroll-loops")
+        }
+
+        if cgo.f_unroll_loops == 0 {
+            _fx_push(&o, "-fno-unroll-loops")
+        }
+
         if cgo.f_merge_functions == 1 {
             // cc1-only: the driver has no spelling for it.
-            if cc1 { _fx_push(&o, "-fmerge-functions"); } else { _fx_xclang(&o, "-fmerge-functions"); }
+            if cc1 {
+                _fx_push(&o, "-fmerge-functions")
+            } else {
+                _fx_xclang(&o, "-fmerge-functions")
+            }
         }
-        if cgo.f_function_sections == 1 { _fx_push(&o, "-ffunction-sections"); }
-        if cgo.f_data_sections == 1     { _fx_push(&o, "-fdata-sections"); }
+
+        if cgo.f_function_sections == 1 {
+            _fx_push(&o, "-ffunction-sections")
+        }
+
+        if cgo.f_data_sections == 1 {
+            _fx_push(&o, "-fdata-sections")
+        }
+
         if !cc1 {
             // cc1 has no "off" for these; the driver does, and a C/C++ input
             // given -fno-... must not keep clang's default.
-            if cgo.f_function_sections == 0 { _fx_push(&o, "-fno-function-sections"); }
-            if cgo.f_data_sections == 0     { _fx_push(&o, "-fno-data-sections"); }
+            if cgo.f_function_sections == 0 {
+                _fx_push(&o, "-fno-function-sections")
+            }
+
+            if cgo.f_data_sections == 0 {
+                _fx_push(&o, "-fno-data-sections")
+            }
         }
+
         // cc1 keeps no frame pointer unless told (the driver adds =all on
         // most Linux targets), so both directions are spelled out.
         if cgo.f_omit_frame_pointer == 1 {
-            if cc1 { _fx_push(&o, "-mframe-pointer=none"); } else { _fx_push(&o, "-fomit-frame-pointer"); }
-        }
-        if cgo.f_omit_frame_pointer == 0 {
-            if cc1 { _fx_push(&o, "-mframe-pointer=all"); } else { _fx_push(&o, "-fno-omit-frame-pointer"); }
-        }
-
-        // -- floating point ------------------------------------------------
-        if cgo.f_fast_math == 1 {
-            if cc1 { for t: string in FlagTranslator::fast_math_cc1("basic") { _fx_push(&o, t); } }
-            else   { _fx_push(&o, "-ffast-math"); }
-        }
-        if (!cc1) && (cgo.f_fast_math == 0) { _fx_push(&o, "-fno-fast-math"); }
-        if cgo.fp_model == "fast" {
-            if cc1 { for t: string in FlagTranslator::fast_math_cc1("promoted") { _fx_push(&o, t); } }
-            else   { _fx_push(&o, "-ffp-model=fast"); }
-        } else if cgo.fp_model == "strict" {
             if cc1 {
-                _fx_push(&o, "-ffp-contract=off");
-                _fx_push(&o, "-frounding-math");
-                _fx_push(&o, "-ffp-exception-behavior=strict");
-                _fx_push(&o, "-complex-range=full");
+                _fx_push(&o, "-mframe-pointer=none")
             } else {
-                _fx_push(&o, "-ffp-model=strict");
+                _fx_push(&o, "-fomit-frame-pointer")
             }
         }
-        if cgo.fp_contract_set { _fx_push(&o, f"-ffp-contract={cgo.fp_contract}"); }
-        if cgo.signed_wrap     { _fx_push(&o, "-fwrapv"); }
+
+        if cgo.f_omit_frame_pointer == 0 {
+            if cc1 {
+                _fx_push(&o, "-mframe-pointer=all")
+            } else {
+                _fx_push(&o, "-fno-omit-frame-pointer")
+            }
+        }
+
+        /// ### floating point
+        if cgo.f_fast_math == 1 {
+            if cc1 {
+                for var t: string in FlagTranslator::fast_math_cc1("basic") {
+                    _fx_push(&o, t)
+                }
+            } else {
+                _fx_push(&o, "-ffast-math")
+            }
+        }
+
+        if !cc1 && cgo.f_fast_math == 0 {
+            _fx_push(&o, "-fno-fast-math")
+        }
+
+        if cgo.fp_model == "fast" {
+            if cc1 {
+                for var t: string in FlagTranslator::fast_math_cc1("promoted") {
+                    _fx_push(&o, t)
+                }
+            } else {
+                _fx_push(&o, "-ffp-model=fast")
+            }
+        } else if cgo.fp_model == "strict" {
+            if cc1 {
+                _fx_push(&o, "-ffp-contract=off")
+                _fx_push(&o, "-frounding-math")
+                _fx_push(&o, "-ffp-exception-behavior=strict")
+                _fx_push(&o, "-complex-range=full")
+            } else {
+                _fx_push(&o, "-ffp-model=strict")
+            }
+        }
+
+        if cgo.fp_contract_set {
+            _fx_push(&o, f"-ffp-contract={cgo.fp_contract}")
+        }
+
+        if cgo.signed_wrap {
+            _fx_push(&o, "-fwrapv")
+        }
+
         if cgo.f_soft_float == 1 {
-            if cc1 { _fx_push(&o, "-msoft-float"); _fx_push2(&o, "-mfloat-abi", "soft"); }
-            // -msoft-float, not -mfloat-abi=soft: the latter is ARM's, unused
+            if cc1 {
+                _fx_push(&o, "-msoft-float")
+                _fx_push2(&o, "-mfloat-abi", "soft")
+            } // -msoft-float, not -mfloat-abi=soft: the latter is ARM's, unused
             // on x86 (hard float would stay) and an error on SystemZ.
-            else   { _fx_push(&o, "-msoft-float"); }
+            else {
+                _fx_push(&o, "-msoft-float")
+            }
         }
+
         if cgo.no_implicit_float {
-            if cc1 { _fx_push(&o, "-no-implicit-float"); } else { _fx_push(&o, "-mno-implicit-float"); }
+            if cc1 {
+                _fx_push(&o, "-no-implicit-float")
+            } else {
+                _fx_push(&o, "-mno-implicit-float")
+            }
         }
 
-        // -- hardening / code model ----------------------------------------
-        // --stack-protector is the one setting behind clang's three
-        // spellings (-fstack-protector, -strong, -all); -f[no-]stack-
-        // protector is its basic|none shorthand, and the explicit level wins.
-        var sp_level = cgo.stack_protector;
+        /// ### hardening / code model
+        /// --stack-protector is the one setting behind clang's three
+        /// spellings (-fstack-protector, -strong, -all); -f[no-]stack-
+        /// protector is its basic|none shorthand, and the explicit level wins.
+        var sp_level = cgo.stack_protector
         if sp_level.empty() {
-            if cgo.f_stack_protector == 1 { sp_level = "basic"; }
-            if cgo.f_stack_protector == 0 { sp_level = "none"; }
-        }
-        if sp_level == "basic" {
-            if cc1 { _fx_push2(&o, "-stack-protector", "1"); } else { _fx_push(&o, "-fstack-protector"); }
-        } else if sp_level == "strong" {
-            if cc1 { _fx_push2(&o, "-stack-protector", "2"); } else { _fx_push(&o, "-fstack-protector-strong"); }
-        } else if sp_level == "all" {
-            if cc1 { _fx_push2(&o, "-stack-protector", "3"); } else { _fx_push(&o, "-fstack-protector-all"); }
-        } else if (!cc1) && (sp_level == "none") {
-            // cc1 has none unless told; the driver may default it on.
-            _fx_push(&o, "-fno-stack-protector");
-        }
-        if !cgo.cf_protection.empty() { _fx_push(&o, f"-fcf-protection={cgo.cf_protection}"); }
-        if !cgo.zero_call_used_regs.empty() {
-            _fx_push(&o, f"-fzero-call-used-regs={cgo.zero_call_used_regs}");
-        }
-        if !cgo.auto_var_init.empty() { _fx_push(&o, f"-ftrivial-auto-var-init={cgo.auto_var_init}"); }
-        if cgo.f_delete_null_checks == 0 { _fx_push(&o, "-fno-delete-null-pointer-checks"); }
-        // cc1 deletes them unless told; only the driver has the "on" word.
-        if (!cc1) && (cgo.f_delete_null_checks == 1) { _fx_push(&o, "-fdelete-null-pointer-checks"); }
+            if cgo.f_stack_protector == 1 {
+                sp_level = "basic"
+            }
 
-        // -- symbols / code model ------------------------------------------
-        // A `thread` global also carries its model as an attribute
-        // (CXXSpell::tls_model), which follows --tls-model; the flag is for
-        // the C++ thread_locals the ffi headers bring.
-        if !cgo.tls_model.empty()  { _fx_push(&o, f"-ftls-model={cgo.tls_model}"); }
-        if !cgo.visibility.empty() { _fx_push(&o, f"-fvisibility={cgo.visibility}"); }
-        if cgo.f_vis_inlines_hidden == 1 { _fx_push(&o, "-fvisibility-inlines-hidden"); }
-        if (!cc1) && (cgo.f_vis_inlines_hidden == 0) { _fx_push(&o, "-fno-visibility-inlines-hidden"); }
-        if cgo.f_plt == 0 { _fx_push(&o, "-fno-plt"); }
-        if (!cc1) && (cgo.f_plt == 1) { _fx_push(&o, "-fplt"); }
-        if cgo.f_red_zone == 0 {
-            if cc1 { _fx_push(&o, "-disable-red-zone"); } else { _fx_push(&o, "-mno-red-zone"); }
+            if cgo.f_stack_protector == 0 {
+                sp_level = "none"
+            }
         }
-        if (!cc1) && (cgo.f_red_zone == 1) { _fx_push(&o, "-mred-zone"); }
-        if cgo.stack_clash        { _fx_push(&o, "-fstack-clash-protection"); }
-        if cgo.f_split_stack == 1 { _fx_push(&o, "-fsplit-stack"); }
+
+        if sp_level == "basic" {
+            if cc1 {
+                _fx_push2(&o, "-stack-protector", "1")
+            } else {
+                _fx_push(&o, "-fstack-protector")
+            }
+        } else if sp_level == "strong" {
+            if cc1 {
+                _fx_push2(&o, "-stack-protector", "2")
+            } else {
+                _fx_push(&o, "-fstack-protector-strong")
+            }
+        } else if sp_level == "all" {
+            if cc1 {
+                _fx_push2(&o, "-stack-protector", "3")
+            } else {
+                _fx_push(&o, "-fstack-protector-all")
+            }
+        } else if !cc1 && sp_level == "none" {
+            // cc1 has none unless told; the driver may default it on.
+            _fx_push(&o, "-fno-stack-protector")
+        }
+
+        if !cgo.cf_protection.empty() {
+            _fx_push(&o, f"-fcf-protection={cgo.cf_protection}")
+        }
+
+        if !cgo.zero_call_used_regs.empty() {
+            _fx_push(&o, f"-fzero-call-used-regs={cgo.zero_call_used_regs}")
+        }
+
+        if !cgo.auto_var_init.empty() {
+            _fx_push(&o, f"-ftrivial-auto-var-init={cgo.auto_var_init}")
+        }
+
+        if cgo.f_delete_null_checks == 0 {
+            _fx_push(&o, "-fno-delete-null-pointer-checks")
+        }
+
+        // cc1 deletes them unless told; only the driver has the "on" word.
+        if !cc1 && cgo.f_delete_null_checks == 1 {
+            _fx_push(&o, "-fdelete-null-pointer-checks")
+        }
+
+        /// ### symbols / code model
+        /// A `thread` global also carries its model as an attribute
+        /// (CXXSpell::tls_model), which follows --tls-model; the flag is for
+        /// the C++ thread_locals the ffi headers bring.
+        if !cgo.tls_model.empty() {
+            _fx_push(&o, f"-ftls-model={cgo.tls_model}")
+        }
+
+        if !cgo.visibility.empty() {
+            _fx_push(&o, f"-fvisibility={cgo.visibility}")
+        }
+
+        if cgo.f_vis_inlines_hidden == 1 {
+            _fx_push(&o, "-fvisibility-inlines-hidden")
+        }
+
+        if !cc1 && cgo.f_vis_inlines_hidden == 0 {
+            _fx_push(&o, "-fno-visibility-inlines-hidden")
+        }
+
+        if cgo.f_plt == 0 {
+            _fx_push(&o, "-fno-plt")
+        }
+
+        if !cc1 && cgo.f_plt == 1 {
+            _fx_push(&o, "-fplt")
+        }
+
+        if cgo.f_red_zone == 0 {
+            if cc1 {
+                _fx_push(&o, "-disable-red-zone")
+            } else {
+                _fx_push(&o, "-mno-red-zone")
+            }
+        }
+
+        if !cc1 && cgo.f_red_zone == 1 {
+            _fx_push(&o, "-mred-zone")
+        }
+
+        if cgo.stack_clash {
+            _fx_push(&o, "-fstack-clash-protection")
+        }
+
+        if cgo.f_split_stack == 1 {
+            _fx_push(&o, "-fsplit-stack")
+        }
+
         // --pic-level is the explicit spelling and wins; -f[no-]pic only
         // speaks when it was not given (target() spells --pic-level).
         if tgt.pic_level == 0 {
             if cgo.f_pic == 1 {
-                if cc1 { _fx_push2(&o, "-mrelocation-model", "pic"); _fx_push2(&o, "-pic-level", "2"); }
-                else   { _fx_push(&o, "-fPIC"); }
+                if cc1 {
+                    _fx_push2(&o, "-mrelocation-model", "pic")
+                    _fx_push2(&o, "-pic-level", "2")
+                } else {
+                    _fx_push(&o, "-fPIC")
+                }
             } else if cgo.f_pic == 0 {
-                if cc1 { _fx_push2(&o, "-mrelocation-model", "static"); }
-                else   { _fx_push(&o, "-fno-pic"); }
+                if cc1 {
+                    _fx_push2(&o, "-mrelocation-model", "static")
+                } else {
+                    _fx_push(&o, "-fno-pic")
+                }
             }
         }
+
         if cgo.kernel_mode {
             // Same set the driver makes of -mkernel, minus the hosted-library
             // bits (-fapple-kext, -fno-builtin, -ffreestanding) that would
             // break Kairo's own lowered C++. SSE is only taken away on x86,
             // where the kernel cannot save FP state; elsewhere there is no
             // single feature name for it.
-            var tri = llvm::Triple(llvm::Triple::normalize(sref(triple)));
+            var tri = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
             if cc1 {
-                _fx_push(&o, "-mcmodel=kernel");
-                _fx_push2(&o, "-mrelocation-model", "static");
-                _fx_push(&o, "-disable-red-zone");
-                _fx_push(&o, "-no-implicit-float");
-                if tri.isX86() { _fx_push2(&o, "-target-feature", "-sse"); }
+                _fx_push(&o, "-mcmodel=kernel")
+                _fx_push2(&o, "-mrelocation-model", "static")
+                _fx_push(&o, "-disable-red-zone")
+                _fx_push(&o, "-no-implicit-float")
+                if tri.isX86() {
+                    _fx_push2(&o, "-target-feature", "-sse")
+                }
             } else {
-                _fx_push(&o, "-mcmodel=kernel");
-                _fx_push(&o, "-fno-pic");
-                _fx_push(&o, "-mno-red-zone");
-                _fx_push(&o, "-mno-implicit-float");
-                if tri.isX86() { _fx_push(&o, "-mno-sse"); }
-            }
-        }
-        // After --kernel-mode's own -mcmodel=kernel: the last one wins.
-        if !cgo.mcmodel.empty() { _fx_push(&o, f"-mcmodel={cgo.mcmodel}"); }
-
-        // -- language-level C++ switches (Config::Language) -----------------
-        // Exceptions are ON by default on a hosted target: a Kairo TU's C++
-        // includes C++ headers that throw, and a C++ exception must reach
-        // a Kairo frame to be stopped there (noexcept, the default) or
-        // passed on (@unwind / -funwind). A freestanding target (no OS in
-        // the triple, --freestanding, kernel mode) keeps them off unless
-        // -fexceptions asks: it has no unwinder, and on ARM EHABI every
-        // function would reference a personality routine. A bare cc1 line
-        // has them off, so it needs both switches when they are on; RTTI
-        // is on by default, so only -fno-rtti does. The driver turns
-        // exceptions on for C++ by itself, so it needs both directions.
-        var hosted = !(lg.freestanding || cgo.kernel_mode);
-        if hosted && (triple.size() > 0) {
-            var etri = llvm::Triple(llvm::Triple::normalize(sref(triple)));
-            if etri.getOS() == llvm::Triple::UnknownOS { hosted = false; }
-        }
-        if lg.cxx_exceptions(hosted) {
-            if cc1 { _fx_push(&o, "-fcxx-exceptions"); _fx_push(&o, "-fexceptions"); }
-            else if lg.exceptions == 1 { _fx_push(&o, "-fexceptions"); }
-        }
-        if (!cc1) && (lg.exceptions == 0) { _fx_push(&o, "-fno-exceptions"); }
-        if lg.rtti == 0 { _fx_push(&o, "-fno-rtti"); }
-
-        // -- runtime model -------------------------------------------------
-        if cgo.thread_model != "posix" { _fx_push2(&o, "-mthread-model", cgo.thread_model); }
-        if cgo.unwind_tables_set {
-            if cc1 {
-                if cgo.unwind_tables == "none"       { _fx_push(&o, "-funwind-tables=0"); }
-                else if cgo.unwind_tables == "sync"  { _fx_push(&o, "-funwind-tables=1"); }
-                else if cgo.unwind_tables == "async" { _fx_push(&o, "-funwind-tables=2"); }
-            } else {
-                if cgo.unwind_tables == "none" {
-                    _fx_push(&o, "-fno-unwind-tables");
-                    _fx_push(&o, "-fno-asynchronous-unwind-tables");
-                } else if cgo.unwind_tables == "sync" {
-                    _fx_push(&o, "-funwind-tables");
-                    _fx_push(&o, "-fno-asynchronous-unwind-tables");
-                } else if cgo.unwind_tables == "async" {
-                    _fx_push(&o, "-fasynchronous-unwind-tables");
+                _fx_push(&o, "-mcmodel=kernel")
+                _fx_push(&o, "-fno-pic")
+                _fx_push(&o, "-mno-red-zone")
+                _fx_push(&o, "-mno-implicit-float")
+                if tri.isX86() {
+                    _fx_push(&o, "-mno-sse")
                 }
             }
         }
-        if cgo.instrument_functions { _fx_push(&o, "-finstrument-functions"); }
+
+        // After --kernel-mode's own -mcmodel=kernel: the last one wins.
+        if !cgo.mcmodel.empty() {
+            _fx_push(&o, f"-mcmodel={cgo.mcmodel}")
+        }
+
+        /// ### language-level C++ switches (Config::Language)
+        /// Exceptions are ON by default on a hosted target: a Kairo TU's C++
+        /// includes C++ headers that throw, and a C++ exception must reach
+        /// a Kairo frame to be stopped there (noexcept, the default) or
+        /// passed on (@unwind / -funwind). A freestanding target (no OS in
+        /// the triple, --freestanding, kernel mode) keeps them off unless
+        /// -fexceptions asks: it has no unwinder, and on ARM EHABI every
+        /// function would reference a personality routine. A bare cc1 line
+        /// has them off, so it needs both switches when they are on; RTTI
+        /// is on by default, so only -fno-rtti does. The driver turns
+        /// exceptions on for C++ by itself, so it needs both directions.
+        var hosted = !(lg.freestanding || cgo.kernel_mode)
+        if hosted && triple.size() > 0 {
+            var etri = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
+            if etri.getOS() == llvm::Triple::UnknownOS {
+                hosted = false
+            }
+        }
+
+        if lg.cxx_exceptions(hosted) {
+            if cc1 {
+                _fx_push(&o, "-fcxx-exceptions")
+                _fx_push(&o, "-fexceptions")
+            } else if lg.exceptions == 1 {
+                _fx_push(&o, "-fexceptions")
+            }
+        }
+
+        if !cc1 && lg.exceptions == 0 {
+            _fx_push(&o, "-fno-exceptions")
+        }
+
+        if lg.rtti == 0 {
+            _fx_push(&o, "-fno-rtti")
+        }
+
+        /// ### runtime model
+        if cgo.thread_model != "posix" {
+            _fx_push2(&o, "-mthread-model", cgo.thread_model)
+        }
+
+        if cgo.unwind_tables_set {
+            if cc1 {
+                if cgo.unwind_tables == "none" {
+                    _fx_push(&o, "-funwind-tables=0")
+                } else if cgo.unwind_tables == "sync" {
+                    _fx_push(&o, "-funwind-tables=1")
+                } else if cgo.unwind_tables == "async" {
+                    _fx_push(&o, "-funwind-tables=2")
+                }
+            } else {
+                if cgo.unwind_tables == "none" {
+                    _fx_push(&o, "-fno-unwind-tables")
+                    _fx_push(&o, "-fno-asynchronous-unwind-tables")
+                } else if cgo.unwind_tables == "sync" {
+                    _fx_push(&o, "-funwind-tables")
+                    _fx_push(&o, "-fno-asynchronous-unwind-tables")
+                } else if cgo.unwind_tables == "async" {
+                    _fx_push(&o, "-fasynchronous-unwind-tables")
+                }
+            }
+        }
+
+        if cgo.instrument_functions {
+            _fx_push(&o, "-finstrument-functions")
+        }
 
         // Coverage and PGO (-fcoverage, -fprofile-generate, --profile-use) are
         // deliberately NOT forwarded: the instrumented objects need
@@ -608,89 +886,124 @@ class FlagTranslator {
         // ships, so a wiring would only move the failure to the linker. They
         // stay marked unimplemented in the registry.
 
-        // -- reproducible builds ---------------------------------------------
-        // --remap-path-prefix is clang's -ffile-prefix-map, which cc1 only
-        // knows as its three halves.
-        for m: string in cgo.remap_path_prefix {
+        /// ### reproducible builds
+        /// --remap-path-prefix is clang's -ffile-prefix-map, which cc1 only
+        /// knows as its three halves.
+        for *m in cgo.remap_path_prefix {
             if cc1 {
-                _fx_push(&o, f"-fdebug-prefix-map={m}");
-                _fx_push(&o, f"-fmacro-prefix-map={m}");
-                _fx_push(&o, f"-fcoverage-prefix-map={m}");
+                _fx_push(&o, f"-fdebug-prefix-map={(*m)}")
+                _fx_push(&o, f"-fmacro-prefix-map={(*m)}")
+                _fx_push(&o, f"-fcoverage-prefix-map={(*m)}")
             } else {
-                _fx_push(&o, f"-ffile-prefix-map={m}");
+                _fx_push(&o, f"-ffile-prefix-map={(*m)}")
             }
         }
-        for m: string in cgo.debug_prefix_map    { _fx_push(&o, f"-fdebug-prefix-map={m}"); }
-        for m: string in cgo.coverage_prefix_map { _fx_push(&o, f"-fcoverage-prefix-map={m}"); }
+
+        for *m in cgo.debug_prefix_map {
+            _fx_push(&o, f"-fdebug-prefix-map={(*m)}")
+        }
+
+        for *m in cgo.coverage_prefix_map {
+            _fx_push(&o, f"-fcoverage-prefix-map={(*m)}")
+        }
+
         // Only __DATE__/__TIME__/__TIMESTAMP__ in C and C++ sources read it:
         // Kairo objects carry no other timestamp. The driver has no flag
         // for it (it reads SOURCE_DATE_EPOCH from the environment).
-        var epoch = "";
-        if !cgo.source_date_epoch.empty() { epoch = cgo.source_date_epoch; }
-        else if cgo.no_timestamps         { epoch = "0"; }
-        if !epoch.empty() {
-            if cc1 { _fx_push2(&o, "-source-date-epoch", epoch); }
-            else   { _fx_xclang(&o, "-source-date-epoch"); _fx_xclang(&o, epoch); }
+        var epoch = ""
+        if !cgo.source_date_epoch.empty() {
+            epoch = cgo.source_date_epoch
+        } else if cgo.no_timestamps {
+            epoch = "0"
         }
 
-        // -- LLVM pass control -----------------------------------------------
-        for pl: string in cgo.pass_plugins {
-            if !llvm::sys::fs::is_regular_file(llvm::Twine(sref(pl))) {
-                missing_plugins->push_back(pl);
+        if !epoch.empty() {
+            if cc1 {
+                _fx_push2(&o, "-source-date-epoch", epoch)
             } else {
-                _fx_push(&o, f"-fpass-plugin={pl}");
+                _fx_xclang(&o, "-source-date-epoch")
+                _fx_xclang(&o, epoch)
+            }
+        }
+
+        /// ### LLVM pass control
+        for *pl in cgo.pass_plugins {
+            if !llvm::sys::fs::is_regular_file(llvm::Twine(kairo::sref(*pl))) {
+                missing_plugins->push_back(*pl)
+            } else {
+                _fx_push(&o, f"-fpass-plugin={(*pl)}")
             }
         }
 
         // -- -mllvm (applied once per process by ClangBackend::_apply_llvm_args)
-        if cgo.hot_cold_split          { _fx_push2(&o, "-mllvm", "-hot-cold-split=true"); }
-        if cgo.f_trap_unreachable == 1 { _fx_push2(&o, "-mllvm", "-trap-unreachable"); }
+        if cgo.hot_cold_split {
+            _fx_push2(&o, "-mllvm", "-hot-cold-split=true")
+        }
+
+        if cgo.f_trap_unreachable == 1 {
+            _fx_push2(&o, "-mllvm", "-trap-unreachable")
+        }
+
         // Both thresholds differ per level in LLVM itself, so a default value
         // must not be forwarded: only what the user set.
         if cgo.inline_cost_set {
-            var thr: i32 = static_cast::<i32>(cgo.inline_cost);
-            _fx_push2(&o, "-mllvm", f"-inline-threshold={thr}");
+            var thr: i32 = (cgo.inline_cost as i32)
+            _fx_push2(&o, "-mllvm", f"-inline-threshold={thr}")
         }
+
         if cgo.max_unroll_count > 0 {
-            _fx_push2(&o, "-mllvm", f"-unroll-count={cgo.max_unroll_count}");
+            _fx_push2(&o, "-mllvm", f"-unroll-count={cgo.max_unroll_count}")
         }
-        for w: string in cgo.mllvm_flags { _fx_push2(&o, "-mllvm", w); }
-        return o;
+
+        for *w in cgo.mllvm_flags {
+            _fx_push2(&o, "-mllvm", (*w))
+        }
+
+        return o
     }
 
     /// \brief --mcpu and --pic-level. Separate from codegen() because the
     ///        backend places them first: cc1 takes the last -target-cpu, and
     ///        --mcpu must beat the cpu the driver probe derived from --march.
-    static fn target(tgt: ref!(TargetOptions), sp: ClangSpelling) -> vec::<string> {
-        var o = vec::<string>();
-        var cc1 = sp == ClangSpelling::CC1;
+    pub static fn target(@inout tgt: TargetOptions, sp: ClangSpelling) -> cxx::std::vector<string> {
+        var o   = cxx::std::vector<string>()
+        var cc1 = sp == ClangSpelling::CC1
         if !tgt.mcpu.empty() {
             // Not the driver's -mcpu=: x86 rejects it (its CPU is -march=),
             // and elsewhere it also turns features on. kairo's --mcpu is the
             // CPU alone, over the features the target or --march implies,
             // and C/C++ inputs get exactly that.
-            if cc1 { _fx_push2(&o, "-target-cpu", tgt.mcpu); }
-            else   { _fx_xclang(&o, "-target-cpu"); _fx_xclang(&o, tgt.mcpu); }
-        }
-        if tgt.pic_level > 0 {
             if cc1 {
-                _fx_push2(&o, "-mrelocation-model", "pic");
-                _fx_push2(&o, "-pic-level", f"{tgt.pic_level}");
+                _fx_push2(&o, "-target-cpu", tgt.mcpu)
             } else {
-                _fx_push(&o, ("-fpic") if (tgt.pic_level == 1) else ("-fPIC"));
+                _fx_xclang(&o, "-target-cpu")
+                _fx_xclang(&o, tgt.mcpu)
             }
         }
-        return o;
+
+        if tgt.pic_level > 0 {
+            if cc1 {
+                _fx_push2(&o, "-mrelocation-model", "pic")
+                _fx_push2(&o, "-pic-level", f"{tgt.pic_level}")
+            } else {
+                _fx_push(&o, if (tgt.pic_level == 1) => ("-fpic") else => "-fPIC")
+            }
+        }
+
+        return o
     }
 
     /// \brief --march, which only the DRIVER spells (cc1 has no -march:
     ///        the driver turns it into -target-cpu plus one -target-feature
     ///        per implied extension, which is right only per architecture).
     ///        For kairo's own TUs it rides the target probe.
-    static fn march_driver(tgt: ref!(TargetOptions)) -> vec::<string> {
-        var o = vec::<string>();
-        if !tgt.march.empty() { _fx_push(&o, f"-march={tgt.march}"); }
-        return o;
+    pub static fn march_driver(@inout tgt: TargetOptions) -> cxx::std::vector<string> {
+        var o = cxx::std::vector<string>()
+        if !tgt.march.empty() {
+            _fx_push(&o, f"-march={tgt.march}")
+        }
+
+        return o
     }
 
     /// \brief the language standard for a C/C++ input of kind \p lang
@@ -702,30 +1015,55 @@ class FlagTranslator {
     ///        input gets --c-std only when the user named one, so it
     ///        compiles under clang's default otherwise. IR, OpenCL and the
     ///        rest take none.
-    static fn language_std(tgt: ref!(TargetOptions), lang: string, sp: ClangSpelling) -> vec::<string> {
-        var o = vec::<string>();
-        var cc1 = sp == ClangSpelling::CC1;
+    static fn language_std(@inout tgt: TargetOptions,
+                           const lang: string,
+                           sp:         ClangSpelling) -> cxx::std::vector<string> {
+        var o   = cxx::std::vector<string>()
+        var cc1 = sp == ClangSpelling::CC1
         // Headers too: a PCH built under another standard than the TUs that
         // include it does not load.
-        var c_like   = (lang == "c") || (lang == "cpp-output") || (lang == "objective-c") || (lang == "objective-c-cpp-output")
-                    || (lang == "c-header") || (lang == "objective-c-header");
-        var cxx_like = (lang == "c++") || (lang == "c++-cpp-output") || (lang == "objective-c++") || (lang == "objective-c++-cpp-output")
-                    || (lang == "c++-header") || (lang == "objective-c++-header");
-        if c_like && (cc1 || tgt.c_std_set) { _fx_push(&o, f"-std={tgt.c_std}"); }
-        if cxx_like { _fx_push(&o, f"-std={tgt.cxx_std}"); }
-        return o;
+        var c_like = lang == "c"
+            || lang == "cpp-output"
+            || lang == "objective-c"
+            || lang == "objective-c-cpp-output"
+            || lang == "c-header"
+            || lang == "objective-c-header"
+        var cxx_like = lang == "c++"
+            || lang == "c++-cpp-output"
+            || lang == "objective-c++"
+            || lang == "objective-c++-cpp-output"
+            || lang == "c++-header"
+            || lang == "objective-c++-header"
+        if c_like && (cc1 || tgt.c_std_set) {
+            _fx_push(&o, f"-std={tgt.c_std}")
+        }
+
+        if cxx_like {
+            _fx_push(&o, f"-std={tgt.cxx_std}")
+        }
+
+        return o
     }
 
     /// \brief header directories the user names for clang (-I, which is
     ///        also a Kairo search dir, then --ffi-include and --cxx-include)
     ///        and user macros for clang (--cxx-define / --cxx-undefine).
     ///        Identical in both spellings.
-    static fn preprocessor(inv: ref!(CompilerInvocation)) -> vec::<string> {
-        var o = vec::<string>();
-        for d: string in inv.clang_include_dirs() { _fx_push2(&o, "-I", d); }
-        for d: string in inv.cxx_defines   { _fx_push(&o, f"-D{d}"); }
-        for d: string in inv.cxx_undefines { _fx_push(&o, f"-U{d}"); }
-        return o;
+    pub static fn preprocessor(@inout inv: CompilerInvocation) -> cxx::std::vector<string> {
+        var o = cxx::std::vector<string>()
+        for var d: string in inv.clang_include_dirs() {
+            _fx_push2(&o, "-I", d)
+        }
+
+        for *d in inv.cxx_defines {
+            _fx_push(&o, f"-D{(*d)}")
+        }
+
+        for *d in inv.cxx_undefines {
+            _fx_push(&o, f"-U{(*d)}")
+        }
+
+        return o
     }
 
     /// \brief the optimization level and the vectorizers.
@@ -743,51 +1081,85 @@ class FlagTranslator {
     ///
     /// \param opt_size 0 none, 1 -Os, 2 -Oz.
     /// \param f_vectorize -1 unset, 0 -fno-vectorize, 1 -fvectorize.
-    static fn optimization(opt_level: i32, opt_size: i32, f_vectorize: i32, sp: ClangSpelling) -> vec::<string> {
-        var o = vec::<string>();
-        if opt_size == 2      { _fx_push(&o, "-Oz"); }
-        else if opt_size == 1 { _fx_push(&o, "-Os"); }
-        else                  { _fx_push(&o, f"-O{opt_level}"); }
+    pub static fn optimization(opt_level:   i32,
+                               opt_size:    i32,
+                               f_vectorize: i32,
+                               sp:          ClangSpelling) -> cxx::std::vector<string> {
+        var o = cxx::std::vector<string>()
+        if opt_size == 2 {
+            _fx_push(&o, "-Oz")
+        } else if opt_size == 1 {
+            _fx_push(&o, "-Os")
+        } else {
+            _fx_push(&o, f"-O{opt_level}")
+        }
+
         if sp == ClangSpelling::CC1 {
-            if (f_vectorize != 0) && ((opt_level > 0) || (opt_size > 0)) {
-                _fx_push(&o, "-vectorize-loops");
-                _fx_push(&o, "-vectorize-slp");
+            if f_vectorize != 0 && (opt_level > 0 || opt_size > 0) {
+                _fx_push(&o, "-vectorize-loops")
+                _fx_push(&o, "-vectorize-slp")
             }
         } else {
-            if f_vectorize == 1 { _fx_push(&o, "-fvectorize"); _fx_push(&o, "-fslp-vectorize"); }
-            if f_vectorize == 0 { _fx_push(&o, "-fno-vectorize"); _fx_push(&o, "-fno-slp-vectorize"); }
+            if f_vectorize == 1 {
+                _fx_push(&o, "-fvectorize")
+                _fx_push(&o, "-fslp-vectorize")
+            }
+
+            if f_vectorize == 0 {
+                _fx_push(&o, "-fno-vectorize")
+                _fx_push(&o, "-fno-slp-vectorize")
+            }
         }
-        return o;
+
+        return o
     }
 
     /// \brief -g and its modifiers, as DRIVER words. cc1 never gets these
     ///        spelled by kairo: the driver picks CodeView or DWARF, the
     ///        debugger tuning and the info kind per target, and the probe
     ///        (probe_filter) carries its choice into cc1.
-    static fn debug_driver(debug_info: bool, dwarf_version: i32, macros: bool, embed: bool) -> vec::<string> {
-        var o = vec::<string>();
-        if !debug_info { return o; }
-        _fx_push(&o, "-g");
-        if dwarf_version > 0 { _fx_push(&o, f"-gdwarf-{dwarf_version}"); }
-        if macros            { _fx_push(&o, "-fdebug-macro"); }
-        if embed             { _fx_push(&o, "-gembed-source"); }
-        return o;
+    pub static fn debug_driver(debug_info:    bool,
+                               dwarf_version: i32,
+                               macros:        bool,
+                               embed:         bool) -> cxx::std::vector<string> {
+        var o = cxx::std::vector<string>()
+        if !debug_info {
+            return o
+        }
+
+        _fx_push(&o, "-g")
+        if dwarf_version > 0 {
+            _fx_push(&o, f"-gdwarf-{dwarf_version}")
+        }
+
+        if macros {
+            _fx_push(&o, "-fdebug-macro")
+        }
+
+        if embed {
+            _fx_push(&o, "-gembed-source")
+        }
+
+        return o
     }
 
     /// \brief whether this build emits debug info: -g0 wins over -g
     ///        wherever it sits.
-    static fn debug_on(cgo: ref!(CodeGenOptions)) -> bool {
-        return (cgo.debug_info) && (!cgo.no_debug_info);
+    pub static fn debug_on(@inout cgo: CodeGenOptions) -> bool {
+        return cgo.debug_info && !cgo.no_debug_info
     }
 
     /// \brief the DWARF version to ask for, 0 for "the target's default".
     ///        --dwarf-version always has a value (default 5), so it cannot say
     ///        whether DWARF was asked for; on MSVC it is left out and the
     ///        driver emits CodeView, which is what link.exe-style PDBs need.
-    static fn dwarf_for(cgo: ref!(CodeGenOptions), triple: string) -> i32 {
-        var tr = llvm::Triple(llvm::Triple::normalize(sref(triple)));
-        if tr.isWindowsMSVCEnvironment() { return 0; }
-        return cgo.dwarf_version;
+    pub static fn dwarf_for(@inout cgo: CodeGenOptions, const triple: string) -> i32 {
+        var tr = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
+        if tr.isWindowsMSVCEnvironment() {
+            return 0
+        }
+
+        return cgo.dwarf_version
     }
 
     /// \brief the whole clang DRIVER line for one C/C++ input of language
@@ -801,28 +1173,67 @@ class FlagTranslator {
     ///          (glibc, msvc), and the C/C++ objects would not match the
     ///          Kairo objects in the same link. --cxx-flags words go last, so
     ///          they win.
-    static fn to_driver(inv: ref!(CompilerInvocation), triple: string, lang: string,
-                        missing_plugins: *vec::<string>) -> vec::<string> {
-        var o   = vec::<string>();
-        var cgo = inv.codegen;
-        var tgt = inv.target;
-        _fx_push(&o, "--target=" + FlagTranslator::clang_triple(triple));
-        for a: string in FlagTranslator::march_driver(tgt) { _fx_push(&o, a); }
-        for a: string in FlagTranslator::target(tgt, ClangSpelling::Driver) { _fx_push(&o, a); }
-        for a: string in FlagTranslator::language_std(tgt, lang, ClangSpelling::Driver) { _fx_push(&o, a); }
-        for a: string in FlagTranslator::codegen(inv, triple, ClangSpelling::Driver, missing_plugins) { _fx_push(&o, a); }
-        var osz: i32 = 0;
-        if cgo.opt_size_z    { osz = 2; }
-        else if cgo.opt_size { osz = 1; }
-        for a: string in FlagTranslator::optimization(cgo.opt_level, osz, cgo.f_vectorize, ClangSpelling::Driver) { _fx_push(&o, a); }
-        for a: string in FlagTranslator::debug_driver(FlagTranslator::debug_on(cgo), FlagTranslator::dwarf_for(cgo, triple),
-                                                      cgo.debug_macros, cgo.embed_source) {
-            _fx_push(&o, a);
+    pub static fn to_driver(@inout inv:      CompilerInvocation,
+                            const triple:    string,
+                            const lang:      string,
+                            missing_plugins: unsafe *cxx::std::vector<string>) -> cxx::std::vector<string> {
+        var o   = cxx::std::vector<string>()
+        var cgo = inv.codegen
+        var tgt = inv.target
+        _fx_push(&o, "--target=" + FlagTranslator::clang_triple(triple))
+        for var a: string in FlagTranslator::march_driver(&tgt) {
+            _fx_push(&o, a)
         }
-        for a: string in FlagTranslator::warnings(inv.diag, ClangSpelling::Driver) { _fx_push(&o, a); }
-        for a: string in FlagTranslator::preprocessor(inv) { _fx_push(&o, a); }
-        for a: string in cgo.cxx_flags { _fx_push(&o, a); }
-        return o;
+
+        for var a: string in FlagTranslator::target(&tgt, ClangSpelling::Driver) {
+            _fx_push(&o, a)
+        }
+
+        for var a: string in FlagTranslator::language_std(&tgt, lang, ClangSpelling::Driver) {
+            _fx_push(&o, a)
+        }
+
+        // A preprocessed .s goes straight to the assembler, which uses none of
+        // the codegen / optimization words: kairo's own defaults (-O0,
+        // -fno-stack-protector) only drew clang's "argument unused" warning on
+        // every .s, which a plain clang line never prints. The user's
+        // --cxx-flags still follow below, warned about exactly as clang would.
+        var asm_only = lang == "assembler"
+        if !asm_only {
+            for var a: string in FlagTranslator::codegen(&inv, triple, ClangSpelling::Driver, missing_plugins) {
+                _fx_push(&o, a)
+            }
+
+            var osz: i32 = 0
+            if cgo.opt_size_z {
+                osz = 2
+            } else if cgo.opt_size {
+                osz = 1
+            }
+
+            for var a: string in FlagTranslator::optimization(cgo.opt_level, osz, cgo.f_vectorize, ClangSpelling::Driver) {
+                _fx_push(&o, a)
+            }
+        }
+
+        for var a: string in FlagTranslator::debug_driver(FlagTranslator::debug_on(&cgo), FlagTranslator::dwarf_for(&cgo, triple),
+                                                      cgo.debug_macros, cgo.embed_source) {
+            _fx_push(&o, a)
+        }
+
+        for var a: string in FlagTranslator::warnings(&inv.diag, ClangSpelling::Driver) {
+            _fx_push(&o, a)
+        }
+
+        for var a: string in FlagTranslator::preprocessor(&inv) {
+            _fx_push(&o, a)
+        }
+
+        for *a in cgo.cxx_flags {
+            _fx_push(&o, (*a))
+        }
+
+        return o
     }
 
     /// \brief the diagnostic policy for clang-sourced diagnostics: the bulk
@@ -832,47 +1243,78 @@ class FlagTranslator {
     ///          allow  -> -Wno-<grp>   deny/forbid -> -Werror=<grp>
     ///          warn   -> -W<grp>
     ///        Native (non-C) codes are skipped; the emit layer governs them.
-    static fn warnings(d: ref!(DiagnosticOptions), sp: ClangSpelling) -> vec::<string> {
-        var out = vec::<string>();
-        if d.suppress_warnings { out.push_back("-w"); }
-        if d.Wall      { out.push_back("-Wall");      }
-        if d.Wextra    { out.push_back("-Wextra");    }
-        if d.Wpedantic { out.push_back("-Wpedantic"); }
+    pub static fn warnings(@inout d: DiagnosticOptions,
+                           sp:       ClangSpelling) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
+        if d.suppress_warnings {
+            out.push_back("-w")
+        }
+
+        if d.Wall {
+            out.push_back("-Wall")
+        }
+
+        if d.Wextra {
+            out.push_back("-Wextra")
+        }
+
+        if d.Wpedantic {
+            out.push_back("-Wpedantic")
+        }
+
         // --Werror makes a C/C++ input's warnings errors, as clang's -Werror
         // would. Not on kairo's own line: clang's warnings about Kairo's
         // lowered C++ are not the user's to fix, and that line never had it.
-        if (sp == ClangSpelling::Driver) && d.warnings_as_errors { out.push_back("-Werror"); }
+        if sp == ClangSpelling::Driver && d.warnings_as_errors {
+            out.push_back("-Werror")
+        }
+
         // Kairo's own lowered C++ needs _BitInt wider than clang's default
         // cap; a C/C++ input keeps clang's.
-        if sp == ClangSpelling::CC1 { out.push_back("-fexperimental-max-bitint-width=512"); }
-        for c: string in d.allow_list {
-            if _fx_is_clang_code(c) {
-                var g = clang_diag_group(_fx_code_number(c));
-                if !g.empty() { out.push_back(f"-Wno-{g}"); }
+        if sp == ClangSpelling::CC1 {
+            out.push_back("-fexperimental-max-bitint-width=512")
+        }
+
+        for *c in d.allow_list {
+            if _fx_is_clang_code(*c) {
+                var g = clang_diag_group(_fx_code_number(*c))
+                if !g.empty() {
+                    out.push_back(f"-Wno-{g}")
+                }
             }
         }
-        for c: string in d.warn_list {
-            if _fx_is_clang_code(c) {
-                var g = clang_diag_group(_fx_code_number(c));
-                if !g.empty() { out.push_back(f"-W{g}"); }
+
+        for *c in d.warn_list {
+            if _fx_is_clang_code(*c) {
+                var g = clang_diag_group(_fx_code_number(*c))
+                if !g.empty() {
+                    out.push_back(f"-W{g}")
+                }
             }
         }
-        for c: string in d.deny_list {
-            if _fx_is_clang_code(c) {
-                var g = clang_diag_group(_fx_code_number(c));
-                if !g.empty() { out.push_back(f"-Werror={g}"); }
+
+        for *c in d.deny_list {
+            if _fx_is_clang_code(*c) {
+                var g = clang_diag_group(_fx_code_number(*c))
+                if !g.empty() {
+                    out.push_back(f"-Werror={g}")
+                }
             }
         }
-        for c: string in d.forbid_list {
-            if _fx_is_clang_code(c) {
-                var g = clang_diag_group(_fx_code_number(c));
-                if !g.empty() { out.push_back(f"-Werror={g}"); }
+
+        for *c in d.forbid_list {
+            if _fx_is_clang_code(*c) {
+                var g = clang_diag_group(_fx_code_number(*c))
+                if !g.empty() {
+                    out.push_back(f"-Werror={g}")
+                }
             }
         }
-        return out;
+
+        return out
     }
 
-    // === the target probe ================================================== //
+    /// ## the target probe
 
     /// \brief the cc1 words the driver probe line is filtered down to: the
     ///        ones that decide the TARGET (CPU, features, ABI, float ABI,
@@ -883,63 +1325,79 @@ class FlagTranslator {
     ///          no defaults of its own for any of these, and a table here
     ///          would drift from clang. See ClangBackend::_driver_target_args
     ///          for why each group is taken.
-    static fn probe_filter(cc1: ref!(vec::<string>)) -> vec::<string> {
-        var out = vec::<string>();
+    pub static fn probe_filter(@inout cc1: cxx::std::vector<string>) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
         // Flags taking their value as the next word.
-        var paired = vec::<string>();
-        paired.push_back("-target-cpu");
-        paired.push_back("-tune-cpu");
-        paired.push_back("-target-feature");
-        paired.push_back("-target-abi");
-        paired.push_back("-mfloat-abi");
-        var exact = vec::<string>();
-        exact.push_back("-msoft-float");
-        exact.push_back("-fno-signed-char");
-        exact.push_back("-fno-use-cxa-atexit");
-        exact.push_back("-fno-use-init-array");
-        exact.push_back("-fms-extensions");
-        exact.push_back("-fms-compatibility");
-        exact.push_back("-fms-volatile");
-        exact.push_back("-fdelayed-template-parsing");
-        exact.push_back("-gcodeview");
-        exact.push_back("-debug-info-macro");
-        exact.push_back("-gembed-source");
+        var paired = cxx::std::vector<string>()
+        paired.push_back("-target-cpu")
+        paired.push_back("-tune-cpu")
+        paired.push_back("-target-feature")
+        paired.push_back("-target-abi")
+        paired.push_back("-mfloat-abi")
+        var exact = cxx::std::vector<string>()
+        exact.push_back("-msoft-float")
+        exact.push_back("-fno-signed-char")
+        exact.push_back("-fno-use-cxa-atexit")
+        exact.push_back("-fno-use-init-array")
+        exact.push_back("-fms-extensions")
+        exact.push_back("-fms-compatibility")
+        exact.push_back("-fms-volatile")
+        exact.push_back("-fdelayed-template-parsing")
+        exact.push_back("-gcodeview")
+        exact.push_back("-debug-info-macro")
+        exact.push_back("-gembed-source")
         // Flags with their value joined by `=`.
-        var joined = vec::<string>();
-        joined.push_back("-exception-model=");
-        joined.push_back("-funwind-tables=");
-        joined.push_back("-fms-compatibility-version=");
-        joined.push_back("-fgnuc-version=");
-        joined.push_back("-debug-info-kind=");
-        joined.push_back("-dwarf-version=");
-        joined.push_back("-debugger-tuning=");
-        joined.push_back("-fdebug-compilation-dir=");
+        var joined = cxx::std::vector<string>()
+        joined.push_back("-exception-model=")
+        joined.push_back("-funwind-tables=")
+        joined.push_back("-fms-compatibility-version=")
+        joined.push_back("-fgnuc-version=")
+        joined.push_back("-debug-info-kind=")
+        joined.push_back("-dwarf-version=")
+        joined.push_back("-debugger-tuning=")
+        joined.push_back("-fdebug-compilation-dir=")
 
         for var i: usize = 0; i < cc1.size(); ++i {
-            var a = string(cc1[i]);
-            var took = false;
-            for p: string in paired {
-                if (a == p) && (i + 1 < cc1.size()) {
-                    out.push_back(a);
-                    out.push_back(string(cc1[i + 1]));
-                    i += 1;
-                    took = true;
-                    break;
+            var a    = string(&cc1[i])
+            var took = false
+            for *p in paired {
+                if a == *p && i + 1 < cc1.size() {
+                    out.push_back(a)
+                    out.push_back(string(&cc1[i + 1]))
+                    i += 1
+                    took = true
+                    break
                 }
             }
-            if took { continue; }
-            for p: string in exact {
-                if a == p { out.push_back(a); took = true; break; }
+
+            if took {
+                continue
             }
-            if took { continue; }
-            for p: string in joined {
-                if a.starts_with(p) { out.push_back(a); break; }
+
+            for *p in exact {
+                if a == *p {
+                    out.push_back(a)
+                    took = true
+                    break
+                }
+            }
+
+            if took {
+                continue
+            }
+
+            for *p in joined {
+                if a.starts_with(*p) {
+                    out.push_back(a)
+                    break
+                }
             }
         }
-        return out;
+
+        return out
     }
 
-    // === reverse: a clang driver command line as kairo words =============== //
+    /// ## reverse: a clang driver command line as kairo words
 
     /// \brief splits a clang driver command line into kairo CLI words and the
     ///        clang words kairo has no flag for.
@@ -956,40 +1414,51 @@ class FlagTranslator {
     /// \param argv the clang command line WITHOUT argv[0].
     /// \return false when clang's table reports a missing value; \p error
     ///         says which.
-    static fn from_driver(argv: ref!(vec::<string>),
-                          kairo_out: *vec::<string>,
-                          clang_only: *vec::<string>,
-                          error: *string) -> bool {
-        var rows = _fx_reverse_rows();
-        var cargv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
-        for var i: usize = 0; i < argv.size(); ++i { cargv.push_back(argv[i].c_str()); }
-
-        var missing_idx: u32 = 0;
-        var missing_cnt: u32 = 0;
-        var table = &(clang::getDriverOptTable());
-        // The plain driver's options only: without the mask, clang-cl's
-        // spellings (/O, which also answers to -O) match too.
-        var vis   = llvm::opt::Visibility(clang::options::ClangOption);
-        var args  = table->ParseArgs(cargv, missing_idx, missing_cnt, vis);
-        if missing_cnt > 0 {
-            var w = argv[static_cast::<usize>(missing_idx)];
-            (*error) = f"clang option '{w}\x27 is missing its value";
-            return false;
+    pub static fn from_driver(@inout argv:       cxx::std::vector<string>,
+                              @inout kairo_out:  cxx::std::vector<string>,
+                              @inout clang_only: cxx::std::vector<string>,
+                              @inout error:      string) -> bool {
+        var rows                                                  = _fx_reverse_rows()
+        var cargv: cxx::std::vector<kairo::std::ConstPtr<c_char>>
+        for var i: usize = 0; i < argv.size(); ++i {
+            cargv.push_back(argv[i].c_str())
         }
 
-        var it  = args.begin();
-        var end = args.end();
+        var missing_idx: u32 = 0
+        var missing_cnt: u32 = 0
+        var *table           = &clang::getDriverOptTable()
+        // The plain driver's options only: without the mask, clang-cl's
+        // spellings (/O, which also answers to -O) match too.
+        var vis = llvm::opt::Visibility((clang::options::ClangOption as u32))
+        var args = table->ParseArgs(
+            llvm::ArrayRef<unsafe *const c_char>(cargv),
+            &missing_idx,
+            &missing_cnt,
+            vis,
+        )
+
+        if missing_cnt > 0 {
+            var w = argv[missing_idx as usize]
+            (error) = f"clang option '{w}' is missing its value"
+            return false
+        }
+
+        var it  = args.begin()
+        var end = args.end()
         while it != end {
-            var a     = *it;
-            var opt   = a->getOption();
-            var psr   = opt.getPrefixedName();
-            var pname = string(psr.data(), psr.size());
-            var nval  = a->getNumValues();
+            var unsafe *a  = *it
+            var        opt = a->getOption()
+            var        psr = opt.getPrefixedName()
+            var pname = string(unsafe ((psr.data() as unsafe *const u8) as *const u8), psr.size())
+            var nval  = a->getNumValues()
 
             if opt.getKind() == llvm::opt::Option::InputClass {
-                kairo_out->push_back(string(a->getValue(0)));
-                ++it;
-                continue;
+                kairo_out.push_back(
+                    string(unsafe ((a->getValue(0) as unsafe *const u8) as *const u8)),
+                )
+
+                ++it
+                continue
             }
 
             // -std= is the one row that splits on its value: kairo keeps a C
@@ -998,65 +1467,102 @@ class FlagTranslator {
             // stays clang's: the C/C++ inputs still get it, kairo's own code
             // keeps its own.
             if pname == "-std=" {
-                var v = string(a->getValue(0));
-                var is_cxx = !(string::npos == v.view().find(r"++"));
-                if is_cxx && _fx_known_cxx_std(v)        { kairo_out->push_back(f"--cxx-std={v}"); }
-                else if (!is_cxx) && _fx_known_c_std(v)  { kairo_out->push_back(f"--c-std={v}"); }
-                else                                     { clang_only->push_back(f"-std={v}"); }
-                ++it;
-                continue;
+                var v      = string(unsafe ((a->getValue(0) as unsafe *const u8) as *const u8))
+                var is_cxx = !(cxx::std::string::npos == kairo::std::to_std_string(v).find(r"++"))
+                if is_cxx && _fx_known_cxx_std(v) {
+                    kairo_out.push_back(f"--cxx-std={v}")
+                } else if !is_cxx && _fx_known_c_std(v) {
+                    kairo_out.push_back(f"--c-std={v}")
+                } else {
+                    clang_only.push_back(f"-std={v}")
+                }
+
+                ++it
+                continue
             }
 
             // -W<x> is one clang option for every warning name; only the
             // bulk switches kairo spells (--Wall ...) are kairo's, the rest
             // name clang warning groups and stay clang's.
-            if (pname == "-W") && (nval > 0) {
-                var w = string(a->getValue(0));
-                if (w == "all") || (w == "extra") || (w == "pedantic") || (w == "error") {
-                    kairo_out->push_back(f"--W{w}");
-                    ++it;
-                    continue;
+            if pname == "-W" && nval > 0 {
+                var w = string(unsafe ((a->getValue(0) as unsafe *const u8) as *const u8))
+                if w == "all" || w == "extra" || w == "pedantic" || w == "error" {
+                    kairo_out.push_back(f"--W{w}")
+                    ++it
+                    continue
                 }
             }
 
-            var hit = false;
-            for row: RevRow in rows {
-                if row.clang != pname { continue; }
-                hit = true;
-                if row.shape == RevShape::Flag {
+            var hit = false
+            for *row in rows {
+                if row->clang != pname {
+                    continue
+                }
+
+                hit = true
+                if row->shape == RevShape::Flag {
                     // A row may stand for more than one kairo word (-gdwarf-4).
-                    var cur = "";
-                    for var k: usize = 0; k < row.kairo.size(); ++k {
-                        if row.kairo[k] == ' ' { kairo_out->push_back(cur); cur = ""; }
-                        else { cur += row.kairo[k]; }
+                    var cur = ""
+                    for var k: usize = 0; k < row->kairo.size(); ++k {
+                        if row->kairo[k] == (' ' as u8) {
+                            kairo_out.push_back(cur)
+                            cur = ""
+                        } else {
+                            cur.push_back(row->kairo[k])
+                        }
                     }
-                    if !cur.empty() { kairo_out->push_back(cur); }
-                } else if row.shape == RevShape::Commas {
+
+                    if !cur.empty() {
+                        kairo_out.push_back(cur)
+                    }
+                } else if row->shape == RevShape::LdPair {
+                    kairo_out.push_back(row->kairo + pname)
+                    if nval > 0 {
+                        kairo_out.push_back(
+                            row->kairo + string(
+                                unsafe ((a->getValue(0) as unsafe *const u8) as *const u8),
+                            ),
+                        )
+                    }
+                } else if row->shape == RevShape::Commas {
                     for var k: u32 = 0; k < nval; ++k {
-                        kairo_out->push_back(row.kairo + string(a->getValue(k)));
+                        kairo_out.push_back(
+                            row->kairo + string(
+                                unsafe ((a->getValue(k) as unsafe *const u8) as *const u8),
+                            ),
+                        )
                     }
                 } else {
-                    var v = "";
-                    if nval > 0 { v = string(a->getValue(0)); }
-                    if row.shape == RevShape::ValueSep {
-                        kairo_out->push_back(row.kairo);
-                        kairo_out->push_back(v);
+                    var v = ""
+                    if nval > 0 {
+                        v = string(unsafe ((a->getValue(0) as unsafe *const u8) as *const u8))
+                    }
+
+                    if row->shape == RevShape::ValueSep {
+                        kairo_out.push_back(row->kairo)
+                        kairo_out.push_back(v)
                     } else {
-                        kairo_out->push_back(row.kairo + v);
+                        kairo_out.push_back(row->kairo + v)
                     }
                 }
-                break;
+
+                break
             }
+
             if !hit {
                 // Rendered back exactly as clang would hand it to itself.
-                var rendered: llvm::opt::ArgStringList;
-                a->render(args, rendered);
+                var rendered: llvm::opt::ArgStringList
+                a->render(args, &rendered)
                 for var k: usize = 0; k < rendered.size(); ++k {
-                    clang_only->push_back(string(rendered[k]));
+                    clang_only.push_back(
+                        string(unsafe ((rendered[k] as unsafe *const u8) as *const u8)),
+                    )
                 }
             }
-            ++it;
+
+            ++it
         }
-        return true;
+
+        return true
     }
 }

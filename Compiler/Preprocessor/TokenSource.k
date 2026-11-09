@@ -1,6 +1,6 @@
-/// --- The Kairo Project ------------------ Preprocessor/TokenSource.k --- ///
+/// --- The Kairo Project ------------------- Preprocessor/TokenSource.k --- ///
 ///
-///   Stacked token cursor for the single-pass PP walk.
+///   TokenSource: the PP walk's stacked cursor; macro splices are frames.
 ///
 ///   Frame 0 is the streaming lexer. Frames above it are macro-expansion
 ///   splices. peek()/next() read the topmost live frame; exhausted splice
@@ -16,38 +16,40 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Token::Token::*;
-import Token::TokenKind::*;
-import Token::TokenBuffer::*;
-import Lexer::Lexer::*;
-import Location::SourceRange::*;
-import Preprocessor::PreprocessorSymbolTable::*; // SymbolID
-import Diagnostic::Engine::*;
-import Diagnostic::Registry::*;
+ffi "c++" import "vector"
+
+import Diagnostic::Engine::DiagEngine
+import Diagnostic::Registry::DiagID
+import Lexer::Lexer::Lexer
+import Location::SourceRange::SourceRange
+import Preprocessor::PreprocessorSymbolTable::SymbolID // SymbolID
+import Token::Token::Token
+import Token::TokenBuffer::TokenBuffer
+import Token::TokenKind::TokenKind
 
 /// \struct InvokeHop
 /// \brief one active splice frame's contribution to a token's macro-origin
 ///        chain: where that level was invoked, and which macro produced it.
 ///        OUTERMOST-first order (see TokenSource::next_with_origin).
-struct InvokeHop {
-    var loc:  SourceRange;
-    var name: SymbolID;
+pub struct InvokeHop {
+    var loc:  SourceRange
+    var name: SymbolID
 }
 
-class TokenSource {
+pub class TokenSource {
     struct SpliceFrame {
-        var tokens:     obs::<TokenBuffer::<512>>; ///< NOT owned here; owner is the
-                                                   ///  PP's per-run splice scratch list
-        var cursor:     usize;
-        var macro_name: SymbolID;    ///< producer; identifies chain membership
-        var invoke_loc: SourceRange;
-        var serial:     u64 = 0;     ///< unique dynamic expansion instance
+        var tokens: unsafe *TokenBuffer<512> ///< NOT owned here; owner is the
+        ///  PP's per-run splice scratch list
+        var cursor:     usize
+        var macro_name: SymbolID        ///< producer; identifies chain membership
+        var invoke_loc: SourceRange
+        var serial:     u64         = 0 ///< unique dynamic expansion instance
 
         /// full origin chain THROUGH this frame (ancestors, outermost first,
         /// then this frame's own hop last), captured once at push_splice time.
@@ -56,21 +58,21 @@ class TokenSource {
         /// _pop_dead()-triggering call (e.g. _expand's own depth() check)
         /// before a token belonging to (deeper) child frames is ever emitted,
         /// so by read time the parent may already be gone from the stack.
-        var chain:      vec::<InvokeHop>;
+        var chain: cxx::std::vector<InvokeHop>
     }
 
-    priv var _lexer:       obs::<Lexer>;
-    priv var _ring:        vec::<Token>;   ///< frame-0 lookahead
-    priv var _frames:      vec::<SpliceFrame>;
-    priv var _next_serial: u64  = 0;
-    priv var _eof_seen:    bool = false;   ///< lexer has emitted its TkEof
-    priv var _ring_eof:    bool = false;   ///< TkEof sitting in the ring / consumed
+    priv var _lexer:       unsafe *Lexer
+    priv var _ring:        cxx::std::vector<Token> ///< frame-0 lookahead
+    priv var _frames:      cxx::std::vector<Self::SpliceFrame>
+    priv var _next_serial: u64                                 = 0
+    priv var _eof_seen:    bool                                = false ///< lexer has emitted its TkEof
+    priv var _ring_eof:    bool                                = false ///< TkEof sitting in the ring / consumed
 
-    priv var _diag:            obs::<DiagEngine> = &null; ///< null = no budget enforced (DAG scan pass)
-    priv var _max_token_count: i32  = 0;    ///< 0 = unlimited; --cmax-token-count
-    priv var _pulled_count:    usize = 0;   ///< frame-0 tokens pulled from the lexer
-    priv var _budget_reported: bool = false;
-    priv var _file_name:       string = "";  ///< named in S065E; the diagnostic has no location of its own
+    priv var _diag:            unsafe *DiagEngine = &null ///< null = no budget enforced (DAG scan pass)
+    priv var _max_token_count: i32                = 0 ///< 0 = unlimited; --cmax-token-count
+    priv var _pulled_count:    usize              = 0 ///< frame-0 tokens pulled from the lexer
+    priv var _budget_reported: bool               = false
+    priv var _file_name:       string             = "" ///< named in S065E; the diagnostic has no location of its own
 
     /// Drop AtComment on the way out of the lexer, so nothing downstream ever
     /// sees one. Comments reach the AST as annotations (ASTParse::_stash_comment
@@ -83,39 +85,39 @@ class TokenSource {
     /// Here and not in the parser on purpose: this is the one funnel every
     /// frame-0 token passes through, so a dropped comment cannot reappear via
     /// peek(), a splice, or a cursor that forgot to skip it.
-    priv var _drop_comments: bool = true;
+    priv var _drop_comments: bool = true
 
     /// Frame 0 read back from tokens the lexer already produced, instead of
     /// from the lexer (set_replay). Null: the lexer.
-    priv var _replay:    obs::<vec::<Token>> = &null;
-    priv var _replay_at: usize = 0;
+    priv var _replay:    unsafe *cxx::std::vector<Token> = &null
+    priv var _replay_at: usize                           = 0
 
-    fn TokenSource(self, lexer: *Lexer) {
-        self._lexer = lexer;
-        self._ring.reserve(4);
+    fn TokenSource(self, lexer: unsafe *Lexer) {
+        self._lexer = lexer
+        self._ring.reserve(4)
     }
 
     /// \param max_token_count 0 = unlimited. \param diag used to report S065E once,
     ///        past the cap; pass &null (the other ctor) to enforce nothing, as the
     ///        DAG scanner's scan-only pass does its budget belongs to the real walk.
-    fn TokenSource(self, lexer: *Lexer, max_token_count: i32, diag: *DiagEngine) {
-        self._lexer           = lexer;
-        self._max_token_count = max_token_count;
-        self._diag            = diag;
-        self._ring.reserve(4);
+    fn TokenSource(self, lexer: unsafe *Lexer, max_token_count: i32, diag: unsafe *DiagEngine) {
+        self._lexer           = lexer
+        self._max_token_count = max_token_count
+        self._diag            = diag
+        self._ring.reserve(4)
     }
 
     /// The file this source lexes, for the S065E message. The budget trips with
     /// the lexer mid-file and no token to point at, so without a name the user
     /// cannot tell WHICH file (often a builtin/std one) blew a per-file limit.
-    fn set_file_name(self, name: string) {
-        self._file_name = name;
+    fn set_file_name(self, const name: string) {
+        self._file_name = name
     }
 
     /// Keep AtComment in the stream (--preserve-comments). Call before the
     /// first pull; the ring is empty then, so no comment has been dropped yet.
     fn set_preserve_comments(self, on: bool) {
-        self._drop_comments = !on;
+        self._drop_comments = !on
     }
 
     /// Read frame 0 from \p toks -- every token the lexer produced for the
@@ -124,12 +126,12 @@ class TokenSource {
     /// first for its macro definitions, then for real. Call before the first
     /// pull. Comments, the token budget and the end are handled as for the
     /// lexer, so the two walks see what one lexer pass would have shown.
-    fn set_replay(self, toks: *vec::<Token>) {
-        self._replay    = toks;
-        self._replay_at = 0;
+    fn set_replay(self, toks: unsafe *cxx::std::vector<Token>) {
+        self._replay    = toks
+        self._replay_at = 0
     }
 
-    // --- frame stack (== expansion chain) --------------------------------
+    /// # frame stack (== expansion chain)
 
     /// \param parent_chain the chain to inherit, captured by the CALLER at
     ///        invocation-DETECTION time (InvocationInfo.parent_chain), not
@@ -138,81 +140,94 @@ class TokenSource {
     ///        exhausted parent frame may already have been popped by one of
     ///        THOSE checks reading self._frames here would silently lose it.
     ///        See TokenSource::current_chain / PPWalker::_detect_invocation.
-    fn push_splice(
-        self,
-        tokens: *(TokenBuffer::<512>),
-        name: SymbolID,
-        loc: SourceRange,
-        parent_chain: *vec::<InvokeHop>
-    ) {
-        self._next_serial += 1;
+    fn push_splice(self,
+                   tokens:             unsafe *(TokenBuffer<512>),
+                   name:               SymbolID,
+                   loc:                SourceRange,
+                   const parent_chain: cxx::std::vector<InvokeHop>) {
+        self._next_serial += 1
 
-        var f = SpliceFrame();
-        f.tokens     = tokens;
-        f.cursor     = 0;
-        f.macro_name = name;
-        f.invoke_loc = loc;
-        f.serial     = self._next_serial;
+        var f = Self::SpliceFrame()
+        f.tokens     = tokens
+        f.cursor     = 0
+        f.macro_name = name
+        f.invoke_loc = loc
+        f.serial     = self._next_serial
 
-        for var i: usize = 0; i < parent_chain->size(); ++i {
-            f.chain.push_back((*parent_chain)[i]);
+        for var i: usize = 0; i < parent_chain.size(); ++i {
+            f.chain.push_back((parent_chain)[i])
         }
+
         // An invalid loc (e.g. _expand_buffer's synthetic argument-pre-expand
         // frame) contributes no hop of its own but still passes the parent
         // chain through transparently.
         if loc.is_valid() {
-            var hop = InvokeHop();
-            hop.loc  = loc;
-            hop.name = name;
-            f.chain.push_back(hop);
+            var hop = InvokeHop()
+            hop.loc  = loc
+            hop.name = name
+            f.chain.push_back(hop)
         }
 
-        self._frames.push_back(f);
+        self._frames.push_back(f)
     }
 
     fn current_expansion_serial(self) -> u64 {
         if self._frames.size() == 0 {
-            return 0;
+            return 0
         }
 
-        return self._frames.back().serial;
+        return self._frames.back().serial
     }
 
     fn depth(self) -> usize {
-        self._pop_dead();
-        return self._frames.size();
+        self._pop_dead()
+        return self._frames.size()
     }
 
     fn in_splice(self) -> bool {
-        self._pop_dead();
-        return self._frames.size() > 0;
+        self._pop_dead()
+        return self._frames.size() > 0
     }
 
     fn in_active_chain(self, name: SymbolID) -> bool {
-        if name == 0 { return false; }
-        for f in self._frames {
-            if (f.macro_name != 0) && (f.macro_name == name) { return true; }
+        if name == 0 {
+            return false
         }
-        return false;
+
+        for *f in self._frames {
+            if f->macro_name != 0 && f->macro_name == name {
+                return true
+            }
+        }
+
+        return false
     }
 
-    fn snapshot_chain(self, out: *vec::<SymbolID>) {
-        for f in self._frames {
-            if f.macro_name != 0 { out->push_back(f.macro_name); }
+    fn snapshot_chain(self, @inout out: cxx::std::vector<SymbolID>) {
+        for *f in self._frames {
+            if f->macro_name != 0 {
+                out.push_back(f->macro_name)
+            }
         }
     }
 
     fn top_invoke_loc(self) -> SourceRange {
-        if self._frames.size() == 0 { return SourceRange::invalid(); }
-        return self._frames.back().invoke_loc;
+        if self._frames.size() == 0 {
+            return SourceRange::invalid()
+        }
+
+        return self._frames.back().invoke_loc
     }
 
     fn bottom_invoke_loc(self) -> SourceRange {
         for var i: usize = 0; i < self._frames.size(); ++i {
-            var f = &self._frames[i];
-            if f->invoke_loc.is_valid() { return f->invoke_loc; }
+            var *f = &self._frames[i]
+            if f->invoke_loc.is_valid() {
+                return f->invoke_loc
+            }
         }
-        return SourceRange::invalid();
+
+        return SourceRange::invalid()
     }
 
     /// \brief the chain a NEW push_splice, called right now, should inherit as
@@ -226,12 +241,15 @@ class TokenSource {
     ///        exhausted-but-not-yet-popped parent frame via its depth()/budget
     ///        checks. Reading `self._frames` directly at push_splice's OWN
     ///        (later) call time would frequently be too late.
-    fn current_chain(self, out: *vec::<InvokeHop>) {
-        out->clear();
-        if self._frames.size() == 0 { return; }
-        var top = &self._frames.back();
+    fn current_chain(self, @inout out: cxx::std::vector<InvokeHop>) {
+        out.clear()
+        if self._frames.size() == 0 {
+            return
+        }
+
+        var *top = &self._frames.back()
         for var i: usize = 0; i < top->chain.size(); ++i {
-            out->push_back(top->chain[i]);
+            out.push_back(top->chain[i])
         }
     }
 
@@ -251,44 +269,51 @@ class TokenSource {
     ///        order PPWalker::_wrap_origin wants for building the expansion
     ///        chain attach_macro_expansion_chain (ASTParse.k) later walks
     ///        outward, ending on the true call site.
-    fn next_with_origin(self, out_chain: *vec::<InvokeHop>) -> Token {
-        out_chain->clear();
-        self._pop_dead();
+    fn next_with_origin(self, @inout out_chain: cxx::std::vector<InvokeHop>) -> Token {
+        out_chain.clear()
+        self._pop_dead()
 
         if self._frames.size() > 0 {
-            var top = &self._frames.back();
+            var *top = &self._frames.back()
             for var i: usize = 0; i < top->chain.size(); ++i {
-                out_chain->push_back(top->chain[i]);
+                out_chain.push_back(top->chain[i])
             }
         }
 
-        return self.next();
+        return self.next()
     }
 
-    // --- internal: keep the topmost frame live ---------------------------
+    /// # internal: keep the topmost frame live
 
     priv fn _pop_dead(self) {
         while self._frames.size() > 0 {
-            var top = &self._frames.back();
-            if top->cursor < top->tokens->size() { return; }
-            self._frames.pop_back();
+            var *top = &self._frames.back()
+            if top->cursor < top->tokens->size() {
+                return
+            }
+
+            self._frames.pop_back()
         }
     }
 
     /// pull one lexer token into the ring; returns false at true exhaustion.
     priv fn _pull_into_ring(self) -> bool {
-        if self._eof_seen { return false; }
+        if self._eof_seen {
+            return false
+        }
 
-        if (self._max_token_count > 0) && (self._pulled_count >= usize(self._max_token_count)) {
-            if (!self._budget_reported) && (self._diag != &null) {
-                self._budget_reported = true;
-                self._diag->report(DiagID::S065E,
-                    f"preprocessor token budget exceeded in '{self._file_name}\x27 (limit {self._max_token_count}); "
-                    "raise it with --cmax-token-count=N"
-                ).emit();
+        if self._max_token_count > 0 && self._pulled_count >= (self._max_token_count as usize) {
+            if !self._budget_reported && self._diag != &null {
+                self._budget_reported = true
+                self._diag->report(
+                    DiagID::S065E,
+                    f"preprocessor token budget exceeded in '{self._file_name}' (limit {self._max_token_count}); "
+                    "raise it with --cmax-token-count=N",
+                ).emit()
             }
-            self._eof_seen = true;
-            return false;
+
+            self._eof_seen = true
+            return false
         }
 
         // A dropped comment is not a pull failure: the caller asked for ONE more
@@ -296,59 +321,68 @@ class TokenSource {
         // lexer runs out). A loop, not recursion -- a file can open with an
         // arbitrarily long comment banner and this must not grow the stack.
         while true {
-            var t = Token();
+            var t = Token()
             // CONTRACT: fn Lexer::next(out: *Token) -> bool
             //   emits exactly one TkEof, returns true for it, false thereafter.
             if self._replay != &null {
                 if self._replay_at >= self._replay->size() {
-                    self._eof_seen = true;
-                    return false;
+                    self._eof_seen = true
+                    return false
                 }
-                t = (*self._replay)[self._replay_at];
-                self._replay_at += 1;
+
+                t = (*self._replay)[self._replay_at]
+                self._replay_at += 1
             } else if !self._lexer->next(&t) {
-                self._eof_seen = true;
-                return false;
+                self._eof_seen = true
+                return false
             }
-            self._pulled_count += 1;
+
+            self._pulled_count += 1
             if t.kind == TokenKind::TkEof {
-                self._eof_seen = true;
+                self._eof_seen = true
             }
-            if self._drop_comments && (t.kind == TokenKind::AtComment) { continue; }
-            self._ring.push_back(t);
-            return true;
+
+            if self._drop_comments && t.kind == TokenKind::AtComment {
+                continue
+            }
+
+            self._ring.push_back(t)
+            return true
         }
-        return false;   // unreachable; the loop only exits by return.
+
+        // unreachable; the loop only exits by return.
     }
 
-    // --- cursor ----------------------------------------------------------
+    /// # cursor
 
     fn peek(self, n: usize = 0) -> Token {
-        self._pop_dead();
+        self._pop_dead()
 
         if self._frames.size() > 0 {
-            var top = &self._frames.back();
-            var idx = top->cursor + n;
+            var *top = &self._frames.back()
+            var idx  = top->cursor + n
             if idx < top->tokens->size() {
-                return *(top->tokens->get(idx));
+                return *top->tokens->get(idx)
             }
+
             // Cross-frame lookahead is refused by design: the import/macro
             // grammar needs at most peek(1) and legal input never splits a
             // construct across a splice boundary. Return a non-match token.
-            var u = Token();
-            u.kind = TokenKind::TkUnknown;
-            return u;
+            var u = Token()
+            u.kind = TokenKind::TkUnknown
+            return u
         }
 
         // frame 0: fill ring to n
         while self._ring.size() <= n {
             if !self._pull_into_ring() {
-                var e = Token();
-                e.kind = TokenKind::TkEof;
-                return e;
+                var e = Token()
+                e.kind = TokenKind::TkEof
+                return e
             }
         }
-        return self._ring[n];
+
+        return self._ring[n]
     }
 
     /// \brief true when `peek(n)` would look past the end of the active
@@ -356,51 +390,66 @@ class TokenSource {
     /// \details a scan that stops only on TkEof never ends inside a frame:
     ///          an unclosed `m!(` in a macro body spun _detect_invocation.
     fn peek_leaves_frame(self, n: usize) -> bool {
-        self._pop_dead();
-        if self._frames.size() == 0 { return false; }
-        var top = &self._frames.back();
-        return (top->cursor + n) >= top->tokens->size();
+        self._pop_dead()
+        if self._frames.size() == 0 {
+            return false
+        }
+
+        var *top = &self._frames.back()
+        return top->cursor + n >= top->tokens->size()
     }
 
     fn next(self) -> Token {
-        self._pop_dead();
+        self._pop_dead()
 
         if self._frames.size() > 0 {
-            var top = &self._frames.back();
-            var t = *(top->tokens->get(top->cursor));
-            top->cursor += 1;
-            return t;
+            var *top = &self._frames.back()
+            var t    = *top->tokens->get(top->cursor)
+            top->cursor += 1
+            return t
         }
 
         if self._ring.size() > 0 {
-            var t = self._ring[0];
-            self._ring.erase(self._ring.begin()); // small ring; fine
-            if t.kind == TokenKind::TkEof { self._ring_eof = true; }
-            return t;
+            var t = self._ring[0]
+            self._ring.erase(self._ring.cbegin()) // small ring; fine
+            if t.kind == TokenKind::TkEof {
+                self._ring_eof = true
+            }
+
+            return t
         }
 
         if !self._pull_into_ring() {
-            var e = Token();
-            e.kind = TokenKind::TkEof;
-            self._ring_eof = true;
-            return e;
+            var e = Token()
+            e.kind         = TokenKind::TkEof
+            self._ring_eof = true
+            return e
         }
-        var t = self._ring[0];
-        self._ring.erase(self._ring.begin());
-        if t.kind == TokenKind::TkEof { self._ring_eof = true; }
-        return t;
+
+        var t = self._ring[0]
+        self._ring.erase(self._ring.cbegin())
+        if t.kind == TokenKind::TkEof {
+            self._ring_eof = true
+        }
+
+        return t
     }
 
     fn at_eof(self) -> bool {
-        self._pop_dead();
-        if self._frames.size() > 0 { return false; }
+        self._pop_dead()
+        if self._frames.size() > 0 {
+            return false
+        }
+
         // exhausted when: lexer done, ring empty (or only a consumed TkEof)
         if self._ring.size() > 0 {
-            if (self._ring.size() == 1) && (self._ring[0].kind == TokenKind::TkEof) {
-                return true;
+            if self._ring.size() == 1 && self._ring[0].kind == TokenKind::TkEof {
+                return true
             }
-            return false;
+
+            return false
         }
-        return self._eof_seen;
+
+        return self._eof_seen
     }
 }

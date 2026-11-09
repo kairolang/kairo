@@ -11,147 +11,192 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "clang/Basic/TokenKinds.h";
+ffi "c++" import "clang/Basic/TokenKinds.h"
 
-import Location::SourceRange::*;
-import Location::SourceManager::*;
-import Token::Token::*;
-import Token::TokenCacheManager::*;
-import Token::TokenText::*;
-import Codegen::Sink::EmitSink::*;
+import Codegen::Sink::EmitSink::EmitSink
+import Location::SourceManager::SourceManager
+import Location::SourceRange::SourceRange
+import Token::Token::Token
+import Token::TokenCacheManager::TokenCacheManager
+import Token::TokenText::TokenText
 
-class TextSink derives EmitSink {
-    pub var out: string = "";
+pub class TextSink derives EmitSink {
+    pub var out: string = ""
 
-    priv var _sm:    obs::<SourceManager>;
-    priv var _tcm:   obs::<TokenCacheManager>;
-    priv var _depth: usize = 0;
-    priv var _at_line_start: bool = true;
-    priv var _glue_next:   bool = false;   ///< suppress the space before the next token
-    priv var _pending_brk: bool = false;   ///< a `}` was written; break unless `;` follows
-    priv var _after_op_kw: bool = false;   ///< the last token was `operator`: glue a punctuator to it
+    priv var _sm:            unsafe *SourceManager
+    priv var _tcm:           unsafe *TokenCacheManager
+    priv var _depth:         usize                     = 0
+    priv var _at_line_start: bool                      = true
+    priv var _glue_next:     bool                      = false ///< suppress the space before the next token
+    priv var _pending_brk:   bool                      = false ///< a `}` was written; break unless `;` follows
+    priv var _after_op_kw:   bool                      = false ///< the last token was `operator`: glue a punctuator to it
 
-    fn TextSink(self, sm: *SourceManager, tcm: *TokenCacheManager) {
-        self._sm  = sm;
-        self._tcm = tcm;
+    pub fn TextSink(self, sm: unsafe *SourceManager, tcm: unsafe *TokenCacheManager) {
+        self._sm  = sm
+        self._tcm = tcm
     }
 
     override fn create(self, t: Token) -> bool {
-        self._word(TokenText::resolve(t, self._tcm).get_text(), false);
-        return true;
+        self._word(*TokenText::resolve(t, self._tcm).get_text(), false)
+        return true
     }
 
-    override fn create_ident(self, at: SourceRange, spelling: string) -> bool {
-        self._word(spelling, false);
+    override fn create_ident(self, at: SourceRange, const spelling: string) -> bool {
+        self._word(spelling, false)
         // spell() lexes `operator` as a word, not through keyword().
-        if spelling == "operator" { self._after_op_kw = true; }
-        return true;
+        if spelling == "operator" {
+            self._after_op_kw = true
+        }
+
+        return true
     }
 
     /// Spacing is a pure function of the punctuator kind, so a header's text
     /// is identical in every TU that emits the same decl: that is what the
     /// ODR diff compares. `}` defers its line break so `};` stays one line.
     override fn punct(self, at: SourceRange, k: clang::tok::TokenKind) -> bool {
-        var p = clang::tok::getPunctuatorSpelling(k);
-        if (p == &null) { self.ice_at(at, "TextSink::punct: kind has no punctuator spelling"); }
-        var s = string(p);
+        var unsafe *p = clang::tok::getPunctuatorSpelling(k)
+        if p == &null {
+            self.ice_at(at, "TextSink::punct: kind has no punctuator spelling")
+        }
 
-        var tight_before = (k == clang::tok::semi) || (k == clang::tok::comma) || (k == clang::tok::r_paren)
-                        || (k == clang::tok::greater) || (k == clang::tok::coloncolon) || (k == clang::tok::l_paren)
-                        || (k == clang::tok::less) || (k == clang::tok::l_square) || (k == clang::tok::r_square)
-                        || (k == clang::tok::star) || (k == clang::tok::amp) || (k == clang::tok::ampamp)
+        var s = string(unsafe ((p as unsafe *const u8) as *const u8))
+
+        var tight_before = k == clang::tok::semi || k == clang::tok::comma || k == clang::tok::r_paren
+                        || k == clang::tok::greater || k == clang::tok::coloncolon || k == clang::tok::l_paren
+                        || k == clang::tok::less || k == clang::tok::l_square || k == clang::tok::r_square
+                        || k == clang::tok::star || k == clang::tok::amp || k == clang::tok::ampamp
                         // `operator+`, not `operator +`: the symbol is part of
                         // the name. `operator double` keeps its space, since
                         // an identifier is not a punctuator.
-                        || self._after_op_kw;
-        var tight_after  = (k == clang::tok::l_paren) || (k == clang::tok::coloncolon) || (k == clang::tok::less)
-                        || (k == clang::tok::l_square) || (k == clang::tok::tilde);
+                        || self._after_op_kw
+        var tight_after = k == clang::tok::l_paren
+            || k == clang::tok::coloncolon
+            || k == clang::tok::less
+            || k == clang::tok::l_square
+            || k == clang::tok::tilde
 
         if k == clang::tok::r_brace {
-            if self._depth > 0 { self._depth -= 1; }
-            self._flush_pending();
-            self._word(s, false);
-            self._pending_brk = true;
-            return true;
+            if self._depth > 0 {
+                self._depth -= 1
+            }
+
+            self._flush_pending()
+            self._word(s, false)
+            self._pending_brk = true
+            return true
         }
-        if k == clang::tok::semi { self._pending_brk = false; }   // `};` stays on the line.
-        self._word(s, tight_before);
-        if tight_after { self._glue_next = true; }
-        if k == clang::tok::semi { self.brk(); }
-        if k == clang::tok::l_brace { self._depth += 1; self.brk(); }
-        return true;
+
+        if k == clang::tok::semi { // `};` stays on the line.
+            self._pending_brk = false
+        }
+
+        self._word(s, tight_before)
+        if tight_after {
+            self._glue_next = true
+        }
+
+        if k == clang::tok::semi {
+            self.brk()
+        }
+
+        if k == clang::tok::l_brace {
+            self._depth += 1
+            self.brk()
+        }
+
+        return true
     }
 
     override fn keyword(self, at: SourceRange, k: clang::tok::TokenKind) -> bool {
-        var kw = clang::tok::getKeywordSpelling(k);
-        if (kw == &null) { self.ice_at(at, "TextSink::keyword: kind is not a keyword"); }
-        self._word(string(kw), false);
-        if k == clang::tok::kw_operator { self._after_op_kw = true; }
-        return true;
+        var unsafe *kw = clang::tok::getKeywordSpelling(k)
+        if kw == &null {
+            self.ice_at(at, "TextSink::keyword: kind is not a keyword")
+        }
+
+        self._word(string(unsafe ((kw as unsafe *const u8) as *const u8)), false)
+        if k == clang::tok::kw_operator {
+            self._after_op_kw = true
+        }
+
+        return true
     }
 
     override fn literal(self, at: SourceRange, k: clang::tok::TokenKind) -> bool {
-        self._word(TokenText::from_range(at, self._sm).get_text(), false);
-        return true;
+        self._word(*TokenText::from_range(at, self._sm).get_text(), false)
+        return true
     }
 
-    override fn create_int(self, at: SourceRange, cxx: ref!(string)) -> bool {
-        self._word(cxx, false);
-        return true;
+    override fn create_int(self, at: SourceRange, @inout cxx_v: string) -> bool {
+        self._word(cxx_v, false)
+        return true
     }
 
-    override fn create_str(self, at: SourceRange, cxx: ref!(string)) -> bool {
-        self._word(cxx, false);
-        return true;
+    override fn create_str(self, at: SourceRange, @inout cxx_v: string) -> bool {
+        self._word(cxx_v, false)
+        return true
     }
 
-    override fn create_char(self, at: SourceRange, cxx: ref!(string)) -> bool {
-        self._word(cxx, false);
-        return true;
+    override fn create_char(self, at: SourceRange, @inout cxx_v: string) -> bool {
+        self._word(cxx_v, false)
+        return true
     }
 
     /// Own line, always. The text is appended with _at_line_start still
     /// true, so without clearing it the trailing brk() is a no-op and the
     /// next directive runs onto this one (`#pragma once#include ...`).
-    override fn directive(self, at: SourceRange, text: string) -> bool {
-        self._flush_pending();
-        if !self._at_line_start { self.brk(); }
-        self.out += text;
-        self._at_line_start = false;
-        self.brk();
-        return true;
+    override fn directive(self, at: SourceRange, const text: string) -> bool {
+        self._flush_pending()
+        if !self._at_line_start {
+            self.brk()
+        }
+
+        self.out += text
+        self._at_line_start = false
+        self.brk()
+        return true
     }
 
-    override fn system_header(self, at: SourceRange, name: string) -> bool {
-        return self.directive(at, "#include <" + name + ">");
+    override fn system_header(self, at: SourceRange, const name: string) -> bool {
+        return self.directive(at, "#include <" + name + ">")
     }
 
     override fn brk(self) {
-        if self._at_line_start { return; }
-        self.out += "\n";
-        self._at_line_start = true;
+        if self._at_line_start {
+            return
+        }
+
+        self.out += "\n"
+        self._at_line_start = true
     }
 
     priv fn _flush_pending(self) {
-        if self._pending_brk { self._pending_brk = false; self.brk(); }
+        if self._pending_brk {
+            self._pending_brk = false
+            self.brk()
+        }
     }
 
     priv fn _word(self, s: string, tight: bool) {
-        self._flush_pending();
+        self._flush_pending()
         if self._at_line_start {
-            for var i: usize = 0; i < self._depth; ++i { self.out += "    "; }
-            self._at_line_start = false;
+            for var i: usize = 0; i < self._depth; ++i {
+                self.out += "    "
+            }
+
+            self._at_line_start = false
         } else if !(tight || self._glue_next) {
-            self.out += " ";
+            self.out += " "
         }
-        self._glue_next = false;
-        self._after_op_kw = false;
-        self.out += s;
+
+        self._glue_next   = false
+        self._after_op_kw = false
+        self.out += s
     }
 }

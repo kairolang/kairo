@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------------------- AST/EnumNiche.k --- ///
+/// --- The Kairo Project ------------------------------ AST/EnumNiche.k --- ///
 ///
 ///   \brief The niche facts both halves of the compiler must agree on: how
 ///          many tag values a word holds, and which plain enums carry a
@@ -26,76 +26,128 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import AST::ASTSupport::*;
-import AST::DeclFacts::*;
-import AST::Context::DeclContext::*;
-import AST::Node::Base::*;
-import AST::Node::Declarations::*;
-import AST::Node::CanonicalNodes::*;
-import AST::Node::Casting::*;
+import AST::Context::DeclContext::DeclContextKind
+import AST::DeclFacts::{
+    adt_pack_variant,
+    decl_is_imported,
+}
+import AST::Node::Base::{
+    Decl,
+    Type,
+}
+import AST::Node::CanonicalNodes::{
+    BuiltinKind,
+    BuiltinType,
+    RecordType,
+    builtin_info,
+    canon_unqual,
+}
+import AST::Node::Casting::{
+    cast,
+    dyn_cast,
+    isa,
+}
+import AST::Node::Declarations::EnumDecl
 
 /// The most patterns any count reports. A count only ever meets a variant
 /// count (u16 at most) or another count, so 2^32 is "unbounded" and keeps
 /// every sum and difference far from wrapping.
-fn niche_count_cap() -> u64 { return u64(1) << u64(32); }
+pub fn niche_count_cap() -> u64 {
+    return (1 as u64) << (32 as u64)
+}
 
 /// How many non-negative values a word of builtin kind \p b holds, capped
 /// (niche_count_cap). A target-width integer (bits 0 in the table) is at
 /// least 32 bits.
-fn niche_word_values(b: BuiltinKind) -> u64 {
-    var bi   = builtin_info(b);
-    var bits = bi->bits;
-    if bi->is_signed() && (bits > 0) { bits = bits - 1; }
-    if (bits == 0) || (bits >= 32) { return niche_count_cap(); }
-    return u64(1) << u64(bits);
+pub fn niche_word_values(b: BuiltinKind) -> u64 {
+    var *bi  = builtin_info(b)
+    var bits = bi->bits
+    if bi->is_signed() && bits > 0 {
+        bits = bits - 1
+    }
+
+    if bits == 0 || bits >= 32 {
+        return niche_count_cap()
+    }
+
+    return (1 as u64) << (bits as u64)
 }
 
 /// The builtin kind \p t canonicalizes to, when it is an integer.
-fn niche_int_kind(t: *Type, out: *BuiltinKind) -> bool {
-    if (t == &null) || (t->canonical == &null) { return false; }
-    var c = canon_unqual(t->canonical);
-    if (c == &null) || (!isa::<BuiltinType>(c)) { return false; }
-    var b = cast::<BuiltinType>(c)->builtin;
-    if !builtin_info(b)->is_integer() { return false; }
-    (*out) = b;
-    return true;
+pub fn niche_int_kind(t: unsafe *Type, out: *BuiltinKind) -> bool {
+    if t == &null || t->canonical == &null {
+        return false
+    }
+
+    var unsafe *c = canon_unqual(t->canonical)
+    if c == &null || !isa<BuiltinType>(c) {
+        return false
+    }
+
+    var b = cast<BuiltinType>(c)->builtin
+    if !builtin_info(b)->is_integer() {
+        return false
+    }
+
+    *out = b
+    return true
 }
 
 /// A plain enum's underlying word: its `derives` type, else u32.
-fn enum_niche_kind(en: *EnumDecl) -> BuiltinKind {
-    var b = BuiltinKind::U32;
-    if (en->underlying != &null) && (!en->underlying->is_poisoned()) {
-        var k = BuiltinKind::U32;
-        if niche_int_kind(en->underlying, &k) { b = k; }
+pub fn enum_niche_kind(en: unsafe *EnumDecl) -> BuiltinKind {
+    var b = BuiltinKind::U32
+    if en->underlying != &null && !en->underlying->is_poisoned() {
+        var k = BuiltinKind::U32
+        if niche_int_kind(en->underlying, &k) {
+            b = k
+        }
     }
-    return b;
+
+    return b
 }
 
 /// Plain enum \p en carries `__kairo_niche<E>` (file header).
-fn enum_has_niche_trait(en: *EnumDecl) -> bool {
-    if (en == &null) || en->is_adt || en->is_open || en->is_poisoned() { return false; }
-    var d = static_cast::<*Decl>(en);
-    if decl_is_imported(d) || (en->variants.size() == 0) { return false; }
-    var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
-    if (dc == &null) || ((dc->dc_kind != DeclContextKind::TranslationUnit) && (dc->dc_kind != DeclContextKind::Module)) { return false; }
-    for var i: usize = 0; i < en->variants.size(); ++i {
-        var v = en->variants[i];
-        if (v == &null) || (!v->value.ok) || v->value.neg || (v->value.mag != u64(i)) { return false; }
+pub fn enum_has_niche_trait(en: unsafe *EnumDecl) -> bool {
+    if en == &null || en->is_adt || en->is_open || en->is_poisoned() {
+        return false
     }
-    return niche_word_values(enum_niche_kind(en)) > u64(en->variants.size());
+
+    var unsafe *d = unsafe (en as unsafe *Decl)
+    if decl_is_imported(d) || en->variants.size() == 0 {
+        return false
+    }
+
+    var unsafe *dc = d->semantic_dc
+    if dc == &null
+        || dc->dc_kind != DeclContextKind::TranslationUnit
+            && dc->dc_kind != DeclContextKind::Module {
+        return false
+    }
+
+    for var i: usize = 0; i < en->variants.size(); ++i {
+        var unsafe *v = en->variants[i]
+        if v == &null || !v->value.ok || v->value.neg || v->value.mag != (i as u64) {
+            return false
+        }
+    }
+
+    return niche_word_values(enum_niche_kind(en)) > (en->variants.size() as u64)
 }
 
 /// The trait's count for plain enum \p en: every value of its word past
 /// its N variants. 0 without the trait.
-fn enum_niche_count(en: *EnumDecl) -> u64 {
-    if !enum_has_niche_trait(en) { return 0; }
-    return niche_word_values(enum_niche_kind(en)) - u64(en->variants.size());
+pub fn enum_niche_count(en: unsafe *EnumDecl) -> u64 {
+    if !enum_has_niche_trait(en) {
+        return 0
+    }
+
+    return niche_word_values(enum_niche_kind(en)) - (en->variants.size() as u64)
 }
 
 /// The tag word ADT \p en is laid out with, from its declaration alone:
@@ -106,44 +158,74 @@ fn enum_niche_count(en: *EnumDecl) -> u64 {
 /// by them. EnumLayoutLowering builds the tag from it (a lang item's knobs
 /// may override), and TypeExport's stand-in reads it before that pass has
 /// run, so the two cannot drift.
-fn adt_declared_tag_kind(en: *EnumDecl) -> BuiltinKind {
-    var u = en->underlying;
-    if (u != &null) && (!u->is_poisoned()) && (u->canonical != &null) {
-        var c = canon_unqual(u->canonical);
-        if (c != &null) && isa::<BuiltinType>(c) && builtin_info(cast::<BuiltinType>(c)->builtin)->is_integer() {
-            return cast::<BuiltinType>(c)->builtin;
+pub fn adt_declared_tag_kind(en: unsafe *EnumDecl) -> BuiltinKind {
+    var unsafe *u = en->underlying
+    if u != &null && !u->is_poisoned() && u->canonical != &null {
+        var unsafe *c = canon_unqual(u->canonical)
+        if c != &null
+            && isa<BuiltinType>(c)
+            && builtin_info(cast<BuiltinType>(c)->builtin)->is_integer() {
+            return cast<BuiltinType>(c)->builtin
         }
     }
-    if en->variants.size() <= 256 { return BuiltinKind::U8; }
-    return BuiltinKind::U16;
+
+    if en->variants.size() <= 256 {
+        return BuiltinKind::U8
+    }
+
+    return BuiltinKind::U16
 }
 
 /// ADT \p en's tag word, read off its layout's tag field.
-fn adt_tag_kind(en: *EnumDecl) -> BuiltinKind {
-    var b = BuiltinKind::U8;
-    if (en == &null) || (en->adt_tag_field == &null) { return b; }
-    var tt = en->adt_tag_field->type_;
-    if (tt == &null) || (tt->canonical == &null) { return b; }
-    var c = canon_unqual(tt->canonical);
-    if (c == &null) || (!isa::<RecordType>(c)) { return b; }
-    var te = dyn_cast::<EnumDecl>(cast::<RecordType>(c)->decl);
-    if (te == &null) || (te->underlying == &null) { return b; }
-    var k = BuiltinKind::U8;
-    if niche_int_kind(te->underlying, &k) { b = k; }
-    return b;
+pub fn adt_tag_kind(en: unsafe *EnumDecl) -> BuiltinKind {
+    var b = BuiltinKind::U8
+    if en == &null || en->adt_tag_field == &null {
+        return b
+    }
+
+    var unsafe *tt = en->adt_tag_field->type_
+    if tt == &null || tt->canonical == &null {
+        return b
+    }
+
+    var unsafe *c = canon_unqual(tt->canonical)
+    if c == &null || !isa<RecordType>(c) {
+        return b
+    }
+
+    var unsafe *te = dyn_cast<EnumDecl>(cast<RecordType>(c)->decl)
+    if te == &null || te->underlying == &null {
+        return b
+    }
+
+    var k = BuiltinKind::U8
+    if niche_int_kind(te->underlying, &k) {
+        b = k
+    }
+
+    return b
 }
 
 /// A tagged ADT's niche: the tag values past its N variants. None when the
 /// tags are explicit values: "past N" may be a live tag then.
-fn adt_tag_niche_count(en: *EnumDecl) -> u64 {
-    if en->adt_explicit_tags { return 0; }
+pub fn adt_tag_niche_count(en: unsafe *EnumDecl) -> u64 {
+    if en->adt_explicit_tags {
+        return 0
+    }
+
     // A pack-expanded variant takes as many tags as its instance has
     // elements, so "past N" is per instance: none is promised.
-    if adt_pack_variant(en) != &null { return 0; }
-    var n = u64(en->variants.size());
-    var w = niche_word_values(adt_tag_kind(en));
-    if w <= n { return 0; }
-    return w - n;
+    if adt_pack_variant(en) != &null {
+        return 0
+    }
+
+    var n = (en->variants.size() as u64)
+    var w = niche_word_values(adt_tag_kind(en))
+    if w <= n {
+        return 0
+    }
+
+    return w - n
 }
 
 /// The tag of a tagged ADT's niche pattern 0: the first value past its
@@ -152,36 +234,45 @@ fn adt_tag_niche_count(en: *EnumDecl) -> u64 {
 /// and test). Only meaningful while adt_tag_niche_count is nonzero, which
 /// rules out explicit (type-id) tags and pack-expanded variants, whose
 /// tags are not `0..N-1`.
-fn adt_first_spare_tag(en: *EnumDecl) -> u64 {
-    return u64(en->variants.size());
+pub fn adt_first_spare_tag(en: unsafe *EnumDecl) -> u64 {
+    return en->variants.size() as u64
 }
 
 /// The variant that carries the payload of a niche-shaped ADT, and the
 /// position among the dataless ones of each other variant (its pattern).
-fn adt_niche_payload_variant(en: *EnumDecl) -> u32 {
+pub fn adt_niche_payload_variant(en: unsafe *EnumDecl) -> u32 {
     for var i: usize = 0; i < en->variants.size(); ++i {
-        var v = en->variants[i];
-        if (v != &null) && (v->payload.size() > 0) { return u32(i); }
+        var unsafe *v = en->variants[i]
+        if v != &null && v->payload.size() > 0 {
+            return i as u32
+        }
     }
-    return 0;
+
+    return 0
 }
 
 /// Variant \p index's pattern: how many dataless variants precede it.
-fn adt_niche_pattern_of(en: *EnumDecl, index: u32) -> u64 {
-    var k: u64 = 0;
-    for var i: usize = 0; (i < en->variants.size()) && (i < usize(index)); ++i {
-        var v = en->variants[i];
-        if (v != &null) && (v->payload.size() == 0) { k += 1; }
+pub fn adt_niche_pattern_of(en: unsafe *EnumDecl, index: u32) -> u64 {
+    var k: u64 = 0
+    for var i: usize = 0; i < en->variants.size() && i < (index as usize); ++i {
+        var unsafe *v = en->variants[i]
+        if v != &null && v->payload.size() == 0 {
+            k += 1
+        }
     }
-    return k;
+
+    return k
 }
 
 /// How many dataless variants \p en has: the patterns it uses.
-fn adt_niche_dataless(en: *EnumDecl) -> u64 {
-    var k: u64 = 0;
+pub fn adt_niche_dataless(en: unsafe *EnumDecl) -> u64 {
+    var k: u64 = 0
     for var i: usize = 0; i < en->variants.size(); ++i {
-        var v = en->variants[i];
-        if (v != &null) && (v->payload.size() == 0) { k += 1; }
+        var unsafe *v = en->variants[i]
+        if v != &null && v->payload.size() == 0 {
+            k += 1
+        }
     }
-    return k;
+
+    return k
 }

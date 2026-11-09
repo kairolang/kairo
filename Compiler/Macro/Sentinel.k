@@ -1,24 +1,26 @@
 /// --- The Kairo Project ----------------------------- Macro/Sentinel.k --- ///
 ///
+///   MacroSentinel: reserved immediate values that mark builtin macros.
+///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-enum MacroSentinel derives u32 {
-    NoParent    = static_cast::<u32>(-1),
-    Todo        = static_cast::<u32>(-2),
-    Unreachable = static_cast::<u32>(-3),
-    Include     = static_cast::<u32>(-4),
-    EmbedStr    = static_cast::<u32>(-5),
-    Embed       = static_cast::<u32>(-6),
-    Poison      = static_cast::<u32>(-7),
-    UnreachableUnchecked = static_cast::<u32>(-8),
+pub enum MacroSentinel derives u32 {
+    NoParent    = ((-1) as i32 as u32),
+    Todo        = ((-2) as i32 as u32),
+    Unreachable = ((-3) as i32 as u32),
+    Include     = ((-4) as i32 as u32),
+    EmbedStr    = ((-5) as i32 as u32),
+    Embed       = ((-6) as i32 as u32),
+    Poison      = ((-7) as i32 as u32),
+    UnreachableUnchecked = ((-8) as i32 as u32),
 
     /// any imm >= Threshold is a sentinel, not an imm table index
-    Threshold   = static_cast::<u32>(-16),
+    Threshold   = ((-16) as i32 as u32),
 }

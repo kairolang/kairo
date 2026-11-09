@@ -5,53 +5,54 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Driver::TUStage::*;
-import Location::SourceRange::*;
+ffi "c++" import "vector"
+
+import Driver::TUStage::TUStage
+import Location::SourceRange::SourceRange
 
 /// Result record for a single translation unit, returned by \c FrontendAction.
 ///
 /// Owned by \c BatchResult after \c execute() completes. All fields are
 /// immutable once \c FrontendAction transitions to \c Done or \c Failed.
-class TUResult {
-    
-    pub var path:         string;  ///< Canonical source path.
-    pub var elapsed_ms:   f64;     ///< Wall time from dispatch to completion.
-    pub var file_id:      u32;     ///< SourceManager ID. \c u32(-1) if load failed.
-    pub var error_count:  u32;     ///< Errors attributed to this TU at halt time.
-    pub var warn_count:   u32;     ///< Warnings attributed to this TU at halt time.
-    pub var stage:        TUStage; ///< Last stage reached before halt or Done.
-    pub var had_fatal:    bool;    ///< True if this TU emitted a fatal diagnostic.
-    pub var objects:      vec::<string>; ///< objects this TU's action emitted, in emission order
+pub class TUResult {
+    pub var path:        string ///< Canonical source path.
+    pub var elapsed_ms:  f64 ///< Wall time from dispatch to completion.
+    pub var file_id:     u32 ///< SourceManager ID. \c u32(-1) if load failed.
+    pub var error_count: u32 ///< Errors attributed to this TU at halt time.
+    pub var warn_count:  u32 ///< Warnings attributed to this TU at halt time.
+    pub var stage:       TUStage ///< Last stage reached before halt or Done.
+    pub var had_fatal:   bool ///< True if this TU emitted a fatal diagnostic.
+    pub var objects:     cxx::std::vector<string> ///< objects this TU's action emitted, in emission order
     /// The first top-level statement of the script this action lowered
     /// into `main` (SemaContext::script_at); invalid when it compiled no
     /// script. The batch reads it to reject two scripts in one link.
-    pub var script_at:    SourceRange = SourceRange::invalid();
+    pub var script_at: SourceRange = SourceRange::invalid()
     /// The file's `@set_global_allocator(A)` (TranslationUnit::
     /// global_alloc_at); invalid when it sets none. The batch reads it to
     /// reject two in one link before kld would.
-    pub var global_alloc_at: SourceRange = SourceRange::invalid();
+    pub var global_alloc_at: SourceRange = SourceRange::invalid()
     /// The file global_alloc_at is in: this action's input, or a module it
     /// imported (one action compiles both).
-    pub var global_alloc_file: string;
+    pub var global_alloc_file: string
     /// A file this action compiled imports `pthread.h` through `ffi "c"`
     /// (or "c++"). MinGW's pthreads are a library of their own
     /// (winpthread), so the batch adds it to a windows-gnu link.
-    pub var ffi_pthread: bool = false;
+    pub var ffi_pthread: bool = false
 
     fn TUResult(self) {
-        self.path        = "";
-        self.stage       = TUStage::Pending;
-        self.file_id     = u32(-1);
-        self.error_count = 0;
-        self.warn_count  = 0;
-        self.had_fatal   = false;
-        self.elapsed_ms  = 0.0;
-        self.ffi_pthread = false;
+        self.path        = ""
+        self.stage       = TUStage::Pending
+        self.file_id     = u32::MAX
+        self.error_count = 0
+        self.warn_count  = 0
+        self.had_fatal   = false
+        self.elapsed_ms  = 0.0
+        self.ffi_pthread = false
     }
 }

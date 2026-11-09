@@ -1,25 +1,31 @@
 /// --- The Kairo Project -------------------------- Token/TokenBuffer.k --- ///
 ///
-///   <short description>
+///   TokenBuffer: a chunked, arena-backed append-only array of Tokens.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Memory::ArenaAllocator::*;
-import Token::TokenKind::*;
-import Token::Token::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "utility"
+ffi "c++" import "cstring"
 
-class <const CHUNK_SIZE: usize> TokenBuffer {
-    struct Chunk; ///< forward declaration
+import Memory::ArenaAllocator::ArenaAllocator
+import Token::Token::Token
+import Token::TokenKind::{
+    TokenKind,
+    token_kind_to_readable_string,
+}
+import std::io
 
-    type TokenPtr  = obs::<Token>;
-    type ChunkBuff = view::<Chunk>;
+pub class <eval CHUNK_SIZE: usize> TokenBuffer {
+    type TokenPtr  = unsafe *Token
+    type ChunkBuff = unsafe *Self::Chunk
 
     /// we allocate tokens in chunks of CHUNK_SIZE tokens then store the base
     /// pointer and the data. this allows us to avoid moving tokens around
@@ -32,9 +38,9 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
     /// this allows a O(1) access time to any token in the buffer.
     /// while still allowing for efficient appending of tokens.
     struct Chunk {
-        var base:     TokenPtr;
-        var capacity: usize;
-        var length:   usize;
+        var base:     TokenPtr
+        var capacity: usize
+        var length:   usize
     }
 
     /// Three counters, and the distinction between them is load-bearing:
@@ -53,69 +59,50 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
     ///   _chunk_capacity  entries the _chunks table itself can hold. Doubles.
     ///
     /// Invariant: _chunk_count <= _chunk_alloced <= _chunk_capacity.
-    var _allocator:      ArenaAllocator = ArenaAllocator(2048 * sizeof (TokenPtr));
-    var _chunks:         ChunkBuff      = &null; // array of chunk descriptors
-    var _chunk_count:    usize          = 0;     // chunks in use
-    var _chunk_alloced:  usize          = 0;     // chunks with a live base
-    var _chunk_capacity: usize          = 0;     // entries the table can hold
-    var _total_length:   usize          = 0;     // number of tokens in all chunks
+    var _allocator:      ArenaAllocator  = ArenaAllocator(2048 * sizeof (Self::TokenPtr))
+    var _chunks:         Self::ChunkBuff = &null // array of chunk descriptors
+    var _chunk_count:    usize           = 0 // chunks in use
+    var _chunk_alloced:  usize           = 0 // chunks with a live base
+    var _chunk_capacity: usize           = 0 // entries the table can hold
+    var _total_length:   usize           = 0 // number of tokens in all chunks
 
     // Move-only. A copy would share _chunks with the source and leave both
     // pointing into one arena. Prefix `delete fn` and `op =` are the
     // spellings Kairo accepts (see OwnedUnit in Tooling/ParseAPI.k). The
     // source of a move is left empty, so its destroy() frees nothing it no
     // longer owns.
-    delete fn TokenBuffer(self, other: ref!(TokenBuffer));
-    delete fn op = (self, other: ref!(TokenBuffer)) -> ref!(TokenBuffer);
 
-    fn TokenBuffer(self, other: mref!(TokenBuffer)) {
-        self._allocator      = std::Memory::move(other._allocator);
-        self._chunks         = other._chunks;
-        self._chunk_count    = other._chunk_count;
-        self._chunk_alloced  = other._chunk_alloced;
-        self._chunk_capacity = other._chunk_capacity;
-        self._total_length   = other._total_length;
+    @move fn TokenBuffer(self, other: Self) {
+        self._allocator      = cxx::std::move(other._allocator)
+        self._chunks         = other._chunks
+        self._chunk_count    = other._chunk_count
+        self._chunk_alloced  = other._chunk_alloced
+        self._chunk_capacity = other._chunk_capacity
+        self._total_length   = other._total_length
 
-        other._chunks         = &null;
-        other._chunk_count    = 0;
-        other._chunk_alloced  = 0;
-        other._chunk_capacity = 0;
-        other._total_length   = 0;
+        other._chunks         = &null
+        other._chunk_count    = 0
+        other._chunk_alloced  = 0
+        other._chunk_capacity = 0
+        other._total_length   = 0
     }
 
-    fn op = (self, other: mref!(TokenBuffer)) -> ref!(TokenBuffer) {
-        // Parenthesised: `&self == &other` binds as `&(self == &other)`.
-        if (&self) == (&other) { return self; }
-        self.destroy();
 
-        self._allocator      = std::Memory::move(other._allocator);
-        self._chunks         = other._chunks;
-        self._chunk_count    = other._chunk_count;
-        self._chunk_alloced  = other._chunk_alloced;
-        self._chunk_capacity = other._chunk_capacity;
-        self._total_length   = other._total_length;
+    fn TokenBuffer(self) = default
 
-        other._chunks         = &null;
-        other._chunk_count    = 0;
-        other._chunk_alloced  = 0;
-        other._chunk_capacity = 0;
-        other._total_length   = 0;
-        return self;
-    }
-
-    default fn TokenBuffer(self);
-
-    fn emit_errors(self) {
+    fn emit_errors(const self) {
         for var i: usize = 0; i < self._total_length; ++i {
-            var token = self.get(i);
+            var unsafe *token = self.get(i)
 
             if token == &null {
-                continue;
+                continue
             }
 
-            if (*token) == TokenKind::TkError {
+            if *token == TokenKind::TkError {
                 // FIXME: this should be handled by the DiagEngine and not here
-                std::print(f"Invalid token found at {token->range} expected a valid '{token_kind_to_readable_string(static_cast::<TokenKind>(token->imm))}' token\n");
+                io::println(
+                    f"Invalid token found at {token->range} expected a valid '{token_kind_to_readable_string((token->imm as TokenKind))}' token\n",
+                )
             }
         }
     }
@@ -133,83 +120,82 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
         // A chunk retired by pop_back still owns its base. Take it back before
         // allocating anything.
         if self._chunk_count < self._chunk_alloced {
-            self._chunks[self._chunk_count].length = 0;
-            ++self._chunk_count;
-            return;
+            self._chunks[self._chunk_count].length = 0
+            ++self._chunk_count
+            return
         }
 
         if self._chunk_alloced == self._chunk_capacity {
-            var new_cap: usize = (8) if (self._chunk_capacity == 0)
-                                  else (self._chunk_capacity * 2);
+            var new_cap: usize = if (self._chunk_capacity == 0) => (8)
+                                 else => self._chunk_capacity * 2
 
-            var new_table = reinterpret_cast::<ChunkBuff>(
-                self._allocator.alloc(
-                    sizeof  (Chunk) * new_cap,
-                    alignof (Chunk)
-                )
-            );
+            var unsafe *new_table = (unsafe (self._allocator.alloc(
+                sizeof  (Self::Chunk) * new_cap,
+                alignof (Self::Chunk)
+                ,
+            ) as Self::ChunkBuff))
 
             if self._chunks != &null {
-                std::Memory::copy(
+                cxx::std::memcpy(
                     new_table,
                     self._chunks,
-                    sizeof (Chunk) * self._chunk_alloced
-                );
+                    sizeof (Self::Chunk) * self._chunk_alloced,
+                )
             }
 
-            self._chunks         = new_table;
-            self._chunk_capacity = new_cap;
+            self._chunks         = new_table
+            self._chunk_capacity = new_cap
         }
 
         // Fill the descriptor in place. The old code allocated a Chunk in the
         // arena, filled it, copied it into the table and abandoned the
         // original - 24 bytes leaked per chunk for nothing.
-        var new_chunk = &(self._chunks[self._chunk_alloced]);
+        var *new_chunk = &self._chunks[self._chunk_alloced]
 
-        new_chunk->capacity = CHUNK_SIZE;
-        new_chunk->length   = 0;
-        new_chunk->base     = reinterpret_cast::<TokenPtr>(
-            self._allocator.alloc(
-                sizeof  (Token) * CHUNK_SIZE,
-                alignof (Token)
-            )
-        );
+        new_chunk->capacity = CHUNK_SIZE
+        new_chunk->length   = 0
+        new_chunk->base = (unsafe (self._allocator.alloc(
+            sizeof  (Token) * CHUNK_SIZE,
+            alignof (Token)
+            ,
+        ) as Self::TokenPtr))
 
-        ++self._chunk_alloced;
-        ++self._chunk_count;
+        ++self._chunk_alloced
+        ++self._chunk_count
     }
 
-    fn append(self, token: Token) { // copying is fine since a token is 16-bytes
+    pub fn append(self, token: Token) { // copying is fine since a token is 16-bytes
         // check if we need to grow the chunk table
-        if (self._chunk_count == 0)
-        || ((self._chunks[self._chunk_count - 1].length)
-            == (self._chunks[self._chunk_count - 1].capacity))
-        {
-            self.grow();
+        if self._chunk_count == 0
+            || self._chunks[self._chunk_count - 1].length == self._chunks[self._chunk_count - 1].capacity {
+            self.grow()
         }
 
-        var chunk = &self._chunks[self._chunk_count - 1];
-    
-        chunk->base[chunk->length] = token;
-        ++chunk->length;
+        var *chunk = &self._chunks[self._chunk_count - 1]
 
-        ++self._total_length;
+        chunk->base[chunk->length] = token
+        ++chunk->length
+
+        ++self._total_length
     }
 
-    fn get(self, index: usize) -> *Token {
+    pub fn get(const self, index: usize) -> unsafe *Token {
         if index >= self._total_length {
-            return &null;
+            return &null
         }
 
-        var chunk_index  = index / CHUNK_SIZE;
-        var offset_index = index % CHUNK_SIZE;
+        var chunk_index  = index / CHUNK_SIZE
+        var offset_index = index % CHUNK_SIZE
 
-        return &(self._chunks[chunk_index].base[offset_index]);
+        return unsafe &self._chunks[chunk_index].base[offset_index]
     }
 
-    fn pop_back(self) {
-        if self._total_length == 0 { return; }
-        var chunk = &self._chunks[self._chunk_count - 1];
+    pub fn pop_back(self) {
+        if self._total_length == 0 {
+            return
+        }
+
+        var *chunk = &self._chunks[self._chunk_count - 1]
         // Last chunk can be empty if pops crossed a boundary; walk back.
         //
         // _chunk_count must move here, not just a local index: get() and
@@ -219,108 +205,110 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
         // trailing empty chunk and desync that mapping. The retired chunk is
         // no longer leaked - _chunk_alloced remembers its base and grow()
         // hands it straight back.
-        while (chunk->length == 0) && (self._chunk_count > 1) {
-            --self._chunk_count;
-            chunk = &self._chunks[self._chunk_count - 1];
+        while chunk->length == 0 && self._chunk_count > 1 {
+            --self._chunk_count
+            chunk = &self._chunks[self._chunk_count - 1]
         }
-        if chunk->length == 0 { return; } // defensive
-        --chunk->length;
-        --self._total_length;
+
+        if chunk->length == 0 { // defensive
+            return
+        }
+
+        --chunk->length
+        --self._total_length
     }
 
     fn destroy(self) {
-        self._chunk_count    = 0;
-        self._chunk_alloced  = 0;
-        self._chunk_capacity = 0;
-        self._total_length   = 0;
-        self._chunks         = &null;
-        self._allocator.destroy();
+        self._chunk_count    = 0
+        self._chunk_alloced  = 0
+        self._chunk_capacity = 0
+        self._total_length   = 0
+        self._chunks         = &null
+        self._allocator.destroy()
     }
 
     fn shutdown(self) {
-        self._chunk_count    = 0;
-        self._chunk_alloced  = 0;
-        self._chunk_capacity = 0;
-        self._total_length   = 0;
-        self._chunks         = &null;
-        self._allocator.shutdown();
+        self._chunk_count    = 0
+        self._chunk_alloced  = 0
+        self._chunk_capacity = 0
+        self._total_length   = 0
+        self._chunks         = &null
+        self._allocator.shutdown()
     }
 
-    fn size(self) -> usize {
-        return self._total_length;
+    pub fn size(const self) -> usize {
+        return self._total_length
     }
 
-    fn chunk_count(self) -> usize {
-        return self._chunk_count;
+    fn chunk_count(const self) -> usize {
+        return self._chunk_count
     }
 
-    fn chunk_size(self) -> usize {
-        return CHUNK_SIZE;
+    fn chunk_size(const self) -> usize {
+        return CHUNK_SIZE
     }
 
     fn allocator(self) -> *ArenaAllocator {
-        return &self._allocator;
+        return &self._allocator
     }
 
-    fn chunks(self) -> ChunkBuff {
-        return self._chunks;
+    fn chunks(const self) -> Self::ChunkBuff {
+        return self._chunks
     }
 
     fn clear(self) {
-        self._chunk_count    = 0;
-        self._chunk_alloced  = 0;
-        self._chunk_capacity = 0;
-        self._total_length   = 0;
-        self._chunks         = &null;
-        self._allocator.reset();
+        self._chunk_count    = 0
+        self._chunk_alloced  = 0
+        self._chunk_capacity = 0
+        self._total_length   = 0
+        self._chunks         = &null
+        self._allocator.reset()
     }
 
-    fn swap(self, other: *TokenBuffer::<CHUNK_SIZE>) {
-        var tmp_alloc   = std::Memory::move(self._allocator);
-        var tmp_chunks  = self._chunks;
-        var tmp_cc      = self._chunk_count;
-        var tmp_ca      = self._chunk_alloced;
-        var tmp_cap     = self._chunk_capacity;
-        var tmp_len     = self._total_length;
+    fn swap(self, other: *TokenBuffer<CHUNK_SIZE>) {
+        var        tmp_alloc   = cxx::std::move(self._allocator)
+        var unsafe *tmp_chunks = self._chunks
+        var        tmp_cc      = self._chunk_count
+        var        tmp_ca      = self._chunk_alloced
+        var        tmp_cap     = self._chunk_capacity
+        var        tmp_len     = self._total_length
 
-        self._allocator      = std::Memory::move(other->_allocator);
-        self._chunks         = other->_chunks;
-        self._chunk_count    = other->_chunk_count;
-        self._chunk_alloced  = other->_chunk_alloced;
-        self._chunk_capacity = other->_chunk_capacity;
-        self._total_length   = other->_total_length;
+        self._allocator      = cxx::std::move(other->_allocator)
+        self._chunks         = other->_chunks
+        self._chunk_count    = other->_chunk_count
+        self._chunk_alloced  = other->_chunk_alloced
+        self._chunk_capacity = other->_chunk_capacity
+        self._total_length   = other->_total_length
 
-        other->_allocator      = std::Memory::move(tmp_alloc);
-        other->_chunks         = tmp_chunks;
-        other->_chunk_count    = tmp_cc;
-        other->_chunk_alloced  = tmp_ca;
-        other->_chunk_capacity = tmp_cap;
-        other->_total_length   = tmp_len;
+        other->_allocator      = cxx::std::move(tmp_alloc)
+        other->_chunks         = tmp_chunks
+        other->_chunk_count    = tmp_cc
+        other->_chunk_alloced  = tmp_ca
+        other->_chunk_capacity = tmp_cap
+        other->_total_length   = tmp_len
     }
 
-    fn op delete (self) {
-        self.destroy();
+    fn op finally (self) {
+        self.destroy()
     }
 
-    fn op [] (self, index: usize) -> *Token {
+    fn op [] (const self, index: usize) -> *Token {
         if index >= self._total_length {
-            std::crash(std::Error::RuntimeError(
-                "TokenBuffer::operator[] - index out of bounds"
-            ));
+            kairo::std::ice_fail("TokenBuffer::operator[] - index out of bounds")
         }
 
-        var chunk_index  = index / CHUNK_SIZE;
-        var offset_index = index % CHUNK_SIZE;
+        var chunk_index  = index / CHUNK_SIZE
+        var offset_index = index % CHUNK_SIZE
 
-        return &(self._chunks[chunk_index].base[offset_index]);
+        return &self._chunks[chunk_index].base[offset_index]
     }
 
     fn op in (self) -> yield Token {
         for var c: usize = 0; c < self._chunk_count; ++c {
-            var chunk = &self._chunks[c];
+            var *chunk = &self._chunks[c]
 
             for var i: usize = 0; i < chunk->length; ++i {
-                yield chunk->base[i];
+                yield chunk->base[i]
             }
         }
     }

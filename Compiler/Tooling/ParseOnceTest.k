@@ -1,6 +1,6 @@
-/// --- The Kairo Project ------------------- Tooling/ParseOnceTest.k --- ///
+/// --- The Kairo Project ---------------------- Tooling/ParseOnceTest.k --- ///
 ///
-///   \brief Scratch driver proving the argv-free tooling path.
+///   The kparse driver: parses one file through the argv-free tooling path.
 ///
 ///   \par What it proves
 ///     Nothing in this file constructs an argv array, a `char*`, or a flag
@@ -24,90 +24,99 @@
 ///       KPARSE_VIA_ARGV=1 kparse file.k -I Compiler   # argv path
 ///
 ///   \par Build target
-///     Registered in build.k as 'kparse'. It is a verification driver, not a
-///     shipped tool   nothing imports it, same shape as
-///     Interop/Clang/ClangLocMapTest.k.
+///     Registered in build.py as 'kparse'. It is a verification driver, not a
+///     shipped tool: nothing imports it.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Config::Invocation::*;
-import Driver::TUStage::*;
-import Tooling::ParseAPI::*;
-import Tooling::ToolDiagnostics::*;
-import AST::Printer::ASTPrinter::*;
-import AST::Printer::PrintCore::*;
-import AST::Context::TranslationUnit::*;
-import Support::FileIO::Path::*;
+ffi "c++" import "llvm/Support/TargetSelect.h"
+ffi "c++" import "cstdlib"
+ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "cstring"
 
-ffi "c++" import "llvm/Support/TargetSelect.h";
-ffi "c++" import "cstdlib";
+import AST::Printer::PrintCore::PrintOptions
+import AST::Printer::Printers::ASTPrinter
+import Config::Invocation::CompilerInvocation
+import Driver::TUStage::TUStage
+import Support::FileIO::Path::Path
+import Tooling::ParseAPI::{
+    OwnedUnit,
+    parse_once,
+}
+import std::c_char
+import std::io
 
-fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
-    llvm::InitializeAllTargetInfos();
-    llvm::InitializeAllTargets();
-    llvm::InitializeAllTargetMCs();
-    llvm::InitializeAllAsmParsers();
-    llvm::InitializeAllAsmPrinters();
+pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
+    llvm::InitializeAllTargetInfos()
+    llvm::InitializeAllTargets()
+    llvm::InitializeAllTargetMCs()
+    llvm::InitializeAllAsmParsers()
+    llvm::InitializeAllAsmPrinters()
 
-    Logger::init(Logger::Level::Warn);
+    kairo::Logger::init(kairo::Logger::Level::Warn)
 
     if argc < 2 {
-        std::print("Usage: kparse <file.k> [include-dir ...]");
-        return 1;
+        io::println("Usage: kparse <file.k> [include-dir ...]")
+        return 1
     }
 
     // argv is read HERE, by this program, into ordinary strings. It is never
-    // handed to the compiler   compare kwatch, which passes argc/argv straight
-    // through to CompilerInstance and lets it parse.
-    var target = string(argv[1], libcxx::strlen(argv[1]));
+    // handed to the compiler, which would parse it as its own command line.
+    var target = string(
+        unsafe ((argv[1] as unsafe *const u8) as *const u8),
+        cxx::std::strlen(argv[1]),
+    )
 
-    var inv = CompilerInvocation();
+    var inv = CompilerInvocation()
     for var i: i32 = 2; i < argc; ++i {
         inv.include_dirs.push_back(
-            string(argv[i], libcxx::strlen(argv[i])));
+            string(unsafe ((argv[i] as unsafe *const u8) as *const u8), cxx::std::strlen(argv[i])),
+        )
     }
 
     // Typed option, not a flag string. This is the whole point of the split.
-    inv.frontend.thread_count = 0;
+    inv.frontend.thread_count = 0
 
     // $KPARSE_VIA_ARGV exercises the delegating overload instead: it hands our
     // own argv straight to CompilerInvocation::from_args. Same result, and it
     // proves the two entry points agree.
-    var via_argv: bool = libcxx::getenv(r"KPARSE_VIA_ARGV") != &null;
+    var via_argv: bool = cxx::std::getenv(r"KPARSE_VIA_ARGV") != &null
 
-    var owned = OwnedUnit();
+    var owned = OwnedUnit()
     if via_argv {
-        owned = parse_once(Path(target), argc, argv, TUStage::Parsing);
+        owned = parse_once(Path(target), argc, argv, TUStage::Parsing)
     } else {
-        owned = parse_once(Path(target), &inv, TUStage::Parsing);
+        owned = parse_once(Path(target), &inv, TUStage::Parsing)
     }
 
-    std::print(f"== kparse {target}");
-    var stage_n = static_cast::<i32>(owned.unit.stage);
-    std::print(f"== fids={owned.unit.fids.size()} stage={stage_n} errors={owned.unit.errors} warnings={owned.unit.warnings} ok={owned.ok()} clean={owned.clean()}");
+    io::println(f"== kparse {target}")
+    var stage_n = ((owned.unit.stage as u8) as i32)
+    io::println(
+        f"== fids={owned.unit.fids.size()} stage={stage_n} errors={owned.unit.errors} warnings={owned.unit.warnings} ok={owned.ok()} clean={owned.clean()}",
+    )
 
     for var i: usize = 0; i < owned.unit.diags.size(); ++i {
-        std::print(f"   {owned.unit.diags[i].format()}");
+        io::println(f"   {owned.unit.diags[i].format()}")
     }
 
     if !owned.ok() {
-        std::print("== no translation unit");
-        return 1;
+        io::println("== no translation unit")
+        return 1
     }
 
-    var opts = PrintOptions::dump();
-    opts.color = false;
-    ASTPrinter::print(owned.unit.tu, opts);
+    var opts = PrintOptions::dump()
+    opts.color = false
+    ASTPrinter::print(owned.unit.tu, opts)
 
     // owned's destructor runs here: release_all(Lexing), clear_retained(),
     // destroy(ci). Everything reached through owned.unit dangles past this
     // point, which is exactly the contract OwnedUnit documents.
-    return 0;
+    return 0
 }

@@ -1,292 +1,459 @@
 /// --- The Kairo Project -------------------------- Command/FlagUtils.k --- ///
 ///
-///   <short description>
+///   Flag kinds, values and definitions (FlagKind, FlagValue, FlagDef).
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-enum FlagKind derives u8 {
-    Bool,        ///< presence flag; no value             -v / --verbose
-    String,      ///< arbitrary string value              --output=path
-    I32,         ///< signed integer, optional bounds     -O2  --jobs=8
-    F64,         ///< floating-point, optional bounds     --threshold=0.75
-    Path,        ///< single file path                    --prelude=path
-    PathList,    ///< positional files (vec); no flag prefix
-    StringList,  ///< repeatable string; each occurrence appends   -I dir
-    Feature,     ///< toggle pair: -f{name} / -fno-{name}  -> i32 -1/0/1
+ffi "c++" import "vector"
+
+pub enum FlagKind derives u8 {
+    Bool,       ///< presence flag; no value             -v / --verbose
+    String,     ///< arbitrary string value              --output=path
+    I32,        ///< signed integer, optional bounds     -O2  --jobs=8
+    F64,        ///< floating-point, optional bounds     --threshold=0.75
+    Path,       ///< single file path                    --prelude=path
+    PathList,   ///< positional files (vec); no flag prefix
+    StringList, ///< repeatable string; each occurrence appends   -I dir
+    Feature,    ///< toggle pair: -f{name} / -fno-{name}  -> i32 -1/0/1
 }
 
-class FlagValue {
-    pub var kind:        FlagKind = FlagKind::Bool;
-    pub var is_set:      bool     = false; ///< true when supplied on CLI
-    pub var is_required: bool     = false; ///< true when no default (must appear)
+pub class FlagValue {
+    pub var kind:        FlagKind = FlagKind::Bool
+    pub var is_set:      bool     = false          ///< true when supplied on CLI
+    pub var is_required: bool     = false          ///< true when no default (must appear)
 
-    priv var _b:  bool   = false;
-    priv var _s:  string = "";
-    priv var _i:  i32    = 0;
-    priv var _f:  f64    = 0.0;
-    priv var _sv: vec::<string>;
+    priv var _b:  bool                     = false
+    priv var _s:  string                   = ""
+    priv var _i:  i32                      = 0
+    priv var _f:  f64                      = 0.0
+    priv var _sv: cxx::std::vector<string>
 
 
     static fn required(k: FlagKind) -> FlagValue {
-        var v = FlagValue(); v.kind = k; v.is_required = true; return v;
+        var v = FlagValue()
+        v.kind        = k
+        v.is_required = true
+        return v
     }
 
     static fn from_bool(b: bool) -> FlagValue {
-        var v = FlagValue(); v.kind = FlagKind::Bool; v._b = b; return v;
+        var v = FlagValue()
+        v.kind = FlagKind::Bool
+        v._b   = b
+        return v
     }
 
-    static fn from_string(s: string) -> FlagValue {
-        var v = FlagValue(); v.kind = FlagKind::String; v._s = s; return v;
+    static fn from_string(const s: string) -> FlagValue {
+        var v = FlagValue()
+        v.kind = FlagKind::String
+        v._s   = s
+        return v
     }
 
     static fn from_i32(i: i32) -> FlagValue {
-        var v = FlagValue(); v.kind = FlagKind::I32; v._i = i; return v;
+        var v = FlagValue()
+        v.kind = FlagKind::I32
+        v._i   = i
+        return v
     }
 
     static fn from_f64(f: f64) -> FlagValue {
-        var v = FlagValue(); v.kind = FlagKind::F64; v._f = f; return v;
+        var v = FlagValue()
+        v.kind = FlagKind::F64
+        v._f   = f
+        return v
     }
 
-    static fn from_file(s: string) -> FlagValue {
-        var v = FlagValue(); v.kind = FlagKind::Path; v._s = s; return v;
+    static fn from_file(const s: string) -> FlagValue {
+        var v = FlagValue()
+        v.kind = FlagKind::Path
+        v._s   = s
+        return v
     }
 
     static fn empty_list(k: FlagKind) -> FlagValue {
-        var v = FlagValue(); v.kind = k; return v;
+        var v = FlagValue()
+        v.kind = k
+        return v
     }
 
     /// feature default: -1 = unset, set to 0 or 1 by the parser
     static fn unset_feature() -> FlagValue {
-        var v = FlagValue(); v.kind = FlagKind::Feature; v._i = -1; return v;
+        var v = FlagValue()
+        v.kind = FlagKind::Feature
+        v._i   = -1
+        return v
     }
 
     /// -1 = unset, 0 = disabled (-fno-...), 1 = enabled (-f...)
-    fn as_feature(self) -> i32 { return self._i; }
+    fn as_feature(self) -> i32 {
+        return self._i
+    }
 
 
-    fn as_bool(self)   -> bool                { return self._b;  }
-    fn as_string(self) -> string              { return self._s;  }
-    fn as_i32(self)    -> i32                 { return self._i;  }
-    fn as_f64(self)    -> f64                 { return self._f;  }
-    fn as_list(self)   -> ref!(vec::<string>) { return self._sv; }
+    fn as_bool(self) -> bool {
+        return self._b
+    }
+
+    fn as_string(self) -> string {
+        return self._s
+    }
+
+    fn as_i32(self) -> i32 {
+        return self._i
+    }
+
+    fn as_f64(self) -> f64 {
+        return self._f
+    }
+
+    fn as_list(self) -> unsafe *cxx::std::vector<string> {
+        return unsafe &self._sv
+    }
 
 
-    fn set_bool(self, b: bool)     { self._b = b; self.is_set = true; }
-    fn set_string(self, s: string) { self._s = s; self.is_set = true; }
-    fn set_i32(self, i: i32)       { self._i = i; self.is_set = true; }
-    fn set_f64(self, f: f64)       { self._f = f; self.is_set = true; }
-    fn push(self, s: string)       { self._sv.push_back(s); self.is_set = true; }
+    fn set_bool(self, b: bool) {
+        self._b     = b
+        self.is_set = true
+    }
+
+    fn set_string(self, const s: string) {
+        self._s     = s
+        self.is_set = true
+    }
+
+    fn set_i32(self, i: i32) {
+        self._i     = i
+        self.is_set = true
+    }
+
+    fn set_f64(self, f: f64) {
+        self._f     = f
+        self.is_set = true
+    }
+
+    fn push(self, const s: string) {
+        self._sv.push_back(s)
+        self.is_set = true
+    }
 }
 
-class FlagDef {
-    pub var key:        string;
-    pub var short_:     string;   ///< single-char form e.g. "o"  (empty = none)
-    pub var long_:      string;   ///< long form e.g. "output"    (empty = none)
-    pub var kind:       FlagKind;
-    pub var help:       string;
-    pub var default_:   FlagValue;
-    pub var has_bounds: bool = false;
-    pub var min_i:      i32  = 0;
-    pub var max_i:      i32  = 0;
-    pub var min_f:      f64  = 0.0;
-    pub var max_f:      f64  = 0.0;
+pub class FlagDef {
+    pub var key:        string
+    pub var short_:     string            ///< single-char form e.g. "o"  (empty = none)
+    pub var long_:      string            ///< long form e.g. "output"    (empty = none)
+    pub var kind:       FlagKind
+    pub var help:       string
+    pub var default_:   FlagValue
+    pub var has_bounds: bool      = false
+    pub var min_i:      i32       = 0
+    pub var max_i:      i32       = 0
+    pub var min_f:      f64       = 0.0
+    pub var max_f:      f64       = 0.0
     /// String only: the accepted values; empty accepts anything. A value
     /// outside the set is an error naming the set, not a silent default.
-    pub var choices:    vec::<string>;
+    pub var choices: cxx::std::vector<string>
     /// Single-dash only: the value a bare `-X` means (clang's `-O` is `-O1`).
     /// Without it a bare valued flag takes the NEXT argument as its value,
     /// which for `-O main.k` would swallow the input file.
-    pub var has_bare:   bool   = false;
-    pub var bare_:      string = "";
+    pub var has_bare: bool   = false
+    pub var bare_:    string = ""
     /// Parsed and stored but no subsystem reads it yet (see
     /// Command::mark_unimplemented): setting it warns U005W and --help tags it.
-    pub var unimplemented: bool = false;
+    pub var unimplemented: bool = false
+    /// Parsed like any flag but left out of --help (Command::mark_hidden):
+    /// an internal switch for the compiler's own build, not a user option.
+    pub var hidden: bool = false
 
-    static fn bool_(key: string, short_: string, long_: string,
-                    help: string, dfl: bool) -> FlagDef {
-        var d = FlagDef{};
-        d.key = key; d.short_ = short_; d.long_ = long_;
-        d.kind = FlagKind::Bool; d.help = help;
-        d.default_ = FlagValue::from_bool(dfl);
-        return d;
+    static fn bool_(const key:    string,
+                    const short_: string,
+                    const long_:  string,
+                    const help:   string,
+                    dfl:          bool) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = key
+        d.short_   = short_
+        d.long_    = long_
+        d.kind     = FlagKind::Bool
+        d.help     = help
+        d.default_ = FlagValue::from_bool(dfl)
+        return d
     }
 
     /// string, required (no default)
-    static fn str_(key: string, short_: string, long_: string,
-                   help: string) -> FlagDef {
-        var d = FlagDef{};
-        d.key = key; d.short_ = short_; d.long_ = long_;
-        d.kind = FlagKind::String; d.help = help;
-        d.default_ = FlagValue::required(FlagKind::String);
-        return d;
+    static fn str_(const key:    string,
+                   const short_: string,
+                   const long_:  string,
+                   const help:   string) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = key
+        d.short_   = short_
+        d.long_    = long_
+        d.kind     = FlagKind::String
+        d.help     = help
+        d.default_ = FlagValue::required(FlagKind::String)
+        return d
     }
 
     /// string with default
-    static fn str_d(key: string, short_: string, long_: string,
-                    help: string, dfl: string) -> FlagDef {
-        var d = FlagDef{};
-        d.key = key; d.short_ = short_; d.long_ = long_;
-        d.kind = FlagKind::String; d.help = help;
-        d.default_ = FlagValue::from_string(dfl);
-        return d;
+    static fn str_d(const key:    string,
+                    const short_: string,
+                    const long_:  string,
+                    const help:   string,
+                    const dfl:    string) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = key
+        d.short_   = short_
+        d.long_    = long_
+        d.kind     = FlagKind::String
+        d.help     = help
+        d.default_ = FlagValue::from_string(dfl)
+        return d
     }
 
     /// string restricted to \p choices, with a default and a bare value
-    static fn str_c(key: string, short_: string, long_: string, help: string,
-                    dfl: string, choices: vec::<string>, bare: string) -> FlagDef {
-        var d = FlagDef{};
-        d.key = key; d.short_ = short_; d.long_ = long_;
-        d.kind = FlagKind::String; d.help = help;
-        d.default_ = FlagValue::from_string(dfl);
-        d.choices = choices;
-        d.has_bare = true; d.bare_ = bare;
-        return d;
+    static fn str_c(const key:    string,
+                    const short_: string,
+                    const long_:  string,
+                    const help:   string,
+                    const dfl:    string,
+                    choices:      cxx::std::vector<string>,
+                    const bare:   string) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = key
+        d.short_   = short_
+        d.long_    = long_
+        d.kind     = FlagKind::String
+        d.help     = help
+        d.default_ = FlagValue::from_string(dfl)
+        d.choices  = choices
+        d.has_bare = true
+        d.bare_    = bare
+        return d
     }
 
-    static fn i32_(key: string, short_: string, long_: string,
-                   help: string, dfl: i32) -> FlagDef {
-        var d = FlagDef{};
-        d.key = key; d.short_ = short_; d.long_ = long_;
-        d.kind = FlagKind::I32; d.help = help;
-        d.default_ = FlagValue::from_i32(dfl);
-        return d;
+    static fn i32_(const key:    string,
+                   const short_: string,
+                   const long_:  string,
+                   const help:   string,
+                   dfl:          i32) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = key
+        d.short_   = short_
+        d.long_    = long_
+        d.kind     = FlagKind::I32
+        d.help     = help
+        d.default_ = FlagValue::from_i32(dfl)
+        return d
     }
 
-    static fn i32_b(key: string, short_: string, long_: string,
-                    help: string, dfl: i32, min: i32, max: i32) -> FlagDef {
-        var d = FlagDef{};
-        d.key = key; d.short_ = short_; d.long_ = long_;
-        d.kind = FlagKind::I32; d.help = help;
-        d.default_ = FlagValue::from_i32(dfl);
-        d.has_bounds = true; d.min_i = min; d.max_i = max;
-        return d;
+    static fn i32_b(const key:    string,
+                    const short_: string,
+                    const long_:  string,
+                    const help:   string,
+                    dfl:          i32,
+                    min:          i32,
+                    max:          i32) -> FlagDef {
+        var d = FlagDef{}
+        d.key        = key
+        d.short_     = short_
+        d.long_      = long_
+        d.kind       = FlagKind::I32
+        d.help       = help
+        d.default_   = FlagValue::from_i32(dfl)
+        d.has_bounds = true
+        d.min_i      = min
+        d.max_i      = max
+        return d
     }
 
-    static fn f64_(key: string, short_: string, long_: string,
-                   help: string, dfl: f64) -> FlagDef {
-        var d = FlagDef{};
-        d.key = key; d.short_ = short_; d.long_ = long_;
-        d.kind = FlagKind::F64; d.help = help;
-        d.default_ = FlagValue::from_f64(dfl);
-        return d;
+    static fn f64_(const key:    string,
+                   const short_: string,
+                   const long_:  string,
+                   const help:   string,
+                   dfl:          f64) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = key
+        d.short_   = short_
+        d.long_    = long_
+        d.kind     = FlagKind::F64
+        d.help     = help
+        d.default_ = FlagValue::from_f64(dfl)
+        return d
     }
 
-    static fn f64_b(key: string, short_: string, long_: string,
-                    help: string, dfl: f64, min: f64, max: f64) -> FlagDef {
-        var d = FlagDef{};
-        d.key = key; d.short_ = short_; d.long_ = long_;
-        d.kind = FlagKind::F64; d.help = help;
-        d.default_ = FlagValue::from_f64(dfl);
-        d.has_bounds = true; d.min_f = min; d.max_f = max;
-        return d;
+    static fn f64_b(const key:    string,
+                    const short_: string,
+                    const long_:  string,
+                    const help:   string,
+                    dfl:          f64,
+                    min:          f64,
+                    max:          f64) -> FlagDef {
+        var d = FlagDef{}
+        d.key        = key
+        d.short_     = short_
+        d.long_      = long_
+        d.kind       = FlagKind::F64
+        d.help       = help
+        d.default_   = FlagValue::from_f64(dfl)
+        d.has_bounds = true
+        d.min_f      = min
+        d.max_f      = max
+        return d
     }
 
     /// single required file path (flag-style, e.g. --prelude=path)
-    static fn file_(key: string, short_: string, long_: string,
-                    help: string) -> FlagDef {
-        var d = FlagDef{};
-        d.key = key; d.short_ = short_; d.long_ = long_;
-        d.kind = FlagKind::Path; d.help = help;
-        d.default_ = FlagValue::required(FlagKind::Path);
-        return d;
+    static fn file_(const key:    string,
+                    const short_: string,
+                    const long_:  string,
+                    const help:   string) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = key
+        d.short_   = short_
+        d.long_    = long_
+        d.kind     = FlagKind::Path
+        d.help     = help
+        d.default_ = FlagValue::required(FlagKind::Path)
+        return d
     }
 
     /// repeatable string list, default = empty
-    static fn list_(key: string, short_: string, long_: string,
-                    help: string) -> FlagDef {
-        var d = FlagDef{};
-        d.key = key; d.short_ = short_; d.long_ = long_;
-        d.kind = FlagKind::StringList; d.help = help;
-        d.default_ = FlagValue::empty_list(FlagKind::StringList);
-        return d;
+    static fn list_(const key:    string,
+                    const short_: string,
+                    const long_:  string,
+                    const help:   string) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = key
+        d.short_   = short_
+        d.long_    = long_
+        d.kind     = FlagKind::StringList
+        d.help     = help
+        d.default_ = FlagValue::empty_list(FlagKind::StringList)
+        return d
     }
 
     /// repeatable string list whose every item is one of \p choices; a
     /// comma-separated value is several items
-    static fn list_c(key: string, short_: string, long_: string,
-                     help: string, choices: vec::<string>) -> FlagDef {
-        var d = FlagDef::list_(key, short_, long_, help);
-        d.choices = choices;
-        return d;
+    static fn list_c(const key:    string,
+                     const short_: string,
+                     const long_:  string,
+                     const help:   string,
+                     choices:      cxx::std::vector<string>) -> FlagDef {
+        var d = FlagDef::list_(key, short_, long_, help)
+        d.choices = choices
+        return d
     }
 
     /// positional file arguments (required - at least one)
-    static fn files_(key: string, help: string) -> FlagDef {
-        var d = FlagDef{};
-        d.key = key; d.kind = FlagKind::PathList; d.help = help;
-        d.default_ = FlagValue::required(FlagKind::PathList);
-        return d;
+    static fn files_(const key: string, const help: string) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = key
+        d.kind     = FlagKind::PathList
+        d.help     = help
+        d.default_ = FlagValue::required(FlagKind::PathList)
+        return d
     }
 
 
     /// \brief defines a language feature toggle parsed from -f{key} / -fno-{key}
     ///        query via ParsedArgs::get_feature(key) -> -1 (unset), 0 (off), 1 (on)
-    static fn feature_(key: string, help: string) -> FlagDef {
-        var d = FlagDef{};
-        d.key      = key;
-        d.short_   = "";
-        d.long_    = ""; // matched by _find_feature, not _find
-        d.kind     = FlagKind::Feature;
-        d.help     = help;
-        d.default_ = FlagValue::unset_feature();
-        return d;
+    static fn feature_(const key: string, const help: string) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = key
+        d.short_   = ""
+        d.long_    = ""                         // matched by _find_feature, not _find
+        d.kind     = FlagKind::Feature
+        d.help     = help
+        d.default_ = FlagValue::unset_feature()
+        return d
     }
 
     //   keys are stored internally as "c:{key}" to avoid collisions with
     //   regular flags.  query via ParsedArgs::get_cfg_*(key).
 
-    static fn cfg_bool_(key: string, help: string, dfl: bool) -> FlagDef {
-        var d = FlagDef{};
-        d.key = f"c:{key}"; d.kind = FlagKind::Bool; d.help = help;
-        d.default_ = FlagValue::from_bool(dfl);
-        return d;
+    static fn cfg_bool_(const key: string, const help: string, dfl: bool) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = f"c:{key}"
+        d.kind     = FlagKind::Bool
+        d.help     = help
+        d.default_ = FlagValue::from_bool(dfl)
+        return d
     }
-    static fn cfg_str_(key: string, help: string) -> FlagDef {
-        var d = FlagDef{};
-        d.key = f"c:{key}"; d.kind = FlagKind::String; d.help = help;
-        d.default_ = FlagValue::required(FlagKind::String);
-        return d;
+
+    static fn cfg_str_(const key: string, const help: string) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = f"c:{key}"
+        d.kind     = FlagKind::String
+        d.help     = help
+        d.default_ = FlagValue::required(FlagKind::String)
+        return d
     }
-    static fn cfg_str_d(key: string, help: string, dfl: string) -> FlagDef {
-        var d = FlagDef{};
-        d.key = f"c:{key}"; d.kind = FlagKind::String; d.help = help;
-        d.default_ = FlagValue::from_string(dfl);
-        return d;
+
+    static fn cfg_str_d(const key: string, const help: string, const dfl: string) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = f"c:{key}"
+        d.kind     = FlagKind::String
+        d.help     = help
+        d.default_ = FlagValue::from_string(dfl)
+        return d
     }
-    static fn cfg_i32_(key: string, help: string, dfl: i32) -> FlagDef {
-        var d = FlagDef{};
-        d.key = f"c:{key}"; d.kind = FlagKind::I32; d.help = help;
-        d.default_ = FlagValue::from_i32(dfl);
-        return d;
+
+    static fn cfg_i32_(const key: string, const help: string, dfl: i32) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = f"c:{key}"
+        d.kind     = FlagKind::I32
+        d.help     = help
+        d.default_ = FlagValue::from_i32(dfl)
+        return d
     }
-    static fn cfg_i32_b(key: string, help: string, dfl: i32, min: i32, max: i32) -> FlagDef {
-        var d = FlagDef{};
-        d.key = f"c:{key}"; d.kind = FlagKind::I32; d.help = help;
-        d.default_ = FlagValue::from_i32(dfl);
-        d.has_bounds = true; d.min_i = min; d.max_i = max;
-        return d;
+
+    static fn cfg_i32_b(const key:  string,
+                        const help: string,
+                        dfl:        i32,
+                        min:        i32,
+                        max:        i32) -> FlagDef {
+        var d = FlagDef{}
+        d.key        = f"c:{key}"
+        d.kind       = FlagKind::I32
+        d.help       = help
+        d.default_   = FlagValue::from_i32(dfl)
+        d.has_bounds = true
+        d.min_i      = min
+        d.max_i      = max
+        return d
     }
-    static fn cfg_f64_b(key: string, help: string, dfl: f64, min: f64, max: f64) -> FlagDef {
-        var d = FlagDef{};
-        d.key = f"c:{key}"; d.kind = FlagKind::F64; d.help = help;
-        d.default_ = FlagValue::from_f64(dfl);
-        d.has_bounds = true; d.min_f = min; d.max_f = max;
-        return d;
+
+    static fn cfg_f64_b(const key:  string,
+                        const help: string,
+                        dfl:        f64,
+                        min:        f64,
+                        max:        f64) -> FlagDef {
+        var d = FlagDef{}
+        d.key        = f"c:{key}"
+        d.kind       = FlagKind::F64
+        d.help       = help
+        d.default_   = FlagValue::from_f64(dfl)
+        d.has_bounds = true
+        d.min_f      = min
+        d.max_f      = max
+        return d
     }
 
 
     /// positional file arguments (optional - zero or more)
-    static fn files_opt(key: string, help: string) -> FlagDef {
-        var d = FlagDef{};
-        d.key = key; d.kind = FlagKind::PathList; d.help = help;
-        d.default_ = FlagValue::empty_list(FlagKind::PathList);
-        return d;
+    static fn files_opt(const key: string, const help: string) -> FlagDef {
+        var d = FlagDef{}
+        d.key      = key
+        d.kind     = FlagKind::PathList
+        d.help     = help
+        d.default_ = FlagValue::empty_list(FlagKind::PathList)
+        return d
     }
 }

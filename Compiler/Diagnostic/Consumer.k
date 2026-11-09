@@ -5,13 +5,13 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Diagnostic::Diagnostic::*;
+import Diagnostic::Diagnostic::Diagnostic
 
 /// Abstract sink that receives fully-formed \c Diagnostic objects from
 /// \c DiagEngine.
@@ -22,19 +22,35 @@ import Diagnostic::Diagnostic::*;
 /// per consumer lifetime.
 ///
 /// All methods are no-ops by default subclasses override only what they need.
-class DiagConsumer {
+pub class DiagConsumer {
+    fn DiagConsumer(self) = default
+
+    // Polymorphic base whose destructor owns nothing; moving it is memberwise.
+    @move fn DiagConsumer(self, other: Self) = default
+
+    virtual fn op finally(self) { }
     /// Called once per diagnostic in emission order.
-    virtual fn handle(self, diag: *Diagnostic) { 0; }
+    virtual fn handle(self, diag: unsafe *Diagnostic) {
+        0
+    }
 
     /// Flush buffered diagnostics to stderr.
-    virtual fn finalize_to_stderr(self) { 0; }
+    virtual fn finalize_to_stderr(self) {
+        0
+    }
 
     /// Flush buffered diagnostics to stdout.
-    virtual fn finalize_to_stdout(self) { 0; }
+    virtual fn finalize_to_stdout(self) {
+        0
+    }
 
     /// Flush buffered diagnostics to \p path, overwriting any existing file.
-    virtual fn finalize_to_file(self, path: string) { 0; }
+    virtual fn finalize_to_file(self, const path: string) {
+        0
+    }
 
     /// Flush buffered diagnostics into a returned string.
-    virtual fn finalize_to_string(self) -> string { 0; }
+    virtual fn finalize_to_string(self) -> string {
+        return ""
+    }
 }

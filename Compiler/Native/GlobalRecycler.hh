@@ -151,7 +151,7 @@ class GlobalRecycler {
             // bin is full   fall through and give the pages back to the OS.
         }
 
-#ifdef _MSC_VER
+#if defined(_WIN32)   // ArenaBlock::alloc_block's _aligned_malloc, MinGW too
         _aligned_free(block);
 #else
         libcxx::free(block);
@@ -203,7 +203,7 @@ class GlobalRecycler {
             bin        = nullptr;
             while (node != nullptr) {
                 Node *next = node->next;
-#ifdef _MSC_VER
+#if defined(_WIN32)
                 _aligned_free(reinterpret_cast<std::Byte *>(node));
 #else
                 libcxx::free(reinterpret_cast<std::Byte *>(node));

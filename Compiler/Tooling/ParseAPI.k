@@ -1,6 +1,6 @@
-/// --- The Kairo Project ------------------------- Tooling/ParseAPI.k --- ///
+/// --- The Kairo Project --------------------------- Tooling/ParseAPI.k --- ///
 ///
-///   Run-to-AST entry points   the compiler as a library.
+///   Run-to-AST entry points: the compiler as a library for other tools.
 ///
 ///   The compiler's own path is CompilerInstance::execute()   a batch loop
 ///   over FrontendAction. Tools want something narrower: hand me a file, give
@@ -9,7 +9,7 @@
 ///
 ///   WHY Tooling/ AND NOT Frontend/: FrontendAction and FrontendOptions are
 ///   the compiler's own per-file pipeline   internal machinery. This is the
-///   surface OTHER programs consume (kfmt, kals, kpkg, a future LSP). Clang
+///   surface OTHER programs consume (kfmt, kals, kpkg). Clang
 ///   splits the same way: clang/Frontend/ is the pipeline, clang/Tooling/ is
 ///   the library surface that clang-format and clang-tidy build on.
 ///
@@ -30,26 +30,35 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Driver::CompilerInstance::*;
-import Driver::TUStage::*;
-import AST::Context::ASTContext::*;
-import AST::Context::TranslationUnit::*;
-import AST::Context::GlobalDisambigTable::*;
-import AST::Node::Program::*;
-import Location::SourceManager::*;
-import Support::FileIO::Path::*;
-import Resolution::ModulePath::*;
-import Config::Frontend::*;
-import Config::Invocation::*;
-import Diagnostic::Engine::*;
-import Diagnostic::Consumer::*;
-import Tooling::ToolDiagnostics::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "vector"
+ffi "c++" import "string"
+
+import AST::Context::ASTContext::ASTContext
+import AST::Context::TranslationUnit::TranslationUnit
+import AST::Node::Program::Program
+import Config::Frontend::FrontendActionKind
+import Config::Invocation::CompilerInvocation
+import Diagnostic::Consumer::DiagConsumer
+import Diagnostic::Engine::DiagEngine
+import Diagnostic::Registry::DiagID
+import Driver::CompilerInstance::CompilerInstance
+import Driver::FrontendAction::FrontendAction
+import Driver::TUStage::TUStage
+import Resolution::ModulePath::ModulePath
+import Support::FileIO::Path::Path
+import Tooling::ToolDiagnostics::{
+    ToolDiag,
+    ToolDiagConsumer,
+}
+import std::c_char
 
 /// \enum ParseFidelity
 /// \brief what the caller needs the AST to be faithful TO.
@@ -65,7 +74,7 @@ import Tooling::ToolDiagnostics::*;
 ///          separates a compiler from a source tool: after the PP, imports
 ///          have MOVED out of program->items into tu->imports, and macro
 ///          invocations are GONE, replaced by their expansion.
-enum ParseFidelity derives u8 {
+pub enum ParseFidelity derives u8 {
     /// Full PP. Imports resolved into tu->imports, macros expanded. The AST
     /// compilation wants. The only mode implemented today.
     Semantic,
@@ -85,12 +94,12 @@ enum ParseFidelity derives u8 {
 }
 
 /// \class ParseOptions
-struct ParseOptions {
-    var fidelity: ParseFidelity = ParseFidelity::Semantic;
+pub struct ParseOptions {
+    var fidelity: ParseFidelity = ParseFidelity::Semantic
 
     /// Last stage to run. Parsing is what tools want; the compiler passes
     /// Codegen. Mapped onto FrontendOptions' stop-at flags.
-    var stop_at:  TUStage = TUStage::Parsing;
+    var stop_at: TUStage = TUStage::Parsing
 
     /// Detach the engine's consumers for the duration of the parse and collect
     /// diagnostics into ParsedUnit::diags instead of printing them.
@@ -99,7 +108,7 @@ struct ParseOptions {
     /// to the engine and never touches the context sink, so sink-level capture
     /// would miss every unresolved-import and macro error. See
     /// Tooling/ToolDiagnostics.k.
-    var capture_diags: bool = true;
+    var capture_diags: bool = true
 }
 
 /// \class ParsedUnit
@@ -117,27 +126,27 @@ struct ParseOptions {
 ///       Valid until the CompilerInstance is destroyed, or until release() is
 ///       called on this fid   whichever comes first. After release() every
 ///       pointer here dangles, including anything reached through ctx or tu.
-class ParsedUnit {
-    pub var fid:      u32 = u32(-1);
-    pub var ctx:      obs::<ASTContext>       = &null;
-    pub var tu:       obs::<TranslationUnit>  = &null;
+pub class ParsedUnit {
+    pub var fid: u32                     = u32::MAX
+    pub var ctx: unsafe *ASTContext      = &null
+    pub var tu:  unsafe *TranslationUnit = &null
 
     /// Transitive fid set the parse touched. In Semantic mode this is the
     /// entry's whole import graph; the entry is fids[0].
-    pub var fids:     vec::<u32>;
+    pub var fids: cxx::std::vector<u32>
 
-    pub var stage:    TUStage = TUStage::Pending;
-    pub var errors:   u32     = 0;
-    pub var warnings: u32     = 0;
+    pub var stage:    TUStage = TUStage::Pending
+    pub var errors:   u32     = 0
+    pub var warnings: u32     = 0
 
     /// Diagnostics raised by THIS parse, parents and notes flattened in
     /// emission order. Populated only when ParseOptions::capture_diags is set;
     /// otherwise they went to the engine's normal consumers and printed.
-    pub var diags:    vec::<ToolDiag>;
+    pub var diags: cxx::std::vector<ToolDiag>
 
     /// True if there is an AST to look at. Does NOT mean it is trustworthy
     /// the parser is error-resilient and produces recovery nodes.
-    pub var ok:       bool    = false;
+    pub var ok: bool = false
 
     /// Fids whose artifacts reparse() dropped because they (transitively)
     /// import the reparsed file. Their ASTs were derived from the bytes that
@@ -147,46 +156,54 @@ class ParsedUnit {
     /// or node pointer for these fids is dangling after reparse() returns; an
     /// LSP holding per-file state must drop and re-request them. Empty when the
     /// reparsed file is a leaf that nothing imports   the common keystroke.
-    pub var invalidated: vec::<u32>;
+    pub var invalidated: cxx::std::vector<u32>
 
     /// Import edges with no live target context. Only ever set by reparse(),
     /// which does not resolve imports   non-zero means the edit added an
     /// import and this unit is only partially resolved. Zero from parse_file(),
     /// which resolves the whole graph.
-    pub var added_imports: usize = 0;
+    pub var added_imports: usize = 0
 
-    default fn ParsedUnit(self);
+    fn ParsedUnit(self) = default
 
     /// True if the parse was clean enough to consume. Tools that REWRITE
     /// source (kfmt) must require this: formatting a recovery-node AST would
     /// silently mangle the file.
-    fn clean(self) -> bool { return self.ok && (self.errors == 0); }
+    fn clean(self) -> bool {
+        return self.ok && self.errors == 0
+    }
 
-    fn program(self) -> *Program {
-        if self.tu == &null { return &null; }
-        return self.tu->program;
+    fn program(self) -> unsafe *Program {
+        if self.tu == &null {
+            return &null
+        }
+
+        return self.tu->program
     }
 
     /// First error, for tools that report one line and stop. Empty if none.
     fn first_error(self) -> string {
         for var i: usize = 0; i < self.diags.size(); ++i {
-            if self.diags[i].is_error() { return self.diags[i].format(); }
+            if self.diags[i].is_error() {
+                return self.diags[i].format()
+            }
         }
-        return "";
+
+        return ""
     }
 
     static fn failure(fid: u32, stage: TUStage) -> ParsedUnit {
-        var u  = ParsedUnit{};
-        u.fid   = fid;
-        u.stage = stage;
-        u.ok    = false;
-        return u;
+        var u = ParsedUnit()
+        u.fid   = fid
+        u.stage = stage
+        u.ok    = false
+        return u
     }
 }
 
 /// Defined at the bottom of this file; OwnedUnit's teardown calls it, and a
 /// class body cannot forward-reference a free function.
-fn release_all(ci: *CompilerInstance, from: TUStage) -> usize;
+pub fn release_all(ci: unsafe *CompilerInstance, from: TUStage) -> usize
 
 /// \class OwnedUnit
 /// \brief a ParsedUnit that owns the CompilerInstance behind it.
@@ -199,61 +216,62 @@ fn release_all(ci: *CompilerInstance, from: TUStage) -> usize;
 /// \warning MOVE ONLY. Copying would double-destroy the instance. Everything
 ///          reached through unit.ctx or unit.tu dangles after this goes out
 ///          of scope.
-class OwnedUnit {
-    pub var unit: ParsedUnit;
-    priv var _ci: *CompilerInstance = &null;
+pub class OwnedUnit {
+    pub var  unit: ParsedUnit
+    priv var _ci:  unsafe *CompilerInstance = &null
 
-    default fn OwnedUnit(self);
+    fn OwnedUnit(self) = default
 
     // Move-only: a copy would destroy the same CompilerInstance twice.
     // Prefix `delete fn` and `op =` are the spellings Kairo accepts   see
-    // DiagBuilder in Diagnostic/Engine.k for the same pattern.
-    delete fn OwnedUnit(self, other: ref!(OwnedUnit));
-    delete fn op = (self, other: ref!(OwnedUnit)) -> ref!(OwnedUnit);
+    // DiagBuilder in Diagnostic/DiagBuilder.k for the same pattern.
 
     /// Move. The source is left holding no instance, so its destructor is a
     /// no-op   this is what lets parse_once() return by value at all. Declaring
     /// a destructor and deleting the copy suppresses the implicit move, so it
     /// has to be spelled out.
-    fn OwnedUnit(self, other: mref!(OwnedUnit)) {
-        self.unit  = other.unit;
-        self._ci   = other._ci;
-        other._ci  = &null;
+    @move fn OwnedUnit(self, other: Self) {
+        self.unit = other.unit
+        self._ci  = other._ci
+        other._ci = &null
     }
 
-    fn op = (self, other: mref!(OwnedUnit)) -> ref!(OwnedUnit) {
-        // Parenthesised: `&self == &other` binds as `&(self == &other)`.
-        if (&self) == (&other) { return self; }
-        self._release();
-        self.unit  = other.unit;
-        self._ci   = other._ci;
-        other._ci  = &null;
-        return self;
-    }
 
-    fn op delete (self) { self._release(); }
+    fn op finally (self) {
+        self._release()
+    }
 
     /// \brief takes ownership of \p ci. It is destroyed with this value.
     ///
     /// \details Exists because the entry points below are free functions and
     ///          cannot touch \c _ci directly. Passing a CI that something else
     ///          also owns is a double-free.
-    fn adopt(self, ci: *CompilerInstance) {
-        if self._ci == ci { return; }
-        self._release();
-        self._ci = ci;
+    fn adopt(self, ci: unsafe *CompilerInstance) {
+        if self._ci == ci {
+            return
+        }
+
+        self._release()
+        self._ci = ci
     }
 
     /// Borrowed. Valid until this OwnedUnit dies.
-    fn ci(self) -> *CompilerInstance { return self._ci; }
+    fn ci(self) -> unsafe *CompilerInstance {
+        return self._ci
+    }
 
-    fn ok(self)    -> bool { return self.unit.ok;      }
-    fn clean(self) -> bool { return self.unit.clean(); }
+    fn ok(self) -> bool {
+        return self.unit.ok
+    }
+
+    fn clean(self) -> bool {
+        return self.unit.clean()
+    }
 
     static fn failure(stage: TUStage) -> OwnedUnit {
-        var o = OwnedUnit();
-        o.unit = ParsedUnit::failure(u32(-1), stage);
-        return o;
+        var o = OwnedUnit()
+        o.unit = ParsedUnit::failure(u32::MAX, stage)
+        return o
     }
 
     /// Teardown, shared by the destructor and move-assignment.
@@ -264,11 +282,14 @@ class OwnedUnit {
     /// explicit release, and clear_retained() drops the diagnostics the engine
     /// held for this run.
     priv fn _release(self) {
-        if self._ci == &null { return; }
-        release_all(self._ci, TUStage::Lexing);
-        self._ci->diag()->clear_retained();
-        std::destroy(self._ci);
-        self._ci = &null;
+        if self._ci == &null {
+            return
+        }
+
+        release_all(self._ci, TUStage::Lexing)
+        self._ci->diag()->clear_retained()
+        kairo::std::destroy(self._ci)
+        self._ci = &null
     }
 }
 
@@ -276,9 +297,12 @@ class OwnedUnit {
 ///
 /// \details Idempotent for an already-loaded path   SourceManager returns the
 ///          existing fid. \c u32(-1) on failure.
-fn load(ci: *CompilerInstance, path: Path) -> u32 {
-    if ci == &null { return u32(-1); }
-    return ci->sm()->load_file(path);
+pub fn load(ci: unsafe *CompilerInstance, const path: Path) -> u32 {
+    if ci == &null {
+        return u32::MAX
+    }
+
+    return ci->sm()->load_file(path)
 }
 
 /// \brief maps ParseOptions::stop_at onto the invocation's frontend action.
@@ -286,15 +310,19 @@ fn load(ci: *CompilerInstance, path: Path) -> u32 {
 /// \details The stage gates already exist   FrontendOptions::stops_at_parse()
 ///          and friends, checked by FrontendAction::run(). This just selects
 ///          the action kind that produces the gate the caller asked for.
-fn _apply_stop_at(ci: *CompilerInstance, stop_at: TUStage) -> FrontendActionKind {
-    var fe  = &((ci->invocation()).frontend);
-    var old = fe->action;
+pub fn _apply_stop_at(ci: unsafe *CompilerInstance, stop_at: TUStage) -> FrontendActionKind {
+    var *fe = &ci->invocation()->frontend
+    var old = fe->action
 
-    if      stop_at <= TUStage::Preprocessing { fe->action = FrontendActionKind::Preprocess;    }
-    else if stop_at <= TUStage::Parsing       { fe->action = FrontendActionKind::SyntaxOnly;    }
-    else if stop_at <= TUStage::Sema          { fe->action = FrontendActionKind::TypeCheckOnly; }
+    if (stop_at as u8) <= (TUStage::Preprocessing as u8) {
+        fe->action = FrontendActionKind::Preprocess
+    } else if (stop_at as u8) <= (TUStage::Parsing as u8) {
+        fe->action = FrontendActionKind::SyntaxOnly
+    } else if (stop_at as u8) <= (TUStage::Sema as u8) {
+        fe->action = FrontendActionKind::TypeCheckOnly
+    }
 
-    return old;
+    return old
 }
 
 /// \brief runs the frontend over \p path and returns its AST.
@@ -305,67 +333,99 @@ fn _apply_stop_at(ci: *CompilerInstance, stop_at: TUStage) -> FrontendActionKind
 ///
 /// \pre CompilerInstance::initialize(cwd) must have run   it builds the
 ///      ImportResolver and PreProcessor this depends on.
-fn parse_file(ci: *CompilerInstance, path: Path, opts: ParseOptions) -> ParsedUnit {
-    if ci == &null { return ParsedUnit::failure(u32(-1), TUStage::Failed); }
+pub fn parse_file(ci: unsafe *CompilerInstance, path: Path, opts: ParseOptions) -> ParsedUnit {
+    if ci == &null {
+        return ParsedUnit::failure(u32::MAX, TUStage::Failed)
+    }
 
     if opts.fidelity == ParseFidelity::Verbatim {
-        ci->diag()->report(DiagID::I008F,
+        ci->diag()->report(
+            DiagID::I008F,
             "Verbatim parse fidelity is not implemented: the AST has no node for "
-            "an unexpanded macro invocation").emit();
-        return ParsedUnit::failure(u32(-1), TUStage::Failed);
+            "an unexpanded macro invocation",
+        ).emit()
+        return ParsedUnit::failure(u32::MAX, TUStage::Failed)
     }
 
     if ci->imp() == &null {
-        ci->diag()->report(DiagID::I007F,
-            "parse_file: CompilerInstance::initialize(cwd) has not run").emit();
-        return ParsedUnit::failure(u32(-1), TUStage::Failed);
+        ci->diag()->report(
+            DiagID::I007F,
+            "parse_file: CompilerInstance::initialize(cwd) has not run",
+        ).emit()
+        return ParsedUnit::failure(u32::MAX, TUStage::Failed)
     }
 
-    var err0 = ci->diag()->error_count();
-    var wrn0 = ci->diag()->warn_count();
+    var err0 = ci->diag()->error_count()
+    var wrn0 = ci->diag()->warn_count()
 
-    var prev_action = _apply_stop_at(ci, opts.stop_at);
-    finally { ((ci->invocation()).frontend).action = prev_action; }
+    var prev_action = _apply_stop_at(ci, opts.stop_at)
+    finally {
+        ci->invocation()->frontend.action = prev_action
+    }
 
     // Swap the engine's consumers for a collector so nothing prints. Restored
     // unconditionally   a tool that leaves the driver's consumers detached
     // would silence the rest of the process.
-    var collector = std::create::<ToolDiagConsumer>(ci->sm());
-    finally { std::destroy(collector); }
-
-    var saved = vec::<obs::<DiagConsumer>>();
-    if opts.capture_diags {
-        saved = ci->diag()->take_consumers();
-        ci->diag()->add_consumer(collector);
-    }
+    var unsafe *collector = kairo::std::create<ToolDiagConsumer>(ci->sm())
     finally {
-        if opts.capture_diags { ci->diag()->restore_consumers(saved); }
+        kairo::std::destroy(collector)
     }
 
-    var action = std::create::<FrontendAction>(
-        path, ModulePath(), ci->global_scope(), ci->imp(), ci);
-    finally { std::destroy(action); }
+    var saved = cxx::std::vector<unsafe *DiagConsumer>()
+    if opts.capture_diags {
+        saved = ci->diag()->take_consumers()
+        ci->diag()->add_consumer(collector)
+    }
 
-    action->run();
+    finally {
+        if opts.capture_diags {
+            ci->diag()->restore_consumers(saved)
+        }
+    }
 
-    var u = ParsedUnit{};
-    u.fid      = action->file_id();
-    u.fids     = action->fids();
-    u.stage    = action->stage();
-    u.errors   = ci->diag()->error_count() - err0;
-    u.warnings = ci->diag()->warn_count()  - wrn0;
-    if opts.capture_diags { u.diags = collector->diags; }
+    var unsafe *action = kairo::std::create<FrontendAction>(
+        path,
+        ModulePath(),
+        ci->global_scope(),
+        ci->imp(),
+        ci,
+    )
 
-    if u.fid == u32(-1) { u.ok = false; return u; }
+    finally {
+        kairo::std::destroy(action)
+    }
 
-    u.ctx = ci->global_scope()->get_context(u.fid);
-    if u.ctx == &null { u.ok = false; return u; }
+    action->run()
 
-    u.tu = reinterpret_cast::<*TranslationUnit>(u.ctx->tu);
-    u.ok = (u.tu != &null) && (!ci->diag()->has_fatal());
+    var u = ParsedUnit()
+    u.fid      = action->file_id()
+    u.fids     = action->fids()
+    u.stage    = action->stage()
+    u.errors   = ci->diag()->error_count() - err0
+    u.warnings = ci->diag()->warn_count() - wrn0
+    if opts.capture_diags {
+        u.diags = collector->diags
+    }
 
-    if u.fids.empty() && (u.fid != u32(-1)) { u.fids.push_back(u.fid); }
-    return u;
+    if u.fid == u32::MAX {
+        u.ok = false
+        return u
+    }
+
+    u.ctx = ci->global_scope()->get_context(u.fid)
+    if u.ctx == &null {
+        u.ok = false
+        return u
+    }
+
+    u.tu = u.ctx->tu
+    u.ok = u.tu != &null && !ci->diag()->has_fatal()
+
+    if u.fids.empty() && u.fid != u32::MAX {
+        u.fids.push_back(u.fid)
+    }
+
+    return u
 }
 
 /// \brief parse_file for a fid already loaded into the SourceManager.
@@ -374,13 +434,17 @@ fn parse_file(ci: *CompilerInstance, path: Path, opts: ParseOptions) -> ParsedUn
 ///          from load()   so this resolves back to the path and defers. The
 ///          SourceManager hands back the same fid for an already-loaded file,
 ///          so nothing is re-read.
-fn parse_fid(ci: *CompilerInstance, fid: u32, opts: ParseOptions) -> ParsedUnit {
-    if ci == &null { return ParsedUnit::failure(fid, TUStage::Failed); }
+pub fn parse_fid(ci: unsafe *CompilerInstance, fid: u32, opts: ParseOptions) -> ParsedUnit {
+    if ci == &null {
+        return ParsedUnit::failure(fid, TUStage::Failed)
+    }
 
-    var name = ci->sm()->get_filename(fid);
-    if name.empty() { return ParsedUnit::failure(fid, TUStage::Failed); }
+    var name = ci->sm()->get_filename(fid)
+    if name.empty() {
+        return ParsedUnit::failure(fid, TUStage::Failed)
+    }
 
-    return parse_file(ci, Path(name), opts);
+    return parse_file(ci, Path(name), opts)
 }
 
 /// \brief releases everything \p unit produced, from \p from onward.
@@ -392,10 +456,16 @@ fn parse_fid(ci: *CompilerInstance, fid: u32, opts: ParseOptions) -> ParsedUnit 
 ///
 /// \warning Invalidates unit.ctx, unit.tu, and every node reached through
 ///          them. Refuses while another live TU still imports this fid.
-fn release(ci: *CompilerInstance, unit: ref!(ParsedUnit), from: TUStage) -> bool {
-    if ci == &null            { return false; }
-    if unit.fid == u32(-1)    { return false; }
-    return ci->release(unit.fid, from);
+pub fn release(ci: *CompilerInstance?, @inout unit: ParsedUnit, from: TUStage) -> bool {
+    if ci == &null {
+        return false
+    }
+
+    if unit.fid == u32::MAX {
+        return false
+    }
+
+    return ci->release(unit.fid, from)
 }
 
 /// \brief parses in-memory source, no file on disk.
@@ -422,19 +492,21 @@ fn release(ci: *CompilerInstance, unit: ref!(ParsedUnit), from: TUStage) -> bool
 ///
 ///              var owned = src.std_string();
 ///              var u     = parse_string(ci, owned, "<snippet>", opts);
-fn parse_string(
-    ci:    *CompilerInstance,
-    code:   ref!(libcxx::string),
-    vname:  string,
-    opts:   ParseOptions
-) -> ParsedUnit {
-    if ci == &null { return ParsedUnit::failure(u32(-1), TUStage::Failed); }
+pub fn parse_string(ci:          unsafe *CompilerInstance,
+                    @inout code: cxx::std::string,
+                    const vname: string,
+                    opts:        ParseOptions) -> ParsedUnit {
+    if ci == &null {
+        return ParsedUnit::failure(u32::MAX, TUStage::Failed)
+    }
 
-    var bytes = reinterpret_cast::<std::ConstPtr::<u8>>(code.data());
-    var fid   = ci->sm()->load_virtual(Path(vname), bytes, code.size());
-    if fid == u32(-1) { return ParsedUnit::failure(u32(-1), TUStage::Failed); }
+    var unsafe *bytes = unsafe (code.data() as kairo::std::ConstPtr<u8>)
+    var        fid    = ci->sm()->load_virtual(Path(vname), bytes, code.size())
+    if fid == u32::MAX {
+        return ParsedUnit::failure(u32::MAX, TUStage::Failed)
+    }
 
-    return parse_fid(ci, fid, opts);
+    return parse_fid(ci, fid, opts)
 }
 
 /// \brief stands up a CompilerInstance from \p inv, parses one file, returns both.
@@ -463,25 +535,25 @@ fn parse_string(
 ///                 failure unit.
 /// \param stop_at  last stage to run. Parsing for syntax tools, Sema if you
 ///                 need types resolved.
-fn parse_once(path: Path, inv: *CompilerInvocation, stop_at: TUStage) -> OwnedUnit {
-    var ci = std::create::<CompilerInstance>(inv);
+pub fn parse_once(const path: Path, inv: *CompilerInvocation, stop_at: TUStage) -> OwnedUnit {
+    var unsafe *ci = kairo::std::create<CompilerInstance>(inv)
 
     if !ci->args_ok() {
-        std::destroy(ci);
-        return OwnedUnit::failure(TUStage::Failed);
+        kairo::std::destroy(ci)
+        return OwnedUnit::failure(TUStage::Failed)
     }
 
     // parse_file() hard-requires this   it reports U001F and bails otherwise.
-    ci->initialize(Path::cwd());
+    ci->initialize(Path::cwd())
 
-    var opts = ParseOptions{};
-    opts.stop_at       = stop_at;
-    opts.capture_diags = true;
+    var opts = ParseOptions{}
+    opts.stop_at       = stop_at
+    opts.capture_diags = true
 
-    var o = OwnedUnit();
-    o.adopt(ci);                      // owned from here; dtor tears it down
-    o.unit = parse_file(ci, path, opts);
-    return o;
+    var o = OwnedUnit()
+    o.adopt(ci) // owned from here; dtor tears it down
+    o.unit = parse_file(ci, path, opts)
+    return o
 }
 
 /// \brief parse_once for a caller that has an argv rather than an invocation.
@@ -496,37 +568,35 @@ fn parse_once(path: Path, inv: *CompilerInvocation, stop_at: TUStage) -> OwnedUn
 ///       CompilerInstance yet, so this stands up a throwaway DiagEngine with a
 ///       collector on it. A bad command line therefore comes back as a failure
 ///       unit whose `diags` hold the flag errors, rather than as silence.
-fn parse_once(
-    path:    Path,
-    argc:    i32,
-    argv:   *(*kairo::std::Legacy::char),
-    stop_at: TUStage
-) -> OwnedUnit {
-    var diag = std::create::<DiagEngine>();
-    var sink = std::create::<ToolDiagConsumer>(&null); // no SM yet; flag errors carry no loc
-    diag->add_consumer(sink);
+pub fn parse_once(const path: Path,
+                  argc:       i32,
+                  argv:       unsafe *(unsafe *c_char),
+                  stop_at:    TUStage) -> OwnedUnit {
+    var unsafe *diag = kairo::std::create<DiagEngine>()
+    var unsafe *sink = kairo::std::create<ToolDiagConsumer>(&null) // no SM yet; flag errors carry no loc
+    diag->add_consumer(sink)
 
-    var inv      = CompilerInvocation::from_args(argc, argv, diag);
-    var flag_err = sink->diags;
+    var inv      = CompilerInvocation::from_args(argc, argv, diag)
+    var flag_err = sink->diags
 
-    diag->remove_consumer(sink);
-    diag->clear_retained();
-    std::destroy(sink);
-    std::destroy(diag);
+    diag->remove_consumer(sink)
+    diag->clear_retained()
+    kairo::std::destroy(sink)
+    kairo::std::destroy(diag)
 
     if !inv.ok {
-        var bad = OwnedUnit::failure(TUStage::Failed);
-        bad.unit.diags = flag_err;
-        return bad;
+        var bad = OwnedUnit::failure(TUStage::Failed)
+        bad.unit.diags = flag_err
+        return bad
     }
 
-    return parse_once(path, &inv, stop_at);
+    return parse_once(path, &inv, stop_at)
 }
 
 /// \brief parse_once with the common defaults: stock options, stop after parse.
-fn parse_once(path: Path) -> OwnedUnit {
-    var inv = CompilerInvocation();
-    return parse_once(path, &inv, TUStage::Parsing);
+pub fn parse_once(const path: Path) -> OwnedUnit {
+    var inv = CompilerInvocation()
+    return parse_once(path, &inv, TUStage::Parsing)
 }
 
 /// \brief re-reads and re-parses ONE fid. Nothing else in the graph is touched.
@@ -566,94 +636,124 @@ fn parse_once(path: Path) -> OwnedUnit {
 ///      could be reading.
 ///
 /// \return a ParsedUnit for \p fid alone; \c fids holds just this fid.
-fn reparse(ci: *CompilerInstance, fid: u32, opts: ParseOptions) -> ParsedUnit {
-    if ci == &null         { return ParsedUnit::failure(fid, TUStage::Failed); }
-    if fid == u32(-1)      { return ParsedUnit::failure(fid, TUStage::Failed); }
-    if ci->imp() == &null  {
-        ci->diag()->report(DiagID::I007F,
-            "reparse: CompilerInstance::initialize(cwd) has not run").emit();
-        return ParsedUnit::failure(fid, TUStage::Failed);
+pub fn reparse(ci: unsafe *CompilerInstance, fid: u32, opts: ParseOptions) -> ParsedUnit {
+    if ci == &null {
+        return ParsedUnit::failure(fid, TUStage::Failed)
+    }
+
+    if fid == u32::MAX {
+        return ParsedUnit::failure(fid, TUStage::Failed)
+    }
+
+    if ci->imp() == &null {
+        ci->diag()->report(
+            DiagID::I007F,
+            "reparse: CompilerInstance::initialize(cwd) has not run",
+        ).emit()
+        return ParsedUnit::failure(fid, TUStage::Failed)
     }
 
     // The module path is a property of the file's position in the import graph,
     // not of its bytes, so it has to survive the release   and the context that
     // holds it is about to be destroyed. Capture before invalidating.
-    var mod_path = ModulePath();
-    var old_ctx  = ci->global_scope()->get_context(fid);
-    if old_ctx != &null { mod_path = old_ctx->module_base; }
-
-    var err0 = ci->diag()->error_count();
-    var wrn0 = ci->diag()->warn_count();
-
-    var collector = std::create::<ToolDiagConsumer>(ci->sm());
-    finally { std::destroy(collector); }
-
-    var saved = vec::<obs::<DiagConsumer>>();
-    if opts.capture_diags {
-        saved = ci->diag()->take_consumers();
-        ci->diag()->add_consumer(collector);
+    var        mod_path = ModulePath()
+    var unsafe *old_ctx = ci->global_scope()->get_context(fid)
+    if old_ctx != &null {
+        mod_path = old_ctx->module_base
     }
+
+    var err0 = ci->diag()->error_count()
+    var wrn0 = ci->diag()->warn_count()
+
+    var unsafe *collector = kairo::std::create<ToolDiagConsumer>(ci->sm())
     finally {
-        if opts.capture_diags { ci->diag()->restore_consumers(saved); }
+        kairo::std::destroy(collector)
     }
 
-    var u = ParsedUnit{};
-    u.fid = fid;
-    u.fids.push_back(fid);
+    var saved = cxx::std::vector<unsafe *DiagConsumer>()
+    if opts.capture_diags {
+        saved = ci->diag()->take_consumers()
+        ci->diag()->add_consumer(collector)
+    }
+
+    finally {
+        if opts.capture_diags {
+            ci->diag()->restore_consumers(saved)
+        }
+    }
+
+    var u = ParsedUnit()
+    u.fid = fid
+    u.fids.push_back(fid)
 
     // Captured BEFORE invalidate, which is what releases them.
-    u.invalidated = ci->transitive_importers(fid);
+    u.invalidated = ci->transitive_importers(fid)
 
     // 1 + 2: drop artifacts, re-read the bytes, rebuild the line index.
     if !ci->invalidate(fid) {
-        ci->diag()->report(DiagID::I009F,
-            f"reparse: cannot re-read fid={fid}").emit();
-        u.stage = TUStage::Failed;
-        if opts.capture_diags { u.diags = collector->diags; }
-        return u;
+        ci->diag()->report(DiagID::I009F, f"reparse: cannot re-read fid={fid}").emit()
+        u.stage = TUStage::Failed
+        if opts.capture_diags {
+            u.diags = collector->diags
+        }
+
+        return u
     }
 
     // 3: this file's own preprocess. No graph walk.
-    u.stage = TUStage::Preprocessing;
+    u.stage = TUStage::Preprocessing
     if !ci->pp()->preprocess_one(fid, mod_path) {
-        u.stage = TUStage::Failed;
-        u.errors = ci->diag()->error_count() - err0;
-        u.warnings = ci->diag()->warn_count() - wrn0;
-        if opts.capture_diags { u.diags = collector->diags; }
-        return u;
+        u.stage    = TUStage::Failed
+        u.errors   = ci->diag()->error_count() - err0
+        u.warnings = ci->diag()->warn_count() - wrn0
+        if opts.capture_diags {
+            u.diags = collector->diags
+        }
+
+        return u
     }
 
-    u.ctx = ci->global_scope()->get_context(fid);
+    u.ctx = ci->global_scope()->get_context(fid)
     if u.ctx == &null {
-        u.stage = TUStage::Failed;
-        if opts.capture_diags { u.diags = collector->diags; }
-        return u;
+        u.stage = TUStage::Failed
+        if opts.capture_diags {
+            u.diags = collector->diags
+        }
+
+        return u
     }
 
-    if opts.stop_at > TUStage::Preprocessing {
+    if (opts.stop_at as u8) > (TUStage::Preprocessing as u8) {
         // 4: index then parse, both single-fid, both on this thread. The batch
         // path fans these across the pool and runs an ordered diag flusher
         // behind them; with one file there is nothing to order or overlap.
-        u.stage = TUStage::Parsing;
-        ci->parse_one(fid);
-        u.ctx->diag_sink.drain_into(ci->diag(), u.ctx->sm);
+        u.stage = TUStage::Parsing
+        ci->parse_one(fid)
+        u.ctx->diag_sink.drain_into(ci->diag(), u.ctx->sm)
     }
 
-    u.tu = reinterpret_cast::<*TranslationUnit>(u.ctx->tu);
-    u.errors   = ci->diag()->error_count() - err0;
-    u.warnings = ci->diag()->warn_count()  - wrn0;
-    u.ok       = (u.tu != &null) && (!ci->diag()->has_fatal());
-    u.added_imports = ci->unresolved_import_count(fid);
-    if opts.capture_diags { u.diags = collector->diags; }
+    u.tu            = u.ctx->tu
+    u.errors        = ci->diag()->error_count() - err0
+    u.warnings      = ci->diag()->warn_count() - wrn0
+    u.ok            = u.tu != &null && !ci->diag()->has_fatal()
+    u.added_imports = ci->unresolved_import_count(fid)
+    if opts.capture_diags {
+        u.diags = collector->diags
+    }
 
     if u.added_imports > 0 {
-        Logger::warn(Logger::Stage::Driver,
+        kairo::Logger::warn(
+            kairo::Logger::Stage::Driver,
             f"reparse: fid={fid} has {u.added_imports} import(s) with no live target; "
-            "single-file reparse does not resolve imports   run parse_file() to make this unit whole");
+            "single-file reparse does not resolve imports   run parse_file() to make this unit whole",
+        )
     }
 
-    if u.stage != TUStage::Failed { u.stage = opts.stop_at; }
-    return u;
+    if u.stage != TUStage::Failed {
+        u.stage = opts.stop_at
+    }
+
+    return u
 }
 
 /// \brief releases every registered fid, dependency order handled internally.
@@ -669,21 +769,23 @@ fn reparse(ci: *CompilerInstance, fid: u32, opts: ParseOptions) -> ParsedUnit {
 ///          would hold every AST it has ever parsed.
 ///
 /// \return the number of fids released.
-fn release_all(ci: *CompilerInstance, from: TUStage) -> usize {
-    if ci == &null { return 0; }
+pub fn release_all(ci: unsafe *CompilerInstance, from: TUStage) -> usize {
+    if ci == &null {
+        return 0
+    }
 
-    var freed: usize = 0;
-    var progress     = true;
+    var freed:   usize = 0
+    var progress       = true
 
     while progress {
-        progress = false;
-        for f: u32 in ci->global_scope()->all_fids() {
+        progress = false
+        for var f: u32 in ci->global_scope()->all_fids() {
             if ci->release(f, from) {
-                freed   += 1;
-                progress = true;
+                freed += 1
+                progress = true
             }
         }
     }
 
-    return freed;
+    return freed
 }

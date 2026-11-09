@@ -1,39 +1,58 @@
 /// --- The Kairo Project --------------------------- Parser/TypeParse.k --- ///
 ///
-///   \brief Type expression parsing mixin.
+///   The type expression parser mixin.
 ///
-///   \detail
 ///     Handles: *T, atomic T, Foo, Foo<T>, (T1, T2), (T) -> U
 ///     (const/atomic/unsafe/eval/async are TypeQual flags, not wrapper nodes)
 ///     Derives from ASTParse which provides: check, match_tok, expect, advance,
 ///     ctx, diag, is_eof, current, peek, prev, current_ptr,
 ///     consume_leading_quals, apply_quals, consume_leading_annotations,
 ///     apply_annotations_to_node, depth, etc.
-///     --------------------------------------
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the Kairo
 ///   Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt SPDX-License-Identifier:
-///   Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION Copyright (c) 2026 Kairo Software
+///   See: https://www.kairolang.org/LICENSE SPDX-License-Identifier:
+///   Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception Copyright (c) 2026 Kairo Software
 ///   Foundation
 ///
 /// ----------------------------------------------------------------------- ///
 
-import AST::Node::Base::*;
-import AST::Node::Types::*;
-import AST::Node::Casting::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::CanonicalNodes::*;
-import AST::CodeCompleteConsumer::*;
-import AST::Context::ASTContext::*;
-import AST::Mixin::TypeQual::*;
-import AST::LangItems::*;
-import Diagnostic::Engine::*;
-import Diagnostic::Registry::*;
-import Location::SourceRange::*;
-import Token::TokenKind::*;
-import AST::ParamMode::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "set"
+
+import AST::CodeCompleteConsumer::CompletionContextKind
+import AST::Kind::TypeKind::TypeKind
+import AST::LangItems::{
+    LangAttrs,
+    TUPLE_MAX_ARITY,
+}
+import AST::Mixin::TypeQual::TypeQual
+import AST::Node::Base::{
+    Expr,
+    Type,
+}
+import AST::Node::CanonicalNodes::{
+    BuiltinKind,
+    builtin_for_token,
+}
+import AST::Node::Casting::{
+    cast,
+    is_recovery,
+    isa,
+}
+import AST::Node::PrimaryExpressions::NamedIdentExpr
+import AST::Node::Types
+import AST::ParamMode::ParamMode
+import Diagnostic::Registry::DiagID
+import Location::SourceLocation::SourceLocation
+import Location::SourceRange::SourceRange
+import Parser::ExprParse::ExprStopBit
+import Support::FlagSet::FlagSet
+import Token::TokenKind::{
+    TokenKind,
+    token_kind_to_readable_string,
+}
 
 /// \class TypeParse
 /// \brief CRTP mixin providing type expression parsing for the Kairo parser.
@@ -85,58 +104,42 @@ import AST::ParamMode::*;
 /// parser is complete.
 ///
 /// \see ASTParse, TypeQual, Type, TupleType, PointerType, FixedArrayType
-class <T> TypeParse {
-    var inferred_type_counter: u32 = 0;
-    pub var _pending_close_angle: bool = false;
-    
-    const var TYPE_TOK_TBL: set::<TokenKind> = {
-        TokenKind::AtVoid,
-        TokenKind::AtBool,
-        TokenKind::AtByte,
-        TokenKind::AtChar,
-        TokenKind::AtUsize,
-        TokenKind::AtIsize,
-        TokenKind::AtF8,
-        TokenKind::AtF8E4M3,
-        TokenKind::AtF8E5M2,
-        TokenKind::AtBf16,
-        TokenKind::AtF16,
-        TokenKind::AtF32,
-        TokenKind::AtF64,
-        TokenKind::AtF80,
-        TokenKind::AtF128,
-        TokenKind::AtF256,
-        TokenKind::AtF512,
-        TokenKind::AtU8,
-        TokenKind::AtU16,
-        TokenKind::AtU32,
-        TokenKind::AtU64,
-        TokenKind::AtU128,
-        TokenKind::AtU256,
-        TokenKind::AtU512,
-        TokenKind::AtI8,
-        TokenKind::AtI16,
-        TokenKind::AtI32,
-        TokenKind::AtI64,
-        TokenKind::AtI128,
-        TokenKind::AtI256,
-        TokenKind::AtI512,
-        TokenKind::BiFile,
-        TokenKind::BiLine,
-        TokenKind::BiColumn,
-        TokenKind::BiFunction,
-        TokenKind::BiModule,
-        TokenKind::BiSelf,
-        TokenKind::LitIdentifier,
-        TokenKind::KwSelf
-    };
+// TODO(DUCK-GENERIC): T uses _consume_mode, _peek_mode, advance, advance_raw, apply_annotations_to_node, apply_quals, at_value_expr_continuation, c_idx, check, check_peek, check_prev, consume_leading_annotations, ... (32). Stage 0 was duck-typed; bound it or keep `: type`.
+pub class <T: type> TypeParse {
+    var     inferred_type_counter: u32  = 0
+    pub var _pending_close_angle:  bool = false
+
+    /// Kinds that start a type: the primitive `@`-types, the builtins,
+    /// identifiers and `self`. A match rather than a per-parser `std::set`
+    /// (see ExprParse::_is_expr_ident_kind).
+    static fn _is_type_tok_kind(k: TokenKind) -> bool {
+        match k {
+            case TokenKind::AtVoid,   TokenKind::AtBool,        TokenKind::AtByte,
+                 TokenKind::AtChar,   TokenKind::AtUsize,       TokenKind::AtIsize,
+                 TokenKind::AtF8,     TokenKind::AtF8E4M3,      TokenKind::AtF8E5M2,
+                 TokenKind::AtBf16,   TokenKind::AtF16,         TokenKind::AtF32,
+                 TokenKind::AtF64,    TokenKind::AtF80,         TokenKind::AtF128,
+                 TokenKind::AtF256,   TokenKind::AtF512,        TokenKind::AtU8,
+                 TokenKind::AtU16,    TokenKind::AtU32,         TokenKind::AtU64,
+                 TokenKind::AtU128,   TokenKind::AtU256,        TokenKind::AtU512,
+                 TokenKind::AtI8,     TokenKind::AtI16,         TokenKind::AtI32,
+                 TokenKind::AtI64,    TokenKind::AtI128,        TokenKind::AtI256,
+                 TokenKind::AtI512,   TokenKind::BiFile,        TokenKind::BiLine,
+                 TokenKind::BiColumn, TokenKind::BiFunction,    TokenKind::BiModule,
+                 TokenKind::BiSelf,   TokenKind::LitIdentifier, TokenKind::KwSelf {
+                return true
+            } default {
+                return false
+            }
+        }
+    }
 
     enum TypeSyncCtx derives u8 {
-        TopLevel,   // sync to newline, ;, EOF
-        Paren,      // sync to ) at depth 0
-        Square,     // sync to ] at depth 0
-        Brace,      // sync to } at depth 0
-        Comma,      // sync to , or the closing delimiter
+        TopLevel, // sync to newline, ;, EOF
+        Paren,    // sync to ) at depth 0
+        Square,   // sync to ] at depth 0
+        Brace,    // sync to } at depth 0
+        Comma,    // sync to , or the closing delimiter
     }
 
     /// \brief attempts to recover from a parse error by skipping tokens until a
@@ -167,90 +170,106 @@ class <T> TypeParse {
     /// \param stop_at_newline if true, the first `TkNewLine` encountered at
     ///        depth 0
     ///                        will terminate recovery regardless of `ctx`.
-    inline fn _sync_type(
-        self,
-        ctx:             TypeSyncCtx,
-        paren_depth:     i32  = 0,
-        square_depth:    i32  = 0,
-        brace_depth:     i32  = 0,
-        stop_at_newline: bool = false
-    ) {
-        var balance_paren:   i32 = paren_depth;
-        var balance_square:  i32 = square_depth;
-        var balance_brace:   i32 = brace_depth;
-        var tokens_consumed: u32 = 0;
-        const var MAX_SYNC:  u32 = 64;
+    inline fn _sync_type(self,
+                         ctx:             Self::TypeSyncCtx,
+                         paren_depth:     i32  = 0,
+                         square_depth:    i32  = 0,
+                         brace_depth:     i32  = 0,
+                         stop_at_newline: bool = false) {
+        var   balance_paren:   i32 = paren_depth
+        var   balance_square:  i32 = square_depth
+        var   balance_brace:   i32 = brace_depth
+        var   tokens_consumed: u32 = 0
+        const MAX_SYNC:        u32 = 64
 
-        while !dyn()->is_eof() {
-            if tokens_consumed >= MAX_SYNC { return; }
-            ++tokens_consumed;
+        while !self.dyn()->is_eof() {
+            if tokens_consumed >= MAX_SYNC {
+                return
+            }
 
-            var k = dyn()->ig_kind();
+            ++tokens_consumed
+
+            var k = self.dyn()->ig_kind()
 
             // hard stop: caller is recovering from an unclosed delimiter and
             // wants us to bail at the next newline rather than eat the next
             // top-level construct.
-            if stop_at_newline && k == TokenKind::TkNewLine
-            && balance_paren == 0 && balance_square == 0 && balance_brace == 0 {
-                return;
+            if stop_at_newline
+                && k == TokenKind::TkNewLine
+                && balance_paren == 0
+                && balance_square == 0
+                && balance_brace == 0 {
+                return
             }
 
             if k == TokenKind::OpLParen {
-                ++balance_paren;
-            }
-            else if k == TokenKind::OpLSquare {
-                ++balance_square;
-            }
-            else if k == TokenKind::OpLBrace {
-                ++balance_brace;
-            }
-            else if k == TokenKind::OpRParen {
+                ++balance_paren
+            } else if k == TokenKind::OpLSquare {
+                ++balance_square
+            } else if k == TokenKind::OpLBrace {
+                ++balance_brace
+            } else if k == TokenKind::OpRParen {
                 if balance_paren == 0 {
                     // closing delimiter at our level always stops us; caller
                     // owns the decision of whether to consume it.
-                    return;
+                    return
                 }
-                --balance_paren;
-            }
-            else if k == TokenKind::OpRSquare {
-                if balance_square == 0 { return; }
-                --balance_square;
-            }
-            else if k == TokenKind::OpRBrace {
-                if balance_brace == 0 { return; }
-                --balance_brace;
-            }
-            else if balance_paren == 0 && balance_square == 0 && balance_brace == 0 {
+
+                --balance_paren
+            } else if k == TokenKind::OpRSquare {
+                if balance_square == 0 {
+                    return
+                }
+
+                --balance_square
+            } else if k == TokenKind::OpRBrace {
+                if balance_brace == 0 {
+                    return
+                }
+
+                --balance_brace
+            } else if balance_paren == 0 && balance_square == 0 && balance_brace == 0 {
                 // at depth zero across all delimiter kinds: stop on tokens
                 // that end a type-position production.
                 if k == TokenKind::OpComma {
-                    if ctx == TypeSyncCtx::Comma
-                    || ctx == TypeSyncCtx::Paren
-                    || ctx == TypeSyncCtx::Square { return; }
+                    if ctx == Self::TypeSyncCtx::Comma
+                        || ctx == Self::TypeSyncCtx::Paren
+                        || ctx == Self::TypeSyncCtx::Square {
+                        return
+                    }
                 }
-                if k == TokenKind::TkNewLine && ctx == TypeSyncCtx::TopLevel { return; }
-                if k == TokenKind::OpSemicolon                               { return; }
-                if k == TokenKind::OpArrow                                   { return; }
+
+                if k == TokenKind::TkNewLine && ctx == Self::TypeSyncCtx::TopLevel {
+                    return
+                }
+
+                if k == TokenKind::OpSemicolon {
+                    return
+                }
+
+                if k == TokenKind::OpArrow {
+                    return
+                }
             }
 
-            dyn()->advance();
+            self.dyn()->advance()
         }
     }
 
     /// Sync, then guarantee the cursor moved. For use inside recovery LOOPS:
     /// _sync_type stops ON a boundary token without consuming it, which is
     /// correct positioning but spins a caller that retries from the same spot.
-    priv fn _sync_type_progress(
-        self,
-        ctx:             TypeSyncCtx,
-        paren_depth:     i32  = 0,
-        square_depth:    i32  = 0,
-        brace_depth:     i32  = 0,
-        stop_at_newline: bool = false
-    ) {
-        var before = dyn()->c_idx;
-        self._sync_type(ctx, paren_depth, square_depth, brace_depth, stop_at_newline);
-        if dyn()->c_idx == before { dyn()->advance(); }
+    priv fn _sync_type_progress(self,
+                                ctx:             Self::TypeSyncCtx,
+                                paren_depth:     i32  = 0,
+                                square_depth:    i32  = 0,
+                                brace_depth:     i32  = 0,
+                                stop_at_newline: bool = false) {
+        var before = self.dyn()->c_idx
+        self._sync_type(ctx, paren_depth, square_depth, brace_depth, stop_at_newline)
+        if self.dyn()->c_idx == before {
+            self.dyn()->advance()
+        }
     }
 
     /// \brief performs a static downcast of `self` to the generic parser type
@@ -262,8 +281,8 @@ class <T> TypeParse {
     ///          (usually `ASTParse`) without virtual dispatch overhead.
     ///
     /// \return a pointer to the derived `T` instance.
-    inline fn dyn(self) -> *T {
-        return static_cast::<*T>(&self);
+    inline fn dyn(self) -> unsafe *T {
+        return unsafe ((&self) as *T)
     }
 
     /// \brief creates a placeholder error type for failed type resolutions.
@@ -277,7 +296,7 @@ class <T> TypeParse {
     /// \param range  the source location where the type resolution failed.
     /// \return a pointer to the newly allocated error-state type node.
     inline fn _error_type(self, range: SourceRange) -> *Type {
-        return static_cast::<*Type>(ChainType::create_error(dyn()->ctx, range));
+        return Types::ChainType::create_error(self.dyn()->ctx, range)
     }
 
     /// \brief top-level entry point for parsing a type expression.
@@ -308,32 +327,45 @@ class <T> TypeParse {
     /// pointee is parsed that way, so `*T?` is a nullable POINTER, `(*T)?`,
     /// as nullables.md and pointers.md write it. A pointer to a nullable is
     /// spelled `*(T?)`.
-    fn parse_type(self, is_inferred: bool = false, skip_newline: bool = false, gen_arg: bool = false, no_nullable: bool = false) -> *Type {
-        if dyn()->is_eof() {
-            return &null;
+    fn parse_type(self,
+                  is_inferred:  bool = false,
+                  skip_newline: bool = false,
+                  gen_arg:      bool = false,
+                  no_nullable:  bool = false) -> unsafe *Type {
+        if self.dyn()->is_eof() {
+            return &null
         }
 
-        if !dyn()->enter_depth() {
-            return &null;
+        if !self.dyn()->enter_depth() {
+            return &null
         }
 
         if is_inferred {
-            var prev_tok = dyn()->prev();
+            var prev_tok = self.dyn()->prev()
 
             if prev_tok.kind == TokenKind::TkUnknown {
-                var cur_ptr = dyn()->current_ptr();
-                var loc     = (cur_ptr->range.start) if (cur_ptr != &null) else SourceLocation();
+                var cur_ptr = self.dyn()->current_ptr()
+                var loc = if (cur_ptr != &null) => (cur_ptr->range.start) else => SourceLocation()
 
-                dyn()->diag->report(DiagID::S053E, loc, "unexpected start of input, expected type").emit();
-                dyn()->exit_depth();
-                return &null;
+                self.dyn()->diag->report(
+                    DiagID::S053E,
+                    loc,
+                    "unexpected start of input, expected type",
+                ).emit()
+                self.dyn()->exit_depth()
+                return &null
             }
 
-            var rt = InferredType::create(dyn()->ctx, prev_tok.range, inferred_type_counter);
-            ++inferred_type_counter;
+            var rt = Types::InferredType::create(
+                self.dyn()->ctx,
+                prev_tok.range,
+                self.inferred_type_counter,
+            )
 
-            dyn()->exit_depth();
-            return rt;
+            ++self.inferred_type_counter
+
+            self.dyn()->exit_depth()
+            return rt
         }
 
         // A passing mode is not part of a type. Asked BEFORE the annotation
@@ -341,53 +373,56 @@ class <T> TypeParse {
         // swallow as an attribute and never report. Consumed so the type
         // that follows still parses. The fn-pointer parameter list takes its
         // modes itself (_parse_fn_ptr_params) and never lets one reach here.
-        if dyn()->_peek_mode() != ParamMode::Value {
-            var mr = dyn()->_consume_mode();
-            dyn()->diag->report(DiagID::S069E, mr.start,
+        if self.dyn()->_peek_mode() != ParamMode::Value {
+            var mr = self.dyn()->_consume_mode()
+            self.dyn()->diag->report(
+                DiagID::S069E,
+                mr.start,
                 "a passing mode is not part of a type; write it on the parameter "
                 "('@inout x: T'); in a function pointer type the mode goes before "
-                "the parameter type ('fn(@inout T)')"
-            ).first(mr).emit();
+                "the parameter type ('fn(@inout T)')",
+            ).first(mr)->emit()
         }
 
-        var annot: typename!(T::PendingAnnotations);
-        var quals: typename!(T::PendingQuals);
+        var annot: T::PendingAnnotations
+        var quals: T::PendingQuals
 
-        dyn()->consume_leading_annotations(&annot);
-        dyn()->consume_leading_quals(&quals);
+        self.dyn()->consume_leading_annotations(&annot)
+        self.dyn()->consume_leading_quals(&quals)
 
-        var ty = self.parse_primary_type(skip_newline, gen_arg);
+        var unsafe *ty = self.parse_primary_type(skip_newline, gen_arg)
         if ty == &null {
-            dyn()->exit_depth();
-            return &null;
+            self.dyn()->exit_depth()
+            return &null
         }
 
         // secondary pass
-        if (!no_nullable) && ((dyn()->check(TokenKind::OpQuestion)) || (dyn()->check(TokenKind::OpQuestionQuestion))) {
-            ty = self._parse_nullable_type(ty);
+        if !no_nullable
+            && (self.dyn()->check(TokenKind::OpQuestion)
+                || self.dyn()->check(TokenKind::OpQuestionQuestion)) {
+            ty = self._parse_nullable_type(ty)
+        } else if self.dyn()->check(TokenKind::OpEllipsis) {
+            ty = self._parse_pack_expansion_type(ty)
         }
 
-        else if dyn()->check(TokenKind::OpEllipsis) {
-            ty = self._parse_pack_expansion_type(ty);
-        }
-
-        dyn()->apply_quals(ty, &quals);
-        dyn()->apply_annotations_to_node(ty, &annot);
+        self.dyn()->apply_quals(ty, &quals)
+        self.dyn()->apply_annotations_to_node(ty, &annot)
 
         // `unsafe` on a pointer is not just a qualifier bit: `unsafe *T` is a
         // distinct canonical from `*T`, and the store keys on the field rather
         // than on flags. The bit stays in `flags` for the printer.
-        if (ty->kind == TypeKind::PointerType) && (ty->is_unsafe()) {
-            cast::<PointerType>(ty)->is_unsafe = true;
-        }
-        // Likewise `unsafe fn(A) -> R`: the raw function pointer, a canonical
-        // of its own (CanonicalTypeStore::func), not the `fn` value.
-        if (ty->kind == TypeKind::FunctionPointerType) && (ty->is_unsafe()) {
-            cast::<FunctionPointerType>(ty)->is_raw = true;
+        if ty->kind == TypeKind::PointerType && ty->is_unsafe() {
+            cast<Types::PointerType>(ty)->is_unsafe = true
         }
 
-        dyn()->exit_depth();
-        return ty;
+        // Likewise `unsafe fn(A) -> R`: the raw function pointer, a canonical
+        // of its own (CanonicalTypeStore::func), not the `fn` value.
+        if ty->kind == TypeKind::FunctionPointerType && ty->is_unsafe() {
+            cast<Types::FunctionPointerType>(ty)->is_raw = true
+        }
+
+        self.dyn()->exit_depth()
+        return ty
     }
 
     /// \brief dispatches the current token to the correct primary type
@@ -409,74 +444,83 @@ class <T> TypeParse {
     /// \return a pointer to the parsed `Type` node, or `_error_type` if no
     ///         valid
     ///         type production could be matched. returns null only on `is_eof`.
-    fn parse_primary_type(self, skip_newline: bool = false, gen_arg: bool = false) -> *Type {
-        if dyn()->is_eof() { return &null; }
+    fn parse_primary_type(self, skip_newline: bool = false, gen_arg: bool = false) -> unsafe *Type {
+        if self.dyn()->is_eof() {
+            return &null
+        }
 
         if skip_newline {
-            while dyn()->check(TokenKind::TkNewLine) {
-                dyn()->advance(); // consume newlines
-                if dyn()->is_eof() { return &null; }
+            while self.dyn()->check(TokenKind::TkNewLine) {
+                self.dyn()->advance() // consume newlines
+                if self.dyn()->is_eof() {
+                    return &null
+                }
             }
         }
 
-        var cur_ptr = dyn()->current_ptr();
-        if cur_ptr == &null { return &null; }
+        var cur_ptr = self.dyn()->current_ptr()
+        if cur_ptr == &null {
+            return &null
+        }
 
-        var cur_range = cur_ptr->range;
+        var cur_range = cur_ptr->range
 
         // pointer types: `*T`, `*const T`, etc.
-        if dyn()->check(TokenKind::OpStar) {
-            return self._parse_pointer_type();
+        if self.dyn()->check(TokenKind::OpStar) {
+            return self._parse_pointer_type()
         }
 
         // braced types: currently used for structural records or inline unions.
-        if dyn()->check(TokenKind::OpLBrace) {
-            return self._parse_braced_type();
+        if self.dyn()->check(TokenKind::OpLBrace) {
+            return self._parse_braced_type()
         }
 
         // parenthesized types: `(T)` or tuple types `(T, U)`.
-        if dyn()->check(TokenKind::OpLParen) {
-            return self._parse_paren_type();
+        if self.dyn()->check(TokenKind::OpLParen) {
+            return self._parse_paren_type()
         }
 
         // square bracket types: arrays `[T; N]` or slices `[T]`.
-        if dyn()->check(TokenKind::OpLSquare) {
-            return self._parse_square_type();
+        if self.dyn()->check(TokenKind::OpLSquare) {
+            return self._parse_square_type()
         }
 
         // function pointer types: `fn(args) -> Ret`.
-        if dyn()->check(TokenKind::KwFn) {
-            return self._parse_fn_ptr_type();
+        if self.dyn()->check(TokenKind::KwFn) {
+            return unsafe (self._parse_fn_ptr_type() as unsafe *Type)
         }
 
-        if dyn()->check(TokenKind::OpEllipsis) {
-            return self._parse_variadic_type();
+        if self.dyn()->check(TokenKind::OpEllipsis) {
+            return self._parse_variadic_type()
         }
 
         // `Self` alone is a SelfType. `Self::Inner` is a chain whose head is
         // the enclosing type; only T can step into it, so hand it the chain.
-        if dyn()->check(TokenKind::BiSelf) {
-            if dyn()->check_peek(TokenKind::OpColonColon) {
-                return self._parse_qual_type();
+        if self.dyn()->check(TokenKind::BiSelf) {
+            if self.dyn()->check_peek(TokenKind::OpColonColon) {
+                return self._parse_qual_type()
             }
-            return self._parse_self_type();
+
+            return self._parse_self_type()
         }
 
-        if dyn()->check(TokenKind::KwTypeOf) {
-            return self._parse_typeof_type();
+        if self.dyn()->check(TokenKind::KwTypeOf) {
+            return self._parse_typeof_type()
         }
 
-        if dyn()->check(TokenKind::TkCodeComplete) {
-            dyn()->maybe_complete(CompletionContextKind::TypeRef);
-            dyn()->advance(T::SkipNL::After); // consume code complete token and any newlines after it
-            return self._error_type(cur_range);
+        if self.dyn()->check(TokenKind::TkCodeComplete) {
+            self.dyn()->maybe_complete(CompletionContextKind::TypeRef)
+            self.dyn()->advance(T::SkipNL::After) // consume code complete token and any newlines after it
+            return self._error_type(cur_range)
         }
 
         // leaf types: built-ins (u32, f64, etc.), `Self`, or identifiers.
-        if dyn()->check(fn(k: TokenKind) -> bool {
-            return TYPE_TOK_TBL.contains(k);
-        }) {
-            return self._parse_qual_type();
+        if self.dyn()->check(
+            fn(k: TokenKind) -> bool {
+                return Self::_is_type_tok_kind(k)
+            },
+        ) {
+            return self._parse_qual_type()
         }
 
         // no type production matched. in a generic-argument position a value
@@ -488,48 +532,54 @@ class <T> TypeParse {
         // a bare value is still an error, so the diagnostic below stands.
         if gen_arg {
             return self._parse_type_expr(
-                static_cast::<u8>(T::ExprStopKind::StopAngle)
-              | static_cast::<u8>(T::ExprStopKind::StopComma)
-            );
+                self.dyn()->stop_on(T::ExprStopKind::StopAngle).plus(T::ExprStopKind::StopComma),
+            )
         }
 
         // no production matched; report error and attempt recovery.
-        var resolved_kind = dyn()->resolve_kind_deep(cur_ptr);
-        dyn()->report_tok(DiagID::S053E, cur_ptr,
-            f"expected type, found '{token_kind_to_readable_string(resolved_kind)}\x27"
-        );
+        var resolved_kind = self.dyn()->resolve_kind_deep(cur_ptr)
+        self.dyn()->report_tok(
+            DiagID::S053E,
+            cur_ptr,
+            f"expected type, found '{token_kind_to_readable_string(resolved_kind)}'",
+        )
 
-        dyn()->advance(); // skip offending token to prevent infinite loops during recovery.
-        return _error_type(cur_range);
+        self.dyn()->advance() // skip offending token to prevent infinite loops during recovery.
+        return self._error_type(cur_range)
     }
 
-    inline fn _parse_self_type(self) -> *SelfType {
-        var tok = dyn()->current();
-        var ty = SelfType::create(dyn()->ctx, tok.range);
-        dyn()->advance(); // consume `Self`
-        return ty;
+    inline fn _parse_self_type(self) -> unsafe *Types::SelfType {
+        var tok = self.dyn()->current()
+        var ty  = Types::SelfType::create(self.dyn()->ctx, tok.range)
+        self.dyn()->advance() // consume `Self`
+        return ty
     }
 
-    inline fn _parse_typeof_type(self) -> *TypeOfType {
-        var tok = dyn()->current();
-        var start_range = tok.range;
+    inline fn _parse_typeof_type(self) -> unsafe *Types::TypeOfType {
+        var tok         = self.dyn()->current()
+        var start_range = tok.range
 
-        dyn()->advance(); // consume `typeof`
+        self.dyn()->advance() // consume `typeof`
 
         // A prefix-level operand: the `=` of `var y: typeof x = 100` is the
         // declaration's, not an assignment inside the typeof. No struct
         // literal: the `{` of `-> typeof x { ... }` opens the body.
-        var inner = dyn()->parse_typeof_operand(T::ExprStopKind::NoStructLiteral);
-        if inner == &null {
-            dyn()->diag->report(DiagID::S053E, start_range.start,
-                "expected type after 'typeof\x27"
-            ).first(start_range).emit();
+        var inner = self.dyn()->parse_typeof_operand(
+            self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral),
+        )
 
-            return TypeOfType::create_error(dyn()->ctx, start_range);
+        if inner == &null {
+            self.dyn()->diag->report(
+                DiagID::S053E,
+                start_range.start,
+                "expected type after 'typeof'",
+            ).first(start_range)->emit()
+
+            return Types::TypeOfType::create_error(self.dyn()->ctx, start_range)
         }
 
-        var ty = TypeOfType::create(dyn()->ctx, start_range | inner->range, inner);
-        return ty;
+        var ty = Types::TypeOfType::create(self.dyn()->ctx, start_range | inner->range, inner)
+        return ty
     }
 
     /// \brief parses parenthesized type constructs including groupings `(T)`
@@ -548,51 +598,61 @@ class <T> TypeParse {
     ///
     /// FIXME: handle the case where `parse_type` returns an error type
     /// (recovery node) instead of null by using `isa_recovery(...)`.
-    inline fn _parse_paren_type(self) -> *Type {
+    inline fn _parse_paren_type(self) -> unsafe *Type {
         // precondition: current token is `(`
-        var lparen_ptr  = dyn()->current_ptr();
-        var start_range = lparen_ptr->range;
+        var lparen_ptr  = self.dyn()->current_ptr()
+        var start_range = lparen_ptr->range
 
-        dyn()->advance(T::SkipNL::After); // consume `(`
+        self.dyn()->advance(T::SkipNL::After) // consume `(`
 
         // empty tuple: `()`
-        if dyn()->check(TokenKind::OpRParen) {
-            dyn()->advance(); // consume `)`
-            dyn()->diag->report(DiagID::S055E, start_range.start,
-                "empty tuple types are not allowed, did you mean 'void'?"
-            ).first(start_range).emit();
+        if self.dyn()->check(TokenKind::OpRParen) {
+            self.dyn()->advance() // consume `)`
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                start_range.start,
+                "empty tuple types are not allowed, did you mean 'void'?",
+            ).first(start_range)->emit()
 
-            var tt = TupleType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-            return tt;
+            var tt = Types::TupleType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
+
+            return tt
         }
 
-        var first = self.parse_type(false, true);
-        if (first == &null) || (is_recovery(first)) {
-            dyn()->diag->report(DiagID::S053E, start_range.start,
-                "expected type after '(\x27"
-            ).first(start_range).emit();
+        var unsafe *first = self.parse_type(false, true)
+        if first == &null || is_recovery(first) {
+            self.dyn()->diag->report(
+                DiagID::S053E,
+                start_range.start,
+                "expected type after '('",
+            ).first(start_range)->emit()
 
-            self._sync_type(TypeSyncCtx::Paren, 1, 0, 0, true);
-            return _error_type(start_range | dyn()->prev().range);
+            self._sync_type(Self::TypeSyncCtx::Paren, 1, 0, 0, true)
+            return self._error_type(start_range | self.dyn()->prev().range)
         }
 
         // tuple: `(T1, T2, ...)`
-        if dyn()->check(TokenKind::OpComma) {
-            return self._finish_tuple_type(start_range, first);
+        if self.dyn()->check(TokenKind::OpComma) {
+            return self._finish_tuple_type(start_range, first)
         }
 
         // grouping: `(T)` just unwrap
-        if dyn()->check(TokenKind::OpRParen) {
-            dyn()->advance(); // consume `)`
-            return first;
+        if self.dyn()->check(TokenKind::OpRParen) {
+            self.dyn()->advance() // consume `)`
+            return first
         }
 
         // missing `)` emit diagnostic but still return what we parsed
-        dyn()->diag->report(DiagID::S055E, start_range.start,
-            "expected ')' after type in grouping expression "
-        ).first(start_range).emit();
+        self.dyn()->diag->report(
+            DiagID::S055E,
+            start_range.start,
+            "expected ')' after type in grouping expression ",
+        ).first(start_range)->emit()
 
-        return first;
+        return first
     }
 
     /// \brief completes the parsing of a tuple type after the first element.
@@ -611,79 +671,93 @@ class <T> TypeParse {
     /// \return a `TupleType` node, or a `TupleType` error node if parsing fails
     ///         or
     ///         arity constraints are violated.
-    inline fn _finish_tuple_type(self, start_range: SourceRange, first: *Type) -> *TupleType {
-        if !dyn()->enter_depth() {
-            dyn()->diag->report(DiagID::S063E, start_range.start,
-                "exceeded maximum nesting depth in tuple type"
-            ).first(start_range).emit();
+    inline fn _finish_tuple_type(self,
+                                 start_range: SourceRange,
+                                 first:       unsafe *Type) -> *Types::TupleType {
+        if !self.dyn()->enter_depth() {
+            self.dyn()->diag->report(
+                DiagID::S063E,
+                start_range.start,
+                "exceeded maximum nesting depth in tuple type",
+            ).first(start_range)->emit()
 
-            return TupleType::create_error(dyn()->ctx, start_range);
+            return Types::TupleType::create_error(self.dyn()->ctx, start_range)
         }
 
-        var vals: std::StackBuf::<*Type, 8>;
-        vals.push_back(first);
+        var vals: kairo::std::StackBuf<unsafe *Type, 8>
+        vals.push_back(first)
 
-        while dyn()->check(TokenKind::OpComma) {
-            dyn()->advance(T::SkipNL::After); // consume `,`
+        while self.dyn()->check(TokenKind::OpComma) {
+            self.dyn()->advance(T::SkipNL::After) // consume `,`
 
-            if dyn()->check(TokenKind::OpRParen) {
-                break;
+            if self.dyn()->check(TokenKind::OpRParen) {
+                break
             }
 
-            if dyn()->check(TokenKind::TkNewLine) {
+            if self.dyn()->check(TokenKind::TkNewLine) {
                 // allow newlines between tuple elements for readability
-                continue;
+                continue
             }
 
-            if dyn()->check(TokenKind::TkCodeComplete) {
-                dyn()->maybe_complete(CompletionContextKind::TypeRef);
-                dyn()->advance(T::SkipNL::After); // consume code complete token and any newlines after it
-                break;
+            if self.dyn()->check(TokenKind::TkCodeComplete) {
+                self.dyn()->maybe_complete(CompletionContextKind::TypeRef)
+                self.dyn()->advance(T::SkipNL::After) // consume code complete token and any newlines after it
+                break
             }
 
-            var elem = self.parse_type(false, true);
-            if (elem == &null) || is_recovery(elem) {
+            var unsafe *elem = self.parse_type(false, true)
+            if elem == &null || is_recovery(elem) {
                 // no stop_at_newline we're mid-tuple, newlines are legal
-                self._sync_type_progress(TypeSyncCtx::Comma, 1);
-                continue;
+                self._sync_type_progress(Self::TypeSyncCtx::Comma, 1)
+                continue
             }
 
-            vals.push_back(elem);
+            vals.push_back(elem)
         }
 
-        var full_range = start_range | dyn()->prev().range;
+        var full_range = start_range | self.dyn()->prev().range
 
-        var comma_range: SourceRange;
-        if dyn()->check_prev(TokenKind::OpComma) {
-            comma_range = dyn()->prev().range;
+        var comma_range: SourceRange
+        if self.dyn()->check_prev(TokenKind::OpComma) {
+            comma_range = self.dyn()->prev().range
 
-            if dyn()->check(TokenKind::TkCodeComplete) {
-                dyn()->maybe_complete(CompletionContextKind::TypeRef);
-                dyn()->advance(T::SkipNL::After);
+            if self.dyn()->check(TokenKind::TkCodeComplete) {
+                self.dyn()->maybe_complete(CompletionContextKind::TypeRef)
+                self.dyn()->advance(T::SkipNL::After)
             }
         }
 
-        dyn()->advance(T::SkipNL::Only); // consume any trailing newlines after the last element
+        self.dyn()->advance(T::SkipNL::Only) // consume any trailing newlines after the last element
 
-        if dyn()->check(TokenKind::OpRParen) {
-            full_range = full_range | dyn()->current_ptr()->range;
-            dyn()->advance(T::SkipNL::Before); // consume `)`
+        if self.dyn()->check(TokenKind::OpRParen) {
+            full_range = full_range | self.dyn()->current_ptr()->range
+            self.dyn()->advance(T::SkipNL::Before) // consume `)`
         } else {
-            dyn()->diag->report(DiagID::S055E, start_range.start,
-                "expected ')' to close tuple type"
-            ).first(start_range).emit();
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                start_range.start,
+                "expected ')' to close tuple type",
+            ).first(start_range)->emit()
         }
 
         /// \note Kairo requires tuples to have N >= 2 elements. single-element
         ///       parenthesized expressions are desugared to their inner type.
         if vals.size() == 1 {
-            dyn()->diag->report(DiagID::S055E, full_range.start,
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                full_range.start,
                 "tuple types must contain at least two elements or more, did you "
-                "mean to write '(T)' without the comma for a parenthesised type? "
-            ).first(comma_range).fix(comma_range, "remove", "remove this comma to make it a parenthesised type")
-            .emit();
+                "mean to write '(T)' without the comma for a parenthesised type? ",
+            ).first(comma_range)->fix(
+                comma_range,
+                "remove",
+                "remove this comma to make it a parenthesised type",
+            )->emit()
 
-            return TupleType::create_error(dyn()->ctx, full_range | dyn()->prev().range);
+            return Types::TupleType::create_error(
+                self.dyn()->ctx,
+                full_range | self.dyn()->prev().range,
+            )
         }
 
         // The cap is the flag's, under the compiler's own
@@ -692,36 +766,42 @@ class <T> TypeParse {
         // flag's documented meaning); comparing against 0 directly rejected
         // every tuple. Past the compiler's cap the fix-it does not offer the
         // flag, which cannot raise it.
-        var flag_cap = dyn()->ctx->ci->frontend.max_tuple_arity;
-        var cap = TUPLE_MAX_ARITY();
-        if (flag_cap > 0) && (static_cast::<usize>(flag_cap) < cap) { cap = static_cast::<usize>(flag_cap); }
-        if vals.size() > cap {
-            var range = vals[cap]->range;
-            var endr  = vals[vals.size() - 1]->range;
-            var hint  = "reduce the number of elements in this tuple type";
-            if cap < TUPLE_MAX_ARITY() { hint += " or increase the limit with --cmax-tuple-arity"; }
-
-            dyn()->diag->report(DiagID::S055E, range.start,
-                f"tuple arity exceeds the maximum of {cap} (got {vals.size()})"
-            ).first(range)
-            .fix(range | endr, "remove", hint)
-            .strike(SourceRange::from_bounds(range.end, full_range.end))
-            .emit();
-
-            return TupleType::create_error(dyn()->ctx, full_range);
+        var flag_cap = self.dyn()->ctx->ci->frontend.max_tuple_arity
+        var cap      = TUPLE_MAX_ARITY
+        if flag_cap > 0 && (flag_cap as usize) < cap {
+            cap = (flag_cap as usize)
         }
 
-        var tt = TupleType::create(dyn()->ctx, full_range);
-        tt->elements.from_buf(vals.data(), vals.size(), dyn()->ctx);
+        if (vals.size() as usize) > cap {
+            var range = vals[(cap as u32)]->range
+            var endr  = vals[vals.size() - 1]->range
+            var hint  = "reduce the number of elements in this tuple type"
+            if cap < TUPLE_MAX_ARITY {
+                hint += " or increase the limit with --cmax-tuple-arity"
+            }
+
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                range.start,
+                f"tuple arity exceeds the maximum of {cap} (got {vals.size()})",
+            ).first(range)->fix(range | endr, "remove", hint)->strike(
+                SourceRange::from_bounds(range.end, full_range.end),
+            )->emit()
+
+            return Types::TupleType::create_error(self.dyn()->ctx, full_range)
+        }
+
+        var tt = Types::TupleType::create(self.dyn()->ctx, full_range)
+        tt->elements.from_buf(vals.data(), vals.size(), self.dyn()->ctx)
 
         /// verify and merge type qualifiers/effects from child elements into
         /// the tuple node.
         for var i: usize = 0; i < tt->elements.size(); ++i {
-            propagate_flags(tt, tt->elements[i]);
+            Types::propagate_flags(tt, tt->elements[i])
         }
 
-        dyn()->exit_depth();
-        return tt;
+        self.dyn()->exit_depth()
+        return tt
     }
 
     /// \brief parses types delimited by square brackets, including vectors
@@ -745,81 +825,106 @@ class <T> TypeParse {
     ///         returns `&null`
     ///         unless a fatal internal inconsistency occurs during element
     ///         parsing.
-    inline fn _parse_square_type(self) -> *Type {
+    inline fn _parse_square_type(self) -> unsafe *Type {
         // precondition: current token is `[`
-        var lsquare_ptr = dyn()->current_ptr();
-        var start_range = lsquare_ptr->range;
-        dyn()->advance(T::SkipNL::After); // consume `[`
+        var lsquare_ptr = self.dyn()->current_ptr()
+        var start_range = lsquare_ptr->range
+        self.dyn()->advance(T::SkipNL::After) // consume `[`
 
-        if dyn()->check(TokenKind::OpRSquare) {
-            dyn()->advance(); // consume `]`
-            dyn()->diag->report(DiagID::S055E, start_range.start,
-                "empty arrays/vector types are not allowed, expected a type `[T]` or `[T; N]`"
-            ).first(start_range).emit();
-            var vt = VectorType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-            return vt;
+        if self.dyn()->check(TokenKind::OpRSquare) {
+            self.dyn()->advance() // consume `]`
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                start_range.start,
+                "empty arrays/vector types are not allowed, expected a type `[T]` or `[T; N]`",
+            ).first(start_range)->emit()
+            var vt = Types::VectorType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
+
+            return vt
         }
 
-        if dyn()->check(TokenKind::TkCodeComplete) {
-            dyn()->maybe_complete(CompletionContextKind::TypeRef);
-            dyn()->advance(T::SkipNL::After); // consume code complete token and any newlines after it
-            var vt = VectorType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-            return vt;
+        if self.dyn()->check(TokenKind::TkCodeComplete) {
+            self.dyn()->maybe_complete(CompletionContextKind::TypeRef)
+            self.dyn()->advance(T::SkipNL::After) // consume code complete token and any newlines after it
+            var vt = Types::VectorType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
+
+            return vt
         }
 
-        var elem_type = self.parse_type();
-        dyn()->advance(T::SkipNL::Only); // consume any newlines after the element type
+        var unsafe *elem_type = self.parse_type()
+        self.dyn()->advance(T::SkipNL::Only) // consume any newlines after the element type
 
         if elem_type == &null {
             // this should never get called since we should
             // always be making a fully valid tree (even with broken nodes)
-            dyn()->diag->report(DiagID::S053E, start_range.start,
-                "expected type after '[\x27"
-            ).first(start_range).emit();
-            return &null;
+            self.dyn()->diag->report(
+                DiagID::S053E,
+                start_range.start,
+                "expected type after '['",
+            ).first(start_range)->emit()
+            return &null
         }
 
         if is_recovery(elem_type) {
-            var err_st = VectorType::create_error(dyn()->ctx, start_range | elem_type->range);
-            propagate_flags(err_st, elem_type);
-            return err_st;
+            var err_st = Types::VectorType::create_error(
+                self.dyn()->ctx,
+                start_range | elem_type->range,
+            )
+
+            Types::propagate_flags(err_st, elem_type)
+            return err_st
         }
 
         // common error, if we have a , in here this is invalid syntax, maybe they
         // meant to write a tuple type with parentheses instead of square brackets?
-        if dyn()->check(TokenKind::OpComma) {
-            dyn()->diag->report(DiagID::S055E, start_range.start,
-                "unexpected ',' in square bracket type, did you mean to use parentheses for a tuple type?"
-            ).first(start_range).emit();
-            return self._finish_array_type(start_range, elem_type, true); // in error state
+        if self.dyn()->check(TokenKind::OpComma) {
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                start_range.start,
+                "unexpected ',' in square bracket type, did you mean to use parentheses for a tuple type?",
+            ).first(start_range)->emit()
+            return self._finish_array_type(start_range, elem_type, true) // in error state
         }
 
-        if dyn()->check(TokenKind::OpColon) {
-            dyn()->diag->report(DiagID::S055E, start_range.start,
-                "unexpected ':' in square bracket type, did you mean ';' for an array type with size '[T; N]'?"
-            ).first(start_range).emit();
-            return self._finish_array_type(start_range, elem_type, true); // in error state
+        if self.dyn()->check(TokenKind::OpColon) {
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                start_range.start,
+                "unexpected ':' in square bracket type, did you mean ';' for an array type with size '[T; N]'?",
+            ).first(start_range)->emit()
+            return self._finish_array_type(start_range, elem_type, true) // in error state
         }
 
-        if dyn()->check(TokenKind::OpSemicolon) {
-            return self._finish_array_type(start_range, elem_type);
+        if self.dyn()->check(TokenKind::OpSemicolon) {
+            return self._finish_array_type(start_range, elem_type)
         }
 
-        if !dyn()->check(TokenKind::OpRSquare) {
-            dyn()->diag->report(DiagID::S055E, start_range.start,
-                "expected ']' after type in square brackets"
-            ).first(start_range).emit();
+        if !self.dyn()->check(TokenKind::OpRSquare) {
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                start_range.start,
+                "expected ']' after type in square brackets",
+            ).first(start_range)->emit()
             // try to sync to ']' to continue parsing
-            self._sync_type(TypeSyncCtx::Square, 0, 1, 0, true);
-            return VectorType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+            self._sync_type(Self::TypeSyncCtx::Square, 0, 1, 0, true)
+            return Types::VectorType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
         }
 
-        dyn()->advance(T::SkipNL::Before); // consume `]`
-        var full_range = start_range | dyn()->prev().range;
+        self.dyn()->advance(T::SkipNL::Before) // consume `]`
+        var full_range = start_range | self.dyn()->prev().range
 
-        var st = VectorType::create(dyn()->ctx, full_range, elem_type);
-        propagate_flags(st, elem_type);
-        return st;
+        var st = Types::VectorType::create(self.dyn()->ctx, full_range, elem_type)
+        Types::propagate_flags(st, elem_type)
+        return st
     }
 
     /// \brief completes the parsing of a `FixedArrayType` after the element
@@ -848,76 +953,97 @@ class <T> TypeParse {
     ///                     type.
     /// \return a pointer to the constructed `FixedArrayType`, or `&null` on
     ///         fatal failure.
-    inline fn _finish_array_type(self, start_range: SourceRange, elem_type: *Type, is_error: bool = false) -> *FixedArrayType {
+    inline fn _finish_array_type(self,
+                                 start_range: SourceRange,
+                                 elem_type:   *Type,
+                                 is_error:    bool = false) -> unsafe *Types::FixedArrayType {
         // we are sitting on the `;` after parsing the element type in an array type like `[T; N]`
         // or we got here in error recovery after seeing a `,` which is not valid syntax for array types
-        var semicolon_ptr   = dyn()->current_ptr();
-        var semicolon_range = semicolon_ptr->range;
-        dyn()->advance(T::SkipNL::After); // consume `;`
+        var semicolon_ptr   = self.dyn()->current_ptr()
+        var semicolon_range = semicolon_ptr->range
+        self.dyn()->advance(T::SkipNL::After) // consume `;`
 
-        if dyn()->check(TokenKind::OpRSquare) {
+        if self.dyn()->check(TokenKind::OpRSquare) {
             if is_error {
-                dyn()->diag->report(DiagID::S055E, semicolon_range.start,
-                    "expected array size expression after ';' in array type"
-                ).first(semicolon_range).emit();
-                dyn()->advance();
-                return FixedArrayType::create_error(dyn()->ctx, start_range | semicolon_range);
+                self.dyn()->diag->report(
+                    DiagID::S055E,
+                    semicolon_range.start,
+                    "expected array size expression after ';' in array type",
+                ).first(semicolon_range)->emit()
+                self.dyn()->advance()
+                return Types::FixedArrayType::create_error(
+                    self.dyn()->ctx,
+                    start_range | semicolon_range,
+                )
             }
 
-            var rsquare_range = dyn()->current_ptr()->range;
-            dyn()->advance();
-            var arr = FixedArrayType::create_incomplete(
-                dyn()->ctx,
+            var rsquare_range = self.dyn()->current_ptr()->range
+            self.dyn()->advance()
+            var arr = Types::FixedArrayType::create_incomplete(
+                self.dyn()->ctx,
                 start_range | rsquare_range,
-                elem_type
-            );
-            propagate_flags(arr, elem_type);
-            return arr;
+                elem_type,
+            )
+
+            Types::propagate_flags(arr, elem_type)
+            return arr
         }
 
-        var size_expr = self._parse_const_expr();
-        dyn()->advance(T::SkipNL::Only);
+        var unsafe *size_expr = self._parse_const_expr()
+        self.dyn()->advance(T::SkipNL::Only)
 
         if size_expr == &null {
-            dyn()->diag->report(DiagID::S055E, semicolon_range.start,
-                "expected constant expression for array size after ';' in array type"
-            ).first(semicolon_range).emit();
-            return &null;
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                semicolon_range.start,
+                "expected constant expression for array size after ';' in array type",
+            ).first(semicolon_range)->emit()
+            return &null
         }
 
         // if we have a , here this is invalid syntax, maybe they meant to write a tuple type with parentheses instead of square brackets?
-        if dyn()->check(TokenKind::OpComma) {
-            dyn()->diag->report(DiagID::S055E, semicolon_range.start,
-                "unexpected ',' in array type, did you mean to use parentheses for a tuple type?"
-            ).first(semicolon_range).emit();
-            self._sync_type(TypeSyncCtx::Square, 0, 1); // sync to closing `]` to continue parsing
-            return FixedArrayType::create_error(dyn()->ctx, start_range | size_expr->range);
+        if self.dyn()->check(TokenKind::OpComma) {
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                semicolon_range.start,
+                "unexpected ',' in array type, did you mean to use parentheses for a tuple type?",
+            ).first(semicolon_range)->emit()
+            self._sync_type(Self::TypeSyncCtx::Square, 0, 1) // sync to closing `]` to continue parsing
+            return Types::FixedArrayType::create_error(
+                self.dyn()->ctx,
+                start_range | size_expr->range,
+            )
         }
 
         // check for ']'
-        if !dyn()->check(TokenKind::OpRSquare) {
-            dyn()->diag->report(DiagID::S055E, semicolon_range.start,
-                "expected ']' after array size expression in array type"
-            ).first(semicolon_range).emit();
+        if !self.dyn()->check(TokenKind::OpRSquare) {
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                semicolon_range.start,
+                "expected ']' after array size expression in array type",
+            ).first(semicolon_range)->emit()
             // try to sync to ']' to continue parsing
-            self._sync_type(TypeSyncCtx::Square, 0, 1, 0, true);
-            return FixedArrayType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+            self._sync_type(Self::TypeSyncCtx::Square, 0, 1, 0, true)
+            return Types::FixedArrayType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
         }
 
-        dyn()->advance(T::SkipNL::Before); // consume `]`
-        var full_range = start_range | dyn()->prev().range;
+        self.dyn()->advance(T::SkipNL::Before) // consume `]`
+        var full_range = start_range | self.dyn()->prev().range
 
         if is_error {
-            var err_at        = FixedArrayType::create_error(dyn()->ctx, full_range);
-            err_at->element   = elem_type;
-            err_at->size_expr = size_expr;
-            propagate_flags(err_at, elem_type);
-            return err_at;
+            var err_at = Types::FixedArrayType::create_error(self.dyn()->ctx, full_range)
+            err_at->element   = elem_type
+            err_at->size_expr = size_expr
+            Types::propagate_flags(err_at, elem_type)
+            return err_at
         }
 
-        var at = FixedArrayType::create(dyn()->ctx, full_range, elem_type, size_expr);
-        propagate_flags(at, elem_type);
-        return at;
+        var at = Types::FixedArrayType::create(self.dyn()->ctx, full_range, elem_type, size_expr)
+        Types::propagate_flags(at, elem_type)
+        return at
     }
 
     /// \brief parses types enclosed in braces, primarily `SetType` and
@@ -937,108 +1063,115 @@ class <T> TypeParse {
     /// \note empty braced types `{}` are prohibited to avoid ambiguity with
     ///       empty blocks or future syntax; `void` should be used if a
     ///       unit-like type is intended in a braced context.
-    inline fn _parse_braced_type(self) -> *Type {
+    inline fn _parse_braced_type(self) -> unsafe *Type {
         // precondition: current token is `{`
-        var lbrace_ptr  = dyn()->current_ptr();
-        var start_range = lbrace_ptr->range;
+        var lbrace_ptr  = self.dyn()->current_ptr()
+        var start_range = lbrace_ptr->range
 
-        dyn()->advance(T::SkipNL::After); // consume `{`
+        self.dyn()->advance(T::SkipNL::After) // consume `{`
 
         // empty braced type: `{}`
-        if dyn()->check(TokenKind::OpRBrace) {
-            var r = start_range | dyn()->current_ptr()->range;
+        if self.dyn()->check(TokenKind::OpRBrace) {
+            var r = start_range | self.dyn()->current_ptr()->range
 
-            dyn()->advance(); // consume `}`
-            dyn()->diag->report(
+            self.dyn()->advance() // consume `}`
+            self.dyn()->diag->report(
                 DiagID::S055E,
                 start_range.start,
-                "empty braced types are not allowed, use 'void' for empty or '{T}' for a set type"
-            ).first(start_range).emit();
+                "empty braced types are not allowed, use 'void' for empty or '{T}' for a set type",
+            ).first(start_range)->emit()
 
-            return MapType::create_error(dyn()->ctx, r);
+            return Types::MapType::create_error(self.dyn()->ctx, r)
         }
 
-        if dyn()->check(TokenKind::TkCodeComplete) {
-            dyn()->maybe_complete(CompletionContextKind::TypeRef);
-            dyn()->advance(T::SkipNL::After); // consume code complete token and any newlines after it
+        if self.dyn()->check(TokenKind::TkCodeComplete) {
+            self.dyn()->maybe_complete(CompletionContextKind::TypeRef)
+            self.dyn()->advance(T::SkipNL::After) // consume code complete token and any newlines after it
 
-            var r      = start_range | dyn()->prev().range;
-            var err_mt = MapType::create_error(dyn()->ctx, r);
+            var r      = start_range | self.dyn()->prev().range
+            var err_mt = Types::MapType::create_error(self.dyn()->ctx, r)
 
-            return err_mt;
+            return err_mt
         }
 
-        var key_type = self.parse_type(false, true);
-        dyn()->advance(T::SkipNL::Only);
+        var unsafe *key_type = self.parse_type(false, true)
+        self.dyn()->advance(T::SkipNL::Only)
 
         if key_type == &null {
-            dyn()->diag->report(
+            self.dyn()->diag->report(
                 DiagID::S053E,
                 start_range.start,
-                "expected type after '{\x27"
-            ).first(start_range).emit();
+                "expected type after '{'",
+            ).first(start_range)->emit()
 
-            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1, true);
-            return _error_type(start_range);
+            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1, true)
+            return self._error_type(start_range)
         }
 
         if is_recovery(key_type) {
-            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1, true);
+            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1, true)
 
-            var err = SetType::create_error(dyn()->ctx, start_range | key_type->range);
-            propagate_flags(err, key_type);
+            var err = Types::SetType::create_error(self.dyn()->ctx, start_range | key_type->range)
+            Types::propagate_flags(err, key_type)
 
-            return err;
+            return err
         }
 
         // `{K: V}` map type
-        if dyn()->check(TokenKind::OpColon) {
-            return self._finish_map_type(start_range, key_type);
+        if self.dyn()->check(TokenKind::OpColon) {
+            return self._finish_map_type(start_range, key_type)
         }
 
         // common error: `{K; V}` semicolon instead of colon
-        if dyn()->check(TokenKind::OpSemicolon) {
-            dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
-                "unexpected ';' in braced type, did you mean ':' for a map type '{K: V}'?"
-            );
+        if self.dyn()->check(TokenKind::OpSemicolon) {
+            self.dyn()->report_tok(
+                DiagID::S055E,
+                self.dyn()->current_ptr(),
+                "unexpected ';' in braced type, did you mean ':' for a map type '{K: V}'?",
+            )
 
-            return self._finish_map_type(start_range, key_type, true);
+            return self._finish_map_type(start_range, key_type, true)
         }
 
         // common error: `{K, V}` comma instead of colon, probably confused with tuple
-        if dyn()->check(TokenKind::OpComma) {
-            dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
-                "unexpected ',' in braced type, did you mean ':' for a map type '{K: V}\x27"
-                "or '(' for a tuple type?"
-            );
+        if self.dyn()->check(TokenKind::OpComma) {
+            self.dyn()->report_tok(
+                DiagID::S055E,
+                self.dyn()->current_ptr(),
+                "unexpected ',' in braced type, did you mean ':' for a map type '{K: V}'"
+                "or '(' for a tuple type?",
+            )
 
-            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
-            return SetType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1)
+            return Types::SetType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
         }
 
         // `{T}` set type
-        if dyn()->check(TokenKind::OpRBrace) {
-            var full_range = start_range | dyn()->current_ptr()->range;
-            dyn()->advance(T::SkipNL::Before); // consume `}`
+        if self.dyn()->check(TokenKind::OpRBrace) {
+            var full_range = start_range | self.dyn()->current_ptr()->range
+            self.dyn()->advance(T::SkipNL::Before) // consume `}`
 
             // FIXME: instead of having a custom node for set types, we could
             // directly desugar into kairo::core::Set<T> here in the parser.
-            var st = SetType::create(dyn()->ctx, full_range, key_type);
-            return st;
+            var st = Types::SetType::create(self.dyn()->ctx, full_range, key_type)
+            return st
         }
 
         // missing `}` or `:`
-        dyn()->diag->report(
+        self.dyn()->diag->report(
             DiagID::S055E,
             start_range.start,
-            "expected '}' to close set type or ':' to begin map type value"
-        ).first(start_range).emit();
+            "expected '}' to close set type or ':' to begin map type value",
+        ).first(start_range)->emit()
 
-        self._sync_type(TypeSyncCtx::Brace, 0, 0, 1, true);
+        self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1, true)
 
-        return SetType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+        return Types::SetType::create_error(self.dyn()->ctx, start_range | self.dyn()->prev().range)
     }
-    
+
     /// \details completes the parsing of a map type literal `{K: V}`
     ///          after the
     ///          key type and the colon separator have been identified.
@@ -1054,105 +1187,135 @@ class <T> TypeParse {
     ///       handles
     ///       recovery for missing value types, extraneous commas, and
     ///       nested colons.
-    inline fn _finish_map_type(
-        self,
-        start_range: SourceRange,
-        key_type:    *Type,
-        is_error:    bool = false
-    ) -> *MapType {
+    inline fn _finish_map_type(self,
+                               start_range: SourceRange,
+                               key_type:    *Type,
+                               is_error:    bool = false) -> *Types::MapType {
         // precondition: sitting on `:` (or `;` in error case, already diagnosed)
-        var sep_range = dyn()->current_ptr()->range;
-        dyn()->advance(T::SkipNL::After); // consume `:` or `;`
+        var sep_range = self.dyn()->current_ptr()->range
+        self.dyn()->advance(T::SkipNL::After) // consume `:` or `;`
 
         // `{K:}` missing value type
-        if dyn()->check(TokenKind::OpRBrace) {
-            dyn()->diag->report(DiagID::S053E, sep_range.start,
-                "expected value type after ':' in map type '{K: V}\x27"
-            ).first(sep_range).emit();
-            dyn()->advance(); // consume `}`
-            var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-            propagate_flags(err, key_type);
-            return err;
+        if self.dyn()->check(TokenKind::OpRBrace) {
+            self.dyn()->diag->report(
+                DiagID::S053E,
+                sep_range.start,
+                "expected value type after ':' in map type '{K: V}'",
+            ).first(sep_range)->emit()
+            self.dyn()->advance() // consume `}`
+            var err = Types::MapType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
+
+            Types::propagate_flags(err, key_type)
+            return err
         }
 
-        if dyn()->check(TokenKind::TkCodeComplete) {
-            dyn()->maybe_complete(CompletionContextKind::TypeRef);
-            dyn()->advance(T::SkipNL::After); // consume code complete token and any newlines after it
-            var err = MapType::create_error(dyn()->ctx, start_range | sep_range);
-            propagate_flags(err, key_type);
-            return err;
+        if self.dyn()->check(TokenKind::TkCodeComplete) {
+            self.dyn()->maybe_complete(CompletionContextKind::TypeRef)
+            self.dyn()->advance(T::SkipNL::After) // consume code complete token and any newlines after it
+            var err = Types::MapType::create_error(self.dyn()->ctx, start_range | sep_range)
+            Types::propagate_flags(err, key_type)
+            return err
         }
 
-        var val_type = self.parse_type(false, true);
-        dyn()->advance(T::SkipNL::Only);
+        var unsafe *val_type = self.parse_type(false, true)
+        self.dyn()->advance(T::SkipNL::Only)
 
         if val_type == &null {
-            dyn()->diag->report(DiagID::S053E, sep_range.start,
-                "expected value type after ':' in map type '{K: V}\x27"
-            ).first(sep_range).emit();
-            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
-            var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-            propagate_flags(err, key_type);
-            return err;
+            self.dyn()->diag->report(
+                DiagID::S053E,
+                sep_range.start,
+                "expected value type after ':' in map type '{K: V}'",
+            ).first(sep_range)->emit()
+            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1)
+            var err = Types::MapType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
+
+            Types::propagate_flags(err, key_type)
+            return err
         }
 
         if is_recovery(val_type) {
-            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
-            var err = MapType::create_error(dyn()->ctx, start_range | val_type->range);
-            propagate_flags(err, key_type);
-            propagate_flags(err, val_type);
-            return err;
+            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1)
+            var err = Types::MapType::create_error(self.dyn()->ctx, start_range | val_type->range)
+            Types::propagate_flags(err, key_type)
+            Types::propagate_flags(err, val_type)
+            return err
         }
 
         // common error: `{K: V, ...}`
-        if dyn()->check(TokenKind::OpComma) {
-            dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
-                "unexpected ',' in map type, map types take exactly one key and one value type '{K: V}\x27"
-            );
-            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
-            var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-            propagate_flags(err, key_type);
-            propagate_flags(err, val_type);
-            return err;
+        if self.dyn()->check(TokenKind::OpComma) {
+            self.dyn()->report_tok(
+                DiagID::S055E,
+                self.dyn()->current_ptr(),
+                "unexpected ',' in map type, map types take exactly one key and one value type '{K: V}'",
+            )
+
+            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1)
+            var err = Types::MapType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
+
+            Types::propagate_flags(err, key_type)
+            Types::propagate_flags(err, val_type)
+            return err
         }
 
         // common error: `{K: V: W}` double colon
-        if dyn()->check(TokenKind::OpColon) {
-            dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
-                "unexpected ':' in map type, expected '}' after value type"
-            );
-            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
-            var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-            propagate_flags(err, key_type);
-            propagate_flags(err, val_type);
-            return err;
+        if self.dyn()->check(TokenKind::OpColon) {
+            self.dyn()->report_tok(
+                DiagID::S055E,
+                self.dyn()->current_ptr(),
+                "unexpected ':' in map type, expected '}' after value type",
+            )
+
+            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1)
+            var err = Types::MapType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
+
+            Types::propagate_flags(err, key_type)
+            Types::propagate_flags(err, val_type)
+            return err
         }
 
-        if !dyn()->check(TokenKind::OpRBrace) {
-            dyn()->diag->report(DiagID::S055E, start_range.start,
-                "expected '}' to close map type"
-            ).first(start_range).emit();
-            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
-            var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-            propagate_flags(err, key_type);
-            propagate_flags(err, val_type);
-            return err;
+        if !self.dyn()->check(TokenKind::OpRBrace) {
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                start_range.start,
+                "expected '}' to close map type",
+            ).first(start_range)->emit()
+            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1)
+            var err = Types::MapType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
+
+            Types::propagate_flags(err, key_type)
+            Types::propagate_flags(err, val_type)
+            return err
         }
 
-        var full_range = start_range | dyn()->current_ptr()->range;
-        dyn()->advance(T::SkipNL::Before); // consume `}`
+        var full_range = start_range | self.dyn()->current_ptr()->range
+        self.dyn()->advance(T::SkipNL::Before) // consume `}`
 
         if is_error {
-            var err = MapType::create_error(dyn()->ctx, full_range);
-            err->key   = key_type;
-            err->value = val_type;
-            propagate_flags(err, key_type);
-            propagate_flags(err, val_type);
-            return err;
+            var err = Types::MapType::create_error(self.dyn()->ctx, full_range)
+            err->key   = key_type
+            err->value = val_type
+            Types::propagate_flags(err, key_type)
+            Types::propagate_flags(err, val_type)
+            return err
         }
 
-        var mt = MapType::create(dyn()->ctx, full_range, key_type, val_type);
-        return mt;
+        var mt = Types::MapType::create(self.dyn()->ctx, full_range, key_type, val_type)
+        return mt
     }
 
     /// \brief parses a pointer type declaration starting with the `*`
@@ -1169,45 +1332,47 @@ class <T> TypeParse {
     ///         token,
     ///          returns a `PointerType` marked with error flags to suppress
     ///          redundant diagnostics during sema.
-    inline fn _parse_pointer_type(self) -> *PointerType {
+    inline fn _parse_pointer_type(self) -> unsafe *Types::PointerType {
         // precondition: current token is `*`
-        var star_ptr    = dyn()->current_ptr();
-        var start_range = star_ptr->range;
-        dyn()->advance(); // consume `*`
+        var star_ptr    = self.dyn()->current_ptr()
+        var start_range = star_ptr->range
+        self.dyn()->advance() // consume `*`
 
-        if dyn()->check(TokenKind::TkCodeComplete) {
-            dyn()->maybe_complete(CompletionContextKind::TypeRef);
-            var err_pt = PointerType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-            return err_pt;
+        if self.dyn()->check(TokenKind::TkCodeComplete) {
+            self.dyn()->maybe_complete(CompletionContextKind::TypeRef)
+            var err_pt = Types::PointerType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
+
+            return err_pt
         }
 
         // parse_type() recurses handles `**T`, `*const T`, etc.
         // because parse_type() will see `const` as a qualifier and `*` as another pointer.
         // The `?` is left for the parse_type this pointer is the primary of:
         // `*T?` is `(*T)?`, and `**T?` is `(**T)?`.
-        var pointee = self.parse_type(false, false, false, true);
+        var unsafe *pointee = self.parse_type(false, false, false, true)
         if pointee == &null {
-            dyn()->diag->report(DiagID::S053E, start_range.start,
-                "expected type after '*\x27"
-            ).first(start_range).emit();
+            self.dyn()->diag->report(
+                DiagID::S053E,
+                start_range.start,
+                "expected type after '*'",
+            ).first(start_range)->emit()
 
-            return PointerType::create_error(dyn()->ctx, start_range);
+            return Types::PointerType::create_error(self.dyn()->ctx, start_range)
         }
 
-        var end_range = (pointee->range) if (pointee != &null) else start_range;
+        var end_range = if (pointee != &null) => (pointee->range) else => start_range
         if is_recovery(pointee) {
-            var err_pt = PointerType::create_error(dyn()->ctx, start_range | end_range);
-            propagate_flags(err_pt, pointee);
-            return err_pt;
+            var err_pt = Types::PointerType::create_error(self.dyn()->ctx, start_range | end_range)
+            Types::propagate_flags(err_pt, pointee)
+            return err_pt
         }
 
-        var pty = PointerType::create(
-            dyn()->ctx,
-            start_range | end_range,
-            pointee
-        );
+        var pty = Types::PointerType::create(self.dyn()->ctx, start_range | end_range, pointee)
 
-        return pty;
+        return pty
     }
 
     /// \brief parses a function pointer type such as `fn(i32) -> bool`.
@@ -1226,128 +1391,167 @@ class <T> TypeParse {
     ///       the
     ///       parentheses. if a name is detected immediately following `fn`, the
     ///       parser assumes a declaration was intended and attempts to recover.
-    inline fn _parse_fn_ptr_type(self) -> *FunctionPointerType {
-        var start_range = dyn()->current_ptr()->range;
-        dyn()->advance(); // consume `fn`
+    inline fn _parse_fn_ptr_type(self) -> unsafe *Types::FunctionPointerType {
+        var start_range = self.dyn()->current_ptr()->range
+        self.dyn()->advance() // consume `fn`
 
-        if dyn()->check(TokenKind::OpLess) {
-            dyn()->diag->report(DiagID::S055E, start_range.start,
-                "unexpected '<' after 'fn' in function pointer type, generic parameters are not supported here"
-            ).first(start_range).emit();
-            self._sync_type(TypeSyncCtx::TopLevel, 0, 0, 0, true);
-            return FunctionPointerType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+        if self.dyn()->check(TokenKind::OpLess) {
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                start_range.start,
+                "unexpected '<' after 'fn' in function pointer type, generic parameters are not supported here",
+            ).first(start_range)->emit()
+            self._sync_type(Self::TypeSyncCtx::TopLevel, 0, 0, 0, true)
+            return Types::FunctionPointerType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
         }
 
-        if dyn()->check(fn (k: TokenKind) -> bool {
-            return TYPE_TOK_TBL.contains(k);
-        }) {
-            dyn()->diag->report(DiagID::S055E, start_range.start,
+        if self.dyn()->check(
+            fn (k: TokenKind) -> bool {
+                return Self::_is_type_tok_kind(k)
+            },
+        ) {
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                start_range.start,
                 "unexpected identifier after 'fn' in function pointer type, "
-                "did you mean to write a function declaration?"
-            ).first(start_range).emit();
-            self._sync_type(TypeSyncCtx::TopLevel, 0, 0, 0, true);
-            return FunctionPointerType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+                "did you mean to write a function declaration?",
+            ).first(start_range)->emit()
+            self._sync_type(Self::TypeSyncCtx::TopLevel, 0, 0, 0, true)
+            return Types::FunctionPointerType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
         }
 
         // require `(`
-        if !dyn()->check(TokenKind::OpLParen) {
-            dyn()->diag->report(DiagID::S055E, start_range.start,
-                "expected '(' after 'fn' in function pointer type"
-            ).first(start_range).emit();
-            self._sync_type(TypeSyncCtx::TopLevel, 0, 0, 0, true);
-            return FunctionPointerType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+        if !self.dyn()->check(TokenKind::OpLParen) {
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                start_range.start,
+                "expected '(' after 'fn' in function pointer type",
+            ).first(start_range)->emit()
+            self._sync_type(Self::TypeSyncCtx::TopLevel, 0, 0, 0, true)
+            return Types::FunctionPointerType::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            )
         }
-        dyn()->advance(T::SkipNL::After); // consume `(`
 
-        var param_types: std::StackBuf::<*Type, 8>;
-        var param_modes: std::StackBuf::<ParamMode, 8>;   // parallel to param_types.
+        self.dyn()->advance(T::SkipNL::After) // consume `(`
 
-        if !dyn()->check(TokenKind::OpRParen) {
-            self._parse_fn_ptr_params(&param_types, &param_modes, start_range);
+        var param_types: kairo::std::StackBuf<*Type, 8>
+        var param_modes: kairo::std::StackBuf<ParamMode, 8> // parallel to param_types.
+
+        if !self.dyn()->check(TokenKind::OpRParen) {
+            self._parse_fn_ptr_params(&param_types, &param_modes, start_range)
         }
 
         // consume `)`
-        if dyn()->check(TokenKind::OpRParen) {
-            dyn()->advance();
+        if self.dyn()->check(TokenKind::OpRParen) {
+            self.dyn()->advance()
         } else {
-            dyn()->diag->report(DiagID::S055E, start_range.start,
-                "expected ')' to close function pointer parameter list"
-            ).first(start_range).emit();
-            self._sync_type(TypeSyncCtx::Paren, 1, 0, 0, true);
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                start_range.start,
+                "expected ')' to close function pointer parameter list",
+            ).first(start_range)->emit()
+            self._sync_type(Self::TypeSyncCtx::Paren, 1, 0, 0, true)
         }
 
         // `fn(A) @preserve_most -> R`: the calling convention, right after
         // the parameter list (FunctionPointerType::call_conv). Only the three
         // convention names are taken; any other `@x` here is not this type's
         // and is left where it is.
-        var fn_cc: u8 = 0;
-        if dyn()->check(TokenKind::OpAt) && dyn()->check_peek(TokenKind::LitIdentifier) {
-            var an = dyn()->ctx->hoisted->intern_tok(dyn()->peek());
-            if      an == dyn()->ctx->hoisted->intern(LangAttrs::preserve_most()) { fn_cc = 1; }
-            else if an == dyn()->ctx->hoisted->intern(LangAttrs::preserve_all())  { fn_cc = 2; }
-            else if an == dyn()->ctx->hoisted->intern(LangAttrs::preserve_none()) { fn_cc = 3; }
+        var fn_cc: u8 = 0
+        if self.dyn()->check(TokenKind::OpAt) && self.dyn()->check_peek(TokenKind::LitIdentifier) {
+            var an = self.dyn()->ctx->hoisted->intern_tok(self.dyn()->peek())
+            if an == self.dyn()->ctx->hoisted->intern(LangAttrs::preserve_most()) {
+                fn_cc = 1
+            } else if an == self.dyn()->ctx->hoisted->intern(LangAttrs::preserve_all()) {
+                fn_cc = 2
+            } else if an == self.dyn()->ctx->hoisted->intern(LangAttrs::preserve_none()) {
+                fn_cc = 3
+            }
+
             if fn_cc != 0 {
-                dyn()->advance();   // `@`
-                dyn()->advance();   // the name
+                self.dyn()->advance() // `@`
+                self.dyn()->advance() // the name
             }
         }
 
         // trailing qualifiers: fn(T) const panic async -> U. A `(` right
-        // after `panic`, on its line, is the declared set (PANIC.md §2.2):
+        // after `panic`, on its line, is the declared set (Compiler/Spec/Panic.md#declared-sets):
         // nothing else can follow a qualifier here, so the set is never a
         // tuple. Qualifiers may continue after it (`panic(E) async`).
-        var fn_quals: typename!(T::PendingQuals);
-        dyn()->consume_leading_quals(&fn_quals);
-        var pset: std::StackBuf::<*Type, 4>;
-        var more_quals: typename!(T::PendingQuals);
+        var fn_quals: T::PendingQuals
+        self.dyn()->consume_leading_quals(&fn_quals)
+        var pset:       kairo::std::StackBuf<unsafe *Type, 4>
+        var more_quals: T::PendingQuals
         // The LAST qualifier, as consume_leading_quals resolved it (a
         // `panic` from a macro expansion included), not the raw prev token.
-        var nq = fn_quals.spans.size();
-        var last_is_panic = (nq > 0)
-            && (fn_quals.spans[nq - 1].qual_flag == static_cast::<u16>(TypeQual::<Type>::Flags::IsPanic));
-        if last_is_panic && dyn()->check(TokenKind::OpLParen) {
-            self.parse_panic_set(&pset);
-            dyn()->consume_leading_quals(&more_quals);
+        var nq = fn_quals.spans.size()
+        var last_is_panic = nq > 0
+            && fn_quals.spans[nq - 1].qual_flag == (TypeQual<Type>::Flags::IsPanic as u16)
+        if last_is_panic && self.dyn()->check(TokenKind::OpLParen) {
+            self.parse_panic_set(unsafe &pset)
+            self.dyn()->consume_leading_quals(&more_quals)
         }
 
         // optional return type
-        var return_type: *Type = &null;
-        if dyn()->check(TokenKind::OpArrow) {
-            dyn()->advance(); // consume `->`
+        var return_type: unsafe *Type = &null
+        if self.dyn()->check(TokenKind::OpArrow) {
+            self.dyn()->advance() // consume `->`
             // `!` is the never type, a builtin spelled by punctuation. It is
-            // deliberately not in TYPE_TOK_TBL (`!x` must stay an expression
+            // deliberately not in _is_type_tok_kind (`!x` must stay an expression
             // everywhere else), so the one place it is a type, a return
             // position, takes it here the way a function decl's `-> !` does.
-            if dyn()->check(TokenKind::OpExclaim) {
-                return_type = self._parse_qual_type();
+            if self.dyn()->check(TokenKind::OpExclaim) {
+                return_type = self._parse_qual_type()
             } else {
-                return_type = self.parse_type();
+                return_type = self.parse_type()
             }
-            if (return_type == &null) || is_recovery(return_type) {
-                var err = FunctionPointerType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+
+            if return_type == &null || is_recovery(return_type) {
+                var err = Types::FunctionPointerType::create_error(
+                    self.dyn()->ctx,
+                    start_range | self.dyn()->prev().range,
+                )
+
                 if return_type != &null {
-                    propagate_flags(err, return_type);
+                    Types::propagate_flags(err, return_type)
                 }
-                return err;
+
+                return err
             }
         }
 
-        var fpt = FunctionPointerType::create(dyn()->ctx, start_range | dyn()->prev().range, return_type);
-        fpt->params.from_buf(param_types.data(), param_types.size(), dyn()->ctx);
+        var fpt = Types::FunctionPointerType::create(
+            self.dyn()->ctx,
+            start_range | self.dyn()->prev().range,
+            return_type,
+        )
+
+        fpt->params.from_buf(param_types.data(), param_types.size(), self.dyn()->ctx)
         // Always, even when empty: TypeResolution ICEs on a count mismatch.
         // The create_error / create_unprototyped nodes populate neither, so
         // they are parallel at zero.
-        fpt->modes.from_buf(param_modes.data(), param_modes.size(), dyn()->ctx);
-        fpt->panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
-        fpt->call_conv = fn_cc;
-        for var i: usize = 0; i < pset.size(); ++i { propagate_flags(fpt, pset[i]); }
-        dyn()->apply_quals(fpt, &fn_quals);
-        dyn()->apply_quals(fpt, &more_quals);
-        return fpt;
+        fpt->modes.from_buf(param_modes.data(), param_modes.size(), self.dyn()->ctx)
+        fpt->panic_set.from_buf(pset.data(), pset.size(), self.dyn()->ctx)
+        fpt->call_conv = fn_cc
+        for var i: usize = 0; i < (pset.size() as usize); ++i {
+            Types::propagate_flags(fpt, pset[(i as u32)])
+        }
+
+        self.dyn()->apply_quals(fpt, &fn_quals)
+        self.dyn()->apply_quals(fpt, &more_quals)
+        return fpt
     }
 
     /// \brief parses the declared panic set `(E1, E2)` after a `panic`
-    ///        specifier (PANIC.md §2.2) into \p out.
+    ///        specifier (Compiler/Spec/Panic.md#declared-sets) into \p out.
     ///
     /// \details the caller has consumed `panic` and calls this only when `(`
     ///          is the very next token, on the same line. That position is
@@ -1362,49 +1566,72 @@ class <T> TypeParse {
     ///          and the list recovers at the next `,` / `)`. `panic()` names
     ///          no type, which no set can be: S055E with a fix-it removing
     ///          the parentheses, and it parses as a bare `panic` (inferred).
-    pub fn parse_panic_set(self, out: *std::StackBuf::<*Type, 4>) {
-        var open = dyn()->current_ptr()->range;
-        dyn()->advance(T::SkipNL::After); // consume `(`
+    pub fn parse_panic_set(self, out: unsafe *kairo::std::StackBuf<unsafe *Type, 4>) {
+        var open = self.dyn()->current_ptr()->range
+        self.dyn()->advance(T::SkipNL::After) // consume `(`
 
         // set once something in the list was diagnosed, so a missing `)`
         // after it is not reported a second time.
-        var failed = false;
-        while !dyn()->is_eof() {
-            if dyn()->check(TokenKind::OpRParen) { break; }
-
-            var ty = self.parse_type();
-            if (ty != &null) && (!is_recovery(ty)) {
-                out->push_back(ty);
-                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                if dyn()->check(TokenKind::OpRParen) { break; }
-                dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
-                    "expected ',' or ')' after a type in the panic set"
-                );
+        var failed = false
+        while !self.dyn()->is_eof() {
+            if self.dyn()->check(TokenKind::OpRParen) {
+                break
             }
-            failed = true;
-            self._sync_panic_set();
-            if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-            break;
+
+            var unsafe *ty = self.parse_type()
+            if ty != &null && !is_recovery(ty) {
+                out->push_back(ty)
+                if self.dyn()->check(TokenKind::OpComma) {
+                    self.dyn()->advance(T::SkipNL::After)
+                    continue
+                }
+
+                if self.dyn()->check(TokenKind::OpRParen) {
+                    break
+                }
+
+                self.dyn()->report_tok(
+                    DiagID::S055E,
+                    self.dyn()->current_ptr(),
+                    "expected ',' or ')' after a type in the panic set",
+                )
+            }
+
+            failed = true
+            self._sync_panic_set()
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
+                continue
+            }
+
+            break
         }
 
-        if !dyn()->check(TokenKind::OpRParen) {
+        if !self.dyn()->check(TokenKind::OpRParen) {
             if !failed {
-                dyn()->diag->report(DiagID::S055E, open.start,
-                    "expected ')' to close the panic set"
-                ).first(open, "opened here").emit();
+                self.dyn()->diag->report(
+                    DiagID::S055E,
+                    open.start,
+                    "expected ')' to close the panic set",
+                ).first(open, "opened here")->emit()
             }
-            return;
-        }
-        var close = dyn()->current_ptr()->range;
-        dyn()->advance(); // consume `)`
 
-        if (out->size() == 0) && (!failed) {
-            var b = dyn()->diag->report(DiagID::S055E, open.start,
-                "an explicit panic set names at least one error type; a bare 'panic' has its set inferred"
-            );
-            b.first(open | close, "empty panic set");
-            b.remove(open | close, "remove the empty list");
-            b.emit();
+            return
+        }
+
+        var close = self.dyn()->current_ptr()->range
+        self.dyn()->advance() // consume `)`
+
+        if out->size() == 0 && !failed {
+            var b = self.dyn()->diag->report(
+                DiagID::S055E,
+                open.start,
+                "an explicit panic set names at least one error type; a bare 'panic' has its set inferred",
+            )
+
+            b.first(open | close, "empty panic set")
+            b.remove(open | close, "remove the empty list")
+            b.emit()
         }
     }
 
@@ -1412,19 +1639,28 @@ class <T> TypeParse {
     /// at this level, never past the rest of the header (`->`, the body's
     /// `{` or `=`, the end of the line), which the caller still parses.
     priv fn _sync_panic_set(self) {
-        var depth: i32 = 0;
-        while !dyn()->is_eof() {
-            var k = dyn()->ig_kind();
+        var depth: i32 = 0
+        while !self.dyn()->is_eof() {
+            var k = self.dyn()->ig_kind()
             if depth == 0 {
-                if (k == TokenKind::OpRParen) || (k == TokenKind::OpComma) || (k == TokenKind::OpArrow)
-                || (k == TokenKind::OpLBrace) || (k == TokenKind::OpEqual) || (k == TokenKind::OpSemicolon)
-                || (k == TokenKind::TkNewLine) {
-                    return;
+                if k == TokenKind::OpRParen
+                    || k == TokenKind::OpComma
+                    || k == TokenKind::OpArrow
+                    || k == TokenKind::OpLBrace
+                    || k == TokenKind::OpEqual
+                    || k == TokenKind::OpSemicolon
+                    || k == TokenKind::TkNewLine {
+                    return
                 }
             }
-            if (k == TokenKind::OpLParen) || (k == TokenKind::OpLSquare) { ++depth; }
-            else if ((k == TokenKind::OpRParen) || (k == TokenKind::OpRSquare)) && (depth > 0) { --depth; }
-            dyn()->advance();
+
+            if k == TokenKind::OpLParen || k == TokenKind::OpLSquare {
+                ++depth
+            } else if (k == TokenKind::OpRParen || k == TokenKind::OpRSquare) && depth > 0 {
+                --depth
+            }
+
+            self.dyn()->advance()
         }
     }
 
@@ -1447,148 +1683,185 @@ class <T> TypeParse {
     ///
     /// \param modes parallel to \p out: one entry pushed with every type, so a
     ///        parameter dropped in recovery drops its mode too.
-    inline fn _parse_fn_ptr_params(self, out: *std::StackBuf::<*Type, 8>, modes: *std::StackBuf::<ParamMode, 8>, start_range: SourceRange) {
-        while !dyn()->is_eof() {
-            if dyn()->check(TokenKind::OpRParen) {
-                return;
+    inline fn _parse_fn_ptr_params(self,
+                                   out:         unsafe *kairo::std::StackBuf<unsafe *Type, 8>,
+                                   modes:       unsafe *kairo::std::StackBuf<ParamMode, 8>,
+                                   start_range: SourceRange) {
+        while !self.dyn()->is_eof() {
+            if self.dyn()->check(TokenKind::OpRParen) {
+                return
             }
 
-            if dyn()->check(TokenKind::TkCodeComplete) {
-                dyn()->maybe_complete(CompletionContextKind::TypeRef);
-                return;
+            if self.dyn()->check(TokenKind::TkCodeComplete) {
+                self.dyn()->maybe_complete(CompletionContextKind::TypeRef)
+                return
             }
 
             // function pointer types cannot have default values (e.g., `fn(u32 = 0)` is invalid).
-            if dyn()->check(TokenKind::OpEqual) {
-                dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
-                    "unexpected '=' in function pointer type parameter list, default values are not allowed here"
-                );
+            if self.dyn()->check(TokenKind::OpEqual) {
+                self.dyn()->report_tok(
+                    DiagID::S055E,
+                    self.dyn()->current_ptr(),
+                    "unexpected '=' in function pointer type parameter list, default values are not allowed here",
+                )
 
-                self._sync_type_progress(TypeSyncCtx::Paren, 1, 0, 0, true);
-                continue;
+                self._sync_type_progress(Self::TypeSyncCtx::Paren, 1, 0, 0, true)
+                continue
             }
 
             // `fn(@inout T)`: the one type-shaped place a mode is legal. Taken
             // here so parse_type's mode-in-type rejection never sees it.
-            var m = dyn()->_peek_mode();
-            if m != ParamMode::Value { dyn()->_consume_mode(); }
-
-            var param_ty = self.parse_type(false, true);
-            if (param_ty == &null) || is_recovery(param_ty) {
-                self._sync_type_progress(TypeSyncCtx::Paren, 1, 0, 0);
-                continue;
-            }
-            out->push_back(param_ty);
-            modes->push_back(m);
-
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
-                continue;
+            var m = self.dyn()->_peek_mode()
+            if m != ParamMode::Value {
+                self.dyn()->_consume_mode()
             }
 
-            if !dyn()->check(TokenKind::OpRParen) {
-                dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
-                    "expected ',' or ')' after parameter type in function pointer type"
-                );
+            var unsafe *param_ty = self.parse_type(false, true)
+            if param_ty == &null || is_recovery(param_ty) {
+                self._sync_type_progress(Self::TypeSyncCtx::Paren, 1, 0, 0)
+                continue
+            }
 
-                self._sync_type(TypeSyncCtx::Paren, 1, 0, 0, true);
+            out->push_back(param_ty)
+            modes->push_back(m)
+
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
+                continue
+            }
+
+            if !self.dyn()->check(TokenKind::OpRParen) {
+                self.dyn()->report_tok(
+                    DiagID::S055E,
+                    self.dyn()->current_ptr(),
+                    "expected ',' or ')' after parameter type in function pointer type",
+                )
+
+                self._sync_type(Self::TypeSyncCtx::Paren, 1, 0, 0, true)
             }
         }
     }
 
-    inline fn _parse_variadic_type(self) -> *VariadicPackType {
+    inline fn _parse_variadic_type(self) -> unsafe *Types::VariadicPackType {
         // ...T, const ...T
         // cur token == `...`
-        var start_range = dyn()->current_ptr()->range;
-        dyn()->advance(); // consume '...'
+        var start_range = self.dyn()->current_ptr()->range
+        self.dyn()->advance() // consume '...'
 
-        if !dyn()->check(fn(k: TokenKind) -> bool {
-            return TYPE_TOK_TBL.contains(k);
-        }) {
-            dyn()->diag->report(DiagID::S055E, start_range.start,
-                "expected type parameter name after '...' for variadic pack type"
-            ).first(start_range).emit();
-            return VariadicPackType::create_error(dyn()->ctx, start_range);
+        if !self.dyn()->check(
+            fn(k: TokenKind) -> bool {
+                return Self::_is_type_tok_kind(k)
+            },
+        ) {
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                start_range.start,
+                "expected type parameter name after '...' for variadic pack type",
+            ).first(start_range)->emit()
+            return Types::VariadicPackType::create_error(self.dyn()->ctx, start_range)
         }
 
-        var chain = self._parse_qual_type();
+        var unsafe *chain = self._parse_qual_type()
 
         if chain == &null {
-            dyn()->diag->report(DiagID::S053E, start_range.start,
-                "expected type after '...' for variadic pack type"
-            ).first(start_range).emit();
-            return VariadicPackType::create_error(dyn()->ctx, start_range);
+            self.dyn()->diag->report(
+                DiagID::S053E,
+                start_range.start,
+                "expected type after '...' for variadic pack type",
+            ).first(start_range)->emit()
+            return Types::VariadicPackType::create_error(self.dyn()->ctx, start_range)
         }
 
         if is_recovery(chain) {
-            return VariadicPackType::create_error(dyn()->ctx, start_range | chain->range);
+            return Types::VariadicPackType::create_error(
+                self.dyn()->ctx,
+                start_range | chain->range,
+            )
         }
 
         // variadic pack must be a single unqualified name no generics, no scoping
         if !chain->is_simple() {
-            dyn()->diag->report(DiagID::S055E, chain->range.start,
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                chain->range.start,
                 "variadic pack type must be a single type parameter name, "
-                "not a qualified or generic type path"
-            ).first(chain->range).emit();
-            return VariadicPackType::create_error(dyn()->ctx, start_range | chain->range);
+                "not a qualified or generic type path",
+            ).first(chain->range)->emit()
+            return Types::VariadicPackType::create_error(
+                self.dyn()->ctx,
+                start_range | chain->range,
+            )
         }
 
         if chain->has_generic_args() {
-            dyn()->diag->report(DiagID::S055E, chain->range.start,
-                "variadic pack type cannot have generic arguments"
-            ).first(chain->range).emit();
-            return VariadicPackType::create_error(dyn()->ctx, start_range | chain->range);
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                chain->range.start,
+                "variadic pack type cannot have generic arguments",
+            ).first(chain->range)->emit()
+            return Types::VariadicPackType::create_error(
+                self.dyn()->ctx,
+                start_range | chain->range,
+            )
         }
 
         // wrap the identifier as a GenericParamType
         // param_index is 0 here sema resolves the actual index during
         // generic parameter binding when it matches this name against the
         // enclosing generic parameter list
-        var name_expr = chain->trailing_name();
-        var gpt = GenericParamType::create(
-            dyn()->ctx,
+        var unsafe *name_expr = chain->trailing_name()
+        var gpt = Types::GenericParamType::create(
+            self.dyn()->ctx,
             chain->range,
             name_expr,
             0,     // param_index placeholder, sema resolves
             true   // is_pack
-        );
+        )
 
-        var vpt = VariadicPackType::create(dyn()->ctx, start_range | chain->range, gpt);
-        return vpt;
+        var vpt = Types::VariadicPackType::create(self.dyn()->ctx, start_range | chain->range, gpt)
+        return vpt
     }
 
-    inline fn _parse_pack_expansion_type(self, ty: *Type) -> *PackExpansionType {
+    inline fn _parse_pack_expansion_type(self,
+                                         ty: unsafe *Type) -> unsafe *Types::PackExpansionType {
         // current token is `...`
-        if (ty == &null) {
-            dyn()->report_tok(DiagID::I002F, dyn()->current_ptr(),
+        if ty == &null {
+            self.dyn()->report_tok(
+                DiagID::I002F,
+                self.dyn()->current_ptr(),
                 "Fatal compiler bug, please raise an issue on our github at "
                 "https://github.com/kairolang/kairo/issues "
-                "along with the code to reproduce it"
-            );
-            return &null;
-        }
-        
-        var end_range = dyn()->current_ptr()->range;
-        dyn()->advance(); //consume '...'
+                "along with the code to reproduce it",
+            )
 
-        if isa::<PackExpansionType>(ty) { // `T......` is not valid syntax
-            dyn()->diag->report(DiagID::S055E, ty->range.start,
+            return &null
+        }
+
+        var end_range = self.dyn()->current_ptr()->range
+        self.dyn()->advance() //consume '...'
+
+        if isa<Types::PackExpansionType>(ty) { // `T......` is not valid syntax
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                ty->range.start,
                 "unexpected '...' after type in pack expansion type, '...' can only "
-                "appear once in a pack expansion type declaration"
-            ).first(ty->range).emit();
-            return PackExpansionType::create_error(dyn()->ctx, ty->range);
+                "appear once in a pack expansion type declaration",
+            ).first(ty->range)->emit()
+            return Types::PackExpansionType::create_error(self.dyn()->ctx, ty->range)
         }
 
-        if isa::<VariadicPackType>(ty) { // `...T...` is not valid syntax
-            dyn()->diag->report(DiagID::S055E, ty->range.start,
+        if isa<Types::VariadicPackType>(ty) { // `...T...` is not valid syntax
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                ty->range.start,
                 "unexpected '...' before type in pack expansion type, '...' can only "
-                "appear once in a pack expansion type declaration"
-            ).first(ty->range).emit();
-            return PackExpansionType::create_error(dyn()->ctx, ty->range);
+                "appear once in a pack expansion type declaration",
+            ).first(ty->range)->emit()
+            return Types::PackExpansionType::create_error(self.dyn()->ctx, ty->range)
         }
-        
-        var pt = PackExpansionType::create(dyn()->ctx, ty->range | end_range, ty);
-        return pt;
+
+        var pt = Types::PackExpansionType::create(self.dyn()->ctx, ty->range | end_range, ty)
+        return pt
     }
 
 
@@ -1603,54 +1876,60 @@ class <T> TypeParse {
     ///
     /// \return a new `ChainType` node. single-segment chains with no generics
     ///         will have `is_simple() == true` for sema fast-pathing.
-    inline fn _parse_qual_type(self) -> *ChainType {
-        var start_range = dyn()->current_ptr()->range;
+    inline fn _parse_qual_type(self) -> unsafe *Types::ChainType {
+        var start_range = self.dyn()->current_ptr()->range
 
-        var segments: std::StackBuf::<ChainType::ChainSegment, 4>;
+        var segments: kairo::std::StackBuf<Types::ChainType::ChainSegment, 4>
 
-        var seg = self._parse_chain_segment(ChainType::SegmentSeparator::None);
+        var seg = self._parse_chain_segment(Types::ChainType::SegmentSeparator::None)
         if seg.name == &null {
-            return ChainType::create_error(dyn()->ctx, start_range);
+            return Types::ChainType::create_error(self.dyn()->ctx, start_range)
         }
-        segments.push_back(seg);
 
-        while dyn()->check(TokenKind::OpColonColon) {
+        segments.push_back(seg)
+
+        while self.dyn()->check(TokenKind::OpColonColon) {
             if self._pending_close_angle {
-                break;
+                break
             }
 
-            var sep_range = dyn()->current_ptr()->range;
-            dyn()->advance(); // consume `::`
+            var sep_range = self.dyn()->current_ptr()->range
+            self.dyn()->advance() // consume `::`
 
-            if dyn()->check(TokenKind::TkCodeComplete) {
-                dyn()->maybe_complete(CompletionContextKind::TypeRef);
-                dyn()->advance(T::SkipNL::After);
-                break;
+            if self.dyn()->check(TokenKind::TkCodeComplete) {
+                self.dyn()->maybe_complete(CompletionContextKind::TypeRef)
+                self.dyn()->advance(T::SkipNL::After)
+                break
             }
 
-            if !dyn()->check(fn(k: TokenKind) -> bool {
-                return TYPE_TOK_TBL.contains(k);
-            }) {
-                dyn()->diag->report(DiagID::S053E, sep_range.start,
-                    "expected identifier after '::' in type path"
-                ).first(sep_range).emit();
-                break;
+            if !self.dyn()->check(
+                fn(k: TokenKind) -> bool {
+                    return Self::_is_type_tok_kind(k)
+                },
+            ) {
+                self.dyn()->diag->report(
+                    DiagID::S053E,
+                    sep_range.start,
+                    "expected identifier after '::' in type path",
+                ).first(sep_range)->emit()
+                break
             }
 
-            var next_seg = self._parse_chain_segment(ChainType::SegmentSeparator::ColonColon);
+            var next_seg = self._parse_chain_segment(Types::ChainType::SegmentSeparator::ColonColon)
             if next_seg.name == &null {
-                break;
+                break
             }
-            segments.push_back(next_seg);
+
+            segments.push_back(next_seg)
         }
 
-        var end_range = dyn()->prev().range;
-        var full_range = start_range | end_range;
+        var end_range  = self.dyn()->prev().range
+        var full_range = start_range | end_range
 
-        var ct = ChainType::create(dyn()->ctx, full_range);
-        ct->segments.from_buf(segments.data(), segments.size(), dyn()->ctx);
+        var ct = Types::ChainType::create(self.dyn()->ctx, full_range)
+        ct->segments.from_buf(segments.data(), segments.size(), self.dyn()->ctx)
 
-        return ct;
+        return ct
     }
 
     /// \brief parses a single segment of a chain type: identifier + optional
@@ -1659,39 +1938,40 @@ class <T> TypeParse {
     /// \param sep  the separator that preceded this segment (`None` for first,
     ///             `ColonColon` for subsequent).
     /// \return a populated `ChainSegment`. `.name` is null on failure.
-    inline fn _parse_chain_segment(self, sep: ChainType::SegmentSeparator) -> ChainType::ChainSegment {
-        var result = ChainType::ChainSegment{};
-        result.sep           = sep;
-        result.seg_kind      = ChainType::SegmentKind::Named;
-        result.resolved_type = &null;
-        result.resolved_decl = &null;
+    inline fn _parse_chain_segment(self,
+                                   sep: Types::ChainType::SegmentSeparator) -> Types::ChainType::ChainSegment {
+        var result = Types::ChainType::ChainSegment{}
+        result.sep           = sep
+        result.seg_kind      = Types::ChainType::SegmentKind::Named
+        result.resolved_type = &null
+        result.resolved_decl = &null
 
-        var id_ptr   = dyn()->current_ptr();
-        var id_range = id_ptr->range;
+        var id_ptr   = self.dyn()->current_ptr()
+        var id_range = id_ptr->range
         // A builtin primitive takes no generic arguments, so a `<` after one
         // is never their opener: in `sizeof usize < 8` the operand is
-        // `usize` and `<` compares (EVAL.md 4.2b).
-        var prim = (sep == ChainType::SegmentSeparator::None)
-                && (builtin_for_token(dyn()->resolve_kind_deep(id_ptr)) != BuiltinKind::COUNT);
-        dyn()->advance(); // consume identifier
+        // `usize` and `<` compares (Compiler/Spec/Eval.md#deferred-conditions).
+        var prim = sep == Types::ChainType::SegmentSeparator::None
+            && builtin_for_token(self.dyn()->resolve_kind_deep(id_ptr)) != BuiltinKind::COUNT
+        self.dyn()->advance() // consume identifier
 
-        var nte = NamedIdentExpr::create(dyn()->ctx, id_range, *id_ptr);
-        result.name  = nte;
-        result.range = id_range;
+        var nte = NamedIdentExpr::create(self.dyn()->ctx, id_range, *id_ptr)
+        result.name  = nte
+        result.range = id_range
 
-        if (!prim) && dyn()->check(TokenKind::OpLess) {
-            var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
-            self._parse_generic_args(&generic_args);
+        if !prim && self.dyn()->check(TokenKind::OpLess) {
+            var generic_args: kairo::std::StackBuf<Types::ChainType::GenericArg, 4>
+            self._parse_generic_args(unsafe &generic_args)
 
-            result.generic_args.from_buf(generic_args.data(), generic_args.size(), dyn()->ctx);
-            result.range = id_range | dyn()->prev().range;
+            result.generic_args.from_buf(generic_args.data(), generic_args.size(), self.dyn()->ctx)
+            result.range = id_range | self.dyn()->prev().range
 
             if !generic_args.is_empty() {
-                result.seg_kind = ChainType::SegmentKind::GenericApp;
+                result.seg_kind = Types::ChainType::SegmentKind::GenericApp
             }
         }
 
-        return result;
+        return result
     }
 
     /// \brief parses a generic argument list `<T1, T2, ..., TN>` with optional
@@ -1705,77 +1985,81 @@ class <T> TypeParse {
     ///
     /// \param out  buffer to collect parsed generic arguments.
     /// \return true if the argument list closed successfully.
-    inline fn _parse_generic_args(self, out: *std::StackBuf::<ChainType::GenericArg, 4>) -> bool {
-        var start_range = dyn()->current_ptr()->range;
-        dyn()->advance(T::SkipNL::After); // consume `<`
-        dyn()->nl_push();                 // suppress newlines inside `< >`
+    inline fn _parse_generic_args(
+        self,
+        out: unsafe *kairo::std::StackBuf<Types::ChainType::GenericArg, 4>,
+    ) -> bool {
+        var start_range = self.dyn()->current_ptr()->range
+        self.dyn()->advance(T::SkipNL::After) // consume `<`
+        self.dyn()->nl_push()                 // suppress newlines inside `< >`
 
         // a prior nested generic consumed >> and left one > for us
         if self._pending_close_angle {
-            self._pending_close_angle = false;
-            dyn()->nl_pop();
-            return true;
+            self._pending_close_angle = false
+            self.dyn()->nl_pop()
+            return true
         }
 
-        if dyn()->check(TokenKind::OpGreater) {
-            dyn()->diag->report(DiagID::S049E, start_range.start,
-                "expected at least one type argument in generic parameter list"
-            ).first(start_range).emit();
-            dyn()->nl_pop();
-            dyn()->advance_raw(); // consume `>`
-            return false;
+        if self.dyn()->check(TokenKind::OpGreater) {
+            self.dyn()->diag->report(
+                DiagID::S049E,
+                start_range.start,
+                "expected at least one type argument in generic parameter list",
+            ).first(start_range)->emit()
+            self.dyn()->nl_pop()
+            self.dyn()->advance_raw() // consume `>`
+            return false
         }
 
-        var angle_depth: u32 = 1;
+        var angle_depth: u32 = 1
 
-        // `(!a) && b`: Stage 0 reads `!a && b` as `!(a && b)` (see the sync
-        // loop below for what that costs).
-        while (!dyn()->is_eof()) && (angle_depth > 0) {
-            if  dyn()->check(TokenKind::TkCodeComplete) {
-                dyn()->maybe_complete(CompletionContextKind::TypeRef);
-                dyn()->advance(T::SkipNL::After);
-                dyn()->nl_pop();
-                return false;
+        while !self.dyn()->is_eof() && angle_depth > 0 {
+            if self.dyn()->check(TokenKind::TkCodeComplete) {
+                self.dyn()->maybe_complete(CompletionContextKind::TypeRef)
+                self.dyn()->advance(T::SkipNL::After)
+                self.dyn()->nl_pop()
+                return false
             }
 
             // closers
-            if dyn()->check(TokenKind::OpGreaterGreater) {
+            if self.dyn()->check(TokenKind::OpGreaterGreater) {
                 if angle_depth == 1 {
-                    self._pending_close_angle = true;
-                    dyn()->nl_pop();
-                    dyn()->advance_raw();
-                    return true;
+                    self._pending_close_angle = true
+                    self.dyn()->nl_pop()
+                    self.dyn()->advance_raw()
+                    return true
                 }
+
                 if angle_depth >= 2 {
-                    angle_depth -= 2;
-                    dyn()->nl_pop();
-                    dyn()->advance_raw();
-                    return true;
+                    angle_depth -= 2
+                    self.dyn()->nl_pop()
+                    self.dyn()->advance_raw()
+                    return true
                 }
             }
 
-            if dyn()->check(TokenKind::OpGreater) {
-                angle_depth -= 1;
-                dyn()->nl_pop();
-                dyn()->advance_raw();
-                return true;
+            if self.dyn()->check(TokenKind::OpGreater) {
+                angle_depth -= 1
+                self.dyn()->nl_pop()
+                self.dyn()->advance_raw()
+                return true
             }
 
-            var arg = ChainType::GenericArg{};
-            arg.name       = &null;
-            arg.name_range = SourceRange::invalid();
+            var arg = Types::ChainType::GenericArg{}
+            arg.name       = &null
+            arg.name_range = SourceRange::invalid()
 
             // named argument: `Ident :` but NOT `Ident ::` (which starts a scoped path)
-            if (dyn()->check(TokenKind::LitIdentifier))
-            && (dyn()->check_peek(TokenKind::OpColon))
-            && (!dyn()->check_peek(TokenKind::OpColonColon)) {
-                var name_ptr   = dyn()->current_ptr();
-                var name_range = name_ptr->range;
-                dyn()->advance(); // consume identifier
-                dyn()->advance(T::SkipNL::After); // consume `:`
+            if self.dyn()->check(TokenKind::LitIdentifier)
+                && self.dyn()->check_peek(TokenKind::OpColon)
+                && !self.dyn()->check_peek(TokenKind::OpColonColon) {
+                var name_ptr   = self.dyn()->current_ptr()
+                var name_range = name_ptr->range
+                self.dyn()->advance()                 // consume identifier
+                self.dyn()->advance(T::SkipNL::After) // consume `:`
 
-                arg.name       = NamedIdentExpr::create(dyn()->ctx, name_range, *name_ptr);
-                arg.name_range = name_range;
+                arg.name       = NamedIdentExpr::create(self.dyn()->ctx, name_range, *name_ptr)
+                arg.name_range = name_range
             }
 
             // speculatively parse the argument as a type. if it parses cleanly
@@ -1786,112 +2070,120 @@ class <T> TypeParse {
             // parse_type via the gen_arg fall-through, so this only catches
             // identifier-led value exprs. a clean name parse emits no
             // diagnostics, so the rollback is side-effect free.
-            var saved = dyn()->tentative_begin();
-            var ty    = self.parse_type(false, true, true);
+            var        saved = self.dyn()->tentative_begin()
+            var unsafe *ty   = self.parse_type(false, true, true)
             if ty == &null {
-                dyn()->diag->report(DiagID::S049E, start_range.start,
-                    "expected type argument in generic parameter list"
-                ).first(start_range).emit();
-                self._sync_generic_args(angle_depth);
-                dyn()->nl_pop();
-                return false;
+                self.dyn()->diag->report(
+                    DiagID::S049E,
+                    start_range.start,
+                    "expected type argument in generic parameter list",
+                ).first(start_range)->emit()
+                self._sync_generic_args(angle_depth)
+                self.dyn()->nl_pop()
+                return false
             }
 
             if is_recovery(ty) {
-                self._sync_generic_args(angle_depth);
-                dyn()->nl_pop();
-                return false;
+                self._sync_generic_args(angle_depth)
+                self.dyn()->nl_pop()
+                return false
             }
 
             // parse_type can leave the cursor parked ON a newline. check()
             // does NOT see through newlines even with nl_depth > 0 (only
             // advance() skips them), so without this the comma/closer checks
             // below test the newline token and wrongly fall through to the
-            // "expected ',' or '>\x27" error -> whole generic list bails -> the
+            // "expected ',' or '>'" error -> whole generic list bails -> the
             // tentative guard rolls back -> `Lookup < string` reparses as `<`.
-            dyn()->advance(T::SkipNL::Only); // skip NLs, do not move past real tokens
+            self.dyn()->advance(T::SkipNL::Only) // skip NLs, do not move past real tokens
 
             // skip the value-continuation check when a nested generic already
             // consumed our closing `>>` (_pending_close_angle): the list is
             // closing, so a trailing operator like the `=` of a var initializer
             // (`var v: Array<Foo<i32>> = ...`) is NOT part of this argument.
-            if (!self._pending_close_angle) && dyn()->at_value_expr_continuation() {
-                dyn()->tentative_rollback(saved);
+            if !self._pending_close_angle && self.dyn()->at_value_expr_continuation() {
+                self.dyn()->tentative_rollback(saved)
                 ty = self._parse_type_expr(
-                    static_cast::<u8>(T::ExprStopKind::StopAngle)
-                  | static_cast::<u8>(T::ExprStopKind::StopComma)
-                );
+                    self.dyn()->stop_on(T::ExprStopKind::StopAngle).plus(
+                        T::ExprStopKind::StopComma,
+                    ),
+                )
 
-                if (ty == &null) || is_recovery(ty) {
-                    self._sync_generic_args(angle_depth);
-                    dyn()->nl_pop();
-                    return false;
+                if ty == &null || is_recovery(ty) {
+                    self._sync_generic_args(angle_depth)
+                    self.dyn()->nl_pop()
+                    return false
                 }
 
-                dyn()->advance(T::SkipNL::Only); // skip NLs after the value expr
+                self.dyn()->advance(T::SkipNL::Only) // skip NLs after the value expr
             }
 
-            arg.ty = ty;
-            out->push_back(arg);
+            arg.ty = ty
+            out->push_back(arg)
 
             // a nested generic consumed `>>` and with it our `>`: the list
             // is closed, so a `,` after it belongs to whatever holds the
             // type. Asked BEFORE the comma, or `f(k: *vec<vec<u8>>, b:
             // *vec<u8>)` read `, b: *vec<u8>` as more arguments of the
-            // outer `vec` (S049E, P350).
+            // outer `vec` (S049E).
             if self._pending_close_angle {
-                self._pending_close_angle = false;
-                dyn()->nl_pop();
-                return true;
+                self._pending_close_angle = false
+                self.dyn()->nl_pop()
+                return true
             }
 
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After); // consume `,`
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After) // consume `,`
 
                 // trailing comma before closer
-                if dyn()->check(TokenKind::OpGreater) {
-                    angle_depth -= 1;
-                    dyn()->nl_pop();
-                    dyn()->advance_raw();
-                    return true;
+                if self.dyn()->check(TokenKind::OpGreater) {
+                    angle_depth -= 1
+                    self.dyn()->nl_pop()
+                    self.dyn()->advance_raw()
+                    return true
                 }
-                if dyn()->check(TokenKind::OpGreaterGreater) {
+
+                if self.dyn()->check(TokenKind::OpGreaterGreater) {
                     if angle_depth == 1 {
-                        self._pending_close_angle = true;
-                        dyn()->nl_pop();
-                        dyn()->advance_raw();
-                        return true;
+                        self._pending_close_angle = true
+                        self.dyn()->nl_pop()
+                        self.dyn()->advance_raw()
+                        return true
                     }
+
                     if angle_depth >= 2 {
-                        angle_depth -= 2;
-                        dyn()->nl_pop();
-                        dyn()->advance_raw();
-                        return true;
+                        angle_depth -= 2
+                        self.dyn()->nl_pop()
+                        self.dyn()->advance_raw()
+                        return true
                     }
                 }
 
-                continue;
+                continue
             }
 
             // a nested generic consumed >> and left a > for us
             if self._pending_close_angle {
-                self._pending_close_angle = false;
-                dyn()->nl_pop();
-                return true;
+                self._pending_close_angle = false
+                self.dyn()->nl_pop()
+                return true
             }
 
-            if (!dyn()->check(TokenKind::OpGreater)) && (!dyn()->check(TokenKind::OpGreaterGreater)) {
-                dyn()->diag->report(DiagID::S049E, dyn()->prev().range.start,
-                    "expected ',' or '>' after type argument in generic parameter list"
-                ).first(dyn()->prev().range).emit();
-                self._sync_generic_args(angle_depth);
-                dyn()->nl_pop();
-                return false;
+            if !self.dyn()->check(TokenKind::OpGreater)
+                && !self.dyn()->check(TokenKind::OpGreaterGreater) {
+                self.dyn()->diag->report(
+                    DiagID::S049E,
+                    self.dyn()->prev().range.start,
+                    "expected ',' or '>' after type argument in generic parameter list",
+                ).first(self.dyn()->prev().range)->emit()
+                self._sync_generic_args(angle_depth)
+                self.dyn()->nl_pop()
+                return false
             }
         }
 
-        dyn()->nl_pop();
-        return angle_depth == 0;
+        self.dyn()->nl_pop()
+        return angle_depth == 0
     }
 
     /// \brief synchronizes past a malformed generic argument list.
@@ -1901,45 +2193,39 @@ class <T> TypeParse {
     ///
     /// \param angle_depth  current nesting depth of angle brackets.
     inline fn _sync_generic_args(self, angle_depth: u32) {
-        var depth = angle_depth;
+        var depth = angle_depth
 
         // No token budget: the scan ends at the closer, at a statement-level
-        // delimiter or at EOF, which is all it has ever done. The old loop
-        // was `while !eof && consumed < 64`, which Stage 0 reads as
-        // `!(eof && consumed < 64)`: the cap never stopped it, and once
-        // reached at EOF (where advance() no longer moves) it spun forever
-        // (P279: `X < <` followed by 64 tokens to end of file). Making the
-        // cap live instead is not safe: it parks the cursor mid-construct,
-        // and a caller loop then makes no progress (a 30-deep `A<A<...>>`
-        // list followed by a second one hangs that way).
-        while !dyn()->is_eof() {
-            var k = dyn()->ig_kind();
+        // delimiter or at EOF. A token cap is not safe: it parks the cursor
+        // mid-construct, and a caller loop then makes no progress (a 30-deep
+        // `A<A<...>>` list followed by a second one hangs that way).
+        while !self.dyn()->is_eof() {
+            var k = self.dyn()->ig_kind()
 
             if k == TokenKind::OpLess {
-                ++depth;
-            }
-            else if k == TokenKind::OpGreater {
+                ++depth
+            } else if k == TokenKind::OpGreater {
                 if depth <= 1 {
-                    dyn()->advance();
-                    return;
+                    self.dyn()->advance()
+                    return
                 }
-                --depth;
-            }
-            else if k == TokenKind::OpGreaterGreater {
+
+                --depth
+            } else if k == TokenKind::OpGreaterGreater {
                 if depth <= 2 {
-                    dyn()->advance();
-                    return;
+                    self.dyn()->advance()
+                    return
                 }
-                depth -= 2;
-            }
-            else if k == TokenKind::OpSemicolon
+
+                depth -= 2
+            } else if k == TokenKind::OpSemicolon
                 || k == TokenKind::OpRParen
                 || k == TokenKind::OpRSquare
                 || k == TokenKind::OpRBrace {
-                return; // don't consume caller owns these
+                return // don't consume caller owns these
             }
 
-            dyn()->advance();
+            self.dyn()->advance()
         }
     }
 
@@ -1957,92 +2243,105 @@ class <T> TypeParse {
     ///
     /// \return the size expression node, or `&null` if no expression could be
     ///         parsed.
-    inline fn _parse_const_expr(self) -> *Expr {
-        var expr = dyn()->parse_expr(static_cast::<T::ExprStopKind>(
-            static_cast::<u8>(T::ExprStopKind::StopSquare)
-          | static_cast::<u8>(T::ExprStopKind::StopComma)
-        ));
+    inline fn _parse_const_expr(self) -> unsafe *Expr {
+        var expr = self.dyn()->parse_expr(
+            self.dyn()->stop_on(T::ExprStopKind::StopSquare).plus(T::ExprStopKind::StopComma),
+        )
 
         if expr == &null {
-            dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
-                "expected constant expression for array size"
-            );
+            self.dyn()->report_tok(
+                DiagID::S055E,
+                self.dyn()->current_ptr(),
+                "expected constant expression for array size",
+            )
 
-            return &null;
+            return &null
         }
 
-        return expr;
+        return expr
     }
 
-    inline fn _parse_type_expr(self, stop_bits: u8 = 0) -> *TypeExpr {
-        var expr = dyn()->parse_expr(static_cast::<T::ExprStopKind>(stop_bits));
+    // The set's type spelled out, not T::ExprStop: a signature naming a
+    // member of T is instantiated while T (the CRTP parser) is incomplete.
+    inline fn _parse_type_expr(self, stop: FlagSet<ExprStopBit, u8>) -> unsafe *Types::TypeExpr {
+        var expr = self.dyn()->parse_expr(stop)
         if expr == &null {
-            dyn()->report_tok(DiagID::S053E, dyn()->current_ptr(),
-                "expected a type or value expression"
-            );
-            return &null;
+            self.dyn()->report_tok(
+                DiagID::S053E,
+                self.dyn()->current_ptr(),
+                "expected a type or value expression",
+            )
+
+            return &null
         }
 
         if is_recovery(expr) {
             // the wrapped expr is itself a recovery node; create_error already
             // marks the TypeExpr as an error type. (no propagate_flags here: it
             // takes *Type/*Type and the child is an *Expr.)
-            return TypeExpr::create_error(dyn()->ctx, expr->range);
+            return Types::TypeExpr::create_error(self.dyn()->ctx, expr->range)
         }
 
-        var te = TypeExpr::create(dyn()->ctx, expr->range, expr);
-        return te;
+        var te = Types::TypeExpr::create(self.dyn()->ctx, expr->range, expr)
+        return te
     }
 
-    inline fn _parse_nullable_type(self, ty: *Type) -> *NullableType {
+    inline fn _parse_nullable_type(self, ty: unsafe *Type) -> unsafe *Types::NullableType {
         // cur token is `?`
-        var end_range = dyn()->current_ptr()->range;
-        if dyn()->check(TokenKind::OpQuestionQuestion) {
-            dyn()->diag->report(DiagID::S055E, end_range.start,
-                "unexpected '??' after type, did you mean to write a nullable type with a single '?'?"
-            ).first(end_range).emit();
-            self._sync_type(TypeSyncCtx::TopLevel, 0, 0, 0, true);
-            return NullableType::create_error(dyn()->ctx, end_range);
+        var end_range = self.dyn()->current_ptr()->range
+        if self.dyn()->check(TokenKind::OpQuestionQuestion) {
+            self.dyn()->diag->report(
+                DiagID::S055E,
+                end_range.start,
+                "unexpected '??' after type, did you mean to write a nullable type with a single '?'?",
+            ).first(end_range)->emit()
+            self._sync_type(Self::TypeSyncCtx::TopLevel, 0, 0, 0, true)
+            return Types::NullableType::create_error(self.dyn()->ctx, end_range)
         }
 
-        dyn()->advance(); // consume '?'
+        self.dyn()->advance() // consume '?'
 
         if ty == &null {
-            dyn()->diag->report(DiagID::I002F, end_range.start,
+            self.dyn()->diag->report(
+                DiagID::I002F,
+                end_range.start,
                 "Fatal compiler bug, please raise an issue on our github at "
                 "https://github.com/kairolang/kairo/issues "
-                "along with the code to reproduce it"
-            ).emit();
-            return &null;
+                "along with the code to reproduce it",
+            ).emit()
+            return &null
         }
 
         if is_recovery(ty) {
-            var err_nt = NullableType::create_error(dyn()->ctx, ty->range | end_range);
-            propagate_flags(err_nt, ty);
-            return err_nt;
+            var err_nt = Types::NullableType::create_error(self.dyn()->ctx, ty->range | end_range)
+            Types::propagate_flags(err_nt, ty)
+            return err_nt
         }
 
-        // `(T?)?` is a real type, Nullable<Nullable<T>> (NULLABLE.md 1.5):
+        // `(T?)?` is a real type, Nullable<Nullable<T>> (Compiler/Spec/Nullables.md#nested-nullables):
         // it is warned about, never collapsed -- a collapse here would make
         // the written type disagree with the same type reached by generic
         // substitution (`V?` with `V = T?`), which never collapses.
-        if isa::<NullableType>(ty) {
-            var b = dyn()->diag->report(DiagID::S055W, end_range.start,
-                "nested nullable '(T?)?': legal and distinct from 'T?', but rarely what you want"
-            );
-            b.first(end_range);
-            b.note(ty->range.start, "outside generic code this is usually a mistake; a single '?' is one level of null");
-            b.emit();
+        if isa<Types::NullableType>(ty) {
+            var b = self.dyn()->diag->report(
+                DiagID::S055W,
+                end_range.start,
+                "nested nullable '(T?)?': legal and distinct from 'T?', but rarely what you want",
+            )
+
+            b.first(end_range)
+            b.note(
+                ty->range.start,
+                "outside generic code this is usually a mistake; a single '?' is one level of null",
+            )
+
+            b.emit()
         }
 
-        var nt = NullableType::create(dyn()->ctx, ty->range | end_range, ty);
-        return nt;
+        var nt = Types::NullableType::create(self.dyn()->ctx, ty->range | end_range, ty)
+        return nt
     }
 }
-
-
-
-    
 
 
 

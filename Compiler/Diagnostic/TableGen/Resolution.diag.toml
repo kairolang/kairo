@@ -3,8 +3,8 @@
 #   Part of the Kairo Project, under the Apache License v2.0 with the
 #   Kairo Runtime Library Exception.
 #
-#   See: https://www.kairolang.org/LICENSE.txt
-#   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+#   See: https://www.kairolang.org/LICENSE
+#   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 #   Copyright (c) 2026 Dhruvan Kartik
 #
 # ------------------------------------------------------------------------ #
@@ -85,16 +85,23 @@ group = "import"
 brief = "ambiguous module path"
 group = "import"
 
-    [R005.W]
+    [R005.E]
     explain = """
     # ambiguous module
 
-    a module path resolves to both a directory (`Foo/Bar/`) and a file (`Foo/Bar.k`). the compiler
-    will prefer the file, but this is likely a project layout mistake.
+    an import path names both a file (`foo.k`) and a module directory (`foo/module.k`) in the one
+    place that import form looks: the search roots for `import foo`, the importing file's directory
+    for `import self::foo`, the module root for `import module::foo`. each would be module `foo`.
+    the file answers, so the import does not also fail to resolve, but the layout has to change.
+
+    ```kairo
+    // with both util.k and util/module.k beside this file
+    import self::util;   // which one?
+    ```
 
     ## how to fix
-    rename one of the conflicting paths or use the `module` disambiguation keyword (`import module Foo::Bar`)
-    to explicitly select the directory-based module.
+    rename or remove one of the two. to keep both, move the file's contents into the directory
+    (for example `util/core.k`, imported as `self::util::core`).
     """
 
 [R006]
@@ -221,8 +228,14 @@ group = "import"
     the preprocessor attempted to resolve an import path but could not locate a matching file or module.
     this may indicate a missing file, a typo in the import statement, or an incorrect project layout.
 
+    each import form looks in exactly one place: `import foo` in the libraries and search directories
+    (`-I`, std, builtin), `import self::foo` beside the importing file, `import module::foo` from the
+    importing file's module root (the nearest directory at or above it holding a `module.k`). in each
+    place `foo` is `foo.k` or `foo/module.k`.
+
     ## how to fix
-    verify that the imported file or module exists and that the import statement uses the correct path.
+    verify that the imported file or module exists and that the import uses the form for where it is:
+    a file next to this one is `import self::foo`, not `import foo`.
     """
 
 [R012]
@@ -351,19 +364,11 @@ group = "import"
     explain = """
     # ambiguous import
 
-    an unqualified import path matched BOTH a module in the importing file's own directory and a
-    module in a search root. unqualified imports resolve sibling-first, then root, so the sibling
-    would win silently - and the day someone adds or removes a file, the same import would start
-    naming a different module in a different directory.
-
-    ```kairo
-    // root/Foo/bar.k, with both root/Foo/baz.k and root/baz.k on disk
-    import baz;   // which one?
-    ```
-
-    the same holds between two search directories. the working directory and every `-I dir` are
-    searched alike, and neither adds anything to a module path, so `./a.k` and `inc/a.k` under
-    `-I inc` are both module `a`. the first one searched would win silently.
+    a plain import path matched two different files in two search directories. the working
+    directory and every `-I dir` are searched alike, and neither adds anything to a module path,
+    so `./a.k` and `inc/a.k` under `-I inc` are both module `a`. the first one searched would win
+    silently, and the day someone adds a file to one directory an import elsewhere would start
+    naming a different module.
 
     ```kairo
     // kairo main.k -I inc, with both ./a.k and inc/a.k on disk
@@ -372,11 +377,10 @@ group = "import"
 
     ## how to fix
 
-    qualify the path so it names exactly one module (`import Foo::baz` for the sibling), or rename
-    one of the two files so the name is unambiguous across the tree. between two search
-    directories there is no spelling to qualify with: remove or rename one file, or give its
-    directory a `module.k` whose first line pins a library name (`module mylib`), so its files
-    become `mylib::...`.
+    there is no spelling to qualify with: remove or rename one file, or give its directory a
+    `module.k` whose first line pins a library name (`module mylib`), so its files become
+    `mylib::...`. a file next to the importer is reached as `import self::a` instead, which never
+    consults the search directories.
     """
 
 [R018]
@@ -456,6 +460,9 @@ group = "name-lookup"
     out-of-line definition sees only the names visible at its own file scope, not the ones visible
     inside the type it defines a member of.
     """
+
+    [R020.N]
+    explain = "Points at the declaration that exists only in a branch of an eval if that is not taken."
 
 [R021]
 brief = "unknown type name"
@@ -1085,14 +1092,20 @@ group = "import"
     explain = """
     # name is private in its module
 
-    the name was found in the module it was imported from, but it is declared private there. private
-    declarations are part of a module's implementation and do not cross its boundary, so importing
-    the module does not make this one visible.
+    the name was found in the module it was imported from, but it is not visible here. a `priv`
+    declaration is visible only in its own file, and a `prot` one only in the files of its module
+    (the tree under the nearest directory holding a `module.k`). a declaration with no visibility
+    keyword is `priv`, or `prot` when its file is in a module. importing the file does not make it
+    visible.
 
     ## how to fix
 
-    mark the declaration `pub` in its own module, or use a name the module does export.
+    mark the declaration `pub` in its own file, put both files under one `module.k` if it is
+    `prot`, or use a name the file does export.
     """
+
+    [R047.N]
+    explain = "Points at the declaration."
 
 [R048]
 brief = "declaration hides an outer binding"
@@ -1271,6 +1284,10 @@ group = "redeclaration"
     whether a pair collides depends on the target: `u64`/`usize` and `i64`/`isize` collide where
     pointers are 64 bits, `u32`/`usize` and `i32`/`isize` where they are 32.
 
+    pointer safety is the same kind of difference: `*T` and `unsafe *T` are two types in kairo
+    and one `T*` in c++, so `f(p: *T)` beside `f(p: unsafe *T)` collides on every target. a
+    nullable `*T?` is a different c++ type and does not.
+
     ## example
 
     ```kairo
@@ -1423,3 +1440,244 @@ group = "lookup"
     write the operation in Kairo, or wrap the builtin in a C++ function with an ordinary signature
     and import that through `ffi "c++" import`.
     """
+
+[R058]
+brief = "import cycle"
+group = "imports"
+
+    [R058.E]
+    explain = """
+    # import cycle
+
+    a file imports, directly or through others, a file that imports it back. a cycle compiles, but no module on it can be read, built or tested without the others; with -fno-import-cycles it is an error.
+
+    ## how to fix
+
+    move the shared declarations into a module that both sides import.
+    """
+
+    [R058.W]
+    explain = """
+    # import cycle
+
+    a file imports, directly or through others, a file that imports it back. a cycle compiles, but no module on it can be read, built or tested without the others; with -fno-import-cycles it is an error.
+
+    ## how to fix
+
+    move the shared declarations into a module that both sides import.
+    """
+
+[R059]
+brief = "registered library name disagrees with its `module` pin"
+group = "imports"
+
+    [R059.E]
+    explain = """
+    # registered library name disagrees with its `module` pin
+
+    the directory was given a name on the command line or by an earlier registration, and the first `module` declaration of its module.k names it differently.
+
+    ## how to fix
+
+    make the name and the pin agree.
+    """
+
+[R060]
+brief = "generic argument is the wrong kind for its parameter"
+group = "generics"
+
+    [R060.E]
+    explain = """
+    # generic argument is the wrong kind for its parameter
+
+    a type parameter takes a type and a value parameter takes a compile-time value; the argument is the other kind.
+
+    ## how to fix
+
+    pass a type for a type parameter and an 'eval' value for a value parameter.
+    """
+
+    [R060.N]
+    explain = "Points at the generic parameter."
+
+[R061]
+brief = "redeclared with different bounds on a generic parameter"
+group = "redeclaration"
+
+    [R061.E]
+    explain = """
+    # redeclared with different bounds on a generic parameter
+
+    a declaration and its definition must name the same bounds on each generic parameter.
+
+    ## how to fix
+
+    copy the bounds of the first declaration onto the other.
+    """
+
+    [R061.N]
+    explain = "Points at the previous declaration."
+
+[R062]
+brief = "inline function has no body"
+group = "redeclaration"
+
+    [R062.E]
+    explain = """
+    # inline function has no body
+
+    'inline' places the body in the module interface, so it must be defined in the file that declares it.
+
+    ## how to fix
+
+    define the body here, or drop 'inline'.
+    """
+
+[R063]
+brief = "record declared as one kind and defined as another"
+group = "redeclaration"
+
+    [R063.E]
+    explain = """
+    # record declared as one kind and defined as another
+
+    a forward declaration said 'class', 'struct' or another record keyword and the definition uses a different one.
+
+    ## how to fix
+
+    use the same keyword in every declaration.
+    """
+
+    [R063.N]
+    explain = "Points at the definition (or first declaration) that sets the kind."
+
+[R064]
+brief = "misplaced `module` pin"
+group = "imports"
+
+    [R064.E]
+    explain = """
+    # misplaced `module` pin
+
+    a bare `module name` declaration names the directory as a library. it is read only from the first declaration of a module.k, and at most once.
+
+    ## how to fix
+
+    keep one bare `module` declaration, first in the module.k; use the block form elsewhere.
+    """
+
+[R065]
+brief = "associated type named outside its interface"
+group = "interfaces"
+
+    [R065.E]
+    explain = """
+    # associated type named outside its interface
+
+    an associated type belongs to the interface that declares it and is reached through a type parameter bounded by that interface.
+
+    ## how to fix
+
+    write 'T::Name' on a parameter bounded by the interface.
+    """
+
+[R066]
+brief = "associated type default names a later declaration"
+group = "interfaces"
+
+    [R066.E]
+    explain = """
+    # associated type default names a later declaration
+
+    defaults of associated types resolve in declaration order, so one default may only name associated types declared before it.
+
+    ## how to fix
+
+    reorder the declarations.
+    """
+
+[R067]
+brief = "enum underlying type cannot hold its variants"
+group = "enums"
+
+    [R067.E]
+    explain = """
+    # enum underlying type cannot hold its variants
+
+    the tag of an enum is its underlying type, and the type chosen has fewer values than the enum has variants.
+
+    ## how to fix
+
+    choose a wider underlying type.
+    """
+
+[R068]
+brief = "plain import reaches a file beside the importer"
+group = "import"
+
+    [R068.W]
+    explain = """
+    # plain import reaches a file beside the importer
+
+    `import foo` looks only in the libraries and search directories (`-I`, the working directory,
+    std, builtin). it used to look in the importing file's own directory first; that directory is
+    now spelled out: `import self::foo`. this import found nothing in the search directories but
+    found `foo` beside the importing file, so it still resolves there, with this warning, while
+    existing code migrates. it will become an error.
+
+    ```kairo
+    // app/main.k, with app/util.k beside it
+    import util;         // warning: write 'self::util'
+    import self::util;   // the file beside this one
+    ```
+
+    ## how to fix
+    apply the fix-it: insert `self::` after `import`. for a file under the module root instead,
+    write `module::foo`.
+    """
+
+    [R068.E]
+    explain = """
+    # plain import reaches a file beside the importer
+
+    `import foo` looks only in the libraries and search directories (`-I`, the working directory,
+    std, builtin), never in the importing file's own directory. `foo` is not in any of them, but
+    it is beside the importing file, which is reached as `import self::foo`.
+
+    ```kairo
+    // app/main.k, with app/util.k beside it
+    import util;         // error: write 'self::util'
+    import self::util;   // the file beside this one
+    ```
+
+    ## how to fix
+    apply the fix-it: insert `self::` after `import`. for a file under the module root instead,
+    write `module::foo`.
+    """
+
+[R069]
+brief = "'module::' import in a file with no module"
+group = "import"
+
+    [R069.E]
+    explain = """
+    # 'module::' import in a file with no module
+
+    `import module::foo` resolves `foo` from the importing file's module root: the nearest
+    directory, at or above the file, that holds a `module.k` (pinned or not; the same directory
+    whose files share `prot` declarations). the importing file has no `module.k` above it, so it
+    belongs to no module and `module::` names nothing.
+
+    ```kairo
+    // shapes/area.k, with no shapes/module.k and none above it
+    import module::geom;   // error: no module root
+    ```
+
+    ## how to fix
+
+    put a `module.k` in the directory that should be the module root (an empty file is enough),
+    or write `import self::foo` for a file beside this one.
+    """
+
+    [R069.N]
+    explain = "Says where `module::` starts and what is missing."

@@ -1,10 +1,12 @@
-/// --- The Kairo Project -------------------------------------------------- ///
+/// --- The Kairo Project ------------------------------- Native/KLog.hh --- ///
+///
+///   Logger, the leveled, per-stage diagnostic log of the compiler itself.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -249,6 +251,15 @@ class Logger {
             return;
         }
         libcxx::lock_guard<libcxx::mutex> lock(get()->mutex_);
+        // Nothing logged: create no file. The dump path sits beside the
+        // installed binary, so an unconditional open litters bin/ with an
+        // empty <exe>.log on every run (or fails in a read-only install). A
+        // log left by an earlier run is removed, so the file on disk always
+        // belongs to the last run.
+        if (get()->entries_.empty()) {
+            llvm::sys::fs::remove(get()->dump_path_);
+            return;
+        }
         // OF_None: binary, truncating. Streams entry by entry, so the dump
         // never holds the whole log as one string.
         libcxx::error_code   ec;

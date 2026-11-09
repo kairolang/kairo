@@ -11,106 +11,132 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Codegen::CodegenContext::*;
-import Codegen::EmitPlan::*;
-import Codegen::Sink::TextSink::*;
-import Codegen::Emit::InterfaceEmitter::*;
-import Codegen::Emit::EmitIR::*;
-import Interop::Clang::HeaderSet::*;
-import Codegen::Emit::CXXSpell::*;
-import AST::Context::ASTContext::*;
-import AST::Context::TranslationUnit::*;
-import AST::Context::InstantiationRegistry::*;
-import Preprocessor::PreprocessorSymbolTable::*;
-import Support::FileIO::Path::*;
+ffi "c++" import "vector"
 
-class EmitCXXHeader {
-    priv var _ctx:       obs::<ASTContext>;
-    priv var _psym:      obs::<PreprocessorSymbolTable>;
-    priv var _instances: obs::<InstantiationRegistry>;
+import AST::Context::ASTContext::ASTContext
+import AST::Context::InstantiationRegistry::InstantiationRegistry
+import AST::Context::TranslationUnit::TranslationUnit
+import Codegen::CodegenContext::{
+    CodegenContext,
+    CodegenPhase,
+}
+import Codegen::Emit::CXXSpell::CXXSpell
+import Codegen::Emit::EmitIR::EmitIR
+import Codegen::Emit::InterfaceEmitter::InterfaceEmitter
+import Codegen::EmitPlan::{
+    EmitPlan,
+    PlanMode,
+}
+import Codegen::Sink::TextSink::TextSink
+import Interop::Clang::HeaderSet::HeaderSet
+import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
+import Support::FileIO::Path::Path
 
-    fn EmitCXXHeader(self, ctx: *ASTContext, psym: *PreprocessorSymbolTable,
-                     instances: *InstantiationRegistry) {
-        self._ctx       = ctx;
-        self._psym      = psym;
-        self._instances = instances;
+pub class EmitCXXHeader {
+    priv var _ctx:       unsafe *ASTContext
+    priv var _psym:      unsafe *PreprocessorSymbolTable
+    priv var _instances: unsafe *InstantiationRegistry
+
+    pub fn EmitCXXHeader(self,
+                         ctx:       unsafe *ASTContext,
+                         psym:      unsafe *PreprocessorSymbolTable,
+                         instances: unsafe *InstantiationRegistry) {
+        self._ctx       = ctx
+        self._psym      = psym
+        self._instances = instances
     }
 
     /// The header text, or "" for a TU that has none (a pathless one, which
     /// nothing can import or include by module path: CXXSpell::is_entry_tu).
-    fn render(self) -> string {
-        var tu = reinterpret_cast::<*TranslationUnit>(self._ctx->tu);
-        if (tu == &null) || CXXSpell::is_entry_tu(tu) { return ""; }
+    pub fn render(self) -> string {
+        var unsafe *tu = self._ctx->tu
+        if tu == &null || CXXSpell::is_entry_tu(tu) {
+            return ""
+        }
+
         // An empty TU declares nothing, and header includes follow Complete
         // dependencies on declarations, so nothing could include its header.
         // Emptiness is the PREAMBLE plan's fact, the same one the driver
         // skips codegen on, so the two cannot disagree about a TU.
         {
-            var pcg = CodegenContext(self._ctx, &null, self._psym, self._instances);
-            var pplan = EmitPlan(&pcg, PlanMode::Preamble);
-            pplan.run();
-            if pplan.is_empty() { return ""; }
+            var pcg   = CodegenContext(self._ctx, &null, self._psym, self._instances)
+            var pplan = EmitPlan(unsafe &pcg, PlanMode::Preamble)
+            pplan.run()
+            if pplan.is_empty() {
+                return ""
+            }
         }
-        var ts = TextSink(self._ctx->sm, self._ctx->tcm);
-        var cg = CodegenContext(self._ctx, &ts, self._psym, self._instances);
-        var plan = EmitPlan(&cg, PlanMode::Header);
-        plan.run();
-        cg.advance_phase(CodegenPhase::Planned);
-        var ir = EmitIR(&cg);
-        var ie = InterfaceEmitter(&cg, &plan);
-        ie.ir = &ir;   // the early items (EmitPlan::early), defined in tier 1.
-        ie.set_ffi_lines(self._ffi_lines(tu));
-        ie.run();
+
+        var ts   = TextSink(self._ctx->sm, self._ctx->tcm)
+        var cg   = CodegenContext(self._ctx, unsafe &ts, self._psym, self._instances)
+        var plan = EmitPlan(unsafe &cg, PlanMode::Header)
+        plan.run()
+        cg.advance_phase(CodegenPhase::Planned)
+        var ir = EmitIR(unsafe &cg)
+        var ie = InterfaceEmitter(unsafe &cg, unsafe &plan)
+        ie.ir = unsafe &ir // the early items (EmitPlan::early), defined in tier 1.
+        ie.set_ffi_lines(self._ffi_lines(tu))
+        ie.run()
         // The module's inline and template bodies, after every class
         // definition: C++ consumers need them for the reason Kairo importers
         // do -- they are part of the interface. Out of line, so the class
-        // definitions stay byte-identical to every TU's (invariant 11).
-        ir.emit_visible(&plan);
-        return ts.out;
+        // definitions stay byte-identical to every TU's (Pipeline.md invariant 24).
+        ir.emit_visible(unsafe &plan)
+        return ts.out
     }
 
     /// `#include "h"` per ffi header the module imports, as spelled, in
     /// source order; an `ffi "c"` one inside extern "C" as the module's own
     /// TU parsed it. Quoted, so a consumer finds them through the same -I
     /// roots the Kairo build used.
-    priv fn _ffi_lines(self, tu: *TranslationUnit) -> vec::<string> {
-        var out = vec::<string>();
-        if tu->header_set == &null { return out; }
-        var hs = reinterpret_cast::<*HeaderSet>(tu->header_set);
-        for var i: usize = 0; i < hs->headers.size(); ++i {
-            var c = (i < hs->c_linkage.size()) && hs->c_linkage[i];
-            // Two literals where a hex digit follows: Stage 0 copies escapes
-            // into C++ verbatim, where \x is greedy.
-            var line = "#include \x22";
-            line += hs->headers[i];
-            line += "\x22";
-            if c { out.push_back("extern \x22" + "C\x22 {"); }
-            out.push_back(line);
-            if c { out.push_back("}"); }
+    priv fn _ffi_lines(self, tu: unsafe *TranslationUnit) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
+        if tu->header_set == &null {
+            return out
         }
-        return out;
+
+        var unsafe *hs = unsafe (tu->header_set as unsafe *HeaderSet)
+        for var i: usize = 0; i < hs->headers.size(); ++i {
+            var c    = i < hs->c_linkage.size() && hs->c_linkage[i] != 0
+            var line = "#include \""
+            line += hs->headers[i]
+            line += "\""
+            if c {
+                out.push_back("extern \"C\" {")
+            }
+
+            out.push_back(line)
+            if c {
+                out.push_back("}")
+            }
+        }
+
+        return out
     }
 
     /// The path under \p dir this TU's header lands at.
-    fn path_under(self, dir: string) -> string {
-        var tu = reinterpret_cast::<*TranslationUnit>(self._ctx->tu);
-        var cg = CodegenContext(self._ctx, &null, self._psym, self._instances);
-        var sp = CXXSpell(&cg);
-        return dir + "/" + sp.header_path(tu);
+    pub fn path_under(self, const dir: string) -> string {
+        var unsafe *tu = self._ctx->tu
+        var        cg  = CodegenContext(self._ctx, &null, self._psym, self._instances)
+        var        sp  = CXXSpell(unsafe &cg)
+        return dir + "/" + sp.header_path(tu)
     }
 
     /// Render and write. False if nothing to write or the write failed.
-    fn write(self, dir: string) -> bool {
-        var text = self.render();
-        if text.size() == 0 { return false; }
-        var p = self.path_under(dir);
-        Path::make_parent_dirs(p);
-        return Path::write_file(p, text);
+    pub fn write(self, const dir: string) -> bool {
+        var text = self.render()
+        if text.size() == 0 {
+            return false
+        }
+
+        var p = self.path_under(dir)
+        Path::make_parent_dirs(p)
+        return Path::write_file(p, text)
     }
 }

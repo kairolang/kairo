@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------- Native/KLocale.hh --- ///
+/// --- The Kairo Project ---------------------------- Native/KLocale.hh --- ///
 ///
 ///   Process locale setup for the driver: the environment picks the
 ///   language, the compiler picks the encoding.
@@ -15,7 +15,7 @@
 ///   `::`-qualify, and langinfo.h does not exist on Windows (which gets the
 ///   same treatment through UCRT's ".UTF-8" codepage suffix).
 ///
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -28,7 +28,7 @@
 #include <cwchar>
 
 #if defined(_WIN32)
-#include <windows.h>
+#include "Win32.hh"   // console_utf8; never <windows.h> here
 #else
 #include <langinfo.h>
 #endif
@@ -49,8 +49,7 @@ namespace kairo {
 /// which is harmless: both calls set the same code page.
 inline void init_process_locale() {
 #if defined(_WIN32)
-    ::SetConsoleOutputCP(CP_UTF8);
-    ::SetConsoleCP(CP_UTF8);
+    kairo::win32::console_utf8();
 #endif
     const char* got = ::setlocale(LC_ALL, "");
 #if defined(_WIN32)

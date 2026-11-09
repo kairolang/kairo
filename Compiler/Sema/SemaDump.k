@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------------------- Sema/SemaDump.k --- ///
+/// --- The Kairo Project ------------------------------ Sema/SemaDump.k --- ///
 ///
 ///   \brief `--print-sema`: a readable dump of everything sema has decided
 ///          about a TU so far.
@@ -57,221 +57,393 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ----------------------------------------------------------------- ///
 
-ffi "c++" import "llvm/ADT/DenseMap.h";
-import Sema::SemaContext::*;
-import Sema::Check::InterfaceComposition::*;
-import Sema::Lower::PatternCompilation::*;
-import Sema::Check::ClassLifecycle::*;
-import Sema::Resolve::NameLookup::*;
-import Sema::Resolve::MemberLookup::*;
-import Sema::Resolve::ResolutionTrace::*;
-import AST::Mixin::FFILinkage::*;
-import Sema::Type::TypeUtil::*;
-import AST::Context::ASTContext::*;
-import AST::Context::DeclContext::*;
-import AST::Context::TranslationUnit::*;
-import AST::Context::SymbolTable::*;
-import AST::ASTSupport::*;
-import AST::DeclFacts::*;
-import AST::Node::Base::*;
-import AST::Node::Program::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Expressions::*;
-import AST::Context::InstantiationRegistry::*;
-import AST::LangItems::*;
-import AST::Node::Patterns::*;
-import AST::Node::Statements::*;
-import AST::Node::Declarations::*;
-import AST::Node::Types::*;
-import AST::Node::Casting::*;
-import AST::Kind::DeclKind::*;
-import AST::Kind::PatternKind::*;
-import AST::Printer::PrintCore::*;
-import AST::Printer::ASTPrinter::*;
-import AST::Visitor::RecursiveASTVisitor::*;
-import Location::SourceManager::*;
-import Token::Token::*;
+ffi "c++" import "llvm/ADT/DenseMap.h"
+ffi "c++" import "vector"
+
+import AST::Context::ASTContext::ASTContext
+import AST::Context::DeclContext::DeclContext
+import AST::Context::InstantiationRegistry::InstanceEntry
+import AST::Context::SymbolTable::SymbolTable
+import AST::Context::TranslationUnit::TranslationUnit
+import AST::DeclFacts::decl_instantiated_from
+import AST::Kind::DeclKind::{
+    DeclKind,
+    to_string,
+}
+import AST::Kind::PatternKind::{
+    PatternKind,
+    to_string,
+}
+import AST::LangItems::{
+    WellKnownType,
+    to_string,
+}
+import AST::Mixin::FFILinkage::ForeignLayout
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Pattern,
+    Type,
+}
+import AST::Node::Casting::{
+    cast,
+    dyn_cast,
+    isa,
+}
+import AST::Node::Declarations
+import AST::Node::Expressions::{
+    AssignOperatorExpr, BinaryOperatorExpr, CallExpr,  ClosureExpr,  ListLiteralExpr,
+    ListStorage,        MatchExpr,          OpRewrite, TypeCastExpr, UnaryOperatorExpr,
+    VariantInitExpr,    variant_decl_of,
+}
+import AST::Node::PrimaryExpressions::{
+    ChainExpr,
+    NamedIdentExpr,
+}
+import AST::Node::Program::TopLevelKind
+import AST::Node::Statements::MatchStmt
+import AST::Printer::ASTPrinter::expr_kind_name
+import AST::Printer::PrintCore::{
+    Color,
+    Painter,
+    PrintOptions,
+}
+import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import Location::SourceLocation::SourceLocation
+import Sema::Check::ClassLifecycle::{
+    LifecycleCategory,
+    LifecycleTri,
+    lifecycle_of,
+}
+import Sema::Check::InterfaceComposition::InterfaceComposition
+import Sema::Lower::PatternCompilation::{
+    DecisionTree,
+    decision_rows,
+}
+import Sema::Resolve::MemberLookup::MemberLookup
+import Sema::Resolve::NameLookup::NameLookup
+import Sema::Resolve::ResolutionTrace::{
+    MemberOutcome, TraceMemberKind, TraceRow, TraceRowKind, TraceScopeKind, TraceSep, TraceVia,
+}
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+import Sema::Type::TypeUtil::TypeUtil
+import std::io
 
 /// \brief `line:col` for a location, or `?:?` when unmapped. Every row in the
 ///        dump is anchored this way so a reader can jump straight to it.
-fn sema_dump_loc(ctx: *ASTContext, loc: SourceLocation) -> string {
-    if ctx == &null { return "?:?"; }
-    if ctx->sm == &null { return "?:?"; }
-    var full = ctx->sm->get_line_col(loc);
-    return f"{full.line}:{full.column}";
+pub fn sema_dump_loc(ctx: unsafe *ASTContext, loc: SourceLocation) -> string {
+    if ctx == &null {
+        return "?:?"
+    }
+
+    if ctx->sm == &null {
+        return "?:?"
+    }
+
+    var full = ctx->sm->get_line_col(loc)
+    return f"{full.line}:{full.column}"
 }
 
-fn sema_dump_pattern_kind_str(k: PatternKind) -> string {
-    switch k {
-        case PatternKind::WildcardPattern              { return "WildcardPattern";              }
-        case PatternKind::LiteralPattern               { return "LiteralPattern";               }
-        case PatternKind::BindingPattern               { return "BindingPattern";               }
-        case PatternKind::TupleDestructurePattern      { return "TupleDestructurePattern";      }
-        case PatternKind::ConstructorPattern           { return "ConstructorPattern";           }
-        case PatternKind::UnresolvedConstructorPattern { return "UnresolvedConstructorPattern"; }
-        case PatternKind::AlternationPattern           { return "AlternationPattern";           }
-        case PatternKind::RangePattern                 { return "RangePattern";                 }
-        case PatternKind::SlicePattern                 { return "SlicePattern";                 }
-        default                                        { return "Pattern";                      }
+pub fn sema_dump_pattern_kind_str(k: PatternKind) -> string {
+    match k {
+        case PatternKind::WildcardPattern {
+            return "WildcardPattern"
+        } case PatternKind::LiteralPattern {
+            return "LiteralPattern"
+        } case PatternKind::BindingPattern {
+            return "BindingPattern"
+        } case PatternKind::TupleDestructurePattern {
+            return "TupleDestructurePattern"
+        } case PatternKind::ConstructorPattern {
+            return "ConstructorPattern"
+        } case PatternKind::UnresolvedConstructorPattern {
+            return "UnresolvedConstructorPattern"
+        } case PatternKind::AlternationPattern {
+            return "AlternationPattern"
+        } case PatternKind::RangePattern {
+            return "RangePattern"
+        } case PatternKind::SlicePattern {
+            return "SlicePattern"
+        } default {
+            return "Pattern"
+        }
     }
 }
 
 /// \brief Source-shaped word for a decl kind (`fn`, `class`, `param`, ...).
 ///        The dump reads better with the spelling the user wrote than with
 ///        the node class name; AST class names are what --print-ast is for.
-fn sema_dump_kind_str(k: DeclKind) -> string {
-    switch k {
-        case DeclKind::FunctionDecl        { return "fn";        }
-        case DeclKind::VariableDecl        { return "var";       }
-        case DeclKind::FieldDecl           { return "field";     }
-        case DeclKind::ParamDecl           { return "param";     }
-        case DeclKind::GenericParamDecl    { return "generic";   }
-        case DeclKind::StructDecl          { return "struct";    }
-        case DeclKind::ClassDecl           { return "class";     }
-        case DeclKind::InterfaceDecl       { return "interface"; }
-        case DeclKind::ExtensionDecl       { return "extend";    }
-        case DeclKind::EnumDecl            { return "enum";      }
-        case DeclKind::EnumVariantDecl     { return "variant";   }
-        case DeclKind::UnionDecl           { return "union";     }
-        case DeclKind::TypeAliasDecl       { return "type";      }
-        case DeclKind::ModuleDecl          { return "module";    }
-        case DeclKind::ImportDecl          { return "import";    }
-        case DeclKind::TestDecl            { return "test";      }
-        case DeclKind::MacroDecl           { return "macro";     }
-        case DeclKind::ProcedureMacroDecl  { return "@macro";    }
-        case DeclKind::RecoveryDecl        { return "<error>";   }
-        default                            { return "decl";      }
+pub fn sema_dump_kind_str(k: DeclKind) -> string {
+    match k {
+        case DeclKind::FunctionDecl {
+            return "fn"
+        } case DeclKind::VariableDecl {
+            return "var"
+        } case DeclKind::FieldDecl {
+            return "field"
+        } case DeclKind::ParamDecl {
+            return "param"
+        } case DeclKind::GenericParamDecl {
+            return "generic"
+        } case DeclKind::StructDecl {
+            return "struct"
+        } case DeclKind::ClassDecl {
+            return "class"
+        } case DeclKind::InterfaceDecl {
+            return "interface"
+        } case DeclKind::ExtensionDecl {
+            return "extend"
+        } case DeclKind::EnumDecl {
+            return "enum"
+        } case DeclKind::EnumVariantDecl {
+            return "variant"
+        } case DeclKind::UnionDecl {
+            return "union"
+        } case DeclKind::TypeAliasDecl {
+            return "type"
+        } case DeclKind::ModuleDecl {
+            return "module"
+        } case DeclKind::ImportDecl {
+            return "import"
+        } case DeclKind::TestDecl {
+            return "test"
+        } case DeclKind::MacroDecl {
+            return "macro"
+        } case DeclKind::ProcedureMacroDecl {
+            return "@macro"
+        } case DeclKind::RecoveryDecl {
+            return "<error>"
+        } default {
+            return "decl"
+        }
     }
 }
 
 /// \brief The decl's own spelled name, or "" for the unnamed kinds.
-fn sema_dump_decl_name(ctx_in: *ASTContext, d: *Decl) -> string {
-    if (d == &null) || (ctx_in == &null) { return ""; }
+pub fn sema_dump_decl_name(ctx_in: unsafe *ASTContext, d: unsafe *Decl) -> string {
+    if d == &null || ctx_in == &null {
+        return ""
+    }
+
     // Names are interned per file: a decl reached through an import must be
     // spelled with ITS OWN context, not the importing TU's.
-    var ctx = NameLookup::ctx_of(d);
-    if ctx == &null { ctx = ctx_in; }
-    if isa::<FunctionDecl>(d) {
+    var unsafe *ctx = NameLookup::ctx_of(d)
+    if ctx == &null {
+        ctx = ctx_in
+    }
+
+    if isa<Declarations::FunctionDecl>(d) {
         // An operator has no name token; its operator tokens ARE its name
         // (`op +`, `op l++`), and its name slot reads back as `$unknown$`.
-        var f = cast::<FunctionDecl>(d);
+        var unsafe *f = cast<Declarations::FunctionDecl>(d)
         if f->is_operator {
-            var s = "op ";
-            for var i: usize = 0; i < f->op_token.size(); ++i { s += ctx->get_spelling(f->op_token[i]); }
-            return s;
+            var s = "op "
+            for var i: usize = 0; i < f->op_token.size(); ++i {
+                s += ctx->get_spelling(f->op_token[i])
+            }
+
+            return s
         }
-        return ctx->get_spelling(f->name);
+
+        return ctx->get_spelling(f->name)
     }
-    if isa::<VariableDecl>(d)      { return ctx->get_spelling(cast::<VariableDecl>(d)->name);      }
-    if isa::<FieldDecl>(d)         { return ctx->get_spelling(cast::<FieldDecl>(d)->name);         }
-    if isa::<ParamDecl>(d)         { return ctx->get_spelling(cast::<ParamDecl>(d)->name);         }
-    if isa::<GenericParamDecl>(d)  { return ctx->get_spelling(cast::<GenericParamDecl>(d)->name);  }
-    if isa::<ClassDecl>(d)         { return ctx->get_spelling(cast::<ClassDecl>(d)->name);         }
-    if isa::<StructDecl>(d)        { return ctx->get_spelling(cast::<StructDecl>(d)->name);        }
-    if isa::<UnionDecl>(d)         { return ctx->get_spelling(cast::<UnionDecl>(d)->name);         }
-    if isa::<InterfaceDecl>(d)     { return ctx->get_spelling(cast::<InterfaceDecl>(d)->name);     }
-    if isa::<EnumDecl>(d)          { return ctx->get_spelling(cast::<EnumDecl>(d)->name);          }
-    if isa::<EnumVariantDecl>(d)   { return ctx->get_spelling(cast::<EnumVariantDecl>(d)->name);   }
-    if isa::<TypeAliasDecl>(d)     { return ctx->get_spelling(cast::<TypeAliasDecl>(d)->name);     }
-    if isa::<ModuleDecl>(d)        { return ctx->get_spelling(cast::<ModuleDecl>(d)->name);        }
-    return "";
+
+    if isa<Declarations::VariableDecl>(d) {
+        return ctx->get_spelling(cast<Declarations::VariableDecl>(d)->name)
+    }
+
+    if isa<Declarations::FieldDecl>(d) {
+        return ctx->get_spelling(cast<Declarations::FieldDecl>(d)->name)
+    }
+
+    if isa<Declarations::ParamDecl>(d) {
+        return ctx->get_spelling(cast<Declarations::ParamDecl>(d)->name)
+    }
+
+    if isa<Declarations::GenericParamDecl>(d) {
+        return ctx->get_spelling(cast<Declarations::GenericParamDecl>(d)->name)
+    }
+
+    if isa<Declarations::ClassDecl>(d) {
+        return ctx->get_spelling(cast<Declarations::ClassDecl>(d)->name)
+    }
+
+    if isa<Declarations::StructDecl>(d) {
+        return ctx->get_spelling(cast<Declarations::StructDecl>(d)->name)
+    }
+
+    if isa<Declarations::UnionDecl>(d) {
+        return ctx->get_spelling(cast<Declarations::UnionDecl>(d)->name)
+    }
+
+    if isa<Declarations::InterfaceDecl>(d) {
+        return ctx->get_spelling(cast<Declarations::InterfaceDecl>(d)->name)
+    }
+
+    if isa<Declarations::EnumDecl>(d) {
+        return ctx->get_spelling(cast<Declarations::EnumDecl>(d)->name)
+    }
+
+    if isa<Declarations::EnumVariantDecl>(d) {
+        return ctx->get_spelling(cast<Declarations::EnumVariantDecl>(d)->name)
+    }
+
+    if isa<Declarations::TypeAliasDecl>(d) {
+        return ctx->get_spelling(cast<Declarations::TypeAliasDecl>(d)->name)
+    }
+
+    if isa<Declarations::ModuleDecl>(d) {
+        return ctx->get_spelling(cast<Declarations::ModuleDecl>(d)->name)
+    }
+
+    return ""
 }
 
 /// \brief One-line identity for a decl: `kind name @ line:col`. Deliberately
 ///        NOT the full DeclPrinter rendering   a binding row wants a compact
 ///        target, and a method body's worth of text in a table cell is noise.
-fn sema_dump_decl_brief(ctx_in: *ASTContext, d: *Decl) -> string {
-    if d == &null { return "<null>"; }
-    var ctx = NameLookup::ctx_of(d);
-    if ctx == &null { ctx = ctx_in; }
-    var kind = sema_dump_kind_str(d->kind);
-    var name = sema_dump_decl_name(ctx, d);
-    var at   = sema_dump_loc(ctx, d->range.start);
-    var pois = ("  [poisoned]") if (d->is_poisoned()) else ("");
-    if name.size() == 0 { return f"{kind} @ {at}{pois}"; }
-    return f"{kind} {name} @ {at}{pois}";
+pub fn sema_dump_decl_brief(ctx_in: unsafe *ASTContext, d: unsafe *Decl) -> string {
+    if d == &null {
+        return "<null>"
+    }
+
+    var unsafe *ctx = NameLookup::ctx_of(d)
+    if ctx == &null {
+        ctx = ctx_in
+    }
+
+    var kind = sema_dump_kind_str(d->kind)
+    var name = sema_dump_decl_name(ctx, d)
+    var at   = sema_dump_loc(ctx, d->range.start)
+    var pois = if (d->is_poisoned()) => ("  [poisoned]") else => ""
+    if name.size() == 0 {
+        return f"{kind} @ {at}{pois}"
+    }
+
+    return f"{kind} {name} @ {at}{pois}"
 }
 
 /// \brief Which lookup source answered, in N's own search order. The single
 ///        most useful column on a binding row: `local` vs `scope` vs
 ///        `overlay` is usually the whole explanation for a surprise.
-fn sema_dump_via_str(v: TraceVia) -> string {
-    switch v {
-        case TraceVia::Local   { return "local";   }
-        case TraceVia::Scope   { return "scope";   }
-        case TraceVia::Overlay { return "import";  }
-        case TraceVia::Miss    { return "miss";    }
-        default                { return "";        }
+pub fn sema_dump_via_str(v: TraceVia) -> string {
+    match v {
+        case TraceVia::Local {
+            return "local"
+        } case TraceVia::Scope {
+            return "scope"
+        } case TraceVia::Overlay {
+            return "import"
+        } case TraceVia::Miss {
+            return "miss"
+        } default {
+            return ""
+        }
     }
 }
 
 /// \brief Source-shaped word for a lexical frame.
-fn sema_dump_scope_kind_str(k: TraceScopeKind) -> string {
-    switch k {
-        case TraceScopeKind::Function       { return "fn";      }
-        case TraceScopeKind::Closure        { return "closure"; }
-        case TraceScopeKind::Block          { return "block";   }
-        case TraceScopeKind::ForBody        { return "for";     }
-        case TraceScopeKind::CatchArm       { return "catch";   }
-        case TraceScopeKind::MatchArm       { return "case";    }
-        case TraceScopeKind::ContextBinding { return "with";    }
+pub fn sema_dump_scope_kind_str(k: TraceScopeKind) -> string {
+    match k {
+        case TraceScopeKind::Function {
+            return "fn"
+        } case TraceScopeKind::Closure {
+            return "closure"
+        } case TraceScopeKind::Block {
+            return "block"
+        } case TraceScopeKind::ForBody {
+            return "for"
+        } case TraceScopeKind::CatchArm {
+            return "catch"
+        } case TraceScopeKind::MatchArm {
+            return "case"
+        } case TraceScopeKind::ContextBinding {
+            return "with"
+        }
     }
-    return "scope";
 }
 
 /// \brief The access operator a deferred chain step was reached through, so
 ///        `.x` and `::x` are told apart on sight   they are resolved by very
 ///        different rules in T.
-fn sema_dump_sep_str(k: TraceSep) -> string {
-    switch k {
-        case TraceSep::Dot           { return ".";   }
-        case TraceSep::Arrow         { return "->";  }
-        case TraceSep::ColonColon    { return "::";  }
-        case TraceSep::QuestionDot   { return "?.";  }
-        case TraceSep::QuestionArrow { return "?->"; }
+pub fn sema_dump_sep_str(k: TraceSep) -> string {
+    match k {
+        case TraceSep::Dot {
+            return "."
+        } case TraceSep::Arrow {
+            return "->"
+        } case TraceSep::ColonColon {
+            return "::"
+        } case TraceSep::QuestionDot {
+            return "?."
+        } case TraceSep::QuestionArrow {
+            return "?->"
+        }
     }
-    return ".";
 }
 
 /// `1` / `0` / `?`: one column of a lifecycle row.
-fn sema_dump_tri_str(t: LifecycleTri) -> string {
-    switch t {
-        case LifecycleTri::Yes { return "1"; }
-        case LifecycleTri::No  { return "0"; }
-        default                { return "?"; }
+pub fn sema_dump_tri_str(t: LifecycleTri) -> string {
+    match t {
+        case LifecycleTri::Yes {
+            return "1"
+        } case LifecycleTri::No {
+            return "0"
+        } default {
+            return "?"
+        }
     }
 }
 
-fn sema_dump_category_str(c: LifecycleCategory) -> string {
-    switch c {
-        case LifecycleCategory::Copy        { return "COPY";         }
-        case LifecycleCategory::Move        { return "MOVE";         }
-        case LifecycleCategory::NonTransfer { return "NON_TRANSFER"; }
-        default                             { return "?";            }
+pub fn sema_dump_category_str(c: LifecycleCategory) -> string {
+    match c {
+        case LifecycleCategory::Copy {
+            return "COPY"
+        } case LifecycleCategory::Move {
+            return "MOVE"
+        } case LifecycleCategory::NonTransfer {
+            return "NON_TRANSFER"
+        } default {
+            return "?"
+        }
     }
 }
 
-fn sema_dump_phase_str(p: SemaPhase) -> string {
-    switch p {
-        case SemaPhase::Parsed          { return "Parsed";          }
-        case SemaPhase::ImportsResolved { return "ImportsResolved"; }
-        case SemaPhase::Expanded        { return "Expanded";        }
-        case SemaPhase::Verified        { return "Verified";        }
-        case SemaPhase::NamesResolved   { return "NamesResolved";   }
-        case SemaPhase::TypesResolved   { return "TypesResolved";   }
-        case SemaPhase::Typed           { return "Typed";           }
-        case SemaPhase::Checked         { return "Checked";         }
-        case SemaPhase::Lowered         { return "Lowered";         }
-        case SemaPhase::MonoCollected   { return "MonoCollected";   }
-        case SemaPhase::Complete        { return "Complete";        }
+pub fn sema_dump_phase_str(p: SemaPhase) -> string {
+    match p {
+        case SemaPhase::Parsed {
+            return "Parsed"
+        } case SemaPhase::ImportsResolved {
+            return "ImportsResolved"
+        } case SemaPhase::Expanded {
+            return "Expanded"
+        } case SemaPhase::Verified {
+            return "Verified"
+        } case SemaPhase::NamesResolved {
+            return "NamesResolved"
+        } case SemaPhase::TypesResolved {
+            return "TypesResolved"
+        } case SemaPhase::Typed {
+            return "Typed"
+        } case SemaPhase::Checked {
+            return "Checked"
+        } case SemaPhase::Lowered {
+            return "Lowered"
+        } case SemaPhase::MonoCollected {
+            return "MonoCollected"
+        } case SemaPhase::Complete {
+            return "Complete"
+        }
     }
-    return "<?>";
 }
 
 ///
@@ -282,92 +454,100 @@ fn sema_dump_phase_str(p: SemaPhase) -> string {
 ///        so a binding row says WHERE it was written, not just what it bound
 ///        to   the single most useful column when chasing a wrong shadow.
 ///
-class SemaDump derives RecursiveASTVisitor::<SemaDump> {
-    pub var sc:   *SemaContext;
-    pub var ctx:  *ASTContext;
-    pub var opts: PrintOptions;
-    pub var fid:  u32 = 0;
+pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
+    pub var sc:   unsafe *SemaContext
+    pub var ctx:  unsafe *ASTContext
+    pub var opts: PrintOptions
+    pub var fid:  u32                 = 0
 
     /// ONE buffered painter for the whole dump, flushed once in run(). A
     /// painter per section double-spaced every row, since both newline() and
     /// std::print append a line break.
-    priv var _p: Painter;
+    priv var _p: Painter
 
     // Section state.
-    priv var _scope: string = "<tu>";     ///< current qualified scope path.
-    priv var _emitted_scope: string = ""; ///< last scope header actually printed.
+    priv var _scope:         string = "<tu>" ///< current qualified scope path.
+    priv var _emitted_scope: string = ""     ///< last scope header actually printed.
 
     /// use-site SourceLocation::id -> index into sc->trace.rows. Built once
     /// in run(); empty when the trace was not recorded.
-    priv var _use_index: llvm::DenseMap::<u64, usize>;   ///< loc id (widened: never a reserved key) -> trace row. Never iterated.
+    priv var _use_index: llvm::DenseMap<u64, u64> ///< loc id (widened: never a reserved key) -> trace row. Never iterated.
 
     // Counters for the summary line.
-    priv var _n_bound:      usize = 0;
-    priv var _n_deferred:   usize = 0;
-    priv var _n_unresolved: usize = 0;
+    priv var _n_bound:      usize = 0
+    priv var _n_deferred:   usize = 0
+    priv var _n_unresolved: usize = 0
     /// Chain steps N handed to T. Counted off the TRACE, not the AST walk:
     /// the RAV skips step names, so this walk never sees one.
-    priv var _n_member:     usize = 0;
-    priv var _n_ty_total:   usize = 0;
-    priv var _n_ty_canon:   usize = 0;
-    priv var _n_ty_dep:     usize = 0;
-    priv var _n_ty_err:     usize = 0;
-    
-    priv var _n_step_bound: usize = 0;
-    priv var _n_step_cands: usize = 0;
-    priv var _n_step_open:  usize = 0;
-    priv var _n_step_err:   usize = 0;
+    priv var _n_member:   usize = 0
+    priv var _n_ty_total: usize = 0
+    priv var _n_ty_canon: usize = 0
+    priv var _n_ty_dep:   usize = 0
+    priv var _n_ty_err:   usize = 0
+
+    priv var _n_step_bound: usize = 0
+    priv var _n_step_cands: usize = 0
+    priv var _n_step_open:  usize = 0
+    priv var _n_step_err:   usize = 0
 
     /// The expression-types section reuses this visitor for a SECOND walk;
     /// the flag is what tells the shared visit_ hooks which pass they are in,
     /// so neither section prints the other's rows.
-    priv var _expr_mode:     bool  = false;
-    priv var _n_ex_typed:    usize = 0;
-    priv var _n_ex_unknown:  usize = 0;
-    priv var _n_ex_err:      usize = 0;
-    priv var _inferred:      vec::<string>;   ///< rows for the inferred-decls list.
-    priv var _tu:            TypeUtil;        ///< only for str(); holds no state.
+    priv var _expr_mode:    bool                     = false
+    priv var _n_ex_typed:   usize                    = 0
+    priv var _n_ex_unknown: usize                    = 0
+    priv var _n_ex_err:     usize                    = 0
+    priv var _inferred:     cxx::std::vector<string>         ///< rows for the inferred-decls list.
+    priv var _tu:           TypeUtil                         ///< only for str(); holds no state.
 
-    fn SemaDump(self, sc: *SemaContext, opts: PrintOptions) {
-        self.sc   = sc;
-        self.ctx  = sc->ctx;
-        self.opts = opts;
-        self.fid  = sc->ctx->fid;
-        self._tu  = TypeUtil(sc);
+    pub fn SemaDump(self, sc: unsafe *SemaContext, opts: PrintOptions) {
+        self.sc   = sc
+        self.ctx  = sc->ctx
+        self.opts = opts
+        self.fid  = sc->ctx->fid
+        self._tu  = TypeUtil(sc)
     }
 
-    fn run(self) {
-        var tu = self.sc->tu;
-        if tu == &null { return; }
+    pub fn run(self) {
+        var unsafe *tu = self.sc->tu
+        if tu == &null {
+            return
+        }
 
-        self._p = Painter(self.opts);
+        self._p = Painter(self.opts)
 
-        var fname: string = "<unknown>";
-        if self.ctx->sm != &null { fname = self.ctx->sm->get_filename(self.fid); }
-        self._p.paint(Color::NodeKind, f"===== SEMA fid {self.fid}: {fname} =====");
-        self._p.newline();
-        self._p.paint(Color::Dim, "phase: ");
-        self._p.paint(Color::Keyword, sema_dump_phase_str(self.sc->phase));
-        var errs = self.sc->error_delta();
-        if errs > 0 { self._p.paint(Color::Error, f"   ({errs} sema error(s))"); }
-        self._p.newline();
+        var fname: string = "<unknown>"
+        if self.ctx->sm != &null {
+            fname = self.ctx->sm->get_filename(self.fid)
+        }
 
-        self._build_use_index();
+        self._p.paint(Color::NodeKind, f"===== SEMA fid {self.fid}: {fname} =====")
+        self._p.newline()
+        self._p.paint(Color::Dim, "phase: ")
+        self._p.paint(Color::Keyword, sema_dump_phase_str(self.sc->phase))
+        var errs = self.sc->error_delta()
+        if errs > 0 {
+            self._p.paint(Color::Error, f"   ({errs} sema error(s))")
+        }
 
-        self._dump_lang_items();
-        self._dump_symbol_tables(tu);
-        self._dump_chains(tu);
-        self._dump_out_of_line(tu);
-        self._dump_scopes();
-        self._dump_bindings(tu);
-        self._dump_expr_types(tu);
-        self._dump_compositions(static_cast::<*DeclContext>(tu), true);
-        self._dump_summary();
+        self._p.newline()
 
-        std::print(self._p.out);
+        self._build_use_index()
+
+        self._dump_lang_items()
+        self._dump_symbol_tables(tu)
+        self._dump_chains(tu)
+        self._dump_out_of_line(tu)
+        self._dump_scopes()
+        self._dump_bindings(tu)
+        self._dump_expr_types(tu)
+        self._dump_compositions(tu, true)
+        self._dump_summary()
+
+        io::println(f"{self._p.out}")
     }
 
-    // --- section 1: lang items --------------------------------------------
+    /// # section 1: lang items
 
     /// Lang items are ORDINARY library decls, found by unqualified lookup at
     /// the TU root (`NameResolution::_bind_well_known`)   `i32` is a name,
@@ -375,48 +555,51 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// which is expected and not a failure. Thirty-odd `<unresolved>` rows
     /// read like one, though, so that case collapses to a single line.
     priv fn _dump_lang_items(self) {
-        self._p.paint(Color::NodeKind, "-- lang items (well_known) --");
-        self._p.newline();
+        self._p.paint(Color::NodeKind, "-- lang items (well_known) --")
+        self._p.newline()
         // No "none bound for this TU" case: the table is the BUILD's, filled
         // once from the builtin fid, so an empty one means the builtin root is
         // missing entirely rather than anything about this TU's import set.
-        self._lang_rows(true);
+        self._lang_rows(true)
     }
 
     /// Every lang item, walked twice: once to count, once to print. The
     /// enum IS the list and to_string the label -- the name the builtin root
     /// declares -- so a new item can neither be missed here nor mislabelled.
     priv fn _lang_rows(self, emit: bool) -> usize {
-        var n: usize = 0;
-        for var i: usize = 0; i < static_cast::<usize>(WellKnownType::COUNT); ++i {
-            var k = static_cast::<WellKnownType>(static_cast::<u8>(i));
-            n += self._lang_row(emit, k, to_string(k));
+        var n: usize = 0
+        for var i: usize = 0; i < (WellKnownType::COUNT as u8 as usize); ++i {
+            var k = ((i as u8) as WellKnownType)
+            n += self._lang_row(emit, k, to_string(k))
         }
-        return n;
+
+        return n
     }
 
     /// \return 1 when the item is bound, 0 otherwise, so the caller can decide
     ///         whether the section is worth printing at all.
-    priv fn _lang_row(self, emit: bool, k: WellKnownType, spelling: string) -> usize {
-        var d = self.sc->well_known->get(k);
+    priv fn _lang_row(self, emit: bool, k: WellKnownType, const spelling: string) -> usize {
+        var unsafe *d = self.sc->well_known->get(k)
         if !emit {
-            return (1) if (d != &null) else (0);
+            return if (d != &null) => (1) else => 0
         }
-        self._p.paint(Color::Tree, "  ");
-        self._p.paint(Color::TypeName, spelling);
-        self._p.put("  ");
+
+        self._p.paint(Color::Tree, "  ")
+        self._p.paint(Color::TypeName, spelling)
+        self._p.put("  ")
         if d == &null {
             // Not an error by itself: a lang item is only required at USE.
-            self._p.paint(Color::Dim, "<unresolved>");
+            self._p.paint(Color::Dim, "<unresolved>")
         } else {
-            self._p.paint(Color::Operator, "-> ");
-            self._p.put(sema_dump_decl_brief(self.ctx, d));
+            self._p.paint(Color::Operator, "-> ")
+            self._p.put(sema_dump_decl_brief(self.ctx, d))
         }
-        self._p.newline();
-        return (1) if (d != &null) else (0);
+
+        self._p.newline()
+        return if (d != &null) => (1) else => 0
     }
 
-    // --- section 1b: scope symbol tables ----------------------------------
+    /// # section 1b: scope symbol tables
 
     /// Every DeclContext's FROZEN table, in full. The lexical-scopes section
     /// below cannot show these: it replays N's lexical FRAME stack, and a
@@ -428,16 +611,17 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// in a shadowing note on some unrelated row   and whether member
     /// injection put the right things in the right scope is not checkable at
     /// all. This is the section you read to answer "what does Foo contain".
-    priv fn _dump_symbol_tables(self, tu: *TranslationUnit) {
-        self._p.paint(Color::NodeKind, "-- scope symbol tables (what each scope declares) --");
-        self._p.newline();
-        var n = self._tables_in(static_cast::<*DeclContext>(tu), "<tu>");
+    priv fn _dump_symbol_tables(self, tu: unsafe *TranslationUnit) {
+        self._p.paint(Color::NodeKind, "-- scope symbol tables (what each scope declares) --")
+        self._p.newline()
+        var n = self._tables_in(tu, "<tu>")
         if n == 0 {
-            self._p.paint(Color::Tree, "  ");
-            self._p.paint(Color::Dim, "(no scope declares anything)");
-            self._p.newline();
+            self._p.paint(Color::Tree, "  ")
+            self._p.paint(Color::Dim, "(no scope declares anything)")
+            self._p.newline()
         }
-        self._dump_lifecycle(tu);
+
+        self._dump_lifecycle(tu)
     }
 
     /// One `lifecycle <Name>: ...` row per class, struct and enum, at the foot
@@ -448,98 +632,149 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// This TU's own decls only, and no rows in a library TU: the builtin and
     /// std roots are dumped as well, and their rows would bury the ones a
     /// test is about. Nothing before T: the facts read canonical types.
-    priv fn _dump_lifecycle(self, tu: *TranslationUnit) {
-        if static_cast::<u8>(self.sc->phase) < static_cast::<u8>(SemaPhase::TypesResolved) { return; }
-        if self._library_tu() { return; }
-        self._lifecycle_in(static_cast::<*DeclContext>(tu));
+    priv fn _dump_lifecycle(self, tu: unsafe *TranslationUnit) {
+        if (self.sc->phase as u8) < (SemaPhase::TypesResolved as u8) {
+            return
+        }
+
+        if self._library_tu() {
+            return
+        }
+
+        self._lifecycle_in(tu)
     }
 
-    priv fn _lifecycle_in(self, dc: *DeclContext) {
-        if dc == &null { return; }
+    priv fn _lifecycle_in(self, dc: unsafe *DeclContext) {
+        if dc == &null {
+            return
+        }
+
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            var d = *(dc->dc_decls.get(i));
-            if d == &null { continue; }
+            var unsafe *d = *dc->dc_decls.get(i)
+            if d == &null {
+                continue
+            }
+
             // One row per entity: a forward declaration shares its
             // definition's facts, and an instance reads its pattern's.
-            var is_record = isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<EnumDecl>(d);
-            if is_record && (NameLookup::representative(d) == d) && (decl_instantiated_from(d) == &null) {
-                var f = lifecycle_of(self.sc)->facts_of(d);
-                self._p.paint(Color::Tree, "  ");
-                self._p.paint(Color::Attr, "lifecycle ");
-                self._p.put(f"{sema_dump_decl_name(self.ctx, d)}: category={sema_dump_category_str(f->category)}");
-                self._p.put(f" trivial_copy={sema_dump_tri_str(f->trivially_copyable)}");
-                self._p.put(f" trivial_dtor={sema_dump_tri_str(f->trivial_dtor)}");
-                self._p.put(f" destructible={sema_dump_tri_str(f->destructible)}");
-                self._p.newline();
+            var is_record = isa<Declarations::ClassDecl>(d)
+                || isa<Declarations::StructDecl>(d)
+                || isa<Declarations::EnumDecl>(d)
+            if is_record
+                && NameLookup::representative(d) == d
+                && decl_instantiated_from(d) == &null {
+                var unsafe *f = lifecycle_of(self.sc)->facts_of(d)
+                self._p.paint(Color::Tree, "  ")
+                self._p.paint(Color::Attr, "lifecycle ")
+                self._p.put(
+                    f"{sema_dump_decl_name(self.ctx, d)}: category={sema_dump_category_str(f->category)}",
+                )
+
+                self._p.put(f" trivial_copy={sema_dump_tri_str(f->trivially_copyable)}")
+                self._p.put(f" trivial_dtor={sema_dump_tri_str(f->trivial_dtor)}")
+                self._p.put(f" destructible={sema_dump_tri_str(f->destructible)}")
+                self._p.newline()
             }
-            self._lifecycle_in(NameLookup::context_of(d));
+
+            self._lifecycle_in(NameLookup::context_of(d))
         }
     }
 
     /// The builtin root by fid; std by path, against the root the driver
     /// mounts it from (--std-dir, else <resource-dir>/std).
     priv fn _library_tu(self) -> bool {
-        if (self.sc->g != &null) && self.sc->g->is_builtin_fid(self.fid) { return true; }
-        var ci = self.ctx->ci;
-        if (ci == &null) || (self.ctx->sm == &null) { return false; }
-        var root = ci->pp.std_dir;
-        if root.empty() && (!ci->target.resource_dir.empty()) { root = ci->target.resource_dir + "/std"; }
-        if root.empty() { return false; }
-        if !root.ends_with("/") { root += "/"; }
-        return self.ctx->sm->get_filename(self.fid).starts_with(root);
+        if self.sc->g != &null && self.sc->g->is_builtin_fid(self.fid) {
+            return true
+        }
+
+        var unsafe *ci = self.ctx->ci
+        if ci == &null || self.ctx->sm == &null {
+            return false
+        }
+
+        var root = ci->pp.std_dir
+        if root.empty() && !ci->target.resource_dir.empty() {
+            root = ci->target.resource_dir + "/std"
+        }
+
+        if root.empty() {
+            return false
+        }
+
+        if !root.ends_with("/") {
+            root += "/"
+        }
+
+        return self.ctx->sm->get_filename(self.fid).starts_with(root)
     }
 
     /// \return how many scopes actually printed, so the caller can say
     ///         "nothing" rather than printing a bare header.
-    priv fn _tables_in(self, dc: *DeclContext, qual: string) -> usize {
-        if dc == &null { return 0; }
-        var printed: usize = 0;
+    priv fn _tables_in(self, dc: unsafe *DeclContext, const qual: string) -> usize {
+        if dc == &null {
+            return 0
+        }
+
+        var printed: usize = 0
 
         if dc->dc_symbols != &null {
-            var rows = vec::<SymbolTable::Entry>();
-            dc->dc_symbols->collect_entries(rows);
-            var order = vec::<usize>();
-            self._source_order(rows, order);
+            var rows = cxx::std::vector<SymbolTable::Entry>()
+            dc->dc_symbols->collect_entries(&rows)
+            var order = cxx::std::vector<usize>()
+            self._source_order(&rows, &order)
 
             if rows.size() > 0 {
-                self._p.paint(Color::Tree, "  ");
-                self._p.paint(Color::Keyword, qual);
-                self._p.paint(Color::Dim, f"   [{rows.size()} name(s)]");
-                self._p.newline();
-                printed += 1;
+                self._p.paint(Color::Tree, "  ")
+                self._p.paint(Color::Keyword, qual)
+                self._p.paint(Color::Dim, f"   [{rows.size()} name(s)]")
+                self._p.newline()
+                printed += 1
 
                 for var k: usize = 0; k < order.size(); ++k {
-                    var i    = order[k];
-                    var cell = rows[i].cell;
-                    if cell == &null { continue; }
-                    var name = rows[i].name.describe(self.ctx);
+                    var        i     = order[k]
+                    var unsafe *cell = rows[(i)].cell
+                    if cell == &null {
+                        continue
+                    }
 
-                    self._p.paint(Color::Tree, "    ");
-                    self._p.paint(Color::Ident, self._pad(name, 12));
+                    var name = rows[(i)].name.describe(self.ctx)
+
+                    self._p.paint(Color::Tree, "    ")
+                    self._p.paint(Color::Ident, self._pad(name, 12))
                     if cell->size() == 1 {
-                        self._p.paint(Color::Operator, "-> ");
-                        self._p.put(sema_dump_decl_brief(self.ctx, cell->get(0)));
-                        self._p.newline();
+                        self._p.paint(Color::Operator, "-> ")
+                        self._p.put(sema_dump_decl_brief(self.ctx, cell->get(0)))
+                        self._p.newline()
                     } else {
                         // The full listing is the chains section's job; here
                         // just say the name is plural so the count adds up.
-                        self._p.paint(Color::Dim, f"   [{cell->size()} decls   see chains below]");
-                        self._p.newline();
+                        self._p.paint(Color::Dim, f"   [{cell->size()} decls   see chains below]")
+                        self._p.newline()
                     }
                 }
             }
         }
 
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            var d = *(dc->dc_decls.get(i));
-            if d == &null { continue; }
-            var child = NameLookup::context_of(d);
-            if child == &null { continue; }
-            var nm = sema_dump_decl_name(self.ctx, d);
-            if nm.size() == 0 { nm = "<anon>"; }
-            printed += self._tables_in(child, f"{qual}::{nm}");
+            var unsafe *d = *dc->dc_decls.get(i)
+            if d == &null {
+                continue
+            }
+
+            var unsafe *child = NameLookup::context_of(d)
+            if child == &null {
+                continue
+            }
+
+            var nm = sema_dump_decl_name(self.ctx, d)
+            if nm.size() == 0 {
+                nm = "<anon>"
+            }
+
+            printed += self._tables_in(child, f"{qual}::{nm}")
         }
-        return printed;
+
+        return printed
     }
 
     /// Table order is hash order: stable per run, but meaningless to a reader
@@ -548,16 +783,21 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// down the source file. Permuting INDICES rather than entries keeps the
     /// sort off the entries themselves, which hold an observer into the
     /// frozen table. Insertion sort: this is one scope's table, not the TU.
-    priv fn _source_order(self, rows: ref!(vec::<SymbolTable::Entry>),
-                          out: ref!(vec::<usize>)) {
-        for var i: usize = 0; i < rows.size(); ++i { out.push_back(i); }
+    priv fn _source_order(self,
+                          @inout rows: cxx::std::vector<SymbolTable::Entry>,
+                          @inout out:  cxx::std::vector<usize>) {
+        for var i: usize = 0; i < rows.size(); ++i {
+            out.push_back(i)
+        }
+
         for var i: usize = 1; i < out.size(); ++i {
-            var j = i;
-            while (j > 0) && (self._entry_pos(rows, out[j - 1]) > self._entry_pos(rows, out[j])) {
-                var tmp     = out[j - 1];
-                out[j - 1]  = out[j];
-                out[j]      = tmp;
-                j -= 1;
+            var j = i
+            while j > 0
+                && self._entry_pos(&rows, ((out[j - 1]))) > self._entry_pos(&rows, ((out[j]))) {
+                var tmp = out[j - 1]
+                out[j - 1] = out[j]
+                out[j]     = tmp
+                j -= 1
             }
         }
     }
@@ -565,31 +805,49 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// Source position of a table row, for ordering. A row with no usable
     /// decl sorts last rather than first: it is the odd one out, and the top
     /// of the list is where the reader starts.
-    priv fn _entry_pos(self, rows: ref!(vec::<SymbolTable::Entry>), i: usize) -> u32 {
-        var cell = rows[i].cell;
-        if cell == &null { return u32(-1); }
-        if cell->size() == 0 { return u32(-1); }
-        var d = cell->get(0);
-        if d == &null { return u32(-1); }
-        return d->range.start.id;
+    priv fn _entry_pos(self, @inout rows: cxx::std::vector<SymbolTable::Entry>, i: usize) -> u32 {
+        var unsafe *cell = rows[i].cell
+        if cell == &null {
+            return u32::MAX
+        }
+
+        if cell->size() == 0 {
+            return u32::MAX
+        }
+
+        var unsafe *d = cell->get(0)
+        if d == &null {
+            return u32::MAX
+        }
+
+        return d->range.start.id
     }
 
-    // --- section 2: redecl chains / overload sets -------------------------
+    /// # section 2: redecl chains / overload sets
 
-    priv fn _dump_chains(self, tu: *TranslationUnit) {
-        self._p.paint(Color::NodeKind, "-- multi-decl names (overload sets / redecl chains) --");
-        self._p.newline();
-        self._chains_in(static_cast::<*DeclContext>(tu), "<tu>");
+    priv fn _dump_chains(self, tu: unsafe *TranslationUnit) {
+        self._p.paint(Color::NodeKind, "-- multi-decl names (overload sets / redecl chains) --")
+        self._p.newline()
+        self._chains_in(tu, "<tu>")
     }
 
     /// One decl row inside a chain/cell listing.
-    priv fn _chain_row(self, d: *Decl, canon: *Decl, indent: string) {
-        if d == &null { return; }
-        self._p.paint(Color::Tree, indent);
-        self._p.put(sema_dump_decl_brief(self.ctx, d));
-        if self._is_definition(d) { self._p.paint(Color::Keyword, "  [definition]"); }
-        if (canon != &null) && (canon == d) { self._p.paint(Color::Attr, "  [canonical]"); }
-        self._p.newline();
+    priv fn _chain_row(self, d: unsafe *Decl, canon: unsafe *Decl, const indent: string) {
+        if d == &null {
+            return
+        }
+
+        self._p.paint(Color::Tree, indent)
+        self._p.put(sema_dump_decl_brief(self.ctx, d))
+        if self._is_definition(d) {
+            self._p.paint(Color::Keyword, "  [definition]")
+        }
+
+        if canon != &null && canon == d {
+            self._p.paint(Color::Attr, "  [canonical]")
+        }
+
+        self._p.newline()
     }
 
     /// Every link in \p d's redeclaration ring, in insertion order, or
@@ -601,31 +859,42 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// definitions is a cell of size 1 and never reaches the chains
     /// section at all. Whether RedeclMerge actually linked them is only
     /// visible off the ring.
-    priv fn _dump_ring(self, d: *Decl, indent: string) -> usize {
-        var links = vec::<*Decl>();
-        NameLookup::collect_chain(d, links);        // first_decl() then walk to head
-        if links.size() <= 1 { return 0; }
-        var canon = NameLookup::chain_canonical(d);
-        for var i: usize = 0; i < links.size(); ++i {
-            self._chain_row(links[i], canon, indent);
+    priv fn _dump_ring(self, d: unsafe *Decl, const indent: string) -> usize {
+        var links = cxx::std::vector<unsafe *Decl>()
+        NameLookup::collect_chain(d, &links) // first_decl() then walk to head
+        if links.size() <= 1 {
+            return 0
         }
-        return links.size();
+
+        var unsafe *canon = NameLookup::chain_canonical(d)
+        for var i: usize = 0; i < links.size(); ++i {
+            self._chain_row(links[i], canon, indent)
+        }
+
+        return links.size()
     }
 
-    priv fn _chains_in(self, dc: *DeclContext, qual: string) {
-        if dc == &null { return; }
+    priv fn _chains_in(self, dc: unsafe *DeclContext, const qual: string) {
+        if dc == &null {
+            return
+        }
 
         if dc->dc_symbols != &null {
-            var rows = vec::<SymbolTable::Entry>();
-            dc->dc_symbols->collect_entries(rows);
+            var rows = cxx::std::vector<SymbolTable::Entry>()
+            dc->dc_symbols->collect_entries(&rows)
             for var i: usize = 0; i < rows.size(); ++i {
-                var cell = rows[i].cell;
-                if cell == &null { continue; }
-                if cell->size() <= 1 { continue; }
+                var unsafe *cell = rows[i].cell
+                if cell == &null {
+                    continue
+                }
 
-                        var name = rows[i].name.describe(self.ctx);
-                self._p.paint(Color::Tree, "  ");
-                self._p.paint(Color::Ident, f"{qual}::{name}");
+                if cell->size() <= 1 {
+                    continue
+                }
+
+                var name = rows[i].name.describe(self.ctx)
+                self._p.paint(Color::Tree, "  ")
+                self._p.paint(Color::Ident, f"{qual}::{name}")
 
                 // Hoisted: the label below asks the chain, not the kinds.
                 // Before R ran, an all-function cell was always an overload
@@ -634,141 +903,207 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
                 // merged chain and a genuine overload set are both all-fn.
                 // What tells them apart is whether the entries AGREE on a
                 // canonical.
-                var canon = NameLookup::chain_canonical(cell->get(0));
+                var unsafe *canon = NameLookup::chain_canonical(cell->get(0))
 
-                var linked = false;
-                var mixed  = false;
+                var linked = false
+                var mixed  = false
                 for var j: usize = 1; j < cell->size(); ++j {
-                    var cj = NameLookup::chain_canonical(cell->get(j));
-                    if (cj != &null) && (cj == canon) { linked = true; }
-                    else                              { mixed  = true; }
+                    var unsafe *cj = NameLookup::chain_canonical(cell->get(j))
+                    if cj != &null && cj == canon {
+                        linked = true
+                    } else {
+                        mixed = true
+                    }
                 }
 
                 if linked && mixed {
                     // One cell holding both: overloads, one of which has
                     // its own redeclaration chain. Says so rather than
                     // picking a label that is half wrong.
-                    self._p.paint(Color::Dim, f"   [overload set x{cell->size()}, partly chained]");
+                    self._p.paint(Color::Dim, f"   [overload set x{cell->size()}, partly chained]")
                 } else if linked {
-                    self._p.paint(Color::Dim, f"   [redecl chain x{cell->size()}]");
+                    self._p.paint(Color::Dim, f"   [redecl chain x{cell->size()}]")
                 } else {
-                    self._p.paint(Color::Dim, f"   [overload set x{cell->size()}]");
+                    self._p.paint(Color::Dim, f"   [overload set x{cell->size()}]")
                 }
-                
-                self._p.newline();
+
+                self._p.newline()
 
                 for var j: usize = 0; j < cell->size(); ++j {
-                    var d = cell->get(j);
-                    if d == &null { continue; }
-                    self._p.paint(Color::Tree, "    - ");
-                    self._p.put(sema_dump_decl_brief(self.ctx, d));
-                    if self._is_definition(d) { self._p.paint(Color::Keyword, "  [definition]"); }
-                    if (canon != &null) && (canon == d) {
-                        self._p.paint(Color::Attr, "  [canonical]");
+                    var unsafe *d = cell->get(j)
+                    if d == &null {
+                        continue
                     }
-                    self._p.newline();
+
+                    self._p.paint(Color::Tree, "    - ")
+                    self._p.put(sema_dump_decl_brief(self.ctx, d))
+                    if self._is_definition(d) {
+                        self._p.paint(Color::Keyword, "  [definition]")
+                    }
+
+                    if canon != &null && canon == d {
+                        self._p.paint(Color::Attr, "  [canonical]")
+                    }
+
+                    self._p.newline()
                 }
-                    }
+            }
         }
 
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            var d = *(dc->dc_decls.get(i));
-            if d == &null { continue; }
-            var child = NameLookup::context_of(d);
-            if child == &null { continue; }
-            var nm = sema_dump_decl_name(self.ctx, d);
-            if nm.size() == 0 { nm = "<anon>"; }
-            self._chains_in(child, f"{qual}::{nm}");
+            var unsafe *d = *dc->dc_decls.get(i)
+            if d == &null {
+                continue
+            }
+
+            var unsafe *child = NameLookup::context_of(d)
+            if child == &null {
+                continue
+            }
+
+            var nm = sema_dump_decl_name(self.ctx, d)
+            if nm.size() == 0 {
+                nm = "<anon>"
+            }
+
+            self._chains_in(child, f"{qual}::{nm}")
         }
     }
 
-    priv fn _is_definition(self, d: *Decl) -> bool {
-        if d == &null { return false; }
-        if isa::<ClassDecl>(d)     { return cast::<ClassDecl>(d)->is_this_definition;     }
-        if isa::<StructDecl>(d)    { return cast::<StructDecl>(d)->is_this_definition;    }
-        if isa::<UnionDecl>(d)     { return cast::<UnionDecl>(d)->is_this_definition;     }
-        if isa::<InterfaceDecl>(d) { return cast::<InterfaceDecl>(d)->is_this_definition; }
-        if isa::<EnumDecl>(d)      { return cast::<EnumDecl>(d)->is_this_definition;      }
-        if isa::<ModuleDecl>(d)    { return cast::<ModuleDecl>(d)->is_this_definition;    }
-        if isa::<FunctionDecl>(d)  { return cast::<FunctionDecl>(d)->has_body();          }
-        return false;
+    priv fn _is_definition(self, d: unsafe *Decl) -> bool {
+        if d == &null {
+            return false
+        }
+
+        if isa<Declarations::ClassDecl>(d) {
+            return cast<Declarations::ClassDecl>(d)->is_this_definition
+        }
+
+        if isa<Declarations::StructDecl>(d) {
+            return cast<Declarations::StructDecl>(d)->is_this_definition
+        }
+
+        if isa<Declarations::UnionDecl>(d) {
+            return cast<Declarations::UnionDecl>(d)->is_this_definition
+        }
+
+        if isa<Declarations::InterfaceDecl>(d) {
+            return cast<Declarations::InterfaceDecl>(d)->is_this_definition
+        }
+
+        if isa<Declarations::EnumDecl>(d) {
+            return cast<Declarations::EnumDecl>(d)->is_this_definition
+        }
+
+        if isa<Declarations::ModuleDecl>(d) {
+            return cast<Declarations::ModuleDecl>(d)->is_this_definition
+        }
+
+        if isa<Declarations::FunctionDecl>(d) {
+            return cast<Declarations::FunctionDecl>(d)->has_body()
+        }
+
+        return false
     }
 
-    // --- section 3: out-of-line attachment --------------------------------
+    /// # section 3: out-of-line attachment
 
-    priv fn _dump_out_of_line(self, tu: *TranslationUnit) {
-        self._p.paint(Color::NodeKind, "-- out-of-line definitions --");
-        self._p.newline();
+    priv fn _dump_out_of_line(self, tu: unsafe *TranslationUnit) {
+        self._p.paint(Color::NodeKind, "-- out-of-line definitions --")
+        self._p.newline()
         if tu->out_of_line.size() == 0 {
-            self._p.paint(Color::Dim, "  (none)");
-            self._p.newline();
-                return;
+            self._p.paint(Color::Dim, "  (none)")
+            self._p.newline()
+            return
         }
 
         for var i: usize = 0; i < tu->out_of_line.size(); ++i {
-            var d = *(tu->out_of_line.get(i));
-            if d == &null { continue; }
-            self._p.paint(Color::Tree, "  ");
-            self._p.paint(Color::Ident, sema_dump_decl_name(self.ctx, d));
-            self._p.paint(Color::Dim, f"  @ {sema_dump_loc(self.ctx, d->range.start)}");
-            self._p.put("  ");
+            var unsafe *d = *tu->out_of_line.get(i)
+            if d == &null {
+                continue
+            }
+
+            self._p.paint(Color::Tree, "  ")
+            self._p.paint(Color::Ident, sema_dump_decl_name(self.ctx, d))
+            self._p.paint(Color::Dim, f"  @ {sema_dump_loc(self.ctx, d->range.start)}")
+            self._p.put("  ")
             if d->semantic_dc == &null {
                 // N(a) diagnosed this; the row records WHY the body will not
                 // resolve against a type scope.
-                self._p.paint(Color::Error, "<UNATTACHED>");
+                self._p.paint(Color::Error, "<UNATTACHED>")
             } else {
-                var home = reinterpret_cast::<*DeclContext>(d->semantic_dc);
-                self._p.paint(Color::Operator, "-> ");
-                self._p.put(f"attached to {self._dc_label(home)}");
+                var unsafe *home = d->semantic_dc
+                self._p.paint(Color::Operator, "-> ")
+                self._p.put(f"attached to {self._dc_label(home)}")
             }
-            self._p.newline();
+
+            self._p.newline()
         }
     }
 
-    priv fn _dc_label(self, dc: *DeclContext) -> string {
-        if dc == &null { return "<null scope>"; }
-        if dc->is_translation_unit() { return "<tu>"; }
-        var owner = dc->owner_decl();
-        if owner == &null { return "<anon scope>"; }
-        var nm = sema_dump_decl_name(self.ctx, owner);
-        if nm.size() == 0 { return "<anon scope>"; }
-        return nm;
+    priv fn _dc_label(self, dc: unsafe *DeclContext) -> string {
+        if dc == &null {
+            return "<null scope>"
+        }
+
+        if dc->is_translation_unit() {
+            return "<tu>"
+        }
+
+        var unsafe *owner = dc->owner_decl()
+        if owner == &null {
+            return "<anon scope>"
+        }
+
+        var nm = sema_dump_decl_name(self.ctx, owner)
+        if nm.size() == 0 {
+            return "<anon scope>"
+        }
+
+        return nm
     }
 
-    // --- section 4: lexical scopes (N's decision log) ---------------------
+    /// # section 4: lexical scopes (N's decision log)
 
     /// Replay sc->trace: the lexical frame tree N pushed, what each frame
     /// declared, and what every declaration and every use HID. Shadowing
     /// exists nowhere on the AST   the shadowed decl is simply never
     /// consulted   so this section is the only place it can be seen.
     priv fn _dump_scopes(self) {
-        self._p.paint(Color::NodeKind, "-- lexical scopes (declarations & shadowing) --");
-        self._p.newline();
+        self._p.paint(Color::NodeKind, "-- lexical scopes (declarations & shadowing) --")
+        self._p.newline()
 
-        var tr = &(self.sc->trace);
+        var *tr = &self.sc->trace
         if !tr->enabled {
             // Cannot happen through the driver (the flag that prints this is
             // the flag that records it), but a programmatic caller can build a
             // SemaContext by hand; say why the section is empty rather than
             // implying the TU has no scopes.
-            self._p.paint(Color::Dim, "  (trace not recorded for this run)");
-            self._p.newline();
-            return;
+            self._p.paint(Color::Dim, "  (trace not recorded for this run)")
+            self._p.newline()
+            return
         }
+
         if tr->rows.empty() {
-            self._p.paint(Color::Dim, "  (no lexical scopes: nothing with a body in this TU)");
-            self._p.newline();
-            return;
+            self._p.paint(Color::Dim, "  (no lexical scopes: nothing with a body in this TU)")
+            self._p.newline()
+            return
         }
 
         for var i: usize = 0; i < tr->rows.size(); ++i {
-            var r = &(tr->rows[i]);
-            switch r->kind {
-                case TraceRowKind::ScopeOpen  { self._trace_scope_open(r);  }
-                case TraceRowKind::ScopeClose { 0;                          }
-                case TraceRowKind::Declare    { self._trace_declare(r);     }
-                case TraceRowKind::Use        { self._trace_use(r);         }
-                case TraceRowKind::Member     { self._trace_member(r);      }
+            var unsafe *r = unsafe &tr->rows[i]
+            match r->kind {
+                case TraceRowKind::ScopeOpen {
+                    self._trace_scope_open(r)
+                } case TraceRowKind::ScopeClose {
+                    0
+                } case TraceRowKind::Declare {
+                    self._trace_declare(r)
+                } case TraceRowKind::Use {
+                    self._trace_use(r)
+                } case TraceRowKind::Member {
+                    self._trace_member(r)
+                }
             }
         }
     }
@@ -776,70 +1111,78 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// Two spaces of lead-in plus two per frame depth, so the frame tree reads
     /// as the nesting the source has.
     priv fn _trace_indent(self, depth: usize) {
-        self._p.paint(Color::Tree, "  ");
-        for var i: usize = 0; i < depth; ++i { self._p.paint(Color::Tree, "  "); }
+        self._p.paint(Color::Tree, "  ")
+        for var i: usize = 0; i < depth; ++i {
+            self._p.paint(Color::Tree, "  ")
+        }
     }
 
-    priv fn _trace_scope_open(self, r: *TraceRow) {
-        self._trace_indent(r->depth);
-        self._p.paint(Color::Keyword, sema_dump_scope_kind_str(r->scope_kind));
+    priv fn _trace_scope_open(self, r: unsafe *TraceRow) {
+        self._trace_indent(r->depth)
+        self._p.paint(Color::Keyword, sema_dump_scope_kind_str(r->scope_kind))
         if r->owner != &null {
-            var nm = sema_dump_decl_name(self.ctx, r->owner);
+            var nm = sema_dump_decl_name(self.ctx, r->owner)
             if nm.size() > 0 {
-                self._p.put(" ");
+                self._p.put(" ")
                 // Qualified by the table-owning scope the frame sits in, so
                 // `bump` reads as `Counter::bump`. A class body owns a table,
                 // not a frame, so it never gets a row of its own here.
-                var home = self._dc_label(r->enclosing);
-                if (home.size() > 0) && (home != "<tu>") {
-                    self._p.paint(Color::Ident, f"{home}::{nm}");
+                var home = self._dc_label(r->enclosing)
+                if home.size() > 0 && home != "<tu>" {
+                    self._p.paint(Color::Ident, f"{home}::{nm}")
                 } else {
-                    self._p.paint(Color::Ident, nm);
+                    self._p.paint(Color::Ident, nm)
                 }
             }
         }
-        self._p.paint(Color::Dim, f"  @ {sema_dump_loc(self.ctx, r->at.start)}");
-        self._p.newline();
+
+        self._p.paint(Color::Dim, f"  @ {sema_dump_loc(self.ctx, r->at.start)}")
+        self._p.newline()
     }
 
-    priv fn _trace_declare(self, r: *TraceRow) {
-        self._trace_indent(r->depth);
-        self._p.paint(Color::Attr, "declare ");
-        self._p.paint(Color::Ident, self._pad(self._imm_name(r->name), 12));
-        self._p.paint(Color::Operator, "= ");
-        self._p.put(sema_dump_decl_brief(self.ctx, r->decl));
-        self._trace_shadow_note(r);
-        self._p.newline();
+    priv fn _trace_declare(self, r: unsafe *TraceRow) {
+        self._trace_indent(r->depth)
+        self._p.paint(Color::Attr, "declare ")
+        self._p.paint(Color::Ident, self._pad(self._imm_name(r->name), 12))
+        self._p.paint(Color::Operator, "= ")
+        self._p.put(sema_dump_decl_brief(self.ctx, r->decl))
+        self._trace_shadow_note(r)
+        self._p.newline()
     }
 
-    priv fn _trace_use(self, r: *TraceRow) {
-        self._trace_indent(r->depth);
-        self._p.paint(Color::Operator, "use     ");
-        self._p.paint(Color::Ident, self._pad(self._imm_name(r->name), 12));
-        self._p.paint(Color::Dim,
-            self._pad(f"@ {sema_dump_loc(self.ctx, r->at.start)}", 10));
-        self._p.put(" ");
+    priv fn _trace_use(self, r: unsafe *TraceRow) {
+        self._trace_indent(r->depth)
+        self._p.paint(Color::Operator, "use     ")
+        self._p.paint(Color::Ident, self._pad(self._imm_name(r->name), 12))
+        self._p.paint(Color::Dim, self._pad(f"@ {sema_dump_loc(self.ctx, r->at.start)}", 10))
+        self._p.put(" ")
 
         if r->via == TraceVia::Miss {
-            self._p.paint(Color::Error, "<UNRESOLVED>");
-            self._p.paint(Color::Dim, "  (diagnosed: no such name in any scope)");
-            self._p.newline();
-            return;
+            self._p.paint(Color::Error, "<UNRESOLVED>")
+            self._p.paint(Color::Dim, "  (diagnosed: no such name in any scope)")
+            self._p.newline()
+            return
         }
 
-        self._p.paint(Color::Operator, "-> ");
+        self._p.paint(Color::Operator, "-> ")
         if r->decl != &null {
-            self._p.put(sema_dump_decl_brief(self.ctx, r->decl));
+            self._p.put(sema_dump_decl_brief(self.ctx, r->decl))
         } else if r->cell_size > 0 {
-            self._p.paint(Color::Dim, f"{r->cell_size} candidate(s), deferred to overload resolution");
+            self._p.paint(
+                Color::Dim,
+                f"{r->cell_size} candidate(s), deferred to overload resolution",
+            )
         } else {
-            self._p.paint(Color::Error, "<nothing>");
+            self._p.paint(Color::Error, "<nothing>")
         }
 
-        self._p.paint(Color::Dim, f"  [{self._via_label(r)}]");
-        if r->poisoned { self._p.paint(Color::Error, "  (diagnosed)"); }
-        self._trace_shadow_note(r);
-        self._p.newline();
+        self._p.paint(Color::Dim, f"  [{self._via_label(r)}]")
+        if r->poisoned {
+            self._p.paint(Color::Error, "  (diagnosed)")
+        }
+
+        self._trace_shadow_note(r)
+        self._p.newline()
     }
 
     /// A chain step. N recorded it as deferred; ChainBinding (after T) may
@@ -850,121 +1193,156 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// unfilled one (never demanded, or a failed fill) answered from its
     /// pattern and says nothing -- which is exactly the difference a test of
     /// the fill needs to see.
-    priv fn _clang_fill_note(self, d: *Decl) -> string {
-        if !MemberLookup::filled_by_clang(d) { return ""; }
-        var lay: *ForeignLayout = &null;
-        if isa::<ClassDecl>(d) {
-            var n = cast::<ClassDecl>(d);
-            if !n->instantiated { return ""; }
-            lay = &(n->layout);
-        } else if isa::<StructDecl>(d) {
-            var n = cast::<StructDecl>(d);
-            if !n->instantiated { return ""; }
-            lay = &(n->layout);
-        } else if isa::<UnionDecl>(d) {
-            var n = cast::<UnionDecl>(d);
-            if !n->instantiated { return ""; }
-            lay = &(n->layout);
-        } else {
-            return "";
+    priv fn _clang_fill_note(self, d: unsafe *Decl) -> string {
+        if !MemberLookup::filled_by_clang(d) {
+            return ""
         }
-        if !lay->known { return "  [filled by clang]"; }
-        return f"  [filled by clang, {lay->size_bytes} bytes, align {lay->align_bytes}]";
+
+        var lay: unsafe *ForeignLayout = &null
+        if isa<Declarations::ClassDecl>(d) {
+            var unsafe *n = cast<Declarations::ClassDecl>(d)
+            if !n->instantiated {
+                return ""
+            }
+
+            lay = unsafe &n->layout
+        } else if isa<Declarations::StructDecl>(d) {
+            var unsafe *n = cast<Declarations::StructDecl>(d)
+            if !n->instantiated {
+                return ""
+            }
+
+            lay = unsafe &n->layout
+        } else if isa<Declarations::UnionDecl>(d) {
+            var unsafe *n = cast<Declarations::UnionDecl>(d)
+            if !n->instantiated {
+                return ""
+            }
+
+            lay = unsafe &n->layout
+        } else {
+            return ""
+        }
+
+        if !lay->known {
+            return "  [filled by clang]"
+        }
+
+        return f"  [filled by clang, {lay->size_bytes} bytes, align {lay->align_bytes}]"
     }
 
-    priv fn _trace_member(self, r: *TraceRow) {
-        self._trace_indent(r->depth);
-        self._p.paint(Color::Operator, "member  ");
+    priv fn _trace_member(self, r: unsafe *TraceRow) {
+        self._trace_indent(r->depth)
+        self._p.paint(Color::Operator, "member  ")
 
-        var sep = sema_dump_sep_str(r->sep);
-        var txt = f"{sep}<?>";
-        switch r->member_kind {
-            case TraceMemberKind::Name       { txt = f"{sep}{self._imm_name(r->name)}"; }
-            case TraceMemberKind::TupleIndex { txt = f"{sep}{r->index}";                }
-            case TraceMemberKind::Operator   { txt = f"{sep}<operator>";                }
+        var sep = sema_dump_sep_str(r->sep)
+        var txt = f"{sep}<?>"
+        match r->member_kind {
+            case TraceMemberKind::Name {
+                txt = f"{sep}{self._imm_name(r->name)}"
+            } case TraceMemberKind::TupleIndex {
+                txt = f"{sep}{r->index}"
+            } case TraceMemberKind::Operator {
+                txt = f"{sep}<operator>"
+            }
         }
-        self._p.paint(Color::Ident, self._pad(txt, 12));
-        self._p.paint(Color::Dim,
-            self._pad(f"@ {sema_dump_loc(self.ctx, r->at.start)}", 10));
-        self._p.put(" ");
 
-        var mr = self.sc->trace.member_result_for(r->at.start.id);
+        self._p.paint(Color::Ident, self._pad(txt, 12))
+        self._p.paint(Color::Dim, self._pad(f"@ {sema_dump_loc(self.ctx, r->at.start)}", 10))
+        self._p.put(" ")
+
+        var unsafe *mr = self.sc->trace.member_result_for(r->at.start.id)
         if mr == &null {
             // ChainBinding never ran: the honest pre-T reading.
             if r->sep == TraceSep::ColonColon {
-                self._p.paint(Color::Dim, "<deferred: needs the scope named by the base   ChainBinding>");
+                self._p.paint(
+                    Color::Dim,
+                    "<deferred: needs the scope named by the base   ChainBinding>",
+                )
             } else {
-                self._p.paint(Color::Dim, "<deferred: needs the type of the base   ChainBinding>");
+                self._p.paint(Color::Dim, "<deferred: needs the type of the base   ChainBinding>")
             }
-            self._p.newline();
-            return;
+
+            self._p.newline()
+            return
         }
 
-        var _where = "";
+        var _where = ""
         if mr->found_in != &null {
-            _where = f"  [member of {sema_dump_decl_name(self.ctx, mr->found_in)}]" + self._clang_fill_note(mr->found_in);
+            _where = f"  [member of {sema_dump_decl_name(self.ctx, mr->found_in)}]" + self._clang_fill_note(
+                mr->found_in,
+            )
         }
 
-        switch mr->outcome {
+        match mr->outcome {
             case MemberOutcome::Bound {
-                self._p.paint(Color::Operator, "-> ");
-                self._p.put(sema_dump_decl_brief(self.ctx, mr->decl));
-                self._p.paint(Color::Dim, _where);
-            }
-            case MemberOutcome::Candidates {
-                self._p.paint(Color::Operator, "-> ");
-                self._p.paint(Color::Dim, f"{mr->ncand} candidate(s), awaiting overload resolution{_where}");
-            }
-            case MemberOutcome::NeedsInference {
-                self._p.paint(Color::Dim, "<deferred: base type is inferred   TypeInference>");
-            }
-            case MemberOutcome::Dependent {
-                self._p.paint(Color::Dim, "<dependent: rooted in a generic parameter   M2>");
-            }
-            case MemberOutcome::Errored {
-                self._p.paint(Color::Error, "<UNRESOLVED>");
-                self._p.paint(Color::Dim, "  (diagnosed)");
-            }
-            default {
-                self._p.paint(Color::Dim, "<deferred>");
+                self._p.paint(Color::Operator, "-> ")
+                self._p.put(sema_dump_decl_brief(self.ctx, mr->decl))
+                self._p.paint(Color::Dim, _where)
+            } case MemberOutcome::Candidates {
+                self._p.paint(Color::Operator, "-> ")
+                self._p.paint(
+                    Color::Dim,
+                    f"{mr->ncand} candidate(s), awaiting overload resolution{_where}",
+                )
+            } case MemberOutcome::NeedsInference {
+                self._p.paint(Color::Dim, "<deferred: base type is inferred   TypeInference>")
+            } case MemberOutcome::Dependent {
+                self._p.paint(Color::Dim, "<dependent: rooted in a generic parameter   M2>")
+            } case MemberOutcome::Errored {
+                self._p.paint(Color::Error, "<UNRESOLVED>")
+                self._p.paint(Color::Dim, "  (diagnosed)")
+            } default {
+                self._p.paint(Color::Dim, "<deferred>")
             }
         }
-        self._p.newline();
+
+        self._p.newline()
     }
 
     /// `local frame 2` / `scope Foo` / `import overlay`   _WHERE the answer
     /// came from, named the way the reader thinks about it.
-    priv fn _via_label(self, r: *TraceRow) -> string {
-        switch r->via {
+    priv fn _via_label(self, r: unsafe *TraceRow) -> string {
+        match r->via {
             case TraceVia::Local {
-                if r->frame == usize(-1) { return "local"; }
-                return f"local frame {r->frame}";
+                if r->frame == usize::MAX {
+                    return "local"
+                }
+
+                return f"local frame {r->frame}"
+            } case TraceVia::Scope {
+                return f"scope {self._dc_label(r->found_in)}"
+            } case TraceVia::Overlay {
+                return "import overlay"
+            } case TraceVia::Miss {
+                return "miss"
+            } default {
+                return "?"
             }
-            case TraceVia::Scope   { return f"scope {self._dc_label(r->found_in)}"; }
-            case TraceVia::Overlay { return "import overlay";                       }
-            case TraceVia::Miss    { return "miss";                                 }
-            default                { return "?";                                    }
         }
     }
 
     /// The whole point of the section: name the decl this one hid, and say
     /// which source it lived in, so "why did it pick THAT one" has an answer
     /// on the same line.
-    priv fn _trace_shadow_note(self, r: *TraceRow) {
-        if r->shadowed == &null { return; }
-        self._p.paint(Color::Attr,
-            f"  (shadows {sema_dump_decl_brief(self.ctx, r->shadowed)}");
+    priv fn _trace_shadow_note(self, r: unsafe *TraceRow) {
+        if r->shadowed == &null {
+            return
+        }
+
+        self._p.paint(Color::Attr, f"  (shadows {sema_dump_decl_brief(self.ctx, r->shadowed)}")
         // Where the loser lived. A named scope beats the bare source word:
         // "in Counter" answers the follow-up question that "via scope" only
         // raises.
         if r->shadowed_via == TraceVia::Scope {
-            self._p.paint(Color::Attr, f" in {self._dc_label(r->shadowed_found_in)}");
+            self._p.paint(Color::Attr, f" in {self._dc_label(r->shadowed_found_in)}")
         } else if r->shadowed_via == TraceVia::Overlay {
-            self._p.paint(Color::Attr, " from an import");
+            self._p.paint(Color::Attr, " from an import")
         } else if r->shadowed_via == TraceVia::Local {
-            self._p.paint(Color::Attr, " in an enclosing frame");
+            self._p.paint(Color::Attr, " in an enclosing frame")
         }
-        self._p.paint(Color::Attr, ")");
+
+        self._p.paint(Color::Attr, ")")
     }
 
     /// Right-pad to a fixed column so the `-> target` arrows line up down the
@@ -972,16 +1350,25 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// being truncated (a clipped identifier is worse than a ragged column),
     /// but they still get ONE space   without it `wildcard_target@ 98:13`
     /// runs the name into the location that follows it.
-    priv fn _pad(self, s: string, w: usize) -> string {
-        var out = s;
-        if s.size() >= w { return out + " "; }
-        for var i: usize = s.size(); i < w; ++i { out += " "; }
-        return out;
+    priv fn _pad(self, const s: string, w: usize) -> string {
+        var out = s
+        if s.size() >= w {
+            return out + " "
+        }
+
+        for var i: usize = s.size(); i < w; ++i {
+            out += " "
+        }
+
+        return out
     }
 
     priv fn _imm_name(self, imm: u32) -> string {
-        if imm == u32(-1) { return "<?>"; }
-        return self.sc->imm_table()->get_ident(imm);
+        if imm == u32::MAX {
+            return "<?>"
+        }
+
+        return self.sc->imm_table()->get_ident(imm)
     }
 
     /// Index the trace's Use rows by source location so the AST-walk section
@@ -990,259 +1377,360 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// key; built once because the alternative is a scan per use, which is
     /// quadratic on exactly the large files this tool is used on.
     priv fn _build_use_index(self) {
-        var tr = &(self.sc->trace);
-        if !tr->enabled { return; }
+        var *tr = &self.sc->trace
+        if !tr->enabled {
+            return
+        }
+
         for var i: usize = 0; i < tr->rows.size(); ++i {
             if tr->rows[i].kind == TraceRowKind::Member {
-                self._n_member += 1;
-                continue;
+                self._n_member += 1
+                continue
             }
-            if tr->rows[i].kind != TraceRowKind::Use { continue; }
-            self._use_index[static_cast::<u64>(tr->rows[i].at.start.id)] = i;
+
+            if tr->rows[i].kind != TraceRowKind::Use {
+                continue
+            }
+
+            self._use_index[tr->rows[i].at.start.id as u64] = (i as u64)
         }
     }
 
-    priv fn _trace_use_for(self, loc: SourceLocation) -> *TraceRow {
-        var tr = &(self.sc->trace);
-        if !tr->enabled { return &null; }
-        var it = self._use_index.find(static_cast::<u64>(loc.id));
-        if it == self._use_index.end() { return &null; }
-        return &(tr->rows[it->second]);
+    priv fn _trace_use_for(self, loc: SourceLocation) -> unsafe *TraceRow {
+        var *tr = &self.sc->trace
+        if !tr->enabled {
+            return &null
+        }
+
+        var it = self._use_index.find(loc.id as u64)
+        if it == self._use_index.end() {
+            return &null
+        }
+
+        return unsafe &tr->rows[((it->second) as usize)]
     }
 
-    // --- section 5 + 6: bindings and types (one walk) ---------------------
+    /// # section 5 + 6: bindings and types (one walk)
 
-    priv fn _dump_bindings(self, tu: *TranslationUnit) {
-        self._p.paint(Color::NodeKind, "-- name bindings --");
-        self._p.newline();
+    priv fn _dump_bindings(self, tu: unsafe *TranslationUnit) {
+        self._p.paint(Color::NodeKind, "-- name bindings --")
+        self._p.newline()
 
-        if tu->program == &null { return; }
-        var items = &(tu->program->items);
+        if tu->program == &null {
+            return
+        }
+
+        var *items = &tu->program->items
         for var i: usize = 0; i < items->size(); ++i {
-            var item = *(items->get(i));
-            switch item.get_kind() {
-                case TopLevelKind::Decl { self.dyn()->dispatch_decl(item.as_decl()); }
-                case TopLevelKind::Stmt { self.dyn()->dispatch_stmt(item.as_stmt()); }
-                case TopLevelKind::Expr { self.dyn()->dispatch_expr(item.as_expr()); }
+            var item = *items->get(i)
+            match item.get_kind() {
+                case TopLevelKind::Decl {
+                    self.dyn()->dispatch_decl(item.as_decl())
+                } case TopLevelKind::Stmt {
+                    self.dyn()->dispatch_stmt(item.as_stmt())
+                } case TopLevelKind::Expr {
+                    self.dyn()->dispatch_expr(item.as_expr())
+                }
             }
         }
 
-        if (self._n_bound + self._n_deferred + self._n_unresolved) == 0 {
-            self._p.paint(Color::Dim, "  (no identifier uses)");
-            self._p.newline();
+        if self._n_bound + self._n_deferred + self._n_unresolved == 0 {
+            self._p.paint(Color::Dim, "  (no identifier uses)")
+            self._p.newline()
         }
     }
 
     /// Print the enclosing-scope header lazily, so scopes with no identifier
     /// uses do not clutter the dump.
     priv fn _scope_header(self) {
-        if self._emitted_scope == self._scope { return; }
-        self._emitted_scope = self._scope;
-        self._p.paint(Color::Tree, "  ");
-        self._p.paint(Color::Keyword, self._scope);
-        self._p.newline();
+        if self._emitted_scope == self._scope {
+            return
+        }
+
+        self._emitted_scope = self._scope
+        self._p.paint(Color::Tree, "  ")
+        self._p.paint(Color::Keyword, self._scope)
+        self._p.newline()
     }
 
-    fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
-        if n == &null { return true; }
-        if self._expr_mode { return true; }   // the types walk prints its own row.
-        self._scope_header();
+    fn visit_named_ident_expr(self, n: unsafe *NamedIdentExpr) -> bool {
+        if n == &null {
+            return true
+        }
 
-        var nm = self.ctx->get_spelling(n->name);
-        self._p.paint(Color::Tree, "    ");
-        self._p.paint(Color::Ident, self._pad(nm, 12));
-        self._p.paint(Color::Dim,
-            self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10));
-        self._p.put(" ");
+        if self._expr_mode { // the types walk prints its own row.
+            return true
+        }
+
+        self._scope_header()
+
+        var nm = self.ctx->get_spelling(n->name)
+        self._p.paint(Color::Tree, "    ")
+        self._p.paint(Color::Ident, self._pad(nm, 12))
+        self._p.paint(Color::Dim, self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10))
+        self._p.put(" ")
 
         // The trace row for this exact use, when N recorded one. Its absence
         // on a BOUND node is itself information: the node was bound by
         // something other than N(b)'s use path (N(a)'s qualifier walk, or a
         // previous run over the same AST).
-        var tr = self._trace_use_for(n->range.start);
+        var unsafe *tr = self._trace_use_for(n->range.start)
 
         if n->is_bound() {
-            self._n_bound += 1;
-            self._p.paint(Color::Operator, "-> ");
-            self._p.put(sema_dump_decl_brief(self.ctx, n->resolved_decl));
+            self._n_bound += 1
+            self._p.paint(Color::Operator, "-> ")
+            self._p.put(sema_dump_decl_brief(self.ctx, n->resolved_decl))
             if tr != &null {
-                self._p.paint(Color::Dim, f"  [{self._via_label(tr)}]");
-                self._trace_shadow_note(tr);
+                self._p.paint(Color::Dim, f"  [{self._via_label(tr)}]")
+                self._trace_shadow_note(tr)
             } else {
-                self._p.paint(Color::Dim, "  [pre-bound: not resolved by N(b)]");
+                self._p.paint(Color::Dim, "  [pre-bound: not resolved by N(b)]")
             }
-            self._p.newline();
+
+            self._p.newline()
         } else if n->is_deferred() {
-            self._n_deferred += 1;
-            var cell = n->candidate_cell;
-            self._p.paint(Color::Operator, "-> ");
-            self._p.paint(Color::Dim, f"{cell->size()} candidate(s), awaiting overload resolution");
-            if tr != &null { self._p.paint(Color::Dim, f"  [{self._via_label(tr)}]"); }
-            self._p.newline();
+            self._n_deferred += 1
+            var unsafe *cell = n->candidate_cell
+            self._p.paint(Color::Operator, "-> ")
+            self._p.paint(Color::Dim, f"{cell->size()} candidate(s), awaiting overload resolution")
+            if tr != &null {
+                self._p.paint(Color::Dim, f"  [{self._via_label(tr)}]")
+            }
+
+            self._p.newline()
             for var i: usize = 0; i < cell->size(); ++i {
-                self._p.paint(Color::Tree, "        - ");
-                self._p.put(sema_dump_decl_brief(self.ctx, cell->get(i)));
-                self._p.newline();
+                self._p.paint(Color::Tree, "        - ")
+                self._p.put(sema_dump_decl_brief(self.ctx, cell->get(i)))
+                self._p.newline()
             }
         } else {
-            self._n_unresolved += 1;
+            self._n_unresolved += 1
             if n->is_poisoned() {
-                self._p.paint(Color::Error, "<UNRESOLVED>");
-                self._p.paint(Color::Dim, "  (diagnosed)");
+                self._p.paint(Color::Error, "<UNRESOLVED>")
+                self._p.paint(Color::Dim, "  (diagnosed)")
             } else {
                 // Both slots null and NO diagnostic: either a deliberately
                 // deferred node (statement binder) or an N bug.
                 // Either way the reader needs to see it.
-                self._p.paint(Color::Error, "<UNBOUND>");
-                self._p.paint(Color::Dim, "  (no diagnostic  deferred or a bug)");
+                self._p.paint(Color::Error, "<UNBOUND>")
+                self._p.paint(Color::Dim, "  (no diagnostic  deferred or a bug)")
             }
-            self._p.newline();
+
+            self._p.newline()
         }
-        return true;
+
+        return true
     }
 
     /// Types are counted during the same walk and reported in the summary +
     /// the types section below. `canonical` is TypeResolution's output slot,
     /// so until T lands every non-dependent type reads as uncanonicalized.
-    fn visit_type(self, n: *Type) -> bool {
-        if n == &null { return true; }
-        if self._expr_mode { return true; }   // counted once, on the first walk.
-        self._n_ty_total += 1;
-        if n->canonical != &null { self._n_ty_canon += 1; }
-        // TypeFlags is a scoped enum: cast to the underlying type to mask.
-        var flags = static_cast::<u8>(n->type_flags);
-        var dep   = static_cast::<u8>(Type::TypeFlags::IsDependent);
-        if (flags & dep) != 0 { self._n_ty_dep += 1; }
-        if n->is_poisoned() { self._n_ty_err += 1; }
-        return true;
+    fn visit_type(self, n: unsafe *Type) -> bool {
+        if n == &null {
+            return true
+        }
+
+        if self._expr_mode { // counted once, on the first walk.
+            return true
+        }
+
+        self._n_ty_total += 1
+        if n->canonical != &null {
+            self._n_ty_canon += 1
+        }
+
+        if n->type_flags.has(Type::TypeFlags::IsDependent) {
+            self._n_ty_dep += 1
+        }
+
+        if n->is_poisoned() {
+            self._n_ty_err += 1
+        }
+
+        return true
     }
 
-    // --- scope-path tracking ----------------------------------------------
+    /// # scope-path tracking
 
-    fn traverse_function_decl(self, n: *FunctionDecl) -> *FunctionDecl {
-        if n == &null { return n; }
-        var saved = self._scope;
+    fn traverse_function_decl(self,
+                              n: unsafe *Declarations::FunctionDecl) -> unsafe *Declarations::FunctionDecl {
+        if n == &null {
+            return n
+        }
+
+        var saved = self._scope
         // Through sema_dump_decl_name, not get_spelling(n->name): an operator
         // has no name token, and spelling the empty one asserts in debug.
-        self._scope = f"{self._scope}::{sema_dump_decl_name(self.ctx, n)}";
-        var out = RecursiveASTVisitor::<SemaDump>::traverse_function_decl(n);
-        self._scope = saved;
-        return out;
+        self._scope = f"{self._scope}::{sema_dump_decl_name(self.ctx, n)}"
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_function_decl(self, n)
+        self._scope = saved
+        return out
     }
 
-    fn traverse_class_decl(self, n: *ClassDecl) -> *ClassDecl {
-        if n == &null { return n; }
-        var saved = self._scope;
-        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}";
-        var out = RecursiveASTVisitor::<SemaDump>::traverse_class_decl(n);
-        self._scope = saved;
-        return out;
+    fn traverse_class_decl(self,
+                           n: unsafe *Declarations::ClassDecl) -> unsafe *Declarations::ClassDecl {
+        if n == &null {
+            return n
+        }
+
+        var saved = self._scope
+        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_class_decl(self, n)
+        self._scope = saved
+        return out
     }
 
-    fn traverse_struct_decl(self, n: *StructDecl) -> *StructDecl {
-        if n == &null { return n; }
-        var saved = self._scope;
-        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}";
-        var out = RecursiveASTVisitor::<SemaDump>::traverse_struct_decl(n);
-        self._scope = saved;
-        return out;
+    fn traverse_struct_decl(self,
+                            n: unsafe *Declarations::StructDecl) -> unsafe *Declarations::StructDecl {
+        if n == &null {
+            return n
+        }
+
+        var saved = self._scope
+        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_struct_decl(self, n)
+        self._scope = saved
+        return out
     }
 
-    fn traverse_enum_decl(self, n: *EnumDecl) -> *EnumDecl {
-        if n == &null { return n; }
-        var saved = self._scope;
-        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}";
-        var out = RecursiveASTVisitor::<SemaDump>::traverse_enum_decl(n);
-        self._scope = saved;
-        return out;
+    fn traverse_enum_decl(self,
+                          n: unsafe *Declarations::EnumDecl) -> unsafe *Declarations::EnumDecl {
+        if n == &null {
+            return n
+        }
+
+        var saved = self._scope
+        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_enum_decl(self, n)
+        self._scope = saved
+        return out
     }
 
-    fn traverse_union_decl(self, n: *UnionDecl) -> *UnionDecl {
-        if n == &null { return n; }
-        var saved = self._scope;
-        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}";
-        var out = RecursiveASTVisitor::<SemaDump>::traverse_union_decl(n);
-        self._scope = saved;
-        return out;
+    fn traverse_union_decl(self,
+                           n: unsafe *Declarations::UnionDecl) -> unsafe *Declarations::UnionDecl {
+        if n == &null {
+            return n
+        }
+
+        var saved = self._scope
+        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_union_decl(self, n)
+        self._scope = saved
+        return out
     }
 
-    fn traverse_interface_decl(self, n: *InterfaceDecl) -> *InterfaceDecl {
-        if n == &null { return n; }
-        var saved = self._scope;
-        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}";
-        var out = RecursiveASTVisitor::<SemaDump>::traverse_interface_decl(n);
-        self._scope = saved;
-        return out;
+    fn traverse_interface_decl(self,
+                               n: unsafe *Declarations::InterfaceDecl) -> unsafe *Declarations::InterfaceDecl {
+        if n == &null {
+            return n
+        }
+
+        var saved = self._scope
+        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_interface_decl(self, n)
+        self._scope = saved
+        return out
     }
 
     /// A closure body is its own scope for the reader even though it owns no
     /// DeclContext, and without this its uses are filed under the enclosing
     /// function   which is exactly the row you are staring at when a capture
     /// bound to the wrong thing.
-    fn traverse_closure_expr(self, n: *ClosureExpr) -> *ClosureExpr {
-        if n == &null { return n; }
-        var saved = self._scope;
-        self._scope = f"{self._scope}::<closure @ {sema_dump_loc(self.ctx, n->range.start)}>";
-        var out = RecursiveASTVisitor::<SemaDump>::traverse_closure_expr(n);
-        self._scope = saved;
-        return out;
+    fn traverse_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *ClosureExpr {
+        if n == &null {
+            return n
+        }
+
+        var saved = self._scope
+        self._scope = f"{self._scope}::<closure @ {sema_dump_loc(self.ctx, n->range.start)}>"
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_closure_expr(self, n)
+        self._scope = saved
+        return out
     }
 
-    fn traverse_module_decl(self, n: *ModuleDecl) -> *ModuleDecl {
-        if n == &null { return n; }
-        var saved = self._scope;
-        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}";
-        var out = RecursiveASTVisitor::<SemaDump>::traverse_module_decl(n);
-        self._scope = saved;
-        return out;
+    fn traverse_module_decl(self,
+                            n: unsafe *Declarations::ModuleDecl) -> unsafe *Declarations::ModuleDecl {
+        if n == &null {
+            return n
+        }
+
+        var saved = self._scope
+        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_module_decl(self, n)
+        self._scope = saved
+        return out
     }
 
     /// The RAV skips step names; print them from AST state so the FINAL
     /// binding of every step is visible here, not only N's decision log.
-    fn traverse_chain_expr(self, n: *ChainExpr) -> *ChainExpr {
-        if n == &null { return n; }
-        var out = RecursiveASTVisitor::<SemaDump>::traverse_chain_expr(n);
-        if self._expr_mode { return out; }
-        for var i: usize = 0; i < n->steps.size(); ++i {
-            var st = n->steps.get(i);
-            if (st == &null) || (st->name == &null) { continue; }
-            self._scope_header();
-            var sep = ".";
-            switch st->access_kind {
-                case ChainExpr::AccessKind::Arrow         { sep = "->";  }
-                case ChainExpr::AccessKind::ColonColon    { sep = "::";  }
-                case ChainExpr::AccessKind::QuestionDot   { sep = "?.";  }
-                case ChainExpr::AccessKind::QuestionArrow { sep = "?->"; }
-                default                                   { sep = ".";   }
-            }
-            var nm = f"{sep}{self.ctx->get_spelling(st->name->name)}";
-            self._p.paint(Color::Tree, "    ");
-            self._p.paint(Color::Ident, self._pad(nm, 12));
-            self._p.paint(Color::Dim,
-                self._pad(f"@ {sema_dump_loc(self.ctx, st->name->range.start)}", 10));
-            self._p.put(" ");
-            if st->resolved_decl != &null {
-                self._n_step_bound += 1;
-                self._p.paint(Color::Operator, "-> ");
-                self._p.put(sema_dump_decl_brief(self.ctx, st->resolved_decl));
-            } else if st->candidate_cell != &null {
-                self._n_step_cands += 1;
-                self._p.paint(Color::Operator, "-> ");
-                self._p.paint(Color::Dim, f"{st->candidate_cell->size()} candidate(s), awaiting overload resolution");
-            } else if st->name->is_poisoned() {
-                self._n_step_err += 1;
-                self._p.paint(Color::Error, "<UNRESOLVED>");
-                self._p.paint(Color::Dim, "  (diagnosed)");
-            } else {
-                self._n_step_open += 1;
-                self._p.paint(Color::Dim, "<open: inference or M2>");
-            }
-            self._p.newline();
+    fn traverse_chain_expr(self, n: unsafe *ChainExpr) -> unsafe *ChainExpr {
+        if n == &null {
+            return n
         }
-        return out;
+
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_chain_expr(self, n)
+        if self._expr_mode {
+            return out
+        }
+
+        for var i: usize = 0; i < n->steps.size(); ++i {
+            var unsafe *st = n->steps.get(i)
+            if st == &null || st->name == &null {
+                continue
+            }
+
+            self._scope_header()
+            var sep = "."
+            match st->access_kind {
+                case ChainExpr::AccessKind::Arrow {
+                    sep = "->"
+                } case ChainExpr::AccessKind::ColonColon {
+                    sep = "::"
+                } case ChainExpr::AccessKind::QuestionDot {
+                    sep = "?."
+                } case ChainExpr::AccessKind::QuestionArrow {
+                    sep = "?->"
+                } default {
+                    sep = "."
+                }
+            }
+
+            var nm = f"{sep}{self.ctx->get_spelling(st->name->name)}"
+            self._p.paint(Color::Tree, "    ")
+            self._p.paint(Color::Ident, self._pad(nm, 12))
+            self._p.paint(
+                Color::Dim,
+                self._pad(f"@ {sema_dump_loc(self.ctx, st->name->range.start)}", 10),
+            )
+
+            self._p.put(" ")
+            if st->resolved_decl != &null {
+                self._n_step_bound += 1
+                self._p.paint(Color::Operator, "-> ")
+                self._p.put(sema_dump_decl_brief(self.ctx, st->resolved_decl))
+            } else if st->candidate_cell != &null {
+                self._n_step_cands += 1
+                self._p.paint(Color::Operator, "-> ")
+                self._p.paint(
+                    Color::Dim,
+                    f"{st->candidate_cell->size()} candidate(s), awaiting overload resolution",
+                )
+            } else if st->name->is_poisoned() {
+                self._n_step_err += 1
+                self._p.paint(Color::Error, "<UNRESOLVED>")
+                self._p.paint(Color::Dim, "  (diagnosed)")
+            } else {
+                self._n_step_open += 1
+                self._p.paint(Color::Dim, "<open: inference or M2>")
+            }
+
+            self._p.newline()
+        }
+
+        return out
     }
 
-    // --- section 7: expression types --------------------------------------
+    /// # section 7: expression types
 
     /// What ExprTyper wrote, node by node. A SECOND walk rather than a trace:
     /// the pass records its answer in `Expr::type_` and nowhere else, so the
@@ -1253,44 +1741,51 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// printed apart: `<ERROR>` was diagnosed, `<unknown>` is waiting for an
     /// instantiation, and `<no type: ...>` is an expression that denotes a
     /// callable, a type or a module and never had one to give.
-    priv fn _dump_expr_types(self, tu: *TranslationUnit) {
-        self._p.paint(Color::NodeKind, "-- expression types --");
-        self._p.newline();
+    priv fn _dump_expr_types(self, tu: unsafe *TranslationUnit) {
+        self._p.paint(Color::NodeKind, "-- expression types --")
+        self._p.newline()
 
-        if tu->program == &null { return; }
+        if tu->program == &null {
+            return
+        }
 
-        self._expr_mode     = true;
-        self._emitted_scope = "";
-        self._scope         = "<tu>";
+        self._expr_mode     = true
+        self._emitted_scope = ""
+        self._scope         = "<tu>"
 
-        var items = &(tu->program->items);
+        var *items = &tu->program->items
         for var i: usize = 0; i < items->size(); ++i {
-            var item = *(items->get(i));
-            switch item.get_kind() {
-                case TopLevelKind::Decl { self.dyn()->dispatch_decl(item.as_decl()); }
-                case TopLevelKind::Stmt { self.dyn()->dispatch_stmt(item.as_stmt()); }
-                case TopLevelKind::Expr { self.dyn()->dispatch_expr(item.as_expr()); }
+            var item = *items->get(i)
+            match item.get_kind() {
+                case TopLevelKind::Decl {
+                    self.dyn()->dispatch_decl(item.as_decl())
+                } case TopLevelKind::Stmt {
+                    self.dyn()->dispatch_stmt(item.as_stmt())
+                } case TopLevelKind::Expr {
+                    self.dyn()->dispatch_expr(item.as_expr())
+                }
             }
         }
 
-        self._expr_mode = false;
+        self._expr_mode = false
 
-        var total = self._n_ex_typed + self._n_ex_unknown + self._n_ex_err;
+        var total = self._n_ex_typed + self._n_ex_unknown + self._n_ex_err
         if total == 0 {
-            self._p.paint(Color::Dim, "  (no expressions)");
-            self._p.newline();
+            self._p.paint(Color::Dim, "  (no expressions)")
+            self._p.newline()
         } else {
-            self._p.paint(Color::Tree, "  ");
-            self._p.put(f"{self._n_ex_typed} typed, {self._n_ex_unknown} unknown, ");
+            self._p.paint(Color::Tree, "  ")
+            self._p.put(f"{self._n_ex_typed} typed, {self._n_ex_unknown} unknown, ")
             if self._n_ex_err > 0 {
-                self._p.paint(Color::Error, f"{self._n_ex_err} errored");
+                self._p.paint(Color::Error, f"{self._n_ex_err} errored")
             } else {
-                self._p.put("0 errored");
+                self._p.put("0 errored")
             }
-            self._p.newline();
+
+            self._p.newline()
         }
 
-        self._dump_inferred();
+        self._dump_inferred()
     }
 
     /// Every declaration whose type the TYPER supplied rather than the source.
@@ -1298,47 +1793,54 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// invalid range because they belong to the store, not to any one file,
     /// so a type slot with no source range was never written down.
     priv fn _dump_inferred(self) {
-        self._p.paint(Color::NodeKind, "-- inferred decls --");
-        self._p.newline();
+        self._p.paint(Color::NodeKind, "-- inferred decls --")
+        self._p.newline()
         if self._inferred.size() == 0 {
-            self._p.paint(Color::Dim, "  (none: every declaration wrote its own type)");
-            self._p.newline();
-            return;
+            self._p.paint(Color::Dim, "  (none: every declaration wrote its own type)")
+            self._p.newline()
+            return
         }
+
         for var i: usize = 0; i < self._inferred.size(); ++i {
-            self._p.paint(Color::Tree, "  ");
-            self._p.put(self._inferred[i]);
-            self._p.newline();
+            self._p.paint(Color::Tree, "  ")
+            self._p.put(self._inferred[i])
+            self._p.newline()
         }
     }
 
     /// One row per expression. Runs only in the second walk.
-    fn visit_expr(self, n: *Expr) -> bool {
-        if (!self._expr_mode) || (n == &null) { return true; }
-        self._scope_header();
+    fn visit_expr(self, n: unsafe *Expr) -> bool {
+        if !self._expr_mode || n == &null {
+            return true
+        }
 
-        self._p.paint(Color::Tree, "    ");
-        self._p.paint(Color::Ident, self._pad(expr_kind_name(n->kind), 24));
-        self._p.paint(Color::Dim,
-            self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10));
-        self._p.put(" : ");
+        self._scope_header()
+
+        self._p.paint(Color::Tree, "    ")
+        self._p.paint(Color::Ident, self._pad(expr_kind_name(n->kind), 24))
+        self._p.paint(Color::Dim, self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10))
+        self._p.put(" : ")
 
         if n->is_poisoned() {
-            self._n_ex_err += 1;
-            self._p.paint(Color::Error, "<ERROR>");
+            self._n_ex_err += 1
+            self._p.paint(Color::Error, "<ERROR>")
         } else if n->type_ != &null {
-            self._n_ex_typed += 1;
-            self._p.put(self._tu.str(n->type_));
+            self._n_ex_typed += 1
+            self._p.put(self._tu.str(n->type_))
         } else if n->is_instantiation_dependent() {
-            self._n_ex_unknown += 1;
-            self._p.paint(Color::Dim, "<unknown>");
+            self._n_ex_unknown += 1
+            self._p.paint(Color::Dim, "<unknown>")
         } else {
-            self._p.paint(Color::Dim, "<no type: callable/type/module>");
+            self._p.paint(Color::Dim, "<no type: callable/type/module>")
         }
-        self._note_lowering_choices(n);
-        self._p.newline();
-        if isa::<MatchExpr>(n) { self._dump_decision(cast::<MatchExpr>(n)->decision); }
-        return true;
+
+        self._note_lowering_choices(n)
+        self._p.newline()
+        if isa<MatchExpr>(n) {
+            self._dump_decision(cast<MatchExpr>(n)->decision)
+        }
+
+        return true
     }
 
     /// What X decided that the type alone does not say, and that the tree
@@ -1346,118 +1848,166 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// backing array gets, that a cast is a construction, how a comparison
     /// is derived or that it compares two ADT tags, and which instance a
     /// generic call or operator names.
-    priv fn _note_lowering_choices(self, n: *Expr) {
+    priv fn _note_lowering_choices(self, n: unsafe *Expr) {
         // A variant construction: which variant X matched, on the node it was
         // written as, which VariantInitLowering replaces.
-        var vd = variant_decl_of(n);
+        var unsafe *vd = variant_decl_of(n)
         if vd != &null {
-            self._p.paint(Color::Dim, "  [variant=" + self._variant_name(vd) + "]");
-            return;
+            self._p.paint(Color::Dim, "  [variant=" + self._variant_name(vd) + "]")
+            return
         }
-        if isa::<VariantInitExpr>(n) {
+
+        if isa<VariantInitExpr>(n) {
             // --print-lowered: the variant, and the written order of its
             // payload, which the tree stops showing once SequenceLowering has
             // bound it.
-            var vi = cast::<VariantInitExpr>(n);
-            var en = cast::<EnumDecl>(vi->en);
-            var s  = "  [variant=" + self._variant_name(static_cast::<*Decl>(en->variants[usize(vi->variant)]));
+            var unsafe *vi = cast<VariantInitExpr>(n)
+            var unsafe *en = cast<Declarations::EnumDecl>(vi->en)
+            var s = "  [variant=" + self._variant_name(
+                unsafe (en->variants[vi->variant as usize] as unsafe *Decl),
+            )
+
             if vi->source_order.size() > 0 {
-                s += " source_order";
-                for var i: usize = 0; i < vi->source_order.size(); ++i { s += f" {vi->source_order[i]}"; }
-            }
-            self._p.paint(Color::Dim, s + "]");
-            return;
-        }
-        if isa::<CallExpr>(n) {
-            var c = cast::<CallExpr>(n);
-            if c->arg_map.size() > 0 {
-                var s = "  [arg_map";
-                for var i: usize = 0; i < c->arg_map.size(); ++i {
-                    var v = c->arg_map[i];
-                    s += (" self") if (v == i32(-2)) else (f" {v}");
+                s += " source_order"
+                for var i: usize = 0; i < vi->source_order.size(); ++i {
+                    s += f" {vi->source_order[i]}"
                 }
-                if c->pack_len > 0 { s += f" pack_len {c->pack_len}"; }
-                self._p.paint(Color::Dim, s + "]");
             }
-            self._note_instance(c->instance);
-            return;
+
+            self._p.paint(Color::Dim, s + "]")
+            return
         }
-        if isa::<BinaryOperatorExpr>(n) {
-            var b = cast::<BinaryOperatorExpr>(n);
-            if b->op_rewrite == OpRewrite::Not { self._p.paint(Color::Dim, "  [rewrite: !(==)]"); }
-            if b->op_rewrite == OpRewrite::Cmp { self._p.paint(Color::Dim, "  [rewrite: <=> vs 0]"); }
-            if b->tag_eq { self._p.paint(Color::Dim, "  [tag_eq]"); }
-            self._note_instance(b->op_instance);
-            return;
-        }
-        if isa::<UnaryOperatorExpr>(n) {
-            var u = cast::<UnaryOperatorExpr>(n);
-            if u->materialize { self._p.paint(Color::Dim, "  [materialized]"); }
-            self._note_instance(u->op_instance);
-            return;
-        }
-        if isa::<AssignOperatorExpr>(n) { self._note_instance(cast::<AssignOperatorExpr>(n)->op_instance); return; }
-        if isa::<ListLiteralExpr>(n) {
-            if cast::<ListLiteralExpr>(n)->storage == ListStorage::Extended {
-                self._p.paint(Color::Dim, "  [extended]");
+
+        if isa<CallExpr>(n) {
+            var unsafe *c = cast<CallExpr>(n)
+            if c->arg_map.size() > 0 {
+                var s = "  [arg_map"
+                for var i: usize = 0; i < c->arg_map.size(); ++i {
+                    var v = c->arg_map[i]
+                    s += if (v == (-2 as i32)) => (" self") else => f" {v}"
+                }
+
+                if c->pack_len > 0 {
+                    s += f" pack_len {c->pack_len}"
+                }
+
+                self._p.paint(Color::Dim, s + "]")
             }
-            return;
+
+            self._note_instance(c->instance)
+            return
         }
-        if isa::<TypeCastExpr>(n) {
-            var c = cast::<TypeCastExpr>(n)->resolved_ctor;
+
+        if isa<BinaryOperatorExpr>(n) {
+            var unsafe *b = cast<BinaryOperatorExpr>(n)
+            if b->op_rewrite == OpRewrite::Not {
+                self._p.paint(Color::Dim, "  [rewrite: !(==)]")
+            }
+
+            if b->op_rewrite == OpRewrite::Cmp {
+                self._p.paint(Color::Dim, "  [rewrite: <=> vs 0]")
+            }
+
+            if b->tag_eq {
+                self._p.paint(Color::Dim, "  [tag_eq]")
+            }
+
+            self._note_instance(b->op_instance)
+            return
+        }
+
+        if isa<UnaryOperatorExpr>(n) {
+            var unsafe *u = cast<UnaryOperatorExpr>(n)
+            if u->materialize {
+                self._p.paint(Color::Dim, "  [materialized]")
+            }
+
+            self._note_instance(u->op_instance)
+            return
+        }
+
+        if isa<AssignOperatorExpr>(n) {
+            self._note_instance(cast<AssignOperatorExpr>(n)->op_instance)
+            return
+        }
+
+        if isa<ListLiteralExpr>(n) {
+            if cast<ListLiteralExpr>(n)->storage == ListStorage::Extended {
+                self._p.paint(Color::Dim, "  [extended]")
+            }
+
+            return
+        }
+
+        if isa<TypeCastExpr>(n) {
+            var unsafe *c = cast<TypeCastExpr>(n)->resolved_ctor
             if c != &null {
-                self._p.paint(Color::Dim, "  [ctor: ");
-                self._p.put(sema_dump_decl_brief(self.ctx, c));
-                self._p.paint(Color::Dim, "]");
+                self._p.paint(Color::Dim, "  [ctor: ")
+                self._p.put(sema_dump_decl_brief(self.ctx, c))
+                self._p.paint(Color::Dim, "]")
             }
-            return;
+
+            return
         }
-        if isa::<MatchExpr>(n) {
-            var m = cast::<MatchExpr>(n);
-            self._note_match_facts(m->is_exhaustive, m->covering_arm, m->open_tail, m->null_arm);
+
+        if isa<MatchExpr>(n) {
+            var unsafe *m = cast<MatchExpr>(n)
+            self._note_match_facts(m->is_exhaustive, m->covering_arm, m->open_tail, m->null_arm)
         }
     }
 
     /// `  [exhaustive=1 covering_arm=2 open_tail=1]`: PatternChecking's facts,
     /// and ` null_arm=1` on a match on a `T?` that answers null first.
-    priv fn _note_match_facts(self, exhaustive: bool, covering: i32, open_tail: bool, null_arm: bool) {
-        var e = ("1") if (exhaustive) else ("0");
-        var o = ("1") if (open_tail) else ("0");
-        var na = (" null_arm=1") if (null_arm) else ("");
-        self._p.paint(Color::Dim, f"  [exhaustive={e} covering_arm={covering} open_tail={o}{na}]");
+    priv fn _note_match_facts(self,
+                              exhaustive: bool,
+                              covering:   i32,
+                              open_tail:  bool,
+                              null_arm:   bool) {
+        var e  = if (exhaustive) => ("1") else => "0"
+        var o  = if (open_tail) => ("1") else => "0"
+        var na = if (null_arm) => (" null_arm=1") else => ""
+        self._p.paint(Color::Dim, f"  [exhaustive={e} covering_arm={covering} open_tail={o}{na}]")
     }
 
     /// `Enum::Variant` for \p v.
-    priv fn _variant_name(self, v: *Decl) -> string {
-        var dc = reinterpret_cast::<*DeclContext>(v->semantic_dc);
-        var en = (dc->owner_decl()) if (dc != &null) else (&null);
-        if en == &null { return self._tu.decl_name(v); }
-        return self._tu.decl_name(en) + "::" + self._tu.decl_name(v);
+    priv fn _variant_name(self, v: unsafe *Decl) -> string {
+        var unsafe *dc = v->semantic_dc
+        var unsafe *en = if (dc != &null) => (dc->owner_decl()) else => &null
+        if en == &null {
+            return self._tu.decl_name(v)
+        }
+
+        return self._tu.decl_name(en) + "::" + self._tu.decl_name(v)
     }
 
     /// A MatchStmt is not an expression, so it gets its own row for the
     /// facts the MatchExpr row carries.
-    fn visit_match_stmt(self, n: *MatchStmt) -> bool {
-        if (!self._expr_mode) || (n == &null) { return true; }
-        self._scope_header();
-        self._p.paint(Color::Tree, "    ");
-        self._p.paint(Color::Ident, self._pad("MatchStmt", 24));
-        self._p.paint(Color::Dim,
-            self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10));
-        self._note_match_facts(n->is_exhaustive, n->covering_arm, n->open_tail, n->null_arm);
-        self._p.newline();
-        self._dump_decision(n->decision);
-        return true;
+    fn visit_match_stmt(self, n: unsafe *MatchStmt) -> bool {
+        if !self._expr_mode || n == &null {
+            return true
+        }
+
+        self._scope_header()
+        self._p.paint(Color::Tree, "    ")
+        self._p.paint(Color::Ident, self._pad("MatchStmt", 24))
+        self._p.paint(Color::Dim, self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10))
+        self._note_match_facts(n->is_exhaustive, n->covering_arm, n->open_tail, n->null_arm)
+        self._p.newline()
+        self._dump_decision(n->decision)
+        return true
     }
 
     /// PatternCompilation's tree under its match's row, one row per node.
-    priv fn _dump_decision(self, d: *void) {
-        if d == &null { return; }
-        var rows = decision_rows(self.sc, reinterpret_cast::<*DecisionTree>(d));
+    priv fn _dump_decision(self, d: unsafe *void) {
+        if d == &null {
+            return
+        }
+
+        var rows = decision_rows(self.sc, unsafe (d as unsafe *DecisionTree))
         for var i: usize = 0; i < rows.size(); ++i {
-            self._p.paint(Color::Tree, "      ");
-            self._p.paint(Color::Dim, rows[i]);
-            self._p.newline();
+            self._p.paint(Color::Tree, "      ")
+            self._p.paint(Color::Dim, rows[i])
+            self._p.newline()
         }
     }
 
@@ -1465,162 +2015,212 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// `resolved=<Variant|Record|Const> <name>` on a head that names a decl,
     /// `field=<name>` on a payload subpattern. Patterns with neither are
     /// left out; their type is the column's, already on the scrutinee row.
-    fn visit_pattern(self, n: *Pattern) -> bool {
-        if (!self._expr_mode) || (n == &null) { return true; }
-        if (n->resolved_decl == &null) && (n->field_decl == &null) { return true; }
-        self._scope_header();
-        self._p.paint(Color::Tree, "    ");
-        self._p.paint(Color::Ident, self._pad(sema_dump_pattern_kind_str(n->kind), 24));
-        self._p.paint(Color::Dim,
-            self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10));
+    fn visit_pattern(self, n: unsafe *Pattern) -> bool {
+        if !self._expr_mode || n == &null {
+            return true
+        }
+
+        if n->resolved_decl == &null && n->field_decl == &null {
+            return true
+        }
+
+        self._scope_header()
+        self._p.paint(Color::Tree, "    ")
+        self._p.paint(Color::Ident, self._pad(sema_dump_pattern_kind_str(n->kind), 24))
+        self._p.paint(Color::Dim, self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10))
         if n->field_decl != &null {
-            self._p.paint(Color::Dim, "  [field=");
-            self._p.put(self._tu.decl_name(n->field_decl));
-            self._p.paint(Color::Dim, "]");
+            self._p.paint(Color::Dim, "  [field=")
+            self._p.put(self._tu.decl_name(n->field_decl))
+            self._p.paint(Color::Dim, "]")
         }
-        var d = n->resolved_decl;
+
+        var unsafe *d = n->resolved_decl
         if d != &null {
-            var what = "Const";
-            if isa::<EnumVariantDecl>(d)                         { what = "Variant"; }
-            else if isa::<StructDecl>(d) || isa::<ClassDecl>(d) { what = "Record"; }
-            self._p.paint(Color::Dim, f"  [resolved={what} ");
-            self._p.put(self._tu.decl_name(d));
-            self._p.paint(Color::Dim, "]");
+            var what = "Const"
+            if isa<Declarations::EnumVariantDecl>(d) {
+                what = "Variant"
+            } else if isa<Declarations::StructDecl>(d) || isa<Declarations::ClassDecl>(d) {
+                what = "Record"
+            }
+
+            self._p.paint(Color::Dim, f"  [resolved={what} ")
+            self._p.put(self._tu.decl_name(d))
+            self._p.paint(Color::Dim, "]")
         }
-        self._p.newline();
-        return true;
+
+        self._p.newline()
+        return true
     }
 
     /// `  [instance <args>]` for a call slot X filled with a registry entry.
-    priv fn _note_instance(self, slot: *void) {
-        var ie = reinterpret_cast::<*InstanceEntry>(slot);
-        if ie == &null { return; }
-        var s = "<";
-        for var i: usize = 0; i < ie->args.size(); ++i {
-            if i > 0 { s += ", "; }
-            s += self._tu.str(ie->args[i]);
+    priv fn _note_instance(self, ie: unsafe *InstanceEntry) {
+        if ie == &null {
+            return
         }
-        s += ">";
-        self._p.paint(Color::Dim, "  [instance ");
-        self._p.put(s);
-        self._p.paint(Color::Dim, "]");
+
+        var s = "<"
+        for var i: usize = 0; i < ie->args.size(); ++i {
+            if i > 0 {
+                s += ", "
+            }
+
+            s += self._tu.str(ie->args[i])
+        }
+
+        s += ">"
+        self._p.paint(Color::Dim, "  [instance ")
+        self._p.put(s)
+        self._p.paint(Color::Dim, "]")
     }
 
     /// Collected on the same walk, printed after it: a declaration is only
     /// interesting here when the typer filled the slot.
-    fn visit_decl(self, n: *Decl) -> bool {
-        if (!self._expr_mode) || (n == &null) { return true; }
+    fn visit_decl(self, n: unsafe *Decl) -> bool {
+        if !self._expr_mode || n == &null {
+            return true
+        }
 
-        if isa::<VariableDecl>(n) {
-            var v = cast::<VariableDecl>(n);
+        if isa<Declarations::VariableDecl>(n) {
+            var unsafe *v = cast<Declarations::VariableDecl>(n)
             if self._is_inferred_slot(v->type_) {
                 self._inferred.push_back(
-                    f"{self.ctx->get_spelling(v->name)} : {self._tu.str(v->type_)}");
+                    f"{self.ctx->get_spelling(v->name)} : {self._tu.str(v->type_)}",
+                )
             }
-            return true;
+
+            return true
         }
-        if isa::<FunctionDecl>(n) {
-            var f = cast::<FunctionDecl>(n);
+
+        if isa<Declarations::FunctionDecl>(n) {
+            var unsafe *f = cast<Declarations::FunctionDecl>(n)
             if self._is_inferred_slot(f->return_type) {
                 self._inferred.push_back(
-                    f"{self.ctx->get_spelling(f->name)}() -> {self._tu.str(f->return_type)}");
+                    f"{self.ctx->get_spelling(f->name)}() -> {self._tu.str(f->return_type)}",
+                )
             }
         }
-        return true;
+
+        return true
     }
 
-    priv fn _is_inferred_slot(self, t: *Type) -> bool {
-        if t == &null { return false; }
-        return !t->range.is_valid();
+    priv fn _is_inferred_slot(self, t: unsafe *Type) -> bool {
+        if t == &null {
+            return false
+        }
+
+        return !t->range.is_valid()
     }
 
-    // --- interface composition ---------------------------------------------
+    /// # interface composition
 
     /// Every interface with a derives clause: its requirement count and the
     /// derived body as InterfaceComposition::derived_text spells it -- the
     /// text an LSP inlay hint shows after the clause (D10), pinned here.
-    priv fn _dump_compositions(self, dc: *DeclContext, top: bool) {
+    priv fn _dump_compositions(self, dc: unsafe *DeclContext, top: bool) {
         if top {
-            self._p.paint(Color::NodeKind, "-- interface composition --");
-            self._p.newline();
+            self._p.paint(Color::NodeKind, "-- interface composition --")
+            self._p.newline()
         }
-        var ic = InterfaceComposition(self.sc);
+
+        var ic = InterfaceComposition(self.sc)
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            var d = *(dc->dc_decls.get(i));
-            if d == &null { continue; }
-            if isa::<ModuleDecl>(d) { self._dump_compositions(static_cast::<*DeclContext>(cast::<ModuleDecl>(d)), false); continue; }
-            var id = dyn_cast::<InterfaceDecl>(d);
-            if (id == &null) || (id->derives_expr == &null) { continue; }
-            self._p.paint(Color::Tree, "  ");
-            self._p.paint(Color::TypeName, self.ctx->get_spelling(id->name));
-            self._p.put(f"  {id->requirements.size()} requirement(s)");
-            if id->is_poisoned() { self._p.paint(Color::Error, "  (poisoned)"); }
-            self._p.newline();
-            var text = ic.derived_text(id);
-            var line = "";
-            for var k: usize = 0; k < text.size(); ++k {
-                if text[k] == '\n' {
-                    self._p.paint(Color::Tree, "    ");
-                    self._p.put(line);
-                    self._p.newline();
-                    line = "";
-                    continue;
-                }
-                line += text[k];
+            var unsafe *d = *dc->dc_decls.get(i)
+            if d == &null {
+                continue
             }
+
+            if isa<Declarations::ModuleDecl>(d) {
+                self._dump_compositions((cast<Declarations::ModuleDecl>(d)), false)
+                continue
+            }
+
+            var unsafe *id = dyn_cast<Declarations::InterfaceDecl>(d)
+            if id == &null || id->derives_expr == &null {
+                continue
+            }
+
+            self._p.paint(Color::Tree, "  ")
+            self._p.paint(Color::TypeName, self.ctx->get_spelling(id->name))
+            self._p.put(f"  {id->requirements.size()} requirement(s)")
+            if id->is_poisoned() {
+                self._p.paint(Color::Error, "  (poisoned)")
+            }
+
+            self._p.newline()
+            var text = ic.derived_text(id)
+            var line = ""
+            for var k: usize = 0; k < text.size(); ++k {
+                if text[k] == ('\n' as u8) {
+                    self._p.paint(Color::Tree, "    ")
+                    self._p.put(line)
+                    self._p.newline()
+                    line = ""
+                    continue
+                }
+
+                line.push_back(text[k])
+            }
+
             if line.size() > 0 {
-                self._p.paint(Color::Tree, "    ");
-                self._p.put(line);
-                self._p.newline();
+                self._p.paint(Color::Tree, "    ")
+                self._p.put(line)
+                self._p.newline()
             }
         }
     }
 
-    // --- section 6 + summary ----------------------------------------------
+    /// # section 6 + summary
 
     priv fn _dump_summary(self) {
-
-        self._p.paint(Color::NodeKind, "-- types --");
-        self._p.newline();
-        self._p.paint(Color::Tree, "  ");
-        self._p.put(f"{self._n_ty_total} type node(s): ");
-        self._p.put(f"{self._n_ty_canon} canonical, ");
-        self._p.put(f"{self._n_ty_dep} of them dependent, ");
-        self._p.put(f"{self._n_ty_err} errored");
-        self._p.newline();
-        if (self._n_ty_total > 0) && (self._n_ty_canon == 0)
-        && (static_cast::<u8>(self.sc->phase) < static_cast::<u8>(SemaPhase::TypesResolved)) {
+        self._p.paint(Color::NodeKind, "-- types --")
+        self._p.newline()
+        self._p.paint(Color::Tree, "  ")
+        self._p.put(f"{self._n_ty_total} type node(s): ")
+        self._p.put(f"{self._n_ty_canon} canonical, ")
+        self._p.put(f"{self._n_ty_dep} of them dependent, ")
+        self._p.put(f"{self._n_ty_err} errored")
+        self._p.newline()
+        if self._n_ty_total > 0
+            && self._n_ty_canon == 0
+            && (self.sc->phase as u8) < (SemaPhase::TypesResolved as u8) {
             // Expected until TypeResolution is implemented; say so rather
             // than letting a reader mistake it for a resolution failure.
-            self._p.paint(Color::Tree, "  ");
-            self._p.paint(Color::Dim,
-                "(no canonical types: TypeResolution has not run   phase stops at NamesResolved)");
-            self._p.newline();
+            self._p.paint(Color::Tree, "  ")
+            self._p.paint(
+                Color::Dim,
+                "(no canonical types: TypeResolution has not run   phase stops at NamesResolved)",
+            )
+
+            self._p.newline()
         }
 
-        self._p.paint(Color::NodeKind, "-- summary --");
-        self._p.newline();
-        self._p.paint(Color::Tree, "  ");
-        self._p.put(f"{self._n_bound} bound, ");
-        self._p.put(f"{self._n_deferred} deferred (overload sets), ");
+        self._p.paint(Color::NodeKind, "-- summary --")
+        self._p.newline()
+        self._p.paint(Color::Tree, "  ")
+        self._p.put(f"{self._n_bound} bound, ")
+        self._p.put(f"{self._n_deferred} deferred (overload sets), ")
         if self._n_unresolved > 0 {
-            self._p.paint(Color::Error, f"{self._n_unresolved} unresolved");
+            self._p.paint(Color::Error, f"{self._n_unresolved} unresolved")
         } else {
-            self._p.put("0 unresolved");
+            self._p.put("0 unresolved")
         }
-        self._p.newline();
+
+        self._p.newline()
 
         // A SEPARATE figure, not folded into `deferred`. The two defer for
         // unrelated reasons   an overload set waits on argument types, a
         // member waits on the base's type   and a reader chasing one is not
         // helped by a number that could be either.
-        var steps = self._n_step_bound + self._n_step_cands + self._n_step_open + self._n_step_err;
+        var steps = self._n_step_bound + self._n_step_cands + self._n_step_open + self._n_step_err
         if steps > 0 {
-            self._p.paint(Color::Tree, "  ");
-            self._p.put(f"{steps} chain step(s): {self._n_step_bound} bound, ");
-            self._p.put(f"{self._n_step_cands} overload sets, {self._n_step_open} open");
-            if self._n_step_err > 0 { self._p.paint(Color::Error, f", {self._n_step_err} unresolved"); }
-            self._p.newline();
+            self._p.paint(Color::Tree, "  ")
+            self._p.put(f"{steps} chain step(s): {self._n_step_bound} bound, ")
+            self._p.put(f"{self._n_step_cands} overload sets, {self._n_step_open} open")
+            if self._n_step_err > 0 {
+                self._p.paint(Color::Error, f", {self._n_step_err} unresolved")
+            }
+
+            self._p.newline()
         }
     }
 }

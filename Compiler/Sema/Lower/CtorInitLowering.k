@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------- Sema/Lower/CtorInitLowering.k --- ///
+/// --- The Kairo Project ---------------- Sema/Lower/CtorInitLowering.k --- ///
 ///
 ///   \brief A constructor that initializes a field in place (a const one,
 ///          one whose type has no default, an array; CtorInitCheck) has its
@@ -14,7 +14,7 @@
 ///     minted. EmitIR writes body[0] as the body of a static pre-function
 ///     that fills the constructor's slots, and body[1] as the body of a
 ///     private constructor whose mem-initializers move the slots into the
-///     members (CODEGEN.md §6). Sema's view of the record is untouched:
+///     members (Compiler/Spec/Codegen.md#emitir). Sema's view of the record is untouched:
 ///     no member is added, so overload sets, ClassLifecycle and InitCheck
 ///     never see the C++ machinery.
 ///
@@ -33,73 +33,95 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::SemaContext::*;
-import AST::Visitor::ASTWriter::*;
-import AST::ASTSupport::*;
-import AST::Node::Base::*;
-import AST::Node::Statements::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Declarations::*;
-import AST::Node::Casting::*;
-import Location::SourceRange::*;
+ffi "c++" import "vector"
 
-class CtorInitLowering derives ASTWriter::<CtorInitLowering> {
-    pub var sc: *SemaContext;
+import AST::Node::Base::{
+    Decl,
+    Stmt,
+}
+import AST::Node::Declarations::FunctionDecl
+import AST::Node::Statements::CompoundStmt
+import AST::Visitor::ASTWriter::ASTWriter
+import Location::SourceRange::SourceRange
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+
+pub class CtorInitLowering derives ASTWriter<CtorInitLowering> {
+    pub var sc: *SemaContext
 
     fn CtorInitLowering(self, sc: *SemaContext) {
-        self.sc  = sc;
-        self.ctx = sc->ctx;
+        self.sc  = sc
+        self.ctx = sc->ctx
     }
 
     fn run(self) {
-        self.sc->require_phase(SemaPhase::Checked);
-        if self.sc->tu == &null { return; }
-        ASTWriter::<CtorInitLowering>::run(self.sc->tu);
+        self.sc->require_phase(SemaPhase::Checked)
+        if self.sc->tu == &null {
+            return
+        }
+
+        ASTWriter<CtorInitLowering>::run(self, self.sc->tu)
     }
 
-    fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
-        var out = ASTWriter::<CtorInitLowering>::transform_function_decl(n);
-        self._split(n);
-        return out;
+    fn transform_function_decl(self, n: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
+        var out = ASTWriter<CtorInitLowering>::transform_function_decl(self, n)
+        self._split(n)
+        return out
     }
 
     /// body -> { {S_pre} {S_post} }, once (ci_cut): a function reached a
     /// second time is left alone, and so is one whose count no longer fits
     /// (EmitIR ICEs on a split constructor that was never cut).
-    priv fn _split(self, n: *FunctionDecl) {
-        if (n->ci_split == 0) || n->ci_cut || (n->body_block == &null) || n->is_poisoned() { return; }
-        var body = n->body_block;
-        var k = static_cast::<usize>(n->ci_split);
-        if k > body->body.size() { return; }
+    priv fn _split(self, n: unsafe *FunctionDecl) {
+        if n->ci_split == 0 || n->ci_cut || n->body_block == &null || n->is_poisoned() {
+            return
+        }
 
-        var pre_at  = self._span(body, 0, k);
-        var post_at = self._span(body, k, body->body.size());
-        var pre  = CompoundStmt::create(self.ctx, pre_at);
-        var post = CompoundStmt::create(self.ctx, post_at);
-        var pb = self.list_builder::<*Stmt>();
-        for var i: usize = 0; i < k; ++i { pb.push(body->body[i]); }
-        pb.freeze_into(&(pre->body));
-        var qb = self.list_builder::<*Stmt>();
-        for var i: usize = k; i < body->body.size(); ++i { qb.push(body->body[i]); }
-        qb.freeze_into(&(post->body));
+        var unsafe *body = n->body_block
+        var        k     = (n->ci_split as usize)
+        if k > body->body.size() {
+            return
+        }
 
-        var b = self.list_builder::<*Stmt>();
-        b.push(static_cast::<*Stmt>(pre));
-        b.push(static_cast::<*Stmt>(post));
-        b.freeze_into(&(body->body));
-        n->ci_cut = true;
+        var        pre_at  = self._span(body, 0, k)
+        var        post_at = self._span(body, k, body->body.size())
+        var unsafe *pre    = CompoundStmt::create(self.ctx, pre_at)
+        var unsafe *post   = CompoundStmt::create(self.ctx, post_at)
+        var        pb      = self.list_builder<unsafe *Stmt>()
+        for var i: usize = 0; i < k; ++i {
+            pb.push(body->body[i])
+        }
+
+        pb.freeze_into(&pre->body)
+        var qb = self.list_builder<unsafe *Stmt>()
+        for var i: usize = k; i < body->body.size(); ++i {
+            qb.push(body->body[i])
+        }
+
+        qb.freeze_into(&post->body)
+
+        var b = self.list_builder<unsafe *Stmt>()
+        b.push(pre)
+        b.push(post)
+        b.freeze_into(&body->body)
+        n->ci_cut = true
     }
 
     /// The source span of statements [from, to), or the body's own when
     /// that is empty (an S_post with nothing after the frontier).
-    priv fn _span(self, body: *CompoundStmt, from: usize, to: usize) -> SourceRange {
-        if from >= to { return SourceRange::from_bounds(body->range.end.with_offset(-1), u32(1)); }
-        return body->body[from]->range | body->body[to - 1]->range;
+    priv fn _span(self, body: unsafe *CompoundStmt, from: usize, to: usize) -> SourceRange {
+        if from >= to {
+            return SourceRange::from_bounds(body->range.end.with_offset(-1), 1 as u32)
+        }
+
+        return body->body[from]->range | body->body[to - 1]->range
     }
 }

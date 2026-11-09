@@ -46,376 +46,629 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::SemaContext::*;
-import Sema::Type::TypeUtil::*;
-import Sema::Lower::LowerSynth::*;
-import AST::Visitor::ASTWriter::*;
-import AST::ASTSupport::*;
-import AST::Context::ASTContext::*;
-import AST::LangItems::*;
-import AST::Node::Base::*;
-import AST::Node::Expressions::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Statements::*;
-import AST::Node::Declarations::*;
-import AST::Node::CanonicalNodes::*;
-import AST::Node::Casting::*;
-import AST::Kind::ExprKind::*;
-import Lexer::Immediate::*;
-import Token::Token::*;
-import Token::TokenKind::*;
-import Location::SourceLocation::*;
-import Location::SourceRange::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
 
-class FStringLowering derives ASTWriter::<FStringLowering> {
-    pub var sc: *SemaContext;
-    priv var tu: TypeUtil;
-    priv var synth: LowerSynth;
+import AST::Kind::ExprKind::to_string
+import AST::LangItems::{
+    FormatKind,
+    LowerTargets,
+    WellKnownType,
+    to_string,
+}
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Stmt,
+    Type,
+}
+import AST::Node::CanonicalNodes::{
+    BuiltinKind,
+    QUAL_CONST,
+}
+import AST::Node::Declarations::VariableDecl
+import AST::Node::Expressions::{
+    BinaryOperatorExpr,
+    CallExpr,
+    CastMode,
+    ParenExpr,
+}
+import AST::Node::PrimaryExpressions::{
+    FormatHole,
+    NamedIdentExpr,
+    StringLiteralExpr,
+}
+import AST::Node::Statements::{
+    DeclStmt,
+    ExpressionStmt,
+}
+import AST::Visitor::ASTWriter::{
+    ASTWriter,
+    ListBuilder,
+}
+import Lexer::Immediate::{
+    Immediate,
+    ImmediateTable,
+}
+import Location::SourceLocation::SourceLocation
+import Location::SourceRange::SourceRange
+import Sema::Lower::LowerSynth::LowerSynth
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+import Sema::Type::TypeUtil::TypeUtil
+import Token::TokenKind::TokenKind
 
-    fn FStringLowering(self, sc: *SemaContext) {
-        self.sc    = sc;
-        self.ctx   = sc->ctx;
-        self.tu    = TypeUtil(sc);
-        self.synth = LowerSynth(sc);
+pub class FStringLowering derives ASTWriter<FStringLowering> {
+    pub var  sc:    unsafe *SemaContext
+    priv var tu:    TypeUtil
+    priv var synth: LowerSynth
+
+    fn FStringLowering(self, sc: unsafe *SemaContext) {
+        self.sc    = sc
+        self.ctx   = sc->ctx
+        self.tu    = TypeUtil(sc)
+        self.synth = LowerSynth(sc)
     }
 
     fn run(self) {
-        self.sc->require_phase(SemaPhase::Checked);
-        if self.sc->tu == &null { return; }
-        ASTWriter::<FStringLowering>::run(self.sc->tu);
+        self.sc->require_phase(SemaPhase::Checked)
+        if self.sc->tu == &null {
+            return
+        }
+
+        ASTWriter<FStringLowering>::run(self, self.sc->tu)
     }
 
-    // --- the rewrite ----------------------------------------------------------
+    /// # the rewrite
 
-    fn transform_string_literal_expr(self, n: *StringLiteralExpr) -> *Expr {
+    fn transform_string_literal_expr(self, n: unsafe *StringLiteralExpr) -> unsafe *Expr {
         // Holes first: an f-string inside a hole lowers inside its parent.
-        var out = ASTWriter::<FStringLowering>::transform_string_literal_expr(n);
-        if !n->is_format() { return out; }
-        if n->is_poisoned() || (n->type_ == &null) { return out; }
-        ICE_IF(n->imm == &null, "FStringLowering: f-string with no immediate data");
+        var unsafe *out = ASTWriter<FStringLowering>::transform_string_literal_expr(self, n)
+        if !n->is_format() {
+            return out
+        }
 
-        if n->parts.size() == 0 { return self._retype_plain(n); }
+        if n->is_poisoned() || n->type_ == &null {
+            return out
+        }
 
-        ICE_IF(n->fmt_holes.size() != n->parts.size(), "FStringLowering: hole facts not parallel to parts; LiteralTyping must record one per hole");
-        ICE_IF((n->fmt_ctor == &null) || (n->fmt_text == &null) || (n->fmt_finish == &null) || (n->fmt_len == &null),
-            "FStringLowering: FmtBuf members unbound; LiteralTyping must bind them");
+        if n->imm == &null {
+            kairo::std::ice_fail("FStringLowering: f-string with no immediate data")
+        }
 
-        var str_t = self.tu.string_type();
-        var no_args = vec::<*Type>();
-        var buf_t = self.tu.lang_record(WellKnownType::FmtBuf, &no_args);
-        ICE_IF((str_t == &null) || (buf_t == &null), "FStringLowering: string / FmtBuf lang items unbound");
-        var usize_t = self.sc->builtin(BuiltinKind::USize);
+        if n->parts.size() == 0 {
+            return self._retype_plain(n)
+        }
 
-        var stmts = self.list_builder::<*Stmt>();
-        var args  = vec::<*Expr>();            // per hole: what the put reads.
-        var lens  = vec::<*VariableDecl>();    // the string locals whose `len` joins the bound.
-        var bound: u64 = 0;
+        if n->fmt_holes.size() != n->parts.size() {
+            kairo::std::ice_fail(
+                "FStringLowering: hole facts not parallel to parts; LiteralTyping must record one per hole",
+            )
+        }
+
+        if n->fmt_ctor == &null
+            || n->fmt_text == &null
+            || n->fmt_finish == &null
+            || n->fmt_len == &null {
+            kairo::std::ice_fail(
+                "FStringLowering: FmtBuf members unbound; LiteralTyping must bind them",
+            )
+        }
+
+        var unsafe *str_t  = self.tu.string_type()
+        var        no_args = cxx::std::vector<unsafe *Type>()
+        var unsafe *buf_t  = self.tu.lang_record(WellKnownType::FmtBuf, unsafe &no_args)
+        if str_t == &null || buf_t == &null {
+            kairo::std::ice_fail("FStringLowering: string / FmtBuf lang items unbound")
+        }
+
+        var unsafe *usize_t = self.sc->builtin(BuiltinKind::USize)
+
+        var stmts      = self.list_builder<unsafe *Stmt>()
+        var args       = cxx::std::vector<unsafe *Expr>() // per hole: what the put reads.
+        var lens       = cxx::std::vector<unsafe *VariableDecl>() // the string locals whose `len` joins the bound.
+        var bound: u64 = 0
 
         // 1. Bind, in source order.
         for var i: usize = 0; i < n->parts.size(); ++i {
-            var h = n->fmt_holes.get(i);
-            var e = n->parts[i];
-            var at = e->range;
-            var arg: *Expr = &null;
+            var unsafe *h                = n->fmt_holes.get(i)
+            var unsafe *e                = n->parts[i]
+            var        at                = e->range
+            var        arg: unsafe *Expr = &null
 
             if h->deferred {
                 // A generic body's value: bound by forwarding reference, in
                 // source order like every other impure hole -- its type is
                 // the instance's, so it is never copied and never named.
-                var vd = self.synth.local(at, "arg", &null, e);
-                vd->place_ref = true;
-                stmts.push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, at, static_cast::<*Decl>(vd))));
-                arg = self.synth.use_of(vd, at, Expr::ValueCategory::LValue);
+                var unsafe *vd = self.synth.local(at, "arg", &null, e)
+                vd->place_ref = true
+                stmts.push(
+                    unsafe (DeclStmt::create(self.ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
+                )
+
+                arg = self.synth.use_of(vd, at, Expr::ValueCategory::LValue)
             } else if h->conv != &null {
                 // `(e).repr()` / `(e).op as()`: a string, bound.
-                var recv = ParenExpr::create(self.ctx, at, e);
-                recv->adopt_sema(e);
-                var none = self.list_builder::<*Expr>();
-                var call = self.synth.member_call(at, static_cast::<*Expr>(recv), h->conv, &none, str_t);
-                var vd = self.synth.local(at, "arg", str_t, call);
-                stmts.push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, at, static_cast::<*Decl>(vd))));
-                lens.push_back(vd);
-                arg = self.synth.use_of(vd, at, Expr::ValueCategory::LValue);
+                var unsafe *recv = ParenExpr::create(self.ctx, at, e)
+                recv->adopt_sema(e)
+                var        none  = self.list_builder<unsafe *Expr>()
+                var unsafe *call = self.synth.member_call(at, recv, h->conv, &none, str_t)
+                var unsafe *vd   = self.synth.local(at, "arg", str_t, call)
+                stmts.push(
+                    unsafe (DeclStmt::create(self.ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
+                )
+
+                lens.push_back(vd)
+                arg = self.synth.use_of(vd, at, Expr::ValueCategory::LValue)
             } else if h->kind == FormatKind::String {
                 // Read twice (its len, then its bytes): one local.
-                var vd = self.synth.local(at, "arg", str_t, e);
-                stmts.push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, at, static_cast::<*Decl>(vd))));
-                lens.push_back(vd);
-                arg = self.synth.use_of(vd, at, Expr::ValueCategory::LValue);
+                var unsafe *vd = self.synth.local(at, "arg", str_t, e)
+                stmts.push(
+                    unsafe (DeclStmt::create(self.ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
+                )
+
+                lens.push_back(vd)
+                arg = self.synth.use_of(vd, at, Expr::ValueCategory::LValue)
             } else if h->by_addr {
                 // The value's address: its own if it has one, a local's if not.
-                var obj = e;
+                var unsafe *obj = e
                 if !e->is_lvalue() {
-                    var vd = self.synth.local(at, "arg", self.tu.as_value(e->type_), e);
-                    stmts.push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, at, static_cast::<*Decl>(vd))));
-                    obj = self.synth.use_of(vd, at, Expr::ValueCategory::LValue);
+                    var unsafe *vd = self.synth.local(at, "arg", self.tu.as_value(e->type_), e)
+                    stmts.push(
+                        unsafe (DeclStmt::create(self.ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
+                    )
+
+                    obj = self.synth.use_of(vd, at, Expr::ValueCategory::LValue)
                 }
-                arg = self.synth.cast_to(at, self.synth.addr_of(obj), usize_t, CastMode::Unsafe);
+
+                arg = self.synth.cast_to(at, self.synth.addr_of(obj), usize_t, CastMode::Unsafe)
             } else {
-                arg = e;
+                arg = e
                 if !LowerSynth::pure(e) {
-                    var vd = self.synth.local(at, "arg", self.tu.as_value(e->type_), e);
-                    stmts.push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, at, static_cast::<*Decl>(vd))));
-                    arg = self.synth.use_of(vd, at, Expr::ValueCategory::LValue);
+                    var unsafe *vd = self.synth.local(at, "arg", self.tu.as_value(e->type_), e)
+                    stmts.push(
+                        unsafe (DeclStmt::create(self.ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
+                    )
+
+                    arg = self.synth.use_of(vd, at, Expr::ValueCategory::LValue)
                 }
+
                 if h->cast_to != &null {
                     // A pointer to usize is a reinterpretation; an enum to its
                     // underlying integer is a static_cast.
-                    var mode = (CastMode::Unsafe) if (h->kind == FormatKind::Ptr) else (CastMode::Default);
-                    arg = self.synth.cast_to(at, arg, h->cast_to, mode);
+                    var mode = if (h->kind == FormatKind::Ptr) => (CastMode::Unsafe)
+                               else => CastMode::Default
+                    arg = self.synth.cast_to(at, arg, h->cast_to, mode)
                 }
             }
-            args.push_back(arg);
-            bound += self._max_bytes(h, e);
+
+            args.push_back(arg)
+            bound += self._max_bytes(h, e)
         }
 
         // 2. The buffer, sized once: the static bound plus every string's len.
-        var text = vec::<u8>();
-        self._collect_text(n, &text, &bound);   // adds every literal byte to the bound too.
-        var cap: *Expr = self.synth.int_literal(n->range, bound, BuiltinKind::USize);
+        var text = cxx::std::vector<u8>()
+        self._collect_text(n, unsafe &text, unsafe &bound) // adds every literal byte to the bound too.
+        var cap: unsafe *Expr = self.synth.int_literal(n->range, bound, BuiltinKind::USize)
         for var i: usize = 0; i < lens.size(); ++i {
-            var none = self.list_builder::<*Expr>();
-            var len  = self.synth.member_call(n->range, self.synth.use_of(lens[i], n->range, Expr::ValueCategory::LValue), n->fmt_len, &none, usize_t);
-            var sum = BinaryOperatorExpr::create(self.ctx, n->range, cap, len, self.synth.punct(n->range, TokenKind::OpPlus));
-            sum->type_          = usize_t;
-            sum->value_category = Expr::ValueCategory::RValue;
-            cap = static_cast::<*Expr>(sum);
+            var none = self.list_builder<unsafe *Expr>()
+            var unsafe *len = self.synth.member_call(
+                n->range,
+                self.synth.use_of(lens[i], n->range, Expr::ValueCategory::LValue),
+                n->fmt_len,
+                &none,
+                usize_t,
+            )
+
+            var unsafe *sum = BinaryOperatorExpr::create(
+                self.ctx,
+                n->range,
+                cap,
+                len,
+                self.synth.punct(n->range, TokenKind::OpPlus),
+            )
+
+            sum->type_          = usize_t
+            sum->value_category = Expr::ValueCategory::RValue
+            cap                 = sum
         }
-        var cargs = self.list_builder::<*Expr>();
-        cargs.push(cap);
-        var buf = self.synth.local(n->range, "fmt", buf_t, self.synth.ctor_call(n->range, n->fmt_ctor, to_string(WellKnownType::FmtBuf), &cargs, buf_t));
-        stmts.push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, n->range, static_cast::<*Decl>(buf))));
+
+        var cargs = self.list_builder<unsafe *Expr>()
+        cargs.push(cap)
+        var unsafe *buf = self.synth.local(
+            n->range,
+            "fmt",
+            buf_t,
+            self.synth.ctor_call(
+                n->range,
+                n->fmt_ctor,
+                to_string(WellKnownType::FmtBuf),
+                &cargs,
+                buf_t,
+            ),
+        )
+
+        stmts.push(
+            unsafe (DeclStmt::create(self.ctx, n->range, unsafe (buf as unsafe *Decl)) as unsafe *Stmt),
+        )
 
         // 3. Text and puts, in order.
-        text.clear();
+        text.clear()
         for var i: usize = 0; i < n->parts.size(); ++i {
-            var h = n->fmt_holes.get(i);
-            var e = n->parts[i];
-            self._text_before(n, i, &text);
-            self._flush_text(n, buf, &text, &stmts);
+            var unsafe *h = n->fmt_holes.get(i)
+            var unsafe *e = n->parts[i]
+            self._text_before(n, i, unsafe &text)
+            self._flush_text(n, buf, unsafe &text, &stmts)
 
             if h->deferred {
-                stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, e->range, self._deferred_put(buf, args[i], h, e))));
-                continue;
+                stmts.push(
+                    ExpressionStmt::create(
+                        self.ctx,
+                        e->range,
+                        self._deferred_put(buf, args[i], h, e),
+                    ),
+                )
+
+                continue
             }
-            var pargs = self.list_builder::<*Expr>();
-            pargs.push(args[i]);
+
+            var pargs = self.list_builder<unsafe *Expr>()
+            pargs.push(args[i])
             if h->kind == FormatKind::Ptr {
-                var name = vec::<u8>();
-                LowerSynth::push_string(self._ptr_name(h, e), &name);
-                pargs.push(self._bytes_arg(e->range, &name));
-                pargs.push(self.synth.int_literal(e->range, static_cast::<u64>(name.size()), BuiltinKind::USize));
+                var name = cxx::std::vector<u8>()
+                LowerSynth::push_string(self._ptr_name(h, e), &name)
+                pargs.push(self._bytes_arg(e->range, unsafe &name))
+                pargs.push(self.synth.int_literal(e->range, name.size() as u64, BuiltinKind::USize))
             }
-            pargs.push(self.synth.int_literal(e->range, h->spec, BuiltinKind::U64));
-            var put = self.synth.member_call(e->range, self.synth.use_of(buf, e->range, Expr::ValueCategory::LValue), h->put, &pargs, self.sc->builtin(BuiltinKind::Void));
-            stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, e->range, put)));
+
+            pargs.push(self.synth.int_literal(e->range, h->spec, BuiltinKind::U64))
+            var unsafe *put = self.synth.member_call(
+                e->range,
+                self.synth.use_of(buf, e->range, Expr::ValueCategory::LValue),
+                h->put,
+                &pargs,
+                self.sc->builtin(BuiltinKind::Void),
+            )
+
+            stmts.push(ExpressionStmt::create(self.ctx, e->range, put))
         }
-        self._text_after(n, &text);
-        self._flush_text(n, buf, &text, &stmts);
+
+        self._text_after(n, unsafe &text)
+        self._flush_text(n, buf, unsafe &text, &stmts)
 
         // 4. The value.
-        var fargs = self.list_builder::<*Expr>();
-        var fin = self.synth.member_call(n->range, self.synth.use_of(buf, n->range, Expr::ValueCategory::LValue), n->fmt_finish, &fargs, str_t);
-        stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, n->range, fin)));
-        return self.synth.stmt_expr(static_cast::<*Expr>(n), &stmts, n->type_);
+        var fargs = self.list_builder<unsafe *Expr>()
+        var unsafe *fin = self.synth.member_call(
+            n->range,
+            self.synth.use_of(buf, n->range, Expr::ValueCategory::LValue),
+            n->fmt_finish,
+            &fargs,
+            str_t,
+        )
+
+        stmts.push(ExpressionStmt::create(self.ctx, n->range, fin))
+        return self.synth.stmt_expr(unsafe (n as unsafe *Expr), &stmts, n->type_)
     }
 
     /// `::__kairo_fmt_put(buf, arg, name, len, 0)` for a deferred hole
     /// (FormatHole::deferred): C++ picks the put at each instance
     /// (LowerTargets::fmt_dyn). The name is what an address print shows: the
     /// type as the body spells it, when it has one.
-    priv fn _deferred_put(self, buf: *VariableDecl, arg: *Expr, h: *FormatHole, e: *Expr) -> *Expr {
-        var at = e->range;
-        var name = vec::<u8>();
-        var spelled = ("value") if (e->type_ == &null) else (self.tu.str(self.tu.as_value(e->type_)));
-        LowerSynth::push_string(spelled, &name);
-        var cargs = self.list_builder::<*Expr>();
-        cargs.push(self.synth.use_of(buf, at, Expr::ValueCategory::LValue));
-        cargs.push(arg);
-        cargs.push(self._bytes_arg(at, &name));
-        cargs.push(self.synth.int_literal(at, static_cast::<u64>(name.size()), BuiltinKind::USize));
-        cargs.push(self.synth.int_literal(at, h->spec, BuiltinKind::U64));
-        var callee = NamedIdentExpr::create(self.ctx, at, self.synth.ident(at, LowerTargets::fmt_dyn()));
-        var call = CallExpr::create(self.ctx, at, static_cast::<*Expr>(callee));
-        cargs.freeze_into(&(call->args));
-        call->fmt_dyn        = true;
-        call->type_          = self.sc->builtin(BuiltinKind::Void);
-        call->value_category = Expr::ValueCategory::RValue;
-        return static_cast::<*Expr>(call);
+    priv fn _deferred_put(self,
+                          buf: unsafe *VariableDecl,
+                          arg: unsafe *Expr,
+                          h:   unsafe *FormatHole,
+                          e:   unsafe *Expr) -> unsafe *Expr {
+        var at   = e->range
+        var name = cxx::std::vector<u8>()
+        var spelled = if (e->type_ == &null) => ("value")
+                      else => self.tu.str(self.tu.as_value(e->type_))
+        LowerSynth::push_string(spelled, &name)
+        var cargs = self.list_builder<unsafe *Expr>()
+        cargs.push(self.synth.use_of(buf, at, Expr::ValueCategory::LValue))
+        cargs.push(arg)
+        cargs.push(self._bytes_arg(at, unsafe &name))
+        cargs.push(self.synth.int_literal(at, name.size() as u64, BuiltinKind::USize))
+        cargs.push(self.synth.int_literal(at, h->spec, BuiltinKind::U64))
+        var unsafe *callee = NamedIdentExpr::create(
+            self.ctx,
+            at,
+            self.synth.ident(at, LowerTargets::fmt_dyn()),
+        )
+
+        var unsafe *call = CallExpr::create(self.ctx, at, callee)
+        cargs.freeze_into(&call->args)
+        call->fmt_dyn        = true
+        call->type_          = self.sc->builtin(BuiltinKind::Void)
+        call->value_category = Expr::ValueCategory::RValue
+        return call
     }
 
     /// `f"plain"`: a literal with a prefix it no longer needs. StringLowering
     /// decodes it (`\{` included, unconditionally).
-    priv fn _retype_plain(self, n: *StringLiteralExpr) -> *Expr {
-        n->string_kind = (StringLiteralExpr::StringKind::Raw) if (n->is_raw()) else (StringLiteralExpr::StringKind::Plain);
-        return static_cast::<*Expr>(n);
+    priv fn _retype_plain(self, n: unsafe *StringLiteralExpr) -> unsafe *Expr {
+        // Format dropped, Raw kept: the set without its Format bit.
+        n->string_kind.clear(StringLiteralExpr::StringKind::Format)
+        return n
     }
 
-    // --- text -------------------------------------------------------------------------
+    /// # text
 
     /// `__kairo_fmtK.text("..." as unsafe *const u8, n, cp)` for the pending
     /// bytes, if any.
-    priv fn _flush_text(self, n: *StringLiteralExpr, buf: *VariableDecl, text: *vec::<u8>, stmts: *ListBuilder::<*Stmt>) {
-        if text->size() == 0 { return; }
-        var args = self.list_builder::<*Expr>();
-        args.push(self._bytes_arg(n->range, text));
-        args.push(self.synth.int_literal(n->range, static_cast::<u64>(text->size()), BuiltinKind::USize));
-        args.push(self.synth.int_literal(n->range, static_cast::<u64>(LowerSynth::cp_count(text)), BuiltinKind::USize));
-        var call = self.synth.member_call(n->range, self.synth.use_of(buf, n->range, Expr::ValueCategory::LValue), n->fmt_text, &args, self.sc->builtin(BuiltinKind::Void));
-        stmts->push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, n->range, call)));
-        text->clear();
+    priv fn _flush_text(self,
+                        n:     unsafe *StringLiteralExpr,
+                        buf:   unsafe *VariableDecl,
+                        text:  unsafe *cxx::std::vector<u8>,
+                        stmts: *ListBuilder<unsafe *Stmt>) {
+        if text->size() == 0 {
+            return
+        }
+
+        var args = self.list_builder<unsafe *Expr>()
+        args.push(self._bytes_arg(n->range, text))
+        args.push(self.synth.int_literal(n->range, text->size() as u64, BuiltinKind::USize))
+        args.push(
+            self.synth.int_literal(
+                n->range,
+                LowerSynth::cp_count(*text) as u64,
+                BuiltinKind::USize,
+            ),
+        )
+
+        var unsafe *call = self.synth.member_call(
+            n->range,
+            self.synth.use_of(buf, n->range, Expr::ValueCategory::LValue),
+            n->fmt_text,
+            &args,
+            self.sc->builtin(BuiltinKind::Void),
+        )
+
+        stmts->push(ExpressionStmt::create(self.ctx, n->range, call))
+        text->clear()
     }
 
     /// A byte literal as a `*const u8` argument: the C++ literal is
     /// `const char*`, the parameter is `const unsigned char*`.
-    priv fn _bytes_arg(self, at: SourceRange, bytes: *vec::<u8>) -> *Expr {
-        var pu8 = self.sc->types->pointer(self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST()));
-        return self.synth.cast_to(at, self.synth.bytes_literal(at, bytes, pu8), pu8, CastMode::Unsafe);
+    priv fn _bytes_arg(self, at: SourceRange, bytes: unsafe *cxx::std::vector<u8>) -> unsafe *Expr {
+        var unsafe *pu8 = self.sc->types->pointer(
+            self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST),
+        )
+
+        return self.synth.cast_to(
+            at,
+            self.synth.bytes_literal(at, bytes, pu8),
+            pu8,
+            CastMode::Unsafe,
+        )
     }
 
     /// Raw offset of hole \p i's `{`.
-    priv fn _open(self, n: *StringLiteralExpr, i: usize) -> u32 {
-        var r = libcxx::get::<1>((*(n->imm->exprs.begin() + i)));
-        return r.start.raw() - 1;
+    priv fn _open(self, n: unsafe *StringLiteralExpr, i: usize) -> u32 {
+        var r = (*(n->imm->exprs.begin() + i)).1
+        return r.start.raw() - 1
     }
 
     /// Raw offset of hole \p i's `}`: past the spec, the doc text, or the
     /// expression, whichever the hole has.
-    priv fn _close(self, n: *StringLiteralExpr, i: usize) -> u32 {
-        var hs = &(n->imm->holes[i]);
-        if hs->spec.is_valid() { return hs->spec.end.raw(); }
-        if hs->doc.is_valid()  { return hs->doc.end.raw(); }
-        return libcxx::get::<1>((*(n->imm->exprs.begin() + i))).end.raw();
+    priv fn _close(self, n: unsafe *StringLiteralExpr, i: usize) -> u32 {
+        var *hs = &n->imm->holes[i]
+        if hs->spec.is_valid() {
+            return hs->spec.end.raw()
+        }
+
+        if hs->doc.is_valid() {
+            return hs->doc.end.raw()
+        }
+
+        return (*(n->imm->exprs.begin() + i)).1.end.raw()
     }
 
     priv fn _range(self, a: u32, b: u32) -> SourceRange {
-        if b <= a { return SourceRange::invalid(); }
-        return SourceRange::from_bounds(SourceLocation::from_raw(a), SourceLocation::from_raw(b));
+        if b <= a {
+            return SourceRange::invalid()
+        }
+
+        return SourceRange::from_bounds(SourceLocation::from_raw(a), SourceLocation::from_raw(b))
     }
 
     /// The literal bytes before hole \p i, decoded, then the hole's own
     /// `{x=}` text, verbatim.
-    priv fn _text_before(self, n: *StringLiteralExpr, i: usize, out: *vec::<u8>) {
-        var from = (n->imm->body.start.raw()) if (i == 0) else (self._close(n, i - 1) + 1);
-        self._decode(n, self._range(from, self._open(n, i)), out);
-        self.synth.copy_text(n->imm->holes[i].doc, out);
+    priv fn _text_before(self,
+                         n:   unsafe *StringLiteralExpr,
+                         i:   usize,
+                         out: unsafe *cxx::std::vector<u8>) {
+        var from = if (i == 0) => (n->imm->body.start.raw()) else => self._close(n, i - 1) + 1
+        self._decode(n, self._range(from, self._open(n, i)), out)
+        self.synth.copy_text(n->imm->holes[i].doc, &*out)
     }
 
     /// The bytes after the last hole, then every chained part.
-    priv fn _text_after(self, n: *StringLiteralExpr, out: *vec::<u8>) {
-        var last = n->parts.size() - 1;
-        self._decode(n, self._range(self._close(n, last) + 1, n->imm->body.end.raw()), out);
+    priv fn _text_after(self, n: unsafe *StringLiteralExpr, out: unsafe *cxx::std::vector<u8>) {
+        var last = n->parts.size() - 1
+        self._decode(n, self._range(self._close(n, last) + 1, n->imm->body.end.raw()), out)
 
-        var tbl = self._chain_table(n);
-        var idx = n->imm->next;
-        while idx != u32(-1) {
-            var seg = tbl->get::<Immediate::StringData>(idx);
-            var raw = (static_cast::<u8>(seg->prefix_kind) & static_cast::<u8>(Immediate::TextPrefixKind::Raw)) != 0;
+        var unsafe *tbl = self._chain_table(n)
+        var        idx  = n->imm->next
+        while idx != u32::MAX {
+            var unsafe *seg = tbl->get<Immediate::StringData>(idx)
+            var        raw  = seg->prefix_kind.has(Immediate::TextPrefixKind::Raw)
             if seg->has_owned_text() {
-                for var k: usize = 0; k < static_cast::<usize>(seg->owned_len); ++k { out->push_back(seg->owned_ptr[k]); }
+                for var k: usize = 0; k < (seg->owned_len as usize); ++k {
+                    out->push_back(seg->owned_ptr[k])
+                }
             } else {
-                ICE_IF(!self.synth.decode_text(seg->body, raw, out), "FStringLowering: escape the lexer accepted but the decoder does not know; keep Lexer::is_valid_escape and LowerSynth::decode_text in step");
+                if !self.synth.decode_text(seg->body, raw, out) {
+                    kairo::std::ice_fail(
+                        "FStringLowering: escape the lexer accepted but the decoder does not know; keep Lexer::is_valid_escape and LowerSynth::decode_text in step",
+                    )
+                }
             }
-            idx = seg->next;
+
+            idx = seg->next
         }
-        n->imm->next = u32(-1);
+
+        n->imm->next = u32::MAX
     }
 
     /// The table that holds n->imm and its chained parts: the file that
     /// wrote the literal (an imported macro's body is not this file).
-    priv fn _chain_table(self, n: *StringLiteralExpr) -> *ImmediateTable {
-        if n->ctx != &null { return n->ctx->get_payload_table(n->token); }
-        return self.sc->imm_table();
+    priv fn _chain_table(self, n: unsafe *StringLiteralExpr) -> unsafe *ImmediateTable {
+        if n->ctx != &null {
+            return n->ctx->get_payload_table(n->token)
+        }
+
+        return self.sc->imm_table()
     }
 
-    priv fn _decode(self, n: *StringLiteralExpr, r: SourceRange, out: *vec::<u8>) {
-        ICE_IF(!self.synth.decode_text(r, n->is_raw(), out), "FStringLowering: escape the lexer accepted but the decoder does not know; keep Lexer::is_valid_escape and LowerSynth::decode_text in step");
+    priv fn _decode(self,
+                    n:   unsafe *StringLiteralExpr,
+                    r:   SourceRange,
+                    out: unsafe *cxx::std::vector<u8>) {
+        if !self.synth.decode_text(r, n->is_raw(), out) {
+            kairo::std::ice_fail(
+                "FStringLowering: escape the lexer accepted but the decoder does not know; keep Lexer::is_valid_escape and LowerSynth::decode_text in step",
+            )
+        }
     }
 
     /// Every literal byte of the f-string, for the bound. The text itself is
     /// re-derived per segment in step 3; the bytes here are counted only.
-    priv fn _collect_text(self, n: *StringLiteralExpr, scratch: *vec::<u8>, bound: *u64) {
-        for var i: usize = 0; i < n->parts.size(); ++i { self._text_before(n, i, scratch); }
-        // _text_after consumes the chain; count it without consuming here.
-        var last = n->parts.size() - 1;
-        self._decode(n, self._range(self._close(n, last) + 1, n->imm->body.end.raw()), scratch);
-        var tbl = self._chain_table(n);
-        var idx = n->imm->next;
-        while idx != u32(-1) {
-            var seg = tbl->get::<Immediate::StringData>(idx);
-            (*bound) += static_cast::<u64>(seg->body.end.raw() - seg->body.start.raw());   // an over-estimate: escapes shrink.
-            idx = seg->next;
+    priv fn _collect_text(self,
+                          n:       unsafe *StringLiteralExpr,
+                          scratch: unsafe *cxx::std::vector<u8>,
+                          bound:   unsafe *u64) {
+        for var i: usize = 0; i < n->parts.size(); ++i {
+            self._text_before(n, i, scratch)
         }
-        (*bound) += static_cast::<u64>(scratch->size());
-        scratch->clear();
+
+        // _text_after consumes the chain; count it without consuming here.
+        var last = n->parts.size() - 1
+        self._decode(n, self._range(self._close(n, last) + 1, n->imm->body.end.raw()), scratch)
+        var unsafe *tbl = self._chain_table(n)
+        var        idx  = n->imm->next
+        while idx != u32::MAX {
+            var unsafe *seg = tbl->get<Immediate::StringData>(idx)
+            *bound += seg->body.end.raw() - seg->body.start.raw() // an over-estimate: escapes shrink.
+            idx = seg->next
+        }
+
+        *bound += (scratch->size() as u64)
+        scratch->clear()
     }
 
-    // --- the bound -------------------------------------------------------------------
+    /// # the bound
 
     /// The pointee's spelling for `{p}`, the value's for the address form.
-    priv fn _ptr_name(self, h: *FormatHole, e: *Expr) -> string {
-        var v = self.tu.as_value(e->type_);
-        if h->by_addr { return self.tu.str(v); }
-        return self.tu.str(self.tu.pointee(v));
+    priv fn _ptr_name(self, h: unsafe *FormatHole, e: unsafe *Expr) -> string {
+        var unsafe *v = self.tu.as_value(e->type_)
+        if h->by_addr {
+            return self.tu.str(v)
+        }
+
+        return self.tu.str(self.tu.pointee(v))
     }
 
     /// The most bytes this hole can print. Wider than any output, never
     /// narrower: the puts still check, but a taken check is a realloc.
-    priv fn _max_bytes(self, h: *FormatHole, e: *Expr) -> u64 {
-        var width: u64 = h->spec & 0xFFFF;
-        var prec1: u64 = (h->spec >> 16) & 0xFFFF;
-        var fill:  u64 = (h->spec >> 32) & 0x1FFFFF;
-        var base:  u64 = (h->spec >> 55) & 3;
-        var m: u64 = 0;
+    priv fn _max_bytes(self, h: unsafe *FormatHole, e: unsafe *Expr) -> u64 {
+        var width: u64 = h->spec & 0xFFFF
+        var prec1: u64 = h->spec >> 16 & 0xFFFF
+        var fill:  u64 = h->spec >> 32 & 0x1FFFFF
+        var base:  u64 = h->spec >> 55 & 3
+        var m:     u64 = 0
         // The instance's: a guess. A short buffer only grows.
-        if h->deferred { return 32; }
-        switch h->kind {
-            case FormatKind::Bool   { m = 5; }
-            case FormatKind::Char   { m = 6; }        // quoted, escaped.
-            case FormatKind::Byte   { m = 4; }
-            case FormatKind::String { m = 2; }        // the quotes of `?`; bytes are runtime.
-            case FormatKind::Ptr    { m = static_cast::<u64>(self._ptr_name(h, e).size()) + 22; }
-            case FormatKind::I8:    case FormatKind::U8     { m = self._int_max(8, base);   }
-            case FormatKind::I16:   case FormatKind::U16    { m = self._int_max(16, base);  }
-            case FormatKind::I32:   case FormatKind::U32    { m = self._int_max(32, base);  }
-            case FormatKind::I64:   case FormatKind::U64    { m = self._int_max(64, base);  }
-            case FormatKind::ISize: case FormatKind::USize  { m = self._int_max(64, base);  }
-            case FormatKind::I128:  case FormatKind::U128   { m = self._int_max(128, base); }
-            case FormatKind::I256:  case FormatKind::U256   { m = self._int_max(256, base); }
-            case FormatKind::I512:  case FormatKind::U512   { m = self._int_max(512, base); }
-            default {
+        if h->deferred {
+            return 32
+        }
+
+        match h->kind {
+            case FormatKind::Bool {
+                m = 5
+            } case FormatKind::Char { // quoted, escaped.
+                m = 6
+            } case FormatKind::Byte {
+                m = 4
+            } case FormatKind::String { // the quotes of `?`; bytes are runtime.
+                m = 2
+            } case FormatKind::Ptr {
+                m = (self._ptr_name(h, e).size() as u64) + 22
+            } case FormatKind::I8, FormatKind::U8 {
+                m = self._int_max(8, base)
+            } case FormatKind::I16, FormatKind::U16 {
+                m = self._int_max(16, base)
+            } case FormatKind::I32, FormatKind::U32 {
+                m = self._int_max(32, base)
+            } case FormatKind::I64, FormatKind::U64 {
+                m = self._int_max(64, base)
+            } case FormatKind::ISize, FormatKind::USize {
+                m = self._int_max(64, base)
+            } case FormatKind::I128, FormatKind::U128 {
+                m = self._int_max(128, base)
+            } case FormatKind::I256, FormatKind::U256 {
+                m = self._int_max(256, base)
+            } case FormatKind::I512, FormatKind::U512 {
+                m = self._int_max(512, base)
+            } default {
                 // Every float: `%.*Lg` / `%.*Le` of an f80 at precision p.
-                var p: u64 = (prec1 - 1) if (prec1 != 0) else (6);
-                m = p + 16;
+                var p: u64 = if (prec1 != 0) => (prec1 - 1) else => 6
+                m = p + 16
             }
         }
+
         // Width pads in codepoints; a multibyte fill is up to four bytes each.
-        var fill_bytes: u64 = 1;
-        if fill >= 0x10000 { fill_bytes = 4; } else if fill >= 0x800 { fill_bytes = 3; } else if fill >= 0x80 { fill_bytes = 2; }
-        var padded = width * fill_bytes;
-        return (padded) if (padded > m) else (m);
+        var fill_bytes: u64 = 1
+        if fill >= 0x10000 {
+            fill_bytes = 4
+        } else if fill >= 0x800 {
+            fill_bytes = 3
+        } else if fill >= 0x80 {
+            fill_bytes = 2
+        }
+
+        var padded = width * fill_bytes
+        return if (padded > m) => (padded) else => m
     }
 
     /// Digits plus sign plus `0x`: base 10 from the width's decimal digit
     /// count, bases 2/8/16 from bits.
     priv fn _int_max(self, bits: u64, base: u64) -> u64 {
-        if base == 1 { return bits / 4 + 3; }
-        if base == 2 { return (bits + 2) / 3 + 3; }
-        if base == 3 { return bits + 3; }
-        switch bits {
-            case 8   { return 4;   }
-            case 16  { return 6;   }
-            case 32  { return 11;  }
-            case 64  { return 21;  }
-            case 128 { return 40;  }
-            case 256 { return 79;  }
-            default  { return 156; }
+        if base == 1 {
+            return bits / 4 + 3
+        }
+
+        if base == 2 {
+            return (bits + 2) / 3 + 3
+        }
+
+        if base == 3 {
+            return bits + 3
+        }
+
+        match bits {
+            case 8 {
+                return 4
+            } case 16 {
+                return 6
+            } case 32 {
+                return 11
+            } case 64 {
+                return 21
+            } case 128 {
+                return 40
+            } case 256 {
+                return 79
+            } default {
+                return 156
+            }
         }
     }
 }

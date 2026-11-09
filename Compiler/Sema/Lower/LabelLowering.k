@@ -1,4 +1,4 @@
-/// --- The Kairo Project --------------------- Sema/Lower/LabelLowering.k --- ///
+/// --- The Kairo Project ------------------- Sema/Lower/LabelLowering.k --- ///
 ///
 ///   \brief `break L` and `continue L` become gotos; the label on the loop
 ///          goes away.
@@ -42,132 +42,179 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::SemaContext::*;
-import Sema::Lower::LowerSynth::*;
-import AST::Visitor::ASTWriter::*;
-import AST::ASTSupport::*;
-import AST::LangItems::*;
-import AST::Node::Base::*;
-import AST::Node::Statements::*;
-import AST::Node::Declarations::*;
-import AST::Node::Casting::*;
-import Token::Token::*;
-import Location::SourceRange::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
+
+import AST::LangItems::LowerTargets
+import AST::Node::Base::{
+    Decl,
+    Stmt,
+}
+import AST::Node::Casting::{
+    cast,
+    isa,
+}
+import AST::Node::Declarations::FunctionDecl
+import AST::Node::Statements::{
+    BreakStmt,   CompoundStmt, ContinueStmt,  IndexedForStmt, JumpIntrinsicStmt, LabelIntrinsicStmt,
+    LabeledStmt, LoopStmt,     WhileLoopStmt,
+}
+import AST::Visitor::ASTWriter::ASTWriter
+import Sema::Lower::LowerSynth::LowerSynth
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+import Token::Token::Token
 
 /// A labeled loop being walked.
-struct LoopLabel {
-    var name:      string;
-    var brk:       Token;
-    var cont:      Token;
-    var brk_used:  bool = false;
-    var cont_used: bool = false;
+pub struct LoopLabel {
+    var name:      string
+    var brk:       Token
+    var cont:      Token
+    var brk_used:  bool   = false
+    var cont_used: bool   = false
 }
 
-class LabelLowering derives ASTWriter::<LabelLowering> {
-    pub var sc: *SemaContext;
-    priv var synth: LowerSynth;
-    priv var _loops: vec::<LoopLabel>;   ///< innermost last.
-    priv var _depth: usize = 0;          ///< _loops in use; entries past it are stale.
-    priv var _count: usize = 0;          ///< labeled loops lowered in this function.
+pub class LabelLowering derives ASTWriter<LabelLowering> {
+    pub var  sc:     unsafe *SemaContext
+    priv var synth:  LowerSynth
+    priv var _loops: cxx::std::vector<LoopLabel>     ///< innermost last.
+    priv var _depth: usize                       = 0 ///< _loops in use; entries past it are stale.
+    priv var _count: usize                       = 0 ///< labeled loops lowered in this function.
 
-    fn LabelLowering(self, sc: *SemaContext) {
-        self.sc    = sc;
-        self.ctx   = sc->ctx;
-        self.synth = LowerSynth(sc);
+    fn LabelLowering(self, sc: unsafe *SemaContext) {
+        self.sc    = sc
+        self.ctx   = sc->ctx
+        self.synth = LowerSynth(sc)
     }
 
     fn run(self) {
-        self.sc->require_phase(SemaPhase::Checked);
-        if self.sc->tu == &null { return; }
-        ASTWriter::<LabelLowering>::run(self.sc->tu);
-    }
-
-    fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
-        var saved = self._count;
-        self._count = 0;
-        var out = ASTWriter::<LabelLowering>::transform_function_decl(n);
-        self._count = saved;
-        return out;
-    }
-
-    fn transform_labeled_stmt(self, n: *LabeledStmt) -> vec::<*Stmt> {
-        var name = self.sc->ctx->get_spelling(n->label);
-        var e = LoopLabel{};
-        e.name = name;
-        e.brk  = self.synth.ident(n->label.range, LowerTargets::loop_break(self._count, name));
-        e.cont = self.synth.ident(n->label.range, LowerTargets::loop_continue(self._count, name));
-        self._count += 1;
-        self._push(e);
-
-        var inner = self.transform_stmt_scalar(n->inner);
-        var top = self._loops[self._depth - 1];
-        self._depth -= 1;
-
-        if top.cont_used { self._end_body(inner, top.cont); }
-        var out = vec::<*Stmt>();
-        out.push_back(inner);
-        if top.brk_used {
-            out.push_back(static_cast::<*Stmt>(LabelIntrinsicStmt::create(self.ctx, n->range, top.brk)));
+        self.sc->require_phase(SemaPhase::Checked)
+        if self.sc->tu == &null {
+            return
         }
-        return out;
+
+        ASTWriter<LabelLowering>::run(self, self.sc->tu)
     }
 
-    fn transform_break_stmt(self, n: *BreakStmt) -> vec::<*Stmt> {
-        if !n->has_label { return self._one_stmt(n); }
-        var i = self._find(n->label);
-        self._loops[i].brk_used = true;
-        return self._one_stmt(static_cast::<*Stmt>(JumpIntrinsicStmt::create(self.ctx, n->range, self._loops[i].brk)));
+    fn transform_function_decl(self, n: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
+        var saved = self._count
+        self._count = 0
+        var out = ASTWriter<LabelLowering>::transform_function_decl(self, n)
+        self._count = saved
+        return out
     }
 
-    fn transform_continue_stmt(self, n: *ContinueStmt) -> vec::<*Stmt> {
-        if !n->has_label { return self._one_stmt(n); }
-        var i = self._find(n->label);
-        self._loops[i].cont_used = true;
-        return self._one_stmt(static_cast::<*Stmt>(JumpIntrinsicStmt::create(self.ctx, n->range, self._loops[i].cont)));
+    fn transform_labeled_stmt(self, n: unsafe *LabeledStmt) -> cxx::std::vector<unsafe *Stmt> {
+        var name = self.sc->ctx->get_spelling(n->label)
+        var e    = LoopLabel{}
+        e.name = name
+        e.brk  = self.synth.ident(n->label.range, LowerTargets::loop_break(self._count, name))
+        e.cont = self.synth.ident(n->label.range, LowerTargets::loop_continue(self._count, name))
+        self._count += 1
+        self._push(e)
+
+        var unsafe *inner = self.transform_stmt_scalar(n->inner)
+        var        top    = self._loops[self._depth - 1]
+        self._depth -= 1
+
+        if top.cont_used {
+            self._end_body(inner, top.cont)
+        }
+
+        var out = cxx::std::vector<unsafe *Stmt>()
+        out.push_back(inner)
+        if top.brk_used {
+            out.push_back(LabelIntrinsicStmt::create(self.ctx, n->range, top.brk))
+        }
+
+        return out
     }
 
-    // --- helpers -------------------------------------------------------------------
+    fn transform_break_stmt(self, n: unsafe *BreakStmt) -> cxx::std::vector<unsafe *Stmt> {
+        if !n->has_label {
+            return self._one_stmt(n)
+        }
 
-    priv fn _push(self, e: LoopLabel) {
-        if self._depth < self._loops.size() { self._loops[self._depth] = e; }
-        else { self._loops.push_back(e); }
-        self._depth += 1;
+        var i = self._find(n->label)
+        self._loops[i].brk_used = true
+        return self._one_stmt(JumpIntrinsicStmt::create(self.ctx, n->range, self._loops[i].brk))
+    }
+
+    fn transform_continue_stmt(self, n: unsafe *ContinueStmt) -> cxx::std::vector<unsafe *Stmt> {
+        if !n->has_label {
+            return self._one_stmt(n)
+        }
+
+        var i = self._find(n->label)
+        self._loops[i].cont_used = true
+        return self._one_stmt(JumpIntrinsicStmt::create(self.ctx, n->range, self._loops[i].cont))
+    }
+
+    /// # helpers
+
+    priv fn _push(self, const e: LoopLabel) {
+        if self._depth < self._loops.size() {
+            self._loops[self._depth] = e
+        } else {
+            self._loops.push_back(e)
+        }
+
+        self._depth += 1
     }
 
     /// The innermost enclosing labeled loop named like \p label.
     priv fn _find(self, label: Token) -> usize {
-        var name = self.sc->ctx->get_spelling(label);
-        var i = self._depth;
+        var name = self.sc->ctx->get_spelling(label)
+        var i    = self._depth
         while i > 0 {
-            i -= 1;
-            if self._loops[i].name == name { return i; }
+            i -= 1
+            if self._loops[i].name == name {
+                return i
+            }
         }
-        ICE_FAIL(f"LabelLowering: no enclosing loop labeled '{name}'; JumpLabelCheck gate failure");
-        return 0;
+
+        kairo::std::ice_fail(
+            f"LabelLowering: no enclosing loop labeled '{name}'; JumpLabelCheck gate failure",
+        )
     }
 
     /// `body` becomes `{ { body } cont:; }`.
-    priv fn _end_body(self, loop: *Stmt, cont: Token) {
-        var body: *CompoundStmt = &null;
-        if isa::<WhileLoopStmt>(loop)       { body = cast::<WhileLoopStmt>(loop)->body; }
-        else if isa::<LoopStmt>(loop)       { body = cast::<LoopStmt>(loop)->body; }
-        else if isa::<IndexedForStmt>(loop) { body = cast::<IndexedForStmt>(loop)->body; }
-        ICE_IF(body == &null, "LabelLowering: a label on a statement that is not a loop IterLowering or the parser makes");
+    priv fn _end_body(self, #loop: unsafe *Stmt, cont: Token) {
+        var body: unsafe *CompoundStmt = &null
+        if isa<WhileLoopStmt>(#loop) {
+            body = cast<WhileLoopStmt>(#loop)->body
+        } else if isa<LoopStmt>(#loop) {
+            body = cast<LoopStmt>(#loop)->body
+        } else if isa<IndexedForStmt>(#loop) {
+            body = cast<IndexedForStmt>(#loop)->body
+        }
 
-        var lb = self.list_builder::<*Stmt>();
-        lb.push(static_cast::<*Stmt>(body));
-        lb.push(static_cast::<*Stmt>(LabelIntrinsicStmt::create(self.ctx, body->range, cont)));
-        var outer = CompoundStmt::create(self.ctx, body->range);
-        lb.freeze_into(&(outer->body));
+        if body == &null {
+            kairo::std::ice_fail(
+                "LabelLowering: a label on a statement that is not a loop IterLowering or the parser makes",
+            )
+        }
 
-        if isa::<WhileLoopStmt>(loop)  { cast::<WhileLoopStmt>(loop)->body = outer; }
-        else if isa::<LoopStmt>(loop)  { cast::<LoopStmt>(loop)->body = outer; }
-        else                           { cast::<IndexedForStmt>(loop)->body = outer; }
+        var lb = self.list_builder<unsafe *Stmt>()
+        lb.push(body)
+        lb.push(LabelIntrinsicStmt::create(self.ctx, body->range, cont))
+        var unsafe *outer = CompoundStmt::create(self.ctx, body->range)
+        lb.freeze_into(&outer->body)
+
+        if isa<WhileLoopStmt>(#loop) {
+            cast<WhileLoopStmt>(#loop)->body = outer
+        } else if isa<LoopStmt>(#loop) {
+            cast<LoopStmt>(#loop)->body = outer
+        } else {
+            cast<IndexedForStmt>(#loop)->body = outer
+        }
     }
 }

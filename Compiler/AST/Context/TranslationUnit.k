@@ -7,35 +7,54 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// -------------------------------------------------------------------------- ///
 
-import Memory::ArenaList::*;
-import AST::Context::ASTContext::*;
-import AST::Context::GlobalDisambigTable::*;
-import AST::Context::SymbolTable::*;
-import AST::Context::ImportOverlay::*;
-import AST::Context::DeclContext::*;
-import AST::Node::Program::*;
-import AST::Node::Base::*;
-import Resolution::ModulePath::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
+
+import AST::Context::ASTContext::ASTContext
+import AST::Context::DeclContext::{
+    DeclContext,
+    DeclContextKind,
+}
+import AST::Context::DisambigTable::{
+    DisambigEntry,
+    DisambigTable,
+}
+import AST::Context::GlobalDisambigTable::GlobalDisambigTable
+import AST::Context::ImportOverlay::ImportOverlay
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Stmt,
+    Type,
+}
+import AST::Node::Declarations::{
+    ImportDecl,
+    ModuleDecl,
+}
+import AST::Node::Program::Program
+import Location::SourceLocation::SourceLocation
+import Location::SourceRange::SourceRange
+import Memory::ArenaList::ArenaList
+import Resolution::ModulePath::ModulePath
+import Token::Token::Token
 
 /// One panic site of a TU (TranslationUnit::panic_sites): its id, the
 /// 64-bit hash of its (path, byte offset) that names its table record, and
 /// where it is, which EmitIR renders as file, line and column.
-class PanicSiteRec {
-    pub var id:  u32 = 0;
-    pub var key: u64 = 0;
-    pub var at:  SourceLocation;
-    fn PanicSiteRec(self) { }
+pub class PanicSiteRec {
+    pub var id:  u32            = 0
+    pub var key: u64            = 0
+    pub var at:  SourceLocation
+    pub fn PanicSiteRec(self) { }
 }
 
-class TranslationUnit; // forward decl for ParentRef
-
-enum ParentKind derives u8 {
+pub enum ParentKind derives u8 {
     None,
     Expr,
     Stmt,
@@ -48,197 +67,239 @@ enum ParentKind derives u8 {
 /// Tagged pointer to the parent of an AST node.
 /// Covers every node kind that can legally contain another node.
 /// Sentinel: `ParentKind::None` with null pointer = no parent (root or orphan).
-class ParentRef {
-    pub var kind: ParentKind = ParentKind::None;
-    pub var ptr:  obs::<void>;
+pub class ParentRef {
+    pub var kind: ParentKind   = ParentKind::None
+    pub var ptr:  unsafe *void
 
     fn ParentRef(self) {
-        self.kind = ParentKind::None;
-        self.ptr  = &null;
+        self.kind = ParentKind::None
+        self.ptr  = &null
     }
 
-    static fn none() -> ParentRef {
-        var r = ParentRef{};
-        return r;
+    pub static fn none() -> ParentRef {
+        var r = ParentRef()
+        return r
     }
 
     static fn from_expr(e: *Expr) -> ParentRef {
-        var r = ParentRef{};
-        r.kind = ParentKind::Expr;
-        r.ptr  = reinterpret_cast::<*void>(e);
-        return r;
+        var r = ParentRef()
+        r.kind = ParentKind::Expr
+        r.ptr  = unsafe (e as unsafe *void)
+        return r
     }
 
     static fn from_stmt(s: *Stmt) -> ParentRef {
-        var r = ParentRef{};
-        r.kind = ParentKind::Stmt;
-        r.ptr  = reinterpret_cast::<*void>(s);
-        return r;
+        var r = ParentRef()
+        r.kind = ParentKind::Stmt
+        r.ptr  = unsafe (s as unsafe *void)
+        return r
     }
 
-    static fn from_decl(d: *Decl) -> ParentRef {
-        var r = ParentRef{};
-        r.kind = ParentKind::Decl;
-        r.ptr  = reinterpret_cast::<*void>(d);
-        return r;
+    pub static fn from_decl(d: *Decl) -> ParentRef {
+        var r = ParentRef()
+        r.kind = ParentKind::Decl
+        r.ptr  = unsafe (d as unsafe *void)
+        return r
     }
 
     static fn from_type(t: *Type) -> ParentRef {
-        var r = ParentRef{};
-        r.kind = ParentKind::Type;
-        r.ptr  = reinterpret_cast::<*void>(t);
-        return r;
+        var r = ParentRef()
+        r.kind = ParentKind::Type
+        r.ptr  = unsafe (t as unsafe *void)
+        return r
     }
 
     static fn from_tu(tu: *TranslationUnit) -> ParentRef {
-        var r = ParentRef{};
-        r.kind = ParentKind::TranslationUnit;
-        r.ptr  = reinterpret_cast::<*void>(tu);
-        return r;
+        var r = ParentRef()
+        r.kind = ParentKind::TranslationUnit
+        r.ptr  = unsafe (tu as unsafe *void)
+        return r
     }
 
-    static fn from_hoisted(e: *DisambigEntry) -> ParentRef {
-        var r = ParentRef{};
-        r.kind = ParentKind::Hoisted;
-        r.ptr  = reinterpret_cast::<*void>(e);
-        return r;
+    pub static fn from_hoisted(e: unsafe *DisambigEntry) -> ParentRef {
+        var r = ParentRef()
+        r.kind = ParentKind::Hoisted
+        r.ptr  = unsafe (e as unsafe *void)
+        return r
     }
 
-    fn is_none(self) -> bool { return self.kind == ParentKind::None; }
-
-    fn as_hoisted(self) -> *DisambigEntry {
-        assert(self.kind == ParentKind::Hoisted);
-        return reinterpret_cast::<*DisambigEntry>(self.ptr);
+    fn is_none(self) -> bool {
+        return self.kind == ParentKind::None
     }
 
-    fn as_expr(self) -> *Expr {
-        assert(self.kind == ParentKind::Expr);
-        return reinterpret_cast::<*Expr>(self.ptr);
+    fn as_hoisted(self) -> unsafe *DisambigEntry {
+        eval if defined!(DEBUG) {
+            if !(self.kind == ParentKind::Hoisted) {
+                kairo::std::ice_fail("assertion failed: self.kind == ParentKind::Hoisted")
+            }
+        }
+
+        return unsafe (self.ptr as unsafe *DisambigEntry)
     }
 
-    fn as_stmt(self) -> *Stmt {
-        assert(self.kind == ParentKind::Stmt);
-        return reinterpret_cast::<*Stmt>(self.ptr);
+    fn as_expr(self) -> unsafe *Expr {
+        eval if defined!(DEBUG) {
+            if !(self.kind == ParentKind::Expr) {
+                kairo::std::ice_fail("assertion failed: self.kind == ParentKind::Expr")
+            }
+        }
+
+        return unsafe (self.ptr as unsafe *Expr)
     }
 
-    fn as_decl(self) -> *Decl {
-        assert(self.kind == ParentKind::Decl);
-        return reinterpret_cast::<*Decl>(self.ptr);
+    fn as_stmt(self) -> unsafe *Stmt {
+        eval if defined!(DEBUG) {
+            if !(self.kind == ParentKind::Stmt) {
+                kairo::std::ice_fail("assertion failed: self.kind == ParentKind::Stmt")
+            }
+        }
+
+        return unsafe (self.ptr as unsafe *Stmt)
     }
 
-    fn as_type(self) -> *Type {
-        assert(self.kind == ParentKind::Type);
-        return reinterpret_cast::<*Type>(self.ptr);
+    fn as_decl(self) -> unsafe *Decl {
+        eval if defined!(DEBUG) {
+            if !(self.kind == ParentKind::Decl) {
+                kairo::std::ice_fail("assertion failed: self.kind == ParentKind::Decl")
+            }
+        }
+
+        return unsafe (self.ptr as unsafe *Decl)
     }
 
-    fn as_tu(self) -> *TranslationUnit {
-        assert(self.kind == ParentKind::TranslationUnit);
-        return reinterpret_cast::<*TranslationUnit>(self.ptr);
+    fn as_type(self) -> unsafe *Type {
+        eval if defined!(DEBUG) {
+            if !(self.kind == ParentKind::Type) {
+                kairo::std::ice_fail("assertion failed: self.kind == ParentKind::Type")
+            }
+        }
+
+        return unsafe (self.ptr as unsafe *Type)
+    }
+
+    fn as_tu(self) -> unsafe *TranslationUnit {
+        eval if defined!(DEBUG) {
+            if !(self.kind == ParentKind::TranslationUnit) {
+                kairo::std::ice_fail("assertion failed: self.kind == ParentKind::TranslationUnit")
+            }
+        }
+
+        return unsafe (self.ptr as unsafe *TranslationUnit)
     }
 
     /// Returns the parent's source range regardless of concrete kind.
     /// Used by PositionQuery and hover/definition walkers.
     fn get_range(self) -> SourceRange {
-        switch self.kind {
-            case ParentKind::Expr            { return self.as_expr()->range;          }
-            case ParentKind::Stmt            { return self.as_stmt()->range;          }
-            case ParentKind::Decl            { return self.as_decl()->range;          }
-            case ParentKind::Type            { return self.as_type()->range;          }
-            case ParentKind::TranslationUnit { return SourceRange::invalid();         }
-            case ParentKind::Hoisted         { return self.as_hoisted()->decl.origin; }
-            default                          { return SourceRange::invalid();         }
+        match self.kind {
+            case ParentKind::Expr {
+                return self.as_expr()->range
+            } case ParentKind::Stmt {
+                return self.as_stmt()->range
+            } case ParentKind::Decl {
+                return self.as_decl()->range
+            } case ParentKind::Type {
+                return self.as_type()->range
+            } case ParentKind::TranslationUnit {
+                return SourceRange::invalid()
+            } case ParentKind::Hoisted {
+                return self.as_hoisted()->decl.origin
+            } default {
+                return SourceRange::invalid()
+            }
         }
     }
 }
 
-struct BodyRange {
-    pub var decl:      obs::<*Decl>;
-    pub var tok_start: SourceLocation;
-    pub var tok_end:   SourceLocation;
+pub struct BodyRange {
+    pub var decl:      unsafe *unsafe *Decl
+    pub var tok_start: SourceLocation
+    pub var tok_end:   SourceLocation
 }
 
 /// One resolved import edge for this TU, in declaration order. Written ONLY by
 /// the PP walk (FileImportIndex), read by the parser disambig fallback (Full
-/// mode) and by Sema/ImportResolution. `decl` is typed `*Decl` to dodge a
-/// stage0 import cycle (same reason as `out_of_line`); it always points to an
-/// ImportDecl and is downcast at use. `target_fid` mirrors that node's
+/// mode) and by Sema/ImportResolution. `target_fid` mirrors `decl`'s
 /// `resolved_fid`: the source-module file the edge points at (0 = ffi/unres).
 /// alias / items / wildcard / visibility all live on the node, not here.
-struct ImportEdge {
-    pub var target_fid: u32 = 0;
-    pub var decl:       obs::<Decl> = &null;   ///< always an *ImportDecl; downcast at use.
+pub struct ImportEdge {
+    pub var target_fid: u32                = 0
+    pub var decl:       unsafe *ImportDecl = &null
 }
 
 /// Root of a parsed file's AST. Derives DeclContext so it participates in
 /// name lookup like any other scope.
-class TranslationUnit derives DeclContext {
-    pub var ctx:         obs::<ASTContext>;
-    pub var fid:         u32;
-    pub var module_path: ModulePath;
-    pub var program:     obs::<Program>;
-    pub var imports:     ArenaList::<*Decl>;
-    pub var macros:      ArenaList::<*Decl>;
-    pub var tu_attrs:    ArenaList::<*Decl>;
-    pub var error_count: u32 = 0;
-    pub var warn_count:  u32 = 0;
-    pub var body_ranges: ArenaList::<BodyRange>;
+pub class TranslationUnit derives DeclContext {
+    pub var ctx:         unsafe *ASTContext
+    pub var fid:         u32
+    pub var module_path: ModulePath
+    pub var program:     unsafe *Program
+    pub var imports:     ArenaList<unsafe *Decl>
+    pub var macros:      ArenaList<unsafe *Decl>
+    pub var tu_attrs:    ArenaList<*Decl>
+    pub var error_count: u32                     = 0
+    pub var warn_count:  u32                     = 0
+    pub var body_ranges: ArenaList<BodyRange>
 
-    pub var scope:          obs::<DisambigTable>;
-    pub var global_scope:   obs::<GlobalDisambigTable>;
-    pub var out_of_line:    ArenaList::<*Decl>;
-    pub var import_overlay: obs::<ImportOverlay>;   ///< built by phase I; null until then.
+    pub var scope:          *DisambigTable
+    pub var global_scope:   *GlobalDisambigTable
+    pub var out_of_line:    ArenaList<unsafe *Decl>
+    pub var import_overlay: unsafe *ImportOverlay   ///< built by phase I; null until then.
 
     /// The synthetic `cxx` module, built by phase I for a TU with any ffi
     /// import, or null. It owns one binding -- `std` -> every top-level `std`
     /// ModuleDecl in this TU's ffi closure -- so `cxx::std` names C++'s `std`
-    /// while bare `std` is Kairo's, once `import std` binds it (IMPORTS.md §5).
+    /// while bare `std` is Kairo's, once `import std` binds it (Compiler/Spec/Interop.md#ffi-imports).
     ///
     /// A TRANSPARENT alias: the decls reached through it keep their own paths
     /// and codegen spells them `::std::…`. Nothing downstream reads this
     /// field except the two diagnostics for `cxx` used alone, which compare
     /// against it by identity.
-    pub var cxx_module:     obs::<Decl> = &null;
+    pub var cxx_module: unsafe *Decl = &null
 
     /// Synthetic per-file module node: a real ModuleDecl whose dc_symbols is
     /// SHARED with this TU (A2 model), created at parse exit. Gives plain
     /// imports a genuine *Decl to bind (no TU->Decl reinterpret) and unifies
-    /// file-modules with `module foo {}` blocks under one lookup path. Typed
-    /// *Decl to dodge the stage0 import cycle (same reason as out_of_line);
-    /// always a ModuleDecl, downcast at use. Null for an anonymous root file.
-    pub var module_self:    obs::<Decl> = &null;
+    /// file-modules with `module foo {}` blocks under one lookup path. Null
+    /// for an anonymous root file.
+    pub var module_self: unsafe *ModuleDecl = &null
 
     /// Resolved import edges, in declaration order. One writer: the PP walk
     /// (FileImportIndex). Readers: parser disambig fallback + ImportResolution.
-    pub var import_edges:   ArenaList::<ImportEdge>;
+    pub var import_edges: ArenaList<ImportEdge>
 
     /// A C++ header imported through Sema/Foreign: decls come from clang,
     /// there is no Kairo token stream behind this fid. Set by
     /// HeaderIndex::_target. Never parsed, never run through sema; lives as
     /// long as the build (CompilerInstance::release refuses it).
-    pub var is_foreign:     bool = false;
+    pub var is_foreign: bool = false
 
     /// The parser met an `eval if` or a DefinedExpr in this file (any
     /// position), so EvalIfFolding has something to fold. One writer: the
     /// parser.
-    pub var has_eval_if:    bool = false;
+    pub var has_eval_if: bool = false
     /// The parser met an `eval for` (InterfaceEmitter writes the eval
-    /// helpers, EVAL.md §5). One writer: the parser.
-    pub var has_eval_for:   bool = false;
+    /// helpers, Compiler/Spec/Eval.md#eval-for). One writer: the parser.
+    pub var has_eval_for: bool = false
     /// The parser met `<primitive>::NAME` (`i32::MAX`), so
     /// PrimitiveLimitDesugar has something to mint. One writer: the parser.
-    pub var has_prim_member: bool = false;
+    pub var has_prim_member: bool = false
     /// The parser met `@create` or `@destroy` in expression position, so
     /// AllocSugarDesugar has something to rewrite. One writer: the parser.
-    pub var has_alloc_sugar: bool = false;
+    pub var has_alloc_sugar: bool = false
+    /// The driver proved this TU declares no extension anywhere
+    /// (FrontendAction::_sema_parallel), so MemberLookup's build-wide
+    /// extension index skips it without reading its declaration lists,
+    /// which its own Sema may be rewriting on another thread.
+    pub var no_extensions: bool = false
     /// StringLowering spelled a string literal C++ reads at compile time
-    /// (EVAL.md 2a), so InterfaceEmitter writes `__kairo_estr`. One writer:
+    /// (Compiler/Spec/Eval.md#strings-at-compile-time), so InterfaceEmitter writes `__kairo_estr`. One writer:
     /// StringLowering.
-    pub var has_eval_string: bool = false;
+    pub var has_eval_string: bool = false
 
     /// The HeaderSet this file's ffi imports requested (PPWalker::_finalize),
     /// or null. Typed *void: TranslationUnit cannot name Interop. Owned by the
     /// CompilerInstance's HeaderSetCache, never by the TU.
-    pub var header_set:     obs::<void> = &null;
+    pub var header_set: unsafe *void = &null
 
     /// Codegen, pathless (entry) TU only (CXXSpell::is_entry_tu): the
     /// priv/internal decls an inline or template body of this file names.
@@ -247,13 +308,13 @@ class TranslationUnit derives DeclContext {
     /// (CXXSpell::is_anon). Filled once, by this
     /// TU's first EmitPlan (EmitPlan::_find_escaping), from the file alone,
     /// so every run spells them the same.
-    pub var cxx_escaping:      vec::<*Decl>;
-    pub var cxx_escaping_done: bool = false;
+    pub var cxx_escaping:      cxx::std::vector<unsafe *Decl>
+    pub var cxx_escaping_done: bool                           = false
 
-    /// PANIC.md §1.4: this TU's panic sites, in registration order, ids
+    /// Compiler/Spec/Panic.md#site-ids: this TU's panic sites, in registration order, ids
     /// unique within the TU. One writer, PanicSites::site_id (Sema); one
     /// reader, EmitIR, which writes them to the `__kairo_panic_sites` table.
-    pub var panic_sites:       vec::<PanicSiteRec>;
+    pub var panic_sites: cxx::std::vector<PanicSiteRec>
 
     /// The path of this file's bare `module a::b` declaration, one token per
     /// segment, or empty. Recorded by the parser in any file; read by
@@ -261,13 +322,13 @@ class TranslationUnit derives DeclContext {
     /// module.k it pins the directory as library `a::b`, and the resolver
     /// reads that from the file itself, before any parse
     /// (ImportProbe::read_module_pin). `pin_range` spans the declaration.
-    pub var pin_segments: ArenaList::<Token>;
-    pub var pin_range:    SourceRange = SourceRange::invalid();
+    pub var pin_segments: ArenaList<Token>
+    pub var pin_range:    SourceRange      = SourceRange::invalid()
     /// A SECOND bare pin in the same file, if any (the first beyond
     /// pin_range): a file names at most one library, and the parser keeps
     /// only the first, so ModulePinCheck reports this one rather than let it
     /// vanish.
-    pub var pin_extra_range: SourceRange = SourceRange::invalid();
+    pub var pin_extra_range: SourceRange = SourceRange::invalid()
 
     /// `@set_global_allocator(A)`: the private TypeAliasDecl the parser made
     /// of it (ASTParse::_parse_global_allocator), so A resolves as any
@@ -275,11 +336,23 @@ class TranslationUnit derives DeclContext {
     /// strong `kairo_global_*` forwarders from it, and the driver rejects a
     /// second file of one link that sets one too. `global_alloc_at` spans
     /// the attribute.
-    pub var global_alloc:    *Decl       = &null;
-    pub var global_alloc_at: SourceRange = SourceRange::invalid();
+    pub var global_alloc:    unsafe *Decl = &null
+    pub var global_alloc_at: SourceRange  = SourceRange::invalid()
+    /// Visibility facts (AST/VisibilityFacts.k): the directory of the
+    /// nearest module.k above the file ("" in no module), and whether the
+    /// file is builtin or std. Written once per build by the driver before
+    /// Sema, since parallel Sema reads them from any worker; unstamped,
+    /// readers recompute instead.
+    pub var vis_stamped: bool   = false
+    pub var is_lib_tu:   bool   = false
+    pub var module_dir:  string
 
-    fn TranslationUnit(self, ctx: *ASTContext, fid: u32, scope: *DisambigTable, g_scope: *GlobalDisambigTable) {
-        self.init_dc(DeclContextKind::TranslationUnit, ctx, &null, &null);
+    fn TranslationUnit(self,
+                       ctx:     unsafe *ASTContext,
+                       fid:     u32,
+                       scope:   *DisambigTable,
+                       g_scope: *GlobalDisambigTable) {
+        self.init_dc(DeclContextKind::TranslationUnit, ctx, &null, &null)
         // init_dc puts a scope's decl list in ast_alloc, which is right for
         // every scope but this one: the TU lives in pp_alloc and SURVIVES
         // release_from(Parsing) / reset_for_reparse, which reset ast_alloc.
@@ -287,23 +360,23 @@ class TranslationUnit derives DeclContext {
         // and the reparse's first push would write into whatever the new AST
         // put there (GH #71). Its storage lives as long as the TU; its
         // CONTENTS are the parse's, dropped by ASTParse::parse.
-        self.dc_decls.set_allocator(&(ctx->pp_alloc), 64);
-        self.ctx          = ctx;
-        self.fid          = fid;
-        self.scope        = scope;
-        self.global_scope = g_scope;
+        self.dc_decls.set_allocator(unsafe &ctx->pp_alloc, 64)
+        self.ctx          = ctx
+        self.fid          = fid
+        self.scope        = scope
+        self.global_scope = g_scope
         // EVERY ArenaList below must name an arena. The default ctor eagerly
         // builds a self-owned one, reclaimed only by ~ArenaList   `macros` was
         // missing this call and leaked a block per TU per parse.
-        self.imports.set_allocator(&(ctx->pp_alloc), 16);
-        self.macros.set_allocator(&(ctx->pp_alloc), 16);
-        self.tu_attrs.set_allocator(&(ctx->pp_alloc), 4);
-        self.body_ranges.set_allocator(&(ctx->pp_alloc), 64);
-        self.out_of_line.set_allocator(&(ctx->pp_alloc), 8);
-        self.import_overlay = &null;
-        self.import_edges.set_allocator(&(ctx->pp_alloc), 16);
-        self.pin_segments.set_allocator(&(ctx->pp_alloc), 4);
-        self.global_alloc    = &null;
-        self.global_alloc_at = SourceRange::invalid();
+        self.imports.set_allocator(unsafe &ctx->pp_alloc, 16)
+        self.macros.set_allocator(unsafe &ctx->pp_alloc, 16)
+        self.tu_attrs.set_allocator(unsafe &ctx->pp_alloc, 4)
+        self.body_ranges.set_allocator(unsafe &ctx->pp_alloc, 64)
+        self.out_of_line.set_allocator(unsafe &ctx->pp_alloc, 8)
+        self.import_overlay = &null
+        self.import_edges.set_allocator(unsafe &ctx->pp_alloc, 16)
+        self.pin_segments.set_allocator(unsafe &ctx->pp_alloc, 4)
+        self.global_alloc    = &null
+        self.global_alloc_at = SourceRange::invalid()
     }
 }

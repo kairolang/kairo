@@ -1,7 +1,8 @@
-/// --- The Kairo Project ---------------- Codegen/Emit/InterfaceEmitter.k --- ///
+/// --- The Kairo Project -------------- Codegen/Emit/InterfaceEmitter.k --- ///
 ///
 ///   \brief Emit an EmitPlan as C++ declarations. Two callers, one emitter
-///          (IMPORTS.md §6.6): Backend for a TU's preamble (TokenSink),
+///          (Compiler/Spec/Codegen.md#plan-modes): Backend for a TU's preamble
+///              (TokenSink),
 ///          EmitCXXHeader for the module's interop header (TextSink).
 ///
 ///   \par Text fragments, one per declaration
@@ -54,7 +55,8 @@
 ///     reject it, and it turns cross-TU initialization order from a runtime
 ///     surprise into a guarantee. A thunk's call is dynamic initialization,
 ///     never `constinit` -- deciding constness per instance needs the
-///     monomorphizer (CODEGEN.md §10). No initializer at all is `{}`: Kairo
+///     monomorphizer (Compiler/Spec/Codegen.md#remaining-work). No initializer
+///         at all is `{}`: Kairo
 ///     has no uninitialized variable. Not inside a nested record's braces:
 ///     `T Outer::Inner::s = ...;` is a namespace-scope declaration.
 ///
@@ -71,97 +73,148 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Codegen::CodegenContext::*;
-import Codegen::CodegenICE::*;
-import Codegen::EmitPlan::*;
-import Codegen::Emit::CXXSpell::*;
-import Codegen::Emit::EmitWitness::*;
-import Codegen::Emit::EmitIR::*;
-import AST::Context::DeclContext::*;
-import AST::AttrFacts::*;
-import AST::Context::TranslationUnit::*;
-import AST::Context::InstantiationRegistry::*;
-import AST::ASTSupport::*;
-import AST::DeclFacts::*;
-import AST::LangItems::*;
-import AST::EnumNiche::*;
-import AST::OperatorFacts::*;
-import AST::Node::Base::*;
-import AST::Node::Types::*;
-import AST::Node::CanonicalNodes::*;
-import AST::Node::Expressions::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Declarations::*;
-import AST::Node::Casting::*;
-import AST::Kind::DeclKind::*;
-import AST::Kind::TypeKind::*;
-import AST::Kind::ExprKind::*;
-import Location::SourceRange::*;
-import Token::TokenKind::*;
+ffi "c++" import "vector"
 
-class InterfaceEmitter {
-    priv var _cg:    obs::<CodegenContext>;
-    priv var _plan:  obs::<EmitPlan>;
-    priv var _spell: obs::<CXXSpell>;
+import AST::ASTSupport::FrozenList
+import AST::AttrFacts::AttrFacts
+import AST::Context::DeclContext::{
+    DeclContext,
+    DeclContextKind,
+}
+import AST::Context::InstantiationRegistry::InstanceEntry
+import AST::DeclFacts
+import AST::EnumNiche::{
+    adt_first_spare_tag,
+    adt_niche_dataless,
+    adt_niche_pattern_of,
+    adt_niche_payload_variant,
+    adt_tag_niche_count,
+    enum_has_niche_trait,
+    enum_niche_count,
+}
+import AST::Kind::DeclKind::DeclKind
+import AST::Kind::TypeKind::TypeKind
+import AST::LangItems::{
+    LangMembers,
+    LowerTargets,
+    entry_point_name,
+    fmt_put_name,
+    format_kind_of,
+    hex32,
+}
+import AST::Mixin::Annotation::VisibilityKind
+import AST::Node::Base::{
+    Decl,
+    Type,
+}
+import AST::Node::CanonicalNodes::{
+    BuiltinKind,
+    BuiltinType,
+    RecordType,
+    builtin_info,
+    canon_unqual,
+}
+import AST::Node::Casting::{
+    cast,
+    dyn_cast,
+    isa,
+}
+import AST::Node::Declarations
+import AST::Node::Types::{
+    FixedArrayType,
+    PointerType,
+    TypeExpr,
+}
+import AST::OperatorFacts::OperatorFacts
+import AST::VisibilityFacts::{
+    default_visibility_of,
+    is_operator_fn,
+    tu_module_dir,
+}
+import Codegen::CodegenContext::CodegenContext
+import Codegen::CodegenICE::codegen_ice
+import Codegen::Emit::CXXSpell::{
+    CXXSpell,
+    VIS_INTERNAL,
+    VIS_NONE,
+    VIS_PRIV,
+    VIS_PROT,
+    VIS_PUB,
+}
+import Codegen::Emit::EmitIR::EmitIR
+import Codegen::Emit::EmitWitness::EmitWitness
+import Codegen::EmitPlan::{
+    EmitPlan, ExtScope, FileFriends, PlanEntry, PlanMode, PlanNeed, PlanTier, plan_under_duck,
+}
+import Location::SourceRange::SourceRange
+import Token::TokenKind::TokenKind
+
+pub class InterfaceEmitter {
+    priv var _cg:    unsafe *CodegenContext
+    priv var _plan:  unsafe *EmitPlan
+    priv var _spell: unsafe *CXXSpell
     /// Header mode: the module's own ffi includes, as directive lines, from
     /// EmitCXXHeader (which may see the HeaderSet; this file may not).
-    priv var _ffi_lines: vec::<string>;
+    priv var _ffi_lines: cxx::std::vector<string>
 
     /// The host C++ TU already holds the lowering helpers / the const-field
     /// constructor helpers: an earlier `#include "*.k"` in it wrote them
     /// (Backend/IncludeEmitter.k). They are definitions, and a token stream
     /// has no `#ifndef` to guard them with, so they are left out. run() sets
     /// each once it writes them, for the next include to read.
-    pub var have_helpers:    bool = false;
-    pub var have_ctor_slots: bool = false;
-    pub var have_fn_value:   bool = false;
-    pub var have_fmt_dyn:    bool = false;
-    pub var have_eval_helpers: bool = false;
-    pub var have_niche_helpers: bool = false;
-    pub var have_pack_union: bool = false;
-    pub var have_panic_helpers: bool = false;
-    pub var have_site_type: bool = false;
-    pub var have_panic_api: bool = false;
-    pub var have_raw_slot: bool = false;
-    pub var have_nopanic: bool = false;
+    pub var have_helpers:       bool = false
+    pub var have_ctor_slots:    bool = false
+    pub var have_fn_value:      bool = false
+    pub var have_fmt_dyn:       bool = false
+    pub var have_eval_helpers:  bool = false
+    pub var have_niche_helpers: bool = false
+    pub var have_pack_union:    bool = false
+    pub var have_panic_helpers: bool = false
+    pub var have_site_type:     bool = false
+    pub var have_panic_api:     bool = false
+    pub var have_raw_slot:      bool = false
+    pub var have_nopanic:       bool = false
+    pub var have_cxx_alloc:     bool = false
     /// The host C++ TU compiles with exceptions (a kcc include: its
     /// LangOptions), so it gets the throwing half of the C++ view
     /// (_panic_api). A header decides with `#if __cpp_exceptions`; an
     /// object's own TU never throws and never gets it.
-    pub var cxx_exceptions: bool = false;
+    pub var cxx_exceptions: bool = false
     /// The `__kairo_tid` specializations already written into this C++ TU
     /// (their keys): a token stream carries no guard, so a kcc include
     /// chain carries this from one include to the next (IncludedDecls).
-    pub var tid_seen: vec::<u64>;
-    /// The long compile-time strings (EmitPlan::big_str_hashes, EVAL.md
+    pub var tid_seen: cxx::std::vector<u64>
+    /// The long compile-time strings (EmitPlan::big_str_hashes, Compiler/Spec/Eval.md
     /// §11) already defined in this C++ TU, for the same reason.
-    pub var estr_seen: vec::<u64>;
+    pub var estr_seen: cxx::std::vector<u64>
     /// The body emitter the caller runs after this one (EmitPlan::early,
-    /// EVAL.md §11): tier 1 hands it each early item to define in place, and
+    /// Compiler/Spec/Eval.md#value-nodes): tier 1 hands it each early item to define in place, and
     /// it skips them later. Null (`--print-cxx`'s preamble dump): a local
     /// one defines them.
-    pub var ir: *EmitIR = &null;
+    pub var ir: unsafe *EmitIR = &null
     /// The instances a kcc include's plan named but does not instantiate
     /// (IncludeEmitter prunes tier 3): their type-id specializations are
     /// still the host's to see.
-    pub var pruned_insts: vec::<*InstanceEntry>;
+    pub var pruned_insts: cxx::std::vector<unsafe *InstanceEntry>
     /// The value-parameter templates tier 1 has forward-declared
     /// (_vp_fwd_decls), each once.
-    priv var _vp_declared: vec::<*Decl>;
+    priv var _vp_declared: cxx::std::vector<unsafe *Decl>
 
-    fn InterfaceEmitter(self, cg: *CodegenContext, plan: *EmitPlan) {
-        self._cg    = cg;
-        self._plan  = plan;
-        self._spell = plan->spell();
+    pub fn InterfaceEmitter(self, cg: unsafe *CodegenContext, plan: unsafe *EmitPlan) {
+        self._cg    = cg
+        self._plan  = plan
+        self._spell = plan->spell()
     }
 
-    fn set_ffi_lines(self, lines: vec::<string>) { self._ffi_lines = lines; }
+    fn set_ffi_lines(self, lines: cxx::std::vector<string>) {
+        self._ffi_lines = lines
+    }
 
     /// `__kairo_fmt_put`, LowerTargets::fmt_dyn: the put a generic body's
     /// f-string hole gets at each instance, chosen from the value's C++
@@ -177,315 +230,475 @@ class InterfaceEmitter {
     /// enum / class rows or the assert. FIXME(FMT-DYN-WIDE): rows for them
     /// gated on the target.
     priv fn _fmt_dyn_helper(self) -> string {
-        var kinds = vec::<BuiltinKind>();
-        kinds.push_back(BuiltinKind::Bool);
-        kinds.push_back(BuiltinKind::Char);
-        kinds.push_back(BuiltinKind::I8);   kinds.push_back(BuiltinKind::I16);  kinds.push_back(BuiltinKind::I32);
-        kinds.push_back(BuiltinKind::I64);
-        kinds.push_back(BuiltinKind::U8);   kinds.push_back(BuiltinKind::U16);  kinds.push_back(BuiltinKind::U32);
-        kinds.push_back(BuiltinKind::U64);
-        kinds.push_back(BuiltinKind::USize); kinds.push_back(BuiltinKind::ISize);
-        kinds.push_back(BuiltinKind::F32);  kinds.push_back(BuiltinKind::F64);
+        var kinds = cxx::std::vector<BuiltinKind>()
+        kinds.push_back(BuiltinKind::Bool)
+        kinds.push_back(BuiltinKind::Char)
+        kinds.push_back(BuiltinKind::I8)
+        kinds.push_back(BuiltinKind::I16)
+        kinds.push_back(BuiltinKind::I32)
+        kinds.push_back(BuiltinKind::I64)
+        kinds.push_back(BuiltinKind::U8)
+        kinds.push_back(BuiltinKind::U16)
+        kinds.push_back(BuiltinKind::U32)
+        kinds.push_back(BuiltinKind::U64)
+        kinds.push_back(BuiltinKind::USize)
+        kinds.push_back(BuiltinKind::ISize)
+        kinds.push_back(BuiltinKind::F32)
+        kinds.push_back(BuiltinKind::F64)
 
-        var sz = builtin_info(BuiltinKind::USize)->cxx;
-        var byt = builtin_info(BuiltinKind::U8)->cxx;
-        var out = "template <class B, class T> inline void " + LowerTargets::fmt_dyn()
-                + "(B& b, T&& v, const " + byt + "* n, " + sz + " nl, unsigned long long s) {"
-                + " using U = __remove_cvref(T); using S = __remove_cvref(decltype(b.finish()));";
-        out += " if constexpr (__is_same(U, char)) b.put_u8(static_cast<" + byt + ">(v), s);";
+        var sz  = builtin_info(BuiltinKind::USize)->cxx
+        var byt = builtin_info(BuiltinKind::U8)->cxx
+        var out = "template <class B, class T> inline void " + LowerTargets::fmt_dyn() + "(B& b, T&& v, const " + byt + "* n, " + sz + " nl, unsigned long long s) {" + " using U = __remove_cvref(T); using S = __remove_cvref(decltype(b.finish()));"
+        out += " if constexpr (__is_same(U, char)) b.put_u8(static_cast<" + byt + ">(v), s);"
         for var i: usize = 0; i < kinds.size(); ++i {
-            var k = kinds[i];
-            out += " else if constexpr (__is_same(U, " + builtin_info(k)->cxx + ")) b." + fmt_put_name(format_kind_of(k)) + "(v, s);";
+            var k = kinds[i]
+            out += " else if constexpr (__is_same(U, " + builtin_info(
+                k,
+            )->cxx + ")) b." + fmt_put_name(format_kind_of(k)) + "(v, s);"
         }
-        out += " else if constexpr (__is_same(U, S)) b.put_str(v, s);";
-        out += " else if constexpr (__is_pointer(U)) b.put_ptr(reinterpret_cast<" + sz + ">(v), n, nl, s);";
-        out += " else if constexpr (__is_enum(U)) b.put_i64(static_cast<long long>(v), s);";
-        out += " else if constexpr (requires { v.repr(); }) b.put_str(v.repr(), s);";
-        out += " else if constexpr (__is_class(U) && requires { static_cast<S>(v); }) b.put_str(static_cast<S>(v), s);";
-        out += " else if constexpr (__is_class(U)) b.put_ptr(reinterpret_cast<" + sz + ">(" + LowerTargets::clang_addressof() + "(v)), n, nl, s);";
-        out += " else static_assert(sizeof(U) == 0, \x22" + "an f-string hole in a generic body has no formatter for this instance\x27s type\x22); }";
-        return out;
+
+        out += " else if constexpr (__is_same(U, S)) b.put_str(v, s);"
+        out += " else if constexpr (__is_pointer(U)) b.put_ptr(reinterpret_cast<" + sz + ">(v), n, nl, s);"
+        out += " else if constexpr (__is_enum(U)) b.put_i64(static_cast<long long>(v), s);"
+        out += " else if constexpr (requires { v.repr(); }) b.put_str(v.repr(), s);"
+        out += " else if constexpr (__is_class(U) && requires { static_cast<S>(v); }) b.put_str(static_cast<S>(v), s);"
+        out += " else if constexpr (__is_class(U)) b.put_ptr(reinterpret_cast<" + sz + ">(" + LowerTargets::clang_addressof() + "(v)), n, nl, s);"
+        out += " else static_assert(sizeof(U) == 0, \"an f-string hole in a generic body has no formatter for this instance's type\"); }"
+        return out
     }
 
     /// ICE naming the Kairo source at \p at (CodegenICE).
-    priv fn _ice(self, at: SourceRange, msg: string) {
-        codegen_ice(self._cg->ctx, at, msg);
+    priv fn _ice(self, at: SourceRange, const msg: string) {
+        codegen_ice(self._cg->ctx, at, msg)
     }
 
-    // --- Entry point -------------------------------------------------------------
+    /// # Entry point
 
-    fn run(self) {
-        var header = (self._plan->mode() == PlanMode::Header);
-        if header { self._header_prologue(); }
+    pub fn run(self) {
+        var header = self._plan->mode() == PlanMode::Header
+        if header {
+            self._header_prologue()
+        }
+
         // A rebuilding `op =` calls the global placement `::new`, which only
         // <new> declares: asked for ahead of every class, and only by a TU
         // or header that writes one (_needs_new). Outside the guard below:
         // a header that needs it may follow one that defined the guard
         // without it.
-        if self._needs_new() { self._cg->sink->system_header(self._tu_at(), LowerTargets::cxx_new_header()); }
+        if self._needs_new() {
+            self._cg->sink->system_header(self._tu_at(), LowerTargets::cxx_new_header())
+        }
+
         // A header carries the module's inline and template bodies too
         // (EmitPlan::visible_bodies), so it needs these as much as a
         // preamble. Guarded there: one C++ TU may include several Kairo
         // headers, and __kairo_tmp is a DEFINITION. An include's token
         // stream cannot be guarded; have_helpers stands in for the macro.
         if !self.have_helpers {
-            self._cg->sink->unanchored(true);
-            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::lower_helpers_guard()); }
-            if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::lower_helpers_guard()); }
+            self._cg->sink->unanchored(true)
+            if header {
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#ifndef " + LowerTargets::lower_helpers_guard(),
+                )
+            }
+
+            if header {
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#define " + LowerTargets::lower_helpers_guard(),
+                )
+            }
+
             // The array-prvalue alias, once per TU, ahead of every body that
             // can name it.
-            self._cg->sink->spell(self._tu_at(),
-                "template <class T, decltype(sizeof(0)) N> using " + LowerTargets::array_alias() + " = T[N];");
-            self._cg->sink->brk();
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <class T, decltype(sizeof(0)) N> using " + LowerTargets::array_alias() + " = T[N];",
+            )
+
+            self._cg->sink->brk()
             // The materialized-temporary helper: the one place it is spelled.
             // A forwarding reference binds the prvalue, so the address is the
             // temporary's, which lives to the end of the full-expression.
-            self._cg->sink->spell(self._tu_at(),
-                "template <class T> auto* " + LowerTargets::tmp_addr() + "(T&& t) { return " + LowerTargets::clang_addressof() + "(t); }");
-            self._cg->sink->brk();
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <class T> auto* " + LowerTargets::tmp_addr() + "(T&& t) { return " + LowerTargets::clang_addressof() + "(t); }",
+            )
+
+            self._cg->sink->brk()
             // An ADT's variant tags: `E(::__kairo_vt<I>{}, ...)` picks variant I's
             // constructor. The explicit default constructor keeps a bare `{}`
             // from converting into a tag.
-            self._cg->sink->spell(self._tu_at(),
-                "template <" + builtin_info(BuiltinKind::U32)->cxx + " I> struct " + LowerTargets::adt_variant_tag()
-                + " { explicit " + LowerTargets::adt_variant_tag() + "() = default; };");
-            self._cg->sink->brk();
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <" + builtin_info(
+                    BuiltinKind::U32,
+                )->cxx + " I> struct " + LowerTargets::adt_variant_tag() + " { explicit " + LowerTargets::adt_variant_tag() + "() = default; };",
+            )
+
+            self._cg->sink->brk()
             // Construction and destruction in place. `new (p) T(...)` finds T's
             // own placement operator new first (an ADT payload declares one),
             // which needs no <new>, so it is never `::new`.
-            self._cg->sink->spell(self._tu_at(),
-                "template <class T, class... A> inline void " + LowerTargets::construct_at()
-                + "(T* p, A&&... a) { new (p) T(static_cast<A&&>(a)...); }");
-            self._cg->sink->brk();
-            self._cg->sink->spell(self._tu_at(),
-                "template <class T> inline void " + LowerTargets::destroy_at() + "(T* p) noexcept { p->~T(); }");
-            self._cg->sink->brk();
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <class T, class... A> inline void " + LowerTargets::construct_at() + "(T* p, A&&... a) { new (p) T(static_cast<A&&>(a)...); }",
+            )
+
+            self._cg->sink->brk()
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <class T> inline void " + LowerTargets::destroy_at() + "(T* p) noexcept { p->~T(); }",
+            )
+
+            self._cg->sink->brk()
             // An integer division's zero-divisor crash (EmitIR::_div_form).
             // Cold and noreturn: the check is one predicted branch, and in a
             // constant expression the call makes it non-constant, so an eval
             // division by zero is a compile error.
-            self._cg->sink->spell(self._tu_at(),
-                "extern \x22" + "C\x22 [[noreturn, gnu::cold]] void " + LowerTargets::div_zero_fn() + "() noexcept;");
-            self._cg->sink->brk();
+            self._cg->sink->spell(
+                self._tu_at(),
+                "extern \"C\" [[noreturn, gnu::cold]] void " + LowerTargets::div_zero_fn() + "() noexcept;",
+            )
 
-            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
-            self._cg->sink->unanchored(false);
-            self.have_helpers = true;
+            self._cg->sink->brk()
+
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#endif")
+            }
+
+            self._cg->sink->unanchored(false)
+            self.have_helpers = true
         }
+
         // A constructor that initializes a field in place (_ctor_slot_helpers).
         // Only when one is planned, so no other TU's text changes; guarded
         // apart from the helpers above, which an earlier header may have
         // defined without these.
-        if (!self.have_ctor_slots) && self._needs_ctor_slots() {
-            self._cg->sink->unanchored(true);
-            self._ctor_slot_helpers(header);
-            self._cg->sink->unanchored(false);
-            self.have_ctor_slots = true;
+        if !self.have_ctor_slots && self._needs_ctor_slots() {
+            self._cg->sink->unanchored(true)
+            self._ctor_slot_helpers(header)
+            self._cg->sink->unanchored(false)
+            self.have_ctor_slots = true
         }
+
         // A deferred f-string hole's put (EmitPlan::needs_fmt_dyn), guarded
         // on its own for the same reason.
-        if (!self.have_fmt_dyn) && self._plan->needs_fmt_dyn {
-            self._cg->sink->unanchored(true);
-            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::fmt_dyn_guard()); }
-            if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::fmt_dyn_guard()); }
-            self._cg->sink->spell(self._tu_at(), self._fmt_dyn_helper());
-            self._cg->sink->brk();
-            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
-            self._cg->sink->unanchored(false);
-            self.have_fmt_dyn = true;
+        if !self.have_fmt_dyn && self._plan->needs_fmt_dyn {
+            self._cg->sink->unanchored(true)
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::fmt_dyn_guard())
+            }
+
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::fmt_dyn_guard())
+            }
+
+            self._cg->sink->spell(self._tu_at(), self._fmt_dyn_helper())
+            self._cg->sink->brk()
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#endif")
+            }
+
+            self._cg->sink->unanchored(false)
+            self.have_fmt_dyn = true
         }
+
         // A Kairo `fn` value (EmitPlan::needs_fn_value), guarded on its own
         // for the same reason.
-        if (!self.have_fn_value) && self._plan->needs_fn_value {
-            self._cg->sink->unanchored(true);
-            self._fn_value_helper(header);
-            self._cg->sink->unanchored(false);
-            self.have_fn_value = true;
+        if !self.have_fn_value && self._plan->needs_fn_value {
+            self._cg->sink->unanchored(true)
+            self._fn_value_helper(header)
+            self._cg->sink->unanchored(false)
+            self.have_fn_value = true
         }
-        // `eval for` and eval generators (EVAL.md §5), only where one is:
+
+        // `eval for` and eval generators (Compiler/Spec/Eval.md#eval-for), only where one is:
         // every other TU's text is unchanged.
-        if (!self.have_eval_helpers) && self._needs_eval_helpers() {
-            self._cg->sink->unanchored(true);
-            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::eval_helpers_guard()); }
-            if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::eval_helpers_guard()); }
-            // `eval for` and eval generators (EVAL.md §5): the index pack an
+        if !self.have_eval_helpers && self._needs_eval_helpers() {
+            self._cg->sink->unanchored(true)
+            if header {
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#ifndef " + LowerTargets::eval_helpers_guard(),
+                )
+            }
+
+            if header {
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#define " + LowerTargets::eval_helpers_guard(),
+                )
+            }
+
+            // `eval for` and eval generators (Compiler/Spec/Eval.md#eval-for): the index pack an
             // expansion runs over, the compile-time buffer a generator
             // pushes into (a transient constexpr allocation, freed before
             // the constant escapes), and the literal array its values are
             // copied into. Plain text, needing no header.
-            var sz = "decltype(sizeof(0))";
+            var sz = "decltype(sizeof(0))"
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <class T, T... I> struct " + LowerTargets::eval_iseq() + " {};",
+            )
+
+            self._cg->sink->brk()
+            var eb = LowerTargets::eval_buf()
+            var bp = LowerTargets::eval_buf_data()  // EmitIR reads these three.
+            var bn = LowerTargets::eval_buf_count()
+            var bu = LowerTargets::eval_buf_push()
             self._cg->sink->spell(self._tu_at(),
-                "template <class T, T... I> struct " + LowerTargets::eval_iseq() + " {};");
-            self._cg->sink->brk();
-            var eb = LowerTargets::eval_buf();
-            var bp = LowerTargets::eval_buf_data();    // EmitIR reads these three.
-            var bn = LowerTargets::eval_buf_count();
-            var bu = LowerTargets::eval_buf_push();
-            self._cg->sink->spell(self._tu_at(),
-                "template <class T> struct " + eb + " { T* " + bp + " = nullptr; " + sz + " " + bn + " = 0; " + sz + " cap = 0; "
-                + "constexpr " + eb + "() = default; "
-                + "constexpr " + eb + "(" + eb + "&& o) : " + bp + "(o." + bp + "), " + bn + "(o." + bn + "), cap(o.cap) { o." + bp + " = nullptr; o." + bn + " = 0; o.cap = 0; } "
-                + eb + "(const " + eb + "&) = delete; "
-                + "constexpr void " + bu + "(T v) { if (" + bn + " == cap) { " + sz + " c = cap ? cap * 2 : 8; T* q = new T[c]; "
-                + "for (" + sz + " i = 0; i < " + bn + "; ++i) q[i] = " + bp + "[i]; delete[] " + bp + "; " + bp + " = q; cap = c; } " + bp + "[" + bn + "++] = v; } "
-                + "constexpr ~" + eb + "() { delete[] " + bp + "; } };");
-            self._cg->sink->brk();
-            self._cg->sink->spell(self._tu_at(),
-                "template <class T, " + sz + " N> struct " + LowerTargets::eval_arr() + " { T " + LowerTargets::eval_arr_values() + "[N ? N : 1]; };");
-            self._cg->sink->brk();
-            // A string literal C++ reads at compile time (EVAL.md 2a): its
+                "template <class T> struct " + eb + " { T* " + bp + " = nullptr; " + sz + " " + bn + " = 0; " + sz + " cap = 0; " +
+                "constexpr " + eb + "() = default; " +
+                "constexpr " + eb + "(" + eb + "&& o) : " + bp + "(o." + bp + "), " + bn + "(o." + bn + "), cap(o.cap) { o." + bp + " = nullptr; o." + bn + " = 0; o.cap = 0; } " +
+                eb + "(const " + eb + "&) = delete; " +
+                // `::new` / `::delete[]`: in C++-facing text a Kairo record
+                // has its own operator new (_cxx_alloc_ops), which constant
+                // evaluation refuses; only the global one may run there.
+                "constexpr void " + bu + "(T v) { if (" + bn + " == cap) { " + sz + " c = cap ? cap * 2 : 8; T* q = ::new T[c]; " +
+                "for (" + sz + " i = 0; i < " + bn + "; ++i) q[i] = " + bp + "[i]; ::delete[] " + bp + "; " + bp + " = q; cap = c; } " + bp + "[" + bn + "++] = v; } " +
+                "constexpr ~" + eb + "() { ::delete[] " + bp + "; } };")
+            self._cg->sink->brk()
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <class T, " + sz + " N> struct " + LowerTargets::eval_arr() + " { T " + LowerTargets::eval_arr_values() + "[N ? N : 1]; };",
+            )
+
+            self._cg->sink->brk()
+            // A string literal C++ reads at compile time (Compiler/Spec/Eval.md#strings-at-compile-time): its
             // bytes and a NUL, keyed on the bytes, so one literal is one
             // object wherever it is spelled.
-            self._cg->sink->spell(self._tu_at(),
-                "template <unsigned char... C> inline constexpr unsigned char " + LowerTargets::eval_str() + "[sizeof...(C) + 1] = {C..., 0};");
-            self._cg->sink->brk();
-            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
-            self._cg->sink->unanchored(false);
-            self.have_eval_helpers = true;
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <unsigned char... C> inline constexpr unsigned char " + LowerTargets::eval_str() + "[sizeof...(C) + 1] = {C..., 0};",
+            )
+
+            self._cg->sink->brk()
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#endif")
+            }
+
+            self._cg->sink->unanchored(false)
+            self.have_eval_helpers = true
         }
-        // Each long compile-time string (EVAL.md §11): ahead of every type
+
+        // Each long compile-time string (Compiler/Spec/Eval.md#value-nodes): ahead of every type
         // and body, which may spell it (a consteval body, an eval binding,
         // a value argument), foreign ones included.
-        self._big_strs(header);
+        self._big_strs(header)
 
         // The niche trait (_niche_helpers), wherever an enum is defined: a
         // plain enum's specialization of it follows the enum, and an ADT's
         // record answers it.
-        if (!self.have_niche_helpers) && self._needs_niche_helpers() {
-            self._cg->sink->unanchored(true);
-            self._niche_helpers(header);
-            self._cg->sink->unanchored(false);
-            self.have_niche_helpers = true;
+        if !self.have_niche_helpers && self._needs_niche_helpers() {
+            self._cg->sink->unanchored(true)
+            self._niche_helpers(header)
+            self._cg->sink->unanchored(false)
+            self.have_niche_helpers = true
+        }
+
+        // What a record's C++ operator new / delete call (_cxx_alloc_ops),
+        // ahead of the first record C++-facing text defines.
+        if !self.have_cxx_alloc && self._needs_cxx_alloc() {
+            self._cg->sink->unanchored(true)
+            self._cxx_alloc_helpers(header)
+            self._cg->sink->unanchored(false)
+            self.have_cxx_alloc = true
         }
 
         // A pack-expanded variant's payload union (_pack_union), wherever an
         // ADT with one is defined.
-        if (!self.have_pack_union) && self._needs_pack_union() {
-            self._cg->sink->unanchored(true);
-            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::adt_pack_guard()); }
-            if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::adt_pack_guard()); }
-            self._pack_union();
-            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
-            self._cg->sink->unanchored(false);
-            self.have_pack_union = true;
+        if !self.have_pack_union && self._needs_pack_union() {
+            self._cg->sink->unanchored(true)
+            if header {
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#ifndef " + LowerTargets::adt_pack_guard(),
+                )
+            }
+
+            if header {
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#define " + LowerTargets::adt_pack_guard(),
+                )
+            }
+
+            self._pack_union()
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#endif")
+            }
+
+            self._cg->sink->unanchored(false)
+            self.have_pack_union = true
         }
 
         // The Panic lang item's layout helpers (_panic_helpers), wherever an
         // ADT with its knobs is defined.
-        if (!self.have_panic_helpers) && (self._panic_enum_defined() != &null) {
-            self._cg->sink->unanchored(true);
-            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::panic_helpers_guard()); }
-            if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::panic_helpers_guard()); }
-            self._panic_helpers(self._panic_enum_defined());
-            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
-            self._cg->sink->unanchored(false);
-            self.have_panic_helpers = true;
+        if !self.have_panic_helpers && self._panic_enum_defined() != &null {
+            self._cg->sink->unanchored(true)
+            if header {
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#ifndef " + LowerTargets::panic_helpers_guard(),
+                )
+            }
+
+            if header {
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#define " + LowerTargets::panic_helpers_guard(),
+                )
+            }
+
+            self._panic_helpers(self._panic_enum_defined())
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#endif")
+            }
+
+            self._cg->sink->unanchored(false)
+            self.have_panic_helpers = true
         }
 
         // A `try`'s raw slot with no Panic lang item defined here (a C++
         // exception arm's value, EmitPlan::needs_raw_slot).
-        if (!self.have_raw_slot) && self._plan->needs_raw_slot {
-            self._cg->sink->unanchored(true);
-            self._raw_slot_helpers(header);
-            self._cg->sink->unanchored(false);
+        if !self.have_raw_slot && self._plan->needs_raw_slot {
+            self._cg->sink->unanchored(true)
+            self._raw_slot_helpers(header)
+            self._cg->sink->unanchored(false)
         }
 
         // The duck-call wrapper's tag (EmitPlan::needs_nopanic).
-        if (!self.have_nopanic) && self._plan->needs_nopanic {
-            self._cg->sink->unanchored(true);
-            self._nopanic_helpers();
-            self._cg->sink->unanchored(false);
+        if !self.have_nopanic && self._plan->needs_nopanic {
+            self._cg->sink->unanchored(true)
+            self._nopanic_helpers()
+            self._cg->sink->unanchored(false)
         }
 
         // The record type of the TU's panic site table (EmitIR::_panic_sites,
-        // PANIC.md §1.4), when it has sites. The C++ view reads the table too
+        // Compiler/Spec/Panic.md#site-ids), when it has sites. The C++ view reads the table too
         // (_panic_api writes it then).
-        if (!self.have_site_type) && (self._cg->tu->panic_sites.size() > 0) {
-            self._cg->sink->unanchored(true);
-            self._site_type(header);
-            self._cg->sink->unanchored(false);
+        if !self.have_site_type && self._cg->tu->panic_sites.size() > 0 {
+            self._cg->sink->unanchored(true)
+            self._site_type(header)
+            self._cg->sink->unanchored(false)
         }
 
         // A record of `main`'s file befriends it as `::main`, a qualified
         // name, which needs a declaration ahead of the record: the
         // definition's own head, at global scope (EmitIR::_free_fn).
         if self._plan->main_friend != &null {
-            var mf = self._plan->main_friend;
-            self._cg->sink->spell(self._fwd_at(static_cast::<*Decl>(mf)), self._main_decl_text(mf, false));
-            self._cg->sink->brk();
+            var unsafe *mf = self._plan->main_friend
+            self._cg->sink->spell(self._fwd_at(mf), self._main_decl_text(mf, false))
+            self._cg->sink->brk()
         }
 
-        var i: usize = 0;
-        var n = self._plan->entries.size();
+        var i: usize = 0
+        var n        = self._plan->entries.size()
 
         // tier 0: consecutive same-namespace entries share one wrapper.
-        while (i < n) && (self._plan->entries[i].tier == PlanTier::FwdDecls) {
-            var e = &(self._plan->entries[i]);
-            var ns = self._entry_ns(e);
+        while i < n && self._plan->entries[i].tier == PlanTier::FwdDecls {
+            var *e = &self._plan->entries[i]
+            var ns = self._entry_ns(e)
             // The unnamed nesting is part of the wrapper, so a run shares one
             // only if it agrees on that too: grouping on the segments alone
             // would put a `priv` decl in a `pub` decl's namespace.
-            var anon = self._entry_anon(e);
-            var opened = self._ns_open(e->decl, ns, anon);
-            while (i < n) && (self._plan->entries[i].tier == PlanTier::FwdDecls) {
-                var f = &(self._plan->entries[i]);
-                var fns = self._entry_ns(f);
-                if !self._same_ns(ns, fns) { break; }
-                if self._entry_anon(f) != anon { break; }
-                if header && (!f->own) && (f->need == PlanNeed::Complete) { i += 1; continue; }   // included.
+            var anon   = self._entry_anon(e)
+            var opened = self._ns_open(e->decl, &ns, anon)
+            while i < n && self._plan->entries[i].tier == PlanTier::FwdDecls {
+                var *f  = &self._plan->entries[i]
+                var fns = self._entry_ns(f)
+                if !self._same_ns(&ns, &fns) {
+                    break
+                }
+
+                if self._entry_anon(f) != anon {
+                    break
+                }
+
+                if header && !f->own && f->need == PlanNeed::Complete {
+                    i += 1
+                    continue
+                } // included.
+
                 if f->scope != &null {
-                    self._cg->sink->spell(self._at(f->decl), "struct " + f->scope->name + ";");
-                } else if (f->witness != &null) && f->is_concept {
+                    self._cg->sink->spell(self._at(f->decl), "struct " + f->scope->name + ";")
+                } else if f->witness != &null && f->is_concept {
                     // Guarded in a header, as the primary is: a definition.
-                    var g = LowerTargets::concept_guard(CXXSpell::_path_ident(f->witness->key));
-                    if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + g); }
-                    if header { self._cg->sink->directive(self._tu_at(), "#define " + g); }
-                    EmitWitness(self._cg, self._spell).concept_def(f->witness);
-                    if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
-                } else if (f->witness != &null) && f->witness->std_hash {
+                    var g = LowerTargets::concept_guard(CXXSpell::_path_ident(f->witness->key))
+                    if header {
+                        self._cg->sink->directive(self._tu_at(), "#ifndef " + g)
+                    }
+
+                    if header {
+                        self._cg->sink->directive(self._tu_at(), "#define " + g)
+                    }
+
+                    EmitWitness(self._cg, self._spell).concept_def(f->witness)
+                    if header {
+                        self._cg->sink->directive(self._tu_at(), "#endif")
+                    }
+                } else if f->witness != &null && f->witness->std_hash {
                     // A class definition, so guarded in a header as a concept is.
-                    var g = LowerTargets::witness_guard("decl_" + CXXSpell::_path_ident(f->witness->key));
-                    if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + g); }
-                    if header { self._cg->sink->directive(self._tu_at(), "#define " + g); }
-                    EmitWitness(self._cg, self._spell).fwd(f->witness);
-                    if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+                    var g = LowerTargets::witness_guard(
+                        "decl_" + CXXSpell::_path_ident(f->witness->key),
+                    )
+
+                    if header {
+                        self._cg->sink->directive(self._tu_at(), "#ifndef " + g)
+                    }
+
+                    if header {
+                        self._cg->sink->directive(self._tu_at(), "#define " + g)
+                    }
+
+                    EmitWitness(self._cg, self._spell).fwd(f->witness)
+                    if header {
+                        self._cg->sink->directive(self._tu_at(), "#endif")
+                    }
                 } else if f->witness != &null {
-                    EmitWitness(self._cg, self._spell).fwd(f->witness);
+                    EmitWitness(self._cg, self._spell).fwd(f->witness)
                 } else if !self._plan->value_param_record(f->decl, &null) {
-                    // A template over a class-typed value parameter (EVAL.md
+                    // A template over a class-typed value parameter (Compiler/Spec/Eval.md
                     // 7e) cannot be declared before that class is complete:
                     // tier 1 declares it right after the class (_vp_fwd_decls).
-                    self._fwd_decl(f->decl);
+                    self._fwd_decl(f->decl)
                 }
-                i += 1;
+
+                i += 1
             }
-            self._ns_close(opened);
+
+            self._ns_close(opened)
         }
 
         // The C++ view of a panic result (_panic_api), after the forward
         // declarations: its templates name the Panic lang item.
-        if (!self.have_panic_api) && (self._panic_enum_defined() != &null) {
-            self._cg->sink->unanchored(true);
-            self._panic_api(self._panic_enum_defined(), header);
-            self._cg->sink->unanchored(false);
-            self.have_panic_api = true;
+        if !self.have_panic_api && self._panic_enum_defined() != &null {
+            self._cg->sink->unanchored(true)
+            self._panic_api(self._panic_enum_defined(), header)
+            self._cg->sink->unanchored(false)
+            self.have_panic_api = true
         }
 
         // Each type-id-tagged instance's element ids (_type_id_specs), at
         // global scope after the forward declarations they name and before
         // any definition or body could use one.
         for var j: usize = 0; j < n; ++j {
-            var te = &(self._plan->entries[j]);
-            if te->tier == PlanTier::Instantiations { self._type_id_specs(te->decl, te->inst); }
+            var *te = &self._plan->entries[j]
+            if te->tier == PlanTier::Instantiations {
+                self._type_id_specs(te->decl, te->inst)
+            }
         }
+
         // A kcc include writes no instantiation, but its host instantiates
         // every Panic it uses: IncludeEmitter hands over the ones it pruned.
         for var j: usize = 0; j < self.pruned_insts.size(); ++j {
-            var pe = self.pruned_insts[j];
-            self._type_id_specs(pe->primary, pe);
+            var unsafe *pe = self.pruned_insts[j]
+            self._type_id_specs(pe->primary, pe)
         }
 
-        // The early items (EmitPlan::early, EVAL.md §11) are defined among
+        // The early items (EmitPlan::early, Compiler/Spec/Eval.md#value-nodes) are defined among
         // the records below; declared first, so a body may call one defined
         // after it, and read an eval binding whose definition follows. A
         // method is declared by its class. One whose own signature computes
@@ -493,137 +706,225 @@ class InterfaceEmitter {
         // that item where it is declared: it is declared once those are
         // defined instead (_late_decls), and EmitPlan::_early puts every
         // item that calls it after them too.
-        var late   = vec::<*FunctionDecl>();
-        var late_d = vec::<*Decl>();
-        var todo   = vec::<*Decl>();   // the early items tier 1 below still defines.
-        for var j: usize = i; (j < n) && (self._plan->entries[j].tier == PlanTier::Definitions); ++j {
-            var te = &(self._plan->entries[j]);
-            if (te->eval_item != &null) && ((!header) || te->own) { todo.push_back(te->eval_item); }
-        }
-        for var j: usize = i; (j < n) && (self._plan->entries[j].tier == PlanTier::Definitions); ++j {
-            var ee = &(self._plan->entries[j]);
-            if (ee->eval_item == &null) || (header && (!ee->own)) { continue; }
-            var ev = dyn_cast::<VariableDecl>(ee->eval_item);
-            if ev != &null {
-                self._wrapped(ee->decl, fn () { self._global_var_decl(ev); });
-                continue;
+        var late   = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+        var late_d = cxx::std::vector<unsafe *Decl>()
+        var todo   = cxx::std::vector<unsafe *Decl>() // the early items tier 1 below still defines.
+        for var j: usize = i; j < n && self._plan->entries[j].tier == PlanTier::Definitions; ++j {
+            var *te = &self._plan->entries[j]
+            if te->eval_item != &null && (!header || te->own) {
+                todo.push_back(te->eval_item)
             }
-            var ef = dyn_cast::<FunctionDecl>(ee->eval_item);
-            if (ef == &null) || (decl_extension_of(ee->eval_item) != &null) { continue; }
-            var fdc = reinterpret_cast::<*DeclContext>(ef->semantic_dc);
-            if (fdc != &null) && fdc->is_type_scope() { continue; }
-            if self._spell->is_main(ee->eval_item) { continue; }
-            var sig = vec::<*Decl>();
-            self._plan->sig_items(ef, &sig);
-            if sig.size() > 0 { late.push_back(ef); late_d.push_back(ee->decl); continue; }
-            self._wrapped(ee->decl, fn () { self._free_fn_decl(ef, &null); });
         }
-        self._late_decls(&late, &late_d, &todo);
+
+        for var j: usize = i; j < n && self._plan->entries[j].tier == PlanTier::Definitions; ++j {
+            var *ee = &self._plan->entries[j]
+            if ee->eval_item == &null || header && !ee->own {
+                continue
+            }
+
+            var unsafe *ev = dyn_cast<Declarations::VariableDecl>(ee->eval_item)
+            if ev != &null {
+                self._wrapped(ee->decl, fn () { self._global_var_decl(ev) })
+                continue
+            }
+
+            var unsafe *ef = dyn_cast<Declarations::FunctionDecl>(ee->eval_item)
+            if ef == &null || DeclFacts::decl_extension_of(ee->eval_item) != &null {
+                continue
+            }
+
+            var unsafe *fdc = ef->semantic_dc
+            if fdc != &null && fdc->is_type_scope() {
+                continue
+            }
+
+            if self._spell->is_main(ee->eval_item) {
+                continue
+            }
+
+            var sig = cxx::std::vector<unsafe *Decl>()
+            self._plan->sig_items(ef, unsafe &sig)
+            if sig.size() > 0 {
+                late.push_back(ef)
+                late_d.push_back(ee->decl)
+                continue
+            }
+
+            self._wrapped(ee->decl, fn () { self._free_fn_decl(ef, &null) })
+        }
+
+        self._late_decls(&late, &late_d, &todo)
 
         // The functions a record's friend line names qualified
         // (EmitPlan::friend_early), declared ahead of every record. A header
         // declares only its own module's: another's come with the header
         // that defines the record.
         for var j: usize = 0; j < self._plan->friend_early.size(); ++j {
-            var fe = self._plan->friend_early[j];
-            if header && (CXXSpell::fid_of(static_cast::<*Decl>(fe)) != self._plan->home()) { continue; }
-            self._wrapped(static_cast::<*Decl>(fe), fn () { self._free_fn_decl(fe, &null); });
+            var unsafe *fe = self._plan->friend_early[j]
+            if header && CXXSpell::fid_of(unsafe (fe as unsafe *Decl)) != self._plan->home() {
+                continue
+            }
+
+            self._wrapped(unsafe (fe as unsafe *Decl), fn () { self._free_fn_decl(fe, &null) })
         }
 
         // tier 1
-        var t0_end: usize = 0;
-        while (t0_end < n) && (self._plan->entries[t0_end].tier == PlanTier::FwdDecls) { t0_end += 1; }
-        self._vp_declared.clear();
-        while (i < n) && (self._plan->entries[i].tier == PlanTier::Definitions) {
-            self._vp_fwd_decls(t0_end, i, header);
-            var e = &(self._plan->entries[i]);
-            i += 1;
-            if header && (!e->own) { continue; }   // its header was included.
+        var t0_end: usize = 0
+        while t0_end < n && self._plan->entries[t0_end].tier == PlanTier::FwdDecls {
+            t0_end += 1
+        }
+
+        self._vp_declared.clear()
+        while i < n && self._plan->entries[i].tier == PlanTier::Definitions {
+            self._vp_fwd_decls(t0_end, i, header)
+            var unsafe *e = unsafe &self._plan->entries[i]
+            i += 1
+            if header && !e->own { // its header was included.
+                continue
+            }
+
             if e->eval_item != &null {
                 if self.ir != &null {
-                    self.ir->early(e->eval_item);
+                    self.ir->early(e->eval_item)
                 } else {
-                    var local_ir = EmitIR(self._cg);
-                    local_ir.early(e->eval_item);
+                    var local_ir = EmitIR(self._cg)
+                    local_ir.early(e->eval_item)
                 }
-                var left = vec::<*Decl>();
-                for var k: usize = 0; k < todo.size(); ++k { if todo[k] != e->eval_item { left.push_back(todo[k]); } }
-                todo = left;
-                self._late_decls(&late, &late_d, &todo);
-                continue;
+
+                var left = cxx::std::vector<unsafe *Decl>()
+                for var k: usize = 0; k < todo.size(); ++k {
+                    if todo[k] != e->eval_item {
+                        left.push_back(todo[k])
+                    }
+                }
+
+                todo = left
+                self._late_decls(&late, &late_d, &todo)
+                continue
             }
+
             if e->scope != &null {
-                var opened = self._ns_open(e->decl, e->scope->ns, false);
-                self._scope_def(e->scope);
-                self._ns_close(opened);
-                self._scope_panic_msg(e->scope);
-                continue;
+                var opened = self._ns_open(e->decl, &e->scope->ns, false)
+                self._scope_def(e->scope)
+                self._ns_close(opened)
+                self._scope_panic_msg(e->scope)
+                continue
             }
+
             if e->witness != &null {
                 // Written by every header that reaches it, so guarded there
                 // as a tuple record is: two headers in one C++ TU.
-                var g = LowerTargets::witness_guard(CXXSpell::_path_ident(e->witness->key));
-                if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + g); }
-                if header { self._cg->sink->directive(self._tu_at(), "#define " + g); }
-                if e->witness->std_hash {
-                    var sns = CXXSpell::std_ns();
-                    var sopened = self._ns_open(e->decl, sns, false);
-                    EmitWitness(self._cg, self._spell).def(e->witness);
-                    self._ns_close(sopened);
-                } else {
-                    self._wrapped(e->decl, fn () { EmitWitness(self._cg, self._spell).def(e->witness); });
+                var g = LowerTargets::witness_guard(CXXSpell::_path_ident(e->witness->key))
+                if header {
+                    self._cg->sink->directive(self._tu_at(), "#ifndef " + g)
                 }
-                if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
-                continue;
+
+                if header {
+                    self._cg->sink->directive(self._tu_at(), "#define " + g)
+                }
+
+                if e->witness->std_hash {
+                    var sns     = CXXSpell::std_ns()
+                    var sopened = self._ns_open(e->decl, &sns, false)
+                    EmitWitness(self._cg, self._spell).def(e->witness)
+                    self._ns_close(sopened)
+                } else {
+                    self._wrapped(
+                        e->decl,
+                        fn () { EmitWitness(self._cg, self._spell).def(e->witness) },
+                    )
+                }
+
+                if header {
+                    self._cg->sink->directive(self._tu_at(), "#endif")
+                }
+
+                continue
             }
+
             // A tuple record is defined by every TU and header that reaches
             // it (EmitPlan::_entry marks it own), so a HEADER's definition
             // is guarded: two headers in one C++ TU would define it twice.
             // A preamble includes nothing and is a token stream, which
             // carries no directive (the helpers above are guarded the same
             // way).
-            var tup = dyn_cast::<StructDecl>(e->decl);
-            var guard = header && ((tup != &null) && (tup->tuple_arity > 0));
+            var unsafe *tup  = dyn_cast<Declarations::StructDecl>(e->decl)
+            var        guard = header && (tup != &null && tup->tuple_arity > 0)
             if guard {
-                self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::tuple_guard(static_cast::<usize>(tup->tuple_arity)));
-                self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::tuple_guard(static_cast::<usize>(tup->tuple_arity)));
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#ifndef " + LowerTargets::tuple_guard(tup->tuple_arity as usize),
+                )
+
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#define " + LowerTargets::tuple_guard(tup->tuple_arity as usize),
+                )
             }
-            self._wrapped(e->decl, fn () {
-                self._type_def(e->decl);
-                self._static_defs(e->decl);
-            });
-            if guard { self._cg->sink->directive(self._tu_at(), "#endif"); }
+
+            self._wrapped(
+                e->decl,
+                fn () {
+                    self._type_def(e->decl)
+                    self._static_defs(e->decl)
+                },
+            )
+
+            if guard {
+                self._cg->sink->directive(self._tu_at(), "#endif")
+            }
+
             // A plain enum's niche: the trait's explicit specialization, at
             // global scope, right after the definition every use of it needs.
-            var pe = dyn_cast::<EnumDecl>(e->decl);
-            if (pe != &null) && enum_has_niche_trait(pe) { self._enum_niche_trait(pe); }
+            var unsafe *pe = dyn_cast<Declarations::EnumDecl>(e->decl)
+            if pe != &null && enum_has_niche_trait(pe) {
+                self._enum_niche_trait(pe)
+            }
         }
+
         // Any left (its class is not defined in this stream): declared
         // before the functions, which may name it.
-        self._vp_fwd_decls(t0_end, i, header);
+        self._vp_fwd_decls(t0_end, i, header)
 
         // tier 2
-        while (i < n) && (self._plan->entries[i].tier == PlanTier::Functions) {
-            var e = &(self._plan->entries[i]);
-            i += 1;
-            if header && (!e->own) { continue; }
+        while i < n && self._plan->entries[i].tier == PlanTier::Functions {
+            var *e = &self._plan->entries[i]
+            i += 1
+            if header && !e->own {
+                continue
+            }
+
             // EmitIR defines main at global scope as `int main`; a prior
             // declaration buys nothing, and inside the file's namespace it
             // would declare a different function.
-            if self._spell->is_main(e->decl) { continue; }
-            if e->decl->kind == DeclKind::VariableDecl {
-                self._wrapped(e->decl, fn () { self._global_var_decl(cast::<VariableDecl>(e->decl)); });
-                continue;
+            if self._spell->is_main(e->decl) {
+                continue
             }
-            self._wrapped(e->decl, fn () { self._free_fn_decl(cast::<FunctionDecl>(e->decl), &null); });
+
+            if e->decl->kind == DeclKind::VariableDecl {
+                self._wrapped(
+                    e->decl,
+                    fn () { self._global_var_decl(cast<Declarations::VariableDecl>(e->decl)) },
+                )
+
+                continue
+            }
+
+            self._wrapped(
+                e->decl,
+                fn () { self._free_fn_decl(cast<Declarations::FunctionDecl>(e->decl), &null) },
+            )
         }
 
         // tier 3
-        while (i < n) && (self._plan->entries[i].tier == PlanTier::Instantiations) {
-            var e = &(self._plan->entries[i]);
-            i += 1;
-            if e->is_home { continue; }        // definitions come after the bodies; see emit_home_instantiations
-            self._instantiation(e);
+        while i < n && self._plan->entries[i].tier == PlanTier::Instantiations {
+            var *e = &self._plan->entries[i]
+            i += 1
+            if e->is_home { // definitions come after the bodies; see emit_home_instantiations
+                continue
+            }
+
+            self._instantiation(e)
         }
     }
 
@@ -632,130 +933,214 @@ class InterfaceEmitter {
     /// before it.
     fn emit_home_instantiations(self) {
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
-            var e = &(self._plan->entries[i]);
-            if (e->tier != PlanTier::Instantiations) || (!e->is_home) { continue; }
-            self._instantiation(e);
+            var *e = &self._plan->entries[i]
+            if e->tier != PlanTier::Instantiations || !e->is_home {
+                continue
+            }
+
+            self._instantiation(e)
         }
     }
 
-    // --- Header prologue -----------------------------------------------------------
+    /// # Header prologue
 
     /// `#pragma once`, then one `#include` per foreign module reached at
     /// Complete, or whose FUNCTION is declared: only an inline or template
     /// body names a foreign function, and tier 2 leaves a foreign one to its
     /// own header. Kairo forbids import cycles, so the include graph is a DAG.
     priv fn _header_prologue(self) {
-        var at = self._tu_at();
-        self._cg->sink->directive(at, "#pragma once");
+        var at = self._tu_at()
+        self._cg->sink->directive(at, "#pragma once")
         // The module's ffi headers first: its declarations and its inline
         // bodies name what they declare, exactly as the module's own TU did.
-        for var i: usize = 0; i < self._ffi_lines.size(); ++i { self._cg->sink->directive(at, self._ffi_lines[i]); }
-        var seen = vec::<string>();
+        for var i: usize = 0; i < self._ffi_lines.size(); ++i {
+            self._cg->sink->directive(at, self._ffi_lines[i])
+        }
+
+        var seen = cxx::std::vector<string>()
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
-            var e = &(self._plan->entries[i]);
-            if e->own { continue; }
-            if e->tier == PlanTier::Instantiations { continue; }
-            if (e->need != PlanNeed::Complete) && (e->tier != PlanTier::Functions) { continue; }
-            var p = self._spell->header_path(CXXSpell::tu_of(e->decl));
-            var dup = false;
-            for var j: usize = 0; j < seen.size(); ++j { if seen[j] == p { dup = true; break; } }
-            if dup { continue; }
-            seen.push_back(p);
-            var line = "#include \x22";
-            line += p;
-            line += "\x22";
-            self._cg->sink->directive(at, line);
+            var *e = &self._plan->entries[i]
+            if e->own {
+                continue
+            }
+
+            if e->tier == PlanTier::Instantiations {
+                continue
+            }
+
+            if e->need != PlanNeed::Complete && e->tier != PlanTier::Functions {
+                continue
+            }
+
+            var p   = self._spell->header_path(CXXSpell::tu_of(e->decl))
+            var dup = false
+            for var j: usize = 0; j < seen.size(); ++j {
+                if seen[j] == p {
+                    dup = true
+                    break
+                }
+            }
+
+            if dup {
+                continue
+            }
+
+            seen.push_back(p)
+            var line = "#include \""
+            line += p
+            line += "\""
+            self._cg->sink->directive(at, line)
         }
     }
 
-    // --- Namespace wrapping ----------------------------------------------------------
+    /// # Namespace wrapping
 
-    priv fn _same_ns(self, a: ref!(vec::<string>), b: ref!(vec::<string>)) -> bool {
-        if a.size() != b.size() { return false; }
-        for var i: usize = 0; i < a.size(); ++i { if a[i] != b[i] { return false; } }
-        return true;
+    priv fn _same_ns(self,
+                     @inout a: cxx::std::vector<string>,
+                     @inout b: cxx::std::vector<string>) -> bool {
+        if a.size() != b.size() {
+            return false
+        }
+
+        for var i: usize = 0; i < a.size(); ++i {
+            if a[i] != b[i] {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// Returns how many braces were opened: the named namespace, plus an
     /// unnamed one nested in it for a decl with no linkage outside its file.
-    priv fn _ns_open(self, d: *Decl, ns: ref!(vec::<string>), anon: bool) -> u32 {
-        var at = self._at(d);
-        var n: u32 = 0;
+    priv fn _ns_open(self,
+                     d:         unsafe *Decl,
+                     @inout ns: cxx::std::vector<string>,
+                     anon:      bool) -> u32 {
+        var at     = self._at(d)
+        var n: u32 = 0
         if ns.size() > 0 {
-            var s = "namespace ";
-            s += self._spell->ns_join(ns);
-            s += " {";
-            self._cg->sink->spell(at, s);
-            n += 1;
+            var s = "namespace "
+            s += self._spell->ns_join(&ns)
+            s += " {"
+            self._cg->sink->spell(at, s)
+            n += 1
         }
-        if anon { self._cg->sink->spell(at, "namespace {"); n += 1; }
-        return n;
+
+        if anon {
+            self._cg->sink->spell(at, "namespace {")
+            n += 1
+        }
+
+        return n
     }
 
     priv fn _ns_close(self, n: u32) {
         // Closing braces anchored on nothing better than the TU: the wrapper
         // has no bytes of its own.
-        for var i: u32 = 0; i < n; ++i { self._cg->sink->spell(self._tu_at(), "}"); }
-        if n > 0 { self._cg->sink->brk(); }
+        for var i: u32 = 0; i < n; ++i {
+            self._cg->sink->spell(self._tu_at(), "}")
+        }
+
+        if n > 0 {
+            self._cg->sink->brk()
+        }
     }
 
     /// The early fns held back from the declarations ahead of tier 1 (their
     /// signature computes from another early item), each declared once no
     /// item its signature needs is still in \p todo; one defined meanwhile
     /// needs no declaration. Taken off \p late either way.
-    priv fn _late_decls(self, late: *vec::<*FunctionDecl>, late_d: *vec::<*Decl>, todo: *vec::<*Decl>) {
-        var keep   = vec::<*FunctionDecl>();
-        var keep_d = vec::<*Decl>();
-        for var k: usize = 0; k < late->size(); ++k {
-            var f = (*late)[k];
-            var fd = static_cast::<*Decl>(f);
-            var defined = true;
-            for var t: usize = 0; t < todo->size(); ++t { if (*todo)[t] == fd { defined = false; break; } }
-            if defined { continue; }
-            var sig = vec::<*Decl>();
-            self._plan->sig_items(f, &sig);
-            var ready = true;
-            for var a: usize = 0; (a < sig.size()) && ready; ++a {
-                for var t: usize = 0; t < todo->size(); ++t { if (*todo)[t] == sig[a] { ready = false; break; } }
+    priv fn _late_decls(self,
+                        @inout late:   cxx::std::vector<unsafe *Declarations::FunctionDecl>,
+                        @inout late_d: cxx::std::vector<unsafe *Decl>,
+                        @inout todo:   cxx::std::vector<unsafe *Decl>) {
+        var keep   = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+        var keep_d = cxx::std::vector<unsafe *Decl>()
+        for var k: usize = 0; k < late.size(); ++k {
+            var unsafe *f      = (late)[k]
+            var unsafe *fd     = unsafe (f as unsafe *Decl)
+            var        defined = true
+            for var t: usize = 0; t < todo.size(); ++t {
+                if (todo)[t] == fd {
+                    defined = false
+                    break
+                }
             }
-            if !ready { keep.push_back(f); keep_d.push_back((*late_d)[k]); continue; }
-            self._wrapped((*late_d)[k], fn () { self._free_fn_decl(f, &null); });
+
+            if defined {
+                continue
+            }
+
+            var sig = cxx::std::vector<unsafe *Decl>()
+            self._plan->sig_items(f, unsafe &sig)
+            var ready = true
+            for var a: usize = 0; a < sig.size() && ready; ++a {
+                for var t: usize = 0; t < todo.size(); ++t {
+                    if (todo)[t] == sig[a] {
+                        ready = false
+                        break
+                    }
+                }
+            }
+
+            if !ready {
+                keep.push_back(f)
+                keep_d.push_back((late_d)[k])
+                continue
+            }
+
+            self._wrapped((late_d)[k], fn () { self._free_fn_decl(f, &null) })
         }
-        (*late)   = keep;
-        (*late_d) = keep_d;
+
+        (late)   = keep
+        (late_d) = keep_d
     }
 
-    priv fn _wrapped(self, d: *Decl, body: fn()) {
-        var ns = self._spell->ns_segments(d);
-        var opened = self._ns_open(d, ns, CXXSpell::is_anon(d));
-        body();
-        self._ns_close(opened);
+    priv fn _wrapped(self, d: unsafe *Decl, body: fn()) {
+        var ns     = self._spell->ns_segments(d)
+        var opened = self._ns_open(d, &ns, CXXSpell::is_anon(d))
+        body()
+        self._ns_close(opened)
     }
 
     /// A plan entry's namespace: an extension scope's own, else its decl's.
-    priv fn _entry_ns(self, e: *PlanEntry) -> vec::<string> {
-        if e->scope != &null { return e->scope->ns; }
-        if (e->witness != &null) && e->witness->std_hash { return CXXSpell::std_ns(); }
-        return self._spell->ns_segments(e->decl);
+    priv fn _entry_ns(self, e: *PlanEntry) -> cxx::std::vector<string> {
+        if e->scope != &null {
+            return e->scope->ns
+        }
+
+        if e->witness != &null && e->witness->std_hash {
+            return CXXSpell::std_ns()
+        }
+
+        return self._spell->ns_segments(e->decl)
     }
 
     /// An extension scope is never in the unnamed namespace: its members
     /// are reached as `::N::__kairo_ext_X::m` from other TUs' preambles,
     /// and a priv member is AccessCheck's to hide, not linkage's.
     priv fn _entry_anon(self, e: *PlanEntry) -> bool {
-        if e->scope != &null { return false; }
-        return CXXSpell::is_anon(e->decl);
+        if e->scope != &null {
+            return false
+        }
+
+        return CXXSpell::is_anon(e->decl)
     }
 
-    priv fn _scope_qual(self, s: *ExtScope) -> string {
-        var q = "";
-        for var i: usize = 0; i < s->ns.size(); ++i { q += "::"; q += s->ns[i]; }
-        return q + "::" + s->name;
+    priv fn _scope_qual(self, s: unsafe *ExtScope) -> string {
+        var q = ""
+        for var i: usize = 0; i < s->ns.size(); ++i {
+            q += "::"
+            q += s->ns[i]
+        }
+
+        return q + "::" + s->name
     }
 
 
-    priv fn _at(self, d: *Decl) -> SourceRange {
-        return CXXSpell::at(d);
+    priv fn _at(self, d: unsafe *Decl) -> SourceRange {
+        return CXXSpell::at(d)
     }
 
     /// Byte 0 of the TU: the anchor for tokens that have no bytes of their
@@ -764,112 +1149,166 @@ class InterfaceEmitter {
         // Unreachable for an empty TU (the driver skips it on EmitPlan::
         // is_empty), but a zero-byte file has no byte 0: anchor at the end
         // position instead, which a zero-length range may name.
-        var fid = self._cg->tu->fid;
-        if self._cg->ctx->sm->get_file_size(fid) == 0 { return self._cg->ctx->sm->get_range(fid, 0, 0); }
-        return self._cg->ctx->sm->get_range(fid, 0, 1);
+        var fid = self._cg->tu->fid
+        if self._cg->ctx->sm->get_file_size(fid) == 0 {
+            return self._cg->ctx->sm->get_range(fid, 0, 0)
+        }
+
+        return self._cg->ctx->sm->get_range(fid, 0, 1)
     }
 
-    // --- Tier 0 ----------------------------------------------------------------------
+    /// # Tier 0
 
-    priv fn _fwd_decl(self, d: *Decl) {
-        var s = self._spell->record_head(d);
-        switch d->kind {
-            case DeclKind::ClassDecl  { s += "class ";  }
-            case DeclKind::StructDecl { s += "struct "; }
-            case DeclKind::UnionDecl  { s += "union ";  }
-            case DeclKind::EnumDecl {
-                var en = cast::<EnumDecl>(d);
+    priv fn _fwd_decl(self, d: unsafe *Decl) {
+        var s = self._spell->record_head(d)
+        match d->kind {
+            case DeclKind::ClassDecl {
+                s += "class "
+            } case DeclKind::StructDecl {
+                s += "struct "
+            } case DeclKind::UnionDecl {
+                s += "union "
+            } case DeclKind::EnumDecl {
+                var unsafe *en = cast<Declarations::EnumDecl>(d)
                 // An ADT is written as a record (_adt_def), so it is declared
                 // as one.
                 if self._plan->adt_record(d) != d {
-                    s += "struct ";
-                    s += self._spell->leaf(d);
-                    s += ";";
-                    self._cg->sink->spell(self._fwd_at(d), s);
-                    return;
+                    s += "struct "
+                    s += self._spell->leaf(d)
+                    s += ";"
+                    self._cg->sink->spell(self._fwd_at(d), s)
+                    return
                 }
-                s += "enum class ";
-                s += self._spell->leaf(d);
-                s += " : ";
-                s += self._enum_underlying(en);
-                s += ";";
-                self._cg->sink->spell(self._fwd_at(d), s);
-                return;
+
+                s += "enum class "
+                s += self._spell->leaf(d)
+                s += " : "
+                s += self._enum_underlying(en)
+                s += ";"
+                self._cg->sink->spell(self._fwd_at(d), s)
+                return
+            } default {
+                self._ice(self._at(d), "InterfaceEmitter: not a type decl")
             }
-            default { self._ice(self._at(d), "InterfaceEmitter: not a type decl"); }
         }
-        s += self._spell->leaf(d);
-        s += self._spell->spec_suffix(d);   // `Store<P*>`: which specialization.
-        s += ";";
+
+        s += self._spell->leaf(d)
+        s += self._spell->spec_suffix(d) // `Store<P*>`: which specialization.
+        s += ";"
         // On the decl's first byte, not its name: the name's byte goes to
         // the definition's name token (TokenSink::_claim).
-        self._cg->sink->spell(self._fwd_at(d), s);
+        self._cg->sink->spell(self._fwd_at(d), s)
     }
 
     /// The tier-0 forward declarations of templates over a class-typed
-    /// value parameter (EVAL.md 7e, EmitPlan::value_param_record), each
+    /// value parameter (Compiler/Spec/Eval.md#eval-classes, EmitPlan::value_param_record), each
     /// written as soon as every such class is defined: entries [0, \p
     /// t0_end) are tier 0, and tier 1 has written its entries before \p at.
     /// C++ needs the class complete at every declaration of the template,
     /// so tier 0 leaves these out, and a record that names `*Widget<...>`
     /// ahead of Widget's definition needs one (EmitPlan::_needs_complete
-    /// orders that record after the class, so it follows this too). P160.
+    /// orders that record after the class, so it follows this too).
     priv fn _vp_fwd_decls(self, t0_end: usize, at: usize, header: bool) {
         for var k: usize = 0; k < t0_end; ++k {
-            var f = &(self._plan->entries[k]);
-            if (f->scope != &null) || (f->witness != &null) { continue; }
-            if !self._plan->value_param_record(f->decl, &null) { continue; }
-            if header && (!f->own) && (f->need == PlanNeed::Complete) { continue; }   // included.
-            var done = false;
-            for var j: usize = 0; j < self._vp_declared.size(); ++j { if self._vp_declared[j] == f->decl { done = true; break; } }
-            if done { continue; }
-            if self._vp_class_pending(f->decl, at) { continue; }
-            self._vp_declared.push_back(f->decl);
-            var fd = f->decl;
-            self._wrapped(fd, fn () { self._fwd_decl(fd); });
+            var unsafe *f = unsafe &self._plan->entries[k]
+            if f->scope != &null || f->witness != &null {
+                continue
+            }
+
+            if !self._plan->value_param_record(f->decl, &null) {
+                continue
+            }
+
+            if header && !f->own && f->need == PlanNeed::Complete { // included.
+                continue
+            }
+
+            var done = false
+            for var j: usize = 0; j < self._vp_declared.size(); ++j {
+                if self._vp_declared[j] == f->decl {
+                    done = true
+                    break
+                }
+            }
+
+            if done {
+                continue
+            }
+
+            if self._vp_class_pending(f->decl, at) {
+                continue
+            }
+
+            self._vp_declared.push_back(f->decl)
+            var unsafe *fd = f->decl
+            self._wrapped(fd, fn () { self._fwd_decl(fd) })
         }
     }
 
     /// One of \p d's value-parameter classes is defined by tier 1 at or
     /// after entry \p at: not yet written.
-    priv fn _vp_class_pending(self, d: *Decl, at: usize) -> bool {
+    priv fn _vp_class_pending(self, d: unsafe *Decl, at: usize) -> bool {
         for var j: usize = at; j < self._plan->entries.size(); ++j {
-            var e = &(self._plan->entries[j]);
-            if e->tier != PlanTier::Definitions { break; }
-            if (e->scope != &null) || (e->witness != &null) || (e->eval_item != &null) { continue; }
-            if self._plan->value_param_record(d, e->decl) { return true; }
+            var *e = &self._plan->entries[j]
+            if e->tier != PlanTier::Definitions {
+                break
+            }
+
+            if e->scope != &null || e->witness != &null || e->eval_item != &null {
+                continue
+            }
+
+            if self._plan->value_param_record(d, e->decl) {
+                return true
+            }
         }
-        return false;
+
+        return false
     }
 
     /// This stream writes \p d's out-of-line method definitions: a TU's own
     /// record (EmitIR emits every body of its program). A header or an
     /// include carries only the inline and template ones, and a record of
     /// another file is defined in that file's TU.
-    priv fn _defines_methods(self, d: *Decl) -> bool {
-        if self._plan->mode() != PlanMode::Preamble { return false; }
-        return CXXSpell::fid_of(d) == self._plan->home();
+    priv fn _defines_methods(self, d: unsafe *Decl) -> bool {
+        if self._plan->mode() != PlanMode::Preamble {
+            return false
+        }
+
+        return CXXSpell::fid_of(d) == self._plan->home()
     }
 
-    priv fn _fwd_at(self, d: *Decl) -> SourceRange {
-        if !d->range.is_valid() { return self._at(d); }
-        return SourceRange::from_bounds(d->range.start, 1);
+    priv fn _fwd_at(self, d: unsafe *Decl) -> SourceRange {
+        if !d->range.is_valid() {
+            return self._at(d)
+        }
+
+        return SourceRange::from_bounds(d->range.start, 1)
     }
 
-    priv fn _enum_underlying(self, en: *EnumDecl) -> string {
-        if en->underlying != &null { return self._spell->_type(en->underlying); }
-        return builtin_info(BuiltinKind::U32)->cxx;   // Kairo's default enum width.
+    priv fn _enum_underlying(self, en: unsafe *Declarations::EnumDecl) -> string {
+        if en->underlying != &null {
+            return self._spell->_type(en->underlying)
+        }
+
+        return builtin_info(BuiltinKind::U32)->cxx // Kairo's default enum width.
     }
 
-    // --- Tier 1 ----------------------------------------------------------------------
+    /// # Tier 1
 
-    priv fn _type_def(self, d: *Decl) {
-        switch d->kind {
-            case DeclKind::ClassDecl  { self._record_def(d, "class");  }
-            case DeclKind::StructDecl { self._record_def(d, "struct"); }
-            case DeclKind::EnumDecl   { self._enum_def(cast::<EnumDecl>(d)); }
-            case DeclKind::UnionDecl  {  self._record_def(d, "union"); }
-            default { self._ice(self._at(d), "InterfaceEmitter: not a type decl"); }
+    priv fn _type_def(self, d: unsafe *Decl) {
+        match d->kind {
+            case DeclKind::ClassDecl {
+                self._record_def(d, "class")
+            } case DeclKind::StructDecl {
+                self._record_def(d, "struct")
+            } case DeclKind::EnumDecl {
+                self._enum_def(cast<Declarations::EnumDecl>(d))
+            } case DeclKind::UnionDecl {
+                self._record_def(d, "union")
+            } default {
+                self._ice(self._at(d), "InterfaceEmitter: not a type decl")
+            }
         }
     }
 
@@ -884,85 +1323,130 @@ class InterfaceEmitter {
     /// leaf: qualified, a nested type of a class template would need the
     /// template's arguments, and inside the body the injected class name
     /// already supplies them. A nested record's definition passes itself.
-    priv fn _record_def(self, d: *Decl, kw: string) {
-        var at = self._at(d);
-        var is_class = (d->kind == DeclKind::ClassDecl);
-        var is_union = (d->kind == DeclKind::UnionDecl);
-        var s = self._spell->record_head(d);
-        s += kw;
-        s += " ";
-        var name = self._spell->leaf(d) + self._spell->spec_suffix(d);
+    priv fn _record_def(self, d: unsafe *Decl, const kw: string) {
+        var at       = self._at(d)
+        var is_class = d->kind == DeclKind::ClassDecl
+        var is_union = d->kind == DeclKind::UnionDecl
+        var s        = self._spell->record_head(d)
+        s += kw
+        s += " "
+        var name = self._spell->leaf(d) + self._spell->spec_suffix(d)
 
         // Only ever forward-declared (a nested `struct Cell;` whose body
         // lives elsewhere): a declaration, never an empty definition, which
         // would give it a layout it does not have. Sema has refused every
         // by-value use (TypeCycleCheck, TypeUtil::why_no_default).
-        if decl_only_forward(d) {
-            self._cg->sink->spell(at, s + name + ";");
-            return;
+        if DeclFacts::decl_only_forward(d) {
+            self._cg->sink->spell(at, s + name + ";")
+            return
         }
+
         // `@packed` / `@align(N)`: on the definition only, between the
         // class-key and the name, where C++ puts a record's attributes.
         // Sema predicted the same layout (EnumLayoutQuery::_plain_record_size).
-        s += AttrFacts::record_attr(d);
-        s += name;
+        s += AttrFacts::record_attr(d)
+        s += name
 
         if is_class {
-            var n = cast::<ClassDecl>(d);
+            var unsafe *n = cast<Declarations::ClassDecl>(d)
             for var i: usize = 0; i < n->derives_list.size(); ++i {
-                var e = n->derives_list.get(i);
-                if e == &null { continue; }
-                s += (" : ") if (i == 0) else (", ");
-                if e->is_virtual { s += "virtual "; }
-                s += self._base_access(e->visibility);
-                s += " ";
-                s += self._spell->_type(e->base);
+                var unsafe *e = n->derives_list.get(i)
+                if e == &null {
+                    continue
+                }
+
+                s += if (i == 0) => (" : ") else => ", "
+                if e->is_virtual {
+                    s += "virtual "
+                }
+
+                s += self._base_access(e->visibility)
+                s += " "
+                s += self._spell->_type(e->base)
             }
         }
-        s += " {";
-        self._cg->sink->spell(at, s);
-        // Which body this is, for the pin beside each instance (MONO.md G12).
-        var tag = self._spec_tag(d);
+
+        s += " {"
+        self._cg->sink->spell(at, s)
+        // Which body this is, for the pin beside each instance (Compiler/Spec/Generics.md#where-groups-on-generic-functions).
+        var tag = self._spec_tag(d)
         if tag >= 0 {
-            var line = f"static constexpr unsigned {LowerTargets::spec_tag()} = {tag}u;";
-            if is_class { line = "public: " + line + " private:"; }
-            self._cg->sink->spell(at, line);
+            var line = f"static constexpr unsigned {LowerTargets::spec_tag()} = {tag}u;"
+            if is_class {
+                line = "public: " + line + " private:"
+            }
+
+            self._cg->sink->spell(at, line)
         }
-        self._body_predicate_asserts(d);
+
+        self._body_predicate_asserts(d)
         // An ADT payload is built inside its union by `new (&member) P(...)`,
         // which must not depend on the TU including <new>: this placement
         // form, found in the class before any global one, is what it calls.
-        if isa::<StructDecl>(d) && cast::<StructDecl>(d)->is_adt_payload {
-            self._cg->sink->spell(at, "static void* operator new(" + builtin_info(BuiltinKind::USize)->cxx + ", void* p) noexcept { return p; }");
+        if isa<Declarations::StructDecl>(d) && cast<Declarations::StructDecl>(d)->is_adt_payload {
+            self._cg->sink->spell(
+                at,
+                "static void* operator new(" + builtin_info(
+                    BuiltinKind::USize,
+                )->cxx + ", void* p) noexcept { return p; }",
+            )
+        } else if !is_union {
+            // C++'s `new X` / `delete p` on a Kairo record go to Kairo's
+            // allocator (_cxx_alloc_ops). Public in a class, whose C++
+            // default is private, and back: what follows assumes it.
+            if is_class && self._plan->mode() != PlanMode::Preamble {
+                self._cg->sink->spell(at, "public:")
+            }
+
+            self._cxx_alloc_ops(d, name, at)
+            if is_class && self._plan->mode() != PlanMode::Preamble {
+                self._cg->sink->spell(at, "private:")
+            }
         }
 
         // Default access follows the keyword: a Kairo struct's members are
         // public unless marked; in a class only the VARIABLES are private
         // unless marked, and methods, constructors and nested types are
         // public (classes.md, Default visibility).
-        var cur_access = (VIS_PRIV()) if (is_class) else (VIS_PUB());
+        var cur_access = if (is_class) => (VIS_PRIV()) else => VIS_PUB()
 
         // Nested types first: a field may name one.
-        var dc = CXXSpell::dc_of(d);
+        var unsafe *dc = CXXSpell::dc_of(d)
         if dc != &null {
             for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-                var nd = *(dc->dc_decls.get(i));
-                if nd == &null { continue; }
-                if isa::<VisibilityGroupDecl>(nd) { continue; }   // members are pointers back into the lists below.
-                if !self._is_type(nd) { continue; }
+                var unsafe *nd = *dc->dc_decls.get(i)
+                if nd == &null {
+                    continue
+                }
+
+                if isa<Declarations::VisibilityGroupDecl>(nd) { // members are pointers back into the lists below.
+                    continue
+                }
+
+                if !self._is_type(nd) {
+                    continue
+                }
+
                 // An anonymous union is not a nested type: it has no name to
                 // define it under, and its one declaration is the field
                 // below that holds it (_anon_union_field).
-                if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
+                if isa<Declarations::UnionDecl>(nd)
+                    && cast<Declarations::UnionDecl>(nd)->is_anonymous {
+                    continue
+                }
+
                 // A forward declaration and its definition in one body
                 // (`struct Cell;` ... `struct Cell { }`) are one entity, and
                 // its representative is the definition: emit it at the link
                 // that IS the representative, once. Every other link would
                 // define it again (clang: "redefinition of 'Cell'").
-                var rep = CXXSpell::rep(nd);
-                if (rep != nd) && (decl_ffi_tag_target(nd) == &null) { continue; }
-                cur_access = self._access(cur_access, self._cxx_vis(nd), false, at);
-                self._type_def(rep);
+                var unsafe *rep = CXXSpell::rep(nd)
+                if rep != nd && DeclFacts::decl_ffi_tag_target(nd) == &null {
+                    continue
+                }
+
+                cur_access = self._access(cur_access, self._cxx_vis(nd), false, at)
+                self._type_def(rep)
             }
 
             // Member aliases, in declaration order, before any field or
@@ -974,73 +1458,130 @@ class InterfaceEmitter {
             // can only refer to what the record itself can name, and Kairo
             // does not let it name a later field, so hoisting is safe.
             for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-                var nd = *(dc->dc_decls.get(i));
-                if (nd == &null) || (!isa::<TypeAliasDecl>(nd)) { continue; }
-                var ta = cast::<TypeAliasDecl>(nd);
-                if ta->aliased == &null { continue; }
-                cur_access = self._access(cur_access, self._cxx_vis(nd), false, at);
-                var us = self._spell->template_head(nd);
-                us += "using " + self._spell->leaf(nd) + " = " + self._spell->_type(ta->aliased, &null, d) + ";";
-                self._cg->sink->spell(self._at(nd), us);
+                var unsafe *nd = *dc->dc_decls.get(i)
+                if nd == &null || !isa<Declarations::TypeAliasDecl>(nd) {
+                    continue
+                }
+
+                var unsafe *ta = cast<Declarations::TypeAliasDecl>(nd)
+                if ta->aliased == &null {
+                    continue
+                }
+
+                cur_access = self._access(cur_access, self._cxx_vis(nd), false, at)
+                var us = self._spell->template_head(nd)
+                us += "using " + self._spell->leaf(nd) + " = " + self._spell->_type(
+                    ta->aliased,
+                    &null,
+                    d,
+                ) + ";"
+                self._cg->sink->spell(self._at(nd), us)
             }
         }
 
-        var fields:  FrozenList::<*FieldDecl>;
-        var methods: FrozenList::<*FunctionDecl>;
+        var fields:  FrozenList<unsafe *Declarations::FieldDecl>
+        var methods: FrozenList<unsafe *Declarations::FunctionDecl>
 
         if is_class {
-            fields  = cast::<ClassDecl>(d)->fields;
-            methods = cast::<ClassDecl>(d)->methods;
+            fields  = cast<Declarations::ClassDecl>(d)->fields
+            methods = cast<Declarations::ClassDecl>(d)->methods
         } else if is_union {
-            fields  = cast::<UnionDecl>(d)->fields;
-            methods = cast::<UnionDecl>(d)->methods;
+            fields  = cast<Declarations::UnionDecl>(d)->fields
+            methods = cast<Declarations::UnionDecl>(d)->methods
         } else {
-            fields  = cast::<StructDecl>(d)->fields;
-            methods = cast::<StructDecl>(d)->methods;
+            fields  = cast<Declarations::StructDecl>(d)->fields
+            methods = cast<Declarations::StructDecl>(d)->methods
         }
 
 
-        
-        var union_first = true;
+
+        var union_first = true
         // An ADT payload is only ever built whole, from its variant's
         // values (the enum's constructors), and sits in the enum's union.
-        var payload = isa::<StructDecl>(d) && cast::<StructDecl>(d)->is_adt_payload;
+        var payload = isa<Declarations::StructDecl>(d)
+            && cast<Declarations::StructDecl>(d)->is_adt_payload
         for var i: usize = 0; i < fields.size(); ++i {
-            var f = fields[i];
-            if f == &null { continue; }
-            cur_access = self._access(cur_access, self._cxx_vis(static_cast::<*Decl>(f)), is_class, at);
+            var unsafe *f = fields[i]
+            if f == &null {
+                continue
+            }
+
+            cur_access = self._access(
+                cur_access,
+                self._cxx_vis(unsafe (f as unsafe *Decl)),
+                is_class,
+                at,
+            )
+
             // Before anything spells the field: it has no name.
-            if f->is_anonymous_union { self._anon_union_field(f, d); continue; }
-            var fs = "";
+            if f->is_anonymous_union {
+                self._anon_union_field(f, d)
+                continue
+            }
+
+            var fs = ""
             // `@align(N)` on the field: GNU `aligned` leads its declaration.
-            fs += AttrFacts::decl_align_attr(static_cast::<*Decl>(f));
-            if f->is_static()  { fs += "static "; }
-            if f->is_static() && f->is_thread { fs += "thread_local "; }
-            if f->is_mutable   { fs += "mutable "; }
+            fs += AttrFacts::decl_align_attr(unsafe (f as unsafe *Decl))
+            if f->is_static() {
+                fs += "static "
+            }
+
+            if f->is_static() && f->is_thread {
+                fs += "thread_local "
+            }
+
+            if f->is_mutable {
+                fs += "mutable "
+            }
+
             // An eval field is `static const T k;` here and `constexpr` at its
-            // definition (_static_def; EVAL.md 1.2).
-            if f->is_const() || f->is_eval() { fs += "const "; }
-            fs += self._spell->decl(f->type_, self._spell->leaf(static_cast::<*Decl>(f)), &null, d);
+            // definition (_static_def; Compiler/Spec/Eval.md#eval-bindings).
+            if f->is_const() || f->is_eval() {
+                fs += "const "
+            }
+
+            fs += self._spell->decl(
+                f->type_,
+                self._spell->leaf(unsafe (f as unsafe *Decl)),
+                &null,
+                d,
+            )
+
             // A static's value is its definition's (_static_defs), never an
             // in-class initializer, which C++ refuses on a non-const static.
             if !f->is_static() {
-                var dflt = self._field_default(f);
+                var dflt = self._field_default(f)
                 // A union's one initializer is its first member's: `{}`
                 // keeps the union default-constructible (C++ deletes its
                 // default constructor when a member's is non-trivial, as a
                 // struct whose fields are zeroed below is) and zeroes it.
-                if (dflt.size() == 0) && (!payload) && ((is_union && union_first) || ((!is_union) && self._zero_by_default(f))) { dflt = "{}"; }
-                union_first = false;
-                fs += dflt;
+                if dflt.size() == 0
+                    && !payload
+                    && (is_union && union_first || !is_union && self._zero_by_default(f)) {
+                    dflt = "{}"
+                }
+
+                union_first = false
+                fs += dflt
             }
-            fs += ";";
-            self._cg->sink->spell(f->name.range, fs);
+
+            fs += ";"
+            self._cg->sink->spell(f->name.range, fs)
         }
 
         for var i: usize = 0; i < methods.size(); ++i {
-            var m = methods[i];
-            if m == &null { continue; }
-            cur_access = self._access(cur_access, self._cxx_vis(static_cast::<*Decl>(m)), false, at);
+            var unsafe *m = methods[i]
+            if m == &null {
+                continue
+            }
+
+            cur_access = self._access(
+                cur_access,
+                self._cxx_vis(unsafe (m as unsafe *Decl)),
+                false,
+                at,
+            )
+
             // A method defined out of line (EmitIR::_method) is declared on
             // its first byte, not its name, as _fwd_decl declares a type:
             // only one exact token gets the name's byte (TokenSink::_claim),
@@ -1048,58 +1589,78 @@ class InterfaceEmitter {
             // the definition (what a constructor fails to initialize, an
             // incomplete result type) and its lookup finds the definition, so
             // its "declared here" notes do too; on the name the definition's
-            // walked to its `{` or lines away (P145 for constructors, P253).
+            // walked to its `{` or lines away (for constructors).
             // Only where this stream writes the definition: a class another
             // TU defines, or a header's, keeps the name for the declaration,
             // which is all the C++ that includes it sees.
-            var mat = self._at(static_cast::<*Decl>(m));
-            if m->has_body() && (m->body_kind == FnBodyKind::Block) && (m->ci_split == 0)
-            && (self._is_ctor(m, d) || self._defines_methods(d)) { mat = self._fwd_at(static_cast::<*Decl>(m)); }
-            self._cg->sink->spell(mat, self._method_decl(m, d));
+            var mat = self._at(unsafe (m as unsafe *Decl))
+            if m->has_body()
+                && m->body_kind == Declarations::FnBodyKind::Block
+                && m->ci_split == 0
+                && (self._is_ctor(m, d) || self._defines_methods(d)) {
+                mat = self._fwd_at(unsafe (m as unsafe *Decl))
+            }
+
+            self._cg->sink->spell(mat, self._method_decl(m, d))
         }
-        if is_class { cur_access = self._base_usings(cast::<ClassDecl>(d), cur_access, at); }
-        if is_class { cur_access = self._edge_narrowing(cast::<ClassDecl>(d), cur_access, at); }
+
+        if is_class {
+            cur_access = self._base_usings(cast<Declarations::ClassDecl>(d), cur_access, at)
+        }
+
+        if is_class {
+            cur_access = self._edge_narrowing(cast<Declarations::ClassDecl>(d), cur_access, at)
+        }
 
         // Each constructor that initializes a field in place: its slot record,
         // its pre-function and the constructor that takes the slots
         // (_split_ctor_decls). Private: only the public constructor calls
         // them.
         for var i: usize = 0; i < methods.size(); ++i {
-            var m = methods[i];
-            if (m == &null) || (m->ci_split == 0) { continue; }
-            cur_access = self._access(cur_access, VIS_PRIV(), false, at);
-            self._split_ctor_decls(m, d);
+            var unsafe *m = methods[i]
+            if m == &null || m->ci_split == 0 {
+                continue
+            }
+
+            cur_access = self._access(cur_access, VIS_PRIV(), false, at)
+            self._split_ctor_decls(m, d)
         }
 
         // The comparisons derived from a member `op <=>` (_derived_cmps).
-        cur_access = self._derived_cmps(d, cur_access, at);
+        cur_access = self._derived_cmps(d, cur_access, at)
 
         // `op =`, derived from the transfer constructor (_derived_assign).
         // Public, as C++'s implicit one is.
-        if self._assign_form_of(d) != AssignForm::Implicit {
-            cur_access = self._access(cur_access, VIS_PUB(), false, at);
-            self._derived_assign(d);
-        } else if is_class && self._implicit_transfer_with_dtor(cast::<ClassDecl>(d)) {
-            cur_access = self._access(cur_access, VIS_PUB(), false, at);
-            self._defaulted_transfers(d);
+        if self._assign_form_of(d) != Declarations::AssignForm::Implicit {
+            cur_access = self._access(cur_access, VIS_PUB(), false, at)
+            self._derived_assign(d)
+        } else if is_class && self._implicit_transfer_with_dtor(cast<Declarations::ClassDecl>(d)) {
+            cur_access = self._access(cur_access, VIS_PUB(), false, at)
+            self._defaulted_transfers(d)
         }
 
         // `__builtin_dynamic_size` / `_align`'s hidden virtual: last, so the
         // `public:` it needs changes no other member's access.
         if is_class && CXXSpell::has_virtual_dtor(d) {
-            cur_access = self._access(cur_access, VIS_PUB(), false, at);
-            self._layout_virtual(d, at);
+            cur_access = self._access(cur_access, VIS_PUB(), false, at)
+            self._layout_virtual(d, at)
         }
 
-        self._friends(d);
+        self._friends(d)
 
-        self._cg->sink->spell(at, "};");
+        self._cg->sink->spell(at, "};")
         // `null_t`'s one value, `::builtin::null` to a C++ host. Inline, so
         // every TU that includes the record has it and none owns it.
-        if isa::<StructDecl>(d) && cast::<StructDecl>(d)->is_null_type {
-            self._cg->sink->spell(at, "inline constexpr " + self._spell->leaf(d) + " " + LowerTargets::null_constant() + "{};");
+        if isa<Declarations::StructDecl>(d) && cast<Declarations::StructDecl>(d)->is_null_type {
+            self._cg->sink->spell(
+                at,
+                "inline constexpr " + self._spell->leaf(
+                    d,
+                ) + " " + LowerTargets::null_constant() + "{};",
+            )
         }
-        self._cg->sink->brk();
+
+        self._cg->sink->brk()
     }
 
     /// `virtual const size_t* __kairo_layout() const noexcept`, in every class
@@ -1110,17 +1671,19 @@ class InterfaceEmitter {
     /// constant pair rather than a struct, so no helper type has to be
     /// declared ahead of the class, and every override has the same return
     /// type. Defined in the class: it is the same text in every TU.
-    priv fn _layout_virtual(self, d: *Decl, at: SourceRange) {
-        var sz = "decltype(sizeof(0))";
-        var me = self._spell->leaf(d);
-        var ov = (" override") if (CXXSpell::layout_overrides(d)) else ("");
-        self._cg->sink->spell(at, "virtual const " + sz + "* " + LowerTargets::layout_virtual()
-            + "() const noexcept" + ov + " { static constexpr " + sz + " l[2] = { sizeof(" + me + "), alignof(" + me + ") }; return l; }");
+    priv fn _layout_virtual(self, d: unsafe *Decl, at: SourceRange) {
+        var sz = "decltype(sizeof(0))"
+        var me = self._spell->leaf(d)
+        var ov = if (CXXSpell::layout_overrides(d)) => (" override") else => ""
+        self._cg->sink->spell(
+            at,
+            "virtual const " + sz + "* " + LowerTargets::layout_virtual() + "() const noexcept" + ov + " { static constexpr " + sz + " l[2] = { sizeof(" + me + "), alignof(" + me + ") }; return l; }",
+        )
     }
 
     /// `using B::m;` for every method name \p d declares that a direct base
     /// B also answers with a method. Kairo MERGES a base's members with the
-    /// derived class's (RESOLUTION.md §2b, the `needs_using` rule) and
+    /// derived class's (Compiler/Spec/Generics.md#partial-selection, the `needs_using` rule) and
     /// overload resolution picks among all of them; C++ name lookup stops at
     /// the derived class, so without this `d.f(x)` that Kairo bound to the
     /// base's `f(f64)` went to the derived `f(i32)` through a conversion --
@@ -1130,35 +1693,71 @@ class InterfaceEmitter {
     /// Constructors, the destructor and compiler-made members are never
     /// brought in (constructors are not inherited, and a made member's name
     /// is its own class's).
-    priv fn _base_usings(self, d: *ClassDecl, cur_in: u8, at: SourceRange) -> u8 {
-        var cur = cur_in;
-        var own = self._spell->leaf(static_cast::<*Decl>(d));
-        var done = vec::<string>();
+    priv fn _base_usings(self,
+                         d:      unsafe *Declarations::ClassDecl,
+                         cur_in: u8,
+                         at:     SourceRange) -> u8 {
+        var cur  = cur_in
+        var own  = self._spell->leaf(unsafe (d as unsafe *Decl))
+        var done = cxx::std::vector<string>()
         for var i: usize = 0; i < d->methods.size(); ++i {
-            var m = d->methods[i];
-            if (m == &null) || m->is_implicit { continue; }
-            var nm = self._spell->leaf(static_cast::<*Decl>(m));
-            if (nm.size() == 0) || (nm == own) || (nm[0] == '~') { continue; }
-            var dup = false;
-            for var k: usize = 0; k < done.size(); ++k { if done[k] == nm { dup = true; break; } }
-            if dup { continue; }
-            done.push_back(nm);
+            var unsafe *m = d->methods[i]
+            if m == &null || m->is_implicit {
+                continue
+            }
+
+            var nm = self._spell->leaf(m)
+            if nm.size() == 0 || nm == own || nm[0] == ('~' as u8) {
+                continue
+            }
+
+            var dup = false
+            for var k: usize = 0; k < done.size(); ++k {
+                if done[k] == nm {
+                    dup = true
+                    break
+                }
+            }
+
+            if dup {
+                continue
+            }
+
+            done.push_back(nm)
             for var j: usize = 0; j < d->derives_list.size(); ++j {
-                var e = d->derives_list.get(j);
-                if (e == &null) || (e->base == &null) { continue; }
-                var seen = vec::<*Decl>();
-                var found = self._base_method_named(self._edge_decl(e), nm, &seen, 0, CXXSpell::fid_of(static_cast::<*Decl>(d)));
-                if (found == 0) || (found == 255) { continue; }
+                var unsafe *e = d->derives_list.get(j)
+                if e == &null || e->base == &null {
+                    continue
+                }
+
+                var seen = cxx::std::vector<unsafe *Decl>()
+                var found = self._base_method_named(
+                    self._edge_decl(e),
+                    nm,
+                    unsafe &seen,
+                    0,
+                    CXXSpell::fid_of(unsafe (d as unsafe *Decl)),
+                )
+
+                if found == 0 || found == 255 {
+                    continue
+                }
+
                 // At the base members' own access, narrowed by a `priv` /
                 // `prot` edge (_edge_narrowing): a public using of a
                 // protected member would make it public through d.
-                var want = found;
-                if ((e->visibility == VIS_PRIV()) || (e->visibility == VIS_PROT())) && (e->visibility < want) { want = e->visibility; }
-                cur = self._access(cur, want, false, at);
-                self._cg->sink->spell(at, "using " + self._spell->_type(e->base) + "::" + nm + ";");
+                var want = found
+                if (e->visibility == VIS_PRIV() || e->visibility == VIS_PROT())
+                    && e->visibility < want {
+                    want = e->visibility
+                }
+
+                cur = self._access(cur, want, false, at)
+                self._cg->sink->spell(at, "using " + self._spell->_type(e->base) + "::" + nm + ";")
             }
         }
-        return cur;
+
+        return cur
     }
 
     /// `derives priv B` / `derives prot B`: the base stays public (a private
@@ -1175,81 +1774,179 @@ class InterfaceEmitter {
     /// the edge. Members of B's own bases are reached only through B's public
     /// edges. One using takes a whole overload set at one level, the
     /// narrowest of the edge's and the members' own.
-    priv fn _edge_narrowing(self, d: *ClassDecl, cur_in: u8, at: SourceRange) -> u8 {
-        var cur = cur_in;
-        var dd = static_cast::<*Decl>(d);
-        var fid = CXXSpell::fid_of(dd);
-        var mine = vec::<string>();
-        for var i: usize = 0; i < d->fields.size(); ++i { if d->fields[i] != &null { mine.push_back(self._spell->leaf(static_cast::<*Decl>(d->fields[i]))); } }
-        for var i: usize = 0; i < d->methods.size(); ++i { if d->methods[i] != &null { mine.push_back(self._spell->leaf(static_cast::<*Decl>(d->methods[i]))); } }
-        for var j: usize = 0; j < d->derives_list.size(); ++j {
-            var e = d->derives_list.get(j);
-            if (e == &null) || (e->base == &null) { continue; }
-            var ev = e->visibility;
-            if (ev != VIS_PRIV()) && (ev != VIS_PROT()) { continue; }
-            var names = vec::<string>();
-            var acc   = vec::<u8>();
-            var seen  = vec::<*Decl>();
-            self._edge_names(self._edge_decl(e), fid, &names, &acc, &seen, 0);
-            var bs = self._spell->_type(e->base);
-            for var k: usize = 0; k < names.size(); ++k {
-                var nm = names[k];
-                if acc[k] == 255 { continue; }
-                var dup = false;
-                for var q: usize = 0; q < mine.size(); ++q { if mine[q] == nm { dup = true; break; } }
-                if dup { continue; }
-                // VIS_PRIV < VIS_PROT < VIS_PUB: the narrower of the two.
-                var want = (ev) if (ev < acc[k]) else (acc[k]);
-                if want == acc[k] { continue; }
-                cur = self._access(cur, want, false, at);
-                self._cg->sink->spell(at, "using " + bs + "::" + nm + ";");
+    priv fn _edge_narrowing(self,
+                            d:      unsafe *Declarations::ClassDecl,
+                            cur_in: u8,
+                            at:     SourceRange) -> u8 {
+        var        cur  = cur_in
+        var unsafe *dd  = unsafe (d as unsafe *Decl)
+        var        fid  = CXXSpell::fid_of(dd)
+        var        mine = cxx::std::vector<string>()
+        for var i: usize = 0; i < d->fields.size(); ++i {
+            if d->fields[i] != &null {
+                mine.push_back(self._spell->leaf(unsafe (d->fields[i] as unsafe *Decl)))
             }
         }
-        return cur;
+
+        for var i: usize = 0; i < d->methods.size(); ++i {
+            if d->methods[i] != &null {
+                mine.push_back(self._spell->leaf(unsafe (d->methods[i] as unsafe *Decl)))
+            }
+        }
+
+        for var j: usize = 0; j < d->derives_list.size(); ++j {
+            var unsafe *e = d->derives_list.get(j)
+            if e == &null || e->base == &null {
+                continue
+            }
+
+            var ev = e->visibility
+            if ev != VIS_PRIV() && ev != VIS_PROT() {
+                continue
+            }
+
+            var names = cxx::std::vector<string>()
+            var acc   = cxx::std::vector<u8>()
+            var seen  = cxx::std::vector<unsafe *Decl>()
+            self._edge_names(self._edge_decl(e), fid, unsafe &names, unsafe &acc, unsafe &seen, 0)
+            var bs = self._spell->_type(e->base)
+            for var k: usize = 0; k < names.size(); ++k {
+                var nm = names[k]
+                if acc[k] == 255 {
+                    continue
+                }
+
+                var dup = false
+                for var q: usize = 0; q < mine.size(); ++q {
+                    if mine[q] == nm {
+                        dup = true
+                        break
+                    }
+                }
+
+                if dup {
+                    continue
+                }
+
+                // VIS_PRIV < VIS_PROT < VIS_PUB: the narrower of the two.
+                var want = if (ev < acc[k]) => (ev) else => acc[k]
+                if want == acc[k] {
+                    continue
+                }
+
+                cur = self._access(cur, want, false, at)
+                self._cg->sink->spell(at, "using " + bs + "::" + nm + ";")
+            }
+        }
+
+        return cur
     }
 
     /// The member names class \p b (and its bases through public edges)
     /// lets a deriving class of file \p fid inherit: fields and methods,
     /// each name once, with the narrowest C++ access of its members, or 255
     /// when one of them is private to another file.
-    priv fn _edge_names(self, b: *Decl, fid: u32, names: *vec::<string>, acc: *vec::<u8>, seen: *vec::<*Decl>, depth: u32) {
-        if (b == &null) || (depth > 64) || (!isa::<ClassDecl>(b)) { return; }
-        for var i: usize = 0; i < seen->size(); ++i { if (*seen)[i] == b { return; } }
-        seen->push_back(b);
-        var cd = cast::<ClassDecl>(b);
-        var own = self._spell->leaf(b);
-        var members = vec::<*Decl>();
-        for var i: usize = 0; i < cd->fields.size(); ++i { if cd->fields[i] != &null { members.push_back(static_cast::<*Decl>(cd->fields[i])); } }
-        for var i: usize = 0; i < cd->methods.size(); ++i { if cd->methods[i] != &null { members.push_back(static_cast::<*Decl>(cd->methods[i])); } }
-        for var i: usize = 0; i < members.size(); ++i {
-            var m = members[i];
-            if m->is_implicit { continue; }
-            var fd = dyn_cast::<FieldDecl>(m);
-            if (fd != &null) && fd->is_anonymous_union { continue; }
-            var nm = self._spell->leaf(m);
-            if (nm.size() == 0) || (nm == own) || (nm[0] == '~') { continue; }
-            var a = self._spell->cxx_access(m);
-            if (a == VIS_PRIV()) && (CXXSpell::fid_of(m) != fid) { a = 255; }
-            var at = names->size();
-            for var k: usize = 0; k < names->size(); ++k { if (*names)[k] == nm { at = k; break; } }
-            if at == names->size() { names->push_back(nm); acc->push_back(a); continue; }
-            if ((*acc)[at] == 255) || (a == 255) { (*acc)[at] = 255; continue; }
-            if a < (*acc)[at] { (*acc)[at] = a; }
+    priv fn _edge_names(self,
+                        b:     unsafe *Decl,
+                        fid:   u32,
+                        names: unsafe *cxx::std::vector<string>,
+                        acc:   unsafe *cxx::std::vector<u8>,
+                        seen:  unsafe *cxx::std::vector<unsafe *Decl>,
+                        depth: u32) {
+        if b == &null || depth > 64 || !isa<Declarations::ClassDecl>(b) {
+            return
         }
+
+        for var i: usize = 0; i < seen->size(); ++i {
+            if (*seen)[i] == b {
+                return
+            }
+        }
+
+        seen->push_back(b)
+        var unsafe *cd     = cast<Declarations::ClassDecl>(b)
+        var        own     = self._spell->leaf(b)
+        var        members = cxx::std::vector<unsafe *Decl>()
+        for var i: usize = 0; i < cd->fields.size(); ++i {
+            if cd->fields[i] != &null {
+                members.push_back(unsafe (cd->fields[i] as unsafe *Decl))
+            }
+        }
+
+        for var i: usize = 0; i < cd->methods.size(); ++i {
+            if cd->methods[i] != &null {
+                members.push_back(cd->methods[i])
+            }
+        }
+
+        for var i: usize = 0; i < members.size(); ++i {
+            var unsafe *m = members[i]
+            if m->is_implicit {
+                continue
+            }
+
+            var unsafe *fd = dyn_cast<Declarations::FieldDecl>(m)
+            if fd != &null && fd->is_anonymous_union {
+                continue
+            }
+
+            var nm = self._spell->leaf(m)
+            if nm.size() == 0 || nm == own || nm[0] == ('~' as u8) {
+                continue
+            }
+
+            var a = self._spell->cxx_access(m)
+            if a == VIS_PRIV() && CXXSpell::fid_of(m) != fid {
+                a = 255
+            }
+
+            var at = names->size()
+            for var k: usize = 0; k < names->size(); ++k {
+                if (*names)[k] == nm {
+                    at = k
+                    break
+                }
+            }
+
+            if at == names->size() {
+                names->push_back(nm)
+                acc->push_back(a)
+                continue
+            }
+
+            if (*acc)[at] == 255 || a == 255 {
+                (*acc)[at] = 255
+                continue
+            }
+
+            if a < (*acc)[at] {
+                (*acc)[at] = a
+            }
+        }
+
         for var j: usize = 0; j < cd->derives_list.size(); ++j {
-            var e = cd->derives_list.get(j);
-            if (e == &null) || (e->visibility == VIS_PRIV()) || (e->visibility == VIS_PROT()) { continue; }
-            self._edge_names(self._edge_decl(e), fid, names, acc, seen, depth + 1);
+            var unsafe *e = cd->derives_list.get(j)
+            if e == &null || e->visibility == VIS_PRIV() || e->visibility == VIS_PROT() {
+                continue
+            }
+
+            self._edge_names(self._edge_decl(e), fid, names, acc, seen, depth + 1)
         }
     }
 
     /// The record a base edge names, as the pattern whose members are
     /// declared (an implicit instance's own list may still be empty).
-    priv fn _edge_decl(self, e: *InheritEdge) -> *Decl {
-        if (e->base == &null) || (e->base->canonical == &null) { return &null; }
-        var r = dyn_cast::<RecordType>(canon_unqual(e->base->canonical));
-        if (r == &null) || (r->decl == &null) { return &null; }
-        return CXXSpell::rep(decl_pattern(CXXSpell::rep(r->decl)));
+    priv fn _edge_decl(self, e: unsafe *Declarations::InheritEdge) -> unsafe *Decl {
+        if e->base == &null || e->base->canonical == &null {
+            return &null
+        }
+
+        var unsafe *r = dyn_cast<RecordType>(canon_unqual(e->base->canonical))
+        if r == &null || r->decl == &null {
+            return &null
+        }
+
+        return CXXSpell::rep(DeclFacts::decl_pattern(CXXSpell::rep(r->decl)))
     }
 
     /// Whether class \p b or a base of it has a method spelled \p nm, and at
@@ -1258,29 +1955,63 @@ class InterfaceEmitter {
     /// of the overloads (one using takes the whole set at one level); 255
     /// one the deriving class cannot name -- private, in another file, so
     /// not befriended -- and a using naming it is clang's access error.
-    priv fn _base_method_named(self, b: *Decl, nm: string, seen: *vec::<*Decl>, depth: u32, fid: u32) -> u8 {
-        if (b == &null) || (depth > 64) || (!isa::<ClassDecl>(b)) { return 0; }
-        for var i: usize = 0; i < seen->size(); ++i { if (*seen)[i] == b { return 0; } }
-        seen->push_back(b);
-        var cd = cast::<ClassDecl>(b);
-        var hit: u8 = 0;
+    priv fn _base_method_named(self,
+                               b:        unsafe *Decl,
+                               const nm: string,
+                               seen:     unsafe *cxx::std::vector<unsafe *Decl>,
+                               depth:    u32,
+                               fid:      u32) -> u8 {
+        if b == &null || depth > 64 || !isa<Declarations::ClassDecl>(b) {
+            return 0
+        }
+
+        for var i: usize = 0; i < seen->size(); ++i {
+            if (*seen)[i] == b {
+                return 0
+            }
+        }
+
+        seen->push_back(b)
+        var unsafe *cd     = cast<Declarations::ClassDecl>(b)
+        var        hit: u8 = 0
         for var i: usize = 0; i < cd->methods.size(); ++i {
-            var m = cd->methods[i];
-            if (m == &null) || m->is_implicit { continue; }
-            if self._spell->leaf(static_cast::<*Decl>(m)) != nm { continue; }
-            var a = self._spell->cxx_access(static_cast::<*Decl>(m));
-            if (a == VIS_PRIV()) && (CXXSpell::fid_of(static_cast::<*Decl>(m)) != fid) { return 255; }
+            var unsafe *m = cd->methods[i]
+            if m == &null || m->is_implicit {
+                continue
+            }
+
+            if self._spell->leaf(m) != nm {
+                continue
+            }
+
+            var a = self._spell->cxx_access(m)
+            if a == VIS_PRIV() && CXXSpell::fid_of(m) != fid {
+                return 255
+            }
+
             // VIS_PRIV < VIS_PROT < VIS_PUB: the narrowest is the smallest.
-            if (hit == 0) || (a < hit) { hit = a; }
+            if hit == 0 || a < hit {
+                hit = a
+            }
         }
-        if hit != 0 { return hit; }
+
+        if hit != 0 {
+            return hit
+        }
+
         for var j: usize = 0; j < cd->derives_list.size(); ++j {
-            var e = cd->derives_list.get(j);
-            if e == &null { continue; }
-            var r = self._base_method_named(self._edge_decl(e), nm, seen, depth + 1, fid);
-            if r != 0 { return r; }
+            var unsafe *e = cd->derives_list.get(j)
+            if e == &null {
+                continue
+            }
+
+            var r = self._base_method_named(self._edge_decl(e), nm, seen, depth + 1, fid)
+            if r != 0 {
+                return r
+            }
         }
-        return 0;
+
+        return 0
     }
 
     /// Friends: every same-file extension scope of the record, so an
@@ -1295,57 +2026,84 @@ class InterfaceEmitter {
     /// scopes, its functions, the witnesses of what it declares it
     /// implements, and `main`. That is C++'s spelling of Kairo's `priv`:
     /// the class and every function of its file.
-    priv fn _friends(self, d: *Decl) {
-        var fs = vec::<*ExtScope>();
-        self._plan->friend_scopes_of(d, &fs);
+    priv fn _friends(self, d: unsafe *Decl) {
+        var fs = cxx::std::vector<unsafe *ExtScope>()
+        self._plan->friend_scopes_of(d, &fs)
         for var i: usize = 0; i < fs.size(); ++i {
-            self._cg->sink->spell(self._at(static_cast::<*Decl>(fs[i]->anchor)), "friend struct " + self._scope_qual(fs[i]) + ";");
+            self._cg->sink->spell(
+                self._at(unsafe (fs[i]->anchor as unsafe *Decl)),
+                "friend struct " + self._scope_qual(fs[i]) + ";",
+            )
         }
-        if (fs.size() > 0) && self._cg->opts.extension_member_wrappers {
-            self._ice(self._at(d), "InterfaceEmitter: extension_member_wrappers is on but wrapper emission is not written; leave it off");
+
+        if fs.size() > 0 && self._cg->opts.extension_member_wrappers {
+            self._ice(
+                self._at(d),
+                "InterfaceEmitter: extension_member_wrappers is on but wrapper emission is not written; leave it off",
+            )
         }
-        var ff = FileFriends();
-        self._plan->file_friends(d, &ff);
-        if !ff.needed { return; }
-        var at = self._at(d);
+
+        var ff = FileFriends()
+        self._plan->file_friends(d, unsafe &ff)
+        if !ff.needed {
+            return
+        }
+
+        var at = self._at(d)
         for var i: usize = 0; i < ff.records.size(); ++i {
-            var r = ff.records[i];
-            var q = self._spell->qual_name(r);
+            var unsafe *r = ff.records[i]
+            var        q  = self._spell->qual_name(r)
             if CXXSpell::template_params(r).size() == 0 {
                 // The friend-type form: no class-key to disagree with the
                 // definition's (a mismatch is in the mangling on MSVC).
-                self._cg->sink->spell(at, "friend " + q + ";");
-                continue;
+                self._cg->sink->spell(at, "friend " + q + ";")
+                continue
             }
-            var key = ("class") if (isa::<ClassDecl>(r)) else ((("union") if (isa::<UnionDecl>(r)) else ("struct")));
+
+            var key = if (isa<Declarations::ClassDecl>(r)) => ("class")
+                      else => (if (isa<Declarations::UnionDecl>(r)) => ("union") else => "struct")
             // Its own parameter names could redeclare d's: spelled as
             // __kairo_ft<i>, requires-clause included (rename_tparams).
-            self._spell->rename_tparams = r;
-            var head = self._spell->template_head(r);
-            self._spell->rename_tparams = &null;
-            self._cg->sink->spell(at, head + "friend " + key + " " + q + ";");
+            self._spell->rename_tparams = r
+            var head = self._spell->template_head(r)
+            self._spell->rename_tparams = &null
+            self._cg->sink->spell(at, head + "friend " + key + " " + q + ";")
         }
+
         for var i: usize = 0; i < ff.scopes.size(); ++i {
-            self._cg->sink->spell(at, "friend struct " + self._spell->ext_scope_name(ff.scopes[i]) + ";");
+            self._cg->sink->spell(
+                at,
+                "friend struct " + self._spell->ext_scope_name(ff.scopes[i]) + ";",
+            )
         }
+
         for var i: usize = 0; i < ff.fns.size(); ++i {
-            self._spell->rename_tparams = static_cast::<*Decl>(ff.fns[i]);
-            var ft = self._friend_fn_text(ff.fns[i], ff.far[i]);
-            self._spell->rename_tparams = &null;
-            self._cg->sink->spell(at, ft);
+            self._spell->rename_tparams = unsafe (ff.fns[i] as unsafe *Decl)
+            var ft = self._friend_fn_text(ff.fns[i], (ff.far[i] != 0))
+            self._spell->rename_tparams = &null
+            self._cg->sink->spell(at, ft)
         }
+
         for var i: usize = 0; i < ff.ifaces.size(); ++i {
-            var iface = ff.ifaces[i];
-            var h = "template <class " + LowerTargets::friend_tparam(0);
-            var gps = decl_generic_params(iface);
-            for var k: usize = 0; k < gps.size(); ++k { h += ", class " + LowerTargets::friend_tparam(k + 1); }
-            self._cg->sink->spell(at, h + "> friend struct " + self._spell->witness_name(iface) + ";");
+            var unsafe *iface = ff.ifaces[i]
+            var        h      = "template <class " + LowerTargets::friend_tparam(0)
+            var        gps    = DeclFacts::decl_generic_params(iface)
+            for var k: usize = 0; k < gps.size(); ++k {
+                h += ", class " + LowerTargets::friend_tparam(k + 1)
+            }
+
+            self._cg->sink->spell(
+                at,
+                h + "> friend struct " + self._spell->witness_name(iface) + ";",
+            )
         }
+
         for var i: usize = 0; i < ff.globals.size(); ++i {
-            self._cg->sink->spell(at, "friend " + self._spell->ginit_decl(ff.globals[i]) + ";");
+            self._cg->sink->spell(at, "friend " + self._spell->ginit_decl(ff.globals[i]) + ";")
         }
+
         if ff.main != &null {
-            self._cg->sink->spell(at, "friend " + self._main_decl_text(ff.main, true));
+            self._cg->sink->spell(at, "friend " + self._main_decl_text(ff.main, true))
         }
     }
 
@@ -1358,82 +2116,127 @@ class InterfaceEmitter {
     /// the record's namespace, which file_friends made sure is its own;
     /// \p qualified, it names one declared ahead of the record
     /// (EmitPlan::friend_early).
-    priv fn _friend_fn_text(self, f: *FunctionDecl, qualified: bool) -> string {
-        var s = self._spell->template_head(static_cast::<*Decl>(f));
-        s += "friend ";
+    priv fn _friend_fn_text(self,
+                            f:         unsafe *Declarations::FunctionDecl,
+                            qualified: bool) -> string {
+        var s = self._spell->template_head(unsafe (f as unsafe *Decl))
+        s += "friend "
         // The calling convention is no attribute in that sense: it is part
         // of the function's type, so every redeclaration must repeat it.
-        var cc = f->call_conv;
-        if (cc == 0) && (f->canonical_decl() != &null) { cc = f->canonical_decl()->call_conv; }
-        s += CXXSpell::call_conv_attr(cc);
-        if f->is_eval() { s += "consteval "; }
-        s += self._ret(f);
-        s += " ";
-        s += (self._spell->qual_name(static_cast::<*Decl>(f))) if (qualified) else (self._fn_name(f));
-        s += "(";
-        s += self._params(f, false, &null);
-        s += ")";
-        if f->no_unwind { s += " noexcept"; }
-        return s + ";";
+        var cc = f->call_conv
+        if cc == 0 && f->canonical_decl() != &null {
+            cc = f->canonical_decl()->call_conv
+        }
+
+        s += CXXSpell::call_conv_attr(cc)
+        if f->is_eval() {
+            s += "consteval "
+        }
+
+        s += self._ret(f)
+        s += " "
+        s += if (qualified) => (self._spell->qual_name(unsafe (f as unsafe *Decl)))
+             else => self._fn_name(f)
+        s += "("
+        s += self._params(f, false, &null)
+        s += ")"
+        if f->no_unwind {
+            s += " noexcept"
+        }
+
+        return s + ";"
     }
 
     /// `int ::main(int argc, ...) noexcept;` (\p qualified) or the global
     /// declaration `int main(...) noexcept;` the friend line needs before
     /// it: the definition's own head (EmitIR::_free_fn).
-    priv fn _main_decl_text(self, f: *FunctionDecl, qualified: bool) -> string {
-        var s = ("int ::" + entry_point_name() + "(") if (qualified) else ("int " + entry_point_name() + "(");
-        s += self._params(f, false, &null);
-        s += ")";
-        if f->no_unwind { s += " noexcept"; }
-        return s + ";";
+    priv fn _main_decl_text(self,
+                            f:         unsafe *Declarations::FunctionDecl,
+                            qualified: bool) -> string {
+        var s = if (qualified) => ("int ::" + entry_point_name() + "(")
+                else => "int " + entry_point_name() + "("
+        s += self._params(f, false, &null)
+        s += ")"
+        if f->no_unwind {
+            s += " noexcept"
+        }
+
+        return s + ";"
     }
 
     /// \p c writes no transfer constructor (its category is its fields'),
     /// but does write `op delete` and a constructor. C++ declares no
     /// implicit move constructor or move assignment beside a user-declared
     /// destructor, so a move of it fell back to the copy -- deleted when a
-    /// field is move-only (`ArenaList`'s ArenaAllocator, O39), a silent
+    /// field is move-only (`ArenaList`'s ArenaAllocator), a silent
     /// copy otherwise. A class with no constructor is left alone: declaring
     /// one would cost it its implicit default constructor and aggregate
     /// initialization.
-    priv fn _implicit_transfer_with_dtor(self, c: *ClassDecl) -> bool {
-        if (c == &null) || decl_is_imported(static_cast::<*Decl>(c)) { return false; }
-        var dtor = false;
-        var ctor = false;
-        for var i: usize = 0; i < c->methods.size(); ++i {
-            var m = c->methods[i];
-            if m == &null { continue; }
-            if m->transfer != TransferKind::NotTransfer { return false; }
-            if m->is_operator && (m->op_token.size() > 0) && (m->op_token[0].kind == TokenKind::KwDelete) { dtor = true; }
-            else if self._is_ctor(m, static_cast::<*Decl>(c)) { ctor = true; }
+    priv fn _implicit_transfer_with_dtor(self, c: unsafe *Declarations::ClassDecl) -> bool {
+        if c == &null || DeclFacts::decl_is_imported(c) {
+            return false
         }
-        return dtor && ctor;
+
+        var dtor = false
+        var ctor = false
+        for var i: usize = 0; i < c->methods.size(); ++i {
+            var unsafe *m = c->methods[i]
+            if m == &null {
+                continue
+            }
+
+            if m->transfer != Declarations::TransferKind::NotTransfer {
+                return false
+            }
+
+            if m->is_operator
+                && m->op_token.size() > 0
+                && m->op_token[0].kind == TokenKind::KwFinally {
+                dtor = true
+            } else if self._is_ctor(m, c) {
+                ctor = true
+            }
+        }
+
+        return dtor && ctor
     }
 
     /// The four transfers C++ would have declared but for the destructor,
     /// each `= default`: memberwise, and defined as deleted where a part
     /// cannot take it, which is exactly the category ClassLifecycle derived.
-    priv fn _defaulted_transfers(self, d: *Decl) {
-        var nm = self._spell->leaf(d);
-        var dat = self._at(d);
-        self._cg->sink->spell(dat, nm + "(const " + nm + "&) = default;");
-        self._cg->sink->spell(dat, nm + "(" + nm + "&&) = default;");
-        self._cg->sink->spell(dat, nm + "& operator=(const " + nm + "&) = default;");
-        self._cg->sink->spell(dat, nm + "& operator=(" + nm + "&&) = default;");
+    priv fn _defaulted_transfers(self, d: unsafe *Decl) {
+        var nm  = self._spell->leaf(d)
+        var dat = self._at(d)
+        self._cg->sink->spell(dat, nm + "(const " + nm + "&) = default;")
+        self._cg->sink->spell(dat, nm + "(" + nm + "&&) = default;")
+        self._cg->sink->spell(dat, nm + "& operator=(const " + nm + "&) = default;")
+        self._cg->sink->spell(dat, nm + "& operator=(" + nm + "&&) = default;")
     }
 
     /// The derived `op =` slots ClassLifecycle wrote on a record; Implicit
     /// and null for anything else.
-    priv fn _assign_form_of(self, d: *Decl) -> AssignForm {
-        if isa::<ClassDecl>(d)  { return cast::<ClassDecl>(d)->assign_form; }
-        if isa::<StructDecl>(d) { return cast::<StructDecl>(d)->assign_form; }
-        return AssignForm::Implicit;
+    priv fn _assign_form_of(self, d: unsafe *Decl) -> Declarations::AssignForm {
+        if isa<Declarations::ClassDecl>(d) {
+            return cast<Declarations::ClassDecl>(d)->assign_form
+        }
+
+        if isa<Declarations::StructDecl>(d) {
+            return cast<Declarations::StructDecl>(d)->assign_form
+        }
+
+        return Declarations::AssignForm::Implicit
     }
 
-    priv fn _assign_from_of(self, d: *Decl) -> *FunctionDecl {
-        if isa::<ClassDecl>(d)  { return cast::<ClassDecl>(d)->assign_from; }
-        if isa::<StructDecl>(d) { return cast::<StructDecl>(d)->assign_from; }
-        return &null;
+    priv fn _assign_from_of(self, d: unsafe *Decl) -> unsafe *Declarations::FunctionDecl {
+        if isa<Declarations::ClassDecl>(d) {
+            return cast<Declarations::ClassDecl>(d)->assign_from
+        }
+
+        if isa<Declarations::StructDecl>(d) {
+            return cast<Declarations::StructDecl>(d)->assign_from
+        }
+
+        return &null
     }
 
     /// Some class this run writes carries an `op =` that rebuilds in place
@@ -1441,109 +2244,199 @@ class InterfaceEmitter {
     /// those. A header skips what it includes, as run() does.
     /// An `eval for` in this TU, or an eval generator the plan declares or
     /// defines here: both spell the eval helpers.
-    /// So does a compile-time string (`__kairo_estr`, EVAL.md 2a): this TU
+    /// So does a compile-time string (`__kairo_estr`, Compiler/Spec/Eval.md#strings-at-compile-time): this TU
     /// spelled one, or a body or constant it emits from elsewhere may (an
     /// eval fn, an eval binding, a record with eval members). Which foreign
     /// body holds a literal is not known here, so any eval entry counts.
     /// `inline constexpr unsigned char __kairo_estrh_<len>_<hash>[len + 1] =
     /// {b..., 0};` for each long compile-time string the plan holds
-    /// (EmitPlan::big_str_bytes, EVAL.md §11), at global scope. `inline` and
+    /// (EmitPlan::big_str_bytes, Compiler/Spec/Eval.md#value-nodes), at global scope. `inline` and
     /// named for its content, so every TU and header that writes one writes
     /// the same entity, which the linker keeps once; a header guards each
     /// (two Kairo headers in one C++ TU), an include stream skips what an
     /// earlier include wrote (estr_seen).
     priv fn _big_strs(self, header: bool) {
-        var n = self._plan->big_str_hashes.size();
-        if n == 0 { return; }
-        self._cg->sink->unanchored(true);
-        for var i: usize = 0; i < n; ++i {
-            var h   = self._plan->big_str_hashes[i];
-            var len = self._plan->big_str_lens[i];
-            var p   = self._plan->big_str_bytes[i];
-            var seen = false;
-            for var k: usize = 0; k < self.estr_seen.size(); ++k { if self.estr_seen[k] == h { seen = true; break; } }
-            if seen { continue; }
-            self.estr_seen.push_back(h);
-            var g = LowerTargets::eval_str_hashed_guard(h, len);
-            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + g); }
-            if header { self._cg->sink->directive(self._tu_at(), "#define " + g); }
-            var s = "inline constexpr unsigned char " + LowerTargets::eval_str_hashed(h, len) + "[" + f"{len + 1}" + "] = {";
-            for var b: usize = 0; b < len; ++b {
-                s += f"{static_cast::<u32>(p[b])}, ";
-            }
-            s += "0};";
-            self._cg->sink->spell(self._tu_at(), s);
-            self._cg->sink->brk();
-            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+        var n = self._plan->big_str_hashes.size()
+        if n == 0 {
+            return
         }
-        self._cg->sink->unanchored(false);
+
+        self._cg->sink->unanchored(true)
+        for var i: usize = 0; i < n; ++i {
+            var        h    = self._plan->big_str_hashes[i]
+            var        len  = self._plan->big_str_lens[i]
+            var unsafe *p   = self._plan->big_str_bytes[i]
+            var        seen = false
+            for var k: usize = 0; k < self.estr_seen.size(); ++k {
+                if self.estr_seen[k] == h {
+                    seen = true
+                    break
+                }
+            }
+
+            if seen {
+                continue
+            }
+
+            self.estr_seen.push_back(h)
+            var g = LowerTargets::eval_str_hashed_guard(h, len)
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#ifndef " + g)
+            }
+
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#define " + g)
+            }
+
+            var s = "inline constexpr unsigned char " + LowerTargets::eval_str_hashed(
+                h,
+                len,
+            ) + "[" + f"{len + 1}" + "] = {"
+            for var b: usize = 0; b < len; ++b {
+                s += f"{(p[b] as u32)}, "
+            }
+
+            s += "0};"
+            self._cg->sink->spell(self._tu_at(), s)
+            self._cg->sink->brk()
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#endif")
+            }
+        }
+
+        self._cg->sink->unanchored(false)
     }
 
     priv fn _needs_eval_helpers(self) -> bool {
-        if (self._cg->tu != &null) && (self._cg->tu->has_eval_for || self._cg->tu->has_eval_string) { return true; }
-        if self._plan->needs_eval_str { return true; }
-        for var i: usize = 0; i < self._plan->entries.size(); ++i {
-            var d = self._plan->entries[i].decl;
-            var f = dyn_cast::<FunctionDecl>(d);
-            if (f != &null) && f->is_eval() { return true; }
-            var v = dyn_cast::<VariableDecl>(d);
-            if (v != &null) && v->is_eval() { return true; }
-            if self._has_eval_member(d) { return true; }
+        if self._cg->tu != &null && (self._cg->tu->has_eval_for || self._cg->tu->has_eval_string) {
+            return true
         }
-        return false;
+
+        if self._plan->needs_eval_str {
+            return true
+        }
+
+        for var i: usize = 0; i < self._plan->entries.size(); ++i {
+            var unsafe *d = self._plan->entries[i].decl
+            var unsafe *f = dyn_cast<Declarations::FunctionDecl>(d)
+            if f != &null && f->is_eval() {
+                return true
+            }
+
+            var unsafe *v = dyn_cast<Declarations::VariableDecl>(d)
+            if v != &null && v->is_eval() {
+                return true
+            }
+
+            if self._has_eval_member(d) {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// A class's, struct's or union's members. Every record walk goes through
     /// these: a union reaches the same emitter as a class (_record_def), and a
     /// two-way class-or-struct cast fails its assert on one.
-    priv fn _methods_of(self, d: *Decl) -> FrozenList::<*FunctionDecl> {
-        if isa::<ClassDecl>(d) { return cast::<ClassDecl>(d)->methods; }
-        if isa::<UnionDecl>(d) { return cast::<UnionDecl>(d)->methods; }
-        return cast::<StructDecl>(d)->methods;
-    }
-
-    priv fn _fields_of(self, d: *Decl) -> FrozenList::<*FieldDecl> {
-        if isa::<ClassDecl>(d) { return cast::<ClassDecl>(d)->fields; }
-        if isa::<UnionDecl>(d) { return cast::<UnionDecl>(d)->fields; }
-        return cast::<StructDecl>(d)->fields;
-    }
-
-    priv fn _has_eval_member(self, d: *Decl) -> bool {
-        var ms: *FrozenList::<*FunctionDecl> = &null;
-        if isa::<ClassDecl>(d)       { ms = &(cast::<ClassDecl>(d)->methods); }
-        else if isa::<StructDecl>(d) { ms = &(cast::<StructDecl>(d)->methods); }
-        else if isa::<UnionDecl>(d)  { ms = &(cast::<UnionDecl>(d)->methods); }
-        if ms == &null { return false; }
-        for var i: usize = 0; i < ms->size(); ++i {
-            var m = (*ms)[i];
-            if (m != &null) && m->is_eval() { return true; }
+    priv fn _methods_of(self, d: unsafe *Decl) -> FrozenList<unsafe *Declarations::FunctionDecl> {
+        if isa<Declarations::ClassDecl>(d) {
+            return cast<Declarations::ClassDecl>(d)->methods
         }
-        return false;
+
+        if isa<Declarations::UnionDecl>(d) {
+            return cast<Declarations::UnionDecl>(d)->methods
+        }
+
+        return cast<Declarations::StructDecl>(d)->methods
+    }
+
+    priv fn _fields_of(self, d: unsafe *Decl) -> FrozenList<unsafe *Declarations::FieldDecl> {
+        if isa<Declarations::ClassDecl>(d) {
+            return cast<Declarations::ClassDecl>(d)->fields
+        }
+
+        if isa<Declarations::UnionDecl>(d) {
+            return cast<Declarations::UnionDecl>(d)->fields
+        }
+
+        return cast<Declarations::StructDecl>(d)->fields
+    }
+
+    priv fn _has_eval_member(self, d: unsafe *Decl) -> bool {
+        var ms: unsafe *FrozenList<unsafe *Declarations::FunctionDecl> = &null
+        if isa<Declarations::ClassDecl>(d) {
+            ms = unsafe &cast<Declarations::ClassDecl>(d)->methods
+        } else if isa<Declarations::StructDecl>(d) {
+            ms = unsafe &cast<Declarations::StructDecl>(d)->methods
+        } else if isa<Declarations::UnionDecl>(d) {
+            ms = unsafe &cast<Declarations::UnionDecl>(d)->methods
+        }
+
+        if ms == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < ms->size(); ++i {
+            var unsafe *m = (*ms)[i]
+            if m != &null && m->is_eval() {
+                return true
+            }
+        }
+
+        return false
     }
 
     priv fn _needs_new(self) -> bool {
-        var header = (self._plan->mode() == PlanMode::Header);
+        var header = self._plan->mode() == PlanMode::Header
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
-            var e = &(self._plan->entries[i]);
-            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) || (e->eval_item != &null) { continue; }
-            if header && (!e->own) { continue; }
-            if self._rebuilds(e->decl) { return true; }
+            var *e = &self._plan->entries[i]
+            if e->tier != PlanTier::Definitions
+                || e->scope != &null
+                || e->witness != &null
+                || e->eval_item != &null {
+                continue
+            }
+
+            if header && !e->own {
+                continue
+            }
+
+            if self._rebuilds(e->decl) {
+                return true
+            }
         }
-        return false;
+
+        return false
     }
 
-    priv fn _rebuilds(self, d: *Decl) -> bool {
-        var form = self._assign_form_of(d);
-        if (form == AssignForm::Body) || (form == AssignForm::Constrained) { return true; }
-        if (!isa::<ClassDecl>(d)) && (!isa::<StructDecl>(d)) { return false; }
-        var dc = CXXSpell::dc_of(d);
-        if dc == &null { return false; }
-        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            var nd = *(dc->dc_decls.get(i));
-            if (nd == &null) || isa::<VisibilityGroupDecl>(nd) || (!self._is_type(nd)) { continue; }
-            if self._rebuilds(CXXSpell::rep(nd)) { return true; }
+    priv fn _rebuilds(self, d: unsafe *Decl) -> bool {
+        var form = self._assign_form_of(d)
+        if form == Declarations::AssignForm::Body || form == Declarations::AssignForm::Constrained {
+            return true
         }
-        return false;
+
+        if (!isa<Declarations::ClassDecl>(d)) && !isa<Declarations::StructDecl>(d) {
+            return false
+        }
+
+        var unsafe *dc = CXXSpell::dc_of(d)
+        if dc == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var unsafe *nd = *dc->dc_decls.get(i)
+            if nd == &null || isa<Declarations::VisibilityGroupDecl>(nd) || !self._is_type(nd) {
+                continue
+            }
+
+            if self._rebuilds(CXXSpell::rep(nd)) {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// The six comparisons OperatorTyping derives from a member `op <=>`,
@@ -1559,75 +2452,123 @@ class InterfaceEmitter {
     /// not written; nor is `!=` beside a declared `==`, which C++20 rewrites
     /// exactly as Kairo derives it. A generic `<=>` has no one operand to
     /// spell and derives nothing here. Returns the access in force.
-    priv fn _derived_cmps(self, d: *Decl, cur: u8, at: SourceRange) -> u8 {
-        var methods = self._methods_of(d);
-        var has_eq = false;
-        var declared = vec::<TokenKind>();
+    priv fn _derived_cmps(self, d: unsafe *Decl, cur: u8, at: SourceRange) -> u8 {
+        var methods  = self._methods_of(d)
+        var has_eq   = false
+        var declared = cxx::std::vector<TokenKind>()
         for var i: usize = 0; i < methods.size(); ++i {
-            var m = methods[i];
-            if (m == &null) || (!m->is_operator) { continue; }
-            var k = OperatorFacts::op_kind(m);
+            var unsafe *m = methods[i]
+            if m == &null || !m->is_operator {
+                continue
+            }
+
+            var k = OperatorFacts::op_kind(m)
             // `not_eq` is `!=` to C++.
-            if k == TokenKind::KwNotEq { k = TokenKind::OpExclaimEqual; }
-            if k == TokenKind::OpEqualEqual { has_eq = true; }
-            declared.push_back(k);
+            if k == TokenKind::KwNotEq {
+                k = TokenKind::OpExclaimEqual
+            }
+
+            if k == TokenKind::OpEqualEqual {
+                has_eq = true
+            }
+
+            declared.push_back(k)
         }
 
-        var ops = vec::<TokenKind>();
-        ops.push_back(TokenKind::OpLess);
-        ops.push_back(TokenKind::OpLessEqual);
-        ops.push_back(TokenKind::OpGreater);
-        ops.push_back(TokenKind::OpGreaterEqual);
-        ops.push_back(TokenKind::OpEqualEqual);
-        ops.push_back(TokenKind::OpExclaimEqual);
-        var syms = vec::<string>();
-        syms.push_back("<");
-        syms.push_back("<=");
-        syms.push_back(">");
-        syms.push_back(">=");
-        syms.push_back("==");
-        syms.push_back("!=");
+        var ops = cxx::std::vector<TokenKind>()
+        ops.push_back(TokenKind::OpLess)
+        ops.push_back(TokenKind::OpLessEqual)
+        ops.push_back(TokenKind::OpGreater)
+        ops.push_back(TokenKind::OpGreaterEqual)
+        ops.push_back(TokenKind::OpEqualEqual)
+        ops.push_back(TokenKind::OpExclaimEqual)
+        var syms = cxx::std::vector<string>()
+        syms.push_back("<")
+        syms.push_back("<=")
+        syms.push_back(">")
+        syms.push_back(">=")
+        syms.push_back("==")
+        syms.push_back("!=")
 
-        var acc = cur;
-        var sc8 = builtin_info(BuiltinKind::I8)->cxx;
+        var acc = cur
+        var sc8 = builtin_info(BuiltinKind::I8)->cxx
         for var i: usize = 0; i < methods.size(); ++i {
-            var m = methods[i];
-            if (m == &null) || (!m->is_operator) || (!m->is_method()) { continue; }
-            if OperatorFacts::op_kind(m) != TokenKind::OpLessEqualGreater { continue; }
-            if self._spell->template_head(static_cast::<*Decl>(m)).size() > 0 { continue; }
+            var unsafe *m = methods[i]
+            if m == &null || !m->is_operator || !m->is_method() {
+                continue
+            }
+
+            if OperatorFacts::op_kind(m) != TokenKind::OpLessEqualGreater {
+                continue
+            }
+
+            if self._spell->template_head(unsafe (m as unsafe *Decl)).size() > 0 {
+                continue
+            }
+
             // A panicking one returns a panic result, which no comparison
             // against 0 can read. Kairo's own `<` holds and tests the call
             // (PanicLowering); a C++ caller gets the `<=>` alone.
-            if m->panic_result != &null { continue; }
-            var other: *ParamDecl = &null;
-            for var j: usize = 0; j < m->params.size(); ++j {
-                var p = m->params[j];
-                if (p != &null) && (!p->is_self) { other = p; break; }
+            if m->panic_result != &null {
+                continue
             }
-            if other == &null { continue; }   // OperatorSignatureCheck rejected it already.
 
-            var mat   = self._at(static_cast::<*Decl>(m));
-            var param = self._spell->param_decl(other, "o", &null, d);
-            var quals = "";
-            if m->is_const()  { quals += " const"; }
-            if m->no_unwind   { quals += " noexcept"; }
+            var other: unsafe *Declarations::ParamDecl = &null
+            for var j: usize = 0; j < m->params.size(); ++j {
+                var unsafe *p = m->params[j]
+                if p != &null && !p->is_self {
+                    other = p
+                    break
+                }
+            }
+
+            if other == &null { // OperatorSignatureCheck rejected it already.
+                continue
+            }
+
+            var mat   = self._at(m)
+            var param = self._spell->param_decl(other, "o", &null, d)
+            var quals = ""
+            if m->is_const() {
+                quals += " const"
+            }
+
+            if m->no_unwind {
+                quals += " noexcept"
+            }
+
             // Forwarded as the `<=>` takes it: a by-value or `&&` operand
             // is an lvalue `o` here and must be moved on.
-            var call  = "static_cast<" + sc8 + ">(this->" + self._spell->leaf(m) + "(static_cast<decltype(o)&&>(o)))";
+            var call = "static_cast<" + sc8 + ">(this->" + self._spell->leaf(
+                m,
+            ) + "(static_cast<decltype(o)&&>(o)))"
             for var j: usize = 0; j < ops.size(); ++j {
-                var k = ops[j];
-                var mine = false;
+                var k    = ops[j]
+                var mine = false
                 for var q: usize = 0; q < declared.size(); ++q {
-                    if declared[q] == k { mine = true; break; }
+                    if declared[q] == k {
+                        mine = true
+                        break
+                    }
                 }
-                if mine { continue; }
-                if (k == TokenKind::OpExclaimEqual) && has_eq { continue; }
-                acc = self._access(acc, self._cxx_vis(static_cast::<*Decl>(m)), false, at);
-                self._cg->sink->spell(mat, "bool operator" + syms[j] + "(" + param + ")" + quals
-                                         + " { return " + call + " " + syms[j] + " 0; }");
+
+                if mine {
+                    continue
+                }
+
+                if k == TokenKind::OpExclaimEqual && has_eq {
+                    continue
+                }
+
+                acc = self._access(acc, self._cxx_vis(m), false, at)
+                self._cg->sink->spell(
+                    mat,
+                    "bool operator" + syms[j] + "(" + param + ")" + quals + " { return " + call + " " + syms[j] + " 0; }",
+                )
             }
         }
-        return acc;
+
+        return acc
     }
 
     /// `X& operator=(...)`, as ClassLifecycle chose it (AssignForm). The
@@ -1635,39 +2576,70 @@ class InterfaceEmitter {
     /// constructor takes it exactly: `const X&` from `@copy fn X(self,
     /// const other: Self)`, `X&` without the `const`, `X&&` from `@move`.
     /// Anchored on the constructor, which it is derived from.
-    priv fn _derived_assign(self, d: *Decl) {
-        var form = self._assign_form_of(d);
-        var x    = self._assign_from_of(d);
-        if x == &null { self._ice(self._at(d), "InterfaceEmitter: a derived `op =` with no transfer constructor; ClassLifecycle gate failure"); }
-        var other: *ParamDecl = &null;
-        for var i: usize = 0; i < x->params.size(); ++i {
-            var p = x->params[i];
-            if (p != &null) && (!p->is_self) { other = p; break; }
+    priv fn _derived_assign(self, d: unsafe *Decl) {
+        var        form = self._assign_form_of(d)
+        var unsafe *x   = self._assign_from_of(d)
+        if x == &null {
+            self._ice(
+                self._at(d),
+                "InterfaceEmitter: a derived `op =` with no transfer constructor; ClassLifecycle gate failure",
+            )
         }
-        if other == &null { self._ice(self._at(static_cast::<*Decl>(x)), "InterfaceEmitter: a transfer constructor with no `other`; ClassLifecycle gate failure"); }
-        var xat   = self._at(static_cast::<*Decl>(x));
-        var head  = self._spell->leaf(d) + "& operator=(";
-        var bare  = head + self._spell->param_decl(other, "", &null, d) + ")";
-        var named = head + self._spell->param_decl(other, "o", &null, d) + ")";
+
+        var other: unsafe *Declarations::ParamDecl = &null
+        for var i: usize = 0; i < x->params.size(); ++i {
+            var unsafe *p = x->params[i]
+            if p != &null && !p->is_self {
+                other = p
+                break
+            }
+        }
+
+        if other == &null {
+            self._ice(
+                self._at(unsafe (x as unsafe *Decl)),
+                "InterfaceEmitter: a transfer constructor with no `other`; ClassLifecycle gate failure",
+            )
+        }
+
+        var xat  = self._at(unsafe (x as unsafe *Decl))
+        var head = self._spell->leaf(d) + "& operator=("
+        // noexcept exactly when the transfer constructor it rebuilds through
+        // is (a Kairo constructor cannot unwind unless -funwind / @unwind):
+        // otherwise is_nothrow_move_assignable is false for a C++ user and
+        // std::vector copies instead of moving on regrowth. Only the
+        // forms with a body: `= default` deduces its own noexcept and a
+        // deleted one is never called.
+        var ne = ""
+        if x->no_unwind {
+            ne = " noexcept"
+        }
+
+        var bare  = head + self._spell->param_decl(other, "", &null, d) + ")"
+        var named = head + self._spell->param_decl(other, "o", &null, d) + ")" + ne
         // The constructor's own requires-clause, if it has one: the record's
         // explicit instantiation (`template class V<X>;`) instantiates every
         // unconstrained member, so an `op =` that rebuilds through a copy
         // constructor X's clause removed would fail for that X even though
         // nothing assigns one (`[MoveOnly]`'s constrained @copy).
-        var xreq  = self._spell->member_requires(x, d);
-        switch form {
-            case AssignForm::Default { self._cg->sink->spell(xat, bare + xreq + " = default;"); }
-            case AssignForm::Deleted { self._cg->sink->spell(xat, bare + " = delete;"); }
-            case AssignForm::Body    { self._cg->sink->spell(xat, named + xreq + self._rebuild(d, x)); }
-            case AssignForm::Constrained {
+        var xreq = self._spell->member_requires(x, d)
+        match form {
+            case Declarations::AssignForm::Default {
+                self._cg->sink->spell(xat, bare + xreq + " = default;")
+            } case Declarations::AssignForm::Deleted {
+                self._cg->sink->spell(xat, bare + " = delete;")
+            } case Declarations::AssignForm::Body {
+                self._cg->sink->spell(xat, named + xreq + self._rebuild(d, x))
+            } case Declarations::AssignForm::Constrained {
                 // Exactly one is viable in an instance, as with a generic
                 // ADT's special members; the deleted one leaves an instance
                 // that fails the constraint unassignable by name.
-                var ok = self._rebuild_constraint(d);
-                self._cg->sink->spell(xat, named + " requires (" + ok + ")" + self._rebuild(d, x));
-                self._cg->sink->spell(xat, bare + " requires (!(" + ok + ")) = delete;");
+                var ok = self._rebuild_constraint(d)
+                self._cg->sink->spell(xat, named + " requires (" + ok + ")" + self._rebuild(d, x))
+                self._cg->sink->spell(xat, bare + " requires (!(" + ok + ")) = delete;")
+            } default {
+                0
             }
-            default { 0; }
         }
     }
 
@@ -1681,11 +2653,11 @@ class InterfaceEmitter {
     /// constructor cannot leave the record half-assigned. `::new` is the
     /// global placement form (<new>, _needs_new); X is the injected class
     /// name, template or not.
-    priv fn _rebuild(self, d: *Decl, x: *FunctionDecl) -> string {
-        var nm  = self._spell->leaf(d);
-        var src = ("static_cast<" + nm + "&&>(o)") if (x->transfer == TransferKind::Move) else ("o");
-        return " { if (this != &o) { this->" + nm + "::~" + nm + "(); ::new (static_cast<void*>(this)) "
-             + nm + "(" + src + "); } return *this; }";
+    priv fn _rebuild(self, d: unsafe *Decl, x: unsafe *Declarations::FunctionDecl) -> string {
+        var nm = self._spell->leaf(d)
+        var src = if (x->transfer == Declarations::TransferKind::Move) => ("static_cast<" + nm + "&&>(o)")
+                  else => "o"
+        return " { if (this != &o) { this->" + nm + "::~" + nm + "(); ::new (static_cast<void*>(this)) " + nm + "(" + src + "); } return *this; }"
     }
 
     /// What a Constrained `op =` asks of an instance: every by-value field
@@ -1695,35 +2667,58 @@ class InterfaceEmitter {
     /// lists with the same test). Traits over the parts, never over the
     /// record: inside its own body the record is incomplete, and clang
     /// rejects a trait on it there.
-    priv fn _rebuild_constraint(self, d: *Decl) -> string {
-        var s = "";
-        if isa::<ClassDecl>(d) {
-            var c = cast::<ClassDecl>(d);
+    priv fn _rebuild_constraint(self, d: unsafe *Decl) -> string {
+        var s = ""
+        if isa<Declarations::ClassDecl>(d) {
+            var unsafe *c = cast<Declarations::ClassDecl>(d)
             for var i: usize = 0; i < c->derives_list.size(); ++i {
-                var e = c->derives_list.get(i);
-                if (e == &null) || (!self._dependent(e->base)) { continue; }
-                var b = self._spell->_type(e->base);
-                if s.size() > 0 { s += " && "; }
-                s += "__is_destructible(" + b + ") && !__is_polymorphic(" + b + ")";
+                var unsafe *e = c->derives_list.get(i)
+                if e == &null || !self._dependent(e->base) {
+                    continue
+                }
+
+                var b = self._spell->_type(e->base)
+                if s.size() > 0 {
+                    s += " && "
+                }
+
+                s += "__is_destructible(" + b + ") && !__is_polymorphic(" + b + ")"
             }
         }
-        var fields = self._fields_of(d);
+
+        var fields = self._fields_of(d)
         for var i: usize = 0; i < fields.size(); ++i {
-            var f = fields[i];
-            if (f == &null) || f->is_static() || (!self._dependent(f->type_)) { continue; }
-            if s.size() > 0 { s += " && "; }
-            s += "__is_destructible(" + self._spell->_type(f->type_, &null, d) + ")";
+            var unsafe *f = fields[i]
+            if f == &null || f->is_static() || !self._dependent(f->type_) {
+                continue
+            }
+
+            if s.size() > 0 {
+                s += " && "
+            }
+
+            s += "__is_destructible(" + self._spell->_type(f->type_, &null, d) + ")"
         }
-        if s.size() == 0 { self._ice(self._at(d), "InterfaceEmitter: a constrained `op =` with no dependent part; ClassLifecycle gate failure"); }
-        return s;
+
+        if s.size() == 0 {
+            self._ice(
+                self._at(d),
+                "InterfaceEmitter: a constrained `op =` with no dependent part; ClassLifecycle gate failure",
+            )
+        }
+
+        return s
     }
 
     /// The type depends on a generic parameter (ClassLifecycle's test for
     /// an open part).
-    priv fn _dependent(self, t: *Type) -> bool {
-        if (t == &null) || (t->canonical == &null) { return false; }
-        var c = canon_unqual(t->canonical);
-        return c->is_dependent() || c->is_instantiation_dependent();
+    priv fn _dependent(self, t: unsafe *Type) -> bool {
+        if t == &null || t->canonical == &null {
+            return false
+        }
+
+        var unsafe *c = canon_unqual(t->canonical)
+        return c->is_dependent() || c->is_instantiation_dependent()
     }
 
     /// `union { T a; U b; };`: an anonymous union, written where its field
@@ -1731,37 +2726,58 @@ class InterfaceEmitter {
     /// in force for the field, so no specifier goes inside. Each member is
     /// spelled as an ordinary field would be, \p owner's body being the
     /// scope its types are named from. The layout is clang's.
-    priv fn _anon_union_field(self, f: *FieldDecl, owner: *Decl) {
-        var u = self._plan->anon_union_of(f);
-        var fat = self._at(static_cast::<*Decl>(f));
+    priv fn _anon_union_field(self, f: unsafe *Declarations::FieldDecl, owner: unsafe *Decl) {
+        var unsafe *u  = self._plan->anon_union_of(f)
+        var        fat = self._at(unsafe (f as unsafe *Decl))
         // A lang item's aligned payload (EnumDecl::adt_union_align): every
         // payload starts at that boundary, whatever the tag before it.
-        var oe = dyn_cast::<EnumDecl>(owner);
-        if (oe != &null) && (oe->adt_payload_offset != &null) {
+        var unsafe *oe = dyn_cast<Declarations::EnumDecl>(owner)
+        if oe != &null && oe->adt_payload_offset != &null {
             // max(floor, alignof(payloads)): never weaker than the members'
             // own, which an `alignas` may not be.
-            self._cg->sink->spell(fat, "union alignas(" + self._spell->leaf(static_cast::<*Decl>(oe->adt_payload_offset)) + ") {");
+            self._cg->sink->spell(
+                fat,
+                "union alignas(" + self._spell->leaf(oe->adt_payload_offset) + ") {",
+            )
         } else {
-            self._cg->sink->spell(fat, "union {");
+            self._cg->sink->spell(fat, "union {")
         }
+
         for var i: usize = 0; i < u->fields.size(); ++i {
-            var m = u->fields[i];
-            if m == &null { continue; }
-            var mps = self._member_payload(m);
-            if (mps != &null) && (mps->adt_pack_param != &null) {
-                // One payload per element of the pack (_pack_union).
-                self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), "::" + LowerTargets::adt_pack_union() + "<" + self._pack_payload(mps, owner)
-                                      + "...> " + self._spell->leaf(static_cast::<*Decl>(m)) + ";");
-                continue;
+            var unsafe *m = u->fields[i]
+            if m == &null {
+                continue
             }
-            var ms = self._spell->decl(m->type_, self._spell->leaf(static_cast::<*Decl>(m)), &null, owner);
-            ms += ";";
-            self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), ms);
+
+            var unsafe *mps = self._member_payload(m)
+            if mps != &null && mps->adt_pack_param != &null {
+                // One payload per element of the pack (_pack_union).
+                self._cg->sink->spell(
+                    self._at(unsafe (m as unsafe *Decl)),
+                    "::" + LowerTargets::adt_pack_union() + "<" + self._pack_payload(
+                        mps,
+                        owner,
+                    ) + "...> " + self._spell->leaf(unsafe (m as unsafe *Decl)) + ";",
+                )
+
+                continue
+            }
+
+            var ms = self._spell->decl(
+                m->type_,
+                self._spell->leaf(unsafe (m as unsafe *Decl)),
+                &null,
+                owner,
+            )
+
+            ms += ";"
+            self._cg->sink->spell(self._at(unsafe (m as unsafe *Decl)), ms)
         }
-        self._cg->sink->spell(fat, "};");
+
+        self._cg->sink->spell(fat, "};")
     }
 
-    /// The payload member of a pack-expanded variant (PANIC.md §1.2):
+    /// The payload member of a pack-expanded variant (Compiler/Spec/Panic.md#the-result-type):
     /// `__kairo_pu<P<E>...>`, a union of one payload per element, head and
     /// rest. Element K is `__kairo_get<K>()`; building one is the
     /// `(__kairo_vt<K>, f)` constructor, which recurses to the K-th member;
@@ -1772,68 +2788,70 @@ class InterfaceEmitter {
     /// ADT's own (which know the tag) run the element's. Once per TU,
     /// beside the variant tags it is built with.
     priv fn _pack_union(self) {
-        var pu  = LowerTargets::adt_pack_union();
-        var hd  = LowerTargets::adt_pack_head();
-        var rs  = LowerTargets::adt_pack_rest();
-        var get = LowerTargets::adt_pack_get();
-        var ds  = LowerTargets::adt_destroy();
-        var cf  = LowerTargets::adt_construct_from();
-        var vt  = "::" + LowerTargets::adt_variant_tag();
-        var u   = builtin_info(BuiltinKind::U32)->cxx;
-        var tc  = "(__is_trivially_copyable(H) && (__is_trivially_copyable(R) && ...))";
-        var td  = "(__is_trivially_destructible(H) && (__is_trivially_destructible(R) && ...))";
-        var at  = self._tu_at();
-        self._cg->sink->spell(at, "template <class... P> union " + pu + " { " + pu + "() noexcept {} void " + ds + "(" + u + ") noexcept {} "
-            + "template <class O> void " + cf + "(" + u + ", O&&) noexcept {} };");
-        self._cg->sink->brk();
-        var s = "template <class H, class... R> union " + pu + "<H, R...> { H " + hd + "; " + pu + "<R...> " + rs + "; "
-              + pu + "() noexcept {} "
-              + "template <class F> " + pu + "(" + vt + "<0>, F&& f) noexcept : " + hd + "(static_cast<F&&>(f)()) {} "
-              + "template <" + u + " K, class F> requires (K > 0) " + pu + "(" + vt + "<K>, F&& f) noexcept : " + rs + "(" + vt + "<K - 1>{}, static_cast<F&&>(f)) {} "
-              + pu + "(const " + pu + "&) requires " + tc + " = default; "
-              + pu + "(const " + pu + "&) noexcept requires (!" + tc + ") {} "
-              + pu + "(" + pu + "&&) requires " + tc + " = default; "
-              + pu + "(" + pu + "&&) noexcept requires (!" + tc + ") {} "
-              + pu + "& operator=(const " + pu + "&) requires " + tc + " = default; "
-              + pu + "& operator=(" + pu + "&&) requires " + tc + " = default; "
-              + "~" + pu + "() requires " + td + " = default; "
-              + "~" + pu + "() noexcept requires (!" + td + ") {} "
-              + "template <" + u + " K> auto& " + get + "() noexcept { if constexpr (K == 0) { return " + hd + "; } else { return " + rs + ".template " + get + "<K - 1>(); } } "
-              + "template <" + u + " K> const auto& " + get + "() const noexcept { if constexpr (K == 0) { return " + hd + "; } else { return " + rs + ".template " + get + "<K - 1>(); } } "
-              + "void " + ds + "(" + u + " k) noexcept { if (k == 0) { " + hd + ".~H(); } else { " + rs + "." + ds + "(k - 1); } } "
-              + "template <class O> void " + cf + "(" + u + " k, O&& o) noexcept { if (k == 0) { new (&" + hd + ") H(static_cast<O&&>(o)." + hd + "); } "
-              + "else { " + rs + "." + cf + "(k - 1, static_cast<O&&>(o)." + rs + "); } } };";
-        self._cg->sink->spell(at, s);
-        self._cg->sink->brk();
+        var pu  = LowerTargets::adt_pack_union()
+        var hd  = LowerTargets::adt_pack_head()
+        var rs  = LowerTargets::adt_pack_rest()
+        var get = LowerTargets::adt_pack_get()
+        var ds  = LowerTargets::adt_destroy()
+        var cf  = LowerTargets::adt_construct_from()
+        var vt  = "::" + LowerTargets::adt_variant_tag()
+        var u   = builtin_info(BuiltinKind::U32)->cxx
+        var tc  = "(__is_trivially_copyable(H) && (__is_trivially_copyable(R) && ...))"
+        var td  = "(__is_trivially_destructible(H) && (__is_trivially_destructible(R) && ...))"
+        var at  = self._tu_at()
+        self._cg->sink->spell(
+            at,
+            "template <class... P> union " + pu + " { " + pu + "() noexcept {} void " + ds + "(" + u + ") noexcept {} " + "template <class O> void " + cf + "(" + u + ", O&&) noexcept {} };",
+        )
+
+        self._cg->sink->brk()
+        var s = "template <class H, class... R> union " + pu + "<H, R...> { H " + hd + "; " + pu + "<R...> " + rs + "; " + pu + "() noexcept {} " + "template <class F> " + pu + "(" + vt + "<0>, F&& f) noexcept : " + hd + "(static_cast<F&&>(f)()) {} " + "template <" + u + " K, class F> requires (K > 0) " + pu + "(" + vt + "<K>, F&& f) noexcept : " + rs + "(" + vt + "<K - 1>{}, static_cast<F&&>(f)) {} " + pu + "(const " + pu + "&) requires " + tc + " = default; " + pu + "(const " + pu + "&) noexcept requires (!" + tc + ") {} " + pu + "(" + pu + "&&) requires " + tc + " = default; " + pu + "(" + pu + "&&) noexcept requires (!" + tc + ") {} " + pu + "& operator=(const " + pu + "&) requires " + tc + " = default; " + pu + "& operator=(" + pu + "&&) requires " + tc + " = default; " + "~" + pu + "() requires " + td + " = default; " + "~" + pu + "() noexcept requires (!" + td + ") {} " + "template <" + u + " K> auto& " + get + "() noexcept { if constexpr (K == 0) { return " + hd + "; } else { return " + rs + ".template " + get + "<K - 1>(); } } " + "template <" + u + " K> const auto& " + get + "() const noexcept { if constexpr (K == 0) { return " + hd + "; } else { return " + rs + ".template " + get + "<K - 1>(); } } " + "void " + ds + "(" + u + " k) noexcept { if (k == 0) { " + hd + ".~H(); } else { " + rs + "." + ds + "(k - 1); } } " + "template <class O> void " + cf + "(" + u + " k, O&& o) noexcept { if (k == 0) { new (&" + hd + ") H(static_cast<O&&>(o)." + hd + "); } " + "else { " + rs + "." + cf + "(k - 1, static_cast<O&&>(o)." + rs + "); } } };"
+        self._cg->sink->spell(at, s)
+        self._cg->sink->brk()
     }
 
-    /// The Panic lang item's preamble (PANIC.md §1.1a, §1.3):
+    /// The Panic lang item's preamble (Compiler/Spec/Panic.md#layout, §1.3):
     ///   `__kairo_tid<E>`        incomplete: an element type with no
     ///                           specialization (no id from Sema) is a
     ///                           compile error, never a silent tag 0;
     ///   `__kairo_type_id<E>`    the id, read off the specialization;
     ///   `__kairo_unit`, `__kairo_nv<T>`   T, or an empty struct for void;
     ///   `__kairo_max_align<P...>(f)`      max(f, alignof(P)...).
-    priv fn _panic_helpers(self, en: *EnumDecl) {
-        var u  = builtin_info(BuiltinKind::U32)->cxx;
-        var at = self._tu_at();
-        var ti = LowerTargets::type_id_trait();
-        self._cg->sink->spell(at, "template <class E> struct " + ti + ";");
-        self._cg->sink->spell(at, "template <class E> inline constexpr " + u + " " + LowerTargets::type_id() + " = " + ti + "<E>::value;");
-        self._cg->sink->spell(at, "struct " + LowerTargets::unit_type() + " {};");
-        var vs = LowerTargets::void_unit_trait();
-        self._cg->sink->spell(at, "template <class T> struct " + vs + " { using type = T; };");
-        self._cg->sink->spell(at, "template <> struct " + vs + "<void> { using type = " + LowerTargets::unit_type() + "; };");
-        self._cg->sink->spell(at, "template <class T> using " + LowerTargets::void_unit() + " = typename " + vs + "<T>::type;");
-        self._cg->sink->spell(at, "template <class... P> constexpr " + u + " " + LowerTargets::max_align() + "(" + u + " f) noexcept { "
-                                  + u + " a = f; ((a = (alignof(P) > a) ? static_cast<" + u + ">(alignof(P)) : a), ...); return a; }");
-        self._cg->sink->brk();
-        self._raw_slot_helpers(self._plan->mode() == PlanMode::Header);
-        self._fwd_helpers(en);
-        self._pset_helpers();
+    priv fn _panic_helpers(self, en: unsafe *Declarations::EnumDecl) {
+        var u  = builtin_info(BuiltinKind::U32)->cxx
+        var at = self._tu_at()
+        var ti = LowerTargets::type_id_trait()
+        self._cg->sink->spell(at, "template <class E> struct " + ti + ";")
+        self._cg->sink->spell(
+            at,
+            "template <class E> inline constexpr " + u + " " + LowerTargets::type_id() + " = " + ti + "<E>::value;",
+        )
+
+        self._cg->sink->spell(at, "struct " + LowerTargets::unit_type() + " {};")
+        var vs = LowerTargets::void_unit_trait()
+        self._cg->sink->spell(at, "template <class T> struct " + vs + " { using type = T; };")
+        self._cg->sink->spell(
+            at,
+            "template <> struct " + vs + "<void> { using type = " + LowerTargets::unit_type() + "; };",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "template <class T> using " + LowerTargets::void_unit() + " = typename " + vs + "<T>::type;",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "template <class... P> constexpr " + u + " " + LowerTargets::max_align() + "(" + u + " f) noexcept { " + u + " a = f; ((a = (alignof(P) > a) ? static_cast<" + u + ">(alignof(P)) : a), ...); return a; }",
+        )
+
+        self._cg->sink->brk()
+        self._raw_slot_helpers(self._plan->mode() == PlanMode::Header)
+        self._fwd_helpers(en)
+        self._pset_helpers()
     }
 
-    /// `__kairo_pset<P, T, E...>` (PANIC.md P10): a panic result whose set
+    /// `__kairo_pset<P, T, E...>` (Compiler/Spec/Panic.md#generic-bodies): a panic result whose set
     /// names a type parameter, ordered by C++ at each instance -- the
     /// elements deduplicated and sorted by type id, Sema's canonical order
     /// (§1.3), so a generic function's `Panic<i32, T, A>` at T = B is the
@@ -1843,36 +2861,79 @@ class InterfaceEmitter {
     /// only C++ sees, an instance a kcc host makes). Every element needs its
     /// `__kairo_tid`: one nobody gave an id is a compile error, never tag 0.
     priv fn _pset_helpers(self) {
-        var at  = self._tu_at();
-        var tl  = LowerTargets::panic_set_list();
-        var ins = LowerTargets::panic_set_insert();
-        var ia  = LowerTargets::panic_set_insert_at();
-        var cn  = LowerTargets::panic_set_cons();
-        var so  = LowerTargets::panic_set_sort();
-        var ap  = LowerTargets::panic_set_apply();
-        var al  = LowerTargets::panic_set_alias();
-        var tid = "::" + LowerTargets::type_id();
-        var tp  = "template <class, class...> class P";
-        self._cg->sink->spell(at, "template <class... E> struct " + tl + " {};");
-        self._cg->sink->spell(at, "template <class H, class L> struct " + cn + ";");
-        self._cg->sink->spell(at, "template <class H, class... R> struct " + cn + "<H, " + tl + "<R...>> { using type = " + tl + "<H, R...>; };");
-        self._cg->sink->spell(at, "template <class X, class L> struct " + ins + ";");
-        self._cg->sink->spell(at, "template <int C, class X, class H, class... R> struct " + ia + ";");
-        self._cg->sink->spell(at, "template <class X> struct " + ins + "<X, " + tl + "<>> { using type = " + tl + "<X>; };");
-        self._cg->sink->spell(at, "template <class X, class H, class... R> struct " + ia + "<-1, X, H, R...> { using type = " + tl + "<X, H, R...>; };");
-        self._cg->sink->spell(at, "template <class X, class H, class... R> struct " + ia + "<0, X, H, R...> { "
-            + "static_assert(__is_same(X, H), \"two types with one panic type id cannot be in one panic set\"); using type = " + tl + "<H, R...>; };");
-        self._cg->sink->spell(at, "template <class X, class H, class... R> struct " + ia + "<1, X, H, R...> { using type = typename " + cn + "<H, typename " + ins + "<X, " + tl + "<R...>>::type>::type; };");
-        self._cg->sink->spell(at, "template <class X, class H, class... R> struct " + ins + "<X, " + tl + "<H, R...>> : " + ia + "<(" + tid + "<X> < " + tid + "<H>) ? -1 : ((" + tid + "<X> == " + tid + "<H>) ? 0 : 1), X, H, R...> {};");
-        self._cg->sink->spell(at, "template <class L, class... E> struct " + so + " { using type = L; };");
-        self._cg->sink->spell(at, "template <class L, class X, class... E> struct " + so + "<L, X, E...> : " + so + "<typename " + ins + "<X, L>::type, E...> {};");
-        self._cg->sink->spell(at, "template <" + tp + ", class T, class L> struct " + ap + ";");
-        self._cg->sink->spell(at, "template <" + tp + ", class T, class... E> struct " + ap + "<P, T, " + tl + "<E...>> { using type = P<T, E...>; };");
-        self._cg->sink->spell(at, "template <" + tp + ", class T, class... E> using " + al + " = typename " + ap + "<P, T, typename " + so + "<" + tl + "<>, E...>::type>::type;");
-        self._cg->sink->brk();
+        var at  = self._tu_at()
+        var tl  = LowerTargets::panic_set_list()
+        var ins = LowerTargets::panic_set_insert()
+        var ia  = LowerTargets::panic_set_insert_at()
+        var cn  = LowerTargets::panic_set_cons()
+        var so  = LowerTargets::panic_set_sort()
+        var ap  = LowerTargets::panic_set_apply()
+        var al  = LowerTargets::panic_set_alias()
+        var tid = "::" + LowerTargets::type_id()
+        var tp  = "template <class, class...> class P"
+        self._cg->sink->spell(at, "template <class... E> struct " + tl + " {};")
+        self._cg->sink->spell(at, "template <class H, class L> struct " + cn + ";")
+        self._cg->sink->spell(
+            at,
+            "template <class H, class... R> struct " + cn + "<H, " + tl + "<R...>> { using type = " + tl + "<H, R...>; };",
+        )
+
+        self._cg->sink->spell(at, "template <class X, class L> struct " + ins + ";")
+        self._cg->sink->spell(
+            at,
+            "template <int C, class X, class H, class... R> struct " + ia + ";",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "template <class X> struct " + ins + "<X, " + tl + "<>> { using type = " + tl + "<X>; };",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "template <class X, class H, class... R> struct " + ia + "<-1, X, H, R...> { using type = " + tl + "<X, H, R...>; };",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "template <class X, class H, class... R> struct " + ia + "<0, X, H, R...> { " + "static_assert(__is_same(X, H), \"two types with one panic type id cannot be in one panic set\"); using type = " + tl + "<H, R...>; };",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "template <class X, class H, class... R> struct " + ia + "<1, X, H, R...> { using type = typename " + cn + "<H, typename " + ins + "<X, " + tl + "<R...>>::type>::type; };",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "template <class X, class H, class... R> struct " + ins + "<X, " + tl + "<H, R...>> : " + ia + "<(" + tid + "<X> < " + tid + "<H>) ? -1 : ((" + tid + "<X> == " + tid + "<H>) ? 0 : 1), X, H, R...> {};",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "template <class L, class... E> struct " + so + " { using type = L; };",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "template <class L, class X, class... E> struct " + so + "<L, X, E...> : " + so + "<typename " + ins + "<X, L>::type, E...> {};",
+        )
+
+        self._cg->sink->spell(at, "template <" + tp + ", class T, class L> struct " + ap + ";")
+        self._cg->sink->spell(
+            at,
+            "template <" + tp + ", class T, class... E> struct " + ap + "<P, T, " + tl + "<E...>> { using type = P<T, E...>; };",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "template <" + tp + ", class T, class... E> using " + al + " = typename " + ap + "<P, T, typename " + so + "<" + tl + "<>, E...>::type>::type;",
+        )
+
+        self._cg->sink->brk()
     }
 
-    /// `__kairo_raw<T>` (PANIC.md §4.4): storage for a T that the path
+    /// `__kairo_raw<T>` (Compiler/Spec/Panic.md#paniclowering): storage for a T that the path
     /// which never fills it never builds -- a union, so its empty
     /// constructor and destructor leave the member alone. Filled once by
     /// placement into `__kairo_b` (EmitIR, PanicOp::SlotPut: the box brings
@@ -1882,26 +2943,43 @@ class InterfaceEmitter {
     priv fn _raw_slot_helpers(self, header: bool) {
         // Written with the Panic helpers or alone (a C++ arm's slot), once
         // per C++ TU: its own guard in a header, either way.
-        if self.have_raw_slot { return; }
-        self.have_raw_slot = true;
-        var at  = self._tu_at();
-        if header { self._cg->sink->directive(at, "#ifndef " + LowerTargets::raw_slot_guard()); }
-        if header { self._cg->sink->directive(at, "#define " + LowerTargets::raw_slot_guard()); }
-        var bx  = LowerTargets::raw_box();
-        var bm  = LowerTargets::raw_box_member();
-        var bv  = LowerTargets::raw_box_value();
-        var rs  = LowerTargets::raw_slot();
-        var nx  = self._adt_noexcept();
-        self._cg->sink->spell(at, "template <class T> struct " + bx + " { static void* operator new(decltype(sizeof(0)), void* p) noexcept { return p; } T " + bv + "; };");
-        self._cg->sink->brk();
-        self._cg->sink->spell(at, "template <class T> union " + rs + " { " + bx + "<T> " + bm + "; "
-            + rs + "() noexcept {} ~" + rs + "() noexcept {} " + rs + "(const " + rs + "&) = delete; "
-            + "T " + LowerTargets::raw_take() + "()" + nx + " { T r(static_cast<T&&>(" + bm + "." + bv + ")); " + bm + ".~" + bx + "<T>(); return r; } };");
-        self._cg->sink->brk();
-        if header { self._cg->sink->directive(at, "#endif"); }
+        if self.have_raw_slot {
+            return
+        }
+
+        self.have_raw_slot = true
+        var at = self._tu_at()
+        if header {
+            self._cg->sink->directive(at, "#ifndef " + LowerTargets::raw_slot_guard())
+        }
+
+        if header {
+            self._cg->sink->directive(at, "#define " + LowerTargets::raw_slot_guard())
+        }
+
+        var bx = LowerTargets::raw_box()
+        var bm = LowerTargets::raw_box_member()
+        var bv = LowerTargets::raw_box_value()
+        var rs = LowerTargets::raw_slot()
+        var nx = self._adt_noexcept()
+        self._cg->sink->spell(
+            at,
+            "template <class T> struct " + bx + " { static void* operator new(decltype(sizeof(0)), void* p) noexcept { return p; } T " + bv + "; };",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class T> union " + rs + " { " + bx + "<T> " + bm + "; " + rs + "() noexcept {} ~" + rs + "() noexcept {} " + rs + "(const " + rs + "&) = delete; " + "T " + LowerTargets::raw_take() + "()" + nx + " { T r(static_cast<T&&>(" + bm + "." + bv + ")); " + bm + ".~" + bx + "<T>(); return r; } };",
+        )
+
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(at, "#endif")
+        }
     }
 
-    /// `__kairo_fwd<R, A>(s)` (PANIC.md §4.3): the panic result `s` as the
+    /// `__kairo_fwd<R, A>(s)` (Compiler/Spec/Panic.md#preamble-helpers): the panic result `s` as the
     /// result R, whose set holds every type `s` can hold here (an error
     /// only, unless A). The same type: moved. The same size and payload
     /// offset, both trivially copied: the bytes, tag and site word and all
@@ -1912,97 +2990,128 @@ class InterfaceEmitter {
     /// element R does not hold is never the tag here, so it gets no case.
     /// Generic over the record (`P<T, E...>`), so no name of the lang item
     /// is spelled; its members are, read off \p en.
-    priv fn _fwd_helpers(self, en: *EnumDecl) {
-        var at  = self._tu_at();
-        var u   = builtin_info(BuiltinKind::U32)->cxx;
-        var nx  = self._adt_noexcept();
-        var vt  = "::" + LowerTargets::adt_variant_tag();
-        var fw  = LowerTargets::panic_fwd();
-        var fk  = LowerTargets::panic_fwd_step();
-        var px  = LowerTargets::panic_elem_index();
-        var tag = LowerTargets::adt_tag_field();
-        var tt  = LowerTargets::adt_tag_type();
-        var off = LowerTargets::adt_payload_offset();
-        var tid = "::" + LowerTargets::type_id();
-        var nv  = "::" + LowerTargets::void_unit();
-        var get = LowerTargets::adt_pack_get();
+    priv fn _fwd_helpers(self, en: unsafe *Declarations::EnumDecl) {
+        var at  = self._tu_at()
+        var u   = builtin_info(BuiltinKind::U32)->cxx
+        var nx  = self._adt_noexcept()
+        var vt  = "::" + LowerTargets::adt_variant_tag()
+        var fw  = LowerTargets::panic_fwd()
+        var fk  = LowerTargets::panic_fwd_step()
+        var px  = LowerTargets::panic_elem_index()
+        var tag = LowerTargets::adt_tag_field()
+        var tt  = LowerTargets::adt_tag_type()
+        var off = LowerTargets::adt_payload_offset()
+        var tid = "::" + LowerTargets::type_id()
+        var nv  = "::" + LowerTargets::void_unit()
+        var get = LowerTargets::adt_pack_get()
         if en->adt_site_field == &null {
-            self._ice(self._at(static_cast::<*Decl>(en)), "InterfaceEmitter: the Panic lang item without its site slot; EnumLayoutLowering::_knobs sets it");
+            self._ice(
+                self._at(unsafe (en as unsafe *Decl)),
+                "InterfaceEmitter: the Panic lang item without its site slot; EnumLayoutLowering::_knobs sets it",
+            )
         }
-        var site = self._spell->leaf(static_cast::<*Decl>(en->adt_site_field));
-        var ok: *EnumVariantDecl  = &null;
-        var err: *EnumVariantDecl = &null;
-        var errpos: usize = 0;
-        for var i: usize = 0; i < en->variants.size(); ++i {
-            var v = en->variants[i];
-            if v->is_pack_expansion { err = v; errpos = i; }
-            else if ok == &null { ok = v; }
-        }
-        if (ok == &null) || (err == &null) || (ok->adt_member == &null) || (err->adt_member == &null) {
-            self._ice(self._at(static_cast::<*Decl>(en)), "InterfaceEmitter: the Panic lang item without its Ok and pack Err variants; lang_item.k pins the shape");
-        }
-        var okn  = self._spell->leaf(static_cast::<*Decl>(ok));
-        var okm  = self._spell->leaf(static_cast::<*Decl>(ok->adt_member));
-        var okf  = self._spell->leaf(static_cast::<*Decl>(ok->payload[0]));
-        var okt  = LowerTargets::adt_payload_type(okn);
-        var erm  = self._spell->leaf(static_cast::<*Decl>(err->adt_member));
-        var erf  = self._spell->leaf(static_cast::<*Decl>(err->payload[0]));
-        var ert  = LowerTargets::adt_payload_type(self._spell->leaf(static_cast::<*Decl>(err)));
-        var npos = "static_cast<" + u + ">(-1)";
-        var tp   = "template <class, class...> class P";
 
-        self._cg->sink->spell(at, "template <class X, " + tp + ", class U, class... F> constexpr " + u + " " + px + "(P<U, F...>*) noexcept { "
-            + u + " k = 0, i = " + npos + "; ((__is_same(X, F) ? (void)(i = k) : (void)0, ++k), ...); return i; }");
-        self._cg->sink->brk();
+        var site                                          = self._spell->leaf(en->adt_site_field)
+        var ok:     unsafe *Declarations::EnumVariantDecl = &null
+        var err:    unsafe *Declarations::EnumVariantDecl = &null
+        var errpos: usize                                 = 0
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var unsafe *v = en->variants[i]
+            if v->is_pack_expansion {
+                err    = v
+                errpos = i
+            } else if ok == &null {
+                ok = v
+            }
+        }
+
+        if ok == &null || err == &null || ok->adt_member == &null || err->adt_member == &null {
+            self._ice(
+                self._at(unsafe (en as unsafe *Decl)),
+                "InterfaceEmitter: the Panic lang item without its Ok and pack Err variants; lang_item.k pins the shape",
+            )
+        }
+
+        var okn  = self._spell->leaf(ok)
+        var okm  = self._spell->leaf(ok->adt_member)
+        var okf  = self._spell->leaf(unsafe (ok->payload[0] as unsafe *Decl))
+        var okt  = LowerTargets::adt_payload_type(okn)
+        var erm  = self._spell->leaf(err->adt_member)
+        var erf  = self._spell->leaf(unsafe (err->payload[0] as unsafe *Decl))
+        var ert  = LowerTargets::adt_payload_type(self._spell->leaf(err))
+        var npos = "static_cast<" + u + ">(-1)"
+        var tp   = "template <class, class...> class P"
+
+        self._cg->sink->spell(
+            at,
+            "template <class X, " + tp + ", class U, class... F> constexpr " + u + " " + px + "(P<U, F...>*) noexcept { " + u + " k = 0, i = " + npos + "; ((__is_same(X, F) ? (void)(i = k) : (void)0, ++k), ...); return i; }",
+        )
+
+        self._cg->sink->brk()
         // One element: built into R's element of its type when the tag is
         // its id (the last element is the tag without a test).
-        self._cg->sink->spell(at, "template <class R, " + u + " K, " + tp + ", class T, class... E> R " + fk + "(P<T, E...>& s)" + nx + " { "
-            + "using X = " + LowerTargets::clang_pack_element() + "<K, E...>; "
-            + "constexpr " + u + " J = " + px + "<X>(static_cast<R*>(nullptr)); "
-            + "if constexpr (J == " + npos + ") { if constexpr (K + 1 < sizeof...(E)) { return " + fk + "<R, K + 1>(s); } else { " + LowerTargets::clang_unreachable() + "(); } } "
-            + "else { if constexpr (K + 1 < sizeof...(E)) { if (static_cast<" + u + ">(s." + tag + ") != " + tid + "<X>) { return " + fk + "<R, K + 1>(s); } } "
-            + "return R(" + vt + "<" + f"{errpos}" + ">{}, " + vt + "<J>{}, s." + site + ", [&]()" + nx + " -> typename R::template " + ert + "<X> { "
-            + "return { static_cast<X&&>(s." + erm + ".template " + get + "<K>()." + erf + ") }; }); } }");
-        self._cg->sink->brk();
-        var bits = "(sizeof(R) == sizeof(S) && R::" + off + " == S::" + off + " && __is_trivially_copyable(R) && __is_trivially_copyable(S)"
-                 + " && (!A || __is_same(" + nv + "<T>, decltype(static_cast<R*>(nullptr)->" + okm + "." + okf + "))))";
-        self._cg->sink->spell(at, "template <class R, bool A, " + tp + ", class T, class... E> R " + fw + "(P<T, E...>& s)" + nx + " { "
-            + "using S = P<T, E...>; "
-            + "if constexpr (__is_same(R, S)) { return static_cast<S&&>(s); } "
-            + "else if constexpr " + bits + " { return " + LowerTargets::clang_bit_cast() + "(R, s); } "
-            + "else { if constexpr (A) { if (s." + tag + " == S::" + tt + "::" + okn + ") { return R(" + vt + "<0>{}, [&]()" + nx + " -> typename R::" + okt + " { "
-            + "return { static_cast<" + nv + "<T>&&>(s." + okm + "." + okf + ") }; }); } } "
-            + "if constexpr (sizeof...(E) == 0) { " + LowerTargets::clang_unreachable() + "(); } else { return " + fk + "<R, 0>(s); } } }");
-        self._cg->sink->brk();
-        self._cg->sink->spell(at, "template <class R, bool A, " + tp + ", class T, class... E> R " + fw + "(P<T, E...>&& s)" + nx + " { return " + fw + "<R, A>(s); }");
-        self._cg->sink->brk();
-        // A `fn` value converted to a `fn` type whose set is wider (P4's
-        // conversion by subset): the call's result as R -- a panic result
+        self._cg->sink->spell(
+            at,
+            "template <class R, " + u + " K, " + tp + ", class T, class... E> R " + fk + "(P<T, E...>& s)" + nx + " { " + "using X = " + LowerTargets::clang_pack_element() + "<K, E...>; " + "constexpr " + u + " J = " + px + "<X>(static_cast<R*>(nullptr)); " + "if constexpr (J == " + npos + ") { if constexpr (K + 1 < sizeof...(E)) { return " + fk + "<R, K + 1>(s); } else { " + LowerTargets::clang_unreachable() + "(); } } " + "else { if constexpr (K + 1 < sizeof...(E)) { if (static_cast<" + u + ">(s." + tag + ") != " + tid + "<X>) { return " + fk + "<R, K + 1>(s); } } " + "return R(" + vt + "<" + f"{errpos}" + ">{}, " + vt + "<J>{}, s." + site + ", [&]()" + nx + " -> typename R::template " + ert + "<X> { " + "return { static_cast<X&&>(s." + erm + ".template " + get + "<K>()." + erf + ") }; }); } }",
+        )
+
+        self._cg->sink->brk()
+        var bits = "(sizeof(R) == sizeof(S) && R::" + off + " == S::" + off + " && __is_trivially_copyable(R) && __is_trivially_copyable(S)" + " && (!A || __is_same(" + nv + "<T>, decltype(static_cast<R*>(nullptr)->" + okm + "." + okf + "))))"
+        self._cg->sink->spell(
+            at,
+            "template <class R, bool A, " + tp + ", class T, class... E> R " + fw + "(P<T, E...>& s)" + nx + " { " + "using S = P<T, E...>; " + "if constexpr (__is_same(R, S)) { return static_cast<S&&>(s); } " + "else if constexpr " + bits + " { return " + LowerTargets::clang_bit_cast() + "(R, s); } " + "else { if constexpr (A) { if (s." + tag + " == S::" + tt + "::" + okn + ") { return R(" + vt + "<0>{}, [&]()" + nx + " -> typename R::" + okt + " { " + "return { static_cast<" + nv + "<T>&&>(s." + okm + "." + okf + ") }; }); } } " + "if constexpr (sizeof...(E) == 0) { " + LowerTargets::clang_unreachable() + "(); } else { return " + fk + "<R, 0>(s); } } }",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class R, bool A, " + tp + ", class T, class... E> R " + fw + "(P<T, E...>&& s)" + nx + " { return " + fw + "<R, A>(s); }",
+        )
+
+        self._cg->sink->brk()
+        // A `fn` value converted to a `fn` type whose set is wider
+        // (conversion by subset): the call's result as R -- a panic result
         // forwarded whole, a plain value (or nothing) as Ok. `F&&`: a
-        // witness forwarding to a structural conformer (P202) passes a
+        // witness forwarding to a structural conformer passes a
         // temporary lambda; the wrapper's held value is an lvalue.
-        var pc = LowerTargets::panic_call_as();
-        self._cg->sink->spell(at, "template <class R, class F, class... A> R " + pc + "(F&& f, A&&... a)" + nx + " { "
-            + "using V = decltype(f(static_cast<A&&>(a)...)); "
-            + "if constexpr (requires { V::" + off + "; } && requires (V& v) { v." + site + "; }) { return " + fw + "<R, true>(f(static_cast<A&&>(a)...)); } "
-            + "else if constexpr (__is_same(V, void)) { f(static_cast<A&&>(a)...); return R(" + vt + "<0>{}, [&]()" + nx + " -> typename R::" + okt + " { return {}; }); } "
-            + "else { return R(" + vt + "<0>{}, [&]()" + nx + " -> typename R::" + okt + " { return { f(static_cast<A&&>(a)...) }; }); } }");
-        self._cg->sink->brk();
+        var pc = LowerTargets::panic_call_as()
+        self._cg->sink->spell(
+            at,
+            "template <class R, class F, class... A> R " + pc + "(F&& f, A&&... a)" + nx + " { " + "using V = decltype(f(static_cast<A&&>(a)...)); " + "if constexpr (requires { V::" + off + "; } && requires (V& v) { v." + site + "; }) { return " + fw + "<R, true>(f(static_cast<A&&>(a)...)); } " + "else if constexpr (__is_same(V, void)) { f(static_cast<A&&>(a)...); return R(" + vt + "<0>{}, [&]()" + nx + " -> typename R::" + okt + " { return {}; }); } " + "else { return R(" + vt + "<0>{}, [&]()" + nx + " -> typename R::" + okt + " { return { f(static_cast<A&&>(a)...) }; }); } }",
+        )
+
+        self._cg->sink->brk()
     }
 
     /// `struct __kairo_panic_site`, the record of the panic site table, once
     /// per C++ TU (a header guards it).
     priv fn _site_type(self, header: bool) {
-        if self.have_site_type { return; }
-        var u = builtin_info(BuiltinKind::U32)->cxx;
-        if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::panic_site_guard()); }
-        if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::panic_site_guard()); }
-        self._cg->sink->spell(self._tu_at(), "struct " + LowerTargets::panic_site_type() + " { " + u + " id; " + u + " line; " + u + " col; const char* file; };");
-        if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
-        self.have_site_type = true;
+        if self.have_site_type {
+            return
+        }
+
+        var u = builtin_info(BuiltinKind::U32)->cxx
+        if header {
+            self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::panic_site_guard())
+        }
+
+        if header {
+            self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::panic_site_guard())
+        }
+
+        self._cg->sink->spell(
+            self._tu_at(),
+            "struct " + LowerTargets::panic_site_type() + " { " + u + " id; " + u + " line; " + u + " col; const char* file; };",
+        )
+
+        if header {
+            self._cg->sink->directive(self._tu_at(), "#endif")
+        }
+
+        self.have_site_type = true
     }
 
-    /// The C++ view of a panic result (PANIC.md §4.6): what a C++ caller of
+    /// The C++ view of a panic result (Compiler/Spec/Panic.md#the-c-view): what a C++ caller of
     /// a panicking Kairo function gets, as free templates in `::builtin`
     /// (class text must be one text everywhere, so nothing is a member).
     ///
@@ -2024,183 +3133,206 @@ class InterfaceEmitter {
     /// into every TU that includes it); one id at two places is printed
     /// whole, ` | `-separated. what() is built ONCE, when the exception is
     /// constructed, into a reference-counted buffer the copies share.
-    priv fn _panic_api(self, en: *EnumDecl, header: bool) {
-        var at  = self._tu_at();
-        var u   = builtin_info(BuiltinKind::U32)->cxx;
-        var sz  = "decltype(sizeof(0))";
-        var st  = "::" + LowerTargets::panic_site_type();
-        var pn  = self._spell->qual_name(static_cast::<*Decl>(en));
-        var pt  = pn + "<T, E...>";
-        var tag = LowerTargets::adt_tag_field();
-        var tt  = LowerTargets::adt_tag_type();
-        var get = LowerTargets::adt_pack_get();
-        var px  = "::" + LowerTargets::panic_elem_index();
-        var tid = "::" + LowerTargets::type_id();
-        var npos = "static_cast<" + u + ">(-1)";
-        var ok: *EnumVariantDecl  = &null;
-        var err: *EnumVariantDecl = &null;
+    priv fn _panic_api(self, en: unsafe *Declarations::EnumDecl, header: bool) {
+        var at                                         = self._tu_at()
+        var u                                          = builtin_info(BuiltinKind::U32)->cxx
+        var sz                                         = "decltype(sizeof(0))"
+        var st                                         = "::" + LowerTargets::panic_site_type()
+        var pn                                         = self._spell->qual_name(en)
+        var pt                                         = pn + "<T, E...>"
+        var tag                                        = LowerTargets::adt_tag_field()
+        var tt                                         = LowerTargets::adt_tag_type()
+        var get                                        = LowerTargets::adt_pack_get()
+        var px                                         = "::" + LowerTargets::panic_elem_index()
+        var tid                                        = "::" + LowerTargets::type_id()
+        var npos                                       = "static_cast<" + u + ">(-1)"
+        var ok:  unsafe *Declarations::EnumVariantDecl = &null
+        var err: unsafe *Declarations::EnumVariantDecl = &null
         for var i: usize = 0; i < en->variants.size(); ++i {
-            var v = en->variants[i];
-            if v->is_pack_expansion { err = v; }
-            else if ok == &null { ok = v; }
+            var unsafe *v = en->variants[i]
+            if v->is_pack_expansion {
+                err = v
+            } else if ok == &null {
+                ok = v
+            }
         }
-        if (ok == &null) || (err == &null) || (ok->adt_member == &null) || (err->adt_member == &null) || (en->adt_site_field == &null) {
-            self._ice(self._at(static_cast::<*Decl>(en)), "InterfaceEmitter: the Panic lang item without its Ok, pack Err and site; lang_item.k pins the shape");
-        }
-        var site = self._spell->leaf(static_cast::<*Decl>(en->adt_site_field));
-        var okn  = self._spell->leaf(static_cast::<*Decl>(ok));
-        var okv  = self._spell->leaf(static_cast::<*Decl>(ok->adt_member)) + "." + self._spell->leaf(static_cast::<*Decl>(ok->payload[0]));
-        var erm  = self._spell->leaf(static_cast::<*Decl>(err->adt_member));
-        var erf  = self._spell->leaf(static_cast::<*Decl>(err->payload[0]));
-        var api  = LowerTargets::panic_api_ns();
-        var im   = LowerTargets::panic_api_impl();
-        var ss   = "::" + api + "::" + LowerTargets::panic_api_source_site();
-        var b0   = LowerTargets::panic_sites_begin_sym();
-        var b1   = LowerTargets::panic_sites_end_sym();
-        var fmt  = "";
-        var ci   = self._cg->ctx->ci;
-        if ci != &null { fmt = ci->target.object_format; }
 
-        if header { self._cg->sink->directive(at, "#ifndef " + LowerTargets::panic_api_guard()); }
-        if header { self._cg->sink->directive(at, "#define " + LowerTargets::panic_api_guard()); }
-        self._site_type(header);
+        if ok == &null
+            || err == &null
+            || ok->adt_member == &null
+            || err->adt_member == &null
+            || en->adt_site_field == &null {
+            self._ice(
+                self._at(en),
+                "InterfaceEmitter: the Panic lang item without its Ok, pack Err and site; lang_item.k pins the shape",
+            )
+        }
+
+        var site = self._spell->leaf(en->adt_site_field)
+        var okn  = self._spell->leaf(ok)
+        var okv = self._spell->leaf(ok->adt_member) + "." + self._spell->leaf(
+            unsafe (ok->payload[0] as unsafe *Decl),
+        )
+
+        var        erm = self._spell->leaf(err->adt_member)
+        var        erf = self._spell->leaf(unsafe (err->payload[0] as unsafe *Decl))
+        var        api = LowerTargets::panic_api_ns()
+        var        im  = LowerTargets::panic_api_impl()
+        var        ss  = "::" + api + "::" + LowerTargets::panic_api_source_site()
+        var        b0  = LowerTargets::panic_sites_begin_sym()
+        var        b1  = LowerTargets::panic_sites_end_sym()
+        var        fmt = ""
+        var unsafe *ci = self._cg->ctx->ci
+        if ci != &null {
+            fmt = ci->target.object_format
+        }
+
+        if header {
+            self._cg->sink->directive(at, "#ifndef " + LowerTargets::panic_api_guard())
+        }
+
+        if header {
+            self._cg->sink->directive(at, "#define " + LowerTargets::panic_api_guard())
+        }
+
+        self._site_type(header)
         // The table's bounds. ELF: the linker's __start_/__stop_, weak so a
         // program with no site links. Mach-O: section$start/end. Any other
         // format has none here yet (ticketed): no site is ever found.
-        if (fmt == "ELF") || (fmt.size() == 0) {
-            self._cg->sink->spell(at, "extern \x22" + "C\x22 { [[gnu::weak]] extern const " + st + " " + LowerTargets::panic_sites_start() + "[]; "
-                + "[[gnu::weak]] extern const " + st + " " + LowerTargets::panic_sites_stop() + "[]; }");
-            b0 = LowerTargets::panic_sites_start();
-            b1 = LowerTargets::panic_sites_stop();
-        } else if fmt == "Mach-O" {
-            self._cg->sink->spell(at, "extern const " + st + " " + b0 + "[] __asm(\x22" + LowerTargets::panic_sites_start_macho() + "\x22);");
-            self._cg->sink->spell(at, "extern const " + st + " " + b1 + "[] __asm(\x22" + LowerTargets::panic_sites_stop_macho() + "\x22);");
-        } else {
-            b0 = "nullptr";
-            b1 = "nullptr";
-        }
-        self._cg->sink->brk();
-        self._cg->sink->spell(at, "template <class E> struct " + LowerTargets::panic_msg_trait() + ";");
-        self._cg->sink->brk();
+        if fmt == "ELF" || fmt.size() == 0 {
+            self._cg->sink->spell(
+                at,
+                "extern \"C\" { [[gnu::weak]] extern const " + st + " " + LowerTargets::panic_sites_start() + "[]; " + "[[gnu::weak]] extern const " + st + " " + LowerTargets::panic_sites_stop() + "[]; }",
+            )
 
-        var cnt = "unsigned long";
-        var s = "namespace " + api + " { ";
-        s += "template <class E> inline constexpr " + u + " " + LowerTargets::panic_api_type_id() + " = " + tid + "<E>; ";
-        s += "template <class... E> struct " + LowerTargets::panic_api_types() + " {}; ";
-        s += "template <class P> struct " + LowerTargets::panic_api_set() + "; ";
-        s += "template <class T, class... E> struct " + LowerTargets::panic_api_set() + "<" + pt + "> { using value_type = T; using types = ::" + api + "::" + LowerTargets::panic_api_types() + "<E...>; "
-           + "static constexpr " + u + " size = sizeof...(E); static constexpr " + u + " payload_offset = " + pt + "::" + LowerTargets::adt_payload_offset() + "; }; ";
-        s += "struct " + LowerTargets::panic_api_source_site() + " { const char* file; " + u + " line; " + u + " col; }; ";
+            b0 = LowerTargets::panic_sites_start()
+            b1 = LowerTargets::panic_sites_stop()
+        } else if fmt == "Mach-O" {
+            self._cg->sink->spell(
+                at,
+                "extern const " + st + " " + b0 + "[] __asm(\"" + LowerTargets::panic_sites_start_macho() + "\");",
+            )
+
+            self._cg->sink->spell(
+                at,
+                "extern const " + st + " " + b1 + "[] __asm(\"" + LowerTargets::panic_sites_stop_macho() + "\");",
+            )
+        } else {
+            b0 = "nullptr"
+            b1 = "nullptr"
+        }
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class E> struct " + LowerTargets::panic_msg_trait() + ";",
+        )
+
+        self._cg->sink->brk()
+
+        var cnt = "unsigned long"
+        var s   = "namespace " + api + " { "
+        s += "template <class E> inline constexpr " + u + " " + LowerTargets::panic_api_type_id() + " = " + tid + "<E>; "
+        s += "template <class... E> struct " + LowerTargets::panic_api_types() + " {}; "
+        s += "template <class P> struct " + LowerTargets::panic_api_set() + "; "
+        s += "template <class T, class... E> struct " + LowerTargets::panic_api_set() + "<" + pt + "> { using value_type = T; using types = ::" + api + "::" + LowerTargets::panic_api_types() + "<E...>; " + "static constexpr " + u + " size = sizeof...(E); static constexpr " + u + " payload_offset = " + pt + "::" + LowerTargets::adt_payload_offset() + "; }; "
+        s += "struct " + LowerTargets::panic_api_source_site() + " { const char* file; " + u + " line; " + u + " col; }; "
         // The machinery: the table walk and what()'s text, sized by a first
         // pass with no buffer (o null) and written by a second.
-        s += "struct " + im + " { ";
-        s += "static const " + st + "* first() noexcept { return " + b0 + "; } ";
-        s += "static const " + st + "* last() noexcept { return " + b1 + "; } ";
-        s += "static " + ss + " site_of(" + u + " id) noexcept { if (id != 0) { for (const " + st + "* r = first(); r != last(); ++r) { if (r->id == id) { return " + ss + "{r->file, r->line, r->col}; } } } return " + ss + "{nullptr, 0, 0}; } ";
-        s += "static " + sz + " put(char* o, " + sz + " n, const char* x, " + sz + " k) noexcept { if (o) { for (" + sz + " i = 0; i < k; ++i) { o[n + i] = x[i]; } } return n + k; } ";
-        s += "static " + sz + " putu(char* o, " + sz + " n, " + u + " v) noexcept { char b[10]; int k = 0; do { b[k++] = static_cast<char>(48 + v % 10); v /= 10; } while (v); "
-           + "while (k) { if (o) { o[n] = b[k - 1]; } ++n; --k; } return n; } ";
-        s += "static " + sz + " len(const char* x) noexcept { " + sz + " n = 0; while (x[n]) { ++n; } return n; } ";
-        s += "static bool same(const " + st + "* a, const " + st + "* b) noexcept { if ((a->line != b->line) || (a->col != b->col)) { return false; } "
-           + "const char* x = a->file; const char* y = b->file; while (*x && (*x == *y)) { ++x; ++y; } return *x == *y; } ";
-        s += "static " + sz + " text(char* o, const unsigned char* m, " + sz + " ml, bool hm, const char* name, " + u + " site) noexcept { " + sz + " n = 0; "
-           + "if (hm) { n = put(o, n, reinterpret_cast<const char*>(m), ml); n = put(o, n, \x22 [\x22, 2); } "
-           + "n = put(o, n, name, len(name)); bool one = true; "
-           + "if (site != 0) { for (const " + st + "* r = first(); r != last(); ++r) { if (r->id != site) { continue; } bool dup = false; "
-           + "for (const " + st + "* q = first(); q != r; ++q) { if ((q->id == site) && same(q, r)) { dup = true; break; } } if (dup) { continue; } "
-           + "n = one ? put(o, n, \x22 at \x22, 4) : put(o, n, \x22 | \x22, 3); one = false; "
-           + "n = put(o, n, r->file, len(r->file)); n = put(o, n, \x22:\x22, 1); n = putu(o, n, r->line); n = put(o, n, \x22:\x22, 1); n = putu(o, n, r->col); } } "
-           + "if (hm) { n = put(o, n, \x22]\x22, 1); } return n; } ";
-        s += "}; ";
-        s += "template <class T, class... E> bool " + LowerTargets::panic_api_ok() + "(const " + pt + "& p) noexcept { return p." + tag + " == " + pt + "::" + tt + "::" + okn + "; } ";
-        s += "template <class T, class... E> auto& " + LowerTargets::panic_api_value() + "(" + pt + "& p) noexcept { return p." + okv + "; } ";
-        s += "template <class T, class... E> const auto& " + LowerTargets::panic_api_value() + "(const " + pt + "& p) noexcept { return p." + okv + "; } ";
-        s += "template <class X, class T, class... E> bool " + LowerTargets::panic_api_is() + "(const " + pt + "& p) noexcept { "
-           + "if constexpr (" + px + "<X>(static_cast<" + pt + "*>(nullptr)) == " + npos + ") { return false; } "
-           + "else { return static_cast<" + u + ">(p." + tag + ") == " + tid + "<X>; } } ";
-        var nin = "static_assert(J != " + npos + ", \x22::" + api + "::" + LowerTargets::panic_api_error() + "<E>: E is not in this panic set\x22); ";
-        s += "template <class X, class T, class... E> X& " + LowerTargets::panic_api_error() + "(" + pt + "& p) noexcept { "
-           + "constexpr " + u + " J = " + px + "<X>(static_cast<" + pt + "*>(nullptr)); " + nin + "return p." + erm + ".template " + get + "<J>()." + erf + "; } ";
-        s += "template <class X, class T, class... E> const X& " + LowerTargets::panic_api_error() + "(const " + pt + "& p) noexcept { "
-           + "constexpr " + u + " J = " + px + "<X>(static_cast<" + pt + "*>(nullptr)); " + nin + "return p." + erm + ".template " + get + "<J>()." + erf + "; } ";
-        s += "template <class T, class... E> " + ss + " " + LowerTargets::panic_api_site() + "(const " + pt + "& p) noexcept { return " + im + "::site_of(p." + site + "); } ";
-        s += "}";
-        self._cg->sink->spell(at, s);
-        self._cg->sink->brk();
+        s += "struct " + im + " { "
+        s += "static const " + st + "* first() noexcept { return " + b0 + "; } "
+        s += "static const " + st + "* last() noexcept { return " + b1 + "; } "
+        s += "static " + ss + " site_of(" + u + " id) noexcept { if (id != 0) { for (const " + st + "* r = first(); r != last(); ++r) { if (r->id == id) { return " + ss + "{r->file, r->line, r->col}; } } } return " + ss + "{nullptr, 0, 0}; } "
+        s += "static " + sz + " put(char* o, " + sz + " n, const char* x, " + sz + " k) noexcept { if (o) { for (" + sz + " i = 0; i < k; ++i) { o[n + i] = x[i]; } } return n + k; } "
+        s += "static " + sz + " putu(char* o, " + sz + " n, " + u + " v) noexcept { char b[10]; int k = 0; do { b[k++] = static_cast<char>(48 + v % 10); v /= 10; } while (v); " + "while (k) { if (o) { o[n] = b[k - 1]; } ++n; --k; } return n; } "
+        s += "static " + sz + " len(const char* x) noexcept { " + sz + " n = 0; while (x[n]) { ++n; } return n; } "
+        s += "static bool same(const " + st + "* a, const " + st + "* b) noexcept { if ((a->line != b->line) || (a->col != b->col)) { return false; } " + "const char* x = a->file; const char* y = b->file; while (*x && (*x == *y)) { ++x; ++y; } return *x == *y; } "
+        s += "static " + sz + " text(char* o, const unsigned char* m, " + sz + " ml, bool hm, const char* name, " + u + " site) noexcept { " + sz + " n = 0; " + "if (hm) { n = put(o, n, reinterpret_cast<const char*>(m), ml); n = put(o, n, \" [\", 2); } " + "n = put(o, n, name, len(name)); bool one = true; " + "if (site != 0) { for (const " + st + "* r = first(); r != last(); ++r) { if (r->id != site) { continue; } bool dup = false; " + "for (const " + st + "* q = first(); q != r; ++q) { if ((q->id == site) && same(q, r)) { dup = true; break; } } if (dup) { continue; } " + "n = one ? put(o, n, \" at \", 4) : put(o, n, \" | \", 3); one = false; " + "n = put(o, n, r->file, len(r->file)); n = put(o, n, \":\", 1); n = putu(o, n, r->line); n = put(o, n, \":\", 1); n = putu(o, n, r->col); } } " + "if (hm) { n = put(o, n, \"]\", 1); } return n; } "
+        s += "}; "
+        s += "template <class T, class... E> bool " + LowerTargets::panic_api_ok() + "(const " + pt + "& p) noexcept { return p." + tag + " == " + pt + "::" + tt + "::" + okn + "; } "
+        s += "template <class T, class... E> auto& " + LowerTargets::panic_api_value() + "(" + pt + "& p) noexcept { return p." + okv + "; } "
+        s += "template <class T, class... E> const auto& " + LowerTargets::panic_api_value() + "(const " + pt + "& p) noexcept { return p." + okv + "; } "
+        s += "template <class X, class T, class... E> bool " + LowerTargets::panic_api_is() + "(const " + pt + "& p) noexcept { " + "if constexpr (" + px + "<X>(static_cast<" + pt + "*>(nullptr)) == " + npos + ") { return false; } " + "else { return static_cast<" + u + ">(p." + tag + ") == " + tid + "<X>; } } "
+        var nin = "static_assert(J != " + npos + ", \"::" + api + "::" + LowerTargets::panic_api_error() + "<E>: E is not in this panic set\"); "
+        s += "template <class X, class T, class... E> X& " + LowerTargets::panic_api_error() + "(" + pt + "& p) noexcept { " + "constexpr " + u + " J = " + px + "<X>(static_cast<" + pt + "*>(nullptr)); " + nin + "return p." + erm + ".template " + get + "<J>()." + erf + "; } "
+        s += "template <class X, class T, class... E> const X& " + LowerTargets::panic_api_error() + "(const " + pt + "& p) noexcept { " + "constexpr " + u + " J = " + px + "<X>(static_cast<" + pt + "*>(nullptr)); " + nin + "return p." + erm + ".template " + get + "<J>()." + erf + "; } "
+        s += "template <class T, class... E> " + ss + " " + LowerTargets::panic_api_site() + "(const " + pt + "& p) noexcept { return " + im + "::site_of(p." + site + "); } "
+        s += "}"
+        self._cg->sink->spell(at, s)
+        self._cg->sink->brk()
 
         // The throwing half.
-        var throwing = header || self.cxx_exceptions;
+        var throwing = header || self.cxx_exceptions
         if throwing {
-            if header { self._cg->sink->directive(at, "#if __cpp_exceptions"); }
-            self._cg->sink->system_header(at, "exception");
-            var eb  = LowerTargets::panic_api_error_base();
-            var et  = LowerTargets::panic_api_error_type();
-            var w   = LowerTargets::panic_api_text();
-            var bld = LowerTargets::panic_api_build();
-            var drp = LowerTargets::panic_api_drop();
-            var th  = LowerTargets::panic_api_throw();
-            var nm  = "::" + LowerTargets::type_id_trait() + "<E>::" + LowerTargets::type_id_name();
-            var sd  = LangMembers::string_as_ptr() + "()";
-            var sl  = LangMembers::string_length() + "()";
+            if header {
+                self._cg->sink->directive(at, "#if __cpp_exceptions")
+            }
+
+            self._cg->sink->system_header(at, "exception")
+            var eb  = LowerTargets::panic_api_error_base()
+            var et  = LowerTargets::panic_api_error_type()
+            var w   = LowerTargets::panic_api_text()
+            var bld = LowerTargets::panic_api_build()
+            var drp = LowerTargets::panic_api_drop()
+            var th  = LowerTargets::panic_api_throw()
+            var nm  = "::" + LowerTargets::type_id_trait() + "<E>::" + LowerTargets::type_id_name()
+            var sd  = LangMembers::string_as_ptr() + "()"
+            var sl  = LangMembers::string_length() + "()"
             // No `: ::name` anywhere: a header's text sink writes no space
             // between tokens, and `:::` lexes as `::` `:`. The base is
             // default-built in the copy (std::exception holds nothing).
             // The memory orders by value (relaxed 0, acq_rel 4): a kcc
             // include's tokens are past the preprocessor, so the
             // __ATOMIC_* macros would not expand.
-            var t = "namespace " + api + " { ";
-            t += "struct " + eb + " : public " + LowerTargets::cxx_exception_base() + " { " + u + " type; " + u + " site; ";
-            t += eb + "(const " + eb + "& o) noexcept : type(o.type), site(o.site), " + w + "(o." + w + ") { if (" + w + ") { " + LowerTargets::clang_atomic_fetch_add() + "(" + w + ", 1, 0); } } ";
-            t += eb + "& operator=(const " + eb + "& o) noexcept { if (o." + w + ") { " + LowerTargets::clang_atomic_fetch_add() + "(o." + w + ", 1, 0); } " + drp + "(); type = o.type; site = o.site; " + w + " = o." + w + "; return *this; } ";
-            t += "~" + eb + "() override { " + drp + "(); } ";
-            t += "const char* what() const noexcept override { return " + w + " ? reinterpret_cast<const char*>(" + w + " + 1) : \x22\x22; } ";
-            t += "protected: " + eb + "(" + u + " t, " + u + " s) noexcept : type(t), site(s) {} ";
-            t += cnt + "* " + w + " = nullptr; ";
-            t += "void " + drp + "() noexcept { if (" + w + " && (" + LowerTargets::clang_atomic_sub_fetch() + "(" + w + ", 1, 4) == 0)) { " + LowerTargets::clang_free() + "(" + w + "); } " + w + " = nullptr; } ";
-            t += "void " + bld + "(const unsigned char* m, " + sz + " ml, bool hm, const char* name) noexcept { "
-               + sz + " n = ::" + api + "::" + im + "::text(nullptr, m, ml, hm, name, site); "
-               + w + " = static_cast<" + cnt + "*>(" + LowerTargets::clang_malloc() + "(sizeof(" + cnt + ") + n + 1)); if (!" + w + ") { return; } *" + w + " = 1; "
-               + "char* o = reinterpret_cast<char*>(" + w + " + 1); ::" + api + "::" + im + "::text(o, m, ml, hm, name, site); o[n] = 0; } ";
-            t += "}; ";
-            t += "template <class E> struct " + et + " : public ::" + api + "::" + eb + " { E " + LowerTargets::panic_api_error() + "; ";
-            t += "template <class A> " + et + "(A&& e, " + u + " s) noexcept : " + eb + "(" + tid + "<E>, s), " + LowerTargets::panic_api_error() + "(static_cast<A&&>(e)) { "
-               + "const E& x = this->" + LowerTargets::panic_api_error() + "; "
-               + "if constexpr (requires (const E& y) { y." + LowerTargets::op_panic() + "(); }) { auto m = x." + LowerTargets::op_panic() + "(); this->" + bld + "(m." + sd + ", m." + sl + ", true, " + nm + "); } "
-               + "else if constexpr (requires (const E& y) { ::" + LowerTargets::panic_msg_trait() + "<E>::" + LowerTargets::panic_msg_get() + "(y); }) { "
-               + "auto m = ::" + LowerTargets::panic_msg_trait() + "<E>::" + LowerTargets::panic_msg_get() + "(x); this->" + bld + "(m." + sd + ", m." + sl + ", true, " + nm + "); } "
-               + "else { this->" + bld + "(nullptr, 0, false, " + nm + "); } } }; ";
+            var t = "namespace " + api + " { "
+            t += "struct " + eb + " : public " + LowerTargets::cxx_exception_base() + " { " + u + " type; " + u + " site; "
+            t += eb + "(const " + eb + "& o) noexcept : type(o.type), site(o.site), " + w + "(o." + w + ") { if (" + w + ") { " + LowerTargets::clang_atomic_fetch_add() + "(" + w + ", 1, 0); } } "
+            t += eb + "& operator=(const " + eb + "& o) noexcept { if (o." + w + ") { " + LowerTargets::clang_atomic_fetch_add() + "(o." + w + ", 1, 0); } " + drp + "(); type = o.type; site = o.site; " + w + " = o." + w + "; return *this; } "
+            t += "~" + eb + "() override { " + drp + "(); } "
+            t += "const char* what() const noexcept override { return " + w + " ? reinterpret_cast<const char*>(" + w + " + 1) : \"\"; } "
+            t += "protected: " + eb + "(" + u + " t, " + u + " s) noexcept : type(t), site(s) {} "
+            t += cnt + "* " + w + " = nullptr; "
+            t += "void " + drp + "() noexcept { if (" + w + " && (" + LowerTargets::clang_atomic_sub_fetch() + "(" + w + ", 1, 4) == 0)) { " + LowerTargets::clang_free() + "(" + w + "); } " + w + " = nullptr; } "
+            t += "void " + bld + "(const unsigned char* m, " + sz + " ml, bool hm, const char* name) noexcept { " + sz + " n = ::" + api + "::" + im + "::text(nullptr, m, ml, hm, name, site); " + w + " = static_cast<" + cnt + "*>(" + LowerTargets::clang_malloc() + "(sizeof(" + cnt + ") + n + 1)); if (!" + w + ") { return; } *" + w + " = 1; " + "char* o = reinterpret_cast<char*>(" + w + " + 1); ::" + api + "::" + im + "::text(o, m, ml, hm, name, site); o[n] = 0; } "
+            t += "}; "
+            t += "template <class E> struct " + et + " : public ::" + api + "::" + eb + " { E " + LowerTargets::panic_api_error() + "; "
+            t += "template <class A> " + et + "(A&& e, " + u + " s) noexcept : " + eb + "(" + tid + "<E>, s), " + LowerTargets::panic_api_error() + "(static_cast<A&&>(e)) { " + "const E& x = this->" + LowerTargets::panic_api_error() + "; " + "if constexpr (requires (const E& y) { y." + LowerTargets::op_panic() + "(); }) { auto m = x." + LowerTargets::op_panic() + "(); this->" + bld + "(m." + sd + ", m." + sl + ", true, " + nm + "); } " + "else if constexpr (requires (const E& y) { ::" + LowerTargets::panic_msg_trait() + "<E>::" + LowerTargets::panic_msg_get() + "(y); }) { " + "auto m = ::" + LowerTargets::panic_msg_trait() + "<E>::" + LowerTargets::panic_msg_get() + "(x); this->" + bld + "(m." + sd + ", m." + sl + ", true, " + nm + "); } " + "else { this->" + bld + "(nullptr, 0, false, " + nm + "); } } }; "
             // The error the result holds, thrown as panic_error<X>: moved
             // out of an rvalue result, copied out of an lvalue one.
-            t += "struct " + th + " { ";
-            t += "template <" + u + " K, bool M, class T, class... E> [[noreturn]] static void raise(" + pt + "& p) { using X = " + LowerTargets::clang_pack_element() + "<K, E...>; "
-               + "if constexpr (K + 1 < sizeof...(E)) { if (static_cast<" + u + ">(p." + tag + ") != " + tid + "<X>) { raise<K + 1, M>(p); } } "
-               + "if constexpr (M) { throw ::" + api + "::" + et + "<X>(static_cast<X&&>(p." + erm + ".template " + get + "<K>()." + erf + "), p." + site + "); } "
-               + "else { throw ::" + api + "::" + et + "<X>(static_cast<const X&>(p." + erm + ".template " + get + "<K>()." + erf + "), p." + site + "); } } ";
-            t += "template <bool M, class T, class... E> static T value(" + pt + "& p) { "
-               + "if (p." + tag + " != " + pt + "::" + tt + "::" + okn + ") { if constexpr (sizeof...(E) > 0) { raise<0, M>(p); } else { " + LowerTargets::clang_unreachable() + "(); } } "
-               + "if constexpr (!__is_same(T, void)) { if constexpr (M) { return static_cast<T&&>(p." + okv + "); } else { return p." + okv + "; } } } ";
-            t += "}; ";
-            t += "template <class T, class... E> T " + LowerTargets::panic_api_value_or_throw() + "(" + pt + "&& p) { return " + th + "::template value<true>(p); } ";
-            t += "template <class T, class... E> T " + LowerTargets::panic_api_value_or_throw() + "(const " + pt + "& p) { return " + th + "::template value<false>(const_cast<" + pt + "&>(p)); } ";
-            t += "}";
-            self._cg->sink->spell(at, t);
-            self._cg->sink->brk();
-            if header { self._cg->sink->directive(at, "#endif"); }
+            t += "struct " + th + " { "
+            t += "template <" + u + " K, bool M, class T, class... E> [[noreturn]] static void raise(" + pt + "& p) { using X = " + LowerTargets::clang_pack_element() + "<K, E...>; " + "if constexpr (K + 1 < sizeof...(E)) { if (static_cast<" + u + ">(p." + tag + ") != " + tid + "<X>) { raise<K + 1, M>(p); } } " + "if constexpr (M) { throw ::" + api + "::" + et + "<X>(static_cast<X&&>(p." + erm + ".template " + get + "<K>()." + erf + "), p." + site + "); } " + "else { throw ::" + api + "::" + et + "<X>(static_cast<const X&>(p." + erm + ".template " + get + "<K>()." + erf + "), p." + site + "); } } "
+            t += "template <bool M, class T, class... E> static T value(" + pt + "& p) { " + "if (p." + tag + " != " + pt + "::" + tt + "::" + okn + ") { if constexpr (sizeof...(E) > 0) { raise<0, M>(p); } else { " + LowerTargets::clang_unreachable() + "(); } } " + "if constexpr (!__is_same(T, void)) { if constexpr (M) { return static_cast<T&&>(p." + okv + "); } else { return p." + okv + "; } } } "
+            t += "}; "
+            t += "template <class T, class... E> T " + LowerTargets::panic_api_value_or_throw() + "(" + pt + "&& p) { return " + th + "::template value<true>(p); } "
+            t += "template <class T, class... E> T " + LowerTargets::panic_api_value_or_throw() + "(const " + pt + "& p) { return " + th + "::template value<false>(const_cast<" + pt + "&>(p)); } "
+            t += "}"
+            self._cg->sink->spell(at, t)
+            self._cg->sink->brk()
+            if header {
+                self._cg->sink->directive(at, "#endif")
+            }
         }
-        // A Panic instance is what a duck call must not return (MONO.md D1,
+
+        // A Panic instance is what a duck call must not return (Compiler/Spec/Generics.md#duck-regime,
         // EmitIR::_call): the trait's one true case, after its primary.
-        self._nopanic_helpers();
-        self._cg->sink->spell(at, "template <class T, class... E> struct " + LowerTargets::nopanic_trait() + "<" + pt + "> { static constexpr bool value = true; };");
-        self._cg->sink->brk();
-        if header { self._cg->sink->directive(at, "#endif"); }
+        self._nopanic_helpers()
+        self._cg->sink->spell(
+            at,
+            "template <class T, class... E> struct " + LowerTargets::nopanic_trait() + "<" + pt + "> { static constexpr bool value = true; };",
+        )
+
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(at, "#endif")
+        }
     }
 
     /// `(::__kairo_nopanic(), t.f())` (LowerTargets::nopanic_call): a member
     /// call through a `<T: type>` parameter, whose callee only the instance
     /// knows. A panicking one would hand the duck body a panic result it
-    /// cannot handle (its sites are SC116E, MONO.md D1), and a discarded
+    /// cannot handle (its sites are SC116E, Compiler/Spec/Generics.md#duck-regime), and a discarded
     /// one would drop the error. Operators on a `: type` operand and an
-    /// unbound free call go the same way (P261). The tag's `operator,`
+    /// unbound free call go the same way. The tag's `operator,`
     /// stops it at the instance and yields the value as it came: an lvalue
     /// stays one (T is `X&`), and an rvalue comes back BY VALUE (T is `X`),
     /// at the cost of one move -- returned as `T&&`, a prvalue's temporary
@@ -2213,120 +3345,213 @@ class InterfaceEmitter {
     /// per C++ TU (a header: under its own guard): a duck body needs it whether or not
     /// its TU defines Panic.
     priv fn _nopanic_helpers(self) {
-        if self.have_nopanic { return; }
-        self.have_nopanic = true;
-        var at = self._tu_at();
-        var tg = LowerTargets::nopanic_tag();
-        var ip = LowerTargets::nopanic_trait();
-        var header = (self._plan->mode() == PlanMode::Header);
-        if header { self._cg->sink->directive(at, "#ifndef " + LowerTargets::nopanic_guard()); }
-        if header { self._cg->sink->directive(at, "#define " + LowerTargets::nopanic_guard()); }
-        self._cg->sink->spell(at, "template <class T> struct " + ip + " { static constexpr bool value = false; };");
-        self._cg->sink->spell(at, "template <class T> struct " + ip + "<T&> : " + ip + "<T> {};");
-        self._cg->sink->spell(at, "template <class T> struct " + ip + "<T&&> : " + ip + "<T> {};");
-        self._cg->sink->spell(at, "template <class T> struct " + ip + "<const T> : " + ip + "<T> {};");
-        self._cg->sink->spell(at, "struct " + tg + " {};");
-        self._cg->sink->spell(at, "constexpr " + tg + " " + LowerTargets::nopanic_call() + "() noexcept { return {}; }");
-        self._cg->sink->spell(at, "template <class T> constexpr void " + LowerTargets::nopanic_of() + "() noexcept { "
-            + "static_assert(!" + ip + "<T>::value, \"a call through a '<T: type>' parameter that may panic is not yet supported (C++-checked generics)\"); }");
-        self._cg->sink->spell(at, "template <class T> constexpr T operator,(" + tg + ", T&& v) noexcept { "
-            + "static_assert(!" + ip + "<T>::value, \"a call through a '<T: type>' parameter that may panic is not yet supported (C++-checked generics)\"); "
-            + "return static_cast<T&&>(v); }");
-        self._cg->sink->brk();
-        if header { self._cg->sink->directive(at, "#endif"); }
+        if self.have_nopanic {
+            return
+        }
+
+        self.have_nopanic = true
+        var at     = self._tu_at()
+        var tg     = LowerTargets::nopanic_tag()
+        var ip     = LowerTargets::nopanic_trait()
+        var header = self._plan->mode() == PlanMode::Header
+        if header {
+            self._cg->sink->directive(at, "#ifndef " + LowerTargets::nopanic_guard())
+        }
+
+        if header {
+            self._cg->sink->directive(at, "#define " + LowerTargets::nopanic_guard())
+        }
+
+        self._cg->sink->spell(
+            at,
+            "template <class T> struct " + ip + " { static constexpr bool value = false; };",
+        )
+
+        self._cg->sink->spell(at, "template <class T> struct " + ip + "<T&> : " + ip + "<T> {};")
+        self._cg->sink->spell(at, "template <class T> struct " + ip + "<T&&> : " + ip + "<T> {};")
+        self._cg->sink->spell(
+            at,
+            "template <class T> struct " + ip + "<const T> : " + ip + "<T> {};",
+        )
+
+        self._cg->sink->spell(at, "struct " + tg + " {};")
+        self._cg->sink->spell(
+            at,
+            "constexpr " + tg + " " + LowerTargets::nopanic_call() + "() noexcept { return {}; }",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "template <class T> constexpr void " + LowerTargets::nopanic_of() + "() noexcept { " + "static_assert(!" + ip + "<T>::value, \"a call through a '<T: type>' parameter that may panic is not yet supported (C++-checked generics)\"); }",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "template <class T> constexpr T operator,(" + tg + ", T&& v) noexcept { " + "static_assert(!" + ip + "<T>::value, \"a call through a '<T: type>' parameter that may panic is not yet supported (C++-checked generics)\"); " + "return static_cast<T&&>(v); }",
+        )
+
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(at, "#endif")
+        }
     }
 
-    /// An extension's `op panic` (PANIC.md §1.5) as the C++ view reads it:
+    /// An extension's `op panic` (Compiler/Spec/Panic.md#error-types) as the C++ view reads it:
     /// `__kairo_pmsg<T>::get(e)`, which calls the scope's static member. A
     /// type's own `op panic` is a member the C++ view finds by itself; an
     /// extension's lives in a scope only Kairo can name. At global scope,
     /// after the scope's definition. A generic target's member is a
     /// template, which no specialization of one type can name: left out
     /// (what() falls back to the type name).
-    priv fn _scope_panic_msg(self, sc: *ExtScope) {
+    priv fn _scope_panic_msg(self, sc: unsafe *ExtScope) {
         for var i: usize = 0; i < sc->members.size(); ++i {
-            var m = sc->members[i];
-            if (!m->is_operator) || (m->op_token.size() != 1) || (m->op_token[0].kind != TokenKind::KwPanic) { continue; }
-            if self._spell->template_head(static_cast::<*Decl>(m)).size() != 0 { continue; }
-            var ty = "";
-            if sc->target_ty != &null { ty = self._spell->_type(sc->target_ty); }
-            else if (sc->target != &null) && (self._spell->template_head(sc->target).size() == 0) { ty = self._spell->qual_name(sc->target); }
-            if ty.size() == 0 { continue; }
-            var at = self._at(static_cast::<*Decl>(m));
-            var pm = LowerTargets::panic_msg_trait();
+            var unsafe *m = sc->members[i]
+            if !m->is_operator
+                || m->op_token.size() != 1
+                || m->op_token[0].kind != TokenKind::KwPanic {
+                continue
+            }
+
+            if self._spell->template_head(unsafe (m as unsafe *Decl)).size() != 0 {
+                continue
+            }
+
+            var ty = ""
+            if sc->target_ty != &null {
+                ty = self._spell->_type(sc->target_ty)
+            } else if sc->target != &null && self._spell->template_head(sc->target).size() == 0 {
+                ty = self._spell->qual_name(sc->target)
+            }
+
+            if ty.size() == 0 {
+                continue
+            }
+
+            var at = self._at(unsafe (m as unsafe *Decl))
+            var pm = LowerTargets::panic_msg_trait()
             // A template, so its body (which returns a `string`) is compiled
             // where it is used: the string may still be incomplete here.
-            self._cg->sink->spell(at, "template <class E> struct " + pm + "; template <> struct " + pm + "<" + ty + "> { template <class X = " + ty + "> static auto "
-                + LowerTargets::panic_msg_get() + "(const X& e) noexcept { return " + self._scope_qual(sc) + "::" + LowerTargets::op_panic() + "(e); } };");
-            self._cg->sink->brk();
+            self._cg->sink->spell(
+                at,
+                "template <class E> struct " + pm + "; template <> struct " + pm + "<" + ty + "> { template <class X = " + ty + "> static auto " + LowerTargets::panic_msg_get() + "(const X& e) noexcept { return " + self._scope_qual(
+                    sc,
+                ) + "::" + LowerTargets::op_panic() + "(e); } };",
+            )
+
+            self._cg->sink->brk()
         }
     }
 
     /// The Panic lang item, when a plan entry defines it here: an ADT with
     /// a lang item's layout knobs (as _needs_pack_union asks).
-    priv fn _panic_enum_defined(self) -> *EnumDecl {
-        var header = (self._plan->mode() == PlanMode::Header);
+    priv fn _panic_enum_defined(self) -> unsafe *Declarations::EnumDecl {
+        var header = self._plan->mode() == PlanMode::Header
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
-            var e = &(self._plan->entries[i]);
-            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) || (e->eval_item != &null) { continue; }
-            if header && (!e->own) { continue; }
-            var en = dyn_cast::<EnumDecl>(e->decl);
-            if (en != &null) && en->is_adt && (en->adt_explicit_tags || en->adt_void_unit || (en->adt_payload_offset != &null)) { return en; }
+            var *e = &self._plan->entries[i]
+            if e->tier != PlanTier::Definitions
+                || e->scope != &null
+                || e->witness != &null
+                || e->eval_item != &null {
+                continue
+            }
+
+            if header && !e->own {
+                continue
+            }
+
+            var unsafe *en = dyn_cast<Declarations::EnumDecl>(e->decl)
+            if en != &null
+                && en->is_adt
+                && (en->adt_explicit_tags || en->adt_void_unit || en->adt_payload_offset != &null) {
+                return en
+            }
         }
-        return &null;
+
+        return &null
     }
 
     /// `max(floor, alignof(P)...)` over \p lay's payload structs, the pack
     /// variant's expanded: the initializer of `__kairo_payload_offset`.
-    priv fn _payload_offset_init(self, en: *EnumDecl, lay: *StructDecl) -> string {
-        var ps = "";
-        var dc = static_cast::<*DeclContext>(lay);
+    priv fn _payload_offset_init(self,
+                                 en:  unsafe *Declarations::EnumDecl,
+                                 lay: unsafe *Declarations::StructDecl) -> string {
+        var        ps  = ""
+        var unsafe *dc = unsafe (lay as unsafe *DeclContext)
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            var sd = dyn_cast::<StructDecl>(*(dc->dc_decls.get(i)));
-            if (sd == &null) || (!sd->is_adt_payload) { continue; }
-            if ps.size() > 0 { ps += ", "; }
-            if sd->adt_pack_param != &null { ps += self._pack_payload(sd, lay->adt_of) + "..."; }
-            else { ps += self._spell->leaf(static_cast::<*Decl>(sd)); }
+            var unsafe *sd = dyn_cast<Declarations::StructDecl>(*dc->dc_decls.get(i))
+            if sd == &null || !sd->is_adt_payload {
+                continue
+            }
+
+            if ps.size() > 0 {
+                ps += ", "
+            }
+
+            if sd->adt_pack_param != &null {
+                ps += self._pack_payload(sd, lay->adt_of) + "..."
+            } else {
+                ps += self._spell->leaf(sd)
+            }
         }
-        return "::" + LowerTargets::max_align() + "<" + ps + ">(" + f"{en->adt_union_align}" + ")";
+
+        return "::" + LowerTargets::max_align() + "<" + ps + ">(" + f"{en->adt_union_align}" + ")"
     }
 
     /// The tag element \p k (a C++ expression: a template parameter) of
     /// \p en's pack-expanded variant \p v is stored as, typed as the tag
     /// enum \p tt: the variant's position plus k, or under type-id tags
     /// the element's id. EnumLayoutQuery::tag_value is the same rule.
-    priv fn _pack_tag(self, en: *EnumDecl, v: *EnumVariantDecl, k: string, tt: string) -> string {
+    priv fn _pack_tag(self,
+                      en:       unsafe *Declarations::EnumDecl,
+                      v:        unsafe *Declarations::EnumVariantDecl,
+                      const k:  string,
+                      const tt: string) -> string {
         if en->adt_explicit_tags {
-            return "static_cast<" + tt + ">(::" + LowerTargets::type_id() + "<" + LowerTargets::clang_pack_element() + "<" + k + ", " + self._pack_name(en) + "...>>)";
+            return "static_cast<" + tt + ">(::" + LowerTargets::type_id() + "<" + LowerTargets::clang_pack_element() + "<" + k + ", " + self._pack_name(
+                en,
+            ) + "...>>)"
         }
-        return "static_cast<" + tt + ">(" + f"{v->adt_tag_value}" + " + " + k + ")";
+
+        return "static_cast<" + tt + ">(" + f"{v->adt_tag_value}" + " + " + k + ")"
     }
 
     /// The enum's type pack parameter, as its own body names it.
-    priv fn _pack_name(self, en: *EnumDecl) -> string {
-        var gp = en->generic_params[adt_pack_param(en)];
-        return self._spell->imm_name(gp->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(en)));
+    priv fn _pack_name(self, en: unsafe *Declarations::EnumDecl) -> string {
+        var unsafe *gp = en->generic_params[DeclFacts::adt_pack_param(en)]
+        return self._spell->imm_name(gp->name.imm, CXXSpell::fid_of(unsafe (en as unsafe *Decl)))
     }
 
     /// The payload struct template of pack-expanded variant \p v, applied
     /// to its pack, unexpanded: `__kairo_Err_t<E>`, the pattern a fold or
     /// a `__kairo_pu<...>` expands.
-    priv fn _pack_payload(self, ps: *StructDecl, en: *Decl) -> string {
-        var gp = ps->adt_pack_param;
-        return self._spell->leaf(static_cast::<*Decl>(ps)) + "<" + self._spell->imm_name(gp->name.imm, CXXSpell::fid_of(en)) + ">";
+    priv fn _pack_payload(self, ps: unsafe *Declarations::StructDecl, en: unsafe *Decl) -> string {
+        var unsafe *gp = ps->adt_pack_param
+        return self._spell->leaf(unsafe (ps as unsafe *Decl)) + "<" + self._spell->imm_name(
+            gp->name.imm,
+            CXXSpell::fid_of(en),
+        ) + ">"
     }
 
     /// The payload struct an ADT union member \p m holds, or null.
-    priv fn _member_payload(self, m: *FieldDecl) -> *StructDecl {
-        if (m == &null) || (m->type_ == &null) || (m->type_->canonical == &null) { return &null; }
-        var c = canon_unqual(m->type_->canonical);
-        if !isa::<RecordType>(c) { return &null; }
-        return dyn_cast::<StructDecl>(cast::<RecordType>(c)->decl);
+    priv fn _member_payload(self,
+                            m: unsafe *Declarations::FieldDecl) -> unsafe *Declarations::StructDecl {
+        if m == &null || m->type_ == &null || m->type_->canonical == &null {
+            return &null
+        }
+
+        var unsafe *c = canon_unqual(m->type_->canonical)
+        if !isa<RecordType>(c) {
+            return &null
+        }
+
+        return dyn_cast<Declarations::StructDecl>(cast<RecordType>(c)->decl)
     }
 
-    priv fn _is_type(self, d: *Decl) -> bool {
-        return (d->kind == DeclKind::ClassDecl) || (d->kind == DeclKind::StructDecl)
-            || (d->kind == DeclKind::EnumDecl)  || (d->kind == DeclKind::UnionDecl);
+    priv fn _is_type(self, d: unsafe *Decl) -> bool {
+        return d->kind == DeclKind::ClassDecl
+            || d->kind == DeclKind::StructDecl
+            || d->kind == DeclKind::EnumDecl
+            || d->kind == DeclKind::UnionDecl
     }
 
     /// Emit an access specifier when the member's visibility differs from
@@ -2334,14 +3559,29 @@ class InterfaceEmitter {
     /// \p default_priv: an unmarked member of this kind is private (a class's
     /// variables, and nothing else).
     priv fn _access(self, cur: u8, want_in: u8, default_priv: bool, at: SourceRange) -> u8 {
-        var want = want_in;
-        if want == VIS_NONE() { want = (VIS_PRIV()) if (default_priv) else (VIS_PUB()); }
-        if want == cur { return cur; }
-        if want == VIS_PUB()  { self._cg->sink->spell(at, "public:"); }
-        if want == VIS_PROT() { self._cg->sink->spell(at, "protected:"); }
-        if want == VIS_PRIV() { self._cg->sink->spell(at, "private:"); }
-        self._cg->sink->brk();
-        return want;
+        var want = want_in
+        if want == VIS_NONE() {
+            want = if (default_priv) => (VIS_PRIV()) else => VIS_PUB()
+        }
+
+        if want == cur {
+            return cur
+        }
+
+        if want == VIS_PUB() {
+            self._cg->sink->spell(at, "public:")
+        }
+
+        if want == VIS_PROT() {
+            self._cg->sink->spell(at, "protected:")
+        }
+
+        if want == VIS_PRIV() {
+            self._cg->sink->spell(at, "private:")
+        }
+
+        self._cg->sink->brk()
+        return want
     }
 
     /// Every base is public in C++, whatever the edge says: a private base
@@ -2349,14 +3589,54 @@ class InterfaceEmitter {
     /// another file, and makes the checked downcast return null at run time
     /// -- a silent miscompile. AccessCheck enforces the edge in Kairo.
     priv fn _base_access(self, v: u8) -> string {
-        return "public";
+        return "public"
     }
 
     /// The access a member is written at: Kairo's own, with the record
     /// befriending its file (_friends). CXXSpell::cxx_vis has the rule and
-    /// the members that stay public whatever they say.
-    priv fn _cxx_vis(self, d: *Decl) -> u8 {
-        return self._spell->cxx_vis(d);
+    /// the members that stay public whatever they say; this adds the module
+    /// (AST/VisibilityFacts.k), which C++ has no access level for:
+    ///
+    ///   - `prot` in a module, written or by default, is `public:`: the
+    ///     module's other files are no friends, and neither is a C++ TU
+    ///     instantiating a template body of the module that reaches it.
+    ///     Kairo's AccessCheck keeps it to the module; C++ outside the
+    ///     module is kept from the module's `prot` top-level declarations
+    ///     only (EmitPlan::_hidden), not from such a member.
+    ///   - an unmarked member that is `priv` by default is `private:` in
+    ///     what C++ includes (a header, `#include "x.k"`), which may not see
+    ///     it; the module's own object keeps the old spelling, a class's
+    ///     variables private and the rest public, so nothing Kairo-made
+    ///     outside the record's friends loses access to it.
+    ///     Not an operator: C++ probes those (VisibilityFacts::is_operator_fn).
+    priv fn _cxx_vis(self, d: unsafe *Decl) -> u8 {
+        var v = self._spell->cxx_vis(d)
+        if d == &null || d->is_implicit || v == VIS_PUB() || v == VIS_INTERNAL() {
+            return v
+        }
+
+        if v == VIS_NONE() {
+            var dv = default_visibility_of(d)
+            if dv == VisibilityKind::Public {
+                return v
+            }
+
+            if dv == VisibilityKind::Protected {
+                return VIS_PUB()
+            }
+
+            if is_operator_fn(d) {
+                return v
+            }
+
+            return if (self._plan->mode() != PlanMode::Preamble) => (VIS_PRIV()) else => v
+        }
+
+        if v == VIS_PROT() && !tu_module_dir(CXXSpell::tu_of(d)).empty() {
+            return VIS_PUB()
+        }
+
+        return v
     }
 
     /// The value predicates generic record \p d's template head cannot
@@ -2364,66 +3644,97 @@ class InterfaceEmitter {
     /// its body, asserted per instance: every instance Sema homed is
     /// explicitly instantiated, so each is checked, as a function's are by
     /// its body's asserts (EmitIR::_body). An ADT enum's go in the record it
-    /// is written as (_adt_def, P254).
-    priv fn _body_predicate_asserts(self, d: *Decl) {
-        var bps = self._spell->body_predicates(d);
-        if bps.size() == 0 { return; }
-        var pir = self.ir;
-        var own_ir = EmitIR(self._cg);
-        if pir == &null { pir = &own_ir; }
+    /// is written as (_adt_def).
+    priv fn _body_predicate_asserts(self, d: unsafe *Decl) {
+        var bps = self._spell->body_predicates(d)
+        if bps.size() == 0 {
+            return
+        }
+
+        var unsafe *pir   = self.ir
+        var        own_ir = EmitIR(self._cg)
+        if pir == &null {
+            pir = unsafe &own_ir
+        }
+
         for var i: usize = 0; i < bps.size(); ++i {
-            self._cg->sink->spell(bps[i]->range, "static_assert(");
-            pir->emit(bps[i]);
-            self._cg->sink->spell(bps[i]->range, ", \"requires clause of \x27" + self._spell->leaf(d) + "\x27 not satisfied\");");
+            self._cg->sink->spell(bps[i]->range, "static_assert(")
+            pir->emit(bps[i])
+            self._cg->sink->spell(
+                bps[i]->range,
+                ", \"requires clause of '" + self._spell->leaf(d) + "' not satisfied\");",
+            )
         }
     }
 
-    priv fn _enum_def(self, en: *EnumDecl) {
+    priv fn _enum_def(self, en: unsafe *Declarations::EnumDecl) {
         // An ADT is written as the record EnumLayoutLowering built for it; a
         // plain enum, an ADT's tag enum included, as an `enum class`.
-        var rec = self._plan->adt_record(static_cast::<*Decl>(en));
-        if rec != static_cast::<*Decl>(en) {
-            self._adt_def(en, cast::<StructDecl>(rec));
-            return;
+        var unsafe *rec = self._plan->adt_record(en)
+        if rec != en {
+            self._adt_def(en, cast<Declarations::StructDecl>(rec))
+            return
         }
-        if (en->is_adt) { self._ice(self._at(static_cast::<*Decl>(en)), "InterfaceEmitter: ADT enum reached codegen without its layout record; sema stopped before EnumLayoutLowering"); }
-        var at = self._at(static_cast::<*Decl>(en));
-        var s = "enum class ";
-        s += self._spell->leaf(static_cast::<*Decl>(en));
-        s += " : ";
-        s += self._enum_underlying(en);
-        s += " {";
-        self._cg->sink->spell(at, s);
+
+        if en->is_adt {
+            self._ice(
+                self._at(en),
+                "InterfaceEmitter: ADT enum reached codegen without its layout record; sema stopped before EnumLayoutLowering",
+            )
+        }
+
+        var at = self._at(en)
+        var s  = "enum class "
+        s += self._spell->leaf(unsafe (en as unsafe *Decl))
+        s += " : "
+        s += self._enum_underlying(en)
+        s += " {"
+        self._cg->sink->spell(at, s)
         // With no discriminant anywhere every value is its position, which
         // is C++'s own numbering, so the names go out bare. That is also the
         // only form an enum the compiler mints can take: it is built after
         // X, so its value slots were never written.
-        var numbered = false;
+        var numbered = false
         for var i: usize = 0; i < en->variants.size(); ++i {
-            var v = en->variants[i];
-            if (v != &null) && (v->discriminant != &null) { numbered = true; break; }
+            var unsafe *v = en->variants[i]
+            if v != &null && v->discriminant != &null {
+                numbered = true
+                break
+            }
+
             // A minted tag enum has no discriminant expression; an explicit
             // tag (EnumLayoutLowering's knobs) is a value that is not its
             // position.
-            if (v != &null) && v->value.ok && (v->value.neg || (v->value.mag != u64(i))) { numbered = true; break; }
+            if v != &null && v->value.ok && (v->value.neg || v->value.mag != (i as u64)) {
+                numbered = true
+                break
+            }
         }
+
         for var i: usize = 0; i < en->variants.size(); ++i {
-            var v = en->variants[i];
-            if v == &null { continue; }
-            var vs = self._spell->leaf(static_cast::<*Decl>(v));
+            var unsafe *v = en->variants[i]
+            if v == &null {
+                continue
+            }
+
+            var vs = self._spell->leaf(v)
             if numbered {
                 // Every variant, written discriminant or not, gets the value
                 // X computed: the source text of a discriminant may name
                 // other variants or constants C++ cannot see by those names.
                 // Not ok only after an error X reported; --print-cxx still
                 // renders such a TU, and a bare name is the harmless form.
-                if v->value.ok { vs += " = " + self._enum_value(v->value); }
+                if v->value.ok {
+                    vs += " = " + self._enum_value(v->value)
+                }
             }
-            vs += ",";
-            self._cg->sink->spell(v->name.range, vs);
+
+            vs += ","
+            self._cg->sink->spell(v->name.range, vs)
         }
-        self._cg->sink->spell(at, "};");
-        self._cg->sink->brk();
+
+        self._cg->sink->spell(at, "};")
+        self._cg->sink->brk()
     }
 
     /// An ADT enum: the record EnumLayoutLowering built for it, written
@@ -2433,129 +3744,210 @@ class InterfaceEmitter {
     /// -- then the friends. Every type inside is spelled with the ENUM as
     /// its scope: the record's members belong to it (their semantic_dc), so
     /// its nested types go out by leaf, as a record's own do in _record_def.
-    priv fn _adt_def(self, en: *EnumDecl, lay: *StructDecl) {
-        var d       = static_cast::<*Decl>(en);
-        var at      = self._at(d);
-        var nm      = self._spell->leaf(d);
-        var generic = CXXSpell::template_params(d).size() > 0;
+    priv fn _adt_def(self,
+                     en:  unsafe *Declarations::EnumDecl,
+                     lay: unsafe *Declarations::StructDecl) {
+        var unsafe *d      = unsafe (en as unsafe *Decl)
+        var        at      = self._at(d)
+        var        nm      = self._spell->leaf(d)
+        var        generic = CXXSpell::template_params(d).size() > 0
         if en->adt_niche {
-            self._niche_record(en, lay, "struct " + nm + " {", false);
-            return;
+            self._niche_record(en, lay, "struct " + nm + " {", false)
+            return
         }
-        self._cg->sink->spell(at, self._spell->template_head(d) + "struct " + nm + " {");
-        self._body_predicate_asserts(d);
+
+        self._cg->sink->spell(at, self._spell->template_head(d) + "struct " + nm + " {")
+        self._body_predicate_asserts(d)
 
         // A struct: public unless marked. Only the two helpers the special
         // members call are private. The tag must stay public: `==` on an ADT
         // is a compare of two values' tags, written by OperatorLowering in
         // the user's code, outside the record.
-        var cur_access = VIS_PUB();
-        var dc = static_cast::<*DeclContext>(lay);
+        var        cur_access = VIS_PUB()
+        var unsafe *dc        = unsafe (lay as unsafe *DeclContext)
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            var nd = *(dc->dc_decls.get(i));
-            if (nd == &null) || (!self._is_type(nd)) { continue; }
+            var unsafe *nd = *dc->dc_decls.get(i)
+            if nd == &null || !self._is_type(nd) {
+                continue
+            }
+
             // Written where its field is (_anon_union_field).
-            if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
-            cur_access = self._access(cur_access, self._cxx_vis(nd), false, at);
+            if isa<Declarations::UnionDecl>(nd) && cast<Declarations::UnionDecl>(nd)->is_anonymous {
+                continue
+            }
+
+            cur_access = self._access(cur_access, self._cxx_vis(nd), false, at)
             // A pack-expanded variant's payload: a template over one element,
             // inside which the enum's pack spells as that element.
-            var pps = dyn_cast::<StructDecl>(nd);
-            var pk = (pps->adt_pack_param) if (pps != &null) else (&null);
+            var unsafe *pps = dyn_cast<Declarations::StructDecl>(nd)
+            var unsafe *pk  = if (pps != &null) => (pps->adt_pack_param) else => &null
             if pk != &null {
-                self._cg->sink->spell(self._at(nd), "template <class " + LowerTargets::adt_pack_elem() + ">");
-                self._spell->pack_alias = pk;
+                self._cg->sink->spell(
+                    self._at(nd),
+                    "template <class " + LowerTargets::adt_pack_elem() + ">",
+                )
+
+                self._spell->pack_alias = pk
             }
+
             // `Panic<void, ...>`'s Ok: T is spelled `__kairo_nv<T>` there.
-            var vu = (pps != &null) && pps->is_adt_payload && en->adt_void_unit;
-            if vu { self._spell->void_unit_owner = d; }
-            self._type_def(CXXSpell::rep(nd));
-            if vu { self._spell->void_unit_owner = &null; }
-            if pk != &null { self._spell->pack_alias = &null; }
+            var vu = pps != &null && pps->is_adt_payload && en->adt_void_unit
+            if vu {
+                self._spell->void_unit_owner = d
+            }
+
+            self._type_def(CXXSpell::rep(nd))
+            if vu {
+                self._spell->void_unit_owner = &null
+            }
+
+            if pk != &null {
+                self._spell->pack_alias = &null
+            }
         }
 
         for var i: usize = 0; i < lay->fields.size(); ++i {
-            var f = lay->fields[i];
-            if f == &null { continue; }
-            cur_access = self._access(cur_access, self._cxx_vis(static_cast::<*Decl>(f)), false, at);
-            if f->is_anonymous_union { self._anon_union_field(f, d); continue; }
+            var unsafe *f = lay->fields[i]
+            if f == &null {
+                continue
+            }
+
+            cur_access = self._access(cur_access, self._cxx_vis(f), false, at)
+            if f->is_anonymous_union {
+                self._anon_union_field(f, d)
+                continue
+            }
+
             // A tag in the payloads' common prefix is read through the
             // union's tag-only member, not stored beside it.
-            if (en->adt_tag_member != &null) && (f == en->adt_tag_field) { continue; }
-            var fnm = self._spell->leaf(static_cast::<*Decl>(f));
+            if en->adt_tag_member != &null && f == en->adt_tag_field {
+                continue
+            }
+
+            var fnm = self._spell->leaf(unsafe (f as unsafe *Decl))
             // A flag: a compile-time constant with no Kairo expression behind
             // it (_adt_flag).
-            if f->storage == StorageClass::Eval {
+            if f->storage == Declarations::StorageClass::Eval {
                 if f == en->adt_payload_offset {
-                    var u = builtin_info(BuiltinKind::U32)->cxx;
-                    self._cg->sink->spell(f->name.range, "static constexpr " + u + " " + fnm + " = " + self._payload_offset_init(en, lay) + ";");
-                    continue;
+                    var u = builtin_info(BuiltinKind::U32)->cxx
+                    self._cg->sink->spell(
+                        f->name.range,
+                        "static constexpr " + u + " " + fnm + " = " + self._payload_offset_init(
+                            en,
+                            lay,
+                        ) + ";",
+                    )
+
+                    continue
                 }
-                self._cg->sink->spell(f->name.range, "static constexpr bool " + fnm + " = " + self._adt_flag(lay, f, fnm) + ";");
-                continue;
+
+                self._cg->sink->spell(
+                    f->name.range,
+                    "static constexpr bool " + fnm + " = " + self._adt_flag(lay, f, fnm) + ";",
+                )
+
+                continue
             }
-            self._cg->sink->spell(f->name.range, self._spell->decl(f->type_, fnm, &null, d) + ";");
+
+            self._cg->sink->spell(f->name.range, self._spell->decl(f->type_, fnm, &null, d) + ";")
         }
 
         for var i: usize = 0; i < lay->methods.size(); ++i {
-            var m = lay->methods[i];
-            if m == &null { continue; }
+            var unsafe *m = lay->methods[i]
+            if m == &null {
+                continue
+            }
+
             // Prefix-tagged: every special member is the defaulted one, so
             // the helpers that switch on the tag are never called.
-            if (en->adt_tag_member != &null) && ((m->adt_role == AdtRole::Destroy) || (m->adt_role == AdtRole::ConstructFrom)) { continue; }
-            cur_access = self._access(cur_access, self._cxx_vis(static_cast::<*Decl>(m)), false, at);
-            self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._adt_member(en, m, nm, generic));
+            if en->adt_tag_member != &null
+                && (m->adt_role == Declarations::AdtRole::Destroy
+                    || m->adt_role == Declarations::AdtRole::ConstructFrom) {
+                continue
+            }
+
+            cur_access = self._access(cur_access, self._cxx_vis(m), false, at)
+            self._cg->sink->spell(
+                self._at(unsafe (m as unsafe *Decl)),
+                self._adt_member(en, m, nm, generic),
+            )
         }
 
         // The niche the tag leaves (EnumNiche: the tag values past the
         // variants), for `__kairo_niche<E>`: a niche-filled ADT holding
         // this one stores its dataless variants as those tags.
-        cur_access = self._access(cur_access, VIS_PUB(), false, at);
-        var tt = LowerTargets::adt_tag_type();
-        var nv = f"{adt_first_spare_tag(en)}";
-        var w  = builtin_info(BuiltinKind::U64)->cxx;
+        cur_access = self._access(cur_access, VIS_PUB(), false, at)
+        self._adt_factories(en, lay, nm, generic)
+        self._cxx_alloc_ops(d, nm, at)
+        var tt = LowerTargets::adt_tag_type()
+        var nv = f"{adt_first_spare_tag(en)}"
+        var w  = builtin_info(BuiltinKind::U64)->cxx
         // The tag as written and as read: a member of its own, or the
         // union's tag-only member in the common prefix.
-        var tset = LowerTargets::adt_tag_field() + "(static_cast<" + tt + ">(" + nv + " + i))";
-        var tget = LowerTargets::adt_tag_field();
+        var tset = LowerTargets::adt_tag_field() + "(static_cast<" + tt + ">(" + nv + " + i))"
+        var tget = LowerTargets::adt_tag_field()
         if en->adt_tag_member != &null {
-            var tmn = self._spell->leaf(static_cast::<*Decl>(en->adt_tag_member));
-            tset = tmn + "{static_cast<" + tt + ">(" + nv + " + i)}";
-            tget = tmn + "." + LowerTargets::adt_tag_field();
+            var tmn = self._spell->leaf(en->adt_tag_member)
+            tset = tmn + "{static_cast<" + tt + ">(" + nv + " + i)}"
+            tget = tmn + "." + LowerTargets::adt_tag_field()
         }
-        self._cg->sink->spell(at, "static constexpr " + w + " " + LowerTargets::niche_count() + " = " + f"{adt_tag_niche_count(en)}" + ";");
-        self._cg->sink->spell(at, nm + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + tset + " {}");
-        self._cg->sink->spell(at, "static bool " + LowerTargets::niche_test() + "(const " + nm + "& v, " + w + " i) noexcept { return static_cast<"
-                                  + w + ">(v." + tget + ") == " + nv + " + i; }");
 
-        self._friends(d);
+        self._cg->sink->spell(
+            at,
+            "static constexpr " + w + " " + LowerTargets::niche_count() + " = " + f"{adt_tag_niche_count(en)}" + ";",
+        )
 
-        self._cg->sink->spell(at, "};");
-        self._cg->sink->brk();
+        self._cg->sink->spell(
+            at,
+            nm + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + tset + " {}",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "static bool " + LowerTargets::niche_test() + "(const " + nm + "& v, " + w + " i) noexcept { return static_cast<" + w + ">(v." + tget + ") == " + nv + " + i; }",
+        )
+
+        self._friends(d)
+
+        self._cg->sink->spell(at, "};")
+        self._cg->sink->brk()
 
         // The niche-filled form of a generic ADT, as a partial specialization
         // constrained on exactly what EnumLayoutQuery::niche_verdict asks:
         // C++ picks it per instance, in every TU and every C++ host alike,
         // so no instance Sema never saw (a generic body's) can disagree.
         if generic && en->adt_niche_shape {
-            var gps  = CXXSpell::template_params(d);
-            var args = "";
+            var gps  = CXXSpell::template_params(d)
+            var args = ""
             for var i: usize = 0; i < gps.size(); ++i {
-                if i > 0 { args += ", "; }
-                args += self._spell->imm_name(gps[i]->name.imm, CXXSpell::fid_of(d));
-                if gps[i]->is_pack { args += "..."; }
+                if i > 0 {
+                    args += ", "
+                }
+
+                args += self._spell->imm_name(gps[i]->name.imm, CXXSpell::fid_of(d))
+                if gps[i]->is_pack {
+                    args += "..."
+                }
             }
-            var ft   = self._niche_field_spelling(en);
-            var cond = "::" + LowerTargets::niche_trait() + "<" + ft + ">::" + LowerTargets::niche_trait_count() + " >= " + f"{adt_niche_dataless(en)}"
-                     + " && __is_trivially_copyable(" + ft + ") && __is_trivially_destructible(" + ft + ")";
-            self._niche_record(en, lay, self._spell->template_head(d) + "requires (" + cond + ") struct " + nm + "<" + args + "> {", true);
+
+            var ft = self._niche_field_spelling(en)
+            var cond = "::" + LowerTargets::niche_trait() + "<" + ft + ">::" + LowerTargets::niche_trait_count() + " >= " + f"{adt_niche_dataless(en)}" + " && __is_trivially_copyable(" + ft + ") && __is_trivially_destructible(" + ft + ")"
+            self._niche_record(
+                en,
+                lay,
+                self._spell->template_head(
+                    d,
+                ) + "requires (" + cond + ") struct " + nm + "<" + args + "> {",
+                true,
+            )
         }
     }
 
     /// The C++ type of a niche-shaped ADT's one payload field, spelled in the
     /// enum's own scope (a generic one's in terms of its parameters).
-    priv fn _niche_field_spelling(self, en: *EnumDecl) -> string {
-        var pv = en->variants[usize(adt_niche_payload_variant(en))];
-        return self._spell->decl(pv->payload[0]->type_, "", &null, static_cast::<*Decl>(en));
+    priv fn _niche_field_spelling(self, en: unsafe *Declarations::EnumDecl) -> string {
+        var unsafe *pv = en->variants[adt_niche_payload_variant(en) as usize]
+        return self._spell->decl(pv->payload[0]->type_, "", &null, en)
     }
 
     /// A niche-filled ADT record (EnumLayoutLowering's header): no tag and
@@ -2569,147 +3961,257 @@ class InterfaceEmitter {
     /// written. The record still declares `__kairo_Tag` for
     /// `__kairo_which()`, and answers the niche trait itself: a niche-filled
     /// ADT holding this one uses the field's patterns past these.
-    priv fn _niche_record(self, en: *EnumDecl, lay: *StructDecl, head: string, spec: bool) {
-        var d   = static_cast::<*Decl>(en);
-        var at  = self._at(d);
-        var nm  = self._spell->leaf(d);
-        var p   = adt_niche_payload_variant(en);
-        var pv  = en->variants[usize(p)];
-        var fld = pv->payload[0];
-        var ft  = self._niche_field_spelling(en);
-        var mem = self._spell->leaf(static_cast::<*Decl>(pv->adt_member));
-        var fnm = self._spell->leaf(static_cast::<*Decl>(fld));
-        var nt  = "::" + LowerTargets::niche_trait() + "<" + ft + ">::";
-        var w   = builtin_info(BuiltinKind::U64)->cxx;
-        var dl  = adt_niche_dataless(en);
-        var tt  = LowerTargets::adt_tag_type();
-        self._cg->sink->spell(at, head);
+    priv fn _niche_record(self,
+                          en:         unsafe *Declarations::EnumDecl,
+                          lay:        unsafe *Declarations::StructDecl,
+                          const head: string,
+                          spec:       bool) {
+        var unsafe *d   = unsafe (en as unsafe *Decl)
+        var        at   = self._at(d)
+        var        nm   = self._spell->leaf(d)
+        var        p    = adt_niche_payload_variant(en)
+        var unsafe *pv  = en->variants[p as usize]
+        var unsafe *fld = pv->payload[0]
+        var        ft   = self._niche_field_spelling(en)
+        var        mem  = self._spell->leaf(pv->adt_member)
+        var        fnm  = self._spell->leaf(unsafe (fld as unsafe *Decl))
+        var        nt   = "::" + LowerTargets::niche_trait() + "<" + ft + ">::"
+        var        w    = builtin_info(BuiltinKind::U64)->cxx
+        var        dl   = adt_niche_dataless(en)
+        var        tt   = LowerTargets::adt_tag_type()
+        self._cg->sink->spell(at, head)
 
-        var dc = static_cast::<*DeclContext>(lay);
+        var unsafe *dc = unsafe (lay as unsafe *DeclContext)
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            var nd = *(dc->dc_decls.get(i));
-            if (nd == &null) || (!self._is_type(nd)) { continue; }
-            if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
-            self._type_def(CXXSpell::rep(nd));
+            var unsafe *nd = *dc->dc_decls.get(i)
+            if nd == &null || !self._is_type(nd) {
+                continue
+            }
+
+            if isa<Declarations::UnionDecl>(nd) && cast<Declarations::UnionDecl>(nd)->is_anonymous {
+                continue
+            }
+
+            self._type_def(CXXSpell::rep(nd))
         }
-        self._cg->sink->spell(at, self._spell->leaf(self._payload_struct_of(pv)) + " " + mem + ";");
+
+        self._cg->sink->spell(at, self._spell->leaf(self._payload_struct_of(pv)) + " " + mem + ";")
         // A generic ADT's flags, which the Nullable surface's constraints
         // read: true by the specialization's own constraint.
         for var i: usize = 0; i < lay->fields.size(); ++i {
-            var f = lay->fields[i];
-            if (f == &null) || (f->storage != StorageClass::Eval) { continue; }
-            self._cg->sink->spell(f->name.range, "static constexpr bool " + self._spell->leaf(static_cast::<*Decl>(f)) + " = true;");
+            var unsafe *f = lay->fields[i]
+            if f == &null || f->storage != Declarations::StorageClass::Eval {
+                continue
+            }
+
+            self._cg->sink->spell(
+                f->name.range,
+                "static constexpr bool " + self._spell->leaf(
+                    unsafe (f as unsafe *Decl),
+                ) + " = true;",
+            )
         }
 
-        var nx = self._adt_noexcept();
+        var nx = self._adt_noexcept()
         for var i: usize = 0; i < lay->methods.size(); ++i {
-            var m = lay->methods[i];
-            if m == &null { continue; }
-            var mat = self._at(static_cast::<*Decl>(m));
-            if adt_role_is_nullable(m->adt_role) {
-                self._cg->sink->spell(mat, self._niche_nullable_member(en, m, nm, nt, mem, fnm, ft));
-                continue;
+            var unsafe *m = lay->methods[i]
+            if m == &null {
+                continue
             }
-            switch m->adt_role {
-                case AdtRole::VariantCtor {
-                    var vt = "::" + LowerTargets::adt_variant_tag() + f"<{m->adt_variant}>";
+
+            var mat = self._at(unsafe (m as unsafe *Decl))
+            if Declarations::adt_role_is_nullable(m->adt_role) {
+                self._cg->sink->spell(mat, self._niche_nullable_member(en, m, nm, nt, mem, fnm, ft))
+                continue
+            }
+
+            match m->adt_role {
+                case Declarations::AdtRole::VariantCtor {
+                    var vt = "::" + LowerTargets::adt_variant_tag() + f"<{m->adt_variant}>"
                     if m->adt_variant == p {
                         // The field constructor every concrete site calls,
                         // and the lambda one a generic body's site calls.
-                        self._cg->sink->spell(mat, nm + "(" + vt + ", " + self._spell->decl(fld->type_, fnm, &null, d) + ")" + nx + " : " + mem + "{" + fnm + "} {}");
-                        self._cg->sink->spell(mat, "template <class F> " + nm + "(" + vt + ", F&& f)" + nx + " : " + mem + "(static_cast<F&&>(f)()) {}");
+                        self._cg->sink->spell(
+                            mat,
+                            nm + "(" + vt + ", " + self._spell->decl(
+                                fld->type_,
+                                fnm,
+                                &null,
+                                d,
+                            ) + ")" + nx + " : " + mem + "{" + fnm + "} {}",
+                        )
+
+                        self._cg->sink->spell(
+                            mat,
+                            "template <class F> " + nm + "(" + vt + ", F&& f)" + nx + " : " + mem + "(static_cast<F&&>(f)()) {}",
+                        )
                     } else {
-                        self._cg->sink->spell(mat, nm + "(" + vt + ")" + nx + " : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "("
-                                                   + f"{adt_niche_pattern_of(en, m->adt_variant)}" + ")} {}");
+                        self._cg->sink->spell(
+                            mat,
+                            nm + "(" + vt + ")" + nx + " : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(" + f"{adt_niche_pattern_of(en, m->adt_variant)}" + ")} {}",
+                        )
                     }
-                }
-                case AdtRole::CopyCtor   { if m->adt_form == AdtForm::Trivial { self._cg->sink->spell(mat, nm + "(const " + nm + "&) = default;"); } }
-                case AdtRole::MoveCtor   { if m->adt_form == AdtForm::Trivial { self._cg->sink->spell(mat, nm + "(" + nm + "&&) = default;"); } }
-                case AdtRole::CopyAssign { if m->adt_form == AdtForm::Trivial { self._cg->sink->spell(mat, nm + "& operator=(const " + nm + "&) = default;"); } }
-                case AdtRole::MoveAssign { if m->adt_form == AdtForm::Trivial { self._cg->sink->spell(mat, nm + "& operator=(" + nm + "&&) = default;"); } }
-                case AdtRole::Dtor       { if m->adt_form == AdtForm::Trivial { self._cg->sink->spell(mat, "~" + nm + "() = default;"); } }
-                case AdtRole::Which {
-                    var s = tt + " " + LowerTargets::adt_which() + "() const" + nx + " { return ";
+                } case Declarations::AdtRole::CopyCtor {
+                    if m->adt_form == Declarations::AdtForm::Trivial {
+                        self._cg->sink->spell(mat, nm + "(const " + nm + "&) = default;")
+                    }
+                } case Declarations::AdtRole::MoveCtor {
+                    if m->adt_form == Declarations::AdtForm::Trivial {
+                        self._cg->sink->spell(mat, nm + "(" + nm + "&&) = default;")
+                    }
+                } case Declarations::AdtRole::CopyAssign {
+                    if m->adt_form == Declarations::AdtForm::Trivial {
+                        self._cg->sink->spell(mat, nm + "& operator=(const " + nm + "&) = default;")
+                    }
+                } case Declarations::AdtRole::MoveAssign {
+                    if m->adt_form == Declarations::AdtForm::Trivial {
+                        self._cg->sink->spell(mat, nm + "& operator=(" + nm + "&&) = default;")
+                    }
+                } case Declarations::AdtRole::Dtor {
+                    if m->adt_form == Declarations::AdtForm::Trivial {
+                        self._cg->sink->spell(mat, "~" + nm + "() = default;")
+                    }
+                } case Declarations::AdtRole::Which {
+                    var s = tt + " " + LowerTargets::adt_which() + "() const" + nx + " { return "
                     for var k: usize = 0; k < en->variants.size(); ++k {
-                        if u32(k) == p { continue; }
-                        s += nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", " + f"{adt_niche_pattern_of(en, u32(k))}" + ") ? "
-                           + tt + "::" + self._spell->leaf(static_cast::<*Decl>(en->variants[k])) + " : ";
+                        if (k as u32) == p {
+                            continue
+                        }
+
+                        s += nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", " + f"{adt_niche_pattern_of(en, (k as u32))}" + ") ? " + tt + "::" + self._spell->leaf(
+                            unsafe (en->variants[k] as unsafe *Decl),
+                        ) + " : "
                     }
-                    self._cg->sink->spell(mat, s + tt + "::" + self._spell->leaf(static_cast::<*Decl>(pv)) + "; }");
+
+                    self._cg->sink->spell(
+                        mat,
+                        s + tt + "::" + self._spell->leaf(unsafe (pv as unsafe *Decl)) + "; }",
+                    )
+                } default { // destroy and construct_from: no tag to switch on.
+                    0
                 }
-                default { 0; }   // destroy and construct_from: no tag to switch on.
             }
         }
 
-        self._cg->sink->spell(at, "static constexpr " + w + " " + LowerTargets::niche_count() + " = " + nt + LowerTargets::niche_trait_count() + " - " + f"{dl}" + ";");
-        self._cg->sink->spell(at, nm + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(" + f"{dl}" + " + i)} {}");
-        self._cg->sink->spell(at, "static bool " + LowerTargets::niche_test() + "(const " + nm + "& v, " + w + " i) noexcept { return "
-                                  + nt + LowerTargets::niche_trait_test() + "(v." + mem + "." + fnm + ", " + f"{dl}" + " + i); }");
-        self._friends(d);
-        self._cg->sink->spell(at, "};");
-        self._cg->sink->brk();
+        // A struct: public throughout. The generic primary's partial
+        // specialization gets them too, or C++ would find them only on the
+        // instances it lays out tagged.
+        self._adt_factories(en, lay, nm, spec || CXXSpell::template_params(d).size() > 0)
+        self._cxx_alloc_ops(d, nm, at)
+        self._cg->sink->spell(
+            at,
+            "static constexpr " + w + " " + LowerTargets::niche_count() + " = " + nt + LowerTargets::niche_trait_count() + " - " + f"{dl}" + ";",
+        )
+
+        self._cg->sink->spell(
+            at,
+            nm + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(" + f"{dl}" + " + i)} {}",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "static bool " + LowerTargets::niche_test() + "(const " + nm + "& v, " + w + " i) noexcept { return " + nt + LowerTargets::niche_trait_test() + "(v." + mem + "." + fnm + ", " + f"{dl}" + " + i); }",
+        )
+
+        self._friends(d)
+        self._cg->sink->spell(at, "};")
+        self._cg->sink->brk()
         if !spec {
             // Pinned: no tag means the record is its payload struct.
-            var ps = self._spell->leaf(self._payload_struct_of(pv));
-            self._cg->sink->spell(at, "static_assert(sizeof(" + nm + ") == sizeof(" + nm + "::" + ps + ") && __is_standard_layout(" + nm + "));");
-            self._cg->sink->brk();
+            var ps = self._spell->leaf(self._payload_struct_of(pv))
+            self._cg->sink->spell(
+                at,
+                "static_assert(sizeof(" + nm + ") == sizeof(" + nm + "::" + ps + ") && __is_standard_layout(" + nm + "));",
+            )
+
+            self._cg->sink->brk()
         }
     }
 
     /// The payload struct variant \p v's union member is typed as.
-    priv fn _payload_struct_of(self, v: *EnumVariantDecl) -> *Decl {
-        var t = v->adt_member->type_;
-        var c: *Type = &null;
-        if (t != &null) && (t->canonical != &null) { c = canon_unqual(t->canonical); }
-        if (c == &null) || (!isa::<RecordType>(c)) {
-            self._ice(self._at(static_cast::<*Decl>(v)), "InterfaceEmitter: an ADT union member whose type is not its payload struct; EnumLayoutLowering gate failure");
+    priv fn _payload_struct_of(self, v: unsafe *Declarations::EnumVariantDecl) -> unsafe *Decl {
+        var unsafe *t              = v->adt_member->type_
+        var        c: unsafe *Type = &null
+        if t != &null && t->canonical != &null {
+            c = canon_unqual(t->canonical)
         }
-        return cast::<RecordType>(c)->decl;
+
+        if c == &null || !isa<RecordType>(c) {
+            self._ice(
+                self._at(unsafe (v as unsafe *Decl)),
+                "InterfaceEmitter: an ADT union member whose type is not its payload struct; EnumLayoutLowering gate failure",
+            )
+        }
+
+        return cast<RecordType>(c)->decl
     }
 
     /// The Nullable lang item's surface over the niche-filled record: null is
     /// pattern 0 in the field, present is any other value, `==` is the
     /// field's own (two nulls hold the same pattern).
-    priv fn _niche_nullable_member(self, en: *EnumDecl, m: *FunctionDecl, nm: string, nt: string, mem: string, fnm: string, ft: string) -> string {
-        var at  = self._at(static_cast::<*Decl>(m));
-        var d   = static_cast::<*Decl>(en);
-        var nx  = self._adt_noexcept();
-        var val = LowerTargets::nullable_value();
-        var nul = mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(0)} {}";
-        switch m->adt_role {
-            case AdtRole::NullDefault { return nm + "()" + nx + " : " + nul; }
-            case AdtRole::NullFrom {
-                if m->params.size() != 1 { self._ice(at, "InterfaceEmitter: Nullable(null_t) without its parameter"); return ""; }
-                return nm + "(" + self._spell->decl(m->params[0]->type_, "", &null, d) + ")" + nx + " : " + nul;
+    priv fn _niche_nullable_member(self,
+                                   en:        unsafe *Declarations::EnumDecl,
+                                   m:         unsafe *Declarations::FunctionDecl,
+                                   const nm:  string,
+                                   const nt:  string,
+                                   const mem: string,
+                                   const fnm: string,
+                                   const ft:  string) -> string {
+        var        at  = self._at(unsafe (m as unsafe *Decl))
+        var unsafe *d  = unsafe (en as unsafe *Decl)
+        var        nx  = self._adt_noexcept()
+        var        val = LowerTargets::nullable_value()
+        var        nul = mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(0)} {}"
+        match m->adt_role {
+            case Declarations::AdtRole::NullDefault {
+                return nm + "()" + nx + " : " + nul
+            } case Declarations::AdtRole::NullFrom {
+                if m->params.size() != 1 {
+                    self._ice(at, "InterfaceEmitter: Nullable(null_t) without its parameter")
+                    return ""
+                }
+
+                return nm + "(" + self._spell->decl(
+                    m->params[0]->type_,
+                    "",
+                    &null,
+                    d,
+                ) + ")" + nx + " : " + nul
+            } case Declarations::AdtRole::ValueCopy {
+                return nm + "(const " + ft + "& v)" + nx + " : " + mem + "{v} {}"
+            } case Declarations::AdtRole::ValueMove {
+                return nm + "(" + ft + "&& v)" + nx + " : " + mem + "{static_cast<" + ft + "&&>(v)} {}"
+            } case Declarations::AdtRole::IsNull {
+                return "bool " + LowerTargets::nullable_is_null() + "() const" + nx + " { return " + nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", 0); }"
+            } case Declarations::AdtRole::ValueRef {
+                return ft + "& " + val + "()" + nx + " { return " + mem + "." + fnm + "; }"
+            } case Declarations::AdtRole::ValueCref {
+                return "const " + ft + "& " + val + "() const" + nx + " { return " + mem + "." + fnm + "; }"
+            } case Declarations::AdtRole::Equal {
+                return "bool operator==(const " + nm + "& o) const" + nx + " requires requires (const " + ft + "& a) { a == a; } { return " + mem + "." + fnm + " == o." + mem + "." + fnm + "; }"
+            } default {
+                0
             }
-            case AdtRole::ValueCopy { return nm + "(const " + ft + "& v)" + nx + " : " + mem + "{v} {}"; }
-            case AdtRole::ValueMove { return nm + "(" + ft + "&& v)" + nx + " : " + mem + "{static_cast<" + ft + "&&>(v)} {}"; }
-            case AdtRole::IsNull    { return "bool " + LowerTargets::nullable_is_null() + "() const" + nx + " { return " + nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", 0); }"; }
-            case AdtRole::ValueRef  { return ft + "& " + val + "()" + nx + " { return " + mem + "." + fnm + "; }"; }
-            case AdtRole::ValueCref { return "const " + ft + "& " + val + "() const" + nx + " { return " + mem + "." + fnm + "; }"; }
-            case AdtRole::Equal {
-                return "bool operator==(const " + nm + "& o) const" + nx + " requires requires (const " + ft + "& a) { a == a; } { return "
-                     + mem + "." + fnm + " == o." + mem + "." + fnm + "; }";
-            }
-            default { 0; }
         }
-        self._ice(at, "InterfaceEmitter: a Nullable role with no niche rendering");
-        return "";
+
+        self._ice(at, "InterfaceEmitter: a Nullable role with no niche rendering")
+        return ""
     }
 
     /// `__kairo_niche<E>` for plain enum \p en (EnumNiche): the values past
     /// its variants. At global scope, where the trait is, so the enum is
     /// spelled qualified.
-    priv fn _enum_niche_trait(self, en: *EnumDecl) {
-        var at = self._at(static_cast::<*Decl>(en));
-        var e  = self._spell->qual_name(static_cast::<*Decl>(en));
-        var w  = builtin_info(BuiltinKind::U64)->cxx;
-        var nv = f"{en->variants.size()}";
-        self._cg->sink->spell(at, "template <> struct " + LowerTargets::niche_trait() + "<" + e + "> { static constexpr " + w + " "
-            + LowerTargets::niche_trait_count() + " = " + f"{enum_niche_count(en)}" + "; static " + e + " " + LowerTargets::niche_trait_pattern()
-            + "(" + w + " i) noexcept { return static_cast<" + e + ">(" + nv + " + i); } static bool " + LowerTargets::niche_trait_test()
-            + "(const " + e + "& v, " + w + " i) noexcept { return v == static_cast<" + e + ">(" + nv + " + i); } };");
-        self._cg->sink->brk();
+    priv fn _enum_niche_trait(self, en: unsafe *Declarations::EnumDecl) {
+        var at = self._at(en)
+        var e  = self._spell->qual_name(en)
+        var w  = builtin_info(BuiltinKind::U64)->cxx
+        var nv = f"{en->variants.size()}"
+        self._cg->sink->spell(
+            at,
+            "template <> struct " + LowerTargets::niche_trait() + "<" + e + "> { static constexpr " + w + " " + LowerTargets::niche_trait_count() + " = " + f"{enum_niche_count(en)}" + "; static " + e + " " + LowerTargets::niche_trait_pattern() + "(" + w + " i) noexcept { return static_cast<" + e + ">(" + nv + " + i); } static bool " + LowerTargets::niche_trait_test() + "(const " + e + "& v, " + w + " i) noexcept { return v == static_cast<" + e + ">(" + nv + " + i); } };",
+        )
+
+        self._cg->sink->brk()
     }
 
     /// The niche trait, written once per TU (guarded in a header): count 0
@@ -2718,85 +4220,162 @@ class InterfaceEmitter {
     /// `__kairo_niche_test`). A plain enum's is specialized after it
     /// (_enum_niche_trait). EnumLayoutQuery::niche_of is the same table.
     priv fn _niche_helpers(self, header: bool) {
-        var at = self._tu_at();
-        var w  = builtin_info(BuiltinKind::U64)->cxx;
-        var nt = LowerTargets::niche_trait();
-        var c  = LowerTargets::niche_trait_count();
-        var pt = LowerTargets::niche_trait_pattern();
-        var ts = LowerTargets::niche_trait_test();
-        var np = LowerTargets::niche_ctor_tag();
-        if header { self._cg->sink->directive(at, "#ifndef " + LowerTargets::niche_guard()); }
-        if header { self._cg->sink->directive(at, "#define " + LowerTargets::niche_guard()); }
-        self._cg->sink->spell(at, "struct " + np + " { explicit " + np + "() = default; };");
-        self._cg->sink->brk();
-        self._cg->sink->spell(at, "template <class T> struct " + nt + " { static constexpr " + w + " " + c + " = 0; };");
-        self._cg->sink->brk();
-        self._cg->sink->spell(at, "template <class T> struct " + nt + "<T*> { static constexpr " + w + " " + c + " = 1; static T* " + pt + "(" + w
-            + ") noexcept { return nullptr; } static bool " + ts + "(T* const& v, " + w + ") noexcept { return v == nullptr; } };");
-        self._cg->sink->brk();
-        self._cg->sink->spell(at, "template <class T> requires requires { T::" + LowerTargets::niche_count() + "; } struct " + nt + "<T> { static constexpr "
-            + w + " " + c + " = T::" + LowerTargets::niche_count() + "; static T " + pt + "(" + w + " i) noexcept { return T(::" + np + "{}, i); } "
-            + "static bool " + ts + "(const T& v, " + w + " i) noexcept { return T::" + LowerTargets::niche_test() + "(v, i); } };");
-        self._cg->sink->brk();
-        if header { self._cg->sink->directive(at, "#endif"); }
+        var at = self._tu_at()
+        var w  = builtin_info(BuiltinKind::U64)->cxx
+        var nt = LowerTargets::niche_trait()
+        var c  = LowerTargets::niche_trait_count()
+        var pt = LowerTargets::niche_trait_pattern()
+        var ts = LowerTargets::niche_trait_test()
+        var np = LowerTargets::niche_ctor_tag()
+        if header {
+            self._cg->sink->directive(at, "#ifndef " + LowerTargets::niche_guard())
+        }
+
+        if header {
+            self._cg->sink->directive(at, "#define " + LowerTargets::niche_guard())
+        }
+
+        self._cg->sink->spell(at, "struct " + np + " { explicit " + np + "() = default; };")
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class T> struct " + nt + " { static constexpr " + w + " " + c + " = 0; };",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class T> struct " + nt + "<T*> { static constexpr " + w + " " + c + " = 1; static T* " + pt + "(" + w + ") noexcept { return nullptr; } static bool " + ts + "(T* const& v, " + w + ") noexcept { return v == nullptr; } };",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class T> requires requires { T::" + LowerTargets::niche_count() + "; } struct " + nt + "<T> { static constexpr " + w + " " + c + " = T::" + LowerTargets::niche_count() + "; static T " + pt + "(" + w + " i) noexcept { return T(::" + np + "{}, i); } " + "static bool " + ts + "(const T& v, " + w + " i) noexcept { return T::" + LowerTargets::niche_test() + "(v, i); } };",
+        )
+
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(at, "#endif")
+        }
     }
 
     /// An enum is defined here: a plain one with a niche trait, or any ADT.
     /// A header skips what it includes, as run() does.
     priv fn _needs_niche_helpers(self) -> bool {
-        var header = (self._plan->mode() == PlanMode::Header);
+        var header = self._plan->mode() == PlanMode::Header
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
-            var e = &(self._plan->entries[i]);
-            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) || (e->eval_item != &null) { continue; }
-            if header && (!e->own) { continue; }
-            var en = dyn_cast::<EnumDecl>(e->decl);
-            if en == &null { continue; }
-            if en->is_adt || enum_has_niche_trait(en) { return true; }
+            var *e = &self._plan->entries[i]
+            if e->tier != PlanTier::Definitions
+                || e->scope != &null
+                || e->witness != &null
+                || e->eval_item != &null {
+                continue
+            }
+
+            if header && !e->own {
+                continue
+            }
+
+            var unsafe *en = dyn_cast<Declarations::EnumDecl>(e->decl)
+            if en == &null {
+                continue
+            }
+
+            if en->is_adt || enum_has_niche_trait(en) {
+                return true
+            }
         }
-        return false;
+
+        return false
     }
 
     /// An ADT with a pack-expanded variant is defined here (as
     /// _needs_niche_helpers asks).
     priv fn _needs_pack_union(self) -> bool {
-        var header = (self._plan->mode() == PlanMode::Header);
+        var header = self._plan->mode() == PlanMode::Header
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
-            var e = &(self._plan->entries[i]);
-            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) || (e->eval_item != &null) { continue; }
-            if header && (!e->own) { continue; }
-            var en = dyn_cast::<EnumDecl>(e->decl);
-            if (en != &null) && en->is_adt && (adt_pack_variant(en) != &null) { return true; }
+            var *e = &self._plan->entries[i]
+            if e->tier != PlanTier::Definitions
+                || e->scope != &null
+                || e->witness != &null
+                || e->eval_item != &null {
+                continue
+            }
+
+            if header && !e->own {
+                continue
+            }
+
+            var unsafe *en = dyn_cast<Declarations::EnumDecl>(e->decl)
+            if en != &null && en->is_adt && DeclFacts::adt_pack_variant(en) != &null {
+                return true
+            }
         }
-        return false;
+
+        return false
     }
 
     /// A flag's initializer: its type trait over every payload struct,
     /// joined with `&&`. Which flag it is is read off the name LowerTargets
     /// gave it; the structs go by leaf, the text being inside the record.
-    priv fn _adt_flag(self, lay: *StructDecl, f: *FieldDecl, nm: string) -> string {
-        var s  = "";
-        var dc = static_cast::<*DeclContext>(lay);
+    priv fn _adt_flag(self,
+                      lay:      unsafe *Declarations::StructDecl,
+                      f:        unsafe *Declarations::FieldDecl,
+                      const nm: string) -> string {
+        var        s   = ""
+        var unsafe *dc = unsafe (lay as unsafe *DeclContext)
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            var ps = dyn_cast::<StructDecl>(*(dc->dc_decls.get(i)));
-            if (ps == &null) || (!ps->is_adt_payload) { continue; }
-            var p    = self._spell->leaf(static_cast::<*Decl>(ps));
+            var unsafe *ps = dyn_cast<Declarations::StructDecl>(*dc->dc_decls.get(i))
+            if ps == &null || !ps->is_adt_payload {
+                continue
+            }
+
+            var p = self._spell->leaf(ps)
             // A pack-expanded variant's: every element's, as a fold (true
             // for an empty pack).
-            var fold = ps->adt_pack_param != &null;
-            if fold { p = self._pack_payload(ps, lay->adt_of); }
-            var term = "";
-            if nm == LowerTargets::adt_trivial_dtor()      { term = "__is_trivially_destructible(" + p + ")"; }
-            else if nm == LowerTargets::adt_trivial_copy() { term = "__is_trivially_copyable(" + p + ")"; }
-            else if nm == LowerTargets::adt_destructible() { term = "__is_destructible(" + p + ")"; }
-            else if nm == LowerTargets::adt_copyable()     { term = "__is_constructible(" + p + ", const " + p + "&)"; }
-            else if nm == LowerTargets::adt_movable()      { term = "__is_constructible(" + p + ", " + p + "&&)"; }
-            else { self._ice(self._at(static_cast::<*Decl>(f)), f"InterfaceEmitter: ADT record field '{nm}' is compile-time but none of the five flags"); }
-            if fold { term = "(" + term + " && ...)"; }
-            if s.size() > 0 { s += " && "; }
-            s += term;
+            var fold = ps->adt_pack_param != &null
+            if fold {
+                p = self._pack_payload(ps, lay->adt_of)
+            }
+
+            var term = ""
+            if nm == LowerTargets::adt_trivial_dtor() {
+                term = "__is_trivially_destructible(" + p + ")"
+            } else if nm == LowerTargets::adt_trivial_copy() {
+                term = "__is_trivially_copyable(" + p + ")"
+            } else if nm == LowerTargets::adt_destructible() {
+                term = "__is_destructible(" + p + ")"
+            } else if nm == LowerTargets::adt_copyable() {
+                term = "__is_constructible(" + p + ", const " + p + "&)"
+            } else if nm == LowerTargets::adt_movable() {
+                term = "__is_constructible(" + p + ", " + p + "&&)"
+            } else {
+                self._ice(
+                    self._at(unsafe (f as unsafe *Decl)),
+                    f"InterfaceEmitter: ADT record field '{nm}' is compile-time but none of the five flags",
+                )
+            }
+
+            if fold {
+                term = "(" + term + " && ...)"
+            }
+
+            if s.size() > 0 {
+                s += " && "
+            }
+
+            s += term
         }
-        if s.size() == 0 { self._ice(self._at(static_cast::<*Decl>(f)), "InterfaceEmitter: an ADT record with flags and no payload struct; EnumLayoutLowering gate failure"); }
-        return s;
+
+        if s.size() == 0 {
+            self._ice(
+                self._at(unsafe (f as unsafe *Decl)),
+                "InterfaceEmitter: an ADT record with flags and no payload struct; EnumLayoutLowering gate failure",
+            )
+        }
+
+        return s
     }
 
     /// The C++ constraint that selects \p m's form among the three a generic
@@ -2804,196 +4383,288 @@ class InterfaceEmitter {
     /// its facts chose (a constraint on a non-templated function is
     /// ill-formed). Built from the flag names: C++ mechanics, never a Kairo
     /// requires_clause.
-    priv fn _adt_requires(self, m: *FunctionDecl, generic: bool) -> string {
-        if !generic { return ""; }
-        if m->adt_role == AdtRole::Dtor {
-            var td = LowerTargets::adt_trivial_dtor();
-            var ds = LowerTargets::adt_destructible();
-            switch m->adt_form {
-                case AdtForm::Trivial { return " requires " + td; }
-                case AdtForm::Body    { return " requires (!" + td + " && " + ds + ")"; }
-                case AdtForm::Deleted { return " requires (!" + ds + ")"; }
+    priv fn _adt_requires(self, m: unsafe *Declarations::FunctionDecl, generic: bool) -> string {
+        if !generic {
+            return ""
+        }
+
+        if m->adt_role == Declarations::AdtRole::Dtor {
+            var td = LowerTargets::adt_trivial_dtor()
+            var ds = LowerTargets::adt_destructible()
+            match m->adt_form {
+                case Declarations::AdtForm::Trivial {
+                    return " requires " + td
+                } case Declarations::AdtForm::Body {
+                    return " requires (!" + td + " && " + ds + ")"
+                } case Declarations::AdtForm::Deleted {
+                    return " requires (!" + ds + ")"
+                }
             }
-            return "";
         }
-        var tc = LowerTargets::adt_trivial_copy();
-        var copying = (m->adt_role == AdtRole::CopyCtor) || (m->adt_role == AdtRole::CopyAssign);
-        var ok = (LowerTargets::adt_copyable()) if (copying) else (LowerTargets::adt_movable());
-        switch m->adt_form {
-            case AdtForm::Trivial { return " requires " + tc; }
-            case AdtForm::Body    { return " requires (!" + tc + " && " + ok + ")"; }
-            case AdtForm::Deleted { return " requires (!" + tc + " && !" + ok + ")"; }
+
+        var tc = LowerTargets::adt_trivial_copy()
+        var copying = m->adt_role == Declarations::AdtRole::CopyCtor
+            || m->adt_role == Declarations::AdtRole::CopyAssign
+        var ok = if (copying) => (LowerTargets::adt_copyable()) else => LowerTargets::adt_movable()
+        match m->adt_form {
+            case Declarations::AdtForm::Trivial {
+                return " requires " + tc
+            } case Declarations::AdtForm::Body {
+                return " requires (!" + tc + " && " + ok + ")"
+            } case Declarations::AdtForm::Deleted {
+                return " requires (!" + tc + " && !" + ok + ")"
+            }
         }
-        return "";
     }
 
     /// The payload struct holding \p v, by leaf, read off its union member.
-    priv fn _payload_leaf(self, v: *EnumVariantDecl) -> string {
-        var t = v->adt_member->type_;
-        var c: *Type = &null;
-        if (t != &null) && (t->canonical != &null) { c = canon_unqual(t->canonical); }
-        if (c == &null) || (!isa::<RecordType>(c)) {
-            self._ice(self._at(static_cast::<*Decl>(v)), "InterfaceEmitter: an ADT union member whose type is not its payload struct; EnumLayoutLowering gate failure");
+    priv fn _payload_leaf(self, v: unsafe *Declarations::EnumVariantDecl) -> string {
+        var unsafe *t              = v->adt_member->type_
+        var        c: unsafe *Type = &null
+        if t != &null && t->canonical != &null {
+            c = canon_unqual(t->canonical)
         }
-        return self._spell->leaf(cast::<RecordType>(c)->decl);
+
+        if c == &null || !isa<RecordType>(c) {
+            self._ice(
+                self._at(v),
+                "InterfaceEmitter: an ADT union member whose type is not its payload struct; EnumLayoutLowering gate failure",
+            )
+        }
+
+        return self._spell->leaf(cast<RecordType>(c)->decl)
     }
 
     /// One role function of an ADT's record as C++ text. None has a Kairo
     /// body (EnumLayoutLowering's header says why): the text is a function
     /// of the role, the form and whether the enum is generic, every invented
     /// name from LowerTargets and every other from the record's own decls.
-    priv fn _adt_member(self, en: *EnumDecl, m: *FunctionDecl, nm: string, generic: bool) -> string {
-        if adt_role_is_nullable(m->adt_role) { return self._nullable_member(en, m, nm); }
-        var tag  = LowerTargets::adt_tag_field();
-        var tt   = LowerTargets::adt_tag_type();
-        var ds   = LowerTargets::adt_destroy();
-        var cf   = LowerTargets::adt_construct_from();
-        var nx   = self._adt_noexcept();
-        var dreq = self._adt_requires(m, generic);   // a defaulted or deleted form: C++ deduces its noexcept.
+    priv fn _adt_member(self,
+                        en:       unsafe *Declarations::EnumDecl,
+                        m:        unsafe *Declarations::FunctionDecl,
+                        const nm: string,
+                        generic:  bool) -> string {
+        if Declarations::adt_role_is_nullable(m->adt_role) {
+            return self._nullable_member(en, m, nm)
+        }
+
+        var tag  = LowerTargets::adt_tag_field()
+        var tt   = LowerTargets::adt_tag_type()
+        var ds   = LowerTargets::adt_destroy()
+        var cf   = LowerTargets::adt_construct_from()
+        var nx   = self._adt_noexcept()
+        var dreq = self._adt_requires(m, generic) // a defaulted or deleted form: C++ deduces its noexcept.
         // A lang item's site slot (EnumDecl::adt_site_field) travels with the
         // tag: zeroed when a variant is built, copied wherever the tag is.
-        var site_init   = "";
-        var site_copy   = "";
-        var site_assign = "";
+        var site_init   = ""
+        var site_copy   = ""
+        var site_assign = ""
         if en->adt_site_field != &null {
-            var sn = self._spell->leaf(static_cast::<*Decl>(en->adt_site_field));
-            site_init   = ", " + sn + "()";
-            site_copy   = ", " + sn + "(o." + sn + ")";
-            site_assign = sn + " = o." + sn + "; ";
+            var sn = self._spell->leaf(en->adt_site_field)
+            site_init   = ", " + sn + "()"
+            site_copy   = ", " + sn + "(o." + sn + ")"
+            site_assign = sn + " = o." + sn + "; "
         }
-        var req  = nx + dreq;
-        var tail = (" = default;") if (m->adt_form == AdtForm::Trivial) else (" = delete;");
-        var body = m->adt_form == AdtForm::Body;
-        switch m->adt_role {
-            case AdtRole::VariantCtor {
-                if usize(m->adt_variant) >= en->variants.size() {
-                    self._ice(self._at(static_cast::<*Decl>(m)), "InterfaceEmitter: an ADT variant constructor past the last variant; EnumLayoutLowering gate failure");
+
+        var req = nx + dreq
+        var tail = if (m->adt_form == Declarations::AdtForm::Trivial) => (" = default;")
+                   else => " = delete;"
+        var body = m->adt_form == Declarations::AdtForm::Body
+        match m->adt_role {
+            case Declarations::AdtRole::VariantCtor {
+                if (m->adt_variant as usize) >= en->variants.size() {
+                    self._ice(
+                        self._at(unsafe (m as unsafe *Decl)),
+                        "InterfaceEmitter: an ADT variant constructor past the last variant; EnumLayoutLowering gate failure",
+                    )
                 }
-                var v    = en->variants[usize(m->adt_variant)];
-                var vt   = "::" + LowerTargets::adt_variant_tag() + f"<{m->adt_variant}>";
+
+                var unsafe *v = en->variants[m->adt_variant as usize]
+                var        vt = "::" + LowerTargets::adt_variant_tag() + f"<{m->adt_variant}>"
                 if en->adt_tag_member != &null {
                     // The common prefix: the tag goes in with the payload, or
                     // alone into the tag-only member.
-                    var tv = tt + "::" + self._spell->leaf(static_cast::<*Decl>(v));
+                    var tv = tt + "::" + self._spell->leaf(unsafe (v as unsafe *Decl))
                     if v->adt_member == &null {
-                        return nm + "(" + vt + ")" + nx + " : " + self._spell->leaf(static_cast::<*Decl>(en->adt_tag_member)) + "{" + tv + "} {}";
+                        return nm + "(" + vt + ")" + nx + " : " + self._spell->leaf(
+                            en->adt_tag_member,
+                        ) + "{" + tv + "} {}"
                     }
-                    if v->adt_ctor != AdtCtorForm::Fields {
-                        self._ice(self._at(static_cast::<*Decl>(m)), "InterfaceEmitter: a prefix-tagged variant without its field constructor; EnumLayoutLowering::_prefix_ok admits only trivial fields");
+
+                    if v->adt_ctor != Declarations::AdtCtorForm::Fields {
+                        self._ice(
+                            self._at(unsafe (m as unsafe *Decl)),
+                            "InterfaceEmitter: a prefix-tagged variant without its field constructor; EnumLayoutLowering::_prefix_ok admits only trivial fields",
+                        )
                     }
-                    return self._field_ctor(en, v, nm, vt, "", nx, false, tv + ", ");
+
+                    return self._field_ctor(en, v, nm, vt, "", nx, false, tv + ", ")
                 }
-                var init = tag + "(" + tt + "::" + self._spell->leaf(static_cast::<*Decl>(v)) + ")" + site_init;
-                if v->adt_member == &null { return nm + "(" + vt + ")" + nx + " : " + init + " {}"; }
+
+                var init = tag + "(" + tt + "::" + self._spell->leaf(
+                    unsafe (v as unsafe *Decl),
+                ) + ")" + site_init
+                if v->adt_member == &null {
+                    return nm + "(" + vt + ")" + nx + " : " + init + " {}"
+                }
+
                 if v->is_pack_expansion {
                     // Element K: the variant's tag plus K (EnumLayoutQuery::
                     // tag_value), built into the union's K-th member.
-                    var u  = builtin_info(BuiltinKind::U32)->cxx;
-                    var kv = "::" + LowerTargets::adt_variant_tag();
+                    var u  = builtin_info(BuiltinKind::U32)->cxx
+                    var kv = "::" + LowerTargets::adt_variant_tag()
                     // A site slot (the Panic lang item) is the site id
-                    // this construction stores (PANIC.md §1.4); a `panic`
+                    // this construction stores (Compiler/Spec/Panic.md#site-ids); a `panic`
                     // passes its own, a widening the one it copies.
-                    var sp = "";
-                    var si = site_init;
+                    var sp = ""
+                    var si = site_init
                     if en->adt_site_field != &null {
-                        sp = u + " s, ";
-                        si = ", " + self._spell->leaf(static_cast::<*Decl>(en->adt_site_field)) + "(s)";
+                        sp = u + " s, "
+                        si = ", " + self._spell->leaf(en->adt_site_field) + "(s)"
                     }
-                    return "template <" + u + " K, class F> " + nm + "(" + vt + ", " + kv + "<K>, " + sp + "F&& f)" + nx + " : " + tag + "(" + self._pack_tag(en, v, "K", tt) + ")"
-                         + si + ", " + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "(" + kv + "<K>{}, static_cast<F&&>(f)) {}";
+
+                    return "template <" + u + " K, class F> " + nm + "(" + vt + ", " + kv + "<K>, " + sp + "F&& f)" + nx + " : " + tag + "(" + self._pack_tag(
+                        en,
+                        v,
+                        "K",
+                        tt,
+                    ) + ")" + si + ", " + self._spell->leaf(
+                        v->adt_member,
+                    ) + "(" + kv + "<K>{}, static_cast<F&&>(f)) {}"
                 }
+
                 // The payload is the callable's prvalue, so the union member
                 // is built straight from it: nothing is copied or moved.
-                var lam = "template <class F> " + nm + "(" + vt + ", F&& f)" + nx + " : " + init + ", "
-                        + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "(static_cast<F&&>(f)()) {}";
-                switch v->adt_ctor {
-                    case AdtCtorForm::Fields { return self._field_ctor(en, v, nm, vt, init, nx, false, ""); }
-                    case AdtCtorForm::Both   { return self._field_ctor(en, v, nm, vt, init, nx, true, "") + " " + lam; }
-                    default { 0; }
+                var lam = "template <class F> " + nm + "(" + vt + ", F&& f)" + nx + " : " + init + ", " + self._spell->leaf(
+                    v->adt_member,
+                ) + "(static_cast<F&&>(f)()) {}"
+                match v->adt_ctor {
+                    case Declarations::AdtCtorForm::Fields {
+                        return self._field_ctor(en, v, nm, vt, init, nx, false, "")
+                    } case Declarations::AdtCtorForm::Both {
+                        return self._field_ctor(en, v, nm, vt, init, nx, true, "") + " " + lam
+                    } default {
+                        0
+                    }
                 }
-                return lam;
-            }
-            case AdtRole::CopyCtor {
-                if body { return nm + "(const " + nm + "& o)" + req + " : " + tag + "(o." + tag + ")" + site_copy + " { " + cf + "(o); }"; }
-                return nm + "(const " + nm + "&)" + dreq + tail;
-            }
-            case AdtRole::MoveCtor {
-                if body { return nm + "(" + nm + "&& o)" + req + " : " + tag + "(o." + tag + ")" + site_copy + " { " + cf + "(static_cast<" + nm + "&&>(o)); }"; }
-                return nm + "(" + nm + "&&)" + dreq + tail;
-            }
-            case AdtRole::CopyAssign {
+
+                return lam
+            } case Declarations::AdtRole::CopyCtor {
+                if body {
+                    return nm + "(const " + nm + "& o)" + req + " : " + tag + "(o." + tag + ")" + site_copy + " { " + cf + "(o); }"
+                }
+
+                return nm + "(const " + nm + "&)" + dreq + tail
+            } case Declarations::AdtRole::MoveCtor {
+                if body {
+                    return nm + "(" + nm + "&& o)" + req + " : " + tag + "(o." + tag + ")" + site_copy + " { " + cf + "(static_cast<" + nm + "&&>(o)); }"
+                }
+
+                return nm + "(" + nm + "&&)" + dreq + tail
+            } case Declarations::AdtRole::CopyAssign {
                 // Destroying first would leave a self-assignment nothing to
                 // copy from, so it does nothing instead.
                 if body {
-                    return nm + "& operator=(const " + nm + "& o)" + req + " { if (this != &o) { " + ds + "(); "
-                         + tag + " = o." + tag + "; " + site_assign + cf + "(o); } return *this; }";
+                    return nm + "& operator=(const " + nm + "& o)" + req + " { if (this != &o) { " + ds + "(); " + tag + " = o." + tag + "; " + site_assign + cf + "(o); } return *this; }"
                 }
-                return nm + "& operator=(const " + nm + "&)" + dreq + tail;
-            }
-            case AdtRole::MoveAssign {
+
+                return nm + "& operator=(const " + nm + "&)" + dreq + tail
+            } case Declarations::AdtRole::MoveAssign {
                 if body {
-                    return nm + "& operator=(" + nm + "&& o)" + req + " { if (this != &o) { " + ds + "(); "
-                         + tag + " = o." + tag + "; " + site_assign + cf + "(static_cast<" + nm + "&&>(o)); } return *this; }";
+                    return nm + "& operator=(" + nm + "&& o)" + req + " { if (this != &o) { " + ds + "(); " + tag + " = o." + tag + "; " + site_assign + cf + "(static_cast<" + nm + "&&>(o)); } return *this; }"
                 }
-                return nm + "& operator=(" + nm + "&&)" + dreq + tail;
-            }
-            case AdtRole::Dtor {
-                if body { return "~" + nm + "()" + req + " { " + ds + "(); }"; }
-                return "~" + nm + "()" + dreq + tail;
-            }
-            case AdtRole::Destroy {
-                var s = "void " + ds + "() noexcept { switch (" + tag + ") {";
+
+                return nm + "& operator=(" + nm + "&&)" + dreq + tail
+            } case Declarations::AdtRole::Dtor {
+                if body {
+                    return "~" + nm + "()" + req + " { " + ds + "(); }"
+                }
+
+                return "~" + nm + "()" + dreq + tail
+            } case Declarations::AdtRole::Destroy {
+                var s = "void " + ds + "() noexcept { switch (" + tag + ") {"
                 for var i: usize = 0; i < en->variants.size(); ++i {
-                    var v = en->variants[i];
-                    if (v == &null) || (v->adt_member == &null) || v->is_pack_expansion { continue; }
-                    var mem = self._spell->leaf(static_cast::<*Decl>(v->adt_member));
-                    s += " case " + tt + "::" + self._spell->leaf(static_cast::<*Decl>(v)) + ": " + mem + ".~" + self._payload_leaf(v) + "(); break;";
+                    var unsafe *v = en->variants[i]
+                    if v == &null || v->adt_member == &null || v->is_pack_expansion {
+                        continue
+                    }
+
+                    var mem = self._spell->leaf(v->adt_member)
+                    s += " case " + tt + "::" + self._spell->leaf(
+                        unsafe (v as unsafe *Decl),
+                    ) + ": " + mem + ".~" + self._payload_leaf(v) + "(); break;"
                 }
-                return s + " default: " + self._pack_default(en, ds, "") + "break; } }";
-            }
-            case AdtRole::ConstructFrom {
+
+                return s + " default: " + self._pack_default(en, ds, "") + "break; } }"
+            } case Declarations::AdtRole::ConstructFrom {
                 // `new` finds the payload struct's own placement form, which
                 // needs no <new>.
-                var s = "template <class O> void " + cf + "(O&& o)" + nx + " { switch (" + tag + ") {";
+                var s = "template <class O> void " + cf + "(O&& o)" + nx + " { switch (" + tag + ") {"
                 for var i: usize = 0; i < en->variants.size(); ++i {
-                    var v = en->variants[i];
-                    if (v == &null) || (v->adt_member == &null) || v->is_pack_expansion { continue; }
-                    var mem = self._spell->leaf(static_cast::<*Decl>(v->adt_member));
-                    s += " case " + tt + "::" + self._spell->leaf(static_cast::<*Decl>(v)) + ": new (&" + mem + ") "
-                       + self._payload_leaf(v) + "(static_cast<O&&>(o)." + mem + "); break;";
+                    var unsafe *v = en->variants[i]
+                    if v == &null || v->adt_member == &null || v->is_pack_expansion {
+                        continue
+                    }
+
+                    var mem = self._spell->leaf(v->adt_member)
+                    s += " case " + tt + "::" + self._spell->leaf(
+                        unsafe (v as unsafe *Decl),
+                    ) + ": new (&" + mem + ") " + self._payload_leaf(
+                        v,
+                    ) + "(static_cast<O&&>(o)." + mem + "); break;"
                 }
-                return s + " default: " + self._pack_default(en, cf, "static_cast<O&&>(o).") + "break; } }";
+
+                return s + " default: " + self._pack_default(
+                    en,
+                    cf,
+                    "static_cast<O&&>(o).",
+                ) + "break; } }"
             }
+
             // The tagged form; the niche-filled one is _niche_record's.
-            case AdtRole::Which { return tt + " " + LowerTargets::adt_which() + "() const" + nx + " { return " + tag + "; }"; }
-            default { 0; }
+            case Declarations::AdtRole::Which {
+                return tt + " " + LowerTargets::adt_which() + "() const" + nx + " { return " + tag + "; }"
+            } default {
+                0
+            }
         }
-        self._ice(self._at(static_cast::<*Decl>(m)), "InterfaceEmitter: an ADT role function with no rendering; EnumLayoutLowering minted a role this emitter does not know");
-        return "";
+
+        self._ice(
+            self._at(unsafe (m as unsafe *Decl)),
+            "InterfaceEmitter: an ADT role function with no rendering; EnumLayoutLowering minted a role this emitter does not know",
+        )
+
+        return ""
     }
 
     /// The `default:` of Destroy / ConstructFrom for a pack-expanded variant
     /// (always last): a tag past its own is element (tag - its tag), which
     /// the union's helper \p fn reaches by that runtime index; \p from is
     /// the source object's prefix for ConstructFrom. "" without one.
-    priv fn _pack_default(self, en: *EnumDecl, fn_: string, from: string) -> string {
-        var v = adt_pack_variant(en);
-        if (v == &null) || (v->adt_member == &null) { return ""; }
-        var u   = builtin_info(BuiltinKind::U32)->cxx;
-        var tag = "static_cast<" + u + ">(" + LowerTargets::adt_tag_field() + ")";
-        var mem = self._spell->leaf(static_cast::<*Decl>(v->adt_member));
-        var arg = (", " + from + mem) if (from.size() > 0) else ("");
+    priv fn _pack_default(self,
+                          en:         unsafe *Declarations::EnumDecl,
+                          const fn_:  string,
+                          const from: string) -> string {
+        var unsafe *v = DeclFacts::adt_pack_variant(en)
+        if v == &null || v->adt_member == &null {
+            return ""
+        }
+
+        var u   = builtin_info(BuiltinKind::U32)->cxx
+        var tag = "static_cast<" + u + ">(" + LowerTargets::adt_tag_field() + ")"
+        var mem = self._spell->leaf(v->adt_member)
+        var arg = if (from.size() > 0) => (", " + from + mem) else => ""
         if en->adt_explicit_tags {
             // Type-id tags (_pack_tag): the element is the one whose id the
             // tag is, found by a fold over the pack; no match, no payload.
-            var e = self._pack_name(en);
-            var tid = "::" + LowerTargets::type_id();
-            var none = "static_cast<" + u + ">(-1)";
-            return "{ " + u + " k = 0, i = " + none + "; ((" + tid + "<" + e + "> == " + tag + " ? (void)(i = k) : (void)0, ++k), ...); "
-                 + "if (i != " + none + ") { " + mem + "." + fn_ + "(i" + arg + "); } } ";
+            var e    = self._pack_name(en)
+            var tid  = "::" + LowerTargets::type_id()
+            var none = "static_cast<" + u + ">(-1)"
+            return "{ " + u + " k = 0, i = " + none + "; ((" + tid + "<" + e + "> == " + tag + " ? (void)(i = k) : (void)0, ++k), ...); " + "if (i != " + none + ") { " + mem + "." + fn_ + "(i" + arg + "); } } "
         }
-        var tv  = f"{v->adt_tag_value}";
-        return "if (" + tag + " >= " + tv + ") { " + mem + "." + fn_ + "(" + tag + " - " + tv + arg + "); } ";
+
+        var tv = f"{v->adt_tag_value}"
+        return "if (" + tag + " >= " + tv + ") { " + mem + "." + fn_ + "(" + tag + " - " + tv + arg + "); } "
     }
 
     /// Variant \p v's field constructor (AdtCtorForm::Fields / Both): each
@@ -3006,33 +4677,502 @@ class InterfaceEmitter {
     /// constrained on exactly that, which only C++ knows per instance; a
     /// site whose instance is concrete and qualifies calls it
     /// (VariantInitExpr::field_ctor), every other one the lambda form.
-    priv fn _field_ctor(self, en: *EnumDecl, v: *EnumVariantDecl, nm: string, vt: string, init: string, nx: string,
-                        constrained: bool, lead: string) -> string {
-        var d     = static_cast::<*Decl>(en);
-        var ps    = "";
-        var vals  = "";
-        var moves = "";
+    priv fn _field_ctor(self,
+                        en:          unsafe *Declarations::EnumDecl,
+                        v:           unsafe *Declarations::EnumVariantDecl,
+                        const nm:    string,
+                        const vt:    string,
+                        const init:  string,
+                        const nx:    string,
+                        constrained: bool,
+                        const lead:  string) -> string {
+        var unsafe *d    = unsafe (en as unsafe *Decl)
+        var        ps    = ""
+        var        vals  = ""
+        var        moves = ""
         for var i: usize = 0; i < v->payload.size(); ++i {
-            var f  = v->payload[i];
-            var fn_ = self._spell->leaf(static_cast::<*Decl>(f));
-            var t  = self._spell->decl(f->type_, "", &null, d);
-            ps += ", " + self._spell->decl(f->type_, fn_, &null, d);
-            if i > 0 { vals += ", "; moves += " && "; }
-            vals  += (fn_) if (self._scalar(f->type_)) else ("static_cast<" + t + "&&>(" + fn_ + ")");
-            moves += "__is_constructible(" + t + ", " + t + "&&) && __is_trivially_copyable(" + t + ") && __is_trivially_destructible(" + t + ")";
+            var unsafe *f  = v->payload[i]
+            var        fn_ = self._spell->leaf(unsafe (f as unsafe *Decl))
+            var        t   = self._spell->decl(f->type_, "", &null, d)
+            ps += ", " + self._spell->decl(f->type_, fn_, &null, d)
+            if i > 0 {
+                vals += ", "
+                moves += " && "
+            }
+
+            vals += if (self._scalar(f->type_)) => (fn_)
+                    else => "static_cast<" + t + "&&>(" + fn_ + ")"
+            moves += "__is_constructible(" + t + ", " + t + "&&) && __is_trivially_copyable(" + t + ") && __is_trivially_destructible(" + t + ")"
         }
-        var req = (" requires (" + moves + ")") if (constrained) else ("");
-        var pre = (init + ", ") if (init.size() > 0) else ("");
-        return nm + "(" + vt + ps + ")" + nx + req + " : " + pre
-             + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "{" + lead + vals + "} {}";
+
+        var req = if (constrained) => (" requires (" + moves + ")") else => ""
+        var pre = if (init.size() > 0) => (init + ", ") else => ""
+        return nm + "(" + vt + ps + ")" + nx + req + " : " + pre + self._spell->leaf(
+            v->adt_member,
+        ) + "{" + lead + vals + "} {}"
+    }
+
+    /// # C++ factories (Compiler/Spec/Interop.md#constructing-adt-variants-from-c)
+    ///
+    /// `static E V(fields...)` per variant of ADT \p en, for C++ that
+    /// includes the module (a header, `#include "x.k"`): the tag form
+    /// `E{::__kairo_vt<I>{}, ...}` is the record's internal shape, not an API.
+    /// Never in the module's own object (PlanMode::Preamble): no Kairo code
+    /// calls them, and each would be a body every Kairo TU compiles for
+    /// nothing. Written into both bodies an ADT can have (_adt_def and
+    /// _niche_record, the generic one's partial specialization included),
+    /// so the name resolves whichever layout C++ picks.
+    ///
+    /// Each is a member TEMPLATE over an unused, defaulted parameter, which
+    /// keeps the call spelling `E::V(...)` and is load-bearing twice:
+    ///   - a generic ADT's header names its instances `extern template`,
+    ///     and the module's object -- the explicit instantiation -- has no
+    ///     factories; a plain inline member of such an instance is only
+    ///     referenced from the C++ TU, never emitted (undefined symbol at
+    ///     -O0). A member template is not covered by the explicit
+    ///     instantiation, so the C++ TU instantiates it itself.
+    ///   - a non-generic payload that is not movable (or not copyable) must
+    ///     not break the whole header: the payload the lambda builds is
+    ///     spelled through the dummy parameter, so the move out of the
+    ///     by-value parameter is checked at a call, not at definition.
+    ///
+    /// Not written: a pack-expanded variant (one name, one expansion per
+    /// payload type: no single signature), a variant with an array field (a
+    /// C++ parameter of array type is a pointer), and the panic result type
+    /// (adt_site_field / adt_void_unit: its site slot and `void` payload
+    /// have their own C++ view, Compiler/Spec/Panic.md).
+    priv fn _adt_factories(self,
+                           en:       unsafe *Declarations::EnumDecl,
+                           lay:      unsafe *Declarations::StructDecl,
+                           const nm: string,
+                           generic:  bool) {
+        if self._plan->mode() == PlanMode::Preamble {
+            return
+        }
+
+        if en->adt_site_field != &null || en->adt_void_unit {
+            return
+        }
+
+        var unsafe *d    = unsafe (en as unsafe *Decl)
+        var        mk    = "__kairo_mk"
+        var        nx    = self._adt_noexcept()
+        var        vt    = "::" + LowerTargets::adt_variant_tag()
+        var        names = self._adt_factory_names(en, lay, nm, mk)
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var unsafe *v = en->variants[i]
+            if v == &null || names[i].empty() {
+                continue
+            }
+
+            var tag  = vt + f"<{i}>" + "{}"
+            var head = "template <class " + mk + " = void> static " + nm + " " + names[i] + "("
+            if v->adt_member == &null {
+                self._cg->sink->spell(
+                    v->name.range,
+                    head + ")" + nx + " { return " + nm + "(" + tag + "); }",
+                )
+
+                continue
+            }
+
+            // Parameters as the field constructor spells them (_field_ctor):
+            // by value, each moved on unless its move is its copy. A field
+            // named like the record or the dummy would shadow the name the
+            // body spells, so only its parameter moves aside.
+            var ps   = ""
+            var vals = ""
+            for var j: usize = 0; j < v->payload.size(); ++j {
+                var unsafe *f = v->payload[j]
+                var        pn = self._spell->leaf(unsafe (f as unsafe *Decl))
+                while pn == nm || pn == mk {
+                    pn += "_"
+                }
+
+                var t = self._spell->decl(f->type_, "", &null, d)
+                if j > 0 {
+                    ps += ", "
+                    vals += ", "
+                }
+
+                ps += self._spell->decl(f->type_, pn, &null, d)
+                vals += if (self._scalar(f->type_)) => (pn)
+                        else => "static_cast<" + t + "&&>(" + pn + ")"
+            }
+
+            var body = ""
+            if v->adt_ctor == Declarations::AdtCtorForm::Fields {
+                // The field constructor (a prefix-tagged record's included,
+                // which writes the tag itself): every field moves as bytes.
+                body = nm + "(" + tag + ", " + vals + ")"
+            } else {
+                // The lambda constructor builds the payload in place, as a
+                // generic body's site does (EmitIR: `T(tag, [&]() -> P {
+                // return {...}; })`). A generic record's payload is a
+                // dependent type already; a concrete one is made dependent
+                // on the dummy (see above).
+                var p = self._spell->leaf(self._payload_struct_of(v))
+                if !generic {
+                    p = "__type_pack_element<0, " + p + ", " + mk + ">"
+                }
+
+                body = nm + "(" + tag + ", [&]()" + nx + " -> " + p + " { return { " + vals + " }; })"
+            }
+
+            self._cg->sink->spell(v->name.range, head + ps + ")" + nx + " { return " + body + "; }")
+        }
+    }
+
+    /// # C++ allocation operators (Compiler/Spec/Codegen.md#c-allocation-operators)
+    ///
+    /// Class-scope `operator new` / `operator delete` for record \p d (a
+    /// class, a struct, an ADT enum; generic or not), so a C++ `new X` /
+    /// `delete p` / `new X[n]` / `delete[] p` takes its storage from Kairo's
+    /// allocator rather than C++'s global heap, and a C++ global `operator
+    /// new` override does not reach a Kairo object. Written where the record
+    /// is C++-facing (PlanMode Header / Include), like _adt_factories, never
+    /// in the module's own object: no Kairo code spells a C++ new-expression
+    /// on a record (create / destroy call the allocator themselves).
+    ///
+    /// Which allocator: the program's GLOBAL one, the kairo_global_* symbols
+    /// (Lib/rt/global_alloc.h) Kairo's `Global` calls when a program sets
+    /// one and the runtime defines weakly as `System` when none does. Not
+    /// the scope stack: a C++ `delete` inside an open AllocatorScope must
+    /// still give a global block back to the global heap
+    /// (c-cpp-memory.mdx). Always the global one: a class cannot declare
+    /// its own allocator (SC149E).
+    ///
+    /// Pairing with create / destroy: a single object asks for (sizeof X,
+    /// alignof X), the size and alignment `create<X>` asks for and
+    /// `destroy` frees with, so a C++ `delete` of a Kairo-created object (no
+    /// scope open) and a Kairo `destroy` of a C++-newed one each free a
+    /// block the way it was made. Arrays never cross to Kairo; they ask for
+    /// at least 2 * sizeof(void*) so the array cookie is aligned. The
+    /// sized `operator delete` is the only usual one declared: C++ then
+    /// always passes the size (and gives every `new X[n]` a cookie to
+    /// remember it), which System's small-block free needs.
+    ///
+    /// Failure: the throwing forms never return null (they are not
+    /// noexcept, so the new-expression has no null test) and never throw:
+    /// they crash with Kairo's out-of-memory message and exit code 134, as
+    /// the default OOM hook does (`__kairo_cxx_got`). `new (std::nothrow)
+    /// X` returns null, as `try_create` does. The placement form is
+    /// declared too: a class-scope `operator new` hides the global ones, and
+    /// `new (p) X(...)` (`__kairo_construct_at`, C++ users) must still work.
+    ///
+    /// Each is `exclude_from_explicit_instantiation`: a generic record's
+    /// header names its instances `extern template`, and the module's
+    /// explicit instantiation (Preamble text) has no operators, so C++ must
+    /// instantiate them itself (the reason _adt_factories are templates;
+    /// an allocation function may not be one).
+    priv fn _cxx_alloc_ops(self, d: unsafe *Decl, const nm: string, at: SourceRange) {
+        if self._plan->mode() == PlanMode::Preamble {
+            return
+        }
+
+        if DeclFacts::decl_ffi_tag_target(d) != &null {
+            return
+        }
+
+        var z   = "decltype(sizeof(0))"
+        var av  = "::std::align_val_t"
+        var nt  = "const ::std::nothrow_t&"
+        var x   = "__attribute__((exclude_from_explicit_instantiation)) static "
+        var got = "::" + LowerTargets::cxx_alloc_got()
+        // The allocator: always the program's global one. A class cannot
+        // declare its own (SC149E), so there is nothing to route to.
+        var alloc_fn = "::kairo_global_alloc"
+        var free_fn  = "::kairo_global_free"
+        var one      = "alignof(" + nm + ")"
+        var arr = "(alignof(" + nm + ") > 2 * sizeof(void*) ? alignof(" + nm + ") : 2 * sizeof(void*))"
+        var forms: cxx::std::vector<string>
+        for var k: usize = 0; k < 2; ++k {
+            var fnm = if (k == 0) => ("operator new") else => "operator new[]"
+            var al  = if (k == 0) => (one) else => arr
+            forms.push_back(
+                x + "void* " + fnm + "(" + z + " n) { return " + got + "(" + alloc_fn + "(n ? n : 1, " + al + "), false); }",
+            )
+
+            forms.push_back(
+                x + "void* " + fnm + "(" + z + " n, " + av + " a) { return " + got + "(" + alloc_fn + "(n ? n : 1, static_cast<" + z + ">(a)), false); }",
+            )
+
+            forms.push_back(
+                x + "void* " + fnm + "(" + z + " n, " + nt + ") noexcept { return " + got + "(" + alloc_fn + "(n ? n : 1, " + al + "), true); }",
+            )
+
+            forms.push_back(
+                x + "void* " + fnm + "(" + z + " n, " + av + " a, " + nt + ") noexcept { return " + got + "(" + alloc_fn + "(n ? n : 1, static_cast<" + z + ">(a)), true); }",
+            )
+
+            forms.push_back(x + "void* " + fnm + "(" + z + ", void* p) noexcept { return p; }")
+        }
+
+        for var k: usize = 0; k < 2; ++k {
+            var fnm = if (k == 0) => ("operator delete") else => "operator delete[]"
+            var al  = if (k == 0) => (one) else => arr
+            forms.push_back(
+                x + "void " + fnm + "(void* p, " + z + " n) noexcept { if (p) " + free_fn + "(static_cast<unsigned char*>(p), n ? n : 1, " + al + "); }",
+            )
+
+            forms.push_back(
+                x + "void " + fnm + "(void* p, " + z + " n, " + av + " a) noexcept { if (p) " + free_fn + "(static_cast<unsigned char*>(p), n ? n : 1, static_cast<" + z + ">(a)); }",
+            )
+        }
+
+        for var i: usize = 0; i < forms.size(); ++i {
+            self._cg->sink->spell(at, forms[i])
+        }
+    }
+
+    /// What _cxx_alloc_ops calls, once per header or host TU: the allocator
+    /// and crash entry points (C linkage, the runtime's; declared exactly as
+    /// rt/global_alloc.h and rt/crash.h do, so a TU with both agrees: GNU
+    /// `noreturn`, which may follow a first declaration without it, unlike
+    /// `[[noreturn]]`, which clang then refuses), the
+    /// two library types the operator signatures name (opaque, so the
+    /// header needs no <new>; <new> before or after defines the same
+    /// ones), and the null test the throwing forms share.
+    priv fn _cxx_alloc_helpers(self, header: bool) {
+        var at = self._tu_at()
+        var z  = "decltype(sizeof(0))"
+        if header {
+            self._cg->sink->directive(at, "#ifndef " + LowerTargets::cxx_alloc_guard())
+        }
+
+        if header {
+            self._cg->sink->directive(at, "#define " + LowerTargets::cxx_alloc_guard())
+        }
+
+        self._cg->sink->spell(
+            at,
+            "namespace std { enum class align_val_t : " + z + "; struct nothrow_t; }",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "extern \"C\" unsigned char* kairo_global_alloc(" + z + " size, " + z + " align) noexcept;",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "extern \"C\" void kairo_global_free(unsigned char* ptr, " + z + " size, " + z + " align) noexcept;",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "extern \"C\" __attribute__((noreturn)) void kairo_rt_crash_exit(const unsigned char* msg, " + z + " len, int code) noexcept;",
+        )
+
+        self._cg->sink->brk()
+        // The default OOM hook's message and status (alloc_raw.k default_oom).
+        self._cg->sink->spell(
+            at,
+            "inline void* " + LowerTargets::cxx_alloc_got() + "(unsigned char* p, bool nothrow) noexcept { " + "if (__builtin_expect(p == nullptr, 0) && !nothrow) ::kairo_rt_crash_exit(reinterpret_cast<const unsigned char*>(\"kairo: out of memory\"), 20, 134); " + "return p; }",
+        )
+
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(at, "#endif")
+        }
+    }
+
+    /// A record C++-facing text defines (as _needs_niche_helpers asks): it
+    /// gets _cxx_alloc_ops. Never in the module's own object.
+    priv fn _needs_cxx_alloc(self) -> bool {
+        if self._plan->mode() == PlanMode::Preamble {
+            return false
+        }
+
+        var header = self._plan->mode() == PlanMode::Header
+        for var i: usize = 0; i < self._plan->entries.size(); ++i {
+            var *e = &self._plan->entries[i]
+            if e->tier != PlanTier::Definitions
+                || e->scope != &null
+                || e->witness != &null
+                || e->eval_item != &null {
+                continue
+            }
+
+            if header && !e->own {
+                continue
+            }
+
+            if isa<Declarations::ClassDecl>(e->decl) || isa<Declarations::StructDecl>(e->decl) {
+                return true
+            }
+
+            var unsafe *en = dyn_cast<Declarations::EnumDecl>(e->decl)
+            if en != &null && en->is_adt {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// The C++ name of each variant's factory (_adt_factories), by variant
+    /// index; empty for a variant that gets none. A factory is named exactly
+    /// after its variant unless that name is already taken in the record --
+    /// the record's own name (a member may not share it), a template
+    /// parameter (shadowing one is ill-formed), any member the record
+    /// writes, or the dummy parameter -- in which case it gets `_` appended,
+    /// repeated while the result is taken (CXXSpell::
+    /// decide_tops). Unclashed variants claim their names first, so a
+    /// variant literally named `V_` keeps it and the clashing `V` moves on
+    /// to `V__`: the answer depends on the set of names, not their order.
+    priv fn _adt_factory_names(self,
+                               en:       unsafe *Declarations::EnumDecl,
+                               lay:      unsafe *Declarations::StructDecl,
+                               const nm: string,
+                               const mk: string) -> cxx::std::vector<string> {
+        var unsafe *d                              = unsafe (en as unsafe *Decl)
+        var        taken: cxx::std::vector<string>
+        taken.push_back(nm)
+        taken.push_back(mk)
+        var gps = CXXSpell::template_params(d)
+        for var i: usize = 0; i < gps.size(); ++i {
+            taken.push_back(self._spell->imm_name(gps[i]->name.imm, CXXSpell::fid_of(d)))
+        }
+
+        // Every member the record is written with: its nested types and
+        // fields (EnumLayoutLowering's), the union members a variant's
+        // payload lives in, the role functions, and the members the
+        // emitter spells itself (the niche and Nullable surfaces).
+        var unsafe *dc = unsafe (lay as unsafe *DeclContext)
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var unsafe *nd = *dc->dc_decls.get(i)
+            if nd == &null {
+                continue
+            }
+
+            if isa<Declarations::UnionDecl>(nd) && cast<Declarations::UnionDecl>(nd)->is_anonymous {
+                continue
+            }
+
+            taken.push_back(self._spell->leaf(nd))
+        }
+
+        for var i: usize = 0; i < lay->fields.size(); ++i {
+            var unsafe *f = lay->fields[i]
+            if f != &null && !f->is_anonymous_union {
+                taken.push_back(self._spell->leaf(unsafe (f as unsafe *Decl)))
+            }
+        }
+
+        for var i: usize = 0; i < lay->methods.size(); ++i {
+            var unsafe *m = lay->methods[i]
+            if m != &null {
+                taken.push_back(self._spell->leaf(unsafe (m as unsafe *Decl)))
+            }
+        }
+
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var unsafe *v = en->variants[i]
+            if v != &null && v->adt_member != &null {
+                taken.push_back(self._spell->leaf(v->adt_member))
+            }
+        }
+
+        taken.push_back(LowerTargets::adt_tag_field())
+        taken.push_back(LowerTargets::adt_tag_type())
+        taken.push_back(LowerTargets::adt_destroy())
+        taken.push_back(LowerTargets::adt_construct_from())
+        taken.push_back(LowerTargets::adt_which())
+        taken.push_back(LowerTargets::niche_count())
+        taken.push_back(LowerTargets::niche_test())
+        // The Nullable surface's names are not reserved (`is_null`), so
+        // only the record that has that surface takes them.
+        for var i: usize = 0; i < lay->methods.size(); ++i {
+            var unsafe *m = lay->methods[i]
+            if m != &null && Declarations::adt_role_is_nullable(m->adt_role) {
+                taken.push_back(LowerTargets::nullable_is_null())
+                taken.push_back(LowerTargets::nullable_value())
+                break
+            }
+        }
+
+        var out:    cxx::std::vector<string>
+        var clash:  cxx::std::vector<u8> // 1 where the variant's own name was taken
+        var members                          = taken.size()
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var unsafe *v   = en->variants[i]
+            var        keep = v != &null && !v->is_pack_expansion
+            if keep {
+                for var j: usize = 0; j < v->payload.size(); ++j {
+                    var unsafe *t = v->payload[j]->type_
+                    if t == &null
+                        || t->canonical == &null
+                        || isa<FixedArrayType>(canon_unqual(t->canonical)) {
+                        keep = false
+                        break
+                    }
+                }
+            }
+
+            if !keep {
+                out.push_back("")
+                clash.push_back(0)
+                continue
+            }
+
+            var n   = self._spell->leaf(unsafe (v as unsafe *Decl))
+            var hit = false
+            for var k: usize = 0; k < members; ++k {
+                if taken[k] == n {
+                    hit = true
+                    break
+                }
+            }
+
+            out.push_back(n)
+            clash.push_back(if (hit) => (1 as u8) else => (0 as u8))
+            if !hit {
+                taken.push_back(n)
+            }
+        }
+
+        for var i: usize = 0; i < out.size(); ++i {
+            if clash[i] == 0 {
+                continue
+            }
+
+            var n = out[i]
+            while true {
+                var hit = false
+                for var k: usize = 0; k < taken.size(); ++k {
+                    if taken[k] == n {
+                        hit = true
+                        break
+                    }
+                }
+
+                if !hit {
+                    break
+                }
+
+                n += "_"
+            }
+
+            out[i] = n
+            taken.push_back(n)
+        }
+
+        return out
     }
 
     /// A field type whose move is its copy: a builtin or a pointer, passed
     /// on bare. Anything else is moved out of its parameter.
-    priv fn _scalar(self, t: *Type) -> bool {
-        if (t == &null) || (t->canonical == &null) { return false; }
-        var c = canon_unqual(t->canonical);
-        return (c != &null) && (isa::<BuiltinType>(c) || isa::<PointerType>(c));
+    priv fn _scalar(self, t: unsafe *Type) -> bool {
+        if t == &null || t->canonical == &null {
+            return false
+        }
+
+        var unsafe *c = canon_unqual(t->canonical)
+        return c != &null && (isa<BuiltinType>(c) || isa<PointerType>(c))
     }
 
     /// ` noexcept` on a role function with a body, unless -funwind: each is
@@ -3042,8 +5182,11 @@ class InterfaceEmitter {
     /// Without it every construction site is an invoke with a terminate
     /// landing pad, and the enclosing function carries a personality.
     priv fn _adt_noexcept(self) -> string {
-        if self._cg->opts.unwind { return ""; }
-        return " noexcept";
+        if self._cg->opts.unwind {
+            return ""
+        }
+
+        return " noexcept"
     }
 
     /// One member of the Nullable lang item's surface (AdtRole, from
@@ -3051,60 +5194,91 @@ class InterfaceEmitter {
     /// (Lib/builtin/module.k): the present variant is the one with a
     /// payload, the null one the one without, and both are found, not
     /// assumed.
-    priv fn _nullable_member(self, en: *EnumDecl, m: *FunctionDecl, nm: string) -> string {
-        var at  = self._at(static_cast::<*Decl>(m));
-        var tag = LowerTargets::adt_tag_field();
-        var tt  = LowerTargets::adt_tag_type();
-        var some: *EnumVariantDecl = &null;
-        var none: *EnumVariantDecl = &null;
+    priv fn _nullable_member(self,
+                             en:       unsafe *Declarations::EnumDecl,
+                             m:        unsafe *Declarations::FunctionDecl,
+                             const nm: string) -> string {
+        var at                                          = self._at(unsafe (m as unsafe *Decl))
+        var tag                                         = LowerTargets::adt_tag_field()
+        var tt                                          = LowerTargets::adt_tag_type()
+        var some: unsafe *Declarations::EnumVariantDecl = &null
+        var none: unsafe *Declarations::EnumVariantDecl = &null
         for var i: usize = 0; i < en->variants.size(); ++i {
-            var v = en->variants[i];
-            if v == &null { continue; }
-            if v->adt_member != &null { some = v; } else { none = v; }
-        }
-        if (some == &null) || (none == &null) || (some->payload.size() != 1) {
-            self._ice(at, "InterfaceEmitter: the Nullable lang item is not one one-field variant and one empty one");
-            return "";
-        }
-        var d     = static_cast::<*Decl>(en);
-        var mem   = self._spell->leaf(static_cast::<*Decl>(some->adt_member));
-        var field = some->payload[0];
-        var fld   = self._spell->leaf(static_cast::<*Decl>(field));
-        var t     = self._spell->decl(field->type_, "", &null, d);
-        var null_tag = tt + "::" + self._spell->leaf(static_cast::<*Decl>(none));
-        var is_null = tag + " == " + null_tag;
-        var null_init    = " : " + tag + "(" + null_tag + ") {}";
-        var present_init = tag + "(" + tt + "::" + self._spell->leaf(static_cast::<*Decl>(some)) + "), " + mem;
-        var val = LowerTargets::nullable_value();
-        var nx  = self._adt_noexcept();
-        switch m->adt_role {
-            case AdtRole::NullDefault { return nm + "()" + nx + null_init; }
-            case AdtRole::NullFrom {
-                if m->params.size() != 1 { self._ice(at, "InterfaceEmitter: Nullable(null_t) without its parameter"); return ""; }
-                return nm + "(" + self._spell->decl(m->params[0]->type_, "", &null, d) + ")" + nx + null_init;
+            var unsafe *v = en->variants[i]
+            if v == &null {
+                continue
             }
+
+            if v->adt_member != &null {
+                some = v
+            } else {
+                none = v
+            }
+        }
+
+        if some == &null || none == &null || some->payload.size() != 1 {
+            self._ice(
+                at,
+                "InterfaceEmitter: the Nullable lang item is not one one-field variant and one empty one",
+            )
+
+            return ""
+        }
+
+        var unsafe *d        = unsafe (en as unsafe *Decl)
+        var        mem       = self._spell->leaf(some->adt_member)
+        var unsafe *field    = some->payload[0]
+        var        fld       = self._spell->leaf(unsafe (field as unsafe *Decl))
+        var        t         = self._spell->decl(field->type_, "", &null, d)
+        var        null_tag  = tt + "::" + self._spell->leaf(unsafe (none as unsafe *Decl))
+        var        is_null   = tag + " == " + null_tag
+        var        null_init = " : " + tag + "(" + null_tag + ") {}"
+        var present_init = tag + "(" + tt + "::" + self._spell->leaf(
+            unsafe (some as unsafe *Decl),
+        ) + "), " + mem
+        var val = LowerTargets::nullable_value()
+        var nx  = self._adt_noexcept()
+        match m->adt_role {
+            case Declarations::AdtRole::NullDefault {
+                return nm + "()" + nx + null_init
+            } case Declarations::AdtRole::NullFrom {
+                if m->params.size() != 1 {
+                    self._ice(at, "InterfaceEmitter: Nullable(null_t) without its parameter")
+                    return ""
+                }
+
+                return nm + "(" + self._spell->decl(
+                    m->params[0]->type_,
+                    "",
+                    &null,
+                    d,
+                ) + ")" + nx + null_init
+            }
+
             // Brace-initialized: the payload struct is an aggregate, so its
             // one field is built straight from the argument. Constrained by
             // the ADT's own flags, because an explicit instantiation defines
             // every member whose constraints hold: an unconstrained copy
             // constructor of a `Nullable<MoveOnly>` is a hard error there.
-            case AdtRole::ValueCopy {
-                return nm + "(const " + t + "& v)" + nx + " requires " + LowerTargets::adt_copyable() + " : " + present_init + "{v} {}";
+            case Declarations::AdtRole::ValueCopy {
+                return nm + "(const " + t + "& v)" + nx + " requires " + LowerTargets::adt_copyable() + " : " + present_init + "{v} {}"
+            } case Declarations::AdtRole::ValueMove {
+                return nm + "(" + t + "&& v)" + nx + " requires " + LowerTargets::adt_movable() + " : " + present_init + "{static_cast<" + t + "&&>(v)} {}"
+            } case Declarations::AdtRole::IsNull {
+                return "bool " + LowerTargets::nullable_is_null() + "() const" + nx + " { return " + is_null + "; }"
+            } case Declarations::AdtRole::ValueRef {
+                return t + "& " + val + "()" + nx + " { return " + mem + "." + fld + "; }"
+            } case Declarations::AdtRole::ValueCref {
+                return "const " + t + "& " + val + "() const" + nx + " { return " + mem + "." + fld + "; }"
+            } case Declarations::AdtRole::Equal {
+                return "bool operator==(const " + nm + "& o) const" + nx + " requires requires (const " + t + "& a) { a == a; } { return " + tag + " == o." + tag + " && ((" + is_null + ") || " + mem + "." + fld + " == o." + mem + "." + fld + "); }"
+            } default {
+                0
             }
-            case AdtRole::ValueMove {
-                return nm + "(" + t + "&& v)" + nx + " requires " + LowerTargets::adt_movable() + " : " + present_init + "{static_cast<" + t + "&&>(v)} {}";
-            }
-            case AdtRole::IsNull    { return "bool " + LowerTargets::nullable_is_null() + "() const" + nx + " { return " + is_null + "; }"; }
-            case AdtRole::ValueRef  { return t + "& " + val + "()" + nx + " { return " + mem + "." + fld + "; }"; }
-            case AdtRole::ValueCref { return "const " + t + "& " + val + "() const" + nx + " { return " + mem + "." + fld + "; }"; }
-            case AdtRole::Equal {
-                return "bool operator==(const " + nm + "& o) const" + nx + " requires requires (const " + t + "& a) { a == a; } { return "
-                     + tag + " == o." + tag + " && ((" + is_null + ") || " + mem + "." + fld + " == o." + mem + "." + fld + "); }";
-            }
-            default { 0; }
         }
-        self._ice(at, "InterfaceEmitter: a Nullable role with no rendering");
-        return "";
+
+        self._ice(at, "InterfaceEmitter: a Nullable role with no rendering")
+        return ""
     }
 
     /// A field's C++ default member initializer, from what
@@ -3113,74 +5287,129 @@ class InterfaceEmitter {
     /// default member initializer sees the whole class, that member's later
     /// declaration included). Either way the text names nothing outside the
     /// record, so the class stays a pure function of the decl.
-    priv fn _field_default(self, f: *FieldDecl) -> string {
-        switch f->init_fold {
-            case FieldFold::Int {
-                var c = IntConst{};
-                c.ok  = true;
-                c.neg = f->init_neg;
-                c.mag = f->init_mag;
-                return " = " + self._enum_value(c);
+    priv fn _field_default(self, f: unsafe *Declarations::FieldDecl) -> string {
+        match f->init_fold {
+            case Declarations::FieldFold::Int {
+                var c = Declarations::IntConst{}
+                c.ok  = true
+                c.neg = f->init_neg
+                c.mag = f->init_mag
+                return " = " + self._enum_value(c)
+            } case Declarations::FieldFold::True {
+                return " = true"
+            } case Declarations::FieldFold::False {
+                return " = false"
+            } case Declarations::FieldFold::Null {
+                return " = nullptr"
+            } case Declarations::FieldFold::Thunk {
+                return " = " + self._spell->leaf(f->init_thunk) + "()"
             }
-            case FieldFold::True  { return " = true"; }
-            case FieldFold::False { return " = false"; }
-            case FieldFold::Null  { return " = nullptr"; }
-            case FieldFold::Thunk { return " = " + self._spell->leaf(f->init_thunk) + "()"; }
+
             // An array, leaf element by leaf element (FieldInitLowering,
             // Arrays), braced per dimension of the field's type.
-            case FieldFold::Elems {
-                var at = canon_unqual(f->type_->canonical);
+            case Declarations::FieldFold::Elems {
+                var unsafe *at = canon_unqual(f->type_->canonical)
                 // A length that is a value parameter is not known here: the
                 // flat list, which C++ brace elision reads row-major.
                 if self._param_extent(at) {
-                    var flat = " = {";
+                    var flat = " = {"
                     for var i: usize = 0; i < f->init_elems.size(); ++i {
-                        if i > 0 { flat += ", "; }
-                        flat += self._spell->leaf(f->init_elems[i]) + "()";
+                        if i > 0 {
+                            flat += ", "
+                        }
+
+                        flat += self._spell->leaf(f->init_elems[i]) + "()"
                     }
-                    return flat + "}";
+
+                    return flat + "}"
                 }
-                var next: usize = 0;
-                var s = " = " + self._elems_braced(f, at, &next);
-                if next != f->init_elems.size() { self._ice(f->name.range, "InterfaceEmitter: an array field's element thunks do not fill its type"); }
-                return s;
+
+                var next: usize = 0
+                var s           = " = " + self._elems_braced(f, at, unsafe &next)
+                if next != f->init_elems.size() {
+                    self._ice(
+                        f->name.range,
+                        "InterfaceEmitter: an array field's element thunks do not fill its type",
+                    )
+                }
+
+                return s
+            } default {
+                0
             }
-            default { 0; }
         }
+
         // An initializer still on the field is one FieldInitLowering leaves
         // (an eval array field), which FeatureGateCheck rejects.
         if f->init != &null {
-            self._ice(f->name.range, "InterfaceEmitter: initializer of an array-typed field reached codegen; FeatureGateCheck rejects it");
+            self._ice(
+                f->name.range,
+                "InterfaceEmitter: initializer of an array-typed field reached codegen; FeatureGateCheck rejects it",
+            )
         }
-        return "";
+
+        return ""
     }
 
     /// Some dimension of array type \p t has a value parameter's length.
-    priv fn _param_extent(self, t: *Type) -> bool {
-        var a = dyn_cast::<FixedArrayType>(t);
-        if a == &null { return false; }
-        if a->extent_param != &null { return true; }
-        return self._param_extent(canon_unqual(a->element));
+    priv fn _param_extent(self, t: unsafe *Type) -> bool {
+        var unsafe *a = dyn_cast<FixedArrayType>(t)
+        if a == &null {
+            return false
+        }
+
+        if a->extent_param != &null {
+            return true
+        }
+
+        return self._param_extent(canon_unqual(a->element))
     }
 
     /// `{t0(), t1()}` for array type \p at, each leaf the next of \p f's
     /// element thunks (row-major, FieldInitLowering), an inner array its own
     /// braces: `{{t0(), t1()}, {t2(), t3()}}`. Brace elision would accept
     /// the flat list too; the nesting says what the Kairo literal said.
-    priv fn _elems_braced(self, f: *FieldDecl, at: *Type, next: *usize) -> string {
-        var a  = dyn_cast::<FixedArrayType>(at);
-        if a == &null { self._ice(f->name.range, "InterfaceEmitter: an element-lowered field whose type is no array"); return ""; }
-        var el = canon_unqual(a->element);
-        var inner = (el != &null) && isa::<FixedArrayType>(el);
-        var s = "{";
-        for var i: u64 = 0; i < static_cast::<u64>(a->size_bits); ++i {
-            if i > 0 { s += ", "; }
-            if inner { s += self._elems_braced(f, el, next); continue; }
-            if (*next) >= f->init_elems.size() { self._ice(f->name.range, "InterfaceEmitter: an array field has fewer element thunks than its type has elements"); return ""; }
-            s += self._spell->leaf(f->init_elems[*next]) + "()";
-            (*next) += 1;
+    priv fn _elems_braced(self,
+                          f:    unsafe *Declarations::FieldDecl,
+                          at:   unsafe *Type,
+                          next: unsafe *usize) -> string {
+        var unsafe *a = dyn_cast<FixedArrayType>(at)
+        if a == &null {
+            self._ice(
+                f->name.range,
+                "InterfaceEmitter: an element-lowered field whose type is no array",
+            )
+
+            return ""
         }
-        return s + "}";
+
+        var unsafe *el   = canon_unqual(a->element)
+        var        inner = el != &null && isa<FixedArrayType>(el)
+        var        s     = "{"
+        for var i: u64 = 0; i < (a->size_bits as u64); ++i {
+            if i > 0 {
+                s += ", "
+            }
+
+            if inner {
+                s += self._elems_braced(f, el, next)
+                continue
+            }
+
+            if *next >= f->init_elems.size() {
+                self._ice(
+                    f->name.range,
+                    "InterfaceEmitter: an array field has fewer element thunks than its type has elements",
+                )
+
+                return ""
+            }
+
+            s += self._spell->leaf(f->init_elems[*next]) + "()"
+            *next += 1
+        }
+
+        return s + "}"
     }
 
     /// True when \p f, a field with no initializer, is value-initialized
@@ -3198,63 +5427,120 @@ class InterfaceEmitter {
     /// enum with payloads (likewise), an imported C++ type and anything
     /// else not listed (clang's to decide, as for a local), and a union's
     /// members (C++ allows at most one initializer there).
-    priv fn _zero_by_default(self, f: *FieldDecl) -> bool {
-        if f->is_const() || (f->init != &null) || (f->type_ == &null) { return false; }
-        var c = (f->type_->canonical) if (f->type_->canonical != &null) else (f->type_);
-        c = canon_unqual(c);
-        while (c != &null) && isa::<FixedArrayType>(c) { c = canon_unqual(cast::<FixedArrayType>(c)->element); }
-        if c == &null { return false; }
-        switch c->kind {
-            case TypeKind::BuiltinType           { return true; }
-            case TypeKind::PointerType           { return true; }
-            case TypeKind::FunctionPointerType   { return true; }
+    priv fn _zero_by_default(self, f: unsafe *Declarations::FieldDecl) -> bool {
+        if f->is_const() || f->init != &null || f->type_ == &null {
+            return false
+        }
+
+        var unsafe *c = if (f->type_->canonical != &null) => (f->type_->canonical) else => f->type_
+        c = canon_unqual(c)
+        while c != &null && isa<FixedArrayType>(c) {
+            c = canon_unqual(cast<FixedArrayType>(c)->element)
+        }
+
+        if c == &null {
+            return false
+        }
+
+        match c->kind {
+            case TypeKind::BuiltinType {
+                return true
+            } case TypeKind::PointerType {
+                return true
+            } case TypeKind::FunctionPointerType {
+                return true
+            }
+
             // As `T v;` already did, `T v{}` asks the instance for a
             // default; a class template instantiates it only for a
             // constructor that leaves `v` to it.
-            case TypeKind::GenericParamType      { return true; }
-            case TypeKind::SubstGenericParamType { return true; }
-            case TypeKind::AssocType             { return true; }
-            case TypeKind::RecordType            { 0; }
-            default { return false; }
+            case TypeKind::GenericParamType {
+                return true
+            } case TypeKind::SubstGenericParamType {
+                return true
+            } case TypeKind::AssocType {
+                return true
+            } case TypeKind::RecordType {
+                0
+            } default {
+                return false
+            }
         }
-        var rd = cast::<RecordType>(c)->decl;
-        if (rd != &null) && decl_is_instance(rd) { rd = decl_pattern(rd); }
-        rd = CXXSpell::rep(rd);
-        if rd == &null { return false; }
+
+        var unsafe *rd = cast<RecordType>(c)->decl
+        if rd != &null && DeclFacts::decl_is_instance(rd) {
+            rd = DeclFacts::decl_pattern(rd)
+        }
+
+        rd = CXXSpell::rep(rd)
+        if rd == &null {
+            return false
+        }
+
         // A union's members are trivial (unions.mdx), and its first is
         // zeroed by its own `{}` (_record_def).
-        if isa::<UnionDecl>(rd) { return true; }
-        if !isa::<EnumDecl>(rd) { return false; }
-        return !cast::<EnumDecl>(rd)->is_adt;
+        if isa<Declarations::UnionDecl>(rd) {
+            return true
+        }
+
+        if !isa<Declarations::EnumDecl>(rd) {
+            return false
+        }
+
+        return !cast<Declarations::EnumDecl>(rd)->is_adt
     }
 
-    // --- Const fields in a constructor ----------------------------------------------
+    /// # Const fields in a constructor
 
     /// True when some record the plan defines has a split constructor, or
     /// a body returns out of an expansion copy (EmitPlan::needs_ef_slot).
     priv fn _needs_ctor_slots(self) -> bool {
-        if self._plan->needs_ef_slot { return true; }
-        for var i: usize = 0; i < self._plan->entries.size(); ++i {
-            var e = &(self._plan->entries[i]);
-            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) || (e->eval_item != &null) { continue; }
-            if self._has_split_ctor(e->decl) { return true; }
+        if self._plan->needs_ef_slot {
+            return true
         }
-        return false;
+
+        for var i: usize = 0; i < self._plan->entries.size(); ++i {
+            var *e = &self._plan->entries[i]
+            if e->tier != PlanTier::Definitions
+                || e->scope != &null
+                || e->witness != &null
+                || e->eval_item != &null {
+                continue
+            }
+
+            if self._has_split_ctor(e->decl) {
+                return true
+            }
+        }
+
+        return false
     }
 
-    priv fn _has_split_ctor(self, d: *Decl) -> bool {
-        if (d == &null) || ((!isa::<ClassDecl>(d)) && (!isa::<StructDecl>(d))) { return false; }
-        var methods = self._methods_of(d);
+    priv fn _has_split_ctor(self, d: unsafe *Decl) -> bool {
+        if d == &null || (!isa<Declarations::ClassDecl>(d)) && !isa<Declarations::StructDecl>(d) {
+            return false
+        }
+
+        var methods = self._methods_of(d)
         for var i: usize = 0; i < methods.size(); ++i {
-            if (methods[i] != &null) && (methods[i]->ci_split > 0) { return true; }
+            if methods[i] != &null && methods[i]->ci_split > 0 {
+                return true
+            }
         }
-        var dc = CXXSpell::dc_of(d);
-        if dc == &null { return false; }
+
+        var unsafe *dc = CXXSpell::dc_of(d)
+        if dc == &null {
+            return false
+        }
+
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            var nd = *(dc->dc_decls.get(i));
-            if (nd != &null) && self._has_split_ctor(CXXSpell::rep(nd)) { return true; }
+            var unsafe *nd = *dc->dc_decls.get(i)
+            if nd != &null && self._has_split_ctor(CXXSpell::rep(nd)) {
+                return true
+            }
         }
-        return false;
+
+        return false
     }
 
     /// `__kairo_lref<T>` is `T&` for every parameter spelling, `T&` and
@@ -3276,57 +5562,63 @@ class InterfaceEmitter {
     /// arm. The run-time arm is unchanged and never sees `__p`; clang emits
     /// no code for the compile-time one.
     priv fn _ctor_slot_helpers(self, header: bool) {
-        var at = self._tu_at();
-        if header { self._cg->sink->directive(at, "#ifndef " + LowerTargets::ctor_slot_guard()); }
-        if header { self._cg->sink->directive(at, "#define " + LowerTargets::ctor_slot_guard()); }
-        self._cg->sink->spell(at, "template <class T> using " + LowerTargets::lref() + " = T&;");
-        self._cg->sink->brk();
-        var sl = LowerTargets::ctor_slot();
-        var sz = builtin_info(BuiltinKind::USize)->cxx;
-        var t = "template <class T> struct " + sl + " {";
-        t += " struct __b { T v; static void* operator new(" + sz + ", void* p) noexcept { return p; } };";
-        t += " struct __h { T v; };";
-        t += " union { __b b; };";
-        t += " __h* __p = nullptr;";
+        var at = self._tu_at()
+        if header {
+            self._cg->sink->directive(at, "#ifndef " + LowerTargets::ctor_slot_guard())
+        }
+
+        if header {
+            self._cg->sink->directive(at, "#define " + LowerTargets::ctor_slot_guard())
+        }
+
+        self._cg->sink->spell(at, "template <class T> using " + LowerTargets::lref() + " = T&;")
+        self._cg->sink->brk()
+        var sl = LowerTargets::ctor_slot()
+        var sz = builtin_info(BuiltinKind::USize)->cxx
+        var t  = "template <class T> struct " + sl + " {"
+        t += " struct __b { T v; static void* operator new(" + sz + ", void* p) noexcept { return p; } };"
+        t += " struct __h { T v; };"
+        t += " union { __b b; };"
+        t += " __h* __p = nullptr;"
         // The members EmitIR calls, one spelling each (LowerTargets).
-        var st = LowerTargets::ctor_slot_set();
-        var si = LowerTargets::ctor_slot_init();
-        t += " bool " + st + " = false;";
-        t += " constexpr " + sl + "() noexcept {}";
-        t += " " + sl + "(const " + sl + "&) = delete;";
-        t += " " + sl + "& operator=(const " + sl + "&) = delete;";
-        t += " constexpr ~" + sl + "() { if consteval { delete __p; } else { if (" + st + ") { b.~__b(); } } }";
-        t += " constexpr T& __v() noexcept { if consteval { return __p->v; } else { return b.v; } }";
-        t += " constexpr void " + si + "(T u) { if consteval { __p = new __h{static_cast<T&&>(u)}; } else { new (static_cast<void*>(&b)) __b{static_cast<T&&>(u)}; } " + st + " = true; }";
-        t += " constexpr void " + LowerTargets::ctor_slot_put() + "(T u) { if (" + st + ") { __v() = static_cast<T&&>(u); } else { " + si + "(static_cast<T&&>(u)); } }";
-        t += " constexpr T& " + LowerTargets::ctor_slot_get() + "() noexcept { return __v(); }";
-        t += " constexpr T&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<T&&>(__v()); }";
-        t += " };";
-        self._cg->sink->spell(at, t);
-        self._cg->sink->brk();
+        var st = LowerTargets::ctor_slot_set()
+        var si = LowerTargets::ctor_slot_init()
+        t += " bool " + st + " = false;"
+        t += " constexpr " + sl + "() noexcept {}"
+        t += " " + sl + "(const " + sl + "&) = delete;"
+        t += " " + sl + "& operator=(const " + sl + "&) = delete;"
+        t += " constexpr ~" + sl + "() { if consteval { delete __p; } else { if (" + st + ") { b.~__b(); } } }"
+        t += " constexpr T& __v() noexcept { if consteval { return __p->v; } else { return b.v; } }"
+        t += " constexpr void " + si + "(T u) { if consteval { __p = new __h{static_cast<T&&>(u)}; } else { new (static_cast<void*>(&b)) __b{static_cast<T&&>(u)}; } " + st + " = true; }"
+        t += " constexpr void " + LowerTargets::ctor_slot_put() + "(T u) { if (" + st + ") { __v() = static_cast<T&&>(u); } else { " + si + "(static_cast<T&&>(u)); } }"
+        t += " constexpr T& " + LowerTargets::ctor_slot_get() + "() noexcept { return __v(); }"
+        t += " constexpr T&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<T&&>(__v()); }"
+        t += " };"
+        self._cg->sink->spell(at, t)
+        self._cg->sink->brk()
         // An array field's slot. `init(T u)` would take a decayed pointer and
         // an array has no `=`, so this one builds its elements from the
         // array's, moved from a prvalue (a list literal) or copied from an
         // lvalue, or one at a time (`init_at`), and has no `put`:
         // CtorInitCheck allows one write. The field's mem-initializer reads
         // `take()[i]` per element (EmitIR).
-        var a = "template <class T, " + sz + " N> struct " + sl + "<T[N]> {";
-        a += " using __a = T[N];";
-        a += " template <class I, I... K> struct __q {};";
-        a += " struct __b { T v[N]; static void* operator new(" + sz + ", void* p) noexcept { return p; } };";
-        a += " struct __h { T v[N]; };";
-        a += " union { __b b; };";
-        a += " __h* __p = nullptr;";
-        a += " bool " + st + " = false;";
-        a += " constexpr " + sl + "() noexcept {}";
-        a += " " + sl + "(const " + sl + "&) = delete;";
-        a += " " + sl + "& operator=(const " + sl + "&) = delete;";
-        a += " constexpr ~" + sl + "() { if consteval { delete __p; } else { if (" + st + ") { b.~__b(); } } }";
-        a += " constexpr __a& __v() noexcept { if consteval { return __p->v; } else { return b.v; } }";
-        a += " template <" + sz + "... K> constexpr void __mv(__a& u, __q<" + sz + ", K...>) { if consteval { __p = new __h{{static_cast<T&&>(u[K])...}}; } else { new (static_cast<void*>(&b)) __b{{static_cast<T&&>(u[K])...}}; } " + st + " = true; }";
-        a += " template <" + sz + "... K> constexpr void __cp(const __a& u, __q<" + sz + ", K...>) { if consteval { __p = new __h{{u[K]...}}; } else { new (static_cast<void*>(&b)) __b{{u[K]...}}; } " + st + " = true; }";
-        a += " constexpr void " + si + "(__a&& u) { __mv(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }";
-        a += " constexpr void " + si + "(const __a& u) { __cp(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }";
+        var a = "template <class T, " + sz + " N> struct " + sl + "<T[N]> {"
+        a += " using __a = T[N];"
+        a += " template <class I, I... K> struct __q {};"
+        a += " struct __b { T v[N]; static void* operator new(" + sz + ", void* p) noexcept { return p; } };"
+        a += " struct __h { T v[N]; };"
+        a += " union { __b b; };"
+        a += " __h* __p = nullptr;"
+        a += " bool " + st + " = false;"
+        a += " constexpr " + sl + "() noexcept {}"
+        a += " " + sl + "(const " + sl + "&) = delete;"
+        a += " " + sl + "& operator=(const " + sl + "&) = delete;"
+        a += " constexpr ~" + sl + "() { if consteval { delete __p; } else { if (" + st + ") { b.~__b(); } } }"
+        a += " constexpr __a& __v() noexcept { if consteval { return __p->v; } else { return b.v; } }"
+        a += " template <" + sz + "... K> constexpr void __mv(__a& u, __q<" + sz + ", K...>) { if consteval { __p = new __h{{static_cast<T&&>(u[K])...}}; } else { new (static_cast<void*>(&b)) __b{{static_cast<T&&>(u[K])...}}; } " + st + " = true; }"
+        a += " template <" + sz + "... K> constexpr void __cp(const __a& u, __q<" + sz + ", K...>) { if consteval { __p = new __h{{u[K]...}}; } else { new (static_cast<void*>(&b)) __b{{u[K]...}}; } " + st + " = true; }"
+        a += " constexpr void " + si + "(__a&& u) { __mv(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }"
+        a += " constexpr void " + si + "(const __a& u) { __cp(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }"
         // Element by element (CtorInitCheck): each element is built once,
         // in place, in its own box (no <new>), and the array counts as built
         // when the last one is. A constructor never leaves S_pre with part of
@@ -3336,19 +5628,21 @@ class InterfaceEmitter {
         // the array is made whole first, which needs T's default (a T with
         // none cannot be built this way in a constant evaluation, and clang
         // says so where the evaluation stops).
-        a += " struct __e { T v; static void* operator new(" + sz + ", void* p) noexcept { return p; } };";
-        a += " " + sz + " __n = 0;";
-        a += " constexpr void " + LowerTargets::ctor_slot_init_at() + "(" + sz + " k, T u) { if consteval { if constexpr (__is_constructible(__h)) { if (__p == nullptr) { __p = new __h{}; } __p->v[k] = static_cast<T&&>(u); } } else { new (static_cast<void*>(&b.v[k])) __e{static_cast<T&&>(u)}; } if (++__n == N) { " + st + " = true; } }";
-        a += " constexpr __a& " + LowerTargets::ctor_slot_get() + "() noexcept { return __v(); }";
-        a += " constexpr __a&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<__a&&>(__v()); }";
-        a += " };";
-        self._cg->sink->spell(at, a);
-        self._cg->sink->brk();
-        if header { self._cg->sink->directive(at, "#endif"); }
+        a += " struct __e { T v; static void* operator new(" + sz + ", void* p) noexcept { return p; } };"
+        a += " " + sz + " __n = 0;"
+        a += " constexpr void " + LowerTargets::ctor_slot_init_at() + "(" + sz + " k, T u) { if consteval { if constexpr (__is_constructible(__h)) { if (__p == nullptr) { __p = new __h{}; } __p->v[k] = static_cast<T&&>(u); } } else { new (static_cast<void*>(&b.v[k])) __e{static_cast<T&&>(u)}; } if (++__n == N) { " + st + " = true; } }"
+        a += " constexpr __a& " + LowerTargets::ctor_slot_get() + "() noexcept { return __v(); }"
+        a += " constexpr __a&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<__a&&>(__v()); }"
+        a += " };"
+        self._cg->sink->spell(at, a)
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(at, "#endif")
+        }
     }
 
     /// `::__kairo_fn<R(A...)>`, the C++ type of a Kairo `fn(A) -> R` value
-    /// (CXXSpell, CODEGEN.md §6 Closures). One of:
+    /// (CXXSpell, Compiler/Spec/Codegen.md#emitir Closures). One of:
     ///   - empty (a default-constructed `fn` local, constexpr);
     ///   - a plain function pointer `__f`: a named function, or a closure
     ///     that captures nothing (`+[](...){...}`);
@@ -3365,47 +5659,53 @@ class InterfaceEmitter {
     /// `new`/`delete` of a lambda need none, and `__builtin_trap` is
     /// clang's.
     priv fn _fn_value_helper(self, header: bool) {
-        var at = self._tu_at();
-        var fv = LowerTargets::fn_value();
-        if header { self._cg->sink->directive(at, "#ifndef " + LowerTargets::fn_value_guard()); }
-        if header { self._cg->sink->directive(at, "#define " + LowerTargets::fn_value_guard()); }
-        self._cg->sink->spell(at, "template <class S> class " + fv + ";");
-        self._cg->sink->brk();
-        // A raw `unsafe fn` (P231): the plain function pointer, as one name.
-        self._cg->sink->spell(at, "template <class S> using " + LowerTargets::raw_fn() + " = S*;");
-        self._cg->sink->brk();
+        var at = self._tu_at()
+        var fv = LowerTargets::fn_value()
+        if header {
+            self._cg->sink->directive(at, "#ifndef " + LowerTargets::fn_value_guard())
+        }
+
+        if header {
+            self._cg->sink->directive(at, "#define " + LowerTargets::fn_value_guard())
+        }
+
+        self._cg->sink->spell(at, "template <class S> class " + fv + ";")
+        self._cg->sink->brk()
+        // A raw `unsafe fn`: the plain function pointer, as one name.
+        self._cg->sink->spell(at, "template <class S> using " + LowerTargets::raw_fn() + " = S*;")
+        self._cg->sink->brk()
         // The call path is a Kairo frame: noexcept unless -funwind, as the
         // closures it holds are.
-        var nx = (("") if (self._cg->opts.unwind) else (" noexcept"));
-        var t = "template <class R, class... A> class " + fv + "<R(A...)> {";
+        var nx = (if (self._cg->opts.unwind) => ("") else => " noexcept")
+        var t  = "template <class R, class... A> class " + fv + "<R(A...)> {"
         // The plain function it holds is a Kairo one (every Kairo function
         // is noexcept), so the pointer type says so: a call through it is
         // a call, not an invoke with a terminate landing pad.
-        t += " using __ptr = R (*)(A...)" + nx + ";";
+        t += " using __ptr = R (*)(A...)" + nx + ";"
         // copy too: it builds a Kairo lambda, whose captures copy with
         // Kairo (noexcept) constructors. A throwing pointer would put a
         // terminate landing pad in every Kairo function that copies a `fn`
         // value (set_oom_handler); noexcept moves the one `new` can need
         // into __copy, out of line.
-        t += " struct __ops { R (*call)(void*, A&&...)" + nx + "; void* (*copy)(const void*)" + nx + "; void (*drop)(void*) noexcept; };";
-        t += " template <class F> static R __call(void* o, A&&... a)" + nx + " { return (*static_cast<F*>(o))(static_cast<A&&>(a)...); }";
-        t += " template <class F> static void* __copy(const void* o)" + nx + " {";
-        t +=   " if constexpr (requires (const F& f) { F(f); }) { return new F(*static_cast<const F*>(o)); }";
-        t +=   " else { " + LowerTargets::clang_trap() + "(); } }";
-        t += " template <class F> static void __drop(void* o) noexcept { delete static_cast<F*>(o); }";
-        t += " template <class F> static constexpr __ops __ops_of{&__call<F>, &__copy<F>, &__drop<F>};";
-        t += " __ptr __f = nullptr;";
-        t += " void* __o = nullptr;";
-        t += " const __ops* __t = nullptr;";
-        t += " public:";
+        t += " struct __ops { R (*call)(void*, A&&...)" + nx + "; void* (*copy)(const void*)" + nx + "; void (*drop)(void*) noexcept; };"
+        t += " template <class F> static R __call(void* o, A&&... a)" + nx + " { return (*static_cast<F*>(o))(static_cast<A&&>(a)...); }"
+        t += " template <class F> static void* __copy(const void* o)" + nx + " {"
+        t += " if constexpr (requires (const F& f) { F(f); }) { return new F(*static_cast<const F*>(o)); }"
+        t += " else { " + LowerTargets::clang_trap() + "(); } }"
+        t += " template <class F> static void __drop(void* o) noexcept { delete static_cast<F*>(o); }"
+        t += " template <class F> static constexpr __ops __ops_of{&__call<F>, &__copy<F>, &__drop<F>};"
+        t += " __ptr __f = nullptr;"
+        t += " void* __o = nullptr;"
+        t += " const __ops* __t = nullptr;"
+        t += " public:"
         // constexpr, so a namespace-scope `fn` value initialized from a
         // function (or a captureless closure) is constant-initialized: no
         // constructor call at startup, and no static-init order hazard for
         // another TU's initializer that calls through it. The destructor
         // stays a runtime one (it may delete a heap lambda), so C++ still
         // registers it at exit; that is the only startup work left.
-        t += " constexpr " + fv + "() noexcept {}";
-        t += " constexpr " + fv + "(__ptr f) noexcept : __f(f) {}";
+        t += " constexpr " + fv + "() noexcept {}"
+        t += " constexpr " + fv + "(__ptr f) noexcept : __f(f) {}"
         // A C++ function that is not noexcept (a host's `int f(int)`, kcc's
         // #include "x.k" callers) still becomes a `fn` value: it is held as
         // the noexcept pointer. Nothing it throws could be caught on the
@@ -3413,27 +5713,30 @@ class InterfaceEmitter {
         // terminate either way. A template, so the exact-match constructor
         // above wins for every Kairo function.
         if nx.size() > 0 {
-            t += " template <class = void> " + fv + "(R (*f)(A...)) noexcept : __f(reinterpret_cast<__ptr>(f)) {}";
+            t += " template <class = void> " + fv + "(R (*f)(A...)) noexcept : __f(reinterpret_cast<__ptr>(f)) {}"
         }
-        t += " template <class F> static " + fv + " " + LowerTargets::fn_value_own() + "(F* o) noexcept { " + fv + " r; r.__o = o; r.__t = &__ops_of<F>; return r; }";
-        t += " " + fv + "(const " + fv + "& o)" + nx + " : __f(o.__f), __o(o.__o ? o.__t->copy(o.__o) : nullptr), __t(o.__t) {}";
-        t += " " + fv + "(" + fv + "&& o) noexcept : __f(o.__f), __o(o.__o), __t(o.__t) { o.__o = nullptr; }";
-        t += " " + fv + "& operator=(" + fv + " o) noexcept {";
-        t +=   " __ptr f = __f; void* p = __o; const __ops* q = __t;";
-        t +=   " __f = o.__f; __o = o.__o; __t = o.__t; o.__f = f; o.__o = p; o.__t = q; return *this; }";
-        t += " ~" + fv + "() { if (__o) { __t->drop(__o); } }";
+
+        t += " template <class F> static " + fv + " " + LowerTargets::fn_value_own() + "(F* o) noexcept { " + fv + " r; r.__o = o; r.__t = &__ops_of<F>; return r; }"
+        t += " " + fv + "(const " + fv + "& o)" + nx + " : __f(o.__f), __o(o.__o ? o.__t->copy(o.__o) : nullptr), __t(o.__t) {}"
+        t += " " + fv + "(" + fv + "&& o) noexcept : __f(o.__f), __o(o.__o), __t(o.__t) { o.__o = nullptr; }"
+        t += " " + fv + "& operator=(" + fv + " o) noexcept {"
+        t += " __ptr f = __f; void* p = __o; const __ops* q = __t;"
+        t += " __f = o.__f; __o = o.__o; __t = o.__t; o.__f = f; o.__o = p; o.__t = q; return *this; }"
+        t += " ~" + fv + "() { if (__o) { __t->drop(__o); } }"
         // Always inline: out of line it is a call to a wrapper that spills
         // every argument (the heap lambda's path takes them as A&&) before
         // the indirect call it exists to make. Inlined, the caller makes the
         // indirect call itself, and a `-> !` call site's unreachable
         // (EmitIR::_call) follows it rather than the wrapper's call, so the
         // wrapper's own return path is gone too.
-        t += " " + LowerTargets::attr_always_inline() + "R operator()(A... a) const" + nx + " { if (__o) { return __t->call(__o, static_cast<A&&>(a)...); } return __f(static_cast<A&&>(a)...); }";
-        t += " operator __ptr() const noexcept { if (__o) { " + LowerTargets::clang_trap() + "(); } return __f; }";
-        t += " };";
-        self._cg->sink->spell(at, t);
-        self._cg->sink->brk();
-        if header { self._cg->sink->directive(at, "#endif"); }
+        t += " " + LowerTargets::attr_always_inline() + "R operator()(A... a) const" + nx + " { if (__o) { return __t->call(__o, static_cast<A&&>(a)...); } return __f(static_cast<A&&>(a)...); }"
+        t += " operator __ptr() const noexcept { if (__o) { " + LowerTargets::clang_trap() + "(); } return __f; }"
+        t += " };"
+        self._cg->sink->spell(at, t)
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(at, "#endif")
+        }
     }
 
     /// In the class, for split constructor \p m (FunctionDecl::ci_split):
@@ -3444,256 +5747,397 @@ class InterfaceEmitter {
     /// locals the class itself never needs complete, and it is defined
     /// beside the bodies (EmitIR::_split_ctor). The trailing return keeps a
     /// generic owner's out-of-line definition free of `typename`.
-    priv fn _split_ctor_decls(self, m: *FunctionDecl, owner: *Decl) {
-        var at = self._at(static_cast::<*Decl>(m));
-        var ci = LowerTargets::ctor_slots(m->ci_index);
-        var sa = LowerTargets::ctor_slot_arg();
-        var ps = self._lref_params(m, owner);
+    priv fn _split_ctor_decls(self, m: unsafe *Declarations::FunctionDecl, owner: unsafe *Decl) {
+        var at = self._at(m)
+        var ci = LowerTargets::ctor_slots(m->ci_index)
+        var sa = LowerTargets::ctor_slot_arg()
+        var ps = self._lref_params(m, owner)
         // The halves run where the constructor runs: an eval one's at
-        // compile time only, so they are `consteval` with it (EVAL.md 1.1),
+        // compile time only, so they are `consteval` with it (Compiler/Spec/Eval.md#eval-fn),
         // and C++ wants every declaration to say so.
-        var ce = (("consteval ") if (m->is_eval()) else ((("constexpr ") if (m->is_constexpr()) else (""))));
-        self._cg->sink->spell(at, "struct " + ci + ";");
-        self._cg->sink->spell(at, "static " + ce + "auto " + LowerTargets::ctor_pre(m->ci_index) + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&;");
-        self._cg->sink->spell(at, ce + self._spell->leaf(owner) + "(" + ci + "& " + sa + ps + ");");
+        var ce = (if (m->is_eval()) => ("consteval ")
+                  else => (if (m->is_constexpr()) => ("constexpr ") else => ""))
+        self._cg->sink->spell(at, "struct " + ci + ";")
+        self._cg->sink->spell(
+            at,
+            "static " + ce + "auto " + LowerTargets::ctor_pre(
+                m->ci_index,
+            ) + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&;",
+        )
+
+        self._cg->sink->spell(at, ce + self._spell->leaf(owner) + "(" + ci + "& " + sa + ps + ");")
     }
 
     /// `, __kairo_lref<P> p` per parameter but `self`, in order.
-    priv fn _lref_params(self, m: *FunctionDecl, owner: *Decl) -> string {
-        var s = "";
+    priv fn _lref_params(self,
+                         m:     unsafe *Declarations::FunctionDecl,
+                         owner: unsafe *Decl) -> string {
+        var s = ""
         for var i: usize = 0; i < m->params.size(); ++i {
-            var p = m->params[i];
-            if (p == &null) || p->is_self { continue; }
-            s += ", ::" + LowerTargets::lref() + "<" + self._spell->param_type(p, &null, owner) + "> ";
-            s += self._spell->imm_name(p->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(m)));
+            var unsafe *p = m->params[i]
+            if p == &null || p->is_self {
+                continue
+            }
+
+            s += ", ::" + LowerTargets::lref() + "<" + self._spell->param_type(
+                p,
+                &null,
+                owner,
+            ) + "> "
+            s += self._spell->imm_name(p->name.imm, CXXSpell::fid_of(unsafe (m as unsafe *Decl)))
         }
-        return s;
+
+        return s
     }
 
     /// The definitions of \p d's static fields and of every nested record's,
     /// after \p d's closing brace (file header, Static fields). \p d is the
     /// outermost record of a tier-1 entry; anything else has no statics.
-    priv fn _static_defs(self, d: *Decl) {
-        if (!isa::<ClassDecl>(d)) && (!isa::<StructDecl>(d)) { return; }
-        var fields = self._fields_of(d);
-        for var i: usize = 0; i < fields.size(); ++i {
-            var f = fields[i];
-            if (f == &null) || (!f->is_static()) || f->is_anonymous_union { continue; }
-            self._static_def(f, d);
+    priv fn _static_defs(self, d: unsafe *Decl) {
+        if (!isa<Declarations::ClassDecl>(d)) && !isa<Declarations::StructDecl>(d) {
+            return
         }
-        var dc = CXXSpell::dc_of(d);
-        if dc == &null { return; }
+
+        var fields = self._fields_of(d)
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *f = fields[i]
+            if f == &null || !f->is_static() || f->is_anonymous_union {
+                continue
+            }
+
+            self._static_def(f, d)
+        }
+
+        var unsafe *dc = CXXSpell::dc_of(d)
+        if dc == &null {
+            return
+        }
+
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            var nd = *(dc->dc_decls.get(i));
-            if nd == &null { continue; }
-            if isa::<ClassDecl>(nd) || isa::<StructDecl>(nd) { self._static_defs(CXXSpell::rep(nd)); }
+            var unsafe *nd = *dc->dc_decls.get(i)
+            if nd == &null {
+                continue
+            }
+
+            if isa<Declarations::ClassDecl>(nd) || isa<Declarations::StructDecl>(nd) {
+                self._static_defs(CXXSpell::rep(nd))
+            }
         }
     }
 
     /// `[template <...>] inline [constinit] [thread_local] T R::s = init;`.
     /// The initializer of a static member's definition is in its class's
     /// scope, so a thunk is called by leaf, as a default calls it.
-    priv fn _static_def(self, f: *FieldDecl, owner: *Decl) {
+    priv fn _static_def(self, f: unsafe *Declarations::FieldDecl, owner: unsafe *Decl) {
         // A thunked eval field is defined after its consteval thunk's body,
         // which a constant expression needs DEFINED (EmitIR::_eval_field_def).
-        if f->is_eval() && (f->init_fold == FieldFold::Thunk) { return; }
-        var s = self._owner_template_head(owner);
-        s += "inline ";
-        var folded = (f->init_fold == FieldFold::Int) || (f->init_fold == FieldFold::True) || (f->init_fold == FieldFold::False) || (f->init_fold == FieldFold::Null);
-        if f->is_eval()  { s += "constexpr "; }
-        else if folded   { s += "constinit "; }
-        if f->is_thread { s += "thread_local "; }
+        if f->is_eval() && f->init_fold == Declarations::FieldFold::Thunk {
+            return
+        }
+
+        var s = self._owner_template_head(owner)
+        s += "inline "
+        var folded = f->init_fold == Declarations::FieldFold::Int
+            || f->init_fold == Declarations::FieldFold::True
+            || f->init_fold == Declarations::FieldFold::False
+            || f->init_fold == Declarations::FieldFold::Null
+        if f->is_eval() {
+            s += "constexpr "
+        } else if folded {
+            s += "constinit "
+        }
+
+        if f->is_thread {
+            s += "thread_local "
+        }
+
         // The class body declared it `static const T s;` (`static const`
         // member); C++ rejects a definition whose type drops the const.
-        if f->is_const() || f->is_eval() { s += "const "; }
-        var nm = self._owner_qual(owner) + "::" + self._spell->leaf(static_cast::<*Decl>(f));
-        s += self._spell->decl(f->type_, nm);
-        if f->init_fold == FieldFold::None {
-            if f->init != &null { self._ice(f->name.range, "InterfaceEmitter: a static field's initializer reached codegen unlowered; FieldInitLowering lowers every one"); }
-            s += "{}";
-        } else {
-            s += self._field_default(f);
+        if f->is_const() || f->is_eval() {
+            s += "const "
         }
-        s += ";";
-        self._cg->sink->spell(f->name.range, s);
-        // EVAL.md 4.2b: the value an `eval if` was decided on (EmitIR::_global_var).
-        var pin = decl_fold_pin(static_cast::<*Decl>(f));
+
+        var nm = self._owner_qual(owner) + "::" + self._spell->leaf(unsafe (f as unsafe *Decl))
+        s += self._spell->decl(f->type_, nm)
+        if f->init_fold == Declarations::FieldFold::None {
+            if f->init != &null {
+                self._ice(
+                    f->name.range,
+                    "InterfaceEmitter: a static field's initializer reached codegen unlowered; FieldInitLowering lowers every one",
+                )
+            }
+
+            s += "{}"
+        } else {
+            s += self._field_default(f)
+        }
+
+        s += ";"
+        self._cg->sink->spell(f->name.range, s)
+        // Compiler/Spec/Eval.md#deferred-conditions: the value an `eval if` was decided on (EmitIR::_global_var).
+        var pin = DeclFacts::decl_fold_pin(f)
         if pin.size() > 0 {
-            self._cg->sink->spell(f->name.range, "static_assert(" + nm + " == " + pin + ", \"EVAL.md 4.2b: an eval if was decided on this constant; Kairo's type facts and clang disagree on its value\");");
+            self._cg->sink->spell(
+                f->name.range,
+                "static_assert(" + nm + " == " + pin + ", \"EVAL.md 4.2b: an eval if was decided on this constant; Kairo's type facts and clang disagree on its value\");",
+            )
         }
     }
 
     /// `template <class T>` for each generic owner, outermost first. EmitIR's
     /// rule for an out-of-line member (EmitIR::_owner_template_head).
-    priv fn _owner_template_head(self, owner: *Decl) -> string {
-        var chain = self._owner_chain(owner);
-        var s = "";
-        for var i: usize = 0; i < chain.size(); ++i { s += self._spell->template_head(chain[i]); }
-        return s;
+    priv fn _owner_template_head(self, owner: unsafe *Decl) -> string {
+        var chain = self._owner_chain(owner)
+        var s     = ""
+        for var i: usize = 0; i < chain.size(); ++i {
+            s += self._spell->template_head(chain[i])
+        }
+
+        return s
     }
 
     /// `Outer<T>::Inner<U>`, each generic owner with its own parameters as
     /// its arguments, relative to the outermost record's namespace wrapper
     /// (EmitIR::_owner_qual).
-    priv fn _owner_qual(self, owner: *Decl) -> string {
-        var chain = self._owner_chain(owner);
-        var s = "";
+    priv fn _owner_qual(self, owner: unsafe *Decl) -> string {
+        var chain = self._owner_chain(owner)
+        var s     = ""
         for var i: usize = 0; i < chain.size(); ++i {
-            if i > 0 { s += "::"; }
-            s += self._spell->owner_segment(chain[i]);
+            if i > 0 {
+                s += "::"
+            }
+
+            s += self._spell->owner_segment(chain[i])
         }
-        return s;
+
+        return s
     }
 
     /// Type owners from outermost to \p owner inclusive (EmitIR::_owner_chain).
-    priv fn _owner_chain(self, owner: *Decl) -> vec::<*Decl> {
-        var rev = vec::<*Decl>();
-        rev.push_back(CXXSpell::rep(owner));
-        var dc = reinterpret_cast::<*DeclContext>(owner->semantic_dc);
-        while (dc != &null) && dc->is_type_scope() && (dc->dc_kind != DeclContextKind::Extension) {
-            rev.push_back(CXXSpell::rep(dc->dc_owner));
-            dc = dc->dc_parent;
+    priv fn _owner_chain(self, owner: unsafe *Decl) -> cxx::std::vector<unsafe *Decl> {
+        var rev = cxx::std::vector<unsafe *Decl>()
+        rev.push_back(CXXSpell::rep(owner))
+        var unsafe *dc = owner->semantic_dc
+        while dc != &null && dc->is_type_scope() && dc->dc_kind != DeclContextKind::Extension {
+            rev.push_back(CXXSpell::rep(dc->dc_owner))
+            dc = dc->dc_parent
         }
-        var out = vec::<*Decl>();
-        for var i: usize = 0; i < rev.size(); ++i { out.push_back(rev[rev.size() - 1 - i]); }
-        return out;
+
+        var out = cxx::std::vector<unsafe *Decl>()
+        for var i: usize = 0; i < rev.size(); ++i {
+            out.push_back(rev[rev.size() - 1 - i])
+        }
+
+        return out
     }
 
     /// A C++ enumerator value. The 64-bit minimum has no literal (its
     /// magnitude is no long long), so it is spelled as an expression; a
     /// magnitude past the long long range takes `u`, which keeps clang from
     /// warning that the literal is too large for a signed type.
-    priv fn _enum_value(self, c: IntConst) -> string {
-        var min_mag = u64(1) << u64(63);
+    priv fn _enum_value(self, c: Declarations::IntConst) -> string {
+        var min_mag = (1 as u64) << (63 as u64)
         if c.neg {
-            if c.mag == min_mag { return "(-9223372036854775807 - 1)"; }
-            return f"-{c.mag}";
+            if c.mag == min_mag {
+                return "(-9223372036854775807 - 1)"
+            }
+
+            return f"-{c.mag}"
         }
-        if c.mag >= min_mag { return f"{c.mag}u"; }
-        return f"{c.mag}";
+
+        if c.mag >= min_mag {
+            return f"{c.mag}u"
+        }
+
+        return f"{c.mag}"
     }
 
-    // --- Functions ---------------------------------------------------------------------
+    /// # Functions
 
     /// A method declaration inside its class. `self` is dropped (it is
     /// `this`); a function without `self` is `static`.
-    priv fn _method_decl(self, m: *FunctionDecl, owner: *Decl) -> string {
-        var s = self._spell->template_head(static_cast::<*Decl>(m));
-        var is_ctor = self._is_ctor(m, owner);
+    priv fn _method_decl(self,
+                         m:     unsafe *Declarations::FunctionDecl,
+                         owner: unsafe *Decl) -> string {
+        var s       = self._spell->template_head(m)
+        var is_ctor = self._is_ctor(m, owner)
         // One spelling, computed once. `op delete` comes back from leaf() as
         // `~Owner` already, so the leading `~` IS the destructor test -- there
         // is no second place that knows how a destructor is named.
-        var nm = self._spell->leaf(m);
-        var is_dtor = m->is_operator && (nm[0] == '~');
+        var nm      = self._spell->leaf(m)
+        var is_dtor = m->is_operator && nm[0] == ('~' as u8)
         // `op as` spells `operator T`; C++ gives a conversion no return type.
-        var is_conv = m->is_operator && (m->op_token[0].kind == TokenKind::KwAs);
-        var is_method = m->is_method();
+        var is_conv   = m->is_operator && m->op_token[0].kind == TokenKind::KwAs
+        var is_method = m->is_method()
 
-        if m->panic_result != &null { s += "[[nodiscard]] "; }   // PANIC.md §4.6, as _free_fn_text.
-        if (!is_method) && (!is_ctor) && !is_dtor { s += "static "; }
-        if (m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || (m->body_kind == FnBodyKind::Virtual) { s += "virtual "; }
-        if m->is_noreturn { s += "[[noreturn]] "; }
-        s += CXXSpell::fn_attrs(m);
-        // EVAL.md 1.1: an eval fn runs at compile time only. `consteval` is
+        if m->panic_result != &null { // Compiler/Spec/Panic.md#the-c-view, as _free_fn_text.
+            s += "[[nodiscard]] "
+        }
+
+        if !is_method && !is_ctor && !is_dtor {
+            s += "static "
+        }
+
+        if m->abi == Declarations::AbiKind::Virtual
+            || m->abi == Declarations::AbiKind::Override
+            || m->body_kind == Declarations::FnBodyKind::Virtual {
+            s += "virtual "
+        }
+
+        if m->is_noreturn {
+            s += "[[noreturn]] "
+        }
+
+        s += CXXSpell::fn_attrs(m)
+        // Compiler/Spec/Eval.md#eval-fn: an eval fn runs at compile time only. `consteval` is
         // implicitly inline, so EmitPlan makes its body visible as it does
         // an `inline` one's.
-        if m->is_eval() { s += "consteval "; }
-        else if m->is_constexpr() { s += "constexpr "; }
+        if m->is_eval() {
+            s += "consteval "
+        } else if m->is_constexpr() {
+            s += "constexpr "
+        }
 
         if is_ctor {
-            s += self._spell->leaf(owner);
+            s += self._spell->leaf(owner)
         } else if is_dtor || is_conv {
-            s += nm;
+            s += nm
         } else {
-            s += self._ret(m, owner);
-            s += " ";
-            s += nm;
+            s += self._ret(m, owner)
+            s += " "
+            s += nm
         }
-        s += "(";
-        s += self._params(m, false, &null, owner, true);
-        s += ")";
-        if is_method && m->is_const() { s += " const"; }
-        if m->no_unwind { s += " noexcept"; }
-        // P235: a generic record's member `requires`, so the record's
+
+        s += "("
+        s += self._params(m, false, &null, owner, true)
+        s += ")"
+        if is_method && m->is_const() {
+            s += " const"
+        }
+
+        if m->no_unwind {
+            s += " noexcept"
+        }
+
+        // A generic record's member `requires`, so the record's
         // explicit instantiation leaves the member out where it fails.
-        s += self._spell->member_requires(m, owner);
-        if m->abi == AbiKind::Override { s += " override"; }
-        s += self._body_suffix(m);
-        s += ";";
-        return s;
+        s += self._spell->member_requires(m, owner)
+        if m->abi == Declarations::AbiKind::Override {
+            s += " override"
+        }
+
+        s += self._body_suffix(m)
+        s += ";"
+        return s
     }
 
     /// `extern T const x;`. Always `extern`, own globals included: a
     /// namespace-scope `const` has external linkage in C++ only when an
     /// `extern` declaration precedes its definition, and a `pub const` has to
     /// be reachable from every module that imports it.
-    priv fn _global_var_decl(self, v: *VariableDecl) {
-        self._cg->sink->spell(self._at(static_cast::<*Decl>(v)), "extern " + self._spell->global_var(v) + ";");
+    priv fn _global_var_decl(self, v: unsafe *Declarations::VariableDecl) {
+        self._cg->sink->spell(self._at(v), "extern " + self._spell->global_var(v) + ";")
     }
 
-    priv fn _free_fn_decl(self, f: *FunctionDecl, ext: *ExtensionDecl) {
+    priv fn _free_fn_decl(self,
+                          f:   unsafe *Declarations::FunctionDecl,
+                          ext: unsafe *Declarations::ExtensionDecl) {
         // A namespace-scope default argument names its thunk at the point of
-        // declaration, and the thunk is placed after `f`: declare it first (O35).
-        if (ext == &null) && (CXXSpell::template_params(static_cast::<*Decl>(f)).size() == 0) {
+        // declaration, and the thunk is placed after `f`: declare it first.
+        if ext == &null && CXXSpell::template_params(unsafe (f as unsafe *Decl)).size() == 0 {
             for var i: usize = 0; i < f->params.size(); ++i {
-                var p = f->params[i];
-                if (p == &null) || (self._default_arg(f, i).size() == 0) { continue; }
-                var th = cast::<FunctionDecl>(p->default_thunk);
-                self._cg->sink->spell(self._at(static_cast::<*Decl>(f)), self._free_fn_text(th, &null));
+                var unsafe *p = f->params[i]
+                if p == &null || self._default_arg(f, i).size() == 0 {
+                    continue
+                }
+
+                var unsafe *th = cast<Declarations::FunctionDecl>(p->default_thunk)
+                self._cg->sink->spell(self._at(f), self._free_fn_text(th, &null))
             }
         }
-        self._cg->sink->spell(self._at(static_cast::<*Decl>(f)), self._free_fn_text(f, ext));
+
+        self._cg->sink->spell(self._at(f), self._free_fn_text(f, ext))
     }
 
     /// A function declaration. With \p ext, an extension member: a static
     /// member of its scope, its receiver an explicit first parameter
     /// (`Self*` / `const Self*`), its template head the merged one (the
     /// extension's, then its own).
-    priv fn _free_fn_text(self, f: *FunctionDecl, ext: *ExtensionDecl) -> string {
-        var s = self._spell->template_head(static_cast::<*Decl>(f));
+    priv fn _free_fn_text(self,
+                          f:   unsafe *Declarations::FunctionDecl,
+                          ext: unsafe *Declarations::ExtensionDecl) -> string {
+        var s = self._spell->template_head(f)
         // An extension member is a static member of its scope struct, and a
         // class member cannot have a language linkage.
-        if ext == &null { s += CXXSpell::c_linkage(f); }
+        if ext == &null {
+            s += CXXSpell::c_linkage(f)
+        }
+
         // The attribute leads the decl-specifiers; between `static` and the
         // type it is ill-formed.
-        if f->is_noreturn { s += "[[noreturn]] "; }
-        s += CXXSpell::fn_attrs(f);
-        // A panic result is the error (PANIC.md §4.6): a C++ caller that drops
+        if f->is_noreturn {
+            s += "[[noreturn]] "
+        }
+
+        s += CXXSpell::fn_attrs(f)
+        // A panic result is the error (Compiler/Spec/Panic.md#the-c-view): a C++ caller that drops
         // it drops the error with it.
-        if f->panic_result != &null { s += "[[nodiscard]] "; }
-        if ext != &null { s += "static "; }
-        if f->is_eval() { s += "consteval "; }   // EVAL.md 1.1
-        s += self._ret(f);
-        s += " ";
-        s += self._fn_name(f);
-        s += "(";
-        s += self._params(f, ext != &null, ext, &null,
-            (ext == &null) && (CXXSpell::template_params(static_cast::<*Decl>(f)).size() == 0));
-        s += ")";
-        if f->no_unwind { s += " noexcept"; }
-        s += ";";
-        return s;
+        if f->panic_result != &null {
+            s += "[[nodiscard]] "
+        }
+
+        if ext != &null {
+            s += "static "
+        }
+
+        if f->is_eval() { // Compiler/Spec/Eval.md#eval-fn
+            s += "consteval "
+        }
+
+        s += self._ret(f)
+        s += " "
+        s += self._fn_name(f)
+        s += "("
+        s += self._params(
+            f,
+            ext != &null,
+            ext,
+            &null,
+            ext == &null && CXXSpell::template_params(unsafe (f as unsafe *Decl)).size() == 0,
+        )
+
+        s += ")"
+        if f->no_unwind {
+            s += " noexcept"
+        }
+
+        s += ";"
+        return s
     }
 
-    // --- Extension scopes ----------------------------------------------------------
+    /// # Extension scopes
 
     /// `struct __kairo_ext_X { static ...; };`, every member declared, then
     /// the operator forwarders. Inside the scope's namespace wrapper. All
     /// members are public: Kairo's visibility is AccessCheck's, not C++
     /// access control's, and the struct must be one text everywhere.
-    priv fn _scope_def(self, sc: *ExtScope) {
-        var at = self._at(static_cast::<*Decl>(sc->anchor));
-        self._cg->sink->spell(at, "struct " + sc->name + " {");
+    priv fn _scope_def(self, sc: unsafe *ExtScope) {
+        var at = self._at(sc->anchor)
+        self._cg->sink->spell(at, "struct " + sc->name + " {")
         for var i: usize = 0; i < sc->members.size(); ++i {
-            var m = sc->members[i];
-            self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._free_fn_text(m, sc->exts[i]));
+            var unsafe *m = sc->members[i]
+            self._cg->sink->spell(self._at(m), self._free_fn_text(m, sc->exts[i]))
         }
-        self._cg->sink->spell(at, "};");
-        self._cg->sink->brk();
+
+        self._cg->sink->spell(at, "};")
+        self._cg->sink->brk()
         for var i: usize = 0; i < sc->members.size(); ++i {
-            var m = sc->members[i];
-            if !m->is_operator { continue; }
-            self._forwarder(sc, m, sc->exts[i]);
+            var unsafe *m = sc->members[i]
+            if !m->is_operator {
+                continue
+            }
+
+            self._forwarder(sc, m, sc->exts[i])
         }
     }
 
@@ -3704,54 +6148,85 @@ class InterfaceEmitter {
     /// declared type (`static_cast<decltype(a)&&>`), so a by-value or
     /// `@move` operand moves on and an `@inout` one stays an lvalue; the
     /// postfix dummy is passed as is.
-    priv fn _forwarder(self, sc: *ExtScope, f: *FunctionDecl, ext: *ExtensionDecl) {
-        var _op = self._spell->ext_forwarder_name(f);
-        if _op.size() == 0 { return; }   // `in`, `^^`, ...: no C++ operator to forward from.
-        var fid = CXXSpell::fid_of(static_cast::<*Decl>(f));
-        var s = self._spell->template_head(static_cast::<*Decl>(f));
+    priv fn _forwarder(self,
+                       sc:  unsafe *ExtScope,
+                       f:   unsafe *Declarations::FunctionDecl,
+                       ext: unsafe *Declarations::ExtensionDecl) {
+        var _op = self._spell->ext_forwarder_name(f)
+        if _op.size() == 0 { // `in`, `^^`, ...: no C++ operator to forward from.
+            return
+        }
+
+        var fid = CXXSpell::fid_of(unsafe (f as unsafe *Decl))
+        var s   = self._spell->template_head(unsafe (f as unsafe *Decl))
         // A forwarder of an eval operator is one too: an `inline` one could
         // not pass its parameters on to a consteval call.
-        s += (("consteval ") if (f->is_eval()) else ("inline "));
-        s += self._ret(f);
-        s += " ";
-        s += _op;
-        s += "(";
-        var call = "";
-        var k: usize = 0;
+        s += (if (f->is_eval()) => ("consteval ") else => "inline ")
+        s += self._ret(f)
+        s += " "
+        s += _op
+        s += "("
+        var call       = ""
+        var k:   usize = 0
         for var i: usize = 0; i < f->params.size(); ++i {
-            var p = f->params[i];
-            if p == &null { continue; }
-            var nm = LowerTargets::forwarder_arg(k);
-            if k > 0 { s += ", "; call += ", "; }
-            if p->is_self {
-                s += self._spell->ext_receiver(f, ext) + " " + nm;
-                call += nm;
-            } else {
-                s += self._spell->param_decl(p, nm);
-                call += "static_cast<decltype(" + nm + ")&&>(" + nm + ")";
+            var unsafe *p = f->params[i]
+            if p == &null {
+                continue
             }
-            k += 1;
+
+            var nm = LowerTargets::forwarder_arg(k)
+            if k > 0 {
+                s += ", "
+                call += ", "
+            }
+
+            if p->is_self {
+                s += self._spell->ext_receiver(f, ext) + " " + nm
+                call += nm
+            } else {
+                s += self._spell->param_decl(p, nm)
+                call += "static_cast<decltype(" + nm + ")&&>(" + nm + ")"
+            }
+
+            k += 1
         }
+
         if CXXSpell::op_is_postfix(f) {
-            var nm = LowerTargets::forwarder_arg(k);
-            if k > 0 { s += ", "; call += ", "; }
-            s += "int " + nm;
-            call += nm;
+            var nm = LowerTargets::forwarder_arg(k)
+            if k > 0 {
+                s += ", "
+                call += ", "
+            }
+
+            s += "int " + nm
+            call += nm
         }
+
         // Explicit template arguments: the forwarder's own parameters are the
         // static member's, so nothing is left for deduction to choose.
-        var targs = "";
-        var tps = CXXSpell::template_params(static_cast::<*Decl>(f));
+        var targs = ""
+        var tps   = CXXSpell::template_params(unsafe (f as unsafe *Decl))
         for var i: usize = 0; i < tps.size(); ++i {
-            targs += (("<") if (i == 0) else (", "));
-            targs += self._spell->imm_name(tps[i]->name.imm, fid);
-            if tps[i]->is_pack { targs += "..."; }
+            targs += (if (i == 0) => ("<") else => ", ")
+            targs += self._spell->imm_name(tps[i]->name.imm, fid)
+            if tps[i]->is_pack {
+                targs += "..."
+            }
         }
-        if tps.size() > 0 { targs += ">"; }
-        s += ")";
-        if f->no_unwind { s += " noexcept"; }
-        s += " { return " + self._scope_qual(sc) + "::" + self._spell->leaf(static_cast::<*Decl>(f)) + targs + "(" + call + "); }";
-        self._cg->sink->spell(self._at(static_cast::<*Decl>(f)), s);
+
+        if tps.size() > 0 {
+            targs += ">"
+        }
+
+        s += ")"
+        if f->no_unwind {
+            s += " noexcept"
+        }
+
+        s += " { return " + self._scope_qual(sc) + "::" + self._spell->leaf(
+            unsafe (f as unsafe *Decl),
+        ) + targs + "(" + call + "); }"
+        self._cg->sink->spell(self._at(f), s)
     }
 
     /// \p scope: the record whose body the declaration is in, or null
@@ -3761,39 +6236,76 @@ class InterfaceEmitter {
     /// calling its thunk. Kairo fills a default at every call it types, but a
     /// call through a `: type` parameter (`self.dyn()->sc->diag->report(..)
     /// .first(r)`) has no callee to fill from; clang resolves it per instance
-    /// and needs the C++ declaration to carry the default (O35).
-    priv fn _params(self, f: *FunctionDecl, with_self: bool, ext: *ExtensionDecl, scope: *Decl = &null, defaults: bool = false) -> string {
-        var s = "";
-        var first = true;
+    /// and needs the C++ declaration to carry the default.
+    priv fn _params(self,
+                    f:         unsafe *Declarations::FunctionDecl,
+                    with_self: bool,
+                    ext:       unsafe *Declarations::ExtensionDecl,
+                    scope:     unsafe *Decl = &null,
+                    defaults:  bool = false) -> string {
+        var s     = ""
+        var first = true
         for var i: usize = 0; i < f->params.size(); ++i {
-            var p = f->params[i];
-            if p == &null { continue; }
+            var unsafe *p = f->params[i]
+            if p == &null {
+                continue
+            }
+
             if p->is_self {
-                if !with_self { continue; }
-                if (ext == &null) { self._ice(p->range, "InterfaceEmitter: `self` outside a type or extension"); }
-                if !first { s += ", "; }
-                first = false;
+                if !with_self {
+                    continue
+                }
+
+                if ext == &null {
+                    self._ice(p->range, "InterfaceEmitter: `self` outside a type or extension")
+                }
+
+                if !first {
+                    s += ", "
+                }
+
+                first = false
                 // An extension operator is a real non-member C++ operator, and
                 // [over.oper]/7 wants a class-typed parameter: the receiver is
                 // `X&`. Unnamed here; EmitIR's definition names it.
-                s += self._spell->ext_receiver(f, ext);
-                if !f->is_operator { s += " " + LowerTargets::ext_receiver_name(); }   // just the type for an operator; EmitIR names it.
-                continue;
+                s += self._spell->ext_receiver(f, ext)
+                if !f->is_operator { // just the type for an operator; EmitIR names it.
+                    s += " " + LowerTargets::ext_receiver_name()
+                }
+
+                continue
             }
-            if !first { s += ", "; }
-            first = false;
-            var nm = "";
-            if !p->unname { nm = self._spell->imm_name(p->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(f))); }
-            s += self._spell->param_decl(p, nm, &null, scope);
-            if defaults { s += self._default_arg(f, i); }
+
+            if !first {
+                s += ", "
+            }
+
+            first = false
+            var nm = ""
+            if !p->unname {
+                nm = self._spell->imm_name(
+                    p->name.imm,
+                    CXXSpell::fid_of(unsafe (f as unsafe *Decl)),
+                )
+            }
+
+            s += self._spell->param_decl(p, nm, &null, scope)
+            if defaults {
+                s += self._default_arg(f, i)
+            }
         }
+
         // C++ distinguishes postfix `++`/`--` from prefix by an unnamed `int`
         // parameter. Kairo says `op r++`, so the dummy is invented here.
         if CXXSpell::op_is_postfix(f) {
-            if !first { s += ", "; }
-            s += "int";
+            if !first {
+                s += ", "
+            }
+
+            s += "int"
         }
-        return s;
+
+        return s
     }
 
     /// ` = __kairo_default_f_x()` for parameter \p i of \p f when it is the
@@ -3801,68 +6313,101 @@ class InterfaceEmitter {
     /// default is an error, so only the writer's link carries it). Empty
     /// when a later parameter has none: C++ rejects a gap, and a call that
     /// fills it is Kairo's, as before.
-    priv fn _default_arg(self, f: *FunctionDecl, i: usize) -> string {
-        var p = f->params[i];
-        if (p->default_thunk == &null) || (!p->default_thunk_home) || p->is_pack { return ""; }
+    priv fn _default_arg(self, f: unsafe *Declarations::FunctionDecl, i: usize) -> string {
+        var unsafe *p = f->params[i]
+        if p->default_thunk == &null || !p->default_thunk_home || p->is_pack {
+            return ""
+        }
+
         for var k: usize = i + 1; k < f->params.size(); ++k {
-            var q = f->params[k];
-            if (q == &null) || q->is_pack { continue; }
-            if (q->default_thunk == &null) && (!q->has_default) { return ""; }
+            var unsafe *q = f->params[k]
+            if q == &null || q->is_pack {
+                continue
+            }
+
+            if q->default_thunk == &null && !q->has_default {
+                return ""
+            }
         }
-        var th  = cast::<FunctionDecl>(p->default_thunk);
-        var fid = CXXSpell::fid_of(static_cast::<*Decl>(f));
-        var targs = "";
-        var tps = CXXSpell::template_params(static_cast::<*Decl>(th));
+
+        var unsafe *th   = cast<Declarations::FunctionDecl>(p->default_thunk)
+        var        fid   = CXXSpell::fid_of(unsafe (f as unsafe *Decl))
+        var        targs = ""
+        var        tps   = CXXSpell::template_params(th)
         for var j: usize = 0; j < tps.size(); ++j {
-            targs += (("<") if (j == 0) else (", "));
-            targs += self._spell->imm_name(tps[j]->name.imm, fid);
-            if tps[j]->is_pack { targs += "..."; }
+            targs += (if (j == 0) => ("<") else => ", ")
+            targs += self._spell->imm_name(tps[j]->name.imm, fid)
+            if tps[j]->is_pack {
+                targs += "..."
+            }
         }
-        if tps.size() > 0 { targs += ">"; }
-        return " = " + self._spell->leaf(static_cast::<*Decl>(th)) + targs + "()";
-    }
 
-    priv fn _ret(self, f: *FunctionDecl, scope: *Decl = &null) -> string {
-        if f->panic_result != &null { return self._spell->_type(f->panic_result); }   // PanicLowering's result (PANIC.md §4.1).
-        if f->is_noreturn || (f->return_type == &null) { return "void"; }
-        return self._spell->return_spelling(f, &null, scope);
-    }
-
-    priv fn _fn_name(self, f: *FunctionDecl) -> string {
-        return self._spell->leaf(static_cast::<*Decl>(f));
-    }
-
-    priv fn _is_ctor(self, m: *FunctionDecl, owner: *Decl) -> bool {
-        if m->is_operator { return false; }
-        return self._spell->leaf(static_cast::<*Decl>(m)) == self._spell->leaf(owner);
-    }
-
-    priv fn _body_suffix(self, f: *FunctionDecl) -> string {
-        switch f->body_kind {
-            case FnBodyKind::Virtual { return " = 0"; }
-            case FnBodyKind::Delete  { return " = delete"; }
-            case FnBodyKind::Default { return " = default"; }
-            default { return ""; }
+        if tps.size() > 0 {
+            targs += ">"
         }
-        return "";
+
+        return " = " + self._spell->leaf(th) + targs + "()"
     }
 
-    // --- Tier 3 -----------------------------------------------------------------------
+    priv fn _ret(self,
+                 f:     unsafe *Declarations::FunctionDecl,
+                 scope: unsafe *Decl = &null) -> string {
+        if f->panic_result != &null { // PanicLowering's result (Compiler/Spec/Panic.md#paniclowering).
+            return self._spell->_type(f->panic_result)
+        }
+
+        if f->is_noreturn || f->return_type == &null {
+            return "void"
+        }
+
+        return self._spell->return_spelling(f, &null, scope)
+    }
+
+    priv fn _fn_name(self, f: unsafe *Declarations::FunctionDecl) -> string {
+        return self._spell->leaf(unsafe (f as unsafe *Decl))
+    }
+
+    priv fn _is_ctor(self, m: unsafe *Declarations::FunctionDecl, owner: unsafe *Decl) -> bool {
+        if m->is_operator {
+            return false
+        }
+
+        return self._spell->leaf(unsafe (m as unsafe *Decl)) == self._spell->leaf(owner)
+    }
+
+    priv fn _body_suffix(self, f: unsafe *Declarations::FunctionDecl) -> string {
+        match f->body_kind {
+            case Declarations::FnBodyKind::Virtual {
+                return " = 0"
+            } case Declarations::FnBodyKind::Delete {
+                return " = delete"
+            } case Declarations::FnBodyKind::Default {
+                return " = default"
+            } default {
+                return ""
+            }
+        }
+    }
+
+    /// # Tier 3
 
     /// `template class X<A>;` in the home TU, `extern template ...` elsewhere.
     /// A function instance spells its signature with the args substituted.
     priv fn _instantiation(self, e: *PlanEntry) {
-        var d  = e->decl;
-        var ie = e->inst;
-        // An instance over a value C++ computes (`Buf<twice(1)>`, EVAL.md
+        var unsafe *d  = e->decl
+        var unsafe *ie = e->inst
+        // An instance over a value C++ computes (`Buf<twice(1)>`, Compiler/Spec/Eval.md
         // 0.2) may be the very specialization another spelling names
         // (`Buf<2>`), and C++ rejects two explicit instantiations of one: no
         // line; it is instantiated implicitly where used (its bodies are
         // visible, as every template's are).
         for var i: usize = 0; i < ie->args.size(); ++i {
-            var v = dyn_cast::<TypeExpr>(ie->args[i]);
-            if (v != &null) && v->is_value && (!v->is_exact()) { return; }
+            var unsafe *v = dyn_cast<TypeExpr>(ie->args[i])
+            if v != &null && v->is_value && !v->is_exact() {
+                return
+            }
         }
+
         // A record under a `<T: type>` parameter is C++-checked per instance:
         // a member body may use an operator T lacks and be an error only for
         // an instance that calls it. `template class X<A>;` instantiates
@@ -3871,68 +6416,106 @@ class InterfaceEmitter {
         // visible in every TU, so the instance is instantiated implicitly,
         // member by member as used. No `extern template` either: it would
         // suppress that.
-        if (!isa::<FunctionDecl>(d)) && plan_under_duck(d) { return; }
-        var s  = ("") if (e->is_home) else ("extern ");
-        s += "template ";
-        if isa::<FunctionDecl>(d) {
-            var f = cast::<FunctionDecl>(d);
-            // A result whose set names a type parameter (PANIC.md P10): C++
+        if !isa<Declarations::FunctionDecl>(d) && plan_under_duck(d) {
+            return
+        }
+
+        var s = if (e->is_home) => ("") else => "extern "
+        s += "template "
+        if isa<Declarations::FunctionDecl>(d) {
+            var unsafe *f = cast<Declarations::FunctionDecl>(d)
+            // A result whose set names a type parameter (Compiler/Spec/Panic.md#generic-bodies): C++
             // orders it at this instance through the alias; Sema predicted
             // the canonical result (InstanceEntry::panic_result), which the
             // line below spells. The assert says it in words before the
             // instantiation's own mismatch would.
-            if (ie->panic_result != &null) && (f->panic_result != &null) && (f->panic_result->is_dependent() || f->panic_result->is_instantiation_dependent()) {
-                self._cg->sink->spell(self._at(d), "static_assert(__is_same(" + self._spell->_type(f->panic_result, ie) + ", " + self._spell->_type(ie->panic_result)
-                    + "), \"PANIC.md P10: C++ ordered this instance's panic set differently from Kairo\");");
+            if ie->panic_result != &null
+                && f->panic_result != &null
+                && (f->panic_result->is_dependent()
+                    || f->panic_result->is_instantiation_dependent()) {
+                self._cg->sink->spell(
+                    self._at(d),
+                    "static_assert(__is_same(" + self._spell->_type(
+                        f->panic_result,
+                        ie,
+                    ) + ", " + self._spell->_type(
+                        ie->panic_result,
+                    ) + "), \"C++ ordered this instance's panic set differently from Kairo\");",
+                )
             }
-            s += self._ret_subst(f, ie);
+
+            s += self._ret_subst(f, ie)
             // The declarator-id is parenthesized, always: after a
             // class-template return, `Cell<double> ::test::f<...>` lexes as
             // ONE nested-name-specifier, so clang looks for a member `test`
-            // inside Cell<double> ("no member named 'test\x27", "does not refer
+            // inside Cell<double> ("no member named 'test'", "does not refer
             // to a function template"). `long (::test::get<long>)(...)` is
             // equally valid, so there is no case to special.
-            s += " (";
-            s += self._spell->qual_name(d);
-            s += self._spell->args_str(&(ie->args));
-            s += ")(";
+            s += " ("
+            s += self._spell->qual_name(d)
+            s += self._spell->args_str(ie->args)
+            s += ")("
             // An extension member's receiver is a real first parameter; a
             // method's `self` is `this` and has no slot.
-            var ext = decl_extension_of(d);
-            var first = true;
+            var unsafe *ext  = DeclFacts::decl_extension_of(d)
+            var        first = true
             for var i: usize = 0; i < f->params.size(); ++i {
-                var p = f->params[i];
-                if p == &null { continue; }
-                if p->is_self && (ext == &null) { continue; }
-                if !first { s += ", "; }
-                first = false;
-                if p->is_self { s += self._spell->ext_receiver(f, ext, ie); continue; }
-                s += self._spell->param_decl(p, "", ie);
+                var unsafe *p = f->params[i]
+                if p == &null {
+                    continue
+                }
+
+                if p->is_self && ext == &null {
+                    continue
+                }
+
+                if !first {
+                    s += ", "
+                }
+
+                first = false
+                if p->is_self {
+                    s += self._spell->ext_receiver(f, ext, ie)
+                    continue
+                }
+
+                s += self._spell->param_decl(p, "", ie)
             }
-            s += ")";
+
+            s += ")"
             // A const member template's instantiation names the const member:
             // without the qualifier it matches no declaration ("does not refer
             // to a function template"). An extension member is static.
-            if (ext == &null) && f->is_method() && f->is_const() { s += " const"; }
-            s += ";";
+            if ext == &null && f->is_method() && f->is_const() {
+                s += " const"
+            }
+
+            s += ";"
         } else {
-            var kw: string = "struct ";
-            if d->kind == DeclKind::ClassDecl { kw = "class "; }
-            if d->kind == DeclKind::UnionDecl { kw = "union "; }
-            s += kw;
-            s += self._spell->qual_name(d);
-            s += self._spell->args_str(&(ie->args));
-            s += ";";
+            var kw: string = "struct "
+            if d->kind == DeclKind::ClassDecl {
+                kw = "class "
+            }
+
+            if d->kind == DeclKind::UnionDecl {
+                kw = "union "
+            }
+
+            s += kw
+            s += self._spell->qual_name(d)
+            s += self._spell->args_str(ie->args)
+            s += ";"
         }
-        self._cg->sink->spell(self._at(d), s);
-        self._cg->sink->brk();
-        self._instance_layout_asserts(d, ie);
-        self._instance_spec_assert(d, ie, e->is_home);
-        if e->is_home && (!isa::<FunctionDecl>(d)) {
-            var bas = self._spell->bound_asserts(d, ie);
+
+        self._cg->sink->spell(self._at(d), s)
+        self._cg->sink->brk()
+        self._instance_layout_asserts(d, ie)
+        self._instance_spec_assert(d, ie, e->is_home)
+        if e->is_home && !isa<Declarations::FunctionDecl>(d) {
+            var bas = self._spell->bound_asserts(d, ie)
             for var i: usize = 0; i < bas.size(); ++i {
-                self._cg->sink->spell(self._at(d), bas[i]);
-                self._cg->sink->brk();
+                self._cg->sink->spell(self._at(d), bas[i])
+                self._cg->sink->brk()
             }
         }
     }
@@ -3942,76 +6525,152 @@ class InterfaceEmitter {
     /// the primary, 1 + the partial's registration index; -1 when no tag is
     /// written. Only such templates carry one: a pattern-only partial is
     /// selected by the same structural match on both sides.
-    priv fn _spec_tag(self, d: *Decl) -> i64 {
-        if !(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d)) { return -1; }
-        if decl_generic_params(d).size() == 0 { return -1; }
-        var primary = CXXSpell::rep(d);
-        var k = decl_spec_kind(d);
-        if k == SpecKind::Partial {
-            primary = decl_instantiated_from(d);
-            if primary == &null { return -1; }
-        } else if (k != SpecKind::Primary) && (k != SpecKind::None) { return -1; }
-        var ps = self._cg->instances->partials_of(primary);
-        if ps == &null { return -1; }
-        var any = false;
-        var at: i64 = -1;
-        for var i: usize = 0; i < ps->size(); ++i {
-            if decl_requires_clause((*ps)[i]) != &null { any = true; }
-            if CXXSpell::rep((*ps)[i]) == CXXSpell::rep(d) { at = i64(i) + 1; }
+    priv fn _spec_tag(self, d: unsafe *Decl) -> i64 {
+        if !(isa<Declarations::ClassDecl>(d)
+            || isa<Declarations::StructDecl>(d)
+            || isa<Declarations::UnionDecl>(d)) {
+            return -1
         }
-        if !any { return -1; }
-        if k == SpecKind::Partial { return at; }
-        return 0;
+
+        if DeclFacts::decl_generic_params(d).size() == 0 {
+            return -1
+        }
+
+        var unsafe *primary = CXXSpell::rep(d)
+        var        k        = DeclFacts::decl_spec_kind(d)
+        if k == Declarations::SpecKind::Partial {
+            primary = DeclFacts::decl_instantiated_from(d)
+            if primary == &null {
+                return -1
+            }
+        } else if k != Declarations::SpecKind::Primary && k != Declarations::SpecKind::None {
+            return -1
+        }
+
+        var unsafe *ps = self._cg->instances->partials_of(primary)
+        if ps == &null {
+            return -1
+        }
+
+        var any     = false
+        var at: i64 = -1
+        for var i: usize = 0; i < ps->size(); ++i {
+            if DeclFacts::decl_requires_clause((*ps)[i]) != &null {
+                any = true
+            }
+
+            if CXXSpell::rep((*ps)[i]) == CXXSpell::rep(d) {
+                at = (i as i64) + 1
+            }
+        }
+
+        if !any {
+            return -1
+        }
+
+        if k == Declarations::SpecKind::Partial {
+            return at
+        }
+
+        return 0
     }
 
     /// Beside an instance's explicit instantiation in its home: the body
     /// Sema selected (InstanceEntry::pattern) is the one C++ selected.
-    priv fn _instance_spec_assert(self, d: *Decl, ie: *InstanceEntry, home: bool) {
-        if (!home) || (ie == &null) || isa::<FunctionDecl>(d) { return; }
-        var want = self._spec_tag(d);
-        if want < 0 { return; }
-        if ie->pattern != &null {
-            want = self._spec_tag(ie->pattern);
-            if want < 0 { return; }
+    priv fn _instance_spec_assert(self, d: unsafe *Decl, ie: unsafe *InstanceEntry, home: bool) {
+        if !home || ie == &null || isa<Declarations::FunctionDecl>(d) {
+            return
         }
-        var x = self._spell->qual_name(d) + self._spell->args_str(&(ie->args));
-        self._cg->sink->spell(self._at(d), "static_assert(" + x + "::" + LowerTargets::spec_tag() + " == " + f"{want}" + "u, \"MONO.md G12: C++ selected another specialization than Kairo\");");
-        self._cg->sink->brk();
+
+        var want = self._spec_tag(d)
+        if want < 0 {
+            return
+        }
+
+        if ie->pattern != &null {
+            want = self._spec_tag(ie->pattern)
+            if want < 0 {
+                return
+            }
+        }
+
+        var x = self._spell->qual_name(d) + self._spell->args_str(ie->args)
+        self._cg->sink->spell(
+            self._at(d),
+            "static_assert(" + x + "::" + LowerTargets::spec_tag() + " == " + f"{want}" + "u, \"C++ selected another specialization than Kairo\");",
+        )
+
+        self._cg->sink->brk()
     }
 
-    /// A type-id-tagged instance's elements (the Panic lang item, PANIC.md
+    /// A type-id-tagged instance's elements (the Panic lang item, Compiler/Spec/Panic.md
     /// §1.3): `__kairo_tid<E>` specialized with the id Sema computed
     /// (InstanceEntry::type_ids). Written after tier 0, before anything can
     /// use one: a specialization after a use would be ill-formed. Each is
     /// written once per C++ TU (tid_seen; a header's guarded by its
     /// spelling's key): several instances, and a kcc include chain, share
     /// an element.
-    priv fn _type_id_specs(self, d: *Decl, ie: *InstanceEntry) {
-        var en = dyn_cast::<EnumDecl>(d);
-        if (en == &null) || (!en->adt_explicit_tags) { return; }
-        var p = adt_pack_param(en);
-        if ie == &null { return; }
-        if (p == usize(-1)) || (ie->type_ids.size() + p != ie->args.size()) {
-            self._ice(self._at(d), "InterfaceEmitter: a type-id-tagged instance without an id per element; EnumLayoutQuery::sweep records them");
+    priv fn _type_id_specs(self, d: unsafe *Decl, ie: unsafe *InstanceEntry) {
+        var unsafe *en = dyn_cast<Declarations::EnumDecl>(d)
+        if en == &null || !en->adt_explicit_tags {
+            return
         }
-        var u = builtin_info(BuiltinKind::U32)->cxx;
-        var header = (self._plan->mode() == PlanMode::Header);
+
+        var p = DeclFacts::adt_pack_param(en)
+        if ie == &null {
+            return
+        }
+
+        if p == usize::MAX || ie->type_ids.size() + p != ie->args.size() {
+            self._ice(
+                self._at(d),
+                "InterfaceEmitter: a type-id-tagged instance without an id per element; EnumLayoutQuery::sweep records them",
+            )
+        }
+
+        var u      = builtin_info(BuiltinKind::U32)->cxx
+        var header = self._plan->mode() == PlanMode::Header
         for var i: usize = 0; i < ie->type_ids.size(); ++i {
-            var key = ie->type_keys[i];
-            var seen = false;
-            for var j: usize = 0; j < self.tid_seen.size(); ++j { if self.tid_seen[j] == key { seen = true; break; } }
-            if seen { continue; }
-            self.tid_seen.push_back(key);
-            var g = LowerTargets::type_id_guard(key);
-            if header { self._cg->sink->directive(self._at(d), "#ifndef " + g); }
-            if header { self._cg->sink->directive(self._at(d), "#define " + g); }
-            // Its Kairo name too, what the C++ view's what() prints (PANIC.md
+            var key  = ie->type_keys[i]
+            var seen = false
+            for var j: usize = 0; j < self.tid_seen.size(); ++j {
+                if self.tid_seen[j] == key {
+                    seen = true
+                    break
+                }
+            }
+
+            if seen {
+                continue
+            }
+
+            self.tid_seen.push_back(key)
+            var g = LowerTargets::type_id_guard(key)
+            if header {
+                self._cg->sink->directive(self._at(d), "#ifndef " + g)
+            }
+
+            if header {
+                self._cg->sink->directive(self._at(d), "#define " + g)
+            }
+
+            // Its Kairo name too, what the C++ view's what() prints (Compiler/Spec/Panic.md
             // §4.6): one text per element, so every TU's specialization agrees.
-            var nm = ("") if (i >= ie->type_names.size()) else (ie->type_names[i]);
-            self._cg->sink->spell(self._at(d), "template <> struct " + LowerTargets::type_id_trait() + "<" + self._spell->_type(ie->args[p + i])
-                                  + "> { static constexpr " + u + " value = 0x" + hex32(ie->type_ids[i]) + "u; "
-                                  + "static constexpr const char* " + LowerTargets::type_id_name() + " = " + CXXSpell::c_string(nm) + "; };");
-            if header { self._cg->sink->directive(self._at(d), "#endif"); }
+            var nm = if (i >= ie->type_names.size()) => ("") else => ie->type_names[i]
+            self._cg->sink->spell(
+                self._at(d),
+                "template <> struct " + LowerTargets::type_id_trait() + "<" + self._spell->_type(
+                    ie->args[p + i],
+                ) + "> { static constexpr " + u + " value = 0x" + hex32(
+                    ie->type_ids[i],
+                ) + "u; " + "static constexpr const char* " + LowerTargets::type_id_name() + " = " + CXXSpell::c_string(
+                    nm,
+                ) + "; };",
+            )
+
+            if header {
+                self._cg->sink->directive(self._at(d), "#endif")
+            }
         }
     }
 
@@ -4022,25 +6681,51 @@ class InterfaceEmitter {
     /// instead of Sema reading a field that is not where it thinks. A
     /// niche-filled instance is its payload struct and nothing else, and is
     /// standard-layout, so it is passed and returned as its one field is.
-    priv fn _instance_layout_asserts(self, d: *Decl, ie: *InstanceEntry) {
-        var en = dyn_cast::<EnumDecl>(d);
-        if (en == &null) || (!en->is_adt) || (ie->adt_shape == 0) { return; }
-        var x = self._spell->qual_name(d) + self._spell->args_str(&(ie->args));
-        if ie->adt_size != 0 {
-            self._cg->sink->spell(self._at(d), "static_assert(sizeof(" + x + ") == " + f"{ie->adt_size}" + ");");
-            self._cg->sink->brk();
+    priv fn _instance_layout_asserts(self, d: unsafe *Decl, ie: unsafe *InstanceEntry) {
+        var unsafe *en = dyn_cast<Declarations::EnumDecl>(d)
+        if en == &null || !en->is_adt || ie->adt_shape == 0 {
+            return
         }
-        if ie->adt_shape != 2 { return; }
-        var pv = en->variants[usize(adt_niche_payload_variant(en))];
-        var ps = x + "::" + LowerTargets::adt_payload_type(self._spell->leaf(static_cast::<*Decl>(pv)));
-        self._cg->sink->spell(self._at(d), "static_assert(sizeof(" + x + ") == sizeof(" + ps + ") && __is_standard_layout(" + x + "));");
-        self._cg->sink->brk();
+
+        var x = self._spell->qual_name(d) + self._spell->args_str(ie->args)
+        if ie->adt_size != 0 {
+            self._cg->sink->spell(
+                self._at(d),
+                "static_assert(sizeof(" + x + ") == " + f"{ie->adt_size}" + ");",
+            )
+
+            self._cg->sink->brk()
+        }
+
+        if ie->adt_shape != 2 {
+            return
+        }
+
+        var unsafe *pv = en->variants[adt_niche_payload_variant(en) as usize]
+        var        ps  = x + "::" + LowerTargets::adt_payload_type(self._spell->leaf(pv))
+        self._cg->sink->spell(
+            self._at(d),
+            "static_assert(sizeof(" + x + ") == sizeof(" + ps + ") && __is_standard_layout(" + x + "));",
+        )
+
+        self._cg->sink->brk()
     }
 
-    priv fn _ret_subst(self, f: *FunctionDecl, ie: *InstanceEntry) -> string {
-        if (ie != &null) && (ie->panic_result != &null) { return self._spell->_type(ie->panic_result); }   // its set at the instance (P10).
-        if f->panic_result != &null { return self._spell->_type(f->panic_result, ie); }   // PanicLowering's result (PANIC.md §4.1).
-        if f->is_noreturn || (f->return_type == &null) { return "void"; }
-        return self._spell->return_spelling(f, ie);
+    priv fn _ret_subst(self,
+                       f:  unsafe *Declarations::FunctionDecl,
+                       ie: unsafe *InstanceEntry) -> string {
+        if ie != &null && ie->panic_result != &null { // its set at the instance.
+            return self._spell->_type(ie->panic_result)
+        }
+
+        if f->panic_result != &null { // PanicLowering's result (Compiler/Spec/Panic.md#paniclowering).
+            return self._spell->_type(f->panic_result, ie)
+        }
+
+        if f->is_noreturn || f->return_type == &null {
+            return "void"
+        }
+
+        return self._spell->return_spelling(f, ie)
     }
 }

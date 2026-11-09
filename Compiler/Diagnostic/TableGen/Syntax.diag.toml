@@ -3,8 +3,8 @@
 #   Part of the Kairo Project, under the Apache License v2.0 with the
 #   Kairo Runtime Library Exception.
 #
-#   See: https://www.kairolang.org/LICENSE.txt
-#   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+#   See: https://www.kairolang.org/LICENSE
+#   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 #   Copyright (c) 2026 Dhruvan Kartik
 #
 # ------------------------------------------------------------------------ #
@@ -1822,4 +1822,220 @@ group = "ast"
 
     delete the `=>`; the fix-it does this. to keep a nested `if` as the final arm on purpose,
     parenthesize it: `else => (if c => a else => b)`.
+    """
+
+[S080]
+brief = "'@assume' with other than one condition"
+group = "attributes"
+
+    [S080.E]
+    explain = """
+    # '@assume' with other than one condition
+
+    '@assume' is a statement that tells the optimizer one fact, so it takes exactly one condition.
+
+    ## how to fix
+
+    write one condition: '@assume(x > 0)'.
+    """
+
+[S081]
+brief = "attribute other than '@likely' / '@unlikely' before 'else'"
+group = "attributes"
+
+    [S081.E]
+    explain = """
+    # attribute other than '@likely' / '@unlikely' before 'else'
+
+    the only attributes that may stand before an 'else' are the branch hints '@likely' and '@unlikely', which describe that arm.
+
+    ## how to fix
+
+    remove the attribute, or move it to a statement of its own.
+    """
+
+[S082]
+brief = "'const' written for a generic value parameter"
+group = "generics"
+
+    [S082.E]
+    explain = """
+    # 'const' written for a generic value parameter
+
+    a generic value parameter holds a compile-time constant and is declared 'eval N: T'. 'const' means a read-only run-time binding, so it is not accepted there.
+
+    ## how to fix
+
+    replace 'const' with 'eval'.
+    """
+
+[S083]
+brief = "expected an interface in a 'derives' or 'impl' clause"
+group = "interfaces"
+
+    [S083.E]
+    explain = """
+    # expected an interface in a 'derives' or 'impl' clause
+
+    'derives' and 'impl' are followed by an interface name or a composition of interface names; the parser found something else.
+
+    ## how to fix
+
+    name an interface after the keyword.
+    """
+
+[S084]
+brief = "operator not valid in an interface composition"
+group = "interfaces"
+
+    [S084.E]
+    explain = """
+    # operator not valid in an interface composition
+
+    interfaces compose with '+' (union), '-' (difference) and '&' (intersection) only. Other operators, such as '|' or '^', are rejected.
+
+    ## how to fix
+
+    use '+', '-' or '&'; '|' is spelled '+'.
+    """
+
+[S085]
+brief = "'derives' clause mixes '+'/'-' with '&' without parentheses"
+group = "interfaces"
+
+    [S085.W]
+    explain = """
+    # 'derives' clause mixes '+'/'-' with '&' without parentheses
+
+    '+' and '-' bind tighter than '&' in a 'derives' clause, which is easy to misread.
+
+    ## how to fix
+
+    parenthesize the part you want to group.
+    """
+
+[S086]
+brief = "single member removed in a 'derives' clause"
+group = "interfaces"
+
+    [S086.E]
+    explain = """
+    # single member removed in a 'derives' clause
+
+    a 'derives' clause composes whole interfaces, so it cannot subtract one member.
+
+    ## how to fix
+
+    declare an interface holding that member and subtract the interface.
+    """
+
+[S087]
+brief = "'impl' used where 'derives' is meant"
+group = "interfaces"
+
+    [S087.E]
+    explain = """
+    # 'impl' used where 'derives' is meant
+
+    an interface extends other interfaces with 'derives'; 'impl' says that a type conforms to an interface.
+
+    ## how to fix
+
+    write 'derives'.
+    """
+
+[S088]
+brief = "'impl' bound outside an interface"
+group = "interfaces"
+
+    [S088.E]
+    explain = """
+    # 'impl' bound outside an interface
+
+    'impl' on an associated type bounds it, and associated types exist only inside an interface.
+
+    ## how to fix
+
+    move the declaration into an interface, or remove the bound.
+    """
+
+[S089]
+brief = "removed 'import module' form"
+group = "import"
+
+    [S089.E]
+    explain = """
+    # removed 'import module' form
+
+    `import module foo` (with a space) forced the directory form of a module, `foo/module.k`. it was
+    removed when every import form came to look in exactly one place, where `foo.k` and
+    `foo/module.k` both present is an error (R005E), so nothing is left to force.
+
+    `module::` (no space) is a different, current form: it anchors the path at the module root.
+
+    ```kairo
+    import module foo;     // error: removed
+    import foo;            // a library or search directory
+    import self::foo;      // beside this file
+    import module::foo;    // from this file's module root
+    ```
+
+    ## how to fix
+    apply the fix-it (remove `module`), then pick the anchor for where `foo` is.
+    """
+
+[S090]
+brief = "'op delete' is not the destructor"
+group = "classes"
+
+    [S090.E]
+    explain = """
+    # 'op delete' is not the destructor
+
+    Since 0.2.0 the destructor is spelled `fn op finally(self)`. It runs when the
+    object's lifetime ends: at the end of its scope, at `@destroy`, or when the object
+    that contains it is destroyed, the same idea as a standalone `finally { }` block.
+    `op finally` never frees the object's own storage; freeing is `@destroy p`.
+
+    ```kairo
+    class File {
+        fn op delete(self) { close(self.fd) }    // error
+        fn op finally(self) { close(self.fd) }   // the destructor
+    }
+    ```
+
+    `x.op delete()` in an expression is the same old name for `x.finally()`.
+
+    ## how to fix
+
+    rename `delete` to `finally`; the fix-it does.
+    """
+
+[S091]
+brief = "Kairo has no 'delete' expression"
+group = "memory"
+
+    [S091.E]
+    explain = """
+    # Kairo has no 'delete' expression
+
+    Running a destructor and freeing memory are separate steps in Kairo. Memory from
+    `@create T(args)` is freed with `@destroy p`, which runs the destructor and gives
+    the block back to the allocator it came from (the allocator in effect). A bare
+    C++-style `delete p` would free it with C++'s global `delete` instead, the wrong
+    allocator.
+
+    ```kairo
+    var p = @create Node(1)
+    delete p        // error
+    @destroy p      // runs Node's op finally, then frees through the allocator
+    ```
+
+    Memory that belongs to C++ (made by C++'s `new`, or by `@cxx::new`) is freed with
+    `@cxx::delete p`, or `@cxx::delete [] p` for an array.
+
+    ## how to fix
+
+    write `@destroy p` for Kairo memory (the fix-it does), or `@cxx::delete p` for
+    C++ memory. To run the destructor early without freeing, call `x.finally()`.
     """

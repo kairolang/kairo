@@ -1,4 +1,4 @@
-/// --- The Kairo Project --------------------------------- Sema/Sema.k --- ///
+/// --- The Kairo Project ---------------------------------- Sema/Sema.k --- ///
 ///
 ///   \brief The sema DRIVER: entry point, pass schedule, phase gates.
 ///
@@ -24,90 +24,105 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::SemaContext::*;
-import AST::Context::InstantiationRegistry::*;
-import Sema::Resolve::ImportResolution::*;
-import Sema::Resolve::NameResolution::*;
-import Sema::Resolve::TypeResolve::*;
-import Sema::Resolve::ChainBinding::*;
-import Sema::Resolve::RedeclMerge::*;
-import Sema::Resolve::AccessCheck::*;
-import Sema::Expand::RequiresDesugar::*;
-import Sema::Expand::EvalIfFolding::*;
-import Sema::Expand::PrimitiveLimitDesugar::*;
-import Sema::Expand::AllocSugarDesugar::*;
-import Sema::Verify::LoopContextCheck::*;
-import Sema::Verify::ArmOrderCheck::*;
-import Sema::Verify::JumpLabelCheck::*;
-import Sema::Verify::PatternBindingCheck::*;
-import Sema::Verify::CxxNameCheck::*;
-import Sema::Verify::ModulePinCheck::*;
-import Sema::Check::ConstraintExtraction::*;
-import Sema::Check::TypeCycleCheck::*;
-import Sema::Check::ShadowCheck::*;
-import Sema::Check::ShorthandLint::*;
-import Sema::Check::ParamPassInference::*;
-import Sema::Check::PackChecking::*;
-import Sema::Check::ValueCategoryPass::*;
-import Sema::Check::ClassLifecycle::*;
-import Sema::Check::ClosureCaptures::*;
-import Sema::Check::MoveCheck::*;
-import Sema::Check::PatternChecking::*;
-import Sema::Check::ReturnPathCheck::*;
-import Sema::Check::FnPurityCheck::*;
-import Sema::Check::CallConvCheck::*;
-import Sema::Check::ScopeEscapeCheck::*;
-import Sema::Check::ClassAllocatorCheck::*;
-import Sema::Check::ControlFlowAnalysis::*;
-import Sema::Check::WhereGuardCheck::*;
-import Sema::Check::OperatorSignatureCheck::*;
-import Sema::Check::FeatureGateCheck::*;
-import Sema::Check::AttributeCheck::*;
-import Sema::Check::EvalUsageChecking::*;
-import Sema::Check::FlagGates::*;
-import Sema::Check::InitCheck::*;
-import Sema::Check::BaseInitCheck::*;
-import Sema::Check::CtorInitCheck::*;
-import Sema::Check::ConformanceChecking::*;
-import Sema::Check::InterfaceComposition::*;
-import Sema::Check::PanicEffectChecking::*;
-import Sema::Type::ExprTyper::*;
-import Sema::Lower::VariantInitLowering::*;
-import Sema::Lower::EnumLayoutLowering::*;
-import Sema::Lower::ExprBodyDesugar::*;
-import Sema::Lower::WhereDispatchLowering::*;
-import Sema::Lower::FieldInitLowering::*;
-import Sema::Lower::CtorInitLowering::*;
-import Sema::Lower::CopyMoveLowering::*;
-import Sema::Lower::ScriptLowering::*;
-import Sema::Lower::PanicLowering::*;
-import Sema::Lower::FinallyLowering::*;
-import Sema::Lower::TupleLowering::*;
-import Sema::Lower::CoalesceLowering::*;
-import Sema::Lower::NullTestLowering::*;
-import Sema::Lower::NarrowedAccessLowering::*;
-import Sema::Lower::NullableTypeLowering::*;
-import Sema::Lower::OperatorLowering::*;
-import Sema::Lower::CallLowering::*;
-import Sema::Lower::IterLowering::*;
-import Sema::Lower::RangeLowering::*;
-import Sema::Lower::ExtensionLowering::*;
-import Sema::Lower::ListLiteralLowering::*;
-import Sema::Lower::SequenceLowering::*;
-import Sema::Lower::FStringLowering::*;
-import Sema::Lower::StringLowering::*;
-import Sema::Lower::PatternCompilation::*;
-import Sema::Lower::MatchLowering::*;
-import Sema::Lower::LabelLowering::*;
-import AST::Context::ASTContext::*;
-import AST::Context::GlobalDisambigTable::*;
-import Support::TimeReport::*;
+ffi "c++" import "cstdlib"
+ffi "c++" import "Native/KShims.hh" // purity_inferred_*
+
+import AST::Context::ASTContext::ASTContext
+import AST::Context::GlobalDisambigTable::GlobalDisambigTable
+import Sema::Check::AttributeCheck::AttributeCheck
+import Sema::Check::BaseInitCheck::BaseInitCheck
+import Sema::Check::CallConvCheck::CallConvCheck
+import Sema::Check::ClassAllocatorCheck::ClassAllocatorCheck
+import Sema::Check::ClassLifecycle::ClassLifecycle
+import Sema::Check::ClosureCaptures::ClosureCaptures
+import Sema::Check::ConformanceChecking::ConformanceChecking
+import Sema::Check::ConstraintExtraction::ConstraintExtraction
+import Sema::Check::ControlFlowAnalysis::ControlFlowAnalysis
+import Sema::Check::CtorInitCheck::CtorInitCheck
+import Sema::Check::EvalUsageChecking::EvalUsageChecking
+import Sema::Check::FeatureGateCheck::FeatureGateCheck
+import Sema::Check::FlagGates::FlagGates
+import Sema::Check::FnPurityCheck::FnPurityCheck
+import Sema::Check::InitCheck::InitCheck
+import Sema::Check::InterfaceComposition::InterfaceComposition
+import Sema::Check::MoveCheck::MoveCheck
+import Sema::Check::OperatorSignatureCheck::OperatorSignatureCheck
+import Sema::Check::PackChecking::PackChecking
+import Sema::Check::PanicEffectChecking::PanicEffectChecking
+import Sema::Check::ParamPassInference::ParamPassInference
+import Sema::Check::PatternChecking::PatternChecking
+import Sema::Check::ReturnPathCheck::ReturnPathCheck
+import Sema::Check::ScopeEscapeCheck::ScopeEscapeCheck
+import Sema::Check::ShadowCheck::ShadowCheck
+import Sema::Check::ShorthandLint::ShorthandLint
+import Sema::Check::TypeCycleCheck::TypeCycleCheck
+import Sema::Check::ValueCategoryPass::ValueCategoryPass
+import Sema::Check::WhereGuardCheck::WhereGuardCheck
+import Sema::Expand::AllocSugarDesugar::AllocSugarDesugar
+import Sema::Expand::EvalIfFolding::EvalIfFolding
+import Sema::Expand::PrimitiveLimitDesugar::PrimitiveLimitDesugar
+import Sema::Expand::RequiresDesugar::RequiresDesugar
+import Sema::Lower::CallLowering::CallLowering
+import Sema::Lower::CoalesceLowering::CoalesceLowering
+import Sema::Lower::CopyMoveLowering::CopyMoveLowering
+import Sema::Lower::CtorInitLowering::CtorInitLowering
+import Sema::Lower::EnumLayoutLowering::{
+    EnumLayoutLowering,
+    EnumLayoutQuery,
+}
+import Sema::Lower::ExprBodyDesugar::ExprBodyDesugar
+import Sema::Lower::ExtensionLowering::ExtensionLowering
+import Sema::Lower::FStringLowering::FStringLowering
+import Sema::Lower::FieldInitLowering::FieldInitLowering
+import Sema::Lower::FinallyLowering::FinallyLowering
+import Sema::Lower::IterLowering::IterLowering
+import Sema::Lower::LabelLowering::LabelLowering
+import Sema::Lower::ListLiteralLowering::ListLiteralLowering
+import Sema::Lower::MatchLowering::MatchLowering
+import Sema::Lower::NarrowedAccessLowering::NarrowedAccessLowering
+import Sema::Lower::NullTestLowering::NullTestLowering
+import Sema::Lower::NullableTypeLowering::NullableTypeLowering
+import Sema::Lower::OperatorLowering::OperatorLowering
+import Sema::Lower::PanicLowering::{
+    PanicInstances,
+    PanicLowering,
+}
+import Sema::Lower::PatternCompilation::PatternCompilation
+import Sema::Lower::RangeLowering::RangeLowering
+import Sema::Lower::ScriptLowering::ScriptLowering
+import Sema::Lower::SequenceLowering::{
+    SequenceCheck,
+    SequenceLowering,
+}
+import Sema::Lower::StringLowering::StringLowering
+import Sema::Lower::TupleLowering::TupleLowering
+import Sema::Lower::VariantInitLowering::VariantInitLowering
+import Sema::Lower::WhereDispatchLowering::WhereDispatchLowering
+import Sema::Resolve::AccessCheck::AccessCheck
+import Sema::Resolve::ChainBinding::ChainBinding
+import Sema::Resolve::ImportResolution::ImportResolution
+import Sema::Resolve::NameResolution::NameResolution
+import Sema::Resolve::RedeclMerge::RedeclMerge
+import Sema::Resolve::TypeResolve::TypeResolution
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+import Sema::Type::ExprTyper::ExprTyper
+import Sema::Verify::ArmOrderCheck::ArmOrderCheck
+import Sema::Verify::CxxNameCheck::CxxNameCheck
+import Sema::Verify::JumpLabelCheck::JumpLabelCheck
+import Sema::Verify::LoopContextCheck::LoopContextCheck
+import Sema::Verify::ModulePinCheck::ModulePinCheck
+import Sema::Verify::PatternBindingCheck::PatternBindingCheck
+import Support::TimeReport::TimeRegion
+import std::io
 
 // Pass imports land here as each pass becomes real, e.g.:
 //   import Sema::NameResolution::*;
@@ -115,136 +130,245 @@ import Support::TimeReport::*;
 // The driver is the ONLY file that imports passes; passes import
 // SemaContext and never this file (import-cycle rule, see SemaContext.k).
 
-class Sema {
-    pub var sc: SemaContext;
-    priv var _types_pre_done: bool = false;   ///< resolve_types_pre ran.
+pub class Sema {
+    pub var  sc:              SemaContext
+    priv var _types_pre_done: bool        = false ///< resolve_types_pre ran.
+    /// The driver runs a TU's typed checks up to ConformanceChecking on
+    /// a pool worker, side by side with the other TUs of its import wave, and
+    /// ConformanceChecking itself later on the driver thread, in import
+    /// order: Conformance makes instances live and walks their bodies, and
+    /// which TU gets there first decides where an instance diagnostic is
+    /// reported (`use_at`), so it stays serial. With this set, the typed
+    /// checks stage stops before Conformance and leaves the phase at
+    /// TypesResolved; the next run_to resumes at Conformance.
+    pub var split_conformance: bool = false
+    /// The lockstep phase (an index into the driver's list) at which this
+    /// TU of an import cycle stopped; usize::MAX while it runs on. Kept on
+    /// the Sema so a lockstep resumed on another thread sees it.
+    pub var  lockstep_stop:      usize = usize::MAX
+    priv var _checks_front_done: bool  = false      ///< the typed checks before Conformance ran.
+
+    /// The typed checks before Conformance have run, so a split run that
+    /// stopped at TypesResolved stopped there on purpose and continues; one
+    /// that stopped earlier hit a hard stop and must not be continued.
+    pub fn checks_front_done(self) -> bool {
+        return self._checks_front_done
+    }
+
+    /// A stage's hard stop ended a run_to. A driver that continues a TU in
+    /// steps asks this, not run_to's result, which is also false for
+    /// a TU that merely has errors.
+    pub fn stopped(self) -> bool {
+        return self._stopped
+    }
+
+    priv var _stopped: bool = false
+    priv fn _stop(self) -> bool {
+        self._stopped = true
+        return false
+    }
 
     /// The TU's lifecycle facts. A member, not a stage local: the checks
     /// fill the memo and --print-sema reads it after the run returns.
     /// Sema only runs it; readers reach it through sc.lifecycle
     /// (lifecycle_of), never through this field.
-    priv var lifecycle: ClassLifecycle;
+    priv var lifecycle: ClassLifecycle
 
     /// Mirrors ASTParse's ctor: wire handles, no work. ctx->tu must be a
     /// fully parsed TranslationUnit (dc_symbols frozen, out_of_line
     /// collected) i.e. ASTParse::parse() returned it.
-    fn Sema(self, ctx: *ASTContext, g: *GlobalDisambigTable) {
-        self.sc = SemaContext(ctx, g);
+    fn Sema(self, ctx: unsafe *ASTContext, g: unsafe *GlobalDisambigTable) {
+        self.sc = SemaContext(ctx, g)
         // Only now: `sc` was assigned from a temporary, and the instance
         // keeps `&self.sc` while `sc` keeps `&self.lifecycle`, so both have
         // to be the members' final addresses.
-        self.lifecycle.bind(&self.sc);
-        self.sc.lifecycle = &self.lifecycle;
+        self.lifecycle.bind(unsafe &self.sc)
+        self.sc.lifecycle = unsafe &self.lifecycle
     }
 
-    // --- Entry points ---------------------------------------------------------
+    /// # Entry points
 
     /// Full pipeline: I -> N -> T -> checks -> lowerings -> M1 -> M2.
     /// Returns false if a hard gate stopped the run; diagnostics are
     /// already in the sink either way.
-    fn run(self) -> bool {
-        return self.run_to(SemaPhase::Complete);
+    pub fn run(self) -> bool {
+        return self.run_to(SemaPhase::Complete)
     }
 
     /// Run up to and including \p target. Partial runs are for tests and
     /// IDE queries (hover needs N, not codegen lowering). Each stage
     /// advances sc.phase; a re-entrant call continues from the current
     /// phase rather than re-running completed stages.
-    /// MEM_STAGES (P380 measuring): the sum of every TU's ast arena, so a
+    /// --print-stats (for measuring): the sum of every TU's ast arena, so a
     /// stage that allocates in another TU (an instance's home) still counts.
     priv fn _arena_total(self) -> usize {
-        if (libcxx::getenv(r"MEM_STAGES") == &null) || (self.sc.g == &null) { return 0; }
-        var tot: usize = 0;
-        var fids = self.sc.g->all_fids();
-        for var i: usize = 0; i < fids.size(); ++i {
-            var c = self.sc.g->get_context(fids[i]);
-            if c != &null { tot += c->ast_alloc.profile().bytes_allocated; }
+        if !self.sc.opts.print_stats || self.sc.g == &null {
+            return 0
         }
-        return tot;
+
+        var tot: usize = 0
+        var fids       = self.sc.g->all_fids()
+        for var i: usize = 0; i < fids.size(); ++i {
+            var unsafe *c = self.sc.g->get_context(fids[i])
+            if c != &null {
+                tot += c->ast_alloc.profile().bytes_allocated
+            }
+        }
+
+        return tot
     }
-    priv fn _arena_note(self, stage: string, before: usize) {
-        if libcxx::getenv(r"MEM_STAGES") == &null { return; }
-        var after = self._arena_total();
-        std::eprintln(f"[memstage] {stage} {after - before}");
+
+    priv fn _arena_note(self, const stage: string, before: usize) {
+        if !self.sc.opts.print_stats {
+            return
+        }
+
+        var after = self._arena_total()
+        io::eprintln(f"[stats] sema stage {stage}: ast arena +{after - before} B")
     }
 
-    fn run_to(self, target: SemaPhase) -> bool {
-        if self.sc.tu == &null { return false; }
+    pub fn run_to(self, target: SemaPhase) -> bool {
+        if self.sc.tu == &null {
+            return false
+        }
 
-        if !self._gate(SemaPhase::Parsed, target) { return self._done(); }
-        var _m_imports = self._arena_total();
-        if !self._stage_imports()                 { return false; }
-        self._arena_note("imports", _m_imports);
+        if !self._gate(SemaPhase::Parsed, target) {
+            return self._done()
+        }
 
-        if !self._gate(SemaPhase::ImportsResolved, target) { return self._done(); }
-        var _m_expand = self._arena_total();
-        if !self._stage_expand()                  { return false; }
-        self._arena_note("expand", _m_expand);
+        var _m_imports = self._arena_total()
+        if !self._stage_imports() {
+            return self._stop()
+        }
 
-        if !self._gate(SemaPhase::Expanded, target) { return self._done(); }
-        var _m_verify = self._arena_total();
-        if !self._stage_verify()                  { return false; }
-        self._arena_note("verify", _m_verify);
+        self._arena_note("imports", _m_imports)
 
-        if !self._gate(SemaPhase::Verified, target) { return self._done(); }
-        var _m_name_resolution = self._arena_total();
-        if !self._stage_name_resolution()         { return false; }
-        self._arena_note("name_resolution", _m_name_resolution);
+        if !self._gate(SemaPhase::ImportsResolved, target) {
+            return self._done()
+        }
 
-        if !self._gate(SemaPhase::NamesResolved, target) { return self._done(); }
-        var _m_type_resolution = self._arena_total();
-        if !self._stage_type_resolution()         { return false; }
-        self._arena_note("type_resolution", _m_type_resolution);
+        var _m_expand = self._arena_total()
+        if !self._stage_expand() {
+            return self._stop()
+        }
 
-        if !self._gate(SemaPhase::TypesResolved, target) { return self._done(); }
-        var _m_typed_checks = self._arena_total();
-        if !self._stage_typed_checks()            { return false; }
-        self._arena_note("typed_checks", _m_typed_checks);
+        self._arena_note("expand", _m_expand)
+
+        if !self._gate(SemaPhase::Expanded, target) {
+            return self._done()
+        }
+
+        var _m_verify = self._arena_total()
+        if !self._stage_verify() {
+            return self._stop()
+        }
+
+        self._arena_note("verify", _m_verify)
+
+        if !self._gate(SemaPhase::Verified, target) {
+            return self._done()
+        }
+
+        var _m_name_resolution = self._arena_total()
+        if !self._stage_name_resolution() {
+            return self._stop()
+        }
+
+        self._arena_note("name_resolution", _m_name_resolution)
+
+        if !self._gate(SemaPhase::NamesResolved, target) {
+            return self._done()
+        }
+
+        var _m_type_resolution = self._arena_total()
+        if !self._stage_type_resolution() {
+            return self._stop()
+        }
+
+        self._arena_note("type_resolution", _m_type_resolution)
+
+        if !self._gate(SemaPhase::TypesResolved, target) {
+            return self._done()
+        }
+
+        var _m_typed_checks = self._arena_total()
+        if !self._stage_typed_checks() {
+            return self._stop()
+        }
+
+        self._arena_note("typed_checks", _m_typed_checks)
 
         // The panic-set barrier sits between these two (SemaPhase::Typed):
         // the driver takes every TU of an import cycle to Typed, solves
         // their sets (EffectPropagation), then continues each.
-        if !self._gate(SemaPhase::Typed, target) { return self._done(); }
-        var _m_checks = self._arena_total();
-        if !self._stage_checks()                  { return false; }
-        self._arena_note("checks", _m_checks);
+        if !self._gate(SemaPhase::Typed, target) {
+            return self._done()
+        }
 
-        if !self._gate(SemaPhase::Checked, target) { return self._done(); }
-        var _m_lowerings = self._arena_total();
-        if !self._stage_lowerings()               { return false; }
-        self._arena_note("lowerings", _m_lowerings);
+        var _m_checks = self._arena_total()
+        if !self._stage_checks() {
+            return self._stop()
+        }
 
-        if !self._gate(SemaPhase::Lowered, target) { return self._done(); }
-        var _m_mono_collect = self._arena_total();
-        if !self._stage_mono_collect()            { return false; }
-        self._arena_note("mono_collect", _m_mono_collect);
+        self._arena_note("checks", _m_checks)
 
-        if !self._gate(SemaPhase::MonoCollected, target) { return self._done(); }
-        var _m_mono_instantiate = self._arena_total();
-        if !self._stage_mono_instantiate()        { return false; }
-        self._arena_note("mono_instantiate", _m_mono_instantiate);
+        if !self._gate(SemaPhase::Checked, target) {
+            return self._done()
+        }
 
-        return self._done();
+        var _m_lowerings = self._arena_total()
+        if !self._stage_lowerings() {
+            return self._stop()
+        }
+
+        self._arena_note("lowerings", _m_lowerings)
+
+        if !self._gate(SemaPhase::Lowered, target) {
+            return self._done()
+        }
+
+        var _m_mono_collect = self._arena_total()
+        if !self._stage_mono_collect() {
+            return self._stop()
+        }
+
+        self._arena_note("mono_collect", _m_mono_collect)
+
+        if !self._gate(SemaPhase::MonoCollected, target) {
+            return self._done()
+        }
+
+        var _m_mono_instantiate = self._arena_total()
+        if !self._stage_mono_instantiate() {
+            return self._stop()
+        }
+
+        self._arena_note("mono_instantiate", _m_mono_instantiate)
+
+        return self._done()
     }
 
-    // --- Gates ----------------------------------------------------------------
+    /// # Gates
 
     /// True if the pipeline should continue past \p reached toward \p target.
     priv fn _gate(self, reached: SemaPhase, target: SemaPhase) -> bool {
         // already past this stage (re-entrant run_to continuation)?
-        if static_cast::<u8>(self.sc.phase) > static_cast::<u8>(reached) { return true; }
-        return static_cast::<u8>(target) > static_cast::<u8>(reached);
+        if (self.sc.phase as u8) > (reached as u8) {
+            return true
+        }
+
+        return (target as u8) > (reached as u8)
     }
 
     /// True if \p done_phase was already reached: the stage is complete
     /// from a previous run_to and must no-op (re-running a stage would
     /// both redo work and trip advance_phase's monotonicity assert).
     priv fn _already(self, done_phase: SemaPhase) -> bool {
-        return static_cast::<u8>(self.sc.phase) >= static_cast::<u8>(done_phase);
+        return (self.sc.phase as u8) >= (done_phase as u8)
     }
 
     priv fn _done(self) -> bool {
-        return !self.sc.errored();
+        return !self.sc.errored()
     }
 
     /// Hard error gate between stages. Resolution stages (I/N/T) stop the
@@ -254,26 +378,29 @@ class Sema {
     priv fn _hard_stop(self) -> bool {
         // Contained errors (SemaContext::contained_errors) poison their own
         // uses; only the rest stop the pipeline.
-        return self.sc.error_delta() > self.sc.contained_errors;
+        return self.sc.error_delta() > self.sc.contained_errors
     }
 
-    // --- Stages (schedule only; bodies live in the pass files) ---------------
-    //
-    // Each stage: run the pass(es), advance the phase, apply the gate
-    // policy. As passes land, the TODO line becomes:
-    //     ImportResolution(&self.sc).run();
+    /// # Stages (schedule only; bodies live in the pass files)
+    ///
+    /// Each stage: run the pass(es), advance the phase, apply the gate
+    /// policy. As passes land, the TODO line becomes:
+    ///     ImportResolution(&self.sc).run();
 
     /// Phase I. PRE: imported TUs parsed + frozen (import-DAG order is the
     /// DRIVER CALLER's job, same begin/finish discipline as
     /// GlobalDisambigTable). POST: tu->import_overlay built; TU self-
     /// contained. Import-existence errors live here, nowhere else.
     priv fn _stage_imports(self) -> bool {
-        if self._already(SemaPhase::ImportsResolved) { return true; }
-        var _t = TimeRegion("Imports");
-        self.sc.require_phase(SemaPhase::Parsed);
-        ImportResolution(&self.sc).run();
-        self.sc.advance_phase(SemaPhase::ImportsResolved);
-        return !self._hard_stop();
+        if self._already(SemaPhase::ImportsResolved) {
+            return true
+        }
+
+        var _t = TimeRegion("Imports")
+        self.sc.require_phase(SemaPhase::Parsed)
+        ImportResolution(&self.sc).run()
+        self.sc.advance_phase(SemaPhase::ImportsResolved)
+        return !self._hard_stop()
     }
 
     /// Phase E. Surface normalization: pure AST->AST rewrites that must run
@@ -284,30 +411,49 @@ class Sema {
     /// after I only because the schedule is linear. Macro expansion and eval
     /// lowering land here too when implemented.
     priv fn _stage_expand(self) -> bool {
-        if self._already(SemaPhase::Expanded) { return true; }
-        var _t = TimeRegion("Expand");
-        self.sc.require_phase(SemaPhase::ImportsResolved);
+        if self._already(SemaPhase::Expanded) {
+            return true
+        }
+
+        var _t = TimeRegion("Expand")
+        self.sc.require_phase(SemaPhase::ImportsResolved)
         // `@no_warn(CODE)` scopes, before every pass that can warn: a
         // warning inside the declaration is dropped at the sink whichever
         // pass reports it. The codes are validated by AttributeCheck::run.
-        { var _p = TimeRegion("NoWarnScopes"); AttributeCheck(&self.sc).register_suppressions(); }
-        // First: no later pass may see an untaken `eval if` branch (EVAL.md §4).
+        {
+            var _p = TimeRegion("NoWarnScopes")
+            AttributeCheck(unsafe &self.sc).register_suppressions()
+        }
+
+        // First: no later pass may see an untaken `eval if` branch (Compiler/Spec/Eval.md#folding-eval-if).
         // The exception is a declaration-scope one on a type fact: it is
         // deferred, V, N, T and RedeclMerge see all of its branches, and
-        // EvalIfLateFolding decides it in the T stage (EVAL.md 4.2b).
+        // EvalIfLateFolding decides it in the T stage (Compiler/Spec/Eval.md#deferred-conditions).
         // Before it: `eval if i32::MAX > N` folds a literal, as every later
         // pass reads one.
-        { var _p = TimeRegion("PrimitiveLimits"); PrimitiveLimitDesugar(&self.sc).run(); }
-        // `@create` / `@destroy` are calls of alloc.k's create / destroy
-        // (P91): rewritten before N, so the minted callee binds as a written
+        {
+            var _p = TimeRegion("PrimitiveLimits")
+            PrimitiveLimitDesugar(&self.sc).run()
+        }
+
+        // `@create` / `@destroy` are calls of alloc.k's create / destroy:
+        // rewritten before N, so the minted callee binds as a written
         // one does and no later pass meets the attribute.
-        { var _p = TimeRegion("AllocSugar"); AllocSugarDesugar(&self.sc).run(); }
-        { var _p = TimeRegion("EvalIfFolding"); EvalIfFolding(&self.sc).run(); }
+        {
+            var _p = TimeRegion("AllocSugar")
+            AllocSugarDesugar(&self.sc).run()
+        }
+
+        {
+            var _p = TimeRegion("EvalIfFolding")
+            EvalIfFolding(unsafe &self.sc).run()
+        }
+
         // TODO(sema): MacroExpansion(&self.sc).run();
-        var desugar = RequiresDesugar(self.sc.ctx);
-        desugar.run(self.sc.tu);
-        self.sc.advance_phase(SemaPhase::Expanded);
-        return !self._hard_stop();
+        var desugar = RequiresDesugar(self.sc.ctx)
+        desugar.run(self.sc.tu)
+        self.sc.advance_phase(SemaPhase::Expanded)
+        return !self._hard_stop()
     }
 
     /// Phase V. Structural verification over the expanded tree: rules
@@ -317,22 +463,49 @@ class Sema {
     /// here still hard-stop before N: a structurally illegal tree is
     /// not worth resolving.
     priv fn _stage_verify(self) -> bool {
-        if self._already(SemaPhase::Verified) { return true; }
-        var _t = TimeRegion("Verify");
-        self.sc.require_phase(SemaPhase::Expanded);
+        if self._already(SemaPhase::Verified) {
+            return true
+        }
+
+        var _t = TimeRegion("Verify")
+        self.sc.require_phase(SemaPhase::Expanded)
 
         // Per pass, not one number for the stage. Five independent full-tree
         // walks (and one look at the TU's pin): the whole question here is which of them is worth fusing.
         // Unreachable code is not here: it needs `!` types (ControlFlowAnalysis, in C).
-        { var _p = TimeRegion("LoopContext");     LoopContextCheck(&self.sc).run();     }
-        { var _p = TimeRegion("ArmOrder");        ArmOrderCheck(&self.sc).run();        }
-        { var _p = TimeRegion("JumpLabel");       JumpLabelCheck(&self.sc).run();       }
-        { var _p = TimeRegion("PatternBinding");  PatternBindingCheck(&self.sc).run();  }
-        { var _p = TimeRegion("CxxName");         CxxNameCheck(&self.sc).run();         }
-        { var _p = TimeRegion("ModulePin");       ModulePinCheck(&self.sc).run();       }
+        {
+            var _p = TimeRegion("LoopContext")
+            LoopContextCheck(&self.sc).run()
+        }
+
+        {
+            var _p = TimeRegion("ArmOrder")
+            ArmOrderCheck(&self.sc).run()
+        }
+
+        {
+            var _p = TimeRegion("JumpLabel")
+            JumpLabelCheck(unsafe &self.sc).run()
+        }
+
+        {
+            var _p = TimeRegion("PatternBinding")
+            PatternBindingCheck(&self.sc).run()
+        }
+
+        {
+            var _p = TimeRegion("CxxName")
+            CxxNameCheck(&self.sc).run()
+        }
+
+        {
+            var _p = TimeRegion("ModulePin")
+            ModulePinCheck(&self.sc).run()
+        }
+
         // Future Verify passes append here, one visible list.
-        self.sc.advance_phase(SemaPhase::Verified);
-        return !self._hard_stop();
+        self.sc.advance_phase(SemaPhase::Verified)
+        return !self._hard_stop()
     }
 
     /// Phase N, two halves one pass. (a) decl validation over frozen
@@ -341,17 +514,20 @@ class Sema {
     /// (b) binding: every ident/chain-head/pattern-head gets
     /// resolved_decl. Redefinition + unresolved-ident errors live here.
     priv fn _stage_name_resolution(self) -> bool {
-        if self._already(SemaPhase::NamesResolved) { return true; }
-        var _t = TimeRegion("Names");
-        self.sc.require_phase(SemaPhase::Verified);
-        var nr = NameResolution(&self.sc);
-        nr.run();
+        if self._already(SemaPhase::NamesResolved) {
+            return true
+        }
+
+        var _t = TimeRegion("Names")
+        self.sc.require_phase(SemaPhase::Verified)
+        var nr = NameResolution(unsafe &self.sc)
+        nr.run()
         // Between N and T, and only in the builtin TU: N has bound the names,
         // and T has not yet resolved `[T;]` in `Vector(items: const [T;])` --
         // which needs the Slice handle this fills. Every other TU's call is a
         // fid compare and a return.
-        nr.fill_lang_items();
-        self.sc.advance_phase(SemaPhase::NamesResolved);
+        nr.fill_lang_items()
+        self.sc.advance_phase(SemaPhase::NamesResolved)
         // N's errors stop the pipeline AFTER T, not here. N poisons every
         // name it could not bind, so T over the rest of the TU is
         // information, and it is what gives the declarations their types:
@@ -360,23 +536,30 @@ class Sema {
         // failed "parameter type is unresolved" (self-host: a `std::print`
         // in Command::print_help, 363 SC063E on `cmd->define<FlagKind::X>`).
         // T's own gate counts N's errors, so nothing past T runs.
-        return true;
+        return true
     }
 
     /// Phase T. Every non-dependent Type node -> canonical; dependent
     /// types MARKED, not resolved (hard invariant #5). Then the bound table
     /// is built from the requires clauses, and every chain step decidable
     /// from declared types -- or from a parameter's BOUND -- is bound
-    /// (ChainBinding: base-walk PRE is T complete, RESOLUTION.md §2b).
+    /// (ChainBinding: base-walk PRE is T complete, Compiler/Spec/Generics.md#partial-selection).
     /// Arity / unknown-type-name / no-member errors live here.
     priv fn _stage_type_resolution(self) -> bool {
-        if self._already(SemaPhase::TypesResolved) { return true; }
-        var _t = TimeRegion("Types");
-        self.sc.require_phase(SemaPhase::NamesResolved);
-        self.resolve_types_pre();
-        { var _p = TimeRegion("ChainBinding"); ChainBinding(&self.sc).run();   }
-        self.sc.advance_phase(SemaPhase::TypesResolved);
-        return !self._hard_stop();
+        if self._already(SemaPhase::TypesResolved) {
+            return true
+        }
+
+        var _t = TimeRegion("Types")
+        self.sc.require_phase(SemaPhase::NamesResolved)
+        self.resolve_types_pre()
+        {
+            var _p = TimeRegion("ChainBinding")
+            ChainBinding(unsafe &self.sc).run()
+        }
+
+        self.sc.advance_phase(SemaPhase::TypesResolved)
+        return !self._hard_stop()
     }
 
     /// Everything of T before ChainBinding, once. Split out for an import
@@ -385,14 +568,25 @@ class Sema {
     /// resolves -- so every TU of the group runs this first, then each
     /// binds. Run whole per TU, a TU early in the cycle bound `n->range`
     /// before the TU declaring `LabeledStmt derives Stmt` had resolved that
-    /// edge, and the base's members were missing (R025E, G31).
-    fn resolve_types_pre(self) {
-        if self._types_pre_done { return; }
-        self._types_pre_done = true;
-        self.sc.require_phase(SemaPhase::NamesResolved);
-        { var _p = TimeRegion("TypeResolve");  TypeResolution(&self.sc).run(); }
-        { var _p = TimeRegion("RedeclMerge");  RedeclMerge(&self.sc).run();    }
-        // EVAL.md 4.2b: the declaration-scope `eval if`s E deferred on a type
+    /// edge, and the base's members were missing (R025E).
+    pub fn resolve_types_pre(self) {
+        if self._types_pre_done {
+            return
+        }
+
+        self._types_pre_done = true
+        self.sc.require_phase(SemaPhase::NamesResolved)
+        {
+            var _p = TimeRegion("TypeResolve")
+            TypeResolution(unsafe &self.sc).run()
+        }
+
+        {
+            var _p = TimeRegion("RedeclMerge")
+            RedeclMerge(unsafe &self.sc).run()
+        }
+
+        // Compiler/Spec/Eval.md#deferred-conditions: the declaration-scope `eval if`s E deferred on a type
         // fact, decided now that every canonical exists and every function
         // chain is linked (RedeclMerge kept sibling branches apart). Before
         // everything that reads a record's members as final --
@@ -400,10 +594,17 @@ class Sema {
         // TypeCycleCheck, ShadowCheck and the rest in the checks -- so none
         // of them sees a discarded branch, and X, the lowerings and codegen
         // see one branch as if E had folded it.
-        { var _p = TimeRegion("EvalIfLateFolding"); EvalIfFolding(&self.sc).run_late(); }
+        {
+            var _p = TimeRegion("EvalIfLateFolding")
+            EvalIfFolding(unsafe &self.sc).run_late()
+        }
+
         // Algebraic interfaces normalized to regular ones, after their leaves
         // resolve and before ChainBinding reads any interface's members.
-        { var _p = TimeRegion("InterfaceComposition"); InterfaceComposition(&self.sc).run(); }
+        {
+            var _p = TimeRegion("InterfaceComposition")
+            InterfaceComposition(unsafe &self.sc).run()
+        }
 
         // Constraint partition, BEFORE ChainBinding. Desugar already ran in
         // the Expand phase (pure AST rewrite: inline bounds -> requires as
@@ -413,7 +614,10 @@ class Sema {
         // ChainBinding is a CONSUMER -- what `x.draw()` on an `x: T` may bind
         // to is exactly what T's declaration promised -- so the table has to
         // exist before it walks.
-        { var _p = TimeRegion("Constraints"); ConstraintExtraction(&self.sc).run(); }
+        {
+            var _p = TimeRegion("Constraints")
+            ConstraintExtraction(&self.sc).run()
+        }
     }
 
     /// Signature/shape checks: operator signatures, conformance
@@ -423,101 +627,180 @@ class Sema {
     /// on its result, through ConformanceChecking. It ends at Typed, the
     /// panic-set barrier (_stage_checks has the second half).
     priv fn _stage_typed_checks(self) -> bool {
-        if self._already(SemaPhase::Typed) { return true; }
-        var _t = TimeRegion("Checks");
-        self.sc.require_phase(SemaPhase::TypesResolved);
+        if self._already(SemaPhase::Typed) {
+            return true
+        }
 
+        var _t = TimeRegion("Checks")
+        self.sc.require_phase(SemaPhase::TypesResolved)
+        if !self._checks_front_done {
+            self._typed_checks_front()
+            self._checks_front_done = true
+            // The phase stays TypesResolved: run_to's Typed gate then stops
+            // here, and the driver's next run_to comes back for Conformance.
+            if self.split_conformance {
+                return true
+            }
+        }
+
+        // The rows of every instance this TU names, from its calls' registered
+        // instances (ExprTyper). Before the lowerings: ExtensionLowering's
+        // witness calls are emitted against them.
+        {
+            var _p = TimeRegion("Conformance")
+            ConformanceChecking(unsafe &self.sc).run()
+        }
+
+        // TODO(sema): ConstChecking(&self.sc).run();
+        self.sc.advance_phase(SemaPhase::Typed)
+        return true
+    }
+
+    /// Every typed check before ConformanceChecking, in schedule order.
+    priv fn _typed_checks_front(self) {
         // Every attribute means something where it is written, or is an
         // error (unknown, misplaced, a bad argument, not yet supported).
         // Before X: an error here is reported beside, not after, the
         // diagnostics typing produces, and nothing reads an attribute it
         // has rejected (AttrFacts treats a bad `@align` as absent).
-        { var _p = TimeRegion("AttributeCheck"); AttributeCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("AttributeCheck")
+            AttributeCheck(unsafe &self.sc).run()
+        }
 
         // Layout acyclicity. Runs before anything that needs a size:
         // LayoutPass will not terminate on a recursive type, and EmitPlan's
         // `complete` topological sort asserts on a cycle rather than
         // diagnosing one. This pass is where a by-value loop is reported.
-        { var _p = TimeRegion("TypeCycle"); TypeCycleCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("TypeCycle")
+            TypeCycleCheck(&self.sc).run()
+        }
 
         // Operator declaration rules, BEFORE X: X's derived operators and
         // compound-assignment pairing assume shapes this pass has already
         // rejected (a compound operator with a result, both halves of a pair).
-        { var _p = TimeRegion("OperatorSignature"); OperatorSignatureCheck(&self.sc).run(); }
-        // `op new` / static `op delete`, a class's own allocator (P215):
-        // static, in a type, Allocator's signatures, both present. Before
-        // ExprTyper, which routes create / destroy of the class to them.
-        { var _p = TimeRegion("ClassAllocator"); ClassAllocatorCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("OperatorSignature")
+            OperatorSignatureCheck(unsafe &self.sc).run()
+        }
+
+        // `op new` / static `op delete`, a class's own allocator, is
+        // rejected (SC149E); the destructor's old `op delete` spelling is
+        // S090E outside the builtin / std library.
+        {
+            var _p = TimeRegion("ClassAllocator")
+            ClassAllocatorCheck(unsafe &self.sc).run()
+        }
 
         // Where a type pack, a pack parameter and a pack-expanded variant may
         // appear. Before X: it reads only N's names and T's types, and an
         // enum it rejects is poisoned before any pattern or construction is
         // typed against its expansions.
-        { var _p = TimeRegion("PackChecking"); PackChecking(&self.sc).run(); }
+        {
+            var _p = TimeRegion("PackChecking")
+            PackChecking(unsafe &self.sc).run()
+        }
 
         // Expression typing. After TypeCycleCheck because it asks for sizes
         // and layouts through the canonical store, and a by-value cycle has
         // to be reported before anything walks one.
-        { var _p = TimeRegion("ExprTyper"); ExprTyper(&self.sc).run(); }
+        {
+            var _p = TimeRegion("ExprTyper")
+            ExprTyper(unsafe &self.sc).run()
+        }
 
         // ExprTyper assigns value categories inline (overload resolution
         // needs them mid-typing); this verifies that assignment is total and
         // ICEs on a typed expression without one.
-        { var _p = TimeRegion("ValueCategory"); ValueCategoryPass(&self.sc).run(); }
+        {
+            var _p = TimeRegion("ValueCategory")
+            ValueCategoryPass(&self.sc).run()
+        }
 
         // Runs late: it REQUIRES ExprTyper to be complete.
 
-        { var _p = TimeRegion("ShadowCheck"); ShadowCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("ShadowCheck")
+            ShadowCheck(unsafe &self.sc).run()
+        }
 
         // `var x = e` whose inferred type is nullable or a pointer, with no
-        // shorthand to say so (NULLABLE.md 1.8). REQUIRES ExprTyper: it
+        // shorthand to say so (Compiler/Spec/Nullables.md#declaration-shorthands). REQUIRES ExprTyper: it
         // reads only inferred slots. Before every lowering, so each decl it
         // sees was written by the user.
-        { var _p = TimeRegion("ShorthandLint"); ShorthandLint(&self.sc).run(); }
+        {
+            var _p = TimeRegion("ShorthandLint")
+            ShorthandLint(unsafe &self.sc).run()
+        }
 
         // Exhaustiveness and dead arms; writes MatchStmt / MatchExpr facts.
         // REQUIRES ExprTyper (pattern types, resolved heads, field slots).
         // Before ReturnPathCheck, which reads is_exhaustive.
-        { var _p = TimeRegion("PatternChecking"); PatternChecking(&self.sc).run(); }
+        {
+            var _p = TimeRegion("PatternChecking")
+            PatternChecking(unsafe &self.sc).run()
+        }
 
         // Missing return on some path. REQUIRES ExprTyper: a call is a
         // terminator when its type is `!`. REQUIRES PatternChecking: match
         // coverage is MatchStmt::is_exhaustive.
-        { var _p = TimeRegion("ReturnPath"); ReturnPathCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("ReturnPath")
+            ReturnPathCheck(unsafe &self.sc).run()
+        }
 
         // `const fn` / `@pure` bodies against their promise. REQUIRES
         // ExprTyper: it reads resolved declarations and operand types.
         // Before every lowering, so a user operator or a lowered call is
         // never mistaken for something the user wrote.
-        { var _p = TimeRegion("FnPurity"); FnPurityCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("FnPurity")
+            FnPurityCheck(unsafe &self.sc).run()
+        }
 
         // Where a calling convention may stand. REQUIRES ExprTyper (X writes
         // is_generator); before every lowering, which mints functions (thunks,
         // a lowered closure's operator) that carry none.
-        { var _p = TimeRegion("CallConv"); CallConvCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("CallConv")
+            CallConvCheck(unsafe &self.sc).run()
+        }
 
         // A pointer from an open AllocatorScope that visibly outlives it
-        // (P226, SC001W). REQUIRES ExprTyper: resolved callees and the types
+        // (SC001W). REQUIRES ExprTyper: resolved callees and the types
         // of initializers. Before every lowering, so `@create` is the call it
         // stands for and nothing minted is mistaken for user code.
-        { var _p = TimeRegion("ScopeEscape"); ScopeEscapeCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("ScopeEscape")
+            ScopeEscapeCheck(unsafe &self.sc).run()
+        }
 
         // Unreachable code (SC003W), on the same divergence rule as
         // ReturnPath (FallThrough). Same REQUIRES; before every lowering, so
         // it warns only on code the user wrote.
-        { var _p = TimeRegion("ControlFlow"); ControlFlowAnalysis(&self.sc).run(); }
+        {
+            var _p = TimeRegion("ControlFlow")
+            ControlFlowAnalysis(unsafe &self.sc).run()
+        }
 
         // A script's top-level `jump!` that crosses a deferred binding's line
-        // (SCRIPT.md 2.7). JumpLabelCheck's own frame rules ran in Verify;
+        // (Compiler/Spec/ScriptMode.md#control-flow). JumpLabelCheck's own frame rules ran in Verify;
         // this one asks which initializers are constant, a fact of X's types.
-        { var _p = TimeRegion("ScriptJumps"); JumpLabelCheck(&self.sc).run_script_jumps(); }
+        {
+            var _p = TimeRegion("ScriptJumps")
+            JumpLabelCheck(unsafe &self.sc).run_script_jumps()
+        }
 
         // `where` dispatch groups (where.mdx): what may be guarded, the
         // fallback, member agreement, unreachable and overlapping guards,
         // and the SC116E gates; files each group it passes for
         // WhereDispatchLowering. REQUIRES ExprTyper: guards are typed, and
         // `is_generator` is X's.
-        { var _p = TimeRegion("WhereGuard"); WhereGuardCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("WhereGuard")
+            WhereGuardCheck(unsafe &self.sc).run()
+        }
 
         // Per-record lifecycle facts (copyable / movable / trivial) and the
         // rules about the lifecycle itself: one transfer ctor, no user
@@ -525,7 +808,10 @@ class Sema {
         // After ExprTyper only for schedule linearity; it reads declarations
         // and canonicals, never expression types. The instance is Sema's
         // member: MoveCheck below and the dump read the same memo.
-        { var _p = TimeRegion("ClassLifecycle"); self.lifecycle.run(); }
+        {
+            var _p = TimeRegion("ClassLifecycle")
+            self.lifecycle.run()
+        }
 
         // `@move` arguments: movability, and use-after-move over each body.
         // REQUIRES ExprTyper complete (promoted callees, typed arguments) and
@@ -535,9 +821,15 @@ class Sema {
         // EmitIR; a binding a named list or `||` leaves out is an error.
         // REQUIRES ExprTyper (bindings, types) and ClassLifecycle (a MOVE
         // capture is moved in).
-        { var _p = TimeRegion("ClosureCaptures"); ClosureCaptures(&self.sc).run(); }
+        {
+            var _p = TimeRegion("ClosureCaptures")
+            ClosureCaptures(unsafe &self.sc).run()
+        }
 
-        { var _p = TimeRegion("MoveCheck"); MoveCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("MoveCheck")
+            MoveCheck(unsafe &self.sc).run()
+        }
 
         // Default member initializers read only fields built before them.
         // REQUIRES N's bindings (a bare sibling in a default is a field).
@@ -545,77 +837,109 @@ class Sema {
         // type (module-wide: a file's functions see its classes' privates).
         // The emitted C++ is all public, so this is the only check.
         // REQUIRES X's selections (the overload, the constructor).
-        { var _p = TimeRegion("AccessCheck"); AccessCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("AccessCheck")
+            AccessCheck(unsafe &self.sc).run()
+        }
 
         // `@deprecated`: a warning at every use. REQUIRES X's selections
         // (the overload, the constructor, the operator), as AccessCheck.
-        { var _p = TimeRegion("DeprecatedUses"); AttributeCheck(&self.sc).run_uses(); }
+        {
+            var _p = TimeRegion("DeprecatedUses")
+            AttributeCheck(unsafe &self.sc).run_uses()
+        }
 
-        { var _p = TimeRegion("InitCheck"); InitCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("InitCheck")
+            InitCheck(unsafe &self.sc).run()
+        }
 
         // Base initializers (`Base::Base(self, ...)`): where one may be, and
         // that every base needing one gets one. REQUIRES X's callee
         // bindings. Before CtorInitCheck, which skips the statements it
         // admits.
-        { var _p = TimeRegion("BaseInitCheck"); BaseInitCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("BaseInitCheck")
+            BaseInitCheck(unsafe &self.sc).run()
+        }
 
         // A const field is initialized exactly once, in its record's
         // constructor, before `self` is used as a whole; the statement that
         // initializes the last one is where the body is cut (ci_split, for
         // CtorInitLowering). REQUIRES N's bindings and X's types (a `-> !`
         // call ends a path). Before FeatureGate, which stays last.
-        { var _p = TimeRegion("CtorInitCheck"); CtorInitCheck(&self.sc).run(); }
-
-        // The rows of every instance this TU names, from its calls' registered
-        // instances (ExprTyper). Before the lowerings: ExtensionLowering's
-        // witness calls are emitted against them.
-        { var _p = TimeRegion("Conformance"); ConformanceChecking(&self.sc).run(); }
-        // TODO(sema): ConstChecking(&self.sc).run();
-        self.sc.advance_phase(SemaPhase::Typed);
-        return true;
+        {
+            var _p = TimeRegion("CtorInitCheck")
+            CtorInitCheck(unsafe &self.sc).run()
+        }
     }
 
     /// The second half of the checks, past the panic-set barrier: every
     /// TU this one reaches through imports is Typed and its sets are solved
     /// (or, with no driver table, this TU's are solved here).
     priv fn _stage_checks(self) -> bool {
-        if self._already(SemaPhase::Checked) { return true; }
-        var _t = TimeRegion("LateChecks");
-        self.sc.require_phase(SemaPhase::Typed);
+        if self._already(SemaPhase::Checked) {
+            return true
+        }
 
-        // Panic effects (PANIC.md §2, §3.1): unhandled calls, declared sets,
+        var _t = TimeRegion("LateChecks")
+        self.sc.require_phase(SemaPhase::Typed)
+
+        // Panic effects (Compiler/Spec/Panic.md#effect-sets, §3.1): unhandled calls, declared sets,
         // `main`, the payload rules, try/catch arms. REQUIRES the solved
         // sets (EffectPropagation, at the barrier) and X's callee bindings.
         // Before FeatureGate, which stays last.
-        { var _p = TimeRegion("PanicEffect"); PanicEffectChecking(&self.sc).run(); }
+        {
+            var _p = TimeRegion("PanicEffect")
+            PanicEffectChecking(unsafe &self.sc).run()
+        }
 
         // Last: well-typed constructs the lowerings cannot render yet. An
         // error here keeps the schedule out of the lowerings, which ICE on
         // them, and that matters under --type-check-only too.
-        // What an eval context may hold (EVAL.md §6): REQUIRES X's callee
+        // What an eval context may hold (Compiler/Spec/Eval.md#evalusagechecking): REQUIRES X's callee
         // bindings and iter_kind. Before FeatureGate, which stays last.
-        { var _p = TimeRegion("EvalUsage"); EvalUsageChecking(&self.sc).run(); }
-        { var _p = TimeRegion("FeatureGate"); FeatureGateCheck(&self.sc).run(); }
+        {
+            var _p = TimeRegion("EvalUsage")
+            EvalUsageChecking(unsafe &self.sc).run()
+        }
+
+        {
+            var _p = TimeRegion("FeatureGate")
+            FeatureGateCheck(unsafe &self.sc).run()
+        }
+
         // --no-unsafe / --no-fp / --no-ffi / --cmax-* and friends: the user's
         // own files only, over the tree as written (before any lowering).
-        { var _p = TimeRegion("FlagGates"); FlagGates(&self.sc).run(); }
+        {
+            var _p = TimeRegion("FlagGates")
+            FlagGates(unsafe &self.sc).run()
+        }
+
         // Decision trees for every match. Last: it reads PatternChecking's
         // facts and reports (SC116E) the two tests it cannot render, and an
         // error anywhere above keeps the schedule out of the lowerings.
         // --print-sema shows the trees.
-        { var _p = TimeRegion("PatternCompilation"); PatternCompilation(&self.sc).run(); }
-        self.sc.advance_phase(SemaPhase::Checked);
-        return true;
+        {
+            var _p = TimeRegion("PatternCompilation")
+            PatternCompilation(unsafe &self.sc).run()
+        }
+
+        self.sc.advance_phase(SemaPhase::Checked)
+        return true
     }
 
     /// Desugar/lowering pipeline (ASTWriter passes). Order within this
     /// stage matters pairwise and is owned HERE, in one visible list
     /// not in comments scattered across pass files.
     priv fn _stage_lowerings(self) -> bool {
-        if self._already(SemaPhase::Lowered) { return true; }
+        if self._already(SemaPhase::Lowered) {
+            return true
+        }
+
         // No stage region: the driver opens "Lower" around this, and a
         // nested one would only repeat it (Lower.Lowerings.X).
-        self.sc.require_phase(SemaPhase::Checked);
+        self.sc.require_phase(SemaPhase::Checked)
 
         // The head of the stage is VariantInitLowering, then
         // EnumLayoutLowering, then ExprBodyDesugar, FieldInitLowering,
@@ -628,7 +952,13 @@ class Sema {
         // pass rebuilds an initializer or a chain, which would lose them, and
         // so every pass below sees one node kind for it (SequenceLowering
         // orders its payload).
-        { var _p = TimeRegion("VariantInitLowering"); var _ma = self._arena_total(); VariantInitLowering(&self.sc).run(); self._arena_note("L:VariantInitLowering", _ma); }
+        {
+            var _p  = TimeRegion("VariantInitLowering")
+            var _ma = self._arena_total()
+            VariantInitLowering(unsafe &self.sc).run()
+            self._arena_note("L:VariantInitLowering", _ma)
+        }
+
         // Second: every ADT enum gets its layout record, the one a
         // VariantInitExpr is built through (a variant constructor per
         // variant). Before every body rewrite: every later pass and EmitPlan
@@ -638,45 +968,87 @@ class Sema {
         // and VariantInitLowering reads nothing it builds, so neither feeds
         // the other; placing it second means every pass from here on sees
         // both the constructions and the record that renders them.
-        { var _p = TimeRegion("EnumLayoutLowering"); var _ma = self._arena_total(); EnumLayoutLowering(&self.sc).run(); self._arena_note("L:EnumLayoutLowering", _ma); }
+        {
+            var _p  = TimeRegion("EnumLayoutLowering")
+            var _ma = self._arena_total()
+            EnumLayoutLowering(unsafe &self.sc).run()
+            self._arena_note("L:EnumLayoutLowering", _ma)
+        }
+
         // Third: `fn f() -> T = e` becomes `{ return e }`, so every pass below
         // sees an ordinary block -- SequenceLowering hoists into statements,
         // and an expression body has no statement position to hoist into.
-        { var _p = TimeRegion("ExprBodyDesugar"); var _ma = self._arena_total(); ExprBodyDesugar(&self.sc).run(); self._arena_note("L:ExprBodyDesugar", _ma); }
+        {
+            var _p  = TimeRegion("ExprBodyDesugar")
+            var _ma = self._arena_total()
+            ExprBodyDesugar(&self.sc).run()
+            self._arena_note("L:ExprBodyDesugar", _ma)
+        }
+
         // Each `where` group becomes one function testing the guards in
         // order and calling its candidates. After ExprBodyDesugar, so every
         // candidate body and the dispatcher are blocks; before every other
         // body rewrite, so each of them meets ordinary functions and the
         // guards as ordinary `if` conditions -- and before CopyMoveLowering,
         // which casts the forwarded MOVE parameters this pass records.
-        { var _p = TimeRegion("WhereDispatchLowering"); var _ma = self._arena_total(); WhereDispatchLowering(&self.sc).run(); self._arena_note("L:WhereDispatchLowering", _ma); }
+        {
+            var _p  = TimeRegion("WhereDispatchLowering")
+            var _ma = self._arena_total()
+            WhereDispatchLowering(unsafe &self.sc).run()
+            self._arena_note("L:WhereDispatchLowering", _ma)
+        }
+
         // Fourth: a field's initializer becomes a constant on the field or the
         // body of a member function its C++ default calls. Clang takes no
         // statement expression at class scope; from here on every pass meets
         // the initializer as an ordinary `return`.
-        { var _p = TimeRegion("FieldInitLowering"); var _ma = self._arena_total(); FieldInitLowering(&self.sc).run(); self._arena_note("L:FieldInitLowering", _ma); }
+        {
+            var _p  = TimeRegion("FieldInitLowering")
+            var _ma = self._arena_total()
+            FieldInitLowering(unsafe &self.sc).run()
+            self._arena_note("L:FieldInitLowering", _ma)
+        }
+
         // A constructor that initializes a const field is cut into its
         // S_pre and S_post blocks at CtorInitCheck's frontier. Here, before
         // any pass inserts a statement: the frontier is a statement COUNT,
         // true of the tree as checked and of nothing a later pass builds.
-        { var _p = TimeRegion("CtorInitLowering"); var _ma = self._arena_total(); CtorInitLowering(&self.sc).run(); self._arena_note("L:CtorInitLowering", _ma); }
+        {
+            var _p  = TimeRegion("CtorInitLowering")
+            var _ma = self._arena_total()
+            CtorInitLowering(&self.sc).run()
+            self._arena_note("L:CtorInitLowering", _ma)
+        }
+
         // Fifth: a MOVE value passed, initialized from, assigned or returned
         // is cast to `T&&` at each site MoveCheck recorded. Before any pass
         // rebuilds an expression, which would drop the node the record names;
         // SequenceLowering leaves the cast in place, a cast of a name being
         // pure.
-        { var _p = TimeRegion("CopyMoveLowering"); var _ma = self._arena_total(); CopyMoveLowering(&self.sc).run(); self._arena_note("L:CopyMoveLowering", _ma); }
+        {
+            var _p  = TimeRegion("CopyMoveLowering")
+            var _ma = self._arena_total()
+            CopyMoveLowering(unsafe &self.sc).run()
+            self._arena_note("L:CopyMoveLowering", _ma)
+        }
+
         // A script's top-level statements become a synthesized `main`, its
         // deferred bindings `T?` storage that main assigns at their lines
-        // (SCRIPT.md). After CopyMoveLowering: the `e as T&&` cast it put on
+        // (Compiler/Spec/ScriptMode.md). After CopyMoveLowering: the `e as T&&` cast it put on
         // a moved initializer moves into main with the initializer. Before
         // FinallyLowering, which lowers the `finally` this pass mints to
         // tear the globals down; before the nullable block, which lowers the
         // `g?` tests and narrowed reads it builds and gives each `T?` it
         // mints its record; before every pass that rebuilds bodies, to which
         // main is then an ordinary function.
-        { var _p = TimeRegion("ScriptLowering"); var _ma = self._arena_total(); ScriptLowering(&self.sc, self.sc.script_root).run(); self._arena_note("L:ScriptLowering", _ma); }
-        // A panic is a returned value (PANIC.md §4): each panicking
+        {
+            var _p  = TimeRegion("ScriptLowering")
+            var _ma = self._arena_total()
+            ScriptLowering(unsafe &self.sc, self.sc.script_root).run()
+            self._arena_note("L:ScriptLowering", _ma)
+        }
+
+        // A panic is a returned value (Compiler/Spec/Panic.md#paniclowering): each panicking
         // function's signature becomes `Panic<T, E...>`, `return` / `panic`
         // build it, a panicking call is held and tested in a statement
         // expression where it sat, and `try` / `catch` become tag compares
@@ -688,123 +1060,264 @@ class Sema {
         // before CallLowering and SequenceLowering, which order the held
         // call's arguments like any call's (a panic result is the one
         // record result SequenceLowering sequences).
-        { var _p = TimeRegion("PanicLowering"); var _ma = self._arena_total(); PanicLowering(&self.sc).run(); self._arena_note("L:PanicLowering", _ma); }
+        {
+            var _p  = TimeRegion("PanicLowering")
+            var _ma = self._arena_total()
+            PanicLowering(unsafe &self.sc).run()
+            self._arena_note("L:PanicLowering", _ma)
+        }
+
         // A `finally` becomes a record in the function body whose destructor
         // is its body, and a local of it. After CopyMoveLowering, whose
         // `T&&` cast wraps a node this pass rewrites in place; before every
         // other body rewrite, so each of them meets the body as a method
         // body (tuples, operators, f-strings, calls, receivers, sequencing).
-        { var _p = TimeRegion("FinallyLowering"); var _ma = self._arena_total(); FinallyLowering(&self.sc).run(); self._arena_note("L:FinallyLowering", _ma); }
+        {
+            var _p  = TimeRegion("FinallyLowering")
+            var _ma = self._arena_total()
+            FinallyLowering(unsafe &self.sc).run()
+            self._arena_note("L:FinallyLowering", _ma)
+        }
+
         // A tuple literal becomes its record's initializer, an index step
         // the field it names, a destructuring one local per binder. After
         // CopyMoveLowering, whose `T&&` cast stays on the destructured
         // value; before OperatorLowering, so an operator on `t.0` sees a
         // field path.
-        { var _p = TimeRegion("TupleLowering"); var _ma = self._arena_total(); TupleLowering(&self.sc).run(); self._arena_note("L:TupleLowering", _ma); }
+        {
+            var _p  = TimeRegion("TupleLowering")
+            var _ma = self._arena_total()
+            TupleLowering(unsafe &self.sc).run()
+            self._arena_note("L:TupleLowering", _ma)
+        }
+
         // `x ?? y` -> `if x? => x else y`, `x?.m`, `unwrap!(x)`, `a === b`
         // and a `match` on a `T?` likewise, each read after its test marked
-        // narrowed (NULLABLE.md §5 step 1). Before MatchLowering, which
+        // narrowed (Compiler/Spec/Nullables.md#lowering-passes step 1). Before MatchLowering, which
         // lowers the match left on the value with PatternCompilation's tree. Before OperatorLowering: `===`'s `==` may be a user
         // `op ==`, recorded by typing and lowered there. Before NullTestLowering and
         // NarrowedAccessLowering, which lower the test and the marked read it
         // builds; after CopyMoveLowering, whose moves it binds as operands.
-        { var _p = TimeRegion("CoalesceLowering"); var _ma = self._arena_total(); CoalesceLowering(&self.sc).run(); self._arena_note("L:CoalesceLowering", _ma); }
+        {
+            var _p  = TimeRegion("CoalesceLowering")
+            var _ma = self._arena_total()
+            CoalesceLowering(unsafe &self.sc).run()
+            self._arena_note("L:CoalesceLowering", _ma)
+        }
+
         // Every null test (`x?`, `x == null` and its spellings) -> a call of
-        // the Nullable's `is_null()` (NULLABLE.md §5 step 2). After
+        // the Nullable's `is_null()` (Compiler/Spec/Nullables.md#lowering-passes step 2). After
         // EnumLayoutLowering, which mints `is_null()`; before
         // NullableTypeLowering, so the operand is still a NullableType to
         // classify and a compared `null` is dropped before it becomes a
         // record; before OperatorLowering, which would leave a `x == null`
         // with a record operand for EmitIR to ICE on.
-        { var _p = TimeRegion("NullTestLowering"); var _ma = self._arena_total(); NullTestLowering(&self.sc).run(); self._arena_note("L:NullTestLowering", _ma); }
+        {
+            var _p  = TimeRegion("NullTestLowering")
+            var _ma = self._arena_total()
+            NullTestLowering(unsafe &self.sc).run()
+            self._arena_note("L:NullTestLowering", _ma)
+        }
+
         // Every read the nullness analysis narrowed -> `x.__value()`, the
-        // unchecked accessor (NULLABLE.md §5 step 3). After CopyMoveLowering:
+        // unchecked accessor (Compiler/Spec/Nullables.md#lowering-passes step 3). After CopyMoveLowering:
         // a `x as T&&` it put around a narrowed `x` then moves the VALUE.
         // After EnumLayoutLowering, which mints `__value()`. Before
         // NullableTypeLowering: the receiver it restores is the `T?`, still a
         // NullableType there. Free against NullTestLowering (a test's operand
         // is never narrowed); after it, as §5 lists them.
-        { var _p = TimeRegion("NarrowedAccessLowering"); var _ma = self._arena_total(); NarrowedAccessLowering(&self.sc).run(); self._arena_note("L:NarrowedAccessLowering", _ma); }
-        // `T?` -> `::builtin::Nullable<T>`, and `null` -> its null (NULLABLE.md
+        {
+            var _p  = TimeRegion("NarrowedAccessLowering")
+            var _ma = self._arena_total()
+            NarrowedAccessLowering(unsafe &self.sc).run()
+            self._arena_note("L:NarrowedAccessLowering", _ma)
+        }
+
+        // `T?` -> `::builtin::Nullable<T>`, and `null` -> its null (Compiler/Spec/Nullables.md
         // §5). After CopyMoveLowering: a transfer is decided from the value's
         // lifecycle, which ClassLifecycle answers for `T?` from T; the minted
         // record instance has no facts yet. Before OperatorLowering. The last
         // nullable pass: CoalesceLowering, NullTestLowering and
         // NarrowedAccessLowering above it still see NullableType.
-        { var _p = TimeRegion("NullableTypeLowering"); var _ma = self._arena_total(); NullableTypeLowering(&self.sc).run(); self._arena_note("L:NullableTypeLowering", _ma); }
-        { var _p = TimeRegion("OperatorLowering"); var _ma = self._arena_total(); OperatorLowering(&self.sc).run(); self._arena_note("L:OperatorLowering", _ma); }
+        {
+            var _p  = TimeRegion("NullableTypeLowering")
+            var _ma = self._arena_total()
+            NullableTypeLowering(unsafe &self.sc).run()
+            self._arena_note("L:NullableTypeLowering", _ma)
+        }
+
+        {
+            var _p  = TimeRegion("OperatorLowering")
+            var _ma = self._arena_total()
+            OperatorLowering(unsafe &self.sc).run()
+            self._arena_note("L:OperatorLowering", _ma)
+        }
+
         // An f-string becomes one FmtBuf and straight-line puts. After
         // OperatorLowering (a hole may hold a user operator); before
         // StringLowering (a plain `string` literal inside a hole is still a
         // literal here). Everything it mints is pure or single-use, so its
         // position relative to SequenceLowering is free.
-        { var _p = TimeRegion("FStringLowering"); var _ma = self._arena_total(); FStringLowering(&self.sc).run(); self._arena_note("L:FStringLowering", _ma); }
+        {
+            var _p  = TimeRegion("FStringLowering")
+            var _ma = self._arena_total()
+            FStringLowering(unsafe &self.sc).run()
+            self._arena_note("L:FStringLowering", _ma)
+        }
+
         // Defaults and named/packed arguments become one positional list in
         // parameter order. Before SequenceLowering: a default thunk's call is
         // an impure argument, and it is ordered with the rest there.
-        { var _p = TimeRegion("CallLowering"); var _ma = self._arena_total(); CallLowering(&self.sc).run(); self._arena_note("L:CallLowering", _ma); }
+        {
+            var _p  = TimeRegion("CallLowering")
+            var _ma = self._arena_total()
+            CallLowering(unsafe &self.sc).run()
+            self._arena_note("L:CallLowering", _ma)
+        }
+
         // `for x in xs` becomes a `while` over a once-evaluated iterable.
         // Before ExtensionLowering: a user `op in` declared in an extension is
         // called here through a chain, and that pass makes it the free call.
         // Before SequenceLowering and ListLiteralLowering, which order and
         // render what this pass binds.
-        { var _p = TimeRegion("IterLowering"); var _ma = self._arena_total(); IterLowering(&self.sc).run(); self._arena_note("L:IterLowering", _ma); }
+        {
+            var _p  = TimeRegion("IterLowering")
+            var _ma = self._arena_total()
+            IterLowering(unsafe &self.sc).run()
+            self._arena_note("L:IterLowering", _ma)
+        }
+
         // A range used as a value becomes its Range record. After IterLowering,
         // which consumed the ranges written as a loop's iterable; a subscript's
         // range index is a slice and is left for SliceLowering.
-        { var _p = TimeRegion("RangeLowering"); var _ma = self._arena_total(); RangeLowering(&self.sc).run(); self._arena_note("L:RangeLowering", _ma); }
+        {
+            var _p  = TimeRegion("RangeLowering")
+            var _ma = self._arena_total()
+            RangeLowering(unsafe &self.sc).run()
+            self._arena_note("L:RangeLowering", _ma)
+        }
+
         // Every match becomes labels, gotos and switches over a once-
         // evaluated scrutinee, rendering PatternCompilation's tree. After
         // IterLowering and RangeLowering; before SequenceLowering (which
         // orders the scrutinee local this binds) and StringLowering (a
         // string pattern's literal is still a literal here).
-        { var _p = TimeRegion("MatchLowering"); var _ma = self._arena_total(); MatchLowering(&self.sc).run(); self._arena_note("L:MatchLowering", _ma); }
+        {
+            var _p  = TimeRegion("MatchLowering")
+            var _ma = self._arena_total()
+            MatchLowering(unsafe &self.sc).run()
+            self._arena_note("L:MatchLowering", _ma)
+        }
+
         // `break L` / `continue L` become gotos past the loop / to the end
         // of its body. After IterLowering (it keeps labels on the loops it
         // mints) and MatchLowering (an arm's `break L` moves with the arm).
-        { var _p = TimeRegion("LabelLowering"); var _ma = self._arena_total(); LabelLowering(&self.sc).run(); self._arena_note("L:LabelLowering", _ma); }
+        {
+            var _p  = TimeRegion("LabelLowering")
+            var _ma = self._arena_total()
+            LabelLowering(unsafe &self.sc).run()
+            self._arena_note("L:LabelLowering", _ma)
+        }
+
         // An extension member call becomes the free call: the receiver goes in
         // front of the placed arguments. Before SequenceLowering, which orders it.
-        { var _p = TimeRegion("ExtensionLowering"); var _ma = self._arena_total(); ExtensionLowering(&self.sc).run(); self._arena_note("L:ExtensionLowering", _ma); }
+        {
+            var _p  = TimeRegion("ExtensionLowering")
+            var _ma = self._arena_total()
+            ExtensionLowering(unsafe &self.sc).run()
+            self._arena_note("L:ExtensionLowering", _ma)
+        }
+
         // Argument order: after OperatorLowering (operators are calls now),
         // before ListLiteralLowering (a hoisted slice literal is marked
         // Extended here and gets its backing there).
-        { var _p = TimeRegion("SequenceLowering"); var _ma = self._arena_total(); SequenceLowering(&self.sc).run(); self._arena_note("L:SequenceLowering", _ma); }
+        {
+            var _p  = TimeRegion("SequenceLowering")
+            var _ma = self._arena_total()
+            SequenceLowering(unsafe &self.sc).run()
+            self._arena_note("L:SequenceLowering", _ma)
+        }
+
         // The order is in the tree now: no node C++ evaluates in an
         // unspecified order has two effectful operands (an ICE otherwise),
         // and from here a pass that mints one ICEs at the mint
         // (LowerSynth::_mint_check). The passes below mint only calls with
         // at most one effectful operand: ListLiteralLowering's Slice /
         // Vector constructors and StringLowering's string constructor.
-        { var _p = TimeRegion("SequenceCheck"); var _ma = self._arena_total(); SequenceCheck(&self.sc).run(); self._arena_note("L:SequenceCheck", _ma); }
-        self.sc.sequenced = true;
+        {
+            var _p  = TimeRegion("SequenceCheck")
+            var _ma = self._arena_total()
+            SequenceCheck(unsafe &self.sc).run()
+            self._arena_note("L:SequenceCheck", _ma)
+        }
+
+        self.sc.sequenced = true
         // After OperatorLowering: a list literal can be an operand of a user
         // operator, and this pass builds constructor calls that must not be
         // re-read as operator nodes.
-        { var _p = TimeRegion("ListLiteralLowering"); var _ma = self._arena_total(); ListLiteralLowering(&self.sc).run(); self._arena_note("L:ListLiteralLowering", _ma); }
+        {
+            var _p  = TimeRegion("ListLiteralLowering")
+            var _ma = self._arena_total()
+            ListLiteralLowering(unsafe &self.sc).run()
+            self._arena_note("L:ListLiteralLowering", _ma)
+        }
+
         // Last: a literal is pure until it is a constructor call, and
         // SequenceLowering must not hoist every `"hi"` argument into a local.
-        { var _p = TimeRegion("StringLowering"); var _ma = self._arena_total(); StringLowering(&self.sc).run(); self._arena_note("L:StringLowering", _ma); }
+        {
+            var _p  = TimeRegion("StringLowering")
+            var _ma = self._arena_total()
+            StringLowering(unsafe &self.sc).run()
+            self._arena_note("L:StringLowering", _ma)
+        }
+
+        // -finfer-purity: const / pure for the functions that keep the
+        // promise unwritten, by FnPurityCheck's own rules, as a greatest
+        // fixpoint over this TU's call graph (callees in TUs already done
+        // count with their verdict). On the lowered tree, so every call a
+        // lowering minted is judged; BEFORE ParamPassInference, which must
+        // leave an inferred-const function's record parameters by value.
+        // Writes FunctionDecl::inferred_purity, read by codegen.
+        if self.sc.opts.infer_purity {
+            var _p = TimeRegion("PurityInference")
+            var pi = FnPurityCheck(unsafe &self.sc)
+            pi.infer()
+            kairo::purity_inferred_const().fetch_add(pi.n_const as u64)
+            kairo::purity_inferred_pure().fetch_add(pi.n_pure as u64)
+        }
+
         // A by-value COPY record parameter the body never mutates is passed
-        // as `const T&` and warned to say `const` (P331). After every
+        // as `const T&` and warned to say `const`. After every
         // lowering: the tree it reads is the one EmitIR renders, so a use a
         // lowering mints (a move, an operator's method call) is seen. Writes
         // ParamDecl::inferred_const, which only codegen reads.
-        { var _p = TimeRegion("ParamPassInference"); var _ma = self._arena_total(); ParamPassInference(&self.sc).run(); self._arena_note("L:ParamPassInference", _ma); }
+        {
+            var _p  = TimeRegion("ParamPassInference")
+            var _ma = self._arena_total()
+            ParamPassInference(unsafe &self.sc).run()
+            self._arena_note("L:ParamPassInference", _ma)
+        }
+
         // Every generic ADT instance gets the layout C++ will pick for it,
         // predicted, for codegen to pin with static_asserts. After every
         // lowering: an instance a lowering mints (a `T?`'s record) is in
         // the registry by now.
-        { var _p = TimeRegion("EnumLayoutSweep"); var _ma = self._arena_total(); EnumLayoutQuery(&self.sc).sweep(); self._arena_note("L:EnumLayoutSweep", _ma); }
+        {
+            var _p  = TimeRegion("EnumLayoutSweep")
+            var _ma = self._arena_total()
+            EnumLayoutQuery(unsafe &self.sc).sweep()
+            self._arena_note("L:EnumLayoutSweep", _ma)
+        }
+
         // `using Base::name;` for merged base overloads C++ would hide is
         // InterfaceEmitter::_base_usings: a property of the class
         // definition, written where it is spelled, so no pass here.
         // TODO(sema): ...
-        self.sc.advance_phase(SemaPhase::Lowered);
-        return true;
+        self.sc.advance_phase(SemaPhase::Lowered)
+        return true
     }
 
-    /// M1: instance enumeration (MONO.md D0/D4). Creates nothing new of its
+    /// M1: instance enumeration (Compiler/Spec/Generics.md#decisions/D4). Creates nothing new of its
     /// own: T, X, the reach, the lang records and the lowerings minted every
     /// instance into the build-wide registry already, each appended to its
     /// worklist. M1 drains that worklist to the fixpoint: every LIVE entry
@@ -820,31 +1333,40 @@ class Sema {
     /// namer (D3, `home_fid`, fixed at mint), and EmitPlan reaches an
     /// instance no tree names through the `reached` edge the walk recorded.
     priv fn _stage_mono_collect(self) -> bool {
-        if self._already(SemaPhase::MonoCollected) { return true; }
-        var _t = TimeRegion("Collect");
-        self.sc.require_phase(SemaPhase::Lowered);
-        ConformanceChecking(&self.sc).discover();
-        self.sc.advance_phase(SemaPhase::MonoCollected);
-        return !self._hard_stop();
+        if self._already(SemaPhase::MonoCollected) {
+            return true
+        }
+
+        var _t = TimeRegion("Collect")
+        self.sc.require_phase(SemaPhase::Lowered)
+        ConformanceChecking(unsafe &self.sc).discover()
+        self.sc.advance_phase(SemaPhase::MonoCollected)
+        return !self._hard_stop()
     }
 
-    /// M2: instance facts (MONO.md D0). Nothing re-types a generic body per
+    /// M2: instance facts (Compiler/Spec/Generics.md#decisions). Nothing re-types a generic body per
     /// instance: each enumerated instance's facts come from substituting its
     /// arguments into what its bounds declare, predicted here and pinned or
     /// selected in C++. The ADT layout is EnumLayoutQuery::sweep at the end
-    /// of the lowerings; lifecycle (G6) and rows (G8) are computed where the
-    /// instance becomes live. Panic facts (P10) are here: each live
+    /// of the lowerings; lifecycle and rows are computed where the
+    /// instance becomes live. Panic facts are here: each live
     /// instance's result and the panic results its body names, formed at its
     /// arguments (PanicInstances), then swept again so the new results have
     /// their element ids. Not a build-wide sync point: it runs per TU, in
     /// DAG order, and writes only the locked registry, like every other
     /// stage that mints.
     priv fn _stage_mono_instantiate(self) -> bool {
-        if self._already(SemaPhase::Complete) { return true; }
-        var _t = TimeRegion("Instantiate");
-        self.sc.require_phase(SemaPhase::MonoCollected);
-        if PanicInstances(&self.sc).run() { EnumLayoutQuery(&self.sc).sweep(); }
-        self.sc.advance_phase(SemaPhase::Complete);
-        return !self._hard_stop();
+        if self._already(SemaPhase::Complete) {
+            return true
+        }
+
+        var _t = TimeRegion("Instantiate")
+        self.sc.require_phase(SemaPhase::MonoCollected)
+        if PanicInstances(unsafe &self.sc).run() {
+            EnumLayoutQuery(unsafe &self.sc).sweep()
+        }
+
+        self.sc.advance_phase(SemaPhase::Complete)
+        return !self._hard_stop()
     }
 }

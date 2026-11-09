@@ -11,31 +11,30 @@
 ///     else the parser still accepts the form and records it on
 ///     TranslationUnit::pin_segments, and THIS pass decides whether that is
 ///     allowed. The decision is one function, pin_allowed, so the parser and
-///     the resolver stay out of it (PLAN-module-pinning.md, decision A).
+///     the resolver stay out of it (Compiler/Spec/Imports.md, decision A).
 ///
 ///   Phase: VERIFY (pre-N)
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::SemaContext::*;
-import AST::Context::ASTContext::*;
-import AST::Context::TranslationUnit::*;
-import Support::FileIO::Path::*;
-import Diagnostic::Registry::*;
-import Resolution::SearchRoot::*;
+import AST::Context::TranslationUnit::TranslationUnit
+import Diagnostic::Registry::DiagID
+import Resolution::SearchRoot::read_module_pin
+import Sema::SemaContext::SemaContext
+import Support::FileIO::Path::Path
 
-class ModulePinCheck {
-    pub var sc: *SemaContext;
+pub class ModulePinCheck {
+    pub var sc: *SemaContext
 
     fn ModulePinCheck(self, sc: *SemaContext) {
-        self.sc = sc;
+        self.sc = sc
     }
 
     /// \brief whether \p tu may carry its bare `module a::b` pin.
@@ -56,10 +55,16 @@ class ModulePinCheck {
     ///          Keyed on the file NAME, as read_module_pin is (module.k
     ///          exactly), so the two can never disagree about which file a
     ///          pin counts in.
-    static fn pin_allowed(tu: *TranslationUnit) -> bool {
-        if tu->pin_segments.size() == 0 { return true; }
-        if (tu->ctx == &null) || (tu->ctx->sm == &null) { return true; }
-        return Path::filename_of(tu->ctx->sm->get_filename(tu->fid)) == "module.k";
+    static fn pin_allowed(tu: unsafe *TranslationUnit) -> bool {
+        if tu->pin_segments.size() == 0 {
+            return true
+        }
+
+        if tu->ctx == &null || tu->ctx->sm == &null {
+            return true
+        }
+
+        return Path::filename_of(tu->ctx->sm->get_filename(tu->fid)) == "module.k"
     }
 
     /// \brief whether \p tu's pin is the one the resolver reads: in a file
@@ -73,61 +78,106 @@ class ModulePinCheck {
     ///          "what counts as first" is how the two came to disagree. A pin
     ///          after `import y` or a `fn` was accepted here and ignored there:
     ///          the directory kept its folder name with nothing said.
-    static fn pin_counts(tu: *TranslationUnit) -> bool {
-        if tu->pin_segments.size() == 0 { return true; }
-        if (tu->ctx == &null) || (tu->ctx->sm == &null) { return true; }
-        var read = read_module_pin(tu->ctx->sm->get_filename(tu->fid));
-        if read.size() != tu->pin_segments.size() { return false; }
-        for var i: usize = 0; i < read.size(); ++i {
-            if read[i] != tu->ctx->get_spelling(*(tu->pin_segments.get(i))) { return false; }
+    static fn pin_counts(tu: unsafe *TranslationUnit) -> bool {
+        if tu->pin_segments.size() == 0 {
+            return true
         }
-        return true;
+
+        if tu->ctx == &null || tu->ctx->sm == &null {
+            return true
+        }
+
+        var read = read_module_pin(tu->ctx->sm->get_filename(tu->fid))
+        if read.size() != tu->pin_segments.size() {
+            return false
+        }
+
+        for var i: usize = 0; i < read.size(); ++i {
+            if read[i] != tu->ctx->get_spelling(*tu->pin_segments.get(i)) {
+                return false
+            }
+        }
+
+        return true
     }
 
     fn run(self) {
-        var tu = self.sc->tu;
-        if tu == &null { return; }
-        if tu->pin_segments.size() == 0 { return; }
+        var unsafe *tu = self.sc->tu
+        if tu == &null {
+            return
+        }
+
+        if tu->pin_segments.size() == 0 {
+            return
+        }
 
         // A second pin: the parser kept the first, and the second would
         // otherwise vanish. Placeholder code, as below.
         if tu->pin_extra_range.is_valid() {
-            var x = self.sc->diag->report(DiagID::R001E, tu->pin_extra_range.start,
-                "a second bare `module` declaration; a file names at most one library, with its first declaration");
-            x.first(tu->pin_extra_range, "second pin");
-            x.note(tu->pin_range.start, "the first pin is here");
-            x.remove(tu->pin_extra_range, "remove the second pin");
-            x.emit();
+            var x = self.sc->diag->report(
+                DiagID::R064E,
+                tu->pin_extra_range.start,
+                "a second bare `module` declaration; a file names at most one library, with its first declaration",
+            )
+
+            x.first(tu->pin_extra_range, "second pin")
+            x.note(tu->pin_range.start, "the first pin is here")
+            x.remove(tu->pin_extra_range, "remove the second pin")
+            x.emit()
         }
 
         if ModulePinCheck::pin_allowed(tu) {
-            if ModulePinCheck::pin_counts(tu) { return; }
-            var pname = "";
-            for var i: usize = 0; i < tu->pin_segments.size(); ++i {
-                if i > 0 { pname += "::"; }
-                pname += tu->ctx->get_spelling(*(tu->pin_segments.get(i)));
+            if ModulePinCheck::pin_counts(tu) {
+                return
             }
-            var m = self.sc->diag->report(DiagID::R001E, tu->pin_range.start,
-                f"`module {pname}` is not the first declaration of this module.k, so it does not name the directory; a library\x27s name is read from the first declaration only");
-            m.first(tu->pin_range, "not the first declaration");
-            m.note("move it above every import and declaration in the file");
-            m.emit();
-            return;
+
+            var pname = ""
+            for var i: usize = 0; i < tu->pin_segments.size(); ++i {
+                if i > 0 {
+                    pname += "::"
+                }
+
+                pname += tu->ctx->get_spelling(*tu->pin_segments.get(i))
+            }
+
+            var m = self.sc->diag->report(
+                DiagID::R064E,
+                tu->pin_range.start,
+                f"`module {pname}` is not the first declaration of this module.k, so it does not name the directory; a library's name is read from the first declaration only",
+            )
+
+            m.first(tu->pin_range, "not the first declaration")
+            m.note("move it above every import and declaration in the file")
+            m.emit()
+            return
         }
 
-        var name = "";
+        var name = ""
         for var i: usize = 0; i < tu->pin_segments.size(); ++i {
-            if i > 0 { name += "::"; }
-            name += tu->ctx->get_spelling(*(tu->pin_segments.get(i)));
+            if i > 0 {
+                name += "::"
+            }
+
+            name += tu->ctx->get_spelling(*tu->pin_segments.get(i))
         }
+
         // Placeholder code: no real code covers where a declaration may
         // appear by file (verified against Resolution.diag.toml).
-        var b = self.sc->diag->report(DiagID::R001E, tu->pin_range.start,
-            f"a bare `module {name}` is only allowed in a module.k, where it names the directory as a library");
-        b.first(tu->pin_range, "not a module.k");
+        var b = self.sc->diag->report(
+            DiagID::R064E,
+            tu->pin_range.start,
+            f"a bare `module {name}` is only allowed in a module.k, where it names the directory as a library",
+        )
+
+        b.first(tu->pin_range, "not a module.k")
         // Concatenated, not an f-string: the braces are the block form's.
-        b.note("to declare a module here, use the block form `module " + name + " { ... }`");
-        b.insert(tu->pin_range.end, " { }", "open the block form, and move what the module holds into it");
-        b.emit();
+        b.note("to declare a module here, use the block form `module " + name + " { ... }`")
+        b.insert(
+            tu->pin_range.end,
+            " { }",
+            "open the block form, and move what the module holds into it",
+        )
+
+        b.emit()
     }
 }

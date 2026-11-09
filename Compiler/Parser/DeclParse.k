@@ -1,9 +1,7 @@
 /// --- The Kairo Project --------------------------- Parser/DeclParse.k --- ///
 ///
-///   \brief Declaration parsing mixin. Recursive-descent over declaration-
-///          position productions.
+///   The declaration parser mixin: recursive descent over declarations.
 ///
-///   \detail
 ///     Entry point: parse_decl() -> consumes leading annotations/visibility,
 ///     dispatches on the leading (resolved) keyword to the correct production,
 ///     stamps annotations, and returns a *Decl. Returns null only at EOF or
@@ -12,58 +10,89 @@
 ///
 ///     Derives from ASTParse (CRTP) which provides: check, check_peek,
 ///     match_tok, expect, advance, retreat, current, peek, prev, current_ptr,
-///     ctx, diag, scope, is_eof, enter_depth/exit_depth, enter_scope/exit_scope,
-///     consume_leading_annotations, apply_annotations_to_decl, parse_type
-///     (TypeParse), parse_expr (ExprParse), parse_compound (StmtParse), etc.
-///
-///     Several productions are intentionally stubbed pending design sign-off;
-///     each is marked with ` ICE_FAIL("...")` so it is greppable:
-///       - _parse_import          (7+ import forms; owner will fill in)
-///       - _parse_ffi             (ffi "lang" { } and ffi "lang" import ...)
-///       - _parse_proc_macro_body (compile-time AST macro bodies)
+///     ctx, diag, scope, is_eof, enter_depth/exit_depth,
+///     enter_scope/exit_scope, consume_leading_annotations,
+///     apply_annotations_to_decl, parse_type (TypeParse), parse_expr
+///     (ExprParse), parse_compound (StmtParse), etc.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the Kairo
 ///   Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------- ///
 
-import AST::Node::Base::*;
-import AST::Node::Declarations::*;
-import AST::Node::Statements::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Expressions::*;
-import AST::Node::Casting::*;
-import AST::Context::ASTContext::*;
-import AST::Context::DeclContext::*;
-import AST::Mixin::Annotation::*;
-import Diagnostic::Engine::*;
-import Diagnostic::Registry::*;
-import Location::SourceRange::*;
-import Token::Token::*;
-import Token::TokenKind::*;
-import Parser::LexicalScope::*;
-import AST::ParamMode::*;
-import AST::LangItems::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
 
-class <T> DeclParse {
+import AST::ASTSupport::FrozenList
+import AST::Context::DeclContext::{
+    DeclContext,
+    DeclContextKind,
+}
+import AST::LangItems::AllocNames
+import AST::Mixin::Annotation::VisibilityKind
+import AST::Mixin::FFILinkage::LinkageKind
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Stmt,
+    Type,
+}
+import AST::Node::Casting::{
+    cast,
+    dyn_cast,
+    is_recovery,
+    isa,
+}
+import AST::Node::Declarations
+import AST::Node::Expressions::{
+    BinaryOperatorExpr,
+    ClosureExpr,
+    ConstraintExpr,
+    ParenExpr,
+}
+import AST::Node::PrimaryExpressions::{
+    ChainExpr,
+    NamedIdentExpr,
+    StringLiteralExpr,
+}
+import AST::Node::Statements::FFILang
+import AST::Node::Types::{
+    ChainType,
+    NullableType,
+}
+import AST::ParamMode::ParamMode
+import Diagnostic::Code::DiagCode
+import Diagnostic::Registry::DiagID
+import Location::SourceRange::SourceRange
+import Parser::LexicalScope::ScopeKind
+import Support::FlagSet::FlagSet
+import Token::Token::Token
+import Token::TokenKind::{
+    TokenKind,
+    is_annotation,
+    token_kind_to_readable_string,
+}
+
+// TODO(DUCK-GENERIC): T uses _consume_mode, _index_skip_block, _index_skip_stmt, _index_skip_to_body, _is_terminator_tok, _peek_mode, _pending_close_angle, _reject_mode_binding, _restore_cursor, advance, advance_raw, apply_annotations_to_decl, ... (60). Stage 0 was duck-typed; bound it or keep `: type`.
+pub class <T: type> DeclParse {
     /// \enum DeclSyncCtx
     /// \brief sync contexts for declaration-level error recovery.
     enum DeclSyncCtx derives u8 {
         TopLevel, ///< sync to a decl lead-in keyword / newline / EOF.
         TypeBody, ///< inside a class/struct/enum/union body: sync to a member
-                  ///  lead-in or the closing `}`.
+        ///  lead-in or the closing `}`.
         Params,   ///< inside `( )` param list: sync to `,` or `)`.
         Generics, ///< inside `< >` generic list: sync to `,` or `>`.
     }
 
     //  CRTP helpers
 
-    priv inline fn dyn(self) -> *T {
-        return static_cast::<*T>(&self);
+    priv inline fn dyn(self) -> unsafe *T {
+        return unsafe ((&self) as *T)
     }
 
     /// \brief the current token's range, or an empty range at the end of the
@@ -74,11 +103,17 @@ class <T> DeclParse {
     ///          truncated head reports at end of input instead of dereferencing
     ///          null.
     priv inline fn _cur_range(self) -> SourceRange {
-        var cur = dyn()->current_ptr();
-        if cur != &null { return cur->range; }
-        var last = dyn()->prev_ptr();
-        if last == &null { return SourceRange::invalid(); }
-        return SourceRange(last->range.end, last->range.end);
+        var cur = self.dyn()->current_ptr()
+        if cur != &null {
+            return cur->range
+        }
+
+        var last = self.dyn()->prev_ptr()
+        if last == &null {
+            return SourceRange::invalid()
+        }
+
+        return SourceRange(last->range.end, last->range.end)
     }
 
     /// \brief the kind of the token just consumed, or TkEof when there is
@@ -88,76 +123,118 @@ class <T> DeclParse {
     ///          cursor into _prev), and a parameter list cut off by EOF
     ///          (`fn S :: h ( ( self ,`, `fn ( fn ( [`) gets there. The reads
     ///          after a parameter list or a panic set went through it
-    ///          unguarded (P278); the previous token's range has the same
+    ///          unguarded; the previous token's range has the same
     ///          guard in _prev_range().
     priv inline fn _prev_kind(self) -> TokenKind {
-        var last = dyn()->prev_ptr();
-        if last == &null { return TokenKind::TkEof; }
-        return last->kind;
+        var last = self.dyn()->prev_ptr()
+        if last == &null {
+            return TokenKind::TkEof
+        }
+
+        return last->kind
     }
 
     /// \brief the range of the token just consumed, or _cur_range() when
     ///        there is none (see _prev_kind).
     priv inline fn _prev_range(self) -> SourceRange {
-        var last = dyn()->prev_ptr();
-        if last == &null { return self._cur_range(); }
-        return last->range;
+        var last = self.dyn()->prev_ptr()
+        if last == &null {
+            return self._cur_range()
+        }
+
+        return last->range
     }
 
-    pub inline fn is_fatal_decl(self, d: *Decl) -> bool {
-        return dyn()->is_fatal::<Decl>(d);
+    pub inline fn is_fatal_decl(self, d: unsafe *Decl) -> bool {
+        return self.dyn()->is_fatal<Decl>(d)
     }
 
     /// Switches on the RESOLVED kind, like check(): a token a macro expanded
     /// carries the expansion's kind, not the identifier's, so reading the raw
     /// kind rejected every name a macro body declared.
     priv inline fn check_is_ident(self) -> bool {
-        if dyn()->current_ptr() == &null { return false; }
-        switch dyn()->resolve_kind_deep(dyn()->current_ptr()) {
-            case TokenKind::AtVoid { return true; }
-            case TokenKind::AtBool { return true; }
-            case TokenKind::AtByte { return true; }
-            case TokenKind::AtChar { return true; }
+        if self.dyn()->current_ptr() == &null {
+            return false
+        }
 
-            case TokenKind::AtUsize { return true; }
-            case TokenKind::AtIsize { return true; }
-            
-            case TokenKind::AtF8     { return true; }
-            case TokenKind::AtF8E4M3 { return true; }
-            case TokenKind::AtF8E5M2 { return true; }
-            case TokenKind::AtBf16   { return true; }
-            case TokenKind::AtF16    { return true; }
-            case TokenKind::AtF32    { return true; }
-            case TokenKind::AtF64    { return true; }
-            case TokenKind::AtF80    { return true; }
-            case TokenKind::AtF128   { return true; }
-            case TokenKind::AtF256   { return true; }
-            case TokenKind::AtF512   { return true; }
-            
-            case TokenKind::AtU8   { return true; }
-            case TokenKind::AtU16  { return true; }
-            case TokenKind::AtU32  { return true; }
-            case TokenKind::AtU64  { return true; }
-            case TokenKind::AtU128 { return true; }
-            case TokenKind::AtU256 { return true; }
-            case TokenKind::AtU512 { return true; }
-            
-            case TokenKind::AtI8   { return true; }
-            case TokenKind::AtI16  { return true; }
-            case TokenKind::AtI32  { return true; }
-            case TokenKind::AtI64  { return true; }
-            case TokenKind::AtI128 { return true; }
-            case TokenKind::AtI256 { return true; }
-            case TokenKind::AtI512 { return true; }
-
-            case TokenKind::BiFile     { return true; }
-            case TokenKind::BiLine     { return true; }
-            case TokenKind::BiColumn   { return true; }
-            case TokenKind::BiFunction { return true; }
-            case TokenKind::BiModule   { return true; }
-            
-            case TokenKind::LitIdentifier { return true;  }
-            default                       { return false; }
+        match self.dyn()->resolve_kind_deep(self.dyn()->current_ptr()) {
+            case TokenKind::AtVoid {
+                return true
+            } case TokenKind::AtBool {
+                return true
+            } case TokenKind::AtByte {
+                return true
+            } case TokenKind::AtChar {
+                return true
+            } case TokenKind::AtUsize {
+                return true
+            } case TokenKind::AtIsize {
+                return true
+            } case TokenKind::AtF8 {
+                return true
+            } case TokenKind::AtF8E4M3 {
+                return true
+            } case TokenKind::AtF8E5M2 {
+                return true
+            } case TokenKind::AtBf16 {
+                return true
+            } case TokenKind::AtF16 {
+                return true
+            } case TokenKind::AtF32 {
+                return true
+            } case TokenKind::AtF64 {
+                return true
+            } case TokenKind::AtF80 {
+                return true
+            } case TokenKind::AtF128 {
+                return true
+            } case TokenKind::AtF256 {
+                return true
+            } case TokenKind::AtF512 {
+                return true
+            } case TokenKind::AtU8 {
+                return true
+            } case TokenKind::AtU16 {
+                return true
+            } case TokenKind::AtU32 {
+                return true
+            } case TokenKind::AtU64 {
+                return true
+            } case TokenKind::AtU128 {
+                return true
+            } case TokenKind::AtU256 {
+                return true
+            } case TokenKind::AtU512 {
+                return true
+            } case TokenKind::AtI8 {
+                return true
+            } case TokenKind::AtI16 {
+                return true
+            } case TokenKind::AtI32 {
+                return true
+            } case TokenKind::AtI64 {
+                return true
+            } case TokenKind::AtI128 {
+                return true
+            } case TokenKind::AtI256 {
+                return true
+            } case TokenKind::AtI512 {
+                return true
+            } case TokenKind::BiFile {
+                return true
+            } case TokenKind::BiLine {
+                return true
+            } case TokenKind::BiColumn {
+                return true
+            } case TokenKind::BiFunction {
+                return true
+            } case TokenKind::BiModule {
+                return true
+            } case TokenKind::LitIdentifier {
+                return true
+            } default {
+                return false
+            }
         }
     }
 
@@ -191,7 +268,7 @@ class <T> DeclParse {
             // `inline fn f()` is a decl; `inline "c++" { }` is not. Both lead
             // with `inline`, so admit it here and let _dispatch_decl return
             // null for the ffi form - every caller already falls back.
-            || k == TokenKind::KwInline;
+            || k == TokenKind::KwInline
     }
 
     /// \brief true if the storage keyword under the cursor opens a binding
@@ -213,26 +290,45 @@ class <T> DeclParse {
     ///          _parse_storage_head gets to name a bad combination. The guard
     ///          rolls the cursor back unconditionally.
     pub fn _storage_binding_ahead(self) -> bool {
-        type ASTTentativeGuard = typename!(T::TentativeGuard);
-        var t = ASTTentativeGuard(dyn());
+        type ASTTentativeGuard = T::TentativeGuard
+        var t = ASTTentativeGuard(self.dyn())
 
-        dyn()->advance();   // the keyword under test
-        if dyn()->check(TokenKind::KwConst)  || dyn()->check(TokenKind::KwStatic)
-        || dyn()->check(TokenKind::KwThread) || dyn()->check(TokenKind::KwEval)
-        || dyn()->check(TokenKind::KwVar) {
-            return true;
+        self.dyn()->advance() // the keyword under test
+        if self.dyn()->check(TokenKind::KwConst)
+            || self.dyn()->check(TokenKind::KwStatic)
+            || self.dyn()->check(TokenKind::KwThread)
+            || self.dyn()->check(TokenKind::KwEval)
+            || self.dyn()->check(TokenKind::KwVar) {
+            return true
         }
-        if dyn()->check(TokenKind::KwUnsafe) && dyn()->check_peek(TokenKind::OpStar) { dyn()->advance(); }
-        while dyn()->check(TokenKind::OpStar) { dyn()->advance(); }
-        if !dyn()->check_is_ident() { return false; }
-        dyn()->advance();   // the name
-        if dyn()->check(TokenKind::OpQuestion) { dyn()->advance(); }
-        if dyn()->check(TokenKind::OpColon) || dyn()->check(TokenKind::OpEqual) { return true; }
+
+        if self.dyn()->check(TokenKind::KwUnsafe) && self.dyn()->check_peek(TokenKind::OpStar) {
+            self.dyn()->advance()
+        }
+
+        while self.dyn()->check(TokenKind::OpStar) {
+            self.dyn()->advance()
+        }
+
+        if !self.dyn()->check_is_ident() {
+            return false
+        }
+
+        self.dyn()->advance() // the name
+        if self.dyn()->check(TokenKind::OpQuestion) {
+            self.dyn()->advance()
+        }
+
+        if self.dyn()->check(TokenKind::OpColon) || self.dyn()->check(TokenKind::OpEqual) {
+            return true
+        }
+
         // `thread n` alone: a binding with neither a type nor an initializer,
         // which Sema reports (SC046E) as it does for `static n`. As a spawn
         // of a bare name it would be accepted silently.
-        return dyn()->is_eof() || dyn()->check(TokenKind::OpRBrace)
-            || dyn()->_is_terminator_tok(dyn()->current_ptr());
+        return self.dyn()->is_eof()
+            || self.dyn()->check(TokenKind::OpRBrace)
+            || self.dyn()->_is_terminator_tok(self.dyn()->current_ptr())
         // guard dtor rolls back unconditionally (never commit)
     }
 
@@ -242,8 +338,11 @@ class <T> DeclParse {
     ///        in _starts_decl_kw itself because `thread work()` is an
     ///        expression and the callers of that predicate do not look ahead.
     pub fn _starts_decl_here(self, k: TokenKind) -> bool {
-        if self._starts_decl_kw(k) { return true; }
-        return (k == TokenKind::KwThread) && self._storage_binding_ahead();
+        if self._starts_decl_kw(k) {
+            return true
+        }
+
+        return k == TokenKind::KwThread && self._storage_binding_ahead()
     }
 
     //  Entry point
@@ -258,18 +357,22 @@ class <T> DeclParse {
     ///          PendingAnnotations buffer, parses the core decl, then stamps
     ///          annotations + visibility onto it. Returns null at EOF or when
     ///          the lead token cannot begin a decl.
-    fn parse_decl(self, allow_closure_fallback: bool = false) -> *Decl {
-        if dyn()->is_eof() { return &null; }
+    fn parse_decl(self, allow_closure_fallback: bool = false) -> unsafe *Decl {
+        if self.dyn()->is_eof() {
+            return &null
+        }
 
-        var annot: typename!(T::PendingAnnotations);
-        dyn()->consume_leading_annotations(&annot);
+        var annot: T::PendingAnnotations
+        self.dyn()->consume_leading_annotations(&annot)
 
-        if dyn()->is_eof() { return &null; }
+        if self.dyn()->is_eof() {
+            return &null
+        }
 
-        var d = self._dispatch_decl(allow_closure_fallback);
-        if (d != &null) && (!self.is_fatal_decl(d)) {
-            if !isa::<VisibilityGroupDecl>(d) {
-                dyn()->apply_annotations_to_decl(d, &annot);
+        var unsafe *d = self._dispatch_decl(allow_closure_fallback)
+        if d != &null && !self.is_fatal_decl(d) {
+            if !isa<Declarations::VisibilityGroupDecl>(d) {
+                self.dyn()->apply_annotations_to_decl(d, &annot)
             }
 
             // group case: caller owns the annotation-on-group diagnostic,
@@ -277,23 +380,36 @@ class <T> DeclParse {
             // (parse / member-body) already consumed the annotations.
         }
 
-        return d;
+        return d
     }
 
     /// `fn` is a decl iff the token after `fn` (and after an optional generic
     /// param list) is an identifier, `op`, or `self`. Anything else - `(`, `|`,
     /// `||` - is a closure literal. No diagnostics, no allocation, no sync.
     priv fn _fn_is_decl_head(self) -> bool {
-        type ASTTentativeGuard = typename!(T::TentativeGuard);
-        var t = ASTTentativeGuard(dyn());
-        dyn()->advance(T::SkipNL::After);          // past `fn`
-        if dyn()->check(TokenKind::OpLess) {
-            var gp: std::StackBuf::<*GenericParamDecl, 2>;
-            self._parse_generic_params(&gp);       // allocates; acceptable, discarded
+        type ASTTentativeGuard = T::TentativeGuard
+        var t = ASTTentativeGuard(self.dyn())
+        self.dyn()->advance(T::SkipNL::After) // past `fn`
+        if self.dyn()->check(TokenKind::OpLess) {
+            var gp: kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
+            self._parse_generic_params(&gp) // allocates; acceptable, discarded
         }
-        return dyn()->check(TokenKind::LitIdentifier)
-            || dyn()->check(TokenKind::KwOp)
-            || dyn()->check(TokenKind::KwSelf);
+
+        if self.dyn()->check(TokenKind::LitIdentifier)
+            || self.dyn()->check(TokenKind::KwOp)
+            || self.dyn()->check(TokenKind::KwSelf) {
+            return true
+        }
+
+        // `fn f16(c: T)`: a primitive type's name where the function's goes.
+        // No closure starts that way, and taking it for one parsed
+        // `f16` away and the rest as a parameterless closure, so every use
+        // of a parameter was "undeclared". _parse_function reports the name.
+        var k = self.dyn()->ig_kind()
+        return is_annotation(k)
+            && k != TokenKind::AtComment
+            && (self.dyn()->ig_peek_kind() == TokenKind::OpLParen
+                || self.dyn()->ig_peek_kind() == TokenKind::OpLess)
         // guard dtor rolls back unconditionally (never commit)
     }
 
@@ -302,90 +418,116 @@ class <T> DeclParse {
     ///          final/static) are consumed here into a small modifier set that
     ///          is threaded into the function/type productions. Anything not a
     ///          decl lead-in returns null (caller's problem).
-    priv fn _dispatch_decl(self, allow_closure_fallback: bool = false) -> *Decl {
-        var cur_ptr = dyn()->current_ptr();
-        if cur_ptr == &null { return &null; }
+    priv fn _dispatch_decl(self, allow_closure_fallback: bool = false) -> unsafe *Decl {
+        var cur_ptr = self.dyn()->current_ptr()
+        if cur_ptr == &null {
+            return &null
+        }
 
         // pub { ... } / priv { ... } / prot { ... } visibility group.
         // consume_leading_annotations leaves the keyword when `{` follows.
-        var lead_k = dyn()->resolve_kind_deep(cur_ptr);
-        if (   lead_k == TokenKind::KwPub
+        var lead_k = self.dyn()->resolve_kind_deep(cur_ptr)
+        if (lead_k == TokenKind::KwPub
             || lead_k == TokenKind::KwPriv
-            || lead_k == TokenKind::KwProt
-           ) && dyn()->check_peek(TokenKind::OpLBrace) {
-            return self._parse_visibility_group();
+            || lead_k == TokenKind::KwProt)
+            && self.dyn()->check_peek(TokenKind::OpLBrace) {
+            return self._parse_visibility_group()
         }
 
         // leading abi/dispatch modifiers (static/virtual/override) and the
         // `final` class/method modifier are collected, then we re-dispatch on
         // the keyword they precede.
-        var lead = self._consume_leading_modifiers();
+        var lead = self._consume_leading_modifiers()
 
-        var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+        var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
 
-        switch k {
+        match k {
             case TokenKind::KwFn {
-                if (!allow_closure_fallback) || lead.any {
-                    return self._parse_function(&lead);
+                if !allow_closure_fallback || lead.any {
+                    return self._parse_function(unsafe &lead)
                 }
-                if !self._fn_is_decl_head() { return &null; }
-                return self._parse_function(&lead);   // committed: it IS a decl
-            }
-            case TokenKind::KwClass     { return self._parse_class(&lead);    }
-            case TokenKind::KwStruct    { return self._parse_struct();        }
-            case TokenKind::KwEnum      { return self._parse_enum();          }
-            case TokenKind::KwInterface { return self._parse_interface();     }
-            case TokenKind::KwUnion     { return self._parse_union();         }
-            case TokenKind::KwExtend    { return self._parse_extension();     }
-            case TokenKind::KwType      { return self._parse_type_alias();    }
-            case TokenKind::KwModule    { return self._parse_module();        }
-            case TokenKind::KwTest      { return self._parse_test();          }
-            case TokenKind::KwMacro     { return self._parse_macro();         }
-            case TokenKind::KwImport    { return self._parse_import();        }
-            case TokenKind::KwFfi       { return self._parse_ffi();           }
 
-            case TokenKind::KwVar     { return self._parse_var_decl(); }
-            case TokenKind::KwConst   { return self._parse_var_decl(); }
-            case TokenKind::KwStatic  { return self._parse_var_decl(); }
-            case TokenKind::KwThread  { return self._parse_var_decl(); }   // callers saw _storage_binding_ahead
-            case TokenKind::KwMutable { return self._parse_var_decl(); }
-            case TokenKind::KwEval {
+                if !self._fn_is_decl_head() {
+                    return &null
+                }
+
+                return self._parse_function(unsafe &lead) // committed: it IS a decl
+            } case TokenKind::KwClass {
+                return self._parse_class(unsafe &lead)
+            } case TokenKind::KwStruct {
+                return self._parse_struct()
+            } case TokenKind::KwEnum {
+                return self._parse_enum()
+            } case TokenKind::KwInterface {
+                return self._parse_interface()
+            } case TokenKind::KwUnion {
+                return self._parse_union()
+            } case TokenKind::KwExtend {
+                return self._parse_extension()
+            } case TokenKind::KwType {
+                return self._parse_type_alias()
+            } case TokenKind::KwModule {
+                return self._parse_module()
+            } case TokenKind::KwTest {
+                return self._parse_test()
+            } case TokenKind::KwMacro {
+                return self._parse_macro()
+            } case TokenKind::KwImport {
+                return self._parse_import()
+            } case TokenKind::KwFfi {
+                return self._parse_ffi()
+            } case TokenKind::KwVar {
+                return self._parse_var_decl()
+            } case TokenKind::KwConst {
+                return self._parse_var_decl()
+            } case TokenKind::KwStatic {
+                return self._parse_var_decl()
+            } case TokenKind::KwThread { // callers saw _storage_binding_ahead
+                return self._parse_var_decl()
+            } case TokenKind::KwMutable {
+                return self._parse_var_decl()
+            } case TokenKind::KwEval {
                 // `eval if` / `eval for` in a module or class body
-                if dyn()->check_peek(TokenKind::KwIf) || dyn()->check_peek(TokenKind::KwFor) {
-                    return self._parse_eval_stmt_decl();
+                if self.dyn()->check_peek(TokenKind::KwIf)
+                    || self.dyn()->check_peek(TokenKind::KwFor) {
+                    return self._parse_eval_stmt_decl()
                 }
+
                 // `eval {` decl block vs `eval var/const/fn ...`
-                if dyn()->check_peek(TokenKind::OpLBrace) {
-                    return self._parse_eval_block_decl();
+                if self.dyn()->check_peek(TokenKind::OpLBrace) {
+                    return self._parse_eval_block_decl()
                 }
-                return self._parse_var_decl();
-            }
+
+                return self._parse_var_decl()
+            } default { } // any other kind is not a decl lead-in: falls out to the recovery below.
         }
 
         // not a decl lead-in. If we consumed modifiers, that's a malformed
         // decl head report and recover; otherwise let the caller decide.
         if lead.any {
-            var r = self._cur_range();
-            dyn()->diag->report(DiagID::S063E, r.start,
-                "expected a declaration after modifiers"
-            ).first(r).emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(FunctionDecl::create_error(dyn()->ctx, r));
+            var r = self._cur_range()
+            self.dyn()->diag->report(
+                DiagID::S063E,
+                r.start,
+                "expected a declaration after modifiers",
+            ).first(r)->emit()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return unsafe (Declarations::FunctionDecl::create_error(self.dyn()->ctx, r) as unsafe *Decl)
         }
 
-        return &null;
+        return &null
     }
 
     /// \struct LeadMods
     /// \brief leading modifiers consumed before the decl keyword.
     struct LeadMods {
-        var abi:      AbiKind;
-        var is_final: bool;
-        var any:      bool;     ///< true if any modifier was consumed.
-        var fn_mods:  FnModifier;  ///< leading `inline`/`eval`, folded into fd->modifiers.
-        var is_const_fn: bool;     ///< leading `const` before `fn`: FunctionDecl::is_const_fn.
-        var const_range: SourceRange;  ///< that `const`, for the fix-it that removes it.
-        var range:    SourceRange;
+        var abi:         Declarations::AbiKind
+        var is_final:    bool
+        var any:         bool ///< true if any modifier was consumed.
+        var fn_mods:     Declarations::FnModifier ///< leading `inline`/`eval`, folded into fd->modifiers.
+        var is_const_fn: bool ///< leading `const` before `fn`: FunctionDecl::is_const_fn.
+        var const_range: SourceRange ///< that `const`, for the fix-it that removes it.
+        var range:       SourceRange
     }
 
     /// \brief if the next non-newline token is \p kind, consume any newlines in
@@ -399,14 +541,22 @@ class <T> DeclParse {
     ///          newlines can only be eaten once we know a continuation keyword
     ///          follows. Peek first, commit second.
     priv fn _peek_past_nl(self, kind: TokenKind) -> bool {
-        if dyn()->check(kind) { return true; }
-        if !dyn()->check(TokenKind::TkNewLine) { return false; }
+        if self.dyn()->check(kind) {
+            return true
+        }
 
-        var save = dyn()->c_idx;
-        dyn()->advance(T::SkipNL::Only);
-        if dyn()->check(kind) { return true; }
-        dyn()->_restore_cursor(save);
-        return false;
+        if !self.dyn()->check(TokenKind::TkNewLine) {
+            return false
+        }
+
+        var save = self.dyn()->c_idx
+        self.dyn()->advance(T::SkipNL::Only)
+        if self.dyn()->check(kind) {
+            return true
+        }
+
+        self.dyn()->_restore_cursor(save)
+        return false
     }
 
     /// \brief true if the modifier run starting at the current token leads to a
@@ -430,26 +580,37 @@ class <T> DeclParse {
     ///        malformed one down the field path for three confused diagnostics
     ///        instead of one good one.
     pub fn _mods_lead_to_fn(self, require_decl_head: bool = true) -> bool {
-        type ASTTentativeGuard = typename!(T::TentativeGuard);
-        var t = ASTTentativeGuard(dyn());
+        type ASTTentativeGuard = T::TentativeGuard
+        var t = ASTTentativeGuard(self.dyn())
 
-        while !dyn()->is_eof() {
-            var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
-            if (k == TokenKind::KwStatic) || (k == TokenKind::KwVirtual)
-            || (k == TokenKind::KwOverride) || (k == TokenKind::KwFinal)
-            || (k == TokenKind::KwInline) || (k == TokenKind::KwEval)
-            || (k == TokenKind::KwConst) {
-                dyn()->advance(T::SkipNL::After);
-                continue;
+        while !self.dyn()->is_eof() {
+            var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
+            if k == TokenKind::KwStatic
+                || k == TokenKind::KwVirtual
+                || k == TokenKind::KwOverride
+                || k == TokenKind::KwFinal
+                || k == TokenKind::KwInline
+                || k == TokenKind::KwEval
+                || k == TokenKind::KwConst {
+                self.dyn()->advance(T::SkipNL::After)
+                continue
             }
-            if k != TokenKind::KwFn { return false; }
-            if !require_decl_head { return true; }
+
+            if k != TokenKind::KwFn {
+                return false
+            }
+
+            if !require_decl_head {
+                return true
+            }
+
             // A closure literal (`eval fn (x) { }`) is an expression, not a
             // decl: claiming `eval` there would strand the closure in
             // _parse_function. Only a real decl head counts.
-            return self._fn_is_decl_head();
+            return self._fn_is_decl_head()
         }
-        return false;
+
+        return false
         // guard dtor rolls back unconditionally (never commit)
     }
 
@@ -463,50 +624,80 @@ class <T> DeclParse {
     ///          otherwise they belong to a binding, an ffi block or an eval
     ///          block, each of which owns its own production and needs to see
     ///          its keyword still on the cursor.
-    priv fn _consume_leading_modifiers(self, require_decl_head: bool = true) -> LeadMods {
-        var m = LeadMods{};
-        m.abi      = AbiKind::None;
-        m.is_final = false;
-        m.any      = false;
-        m.fn_mods  = FnModifier::None;
-        m.is_const_fn = false;
+    priv fn _consume_leading_modifiers(self, require_decl_head: bool = true) -> Self::LeadMods {
+        var m = Self::LeadMods{}
+        m.abi         = Declarations::AbiKind::None
+        m.is_final    = false
+        m.any         = false
+        m.fn_mods     = Declarations::FnModifier::None
+        m.is_const_fn = false
 
-        var start = self._cur_range();
-        m.range   = start;
+        var start = self._cur_range()
+        m.range = start
 
-        var to_fn = self._mods_lead_to_fn(require_decl_head);
+        var to_fn = self._mods_lead_to_fn(require_decl_head)
 
         while true {
-            if dyn()->check(TokenKind::KwStatic) && to_fn {
-                m.abi = AbiKind::Static; m.any = true; dyn()->advance(); continue;
+            if self.dyn()->check(TokenKind::KwStatic) && to_fn {
+                m.abi = Declarations::AbiKind::Static
+                m.any = true
+                self.dyn()->advance()
+                continue
             }
-            if dyn()->check(TokenKind::KwVirtual) {
-                m.abi = AbiKind::Virtual; m.any = true; dyn()->advance(); continue;
+
+            if self.dyn()->check(TokenKind::KwVirtual) {
+                m.abi = Declarations::AbiKind::Virtual
+                m.any = true
+                self.dyn()->advance()
+                continue
             }
-            if dyn()->check(TokenKind::KwOverride) {
-                m.abi = AbiKind::Override; m.any = true; dyn()->advance(); continue;
+
+            if self.dyn()->check(TokenKind::KwOverride) {
+                m.abi = Declarations::AbiKind::Override
+                m.any = true
+                self.dyn()->advance()
+                continue
             }
-            if dyn()->check(TokenKind::KwFinal) {
-                m.is_final = true; m.any = true; dyn()->advance(); continue;
+
+            if self.dyn()->check(TokenKind::KwFinal) {
+                m.is_final = true
+                m.any      = true
+                self.dyn()->advance()
+                continue
             }
-            if dyn()->check(TokenKind::KwInline) && to_fn {
-                m.fn_mods |= FnModifier::IsInline; m.any = true; dyn()->advance(); continue;
+
+            if self.dyn()->check(TokenKind::KwInline) && to_fn {
+                m.fn_mods |= Declarations::FnModifier::IsInline
+                m.any = true
+                self.dyn()->advance()
+                continue
             }
-            if dyn()->check(TokenKind::KwEval) && to_fn {
-                m.fn_mods |= FnModifier::IsEval; m.any = true; dyn()->advance(); continue;
+
+            if self.dyn()->check(TokenKind::KwEval) && to_fn {
+                m.fn_mods |= Declarations::FnModifier::IsEval
+                m.any = true
+                self.dyn()->advance()
+                continue
             }
+
             // `const fn`: only a `fn` head after it makes `const` a modifier;
             // `const x = 1` and `const static` stay bindings (to_fn is false).
-            if dyn()->check(TokenKind::KwConst) && to_fn {
-                m.is_const_fn = true; m.any = true;
-                m.const_range = self._cur_range();
-                dyn()->advance(); continue;
+            if self.dyn()->check(TokenKind::KwConst) && to_fn {
+                m.is_const_fn = true
+                m.any         = true
+                m.const_range = self._cur_range()
+                self.dyn()->advance()
+                continue
             }
-            break;
+
+            break
         }
 
-        if m.any { m.range = start | dyn()->prev().range; }
-        return m;
+        if m.any {
+            m.range = start | self.dyn()->prev().range
+        }
+
+        return m
     }
 
     //  Visibility group   pub { decl* }
@@ -522,55 +713,71 @@ class <T> DeclParse {
     ///          visibility). attributes/doc-comments on the GROUP itself are
     ///          rejected by parse_decl (see annotation check there); members
     ///          carry their own annotations normally.
-    priv fn _parse_visibility_group(self) -> *Decl {
-        var start = self._cur_range();
+    priv fn _parse_visibility_group(self) -> unsafe *Decl {
+        var start = self._cur_range()
 
-        var vis: u8 = 3; // Public
-        if      dyn()->check(TokenKind::KwPriv) { vis = 1; }
-        else if dyn()->check(TokenKind::KwProt) { vis = 2; }
-        var vis_kind = static_cast::<VisibilityKind>(vis);
+        var vis: u8 = 3 // Public
+        if self.dyn()->check(TokenKind::KwPriv) {
+            vis = 1
+        } else if self.dyn()->check(TokenKind::KwProt) {
+            vis = 2
+        }
 
-        dyn()->advance(T::SkipNL::After); // consume visibility keyword
-        dyn()->advance(T::SkipNL::After); // consume `{`
+        var vis_kind = (vis as VisibilityKind)
 
-        var vg = VisibilityGroupDecl::create(dyn()->ctx, start, vis);
-        var members: std::StackBuf::<*Decl, 8>;
+        self.dyn()->advance(T::SkipNL::After) // consume visibility keyword
+        self.dyn()->advance(T::SkipNL::After) // consume `{`
 
-        while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
-            if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
-                dyn()->advance();
-                continue;
+        var vg = Declarations::VisibilityGroupDecl::create(self.dyn()->ctx, start, vis)
+        var members: kairo::std::StackBuf<unsafe *Decl, 8>
+
+        while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
+            if self.dyn()->check(TokenKind::TkNewLine)
+                || self.dyn()->check(TokenKind::OpSemicolon) {
+                self.dyn()->advance()
+                continue
             }
 
-            var d = self.parse_decl();
-            if d == &null { break; }
-            if self.is_fatal_decl(d) { break; }
+            var unsafe *d = self.parse_decl()
+            if d == &null {
+                break
+            }
+
+            if self.is_fatal_decl(d) {
+                break
+            }
 
             if d->has_visibility() {
-                dyn()->diag->report(DiagID::S048E, d->visibility_range().start,
-                    "explicit visibility is not allowed inside a visibility group"
-                ).first(d->visibility_range())
-                 .note(DiagID::S048N, d->visibility_range().start,
+                self.dyn()->diag->report(
+                    DiagID::S048E,
+                    d->visibility_range().start,
+                    "explicit visibility is not allowed inside a visibility group",
+                ).first(d->visibility_range())->note(
+                    DiagCode(DiagID::S048N),
+                    d->visibility_range().start,
                     "every member of this group already has the group's visibility; "
-                    "move the declaration outside the group to give it different visibility")
-                 .emit();
+                    "move the declaration outside the group to give it different visibility",
+                )->emit()
             }
-            d->set_visibility(vis_kind, start);
 
-            members.push_back(d);
+            d->set_visibility(vis_kind, start)
+
+            members.push_back(d)
         }
 
-        if dyn()->check(TokenKind::OpRBrace) {
-            dyn()->advance(T::SkipNL::Before);
+        if self.dyn()->check(TokenKind::OpRBrace) {
+            self.dyn()->advance(T::SkipNL::Before)
         } else {
-            dyn()->diag->report(DiagID::S051E, start.start,
-                "expected '}' to close visibility group"
-            ).first(start).emit();
+            self.dyn()->diag->report(
+                DiagID::S051E,
+                start.start,
+                "expected '}' to close visibility group",
+            ).first(start)->emit()
         }
 
-        vg->members.from_buf(members.data(), members.size(), dyn()->ctx);
-        vg->range = start | dyn()->prev().range;
-        return static_cast::<*Decl>(vg);
+        vg->members.from_buf(members.data(), members.size(), self.dyn()->ctx)
+        vg->range = start | self.dyn()->prev().range
+        return vg
     }
 
     /// \brief visibility group inside a type body. Same rules as decl scope;
@@ -579,133 +786,154 @@ class <T> DeclParse {
     ///        owner->dc_decls for printing fidelity, holding member pointers.
     priv fn _parse_member_vis_group(
         self,
-        owner:         *DeclContext,
-        owner_name:     Token,
-        fields_out:    *std::StackBuf::<*FieldDecl, 8>,
-        methods_out:   *std::StackBuf::<*FunctionDecl, 8>,
-        allow_methods: bool,
-        field_idx:     *u32
+        owner:              unsafe *DeclContext,
+        owner_name:         Token,
+        @inout fields_out:  kairo::std::StackBuf<unsafe *Declarations::FieldDecl, 8>,
+        @inout methods_out: kairo::std::StackBuf<unsafe *Declarations::FunctionDecl, 8>,
+        allow_methods:      bool,
+        field_idx:          unsafe *u32,
     ) {
-        var start = self._cur_range();
+        var start = self._cur_range()
 
-        var vis: u8 = 3;
-        if      dyn()->check(TokenKind::KwPriv) { vis = 1; }
-        else if dyn()->check(TokenKind::KwProt) { vis = 2; }
-        var vis_kind = static_cast::<VisibilityKind>(vis);
+        var vis: u8 = 3
+        if self.dyn()->check(TokenKind::KwPriv) {
+            vis = 1
+        } else if self.dyn()->check(TokenKind::KwProt) {
+            vis = 2
+        }
 
-        dyn()->advance(T::SkipNL::After); // visibility keyword
-        dyn()->advance(T::SkipNL::After); // `{`
+        var vis_kind = (vis as VisibilityKind)
 
-        var vg = VisibilityGroupDecl::create(dyn()->ctx, start, vis);
-        var members: std::StackBuf::<*Decl, 8>;
+        self.dyn()->advance(T::SkipNL::After) // visibility keyword
+        self.dyn()->advance(T::SkipNL::After) // `{`
 
-        while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
-            if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
-                dyn()->advance();
-                continue;
+        var vg = Declarations::VisibilityGroupDecl::create(self.dyn()->ctx, start, vis)
+        var members: kairo::std::StackBuf<unsafe *Decl, 8>
+
+        while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
+            if self.dyn()->check(TokenKind::TkNewLine)
+                || self.dyn()->check(TokenKind::OpSemicolon) {
+                self.dyn()->advance()
+                continue
             }
 
-            var m_annot: typename!(T::PendingAnnotations);
-            dyn()->consume_leading_annotations(&m_annot);
-            if dyn()->check(TokenKind::OpRBrace) { break; }
+            var m_annot: T::PendingAnnotations
+            self.dyn()->consume_leading_annotations(unsafe &m_annot)
+            if self.dyn()->check(TokenKind::OpRBrace) {
+                break
+            }
 
             // explicit visibility inside the group: error, then proceed.
-            var m_has_vis = m_annot.visibility != VisibilityKind::None;
+            var m_has_vis = m_annot.visibility != VisibilityKind::None
             if m_has_vis {
-                dyn()->diag->report(DiagID::S048E, m_annot.vis_range.start,
-                    "explicit visibility is not allowed inside a visibility group"
-                ).first(m_annot.vis_range)
-                 .note(DiagID::S048N, start.start,
+                self.dyn()->diag->report(
+                    DiagID::S048E,
+                    m_annot.vis_range.start,
+                    "explicit visibility is not allowed inside a visibility group",
+                ).first(m_annot.vis_range)->note(
+                    DiagCode(DiagID::S048N),
+                    start.start,
                     "this visibility group already fixes the visibility of every member; "
-                    "move the declaration out of the group to give it different visibility"
-                 ).child_first(start)
-                 .emit();
+                    "move the declaration out of the group to give it different visibility",
+                )->child_first(start)->emit()
             }
-            var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
 
-            var is_method_lead = self._mods_lead_to_fn(false);
+            var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
+
+            var is_method_lead = self._mods_lead_to_fn(false)
 
             if is_method_lead {
-                var mr   = self._cur_range();
-                var lead = self._consume_leading_modifiers(false);
-                if !dyn()->check(TokenKind::KwFn) {
-                    self._sync_decl_progress(DeclSyncCtx::TypeBody);
-                    continue;
+                var mr   = self._cur_range()
+                var lead = self._consume_leading_modifiers(false)
+                if !self.dyn()->check(TokenKind::KwFn) {
+                    self._sync_decl_progress(Self::DeclSyncCtx::TypeBody)
+                    continue
                 }
-                var m = self._parse_function(&lead);
-                if (m != &null) && isa::<FunctionDecl>(m) {
-                    var fm = cast::<FunctionDecl>(m);
+
+                var unsafe *m = self._parse_function(unsafe &lead)
+                if m != &null && isa<Declarations::FunctionDecl>(m) {
+                    var unsafe *fm = cast<Declarations::FunctionDecl>(m)
                     // struct/union bodies: constructors and operators only.
-                    if (!allow_methods)
-                    && (!fm->is_operator)
-                    && (!self._is_ctor_of(fm, owner_name)) {
-                        dyn()->diag->report(DiagID::S048E, mr.start,
+                    if !allow_methods && !fm->is_operator && !self._is_ctor_of(fm, owner_name) {
+                        self.dyn()->diag->report(DiagID::S048E, mr.start,
                             "a struct or union body cannot contain a named function; "
                             "only fields, nested types, constructors, and operator "
                             "overloads are permitted"
                         ).first(mr)
                          // No location: same span as the error, so a second
                          // caret is noise. Plain text reads better.
-                         .note(DiagID::S048N,
+                         .note(DiagCode(DiagID::S048N),
                             "move it into an 'extend' block on this type, or declare "
                             "the type as a 'class' if it needs methods"
-                         ).emit();
-                        continue;
+                         )->emit()
+                        continue
                     }
-                    dyn()->apply_annotations_to_decl(static_cast::<*Decl>(fm), &m_annot);
-                    fm->set_visibility(vis_kind, start);
-                    methods_out->push_back(fm);
-                    members.push_back(static_cast::<*Decl>(fm));
+
+                    self.dyn()->apply_annotations_to_decl(
+                        unsafe (fm as unsafe *Decl),
+                        unsafe &m_annot,
+                    )
+
+                    fm->set_visibility(vis_kind, start)
+                    methods_out.push_back(fm)
+                    members.push_back(unsafe (fm as unsafe *Decl))
                 }
-                continue;
+
+                continue
             }
 
-            var is_field_lead = (k == TokenKind::KwVar) || (k == TokenKind::KwConst)
-                             || (k == TokenKind::KwStatic) || (k == TokenKind::KwEval)
-                             || (k == TokenKind::KwThread) || (k == TokenKind::KwMutable);
+            var is_field_lead = k == TokenKind::KwVar
+                || k == TokenKind::KwConst
+                || k == TokenKind::KwStatic
+                || k == TokenKind::KwEval
+                || k == TokenKind::KwThread
+                || k == TokenKind::KwMutable
 
             if is_field_lead {
-                var f = self._parse_field(*field_idx);
-                if !is_recovery(static_cast::<*Decl>(f)) {
-                    dyn()->apply_annotations_to_decl(static_cast::<*Decl>(f), &m_annot);
-                    f->set_visibility(vis_kind, start);
-                    fields_out->push_back(f);
-                    members.push_back(static_cast::<*Decl>(f));
-                    // NOTE: parenthesize the deref. Stage 0 gives prefix `*`
-                    // lower precedence than `+=`, so `*field_idx += 1` is
-                    // miscompiled as `*(field_idx += 1)` (pointer bump, not
-                    // counter bump) - see the stack-buffer-overflow it caused.
-                    (*field_idx) += 1;
+                var unsafe *f = self._parse_field(*field_idx)
+                if !is_recovery(unsafe (f as unsafe *Decl)) {
+                    self.dyn()->apply_annotations_to_decl(
+                        unsafe (f as unsafe *Decl),
+                        unsafe &m_annot,
+                    )
+
+                    f->set_visibility(vis_kind, start)
+                    fields_out.push_back(f)
+                    members.push_back(unsafe (f as unsafe *Decl))
+                    *field_idx += 1
                 } else {
-                    self._sync_decl_progress(DeclSyncCtx::TypeBody);
+                    self._sync_decl_progress(Self::DeclSyncCtx::TypeBody)
                 }
-                continue;
+
+                continue
             }
 
             // nested types etc.
-            var nested = self._dispatch_decl();
-            if (nested != &null) && (!self.is_fatal_decl(nested)) {
-                dyn()->apply_annotations_to_decl(nested, &m_annot);
-                nested->set_visibility(vis_kind, start);
-                owner->add_decl(nested);
-                members.push_back(nested);
-                continue;
+            var unsafe *nested = self._dispatch_decl()
+            if nested != &null && !self.is_fatal_decl(nested) {
+                self.dyn()->apply_annotations_to_decl(nested, unsafe &m_annot)
+                nested->set_visibility(vis_kind, start)
+                owner->add_decl(nested)
+                members.push_back(nested)
+                continue
             }
 
-            self._sync_decl(DeclSyncCtx::TypeBody);
+            self._sync_decl(Self::DeclSyncCtx::TypeBody)
         }
 
-        if dyn()->check(TokenKind::OpRBrace) {
-            dyn()->advance(T::SkipNL::Before);
+        if self.dyn()->check(TokenKind::OpRBrace) {
+            self.dyn()->advance(T::SkipNL::Before)
         } else {
-            dyn()->diag->report(DiagID::S051E, start.start,
-                "expected '}' to close visibility group"
-            ).first(start).emit();
+            self.dyn()->diag->report(
+                DiagID::S051E,
+                start.start,
+                "expected '}' to close visibility group",
+            ).first(start)->emit()
         }
 
-        vg->members.from_buf(members.data(), members.size(), dyn()->ctx);
-        vg->range = start | dyn()->prev().range;
-        owner->add_decl(static_cast::<*Decl>(vg));
+        vg->members.from_buf(members.data(), members.size(), self.dyn()->ctx)
+        vg->range = start | self.dyn()->prev().range
+        owner->add_decl(unsafe (vg as unsafe *Decl))
     }
 
     //  Generic parameter list  <T, T impl Foo, const N: i32, ...T>
@@ -736,24 +964,26 @@ class <T> DeclParse {
     /// \returns true if recovery was entered while parsing type params.
     fn _parse_generic_or_spec_intro(
         self,
-        out:   *std::StackBuf::<*GenericParamDecl, 2>,
-        intro: *SpecKind
+        out:   unsafe *kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>,
+        intro: *Declarations::SpecKind,
     ) -> bool {
-        (*intro) = SpecKind::None;
+        *intro = Declarations::SpecKind::None
 
-        if !dyn()->check(TokenKind::OpLess) { return false; }
+        if !self.dyn()->check(TokenKind::OpLess) {
+            return false
+        }
 
         // Peek for the empty `<>` specialization marker. `<>` is lexed as two
         // adjacent tokens (OpLess, OpGreater); there is no fused diamond token.
-        if dyn()->check_peek(TokenKind::OpGreater) {
-            dyn()->advance_raw();  // consume `<`
-            dyn()->advance_raw();  // consume `>`
-            (*intro) = SpecKind::Explicit; // provisional; refined post-name
-            return false;
+        if self.dyn()->check_peek(TokenKind::OpGreater) {
+            self.dyn()->advance_raw()                 // consume `<`
+            self.dyn()->advance_raw()                 // consume `>`
+            *intro = Declarations::SpecKind::Explicit // provisional; refined post-name
+            return false
         }
 
         // Ordinary `<T, ...>` type-parameter list.
-        return self._parse_generic_params(out);
+        return self._parse_generic_params(&*out)
     }
 
     /// \brief parses the post-name specialization argument pattern
@@ -768,75 +998,95 @@ class <T> DeclParse {
     ///          the caller's job based on whether the args are bare type vars.
     ///
     /// \returns true on clean close, false on recovery.
-    fn _parse_spec_args(self, out: *std::StackBuf::<*Type, 4>) -> bool {
-        if !dyn()->check(TokenKind::OpLess) { return false; }
-        dyn()->advance(T::SkipNL::After); // consume `<`
-        dyn()->nl_push();
+    fn _parse_spec_args(self, @inout out: kairo::std::StackBuf<unsafe *Type, 4>) -> bool {
+        if !self.dyn()->check(TokenKind::OpLess) {
+            return false
+        }
 
-        if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
+        self.dyn()->advance(T::SkipNL::After) // consume `<`
+        self.dyn()->nl_push()
+
+        if self.dyn()->_pending_close_angle {
+            self.dyn()->_pending_close_angle = false
+        }
 
         // `<>` with no args after a name is not a valid specialization pattern.
-        if dyn()->check(TokenKind::OpGreater) {
-            dyn()->diag->report(DiagID::S049E, dyn()->prev().range.start,
-                "specialization argument list cannot be empty"
-            ).first(dyn()->prev().range).emit();
-            dyn()->nl_pop();
-            dyn()->advance_raw();
-            return false;
+        if self.dyn()->check(TokenKind::OpGreater) {
+            self.dyn()->diag->report(
+                DiagID::S049E,
+                self.dyn()->prev().range.start,
+                "specialization argument list cannot be empty",
+            ).first(self.dyn()->prev().range)->emit()
+            self.dyn()->nl_pop()
+            self.dyn()->advance_raw()
+            return false
         }
 
-        while !dyn()->is_eof() {
-            var ty = dyn()->parse_type(false, false, true); // gen_arg = true
-            if (ty == &null) || is_recovery(ty) {
-                self._sync_decl_progress(DeclSyncCtx::Generics);
-                if dyn()->_pending_close_angle {
-                    dyn()->_pending_close_angle = false;
-                    dyn()->nl_pop();
-                    return false;
+        while !self.dyn()->is_eof() {
+            var ty = self.dyn()->parse_type(false, false, true) // gen_arg = true
+            if ty == &null || is_recovery(ty) {
+                self._sync_decl_progress(Self::DeclSyncCtx::Generics)
+                if self.dyn()->_pending_close_angle {
+                    self.dyn()->_pending_close_angle = false
+                    self.dyn()->nl_pop()
+                    return false
                 }
-                if dyn()->check(TokenKind::OpGreater) {
-                    dyn()->nl_pop();
-                    dyn()->advance_raw();
-                    return false;
+
+                if self.dyn()->check(TokenKind::OpGreater) {
+                    self.dyn()->nl_pop()
+                    self.dyn()->advance_raw()
+                    return false
                 }
-                dyn()->nl_pop();
-                return false;
+
+                self.dyn()->nl_pop()
+                return false
             }
-            out->push_back(ty);
+
+            out.push_back(ty)
 
             // A nested `>>` may have been split, leaving us owing one `>`.
-            if dyn()->_pending_close_angle {
-                dyn()->_pending_close_angle = false;
-                dyn()->nl_pop();
-                return true;
+            if self.dyn()->_pending_close_angle {
+                self.dyn()->_pending_close_angle = false
+                self.dyn()->nl_pop()
+                return true
             }
 
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
-                if dyn()->check(TokenKind::OpGreater) { break; }
-                if dyn()->check(TokenKind::OpGreaterGreater) { break; }
-                continue;
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
+                if self.dyn()->check(TokenKind::OpGreater) {
+                    break
+                }
+
+                if self.dyn()->check(TokenKind::OpGreaterGreater) {
+                    break
+                }
+
+                continue
             }
-            break;
+
+            break
         }
 
-        if dyn()->check(TokenKind::OpGreater) {
-            dyn()->nl_pop();
-            dyn()->advance_raw();
-            return true;
-        }
-        if dyn()->check(TokenKind::OpGreaterGreater) {
-            dyn()->_pending_close_angle = true;
-            dyn()->nl_pop();
-            dyn()->advance_raw();
-            return true;
+        if self.dyn()->check(TokenKind::OpGreater) {
+            self.dyn()->nl_pop()
+            self.dyn()->advance_raw()
+            return true
         }
 
-        dyn()->diag->report(DiagID::S049E, self._cur_range().start,
-            "expected '>' to close specialization arguments"
-        ).first(self._cur_range()).emit();
-        dyn()->nl_pop();
-        return false;
+        if self.dyn()->check(TokenKind::OpGreaterGreater) {
+            self.dyn()->_pending_close_angle = true
+            self.dyn()->nl_pop()
+            self.dyn()->advance_raw()
+            return true
+        }
+
+        self.dyn()->diag->report(
+            DiagID::S049E,
+            self._cur_range().start,
+            "expected '>' to close specialization arguments",
+        ).first(self._cur_range())->emit()
+        self.dyn()->nl_pop()
+        return false
     }
 
     /// \brief coarse *syntactic* classification of a specialization from its
@@ -875,23 +1125,26 @@ class <T> DeclParse {
     ///
     /// \param head_has_params true when the decl head bound type parameters
     ///        (`<P> Name<...>`); false for the `<> Name<...>` marker.
-    fn _classify_spec(
-        self,
-        spec_args:       *std::StackBuf::<*Type, 4>,
-        head_has_params:  bool
-    ) -> SpecKind {
-        if spec_args->is_empty() { return SpecKind::Explicit; }
+    fn _classify_spec(self,
+                      @inout spec_args: kairo::std::StackBuf<unsafe *Type, 4>,
+                      head_has_params:  bool) -> Declarations::SpecKind {
+        if spec_args.is_empty() {
+            return Declarations::SpecKind::Explicit
+        }
 
         // `<>` binds nothing, so no argument can be a pattern variable: this is
         // a full specialization regardless of how structured the args are.
-        if !head_has_params { return SpecKind::Explicit; }
+        if !head_has_params {
+            return Declarations::SpecKind::Explicit
+        }
 
-        for var i: usize = 0; i < spec_args->size(); ++i {
-            if !self._is_simple_ident_type((*spec_args)[i]) {
-                return SpecKind::Partial; // free var in a structured pattern
+        for var i: usize = 0; i < ((spec_args.size()) as usize); ++i {
+            if !self._is_simple_ident_type((spec_args)[(i as u32)]) {
+                return Declarations::SpecKind::Partial // free var in a structured pattern
             }
         }
-        return SpecKind::Primary; // all simple idents; sema refines vs Explicit
+
+        return Declarations::SpecKind::Primary // all simple idents; sema refines vs Explicit
     }
 
     /// \brief _classify_spec for a RECORD, which can say more: the head's own
@@ -907,31 +1160,52 @@ class <T> DeclParse {
     ///        function forms are rejected.
     fn _classify_record_spec(
         self,
-        spec_args: *std::StackBuf::<*Type, 4>,
-        gparams:   *std::StackBuf::<*GenericParamDecl, 2>
-    ) -> SpecKind {
-        var k = self._classify_spec(spec_args, !gparams->is_empty());
-        if k != SpecKind::Primary { return k; }
-        if spec_args->size() != gparams->size() { return SpecKind::Partial; }
-        for var i: usize = 0; i < spec_args->size(); ++i {
-            var ct = cast::<ChainType>((*spec_args)[i]);
-            var seg = ct->segments.get(0);
-            if (seg == &null) || (seg->name == &null) { return k; }
-            var arg = dyn()->ctx->get_spelling(seg->name->name);
-            var gp  = (*gparams)[i];
-            if gp == &null { return k; }
-            if arg != dyn()->ctx->get_spelling(gp->name) { return SpecKind::Partial; }
+        spec_args: unsafe *kairo::std::StackBuf<unsafe *Type, 4>,
+        gparams:   unsafe *kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>,
+    ) -> Declarations::SpecKind {
+        var k = self._classify_spec(&*spec_args, !gparams->is_empty())
+        if k != Declarations::SpecKind::Primary {
+            return k
         }
-        return k;
+
+        if spec_args->size() != gparams->size() {
+            return Declarations::SpecKind::Partial
+        }
+
+        for var i: usize = 0; i < ((spec_args->size()) as usize); ++i {
+            var unsafe *ct  = cast<ChainType>((*spec_args)[(i as u32)])
+            var unsafe *seg = ct->segments.get(0)
+            if seg == &null || seg->name == &null {
+                return k
+            }
+
+            var        arg = self.dyn()->ctx->get_spelling(seg->name->name)
+            var unsafe *gp = (*gparams)[(i as u32)]
+            if gp == &null {
+                return k
+            }
+
+            if arg != self.dyn()->ctx->get_spelling(gp->name) {
+                return Declarations::SpecKind::Partial
+            }
+        }
+
+        return k
     }
 
     /// \brief true if `ty` is a single-segment `ChainType` naming a bare
     ///        identifier with no generic args of its own (`T`, `i32`, `Foo`).
     ///        Structured types (`[T]`, `*T`, `Vec<T>`, `A::B`) return false.
-    fn _is_simple_ident_type(self, ty: *Type) -> bool {
-        if ty == &null { return false; }
-        if !isa::<ChainType>(ty) { return false; }
-        return cast::<ChainType>(ty)->is_simple(); // single unqualified name, no args
+    fn _is_simple_ident_type(self, ty: unsafe *Type) -> bool {
+        if ty == &null {
+            return false
+        }
+
+        if !isa<ChainType>(ty) {
+            return false
+        }
+
+        return cast<ChainType>(ty)->is_simple() // single unqualified name, no args
     }
 
     /// \brief parses an optional generic parameter list into `out`.
@@ -944,180 +1218,227 @@ class <T> DeclParse {
     ///
     /// \details precondition: current token is `<` (caller checked). On a
     ///          malformed list, recovers to `>` and returns what parsed.
-    fn _parse_generic_params(self, out: *std::StackBuf::<*GenericParamDecl, 2>) -> bool {
-        if !dyn()->check(TokenKind::OpLess) { return false; }
-        var open = self._cur_range();
-        dyn()->advance(T::SkipNL::After); // consume `<`
-        dyn()->nl_push();                 // suppress newlines inside `< >`
+    fn _parse_generic_params(
+        self,
+        @inout out: kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>,
+    ) -> bool {
+        if !self.dyn()->check(TokenKind::OpLess) {
+            return false
+        }
+
+        var open = self._cur_range()
+        self.dyn()->advance(T::SkipNL::After) // consume `<`
+        self.dyn()->nl_push()                 // suppress newlines inside `< >`
 
         // A nested generic in a *prior* sibling could have left us a pending
         // close-angle, but at the param-list opener that can't have happened
         // yet. Still, clear it defensively so a stale flag from an earlier
         // recovered parse can't leak in.
-        if dyn()->_pending_close_angle {
-            dyn()->_pending_close_angle = false;
+        if self.dyn()->_pending_close_angle {
+            self.dyn()->_pending_close_angle = false
         }
 
-        if dyn()->check(TokenKind::OpGreater) {
-            dyn()->diag->report(DiagID::S049E, open.start,
-                "empty generic parameter list is not allowed"
-            ).first(open).emit();
-            dyn()->nl_pop();
-            dyn()->advance_raw(); // consume `>`
-            return false;
+        if self.dyn()->check(TokenKind::OpGreater) {
+            self.dyn()->diag->report(
+                DiagID::S049E,
+                open.start,
+                "empty generic parameter list is not allowed",
+            ).first(open)->emit()
+            self.dyn()->nl_pop()
+            self.dyn()->advance_raw() // consume `>`
+            return false
         }
 
-        var idx: u32 = 0;
-        while !dyn()->is_eof() {
-            var gp = self._parse_one_generic_param(idx);
+        var idx: u32 = 0
+        while !self.dyn()->is_eof() {
+            var unsafe *gp = self._parse_one_generic_param(idx)
             if gp == &null {
-                self._sync_decl_progress(DeclSyncCtx::Generics);
+                self._sync_decl_progress(Self::DeclSyncCtx::Generics)
                 // honor a pending close-angle during recovery too
-                if dyn()->_pending_close_angle {
-                    dyn()->_pending_close_angle = false;
-                    dyn()->nl_pop();
-                    return false;
+                if self.dyn()->_pending_close_angle {
+                    self.dyn()->_pending_close_angle = false
+                    self.dyn()->nl_pop()
+                    return false
                 }
-                if dyn()->check(TokenKind::OpGreater) {
-                    dyn()->nl_pop();
-                    dyn()->advance_raw();
-                    return false;
+
+                if self.dyn()->check(TokenKind::OpGreater) {
+                    self.dyn()->nl_pop()
+                    self.dyn()->advance_raw()
+                    return false
                 }
-                dyn()->nl_pop();
-                return false;
+
+                self.dyn()->nl_pop()
+                return false
             }
-            out->push_back(gp);
-            ++idx;
+
+            out.push_back(gp)
+            ++idx
 
             // A bound type on this param (`T: Vec<U>`) may have consumed a
             // `>>` and left us owing one `>`. That closes THIS list.
-            if dyn()->_pending_close_angle {
-                dyn()->_pending_close_angle = false;
-                dyn()->nl_pop();
-                return true;
+            if self.dyn()->_pending_close_angle {
+                self.dyn()->_pending_close_angle = false
+                self.dyn()->nl_pop()
+                return true
             }
 
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
                 // trailing comma before either closer
-                if dyn()->check(TokenKind::OpGreater) { break; }
-                if dyn()->check(TokenKind::OpGreaterGreater) { break; }
-                continue;
+                if self.dyn()->check(TokenKind::OpGreater) {
+                    break
+                }
+
+                if self.dyn()->check(TokenKind::OpGreaterGreater) {
+                    break
+                }
+
+                continue
             }
-            break;
+
+            break
         }
 
         // single `>` closes the list cleanly
-        if dyn()->check(TokenKind::OpGreater) {
-            dyn()->nl_pop();
-            dyn()->advance_raw();
-            return true;
+        if self.dyn()->check(TokenKind::OpGreater) {
+            self.dyn()->nl_pop()
+            self.dyn()->advance_raw()
+            return true
         }
 
         // `>>` here means a nested generic did NOT consume it (e.g. the list
         // itself nests: `<T<U>>` is not valid param syntax, but a trailing
         // comma path can land us on `>>`). Consume one level, leave the other
         // for an enclosing list via the pending flag mirroring TypeParse.
-        if dyn()->check(TokenKind::OpGreaterGreater) {
-            dyn()->_pending_close_angle = true;
-            dyn()->nl_pop();
-            dyn()->advance_raw();
-            return true;
+        if self.dyn()->check(TokenKind::OpGreaterGreater) {
+            self.dyn()->_pending_close_angle = true
+            self.dyn()->nl_pop()
+            self.dyn()->advance_raw()
+            return true
         }
 
-        dyn()->diag->report(DiagID::S049E, open.start,
-            "expected '>' to close generic parameter list"
-        ).first(open).emit();
-        self._sync_decl(DeclSyncCtx::Generics);
-        dyn()->nl_pop();
-        return false;
+        self.dyn()->diag->report(
+            DiagID::S049E,
+            open.start,
+            "expected '>' to close generic parameter list",
+        ).first(open)->emit()
+        self._sync_decl(Self::DeclSyncCtx::Generics)
+        self.dyn()->nl_pop()
+        return false
     }
 
     /// \brief parses a single generic parameter.
-    priv fn _parse_one_generic_param(self, idx: u32) -> *GenericParamDecl {
-        dyn()->_reject_mode_binding();   // `<@move T>`: a generic param is not passed.
-        var start = self._cur_range();
+    priv fn _parse_one_generic_param(self, idx: u32) -> unsafe *Declarations::GenericParamDecl {
+        self.dyn()->_reject_mode_binding() // `<@move T>`: a generic param is not passed.
+        var start = self._cur_range()
 
-        // value parameter: `eval N: T` (EVAL.md 3). `const N: T` is the old
+        // value parameter: `eval N: T` (Compiler/Spec/Eval.md#generic-value-parameters). `const N: T` is the old
         // spelling: an error with a fix-it to `eval`, parsed as the same
         // parameter so nothing after it cascades.
-        if dyn()->check(TokenKind::KwEval) || dyn()->check(TokenKind::KwConst) {
-            var kw = dyn()->current();
+        if self.dyn()->check(TokenKind::KwEval) || self.dyn()->check(TokenKind::KwConst) {
+            var kw = self.dyn()->current()
             if kw.kind == TokenKind::KwConst {
-                var b = dyn()->diag->report(DiagID::S001E, kw.range.start,
-                    "a generic value parameter is written 'eval N: T', not 'const N: T\x27; its value is a compile-time constant");
-                b.first(kw.range);
-                b.fix(kw.range, "eval", "write 'eval\x27");
-                b.emit();
+                var b = self.dyn()->diag->report(
+                    DiagID::S082E,
+                    kw.range.start,
+                    "a generic value parameter is written 'eval N: T', not 'const N: T'; its value is a compile-time constant",
+                )
+
+                b.first(kw.range)
+                b.fix(kw.range, "eval", "write 'eval'")
+                b.emit()
             }
-            dyn()->advance(T::SkipNL::After); // consume `eval` / `const`
-            if !dyn()->check_is_ident() {
-                dyn()->diag->report(DiagID::S049E, start.start,
-                    "expected parameter name after 'eval' in generic parameter list"
-                ).first(start).emit();
-                return &null;
+
+            self.dyn()->advance(T::SkipNL::After) // consume `eval` / `const`
+            if !self.dyn()->check_is_ident() {
+                self.dyn()->diag->report(
+                    DiagID::S049E,
+                    start.start,
+                    "expected parameter name after 'eval' in generic parameter list",
+                ).first(start)->emit()
+                return &null
             }
-            var nm = dyn()->current();
-            dyn()->advance();
-            if !dyn()->check(TokenKind::OpColon) {
-                dyn()->diag->report(DiagID::S049E, start.start,
-                    "expected ':' and a type for a generic value parameter"
-                ).first(start).emit();
-                return &null;
+
+            var nm = self.dyn()->current()
+            self.dyn()->advance()
+            if !self.dyn()->check(TokenKind::OpColon) {
+                self.dyn()->diag->report(
+                    DiagID::S049E,
+                    start.start,
+                    "expected ':' and a type for a generic value parameter",
+                ).first(start)->emit()
+                return &null
             }
-            dyn()->advance(T::SkipNL::After); // consume `:`
-            var vty = dyn()->parse_type();
-            if (vty == &null) || is_recovery(vty) {
-                return &null;
+
+            self.dyn()->advance(T::SkipNL::After) // consume `:`
+            var vty = self.dyn()->parse_type()
+            if vty == &null || is_recovery(vty) {
+                return &null
             }
-            var gp = GenericParamDecl::create(dyn()->ctx, start | dyn()->prev().range, nm, idx);
-            gp->is_const_param = true;
-            gp->value_type     = vty;
-            self._maybe_parse_generic_default(gp);
-            return gp;
+
+            var gp = Declarations::GenericParamDecl::create(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+                nm,
+                idx,
+            )
+
+            gp->is_const_param = true
+            gp->value_type     = vty
+            self._maybe_parse_generic_default(gp)
+            return gp
         }
 
         // variadic pack: `...T`
-        var is_pack = false;
-        if dyn()->check(TokenKind::OpEllipsis) {
-            is_pack = true;
-            dyn()->advance(); // consume `...`
+        var is_pack = false
+        if self.dyn()->check(TokenKind::OpEllipsis) {
+            is_pack = true
+            self.dyn()->advance() // consume `...`
         }
 
-        if !dyn()->check_is_ident() {
-            dyn()->diag->report(DiagID::S049E, start.start,
-                "expected type parameter name in generic parameter list"
-            ).first(start).emit();
-            return &null;
+        if !self.dyn()->check_is_ident() {
+            self.dyn()->diag->report(
+                DiagID::S049E,
+                start.start,
+                "expected type parameter name in generic parameter list",
+            ).first(start)->emit()
+            return &null
         }
-        var name = dyn()->current();
-        dyn()->advance();
 
-        var gp = GenericParamDecl::create(dyn()->ctx, start | dyn()->prev().range, name, idx);
-        gp->is_pack = is_pack;
+        var name = self.dyn()->current()
+        self.dyn()->advance()
+
+        var gp = Declarations::GenericParamDecl::create(
+            self.dyn()->ctx,
+            start | self.dyn()->prev().range,
+            name,
+            idx,
+        )
+
+        gp->is_pack = is_pack
 
         // optional kind bound: `: class|struct|enum|union`
-        if dyn()->check(TokenKind::OpColon) {
-            var colon = dyn()->current().range;
-            dyn()->advance(T::SkipNL::After); // consume `:`
-            gp->kind_bound = self._parse_kind_bound(start);
-            gp->kind_bound_range = colon | dyn()->prev().range;
+        if self.dyn()->check(TokenKind::OpColon) {
+            var colon = self.dyn()->current().range
+            self.dyn()->advance(T::SkipNL::After) // consume `:`
+            gp->kind_bound       = self._parse_kind_bound(start)
+            gp->kind_bound_range = colon | self.dyn()->prev().range
         }
 
         // optional impl/derives bounds. Both may appear (in either order) and
         // each is routed to its own list so the impl (structural) vs derives
         // (nominal, vtable) distinction survives into sema.
-        if dyn()->check(TokenKind::KwImpl) || dyn()->check(TokenKind::KwDerives) {
-            var impl_edges:    std::StackBuf::<InheritEdge, 4>;
-            var derives_edges: std::StackBuf::<InheritEdge, 4>;
-            self._parse_param_bounds(&impl_edges, &derives_edges);
-            gp->impl_bounds.from_buf(impl_edges.data(), impl_edges.size(), dyn()->ctx);
-            gp->derives_bounds.from_buf(derives_edges.data(), derives_edges.size(), dyn()->ctx);
+        if self.dyn()->check(TokenKind::KwImpl) || self.dyn()->check(TokenKind::KwDerives) {
+            var impl_edges:    kairo::std::StackBuf<Declarations::InheritEdge, 4>
+            var derives_edges: kairo::std::StackBuf<Declarations::InheritEdge, 4>
+            self._parse_param_bounds(&impl_edges, &derives_edges)
+            gp->impl_bounds.from_buf(impl_edges.data(), impl_edges.size(), self.dyn()->ctx)
+            gp->derives_bounds.from_buf(derives_edges.data(), derives_edges.size(), self.dyn()->ctx)
         }
 
-        self._maybe_parse_generic_default(gp);
-        gp->range = start | dyn()->prev().range;
-        return gp;
+        self._maybe_parse_generic_default(gp)
+        gp->range = start | self.dyn()->prev().range
+        return gp
     }
 
     /// `: type` is not a kind the way `: class` is -- it is the DUCK bound,
@@ -1126,16 +1447,38 @@ class <T> DeclParse {
     /// instead of here. It is spelled in this slot because it occupies the
     /// same syntactic position and, like the kind bounds, describes the
     /// parameter SLOT rather than conjoining a constraint.
-    priv fn _parse_kind_bound(self, ctx_range: SourceRange) -> GenericParamKindBound {
-        if dyn()->check(TokenKind::KwClass)     { dyn()->advance(); return GenericParamKindBound::Class;  }
-        if dyn()->check(TokenKind::KwStruct)    { dyn()->advance(); return GenericParamKindBound::Struct; }
-        if dyn()->check(TokenKind::KwEnum)      { dyn()->advance(); return GenericParamKindBound::Enum;   }
-        if dyn()->check(TokenKind::KwUnion)     { dyn()->advance(); return GenericParamKindBound::Union;  }
-        if dyn()->check(TokenKind::KwType)      { dyn()->advance(); return GenericParamKindBound::Duck;   }
-        dyn()->diag->report(DiagID::S049E, ctx_range.start,
-            "expected 'class', 'struct', 'enum', 'union', or 'type' as a kind bound after ':\x27"
-        ).first(ctx_range).emit();
-        return GenericParamKindBound::Any;
+    priv fn _parse_kind_bound(self, ctx_range: SourceRange) -> Declarations::GenericParamKindBound {
+        if self.dyn()->check(TokenKind::KwClass) {
+            self.dyn()->advance()
+            return Declarations::GenericParamKindBound::Class
+        }
+
+        if self.dyn()->check(TokenKind::KwStruct) {
+            self.dyn()->advance()
+            return Declarations::GenericParamKindBound::Struct
+        }
+
+        if self.dyn()->check(TokenKind::KwEnum) {
+            self.dyn()->advance()
+            return Declarations::GenericParamKindBound::Enum
+        }
+
+        if self.dyn()->check(TokenKind::KwUnion) {
+            self.dyn()->advance()
+            return Declarations::GenericParamKindBound::Union
+        }
+
+        if self.dyn()->check(TokenKind::KwType) {
+            self.dyn()->advance()
+            return Declarations::GenericParamKindBound::Duck
+        }
+
+        self.dyn()->diag->report(
+            DiagID::S049E,
+            ctx_range.start,
+            "expected 'class', 'struct', 'enum', 'union', or 'type' as a kind bound after ':'",
+        ).first(ctx_range)->emit()
+        return Declarations::GenericParamKindBound::Any
     }
 
     /// \brief parses one or more impl/derives bound clauses after a generic
@@ -1150,218 +1493,254 @@ class <T> DeclParse {
     ///        derives`, `fn <T impl`); a recovery node or any other null has
     ///        already been reported, so only the silent case speaks here.
     ///        Without it a truncated heritage clause was accepted cleanly.
-    priv fn _report_missing_edge_type(self, bty: *Type, kw: string) {
-        if (bty != &null) || (!dyn()->is_eof()) { return; }
-        var r = self._cur_range();
-        dyn()->diag->report(DiagID::S053E, r.start,
-            f"expected a type after '{kw}\x27"
-        ).first(r).emit();
+    priv fn _report_missing_edge_type(self, bty: unsafe *Type, const kw: string) {
+        if bty != &null || !self.dyn()->is_eof() {
+            return
+        }
+
+        var r = self._cur_range()
+        self.dyn()->diag->report(DiagID::S053E, r.start, f"expected a type after '{kw}'").first(
+            r,
+        )->emit()
     }
 
     priv fn _parse_param_bounds(
         self,
-        impl_out:    *std::StackBuf::<InheritEdge, 4>,
-        derives_out: *std::StackBuf::<InheritEdge, 4>
+        @inout impl_out:    kairo::std::StackBuf<Declarations::InheritEdge, 4>,
+        @inout derives_out: kairo::std::StackBuf<Declarations::InheritEdge, 4>,
     ) {
         while true {
-            var is_derives = dyn()->check(TokenKind::KwDerives);
-            var is_impl    = dyn()->check(TokenKind::KwImpl);
-            if (!is_derives) && (!is_impl) { break; }
-            dyn()->advance(T::SkipNL::After); // consume `impl` / `derives`
-
-            var e_start = self._cur_range();
-            var edge = InheritEdge{};
-            edge.visibility = 0;
-            edge.is_virtual = false;
-
-            if dyn()->check(TokenKind::KwVirtual) {
-                edge.is_virtual = true;
-                dyn()->advance();
+            var is_derives = self.dyn()->check(TokenKind::KwDerives)
+            var is_impl    = self.dyn()->check(TokenKind::KwImpl)
+            if !is_derives && !is_impl {
+                break
             }
-            if      dyn()->check(TokenKind::KwPub)  { edge.visibility = 3; dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwProt) { edge.visibility = 2; dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwPriv) { edge.visibility = 1; dyn()->advance(); }
 
-            var bty = dyn()->parse_type();
-            if (bty == &null) || is_recovery(bty) {
-                var bkw: string = ("derives") if (is_derives) else ("impl");
-                self._report_missing_edge_type(bty, bkw);
-                break;
+            self.dyn()->advance(T::SkipNL::After) // consume `impl` / `derives`
+
+            var e_start = self._cur_range()
+            var edge    = Declarations::InheritEdge{}
+            edge.visibility = 0
+            edge.is_virtual = false
+
+            if self.dyn()->check(TokenKind::KwVirtual) {
+                edge.is_virtual = true
+                self.dyn()->advance()
             }
-            edge.base  = bty;
-            edge.range = e_start | dyn()->prev().range;
 
-            if is_derives { derives_out->push_back(edge); }
-            else          { impl_out->push_back(edge); }
+            if self.dyn()->check(TokenKind::KwPub) {
+                edge.visibility = 3
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwProt) {
+                edge.visibility = 2
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwPriv) {
+                edge.visibility = 1
+                self.dyn()->advance()
+            }
+
+            var bty = self.dyn()->parse_type()
+            if bty == &null || is_recovery(bty) {
+                var bkw: string = if (is_derives) => ("derives") else => "impl"
+                self._report_missing_edge_type(bty, bkw)
+                break
+            }
+
+            edge.base  = bty
+            edge.range = e_start | self.dyn()->prev().range
+
+            if is_derives {
+                derives_out.push_back(edge)
+            } else {
+                impl_out.push_back(edge)
+            }
 
             // another bound only if another impl/derives follows (a bare `,`
             // belongs to the generic param list, not the bound list).
-            if dyn()->check(TokenKind::KwImpl) || dyn()->check(TokenKind::KwDerives) {
-                continue;
+            if self.dyn()->check(TokenKind::KwImpl) || self.dyn()->check(TokenKind::KwDerives) {
+                continue
             }
-            break;
+
+            break
         }
     }
 
-    priv fn _maybe_parse_generic_default(self, gp: *GenericParamDecl) {
-        if dyn()->check(TokenKind::OpEqual) {
-            dyn()->advance(T::SkipNL::After); // consume `=`
-            var dty = dyn()->parse_type();
-            if (dty != &null) && (!is_recovery(dty)) {
-                gp->default_type = dty;
+    priv fn _maybe_parse_generic_default(self, gp: *Declarations::GenericParamDecl) {
+        if self.dyn()->check(TokenKind::OpEqual) {
+            self.dyn()->advance(T::SkipNL::After) // consume `=`
+            var dty = self.dyn()->parse_type()
+            if dty != &null && !is_recovery(dty) {
+                gp->default_type = dty
             }
         }
     }
 
     //  Function declaration
-    
+
     /// \returns false if validation failed
-    pub fn _parse_and_validate_op_spelling(self, out: *std::StackBuf::<Token, 2>) -> bool {
+    pub fn _parse_and_validate_op_spelling(self,
+                                           out: unsafe *kairo::std::StackBuf<Token, 2>) -> bool {
+        // `op delete`, the destructor's pre-0.2.0 spelling: keyed as `op
+        // finally` (a token minted with that spelling, so OperatorFacts and
+        // CXXSpell read "finally" off it). The callers report the spelling.
+        if self.dyn()->check(TokenKind::KwDelete) {
+            out->push_back(
+                self.dyn()->ctx->make_token(
+                    self.dyn()->current_ptr()->range,
+                    TokenKind::KwFinally,
+                    "finally",
+                ),
+            )
+
+            self.dyn()->advance(T::SkipNL::After)
+            return true
+        }
+
         // so we have upto 2 max 1 is single ops - anything else thats not a opener after is jut wrong
-        var cur_tok = dyn()->current();
-        out->push_back(cur_tok);
-        
-        if dyn()->current() == TokenKind::OpLParen {
-            dyn()->advance();
-            if dyn()->current() == TokenKind::OpRParen {
-                out->push_back(dyn()->current());
-                dyn()->advance(T::SkipNL::After);
-                return true;
+        var cur_tok = self.dyn()->current()
+        out->push_back(cur_tok)
+
+        if self.dyn()->current() == TokenKind::OpLParen {
+            self.dyn()->advance()
+            if self.dyn()->current() == TokenKind::OpRParen {
+                out->push_back(self.dyn()->current())
+                self.dyn()->advance(T::SkipNL::After)
+                return true
             }
 
-            dyn()->report_tok(DiagID::S045E, dyn()->current_ptr(),
-                "expected ')' to close the matching opener"
-            );
-            return false;
+            self.dyn()->report_tok(
+                DiagID::S045E,
+                self.dyn()->current_ptr(),
+                "expected ')' to close the matching opener",
+            )
+
+            return false
         }
 
-        if dyn()->current() == TokenKind::OpLSquare {
-            dyn()->advance();
-            if dyn()->current() == TokenKind::OpRSquare {
-                out->push_back(dyn()->current());
-                dyn()->advance(T::SkipNL::After);
-                return true;
+        if self.dyn()->current() == TokenKind::OpLSquare {
+            self.dyn()->advance()
+            if self.dyn()->current() == TokenKind::OpRSquare {
+                out->push_back(self.dyn()->current())
+                self.dyn()->advance(T::SkipNL::After)
+                return true
             }
 
-            dyn()->report_tok(DiagID::S045E, dyn()->current_ptr(),
-                "expected ']' to close the matching opener"
-            );
-            return false;
+            self.dyn()->report_tok(
+                DiagID::S045E,
+                self.dyn()->current_ptr(),
+                "expected ']' to close the matching opener",
+            )
+
+            return false
         }
 
-        if dyn()->current() == TokenKind::LitIdentifier {
+        if self.dyn()->current() == TokenKind::LitIdentifier {
             // an `l`/`r` prefix must be followed by `++` or `--`; anything
             // else is invalid. a bare identifier here is not a valid operator.
-            var spelling = dyn()->ctx->get_spelling(dyn()->current());
-            var is_lr    = ((spelling == "l") || (spelling == "r"));
+            var spelling = self.dyn()->ctx->get_spelling(self.dyn()->current())
+            var is_lr    = spelling == "l" || spelling == "r"
 
             if !is_lr {
-                dyn()->report_tok(DiagID::S045E, dyn()->current_ptr(),
-                    "given operator is not valid to overload"
-                );
-                dyn()->advance(T::SkipNL::After);
-                return false;
+                self.dyn()->report_tok(
+                    DiagID::S045E,
+                    self.dyn()->current_ptr(),
+                    "given operator is not valid to overload",
+                )
+
+                self.dyn()->advance(T::SkipNL::After)
+                return false
             }
 
             // the `l`/`r` prefix is already out[0] (pushed above as cur_tok);
             // pushing it again made `op r++` three tokens, `r r ++`, which no
             // size()==2 fixity test matches and SemaDump prints as `rr++`.
-            dyn()->advance();
+            self.dyn()->advance()
 
             // must be `++` or `--`
-            if (dyn()->current() != TokenKind::OpPlusPlus)
-            && (dyn()->current() != TokenKind::OpMinusMinus) {
-                dyn()->report_tok(DiagID::S045E, dyn()->current_ptr(),
-                    "l or r prefix is only valid for '++' and '--' op's"
-                );
-                return false;
+            if self.dyn()->current() != TokenKind::OpPlusPlus
+                && self.dyn()->current() != TokenKind::OpMinusMinus {
+                self.dyn()->report_tok(
+                    DiagID::S045E,
+                    self.dyn()->current_ptr(),
+                    "l or r prefix is only valid for '++' and '--' op's",
+                )
+
+                return false
             }
 
-            out->push_back(dyn()->current()); // the `++` / `--`
-            dyn()->advance(T::SkipNL::After);
-            return true;
+            out->push_back(self.dyn()->current()) // the `++` / `--`
+            self.dyn()->advance(T::SkipNL::After)
+            return true
         }
 
-        switch dyn()->ig_kind() {
+        match self.dyn()->ig_kind() {
             // arithmetic
-            case TokenKind::OpPlus:           // +
-            case TokenKind::OpMinus:          // -
-            case TokenKind::OpStar:           // *
-            case TokenKind::OpSlash:          // /
-            case TokenKind::OpPercent:        // %
+            case TokenKind::OpPlus,           // +
+                 TokenKind::OpMinus,          // -
+                 TokenKind::OpStar,           // *
+                 TokenKind::OpSlash,          // /
+                 TokenKind::OpPercent,        // %
+                 TokenKind::OpCaretCaret,     // ^^
+                 TokenKind::OpLess,           // <
+                 TokenKind::OpGreater,        // >
+                 TokenKind::OpLessLess,       // "<<"
+                 TokenKind::OpGreaterGreater, // ">>"
+                 // bitwise
+                 TokenKind::OpCaret, // ^
+                 TokenKind::OpPipe,  // |
+                 TokenKind::OpAmp,   // &
+                 TokenKind::OpTilde, // ~
+                 // boolean comparison
+                 TokenKind::OpEqualEqual,       // "=="
+                 TokenKind::OpExclaimEqual,     // "!="
+                 TokenKind::OpLessEqualGreater, // "<=>"
+                 TokenKind::OpEqualEqualEqual,  // "==="
+                 TokenKind::OpAmpAmp,           // "&&"
+                 TokenKind::OpPipePipe,         // "||"
+                 TokenKind::OpLessEqual,        // "<="
+                 TokenKind::OpGreaterEqual,     // ">="
+                 // inc / dec
+                 TokenKind::OpPlusPlus,   // ++
+                 TokenKind::OpMinusMinus, // --
+                 // assignment. Compound assignment is overloadable (one of each
+                 // pair; the other is derived); `=` is NOT, but it parses here so
+                 // OperatorSignatureCheck rejects it with the reason, the same as
+                 // `===`, rather than a bare "not valid to overload".
+                 TokenKind::OpEqual,               // =
+                 TokenKind::OpPlusEqual,           // +=
+                 TokenKind::OpMinusEqual,          // -=
+                 TokenKind::OpStarEqual,           // *=
+                 TokenKind::OpSlashEqual,          // /=
+                 TokenKind::OpPercentEqual,        // %=
+                 TokenKind::OpAmpEqual,            // &=
+                 TokenKind::OpPipeEqual,           // |=
+                 TokenKind::OpCaretEqual,          // ^=
+                 TokenKind::OpLessLessEqual,       // <<=
+                 TokenKind::OpGreaterGreaterEqual, // >>=
+                 TokenKind::OpArrow, // ->
+                 TokenKind::KwIn, // in
+                 TokenKind::KwAs, // as
+                 TokenKind::KwAwait,  // await
+                 TokenKind::KwSpawn,  // spawn
+                 TokenKind::KwThread, // thread
+                 TokenKind::KwFinally, // finally: the destructor
+                 TokenKind::KwYield,  // yield
+                 // `fn op panic (const self) -> string`: an error type's message
+                 // (Compiler/Spec/Panic.md#error-types). Optional; its signature is checked later.
+                 TokenKind::KwPanic,  // panic
+                 // nullability and boolean
+                 TokenKind::OpQuestion { // ?
+                self.dyn()->advance(T::SkipNL::After)
+                return true
+            } default {
+                self.dyn()->report_tok(
+                    DiagID::S045E,
+                    self.dyn()->current_ptr(),
+                    "given operator is not valid to overload",
+                )
 
-            case TokenKind::OpCaretCaret:     // ^^
-
-            case TokenKind::OpLess:           // <
-            case TokenKind::OpGreater:        // >
-
-            case TokenKind::OpLessLess:       // "<<"
-            case TokenKind::OpGreaterGreater: // ">>"
-
-            // bitwise
-            case TokenKind::OpCaret: // ^
-            case TokenKind::OpPipe:  // |
-            case TokenKind::OpAmp:   // &
-            case TokenKind::OpTilde: // ~
-
-            // boolean comparison
-            case TokenKind::OpEqualEqual:       // "=="
-            case TokenKind::OpExclaimEqual:     // "!="
-
-            case TokenKind::OpLessEqualGreater: // "<=>"
-            case TokenKind::OpEqualEqualEqual:  // "==="
-
-            case TokenKind::OpAmpAmp:           // "&&"
-            case TokenKind::OpPipePipe:         // "||"
-            case TokenKind::OpLessEqual:        // "<="
-            case TokenKind::OpGreaterEqual:     // ">="
-
-            // inc / dec
-            case TokenKind::OpPlusPlus:   // ++
-            case TokenKind::OpMinusMinus: // --
-
-            // assignment. Compound assignment is overloadable (one of each
-            // pair; the other is derived); `=` is NOT, but it parses here so
-            // OperatorSignatureCheck rejects it with the reason, the same as
-            // `===`, rather than a bare "not valid to overload".
-            case TokenKind::OpEqual:               // =
-            case TokenKind::OpPlusEqual:           // +=
-            case TokenKind::OpMinusEqual:          // -=
-            case TokenKind::OpStarEqual:           // *=
-            case TokenKind::OpSlashEqual:          // /=
-            case TokenKind::OpPercentEqual:        // %=
-            case TokenKind::OpAmpEqual:            // &=
-            case TokenKind::OpPipeEqual:           // |=
-            case TokenKind::OpCaretEqual:          // ^=
-            case TokenKind::OpLessLessEqual:       // <<=
-            case TokenKind::OpGreaterGreaterEqual: // >>=
-
-            case TokenKind::OpArrow: // ->
-
-            case TokenKind::KwIn: // in
-            case TokenKind::KwAs: // as
-
-            case TokenKind::KwAwait:  // await
-            case TokenKind::KwSpawn:  // spawn
-            case TokenKind::KwThread: // thread
-            case TokenKind::KwDelete: // delete
-            case TokenKind::KwYield:  // yield
-            // `fn op panic (const self) -> string`: an error type's message
-            // (PANIC.md §1.5). Optional; P3 checks its signature.
-            case TokenKind::KwPanic:  // panic
-
-            // nullability and boolean
-            case TokenKind::OpQuestion { // ?
-                dyn()->advance(T::SkipNL::After);
-                return true;
-            }
-
-            default {
-                dyn()->report_tok(DiagID::S045E, dyn()->current_ptr(),
-                    "given operator is not valid to overload"
-                );
-                dyn()->advance(T::SkipNL::After);
-                return false;
+                self.dyn()->advance(T::SkipNL::After)
+                return false
             }
         }
     }
@@ -1374,118 +1753,152 @@ class <T> DeclParse {
     ///
     /// \details precondition: current token is `fn`. `lead` carries any
     ///          static/virtual/override/final consumed before `fn`.
-    priv fn _parse_function(self, lead: *LeadMods) -> *Decl {
-        var start = (lead->range) if (lead->any) else (self._cur_range());
+    priv fn _parse_function(self, lead: unsafe *Self::LeadMods) -> unsafe *Decl {
+        var start = if (lead->any) => (lead->range) else => self._cur_range()
 
-        if !dyn()->enter_depth() {
-            return static_cast::<*Decl>(FunctionDecl::create_error(dyn()->ctx, start));
+        if !self.dyn()->enter_depth() {
+            return Declarations::FunctionDecl::create_error(self.dyn()->ctx, start)
         }
-        dyn()->advance(T::SkipNL::After); // consume `fn`
+
+        self.dyn()->advance(T::SkipNL::After) // consume `fn`
 
         // capture the enclosing context *before* the function opens its own
         // scope: it tells us whether a `self` receiver is legal here.
-        var enclosing_dc  = dyn()->scope.current_dc();
-        var in_type_scope = (enclosing_dc != &null) && enclosing_dc->is_type_scope();
+        var enclosing_dc  = self.dyn()->scope.current_dc()
+        var in_type_scope = enclosing_dc != &null && enclosing_dc->is_type_scope()
 
-        var fd: *FunctionDecl = FunctionDecl::create(dyn()->ctx, start, Token(), enclosing_dc);
-        fd->abi = lead->abi;
+        var fd: *Declarations::FunctionDecl = Declarations::FunctionDecl::create(
+            self.dyn()->ctx,
+            start,
+            Token(),
+            enclosing_dc,
+        )
+
+        fd->abi = lead->abi
         if lead->is_final {
-            fd->modifiers |= FnModifier::IsFinal;
+            fd->modifiers |= Declarations::FnModifier::IsFinal
         }
+
         // leading `inline` / `eval` land in the same bitset as their trailing
         // spellings (`fn f() inline`), so downstream sees one form.
-        fd->modifiers |= lead->fn_mods;
-        fd->is_const_fn = lead->is_const_fn && (!in_type_scope);
-        if lead->is_const_fn && (dyn()->mode == T::ParseMode::Full) {
+        fd->modifiers |= lead->fn_mods
+        fd->is_const_fn = lead->is_const_fn && !in_type_scope
+        if fd->is_const_fn {
+            fd->purity_at = lead->const_range
+        }
+
+        if lead->is_const_fn && self.dyn()->mode == T::ParseMode::Full {
             // A const function is spelled after its parameters, where the
             // other specifiers go: `fn f(x: f64) const -> f64`. A leading
             // `const` reads as a binding (`const x = 1`). Still parsed as
             // const, so nothing after it cascades. On a method neither
             // spelling exists: `const self` is its promise.
-            var cr = lead->const_range;
-            var b = dyn()->diag->report(DiagID::S047E, cr.start,
-                (("a method cannot be const; 'const self' is how a method promises not to change its object") if (in_type_scope)
-                 else ("a const function is spelled 'fn name(...) const', after the parameters, not with a leading 'const\x27")));
-            b.first(cr);
-            b.remove(cr, "remove the leading 'const\x27");
-            b.emit();
+            var cr = lead->const_range
+            var b = self.dyn()->diag->report(DiagID::S047E, cr.start,
+                (if (in_type_scope) => ("a method cannot be const; 'const self' is how a method promises not to change its object") else => "a const function is spelled 'fn name(...) const', after the parameters, not with a leading 'const'"))
+            b.first(cr)
+            b.remove(cr, "remove the leading 'const'")
+            b.emit()
         }
 
         // optional generics or specialization introducer:
         //   `fn <T> name(...)`  -> type params
         //   `fn <> name<i32>()` -> specialization marker (#68)
-        var fn_intro: SpecKind = SpecKind::None;
-        var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-        self._parse_generic_or_spec_intro(&gparams, &fn_intro);
-        var has_generics = !gparams.is_empty();
-        fd->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+        var fn_intro: Declarations::SpecKind = Declarations::SpecKind::None
+        var gparams: kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
+        self._parse_generic_or_spec_intro(unsafe &gparams, &fn_intro)
+        var has_generics = !gparams.is_empty()
+        fd->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
 
         // name | `op <operator>` | qualified `Class::method`
-        if dyn()->check(TokenKind::KwOp) {
-            dyn()->advance(); // consume `op`
-            // A class's own allocator (P215): `op new` (any storage; a
+        if self.dyn()->check(TokenKind::KwOp) {
+            self.dyn()->advance() // consume `op`
+            // A class's own allocator: `op new` (any storage; a
             // non-static one is ClassAllocatorCheck's error) and a STATIC
             // `op delete`, which a destructor never is. Both are declared
             // under the Allocator interface's member names, decided here at
             // the head because the index pass hoists from the head alone.
-            var alloc_op: u8 = 0;
-            if dyn()->check(TokenKind::LitIdentifier) && (dyn()->ctx->get_spelling(dyn()->current()) == AllocNames::op_new_word()) {
-                alloc_op = 1;
-            } else if dyn()->check(TokenKind::KwDelete) && (lead->abi == AbiKind::Static) {
-                alloc_op = 2;
+            var alloc_op: u8 = 0
+            if self.dyn()->check(TokenKind::LitIdentifier)
+                && self.dyn()->ctx->get_spelling(
+                    self.dyn()->current(),
+                ) == AllocNames::op_new_word() {
+                alloc_op = 1
+            } else if self.dyn()->check(TokenKind::KwDelete)
+                && lead->abi == Declarations::AbiKind::Static {
+                alloc_op = 2
             }
+
             if alloc_op != 0 {
-                var at = dyn()->current();
-                at.kind = TokenKind::LitIdentifier;
-                at.imm  = dyn()->ctx->hoisted->intern((AllocNames::alloc_member()) if (alloc_op == 1) else (AllocNames::free_member()));
-                fd->name = at;
-                fd->class_alloc_op = alloc_op;
-                dyn()->advance(T::SkipNL::After);
+                var at = self.dyn()->current()
+                at.kind = TokenKind::LitIdentifier
+                at.imm = self.dyn()->ctx->hoisted->intern(
+                    if (alloc_op == 1) => (AllocNames::alloc_member())
+                    else => AllocNames::free_member(),
+                )
+
+                fd->name           = at
+                fd->class_alloc_op = alloc_op
+                self.dyn()->advance(T::SkipNL::After)
             } else {
-                fd->is_operator = true;
-                var ops: std::StackBuf::<Token, 2>;
-                self._parse_and_validate_op_spelling(&ops);
-                fd->op_token.from_buf(ops.data(), ops.size(), dyn()->ctx);
-                fd->name = Token();
+                fd->is_operator = true
+                // `fn op delete(self)`: the destructor's spelling before
+                // 0.2.0. Keyed as `op finally` from here on, so every later
+                // pass sees one destructor; ClassAllocatorCheck reports the
+                // spelling (S090E), except in the builtin / std library.
+                if self.dyn()->check(TokenKind::KwDelete) {
+                    fd->old_dtor_at = self.dyn()->current_ptr()->range
+                }
+
+                var ops: kairo::std::StackBuf<Token, 2>
+                self._parse_and_validate_op_spelling(unsafe &ops)
+                fd->op_token.from_buf(ops.data(), ops.size(), self.dyn()->ctx)
+                fd->name = Token()
             }
-        } else if dyn()->check(TokenKind::LitIdentifier) || dyn()->check(TokenKind::KwSelf) {
-            var name_tok = dyn()->current();
-            dyn()->advance();
+        } else if self.dyn()->check(TokenKind::LitIdentifier)
+            || self.dyn()->check(TokenKind::KwSelf) {
+            var name_tok = self.dyn()->current()
+            self.dyn()->advance()
 
             // out-of-line `Class::method` / `Class::Inner::method`
-            if dyn()->check(TokenKind::OpColonColon) {
-                fd->qualifier = self._parse_qualified_fn_name(name_tok);
+            if self.dyn()->check(TokenKind::OpColonColon) {
+                fd->qualifier = self._parse_qualified_fn_name(name_tok)
                 // the trailing segment becomes the function name.
-                if dyn()->check(TokenKind::KwOp) {
-                    dyn()->advance();
-                    fd->is_operator = true;
-                    var ops: std::StackBuf::<Token, 2>;
-                    self._parse_and_validate_op_spelling(&ops);
-                    fd->op_token.from_buf(ops.data(), ops.size(), dyn()->ctx);
-                    fd->name = Token();
+                if self.dyn()->check(TokenKind::KwOp) {
+                    self.dyn()->advance()
+                    fd->is_operator = true
+                    if self.dyn()->check(TokenKind::KwDelete) {
+                        fd->old_dtor_at = self.dyn()->current_ptr()->range
+                    }
+
+                    var ops: kairo::std::StackBuf<Token, 2>
+                    self._parse_and_validate_op_spelling(unsafe &ops)
+                    fd->op_token.from_buf(ops.data(), ops.size(), self.dyn()->ctx)
+                    fd->name = Token()
                 } else {
-                    fd->name = dyn()->current();
-                    dyn()->advance();
+                    fd->name = self.dyn()->current()
+                    self.dyn()->advance()
                 }
             } else {
-                fd->name = name_tok;
+                fd->name = name_tok
             }
 
             // specialization argument pattern: `name<i32>`, `name<[T]>`.
             // Only meaningful when a `<>` introducer preceded the name.
-            if ((fn_intro != SpecKind::None) || has_generics) && dyn()->check(TokenKind::OpLess) {
-                var sargs: std::StackBuf::<*Type, 4>;
-                self._parse_spec_args(&sargs);
-                fd->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
+            if (fn_intro != Declarations::SpecKind::None || has_generics)
+                && self.dyn()->check(TokenKind::OpLess) {
+                var sargs: kairo::std::StackBuf<unsafe *Type, 4>
+                self._parse_spec_args(&sargs)
+                fd->spec_args.from_buf(sargs.data(), sargs.size(), self.dyn()->ctx)
 
-                var kind = self._classify_spec(&sargs, has_generics);
+                var kind = self._classify_spec(&sargs, has_generics)
                 // Functions accept primary + explicit only; partial (a pattern
                 // over the head's own type variables) is a class/struct/union
                 // feature. See issue #68. Note a `<>` head can never land here:
                 // it binds no variables, so `fn <> f<*i32>()` is a FULL
                 // specialization and is accepted, matching C++.
-                if kind == SpecKind::Partial {
-                    dyn()->diag->report(DiagID::S049E, fd->name.range.start,
+                if kind == Declarations::SpecKind::Partial {
+                    self.dyn()->diag->report(DiagID::S049E, fd->name.range.start,
                         "partial specialization is not allowed on functions; "
                         "only classes, structs, and unions may be partially specialized"
                     ).first(fd->name.range)
@@ -1493,102 +1906,156 @@ class <T> DeclParse {
                      // registry yet; wants its own note code next to S049E.
                      // No location: the note would point at the same span as the
                      // error, so a second caret is noise. Plain text reads better.
-                     .note(DiagID::S045N,
+                     .note(DiagCode(DiagID::S045N),
                         "overload the function on the pattern instead, or move the "
                         "pattern onto a struct and partially specialize that"
-                     ).emit();
-                    kind = SpecKind::Explicit; // best-effort recovery
+                     )->emit()
+                    kind = Declarations::SpecKind::Explicit // best-effort recovery
                 }
-                fd->spec_kind = kind;
-            } else if fn_intro != SpecKind::None {
+
+                fd->spec_kind = kind
+            } else if fn_intro != Declarations::SpecKind::None {
                 // `fn <>` with no post-name `<...>` is malformed.
-                dyn()->diag->report(DiagID::S049E, fd->name.range.start,
+                self.dyn()->diag->report(
+                    DiagID::S049E,
+                    fd->name.range.start,
                     "expected specialization arguments '<...>' after the name "
-                    "following the '<>' specialization marker"
-                ).first(fd->name.range).emit();
+                    "following the '<>' specialization marker",
+                ).first(fd->name.range)->emit()
             }
+        } else if is_annotation(self.dyn()->ig_kind())
+            && self.dyn()->ig_kind() != TokenKind::AtComment
+            && (self.dyn()->ig_peek_kind() == TokenKind::OpLParen
+                || self.dyn()->ig_peek_kind() == TokenKind::OpLess) {
+            // `fn f16(...)`: a primitive type's name is reserved.
+            // Reported, then kept as the name so the parameters and body
+            // still parse and resolve: nothing downstream cascades.
+            var at = self.dyn()->current()
+            self.dyn()->diag->report(
+                DiagID::S047E,
+                at.range.start,
+                f"'{token_kind_to_readable_string(at.kind)}' names a primitive type and cannot name a function",
+            ).first(at.range)->emit()
+            at.imm   = self.dyn()->ctx->hoisted->intern(token_kind_to_readable_string(at.kind))
+            at.kind  = TokenKind::LitIdentifier
+            fd->name = at
+            self.dyn()->advance()
         } else {
-            dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
-                "expected function name, 'op', or a qualified name after 'fn\x27"
-            );
-            dyn()->exit_depth();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(FunctionDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+            self.dyn()->report_tok(
+                DiagID::S047E,
+                self.dyn()->current_ptr(),
+                "expected function name, 'op', or a qualified name after 'fn'",
+            )
+
+            self.dyn()->exit_depth()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::FunctionDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
 
         // index mode: the head is fully parsed (generics, name, spec pattern
         // all live on `fd`). Token-skip the signature and body; the index
         // walker hoists from the returned node.
-        if dyn()->mode == T::ParseMode::Index {
-            dyn()->_index_skip_stmt();
-            fd->range = start | dyn()->prev().range;
-            dyn()->exit_depth();
-            return static_cast::<*Decl>(fd);
+        if self.dyn()->mode == T::ParseMode::Index {
+            self.dyn()->_index_skip_stmt()
+            fd->range = start | self.dyn()->prev().range
+            self.dyn()->exit_depth()
+            return unsafe (fd as unsafe *Decl)
         }
 
         // parameter list
-        dyn()->enter_scope(ScopeKind::Function, static_cast::<*DeclContext>(fd));
+        self.dyn()->enter_scope(ScopeKind::Function, fd)
 
-        if !dyn()->check(TokenKind::OpLParen) {
-            dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
-                "expected '(' to begin the parameter list"
-            );
-            dyn()->exit_scope();
-            dyn()->exit_depth();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(FunctionDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        if !self.dyn()->check(TokenKind::OpLParen) {
+            self.dyn()->report_tok(
+                DiagID::S047E,
+                self.dyn()->current_ptr(),
+                "expected '(' to begin the parameter list",
+            )
+
+            self.dyn()->exit_scope()
+            self.dyn()->exit_depth()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::FunctionDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
 
-        var params: std::StackBuf::<*ParamDecl, 4>;
-        self._parse_param_list(&params);
-        fd->params.from_buf(params.data(), params.size(), dyn()->ctx);
+        var params: kairo::std::StackBuf<unsafe *Declarations::ParamDecl, 4>
+        self._parse_param_list(&params)
+        fd->params.from_buf(params.data(), params.size(), self.dyn()->ctx)
         // The list's `)`, where a fix-it inserts a ` panic` specifier.
-        if self._prev_kind() == TokenKind::OpRParen { fd->params_end = self._prev_range(); }
+        if self._prev_kind() == TokenKind::OpRParen {
+            fd->params_end = self._prev_range()
+        }
+
         // DERIVED, never written directly: the parameter list is the truth
         // about which parameter is the pack (ParamDecl::is_pack), and a flag on
         // the function cannot say which one it is.
-        fd->is_variadic = false;
+        fd->is_variadic = false
         for var i: usize = 0; i < fd->params.size(); ++i {
-            if (fd->params[i] != &null) && fd->params[i]->is_pack { fd->is_variadic = true; }
+            if fd->params[i] != &null && fd->params[i]->is_pack {
+                fd->is_variadic = true
+            }
         }
+
         // A non-pack parameter after the pack can only ever be supplied by
         // name: every positional argument from the pack onward belongs to it.
-        var seen_pack = false;
+        var seen_pack = false
         for var i: usize = 0; i < fd->params.size(); ++i {
-            var p = fd->params[i];
-            if p == &null { continue; }
-            if p->is_pack { seen_pack = true; continue; }
-            if seen_pack  { p->keyword_only = true; }
+            var unsafe *p = fd->params[i]
+            if p == &null {
+                continue
+            }
+
+            if p->is_pack {
+                seen_pack = true
+                continue
+            }
+
+            if seen_pack {
+                p->keyword_only = true
+            }
         }
 
         // a signature with any type-only (unnamed) parameter is a forward
         // declaration: it is purely a type signature and cannot carry a body.
-        var is_type_only_sig = false;
-        var has_self_param   = false;
+        var is_type_only_sig = false
+        var has_self_param   = false
         for var i: usize = 0; i < fd->params.size(); ++i {
-            if fd->params[i]->unname  { is_type_only_sig = true; }
+            if fd->params[i]->unname {
+                is_type_only_sig = true
+            }
+
             if fd->params[i]->is_self {
-                has_self_param = true;
+                has_self_param = true
                 // `const self` -> const method. RedeclMerge, DeclImport and
                 // the printer all key on fd->is_const(); keeping that the
                 // single flag means nothing downstream learns a second form.
-                if fd->params[i]->is_const { fd->modifiers |= FnModifier::IsConst; }
+                if fd->params[i]->is_const {
+                    fd->modifiers |= Declarations::FnModifier::IsConst
+                }
             }
         }
 
         // `self` is a method receiver: legal only inside a type body or on an
         // out-of-line method definition (`fn Class::m(self)`), never in a free
         // function.
-        if has_self_param && (!in_type_scope) && (!fd->is_out_of_line()) {
-            dyn()->diag->report(DiagID::S047E, start.start,
+        if has_self_param && !in_type_scope && !fd->is_out_of_line() {
+            self.dyn()->diag->report(
+                DiagID::S047E,
+                start.start,
                 "the `self` receiver is only allowed on a method; a free "
-                "function cannot take `self`"
-            ).first(start).emit();
+                "function cannot take `self`",
+            ).first(start)->emit()
         }
 
         // function modifiers: volatile unsafe eval async final panic inline
         // (a trailing `const` is diagnosed there; it is spelled `const self`)
-        self._parse_fn_modifiers(fd);
+        self._parse_fn_modifiers(fd)
 
         // return type
         // `->` may start a continuation line under the signature. Nothing
@@ -1598,24 +2065,24 @@ class <T> DeclParse {
         // suppression (a list ending in a typed parameter), and `fn f()` or
         // `fn m(self)` with it was S048E in a type body and S052E outside.
         if self._peek_past_nl(TokenKind::OpArrow) {
-            dyn()->advance(T::SkipNL::After); // consume `->`
-            if dyn()->check(TokenKind::OpExclaim) {
-                fd->is_noreturn = true;
-                dyn()->advance(); // consume `!`
+            self.dyn()->advance(T::SkipNL::After) // consume `->`
+            if self.dyn()->check(TokenKind::OpExclaim) {
+                fd->is_noreturn = true
+                self.dyn()->advance() // consume `!`
             } else {
-                var rty = dyn()->parse_type();
-                if (rty != &null) && (!is_recovery(rty)) {
-                    fd->return_type = rty;
+                var rty = self.dyn()->parse_type()
+                if rty != &null && !is_recovery(rty) {
+                    fd->return_type = rty
                 }
             }
         }
 
         // optional `requires <expr>` constraint
         if self._peek_past_nl(TokenKind::KwRequires) {
-            dyn()->advance(T::SkipNL::After);
-            var req = dyn()->parse_expr();
-            if (req != &null) && (!is_recovery(req)) {
-                fd->requires_clause = req;
+            self.dyn()->advance(T::SkipNL::After)
+            var req = self.dyn()->parse_expr()
+            if req != &null && !is_recovery(req) {
+                fd->requires_clause = req
             }
         }
 
@@ -1625,15 +2092,17 @@ class <T> DeclParse {
         // `requires` may sit; `where` cannot begin a declaration or a
         // statement, so the newline in front of it never ends anything.
         if self._peek_past_nl(TokenKind::KwWhere) {
-            var wh = self._cur_range();
-            dyn()->advance(T::SkipNL::After);
-            var wex = dyn()->parse_guard_expr();
-            if (wex != &null) && (!is_recovery(wex)) {
-                fd->where_clause = wex;
+            var wh = self._cur_range()
+            self.dyn()->advance(T::SkipNL::After)
+            var wex = self.dyn()->parse_guard_expr()
+            if wex != &null && !is_recovery(wex) {
+                fd->where_clause = wex
             } else if wex == &null {
-                dyn()->diag->report(DiagID::S052E, wh.start,
-                    "expected a condition after 'where\x27"
-                ).first(wh).emit();
+                self.dyn()->diag->report(
+                    DiagID::S052E,
+                    wh.start,
+                    "expected a condition after 'where'",
+                ).first(wh)->emit()
             }
         }
 
@@ -1644,77 +2113,85 @@ class <T> DeclParse {
         // member cascades into S048E. At module or block scope it stays a
         // terminator: a bodyless `fn f()` there may legally be followed by a
         // bare block statement, so joining would change what the code means.
-        if in_type_scope { self._peek_past_nl(TokenKind::OpLBrace); }
-        self._parse_fn_body(fd);
+        if in_type_scope {
+            self._peek_past_nl(TokenKind::OpLBrace)
+        }
+
+        self._parse_fn_body(fd)
 
         // type-only signatures are forward declarations: reject any body.
-        if is_type_only_sig && (fd->body_kind != FnBodyKind::None) {
-            dyn()->diag->report(DiagID::S047E, start.start,
+        if is_type_only_sig && fd->body_kind != Declarations::FnBodyKind::None {
+            self.dyn()->diag->report(
+                DiagID::S047E,
+                start.start,
                 "a function signature with type-only (unnamed) parameters is a "
                 "forward declaration and cannot have a body; name the parameters "
-                "to give it one"
-            ).first(start).emit();
+                "to give it one",
+            ).first(start)->emit()
         }
 
         // a type-only signature is a forward declaration; never mark it as the
         // definition (even on the errored with-a-body path above) so it cannot
         // poison the redeclaration chain.
-        if (fd->body_kind != FnBodyKind::None) && (!is_type_only_sig) {
-            fd->mark_definition();
+        if fd->body_kind != Declarations::FnBodyKind::None && !is_type_only_sig {
+            fd->mark_definition()
         }
 
-        fd->range = start | dyn()->prev().range;
-        dyn()->exit_scope();
-        dyn()->exit_depth();
-        return static_cast::<*Decl>(fd);
+        fd->range = start | self.dyn()->prev().range
+        self.dyn()->exit_scope()
+        self.dyn()->exit_depth()
+        return unsafe (fd as unsafe *Decl)
     }
 
     /// \brief parses the `Class::` (or `Class::Inner::`) qualifier path of an
     ///        out-of-line definition, leaving the cursor on the final segment.
     /// \returns a ChainExpr representing the qualifier path.
     priv fn _parse_qualified_fn_name(self, first: Token) -> *Expr {
-        var start = first.range;
-        var base  = NamedIdentExpr::create(dyn()->ctx, first.range, first);
+        var start = first.range
+        var base  = NamedIdentExpr::create(self.dyn()->ctx, first.range, first)
 
-        var ce = ChainExpr::create(dyn()->ctx, start, static_cast::<*Expr>(base));
-        var steps: std::StackBuf::<ChainExpr::Step, 4>;
+        var ce = ChainExpr::create(self.dyn()->ctx, start, base)
+        var steps: kairo::std::StackBuf<ChainExpr::Step, 4>
 
         // we are sitting on the first `::`
-        while dyn()->check(TokenKind::OpColonColon) {
-            dyn()->advance(); // consume `::`
+        while self.dyn()->check(TokenKind::OpColonColon) {
+            self.dyn()->advance() // consume `::`
             // if the next-next is NOT another `::` and this is the trailing
             // segment, stop so the caller can read the method name. We detect
             // the trailing segment by: identifier NOT followed by `::`.
-            if dyn()->check_is_ident() && (!dyn()->check_peek(TokenKind::OpColonColon)) {
+            if self.dyn()->check_is_ident() && !self.dyn()->check_peek(TokenKind::OpColonColon) {
                 // leave cursor on the trailing segment for the caller.
-                break;
+                break
             }
-            if !dyn()->check_is_ident() {
-                break;
+
+            if !self.dyn()->check_is_ident() {
+                break
             }
-            var seg_tok = dyn()->current();
-            var step = ChainExpr::Step{};
-            step.name        = NamedIdentExpr::create(dyn()->ctx, seg_tok.range, seg_tok);
-            step.range       = seg_tok.range;
-            step.access_kind = ChainExpr::AccessKind::ColonColon;
-            step.resolved_type = &null;
-            step.resolved_decl = &null;
-            steps.push_back(step);
-            dyn()->advance(); // consume the segment identifier
+
+            var seg_tok = self.dyn()->current()
+            var step    = ChainExpr::Step{}
+            step.name          = NamedIdentExpr::create(self.dyn()->ctx, seg_tok.range, seg_tok)
+            step.range         = seg_tok.range
+            step.access_kind   = ChainExpr::AccessKind::ColonColon
+            step.resolved_type = &null
+            step.resolved_decl = &null
+            steps.push_back(step)
+            self.dyn()->advance() // consume the segment identifier
         }
 
-        ce->steps.from_buf(steps.data(), steps.size(), dyn()->ctx);
-        ce->range = start | dyn()->prev().range;
-        return static_cast::<*Expr>(ce);
+        ce->steps.from_buf(steps.data(), steps.size(), self.dyn()->ctx)
+        ce->range = start | self.dyn()->prev().range
+        return ce
     }
 
     /// \brief parses a parameter list `( param (',' param)* )`.
     ///  Grammar:  param := 'self' | '...'? name ':' type ('=' expr)?
     /// \returns true if a trailing variadic pack `...name: T` was seen.
-    priv fn _parse_param_list(self, out: *std::StackBuf::<*ParamDecl, 4>) -> bool {
-        var lparen_tok = dyn()->current(); // kept whole: expansion-aware diags below need the token, not just the range
-        var lparen     = lparen_tok.range;
-        dyn()->advance(T::SkipNL::After); // consume `(`
+    priv fn _parse_param_list(self,
+                              @inout out: kairo::std::StackBuf<unsafe *Declarations::ParamDecl, 4>) -> bool {
+        var lparen_tok = self.dyn()->current() // kept whole: expansion-aware diags below need the token, not just the range
+        var lparen     = lparen_tok.range
+        self.dyn()->advance(T::SkipNL::After) // consume `(`
 
         // a parameter list is bracket-delimited, so newlines inside it are
         // never significant - the closing `)` is the terminator, not the line
@@ -1723,24 +2200,24 @@ class <T> DeclParse {
         //         ctx: *ASTContext,
         //         range: SourceRange
         //     ) -> *Expr
-        dyn()->nl_push();
+        self.dyn()->nl_push()
 
-        var variadic = false;
-        var idx: u32 = 0;
+        var variadic     = false
+        var idx:     u32 = 0
 
         // a parameter list is either all-named (`name: T`, the ordinary form,
         // which may carry a body) or all type-only (`T`, a forward-declaration
         // signature with no body). these track the two so a mixed list errors.
-        var saw_named   = false;
-        var saw_unnamed = false;
+        var saw_named   = false
+        var saw_unnamed = false
 
-        if dyn()->check(TokenKind::OpRParen) {
-            dyn()->nl_pop();
-            dyn()->advance(); // consume `)`
-            return false;
+        if self.dyn()->check(TokenKind::OpRParen) {
+            self.dyn()->nl_pop()
+            self.dyn()->advance() // consume `)`
+            return false
         }
 
-        while !dyn()->is_eof() {
+        while !self.dyn()->is_eof() {
             // `self`. The receiver is neutral w.r.t. the named/type-only split:
             // it is compatible with both a named method (`fn m(self, x: T)`) and
             // a type-only member forward declaration (`fn m(self, T)`), so it
@@ -1756,78 +2233,99 @@ class <T> DeclParse {
             // below. Taken here, first, so the `self` check sees it as well.
             // Never through the attribute parser: inside a parameter list
             // `@move` is a mode, never the transfer-ctor attribute.
-            var p_mode       = dyn()->_peek_mode();
-            var p_mode_range = SourceRange::invalid();
-            if p_mode != ParamMode::Value { p_mode_range = dyn()->_consume_mode(); }
+            var p_mode       = self.dyn()->_peek_mode()
+            var p_mode_range = SourceRange::invalid()
+            if p_mode != ParamMode::Value {
+                p_mode_range = self.dyn()->_consume_mode()
+            }
 
-            var self_const = false;
-            var self_start = self._cur_range();
-            if dyn()->check(TokenKind::KwConst) && dyn()->check_peek(TokenKind::KwSelf) {
-                self_const = true;
-                dyn()->advance(); // consume `const`
-            } else if dyn()->check(TokenKind::KwConst) && dyn()->check_peek(TokenKind::OpAt) {
+            var self_const = false
+            var self_start = self._cur_range()
+            if self.dyn()->check(TokenKind::KwConst) && self.dyn()->check_peek(TokenKind::KwSelf) {
+                self_const = true
+                self.dyn()->advance() // consume `const`
+            } else if self.dyn()->check(TokenKind::KwConst)
+                && self.dyn()->check_peek(TokenKind::OpAt) {
                 // `const @inout self`: the mode sits between `const` and
                 // `self`, three tokens along, so probe. A hit falls into the
                 // `self` path below and draws the same receiver error as
                 // `@inout self`; a miss rolls back for the named-param probe.
-                var sprobe   = dyn()->tentative_begin();
-                dyn()->advance(); // consume `const`
-                var sm       = dyn()->_peek_mode();
-                var sm_range = SourceRange::invalid();
-                if sm != ParamMode::Value { sm_range = dyn()->_consume_mode(); }
-                if (sm != ParamMode::Value) && dyn()->check(TokenKind::KwSelf) {
-                    dyn()->tentative_commit(sprobe);
-                    self_const = true;
+                var sprobe = self.dyn()->tentative_begin()
+                self.dyn()->advance() // consume `const`
+                var sm       = self.dyn()->_peek_mode()
+                var sm_range = SourceRange::invalid()
+                if sm != ParamMode::Value {
+                    sm_range = self.dyn()->_consume_mode()
+                }
+
+                if sm != ParamMode::Value && self.dyn()->check(TokenKind::KwSelf) {
+                    self.dyn()->tentative_commit(sprobe)
+                    self_const = true
                     if p_mode == ParamMode::Value {
-                        p_mode       = sm;
-                        p_mode_range = sm_range;
+                        p_mode       = sm
+                        p_mode_range = sm_range
                     }
                 } else {
-                    dyn()->tentative_rollback(sprobe);
+                    self.dyn()->tentative_rollback(sprobe)
                 }
             }
-            if dyn()->check(TokenKind::KwSelf) {
-                var s_tok = dyn()->current();
-                dyn()->advance();
+
+            if self.dyn()->check(TokenKind::KwSelf) {
+                var s_tok = self.dyn()->current()
+                self.dyn()->advance()
                 // Reported and dropped: ParamDecl::mode is never set on `self`.
                 if p_mode != ParamMode::Value {
-                    dyn()->diag->report(DiagID::S069E, p_mode_range.start,
+                    self.dyn()->diag->report(
+                        DiagID::S069E,
+                        p_mode_range.start,
                         "'self' takes no passing mode; the receiver is already passed "
-                        "by reference, and its mutability is written 'const self\x27"
-                    ).first(p_mode_range).emit();
+                        "by reference, and its mutability is written 'const self'",
+                    ).first(p_mode_range)->emit()
                 }
-                var pd = ParamDecl::create_self(dyn()->ctx, self_start | s_tok.range, s_tok);
-                pd->is_const = self_const;
-                pd->index = idx;
-                out->push_back(pd);
-                ++idx;
-                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                break;
+
+                var pd = Declarations::ParamDecl::create_self(
+                    self.dyn()->ctx,
+                    self_start | s_tok.range,
+                    s_tok,
+                )
+
+                pd->is_const = self_const
+                pd->index    = idx
+                out.push_back(pd)
+                ++idx
+                if self.dyn()->check(TokenKind::OpComma) {
+                    self.dyn()->advance(T::SkipNL::After)
+                    continue
+                }
+
+                break
             }
 
             // The pack marker. `const ...s: T` and `...s: T` are both accepted
             // and mean the same thing; the qualifier comes FIRST, so the probe
             // below also has to accept `const` followed by `...`. Marked here
             // when the `...` leads; the const probe marks the other order.
-            var p_start = self._cur_range();
-            var p_pack  = false;
+            var p_start = self._cur_range()
+            var p_pack  = false
             /// `...const s: T` -- diagnosed below, but the `const` is consumed
             /// and kept, so it still reaches the ParamDecl.
-            var p_const_pre = false;
-            if dyn()->check(TokenKind::OpEllipsis) {
-                p_pack = true;
-                dyn()->advance(); // consume `...`
+            var p_const_pre = false
+            if self.dyn()->check(TokenKind::OpEllipsis) {
+                p_pack = true
+                self.dyn()->advance() // consume `...`
                 // `...const s: T`: the marker is where the qualifier belongs.
                 // Diagnosed, then the `const` is CONSUMED and kept, so the
                 // parameter stays usable for everything downstream instead of
                 // cascading into "expected type".
-                if dyn()->check(TokenKind::KwConst) {
-                    var c_tok = dyn()->current();
-                    dyn()->diag->report(DiagID::S067E, c_tok.range.start,
-                        "qualifiers precede the pack marker: write 'const ...s\x27"
-                    ).first(c_tok.range).emit();
-                    dyn()->advance(); // consume `const`
-                    p_const_pre = true;
+                if self.dyn()->check(TokenKind::KwConst) {
+                    var c_tok = self.dyn()->current()
+                    self.dyn()->diag->report(
+                        DiagID::S067E,
+                        c_tok.range.start,
+                        "qualifiers precede the pack marker: write 'const ...s'",
+                    ).first(c_tok.range)->emit()
+                    self.dyn()->advance() // consume `const`
+                    p_const_pre = true
                 }
             }
 
@@ -1843,175 +2341,209 @@ class <T> DeclParse {
             // Both open `const` + identifier, so the discriminator is the `:`
             // two tokens along. Probe for the named shape; on a miss roll back
             // so the `const` is left for parse_type to fold into the type.
-            var p_const = p_const_pre;
-            if (!p_pack) && dyn()->check(TokenKind::KwConst) {
-                var probe = dyn()->tentative_begin();
-                dyn()->advance(); // consume `const`
+            var p_const = p_const_pre
+            if !p_pack && self.dyn()->check(TokenKind::KwConst) {
+                var probe = self.dyn()->tentative_begin()
+                self.dyn()->advance() // consume `const`
                 // `const @mode x: T`, the other order of `@mode const x: T`.
                 // Inside the probe: a rollback un-consumes it with the const.
-                var c_mode       = dyn()->_peek_mode();
-                var c_mode_range = SourceRange::invalid();
-                if c_mode != ParamMode::Value { c_mode_range = dyn()->_consume_mode(); }
+                var c_mode       = self.dyn()->_peek_mode()
+                var c_mode_range = SourceRange::invalid()
+                if c_mode != ParamMode::Value {
+                    c_mode_range = self.dyn()->_consume_mode()
+                }
+
                 // `const ...s: T`: the canonical pack spelling. Consumed here
                 // so the named-shape test below sees `s :` as usual.
-                var c_pack = false;
-                if dyn()->check(TokenKind::OpEllipsis) {
-                    c_pack = true;
-                    dyn()->advance();
+                var c_pack = false
+                if self.dyn()->check(TokenKind::OpEllipsis) {
+                    c_pack = true
+                    self.dyn()->advance()
                 }
-                if dyn()->check(TokenKind::LitIdentifier)
-                && dyn()->check_peek(TokenKind::OpColon)
-                && (!dyn()->check_peek(TokenKind::OpColonColon)) {
-                    dyn()->tentative_commit(probe);
-                    p_const = true;
-                    if c_pack { p_pack = true; }
-                    if (c_mode != ParamMode::Value) && (p_mode == ParamMode::Value) {
-                        p_mode       = c_mode;
-                        p_mode_range = c_mode_range;
+
+                if self.dyn()->check(TokenKind::LitIdentifier)
+                    && self.dyn()->check_peek(TokenKind::OpColon)
+                    && !self.dyn()->check_peek(TokenKind::OpColonColon) {
+                    self.dyn()->tentative_commit(probe)
+                    p_const = true
+                    if c_pack {
+                        p_pack = true
+                    }
+
+                    if c_mode != ParamMode::Value && p_mode == ParamMode::Value {
+                        p_mode       = c_mode
+                        p_mode_range = c_mode_range
                     }
                 } else {
-                    dyn()->tentative_rollback(probe);
+                    self.dyn()->tentative_rollback(probe)
                 }
             }
 
-            var is_named = dyn()->check(TokenKind::LitIdentifier)
-                        && dyn()->check_peek(TokenKind::OpColon)
-                        && (!dyn()->check_peek(TokenKind::OpColonColon));
+            var is_named = self.dyn()->check(TokenKind::LitIdentifier)
+                && self.dyn()->check_peek(TokenKind::OpColon)
+                && !self.dyn()->check_peek(TokenKind::OpColonColon)
 
-            var pname = Token();
+            var pname = Token()
             if is_named {
-                saw_named = true;
-                pname = dyn()->current();
-                dyn()->advance();                 // consume name
-                dyn()->advance(T::SkipNL::After); // consume `:`
+                saw_named = true
+                pname     = self.dyn()->current()
+                self.dyn()->advance()                 // consume name
+                self.dyn()->advance(T::SkipNL::After) // consume `:`
             } else {
-                saw_unnamed = true;
+                saw_unnamed = true
             }
 
             // Prevent parse_type from consuming delimiters on error
-            if dyn()->check(TokenKind::OpComma) || dyn()->check(TokenKind::OpRParen) {
-                dyn()->report_tok(DiagID::S053E, dyn()->current_ptr(),
-                    "expected type"
-                );
-                if dyn()->check(TokenKind::OpComma) {
-                    dyn()->advance(T::SkipNL::After);
-                    continue;
+            if self.dyn()->check(TokenKind::OpComma) || self.dyn()->check(TokenKind::OpRParen) {
+                self.dyn()->report_tok(DiagID::S053E, self.dyn()->current_ptr(), "expected type")
+                if self.dyn()->check(TokenKind::OpComma) {
+                    self.dyn()->advance(T::SkipNL::After)
+                    continue
                 }
-                break;
+
+                break
             }
 
-            var pty = dyn()->parse_type();
-            if (pty == &null) || is_recovery(pty) {
-                self._sync_decl(DeclSyncCtx::Params);
-                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                break;
+            var pty = self.dyn()->parse_type()
+            if pty == &null || is_recovery(pty) {
+                self._sync_decl(Self::DeclSyncCtx::Params)
+                if self.dyn()->check(TokenKind::OpComma) {
+                    self.dyn()->advance(T::SkipNL::After)
+                    continue
+                }
+
+                break
             }
 
-            var pd = ParamDecl::create(dyn()->ctx, p_start | dyn()->prev().range, pname, pty, idx, !is_named);
-            pd->is_const   = p_const;
-            pd->mode       = p_mode;
-            pd->mode_range = p_mode_range;
+            var pd = Declarations::ParamDecl::create(
+                self.dyn()->ctx,
+                p_start | self.dyn()->prev().range,
+                pname,
+                pty,
+                idx,
+                !is_named,
+            )
+
+            pd->is_const   = p_const
+            pd->mode       = p_mode
+            pd->mode_range = p_mode_range
 
             // A second pack has no rule that could decide where the first one
             // stops. Diagnosed, and NOT marked: the list keeps exactly one
             // pack so placement downstream stays well-defined.
             if p_pack && variadic {
-                dyn()->diag->report(DiagID::S068E, p_start.start,
-                    "only one pack parameter is allowed; the first pack takes every remaining positional argument"
-                ).first(p_start).emit();
+                self.dyn()->diag->report(
+                    DiagID::S068E,
+                    p_start.start,
+                    "only one pack parameter is allowed; the first pack takes every remaining positional argument",
+                ).first(p_start)->emit()
             } else if p_pack {
-                pd->is_pack = true;
-                variadic    = true;
+                pd->is_pack = true
+                variadic    = true
             }
 
             // `const` with a mode contradicts it. Reported at the mode, and the
             // mode KEPT: the decl stays usable for everything downstream.
-            if p_const && (p_mode != ParamMode::Value) {
-                var cmsg = "'const' cannot be combined with '@move\x27";
+            if p_const && p_mode != ParamMode::Value {
+                var cmsg = "'const' cannot be combined with '@move'"
                 if p_mode == ParamMode::Inout {
                     cmsg = "'const' and '@inout' contradict: an '@inout' parameter is a "
-                           "mutable borrow; a read-only borrow is 'const x: T\x27";
+                           "mutable borrow; a read-only borrow is 'const x: T'"
                 }
-                dyn()->diag->report(DiagID::S070E, p_mode_range.start, cmsg).first(p_mode_range).emit();
+
+                self.dyn()->diag->report(DiagID::S070E, p_mode_range.start, cmsg).first(
+                    p_mode_range,
+                )->emit()
             }
 
             // `x: const T` on a NAMED parameter is `const x: T` spelled on the
             // type: identical in meaning, harder to read. Same warning as
             // `var x: const T`. An unnamed parameter has no binding to move
             // the const onto, so it is left alone.
-            if is_named && (!p_const) && pty->is_const() {
-                var c_range = dyn()->top_const_range(pty);
-                var b = dyn()->diag->report(DiagID::S071W, c_range.start,
-                    "'const' on the type of a parameter is hard to read; declare the parameter 'const' instead"
-                );
-                b.first(c_range);
-                b.insert(pname.range.start, "const ", "make the parameter 'const\x27");
-                b.remove(c_range, "and drop it from the type");
-                b.emit();
+            if is_named && !p_const && pty->is_const() {
+                var c_range = self.dyn()->top_const_range(pty)
+                var b = self.dyn()->diag->report(
+                    DiagID::S071W,
+                    c_range.start,
+                    "'const' on the type of a parameter is hard to read; declare the parameter 'const' instead",
+                )
+
+                b.first(c_range)
+                b.insert(pname.range.start, "const ", "make the parameter 'const'")
+                b.remove(c_range, "and drop it from the type")
+                b.emit()
             } else if is_named && p_const && pty->is_const() {
                 // `const x: const T`: the same rule as a variable, a hard error
                 // on the second const.
-                var c_range = dyn()->top_const_range(pty);
-                dyn()->diag->report(DiagID::S071E, c_range.start,
-                    "the parameter is already 'const'; a second 'const' on its type is not allowed"
-                ).first(c_range).remove(c_range, "remove the second 'const\x27").emit();
+                var c_range = self.dyn()->top_const_range(pty)
+                self.dyn()->diag->report(
+                    DiagID::S071E,
+                    c_range.start,
+                    "the parameter is already 'const'; a second 'const' on its type is not allowed",
+                ).first(c_range)->remove(c_range, "remove the second 'const'")->emit()
             }
 
             // default value
-            if dyn()->check(TokenKind::OpEqual) {
-                dyn()->advance(T::SkipNL::After); // consume `=`
-                var dv = dyn()->parse_expr(T::ExprStopKind::StopComma);
-                if (dv != &null) && (!is_recovery(dv)) {
-                    pd->default_val = dv;
+            if self.dyn()->check(TokenKind::OpEqual) {
+                self.dyn()->advance(T::SkipNL::After) // consume `=`
+                var dv = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::StopComma))
+                if dv != &null && !is_recovery(dv) {
+                    pd->default_val = dv
                 }
             }
 
             // bind named params in the function scope for body lookups.
             // type-only params have no name to bind.
             if is_named {
-                dyn()->scope.bind(
-                    dyn()->ctx->get_spelling(pname),
-                    static_cast::<*Decl>(pd),
-                    pname.range
-                );
+                self.dyn()->scope.bind(self.dyn()->ctx->get_spelling(pname), pd, pname.range)
             }
 
-            out->push_back(pd);
-            ++idx;
+            out.push_back(pd)
+            ++idx
 
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
-                if dyn()->check(TokenKind::OpRParen) { break; } // trailing comma
-                continue;
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
+                if self.dyn()->check(TokenKind::OpRParen) { // trailing comma
+                    break
+                }
+
+                continue
             }
-            break;
+
+            break
         }
 
-        if dyn()->check(TokenKind::OpRParen) {
-            dyn()->advance();
+        if self.dyn()->check(TokenKind::OpRParen) {
+            self.dyn()->advance()
         } else {
-            dyn()->report_tok(DiagID::S047E, &lparen_tok,
-                "expected ')' to close the parameter list"
-            );
+            self.dyn()->report_tok(
+                DiagID::S047E,
+                &lparen_tok,
+                "expected ')' to close the parameter list",
+            )
 
             // Only synchronize to TopLevel if we are not at a capture list or body block
-            if (!dyn()->check(TokenKind::OpPipe)) && (!dyn()->check(TokenKind::OpPipePipe)) && (!dyn()->check(TokenKind::OpLBrace)) {
-                self._sync_decl(DeclSyncCtx::TopLevel);
+            if !self.dyn()->check(TokenKind::OpPipe)
+                && !self.dyn()->check(TokenKind::OpPipePipe)
+                && !self.dyn()->check(TokenKind::OpLBrace) {
+                self._sync_decl(Self::DeclSyncCtx::TopLevel)
             }
         }
 
         // a list may be all-named or all type-only, never a mix: type-only
         // params name no binding for a body to refer to.
         if saw_named && saw_unnamed {
-            dyn()->report_tok(DiagID::S047E, &lparen_tok,
+            self.dyn()->report_tok(
+                DiagID::S047E,
+                &lparen_tok,
                 "cannot mix named parameters (`name: T`) and type-only "
                 "parameters (`T`) in one signature; a type-only signature is a "
-                "bodyless forward declaration"
-            );
+                "bodyless forward declaration",
+            )
         }
 
-        dyn()->nl_pop();
-        return variadic;
+        self.dyn()->nl_pop()
+        return variadic
     }
 
     /// \brief Parses the capture list for a closure, supporting value, pointer, and const pointer captures.
@@ -2023,178 +2555,219 @@ class <T> DeclParse {
     ///          "captures nothing" on the count read `|3|` as `||`: the
     ///          closure then drew a follow-on "not captured" error for every
     ///          free name after the syntax error.
-    pub fn _parse_capture_list(self, out: *std::StackBuf::<ClosureExpr::Capture, 4>) -> bool {
-        dyn()->advance(T::SkipNL::After); // consume opening `|`
+    pub fn _parse_capture_list(self,
+                               @inout out: kairo::std::StackBuf<ClosureExpr::Capture, 4>) -> bool {
+        self.dyn()->advance(T::SkipNL::After) // consume opening `|`
 
         // empty capture list `| |`
-        if dyn()->check(TokenKind::OpPipe) {
-            dyn()->advance(); // consume closing `|`
-            return true;
+        if self.dyn()->check(TokenKind::OpPipe) {
+            self.dyn()->advance() // consume closing `|`
+            return true
         }
 
         // first capture, handled separately to avoid comma-before-first logic
         {
-            var p_start   = self._cur_range();
-            var is_const: bool = false;
+            var p_start        = self._cur_range()
+            var is_const: bool = false
 
-            if dyn()->check(TokenKind::KwConst) {
-                is_const = true;
-                dyn()->advance(); // consume `const`
+            if self.dyn()->check(TokenKind::KwConst) {
+                is_const = true
+                self.dyn()->advance() // consume `const`
 
                 // Recovery: ensure 'const' is followed by a valid next token
-                if (!dyn()->check(TokenKind::OpStar)) && (!dyn()->check_is_ident()) {
-                    dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
-                        "expected '*' or identifier after 'const' in capture list"
-                    );
-                    self._sync_decl_progress(DeclSyncCtx::Params);
+                if !self.dyn()->check(TokenKind::OpStar) && !self.dyn()->check_is_ident() {
+                    self.dyn()->report_tok(
+                        DiagID::S047E,
+                        self.dyn()->current_ptr(),
+                        "expected '*' or identifier after 'const' in capture list",
+                    )
+
+                    self._sync_decl_progress(Self::DeclSyncCtx::Params)
                 }
             }
 
-            if dyn()->check(TokenKind::OpStar) {
-                var star_range = self._cur_range();
-                dyn()->advance(); // consume `*`
+            if self.dyn()->check(TokenKind::OpStar) {
+                var star_range = self._cur_range()
+                self.dyn()->advance() // consume `*`
 
                 // `|*|` or `|const *|`, all-by-ptr sentinel, no named capture
-                if dyn()->check(TokenKind::OpPipe) {
-                    dyn()->advance(); // consume `|`
-                    var capture = ClosureExpr::Capture();
-                    capture.name     = &null;
-                    capture.by_ptr   = true;
-                    capture.is_const = is_const;
-                    out->push_back(capture);
-                    return false;
+                if self.dyn()->check(TokenKind::OpPipe) {
+                    self.dyn()->advance() // consume `|`
+                    var capture = ClosureExpr::Capture()
+                    capture.name     = &null
+                    capture.by_ptr   = true
+                    capture.is_const = is_const
+                    out.push_back(capture)
+                    return false
                 }
 
-                if !dyn()->check_is_ident() {
-                    dyn()->diag->report(DiagID::S047E, star_range.start,
-                        "expected capture name after '*\x27"
-                    ).first(star_range).emit();
-                    self._sync_decl_progress(DeclSyncCtx::Params);
+                if !self.dyn()->check_is_ident() {
+                    self.dyn()->diag->report(
+                        DiagID::S047E,
+                        star_range.start,
+                        "expected capture name after '*'",
+                    ).first(star_range)->emit()
+                    self._sync_decl_progress(Self::DeclSyncCtx::Params)
                     // fall through to closing `|` check
                 } else {
-                    var cname = dyn()->current();
-                    dyn()->advance();
-                    var capture = ClosureExpr::Capture();
-                    capture.name     = NamedIdentExpr::create(dyn()->ctx, p_start | cname.range, cname);
-                    capture.by_ptr   = true;
-                    capture.is_const = is_const;
-                    out->push_back(capture);
-                }
+                    var cname = self.dyn()->current()
+                    self.dyn()->advance()
+                    var capture = ClosureExpr::Capture()
+                    capture.name = NamedIdentExpr::create(
+                        self.dyn()->ctx,
+                        p_start | cname.range,
+                        cname,
+                    )
 
-            } else if dyn()->check(TokenKind::LitIdentifier) || dyn()->check(TokenKind::KwSelf) {
-                // `self` names the receiver (P352): spelled as a `self`
+                    capture.by_ptr   = true
+                    capture.is_const = is_const
+                    out.push_back(capture)
+                }
+            } else if self.dyn()->check(TokenKind::LitIdentifier)
+                || self.dyn()->check(TokenKind::KwSelf) {
+                // `self` names the receiver: spelled as a `self`
                 // expression is, a NamedIdentExpr on the keyword, so it
                 // resolves to the receiver ParamDecl and ClosureCaptures
                 // gives it the receiver mode whatever the list says.
-                var cname = dyn()->current();
-                dyn()->advance();
-                var capture = ClosureExpr::Capture();
-                capture.name     = NamedIdentExpr::create(dyn()->ctx, p_start | cname.range, cname);
-                capture.by_ptr   = false;
-                capture.is_const = is_const;
-                out->push_back(capture);
-
+                var cname = self.dyn()->current()
+                self.dyn()->advance()
+                var capture = ClosureExpr::Capture()
+                capture.name = NamedIdentExpr::create(self.dyn()->ctx, p_start | cname.range, cname)
+                capture.by_ptr   = false
+                capture.is_const = is_const
+                out.push_back(capture)
             } else {
-                dyn()->diag->report(DiagID::S047E, p_start.start,
-                    "expected capture name or '*' in capture list"
-                ).first(p_start).emit();
-                self._sync_decl_progress(DeclSyncCtx::Params);
+                self.dyn()->diag->report(
+                    DiagID::S047E,
+                    p_start.start,
+                    "expected capture name or '*' in capture list",
+                ).first(p_start)->emit()
+                self._sync_decl_progress(Self::DeclSyncCtx::Params)
             }
 
             // after first capture: comma continues, pipe or nothing closes
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
-                if dyn()->check(TokenKind::OpPipe) {
-                    dyn()->advance(); // handle trailing comma before closing `|`
-                    return false;
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
+                if self.dyn()->check(TokenKind::OpPipe) {
+                    self.dyn()->advance() // handle trailing comma before closing `|`
+                    return false
                 }
             } else {
-                if dyn()->check(TokenKind::OpPipe) { dyn()->advance(); }
-                return false;
+                if self.dyn()->check(TokenKind::OpPipe) {
+                    self.dyn()->advance()
+                }
+
+                return false
             }
         }
 
         // remaining captures
-        while !dyn()->is_eof() {
-            var p_start   = self._cur_range();
-            var is_const: bool = false;
-            var by_ptr:   bool = false;
+        while !self.dyn()->is_eof() {
+            var p_start        = self._cur_range()
+            var is_const: bool = false
+            var by_ptr:   bool = false
 
-            if dyn()->check(TokenKind::KwConst) {
-                 //TODO recovery incase of anything other than const here
-                is_const = true;
-                dyn()->advance(); // consume `const`
+            if self.dyn()->check(TokenKind::KwConst) {
+                //TODO recovery incase of anything other than const here
+                is_const = true
+                self.dyn()->advance() // consume `const`
 
                 // Recovery: ensure valid structural capture token follows
-                if (!dyn()->check(TokenKind::OpStar)) && (!dyn()->check_is_ident()) {
-                    dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
-                        "expected '*' or identifier after 'const' in capture list"
-                    );
-                    self._sync_decl(DeclSyncCtx::Params);
-                    if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                    break;
+                if !self.dyn()->check(TokenKind::OpStar) && !self.dyn()->check_is_ident() {
+                    self.dyn()->report_tok(
+                        DiagID::S047E,
+                        self.dyn()->current_ptr(),
+                        "expected '*' or identifier after 'const' in capture list",
+                    )
+
+                    self._sync_decl(Self::DeclSyncCtx::Params)
+                    if self.dyn()->check(TokenKind::OpComma) {
+                        self.dyn()->advance(T::SkipNL::After)
+                        continue
+                    }
+
+                    break
                 }
             }
 
-            if dyn()->check(TokenKind::OpStar) {
-                by_ptr = true;
-                dyn()->advance(); // consume `*`
+            if self.dyn()->check(TokenKind::OpStar) {
+                by_ptr = true
+                self.dyn()->advance() // consume `*`
             }
 
-            if (!dyn()->check_is_ident()) && (!dyn()->check(TokenKind::KwSelf)) {
-                dyn()->diag->report(DiagID::S047E, p_start.start,
-                    "expected capture name"
-                ).first(p_start).emit();
-                self._sync_decl(DeclSyncCtx::Params);
-                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                break;
+            if !self.dyn()->check_is_ident() && !self.dyn()->check(TokenKind::KwSelf) {
+                self.dyn()->diag->report(
+                    DiagID::S047E,
+                    p_start.start,
+                    "expected capture name",
+                ).first(p_start)->emit()
+                self._sync_decl(Self::DeclSyncCtx::Params)
+                if self.dyn()->check(TokenKind::OpComma) {
+                    self.dyn()->advance(T::SkipNL::After)
+                    continue
+                }
+
+                break
             }
 
-            var cname = dyn()->current();
-            dyn()->advance();
+            var cname = self.dyn()->current()
+            self.dyn()->advance()
 
-            var capture = ClosureExpr::Capture();
-            capture.name     = NamedIdentExpr::create(dyn()->ctx, p_start | cname.range, cname);
-            capture.by_ptr   = by_ptr;
-            capture.is_const = is_const;
-            out->push_back(capture);
+            var capture = ClosureExpr::Capture()
+            capture.name     = NamedIdentExpr::create(self.dyn()->ctx, p_start | cname.range, cname)
+            capture.by_ptr   = by_ptr
+            capture.is_const = is_const
+            out.push_back(capture)
 
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
-                if dyn()->check(TokenKind::OpPipe) { break; } // trailing comma
-                continue;
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
+                if self.dyn()->check(TokenKind::OpPipe) { // trailing comma
+                    break
+                }
+
+                continue
             }
-            break;
+
+            break
         }
 
-        if dyn()->check(TokenKind::OpPipe) {
-            dyn()->advance(); // consume closing `|`
+        if self.dyn()->check(TokenKind::OpPipe) {
+            self.dyn()->advance() // consume closing `|`
         } else {
-            dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
-                "expected '|' to close the capture list"
-            );
-            self._sync_decl(DeclSyncCtx::TopLevel);
+            self.dyn()->report_tok(
+                DiagID::S047E,
+                self.dyn()->current_ptr(),
+                "expected '|' to close the capture list",
+            )
+
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
         }
-        return false;
+
+        return false
     }
 
     priv fn _sync_to_closure_milestone(self) {
-        var depth: i32 = 0;
-        while !dyn()->is_eof() {
-            var k = dyn()->ig_kind();
+        var depth: i32 = 0
+        while !self.dyn()->is_eof() {
+            var k = self.dyn()->ig_kind()
             if k == TokenKind::OpLParen || k == TokenKind::OpLSquare || k == TokenKind::OpLBrace {
-                ++depth;
-            } else if k == TokenKind::OpRParen || k == TokenKind::OpRSquare || k == TokenKind::OpRBrace {
-                if depth > 0 { --depth; }
+                ++depth
+            } else if k == TokenKind::OpRParen
+                || k == TokenKind::OpRSquare
+                || k == TokenKind::OpRBrace {
+                if depth > 0 {
+                    --depth
+                }
             } else if depth == 0 {
                 if k == TokenKind::OpPipe
-                || k == TokenKind::OpArrow
-                || k == TokenKind::OpEqual
-                || self._is_closure_modifier(k) {
-                    return;
+                    || k == TokenKind::OpArrow
+                    || k == TokenKind::OpEqual
+                    || self._is_closure_modifier(k) {
+                    return
                 }
             }
-            dyn()->advance();
+
+            self.dyn()->advance()
         }
     }
 
@@ -2208,35 +2781,50 @@ class <T> DeclParse {
             || k == TokenKind::KwFinal
             || k == TokenKind::KwInline
             || k == TokenKind::KwVirtual
-            || k == TokenKind::KwOverride;
+            || k == TokenKind::KwOverride
     }
 
     /// \brief parses trailing function modifiers into fd->modifiers.
-    priv fn _parse_fn_modifiers(self, fd: *FunctionDecl) {
+    priv fn _parse_fn_modifiers(self, fd: *Declarations::FunctionDecl) {
         while true {
-            if      dyn()->check(TokenKind::KwConst)    { self._reject_trailing_const(fd); }
-            else if dyn()->check(TokenKind::KwVolatile) { fd->modifiers |= FnModifier::IsVolatile; dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwUnsafe)   { fd->modifiers |= FnModifier::IsUnsafe;   dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwEval)     { fd->modifiers |= FnModifier::IsEval;     dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwAsync)    { fd->modifiers |= FnModifier::IsAsync;    dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwFinal)    { fd->modifiers |= FnModifier::IsFinal;    dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwPanic)    {
-                fd->modifiers |= FnModifier::IsPanic;
-                var pk = self._cur_range();
-                dyn()->advance();
+            if self.dyn()->check(TokenKind::KwConst) {
+                self._reject_trailing_const(fd)
+            } else if self.dyn()->check(TokenKind::KwVolatile) {
+                fd->modifiers |= Declarations::FnModifier::IsVolatile
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwUnsafe) {
+                fd->modifiers |= Declarations::FnModifier::IsUnsafe
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwEval) {
+                fd->modifiers |= Declarations::FnModifier::IsEval
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwAsync) {
+                fd->modifiers |= Declarations::FnModifier::IsAsync
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwFinal) {
+                fd->modifiers |= Declarations::FnModifier::IsFinal
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwPanic) {
+                fd->modifiers |= Declarations::FnModifier::IsPanic
+                var pk = self._cur_range()
+                self.dyn()->advance()
                 // `panic(E1, E2)`: the declared set (TypeParse::parse_panic_set
                 // has the disambiguation rule).
-                if dyn()->check(TokenKind::OpLParen) {
-                    var pset: std::StackBuf::<*Type, 4>;
-                    dyn()->parse_panic_set(&pset);
-                    fd->panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
+                if self.dyn()->check(TokenKind::OpLParen) {
+                    var pset: kairo::std::StackBuf<unsafe *Type, 4>
+                    self.dyn()->parse_panic_set(&pset)
+                    fd->panic_set.from_buf(pset.data(), pset.size(), self.dyn()->ctx)
                 }
+
                 // The specifier as written, its set included: what a fix-it
                 // removes or rewrites.
-                fd->panic_range = pk | self._prev_range();
+                fd->panic_range = pk | self._prev_range()
+            } else if self.dyn()->check(TokenKind::KwInline) {
+                fd->modifiers |= Declarations::FnModifier::IsInline
+                self.dyn()->advance()
+            } else {
+                break
             }
-            else if dyn()->check(TokenKind::KwInline)   { fd->modifiers |= FnModifier::IsInline;   dyn()->advance(); }
-            else { break; }
         }
     }
 
@@ -2245,13 +2833,16 @@ class <T> DeclParse {
     ///          still marks the method (and its receiver) const, so a decl
     ///          paired with a `const self` definition does not cascade into a
     ///          const-disagreement error on top of this one.
-    priv fn _reject_trailing_const(self, fd: *FunctionDecl) {
-        var c_range = self._cur_range();
-        dyn()->advance(); // consume `const`
+    priv fn _reject_trailing_const(self, fd: *Declarations::FunctionDecl) {
+        var c_range = self._cur_range()
+        self.dyn()->advance() // consume `const`
 
-        var recv: *ParamDecl = &null;
+        var recv: unsafe *Declarations::ParamDecl = &null
         for var i: usize = 0; i < fd->params.size(); ++i {
-            if fd->params[i]->is_self { recv = fd->params[i]; break; }
+            if fd->params[i]->is_self {
+                recv = fd->params[i]
+                break
+            }
         }
 
         if recv == &null {
@@ -2259,154 +2850,211 @@ class <T> DeclParse {
             // inputs (FunctionDecl::is_const_fn). A method has no such form:
             // `const self` is its promise, and a static one has no receiver
             // to make that promise about.
-            var dc = fd->parent_context();
-            if (dc != &null) && dc->is_type_scope() {
-                dyn()->diag->report(DiagID::S047E, c_range.start,
-                    "a method cannot be const; 'const self' is how a method promises not to change its object"
-                ).first(c_range).remove(c_range, "remove the trailing 'const\x27").emit();
-                return;
+            var unsafe *dc = fd->parent_context()
+            if dc != &null && dc->is_type_scope() {
+                self.dyn()->diag->report(
+                    DiagID::S047E,
+                    c_range.start,
+                    "a method cannot be const; 'const self' is how a method promises not to change its object",
+                ).first(c_range)->remove(c_range, "remove the trailing 'const'")->emit()
+                return
             }
-            fd->is_const_fn = true;
-            return;
+
+            fd->is_const_fn = true
+            fd->purity_at   = c_range
+            return
         }
 
         if recv->is_const {
-            dyn()->diag->report(DiagID::S047E, c_range.start,
-                "a trailing 'const' is not valid; the receiver is already 'const self\x27"
-            ).first(c_range).remove(c_range, "remove the trailing 'const\x27").emit();
-            return;
+            self.dyn()->diag->report(
+                DiagID::S047E,
+                c_range.start,
+                "a trailing 'const' is not valid; the receiver is already 'const self'",
+            ).first(c_range)->remove(c_range, "remove the trailing 'const'")->emit()
+            return
         }
 
-        var b = dyn()->diag->report(DiagID::S047E, c_range.start,
-            "a const method is spelled 'fn name(const self)', not with a trailing 'const\x27"
-        );
+        var b = self.dyn()->diag->report(
+            DiagID::S047E,
+            c_range.start,
+            "a const method is spelled 'fn name(const self)', not with a trailing 'const'",
+        )
+
         // strike the misplaced const in place; the one fix-it moves it onto
         // the receiver, which is not itself at fault so it gets no label.
-        b.strike(c_range);
-        b.insert(recv->range.start, "const ", "qualify the receiver instead");
-        b.emit();
+        b.strike(c_range)
+        b.insert(recv->range.start, "const ", "qualify the receiver instead")
+        b.emit()
 
-        recv->is_const = true;
-        fd->modifiers |= FnModifier::IsConst;
+        recv->is_const = true
+        fd->modifiers |= Declarations::FnModifier::IsConst
     }
 
     priv fn _parse_closure_fn_modifiers(self, fd: *ClosureExpr) {
         while true {
-            if      dyn()->check(TokenKind::KwConst)    { fd->modifiers |= FnModifier::IsConst;    dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwVolatile) { fd->modifiers |= FnModifier::IsVolatile; dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwUnsafe)   { fd->modifiers |= FnModifier::IsUnsafe;   dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwEval)     { fd->modifiers |= FnModifier::IsEval;     dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwAsync)    { fd->modifiers |= FnModifier::IsAsync;    dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwFinal)    { fd->modifiers |= FnModifier::IsFinal;    dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwPanic)    {
-                fd->modifiers |= FnModifier::IsPanic;
-                var pk = self._cur_range();
-                dyn()->advance();
+            if self.dyn()->check(TokenKind::KwConst) {
+                fd->modifiers |= Declarations::FnModifier::IsConst
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwVolatile) {
+                fd->modifiers |= Declarations::FnModifier::IsVolatile
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwUnsafe) {
+                fd->modifiers |= Declarations::FnModifier::IsUnsafe
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwEval) {
+                fd->modifiers |= Declarations::FnModifier::IsEval
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwAsync) {
+                fd->modifiers |= Declarations::FnModifier::IsAsync
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwFinal) {
+                fd->modifiers |= Declarations::FnModifier::IsFinal
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwPanic) {
+                fd->modifiers |= Declarations::FnModifier::IsPanic
+                var pk = self._cur_range()
+                self.dyn()->advance()
                 // `panic(E1, E2)`: the declared set (TypeParse::parse_panic_set
                 // has the disambiguation rule).
-                if dyn()->check(TokenKind::OpLParen) {
-                    var pset: std::StackBuf::<*Type, 4>;
-                    dyn()->parse_panic_set(&pset);
-                    fd->panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
+                if self.dyn()->check(TokenKind::OpLParen) {
+                    var pset: kairo::std::StackBuf<unsafe *Type, 4>
+                    self.dyn()->parse_panic_set(&pset)
+                    fd->panic_set.from_buf(pset.data(), pset.size(), self.dyn()->ctx)
                 }
+
                 // The specifier as written, its set included: what a fix-it
                 // removes or rewrites.
-                fd->panic_range = pk | self._prev_range();
+                fd->panic_range = pk | self._prev_range()
+            } else if self.dyn()->check(TokenKind::KwInline) {
+                fd->modifiers |= Declarations::FnModifier::IsInline
+                self.dyn()->advance()
+            } else {
+                break
             }
-            else if dyn()->check(TokenKind::KwInline)   { fd->modifiers |= FnModifier::IsInline;   dyn()->advance(); }
-            else { break; }
         }
     }
 
     /// \brief parses the function body, setting body_kind + body_block/expr.
     ///  Grammar:  block | '=' expr | '=' ('default'|'delete'|'virtual') | <none>
-    priv fn _parse_fn_body(self, fd: *FunctionDecl) {
+    priv fn _parse_fn_body(self, fd: *Declarations::FunctionDecl) {
         // `= default` / `= delete` / `= expr`
-        if dyn()->check(TokenKind::OpEqual) {
-            var before_eq = dyn()->prev().range;
-            dyn()->advance(T::SkipNL::After); // consume `=`
+        if self.dyn()->check(TokenKind::OpEqual) {
+            var before_eq = self.dyn()->prev().range
+            self.dyn()->advance(T::SkipNL::After) // consume `=`
 
-            if dyn()->check(TokenKind::KwDefault) {
-                dyn()->advance(); fd->body_kind = FnBodyKind::Default; return;
+            if self.dyn()->check(TokenKind::KwDefault) {
+                self.dyn()->advance()
+                fd->body_kind = Declarations::FnBodyKind::Default
+                return
             }
-            if dyn()->check(TokenKind::KwDelete) {
-                dyn()->advance(); fd->body_kind = FnBodyKind::Delete; return;
+
+            if self.dyn()->check(TokenKind::KwDelete) {
+                self.dyn()->advance()
+                fd->body_kind = Declarations::FnBodyKind::Delete
+                return
             }
+
             // `= virtual` was the old pure-virtual spelling. A pure virtual
             // method is now a `virtual fn` with no body (_parse_class marks
             // it), so the fix-it rewrites to that, and recovery reads the
             // method as pure virtual so the class is not also reported for
             // a missing body or a non-abstract instantiation.
-            if dyn()->check(TokenKind::KwVirtual) {
-                var vr = self._cur_range();
-                var gone = SourceRange(before_eq.end, vr.end);
-                var b = dyn()->diag->report(DiagID::S047E, vr.start,
-                    "'= virtual' is not a function body; a pure virtual method is a 'virtual fn' with no body"
-                );
-                b.first(vr);
-                b.remove(gone, "remove '= virtual\x27");
-                if fd->abi != AbiKind::Virtual {
-                    b.insert(fd->range.start, "virtual ", "declare the method 'virtual\x27");
+            if self.dyn()->check(TokenKind::KwVirtual) {
+                var vr   = self._cur_range()
+                var gone = SourceRange(before_eq.end, vr.end)
+                var b = self.dyn()->diag->report(
+                    DiagID::S047E,
+                    vr.start,
+                    "'= virtual' is not a function body; a pure virtual method is a 'virtual fn' with no body",
+                )
+
+                b.first(vr)
+                b.remove(gone, "remove '= virtual'")
+                if fd->abi != Declarations::AbiKind::Virtual {
+                    b.insert(fd->range.start, "virtual ", "declare the method 'virtual'")
                 }
-                b.emit();
-                dyn()->advance();
-                fd->abi = AbiKind::Virtual;
-                return;
+
+                b.emit()
+                self.dyn()->advance()
+                fd->abi = Declarations::AbiKind::Virtual
+                return
             }
-            if dyn()->check(TokenKind::KwStatic) {
-                dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
-                    "static functions must be declared with the 'static' modifier"
-                );
-                dyn()->advance();
-                return;
+
+            if self.dyn()->check(TokenKind::KwStatic) {
+                self.dyn()->report_tok(
+                    DiagID::S047E,
+                    self.dyn()->current_ptr(),
+                    "static functions must be declared with the 'static' modifier",
+                )
+
+                self.dyn()->advance()
+                return
             }
-            if dyn()->check(TokenKind::KwAsync) {
-                dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
-                    "async functions must be declared with the 'async' modifier"
-                );
-                dyn()->advance();
-                return;
+
+            if self.dyn()->check(TokenKind::KwAsync) {
+                self.dyn()->report_tok(
+                    DiagID::S047E,
+                    self.dyn()->current_ptr(),
+                    "async functions must be declared with the 'async' modifier",
+                )
+
+                self.dyn()->advance()
+                return
             }
-            if dyn()->check(TokenKind::KwInline) {
-                dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
-                    "inline functions must be declared with the 'inline' modifier"
-                );
-                dyn()->advance();
-                return;
+
+            if self.dyn()->check(TokenKind::KwInline) {
+                self.dyn()->report_tok(
+                    DiagID::S047E,
+                    self.dyn()->current_ptr(),
+                    "inline functions must be declared with the 'inline' modifier",
+                )
+
+                self.dyn()->advance()
+                return
             }
-            if dyn()->check(TokenKind::KwFinal) {
-                dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
-                    "final functions must be declared with the 'final' modifier"
-                );
-                dyn()->advance();
-                return;
+
+            if self.dyn()->check(TokenKind::KwFinal) {
+                self.dyn()->report_tok(
+                    DiagID::S047E,
+                    self.dyn()->current_ptr(),
+                    "final functions must be declared with the 'final' modifier",
+                )
+
+                self.dyn()->advance()
+                return
             }
-            if dyn()->check(TokenKind::KwPanic) {
-                dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
-                    "panic functions must be declared with the 'panic' modifier"
-                );
-                dyn()->advance();
-                return;
+
+            if self.dyn()->check(TokenKind::KwPanic) {
+                self.dyn()->report_tok(
+                    DiagID::S047E,
+                    self.dyn()->current_ptr(),
+                    "panic functions must be declared with the 'panic' modifier",
+                )
+
+                self.dyn()->advance()
+                return
             }
+
             // expression-bodied
-            var e = dyn()->parse_expr();
-            if (e != &null) && (!is_recovery(e)) {
-                fd->body_kind = FnBodyKind::Expr;
-                fd->body_expr = e;
+            var e = self.dyn()->parse_expr()
+            if e != &null && !is_recovery(e) {
+                fd->body_kind = Declarations::FnBodyKind::Expr
+                fd->body_expr = e
             }
-            return;
+
+            return
         }
 
         // block body
-        if dyn()->check(TokenKind::OpLBrace) {
-            var block = dyn()->parse_compound();
-            fd->body_kind  = FnBodyKind::Block;
-            fd->body_block = block;
-            return;
+        if self.dyn()->check(TokenKind::OpLBrace) {
+            var block = self.dyn()->parse_compound()
+            fd->body_kind  = Declarations::FnBodyKind::Block
+            fd->body_block = block
+            return
         }
 
         // no body forward declaration / FFI import.
-        fd->body_kind = FnBodyKind::None;
+        fd->body_kind = Declarations::FnBodyKind::None
     }
 
     //  Variable / field declaration
@@ -2414,10 +3062,10 @@ class <T> DeclParse {
     /// \struct StorageHead
     /// \brief the keywords that open a binding, read by _parse_storage_head.
     struct StorageHead {
-        var storage:       StorageClass;
-        var is_thread:     bool;
-        var const_binding: bool;   ///< `static const` / `thread const`: the binding itself is const.
-        var saw_const:     bool;   ///< a `const` was read, whatever it meant (`eval const` sets nothing else).
+        var storage:       Declarations::StorageClass
+        var is_thread:     bool
+        var const_binding: bool ///< `static const` / `thread const`: the binding itself is const.
+        var saw_const:     bool ///< a `const` was read, whatever it meant (`eval const` sets nothing else).
     }
 
     /// \brief reads the keywords that open a binding or a field, in either
@@ -2440,9 +3088,9 @@ class <T> DeclParse {
     ///          is_static() (`Type::name` lookup, nullness, the C++ spelling)
     ///          is already right for it. Anything else after the keyword is
     ///          left for the name check, whose S046E names the real problem.
-    priv fn _parse_storage_head(self) -> StorageHead {
-        var first = dyn()->current();
-        var h     = self._storage_head_core();
+    priv fn _parse_storage_head(self) -> Self::StorageHead {
+        var first = self.dyn()->current()
+        var h     = self._storage_head_core()
 
         // A keyword of the set still on the cursor is a combination the
         // grammar above refuses (`var thread`, `static eval`, `const const`).
@@ -2451,66 +3099,88 @@ class <T> DeclParse {
         // extra keyword is dropped and the declaration parses on.
         // FIXME(diag-table): S045 is "unexpected token in parsing"; a
         // storage-class combination wants its own code.
-        while dyn()->check(TokenKind::KwVar)  || dyn()->check(TokenKind::KwConst)
-           || dyn()->check(TokenKind::KwStatic) || dyn()->check(TokenKind::KwEval)
-           || dyn()->check(TokenKind::KwThread) {
-            var extra = dyn()->current();
-            var msg   = f"'{dyn()->ctx->get_spelling(first)}' cannot be combined with '{dyn()->ctx->get_spelling(extra)}'; a binding takes one of 'var', 'static', 'thread' or 'eval', and 'const' once";
-            if dyn()->check(TokenKind::KwConst) && h.saw_const { msg = "'const' is written twice; a binding takes it once"; }
-            var b = dyn()->diag->report(DiagID::S045E, extra.range.start, msg);
-            b.first(extra.range);
-            b.remove(extra.range, "remove it");
-            b.emit();
-            dyn()->advance();   // consume the extra keyword
+        while self.dyn()->check(TokenKind::KwVar)
+            || self.dyn()->check(TokenKind::KwConst)
+            || self.dyn()->check(TokenKind::KwStatic)
+            || self.dyn()->check(TokenKind::KwEval)
+            || self.dyn()->check(TokenKind::KwThread) {
+            var extra = self.dyn()->current()
+            var msg = f"'{self.dyn()->ctx->get_spelling(first)}' cannot be combined with '{self.dyn()->ctx->get_spelling(extra)}'; a binding takes one of 'var', 'static', 'thread' or 'eval', and 'const' once"
+            if self.dyn()->check(TokenKind::KwConst) && h.saw_const {
+                msg = "'const' is written twice; a binding takes it once"
+            }
+
+            var b = self.dyn()->diag->report(DiagID::S045E, extra.range.start, msg)
+            b.first(extra.range)
+            b.remove(extra.range, "remove it")
+            b.emit()
+            self.dyn()->advance() // consume the extra keyword
         }
-        return h;
+
+        return h
     }
 
-    priv fn _storage_head_core(self) -> StorageHead {
-        var h = StorageHead{};
-        h.storage       = StorageClass::Var;
-        h.is_thread     = false;
-        h.const_binding = false;
-        h.saw_const     = false;
+    priv fn _storage_head_core(self) -> Self::StorageHead {
+        var h = Self::StorageHead{}
+        h.storage       = Declarations::StorageClass::Var
+        h.is_thread     = false
+        h.const_binding = false
+        h.saw_const     = false
 
-        var lead_const = dyn()->check(TokenKind::KwConst);
+        var lead_const = self.dyn()->check(TokenKind::KwConst)
         if lead_const {
-            h.storage   = StorageClass::Const;
-            h.saw_const = true;
-            dyn()->advance();   // consume `const`
-            if dyn()->check(TokenKind::KwStatic) || dyn()->check(TokenKind::KwThread) {
-                h.storage       = StorageClass::Static;
-                h.is_thread     = dyn()->check(TokenKind::KwThread);
-                h.const_binding = true;
-                dyn()->advance();   // consume `static` / `thread`
-                if (!h.is_thread) && dyn()->check(TokenKind::KwThread) {
-                    h.is_thread = true;
-                    dyn()->advance();   // consume `thread` of `const static thread`
+            h.storage   = Declarations::StorageClass::Const
+            h.saw_const = true
+            self.dyn()->advance() // consume `const`
+            if self.dyn()->check(TokenKind::KwStatic) || self.dyn()->check(TokenKind::KwThread) {
+                h.storage       = Declarations::StorageClass::Static
+                h.is_thread     = self.dyn()->check(TokenKind::KwThread)
+                h.const_binding = true
+                self.dyn()->advance() // consume `static` / `thread`
+                if !h.is_thread && self.dyn()->check(TokenKind::KwThread) {
+                    h.is_thread = true
+                    self.dyn()->advance() // consume `thread` of `const static thread`
                 }
-            } else if dyn()->check(TokenKind::KwEval) {
-                h.storage = StorageClass::Eval;
-                dyn()->advance();   // consume `eval`
+            } else if self.dyn()->check(TokenKind::KwEval) {
+                h.storage = Declarations::StorageClass::Eval
+                self.dyn()->advance() // consume `eval`
             }
-            return h;
+
+            return h
         }
 
-        if      dyn()->check(TokenKind::KwStatic) { h.storage = StorageClass::Static; }
-        else if dyn()->check(TokenKind::KwThread) { h.storage = StorageClass::Static; h.is_thread = true; }
-        else if dyn()->check(TokenKind::KwEval)   { h.storage = StorageClass::Eval;   }
-        var is_var = dyn()->check(TokenKind::KwVar);
-        dyn()->advance();   // consume the storage keyword
-        if is_var { return h; }
+        if self.dyn()->check(TokenKind::KwStatic) {
+            h.storage = Declarations::StorageClass::Static
+        } else if self.dyn()->check(TokenKind::KwThread) {
+            h.storage   = Declarations::StorageClass::Static
+            h.is_thread = true
+        } else if self.dyn()->check(TokenKind::KwEval) {
+            h.storage = Declarations::StorageClass::Eval
+        }
 
-        if (h.storage == StorageClass::Static) && (!h.is_thread) && dyn()->check(TokenKind::KwThread) {
-            h.is_thread = true;
-            dyn()->advance();   // consume `thread` of `static thread`
+        var is_var = self.dyn()->check(TokenKind::KwVar)
+        self.dyn()->advance() // consume the storage keyword
+        if is_var {
+            return h
         }
-        if dyn()->check(TokenKind::KwConst) {
-            if h.storage == StorageClass::Static { h.const_binding = true; }
-            h.saw_const = true;
-            dyn()->advance();   // consume `const`
+
+        if h.storage == Declarations::StorageClass::Static
+            && !h.is_thread
+            && self.dyn()->check(TokenKind::KwThread) {
+            h.is_thread = true
+            self.dyn()->advance() // consume `thread` of `static thread`
         }
-        return h;
+
+        if self.dyn()->check(TokenKind::KwConst) {
+            if h.storage == Declarations::StorageClass::Static {
+                h.const_binding = true
+            }
+
+            h.saw_const = true
+            self.dyn()->advance() // consume `const`
+        }
+
+        return h
     }
 
     /// \brief parses a var/const/static/eval binding as a VariableDecl.
@@ -2520,89 +3190,108 @@ class <T> DeclParse {
     /// \note destructuring (`var (a, b) = ...`) is handled by StmtParse at
     ///       statement scope; this path is for plain single-name bindings,
     ///       including the C-style for-loop init and namespace/local decls.
-    fn _parse_var_decl(self) -> *Decl {
-        var start = self._cur_range();
+    fn _parse_var_decl(self) -> unsafe *Decl {
+        var start = self._cur_range()
 
-        var head    = self._parse_storage_head();
-        var storage = head.storage;
-        dyn()->_reject_mode_binding();   // `var @inout x`: modes are parameter-only.
+        var head    = self._parse_storage_head()
+        var storage = head.storage
+        self.dyn()->_reject_mode_binding() // `var @inout x`: modes are parameter-only.
 
         // `var *y = e`, `var **y = e`, `var unsafe *y = e`: the pointer
-        // shorthand (NULLABLE.md 1.7). Before the name, so the name check
+        // shorthand (Compiler/Spec/Nullables.md#declaration-shorthands). Before the name, so the name check
         // below sees the identifier; left unread, the `*` was S046E.
         // `unsafe` counts only before a star: alone it is no shorthand.
-        var p_depth  = u32(0);
-        var p_unsafe = false;
-        var p_range  = SourceRange::invalid();
-        if dyn()->check(TokenKind::KwUnsafe) && dyn()->check_peek(TokenKind::OpStar) {
-            p_range  = self._cur_range();
-            p_unsafe = true;
-            dyn()->advance();   // consume `unsafe`
-        }
-        while dyn()->check(TokenKind::OpStar) {
-            if p_depth == 0 && (!p_unsafe) { p_range = self._cur_range(); }
-            else                           { p_range = p_range | self._cur_range(); }
-            p_depth += 1;
-            dyn()->advance();   // consume `*`
+        var p_depth  = (0 as u32)
+        var p_unsafe = false
+        var p_range  = SourceRange::invalid()
+        if self.dyn()->check(TokenKind::KwUnsafe) && self.dyn()->check_peek(TokenKind::OpStar) {
+            p_range  = self._cur_range()
+            p_unsafe = true
+            self.dyn()->advance() // consume `unsafe`
         }
 
-        if !dyn()->check_is_ident() {
-            dyn()->diag->report(DiagID::S046E, start.start,
-                "expected a name after the binding keyword"
-            ).first(start).emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(VariableDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
-        }
-        var name = dyn()->current();
-        dyn()->advance();
+        while self.dyn()->check(TokenKind::OpStar) {
+            if p_depth == 0 && !p_unsafe {
+                p_range = self._cur_range()
+            } else {
+                p_range = p_range | self._cur_range()
+            }
 
-        var vd = VariableDecl::create(dyn()->ctx, start, name, storage);
-        vd->storage_kw = start;   // the first binding keyword: a Sema fix-it rewrites it.
-        vd->is_thread      = head.is_thread;
-        vd->const_binding  = head.const_binding;
-        vd->pointer_depth  = p_depth;
-        vd->pointer_unsafe = p_unsafe;
-        vd->pointer_range  = p_range;
+            p_depth += 1
+            self.dyn()->advance() // consume `*`
+        }
+
+        if !self.dyn()->check_is_ident() {
+            self.dyn()->diag->report(
+                DiagID::S046E,
+                start.start,
+                "expected a name after the binding keyword",
+            ).first(start)->emit()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::VariableDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
+        }
+
+        var name = self.dyn()->current()
+        self.dyn()->advance()
+
+        var vd = Declarations::VariableDecl::create(self.dyn()->ctx, start, name, storage)
+        vd->storage_kw     = start // the first binding keyword: a Sema fix-it rewrites it.
+        vd->is_thread      = head.is_thread
+        vd->const_binding  = head.const_binding
+        vd->pointer_depth  = p_depth
+        vd->pointer_unsafe = p_unsafe
+        vd->pointer_range  = p_range
 
         // `var x? = e`: the nullable shorthand. Read before the index-mode
         // skip so both parses see the same name; left for the statement
         // parser, the `?` became an expression and S052E.
-        var q_range = SourceRange();
-        if dyn()->check(TokenKind::OpQuestion) {
-            q_range = self._cur_range();
-            dyn()->advance();
-            vd->nullable_shorthand = true;
+        var q_range = SourceRange()
+        if self.dyn()->check(TokenKind::OpQuestion) {
+            q_range = self._cur_range()
+            self.dyn()->advance()
+            vd->nullable_shorthand = true
         }
 
         // index mode: the name is all the table needs; skip type and init
         // (the init is an expression parsing it here would query the
         // half-built table).
-        if dyn()->mode == T::ParseMode::Index {
-            dyn()->_index_skip_stmt();
-            vd->range = start | dyn()->prev().range;
-            return static_cast::<*Decl>(vd);
+        if self.dyn()->mode == T::ParseMode::Index {
+            self.dyn()->_index_skip_stmt()
+            vd->range = start | self.dyn()->prev().range
+            return vd
         }
 
         // optional `: type`
-        if dyn()->check(TokenKind::OpColon) {
-            dyn()->advance(T::SkipNL::After); // consume `:`
-            var ty = dyn()->parse_type();
-            if (ty != &null) && (!is_recovery(ty)) && (vd->pointer_depth > 0) {
+        if self.dyn()->check(TokenKind::OpColon) {
+            self.dyn()->advance(T::SkipNL::After) // consume `:`
+            var ty = self.dyn()->parse_type()
+            if ty != &null && !is_recovery(ty) && vd->pointer_depth > 0 {
                 // `var *y: T`. Same reasoning as `var x?: T` below: the
                 // stars restate what the annotation already says, and if
                 // they disagree one of them is a mistake. The annotation
                 // wins (it is the explicit one); the fix-it drops the stars.
-                var stars = pointer_shorthand_spelling(vd->pointer_depth, vd->pointer_unsafe);
-                var b = dyn()->diag->report(DiagID::S058E, vd->pointer_range.start,
-                    f"'{stars}{dyn()->ctx->get_spelling(name)}' states that the binding is a pointer, but the declaration also annotates its type; drop the '{stars}\x27"
-                );
-                b.first(vd->pointer_range);
-                b.remove(vd->pointer_range, "remove the shorthand");
-                b.emit();
-                vd->pointer_depth  = 0;
-                vd->pointer_unsafe = false;
+                var stars = Declarations::pointer_shorthand_spelling(
+                    vd->pointer_depth,
+                    vd->pointer_unsafe,
+                )
+
+                var b = self.dyn()->diag->report(
+                    DiagID::S058E,
+                    vd->pointer_range.start,
+                    f"'{stars}{self.dyn()->ctx->get_spelling(name)}' states that the binding is a pointer, but the declaration also annotates its type; drop the '{stars}'",
+                )
+
+                b.first(vd->pointer_range)
+                b.remove(vd->pointer_range, "remove the shorthand")
+                b.emit()
+                vd->pointer_depth  = 0
+                vd->pointer_unsafe = false
             }
-            if (ty != &null) && (!is_recovery(ty)) && vd->nullable_shorthand {
+
+            if ty != &null && !is_recovery(ty) && vd->nullable_shorthand {
                 // `var x?: T`. The shorthand exists to infer the type, and
                 // the annotation says it outright, so one of them is a
                 // mistake: refused rather than read as redundant, because
@@ -2610,62 +3299,73 @@ class <T> DeclParse {
                 // spelling no other declaration uses. Recovered as the
                 // annotation made nullable (`x: T?`, or `x: T` when T is
                 // already nullable), which is what the fix-it writes.
-                var already = isa::<NullableType>(ty);
-                var b = dyn()->diag->report(DiagID::S058E, q_range.start,
-                    f"'{dyn()->ctx->get_spelling(name)}?' infers a nullable type, but the declaration also annotates one; write the '?' on the type"
-                );
-                b.first(q_range);
-                b.remove(q_range, "remove the shorthand");
-                if !already { b.insert(ty->range.end, "?", "make the annotated type nullable"); }
-                b.emit();
-                vd->nullable_shorthand = false;
-                if !already { ty = NullableType::create(dyn()->ctx, ty->range, ty); }
+                var already = isa<NullableType>(ty)
+                var b = self.dyn()->diag->report(
+                    DiagID::S058E,
+                    q_range.start,
+                    f"'{self.dyn()->ctx->get_spelling(name)}?' infers a nullable type, but the declaration also annotates one; write the '?' on the type",
+                )
+
+                b.first(q_range)
+                b.remove(q_range, "remove the shorthand")
+                if !already {
+                    b.insert(ty->range.end, "?", "make the annotated type nullable")
+                }
+
+                b.emit()
+                vd->nullable_shorthand = false
+                if !already {
+                    ty = NullableType::create(self.dyn()->ctx, ty->range, ty)
+                }
             }
-            if (ty != &null) && (!is_recovery(ty)) {
-                vd->type_ = ty;
+
+            if ty != &null && !is_recovery(ty) {
+                vd->type_ = ty
                 // `var x: const T` is `const x: T`: legal and identical in
                 // meaning, but the binding keyword no longer says what the
                 // binding is. A readability warning, not an error; the fix
                 // moves the const onto the binding.
-                if (storage == StorageClass::Var) && ty->is_const() {
-                    var c_range = dyn()->top_const_range(ty);
-                    var b = dyn()->diag->report(DiagID::S071W, c_range.start,
-                        "'const' on the type of a 'var' binding is hard to read; declare the binding 'const' instead"
-                    );
-                    b.first(c_range);
-                    b.strike(start);
-                    b.fix(start, "const", "make the binding 'const\x27");
-                    b.remove(c_range, "and drop it from the type");
-                    b.emit();
-                } else if ((storage == StorageClass::Const) || vd->const_binding) && ty->is_const() {
+                if storage == Declarations::StorageClass::Var && ty->is_const() {
+                    var c_range = self.dyn()->top_const_range(ty)
+                    var b = self.dyn()->diag->report(
+                        DiagID::S071W,
+                        c_range.start,
+                        "'const' on the type of a 'var' binding is hard to read; declare the binding 'const' instead",
+                    )
+
+                    b.first(c_range)
+                    b.strike(start)
+                    b.fix(start, "const", "make the binding 'const'")
+                    b.remove(c_range, "and drop it from the type")
+                    b.emit()
+                } else if (storage == Declarations::StorageClass::Const || vd->const_binding)
+                    && ty->is_const() {
                     // `const x: const T` says it twice. The second is the one
                     // at fault: the binding keyword is the idiomatic place.
-                    var c_range = dyn()->top_const_range(ty);
-                    dyn()->diag->report(DiagID::S071E, c_range.start,
-                        "the binding is already 'const'; a second 'const' on its type is not allowed"
-                    ).first(c_range).remove(c_range, "remove the second 'const\x27").emit();
+                    var c_range = self.dyn()->top_const_range(ty)
+                    self.dyn()->diag->report(
+                        DiagID::S071E,
+                        c_range.start,
+                        "the binding is already 'const'; a second 'const' on its type is not allowed",
+                    ).first(c_range)->remove(c_range, "remove the second 'const'")->emit()
                 }
             }
         }
 
         // optional `= init`
-        if dyn()->check(TokenKind::OpEqual) {
-            dyn()->advance(T::SkipNL::After); // consume `=`
-            var init = dyn()->parse_expr();
-            if (init != &null) && (!is_recovery(init)) {
-                vd->init = init;
+        if self.dyn()->check(TokenKind::OpEqual) {
+            self.dyn()->advance(T::SkipNL::After) // consume `=`
+            var init = self.dyn()->parse_expr()
+            if init != &null && !is_recovery(init) {
+                vd->init = init
             }
         }
 
         // bind into the current scope for subsequent lookups.
-        dyn()->scope.bind(
-            dyn()->ctx->get_spelling(name),
-            static_cast::<*Decl>(vd),
-            name.range
-        );
+        self.dyn()->scope.bind(self.dyn()->ctx->get_spelling(name), vd, name.range)
 
-        vd->range = start | dyn()->prev().range;
-        return static_cast::<*Decl>(vd);
+        vd->range = start | self.dyn()->prev().range
+        return vd
     }
 
     /// \brief parses a class/struct/union member field as a FieldDecl.
@@ -2674,111 +3374,136 @@ class <T> DeclParse {
     ///
     /// \details fields require an explicit type (no inference at member scope)
     ///          except where a default initializer is present; sema enforces.
-    priv fn _parse_field(self, idx: u32) -> *FieldDecl {
-        var start = self._cur_range();
+    priv fn _parse_field(self, idx: u32) -> unsafe *Declarations::FieldDecl {
+        var start = self._cur_range()
 
-        var is_mutable = false;
-        if dyn()->check(TokenKind::KwMutable) {
-            is_mutable = true;
-            dyn()->advance();
+        var is_mutable = false
+        if self.dyn()->check(TokenKind::KwMutable) {
+            is_mutable = true
+            self.dyn()->advance()
         }
 
-        if !(dyn()->check(TokenKind::KwConst) || dyn()->check(TokenKind::KwStatic)
-          || dyn()->check(TokenKind::KwEval)  || dyn()->check(TokenKind::KwVar)
-          || dyn()->check(TokenKind::KwThread)) {
-            dyn()->diag->report(DiagID::S048E, start.start,
-                "expected 'var', 'const', 'static', 'thread', or 'eval' to begin a field"
-            ).first(start).emit();
-            return FieldDecl::create_error(dyn()->ctx, start);
+        if !(self.dyn()->check(TokenKind::KwConst)
+            || self.dyn()->check(TokenKind::KwStatic)
+            || self.dyn()->check(TokenKind::KwEval)
+            || self.dyn()->check(TokenKind::KwVar)
+            || self.dyn()->check(TokenKind::KwThread)) {
+            self.dyn()->diag->report(
+                DiagID::S048E,
+                start.start,
+                "expected 'var', 'const', 'static', 'thread', or 'eval' to begin a field",
+            ).first(start)->emit()
+            return Declarations::FieldDecl::create_error(self.dyn()->ctx, start)
         }
-        var head    = self._parse_storage_head();
-        var storage = head.storage;
-        dyn()->_reject_mode_binding();   // `var @inout f: T` on a field.
+
+        var head    = self._parse_storage_head()
+        var storage = head.storage
+        self.dyn()->_reject_mode_binding() // `var @inout f: T` on a field.
 
         // `var *f = e` in a type body: refused for the reason `var f? = e`
         // is below (a field never infers). Read here so the name is still
         // found and the member parses; left unread, the `*` was S048E.
-        var p_depth  = u32(0);
-        var p_unsafe = false;
-        var p_range  = SourceRange::invalid();
-        if dyn()->check(TokenKind::KwUnsafe) && dyn()->check_peek(TokenKind::OpStar) {
-            p_range  = self._cur_range();
-            p_unsafe = true;
-            dyn()->advance();   // consume `unsafe`
-        }
-        while dyn()->check(TokenKind::OpStar) {
-            if p_depth == 0 && (!p_unsafe) { p_range = self._cur_range(); }
-            else                           { p_range = p_range | self._cur_range(); }
-            p_depth += 1;
-            dyn()->advance();   // consume `*`
+        var p_depth  = (0 as u32)
+        var p_unsafe = false
+        var p_range  = SourceRange::invalid()
+        if self.dyn()->check(TokenKind::KwUnsafe) && self.dyn()->check_peek(TokenKind::OpStar) {
+            p_range  = self._cur_range()
+            p_unsafe = true
+            self.dyn()->advance() // consume `unsafe`
         }
 
-        if !dyn()->check_is_ident() {
-            dyn()->diag->report(DiagID::S048E, start.start,
-                "expected field name"
-            ).first(start).emit();
-            return FieldDecl::create_error(dyn()->ctx, start | dyn()->prev().range);
+        while self.dyn()->check(TokenKind::OpStar) {
+            if p_depth == 0 && !p_unsafe {
+                p_range = self._cur_range()
+            } else {
+                p_range = p_range | self._cur_range()
+            }
+
+            p_depth += 1
+            self.dyn()->advance() // consume `*`
         }
-        var name = dyn()->current();
-        dyn()->advance();
+
+        if !self.dyn()->check_is_ident() {
+            self.dyn()->diag->report(DiagID::S048E, start.start, "expected field name").first(
+                start,
+            )->emit()
+            return Declarations::FieldDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            )
+        }
+
+        var name = self.dyn()->current()
+        self.dyn()->advance()
 
         // `var f? = e` in a type body. A field's type is declared, never
         // inferred (StmtTyping types a field's default against it), so the
         // shorthand has nothing to reshape. Refused here, where the `?` is
         // still known to be the shorthand: left alone it parses as the
         // start of the next member and the real mistake is lost.
-        var q_range = SourceRange();
-        var has_q   = false;
-        if dyn()->check(TokenKind::OpQuestion) {
-            q_range = self._cur_range();
-            has_q   = true;
-            dyn()->advance();
+        var q_range = SourceRange()
+        var has_q   = false
+        if self.dyn()->check(TokenKind::OpQuestion) {
+            q_range = self._cur_range()
+            has_q   = true
+            self.dyn()->advance()
         }
 
-        var fty: *Type = &null;
-        if dyn()->check(TokenKind::OpColon) {
-            dyn()->advance(T::SkipNL::After); // consume `:`
-            fty = dyn()->parse_type();
-            if (fty != &null) && is_recovery(fty) { fty = &null; }
+        var fty: unsafe *Type = &null
+        if self.dyn()->check(TokenKind::OpColon) {
+            self.dyn()->advance(T::SkipNL::After) // consume `:`
+            fty = self.dyn()->parse_type()
+            if fty != &null && is_recovery(fty) {
+                fty = &null
+            }
         }
+
         if has_q {
             // Reported after the type so the fix-it can move the `?` onto
             // it when one is written (and drop it when that is nullable).
-            var b = dyn()->diag->report(DiagID::S058E, q_range.start,
-                f"a field declares its type and cannot use the '?' shorthand; write '{dyn()->ctx->get_spelling(name)}: T?\x27"
-            );
-            b.first(q_range);
-            b.remove(q_range, "remove the shorthand");
-            if (fty != &null) && (!isa::<NullableType>(fty)) {
-                b.insert(fty->range.end, "?", "make the field's type nullable");
+            var b = self.dyn()->diag->report(
+                DiagID::S058E,
+                q_range.start,
+                f"a field declares its type and cannot use the '?' shorthand; write '{self.dyn()->ctx->get_spelling(name)}: T?'",
+            )
+
+            b.first(q_range)
+            b.remove(q_range, "remove the shorthand")
+            if fty != &null && !isa<NullableType>(fty) {
+                b.insert(fty->range.end, "?", "make the field's type nullable")
             }
-            b.emit();
+
+            b.emit()
         }
+
         if p_depth > 0 {
-            var stars = pointer_shorthand_spelling(p_depth, p_unsafe);
-            var b = dyn()->diag->report(DiagID::S058E, p_range.start,
-                f"a field declares its type and cannot use the '{stars}' shorthand; write '{dyn()->ctx->get_spelling(name)}: {stars}T\x27"
-            );
-            b.first(p_range);
-            b.remove(p_range, "remove the shorthand");
-            b.emit();
+            var stars = Declarations::pointer_shorthand_spelling(p_depth, p_unsafe)
+            var b = self.dyn()->diag->report(
+                DiagID::S058E,
+                p_range.start,
+                f"a field declares its type and cannot use the '{stars}' shorthand; write '{self.dyn()->ctx->get_spelling(name)}: {stars}T'",
+            )
+
+            b.first(p_range)
+            b.remove(p_range, "remove the shorthand")
+            b.emit()
         }
 
-        var fd = FieldDecl::create(dyn()->ctx, start, name, storage, fty, idx);
-        fd->is_mutable = is_mutable;
-        fd->is_thread  = head.is_thread;
-        fd->const_binding = head.const_binding;
+        var fd = Declarations::FieldDecl::create(self.dyn()->ctx, start, name, storage, fty, idx)
+        fd->is_mutable    = is_mutable
+        fd->is_thread     = head.is_thread
+        fd->const_binding = head.const_binding
 
-        if dyn()->check(TokenKind::OpEqual) {
-            dyn()->advance(T::SkipNL::After); // consume `=`
-            var init = dyn()->parse_expr();
-            if (init != &null) && (!is_recovery(init)) {
-                fd->init = init;
+        if self.dyn()->check(TokenKind::OpEqual) {
+            self.dyn()->advance(T::SkipNL::After) // consume `=`
+            var init = self.dyn()->parse_expr()
+            if init != &null && !is_recovery(init) {
+                fd->init = init
             }
         }
 
-        fd->range = start | dyn()->prev().range;
-        return fd;
+        fd->range = start | self.dyn()->prev().range
+        return fd
     }
 
     //  Inheritance clauses:  derives <edges> | impl <edges>
@@ -2790,39 +3515,50 @@ class <T> DeclParse {
     /// \details precondition: current is `derives` or `impl` (caller decides
     ///          which list it fills). Visibility/virtual modifiers attach
     ///          per-edge. Stops at `{`, `requires`, or a non-comma token.
-    priv fn _parse_inherit_edges(self, out: *std::StackBuf::<InheritEdge, 4>) {
-        var kw: string = ("derives") if (dyn()->check(TokenKind::KwDerives)) else ("impl");
-        dyn()->advance(T::SkipNL::After); // consume `derives` / `impl`
+    priv fn _parse_inherit_edges(self,
+                                 @inout out: kairo::std::StackBuf<Declarations::InheritEdge, 4>) {
+        var kw: string = if (self.dyn()->check(TokenKind::KwDerives)) => ("derives") else => "impl"
+        self.dyn()->advance(T::SkipNL::After) // consume `derives` / `impl`
 
         while true {
-            var e_start = self._cur_range();
-            var edge = InheritEdge{};
-            edge.visibility = 0;
-            edge.is_virtual = false;
+            var e_start = self._cur_range()
+            var edge    = Declarations::InheritEdge{}
+            edge.visibility = 0
+            edge.is_virtual = false
 
-            if dyn()->check(TokenKind::KwVirtual) {
-                edge.is_virtual = true;
-                dyn()->advance();
+            if self.dyn()->check(TokenKind::KwVirtual) {
+                edge.is_virtual = true
+                self.dyn()->advance()
             }
+
             // per-edge visibility (derives pub/prot/priv Base)
-            if      dyn()->check(TokenKind::KwPub)  { edge.visibility = 3; dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwProt) { edge.visibility = 2; dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwPriv) { edge.visibility = 1; dyn()->advance(); }
-
-            var bty = dyn()->parse_type();
-            if (bty == &null) || is_recovery(bty) {
-                self._report_missing_edge_type(bty, kw);
-                break;
+            if self.dyn()->check(TokenKind::KwPub) {
+                edge.visibility = 3
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwProt) {
+                edge.visibility = 2
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwPriv) {
+                edge.visibility = 1
+                self.dyn()->advance()
             }
-            edge.base  = bty;
-            edge.range = e_start | dyn()->prev().range;
-            out->push_back(edge);
 
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
-                continue;
+            var bty = self.dyn()->parse_type()
+            if bty == &null || is_recovery(bty) {
+                self._report_missing_edge_type(bty, kw)
+                break
             }
-            break;
+
+            edge.base  = bty
+            edge.range = e_start | self.dyn()->prev().range
+            out.push_back(edge)
+
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
+                continue
+            }
+
+            break
         }
     }
 
@@ -2836,182 +3572,294 @@ class <T> DeclParse {
     ///        Its precedence is the expression grammar's: `+`/`-` bind tighter
     ///        than `&`, so `A + B & C` is `(A + B) & C`, and mixing them
     ///        unparenthesized is warned.
-    priv fn _parse_derives_expr(self, id: *InterfaceDecl, out: *std::StackBuf::<InheritEdge, 4>) -> bool {
-        dyn()->advance(T::SkipNL::After); // consume `derives` (or a recovered `impl`)
-        var stop = static_cast::<T::ExprStopKind>(static_cast::<u8>(T::ExprStopKind::NoStructLiteral)
-                                                  | static_cast::<u8>(T::ExprStopKind::StopComma));
+    priv fn _parse_derives_expr(self,
+                                id:  *Declarations::InterfaceDecl,
+                                out: unsafe *kairo::std::StackBuf<Declarations::InheritEdge, 4>) -> bool {
+        self.dyn()->advance(T::SkipNL::After) // consume `derives` (or a recovered `impl`)
+        var stop = self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral).plus(
+            T::ExprStopKind::StopComma,
+        )
+
         // `X - fn goo`: caught before the expression parser, which would read
         // `fn goo { ... }` as a closure and take the body with it.
-        var n = dyn()->span.size();
-        for var i: usize = dyn()->c_idx; i < n; ++i {
-            var tk = dyn()->span.get(i);
-            if (tk == &null) || (tk->kind == TokenKind::OpLBrace) { break; }
+        var n = self.dyn()->span.size()
+        for var i: usize = self.dyn()->c_idx; i < n; ++i {
+            var tk = self.dyn()->span.get(i)
+            if tk == &null || tk->kind == TokenKind::OpLBrace {
+                break
+            }
+
             if tk->kind == TokenKind::KwFn {
-                self._reject_member_removal(tk->range);
-                return false;
+                self._reject_member_removal(tk->range)
+                return false
             }
         }
-        var tree: *Expr = &null;
+
+        var tree: unsafe *Expr = &null
         while true {
-            var e = dyn()->parse_expr(stop);
-            if (e == &null) || is_recovery(e) {
-                dyn()->diag->report(DiagID::S001E, self._cur_range().start,
-                    "expected an interface after 'derives\x27"
-                ).first(self._cur_range()).emit();
-                return false;
+            var e = self.dyn()->parse_expr(stop)
+            if e == &null || is_recovery(e) {
+                self.dyn()->diag->report(
+                    DiagID::S083E,
+                    self._cur_range().start,
+                    "expected an interface after 'derives'",
+                ).first(self._cur_range())->emit()
+                return false
             }
+
             if tree == &null {
-                tree = e;
+                tree = e
             } else {
                 // `A, B` is `A + B`: the comma becomes the union operator.
-                var plus = dyn()->ctx->make_token(e->range, TokenKind::OpPlus, "+");
-                tree = static_cast::<*Expr>(BinaryOperatorExpr::create(dyn()->ctx, tree->range | e->range, tree, e, plus));
+                var plus = self.dyn()->ctx->make_token(e->range, TokenKind::OpPlus, "+")
+                tree = (BinaryOperatorExpr::create(
+                    self.dyn()->ctx,
+                    tree->range | e->range,
+                    tree,
+                    e,
+                    plus,
+                ))
             }
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
-                continue;
+
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
+                continue
             }
-            break;
+
+            break
         }
-        var composed = false;
-        if !self._derives_leaves(tree, out, &composed) { return false; }
-        id->derives_expr     = tree;
-        id->derives_composed = composed;
-        id->derives_end      = dyn()->prev().range;
-        return true;
+
+        var composed = false
+        if !self._derives_leaves(tree, out, unsafe &composed) {
+            return false
+        }
+
+        id->derives_expr     = tree
+        id->derives_composed = composed
+        id->derives_end      = self.dyn()->prev().range
+        return true
     }
 
     /// After a malformed `derives` clause: skip to the body's `{`, so the
     /// interface's members still parse and the next declaration is not
     /// swallowed. Stops at end of file or a newline-led declaration keyword.
     priv fn _sync_to_body(self) {
-        while !dyn()->is_eof() {
-            if dyn()->check(TokenKind::OpLBrace) { return; }
-            dyn()->advance();
+        while !self.dyn()->is_eof() {
+            if self.dyn()->check(TokenKind::OpLBrace) {
+                return
+            }
+
+            self.dyn()->advance()
         }
     }
 
     /// Check \p e is `+` / `-` / `&` over interface names, appending each leaf
     /// as a type to \p out in source order. False after a diagnostic.
-    priv fn _derives_leaves(self, e_in: *Expr, out: *std::StackBuf::<InheritEdge, 4>, composed: *bool) -> bool {
-        var e = e_in;
-        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
-        if e == &null { return false; }
-        if isa::<BinaryOperatorExpr>(e) {
-            var b = cast::<BinaryOperatorExpr>(e);
-            var k = b->op_token.kind;
+    priv fn _derives_leaves(self,
+                            e_in:     unsafe *Expr,
+                            out:      unsafe *kairo::std::StackBuf<Declarations::InheritEdge, 4>,
+                            composed: unsafe *bool) -> bool {
+        var unsafe *e = e_in
+        while e != &null && isa<ParenExpr>(e) {
+            e = cast<ParenExpr>(e)->inner
+        }
+
+        if e == &null {
+            return false
+        }
+
+        if isa<BinaryOperatorExpr>(e) {
+            var unsafe *b = cast<BinaryOperatorExpr>(e)
+            var        k  = b->op_token.kind
             if k == TokenKind::OpPipe {
-                var pb = dyn()->diag->report(DiagID::S001E, b->op_token.range.start,
-                    "'|' is not an interface operator; union is '+\x27");
-                pb.first(b->op_token.range);
-                pb.fix(b->op_token.range, "+", "replace '|' with '+\x27");
-                pb.emit();
-                return false;
+                var pb = self.dyn()->diag->report(
+                    DiagID::S084E,
+                    b->op_token.range.start,
+                    "'|' is not an interface operator; union is '+'",
+                )
+
+                pb.first(b->op_token.range)
+                pb.fix(b->op_token.range, "+", "replace '|' with '+'")
+                pb.emit()
+                return false
             }
+
             if k == TokenKind::OpCaret {
-                dyn()->diag->report(DiagID::S001E, b->op_token.range.start,
-                    "'^' (symmetric difference) is not an interface operator; use '+', '-' or '&\x27")
-                    .first(b->op_token.range).emit();
-                return false;
+                self.dyn()->diag->report(
+                    DiagID::S084E,
+                    b->op_token.range.start,
+                    "'^' (symmetric difference) is not an interface operator; use '+', '-' or '&'",
+                ).first(b->op_token.range)->emit()
+                return false
             }
-            if (k != TokenKind::OpPlus) && (k != TokenKind::OpMinus) && (k != TokenKind::OpAmp) {
-                dyn()->diag->report(DiagID::S001E, b->op_token.range.start,
-                    "only '+' (union), '-' (difference) and '&' (intersection) compose interfaces")
-                    .first(b->op_token.range).emit();
-                return false;
+
+            if k != TokenKind::OpPlus && k != TokenKind::OpMinus && k != TokenKind::OpAmp {
+                self.dyn()->diag->report(
+                    DiagID::S084E,
+                    b->op_token.range.start,
+                    "only '+' (union), '-' (difference) and '&' (intersection) compose interfaces",
+                ).first(b->op_token.range)->emit()
+                return false
             }
-            if k != TokenKind::OpPlus { (*composed) = true; }
-            if k == TokenKind::OpAmp { self._warn_mixed_amp(b); }
-            if !self._derives_leaves(b->lhs, out, composed) { return false; }
-            return self._derives_leaves(b->rhs, out, composed);
+
+            if k != TokenKind::OpPlus {
+                *composed = true
+            }
+
+            if k == TokenKind::OpAmp {
+                self._warn_mixed_amp(b)
+            }
+
+            if !self._derives_leaves(b->lhs, out, composed) {
+                return false
+            }
+
+            return self._derives_leaves(b->rhs, out, composed)
         }
-        if isa::<ClosureExpr>(e) { self._reject_member_removal(e->range); return false; }
-        var t = self._expr_as_type(e);
+
+        if isa<ClosureExpr>(e) {
+            self._reject_member_removal(e->range)
+            return false
+        }
+
+        var unsafe *t = self._expr_as_type(e)
         if t == &null {
-            dyn()->diag->report(DiagID::S001E, e->range.start,
-                "expected an interface name in a 'derives' clause")
-                .first(e->range).emit();
-            return false;
+            self.dyn()->diag->report(
+                DiagID::S083E,
+                e->range.start,
+                "expected an interface name in a 'derives' clause",
+            ).first(e->range)->emit()
+            return false
         }
-        var edge = InheritEdge{};
-        edge.visibility = 0;
-        edge.is_virtual = false;
-        edge.base  = t;
-        edge.range = e->range;
-        out->push_back(edge);
-        return true;
+
+        var edge = Declarations::InheritEdge{}
+        edge.visibility = 0
+        edge.is_virtual = false
+        edge.base       = t
+        edge.range      = e->range
+        out->push_back(edge)
+        return true
     }
 
     /// `-` and `&` group LOOSER than `+`/`-` here, as in every C expression:
     /// `A + B & C` is `(A + B) & C`. Unparenthesized, that is a guess.
-    priv fn _warn_mixed_amp(self, b: *BinaryOperatorExpr) {
-        var sides = vec::<*Expr>();
-        sides.push_back(b->lhs);
-        sides.push_back(b->rhs);
+    priv fn _warn_mixed_amp(self, b: unsafe *BinaryOperatorExpr) {
+        var sides = cxx::std::vector<unsafe *Expr>()
+        sides.push_back(b->lhs)
+        sides.push_back(b->rhs)
         for var i: usize = 0; i < sides.size(); ++i {
-            var o = dyn_cast::<BinaryOperatorExpr>(sides[i]);
-            if o == &null { continue; }
-            var k = o->op_token.kind;
-            if (k != TokenKind::OpPlus) && (k != TokenKind::OpMinus) { continue; }
-            if dyn()->is_parenthesized(static_cast::<*Expr>(o)) { continue; }
-            var w = dyn()->diag->report(DiagID::S001W, o->range.start,
-                "'+' and '-' bind tighter than '&' in a 'derives' clause; parenthesize to say which you mean");
-            w.first(o->range);
-            w.insert(o->range.start, "(", "insert '(\x27");
-            w.insert(o->range.end, ")", "insert ')\x27");
-            w.emit();
+            var unsafe *o = dyn_cast<BinaryOperatorExpr>(sides[i])
+            if o == &null {
+                continue
+            }
+
+            var k = o->op_token.kind
+            if k != TokenKind::OpPlus && k != TokenKind::OpMinus {
+                continue
+            }
+
+            if self.dyn()->is_parenthesized(o) {
+                continue
+            }
+
+            var w = self.dyn()->diag->report(
+                DiagID::S085W,
+                o->range.start,
+                "'+' and '-' bind tighter than '&' in a 'derives' clause; parenthesize to say which you mean",
+            )
+
+            w.first(o->range)
+            w.insert(o->range.start, "(", "insert '('")
+            w.insert(o->range.end, ")", "insert ')'")
+            w.emit()
         }
     }
 
     /// A single member cannot be removed from a composition (`X - fn goo`):
     /// requirements come and go by whole interface.
     priv fn _reject_member_removal(self, at: SourceRange) {
-        dyn()->diag->report(DiagID::S001E, at.start,
+        self.dyn()->diag->report(
+            DiagID::S086E,
+            at.start,
             "a 'derives' clause composes whole interfaces; a single member cannot be removed. "
-            "Declare an interface with that member and subtract it")
-            .first(at).emit();
+            "Declare an interface with that member and subtract it",
+        ).first(at)->emit()
     }
 
     /// The type a name, a `::` path or a generic application denotes, as the
     /// type parser would have built it: a ChainType, one segment per name,
     /// each with its generic arguments. Null for any other expression.
-    priv fn _expr_as_type(self, e: *Expr) -> *Type {
-        var segs = vec::<ChainType::ChainSegment>();
-        if isa::<NamedIdentExpr>(e) {
-            self._push_segment(&segs, cast::<NamedIdentExpr>(e)->name, cast::<NamedIdentExpr>(e)->generic_args,
-                               e->range, ChainType::SegmentSeparator::None);
-        } else if isa::<ChainExpr>(e) {
-            var ch = cast::<ChainExpr>(e);
-            var base = dyn_cast::<NamedIdentExpr>(ch->base);
-            if base == &null { return &null; }
-            self._push_segment(&segs, base->name, base->generic_args, base->range, ChainType::SegmentSeparator::None);
+    priv fn _expr_as_type(self, e: unsafe *Expr) -> unsafe *Type {
+        var segs = cxx::std::vector<ChainType::ChainSegment>()
+        if isa<NamedIdentExpr>(e) {
+            self._push_segment(
+                &segs,
+                cast<NamedIdentExpr>(e)->name,
+                cast<NamedIdentExpr>(e)->generic_args,
+                e->range,
+                ChainType::SegmentSeparator::None,
+            )
+        } else if isa<ChainExpr>(e) {
+            var unsafe *ch   = cast<ChainExpr>(e)
+            var unsafe *base = dyn_cast<NamedIdentExpr>(ch->base)
+            if base == &null {
+                return &null
+            }
+
+            self._push_segment(
+                &segs,
+                base->name,
+                base->generic_args,
+                base->range,
+                ChainType::SegmentSeparator::None,
+            )
+
             for var i: usize = 0; i < ch->steps.size(); ++i {
-                var st = ch->steps.get(i);
-                if (st->access_kind != ChainExpr::AccessKind::ColonColon) || st->is_operator() || (st->name == &null) { return &null; }
-                self._push_segment(&segs, st->name->name, st->generic_args, st->range, ChainType::SegmentSeparator::ColonColon);
+                var unsafe *st = ch->steps.get(i)
+                if st->access_kind != ChainExpr::AccessKind::ColonColon
+                    || st->is_operator()
+                    || st->name == &null {
+                    return &null
+                }
+
+                self._push_segment(
+                    &segs,
+                    st->name->name,
+                    st->generic_args,
+                    st->range,
+                    ChainType::SegmentSeparator::ColonColon,
+                )
             }
         } else {
-            return &null;
+            return &null
         }
-        var buf = dyn()->ctx->alloc_array::<ChainType::ChainSegment>(segs.size());
-        for var i: usize = 0; i < segs.size(); ++i { buf[i] = segs[i]; }
-        var ct = ChainType::create(dyn()->ctx, e->range);
-        ct->segments.from_raw(buf, segs.size());
-        return static_cast::<*Type>(ct);
+
+        var buf = self.dyn()->ctx->alloc_array<ChainType::ChainSegment>(segs.size())
+        for var i: usize = 0; i < segs.size(); ++i {
+            buf[i] = segs[i]
+        }
+
+        var ct = ChainType::create(self.dyn()->ctx, e->range)
+        ct->segments.from_raw(buf, segs.size())
+        return ct
     }
 
-    priv fn _push_segment(self, out: *vec::<ChainType::ChainSegment>, name: Token,
-                          args: FrozenList::<ChainType::GenericArg>, range: SourceRange,
-                          sep: ChainType::SegmentSeparator) {
-        var seg = ChainType::ChainSegment{};
-        seg.name          = NamedIdentExpr::create(dyn()->ctx, name.range, name);
-        seg.generic_args  = args;
-        seg.resolved_type = &null;
-        seg.resolved_decl = &null;
-        seg.range         = range;
-        seg.sep           = sep;
-        seg.seg_kind      = (ChainType::SegmentKind::GenericApp) if (args.size() > 0) else (ChainType::SegmentKind::Named);
-        out->push_back(seg);
+    priv fn _push_segment(self,
+                          @inout out: cxx::std::vector<ChainType::ChainSegment>,
+                          name:       Token,
+                          args:       FrozenList<ChainType::GenericArg>,
+                          range:      SourceRange,
+                          sep:        ChainType::SegmentSeparator) {
+        var seg = ChainType::ChainSegment{}
+        seg.name          = NamedIdentExpr::create(self.dyn()->ctx, name.range, name)
+        seg.generic_args  = args
+        seg.resolved_type = &null
+        seg.resolved_decl = &null
+        seg.range         = range
+        seg.sep           = sep
+        seg.seg_kind = if (args.size() > 0) => (ChainType::SegmentKind::GenericApp)
+                       else => ChainType::SegmentKind::Named
+        out.push_back(seg)
     }
 
     /// \brief rejects a `where` clause on a type declaration. `where` is
@@ -3019,27 +3867,32 @@ class <T> DeclParse {
     ///        support; type instantiation and interface conformance are
     ///        compile-time only and must use `requires`. Consumes and discards
     ///        the offending clause so parsing can recover into the body.
-    priv fn _reject_where_on_type(self, kind_word: string) {
+    priv fn _reject_where_on_type(self, const kind_word: string) {
         // On its own line too (where.mdx writes `class <T> Buffer` and then
         // `where ...` under it): the newline must not hide the clause, or it
         // reaches the body parser as a stray `where`.
-        if !self._peek_past_nl(TokenKind::KwWhere) { return; }
-        var wh = self._cur_range();
-        dyn()->diag->report(DiagID::S045E, wh.start,
+        if !self._peek_past_nl(TokenKind::KwWhere) {
+            return
+        }
+
+        var wh = self._cur_range()
+        self.dyn()->diag->report(
+            DiagID::S045E,
+            wh.start,
             f"'where' is not allowed on a {kind_word}; runtime-conditional "
             "dispatch is only valid on functions. Use 'requires' for a "
-            "compile-time constraint instead"
-        ).first(wh).fix(wh, "requires", "use 'requires\x27").emit();
-        dyn()->advance(T::SkipNL::After); // consume `where`
-        var _discard = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral); // eat + drop the clause
+            "compile-time constraint instead",
+        ).first(wh)->fix(wh, "requires", "use 'requires'")->emit()
+        self.dyn()->advance(T::SkipNL::After) // consume `where`
+        var _discard = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral)) // eat + drop the clause
     }
 
     /// \brief parses the `derives ...` and `impl ...` clauses in either order,
     ///        filling the provided edge buffers. Either may be absent.
     priv fn _parse_class_heritage(
         self,
-        derives_out: *std::StackBuf::<InheritEdge, 4>,
-        impl_out:    *std::StackBuf::<InheritEdge, 4>
+        derives_out: unsafe *kairo::std::StackBuf<Declarations::InheritEdge, 4>,
+        impl_out:    unsafe *kairo::std::StackBuf<Declarations::InheritEdge, 4>,
     ) {
         while true {
             // heritage clauses may sit on their own continuation line:
@@ -3047,22 +3900,24 @@ class <T> DeclParse {
             //       derives ImportGrammar<StreamCursor> { ... }
             // neither keyword can begin a declaration, so a newline in front of
             // them is never ambiguous with the start of a new one.
-            if (dyn()->nl_depth == 0) && ((dyn()->ig_kind()) == TokenKind::TkNewLine) {
-                var hk = dyn()->peek_past_nl_kind();
-                if (hk == TokenKind::KwDerives) || (hk == TokenKind::KwImpl) {
-                    dyn()->advance(T::SkipNL::Only);
+            if self.dyn()->nl_depth == 0 && self.dyn()->ig_kind() == TokenKind::TkNewLine {
+                var hk = self.dyn()->peek_past_nl_kind()
+                if hk == TokenKind::KwDerives || hk == TokenKind::KwImpl {
+                    self.dyn()->advance(T::SkipNL::Only)
                 }
             }
 
-            if dyn()->check(TokenKind::KwDerives) {
-                self._parse_inherit_edges(derives_out);
-                continue;
+            if self.dyn()->check(TokenKind::KwDerives) {
+                self._parse_inherit_edges(&*derives_out)
+                continue
             }
-            if dyn()->check(TokenKind::KwImpl) {
-                self._parse_inherit_edges(impl_out);
-                continue;
+
+            if self.dyn()->check(TokenKind::KwImpl) {
+                self._parse_inherit_edges(&*impl_out)
+                continue
             }
-            break;
+
+            break
         }
     }
 
@@ -3086,38 +3941,40 @@ class <T> DeclParse {
     /// \pre the opening `{` is consumed (via _index_skip_to_body).
     /// \post the closing `}` is consumed if present.
     priv fn _index_walk_body(self, owner: *DeclContext) {
-        var prev_idx: usize = 0;
-        var have_prev = false;
+        var prev_idx: usize = 0
+        var have_prev       = false
 
-        while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
+        while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
             // progress guard (same rationale as _parse_member_body).
-            if have_prev && (dyn()->c_idx == prev_idx) {
-                dyn()->advance();
-                continue;
-            }
-            prev_idx  = dyn()->c_idx;
-            have_prev = true;
-
-            if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
-                dyn()->advance();
-                continue;
+            if have_prev && self.dyn()->c_idx == prev_idx {
+                self.dyn()->advance()
+                continue
             }
 
-            var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+            prev_idx  = self.dyn()->c_idx
+            have_prev = true
+
+            if self.dyn()->check(TokenKind::TkNewLine)
+                || self.dyn()->check(TokenKind::OpSemicolon) {
+                self.dyn()->advance()
+                continue
+            }
+
+            var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
             if self._starts_decl_here(k) {
-                var d = self.parse_decl();
+                var unsafe *d = self.parse_decl()
                 if d == &null {
-                    dyn()->_index_skip_stmt();
+                    self.dyn()->_index_skip_stmt()
                 } else if !self.is_fatal_decl(d) {
-                    owner->add_decl(d);
+                    owner->add_decl(d)
                 }
             } else {
-                dyn()->_index_skip_stmt();
+                self.dyn()->_index_skip_stmt()
             }
         }
 
-        if dyn()->check(TokenKind::OpRBrace) {
-            dyn()->advance(T::SkipNL::Before); // consume `}`
+        if self.dyn()->check(TokenKind::OpRBrace) {
+            self.dyn()->advance(T::SkipNL::Before) // consume `}`
         }
     }
 
@@ -3127,12 +3984,18 @@ class <T> DeclParse {
     /// \details identifiers are interned per file, so the enclosing type's name
     ///          and a ctor's name share an imm - the same test the symbol
     ///          indexer uses to key a decl as DeclName::ctor().
-    priv fn _is_ctor_of(self, fd: *FunctionDecl, owner_name: Token) -> bool {
-        if fd->is_operator { return false; }
-        var fn_imm    = dyn()->ctx->get_ident_imm(fd->name);
-        var owner_imm = dyn()->ctx->get_ident_imm(owner_name);
-        if (fn_imm == u32(-1)) || (owner_imm == u32(-1)) { return false; }
-        return fn_imm == owner_imm;
+    priv fn _is_ctor_of(self, fd: unsafe *Declarations::FunctionDecl, owner_name: Token) -> bool {
+        if fd->is_operator {
+            return false
+        }
+
+        var fn_imm    = self.dyn()->ctx->get_ident_imm(fd->name)
+        var owner_imm = self.dyn()->ctx->get_ident_imm(owner_name)
+        if fn_imm == u32::MAX || owner_imm == u32::MAX {
+            return false
+        }
+
+        return fn_imm == owner_imm
     }
 
     /// \param owner_name the enclosing type's name, used to tell a constructor
@@ -3140,111 +4003,140 @@ class <T> DeclParse {
     ///        empty Token where the distinction does not apply (extensions).
     priv fn _parse_member_body(
         self,
-        owner:        *DeclContext,
+        owner:         unsafe *DeclContext,
         owner_name:    Token,
-        fields_out:   *std::StackBuf::<*FieldDecl, 8>,
-        methods_out:  *std::StackBuf::<*FunctionDecl, 8>,
-        allow_methods: bool
+        fields_out:    unsafe *kairo::std::StackBuf<unsafe *Declarations::FieldDecl, 8>,
+        methods_out:   unsafe *kairo::std::StackBuf<unsafe *Declarations::FunctionDecl, 8>,
+        allow_methods: bool,
     ) -> bool {
-        if dyn()->is_eof() {
+        if self.dyn()->is_eof() {
             // No token to point at: anchor on the last one read.
-            var pr = dyn()->prev().range;
-            dyn()->diag->report(DiagID::S048E, pr.start,
-                "expected '{' to begin the type body"
-            ).first(pr).emit();
-            return false;
+            var pr = self.dyn()->prev().range
+            self.dyn()->diag->report(
+                DiagID::S048E,
+                pr.start,
+                "expected '{' to begin the type body",
+            ).first(pr)->emit()
+            return false
         }
-        if !dyn()->check(TokenKind::OpLBrace) {
-            var r = self._cur_range();
-            dyn()->diag->report(DiagID::S048E, r.start,
-                "expected '{' to begin the type body"
-            ).first(r).emit();
-            return false;
+
+        if !self.dyn()->check(TokenKind::OpLBrace) {
+            var r = self._cur_range()
+            self.dyn()->diag->report(
+                DiagID::S048E,
+                r.start,
+                "expected '{' to begin the type body",
+            ).first(r)->emit()
+            return false
         }
-        dyn()->advance(T::SkipNL::After); // consume `{`
 
-        var field_idx: u32 = 0;
-        var prev_idx: usize = 0;
-        var have_prev = false;
+        self.dyn()->advance(T::SkipNL::After) // consume `{`
 
-        while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
+        var field_idx: u32   = 0
+        var prev_idx:  usize = 0
+        var have_prev        = false
+
+        while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
             // progress guard: if the previous iteration consumed nothing - a
             // recovery path whose `_sync_decl` stopped on a member-start token
             // it could not parse (e.g. a `fn` in a method-less body) - force a
             // single advance so a malformed member can never spin the parser.
-            if have_prev && (dyn()->c_idx == prev_idx) {
-                dyn()->advance();
-                continue;
+            if have_prev && self.dyn()->c_idx == prev_idx {
+                self.dyn()->advance()
+                continue
             }
-            prev_idx  = dyn()->c_idx;
-            have_prev = true;
 
-            if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
-                dyn()->advance();
-                continue;
+            prev_idx  = self.dyn()->c_idx
+            have_prev = true
+
+            if self.dyn()->check(TokenKind::TkNewLine)
+                || self.dyn()->check(TokenKind::OpSemicolon) {
+                self.dyn()->advance()
+                continue
             }
 
             // leading annotations on a member (doc comments, @attr, visibility)
-            var m_annot: typename!(T::PendingAnnotations);
-            dyn()->consume_leading_annotations(&m_annot);
+            var m_annot: T::PendingAnnotations
+            self.dyn()->consume_leading_annotations(unsafe &m_annot)
 
             // annotations can run to EOF (`class C { @`): the missing `}` is
             // reported after the loop, there is no member left to dispatch.
-            if dyn()->is_eof() || dyn()->check(TokenKind::OpRBrace) { break; }
+            if self.dyn()->is_eof() || self.dyn()->check(TokenKind::OpRBrace) {
+                break
+            }
 
-            var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+            var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
 
             // visibility group inside a type body: members route through the
             // normal field/method paths with the group's visibility stamped.
             if (k == TokenKind::KwPub || k == TokenKind::KwPriv || k == TokenKind::KwProt)
-            && dyn()->check_peek(TokenKind::OpLBrace) {
-                var grp_annot = !m_annot.empty();
+                && self.dyn()->check_peek(TokenKind::OpLBrace) {
+                var grp_annot = !m_annot.empty()
                 if grp_annot {
-                    dyn()->report_tok(DiagID::S048E, dyn()->current_ptr(),
+                    self.dyn()->report_tok(
+                        DiagID::S048E,
+                        self.dyn()->current_ptr(),
                         "annotations and attributes cannot be applied to a visibility group; "
-                        "apply them to individual members instead"
-                    );
+                        "apply them to individual members instead",
+                    )
                 }
-                self._parse_member_vis_group(owner, owner_name, fields_out, methods_out,
-                                             allow_methods, &field_idx);
-                continue;
+
+                self._parse_member_vis_group(
+                    owner,
+                    owner_name,
+                    &*fields_out,
+                    &*methods_out,
+                    allow_methods,
+                    unsafe &field_idx,
+                )
+
+                continue
             }
 
             // `eval if` / `eval for`: before the field lead, which `eval`
             // also opens. Its branches are statements, not members of this
             // type (DeclParse::_parse_eval_stmt_decl).
-            if (k == TokenKind::KwEval)
-            && (dyn()->check_peek(TokenKind::KwIf) || dyn()->check_peek(TokenKind::KwFor)) {
-                var ev = self._parse_eval_stmt_decl();
-                if (ev != &null) && (!self.is_fatal_decl(ev)) {
-                    dyn()->apply_annotations_to_decl(ev, &m_annot);
-                    owner->add_decl(ev);
+            if k == TokenKind::KwEval
+                && (self.dyn()->check_peek(TokenKind::KwIf)
+                    || self.dyn()->check_peek(TokenKind::KwFor)) {
+                var unsafe *ev = self._parse_eval_stmt_decl()
+                if ev != &null && !self.is_fatal_decl(ev) {
+                    self.dyn()->apply_annotations_to_decl(ev, unsafe &m_annot)
+                    owner->add_decl(ev)
                 }
-                continue;
+
+                continue
             }
 
             // method lead: `fn`, possibly behind static/virtual/override/final/
             // inline/eval. The lookahead is what separates `static fn f()` from
             // the `static x: T` field that shares its keyword.
-            var is_method_lead = self._mods_lead_to_fn(false);
+            var is_method_lead = self._mods_lead_to_fn(false)
 
             if is_method_lead && allow_methods {
-                var lead = self._consume_leading_modifiers(false);
-                if dyn()->check(TokenKind::KwFn) {
-                    var m = self._parse_function(&lead);
-                    if (m != &null) && isa::<FunctionDecl>(m) {
-                        var fm = cast::<FunctionDecl>(m);
-                        dyn()->apply_annotations_to_decl(static_cast::<*Decl>(fm), &m_annot);
-                        methods_out->push_back(fm);
+                var lead = self._consume_leading_modifiers(false)
+                if self.dyn()->check(TokenKind::KwFn) {
+                    var unsafe *m = self._parse_function(unsafe &lead)
+                    if m != &null && isa<Declarations::FunctionDecl>(m) {
+                        var unsafe *fm = cast<Declarations::FunctionDecl>(m)
+                        self.dyn()->apply_annotations_to_decl(
+                            unsafe (fm as unsafe *Decl),
+                            unsafe &m_annot,
+                        )
+
+                        methods_out->push_back(fm)
                     }
                 } else {
-                    var r = self._cur_range();
-                    dyn()->diag->report(DiagID::S048E, r.start,
-                        "expected 'fn' after method modifiers"
-                    ).first(r).emit();
-                    self._sync_decl_progress(DeclSyncCtx::TypeBody);
+                    var r = self._cur_range()
+                    self.dyn()->diag->report(
+                        DiagID::S048E,
+                        r.start,
+                        "expected 'fn' after method modifiers",
+                    ).first(r)->emit()
+                    self._sync_decl_progress(Self::DeclSyncCtx::TypeBody)
                 }
-                continue;
+
+                continue
             }
 
             // Function member in a struct/union body. These bodies admit
@@ -3253,221 +4145,276 @@ class <T> DeclParse {
             // desync the body and turn one bad member into a cascade - and only
             // the named-function case is rejected, for exactly one diagnostic.
             if is_method_lead {
-                var mr   = self._cur_range();
-                var lead = self._consume_leading_modifiers(false);
-                var m    = self._parse_function(&lead);
-                if (m != &null) && isa::<FunctionDecl>(m) {
-                    var fm = cast::<FunctionDecl>(m);
+                var        mr   = self._cur_range()
+                var        lead = self._consume_leading_modifiers(false)
+                var unsafe *m   = self._parse_function(unsafe &lead)
+                if m != &null && isa<Declarations::FunctionDecl>(m) {
+                    var unsafe *fm = cast<Declarations::FunctionDecl>(m)
                     if fm->is_operator || self._is_ctor_of(fm, owner_name) {
-                        dyn()->apply_annotations_to_decl(static_cast::<*Decl>(fm), &m_annot);
-                        methods_out->push_back(fm);
+                        self.dyn()->apply_annotations_to_decl(
+                            unsafe (fm as unsafe *Decl),
+                            unsafe &m_annot,
+                        )
+
+                        methods_out->push_back(fm)
                     } else {
-                        dyn()->diag->report(DiagID::S048E, mr.start,
+                        self.dyn()->diag->report(DiagID::S048E, mr.start,
                             "a struct or union body cannot contain a named function; "
                             "only fields, nested types, constructors, and operator "
                             "overloads are permitted"
                         ).first(mr)
                          // No location: same span as the error, so a second
                          // caret is noise. Plain text reads better.
-                         .note(DiagID::S048N,
+                         .note(DiagCode(DiagID::S048N),
                             "move it into an 'extend' block on this type, or declare "
                             "the type as a 'class' if it needs methods"
-                         ).emit();
+                         )->emit()
                     }
                 }
-                continue;
+
+                continue
             }
 
             // nested type decl
-            if (k == TokenKind::KwClass) || (k == TokenKind::KwStruct)
-            || (k == TokenKind::KwEnum)  || (k == TokenKind::KwUnion)
-            || (k == TokenKind::KwInterface) || (k == TokenKind::KwType) {
-                var nested = self._dispatch_decl();
-                if (nested != &null) && (!self.is_fatal_decl(nested)) {
-                    dyn()->apply_annotations_to_decl(nested, &m_annot);
-                    owner->add_decl(nested);
+            if k == TokenKind::KwClass
+                || k == TokenKind::KwStruct
+                || k == TokenKind::KwEnum
+                || k == TokenKind::KwUnion
+                || k == TokenKind::KwInterface
+                || k == TokenKind::KwType {
+                var unsafe *nested = self._dispatch_decl()
+                if nested != &null && !self.is_fatal_decl(nested) {
+                    self.dyn()->apply_annotations_to_decl(nested, unsafe &m_annot)
+                    owner->add_decl(nested)
                 }
-                continue;
+
+                continue
             }
 
             // field: mutable? var/const/static/eval ...
-            var is_field_lead = (k == TokenKind::KwVar)    || (k == TokenKind::KwConst)
-                             || (k == TokenKind::KwStatic) || (k == TokenKind::KwEval)
-                             || (k == TokenKind::KwThread) || (k == TokenKind::KwMutable);
+            var is_field_lead = k == TokenKind::KwVar
+                || k == TokenKind::KwConst
+                || k == TokenKind::KwStatic
+                || k == TokenKind::KwEval
+                || k == TokenKind::KwThread
+                || k == TokenKind::KwMutable
 
             if is_field_lead {
-                var f = self._parse_field(field_idx);
-                if !is_recovery(static_cast::<*Decl>(f)) {
-                    dyn()->apply_annotations_to_decl(static_cast::<*Decl>(f), &m_annot);
-                    fields_out->push_back(f);
-                    ++field_idx;
+                var unsafe *f = self._parse_field(field_idx)
+                if !is_recovery(unsafe (f as unsafe *Decl)) {
+                    self.dyn()->apply_annotations_to_decl(
+                        unsafe (f as unsafe *Decl),
+                        unsafe &m_annot,
+                    )
+
+                    fields_out->push_back(f)
+                    ++field_idx
                 } else {
-                    self._sync_decl_progress(DeclSyncCtx::TypeBody);
+                    self._sync_decl_progress(Self::DeclSyncCtx::TypeBody)
                 }
-                continue;
+
+                continue
             }
 
             // unknown member lead recover.
-            var r = self._cur_range();
-            dyn()->diag->report(DiagID::S048E, r.start,
-                "expected a field, method, or nested type in the type body"
-            ).first(r).emit();
-            self._sync_decl(DeclSyncCtx::TypeBody);
+            var r = self._cur_range()
+            self.dyn()->diag->report(
+                DiagID::S048E,
+                r.start,
+                "expected a field, method, or nested type in the type body",
+            ).first(r)->emit()
+            self._sync_decl(Self::DeclSyncCtx::TypeBody)
         }
 
-        if dyn()->check(TokenKind::OpRBrace) {
-            dyn()->advance(T::SkipNL::Before); // consume `}`
-            return true;
+        if self.dyn()->check(TokenKind::OpRBrace) {
+            self.dyn()->advance(T::SkipNL::Before) // consume `}`
+            return true
         }
-        dyn()->diag->report(DiagID::S048E, dyn()->prev().range.start,
-            "expected '}' to close the type body"
-        ).first(dyn()->prev().range).emit();
-        return false;
+
+        self.dyn()->diag->report(
+            DiagID::S048E,
+            self.dyn()->prev().range.start,
+            "expected '}' to close the type body",
+        ).first(self.dyn()->prev().range)->emit()
+        return false
     }
 
     //  Class
 
     /// \brief parses a class declaration.
     ///  Grammar:  'final'? 'class' generics? name (derives ...)? (impl ...)? body
-    priv fn _parse_class(self, lead: *LeadMods) -> *Decl {
-        var start = (lead->range) if (lead->any) else (self._cur_range());
+    priv fn _parse_class(self, lead: unsafe *Self::LeadMods) -> unsafe *Decl {
+        var start = if (lead->any) => (lead->range) else => self._cur_range()
 
-        if !dyn()->enter_depth() {
-            return static_cast::<*Decl>(ClassDecl::create_error(dyn()->ctx, start));
+        if !self.dyn()->enter_depth() {
+            return Declarations::ClassDecl::create_error(self.dyn()->ctx, start)
         }
-        dyn()->advance(T::SkipNL::After); // consume `class`
+
+        self.dyn()->advance(T::SkipNL::After) // consume `class`
 
         // a class name may itself carry generics or a specialization marker:
         //   `class <T> Foo`     -> type params
         //   `class <> Box<T>`   -> primary via specialization form (#68)
         //   `class <> Box<i32>` -> explicit specialization
         //   `class <> Box<[T]>` -> partial specialization
-        var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-        var cls_intro: SpecKind = SpecKind::None;
-        self._parse_generic_or_spec_intro(&gparams, &cls_intro);
-        var has_generics = !gparams.is_empty();
+        var gparams: kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
+        var cls_intro: Declarations::SpecKind = Declarations::SpecKind::None
+        self._parse_generic_or_spec_intro(unsafe &gparams, &cls_intro)
+        var has_generics = !gparams.is_empty()
 
-        if !dyn()->check_is_ident() {
-            dyn()->diag->report(DiagID::S046E, start.start,
-                "expected class name"
-            ).first(start).emit();
-            dyn()->exit_depth();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(ClassDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        if !self.dyn()->check_is_ident() {
+            self.dyn()->diag->report(DiagID::S046E, start.start, "expected class name").first(
+                start,
+            )->emit()
+            self.dyn()->exit_depth()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::ClassDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
-        var name = dyn()->current();
-        dyn()->advance();
 
-        var cd: *ClassDecl = ClassDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
-        cd->is_final = lead->is_final;
+        var name = self.dyn()->current()
+        self.dyn()->advance()
+
+        var cd: *Declarations::ClassDecl = Declarations::ClassDecl::create(
+            self.dyn()->ctx,
+            start,
+            name,
+            self.dyn()->scope.current_dc(),
+        )
+
+        cd->is_final = lead->is_final
         if has_generics {
-            cd->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+            cd->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
         }
 
         // specialization argument pattern after the name: `Box<T>`, `Box<[T]>`.
         // classes/structs/unions accept primary, explicit, and partial. (#68)
-        if ((cls_intro != SpecKind::None) || has_generics) && dyn()->check(TokenKind::OpLess) {
-            var sargs: std::StackBuf::<*Type, 4>;
-            self._parse_spec_args(&sargs);
-            cd->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
-            cd->spec_kind = self._classify_record_spec(&sargs, &gparams);
-        } else if cls_intro != SpecKind::None {
-            dyn()->diag->report(DiagID::S049E, name.range.start,
+        if (cls_intro != Declarations::SpecKind::None || has_generics)
+            && self.dyn()->check(TokenKind::OpLess) {
+            var sargs: kairo::std::StackBuf<unsafe *Type, 4>
+            self._parse_spec_args(&sargs)
+            cd->spec_args.from_buf(sargs.data(), sargs.size(), self.dyn()->ctx)
+            cd->spec_kind = self._classify_record_spec(unsafe &sargs, unsafe &gparams)
+        } else if cls_intro != Declarations::SpecKind::None {
+            self.dyn()->diag->report(
+                DiagID::S049E,
+                name.range.start,
                 "expected specialization arguments '<...>' after the name "
-                "following the '<>' specialization marker"
-            ).first(name.range).emit();
+                "following the '<>' specialization marker",
+            ).first(name.range)->emit()
         }
 
         // index mode: token-skip heritage/requires to the body (no type or
         // expression parsing against the half-built table), then walk members
         // shallowly into dc_decls for the hoist recursion.
-        if dyn()->mode == T::ParseMode::Index {
-            if dyn()->_index_skip_to_body() {
-                self._index_walk_body(static_cast::<*DeclContext>(cd));
+        if self.dyn()->mode == T::ParseMode::Index {
+            if self.dyn()->_index_skip_to_body() {
+                self._index_walk_body(cd)
             }
-            cd->range = start | dyn()->prev().range;
-            dyn()->exit_depth();
-            return static_cast::<*Decl>(cd);
+
+            cd->range = start | self.dyn()->prev().range
+            self.dyn()->exit_depth()
+            return unsafe (cd as unsafe *Decl)
         }
 
         // heritage
-        var dlist: std::StackBuf::<InheritEdge, 4>;
-        var ilist: std::StackBuf::<InheritEdge, 4>;
-        self._parse_class_heritage(&dlist, &ilist);
-        cd->derives_list.from_buf(dlist.data(), dlist.size(), dyn()->ctx);
-        cd->implements.from_buf(ilist.data(), ilist.size(), dyn()->ctx);
+        var dlist: kairo::std::StackBuf<Declarations::InheritEdge, 4>
+        var ilist: kairo::std::StackBuf<Declarations::InheritEdge, 4>
+        self._parse_class_heritage(unsafe &dlist, unsafe &ilist)
+        cd->derives_list.from_buf(dlist.data(), dlist.size(), self.dyn()->ctx)
+        cd->implements.from_buf(ilist.data(), ilist.size(), self.dyn()->ctx)
 
         // optional requires
         if self._peek_past_nl(TokenKind::KwRequires) {
-            dyn()->advance(T::SkipNL::After);
-            var req = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
-            if (req != &null) && (!is_recovery(req)) { cd->requires_clause = req; }
+            self.dyn()->advance(T::SkipNL::After)
+            var req = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral))
+            if req != &null && !is_recovery(req) {
+                cd->requires_clause = req
+            }
         }
-        self._reject_where_on_type("class");
+
+        self._reject_where_on_type("class")
 
         // body, or a bodyless forward declaration (`class Foo`). A `{` opens the
         // definition; anything else leaves `cd` a forward declaration (a
         // non-definition redecl link) for FFI / mutually-recursive types.
-        if dyn()->check(TokenKind::OpLBrace) {
-            dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(cd));
-            var fields:  std::StackBuf::<*FieldDecl, 8>;
-            var methods: std::StackBuf::<*FunctionDecl, 8>;
-            self._parse_member_body(static_cast::<*DeclContext>(cd), name, &fields, &methods, true);
-            cd->fields.from_buf(fields.data(), fields.size(), dyn()->ctx);
-            cd->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
+        if self.dyn()->check(TokenKind::OpLBrace) {
+            self.dyn()->enter_scope(ScopeKind::Block, cd)
+            var fields:  kairo::std::StackBuf<unsafe *Declarations::FieldDecl, 8>
+            var methods: kairo::std::StackBuf<unsafe *Declarations::FunctionDecl, 8>
+            self._parse_member_body(cd, name, &fields, &methods, true)
+            cd->fields.from_buf(fields.data(), fields.size(), self.dyn()->ctx)
+            cd->methods.from_buf(methods.data(), methods.size(), self.dyn()->ctx)
 
             // A `virtual fn` with no body is pure virtual, and its class
             // abstract (a bodyless method that is not virtual stays a
             // declaration). FnBodyKind::Virtual is what every later stage
             // reads: TypeUtil's polymorphism, ClassLifecycle, the `= 0`.
             for var i: usize = 0; i < cd->methods.size(); ++i {
-                var m = cd->methods[i];
-                if (m->abi == AbiKind::Virtual) && (m->body_kind == FnBodyKind::None) {
-                    m->body_kind = FnBodyKind::Virtual;
+                var unsafe *m = cd->methods[i]
+                if m->abi == Declarations::AbiKind::Virtual
+                    && m->body_kind == Declarations::FnBodyKind::None {
+                    m->body_kind = Declarations::FnBodyKind::Virtual
                 }
-                if m->body_kind == FnBodyKind::Virtual { cd->is_abstract = true; }
+
+                if m->body_kind == Declarations::FnBodyKind::Virtual {
+                    cd->is_abstract = true
+                }
             }
 
-            cd->mark_definition();
-            dyn()->exit_scope();
+            cd->mark_definition()
+            self.dyn()->exit_scope()
         }
 
-        cd->range = start | dyn()->prev().range;
-        dyn()->exit_depth();
-        return static_cast::<*Decl>(cd);
+        cd->range = start | self.dyn()->prev().range
+        self.dyn()->exit_depth()
+        return unsafe (cd as unsafe *Decl)
     }
 
     //  Struct
 
     /// \brief parses a struct declaration.
     ///  Grammar:  'struct' generics? name (impl ...)? body?  (no methods in-body; no body = forward decl)
-    priv fn _parse_struct(self) -> *Decl {
-        var start = self._cur_range();
+    priv fn _parse_struct(self) -> unsafe *Decl {
+        var start = self._cur_range()
 
-        if !dyn()->enter_depth() {
-            return static_cast::<*Decl>(StructDecl::create_error(dyn()->ctx, start));
+        if !self.dyn()->enter_depth() {
+            return Declarations::StructDecl::create_error(self.dyn()->ctx, start)
         }
-        dyn()->advance(T::SkipNL::After); // consume `struct`
 
-        var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-        var struct_intro: SpecKind = SpecKind::None;
-        self._parse_generic_or_spec_intro(&gparams, &struct_intro);
-        var has_generics = !gparams.is_empty();
+        self.dyn()->advance(T::SkipNL::After) // consume `struct`
 
-        if !dyn()->check_is_ident() {
-            dyn()->diag->report(DiagID::S046E, start.start,
-                "expected struct name"
-            ).first(start).emit();
-            dyn()->exit_depth();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(StructDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        var gparams: kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
+        var struct_intro: Declarations::SpecKind = Declarations::SpecKind::None
+        self._parse_generic_or_spec_intro(unsafe &gparams, &struct_intro)
+        var has_generics = !gparams.is_empty()
+
+        if !self.dyn()->check_is_ident() {
+            self.dyn()->diag->report(DiagID::S046E, start.start, "expected struct name").first(
+                start,
+            )->emit()
+            self.dyn()->exit_depth()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::StructDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
-        var name = dyn()->current();
-        dyn()->advance();
 
-        var sd: *StructDecl = StructDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
+        var name = self.dyn()->current()
+        self.dyn()->advance()
+
+        var sd: *Declarations::StructDecl = Declarations::StructDecl::create(
+            self.dyn()->ctx,
+            start,
+            name,
+            self.dyn()->scope.current_dc(),
+        )
+
         if has_generics {
-            sd->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+            sd->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
         }
 
         // Specialization argument pattern (#68). Two heads reach it:
@@ -3477,41 +4424,49 @@ class <T> DeclParse {
         //                     the pattern. Without the second form SpecKind::
         //                     Partial would be unreachable from the grammar.
         // A bare `Name<i32>` with neither head is still not a specialization.
-        if ((struct_intro != SpecKind::None) || has_generics) && dyn()->check(TokenKind::OpLess) {
-            var sargs: std::StackBuf::<*Type, 4>;
-            self._parse_spec_args(&sargs);
-            sd->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
-            sd->spec_kind = self._classify_record_spec(&sargs, &gparams);
-        } else if struct_intro != SpecKind::None {
-            dyn()->diag->report(DiagID::S049E, name.range.start,
+        if (struct_intro != Declarations::SpecKind::None || has_generics)
+            && self.dyn()->check(TokenKind::OpLess) {
+            var sargs: kairo::std::StackBuf<unsafe *Type, 4>
+            self._parse_spec_args(&sargs)
+            sd->spec_args.from_buf(sargs.data(), sargs.size(), self.dyn()->ctx)
+            sd->spec_kind = self._classify_record_spec(unsafe &sargs, unsafe &gparams)
+        } else if struct_intro != Declarations::SpecKind::None {
+            self.dyn()->diag->report(
+                DiagID::S049E,
+                name.range.start,
                 "expected specialization arguments '<...>' after the name "
-                "following the '<>' specialization marker"
-            ).first(name.range).emit();
+                "following the '<>' specialization marker",
+            ).first(name.range)->emit()
         }
 
         // index mode: see _parse_class.
-        if dyn()->mode == T::ParseMode::Index {
-            if dyn()->_index_skip_to_body() {
-                self._index_walk_body(static_cast::<*DeclContext>(sd));
+        if self.dyn()->mode == T::ParseMode::Index {
+            if self.dyn()->_index_skip_to_body() {
+                self._index_walk_body(sd)
             }
-            sd->range = start | dyn()->prev().range;
-            dyn()->exit_depth();
-            return static_cast::<*Decl>(sd);
+
+            sd->range = start | self.dyn()->prev().range
+            self.dyn()->exit_depth()
+            return unsafe (sd as unsafe *Decl)
         }
 
         // structs take only `impl` (no derives).
-        var ilist: std::StackBuf::<InheritEdge, 4>;
-        while dyn()->check(TokenKind::KwImpl) {
-            self._parse_inherit_edges(&ilist);
+        var ilist: kairo::std::StackBuf<Declarations::InheritEdge, 4>
+        while self.dyn()->check(TokenKind::KwImpl) {
+            self._parse_inherit_edges(&ilist)
         }
-        sd->implements.from_buf(ilist.data(), ilist.size(), dyn()->ctx);
+
+        sd->implements.from_buf(ilist.data(), ilist.size(), self.dyn()->ctx)
 
         if self._peek_past_nl(TokenKind::KwRequires) {
-            dyn()->advance(T::SkipNL::After);
-            var req = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
-            if (req != &null) && (!is_recovery(req)) { sd->requires_clause = req; }
+            self.dyn()->advance(T::SkipNL::After)
+            var req = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral))
+            if req != &null && !is_recovery(req) {
+                sd->requires_clause = req
+            }
         }
-        self._reject_where_on_type("struct");
+
+        self._reject_where_on_type("struct")
 
         // No `{`: a forward declaration (`struct Node`), like a bodiless
         // class -- a non-definition link N(a) merges with the definition
@@ -3519,57 +4474,68 @@ class <T> DeclParse {
         // timezone`) it may instead name the header's tag
         // (ImportResolution::_bind_ffi_forwards keys on the ffi linkage,
         // not on the missing body).
-        if !dyn()->check(TokenKind::OpLBrace) {
-            sd->range = start | dyn()->prev().range;
-            dyn()->exit_depth();
-            return static_cast::<*Decl>(sd);
+        if !self.dyn()->check(TokenKind::OpLBrace) {
+            sd->range = start | self.dyn()->prev().range
+            self.dyn()->exit_depth()
+            return unsafe (sd as unsafe *Decl)
         }
 
-        dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(sd));
-        var fields:  std::StackBuf::<*FieldDecl, 8>;
-        var methods: std::StackBuf::<*FunctionDecl, 8>; // ctors + operators only
-        self._parse_member_body(static_cast::<*DeclContext>(sd), name, &fields, &methods, false);
-        sd->fields.from_buf(fields.data(), fields.size(), dyn()->ctx);
-        sd->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
+        self.dyn()->enter_scope(ScopeKind::Block, sd)
+        var fields:  kairo::std::StackBuf<unsafe *Declarations::FieldDecl, 8>
+        var methods: kairo::std::StackBuf<unsafe *Declarations::FunctionDecl, 8> // ctors + operators only
+        self._parse_member_body(sd, name, &fields, &methods, false)
+        sd->fields.from_buf(fields.data(), fields.size(), self.dyn()->ctx)
+        sd->methods.from_buf(methods.data(), methods.size(), self.dyn()->ctx)
 
-        sd->mark_definition();
-        sd->range = start | dyn()->prev().range;
-        dyn()->exit_scope();
-        dyn()->exit_depth();
-        return static_cast::<*Decl>(sd);
+        sd->mark_definition()
+        sd->range = start | self.dyn()->prev().range
+        self.dyn()->exit_scope()
+        self.dyn()->exit_depth()
+        return unsafe (sd as unsafe *Decl)
     }
 
     //  Union
 
     /// \brief parses a union declaration.
     ///  Grammar:  'union' generics? name body?   (fields only, no methods; no body = forward decl)
-    priv fn _parse_union(self) -> *Decl {
-        var start = self._cur_range();
+    priv fn _parse_union(self) -> unsafe *Decl {
+        var start = self._cur_range()
 
-        if !dyn()->enter_depth() {
-            return static_cast::<*Decl>(UnionDecl::create_error(dyn()->ctx, start));
+        if !self.dyn()->enter_depth() {
+            return Declarations::UnionDecl::create_error(self.dyn()->ctx, start)
         }
-        dyn()->advance(T::SkipNL::After); // consume `union`
 
-        var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-        var union_intro: SpecKind = SpecKind::None;
-        self._parse_generic_or_spec_intro(&gparams, &union_intro);
-        var has_generics = !gparams.is_empty();
+        self.dyn()->advance(T::SkipNL::After) // consume `union`
 
-        if !dyn()->check_is_ident() {
-            dyn()->diag->report(DiagID::S046E, start.start,
-                "expected union name"
-            ).first(start).emit();
-            dyn()->exit_depth();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(UnionDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        var gparams: kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
+        var union_intro: Declarations::SpecKind = Declarations::SpecKind::None
+        self._parse_generic_or_spec_intro(unsafe &gparams, &union_intro)
+        var has_generics = !gparams.is_empty()
+
+        if !self.dyn()->check_is_ident() {
+            self.dyn()->diag->report(DiagID::S046E, start.start, "expected union name").first(
+                start,
+            )->emit()
+            self.dyn()->exit_depth()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::UnionDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
-        var name = dyn()->current();
-        dyn()->advance();
 
-        var ud: *UnionDecl = UnionDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
+        var name = self.dyn()->current()
+        self.dyn()->advance()
+
+        var ud: *Declarations::UnionDecl = Declarations::UnionDecl::create(
+            self.dyn()->ctx,
+            start,
+            name,
+            self.dyn()->scope.current_dc(),
+        )
+
         if has_generics {
-            ud->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+            ud->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
         }
 
         // Specialization argument pattern (#68). Two heads reach it:
@@ -3579,47 +4545,51 @@ class <T> DeclParse {
         //                     the pattern. Without the second form SpecKind::
         //                     Partial would be unreachable from the grammar.
         // A bare `Name<i32>` with neither head is still not a specialization.
-        if ((union_intro != SpecKind::None) || has_generics) && dyn()->check(TokenKind::OpLess) {
-            var sargs: std::StackBuf::<*Type, 4>;
-            self._parse_spec_args(&sargs);
-            ud->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
-            ud->spec_kind = self._classify_record_spec(&sargs, &gparams);
-        } else if union_intro != SpecKind::None {
-            dyn()->diag->report(DiagID::S049E, name.range.start,
+        if (union_intro != Declarations::SpecKind::None || has_generics)
+            && self.dyn()->check(TokenKind::OpLess) {
+            var sargs: kairo::std::StackBuf<unsafe *Type, 4>
+            self._parse_spec_args(&sargs)
+            ud->spec_args.from_buf(sargs.data(), sargs.size(), self.dyn()->ctx)
+            ud->spec_kind = self._classify_record_spec(unsafe &sargs, unsafe &gparams)
+        } else if union_intro != Declarations::SpecKind::None {
+            self.dyn()->diag->report(
+                DiagID::S049E,
+                name.range.start,
                 "expected specialization arguments '<...>' after the name "
-                "following the '<>' specialization marker"
-            ).first(name.range).emit();
+                "following the '<>' specialization marker",
+            ).first(name.range)->emit()
         }
 
         // index mode: see _parse_class.
-        if dyn()->mode == T::ParseMode::Index {
-            if dyn()->_index_skip_to_body() {
-                self._index_walk_body(static_cast::<*DeclContext>(ud));
+        if self.dyn()->mode == T::ParseMode::Index {
+            if self.dyn()->_index_skip_to_body() {
+                self._index_walk_body(ud)
             }
-            ud->range = start | dyn()->prev().range;
-            dyn()->exit_depth();
-            return static_cast::<*Decl>(ud);
+
+            ud->range = start | self.dyn()->prev().range
+            self.dyn()->exit_depth()
+            return unsafe (ud as unsafe *Decl)
         }
 
         // No `{`: a forward declaration (`union Payload`); see _parse_struct.
-        if !dyn()->check(TokenKind::OpLBrace) {
-            ud->range = start | dyn()->prev().range;
-            dyn()->exit_depth();
-            return static_cast::<*Decl>(ud);
+        if !self.dyn()->check(TokenKind::OpLBrace) {
+            ud->range = start | self.dyn()->prev().range
+            self.dyn()->exit_depth()
+            return unsafe (ud as unsafe *Decl)
         }
 
-        dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(ud));
-        var fields:  std::StackBuf::<*FieldDecl, 8>;
-        var methods: std::StackBuf::<*FunctionDecl, 8>; // ctors + operators only
-        self._parse_member_body(static_cast::<*DeclContext>(ud), name, &fields, &methods, false);
-        ud->fields.from_buf(fields.data(), fields.size(), dyn()->ctx);
-        ud->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
+        self.dyn()->enter_scope(ScopeKind::Block, ud)
+        var fields:  kairo::std::StackBuf<unsafe *Declarations::FieldDecl, 8>
+        var methods: kairo::std::StackBuf<unsafe *Declarations::FunctionDecl, 8> // ctors + operators only
+        self._parse_member_body(ud, name, &fields, &methods, false)
+        ud->fields.from_buf(fields.data(), fields.size(), self.dyn()->ctx)
+        ud->methods.from_buf(methods.data(), methods.size(), self.dyn()->ctx)
 
-        ud->mark_definition();
-        ud->range = start | dyn()->prev().range;
-        dyn()->exit_scope();
-        dyn()->exit_depth();
-        return static_cast::<*Decl>(ud);
+        ud->mark_definition()
+        ud->range = start | self.dyn()->prev().range
+        self.dyn()->exit_scope()
+        self.dyn()->exit_depth()
+        return unsafe (ud as unsafe *Decl)
     }
 
     //  Interface
@@ -3627,151 +4597,197 @@ class <T> DeclParse {
     /// \brief parses an interface declaration.
     ///  Grammar:  'interface' generics? name (derives ...)? '{' sig* '}'
     ///    sig := method/operator/ctor/static signature (no body)
-    priv fn _parse_interface(self) -> *Decl {
-        var start = self._cur_range();
+    priv fn _parse_interface(self) -> unsafe *Decl {
+        var start = self._cur_range()
 
-        if !dyn()->enter_depth() {
-            return static_cast::<*Decl>(InterfaceDecl::create_error(dyn()->ctx, start));
-        }
-        dyn()->advance(T::SkipNL::After); // consume `interface`
-
-        var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-        var has_generics = false;
-        if dyn()->check(TokenKind::OpLess) {
-            self._parse_generic_params(&gparams);
-            has_generics = true;
+        if !self.dyn()->enter_depth() {
+            return Declarations::InterfaceDecl::create_error(self.dyn()->ctx, start)
         }
 
-        if !dyn()->check_is_ident() {
-            dyn()->diag->report(DiagID::S046E, start.start,
-                "expected interface name"
-            ).first(start).emit();
-            dyn()->exit_depth();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(InterfaceDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
-        }
-        var name = dyn()->current();
-        dyn()->advance();
+        self.dyn()->advance(T::SkipNL::After) // consume `interface`
 
-        var id: *InterfaceDecl = InterfaceDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
+        var gparams:     kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
+        var has_generics                                                                 = false
+        if self.dyn()->check(TokenKind::OpLess) {
+            self._parse_generic_params(&gparams)
+            has_generics = true
+        }
+
+        if !self.dyn()->check_is_ident() {
+            self.dyn()->diag->report(DiagID::S046E, start.start, "expected interface name").first(
+                start,
+            )->emit()
+            self.dyn()->exit_depth()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::InterfaceDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
+        }
+
+        var name = self.dyn()->current()
+        self.dyn()->advance()
+
+        var id: *Declarations::InterfaceDecl = Declarations::InterfaceDecl::create(
+            self.dyn()->ctx,
+            start,
+            name,
+            self.dyn()->scope.current_dc(),
+        )
+
         if has_generics {
-            id->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+            id->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
         }
 
         // index mode: see _parse_class.
-        if dyn()->mode == T::ParseMode::Index {
-            if dyn()->_index_skip_to_body() {
-                self._index_walk_body(static_cast::<*DeclContext>(id));
+        if self.dyn()->mode == T::ParseMode::Index {
+            if self.dyn()->_index_skip_to_body() {
+                self._index_walk_body(id)
             }
-            id->range = start | dyn()->prev().range;
-            dyn()->exit_depth();
-            return static_cast::<*Decl>(id);
+
+            id->range = start | self.dyn()->prev().range
+            self.dyn()->exit_depth()
+            return unsafe (id as unsafe *Decl)
         }
 
         // interface composition via `derives <expr>`. `impl` is accepted for
         // recovery only: an interface that composes others conforms to
         // nothing, it derives.
-        var dlist: std::StackBuf::<InheritEdge, 4>;
-        if dyn()->check(TokenKind::KwImpl) {
-            var it = self._cur_range();
-            var b = dyn()->diag->report(DiagID::S001E, it.start,
-                "an interface derives from other interfaces; 'impl' is for a type that conforms to one");
-            b.first(it);
-            b.fix(it, "derives", "replace 'impl' with 'derives\x27");
-            b.emit();
+        var dlist: kairo::std::StackBuf<Declarations::InheritEdge, 4>
+        if self.dyn()->check(TokenKind::KwImpl) {
+            var it = self._cur_range()
+            var b = self.dyn()->diag->report(
+                DiagID::S087E,
+                it.start,
+                "an interface derives from other interfaces; 'impl' is for a type that conforms to one",
+            )
+
+            b.first(it)
+            b.fix(it, "derives", "replace 'impl' with 'derives'")
+            b.emit()
         }
-        if dyn()->check(TokenKind::KwDerives) || dyn()->check(TokenKind::KwImpl) {
-            if !self._parse_derives_expr(id, &dlist) { self._sync_to_body(); }
+
+        if self.dyn()->check(TokenKind::KwDerives) || self.dyn()->check(TokenKind::KwImpl) {
+            if !self._parse_derives_expr(id, unsafe &dlist) {
+                self._sync_to_body()
+            }
         }
-        id->derives_list.from_buf(dlist.data(), dlist.size(), dyn()->ctx);
+
+        id->derives_list.from_buf(dlist.data(), dlist.size(), self.dyn()->ctx)
 
         if self._peek_past_nl(TokenKind::KwRequires) {
-            dyn()->advance(T::SkipNL::After);
-            var req = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
-            if (req != &null) && (!is_recovery(req)) { id->requires_clause = req; }
+            self.dyn()->advance(T::SkipNL::After)
+            var req = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral))
+            if req != &null && !is_recovery(req) {
+                id->requires_clause = req
+            }
         }
-        self._reject_where_on_type("interface");
+
+        self._reject_where_on_type("interface")
 
         // body: method signatures (bodies are a sema error; parser still
         // accepts a body for recovery via _parse_member_body's method path,
         // which yields FunctionDecls with body_kind set sema rejects bodies).
-        dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(id));
-        var fields:  std::StackBuf::<*FieldDecl, 8>;   // sema rejects fields in interfaces
-        var methods: std::StackBuf::<*FunctionDecl, 8>;
-        self._parse_member_body(static_cast::<*DeclContext>(id), name, &fields, &methods, true);
-        id->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
+        self.dyn()->enter_scope(ScopeKind::Block, id)
+        var fields:  kairo::std::StackBuf<unsafe *Declarations::FieldDecl, 8> // sema rejects fields in interfaces
+        var methods: kairo::std::StackBuf<unsafe *Declarations::FunctionDecl, 8>
+        self._parse_member_body(id, name, &fields, &methods, true)
+        id->methods.from_buf(methods.data(), methods.size(), self.dyn()->ctx)
 
-        id->mark_definition();
-        id->range = start | dyn()->prev().range;
-        dyn()->exit_scope();
-        dyn()->exit_depth();
-        return static_cast::<*Decl>(id);
+        id->mark_definition()
+        id->range = start | self.dyn()->prev().range
+        self.dyn()->exit_scope()
+        self.dyn()->exit_depth()
+        return unsafe (id as unsafe *Decl)
     }
 
     //  Extension
 
     /// \brief parses an extension declaration.
     ///  Grammar:  'extend' generics? type (impl ...)? '{' (method|static)* '}'
-    priv fn _parse_extension(self) -> *Decl {
-        var start = self._cur_range();
+    priv fn _parse_extension(self) -> unsafe *Decl {
+        var start = self._cur_range()
 
-        if !dyn()->enter_depth() {
-            return static_cast::<*Decl>(ExtensionDecl::create_error(dyn()->ctx, start));
+        if !self.dyn()->enter_depth() {
+            return Declarations::ExtensionDecl::create_error(self.dyn()->ctx, start)
         }
-        dyn()->advance(T::SkipNL::After); // consume `extend`
+
+        self.dyn()->advance(T::SkipNL::After) // consume `extend`
 
         // `extend <T> Foo` introduces type params; `extend <> Foo<bool>` is the
         // full-specialization marker, exactly as on struct/class/fn. Unlike
         // those, the specialization arguments live in the *target type*
         // (`Foo<bool>`) rather than after a name, so there is no separate
         // _parse_spec_args step here.
-        var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-        var ext_intro: SpecKind = SpecKind::None;
-        self._parse_generic_or_spec_intro(&gparams, &ext_intro);
-        var has_generics = !gparams.is_empty();
+        var gparams: kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
+        var ext_intro: Declarations::SpecKind = Declarations::SpecKind::None
+        self._parse_generic_or_spec_intro(unsafe &gparams, &ext_intro)
+        var has_generics = !gparams.is_empty()
 
-        var target = dyn()->parse_type();
-        if (target == &null) || is_recovery(target) {
-            dyn()->diag->report(DiagID::S053E, start.start,
-                "expected a type to extend after 'extend\x27"
-            ).first(start).emit();
-            dyn()->exit_depth();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(ExtensionDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        var target = self.dyn()->parse_type()
+        if target == &null || is_recovery(target) {
+            self.dyn()->diag->report(
+                DiagID::S053E,
+                start.start,
+                "expected a type to extend after 'extend'",
+            ).first(start)->emit()
+            self.dyn()->exit_depth()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::ExtensionDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
 
-        var ed: *ExtensionDecl = ExtensionDecl::create(dyn()->ctx, start, target, dyn()->scope.current_dc());
+        var ed: *Declarations::ExtensionDecl = Declarations::ExtensionDecl::create(
+            self.dyn()->ctx,
+            start,
+            target,
+            self.dyn()->scope.current_dc(),
+        )
+
         if has_generics {
-            ed->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+            ed->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
         }
-        ed->spec_kind = ext_intro;
 
-        var ilist: std::StackBuf::<InheritEdge, 4>;
-        while dyn()->check(TokenKind::KwImpl) {
-            self._parse_inherit_edges(&ilist);
+        ed->spec_kind = ext_intro
+
+        var ilist: kairo::std::StackBuf<Declarations::InheritEdge, 4>
+        while self.dyn()->check(TokenKind::KwImpl) {
+            self._parse_inherit_edges(&ilist)
         }
-        ed->implements.from_buf(ilist.data(), ilist.size(), dyn()->ctx);
+
+        ed->implements.from_buf(ilist.data(), ilist.size(), self.dyn()->ctx)
 
         // A specialized extension is constrained the same way its type is:
         //   extend <P> NS<P> requires is_ptr<P>() { ... }
         // Without this the clause parsed as a stray expression and took the
         // whole body down with it.
         if self._peek_past_nl(TokenKind::KwRequires) {
-            dyn()->advance(T::SkipNL::After);
-            var req = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
-            if (req != &null) && (!is_recovery(req)) { ed->requires_clause = req; }
+            self.dyn()->advance(T::SkipNL::After)
+            var req = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral))
+            if req != &null && !is_recovery(req) {
+                ed->requires_clause = req
+            }
         }
 
-        dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(ed));
-        var fields:  std::StackBuf::<*FieldDecl, 8>;   // not valid in extends; sema rejects
-        var methods: std::StackBuf::<*FunctionDecl, 8>;
-        self._parse_member_body(static_cast::<*DeclContext>(ed), Token(), &fields, &methods, true);
-        ed->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
+        self.dyn()->enter_scope(ScopeKind::Block, ed)
+        var fields:  kairo::std::StackBuf<unsafe *Declarations::FieldDecl, 8> // not valid in extends; sema rejects
+        var methods: kairo::std::StackBuf<unsafe *Declarations::FunctionDecl, 8>
+        self._parse_member_body(
+            unsafe (ed as unsafe *DeclContext),
+            Token(),
+            unsafe &fields,
+            unsafe &methods,
+            true,
+        )
 
-        ed->range = start | dyn()->prev().range;
-        dyn()->exit_scope();
-        dyn()->exit_depth();
-        return static_cast::<*Decl>(ed);
+        ed->methods.from_buf(methods.data(), methods.size(), self.dyn()->ctx)
+
+        ed->range = start | self.dyn()->prev().range
+        self.dyn()->exit_scope()
+        self.dyn()->exit_depth()
+        return unsafe (ed as unsafe *Decl)
     }
 
     //  Enum
@@ -3780,54 +4796,63 @@ class <T> DeclParse {
     ///  Grammar:  'enum' generics? name ('derives' int_type)? ('requires' expr)? '{' variant* '}'
     ///    variant := name ('=' const_expr)?                  (plain)
     ///             | name '{' field (',' field)* '}'         (ADT payload)
-    priv fn _parse_enum(self) -> *Decl {
-        var start = self._cur_range();
+    priv fn _parse_enum(self) -> unsafe *Decl {
+        var start = self._cur_range()
 
-        if !dyn()->enter_depth() {
-            return static_cast::<*Decl>(EnumDecl::create_error(dyn()->ctx, start));
-        }
-        dyn()->advance(T::SkipNL::After); // consume `enum`
-
-        var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-        var has_generics = false;
-        if dyn()->check(TokenKind::OpLess) {
-            self._parse_generic_params(&gparams);
-            has_generics = true;
+        if !self.dyn()->enter_depth() {
+            return unsafe (Declarations::EnumDecl::create_error(self.dyn()->ctx, start) as unsafe *Decl)
         }
 
-        if !dyn()->check_is_ident() {
-            dyn()->diag->report(DiagID::S046E, start.start,
-                "expected enum name"
-            ).first(start).emit();
-            dyn()->exit_depth();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(EnumDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
-        }
-        var name = dyn()->current();
-        dyn()->advance();
+        self.dyn()->advance(T::SkipNL::After) // consume `enum`
 
-        var en = EnumDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
+        var gparams:     kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
+        var has_generics                                                                 = false
+        if self.dyn()->check(TokenKind::OpLess) {
+            self._parse_generic_params(&gparams)
+            has_generics = true
+        }
+
+        if !self.dyn()->check_is_ident() {
+            self.dyn()->diag->report(DiagID::S046E, start.start, "expected enum name").first(
+                start,
+            )->emit()
+            self.dyn()->exit_depth()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return unsafe (Declarations::EnumDecl::create_error(self.dyn()->ctx, start | self.dyn()->prev().range) as unsafe *Decl)
+        }
+
+        var name = self.dyn()->current()
+        self.dyn()->advance()
+
+        var en = Declarations::EnumDecl::create(
+            self.dyn()->ctx,
+            start,
+            name,
+            self.dyn()->scope.current_dc(),
+        )
+
         if has_generics {
-            en->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+            en->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
         }
 
         // index mode: variants are not decls and are not hoisted; skip the
         // `derives` clause and the whole body.
-        if dyn()->mode == T::ParseMode::Index {
-            if dyn()->_index_skip_to_body() {
-                dyn()->_index_skip_block();
+        if self.dyn()->mode == T::ParseMode::Index {
+            if self.dyn()->_index_skip_to_body() {
+                self.dyn()->_index_skip_block()
             }
-            en->range = start | dyn()->prev().range;
-            dyn()->exit_depth();
-            return static_cast::<*Decl>(en);
+
+            en->range = start | self.dyn()->prev().range
+            self.dyn()->exit_depth()
+            return unsafe (en as unsafe *Decl)
         }
 
         // `derives <int type>` underlying type (NOT inheritance for enums).
-        if dyn()->check(TokenKind::KwDerives) {
-            dyn()->advance(T::SkipNL::After); // consume `derives`
-            var uty = dyn()->parse_type();
-            if (uty != &null) && (!is_recovery(uty)) {
-                en->underlying = uty;
+        if self.dyn()->check(TokenKind::KwDerives) {
+            self.dyn()->advance(T::SkipNL::After) // consume `derives`
+            var uty = self.dyn()->parse_type()
+            if uty != &null && !is_recovery(uty) {
+                en->underlying = uty
             }
         }
 
@@ -3835,372 +4860,504 @@ class <T> DeclParse {
         // Requires on Types), on its own line too, as a class's. Without it
         // the clause parsed as a stray expression and took the body with it.
         if self._peek_past_nl(TokenKind::KwRequires) {
-            dyn()->advance(T::SkipNL::After);
-            var req = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
-            if (req != &null) && (!is_recovery(req)) { en->requires_clause = req; }
+            self.dyn()->advance(T::SkipNL::After)
+            var req = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral))
+            if req != &null && !is_recovery(req) {
+                en->requires_clause = req
+            }
         }
-        self._reject_where_on_type("enum");
+
+        self._reject_where_on_type("enum")
 
         // forward decl: `enum Foo derives u8` with no body.
-        if !dyn()->check(TokenKind::OpLBrace) {
-            en->range = start | dyn()->prev().range;
-            dyn()->exit_depth();
-            return static_cast::<*Decl>(en);
+        if !self.dyn()->check(TokenKind::OpLBrace) {
+            en->range = start | self.dyn()->prev().range
+            self.dyn()->exit_depth()
+            return unsafe (en as unsafe *Decl)
         }
 
-        dyn()->advance(T::SkipNL::After); // consume `{`
+        self.dyn()->advance(T::SkipNL::After) // consume `{`
 
-        var variants: std::StackBuf::<*EnumVariantDecl, 8>;
-        var vidx: u32 = 0;
-        var any_adt = false;
+        var variants: kairo::std::StackBuf<unsafe *Declarations::EnumVariantDecl, 8>
+        var vidx:     u32                                                            = 0
+        var any_adt                                                                  = false
 
-        while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
-            if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpComma) {
-                dyn()->advance();
-                continue;
+        while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
+            if self.dyn()->check(TokenKind::TkNewLine) || self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance()
+                continue
             }
 
-            var v_annot: typename!(T::PendingAnnotations);
-            dyn()->consume_leading_annotations(&v_annot);
-            if dyn()->check(TokenKind::OpRBrace) { break; }
+            var v_annot: T::PendingAnnotations
+            self.dyn()->consume_leading_annotations(unsafe &v_annot)
+            if self.dyn()->check(TokenKind::OpRBrace) {
+                break
+            }
 
-            var v = self._parse_enum_variant(vidx);
+            var unsafe *v = self._parse_enum_variant(vidx)
             if v == &null {
-                self._sync_decl_progress(DeclSyncCtx::TypeBody);
-                continue;
+                self._sync_decl_progress(Self::DeclSyncCtx::TypeBody)
+                continue
             }
-            dyn()->apply_annotations_to_decl(static_cast::<*Decl>(v), &v_annot);
-            if v->is_adt() { any_adt = true; }
-            variants.push_back(v);
-            ++vidx;
 
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
-                continue;
+            self.dyn()->apply_annotations_to_decl(unsafe (v as unsafe *Decl), unsafe &v_annot)
+            if v->is_adt() {
+                any_adt = true
             }
-            if dyn()->check(TokenKind::TkNewLine) {
-                dyn()->advance(T::SkipNL::Only);
-                continue;
+
+            variants.push_back(v)
+            ++vidx
+
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
+                continue
             }
-            break;
+
+            if self.dyn()->check(TokenKind::TkNewLine) {
+                self.dyn()->advance(T::SkipNL::Only)
+                continue
+            }
+
+            break
         }
 
-        en->variants.from_buf(variants.data(), variants.size(), dyn()->ctx);
-        en->is_adt = any_adt;
+        en->variants.from_buf(variants.data(), variants.size(), self.dyn()->ctx)
+        en->is_adt = any_adt
 
-        if dyn()->check(TokenKind::OpRBrace) {
-            dyn()->advance(T::SkipNL::Before); // consume `}`
+        if self.dyn()->check(TokenKind::OpRBrace) {
+            self.dyn()->advance(T::SkipNL::Before) // consume `}`
         } else {
-            dyn()->diag->report(DiagID::S048E, start.start,
-                "expected '}' to close the enum body"
-            ).first(start).emit();
+            self.dyn()->diag->report(
+                DiagID::S048E,
+                start.start,
+                "expected '}' to close the enum body",
+            ).first(start)->emit()
         }
 
-        en->mark_definition();
-        en->range = start | dyn()->prev().range;
-        dyn()->exit_depth();
-        return static_cast::<*Decl>(en);
+        en->mark_definition()
+        en->range = start | self.dyn()->prev().range
+        self.dyn()->exit_depth()
+        return unsafe (en as unsafe *Decl)
     }
 
     /// \brief parses one enum variant (plain or ADT-payload).
-    priv fn _parse_enum_variant(self, idx: u32) -> *EnumVariantDecl {
-        if !dyn()->check_is_ident() {
-            var r = self._cur_range();
-            dyn()->diag->report(DiagID::S048E, r.start,
-                "expected variant name in enum body"
-            ).first(r).emit();
-            return &null;
+    priv fn _parse_enum_variant(self, idx: u32) -> unsafe *Declarations::EnumVariantDecl {
+        if !self.dyn()->check_is_ident() {
+            var r = self._cur_range()
+            self.dyn()->diag->report(
+                DiagID::S048E,
+                r.start,
+                "expected variant name in enum body",
+            ).first(r)->emit()
+            return &null
         }
-        var name  = dyn()->current();
-        var start = name.range;
-        dyn()->advance();
 
-        var v = EnumVariantDecl::create(dyn()->ctx, start, name, idx);
+        var name  = self.dyn()->current()
+        var start = name.range
+        self.dyn()->advance()
+
+        var v = Declarations::EnumVariantDecl::create(self.dyn()->ctx, start, name, idx)
 
         // ADT payload: `Found { key: K, value: V }`
-        if dyn()->check(TokenKind::OpLBrace) {
-            dyn()->advance(T::SkipNL::After); // consume `{`
-            var pf: std::StackBuf::<*FieldDecl, 4>;
-            var fidx: u32 = 0;
-            while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
-                if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpComma) {
-                    dyn()->advance();
-                    continue;
+        if self.dyn()->check(TokenKind::OpLBrace) {
+            self.dyn()->advance(T::SkipNL::After) // consume `{`
+            var pf:   kairo::std::StackBuf<unsafe *Declarations::FieldDecl, 4>
+            var fidx: u32                                                      = 0
+            while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
+                if self.dyn()->check(TokenKind::TkNewLine)
+                    || self.dyn()->check(TokenKind::OpComma) {
+                    self.dyn()->advance()
+                    continue
                 }
+
                 // payload fields are `name: Type` (no var/const keyword).
-                dyn()->_reject_mode_binding();
-                if !dyn()->check_is_ident() { break; }
-                var fname = dyn()->current();
-                var fstart = fname.range;
-                dyn()->advance();
-                if !dyn()->check(TokenKind::OpColon) {
-                    dyn()->diag->report(DiagID::S048E, fstart.start,
-                        "expected ':' and a type in enum variant payload"
-                    ).first(fstart).emit();
-                    break;
+                self.dyn()->_reject_mode_binding()
+                if !self.dyn()->check_is_ident() {
+                    break
                 }
-                dyn()->advance(T::SkipNL::After); // consume `:`
-                var fty = dyn()->parse_type();
-                if (fty == &null) || is_recovery(fty) { break; }
-                var fd = FieldDecl::create(dyn()->ctx, fstart | dyn()->prev().range, fname, StorageClass::Var, fty, fidx);
-                pf.push_back(fd);
-                ++fidx;
-                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                break;
+
+                var fname  = self.dyn()->current()
+                var fstart = fname.range
+                self.dyn()->advance()
+                if !self.dyn()->check(TokenKind::OpColon) {
+                    self.dyn()->diag->report(
+                        DiagID::S048E,
+                        fstart.start,
+                        "expected ':' and a type in enum variant payload",
+                    ).first(fstart)->emit()
+                    break
+                }
+
+                self.dyn()->advance(T::SkipNL::After) // consume `:`
+                var fty = self.dyn()->parse_type()
+                if fty == &null || is_recovery(fty) {
+                    break
+                }
+
+                var fd = Declarations::FieldDecl::create(
+                    self.dyn()->ctx,
+                    fstart | self.dyn()->prev().range,
+                    fname,
+                    Declarations::StorageClass::Var,
+                    fty,
+                    fidx,
+                )
+
+                pf.push_back(fd)
+                ++fidx
+                if self.dyn()->check(TokenKind::OpComma) {
+                    self.dyn()->advance(T::SkipNL::After)
+                    continue
+                }
+
+                break
             }
-            if dyn()->check(TokenKind::OpRBrace) { dyn()->advance(); }
-            v->payload.from_buf(pf.data(), pf.size(), dyn()->ctx);
-        }
-        // explicit discriminant: `= <const expr>`
-        else if dyn()->check(TokenKind::OpEqual) {
-            dyn()->advance(T::SkipNL::After); // consume `=`
-            var disc = dyn()->parse_expr(T::ExprStopKind::StopComma);
-            if (disc != &null) && (!is_recovery(disc)) {
-                v->discriminant = disc;
+
+            if self.dyn()->check(TokenKind::OpRBrace) {
+                self.dyn()->advance()
+            }
+
+            v->payload.from_buf(pf.data(), pf.size(), self.dyn()->ctx)
+        } // explicit discriminant: `= <const expr>`
+        else if self.dyn()->check(TokenKind::OpEqual) {
+            self.dyn()->advance(T::SkipNL::After) // consume `=`
+            var disc = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::StopComma))
+            if disc != &null && !is_recovery(disc) {
+                v->discriminant = disc
             }
         }
+
         // A pack-expanded variant, `Err { e: E }...`: one variant per element
         // of the pack its payload names. A nullary `V...` is read too, so
         // Sema can say why it means nothing (VariadicEnumCheck).
-        if dyn()->check(TokenKind::OpEllipsis) {
-            v->is_pack_expansion = true;
-            v->pack_range = self._cur_range();
-            dyn()->advance();
+        if self.dyn()->check(TokenKind::OpEllipsis) {
+            v->is_pack_expansion = true
+            v->pack_range        = self._cur_range()
+            self.dyn()->advance()
         }
 
-        v->range = start | dyn()->prev().range;
-        return v;
+        v->range = start | self.dyn()->prev().range
+        return v
     }
 
     //  Type alias
 
     /// \brief parses a type alias.
     ///  Grammar:  'type' generics? name '=' type
-    priv fn _parse_type_alias(self) -> *Decl {
-        var start = self._cur_range();
-        dyn()->advance(T::SkipNL::After); // consume `type`
+    priv fn _parse_type_alias(self) -> unsafe *Decl {
+        var start = self._cur_range()
+        self.dyn()->advance(T::SkipNL::After) // consume `type`
 
-        var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-        var has_generics = false;
-        if dyn()->check(TokenKind::OpLess) {
-            self._parse_generic_params(&gparams);
-            has_generics = true;
+        var gparams:     kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
+        var has_generics                                                                 = false
+        if self.dyn()->check(TokenKind::OpLess) {
+            self._parse_generic_params(&gparams)
+            has_generics = true
         }
 
-        if !dyn()->check_is_ident() {
-            dyn()->diag->report(DiagID::S046E, start.start,
-                "expected alias name after 'type\x27"
-            ).first(start).emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        if !self.dyn()->check_is_ident() {
+            self.dyn()->diag->report(
+                DiagID::S046E,
+                start.start,
+                "expected alias name after 'type'",
+            ).first(start)->emit()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::TypeAliasDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
-        var name = dyn()->current();
-        dyn()->advance();
+
+        var name = self.dyn()->current()
+        self.dyn()->advance()
 
         // index mode: the name and generics are all the table needs; the
         // aliased type is sema's business. Node carries a null `aliased`.
-        if dyn()->mode == T::ParseMode::Index {
-            var ita = TypeAliasDecl::create(dyn()->ctx, start | dyn()->prev().range,
-                                            name, static_cast::<*Type>(&null));
+        if self.dyn()->mode == T::ParseMode::Index {
+            var ita = Declarations::TypeAliasDecl::create(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+                name,
+                &null,
+            )
+
             if has_generics {
-                ita->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+                ita->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
             }
-            dyn()->_index_skip_stmt();
-            return static_cast::<*Decl>(ita);
+
+            self.dyn()->_index_skip_stmt()
+            return ita
         }
 
         // Inside an interface, `type N` is an ASSOCIATED type
         // (interfaces.md, "Associated Types"): `=` gives its default and is
         // optional, and `impl X, Y` bounds it. Anywhere else it is an alias,
         // `=` is required and `impl` has no meaning.
-        var cur = dyn()->scope.current_dc();
-        var in_iface = (cur != &null) && (cur->dc_kind == DeclContextKind::Interface);
-        var bounds: *Expr = &null;
-        if dyn()->check(TokenKind::KwImpl) {
+        var cur                   = self.dyn()->scope.current_dc()
+        var in_iface              = cur != &null && cur->dc_kind == DeclContextKind::Interface
+        var bounds:  unsafe *Expr = &null
+        if self.dyn()->check(TokenKind::KwImpl) {
             if !in_iface {
-                var it = self._cur_range();
-                dyn()->diag->report(DiagID::S001E, it.start,
-                    "'impl' bounds an associated type, which is only declared inside an interface"
-                ).first(it).emit();
-                self._sync_decl(DeclSyncCtx::TopLevel);
-                return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+                var it = self._cur_range()
+                self.dyn()->diag->report(
+                    DiagID::S088E,
+                    it.start,
+                    "'impl' bounds an associated type, which is only declared inside an interface",
+                ).first(it)->emit()
+                self._sync_decl(Self::DeclSyncCtx::TopLevel)
+                return (Declarations::TypeAliasDecl::create_error(
+                    self.dyn()->ctx,
+                    start | self.dyn()->prev().range,
+                ))
             }
-            bounds = self._parse_assoc_bounds(name);
+
+            bounds = self._parse_assoc_bounds(name)
             if bounds == &null {
-                return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+                return (Declarations::TypeAliasDecl::create_error(
+                    self.dyn()->ctx,
+                    start | self.dyn()->prev().range,
+                ))
             }
         }
 
-        var aliased: *Type = &null;
-        if dyn()->check(TokenKind::OpEqual) {
-            dyn()->advance(T::SkipNL::After); // consume `=`
-            aliased = dyn()->parse_type();
-            if (aliased == &null) || is_recovery(aliased) {
-                return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        var aliased: unsafe *Type = &null
+        if self.dyn()->check(TokenKind::OpEqual) {
+            self.dyn()->advance(T::SkipNL::After) // consume `=`
+            aliased = self.dyn()->parse_type()
+            if aliased == &null || is_recovery(aliased) {
+                return (Declarations::TypeAliasDecl::create_error(
+                    self.dyn()->ctx,
+                    start | self.dyn()->prev().range,
+                ))
             }
         } else if !in_iface {
-            var b = dyn()->diag->report(DiagID::S050E, start.start,
-                "expected '=' in type alias declaration");
-            b.first(start);
-            b.note(start.start,
-                "a 'type' with no '=' is an associated type, which is only declared inside an interface");
-            b.emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+            var b = self.dyn()->diag->report(
+                DiagID::S050E,
+                start.start,
+                "expected '=' in type alias declaration",
+            )
+
+            b.first(start)
+            b.note(
+                start.start,
+                "a 'type' with no '=' is an associated type, which is only declared inside an interface",
+            )
+
+            b.emit()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::TypeAliasDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
 
-        var ta = TypeAliasDecl::create(dyn()->ctx, start | dyn()->prev().range, name, aliased);
-        ta->is_associated   = in_iface;
-        ta->requires_clause = bounds;
+        var ta = Declarations::TypeAliasDecl::create(
+            self.dyn()->ctx,
+            start | self.dyn()->prev().range,
+            name,
+            aliased,
+        )
+
+        ta->is_associated   = in_iface
+        ta->requires_clause = bounds
         if has_generics {
-            ta->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+            ta->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
         }
-        return static_cast::<*Decl>(ta);
+
+        return ta
     }
 
     /// `impl X, Y` on associated type \p name: its bounds as the requires
     /// clause every bound is, `N impl X && N impl Y` (ConstraintExpr
     /// conjuncts), so ConstraintExtraction partitions them as it does any
     /// decl's. Null after a diagnostic.
-    priv fn _parse_assoc_bounds(self, name: Token) -> *Expr {
-        var impl_tok = dyn()->current();
-        dyn()->advance(T::SkipNL::After); // consume `impl`
-        var clause: *Expr = &null;
+    priv fn _parse_assoc_bounds(self, name: Token) -> unsafe *Expr {
+        var impl_tok = self.dyn()->current()
+        self.dyn()->advance(T::SkipNL::After) // consume `impl`
+        var clause: unsafe *Expr = &null
         while true {
-            var ty = dyn()->parse_type();
-            if (ty == &null) || is_recovery(ty) {
-                dyn()->diag->report(DiagID::S001E, self._cur_range().start,
-                    "expected an interface after 'impl\x27"
-                ).first(self._cur_range()).emit();
-                return &null;
+            var ty = self.dyn()->parse_type()
+            if ty == &null || is_recovery(ty) {
+                self.dyn()->diag->report(
+                    DiagID::S083E,
+                    self._cur_range().start,
+                    "expected an interface after 'impl'",
+                ).first(self._cur_range())->emit()
+                return &null
             }
-            var lhs = NamedIdentExpr::create(dyn()->ctx, name.range, name);
-            var c = static_cast::<*Expr>(ConstraintExpr::create(dyn()->ctx, name.range | ty->range, static_cast::<*Expr>(lhs), ty, impl_tok));
+
+            var lhs = NamedIdentExpr::create(self.dyn()->ctx, name.range, name)
+            var c = unsafe (ConstraintExpr::create(self.dyn()->ctx, name.range | ty->range, lhs, ty, impl_tok) as unsafe *Expr)
             if clause == &null {
-                clause = c;
+                clause = c
             } else {
-                var and_tok = dyn()->ctx->make_token(ty->range, TokenKind::OpAmpAmp, "&&");
-                clause = static_cast::<*Expr>(BinaryOperatorExpr::create(dyn()->ctx, clause->range | c->range, clause, c, and_tok));
+                var and_tok = self.dyn()->ctx->make_token(ty->range, TokenKind::OpAmpAmp, "&&")
+                clause = (BinaryOperatorExpr::create(
+                    self.dyn()->ctx,
+                    clause->range | c->range,
+                    clause,
+                    c,
+                    and_tok,
+                ))
             }
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
-                continue;
+
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
+                continue
             }
-            break;
+
+            break
         }
-        return clause;
+
+        return clause
     }
 
     //  Module
 
     /// \brief parses a module declaration.
     ///  Grammar:  'inline'? 'module' name? '{' decl* '}'
-    priv fn _parse_module(self) -> *Decl {
-        var start = self._cur_range();
+    priv fn _parse_module(self) -> unsafe *Decl {
+        var start = self._cur_range()
 
-        if !dyn()->enter_depth() {
-            return static_cast::<*Decl>(ModuleDecl::create_error(dyn()->ctx, start));
+        if !self.dyn()->enter_depth() {
+            return Declarations::ModuleDecl::create_error(self.dyn()->ctx, start)
         }
 
-        var is_inline = false;
+        var is_inline = false
         // `inline` may precede `module` (rare; the dispatcher routes KwInline
         // to the stmt path normally, but a module-inline reaches here when the
         // caller pre-checked). Defensive handling:
-        if dyn()->check(TokenKind::KwInline) {
-            is_inline = true;
-            dyn()->advance(T::SkipNL::After);
-        }
-        dyn()->advance(T::SkipNL::After); // consume `module`
-
-        var name_tok = Token();
-        var anon = true;
-        if dyn()->check(TokenKind::LitIdentifier) {
-            name_tok = dyn()->current();
-            anon = false;
-            dyn()->advance();
+        if self.dyn()->check(TokenKind::KwInline) {
+            is_inline = true
+            self.dyn()->advance(T::SkipNL::After)
         }
 
-        var md: *ModuleDecl = ModuleDecl::create(dyn()->ctx, start, name_tok, dyn()->scope.current_dc());
-        md->is_inline    = is_inline;
-        md->is_anonymous = anon;
+        self.dyn()->advance(T::SkipNL::After) // consume `module`
 
-        if !dyn()->check(TokenKind::OpLBrace) {
-            dyn()->diag->report(DiagID::S050E, start.start,
-                "expected '{' to begin module body"
-            ).first(start).emit();
-            dyn()->exit_depth();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(ModuleDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        var name_tok = Token()
+        var anon     = true
+        if self.dyn()->check(TokenKind::LitIdentifier) {
+            name_tok = self.dyn()->current()
+            anon     = false
+            self.dyn()->advance()
         }
-        dyn()->advance(T::SkipNL::After); // consume `{`
 
-        dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(md));
+        var md: *Declarations::ModuleDecl = Declarations::ModuleDecl::create(
+            self.dyn()->ctx,
+            start,
+            name_tok,
+            self.dyn()->scope.current_dc(),
+        )
 
-        while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
-            if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
-                dyn()->advance();
-                continue;
+        md->is_inline    = is_inline
+        md->is_anonymous = anon
+
+        if !self.dyn()->check(TokenKind::OpLBrace) {
+            self.dyn()->diag->report(
+                DiagID::S050E,
+                start.start,
+                "expected '{' to begin module body",
+            ).first(start)->emit()
+            self.dyn()->exit_depth()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::ModuleDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
+        }
+
+        self.dyn()->advance(T::SkipNL::After) // consume `{`
+
+        self.dyn()->enter_scope(ScopeKind::Block, md)
+
+        while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
+            if self.dyn()->check(TokenKind::TkNewLine)
+                || self.dyn()->check(TokenKind::OpSemicolon) {
+                self.dyn()->advance()
+                continue
             }
-            var inner = self.parse_decl();
-            if inner == &null { break; }
-            if self.is_fatal_decl(inner) { break; }
-            static_cast::<*DeclContext>(md)->add_decl(inner);
+
+            var unsafe *inner = self.parse_decl()
+            if inner == &null {
+                break
+            }
+
+            if self.is_fatal_decl(inner) {
+                break
+            }
+
+            (unsafe (md as unsafe *DeclContext))->add_decl(inner)
         }
 
-        if dyn()->check(TokenKind::OpRBrace) {
-            dyn()->advance(T::SkipNL::Before); // consume `}`
+        if self.dyn()->check(TokenKind::OpRBrace) {
+            self.dyn()->advance(T::SkipNL::Before) // consume `}`
         } else {
-            dyn()->diag->report(DiagID::S051E, start.start,
-                "expected '}' to close module body"
-            ).first(start).emit();
+            self.dyn()->diag->report(
+                DiagID::S051E,
+                start.start,
+                "expected '}' to close module body",
+            ).first(start)->emit()
         }
 
-        md->mark_definition();
-        md->range = start | dyn()->prev().range;
-        dyn()->exit_scope();
-        dyn()->exit_depth();
-        return static_cast::<*Decl>(md);
+        md->mark_definition()
+        md->range = start | self.dyn()->prev().range
+        self.dyn()->exit_scope()
+        self.dyn()->exit_depth()
+        return unsafe (md as unsafe *Decl)
     }
 
     //  Test
 
     /// \brief parses a test declaration.
     ///  Grammar:  'test' string_literal block
-    priv fn _parse_test(self) -> *Decl {
-        var start = self._cur_range();
-        dyn()->advance(T::SkipNL::After); // consume `test`
+    priv fn _parse_test(self) -> unsafe *Decl {
+        var start = self._cur_range()
+        self.dyn()->advance(T::SkipNL::After) // consume `test`
 
-        var td: *TestDecl = TestDecl::create(dyn()->ctx, start, dyn()->scope.current_dc());
+        var td: *Declarations::TestDecl = Declarations::TestDecl::create(
+            self.dyn()->ctx,
+            start,
+            self.dyn()->scope.current_dc(),
+        )
 
         // index mode: tests contribute nothing to the table; skip wholesale.
-        if dyn()->mode == T::ParseMode::Index {
-            dyn()->_index_skip_stmt();
-            td->range = start | dyn()->prev().range;
-            return static_cast::<*Decl>(td);
+        if self.dyn()->mode == T::ParseMode::Index {
+            self.dyn()->_index_skip_stmt()
+            td->range = start | self.dyn()->prev().range
+            return unsafe (td as unsafe *Decl)
         }
 
-        if dyn()->check(TokenKind::LitString) {
-            var s_tok = dyn()->current();
-            td->label = static_cast::<*Expr>(
-                StringLiteralExpr::create(dyn()->ctx, s_tok.range, s_tok, StringLiteralExpr::StringKind::Plain)
-            );
-            dyn()->advance(T::SkipNL::After);
+        if self.dyn()->check(TokenKind::LitString) {
+            var s_tok = self.dyn()->current()
+            td->label = StringLiteralExpr::create(
+                self.dyn()->ctx,
+                s_tok.range,
+                s_tok,
+                FlagSet<StringLiteralExpr::StringKind, u8>(),
+            )
+
+            self.dyn()->advance(T::SkipNL::After)
         }
 
-        if !dyn()->check(TokenKind::OpLBrace) {
-            dyn()->diag->report(DiagID::S050E, start.start,
-                "expected '{' to begin test body"
-            ).first(start).emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(TestDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        if !self.dyn()->check(TokenKind::OpLBrace) {
+            self.dyn()->diag->report(
+                DiagID::S050E,
+                start.start,
+                "expected '{' to begin test body",
+            ).first(start)->emit()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::TestDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
 
-        dyn()->enter_scope(ScopeKind::Function, static_cast::<*DeclContext>(td));
-        td->body = dyn()->parse_compound();
-        dyn()->exit_scope();
+        self.dyn()->enter_scope(ScopeKind::Function, td)
+        td->body = self.dyn()->parse_compound()
+        self.dyn()->exit_scope()
 
-        td->range = start | dyn()->prev().range;
-        return static_cast::<*Decl>(td);
+        td->range = start | self.dyn()->prev().range
+        return unsafe (td as unsafe *Decl)
     }
 
     //  Macro (token macro vs proc/attribute macro)
@@ -4208,151 +5365,191 @@ class <T> DeclParse {
     /// \brief parses a macro declaration.
     ///  Grammar:  'macro' ( name '!' '(' params? ')' '{' raw '}'      (token macro)
     ///                     | '@' name '(' typed_params? ')' block )   (proc macro)
-    priv fn _parse_macro(self) -> *Decl {
-        var start = self._cur_range();
+    priv fn _parse_macro(self) -> unsafe *Decl {
+        var start = self._cur_range()
 
         // dispatch invariant, not a user error: this production is only ever
         // entered on `macro` (including the `macro @proc` form, which is
         // dispatched below AFTER `macro` is consumed). ICE-with-report instead
         // of a compiled-out assert so release builds fail loudly instead of
         // mis-parsing.
-        if !dyn()->check(TokenKind::KwMacro) {
-            dyn()->diag->report(DiagID::I002F, start.start,
-                f"internal: _parse_macro entered on '{token_kind_to_readable_string(dyn()->current().kind)}', expected 'macro \x27"
-            ).first(start).emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(MacroDecl::create_error(dyn()->ctx, start));
+        if !self.dyn()->check(TokenKind::KwMacro) {
+            self.dyn()->diag->report(
+                DiagID::I002F,
+                start.start,
+                f"internal: _parse_macro entered on '{token_kind_to_readable_string(self.dyn()->current().kind)}', expected 'macro '",
+            ).first(start)->emit()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return Declarations::MacroDecl::create_error(self.dyn()->ctx, start)
         }
 
-        dyn()->advance(T::SkipNL::After); // consume `macro`
+        self.dyn()->advance(T::SkipNL::After) // consume `macro`
 
-        if dyn()->check(TokenKind::OpAt) {
-            return self._parse_proc_macro(start);
+        if self.dyn()->check(TokenKind::OpAt) {
+            return self._parse_proc_macro(start)
         }
 
-        var hdr = dyn()->parse_macro_header();
+        var hdr = self.dyn()->parse_macro_header()
         if !hdr.ok {
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(MacroDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::MacroDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
 
-        var mac = MacroDecl::create(dyn()->ctx, start, hdr.name);
+        var mac = Declarations::MacroDecl::create(self.dyn()->ctx, start, hdr.name)
 
         // step 1: keep MacroDecl's existing lossy Token param list pure
         // adapter, zero node changes. step 2 swaps this block for
         // FrozenList<MacroParamSpec>.
-        var params: vec::<MacroParamSpec>;
+        var params: cxx::std::vector<Declarations::MacroParamSpec>
         for var i: usize = 0; i < hdr.params.size(); ++i {
-            if hdr.params[i].variadic != 0 { mac->is_variadic = true; }
+            if hdr.params[i].variadic != 0 {
+                mac->is_variadic = true
+            }
+
             if hdr.params[i].variadic != 2 {
-                var sp = MacroParamSpec{};
-                sp.name     = hdr.params[i].name;
-                sp.variadic = hdr.params[i].variadic;
-                params.push_back(sp);
+                var sp = Declarations::MacroParamSpec{}
+                sp.name     = hdr.params[i].name
+                sp.variadic = hdr.params[i].variadic
+                params.push_back(sp)
             }
         }
-        mac->params_spec.from_buf(params.data(), params.size(), dyn()->ctx);
+
+        mac->params_spec.from_buf(params.data(), params.size(), self.dyn()->ctx)
 
         // body: unchanged from current implementation (brace-balance, span)
-        if !dyn()->check(TokenKind::OpLBrace) {
-            dyn()->diag->report(DiagID::S050E, start.start,
-                "expected '{' to begin macro body"
-            ).first(start).emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(MacroDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        if !self.dyn()->check(TokenKind::OpLBrace) {
+            self.dyn()->diag->report(
+                DiagID::S050E,
+                start.start,
+                "expected '{' to begin macro body",
+            ).first(start)->emit()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::MacroDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
-        dyn()->advance();
-        var body_start = self._cur_range();
-        var body_end   = body_start;
-        var depth: u32 = 1;
-        while (!dyn()->is_eof()) && depth > 0 {
-            var k = dyn()->ig_kind();
-            if k == TokenKind::OpLBrace { depth += 1; }
-            else if k == TokenKind::OpRBrace {
-                depth -= 1;
-                if depth == 0 { break; }
-            }
-            body_end = self._cur_range();
-            dyn()->advance();
-        }
-        if dyn()->check(TokenKind::OpRBrace) { dyn()->advance(T::SkipNL::Before); }
 
-        mac->body_span = body_start | body_end;
-        mac->range     = start | dyn()->prev().range;
-        return static_cast::<*Decl>(mac);
+        self.dyn()->advance()
+        var body_start     = self._cur_range()
+        var body_end       = body_start
+        var depth:     u32 = 1
+        while !self.dyn()->is_eof() && depth > 0 {
+            var k = self.dyn()->ig_kind()
+            if k == TokenKind::OpLBrace {
+                depth += 1
+            } else if k == TokenKind::OpRBrace {
+                depth -= 1
+                if depth == 0 {
+                    break
+                }
+            }
+
+            body_end = self._cur_range()
+            self.dyn()->advance()
+        }
+
+        if self.dyn()->check(TokenKind::OpRBrace) {
+            self.dyn()->advance(T::SkipNL::Before)
+        }
+
+        mac->body_span = body_start | body_end
+        mac->range     = start | self.dyn()->prev().range
+        return mac
     }
 
     /// \brief parses a procedural / attribute macro `macro @name(...) { }`.
-    priv fn _parse_proc_macro(self, start: SourceRange) -> *Decl {
-        dyn()->advance(); // consume `@`
-        if !dyn()->check_is_ident() {
-            dyn()->diag->report(DiagID::S046E, start.start,
-                "expected name after 'macro @\x27"
-            ).first(start).emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(ProcedureMacroDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+    priv fn _parse_proc_macro(self, start: SourceRange) -> unsafe *Decl {
+        self.dyn()->advance() // consume `@`
+        if !self.dyn()->check_is_ident() {
+            self.dyn()->diag->report(
+                DiagID::S046E,
+                start.start,
+                "expected name after 'macro @'",
+            ).first(start)->emit()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::ProcedureMacroDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
-        var name = dyn()->current();
-        dyn()->advance();
 
-        var pm: *ProcedureMacroDecl = ProcedureMacroDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
+        var name = self.dyn()->current()
+        self.dyn()->advance()
+
+        var pm: *Declarations::ProcedureMacroDecl = Declarations::ProcedureMacroDecl::create(
+            self.dyn()->ctx,
+            start,
+            name,
+            self.dyn()->scope.current_dc(),
+        )
 
         // index mode: proc-macro bodies are full statement blocks; skip them.
         // (Token macros run their normal production its body is a raw
         // brace-balanced span, no expression parsing.)
-        if dyn()->mode == T::ParseMode::Index {
-            dyn()->_index_skip_stmt();
-            pm->range = start | dyn()->prev().range;
-            return static_cast::<*Decl>(pm);
+        if self.dyn()->mode == T::ParseMode::Index {
+            self.dyn()->_index_skip_stmt()
+            pm->range = start | self.dyn()->prev().range
+            return unsafe (pm as unsafe *Decl)
         }
 
-        dyn()->enter_scope(ScopeKind::Function, static_cast::<*DeclContext>(pm));
+        self.dyn()->enter_scope(ScopeKind::Function, pm)
 
         // typed param list (reuse the function param parser shape)
-        if dyn()->check(TokenKind::OpLParen) {
-            var params: std::StackBuf::<*ParamDecl, 4>;
-            self._parse_param_list(&params);
-            pm->params.from_buf(params.data(), params.size(), dyn()->ctx);
+        if self.dyn()->check(TokenKind::OpLParen) {
+            var params: kairo::std::StackBuf<unsafe *Declarations::ParamDecl, 4>
+            self._parse_param_list(&params)
+            pm->params.from_buf(params.data(), params.size(), self.dyn()->ctx)
         }
 
         // attribute macros transform AST in place they cannot declare a
         // return type. catch `-> T` here for a targeted message instead of
         // letting the body parser produce garbage.
-        if dyn()->check(TokenKind::OpArrow) {
-            var r = self._cur_range();
-            dyn()->diag->report(DiagID::S047E, r.start,
-                "an attribute macro cannot declare a return type; it transforms its node argument in place"
-            ).first(r).emit();
-            dyn()->advance(T::SkipNL::After); // consume `->`
-            var dead = dyn()->parse_type();   // consume the type for recovery
+        if self.dyn()->check(TokenKind::OpArrow) {
+            var r = self._cur_range()
+            self.dyn()->diag->report(
+                DiagID::S047E,
+                r.start,
+                "an attribute macro cannot declare a return type; it transforms its node argument in place",
+            ).first(r)->emit()
+            self.dyn()->advance(T::SkipNL::After) // consume `->`
+            var dead = self.dyn()->parse_type()   // consume the type for recovery
             // discard; body parse continues below
         }
 
         // A body is MANDATORY: unlike a function, a proc macro cannot be
         // forward-declared.
-        if !dyn()->check(TokenKind::OpLBrace) {
-            var r = self._cur_range();
-            dyn()->diag->report(DiagID::S050E, r.start,
+        if !self.dyn()->check(TokenKind::OpLBrace) {
+            var r = self._cur_range()
+            self.dyn()->diag->report(
+                DiagID::S050E,
+                r.start,
                 "a proc macro requires a body; it cannot be forward-declared "
-                "(proc macros run at compile time and must be defined before use)"
-            ).first(start).emit();
-            dyn()->exit_scope();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(ProcedureMacroDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+                "(proc macros run at compile time and must be defined before use)",
+            ).first(start)->emit()
+            self.dyn()->exit_scope()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::ProcedureMacroDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
-        
-        pm->body = dyn()->parse_compound();
 
-        dyn()->exit_scope();
-        pm->range = start | dyn()->prev().range;
-        return static_cast::<*Decl>(pm);
+        pm->body = self.dyn()->parse_compound()
+
+        self.dyn()->exit_scope()
+        pm->range = start | self.dyn()->prev().range
+        return unsafe (pm as unsafe *Decl)
     }
 
     //  Import
 
     /// \brief parses an import declaration.
     ///  Grammar:
-    ///    'import' 'module'? path
+    ///    'import' (('self' | 'module') '::')? path
     ///      ('::' '{' import_item (',' import_item)* '}')?
     ///      ('::' '*')?
     ///      ('as' name)?
@@ -4362,56 +5559,64 @@ class <T> DeclParse {
     ///
     /// \details resolution semantics (enforced by the import resolution pass,
     ///          not the parser):
-    ///    `import Foo`        file-first: Foo.k, fallback Foo/module.k
-    ///    `import module Foo` library-only: Foo/module.k, no fallback
-    ///    `import Foo::bar`   resolve Foo (file-first), then find symbol bar
-    fn _parse_import(self) -> *Decl {
-        var start = self._cur_range();
+    ///    `import Foo`         the search roots (libraries, -I, std, builtin)
+    ///    `import self::Foo`   the importing file's own directory
+    ///    `import module::Foo` the importing file's module root (nearest module.k)
+    ///    each in one place: Foo.k or Foo/module.k there, both is an error
+    ///    `import Foo::bar`    resolve Foo, then find symbol bar
+    ///    `import module Foo`  removed (S089E, fix-it drops `module`)
+    fn _parse_import(self) -> unsafe *Decl {
+        var start = self._cur_range()
 
-        var spec = dyn()->parse_import_spec();
+        var spec = self.dyn()->parse_import_spec()
         if !spec.ok {
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::ImportDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
 
-        var id = ImportDecl::create(dyn()->ctx, spec.range,
-            (ImportKind::ModuleOnly) if (spec.is_module) else (ImportKind::Native));
+        var id = Declarations::ImportDecl::create(self.dyn()->ctx, spec.range, spec.kind)
 
         // base path
-        var segs: std::StackBuf::<Token, 8>;
+        var segs: kairo::std::StackBuf<Token, 8>
         for var i: usize = 0; i < spec.segments.size(); ++i {
-            segs.push_back(spec.segments[i]);
+            segs.push_back(spec.segments[i])
         }
-        id->path_segments.from_buf(segs.data(), segs.size(), dyn()->ctx);
-        id->last_seg_is_macro = spec.last_seg_is_macro;   // NEW field, see below
-        id->is_wildcard       = spec.is_wildcard;
+
+        id->path_segments.from_buf(segs.data(), segs.size(), self.dyn()->ctx)
+        id->last_seg_is_macro = spec.last_seg_is_macro // NEW field, see below
+        id->is_wildcard       = spec.is_wildcard
 
         // selective items
         if spec.has_items {
-            var items: std::StackBuf::<ImportItem, 8>;
+            var items: kairo::std::StackBuf<Declarations::ImportItem, 8>
             for var i: usize = 0; i < spec.items.size(); ++i {
-                var s = &spec.items[i];
-                var item = ImportItem{};
-                var sub: std::StackBuf::<Token, 4>;
+                var s                                   = &spec.items[i]
+                var item                                = Declarations::ImportItem{}
+                var sub: kairo::std::StackBuf<Token, 4>
                 for var j: usize = 0; j < s->sub_path.size(); ++j {
-                    sub.push_back(s->sub_path[j]);
+                    sub.push_back(s->sub_path[j])
                 }
-                item.sub_path.from_buf(sub.data(), sub.size(), dyn()->ctx);
-                item.alias       = s->alias;
-                item.has_alias   = s->has_alias;
-                item.is_wildcard = s->is_wildcard;
-                item.is_macro    = s->is_macro;            // NEW field, see below
-                item.range       = s->range;
-                items.push_back(item);
+
+                item.sub_path.from_buf(sub.data(), sub.size(), self.dyn()->ctx)
+                item.alias       = s->alias
+                item.has_alias   = s->has_alias
+                item.is_wildcard = s->is_wildcard
+                item.is_macro    = s->is_macro    // NEW field, see below
+                item.range       = s->range
+                items.push_back(item)
             }
-            id->items.from_buf(items.data(), items.size(), dyn()->ctx);
-            id->has_items = true;
+
+            id->items.from_buf(items.data(), items.size(), self.dyn()->ctx)
+            id->has_items = true
         }
 
-        id->alias     = spec.alias;
-        id->has_alias = spec.has_alias;
-        id->range     = spec.range;
-        return static_cast::<*Decl>(id);
+        id->alias     = spec.alias
+        id->has_alias = spec.has_alias
+        id->range     = spec.range
+        return id
     }
 
     //  FFI
@@ -4430,173 +5635,221 @@ class <T> DeclParse {
     ///   The parser rejects decl kinds that don't carry the FFILinkage mixin
     ///   (test, macro, enum, etc.). Sema validates deeper constraints (e.g.
     ///   ffi "c" on a ClassDecl).
-    fn _parse_ffi(self) -> *Decl {
-        var start = self._cur_range();
-        dyn()->advance(T::SkipNL::After); // consume `ffi`
+    fn _parse_ffi(self) -> unsafe *Decl {
+        var start = self._cur_range()
+        self.dyn()->advance(T::SkipNL::After) // consume `ffi`
 
         // language string: "c", "c++", etc.
-        if !dyn()->check(TokenKind::LitString) {
-            dyn()->diag->report(DiagID::S064E, start.start,
-                "expected a language string after 'ffi' (e.g. \"c++\")"
-            ).first(start).emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        if !self.dyn()->check(TokenKind::LitString) {
+            self.dyn()->diag->report(
+                DiagID::S064E,
+                start.start,
+                "expected a language string after 'ffi' (e.g. \"c++\")",
+            ).first(start)->emit()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::ImportDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
-        var lang_tok  = dyn()->current();
-        var lang = dyn()->parse_ffi_lang(lang_tok, start);
-        dyn()->advance(T::SkipNL::After); // consume the language string; parse_ffi_lang only classifies, it does not advance
-        var linkage_kind: LinkageKind;
-        switch lang {
-            case FFILang::C { linkage_kind = LinkageKind::C; }
-            case FFILang::Cpp { linkage_kind = LinkageKind::Cpp; }
-            default {
-                dyn()->diag->report(DiagID::S064E, start.start,
-                    f"unsupported FFI language, expected 'c' or 'c++\x27"
-                ).first(start).emit();
-                self._sync_decl(DeclSyncCtx::TopLevel);
-                return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+
+        var lang_tok = self.dyn()->current()
+        var lang     = self.dyn()->parse_ffi_lang(lang_tok, start)
+        self.dyn()->advance(T::SkipNL::After) // consume the language string; parse_ffi_lang only classifies, it does not advance
+        var linkage_kind: LinkageKind
+        match lang {
+            case FFILang::C {
+                linkage_kind = LinkageKind::C
+            } case FFILang::Cpp {
+                linkage_kind = LinkageKind::Cpp
+            } default {
+                self.dyn()->diag->report(
+                    DiagID::S064E,
+                    start.start,
+                    f"unsupported FFI language, expected 'c' or 'c++'",
+                ).first(start)->emit()
+                self._sync_decl(Self::DeclSyncCtx::TopLevel)
+                return (Declarations::ImportDecl::create_error(
+                    self.dyn()->ctx,
+                    start | self.dyn()->prev().range,
+                ))
             }
         }
-        
-        var ffi_range = (start | lang_tok.range);
 
-        // ---- ffi "c++" import "header.h" (as alias)? ----------------------
-        if dyn()->check(TokenKind::KwImport) {
-            dyn()->advance(T::SkipNL::After); // consume `import`
+        var ffi_range = start | lang_tok.range
 
-            if !dyn()->check(TokenKind::LitString) {
-                dyn()->diag->report(DiagID::S064E, start.start,
-                    "expected a header path string after 'ffi \"...\" import\x27"
-                ).first(start).emit();
-                self._sync_decl(DeclSyncCtx::TopLevel);
-                return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        /// # ffi "c++" import "header.h" (as alias)?
+        if self.dyn()->check(TokenKind::KwImport) {
+            self.dyn()->advance(T::SkipNL::After) // consume `import`
+
+            if !self.dyn()->check(TokenKind::LitString) {
+                self.dyn()->diag->report(
+                    DiagID::S064E,
+                    start.start,
+                    "expected a header path string after 'ffi \"...\" import'",
+                ).first(start)->emit()
+                self._sync_decl(Self::DeclSyncCtx::TopLevel)
+                return (Declarations::ImportDecl::create_error(
+                    self.dyn()->ctx,
+                    start | self.dyn()->prev().range,
+                ))
             }
 
-            var header_tok = dyn()->current();
-            dyn()->advance();
+            var header_tok = self.dyn()->current()
+            self.dyn()->advance()
 
-            var id = ImportDecl::create(dyn()->ctx, start, ImportKind::Native);
-            id->set_ffi_linkage(linkage_kind, lang_tok, ffi_range);
-            id->header = header_tok;
+            var id = Declarations::ImportDecl::create(
+                self.dyn()->ctx,
+                start,
+                Declarations::ImportKind::Native,
+            )
+
+            id->set_ffi_linkage(linkage_kind, lang_tok, ffi_range)
+            id->header = header_tok
 
             // optional alias: `as gfx`
-            if dyn()->check(TokenKind::KwAs) {
-                dyn()->advance(T::SkipNL::After); // consume `as`
-                if dyn()->check(TokenKind::LitIdentifier) {
-                    id->alias     = dyn()->current();
-                    id->has_alias = true;
-                    dyn()->advance();
+            if self.dyn()->check(TokenKind::KwAs) {
+                self.dyn()->advance(T::SkipNL::After) // consume `as`
+                if self.dyn()->check(TokenKind::LitIdentifier) {
+                    id->alias     = self.dyn()->current()
+                    id->has_alias = true
+                    self.dyn()->advance()
                 } else {
-                    dyn()->report_tok(DiagID::S064E, dyn()->current_ptr(),
-                        "expected a name after 'as' in ffi import"
-                    );
+                    self.dyn()->report_tok(
+                        DiagID::S064E,
+                        self.dyn()->current_ptr(),
+                        "expected a name after 'as' in ffi import",
+                    )
                 }
             }
 
-            id->range = start | dyn()->prev().range;
-            return static_cast::<*Decl>(id);
+            id->range = start | self.dyn()->prev().range
+            return id
         }
 
-        // ---- ffi "c++" { decl* } ------------------------------------------
-        if dyn()->check(TokenKind::OpLBrace) {
-            dyn()->advance(T::SkipNL::After); // consume `{`
+        /// # ffi "c++" { decl* }
+        if self.dyn()->check(TokenKind::OpLBrace) {
+            self.dyn()->advance(T::SkipNL::After) // consume `{`
 
-            var fb = FFIBlockDecl::create(dyn()->ctx, start, lang_tok);
-            var decls: std::StackBuf::<*Decl, 8>;
+            var fb = Declarations::FFIBlockDecl::create(self.dyn()->ctx, start, lang_tok)
+            var decls: kairo::std::StackBuf<unsafe *Decl, 8>
 
-            while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
-                if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
-                    dyn()->advance();
-                    continue;
+            while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
+                if self.dyn()->check(TokenKind::TkNewLine)
+                    || self.dyn()->check(TokenKind::OpSemicolon) {
+                    self.dyn()->advance()
+                    continue
                 }
-                dyn()->ffi_decl_depth = dyn()->ffi_decl_depth + 1;
-                var d = self.parse_decl();
-                dyn()->ffi_decl_depth = dyn()->ffi_decl_depth - 1;
-                if d == &null { break; }
-                if self.is_fatal_decl(d) { break; }
+
+                self.dyn()->ffi_decl_depth = self.dyn()->ffi_decl_depth + 1
+                var unsafe *d = self.parse_decl()
+                self.dyn()->ffi_decl_depth = self.dyn()->ffi_decl_depth - 1
+                if d == &null {
+                    break
+                }
+
+                if self.is_fatal_decl(d) {
+                    break
+                }
 
                 if !self._stamp_ffi_linkage(d, linkage_kind, lang_tok, ffi_range) {
-                    dyn()->diag->report(DiagID::S064E, d->range.start,
-                        "this declaration cannot appear in an ffi block"
-                    ).first(d->range).emit();
+                    self.dyn()->diag->report(
+                        DiagID::S064E,
+                        d->range.start,
+                        "this declaration cannot appear in an ffi block",
+                    ).first(d->range)->emit()
                 }
 
-                decls.push_back(d);
+                decls.push_back(d)
             }
 
-            if dyn()->check(TokenKind::OpRBrace) {
-                dyn()->advance(T::SkipNL::Before); // consume `}`
+            if self.dyn()->check(TokenKind::OpRBrace) {
+                self.dyn()->advance(T::SkipNL::Before) // consume `}`
             } else {
-                dyn()->diag->report(DiagID::S064E, start.start,
-                    "expected '}' to close ffi block"
-                ).first(start).emit();
+                self.dyn()->diag->report(
+                    DiagID::S064E,
+                    start.start,
+                    "expected '}' to close ffi block",
+                ).first(start)->emit()
             }
 
-            fb->body.from_buf(decls.data(), decls.size(), dyn()->ctx);
-            fb->range = start | dyn()->prev().range;
-            return static_cast::<*Decl>(fb);
+            fb->body.from_buf(decls.data(), decls.size(), self.dyn()->ctx)
+            fb->range = start | self.dyn()->prev().range
+            return fb
         }
 
-        // ---- ffi "c++" fn foo(...) ----------------------------------------
-        dyn()->ffi_decl_depth = dyn()->ffi_decl_depth + 1;
-        var d = self._dispatch_decl();
-        dyn()->ffi_decl_depth = dyn()->ffi_decl_depth - 1;
-        if (d == &null) || self.is_fatal_decl(d) {
-            dyn()->diag->report(DiagID::S064E, start.start,
-                "expected a declaration, 'import', or '{' after 'ffi \"...\"\x27"
-            ).first(start).emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        /// # ffi "c++" fn foo(...)
+        self.dyn()->ffi_decl_depth = self.dyn()->ffi_decl_depth + 1
+        var unsafe *d = self._dispatch_decl()
+        self.dyn()->ffi_decl_depth = self.dyn()->ffi_decl_depth - 1
+        if d == &null || self.is_fatal_decl(d) {
+            self.dyn()->diag->report(
+                DiagID::S064E,
+                start.start,
+                "expected a declaration, 'import', or '{' after 'ffi \"...\"'",
+            ).first(start)->emit()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::ImportDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
 
         if !self._stamp_ffi_linkage(d, linkage_kind, lang_tok, ffi_range) {
-            dyn()->diag->report(DiagID::S064E, d->range.start,
-                "this declaration cannot have foreign linkage"
-            ).first(d->range).emit();
+            self.dyn()->diag->report(
+                DiagID::S064E,
+                d->range.start,
+                "this declaration cannot have foreign linkage",
+            ).first(d->range)->emit()
         }
 
-        return d;
+        return d
     }
 
     /// \brief stamps FFILinkage on a decl if it carries the mixin.
     /// \returns true if the stamp succeeded, false if the decl kind doesn't
     ///          support foreign linkage.
-    priv fn _stamp_ffi_linkage(
-        self,
-        d:            *Decl,
-        kind:         LinkageKind,
-        lang_tok:     Token,
-        ffi_range:    SourceRange
-    ) -> bool {
-        if isa::<FunctionDecl>(d) {
-            cast::<FunctionDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
-            return true;
+    priv fn _stamp_ffi_linkage(self,
+                               d:         *Decl,
+                               kind:      LinkageKind,
+                               lang_tok:  Token,
+                               ffi_range: SourceRange) -> bool {
+        if isa<Declarations::FunctionDecl>(d) {
+            cast<Declarations::FunctionDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            return true
         }
-        if isa::<ClassDecl>(d) {
-            cast::<ClassDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
-            return true;
+
+        if isa<Declarations::ClassDecl>(d) {
+            cast<Declarations::ClassDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            return true
         }
-        if isa::<StructDecl>(d) {
-            cast::<StructDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
-            return true;
+
+        if isa<Declarations::StructDecl>(d) {
+            cast<Declarations::StructDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            return true
         }
-        if isa::<UnionDecl>(d) {
-            cast::<UnionDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
-            return true;
+
+        if isa<Declarations::UnionDecl>(d) {
+            cast<Declarations::UnionDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            return true
         }
-        if isa::<TypeAliasDecl>(d) {
-            cast::<TypeAliasDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
-            return true;
+
+        if isa<Declarations::TypeAliasDecl>(d) {
+            cast<Declarations::TypeAliasDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            return true
         }
-        if isa::<VariableDecl>(d) {
-            cast::<VariableDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
-            return true;
+
+        if isa<Declarations::VariableDecl>(d) {
+            cast<Declarations::VariableDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            return true
         }
-        if isa::<ImportDecl>(d) {
-            cast::<ImportDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
-            return true;
+
+        if isa<Declarations::ImportDecl>(d) {
+            cast<Declarations::ImportDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            return true
         }
-        return false;
+
+        return false
     }
 
     //  eval { decl* }  decl block
@@ -4607,30 +5860,48 @@ class <T> DeclParse {
     ///        the header runs to the body's `{`, the body to its `}`, and an
     ///        `else` (same line or the next) continues the chain.
     priv fn _index_skip_eval_stmt(self) {
-        while !dyn()->is_eof() {
-            var depth: u32 = 0;
-            while !dyn()->is_eof() {
-                var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
-                if (depth == 0) && (k == TokenKind::OpLBrace) { break; }
-                // no body before the enclosing closer: malformed, leave it
-                if (depth == 0) && (k == TokenKind::OpRBrace) { return; }
-                if (k == TokenKind::OpLParen) || (k == TokenKind::OpLSquare) {
-                    depth += 1;
-                } else if (k == TokenKind::OpRParen) || (k == TokenKind::OpRSquare) {
-                    if depth > 0 { depth -= 1; }
+        while !self.dyn()->is_eof() {
+            var depth: u32 = 0
+            while !self.dyn()->is_eof() {
+                var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
+                if depth == 0 && k == TokenKind::OpLBrace {
+                    break
                 }
-                dyn()->advance_raw();
-            }
-            if dyn()->is_eof() { return; }
-            dyn()->advance_raw();          // `{`
-            dyn()->_index_skip_block();    // through the matching `}`
 
-            if (dyn()->nl_depth == 0) && ((dyn()->ig_kind()) == TokenKind::TkNewLine)
-            && ((dyn()->peek_past_nl_kind()) == TokenKind::KwElse) {
-                dyn()->advance(T::SkipNL::Only);
+                // no body before the enclosing closer: malformed, leave it
+                if depth == 0 && k == TokenKind::OpRBrace {
+                    return
+                }
+
+                if k == TokenKind::OpLParen || k == TokenKind::OpLSquare {
+                    depth += 1
+                } else if k == TokenKind::OpRParen || k == TokenKind::OpRSquare {
+                    if depth > 0 {
+                        depth -= 1
+                    }
+                }
+
+                self.dyn()->advance_raw()
             }
-            if !dyn()->check(TokenKind::KwElse) { return; }
-            dyn()->advance_raw();          // `else`
+
+            if self.dyn()->is_eof() {
+                return
+            }
+
+            self.dyn()->advance_raw()       // `{`
+            self.dyn()->_index_skip_block() // through the matching `}`
+
+            if self.dyn()->nl_depth == 0
+                && self.dyn()->ig_kind() == TokenKind::TkNewLine
+                && self.dyn()->peek_past_nl_kind() == TokenKind::KwElse {
+                self.dyn()->advance(T::SkipNL::Only)
+            }
+
+            if !self.dyn()->check(TokenKind::KwElse) {
+                return
+            }
+
+            self.dyn()->advance_raw() // `else`
         }
     }
 
@@ -4650,62 +5921,86 @@ class <T> DeclParse {
     ///          over-approximation the full-mode symbol index makes
     ///          (ASTParse::_index_eval_branches). The header and the
     ///          condition are crossed as _index_skip_eval_stmt crosses them.
-    priv fn _index_eval_if_branches(self, out: *std::StackBuf::<*Decl, 8>) {
-        while !dyn()->is_eof() {
-            var depth: u32 = 0;
-            while !dyn()->is_eof() {
-                var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
-                if (depth == 0) && (k == TokenKind::OpLBrace) { break; }
-                if (depth == 0) && (k == TokenKind::OpRBrace) { return; }
-                if (k == TokenKind::OpLParen) || (k == TokenKind::OpLSquare) {
-                    depth += 1;
-                } else if (k == TokenKind::OpRParen) || (k == TokenKind::OpRSquare) {
-                    if depth > 0 { depth -= 1; }
+    priv fn _index_eval_if_branches(self, @inout out: kairo::std::StackBuf<unsafe *Decl, 8>) {
+        while !self.dyn()->is_eof() {
+            var depth: u32 = 0
+            while !self.dyn()->is_eof() {
+                var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
+                if depth == 0 && k == TokenKind::OpLBrace {
+                    break
                 }
-                dyn()->advance_raw();
+
+                if depth == 0 && k == TokenKind::OpRBrace {
+                    return
+                }
+
+                if k == TokenKind::OpLParen || k == TokenKind::OpLSquare {
+                    depth += 1
+                } else if k == TokenKind::OpRParen || k == TokenKind::OpRSquare {
+                    if depth > 0 {
+                        depth -= 1
+                    }
+                }
+
+                self.dyn()->advance_raw()
             }
-            if dyn()->is_eof() { return; }
-            dyn()->advance_raw();          // `{`
+
+            if self.dyn()->is_eof() {
+                return
+            }
+
+            self.dyn()->advance_raw() // `{`
 
             // The branch body: the loop of _index_walk_body, into \p out. A
             // nested `eval if` is a decl lead-in, so it recurses through
             // _parse_eval_stmt_decl and is hoisted from its own carrier.
-            var prev_idx: usize = 0;
-            var have_prev = false;
-            while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
-                if have_prev && (dyn()->c_idx == prev_idx) {
-                    dyn()->advance();
-                    continue;
-                }
-                prev_idx  = dyn()->c_idx;
-                have_prev = true;
-
-                if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
-                    dyn()->advance();
-                    continue;
+            var prev_idx: usize = 0
+            var have_prev       = false
+            while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
+                if have_prev && self.dyn()->c_idx == prev_idx {
+                    self.dyn()->advance()
+                    continue
                 }
 
-                var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+                prev_idx  = self.dyn()->c_idx
+                have_prev = true
+
+                if self.dyn()->check(TokenKind::TkNewLine)
+                    || self.dyn()->check(TokenKind::OpSemicolon) {
+                    self.dyn()->advance()
+                    continue
+                }
+
+                var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
                 if self._starts_decl_here(k) {
-                    var d = self.parse_decl();
+                    var unsafe *d = self.parse_decl()
                     if d == &null {
-                        dyn()->_index_skip_stmt();
+                        self.dyn()->_index_skip_stmt()
                     } else if !self.is_fatal_decl(d) {
-                        out->push_back(d);
+                        out.push_back(d)
                     }
                 } else {
-                    dyn()->_index_skip_stmt();
+                    self.dyn()->_index_skip_stmt()
                 }
             }
-            if dyn()->is_eof() { return; }
-            dyn()->advance_raw();          // `}`
 
-            if (dyn()->nl_depth == 0) && ((dyn()->ig_kind()) == TokenKind::TkNewLine)
-            && ((dyn()->peek_past_nl_kind()) == TokenKind::KwElse) {
-                dyn()->advance(T::SkipNL::Only);
+            if self.dyn()->is_eof() {
+                return
             }
-            if !dyn()->check(TokenKind::KwElse) { return; }
-            dyn()->advance_raw();          // `else`
+
+            self.dyn()->advance_raw() // `}`
+
+            if self.dyn()->nl_depth == 0
+                && self.dyn()->ig_kind() == TokenKind::TkNewLine
+                && self.dyn()->peek_past_nl_kind() == TokenKind::KwElse {
+                self.dyn()->advance(T::SkipNL::Only)
+            }
+
+            if !self.dyn()->check(TokenKind::KwElse) {
+                return
+            }
+
+            self.dyn()->advance_raw() // `else`
         }
     }
 
@@ -4725,77 +6020,99 @@ class <T> DeclParse {
     ///          yet supported. Index mode walks an `eval if`'s branches into
     ///          the carrier's `body` (_index_eval_if_branches) and skips an
     ///          `eval for`, whose body hoists nothing.
-    priv fn _parse_eval_stmt_decl(self) -> *Decl {
-        var start = self._cur_range();
-        var eb = EvalBlockDecl::create(dyn()->ctx, start);
+    priv fn _parse_eval_stmt_decl(self) -> unsafe *Decl {
+        var start = self._cur_range()
+        var eb    = Declarations::EvalBlockDecl::create(self.dyn()->ctx, start)
 
-        if dyn()->mode == T::ParseMode::Index {
-            if dyn()->check_peek(TokenKind::KwIf) {
-                var decls: std::StackBuf::<*Decl, 8>;
-                self._index_eval_if_branches(&decls);
-                eb->body.from_buf(decls.data(), decls.size(), dyn()->ctx);
-                eb->range = start | dyn()->prev().range;
-                return static_cast::<*Decl>(eb);
+        if self.dyn()->mode == T::ParseMode::Index {
+            if self.dyn()->check_peek(TokenKind::KwIf) {
+                var decls: kairo::std::StackBuf<unsafe *Decl, 8>
+                self._index_eval_if_branches(&decls)
+                eb->body.from_buf(decls.data(), decls.size(), self.dyn()->ctx)
+                eb->range = start | self.dyn()->prev().range
+                return eb
             }
-            self._index_skip_eval_stmt();
-            eb->range = start | dyn()->prev().range;
-            return static_cast::<*Decl>(eb);
+
+            self._index_skip_eval_stmt()
+            eb->range = start | self.dyn()->prev().range
+            return eb
         }
 
-        if dyn()->check_peek(TokenKind::KwIf) && (dyn()->tu != &null) { dyn()->tu->has_eval_if = true; }
-        var saved_dc = dyn()->eval_branch_dc;
-        dyn()->eval_branch_dc = dyn()->scope.current_dc();
-        var s = dyn()->parse_stmt();
-        dyn()->eval_branch_dc = saved_dc;
-
-        if (s == &null) || dyn()->is_fatal::<Stmt>(s) {
-            return static_cast::<*Decl>(EvalBlockDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        if self.dyn()->check_peek(TokenKind::KwIf) && self.dyn()->tu != &null {
+            self.dyn()->tu->has_eval_if = true
         }
-        eb->stmt  = s;
-        eb->range = start | dyn()->prev().range;
-        return static_cast::<*Decl>(eb);
+
+        var saved_dc = self.dyn()->eval_branch_dc
+        self.dyn()->eval_branch_dc = self.dyn()->scope.current_dc()
+        var s = self.dyn()->parse_stmt()
+        self.dyn()->eval_branch_dc = saved_dc
+
+        if s == &null || self.dyn()->is_fatal<Stmt>(s) {
+            return (Declarations::EvalBlockDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
+        }
+
+        eb->stmt  = s
+        eb->range = start | self.dyn()->prev().range
+        return eb
     }
 
     /// \brief parses a decl-only eval block at namespace/type scope.
     ///  Grammar:  'eval' '{' decl* '}'
-    priv fn _parse_eval_block_decl(self) -> *Decl {
-        var start = self._cur_range();
-        dyn()->advance(T::SkipNL::After); // consume `eval`
+    priv fn _parse_eval_block_decl(self) -> unsafe *Decl {
+        var start = self._cur_range()
+        self.dyn()->advance(T::SkipNL::After) // consume `eval`
 
-        if !dyn()->check(TokenKind::OpLBrace) {
-            dyn()->diag->report(DiagID::S050E, start.start,
-                "expected '{' after 'eval\x27"
-            ).first(start).emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(EvalBlockDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        if !self.dyn()->check(TokenKind::OpLBrace) {
+            self.dyn()->diag->report(DiagID::S050E, start.start, "expected '{' after 'eval'").first(
+                start,
+            )->emit()
+            self._sync_decl(Self::DeclSyncCtx::TopLevel)
+            return (Declarations::EvalBlockDecl::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
-        dyn()->advance(T::SkipNL::After); // consume `{`
 
-        var eb = EvalBlockDecl::create(dyn()->ctx, start);
-        var decls: std::StackBuf::<*Decl, 8>;
+        self.dyn()->advance(T::SkipNL::After) // consume `{`
 
-        while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
-            if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
-                dyn()->advance();
-                continue;
+        var eb = Declarations::EvalBlockDecl::create(self.dyn()->ctx, start)
+        var decls: kairo::std::StackBuf<unsafe *Decl, 8>
+
+        while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
+            if self.dyn()->check(TokenKind::TkNewLine)
+                || self.dyn()->check(TokenKind::OpSemicolon) {
+                self.dyn()->advance()
+                continue
             }
-            var d = self.parse_decl();
-            if d == &null { break; }
-            if self.is_fatal_decl(d) { break; }
-            decls.push_back(d);
+
+            var unsafe *d = self.parse_decl()
+            if d == &null {
+                break
+            }
+
+            if self.is_fatal_decl(d) {
+                break
+            }
+
+            decls.push_back(d)
         }
 
-        if dyn()->check(TokenKind::OpRBrace) {
-            dyn()->advance(T::SkipNL::Before); // consume `}`
+        if self.dyn()->check(TokenKind::OpRBrace) {
+            self.dyn()->advance(T::SkipNL::Before) // consume `}`
         } else {
-            dyn()->diag->report(DiagID::S051E, start.start,
-                "expected '}' to close eval block"
-            ).first(start).emit();
+            self.dyn()->diag->report(
+                DiagID::S051E,
+                start.start,
+                "expected '}' to close eval block",
+            ).first(start)->emit()
         }
 
-        eb->body.from_buf(decls.data(), decls.size(), dyn()->ctx);
-        eb->range = start | dyn()->prev().range;
-        return static_cast::<*Decl>(eb);
+        eb->body.from_buf(decls.data(), decls.size(), self.dyn()->ctx)
+        eb->range = start | self.dyn()->prev().range
+        return eb
     }
 
     //  Recovery
@@ -4805,211 +6122,289 @@ class <T> DeclParse {
     ///          at depth 0 on a decl lead-in keyword, a `}` closing the
     ///          enclosing scope, a newline/`;` at top level, or EOF. Capped at
     ///          MAX_SYNC tokens.
-    fn _sync_decl(self, ctx: DeclSyncCtx) {
-        var bp: i32 = 0;  // paren
-        var bs: i32 = 0;  // square
-        var bb: i32 = 0;  // brace
-        var ba: i32 = 0;  // angle (generics)
-        var consumed: u32 = 0;
-        const var MAX_SYNC: u32 = 128;
+    fn _sync_decl(self, ctx: Self::DeclSyncCtx) {
+        var   bp:       i32 = 0   // paren
+        var   bs:       i32 = 0   // square
+        var   bb:       i32 = 0   // brace
+        var   ba:       i32 = 0   // angle (generics)
+        var   consumed: u32 = 0
+        const MAX_SYNC: u32 = 128
 
-        while !dyn()->is_eof() {
-            if consumed >= MAX_SYNC { return; }
-            ++consumed;
+        while !self.dyn()->is_eof() {
+            if consumed >= MAX_SYNC {
+                return
+            }
 
-            var k = dyn()->ig_kind();
+            ++consumed
 
-            if      k == TokenKind::OpLParen  { ++bp; }
-            else if k == TokenKind::OpLSquare { ++bs; }
-            else if k == TokenKind::OpLBrace  { ++bb; }
-            else if k == TokenKind::OpLess    { ++ba; }
-            else if k == TokenKind::OpRParen  { if bp == 0 && ctx == DeclSyncCtx::Params { return; } if bp > 0 { --bp; } }
-            else if k == TokenKind::OpRSquare { if bs > 0 { --bs; } }
-            else if k == TokenKind::OpGreater { if ba == 0 && ctx == DeclSyncCtx::Generics { return; } if ba > 0 { --ba; } }
-            else if k == TokenKind::OpRBrace  {
+            var k = self.dyn()->ig_kind()
+
+            if k == TokenKind::OpLParen {
+                ++bp
+            } else if k == TokenKind::OpLSquare {
+                ++bs
+            } else if k == TokenKind::OpLBrace {
+                ++bb
+            } else if k == TokenKind::OpLess {
+                ++ba
+            } else if k == TokenKind::OpRParen {
+                if bp == 0 && ctx == Self::DeclSyncCtx::Params {
+                    return
+                }
+
+                if bp > 0 {
+                    --bp
+                }
+            } else if k == TokenKind::OpRSquare {
+                if bs > 0 {
+                    --bs
+                }
+            } else if k == TokenKind::OpGreater {
+                if ba == 0 && ctx == Self::DeclSyncCtx::Generics {
+                    return
+                }
+
+                if ba > 0 {
+                    --ba
+                }
+            } else if k == TokenKind::OpRBrace {
                 if bb == 0 {
                     // closer of the enclosing type/module body don't consume.
-                    return;
+                    return
                 }
-                --bb;
-            }
-            else if (bp == 0) && (bs == 0) && (bb == 0) && (ba == 0) {
-                if ctx == DeclSyncCtx::Params || ctx == DeclSyncCtx::Generics {
-                    if k == TokenKind::OpComma { return; }
-                    if k == TokenKind::OpPipe || k == TokenKind::OpPipePipe || k == TokenKind::OpLBrace { return; }
+
+                --bb
+            } else if bp == 0 && bs == 0 && bb == 0 && ba == 0 {
+                if ctx == Self::DeclSyncCtx::Params || ctx == Self::DeclSyncCtx::Generics {
+                    if k == TokenKind::OpComma {
+                        return
+                    }
+
+                    if k == TokenKind::OpPipe
+                        || k == TokenKind::OpPipePipe
+                        || k == TokenKind::OpLBrace {
+                        return
+                    }
                 }
-                if ctx == DeclSyncCtx::TopLevel {
-                    if k == TokenKind::TkNewLine || k == TokenKind::OpSemicolon { return; }
-                    if self._starts_decl_here(k) { return; }
+
+                if ctx == Self::DeclSyncCtx::TopLevel {
+                    if k == TokenKind::TkNewLine || k == TokenKind::OpSemicolon {
+                        return
+                    }
+
+                    if self._starts_decl_here(k) {
+                        return
+                    }
                 }
-                if ctx == DeclSyncCtx::TypeBody {
+
+                if ctx == Self::DeclSyncCtx::TypeBody {
                     // member lead-ins inside a type body.
-                    if k == TokenKind::KwFn      || k == TokenKind::KwVar
-                    || k == TokenKind::KwConst   || k == TokenKind::KwStatic
-                    || k == TokenKind::KwEval    || k == TokenKind::KwThread
-                    || k == TokenKind::KwClass
-                    || k == TokenKind::KwStruct  || k == TokenKind::KwEnum
-                    || k == TokenKind::KwUnion   || k == TokenKind::KwInterface
-                    || k == TokenKind::KwType    || k == TokenKind::KwOverride
-                    || k == TokenKind::KwVirtual || k == TokenKind::KwFinal
-                    || k == TokenKind::KwMutable {
-                        return;
+                    if k == TokenKind::KwFn
+                        || k == TokenKind::KwVar
+                        || k == TokenKind::KwConst
+                        || k == TokenKind::KwStatic
+                        || k == TokenKind::KwEval
+                        || k == TokenKind::KwThread
+                        || k == TokenKind::KwClass
+                        || k == TokenKind::KwStruct
+                        || k == TokenKind::KwEnum
+                        || k == TokenKind::KwUnion
+                        || k == TokenKind::KwInterface
+                        || k == TokenKind::KwType
+                        || k == TokenKind::KwOverride
+                        || k == TokenKind::KwVirtual
+                        || k == TokenKind::KwFinal
+                        || k == TokenKind::KwMutable {
+                        return
                     }
                 }
             }
 
-            dyn()->advance();
+            self.dyn()->advance()
         }
     }
 
     /// Sync, then guarantee the cursor moved. For use inside recovery LOOPS:
     /// _sync_decl stops ON a boundary token without consuming it, which is
     /// correct positioning but spins a caller that retries from the same spot.
-    priv fn _sync_decl_progress(self, ctx: DeclSyncCtx) {
-        var before = dyn()->current_ptr();
-        self._sync_decl(ctx);
+    priv fn _sync_decl_progress(self, ctx: Self::DeclSyncCtx) {
+        var before = self.dyn()->current_ptr()
+        self._sync_decl(ctx)
         // at EOF "no progress" is the end, not a stuck token: advancing there
         // would null out prev() too, and the caller's loop ends on is_eof().
-        if dyn()->is_eof() { return; }
-        if dyn()->current_ptr() == before {
-            dyn()->advance();
+        if self.dyn()->is_eof() {
+            return
+        }
+
+        if self.dyn()->current_ptr() == before {
+            self.dyn()->advance()
         }
     }
 
     // Closures
 
     /// \brief Parses a complete closure signature with structured error recovery.
-    pub fn _parse_closure_sig(self) -> (FrozenList::<*ParamDecl>, FrozenList::<*GenericParamDecl>, FrozenList::<ClosureExpr::Capture>, FnModifier, *Type, bool) {
-        var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-        var params:   std::StackBuf::<*ParamDecl, 4>;
-        var captures: std::StackBuf::<ClosureExpr::Capture, 4>;
-        var ret_type: *Type = &null;
-        var explicit_no_capture = false;
+    pub fn _parse_closure_sig(self) -> (FrozenList<unsafe *Declarations::ParamDecl>, FrozenList<unsafe *Declarations::GenericParamDecl>, FrozenList<ClosureExpr::Capture>, Declarations::FnModifier, unsafe *Type, bool) {
+        var gparams:  kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
+        var params:   kairo::std::StackBuf<unsafe *Declarations::ParamDecl, 4>
+        var captures: kairo::std::StackBuf<ClosureExpr::Capture, 4>
+        var ret_type:           unsafe *Type = &null
+        var explicit_no_capture              = false
 
         // optional generic params: `fn <T> |captures| (params) -> T`
-        if dyn()->check(TokenKind::OpLess) {
-            self._parse_generic_params(&gparams);
+        if self.dyn()->check(TokenKind::OpLess) {
+            self._parse_generic_params(&gparams)
         }
 
         // parameter list: `(x: i32, y: i32)`
-        dyn()->closure_params_end = SourceRange::invalid();
-        if dyn()->check(TokenKind::OpLParen) {
-            self._parse_param_list(&params);
-            if self._prev_kind() == TokenKind::OpRParen { dyn()->closure_params_end = self._prev_range(); }
+        self.dyn()->closure_params_end = SourceRange::invalid()
+        if self.dyn()->check(TokenKind::OpLParen) {
+            self._parse_param_list(&params)
+            if self._prev_kind() == TokenKind::OpRParen {
+                self.dyn()->closure_params_end = self._prev_range()
+            }
         }
 
         // Recovery: If parameter list parsing exited unexpectedly or left corrupt tokens,
         // synchronize up to the next logical milestone before proceeding.
-        if( !dyn()->check(TokenKind::OpPipe)) && (!dyn()->check(TokenKind::OpPipePipe)) && (!dyn()->check(TokenKind::OpArrow)) &&
-           (!dyn()->check(TokenKind::OpLBrace)) && (!dyn()->check(TokenKind::OpEqual)) &&
-           (!self._is_closure_modifier(dyn()->ig_kind())) && !dyn()->is_eof() {
-            self._sync_to_closure_milestone();
+        if !self.dyn()->check(TokenKind::OpPipe)
+            && !self.dyn()->check(TokenKind::OpPipePipe)
+            && !self.dyn()->check(TokenKind::OpArrow)
+            && !self.dyn()->check(TokenKind::OpLBrace)
+            && !self.dyn()->check(TokenKind::OpEqual)
+            && !self._is_closure_modifier(self.dyn()->ig_kind())
+            && !self.dyn()->is_eof() {
+            self._sync_to_closure_milestone()
         }
 
         // capture list: `|a, *b|` / `|*|` / `||`
-        dyn()->closure_cap_range = SourceRange::invalid();
-        if dyn()->check(TokenKind::OpPipe) {
-            var cap_start = self._cur_range();
-            var spelled_empty = self._parse_capture_list(&captures);
-            dyn()->closure_cap_range = cap_start | self._prev_range();
+        self.dyn()->closure_cap_range = SourceRange::invalid()
+        if self.dyn()->check(TokenKind::OpPipe) {
+            var cap_start     = self._cur_range()
+            var spelled_empty = self._parse_capture_list(&captures)
+            self.dyn()->closure_cap_range = cap_start | self._prev_range()
             // `| |` is the empty list spelled apart: no captures, as `||` is.
             // Keyed on the tokens, not on captures.size(): see the callee.
-            explicit_no_capture = spelled_empty;
-        } else if dyn()->check(TokenKind::OpPipePipe) {
-            dyn()->closure_cap_range = self._cur_range();
-            dyn()->advance(); // consume `||`
-            explicit_no_capture = true;
+            explicit_no_capture = spelled_empty
+        } else if self.dyn()->check(TokenKind::OpPipePipe) {
+            self.dyn()->closure_cap_range = self._cur_range()
+            self.dyn()->advance() // consume `||`
+            explicit_no_capture = true
         }
 
         // capture list: `|a, *b|` / `|*|` / `||`
-        if dyn()->check(TokenKind::OpPipe) {
-            self._parse_capture_list(&captures);
+        if self.dyn()->check(TokenKind::OpPipe) {
+            self._parse_capture_list(&captures)
         }
 
         // trailing modifiers: const / unsafe / async / eval
-        var modifiers = FnModifier::None;
-        dyn()->closure_panic_set = FrozenList::<*Type>::empty();
-        dyn()->closure_panic_range = SourceRange::invalid();
+        var modifiers = Declarations::FnModifier::None
+        self.dyn()->closure_panic_set   = FrozenList<unsafe *Type>::empty()
+        self.dyn()->closure_panic_range = SourceRange::invalid()
         while true {
-            if dyn()->check(TokenKind::KwConst) {
-                var r = self._cur_range();
-                dyn()->diag->report(DiagID::S047E, r.start, "'const' is not a valid closure modifier").first(r).emit();
-                dyn()->advance();
-            }
-
-            else if dyn()->check(TokenKind::KwUnsafe) {
-                var r = self._cur_range();
-                dyn()->diag->report(DiagID::S047E, r.start, "'unsafe' is not a valid closure modifier").first(r).emit();
-                dyn()->advance();
-            }
-
-            else if dyn()->check(TokenKind::KwEval) {
-                var r = self._cur_range();
-                dyn()->diag->report(DiagID::S047E, r.start, "'eval' is not a valid closure modifier").first(r).emit();
-                dyn()->advance();
-            }
-
-            else if dyn()->check(TokenKind::KwFinal) {
-                var r = self._cur_range();
-                dyn()->diag->report(DiagID::S047E, r.start, "'final' is not a valid closure modifier").first(r).emit();
-                dyn()->advance();
-            }
-
-            else if dyn()->check(TokenKind::KwInline) {
-                var r = self._cur_range();
-                dyn()->diag->report(DiagID::S047E, r.start, "'inline' is not a valid closure modifier").first(r).emit();
-                dyn()->advance();
-            }
-
-            else if dyn()->check(TokenKind::KwVirtual) {
-                var r = self._cur_range();
-                dyn()->diag->report(DiagID::S047E, r.start, "'virtual' is not a valid closure modifier").first(r).emit();
-                dyn()->advance();
-            }
-
-            else if dyn()->check(TokenKind::KwOverride) {
-                var r = self._cur_range();
-                dyn()->diag->report(DiagID::S047E, r.start, "'override' is not a valid closure modifier").first(r).emit();
-                dyn()->advance();
-            }
-
-            else if dyn()->check(TokenKind::KwPanic)    {
-                modifiers |= FnModifier::IsPanic;
-                var pk = self._cur_range();
-                dyn()->advance();
-                if dyn()->check(TokenKind::OpLParen) {
-                    var pset: std::StackBuf::<*Type, 4>;
-                    dyn()->parse_panic_set(&pset);
-                    dyn()->closure_panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
+            if self.dyn()->check(TokenKind::KwConst) {
+                var r = self._cur_range()
+                self.dyn()->diag->report(
+                    DiagID::S047E,
+                    r.start,
+                    "'const' is not a valid closure modifier",
+                ).first(r)->emit()
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwUnsafe) {
+                var r = self._cur_range()
+                self.dyn()->diag->report(
+                    DiagID::S047E,
+                    r.start,
+                    "'unsafe' is not a valid closure modifier",
+                ).first(r)->emit()
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwEval) {
+                var r = self._cur_range()
+                self.dyn()->diag->report(
+                    DiagID::S047E,
+                    r.start,
+                    "'eval' is not a valid closure modifier",
+                ).first(r)->emit()
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwFinal) {
+                var r = self._cur_range()
+                self.dyn()->diag->report(
+                    DiagID::S047E,
+                    r.start,
+                    "'final' is not a valid closure modifier",
+                ).first(r)->emit()
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwInline) {
+                var r = self._cur_range()
+                self.dyn()->diag->report(
+                    DiagID::S047E,
+                    r.start,
+                    "'inline' is not a valid closure modifier",
+                ).first(r)->emit()
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwVirtual) {
+                var r = self._cur_range()
+                self.dyn()->diag->report(
+                    DiagID::S047E,
+                    r.start,
+                    "'virtual' is not a valid closure modifier",
+                ).first(r)->emit()
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwOverride) {
+                var r = self._cur_range()
+                self.dyn()->diag->report(
+                    DiagID::S047E,
+                    r.start,
+                    "'override' is not a valid closure modifier",
+                ).first(r)->emit()
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwPanic) {
+                modifiers |= Declarations::FnModifier::IsPanic
+                var pk = self._cur_range()
+                self.dyn()->advance()
+                if self.dyn()->check(TokenKind::OpLParen) {
+                    var pset: kairo::std::StackBuf<unsafe *Type, 4>
+                    self.dyn()->parse_panic_set(&pset)
+                    self.dyn()->closure_panic_set.from_buf(
+                        pset.data(),
+                        pset.size(),
+                        self.dyn()->ctx,
+                    )
                 }
-                dyn()->closure_panic_range = pk | self._prev_range();
+
+                self.dyn()->closure_panic_range = pk | self._prev_range()
+            } else if self.dyn()->check(TokenKind::KwVolatile) {
+                modifiers |= Declarations::FnModifier::IsVolatile
+                self.dyn()->advance()
+            } else if self.dyn()->check(TokenKind::KwAsync) {
+                modifiers |= Declarations::FnModifier::IsAsync
+                self.dyn()->advance()
+            } else {
+                break
             }
-            else if dyn()->check(TokenKind::KwVolatile) { modifiers |= FnModifier::IsVolatile; dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwAsync)    { modifiers |= FnModifier::IsAsync;    dyn()->advance(); }
-            else { break; }
         }
 
         // return type: `-> T`
-        if dyn()->check(TokenKind::OpArrow) {
-            dyn()->advance(T::SkipNL::After); // consume `->`
-            if dyn()->check(TokenKind::OpExclaim) {
-                dyn()->advance(); // consume `!`, noreturn closure, sema validates
+        if self.dyn()->check(TokenKind::OpArrow) {
+            self.dyn()->advance(T::SkipNL::After) // consume `->`
+            if self.dyn()->check(TokenKind::OpExclaim) {
+                self.dyn()->advance() // consume `!`, noreturn closure, sema validates
             } else {
-                var rty = dyn()->parse_type();
-                if (rty != &null) && (!is_recovery(rty)) {
-                    ret_type = rty;
+                var rty = self.dyn()->parse_type()
+                if rty != &null && !is_recovery(rty) {
+                    ret_type = rty
                 }
             }
         }
 
-        var gp_list:  FrozenList::<*GenericParamDecl>;
-        var p_list:   FrozenList::<*ParamDecl>;
-        var cap_list: FrozenList::<ClosureExpr::Capture>;
+        var gp_list:  FrozenList<unsafe *Declarations::GenericParamDecl>
+        var p_list:   FrozenList<unsafe *Declarations::ParamDecl>
+        var cap_list: FrozenList<ClosureExpr::Capture>
 
-        gp_list.from_buf(gparams.data(),  gparams.size(),  dyn()->ctx);
-        p_list.from_buf(params.data(),    params.size(),   dyn()->ctx);
-        cap_list.from_buf(captures.data(), captures.size(), dyn()->ctx);
+        gp_list.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
+        p_list.from_buf(params.data(), params.size(), self.dyn()->ctx)
+        cap_list.from_buf(captures.data(), captures.size(), self.dyn()->ctx)
 
-        return (p_list, gp_list, cap_list, modifiers, ret_type, explicit_no_capture);
+        return (p_list, gp_list, cap_list, modifiers, ret_type, explicit_no_capture)
     }
 }

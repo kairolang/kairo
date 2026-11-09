@@ -3,8 +3,8 @@
 #   Part of the Kairo Project, under the Apache License v2.0 with the
 #   Kairo Runtime Library Exception.
 #
-#   See: https://www.kairolang.org/LICENSE.txt
-#   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+#   See: https://www.kairolang.org/LICENSE
+#   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 #   Copyright (c) 2026 Dhruvan Kartik
 #
 # ------------------------------------------------------------------------ #
@@ -113,4 +113,313 @@ group = "cli"
     ## how to fix
     remove the flag, or keep it knowing it has no effect until the feature lands.
     `kairo --help` marks these flags with `[not implemented]`.
+    """
+
+[U006]
+brief = "invalid -D argument"
+group = "cli"
+
+    [U006.E]
+    explain = """
+    # invalid -D argument
+
+    -D takes NAME or NAME=VALUE with a non-empty NAME.
+
+    ## how to fix
+
+    write -DNAME or -DNAME=VALUE.
+    """
+
+[U007]
+brief = "-I directory does not exist"
+group = "cli"
+
+    [U007.E]
+    explain = """
+    # -I directory does not exist
+
+    -I takes a directory. The older name=dir form is gone: a library is named by the `module` declaration on the first line of its module.k.
+
+    ## how to fix
+
+    pass an existing directory.
+    """
+
+[U008]
+brief = "plugin file does not exist"
+group = "cli"
+
+    [U008.E]
+    explain = """
+    # plugin file does not exist
+
+    --pass-plugin names a shared object that is not there.
+
+    ## how to fix
+
+    pass the path of an existing plugin.
+    """
+
+[U009]
+brief = "unsupported input encoding"
+group = "cli"
+
+    [U009.E]
+    explain = """
+    # unsupported input encoding
+
+    only UTF-8 source is supported.
+
+    ## how to fix
+
+    convert the sources to UTF-8, or drop the flag.
+    """
+
+[U010]
+brief = "cannot change to the working directory"
+group = "cli"
+
+    [U010.E]
+    explain = """
+    # cannot change to the working directory
+
+    --working-dir names a directory that does not exist or cannot be entered.
+
+    ## how to fix
+
+    pass an existing directory.
+    """
+
+[U011]
+brief = "input cannot be used"
+group = "cli"
+
+    [U011.E]
+    explain = """
+    # input cannot be used
+
+    an input file was classified or its compile jobs were planned, and the driver found a reason it cannot be used, shown after the file name.
+
+    ## how to fix
+
+    fix the input named in the message, or remove it from the command line.
+    """
+
+[U012]
+brief = "input has nothing to do in this mode"
+group = "cli"
+
+    [U012.W]
+    explain = """
+    # input has nothing to do in this mode
+
+    the input is of a kind that produces no output under the requested --emit or mode, so it is skipped.
+
+    ## how to fix
+
+    drop the input, or change the mode.
+    """
+
+[U013]
+brief = "two inputs write the same output"
+group = "cli"
+
+    [U013.E]
+    explain = """
+    # two inputs write the same output
+
+    two inputs would produce files with the same name, so one would overwrite the other.
+
+    ## how to fix
+
+    rename one input, or compile them in separate runs.
+    """
+
+[U014]
+brief = "driver option rejected"
+group = "cli"
+
+    [U014.E]
+    explain = """
+    # driver option rejected
+
+    the options passed through to clang were rejected by the flag translator.
+
+    ## how to fix
+
+    fix the option named in the message.
+    """
+
+[U015]
+brief = "unrecognized diagnostic code in a flag"
+group = "cli"
+
+    [U015.W]
+    explain = """
+    # unrecognized diagnostic code in a flag
+
+    a diagnostic code given to a flag is not a category and number such as R020E, so the flag ignores it.
+
+    ## how to fix
+
+    write the code in full, for example R020E.
+    """
+
+[U016]
+brief = "--native cannot be combined with --target"
+group = "cli"
+
+    [U016.E]
+    explain = """
+    # --native cannot be combined with --target
+
+    --native builds for this machine against its own C library and headers; --target builds hermetically for the named triple.
+
+    ## how to fix
+
+    drop one of the two flags.
+    """
+
+    [U016.N]
+    explain = "Explains what each flag selects."
+
+[U017]
+brief = "--native is not implemented on this host"
+group = "cli"
+
+    [U017.E]
+    explain = """
+    # --native is not implemented on this host
+
+    --native is only implemented for Linux hosts.
+
+    ## how to fix
+
+    build without it to use the bundled sysroot, or name the system root with --sysroot.
+    """
+
+    [U017.N]
+    explain = "Says how to build without --native."
+
+[U018]
+brief = "--pkg-config combined with --target"
+group = "cli"
+
+    [U018.E]
+    explain = """
+    # --pkg-config combined with --target
+
+    this machine's .pc files describe this machine, not the target.
+
+    ## how to fix
+
+    point PKG_CONFIG_SYSROOT_DIR or PKG_CONFIG_LIBDIR at the target's pkg-config tree.
+    """
+
+    [U018.N]
+    explain = "Says which variables select the target's pkg-config tree."
+
+[U019]
+brief = "--pkg-config query failed"
+group = "cli"
+
+    [U019.E]
+    explain = """
+    # --pkg-config query failed
+
+    pkg-config could not resolve the package named, or its output could not be read.
+
+    ## how to fix
+
+    install the package, or fix PKG_CONFIG_PATH.
+    """
+
+[U020]
+brief = "--pkg-config flag has no place in kairo"
+group = "cli"
+
+    [U020.W]
+    explain = """
+    # --pkg-config flag has no place in kairo
+
+    pkg-config returned a flag that kairo has no equivalent for, so it is ignored.
+
+    ## how to fix
+
+    pass the equivalent through --cxx-flags if it matters.
+    """
+
+[U021]
+brief = "unknown or unavailable error format"
+group = "cli"
+
+    [U021.E]
+    explain = """
+    # unknown or unavailable error format
+
+    the --error-format value is not pretty, basic or json (msvc is recognized but not implemented).
+
+    ## how to fix
+
+    use pretty, basic or json.
+    """
+
+[U022]
+brief = "cannot write C++ header"
+group = "cli"
+
+    [U022.E]
+    explain = """
+    # cannot write C++ header
+
+    the header requested by --emit-headers could not be written.
+
+    ## how to fix
+
+    check that the directory exists and is writable.
+    """
+
+[U023]
+brief = "cannot write an output file of the compiler"
+group = "cli"
+
+    [U023.E]
+    explain = """
+    # cannot write an output file of the compiler
+
+    the statistics or time-trace file named on the command line could not be written.
+
+    ## how to fix
+
+    check that the path is writable.
+    """
+
+[U024]
+brief = "too many warnings"
+group = "cli"
+
+    [U024.W]
+    explain = """
+    # too many warnings
+
+    the warning count reached the limit set by the diagnostic engine, so later warnings are not printed.
+
+    ## how to fix
+
+    raise the limit, or fix the warnings.
+    """
+
+[U025]
+brief = "'-x' after the last input has no effect"
+group = "cli"
+
+    [U025.W]
+    explain = """
+    # '-x' after the last input has no effect
+
+    '-x lang' sets the language of the inputs that follow it, and none follow.
+
+    ## how to fix
+
+    move '-x' before the input it applies to.
     """

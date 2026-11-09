@@ -45,13 +45,15 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/KTimeReport.hh";
+ffi "c++" import "Native/KTimeReport.hh"
+
+import std::c_char
 
 /// \brief arms the registry. Nothing is measured before this runs, and the
 ///        wall clock every percentage divides by starts HERE.
@@ -60,22 +62,28 @@ ffi "c++" import "Native/KTimeReport.hh";
 /// \param trace  additionally record every region entry as a Chrome Trace
 ///               event for time_write_trace (--time-trace=FILE). Costs one
 ///               vector push per region, so it is off unless asked for.
-inline fn time_enable(on: bool, trace: bool = false) {
-    kairo::ktime_enable(on, trace);
+pub inline fn time_enable(on: bool, trace: bool = false) {
+    kairo::ktime_enable(on, trace)
 }
 
-inline fn time_enabled() -> bool { return kairo::ktime_enabled(); }
+pub inline fn time_enabled() -> bool {
+    return kairo::ktime_enabled()
+}
 
 /// \brief stops the wall clock the report's % column is taken against.
 ///        Idempotent; time_print() calls it.
-inline fn time_finish() { kairo::ktime_finish(); }
+pub inline fn time_finish() {
+    kairo::ktime_finish()
+}
 
 /// \brief writes the aggregate report to stderr.
 ///
 /// \details stderr, not stdout, for the same reason clang does it: -E and
 ///          --emit write real output to stdout and a timing table in the
 ///          middle of it would corrupt the artifact.
-inline fn time_print() { kairo::ktime_print(); }
+pub inline fn time_print() {
+    kairo::ktime_print()
+}
 
 /// \brief writes a Chrome Trace Event JSON file (chrome://tracing, Perfetto,
 ///        speedscope).
@@ -85,16 +93,19 @@ inline fn time_print() { kairo::ktime_print(); }
 ///          a serialized import wave, a starved pool, or which single file
 ///          owns the critical path. No-op unless time_enable was called with
 ///          trace = true.
-fn time_write_trace(path: string) -> bool {
-    if path.empty() { return false; }
-    var p = path;
-    return kairo::ktime_write_trace(p.c_str());
+pub fn time_write_trace(const path: string) -> bool {
+    if path.empty() {
+        return false
+    }
+
+    var p = path
+    return kairo::ktime_write_trace(p.c_str())
 }
 
 /// \brief the region active on this thread, for handing to a pool task.
 ///        Null when timing is off, which TimeWorker tolerates.
-inline fn time_current() -> *kairo::KTimeRecord {
-    return kairo::ktime_current();
+pub inline fn time_current() -> unsafe *kairo::KTimeRecord {
+    return kairo::ktime_current()
 }
 
 /// \brief interns \p name as a child of the active region and returns the
@@ -103,9 +114,9 @@ inline fn time_current() -> *kairo::KTimeRecord {
 /// \details For a call site hot enough that the per-entry map lookup shows up:
 ///          resolve once, then construct from the handle. Valid for the life
 ///          of the process.
-fn time_region(name: string) -> *kairo::KTimeRecord {
-    var n = name;
-    return kairo::ktime_region(n.c_str());
+pub fn time_region(const name: string) -> unsafe *kairo::KTimeRecord {
+    var n = name
+    return kairo::ktime_region(n.c_str())
 }
 
 /// \brief interns \p name as a SIBLING of the active region.
@@ -114,9 +125,9 @@ fn time_region(name: string) -> *kairo::KTimeRecord {
 ///          does not belong under it. The Lexer resolves its record while the
 ///          stream is being opened, but lex time is not part of opening the
 ///          stream   it belongs beside it, under the walk.
-fn time_region_beside(name: string) -> *kairo::KTimeRecord {
-    var n = name;
-    return kairo::ktime_region_beside(n.c_str());
+pub fn time_region_beside(const name: string) -> unsafe *kairo::KTimeRecord {
+    var n = name
+    return kairo::ktime_region_beside(n.c_str())
 }
 
 /// \brief marks \p rec a busy-wait: real elapsed time, but not work anyone can
@@ -125,7 +136,30 @@ fn time_region_beside(name: string) -> *kairo::KTimeRecord {
 /// \details Excluded from the hot list. A spin-waiting flusher otherwise sits
 ///          permanently at the top of the list of things to go optimize, which
 ///          is both wrong and load-bearing enough to hide the real entries.
-inline fn time_mark_idle(rec: *kairo::KTimeRecord) { kairo::ktime_mark_idle(rec); }
+pub inline fn time_mark_idle(rec: unsafe *kairo::KTimeRecord) {
+    kairo::ktime_mark_idle(rec)
+}
+
+/// \brief the region clock, or 0 while timing is off.
+///
+/// \details For a span a TimeRegion cannot scope: one whose variables have to
+///          outlive the block that would close it (an object created in the
+///          span and used after). Pair with time_bill_since.
+pub inline fn time_clock() -> u64 {
+    return kairo::ktime_clock()
+}
+
+/// \brief bills [\p t0, now) to the child \p name of the open region, as a
+///        TimeRegion("name") over that span would have. Nothing when \p t0
+///        is 0 (time_clock() with timing off).
+pub fn time_bill_since(const name: string, t0: u64) {
+    if t0 == 0 {
+        return
+    }
+
+    var n = name
+    kairo::ktime_bill_since(n.c_str(), t0)
+}
 
 /// \brief tells the report how many ThreadPool workers exist.
 ///
@@ -135,41 +169,50 @@ inline fn time_mark_idle(rec: *kairo::KTimeRecord) { kairo::ktime_mark_idle(rec)
 ///          flusher, and neither is a pool worker. Printing that next to a
 ///          --threads=N flag reads like an off-by-one because it is not the
 ///          same quantity. The report prints both, labelled.
-inline fn time_set_pool_size(n: i32) { kairo::ktime_set_pool_size(n); }
+pub inline fn time_set_pool_size(n: i32) {
+    kairo::ktime_set_pool_size(n)
+}
 
 /// \class TimeRegion
 /// \brief RAII timed region. Records on scope exit.
 ///
 /// \note NOT movable or copyable   two live copies would double-count. Bind it
 ///       to a `var` and let it die with the scope.
-class TimeRegion {
-    priv var _f: kairo::KTimeFrame;
+pub class TimeRegion {
+    priv var _f: kairo::KTimeFrame
 
     /// Resolves \p name against the region active on this thread. Costs one
     /// small-map lookup plus a narrow-string conversion; negligible next to a
     /// pipeline stage, too much for a per-token region   use TimeSampled
     /// there.
-    inline fn TimeRegion(self, name: string) {
-        if !kairo::ktime_enabled() { return; }
-        var n = name;
-        self._f = kairo::ktime_enter(kairo::ktime_region(n.c_str()));
+    pub inline fn TimeRegion(self, const name: string) {
+        if !kairo::ktime_enabled() {
+            return
+        }
+
+        var n = name
+        self._f = kairo::ktime_enter(kairo::ktime_region(n.c_str()))
     }
 
     /// Pre-resolved handle from time_region(). No lookup, no allocation.
-    inline fn TimeRegion(self, rec: *kairo::KTimeRecord) {
-        if !kairo::ktime_enabled() { return; }
-        self._f = kairo::ktime_enter(rec);
+    pub inline fn TimeRegion(self, rec: unsafe *kairo::KTimeRecord) {
+        if !kairo::ktime_enabled() {
+            return
+        }
+
+        self._f = kairo::ktime_enter(rec)
     }
 
-    delete fn TimeRegion(self, other: ref!(TimeRegion));
-    delete fn op = (self, other: ref!(TimeRegion)) -> ref!(TimeRegion);
+    @copy fn TimeRegion(self, const other: Self) = delete
 
-    inline fn op delete (self) { kairo::ktime_leave(self._f); }
+    inline fn op finally (self) {
+        kairo::ktime_leave(self._f)
+    }
 
     /// The handle for this region, to hand to pool tasks that will do a slice
     /// of it. Same as time_current() while this scope is the innermost one.
-    inline fn record(self) -> *kairo::KTimeRecord {
-        return kairo::ktime_frame_record(self._f);
+    pub inline fn record(self) -> unsafe *kairo::KTimeRecord {
+        return kairo::ktime_frame_record(self._f)
     }
 
     /// \brief adds to this region's throughput counter.
@@ -178,8 +221,8 @@ class TimeRegion {
     ///          parser slow, or is that file just enormous". Pass bytes with
     ///          "B", tokens with "tok", lines with "line". The label is taken
     ///          from the first call and ignored afterwards.
-    inline fn units(self, n: u64, label: *kairo::std::Legacy::char) {
-        kairo::ktime_units(kairo::ktime_frame_record(self._f), n, label);
+    inline fn units(self, n: u64, label: unsafe *const c_char) {
+        kairo::ktime_units(kairo::ktime_frame_record(self._f), n, label)
     }
 }
 
@@ -199,17 +242,21 @@ class TimeRegion {
 /// \warning The result is an ESTIMATE and the report marks the row `~`. Over
 ///          millions of entries the sampling error is far below anything worth
 ///          acting on, but do not quote it as measured.
-class TimeSampled {
-    priv var _f: kairo::KTimeFrame;
+pub class TimeSampled {
+    priv var _f: kairo::KTimeFrame
 
-    inline fn TimeSampled(self, rec: *kairo::KTimeRecord, stride: u32, counter: *u32) {
-        self._f = kairo::ktime_enter_sampled(rec, stride, counter);
+    pub inline fn TimeSampled(self,
+                              rec:     unsafe *kairo::KTimeRecord,
+                              stride:  u32,
+                              counter: unsafe *u32) {
+        self._f = kairo::ktime_enter_sampled(rec, stride, counter)
     }
 
-    delete fn TimeSampled(self, other: ref!(TimeSampled));
-    delete fn op = (self, other: ref!(TimeSampled)) -> ref!(TimeSampled);
+    @copy fn TimeSampled(self, const other: Self) = delete
 
-    inline fn op delete (self) { kairo::ktime_leave(self._f); }
+    inline fn op finally (self) {
+        kairo::ktime_leave(self._f)
+    }
 }
 
 /// \class TimeWorker
@@ -225,20 +272,21 @@ class TimeSampled {
 ///          drive the dispatcher's self time negative. The report divides them
 ///          into `par` instead, which is the parallel speedup the fan-out
 ///          actually achieved.
-class TimeWorker {
-    priv var _w: kairo::KTimeWorker;
+pub class TimeWorker {
+    priv var _w: kairo::KTimeWorker
 
-    inline fn TimeWorker(self, rec: *kairo::KTimeRecord) {
-        self._w = kairo::ktime_worker_enter(rec);
+    pub inline fn TimeWorker(self, rec: unsafe *kairo::KTimeRecord) {
+        self._w = kairo::ktime_worker_enter(rec)
     }
 
-    delete fn TimeWorker(self, other: ref!(TimeWorker));
-    delete fn op = (self, other: ref!(TimeWorker)) -> ref!(TimeWorker);
+    @copy fn TimeWorker(self, const other: Self) = delete
 
-    inline fn op delete (self) { kairo::ktime_worker_leave(self._w); }
+    inline fn op finally (self) {
+        kairo::ktime_worker_leave(self._w)
+    }
 
-    inline fn units(self, n: u64, label: *kairo::std::Legacy::char) {
-        kairo::ktime_units(kairo::ktime_worker_record(self._w), n, label);
+    pub inline fn units(self, n: u64, label: unsafe *const c_char) {
+        kairo::ktime_units(kairo::ktime_worker_record(self._w), n, label)
     }
 }
 
@@ -249,15 +297,16 @@ class TimeWorker {
 /// \details Prefer TimeWorker. This is for a task whose own duration is not
 ///          meaningful   a spin-waiting flusher, a watchdog   but which opens
 ///          regions that must still land in the right place in the tree.
-class TimeThreadRoot {
-    priv var _b: kairo::KTimeRoot;
+pub class TimeThreadRoot {
+    priv var _b: kairo::KTimeRoot
 
-    inline fn TimeThreadRoot(self, parent: *kairo::KTimeRecord) {
-        self._b = kairo::ktime_root_enter(parent);
+    inline fn TimeThreadRoot(self, parent: unsafe *kairo::KTimeRecord) {
+        self._b = kairo::ktime_root_enter(parent)
     }
 
-    delete fn TimeThreadRoot(self, other: ref!(TimeThreadRoot));
-    delete fn op = (self, other: ref!(TimeThreadRoot)) -> ref!(TimeThreadRoot);
+    @copy fn TimeThreadRoot(self, const other: Self) = delete
 
-    inline fn op delete (self) { kairo::ktime_root_leave(self._b); }
+    inline fn op finally (self) {
+        kairo::ktime_root_leave(self._b)
+    }
 }

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Sema/Lower/EnumLayoutLowering.k --- ///
+/// --- The Kairo Project -------------- Sema/Lower/EnumLayoutLowering.k --- ///
 ///
 ///   \brief An ADT enum gets the record C++ sees: a tag, its payloads in an
 ///          anonymous union, a constructor per variant, and the special
@@ -123,39 +123,104 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::SemaContext::*;
-import Sema::Resolve::NameLookup::*;
-import Sema::Type::TypeUtil::*;
-import Sema::Check::ClassLifecycle::*;
-import Sema::Lower::LowerSynth::*;
-import Sema::Type::PanicSets::*;
-import AST::Visitor::ASTWriter::*;
-import AST::ASTSupport::*;
-import AST::DeclFacts::*;
-import AST::LangItems::*;
-import AST::EnumNiche::*;
-import AST::AttrFacts::*;
-import AST::Context::InstantiationRegistry::*;
-import AST::Mixin::Annotation::*;
-import AST::Context::DeclContext::*;
-import AST::Node::Base::*;
-import AST::Node::Types::*;
-import AST::Node::Declarations::*;
-import AST::Node::Expressions::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::CanonicalNodes::*;
-import AST::Node::Casting::*;
-import AST::Kind::DeclKind::*;
-import Token::Token::*;
-import Diagnostic::Registry::*;
-import Token::TokenKind::*;
-import Location::SourceRange::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
+
+import AST::ASTSupport::{
+    FrozenList,
+    create_empty_frozen_list,
+}
+import AST::AttrFacts::AttrFacts
+import AST::Context::DeclContext::DeclContext
+import AST::Context::InstantiationRegistry::InstanceEntry
+import AST::DeclFacts::{
+    adt_expansion_at,    adt_pack_param,   adt_pack_variant, adt_variant_at,       adt_variant_pos,
+    decl_generic_params, decl_is_imported, decl_is_instance, decl_requires_clause,
+}
+import AST::EnumNiche::{
+    adt_declared_tag_kind,
+    adt_first_spare_tag,
+    adt_niche_dataless,
+    adt_niche_pattern_of,
+    adt_niche_payload_variant,
+    adt_tag_kind,
+    adt_tag_niche_count,
+    enum_niche_count,
+    enum_niche_kind,
+}
+import AST::Kind::DeclKind::to_string
+import AST::LangItems::{
+    LowerTargets,
+    WellKnownType,
+    to_string,
+}
+import AST::Mixin::Annotation::VisibilityKind
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Type,
+}
+import AST::Node::CanonicalNodes::{
+    BuiltinKind,
+    BuiltinType,
+    RecordType,
+    canon_quals,
+    canon_unqual,
+}
+import AST::Node::Casting::{
+    cast,
+    dyn_cast,
+    isa,
+}
+import AST::Node::Declarations
+import AST::Node::Expressions::{
+    BinaryOperatorExpr,
+    CallExpr,
+    CastMode,
+    PanicOp,
+    PanicOpExpr,
+    VariantInitExpr,
+}
+import AST::Node::PrimaryExpressions::{
+    ChainExpr,
+    NamedIdentExpr,
+    NullLiteralExpr,
+}
+import AST::Node::Types::{
+    FixedArrayType,
+    FunctionPointerType,
+    GenericParamType,
+    NullableType,
+    PointerType,
+}
+import AST::Visitor::ASTWriter::{
+    ASTWriter,
+    ListBuilder,
+}
+import Diagnostic::Registry::DiagID
+import Location::SourceRange::SourceRange
+import Sema::Check::ClassLifecycle::{
+    LifecycleCategory,
+    LifecycleTri,
+    lifecycle_of,
+    lifecycle_open,
+}
+import Sema::Lower::LowerSynth::LowerSynth
+import Sema::Resolve::NameLookup::NameLookup
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+import Sema::Type::PanicSets::PanicSets
+import Sema::Type::TypeUtil::TypeUtil
+import Token::Token::Token
+import Token::TokenKind::TokenKind
 
 /// How an ADT value is laid out at one type (EnumLayoutQuery::shape_at).
 ///   Tagged  a tag field and a payload union: the tag is read directly.
@@ -165,14 +230,16 @@ import Location::SourceRange::*;
 ///   Opaque  a generic ADT whose instance C++ lays out -- a dependent type,
 ///           or one whose facts Sema cannot settle: the value is asked
 ///           through `__kairo_which()`, which both layouts answer.
-enum AdtShape derives u8 {
+pub enum AdtShape derives u8 {
     Tagged = 0,
     Niche,
     Opaque,
 }
 
 /// "No answer": a niche count that depends on what only C++ instantiates.
-fn niche_unknown() -> u64 { return ~u64(0); }
+pub fn niche_unknown() -> u64 {
+    return ~(0 as u64)
+}
 
 /// The layout's query surface: every pass that reads or tests an ADT value
 /// goes through it, and none spells the layout itself. The layout is not
@@ -202,28 +269,39 @@ fn niche_unknown() -> u64 { return ~u64(0); }
 /// PanicLowering when it lands. The Nullable lang item's surface
 /// (`is_null()`, `__value()`, its constructors) is layout-independent by
 /// construction and is named through SemaContext::nullable_member.
-class EnumLayoutQuery {
-    pub var sc: *SemaContext;
-    priv var tu: TypeUtil;
-    priv var synth: LowerSynth;
+pub class EnumLayoutQuery {
+    pub var  sc:    unsafe *SemaContext
+    priv var tu:    TypeUtil
+    priv var synth: LowerSynth
 
-    fn EnumLayoutQuery(self) { self.sc = &null; }
+    fn EnumLayoutQuery(self) {
+        self.sc = &null
+    }
 
-    fn EnumLayoutQuery(self, sc: *SemaContext) {
-        self.sc    = sc;
-        self.tu    = TypeUtil(sc);
-        self.synth = LowerSynth(sc);
+    fn EnumLayoutQuery(self, sc: unsafe *SemaContext) {
+        self.sc    = sc
+        self.tu    = TypeUtil(sc)
+        self.synth = LowerSynth(sc)
     }
 
     /// The ADT pattern behind the value type \p t (an instance answers its
     /// pattern: an instance shares its pattern's record), or null.
-    fn adt_of(self, t: *Type) -> *EnumDecl {
-        if t == &null { return &null; }
-        var d = self.tu.record_decl(self.tu.as_value(t));
-        if d == &null { return &null; }
-        var en = dyn_cast::<EnumDecl>(self.tu.pattern_of(d));
-        if (en == &null) || (!en->is_adt) { return &null; }
-        return en;
+    fn adt_of(self, t: unsafe *Type) -> unsafe *Declarations::EnumDecl {
+        if t == &null {
+            return &null
+        }
+
+        var unsafe *d = self.tu.record_decl(self.tu.as_value(t))
+        if d == &null {
+            return &null
+        }
+
+        var unsafe *en = dyn_cast<Declarations::EnumDecl>(self.tu.pattern_of(d))
+        if en == &null || !en->is_adt {
+            return &null
+        }
+
+        return en
     }
 
     /// A payload field's type at an instance of \p en with arguments \p args:
@@ -231,45 +309,74 @@ class EnumLayoutQuery {
     /// itself, and a pointer is a pointer whatever it points at -- which is
     /// all a layout question asks of one. Null for anything else built from
     /// a parameter: the question has no answer before C++ instantiates it.
-    fn field_type_at(self, en: *EnumDecl, args: *FrozenList::<*Type>, ft: *Type) -> *Type {
-        if (ft == &null) || (ft->canonical == &null) { return &null; }
-        var c = canon_unqual(ft->canonical);
-        if c == &null { return &null; }
-        var gp = dyn_cast::<GenericParamType>(c);
-        // A pack-expanded variant's field: one type per element, none here.
-        if (gp != &null) && gp->is_pack { return &null; }
-        if gp != &null {
-            var owner = gp->owner;
-            if owner != &null { owner = NameLookup::representative(owner); }
-            if (owner != NameLookup::representative(static_cast::<*Decl>(en))) || (usize(gp->param_index) >= args->size()) { return &null; }
-            var a = *(args->get(usize(gp->param_index)));
-            if (a == &null) || a->is_dependent() || a->is_instantiation_dependent() { return &null; }
-            return a;
+    fn field_type_at(self,
+                     en:         unsafe *Declarations::EnumDecl,
+                     const args: FrozenList<unsafe *Type>,
+                     ft:         unsafe *Type) -> unsafe *Type {
+        if ft == &null || ft->canonical == &null {
+            return &null
         }
-        if isa::<PointerType>(c) { return ft; }
-        if c->is_dependent() || c->is_instantiation_dependent() { return &null; }
-        return ft;
+
+        var unsafe *c = canon_unqual(ft->canonical)
+        if c == &null {
+            return &null
+        }
+
+        var unsafe *gp = dyn_cast<GenericParamType>(c)
+        // A pack-expanded variant's field: one type per element, none here.
+        if gp != &null && gp->is_pack {
+            return &null
+        }
+
+        if gp != &null {
+            var unsafe *owner = gp->owner
+            if owner != &null {
+                owner = NameLookup::representative(owner)
+            }
+
+            if owner != NameLookup::representative(unsafe (en as unsafe *Decl))
+                || (gp->param_index as usize) >= args.size() {
+                return &null
+            }
+
+            var unsafe *a = *args.get(gp->param_index as usize)
+            if a == &null || a->is_dependent() || a->is_instantiation_dependent() {
+                return &null
+            }
+
+            return a
+        }
+
+        if isa<PointerType>(c) {
+            return ft
+        }
+
+        if c->is_dependent() || c->is_instantiation_dependent() {
+            return &null
+        }
+
+        return ft
     }
 
     /// EnumLayoutLowering built \p en's record: every query below has an
     /// answer.
-    fn has_layout(self, en: *EnumDecl) -> bool {
-        return (en != &null) && en->is_adt && (en->adt_layout != &null);
+    fn has_layout(self, en: unsafe *Declarations::EnumDecl) -> bool {
+        return en != &null && en->is_adt && en->adt_layout != &null
     }
 
     /// Whether variant \p index has a payload to read. Every \p index
     /// below is EXPANDED (adt_variant_at): a variant's position, or for
     /// element k of the pack-expanded variant at position p, p + k -- its
     /// tag. Without a pack-expanded variant the two are the same.
-    fn has_payload(self, en: *EnumDecl, index: u32) -> bool {
-        var v = adt_variant_at(en, usize(index));
-        return (v != &null) && (v->adt_member != &null);
+    fn has_payload(self, en: unsafe *Declarations::EnumDecl, index: u32) -> bool {
+        var unsafe *v = adt_variant_at(en, index as usize)
+        return v != &null && v->adt_member != &null
     }
 
     /// Tags are the positions `0..N-1`: a switch over them is complete and
     /// clang can index a table by them. Not with explicit tag values.
-    fn is_exhaustive_dense(self, en: *EnumDecl) -> bool {
-        return self.has_layout(en) && (!en->adt_explicit_tags);
+    fn is_exhaustive_dense(self, en: unsafe *Declarations::EnumDecl) -> bool {
+        return self.has_layout(en) && !en->adt_explicit_tags
     }
 
     /// The discriminant variant \p index is stored as in a value of type
@@ -279,19 +386,37 @@ class EnumLayoutQuery {
     /// element's type at \p t (PanicSets). InterfaceEmitter's constructor
     /// and destroy / copy helpers store and read the same values: this is
     /// the one rule, and \p t must be concrete for an element's.
-    fn tag_value(self, t: *Type, en: *EnumDecl, index: u32) -> u64 {
-        var v = adt_variant_at(en, usize(index));
-        ICE_IF(v == &null, "EnumLayoutQuery: tag_value past the last variant");
-        var k = adt_expansion_at(en, usize(index));
-        if k < 0 { return v->adt_tag_value; }
-        if !en->adt_explicit_tags { return v->adt_tag_value + u64(k); }
-        var args = self.tu.record_args(self.tu.as_value(t));
-        var p = adt_pack_param(en);
-        ICE_IF((p == usize(-1)) || ((p + usize(k)) >= args.size()),
-               "EnumLayoutQuery: a type-id tag at a type without that element; the test reads a dependent instance");
-        var id = PanicSets(self.sc).type_id(args[p + usize(k)]);
-        ICE_IF(id == u32(0), "EnumLayoutQuery: a type-id-tagged element whose type has no id; a dependent instance reached a test");
-        return u64(id);
+    fn tag_value(self, t: unsafe *Type, en: unsafe *Declarations::EnumDecl, index: u32) -> u64 {
+        var unsafe *v = adt_variant_at(en, index as usize)
+        if v == &null {
+            kairo::std::ice_fail("EnumLayoutQuery: tag_value past the last variant")
+        }
+
+        var k = adt_expansion_at(en, index as usize)
+        if k < 0 {
+            return v->adt_tag_value
+        }
+
+        if !en->adt_explicit_tags {
+            return v->adt_tag_value + (k as u64)
+        }
+
+        var args = self.tu.record_args(self.tu.as_value(t))
+        var p    = adt_pack_param(en)
+        if p == usize::MAX || p + (k as usize) >= args.size() {
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: a type-id tag at a type without that element; the test reads a dependent instance",
+            )
+        }
+
+        var id = PanicSets(self.sc).type_id(args[p + (k as usize)])
+        if id == (0 as u32) {
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: a type-id-tagged element whose type has no id; a dependent instance reached a test",
+            )
+        }
+
+        return id
     }
 
     /// Where every payload of a value of type \p t starts, for an ADT
@@ -300,37 +425,56 @@ class EnumLayoutQuery {
     /// alignment, so the tag word before it never moves it further. The
     /// C++ record states the same as `__kairo_payload_offset`. False when
     /// a payload's alignment is not known here.
-    fn payload_offset(self, t: *Type, off: *u64) -> bool {
-        var sz: u64 = 0;
-        var al: u64 = 0;
-        var en = self.adt_of(t);
-        if (en == &null) || (en->adt_union_align == 0) { return false; }
-        if !self.size_of(t, &sz, &al) { return false; }
-        (*off) = al;
-        return true;
+    fn payload_offset(self, t: unsafe *Type, off: unsafe *u64) -> bool {
+        var        sz: u64 = 0
+        var        al: u64 = 0
+        var unsafe *en     = self.adt_of(t)
+        if en == &null || en->adt_union_align == 0 {
+            return false
+        }
+
+        if !self.size_of(t, unsafe &sz, unsafe &al) {
+            return false
+        }
+
+        *off = al
+        return true
     }
 
-    // --- shape --------------------------------------------------------------------
+    /// # shape
 
     /// The layout of ADT values of type \p t. A non-generic ADT's is its
     /// declaration's. A generic one's is per instance and C++ picks it
     /// (InterfaceEmitter's constrained specialization); this predicts the
     /// pick from the same facts, and says Opaque where it cannot.
-    fn shape_at(self, t: *Type) -> AdtShape {
-        var en = self.adt_of(t);
-        if (en == &null) || (!en->adt_niche_shape) { return AdtShape::Tagged; }
-        if en->generic_params.size() == 0 {
-            return (AdtShape::Niche) if (en->adt_niche) else (AdtShape::Tagged);
+    fn shape_at(self, t: unsafe *Type) -> AdtShape {
+        var unsafe *en = self.adt_of(t)
+        if en == &null || !en->adt_niche_shape {
+            return AdtShape::Tagged
         }
-        var v = self.tu.as_value(t);
-        if (v == &null) || v->is_dependent() || v->is_instantiation_dependent() { return AdtShape::Opaque; }
-        var args = self.tu.record_args(v);
-        var pv   = en->variants[usize(adt_niche_payload_variant(en))];
-        var ft   = self.field_type_at(en, &args, pv->payload[0]->type_);
-        if ft == &null { return AdtShape::Opaque; }
-        var verdict = self.niche_verdict(en, ft);
-        if verdict < 0 { return AdtShape::Opaque; }
-        return (AdtShape::Niche) if (verdict > 0) else (AdtShape::Tagged);
+
+        if en->generic_params.size() == 0 {
+            return if (en->adt_niche) => (AdtShape::Niche) else => AdtShape::Tagged
+        }
+
+        var unsafe *v = self.tu.as_value(t)
+        if v == &null || v->is_dependent() || v->is_instantiation_dependent() {
+            return AdtShape::Opaque
+        }
+
+        var        args = self.tu.record_args(v)
+        var unsafe *pv  = en->variants[adt_niche_payload_variant(en) as usize]
+        var unsafe *ft  = self.field_type_at(en, args, pv->payload[0]->type_)
+        if ft == &null {
+            return AdtShape::Opaque
+        }
+
+        var verdict = self.niche_verdict(en, ft)
+        if verdict < 0 {
+            return AdtShape::Opaque
+        }
+
+        return if (verdict > 0) => (AdtShape::Niche) else => AdtShape::Tagged
     }
 
     /// Whether a niche-shaped \p en whose one payload field has type \p ft
@@ -339,14 +483,20 @@ class EnumLayoutQuery {
     /// patterns as there are dataless variants, and is trivially copied and
     /// destroyed, which keeps every special member trivial. InterfaceEmitter
     /// writes C++'s side of it as the specialization's constraint.
-    fn niche_verdict(self, en: *EnumDecl, ft: *Type) -> i8 {
-        var n = self.niche_of(ft);
-        if n == niche_unknown() { return -1; }
-        if n < adt_niche_dataless(en) { return 0; }
-        return self.trivial(ft);
+    fn niche_verdict(self, en: unsafe *Declarations::EnumDecl, ft: unsafe *Type) -> i8 {
+        var n = self.niche_of(ft)
+        if n == niche_unknown() {
+            return -1
+        }
+
+        if n < adt_niche_dataless(en) {
+            return 0
+        }
+
+        return self.trivial(ft)
     }
 
-    // --- niche_of -------------------------------------------------------------------
+    /// # niche_of
 
     /// How many bit patterns a value of type \p t never holds, as the C++
     /// trait `__kairo_niche<T>` counts them (InterfaceEmitter), or
@@ -364,220 +514,395 @@ class EnumLayoutQuery {
     /// spec's struct row) is answered by niche_of_record, which no layout
     /// reads yet: C++ can only build a record holding a pattern by
     /// aggregate initialization, which most Kairo records do not allow.
-    fn niche_of(self, t: *Type) -> u64 {
-        if (t == &null) || (t->canonical == &null) { return niche_unknown(); }
-        var c = canon_unqual(t->canonical);
-        if c == &null { return niche_unknown(); }
-        if isa::<NullableType>(c) {
+    fn niche_of(self, t: unsafe *Type) -> u64 {
+        if t == &null || t->canonical == &null {
+            return niche_unknown()
+        }
+
+        var unsafe *c = canon_unqual(t->canonical)
+        if c == &null {
+            return niche_unknown()
+        }
+
+        if isa<NullableType>(c) {
             // Read through the lang item, not the lowered record: an ADT
             // laid out before NullableTypeLowering asks this of a `T?` field.
-            var nd = self.sc->nullable_enum();
-            if !self.has_layout(nd) { return niche_unknown(); }
-            var inner = cast::<NullableType>(c)->inner;
-            var v = self.niche_verdict(nd, inner);
-            if v < 0 { return niche_unknown(); }
-            if v == 0 { return adt_tag_niche_count(nd); }
-            var n = self.niche_of(inner);
-            var used = adt_niche_dataless(nd);
-            return (n - used) if (n > used) else (0);
+            var unsafe *nd = self.sc->nullable_enum()
+            if !self.has_layout(nd) {
+                return niche_unknown()
+            }
+
+            var unsafe *inner = cast<NullableType>(c)->inner
+            var        v      = self.niche_verdict(nd, inner)
+            if v < 0 {
+                return niche_unknown()
+            }
+
+            if v == 0 {
+                return adt_tag_niche_count(nd)
+            }
+
+            var n    = self.niche_of(inner)
+            var used = adt_niche_dataless(nd)
+            return if (n > used) => (n - used) else => 0
         }
-        if isa::<PointerType>(c) { return 1; }
-        if isa::<FunctionPointerType>(c) {
+
+        if isa<PointerType>(c) {
+            return 1
+        }
+
+        if isa<FunctionPointerType>(c) {
             // A raw pointer's null is free; a `fn` value is a record.
-            return (1) if (cast::<FunctionPointerType>(c)->is_unprototyped || cast::<FunctionPointerType>(c)->is_raw) else (0);
+            return if (cast<FunctionPointerType>(c)->is_unprototyped
+                       || cast<FunctionPointerType>(c)->is_raw) => (1)
+                   else => 0
         }
-        if isa::<RecordType>(c) {
-            if c->is_dependent() || c->is_instantiation_dependent() { return niche_unknown(); }
-            var d  = self.tu.pattern_of(cast::<RecordType>(c)->decl);
-            var en = dyn_cast::<EnumDecl>(d);
-            if en == &null { return 0; }
+
+        if isa<RecordType>(c) {
+            if c->is_dependent() || c->is_instantiation_dependent() {
+                return niche_unknown()
+            }
+
+            var unsafe *d  = self.tu.pattern_of(cast<RecordType>(c)->decl)
+            var unsafe *en = dyn_cast<Declarations::EnumDecl>(d)
+            if en == &null {
+                return 0
+            }
+
             // A plain enum: the values past a closed one's variants; none for
             // an `@open` one, which `as` may fill with any value (EnumNiche).
-            if !en->is_adt { return enum_niche_count(en); }
-            if !self.has_layout(en) { return niche_unknown(); }
-            switch self.shape_at(c) {
-                case AdtShape::Tagged { return adt_tag_niche_count(en); }
-                case AdtShape::Niche {
-                    var inner = self._niche_field_type(c, en);
-                    var n = self.niche_of(inner);
-                    if n == niche_unknown() { return n; }
-                    var used = adt_niche_dataless(en);
-                    return (n - used) if (n > used) else (0);
-                }
-                default { 0; }
+            if !en->is_adt {
+                return enum_niche_count(en)
             }
-            return niche_unknown();
+
+            if !self.has_layout(en) {
+                return niche_unknown()
+            }
+
+            match self.shape_at(c) {
+                case AdtShape::Tagged {
+                    return adt_tag_niche_count(en)
+                } case AdtShape::Niche {
+                    var unsafe *inner = self._niche_field_type(c, en)
+                    var        n      = self.niche_of(inner)
+                    if n == niche_unknown() {
+                        return n
+                    }
+
+                    var used = adt_niche_dataless(en)
+                    return if (n > used) => (n - used) else => 0
+                } default {
+                    0
+                }
+            }
+
+            return niche_unknown()
         }
-        if c->is_dependent() || c->is_instantiation_dependent() { return niche_unknown(); }
-        return 0;
+
+        if c->is_dependent() || c->is_instantiation_dependent() {
+            return niche_unknown()
+        }
+
+        return 0
     }
 
     /// The spec's struct row, answered but read by no layout (niche_of): a
     /// record's first field with a niche, at that field.
-    fn niche_of_record(self, t: *Type) -> u64 {
-        var n = self.niche_of(t);
-        if n != 0 { return n; }
-        var d = self.tu.record_decl(self.tu.as_value(t));
-        var sd = dyn_cast::<StructDecl>(d);
-        if sd == &null { return 0; }
-        for var i: usize = 0; i < sd->fields.size(); ++i {
-            var f = sd->fields[i];
-            if (f == &null) || (f->storage == StorageClass::Eval) { continue; }
-            var k = self.niche_of_record(f->type_);
-            if k != 0 { return k; }
+    fn niche_of_record(self, t: unsafe *Type) -> u64 {
+        var n = self.niche_of(t)
+        if n != 0 {
+            return n
         }
-        return 0;
+
+        var unsafe *d  = self.tu.record_decl(self.tu.as_value(t))
+        var unsafe *sd = dyn_cast<Declarations::StructDecl>(d)
+        if sd == &null {
+            return 0
+        }
+
+        for var i: usize = 0; i < sd->fields.size(); ++i {
+            var unsafe *f = sd->fields[i]
+            if f == &null || f->storage == Declarations::StorageClass::Eval {
+                continue
+            }
+
+            var k = self.niche_of_record(f->type_)
+            if k != 0 {
+                return k
+            }
+        }
+
+        return 0
     }
 
     /// A niche-filled ADT type \p c's one payload field type.
-    priv fn _niche_field_type(self, c: *Type, en: *EnumDecl) -> *Type {
-        var pv = en->variants[usize(adt_niche_payload_variant(en))];
-        if en->generic_params.size() == 0 { return pv->payload[0]->type_; }
-        var args = self.tu.record_args(c);
-        return self.field_type_at(en, &args, pv->payload[0]->type_);
+    priv fn _niche_field_type(self,
+                              c:  unsafe *Type,
+                              en: unsafe *Declarations::EnumDecl) -> unsafe *Type {
+        var unsafe *pv = en->variants[adt_niche_payload_variant(en) as usize]
+        if en->generic_params.size() == 0 {
+            return pv->payload[0]->type_
+        }
+
+        var args = self.tu.record_args(c)
+        return self.field_type_at(en, args, pv->payload[0]->type_)
     }
 
     /// \p t is trivially copied and destroyed: 1, 0, or -1 unknown. Read off
     /// the structure for what C++ decides by the structure (an ADT is
     /// trivial exactly when its payloads are: its special members are
     /// defaulted then), off ClassLifecycle for a record.
-    fn trivial(self, t: *Type) -> i8 {
-        if (t == &null) || (t->canonical == &null) { return -1; }
-        var c = canon_unqual(t->canonical);
-        if c == &null { return -1; }
-        if isa::<NullableType>(c) { return self.trivial(cast::<NullableType>(c)->inner); }
-        if isa::<BuiltinType>(c) || isa::<PointerType>(c) { return 1; }
-        if isa::<FunctionPointerType>(c) { return (1) if (cast::<FunctionPointerType>(c)->is_unprototyped || cast::<FunctionPointerType>(c)->is_raw) else (0); }
-        if isa::<FixedArrayType>(c) { return self.trivial(cast::<FixedArrayType>(c)->element); }
-        if c->is_dependent() || c->is_instantiation_dependent() { return -1; }
-        if isa::<RecordType>(c) {
-            var d  = self.tu.pattern_of(cast::<RecordType>(c)->decl);
-            var en = dyn_cast::<EnumDecl>(d);
-            if (en != &null) && (!en->is_adt) { return 1; }
-            if (en != &null) && (en->generic_params.size() > 0) {
-                var args = self.tu.record_args(c);
+    fn trivial(self, t: unsafe *Type) -> i8 {
+        if t == &null || t->canonical == &null {
+            return -1
+        }
+
+        var unsafe *c = canon_unqual(t->canonical)
+        if c == &null {
+            return -1
+        }
+
+        if isa<NullableType>(c) {
+            return self.trivial(cast<NullableType>(c)->inner)
+        }
+
+        if isa<BuiltinType>(c) || isa<PointerType>(c) {
+            return 1
+        }
+
+        if isa<FunctionPointerType>(c) {
+            return if (cast<FunctionPointerType>(c)->is_unprototyped
+                       || cast<FunctionPointerType>(c)->is_raw) => (1)
+                   else => 0
+        }
+
+        if isa<FixedArrayType>(c) {
+            return self.trivial(cast<FixedArrayType>(c)->element)
+        }
+
+        if c->is_dependent() || c->is_instantiation_dependent() {
+            return -1
+        }
+
+        if isa<RecordType>(c) {
+            var unsafe *d  = self.tu.pattern_of(cast<RecordType>(c)->decl)
+            var unsafe *en = dyn_cast<Declarations::EnumDecl>(d)
+            if en != &null && !en->is_adt {
+                return 1
+            }
+
+            if en != &null && en->generic_params.size() > 0 {
+                var args = self.tu.record_args(c)
                 for var i: usize = 0; i < en->variants.size(); ++i {
-                    var v = en->variants[i];
+                    var unsafe *v = en->variants[i]
                     for var j: usize = 0; j < v->payload.size(); ++j {
-                        var ft = self.field_type_at(en, &args, v->payload[j]->type_);
-                        if ft == &null { return -1; }
-                        var k = self.trivial(ft);
-                        if k != 1 { return k; }
+                        var unsafe *ft = self.field_type_at(en, args, v->payload[j]->type_)
+                        if ft == &null {
+                            return -1
+                        }
+
+                        var k = self.trivial(ft)
+                        if k != 1 {
+                            return k
+                        }
                     }
                 }
-                return 1;
+
+                return 1
             }
         }
-        var f = lifecycle_of(self.sc)->facts_of_type(c);
-        if (f.trivially_copyable == LifecycleTri::Unknown) || (f.trivial_dtor == LifecycleTri::Unknown) { return -1; }
-        return (1) if ((f.trivially_copyable == LifecycleTri::Yes) && (f.trivial_dtor == LifecycleTri::Yes)) else (0);
+
+        var f = lifecycle_of(self.sc)->facts_of_type(c)
+        if f.trivially_copyable == LifecycleTri::Unknown
+            || f.trivial_dtor == LifecycleTri::Unknown {
+            return -1
+        }
+
+        return if (f.trivially_copyable == LifecycleTri::Yes
+                   && f.trivial_dtor == LifecycleTri::Yes) => (1)
+               else => 0
     }
 
     /// The size and alignment in bytes of a value of type \p t, for the
     /// types whose layout is plain arithmetic: builtins, pointers, plain
     /// enums, and ADTs made of them. False for anything else; nothing then
     /// pins a size.
-    fn size_of(self, t: *Type, size: *u64, align: *u64) -> bool {
-        if (t == &null) || (t->canonical == &null) { return false; }
-        var c = canon_unqual(t->canonical);
-        if c == &null { return false; }
-        if isa::<NullableType>(c) {
-            var lw = cast::<NullableType>(c)->lowered;
-            if lw == &null { return false; }
-            return self.size_of(lw, size, align);
+    fn size_of(self, t: unsafe *Type, size: unsafe *u64, align: unsafe *u64) -> bool {
+        if t == &null || t->canonical == &null {
+            return false
         }
-        if isa::<BuiltinType>(c) || isa::<PointerType>(c) {
-            if isa::<BuiltinType>(c) && (cast::<BuiltinType>(c)->lang_decl != &null) { return false; }
-            if (c->size_bits == 0) || (c->align_bits == 0) || ((c->size_bits % 8) != 0) { return false; }
-            (*size)  = u64(c->size_bits / 8);
-            (*align) = u64(c->align_bits / 8);
-            return true;
+
+        var unsafe *c = canon_unqual(t->canonical)
+        if c == &null {
+            return false
         }
-        if isa::<FixedArrayType>(c) {
+
+        if isa<NullableType>(c) {
+            var unsafe *lw = cast<NullableType>(c)->lowered
+            if lw == &null {
+                return false
+            }
+
+            return self.size_of(lw, size, align)
+        }
+
+        if isa<BuiltinType>(c) || isa<PointerType>(c) {
+            if isa<BuiltinType>(c) && cast<BuiltinType>(c)->lang_decl != &null {
+                return false
+            }
+
+            if c->size_bits == 0 || c->align_bits == 0 || c->size_bits % 8 != 0 {
+                return false
+            }
+
+            *size  = ((c->size_bits / 8) as u64)
+            *align = ((c->align_bits / 8) as u64)
+            return true
+        }
+
+        if isa<FixedArrayType>(c) {
             // N elements back to back: a C++ array has no padding of its own.
-            var fa = cast::<FixedArrayType>(c);
-            if fa->is_incomplete || (fa->extent_param != &null) { return false; }
-            var es: u64 = 0;
-            var ea: u64 = 0;
-            if !self.size_of(fa->element, &es, &ea) { return false; }
-            (*size)  = es * u64(fa->size_bits);
-            (*align) = ea;
-            return true;
+            var unsafe *fa = cast<FixedArrayType>(c)
+            if fa->is_incomplete || fa->extent_param != &null {
+                return false
+            }
+
+            var es: u64 = 0
+            var ea: u64 = 0
+            if !self.size_of(fa->element, unsafe &es, unsafe &ea) {
+                return false
+            }
+
+            *size  = es * (fa->size_bits as u64)
+            *align = ea
+            return true
         }
-        if (!isa::<RecordType>(c)) || c->is_dependent() || c->is_instantiation_dependent() { return false; }
-        var en = dyn_cast::<EnumDecl>(self.tu.pattern_of(cast::<RecordType>(c)->decl));
-        if en == &null { return self._plain_record_size(cast::<RecordType>(c)->decl, size, align); }
+
+        if !isa<RecordType>(c) || c->is_dependent() || c->is_instantiation_dependent() {
+            return false
+        }
+
+        var unsafe *en = dyn_cast<Declarations::EnumDecl>(
+            self.tu.pattern_of(cast<RecordType>(c)->decl),
+        )
+
+        if en == &null {
+            return self._plain_record_size(cast<RecordType>(c)->decl, size, align)
+        }
+
         if !en->is_adt {
-            if decl_is_imported(static_cast::<*Decl>(en)) { return false; }
-            return self.size_of(self.sc->builtin(enum_niche_kind(en)), size, align);
+            if decl_is_imported(en) {
+                return false
+            }
+
+            return self.size_of(self.sc->builtin(enum_niche_kind(en)), size, align)
         }
-        if !self.has_layout(en) { return false; }
-        var shape = self.shape_at(c);
-        if shape == AdtShape::Opaque { return false; }
-        var args = self.tu.record_args(c);
-        var ts: u64 = 0;
-        var ta: u64 = 0;
-        if !self.size_of(self.sc->builtin(adt_tag_kind(en)), &ts, &ta) { return false; }
-        var prefix = en->adt_tag_member != &null;
+
+        if !self.has_layout(en) {
+            return false
+        }
+
+        var shape = self.shape_at(c)
+        if shape == AdtShape::Opaque {
+            return false
+        }
+
+        var args     = self.tu.record_args(c)
+        var ts:  u64 = 0
+        var ta:  u64 = 0
+        if !self.size_of(self.sc->builtin(adt_tag_kind(en)), unsafe &ts, unsafe &ta) {
+            return false
+        }
+
+        var prefix = en->adt_tag_member != &null
         // The payload union: each variant's struct laid out field by field,
         // after its own tag in the common prefix. A pack-expanded variant is
         // one struct per element of this instance.
-        var usz: u64 = (ts) if (prefix) else (0);
-        var ual: u64 = (ta) if (prefix) else (1);
-        var pp = adt_pack_param(en);
+        var usz: u64 = if (prefix) => (ts) else => 0
+        var ual: u64 = if (prefix) => (ta) else => 1
+        var pp       = adt_pack_param(en)
         for var i: usize = 0; i < en->variants.size(); ++i {
-            var v = en->variants[i];
-            if v->payload.size() == 0 { continue; }
-            var nel: usize = 1;
-            if v->is_pack_expansion {
-                if (pp == usize(-1)) || (args.size() < pp) { return false; }
-                nel = args.size() - pp;
+            var unsafe *v = en->variants[i]
+            if v->payload.size() == 0 {
+                continue
             }
+
+            var nel: usize = 1
+            if v->is_pack_expansion {
+                if pp == usize::MAX || args.size() < pp {
+                    return false
+                }
+
+                nel = args.size() - pp
+            }
+
             for var e: usize = 0; e < nel; ++e {
-                var off: u64 = (ts) if (prefix) else (0);
-                var sal: u64 = (ta) if (prefix) else (1);
+                var off: u64 = if (prefix) => (ts) else => 0
+                var sal: u64 = if (prefix) => (ta) else => 1
                 for var j: usize = 0; j < v->payload.size(); ++j {
-                    var ft = v->payload[j]->type_;
-                    var pg = dyn_cast::<GenericParamType>(canon_unqual(ft->canonical));
-                    if v->is_pack_expansion && (pg != &null) && pg->is_pack {
-                        ft = args[pp + e];
+                    var unsafe *ft = v->payload[j]->type_
+                    var unsafe *pg = dyn_cast<GenericParamType>(canon_unqual(ft->canonical))
+                    if v->is_pack_expansion && pg != &null && pg->is_pack {
+                        ft = args[pp + e]
                     } else if en->generic_params.size() > 0 {
-                        ft = self.field_type_at(en, &args, ft);
+                        ft = self.field_type_at(en, args, ft)
                     }
-                    var fs: u64 = 0;
-                    var fa: u64 = 0;
+
+                    var fs: u64 = 0
+                    var fa: u64 = 0
                     // `Panic<void, E...>`'s Ok holds an empty struct
                     // (AdtLayoutKnobs::void_payload): one byte.
-                    var vu = en->adt_void_unit && (ft != &null) && self.tu.is_void(ft);
-                    if vu { fs = 1; fa = 1; }
-                    if (!vu) && ((ft == &null) || (!self.size_of(ft, &fs, &fa))) { return false; }
-                    off = self._round(off, fa) + fs;
-                    if fa > sal { sal = fa; }
+                    var vu = en->adt_void_unit && ft != &null && self.tu.is_void(ft)
+                    if vu {
+                        fs = 1
+                        fa = 1
+                    }
+
+                    if !vu && (ft == &null || !self.size_of(ft, unsafe &fs, unsafe &fa)) {
+                        return false
+                    }
+
+                    off = self._round(off, fa) + fs
+                    if fa > sal {
+                        sal = fa
+                    }
                 }
-                var ssz = self._round(off, sal);
-                if ssz > usz { usz = ssz; }
-                if sal > ual { ual = sal; }
+
+                var ssz = self._round(off, sal)
+                if ssz > usz {
+                    usz = ssz
+                }
+
+                if sal > ual {
+                    ual = sal
+                }
             }
         }
-        if (shape == AdtShape::Niche) || prefix {
-            (*size)  = usz;
-            (*align) = ual;
-            return true;
+
+        if shape == AdtShape::Niche || prefix {
+            *size  = usz
+            *align = ual
+            return true
         }
+
         // A lang item's knobs (AdtLayoutKnobs): the u32 site slot after the
         // tag, and the union's own alignment.
         if en->adt_site_field != &null {
-            ts = self._round(ts, 4) + 4;
-            if ta < 4 { ta = 4; }
+            ts = self._round(ts, 4) + 4
+            if ta < 4 {
+                ta = 4
+            }
         }
-        if u64(en->adt_union_align) > ual {
-            ual = u64(en->adt_union_align);
-            usz = self._round(usz, ual);
+
+        if (en->adt_union_align as u64) > ual {
+            ual = (en->adt_union_align)
+            usz = self._round(usz, ual)
         }
-        var al = (ta) if (ta > ual) else (ual);
-        (*size)  = self._round(self._round(ts, ual) + usz, al);
-        (*align) = al;
-        return true;
+
+        var al = if (ta > ual) => (ta) else => ual
+        *size  = self._round(self._round(ts, ual) + usz, al)
+        *align = al
+        return true
     }
 
     /// A plain Kairo struct or class laid out as C++ lays out its fields:
@@ -586,62 +911,104 @@ class EnumLayoutQuery {
     /// generic parameters, no base, no virtual method, not from C++ --
     /// anything else is not answered. What reads this pins it: an ADT
     /// instance's predicted size is a static_assert beside it.
-    priv fn _plain_record_size(self, d_in: *Decl, size: *u64, align: *u64) -> bool {
-        var d = NameLookup::representative(d_in);
-        if (d == &null) || decl_is_imported(d) || decl_is_instance(d) { return false; }
-        if decl_generic_params(d).size() > 0 { return false; }
-        var fields: *FrozenList::<*FieldDecl> = &null;
-        var methods: *FrozenList::<*FunctionDecl> = &null;
-        var sd = dyn_cast::<StructDecl>(d);
-        var cd = dyn_cast::<ClassDecl>(d);
+    priv fn _plain_record_size(self,
+                               d_in:  unsafe *Decl,
+                               size:  unsafe *u64,
+                               align: unsafe *u64) -> bool {
+        var unsafe *d = NameLookup::representative(d_in)
+        if d == &null || decl_is_imported(d) || decl_is_instance(d) {
+            return false
+        }
+
+        if decl_generic_params(d).size() > 0 {
+            return false
+        }
+
+        var fields:  unsafe *FrozenList<unsafe *Declarations::FieldDecl>    = &null
+        var methods: unsafe *FrozenList<unsafe *Declarations::FunctionDecl> = &null
+        var unsafe *sd = dyn_cast<Declarations::StructDecl>(d)
+        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(d)
         if sd != &null {
-            if (sd->adt_of != &null) || (sd->tuple_arity > 0) { return false; }
-            fields  = &(sd->fields);
-            methods = &(sd->methods);
+            if sd->adt_of != &null || sd->tuple_arity > 0 {
+                return false
+            }
+
+            fields  = unsafe &sd->fields
+            methods = unsafe &sd->methods
         } else if cd != &null {
-            if cd->derives_list.size() > 0 { return false; }
-            fields  = &(cd->fields);
-            methods = &(cd->methods);
+            if cd->derives_list.size() > 0 {
+                return false
+            }
+
+            fields  = unsafe &cd->fields
+            methods = unsafe &cd->methods
         } else {
-            return false;
+            return false
         }
+
         for var i: usize = 0; i < methods->size(); ++i {
-            var m = (*methods)[i];
-            if (m != &null) && ((m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || (m->body_kind == FnBodyKind::Virtual)) { return false; }
+            var unsafe *m = (*methods)[i]
+            if m != &null
+                && (m->abi == Declarations::AbiKind::Virtual
+                    || m->abi == Declarations::AbiKind::Override
+                    || m->body_kind == Declarations::FnBodyKind::Virtual) {
+                return false
+            }
         }
+
         // `@packed` / `@align(N)` (AttrFacts), as clang lays out the
         // `__attribute__((packed, aligned(N)))` CXXSpell writes: a packed
         // record's members sit at alignment 1 unless a member's own
         // `@align` says otherwise; a member's `@align` raises its alignment
         // (in a packed record it IS its alignment); the record's `@align`
         // raises the whole, and the size rounds up to it.
-        var packed = AttrFacts::is_packed(d);
-        var want   = AttrFacts::align_of(d);
-        var off: u64 = 0;
-        var al:  u64 = 1;
-        var any = false;
+        var packed     = AttrFacts::is_packed(d)
+        var want       = AttrFacts::align_of(d)
+        var off:   u64 = 0
+        var al:    u64 = 1
+        var any        = false
         for var i: usize = 0; i < fields->size(); ++i {
-            var f = (*fields)[i];
-            if (f == &null) || f->is_static() { continue; }
-            var fs: u64 = 0;
-            var fa: u64 = 0;
-            if !self.size_of(f->type_, &fs, &fa) { return false; }
-            var fal = AttrFacts::align_of(static_cast::<*Decl>(f));
-            if packed { fa = (fal) if (fal != 0) else (1); }
-            else if fal > fa { fa = fal; }
-            off = self._round(off, fa) + fs;
-            if fa > al { al = fa; }
-            any = true;
+            var unsafe *f = (*fields)[i]
+            if f == &null || f->is_static() {
+                continue
+            }
+
+            var fs: u64 = 0
+            var fa: u64 = 0
+            if !self.size_of(f->type_, unsafe &fs, unsafe &fa) {
+                return false
+            }
+
+            var fal = AttrFacts::align_of(f)
+            if packed {
+                fa = if (fal != 0) => (fal) else => 1
+            } else if fal > fa {
+                fa = fal
+            }
+
+            off = self._round(off, fa) + fs
+            if fa > al {
+                al = fa
+            }
+
+            any = true
         }
-        if want > al { al = want; }
-        (*size)  = (self._round(off, al)) if (any) else (self._round(1, al));
-        (*align) = al;
-        return true;
+
+        if want > al {
+            al = want
+        }
+
+        *size  = if (any) => (self._round(off, al)) else => self._round(1, al)
+        *align = al
+        return true
     }
 
     priv fn _round(self, n: u64, a: u64) -> u64 {
-        if a <= 1 { return n; }
-        return ((n + a - 1) / a) * a;
+        if a <= 1 {
+            return n
+        }
+
+        return (n + a - 1) / a * a
     }
 
     /// Every generic ADT instance the registry holds gets the shape and size
@@ -650,25 +1017,45 @@ class EnumLayoutQuery {
     /// lowering: an instance minted late (a `T?` NullableTypeLowering gives
     /// its record) is in the registry by then.
     fn sweep(self) {
-        if self.sc->instances == &null { return; }
-        var all = vec::<*InstanceEntry>();
-        self.sc->instances->collect(all);
+        if self.sc->instances == &null {
+            return
+        }
+
+        var all = cxx::std::vector<unsafe *InstanceEntry>()
+        self.sc->instances->collect(&all)
         for var i: usize = 0; i < all.size(); ++i {
-            var e  = all[i];
-            var en = dyn_cast::<EnumDecl>(e->primary);
-            if (en == &null) || (!self.has_layout(en)) || (e->decl == &null) { continue; }
-            var t = self.sc->types->record(e->decl, &(e->args));   // an instance's type names its shell and its arguments.
-            if (t == &null) || t->is_dependent() || t->is_instantiation_dependent() { continue; }
-            var shape = self.shape_at(t);
-            if shape == AdtShape::Opaque { continue; }
-            e->adt_shape = (2) if (shape == AdtShape::Niche) else (1);
-            var sz: u64 = 0;
-            var al: u64 = 0;
-            if self.size_of(t, &sz, &al) { e->adt_size = sz; }
-            if en->adt_explicit_tags { self._sweep_type_ids(e, en, t, sz); }
+            var unsafe *e  = all[i]
+            var unsafe *en = dyn_cast<Declarations::EnumDecl>(e->primary)
+            if en == &null || !self.has_layout(en) || e->decl == &null {
+                continue
+            }
+
+            var unsafe *t = self.sc->types->record(e->decl, unsafe &e->args) // an instance's type names its shell and its arguments.
+            if t == &null || t->is_dependent() || t->is_instantiation_dependent() {
+                continue
+            }
+
+            var shape = self.shape_at(t)
+            if shape == AdtShape::Opaque {
+                continue
+            }
+
+            e->adt_shape = if (shape == AdtShape::Niche) => (2) else => 1
+            var sz: u64 = 0
+            var al: u64 = 0
+            if self.size_of(t, unsafe &sz, unsafe &al) {
+                e->adt_size = sz
+            }
+
+            if en->adt_explicit_tags {
+                self._sweep_type_ids(e, en, t, sz)
+            }
+
             if en->adt_union_align > 0 {
-                var po: u64 = 0;
-                if self.payload_offset(t, &po) { e->payload_offset = po; }
+                var po: u64 = 0
+                if self.payload_offset(t, unsafe &po) {
+                    e->payload_offset = po
+                }
             }
         }
     }
@@ -676,155 +1063,277 @@ class EnumLayoutQuery {
     /// A type-id-tagged instance (the Panic lang item): its elements' ids
     /// and spelling keys, which InterfaceEmitter writes as `__kairo_tid`
     /// specializations -- C++ reads the ids Sema computed, never hashes. And
-    /// the register cliff (PANIC.md §1.1a): past 16 bytes the result is
+    /// the register cliff (Compiler/Spec/Panic.md#layout): past 16 bytes the result is
     /// returned through memory, which only a remark tells the user, at the
     /// set's formation (InstanceEntry::formed_at), in that TU only.
-    priv fn _sweep_type_ids(self, e: *InstanceEntry, en: *EnumDecl, t: *Type, size: u64) {
-        var p = adt_pack_param(en);
-        if p == usize(-1) { return; }
+    priv fn _sweep_type_ids(self,
+                            e:    unsafe *InstanceEntry,
+                            en:   unsafe *Declarations::EnumDecl,
+                            t:    unsafe *Type,
+                            size: u64) {
+        var p = adt_pack_param(en)
+        if p == usize::MAX {
+            return
+        }
+
         // Every TU's sweep visits every instance: the first fills the ids;
         // the remark is the forming TU's, whichever sweeps first.
         if e->type_ids.size() == 0 {
-            var ps = PanicSets(self.sc);
-            var ids  = vec::<u32>();
-            var keys = vec::<u64>();
-            var names = vec::<string>();
+            var ps    = PanicSets(self.sc)
+            var ids   = cxx::std::vector<u32>()
+            var keys  = cxx::std::vector<u64>()
+            var names = cxx::std::vector<string>()
             for var i: usize = p; i < e->args.size(); ++i {
-                var id = ps.type_id(e->args[i]);
-                if id == u32(0) { return; }
-                ids.push_back(id);
-                keys.push_back(ps.type_key(e->args[i]));
-                names.push_back(self.tu.str(e->args[i]));
+                var id = ps.type_id(e->args[i])
+                if id == (0 as u32) {
+                    return
+                }
+
+                ids.push_back(id)
+                keys.push_back(ps.type_key(e->args[i]))
+                names.push_back(self.tu.str(e->args[i]))
             }
+
             for var i: usize = 0; i < ids.size(); ++i {
-                e->type_ids.push_back(ids[i]);
-                e->type_keys.push_back(keys[i]);
-                e->type_names.push_back(names[i]);
+                e->type_ids.push_back(ids[i])
+                e->type_keys.push_back(keys[i])
+                e->type_names.push_back(names[i])
             }
         }
-        if (size <= 16) || (e->formed_fid != self.sc->ctx->fid) || (!e->formed_at.is_valid()) { return; }
+
+        if size <= 16 || e->formed_fid != self.sc->ctx->fid || !e->formed_at.is_valid() {
+            return
+        }
+
         // The payload that pushed it over: the widest.
-        var widest: *Type = &null;
-        var wsz: u64 = 0;
+        var widest: unsafe *Type = &null
+        var wsz:    u64          = 0
         for var i: usize = 0; i < e->args.size(); ++i {
-            var fs: u64 = 0;
-            var fa: u64 = 0;
-            var a = e->args[i];
-            if (i == 0) && self.tu.is_void(a) { continue; }
-            if self.size_of(a, &fs, &fa) && (fs > wsz) { wsz = fs; widest = a; }
+            var        fs: u64 = 0
+            var        fa: u64 = 0
+            var unsafe *a      = e->args[i]
+            if i == 0 && self.tu.is_void(a) {
+                continue
+            }
+
+            if self.size_of(a, unsafe &fs, unsafe &fa) && fs > wsz {
+                wsz    = fs
+                widest = a
+            }
         }
-        var ts = self.tu.str(t);
-        var why = "";
+
+        var ts  = self.tu.str(t)
+        var why = ""
         if widest != &null {
-            var wn = self.tu.str(widest);
-            why = f"; its widest payload, '{wn}', is {wsz} bytes";
+            var wn = self.tu.str(widest)
+            why = f"; its widest payload, '{wn}', is {wsz} bytes"
         }
-        var b = self.sc->diag->report(DiagID::OPT001R, e->formed_at.start,
-            f"'{ts}' is {size} bytes, so a function returning it returns through memory, not in two registers" + why);
-        b.first(e->formed_at, "every payload at most 8 bytes keeps it at 16");
-        b.emit();
+
+        var b = self.sc->diag->report(
+            DiagID::OPT002R,
+            e->formed_at.start,
+            f"'{ts}' is {size} bytes, so a function returning it returns through memory, not in two registers" + why,
+        )
+
+        b.first(e->formed_at, "every payload at most 8 bytes keeps it at 16")
+        b.emit()
     }
 
-    // --- reads and tests ---------------------------------------------------------------
+    /// # reads and tests
 
     /// The tag as stored, typed as the tag enum: `x.__kairo_tag`, or
     /// `x.__kairo_which()` where C++ picks the layout. Null when the layout
     /// has no tag.
-    fn tag_read(self, at: SourceRange, x: *Expr, en: *EnumDecl) -> *Expr {
-        var tag = en->adt_tag_field;
-        ICE_IF(tag == &null, "EnumLayoutQuery: tag_read on an ADT with no layout; EnumLayoutLowering runs first");
-        switch self.shape_at(x->type_) {
-            case AdtShape::Niche  { return &null; }
-            case AdtShape::Opaque { return self._which(at, x, en); }
-            default { 0; }
+    fn tag_read(self,
+                at: SourceRange,
+                x:  unsafe *Expr,
+                en: unsafe *Declarations::EnumDecl) -> unsafe *Expr {
+        var unsafe *tag = en->adt_tag_field
+        if tag == &null {
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: tag_read on an ADT with no layout; EnumLayoutLowering runs first",
+            )
         }
-        return self._tag_lvalue(at, x, en);
+
+        match self.shape_at(x->type_) {
+            case AdtShape::Niche {
+                return &null
+            } case AdtShape::Opaque {
+                return self._which(at, x, en)
+            } default {
+                0
+            }
+        }
+
+        return self._tag_lvalue(at, x, en)
     }
 
     /// The stored tag of a tagged \p en value \p x: `x.__kairo_tag`, or in
     /// the common prefix, `x.__kairo_t.__kairo_tag`.
-    priv fn _tag_lvalue(self, at: SourceRange, x: *Expr, en: *EnumDecl) -> *Expr {
-        var tag = en->adt_tag_field;
+    priv fn _tag_lvalue(self,
+                        at: SourceRange,
+                        x:  unsafe *Expr,
+                        en: unsafe *Declarations::EnumDecl) -> unsafe *Expr {
+        var unsafe *tag = en->adt_tag_field
         if en->adt_tag_member != &null {
-            var tm = en->adt_tag_member;
-            var t  = self.synth.field_of(at, x, static_cast::<*Decl>(tm), tm->type_);
-            return self.synth.field_of(at, t, static_cast::<*Decl>(en->adt_prefix_tag), tag->type_);
+            var unsafe *tm = en->adt_tag_member
+            var unsafe *t  = self.synth.field_of(at, x, tm, tm->type_)
+            return self.synth.field_of(at, t, en->adt_prefix_tag, tag->type_)
         }
-        return self.synth.field_of(at, x, static_cast::<*Decl>(tag), tag->type_);
+
+        return self.synth.field_of(at, x, tag, tag->type_)
     }
 
     /// The tag as a `u32`, which is what a switch dispatches on and a case
     /// label is written in (tag_case). Null when the layout has no tag: a
     /// match then tests each variant in turn (variant_test).
-    fn tag_word(self, at: SourceRange, x: *Expr, en: *EnumDecl) -> *Expr {
-        var t = self.tag_read(at, x, en);
-        if t == &null { return &null; }
-        return self.synth.cast_to(at, t, self.sc->builtin(BuiltinKind::U32), CastMode::Default);
+    fn tag_word(self,
+                at: SourceRange,
+                x:  unsafe *Expr,
+                en: unsafe *Declarations::EnumDecl) -> unsafe *Expr {
+        var unsafe *t = self.tag_read(at, x, en)
+        if t == &null {
+            return &null
+        }
+
+        return self.synth.cast_to(at, t, self.sc->builtin(BuiltinKind::U32), CastMode::Default)
     }
 
     /// Variant \p index's discriminant in a value of type \p t, as a case
     /// label of tag_word.
-    fn tag_case(self, at: SourceRange, t: *Type, en: *EnumDecl, index: u32) -> *Expr {
-        return self.synth.int_literal(at, self.tag_value(t, en, index), BuiltinKind::U32);
+    fn tag_case(self,
+                at:    SourceRange,
+                t:     unsafe *Type,
+                en:    unsafe *Declarations::EnumDecl,
+                index: u32) -> unsafe *Expr {
+        return self.synth.int_literal(at, self.tag_value(t, en, index), BuiltinKind::U32)
     }
 
     /// `x` holds variant \p index. Niche-filled: a dataless variant is its
     /// pattern in the field (`x.__kairo_Value.v == nullptr`), the payload
     /// variant every pattern's absence.
-    fn variant_test(self, at: SourceRange, x: *Expr, en: *EnumDecl, index: u32) -> *Expr {
-        var w = self.tag_word(at, x, en);
-        if w != &null { return self._bin(at, w, self.tag_case(at, x->type_, en, index), TokenKind::OpEqualEqual); }
-        var p  = adt_niche_payload_variant(en);
-        var pv = en->variants[usize(p)];
-        var f  = pv->payload[0];
-        var ft = self._niche_field_type(self.tu.as_value(x->type_), en);
-        ICE_IF(ft == &null, "EnumLayoutQuery: a niche-filled ADT whose field type has no answer; shape_at said Niche");
+    fn variant_test(self,
+                    at:    SourceRange,
+                    x:     unsafe *Expr,
+                    en:    unsafe *Declarations::EnumDecl,
+                    index: u32) -> unsafe *Expr {
+        var unsafe *w = self.tag_word(at, x, en)
+        if w != &null {
+            return self._bin(at, w, self.tag_case(at, x->type_, en, index), TokenKind::OpEqualEqual)
+        }
+
+        var        p   = adt_niche_payload_variant(en)
+        var unsafe *pv = en->variants[p as usize]
+        var unsafe *f  = pv->payload[0]
+        var unsafe *ft = self._niche_field_type(self.tu.as_value(x->type_), en)
+        if ft == &null {
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: a niche-filled ADT whose field type has no answer; shape_at said Niche",
+            )
+        }
+
         if index != p {
-            return self._pattern_test(at, self.field_ref(at, x, en, p, f, ft), ft, adt_niche_pattern_of(en, index), false);
+            return self._pattern_test(
+                at,
+                self.field_ref(at, x, en, p, f, ft),
+                ft,
+                adt_niche_pattern_of(en, index),
+                false,
+            )
         }
-        var c: *Expr = &null;
-        var d = adt_niche_dataless(en);
+
+        var c: unsafe *Expr = &null
+        var d               = adt_niche_dataless(en)
         for var k: u64 = 0; k < d; ++k {
-            var one = self._pattern_test(at, self.field_ref(at, x, en, p, f, ft), ft, k, true);
-            c = (one) if (c == &null) else (self._bin(at, c, one, TokenKind::OpAmpAmp));
+            var unsafe *one = self._pattern_test(
+                at,
+                self.field_ref(at, x, en, p, f, ft),
+                ft,
+                k,
+                true,
+            )
+
+            c = if (c == &null) => (one) else => self._bin(at, c, one, TokenKind::OpAmpAmp)
         }
-        return c;
+
+        return c
     }
 
     /// `x.__kairo_<V>`. A variant with no payload has nothing to read.
-    fn payload_ref(self, at: SourceRange, x: *Expr, en: *EnumDecl, index: u32) -> *Expr {
-        ICE_IF(!self.has_payload(en, index), "EnumLayoutQuery: payload_ref of a variant with no payload");
-        var m = adt_variant_at(en, usize(index))->adt_member;
-        var r = self.synth.field_of(at, x, static_cast::<*Decl>(m), m->type_);
+    fn payload_ref(self,
+                   at:    SourceRange,
+                   x:     unsafe *Expr,
+                   en:    unsafe *Declarations::EnumDecl,
+                   index: u32) -> unsafe *Expr {
+        if !self.has_payload(en, index) {
+            kairo::std::ice_fail("EnumLayoutQuery: payload_ref of a variant with no payload")
+        }
+
+        var unsafe *m = adt_variant_at(en, index as usize)->adt_member
+        var unsafe *r = self.synth.field_of(at, x, m, m->type_)
         // Element k's payload is the member's k-th (EmitIR spells the getter).
-        var k = adt_expansion_at(en, usize(index));
-        if k >= 0 { cast::<ChainExpr>(r)->steps.get(0)->pack_index = k; }
-        return r;
+        var k = adt_expansion_at(en, index as usize)
+        if k >= 0 {
+            cast<ChainExpr>(r)->steps.get(0)->pack_index = k
+        }
+
+        return r
     }
 
     /// `x.__kairo_<V>.<field>`, typed \p ty (the occurrence's type: an
     /// instance's field type, not the pattern's).
-    fn field_ref(self, at: SourceRange, x: *Expr, en: *EnumDecl, index: u32, field: *FieldDecl, ty: *Type) -> *Expr {
-        return self.synth.field_of(at, self.payload_ref(at, x, en, index), static_cast::<*Decl>(field), ty);
+    fn field_ref(self,
+                 at:    SourceRange,
+                 x:     unsafe *Expr,
+                 en:    unsafe *Declarations::EnumDecl,
+                 index: u32,
+                 field: unsafe *Declarations::FieldDecl,
+                 ty:    unsafe *Type) -> unsafe *Expr {
+        return self.synth.field_of(at, self.payload_ref(at, x, en, index), field, ty)
     }
 
     /// An ADT's built-in `==` / `!=`: the variants compared, under the
     /// written token. Each operand appears once, so each runs once. Without
     /// a tag, each side's variant is asked of it (`__kairo_which()`).
-    fn same_variant(self, at: SourceRange, a: *Expr, b: *Expr, en: *EnumDecl, tok: Token) -> *Expr {
-        var l = self.tag_read(a->range, a, en);
-        var r = self.tag_read(b->range, b, en);
-        if l == &null { l = self._which(a->range, a, en); }
-        if r == &null { r = self._which(b->range, b, en); }
-        var cmp = BinaryOperatorExpr::create(self.sc->ctx, at, l, r, tok);
-        return static_cast::<*Expr>(cmp);
+    fn same_variant(self,
+                    at:  SourceRange,
+                    a:   unsafe *Expr,
+                    b:   unsafe *Expr,
+                    en:  unsafe *Declarations::EnumDecl,
+                    tok: Token) -> unsafe *Expr {
+        var unsafe *l = self.tag_read(a->range, a, en)
+        var unsafe *r = self.tag_read(b->range, b, en)
+        if l == &null {
+            l = self._which(a->range, a, en)
+        }
+
+        if r == &null {
+            r = self._which(b->range, b, en)
+        }
+
+        var unsafe *cmp = BinaryOperatorExpr::create(self.sc->ctx, at, l, r, tok)
+        return cmp
     }
 
     /// `x.__kairo_which()`, typed as the tag enum.
-    priv fn _which(self, at: SourceRange, x: *Expr, en: *EnumDecl) -> *Expr {
-        ICE_IF(en->adt_which == &null, "EnumLayoutQuery: no __kairo_which() on an ADT whose layout needs it; EnumLayoutLowering mints it");
-        var args = ListBuilder::<*Expr>(self.sc->ctx);
-        return self.synth.member_call(at, x, static_cast::<*Decl>(en->adt_which), &args, en->adt_tag_field->type_);
+    priv fn _which(self,
+                   at: SourceRange,
+                   x:  unsafe *Expr,
+                   en: unsafe *Declarations::EnumDecl) -> unsafe *Expr {
+        if en->adt_which == &null {
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: no __kairo_which() on an ADT whose layout needs it; EnumLayoutLowering mints it",
+            )
+        }
+
+        var args = ListBuilder<unsafe *Expr>(self.sc->ctx)
+        return self.synth.member_call(
+            at,
+            x,
+            unsafe (en->adt_which as unsafe *Decl),
+            &args,
+            en->adt_tag_field->type_,
+        )
     }
 
     /// The lvalue \p e of type \p ft holds its niche pattern \p i (or, \p
@@ -833,43 +1342,80 @@ class EnumLayoutQuery {
     /// compare: null for a pointer, `N + i` for a plain enum or a tagged
     /// ADT's tag, and a niche-filled ADT's own field at its pattern past
     /// the ones its dataless variants use.
-    priv fn _pattern_test(self, at: SourceRange, e: *Expr, ft: *Type, i: u64, neg: bool) -> *Expr {
-        var cmp_op = (TokenKind::OpExclaimEqual) if (neg) else (TokenKind::OpEqualEqual);
-        var c  = canon_unqual(ft->canonical);
-        if isa::<NullableType>(c) { return self._pattern_test(at, e, cast::<NullableType>(c)->lowered, i, neg); }
-        if isa::<PointerType>(c) || isa::<FunctionPointerType>(c) {
-            var nul = NullLiteralExpr::create(self.sc->ctx, at, true);
-            nul->type_          = ft;
-            nul->value_category = Expr::ValueCategory::RValue;
-            return self._bin(at, e, static_cast::<*Expr>(nul), cmp_op);
+    priv fn _pattern_test(self,
+                          at:  SourceRange,
+                          e:   unsafe *Expr,
+                          ft:  unsafe *Type,
+                          i:   u64,
+                          neg: bool) -> unsafe *Expr {
+        var        cmp_op = if (neg) => (TokenKind::OpExclaimEqual) else => TokenKind::OpEqualEqual
+        var unsafe *c     = canon_unqual(ft->canonical)
+        if isa<NullableType>(c) {
+            return self._pattern_test(at, e, cast<NullableType>(c)->lowered, i, neg)
         }
-        var en = dyn_cast::<EnumDecl>(self.tu.pattern_of(cast::<RecordType>(c)->decl));
-        ICE_IF(en == &null, "EnumLayoutQuery: a niche pattern in a type niche_of gives none");
+
+        if isa<PointerType>(c) || isa<FunctionPointerType>(c) {
+            var unsafe *nul = NullLiteralExpr::create(self.sc->ctx, at, true)
+            nul->type_          = ft
+            nul->value_category = Expr::ValueCategory::RValue
+            return self._bin(at, e, nul, cmp_op)
+        }
+
+        var unsafe *en = dyn_cast<Declarations::EnumDecl>(
+            self.tu.pattern_of(cast<RecordType>(c)->decl),
+        )
+
+        if en == &null {
+            kairo::std::ice_fail("EnumLayoutQuery: a niche pattern in a type niche_of gives none")
+        }
+
         // A plain enum's niche is the values past its variants; an ADT's,
         // its first spare tag (EnumNiche), the one place that arithmetic is.
-        var n = (adt_first_spare_tag(en)) if (en->is_adt) else (u64(en->variants.size()));
+        var n = if (en->is_adt) => (adt_first_spare_tag(en)) else => (en->variants.size() as u64)
         if !en->is_adt {
-            var lit = self.synth.int_literal(at, n + i, enum_niche_kind(en));
-            return self._bin(at, e, self.synth.cast_to(at, lit, ft, CastMode::Default), cmp_op);
+            var unsafe *lit = self.synth.int_literal(at, n + i, enum_niche_kind(en))
+            return self._bin(at, e, self.synth.cast_to(at, lit, ft, CastMode::Default), cmp_op)
         }
+
         if self.shape_at(c) == AdtShape::Tagged {
-            var tw  = self.synth.cast_to(at, self._tag_lvalue(at, e, en), self.sc->builtin(BuiltinKind::U32), CastMode::Default);
-            return self._bin(at, tw, self.synth.int_literal(at, n + i, BuiltinKind::U32), cmp_op);
+            var unsafe *tw = self.synth.cast_to(
+                at,
+                self._tag_lvalue(at, e, en),
+                self.sc->builtin(BuiltinKind::U32),
+                CastMode::Default,
+            )
+
+            return self._bin(at, tw, self.synth.int_literal(at, n + i, BuiltinKind::U32), cmp_op)
         }
-        var p  = adt_niche_payload_variant(en);
-        var f  = en->variants[usize(p)]->payload[0];
-        var it = self._niche_field_type(c, en);
-        return self._pattern_test(at, self.field_ref(at, e, en, p, f, it), it, adt_niche_dataless(en) + i, neg);
+
+        var        p   = adt_niche_payload_variant(en)
+        var unsafe *f  = en->variants[p as usize]->payload[0]
+        var unsafe *it = self._niche_field_type(c, en)
+        return self._pattern_test(
+            at,
+            self.field_ref(at, e, en, p, f, it),
+            it,
+            adt_niche_dataless(en) + i,
+            neg,
+        )
     }
 
-    // --- the Panic lang item (PANIC.md §1.1a; PanicLowering) ---------------------
+    /// # the Panic lang item (Compiler/Spec/Panic.md#layout; PanicLowering)
 
     /// The Panic lang item a result type \p t is an instance of, or null.
-    fn panic_adt(self, t: *Type) -> *EnumDecl {
-        var en = self.adt_of(t);
-        if (en == &null) || (!PanicSets(self.sc).is_panic(static_cast::<*Decl>(en))) { return &null; }
-        ICE_IF(!self.has_layout(en), "EnumLayoutQuery: a panic result before EnumLayoutLowering built the lang item\x27s record");
-        return en;
+    fn panic_adt(self, t: unsafe *Type) -> unsafe *Declarations::EnumDecl {
+        var unsafe *en = self.adt_of(t)
+        if en == &null || !PanicSets(self.sc).is_panic(en) {
+            return &null
+        }
+
+        if !self.has_layout(en) {
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: a panic result before EnumLayoutLowering built the lang item's record",
+            )
+        }
+
+        return en
     }
 
     /// The expanded index of error type \p e in the panic result type \p t:
@@ -877,203 +1423,298 @@ class EnumLayoutQuery {
     /// (§1.3). The set is the FORMED type's, so the index is the one C++
     /// reads (`__kairo_get<K>`). ICE when \p e is not in it: every caller
     /// tests a type the set was checked to hold.
-    fn panic_elem_index(self, t: *Type, e: *Type) -> u32 {
-        var en = self.panic_adt(t);
-        ICE_IF(en == &null, "EnumLayoutQuery: panic_elem_index on a type that is no panic result");
-        var p = adt_pack_param(en);
-        var args = self.tu.record_args(self.tu.as_value(t));
-        var want = canon_unqual(e);
-        var pos = adt_variant_pos(en, adt_pack_variant(en));
-        for var i: usize = p; i < args.size(); ++i {
-            if canon_unqual(args[i]) == want { return u32(pos + (i - p)); }
+    fn panic_elem_index(self, t: unsafe *Type, e: unsafe *Type) -> u32 {
+        var unsafe *en = self.panic_adt(t)
+        if en == &null {
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: panic_elem_index on a type that is no panic result",
+            )
         }
-        ICE_FAIL("EnumLayoutQuery: \x27" + self.tu.str(e) + "\x27 is outside the panic result \x27" + self.tu.str(t) + "\x27; PanicEffectChecking routed it here");
-        return 0;
+
+        var        p     = adt_pack_param(en)
+        var        args  = self.tu.record_args(self.tu.as_value(t))
+        var unsafe *want = canon_unqual(e)
+        var        pos   = adt_variant_pos(en, adt_pack_variant(en))
+        for var i: usize = p; i < args.size(); ++i {
+            if canon_unqual(args[i]) == want {
+                return (pos + (i - p)) as u32
+            }
+        }
+
+        kairo::std::ice_fail(
+            "EnumLayoutQuery: '" + self.tu.str(e) + "' is outside the panic result '" + self.tu.str(
+                t,
+            ) + "'; PanicEffectChecking routed it here",
+        )
     }
 
     /// `x` is Ok: its tag is 0 (§1.1a).
-    fn panic_is_ok(self, at: SourceRange, x: *Expr) -> *Expr {
-        var en = self.panic_adt(x->type_);
-        ICE_IF(en == &null, "EnumLayoutQuery: panic_is_ok on a value that is no panic result");
-        return self.variant_test(at, x, en, u32(adt_variant_pos(en, self._panic_ok(en))));
+    fn panic_is_ok(self, at: SourceRange, x: unsafe *Expr) -> unsafe *Expr {
+        var unsafe *en = self.panic_adt(x->type_)
+        if en == &null {
+            kairo::std::ice_fail("EnumLayoutQuery: panic_is_ok on a value that is no panic result")
+        }
+
+        return self.variant_test(at, x, en, adt_variant_pos(en, self._panic_ok(en)) as u32)
     }
 
     /// `x` holds error \p e: the tag compared with e's type id, the one
     /// compare a `catch e: E` is in every set that holds E.
-    fn panic_holds(self, at: SourceRange, x: *Expr, e: *Type) -> *Expr {
-        var en = self.panic_adt(x->type_);
-        ICE_IF(en == &null, "EnumLayoutQuery: panic_holds on a value that is no panic result");
-        // A dependent set (a generic body, PANIC.md P10): e's id, and where
+    fn panic_holds(self, at: SourceRange, x: unsafe *Expr, e: unsafe *Type) -> unsafe *Expr {
+        var unsafe *en = self.panic_adt(x->type_)
+        if en == &null {
+            kairo::std::ice_fail("EnumLayoutQuery: panic_holds on a value that is no panic result")
+        }
+
+        // A dependent set (a generic body, Compiler/Spec/Panic.md#generic-bodies): e's id, and where
         // C++ put it, are the instance's. C++ answers (`::builtin::is<E>`).
-        if self._panic_dependent(x->type_) { return self._panic_op(at, PanicOp::Holds, x, e, self.sc->builtin(BuiltinKind::Bool), Expr::ValueCategory::RValue); }
-        return self.variant_test(at, x, en, self.panic_elem_index(x->type_, e));
+        if self._panic_dependent(x->type_) {
+            return self._panic_op(
+                at,
+                PanicOp::Holds,
+                x,
+                e,
+                self.sc->builtin(BuiltinKind::Bool),
+                Expr::ValueCategory::RValue,
+            )
+        }
+
+        return self.variant_test(at, x, en, self.panic_elem_index(x->type_, e))
     }
 
     /// \p t names a type parameter among its elements: its canonical order
     /// is C++'s to compute at each instance (CXXSpell spells it through the
     /// sorting alias), so no element index or tag of Sema's applies.
-    priv fn _panic_dependent(self, t: *Type) -> bool {
-        var args = self.tu.record_args(self.tu.as_value(t));
+    priv fn _panic_dependent(self, t: unsafe *Type) -> bool {
+        var args = self.tu.record_args(self.tu.as_value(t))
         for var i: usize = 1; i < args.size(); ++i {
-            var a = args[i];
-            if (a != &null) && (a->is_dependent() || a->is_instantiation_dependent()) { return true; }
+            var unsafe *a = args[i]
+            if a != &null && (a->is_dependent() || a->is_instantiation_dependent()) {
+                return true
+            }
         }
-        return false;
+
+        return false
     }
 
-    priv fn _panic_op(self, at: SourceRange, k: PanicOp, x: *Expr, e: *Type, ty: *Type, vc: Expr::ValueCategory) -> *Expr {
-        var n = PanicOpExpr::create(self.sc->ctx, at, k, x, &null);
-        n->elem           = canon_unqual(e);
-        n->type_          = ty;
-        n->value_category = vc;
-        return static_cast::<*Expr>(n);
+    priv fn _panic_op(self,
+                      at: SourceRange,
+                      k:  PanicOp,
+                      x:  unsafe *Expr,
+                      e:  unsafe *Type,
+                      ty: unsafe *Type,
+                      vc: Expr::ValueCategory) -> unsafe *Expr {
+        var unsafe *n = PanicOpExpr::create(self.sc->ctx, at, k, x, &null)
+        n->elem           = canon_unqual(e)
+        n->type_          = ty
+        n->value_category = vc
+        return n
     }
 
     /// The Ok value of \p x, an lvalue of \p ty (the result's T).
-    fn panic_value_ref(self, at: SourceRange, x: *Expr, ty: *Type) -> *Expr {
-        var en = self.panic_adt(x->type_);
-        ICE_IF(en == &null, "EnumLayoutQuery: panic_value_ref on a value that is no panic result");
-        var ok = self._panic_ok(en);
-        return self.field_ref(at, x, en, u32(adt_variant_pos(en, ok)), ok->payload[0], ty);
+    fn panic_value_ref(self, at: SourceRange, x: unsafe *Expr, ty: unsafe *Type) -> unsafe *Expr {
+        var unsafe *en = self.panic_adt(x->type_)
+        if en == &null {
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: panic_value_ref on a value that is no panic result",
+            )
+        }
+
+        var unsafe *ok = self._panic_ok(en)
+        return self.field_ref(at, x, en, adt_variant_pos(en, ok) as u32, ok->payload[0], ty)
     }
 
     /// Error \p e held by \p x, an lvalue of \p e: the union's element at
     /// e's place in the set.
-    fn panic_error_ref(self, at: SourceRange, x: *Expr, e: *Type) -> *Expr {
-        var en = self.panic_adt(x->type_);
-        ICE_IF(en == &null, "EnumLayoutQuery: panic_error_ref on a value that is no panic result");
-        if self._panic_dependent(x->type_) { return self._panic_op(at, PanicOp::ErrorRef, x, e, canon_unqual(e), Expr::ValueCategory::LValue); }
-        var pv = adt_pack_variant(en);
-        return self.field_ref(at, x, en, self.panic_elem_index(x->type_, e), pv->payload[0], e);
+    fn panic_error_ref(self, at: SourceRange, x: unsafe *Expr, e: unsafe *Type) -> unsafe *Expr {
+        var unsafe *en = self.panic_adt(x->type_)
+        if en == &null {
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: panic_error_ref on a value that is no panic result",
+            )
+        }
+
+        if self._panic_dependent(x->type_) {
+            return self._panic_op(
+                at,
+                PanicOp::ErrorRef,
+                x,
+                e,
+                canon_unqual(e),
+                Expr::ValueCategory::LValue,
+            )
+        }
+
+        var unsafe *pv = adt_pack_variant(en)
+        return self.field_ref(at, x, en, self.panic_elem_index(x->type_, e), pv->payload[0], e)
     }
 
     /// The site word of \p x (§1.4), an lvalue `u32`.
-    fn panic_site_ref(self, at: SourceRange, x: *Expr) -> *Expr {
-        var en = self.panic_adt(x->type_);
-        ICE_IF((en == &null) || (en->adt_site_field == &null), "EnumLayoutQuery: panic_site_ref on a value with no site slot");
-        var sf = en->adt_site_field;
-        return self.synth.field_of(at, x, static_cast::<*Decl>(sf), sf->type_);
+    fn panic_site_ref(self, at: SourceRange, x: unsafe *Expr) -> unsafe *Expr {
+        var unsafe *en = self.panic_adt(x->type_)
+        if en == &null || en->adt_site_field == &null {
+            kairo::std::ice_fail("EnumLayoutQuery: panic_site_ref on a value with no site slot")
+        }
+
+        var unsafe *sf = en->adt_site_field
+        return self.synth.field_of(at, x, sf, sf->type_)
     }
 
     /// `Ok { value: v }` as the panic result \p t; \p v null for a `void`
     /// T, whose unit payload is built empty (§1.6).
-    fn panic_ok(self, at: SourceRange, t: *Type, v: *Expr) -> *Expr {
-        var en = self.panic_adt(t);
-        ICE_IF(en == &null, "EnumLayoutQuery: panic_ok of a type that is no panic result");
-        var ok = self._panic_ok(en);
-        var n = VariantInitExpr::create(self.sc->ctx, at, static_cast::<*Decl>(en), u32(adt_variant_pos(en, ok)));
-        var fs = ListBuilder::<*Expr>(self.sc->ctx);
-        var so = ListBuilder::<u32>(self.sc->ctx);
-        if v != &null {
-            fs.push(v);
-            so.push(u32(0));
+    fn panic_ok(self, at: SourceRange, t: unsafe *Type, v: unsafe *Expr) -> unsafe *Expr {
+        var unsafe *en = self.panic_adt(t)
+        if en == &null {
+            kairo::std::ice_fail("EnumLayoutQuery: panic_ok of a type that is no panic result")
         }
-        fs.freeze_into(&(n->fields));
-        so.freeze_into(&(n->source_order));
-        n->type_          = t;
-        n->value_category = Expr::ValueCategory::RValue;
-        return static_cast::<*Expr>(n);
+
+        var unsafe *ok = self._panic_ok(en)
+        var unsafe *n = VariantInitExpr::create(
+            self.sc->ctx,
+            at,
+            unsafe (en as unsafe *Decl),
+            adt_variant_pos(en, ok) as u32,
+        )
+
+        var fs = ListBuilder<unsafe *Expr>(self.sc->ctx)
+        var so = ListBuilder<u32>(self.sc->ctx)
+        if v != &null {
+            fs.push(v)
+            so.push(0 as u32)
+        }
+
+        fs.freeze_into(&n->fields)
+        so.freeze_into(&n->source_order)
+        n->type_          = t
+        n->value_category = Expr::ValueCategory::RValue
+        return n
     }
 
     /// `Err { error: v }` holding error type \p e, as the panic result \p t,
     /// with site id \p site in its word 0 (§1.4; 0 for none).
-    fn panic_err(self, at: SourceRange, t: *Type, e: *Type, site: u32, v: *Expr) -> *Expr {
-        var en = self.panic_adt(t);
-        ICE_IF(en == &null, "EnumLayoutQuery: panic_err of a type that is no panic result");
-        var pv  = adt_pack_variant(en);
-        var pos = adt_variant_pos(en, pv);
-        var idx = self.panic_elem_index(t, e);
-        var n = VariantInitExpr::create(self.sc->ctx, at, static_cast::<*Decl>(en), u32(pos));
-        var fs = ListBuilder::<*Expr>(self.sc->ctx);
-        var so = ListBuilder::<u32>(self.sc->ctx);
-        fs.push(v);
-        so.push(u32(0));
-        fs.freeze_into(&(n->fields));
-        so.freeze_into(&(n->source_order));
-        n->pack_index     = i32(idx - u32(pos));
-        n->pack_elem      = canon_unqual(e);
-        n->site           = site;
-        n->type_          = t;
-        n->value_category = Expr::ValueCategory::RValue;
-        return static_cast::<*Expr>(n);
+    fn panic_err(self,
+                 at:   SourceRange,
+                 t:    unsafe *Type,
+                 e:    unsafe *Type,
+                 site: u32,
+                 v:    unsafe *Expr) -> unsafe *Expr {
+        var unsafe *en = self.panic_adt(t)
+        if en == &null {
+            kairo::std::ice_fail("EnumLayoutQuery: panic_err of a type that is no panic result")
+        }
+
+        var unsafe *pv = adt_pack_variant(en)
+        var        pos = adt_variant_pos(en, pv)
+        var        idx = self.panic_elem_index(t, e)
+        var unsafe *n  = VariantInitExpr::create(self.sc->ctx, at, en, pos as u32)
+        var        fs  = ListBuilder<unsafe *Expr>(self.sc->ctx)
+        var        so  = ListBuilder<u32>(self.sc->ctx)
+        fs.push(v)
+        so.push(0 as u32)
+        fs.freeze_into(&n->fields)
+        so.freeze_into(&n->source_order)
+        n->pack_index     = ((idx - (pos as u32)) as i32)
+        n->pack_elem      = canon_unqual(e)
+        n->site           = site
+        n->type_          = t
+        n->value_category = Expr::ValueCategory::RValue
+        return n
     }
 
     /// The lang item's ordinary variant: Ok.
-    priv fn _panic_ok(self, en: *EnumDecl) -> *EnumVariantDecl {
+    priv fn _panic_ok(self,
+                      en: unsafe *Declarations::EnumDecl) -> unsafe *Declarations::EnumVariantDecl {
         for var i: usize = 0; i < en->variants.size(); ++i {
-            var v = en->variants[i];
-            if (v != &null) && (!v->is_pack_expansion) { return v; }
+            var unsafe *v = en->variants[i]
+            if v != &null && !v->is_pack_expansion {
+                return v
+            }
         }
-        ICE_FAIL("EnumLayoutQuery: the Panic lang item without its Ok variant");
-        return &null;
+
+        kairo::std::ice_fail("EnumLayoutQuery: the Panic lang item without its Ok variant")
     }
 
-    priv fn _bin(self, at: SourceRange, l: *Expr, r: *Expr, k: TokenKind) -> *Expr {
-        var b = BinaryOperatorExpr::create(self.sc->ctx, at, l, r, self.synth.punct(at, k));
-        b->type_          = self.sc->builtin(BuiltinKind::Bool);
-        b->value_category = Expr::ValueCategory::RValue;
-        return static_cast::<*Expr>(b);
+    priv fn _bin(self,
+                 at: SourceRange,
+                 l:  unsafe *Expr,
+                 r:  unsafe *Expr,
+                 k:  TokenKind) -> unsafe *Expr {
+        var unsafe *b = BinaryOperatorExpr::create(self.sc->ctx, at, l, r, self.synth.punct(at, k))
+        b->type_          = self.sc->builtin(BuiltinKind::Bool)
+        b->value_category = Expr::ValueCategory::RValue
+        return b
     }
 }
 
 /// Lang-item overrides of an ADT's layout (spec ENUMLAYOUT §7), keyed on
 /// the decl by EnumLayoutLowering::_knobs. Every default is the layout every
-/// other ADT gets; the Panic lang item (PANIC.md §1.1a) sets all of them.
+/// other ADT gets; the Panic lang item (Compiler/Spec/Panic.md#layout) sets all of them.
 /// Any knob also rules out the niche and the common-prefix layouts: word 0
 /// is the tag and the site, which neither keeps.
-class AdtLayoutKnobs {
+pub class AdtLayoutKnobs {
     /// A pack-expanded variant's elements are tagged by their panic type id
-    /// (PANIC.md §1.3) rather than by position; ordinary variants keep
+    /// (Compiler/Spec/Panic.md#canonical-sets) rather than by position; ordinary variants keep
     /// their positions (Panic's Ok is 0, which no id is). Per instance, so
     /// it is a rule (EnumLayoutQuery::tag_value), not a list of values.
-    pub var type_id_tags: bool = false;
-    pub var tag_kind_set: bool = false;
-    pub var tag_kind:     BuiltinKind = BuiltinKind::U32;
+    pub var type_id_tags: bool        = false
+    pub var tag_kind_set: bool        = false
+    pub var tag_kind:     BuiltinKind = BuiltinKind::U32
     /// The payload union is aligned to at least this, and to every
     /// payload's alignment: `max(floor, alignof(P)...)`, per instance, so
     /// C++ computes it (`__kairo_payload_offset`) and Sema predicts it
     /// (EnumLayoutQuery::size_of). 0 = natural.
-    pub var union_floor:  u32  = 0;
-    pub var site_slot:    bool = false;    ///< a u32 `__kairo_site` between the tag and the union.
+    pub var union_floor: u32  = 0
+    pub var site_slot:   bool = false ///< a u32 `__kairo_site` between the tag and the union.
     /// A payload field whose type is a bare type parameter holds an empty
     /// struct when the argument is `void` (`Panic<void, E...>`'s Ok), and
     /// every variant is built through its lambda constructor, which never
     /// takes the field by value.
-    pub var void_payload: bool = false;
+    pub var void_payload: bool = false
 
     fn AdtLayoutKnobs(self) { }
 
     fn any(self) -> bool {
-        return self.type_id_tags || self.tag_kind_set || (self.union_floor > 0) || self.site_slot || self.void_payload;
+        return self.type_id_tags
+            || self.tag_kind_set
+            || self.union_floor > 0
+            || self.site_slot
+            || self.void_payload
     }
 }
 
-class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
-    pub var sc: *SemaContext;
-    priv var tu: TypeUtil;
-    priv var synth: LowerSynth;
+pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
+    pub var  sc:    unsafe *SemaContext
+    priv var tu:    TypeUtil
+    priv var synth: LowerSynth
 
-    fn EnumLayoutLowering(self, sc: *SemaContext) {
-        self.sc    = sc;
-        self.ctx   = sc->ctx;
-        self.tu    = TypeUtil(sc);
-        self.synth = LowerSynth(sc);
+    fn EnumLayoutLowering(self, sc: unsafe *SemaContext) {
+        self.sc    = sc
+        self.ctx   = sc->ctx
+        self.tu    = TypeUtil(sc)
+        self.synth = LowerSynth(sc)
     }
 
     fn run(self) {
-        self.sc->require_phase(SemaPhase::Checked);
-        if self.sc->tu == &null { return; }
-        ASTWriter::<EnumLayoutLowering>::run(self.sc->tu);
+        self.sc->require_phase(SemaPhase::Checked)
+        if self.sc->tu == &null {
+            return
+        }
+
+        ASTWriter<EnumLayoutLowering>::run(self, self.sc->tu)
     }
 
-    // --- entry point --------------------------------------------------------------
+    /// # entry point
 
     /// Wherever the walk finds one: at file scope, in a module, nested in a
     /// record.
-    fn transform_enum_decl(self, n: *EnumDecl) -> vec::<*Decl> {
-        var out = ASTWriter::<EnumLayoutLowering>::transform_enum_decl(n);
-        if self._wants_layout(n) { self._build(n); }
-        return out;
+    fn transform_enum_decl(self,
+                           n: unsafe *Declarations::EnumDecl) -> cxx::std::vector<unsafe *Decl> {
+        var out = ASTWriter<EnumLayoutLowering>::transform_enum_decl(self, n)
+        if self._wants_layout(n) {
+            self._build(n)
+        }
+
+        return out
     }
 
     /// A construction: a generic variant built both ways (AdtCtorForm::Both)
@@ -1081,149 +1722,272 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     /// field moves. The layout is built first if the walk has not reached
     /// the enum yet, so a construction above its enum is decided the same
     /// way as one below it.
-    fn transform_variant_init_expr(self, n: *VariantInitExpr) -> *Expr {
-        var out = ASTWriter::<EnumLayoutLowering>::transform_variant_init_expr(n);
-        var en  = dyn_cast::<EnumDecl>(n->en);
-        if (en == &null) || (!en->is_adt) || (usize(n->variant) >= en->variants.size()) { return out; }
-        if self._wants_layout(en) { self._build(en); }
-        var v = en->variants[usize(n->variant)];
-        if (v == &null) || (v->adt_ctor != AdtCtorForm::Both) || (n->type_ == &null) { return out; }
-        if n->type_->is_dependent() || n->type_->is_instantiation_dependent() { return out; }
-        var q    = EnumLayoutQuery(self.sc);
-        var args = self.tu.record_args(n->type_);
-        for var i: usize = 0; i < v->payload.size(); ++i {
-            var ft = q.field_type_at(en, &args, v->payload[i]->type_);
-            if (ft == &null) || (!self._moves(ft)) { return out; }
+    fn transform_variant_init_expr(self, n: unsafe *VariantInitExpr) -> unsafe *Expr {
+        var unsafe *out = ASTWriter<EnumLayoutLowering>::transform_variant_init_expr(self, n)
+        var unsafe *en  = dyn_cast<Declarations::EnumDecl>(n->en)
+        if en == &null || !en->is_adt || (n->variant as usize) >= en->variants.size() {
+            return out
         }
-        n->field_ctor = true;
-        return out;
+
+        if self._wants_layout(en) {
+            self._build(en)
+        }
+
+        var unsafe *v = en->variants[n->variant as usize]
+        if v == &null || v->adt_ctor != Declarations::AdtCtorForm::Both || n->type_ == &null {
+            return out
+        }
+
+        if n->type_->is_dependent() || n->type_->is_instantiation_dependent() {
+            return out
+        }
+
+        var q    = EnumLayoutQuery(self.sc)
+        var args = self.tu.record_args(n->type_)
+        for var i: usize = 0; i < v->payload.size(); ++i {
+            var unsafe *ft = q.field_type_at(en, args, v->payload[i]->type_)
+            if ft == &null || !self._moves(ft) {
+                return out
+            }
+        }
+
+        n->field_ctor = true
+        return out
     }
 
     /// `__builtin_niche_of<T>()` -> the count, a `u64` literal (the lang
     /// item's own body is never what answers). The layouts T holds are
     /// built first, so the answer is the one a layout reading it would get.
-    fn transform_call_expr(self, n: *CallExpr) -> *Expr {
-        var out = ASTWriter::<EnumLayoutLowering>::transform_call_expr(n);
-        if out != static_cast::<*Expr>(n) { return out; }
-        var callee = dyn_cast::<NamedIdentExpr>(n->callee);
-        if (callee == &null) || (callee->resolved_decl == &null) { return out; }
-        var cd = NameLookup::representative(callee->resolved_decl);
-        if self._is_lang(cd, WellKnownType::TypeIdOf)    { return self._type_id_of(n); }
-        if self._is_lang(cd, WellKnownType::PanicSiteOf) { return self._panic_site_of(n); }
-        var tk = self._kairo_trait_kind(cd);
-        if tk != WellKnownType::COUNT { return self._kairo_trait(n, tk); }
-        if !self._is_lang(cd, WellKnownType::NicheOf) { return out; }
+    fn transform_call_expr(self, n: unsafe *CallExpr) -> unsafe *Expr {
+        var unsafe *out = ASTWriter<EnumLayoutLowering>::transform_call_expr(self, n)
+        if out != n {
+            return out
+        }
+
+        var unsafe *callee = dyn_cast<NamedIdentExpr>(n->callee)
+        if callee == &null || callee->resolved_decl == &null {
+            return out
+        }
+
+        var unsafe *cd = NameLookup::representative(callee->resolved_decl)
+        if self._is_lang(cd, WellKnownType::TypeIdOf) {
+            return self._type_id_of(n)
+        }
+
+        if self._is_lang(cd, WellKnownType::PanicSiteOf) {
+            return self._panic_site_of(n)
+        }
+
+        var tk = self._kairo_trait_kind(cd)
+        if tk != WellKnownType::COUNT {
+            return self._kairo_trait(n, tk)
+        }
+
+        if !self._is_lang(cd, WellKnownType::NicheOf) {
+            return out
+        }
+
         // A dependent call (a generic body's) has no instance entry: its T is
         // the instance's, which is the case reported below.
-        var ie = reinterpret_cast::<*InstanceEntry>(n->instance);
-        ICE_IF((ie != &null) && (ie->args.size() != 1), "EnumLayoutLowering: __builtin_niche_of instance without its one argument");
-        var cnt = niche_unknown();
-        if ie != &null {
-            self._prebuild(ie->args[0]);
-            cnt = EnumLayoutQuery(self.sc).niche_of_record(ie->args[0]);
+        var unsafe *ie = n->instance
+        if ie != &null && ie->args.size() != 1 {
+            kairo::std::ice_fail(
+                "EnumLayoutLowering: __builtin_niche_of instance without its one argument",
+            )
         }
+
+        var cnt = niche_unknown()
+        if ie != &null {
+            self._prebuild(ie->args[0])
+            cnt = EnumLayoutQuery(self.sc).niche_of_record(ie->args[0])
+        }
+
         if cnt == niche_unknown() {
             // A generic body's T: the count is the instance's, and nothing
             // here can name it (the call is answered before C++ instantiates).
-            var b = self.sc->diag->report(DiagID::SC001E, n->range.start,
-                "\x27" + to_string(WellKnownType::NicheOf) + "' needs a type whose layout is known here; this one depends on a generic parameter");
-            b.first(n->range, "answered at compile time, before any instantiation");
-            b.emit();
-            cnt = 0;
+            var b = self.sc->diag->report(
+                DiagID::SC233E,
+                n->range.start,
+                "'" + to_string(
+                    WellKnownType::NicheOf,
+                ) + "' needs a type whose layout is known here; this one depends on a generic parameter",
+            )
+
+            b.first(n->range, "answered at compile time, before any instantiation")
+            b.emit()
+            cnt = 0
         }
-        var lit = self.synth.int_literal(n->range, cnt, BuiltinKind::U64);
-        lit->adopt_sema(static_cast::<*Expr>(n));
-        return lit;
+
+        var unsafe *lit = self.synth.int_literal(n->range, cnt, BuiltinKind::U64)
+        lit->adopt_sema(unsafe (n as unsafe *Expr))
+        return lit
     }
 
-    priv fn _is_lang(self, d: *Decl, k: WellKnownType) -> bool {
-        var ld = self.sc->well_known->get(k);
-        return (ld != &null) && (d == NameLookup::representative(ld));
+    priv fn _is_lang(self, d: unsafe *Decl, k: WellKnownType) -> bool {
+        var unsafe *ld = self.sc->well_known->get(k)
+        return ld != &null && d == NameLookup::representative(ld)
     }
 
     /// `__builtin_type_id<T>()` -> T's panic type id, a `u32` literal
-    /// (PANIC.md §1.3; PanicSets is the one place an id is computed). A
+    /// (Compiler/Spec/Panic.md#canonical-sets; PanicSets is the one place an id is computed). A
     /// compiler test hook: what a `catch e: T` will compare the tag with.
-    priv fn _type_id_of(self, n: *CallExpr) -> *Expr {
-        var ie = reinterpret_cast::<*InstanceEntry>(n->instance);
-        ICE_IF((ie != &null) && (ie->args.size() != 1), "EnumLayoutLowering: __builtin_type_id instance without its one argument");
-        var id: u32 = 0;
-        if ie != &null { id = PanicSets(self.sc).type_id(ie->args[0]); }
-        if id == u32(0) {
-            var b = self.sc->diag->report(DiagID::SC001E, n->range.start,
-                "\x27" + to_string(WellKnownType::TypeIdOf) + "' needs a type every TU spells the same way; this one depends on a generic parameter or has no C++ type");
-            b.first(n->range, "answered at compile time, before any instantiation");
-            b.emit();
+    priv fn _type_id_of(self, n: unsafe *CallExpr) -> unsafe *Expr {
+        var unsafe *ie = n->instance
+        if ie != &null && ie->args.size() != 1 {
+            kairo::std::ice_fail(
+                "EnumLayoutLowering: __builtin_type_id instance without its one argument",
+            )
         }
-        var lit = self.synth.int_literal(n->range, u64(id), BuiltinKind::U32);
-        lit->adopt_sema(static_cast::<*Expr>(n));
-        return lit;
+
+        var id: u32 = 0
+        if ie != &null {
+            id = PanicSets(self.sc).type_id(ie->args[0])
+        }
+
+        if id == (0 as u32) {
+            var b = self.sc->diag->report(
+                DiagID::SC233E,
+                n->range.start,
+                "'" + to_string(
+                    WellKnownType::TypeIdOf,
+                ) + "' needs a type every TU spells the same way; this one depends on a generic parameter or has no C++ type",
+            )
+
+            b.first(n->range, "answered at compile time, before any instantiation")
+            b.emit()
+        }
+
+        var unsafe *lit = self.synth.int_literal(n->range, id, BuiltinKind::U32)
+        lit->adopt_sema(unsafe (n as unsafe *Expr))
+        return lit
     }
 
     /// Which Kairo-only type query \p d is, or COUNT.
-    priv fn _kairo_trait_kind(self, d: *Decl) -> WellKnownType {
-        if self._is_lang(d, WellKnownType::IsSafePointer) { return WellKnownType::IsSafePointer; }
-        if self._is_lang(d, WellKnownType::IsUnsafePointer) { return WellKnownType::IsUnsafePointer; }
-        if self._is_lang(d, WellKnownType::IsNullable) { return WellKnownType::IsNullable; }
-        if self._is_lang(d, WellKnownType::IsAdtEnum) { return WellKnownType::IsAdtEnum; }
-        if self._is_lang(d, WellKnownType::IsClass) { return WellKnownType::IsClass; }
-        if self._is_lang(d, WellKnownType::IsStruct) { return WellKnownType::IsStruct; }
-        if self._is_lang(d, WellKnownType::IsTuple) { return WellKnownType::IsTuple; }
-        if self._is_lang(d, WellKnownType::TupleArity) { return WellKnownType::TupleArity; }
-        return WellKnownType::COUNT;
+    priv fn _kairo_trait_kind(self, d: unsafe *Decl) -> WellKnownType {
+        if self._is_lang(d, WellKnownType::IsSafePointer) {
+            return WellKnownType::IsSafePointer
+        }
+
+        if self._is_lang(d, WellKnownType::IsUnsafePointer) {
+            return WellKnownType::IsUnsafePointer
+        }
+
+        if self._is_lang(d, WellKnownType::IsNullable) {
+            return WellKnownType::IsNullable
+        }
+
+        if self._is_lang(d, WellKnownType::IsAdtEnum) {
+            return WellKnownType::IsAdtEnum
+        }
+
+        if self._is_lang(d, WellKnownType::IsClass) {
+            return WellKnownType::IsClass
+        }
+
+        if self._is_lang(d, WellKnownType::IsStruct) {
+            return WellKnownType::IsStruct
+        }
+
+        if self._is_lang(d, WellKnownType::IsTuple) {
+            return WellKnownType::IsTuple
+        }
+
+        if self._is_lang(d, WellKnownType::TupleArity) {
+            return WellKnownType::TupleArity
+        }
+
+        return WellKnownType::COUNT
     }
 
     /// A Kairo-only type query -> a literal. Only Sema knows the answer (C++
     /// spells a safe and an unsafe pointer, a class, a struct and an ADT
     /// alike), so a T that depends on a generic parameter has none here: the
     /// call is answered before any instantiation, as NicheOf's is.
-    priv fn _kairo_trait(self, n: *CallExpr, k: WellKnownType) -> *Expr {
-        var ie = reinterpret_cast::<*InstanceEntry>(n->instance);
-        var t: *Type = &null;
-        if (ie != &null) && (ie->args.size() == 1) { t = ie->args[0]; }
-        if (t != &null) && (t->canonical != &null) { t = t->canonical; }
-        if (t == &null) || t->is_dependent() || t->is_instantiation_dependent() {
-            var b = self.sc->diag->report(DiagID::SC001E, n->range.start,
-                "\x27" + to_string(k) + "' needs a concrete type; this one depends on a generic parameter");
-            b.first(n->range, "answered at compile time, before any instantiation");
-            b.emit();
-            t = &null;
+    priv fn _kairo_trait(self, n: unsafe *CallExpr, k: WellKnownType) -> unsafe *Expr {
+        var unsafe *ie              = n->instance
+        var        t:  unsafe *Type = &null
+        if ie != &null && ie->args.size() == 1 {
+            t = ie->args[0]
         }
-        var arity: usize = 0;
-        if t != &null { arity = self.tu.tuple_arity(t); }
-        if k == WellKnownType::TupleArity {
-            var lit = self.synth.int_literal(n->range, u64(arity), BuiltinKind::USize);
-            lit->adopt_sema(static_cast::<*Expr>(n));
-            return lit;
+
+        if t != &null && t->canonical != &null {
+            t = t->canonical
         }
-        var v = false;
+
+        if t == &null || t->is_dependent() || t->is_instantiation_dependent() {
+            var b = self.sc->diag->report(
+                DiagID::SC233E,
+                n->range.start,
+                "'" + to_string(
+                    k,
+                ) + "' needs a concrete type; this one depends on a generic parameter",
+            )
+
+            b.first(n->range, "answered at compile time, before any instantiation")
+            b.emit()
+            t = &null
+        }
+
+        var arity: usize = 0
         if t != &null {
-            var u  = canon_unqual(t);
-            var rd = self.tu.record_decl(u);
-            if k == WellKnownType::IsSafePointer   { v = isa::<PointerType>(u) && (!self.tu.is_unsafe_ptr(u)); }
-            if k == WellKnownType::IsUnsafePointer { v = self.tu.is_unsafe_ptr(u); }
-            if k == WellKnownType::IsNullable      { v = isa::<NullableType>(u); }
-            if k == WellKnownType::IsTuple         { v = arity > 0; }
+            arity = self.tu.tuple_arity(t)
+        }
+
+        if k == WellKnownType::TupleArity {
+            var unsafe *lit = self.synth.int_literal(n->range, arity as u64, BuiltinKind::USize)
+            lit->adopt_sema(unsafe (n as unsafe *Expr))
+            return lit
+        }
+
+        var v = false
+        if t != &null {
+            var unsafe *u  = canon_unqual(t)
+            var unsafe *rd = self.tu.record_decl(u)
+            if k == WellKnownType::IsSafePointer {
+                v = isa<PointerType>(u) && !self.tu.is_unsafe_ptr(u)
+            }
+
+            if k == WellKnownType::IsUnsafePointer {
+                v = self.tu.is_unsafe_ptr(u)
+            }
+
+            if k == WellKnownType::IsNullable {
+                v = isa<NullableType>(u)
+            }
+
+            if k == WellKnownType::IsTuple {
+                v = arity > 0
+            }
+
             if rd != &null {
-                var pd = self.tu.pattern_of(NameLookup::representative(rd));
-                if k == WellKnownType::IsAdtEnum { v = isa::<EnumDecl>(pd) && cast::<EnumDecl>(pd)->is_adt; }
-                if k == WellKnownType::IsClass   { v = isa::<ClassDecl>(pd); }
-                if k == WellKnownType::IsStruct  { v = isa::<StructDecl>(pd) && (arity == 0); }
+                var unsafe *pd = self.tu.pattern_of(NameLookup::representative(rd))
+                if k == WellKnownType::IsAdtEnum {
+                    v = isa<Declarations::EnumDecl>(pd) && cast<Declarations::EnumDecl>(pd)->is_adt
+                }
+
+                if k == WellKnownType::IsClass {
+                    v = isa<Declarations::ClassDecl>(pd)
+                }
+
+                if k == WellKnownType::IsStruct {
+                    v = isa<Declarations::StructDecl>(pd) && arity == 0
+                }
             }
         }
-        var bl = self.synth.bool_literal(n->range, v);
-        bl->adopt_sema(static_cast::<*Expr>(n));
-        return bl;
+
+        var unsafe *bl = self.synth.bool_literal(n->range, v)
+        bl->adopt_sema(unsafe (n as unsafe *Expr))
+        return bl
     }
 
     /// `__builtin_panic_site()` -> the id of the site this call is at, a
     /// `u32` literal, registered in the TU's site table as a `panic` is
-    /// (PANIC.md §1.4). A compiler test hook until PanicLowering exists.
-    priv fn _panic_site_of(self, n: *CallExpr) -> *Expr {
-        var id = PanicSets(self.sc).site_id(n->range.start);
-        var lit = self.synth.int_literal(n->range, u64(id), BuiltinKind::U32);
-        lit->adopt_sema(static_cast::<*Expr>(n));
-        return lit;
+    /// (Compiler/Spec/Panic.md#site-ids). A compiler test hook until PanicLowering exists.
+    priv fn _panic_site_of(self, n: unsafe *CallExpr) -> unsafe *Expr {
+        var        id   = PanicSets(self.sc).site_id(n->range.start)
+        var unsafe *lit = self.synth.int_literal(n->range, id, BuiltinKind::U32)
+        lit->adopt_sema(unsafe (n as unsafe *Expr))
+        return lit
     }
 
     /// An ADT's pattern, once. An instance shares its pattern's record; a
@@ -1232,201 +1996,339 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     /// lists its members again) already has its record. A poisoned enum or
     /// an unresolved payload type was reported, and an error keeps the
     /// lowerings from running at all, so that test is only a guard.
-    priv fn _wants_layout(self, en: *EnumDecl) -> bool {
-        if (!en->is_adt) || en->is_poisoned() { return false; }
-        var d = static_cast::<*Decl>(en);
-        if decl_is_instance(d) { return false; }
-        if NameLookup::representative(d) != d { return false; }
-        if en->adt_layout != &null { return false; }
+    priv fn _wants_layout(self, en: unsafe *Declarations::EnumDecl) -> bool {
+        if !en->is_adt || en->is_poisoned() {
+            return false
+        }
+
+        var unsafe *d = unsafe (en as unsafe *Decl)
+        if decl_is_instance(d) {
+            return false
+        }
+
+        if NameLookup::representative(d) != d {
+            return false
+        }
+
+        if en->adt_layout != &null {
+            return false
+        }
+
         for var i: usize = 0; i < en->variants.size(); ++i {
-            var v = en->variants[i];
-            if (v == &null) || v->is_poisoned() { return false; }
+            var unsafe *v = en->variants[i]
+            if v == &null || v->is_poisoned() {
+                return false
+            }
+
             for var j: usize = 0; j < v->payload.size(); ++j {
-                var f = v->payload[j];
-                if (f == &null) || f->is_poisoned() { return false; }
-                if (f->type_ == &null) || (f->type_->canonical == &null) { return false; }
+                var unsafe *f = v->payload[j]
+                if f == &null || f->is_poisoned() {
+                    return false
+                }
+
+                if f->type_ == &null || f->type_->canonical == &null {
+                    return false
+                }
             }
         }
-        return true;
+
+        return true
     }
 
-    // --- the record ---------------------------------------------------------------
+    /// # the record
 
-    priv fn _build(self, en: *EnumDecl) {
-        var at      = en->name.range;
-        var edc     = static_cast::<*DeclContext>(en);
-        var generic = en->generic_params.size() > 0;
+    priv fn _build(self, en: unsafe *Declarations::EnumDecl) {
+        var        at      = en->name.range
+        var unsafe *edc    = unsafe (en as unsafe *DeclContext)
+        var        generic = en->generic_params.size() > 0
 
         // The enum's own name and generic parameters: to C++ this record IS
         // the enum, so anything that asks it for either gets the enum's.
-        var lay = StructDecl::create(self.ctx, en->range, en->name, edc);
+        var unsafe *lay = Declarations::StructDecl::create(self.ctx, en->range, en->name, edc)
         // Synthesized whole, so a definition (decl_only_forward reads a
         // record with no defining link as only forward-declared).
-        lay->mark_definition();
-        self._place(static_cast::<*Decl>(lay), edc, VisibilityKind::Public, at);
-        self._no_members(lay);
-        lay->generic_params = en->generic_params;
-        lay->adt_of         = static_cast::<*Decl>(en);
-        var ldc = static_cast::<*DeclContext>(lay);
+        lay->mark_definition()
+        self._place(lay, edc, VisibilityKind::Public, at)
+        self._no_members(lay)
+        lay->generic_params = en->generic_params
+        lay->adt_of         = en
+        var unsafe *ldc = unsafe (lay as unsafe *DeclContext)
 
-        var knobs = self._knobs(en);
-        var tag = self._tag_enum(en, at, edc, &knobs);
-        ldc->add_decl(static_cast::<*Decl>(tag));
+        var        knobs = self._knobs(en)
+        var unsafe *tag  = self._tag_enum(en, at, edc, &knobs)
+        ldc->add_decl(unsafe (tag as unsafe *Decl))
 
         // The layout's shape, decided before anything is minted: a
         // niche-filled ADT has no tag at all, a prefix-tagged one keeps it
         // inside each payload (file header).
-        var shaped = (!knobs.any()) && self._niche_shaped(en);
-        var niche  = false;
-        if shaped && (!generic) {
-            var npv = en->variants[usize(adt_niche_payload_variant(en))];
-            self._prebuild(npv->payload[0]->type_);
-            niche = EnumLayoutQuery(self.sc).niche_verdict(en, npv->payload[0]->type_) == 1;
+        var shaped = !knobs.any() && self._niche_shaped(en)
+        var niche  = false
+        if shaped && !generic {
+            var unsafe *npv = en->variants[adt_niche_payload_variant(en) as usize]
+            self._prebuild(npv->payload[0]->type_)
+            niche = EnumLayoutQuery(self.sc).niche_verdict(en, npv->payload[0]->type_) == 1
         }
-        var prefix = (!generic) && (!niche) && (!knobs.any()) && self._prefix_ok(en);
-        var ttype  = self._type_of(static_cast::<*Decl>(tag));
+
+        var        prefix = !generic && !niche && !knobs.any() && self._prefix_ok(en)
+        var unsafe *ttype = self._type_of(tag)
 
         // A struct and a union member for each variant that has a payload.
-        var members = self.list_builder::<*FieldDecl>();
-        var mvec    = vec::<*FieldDecl>();
+        var members = self.list_builder<unsafe *Declarations::FieldDecl>()
+        var mvec    = cxx::std::vector<unsafe *Declarations::FieldDecl>()
         for var i: usize = 0; i < en->variants.size(); ++i {
-            var v = en->variants[i];
-            if v->payload.is_empty() { continue; }
-            var vn = self.tu.decl_name(static_cast::<*Decl>(v));
-            var ps = self._payload_struct(v, vn, edc, (ttype) if (prefix) else (&null));
+            var unsafe *v = en->variants[i]
+            if v->payload.is_empty() {
+                continue
+            }
+
+            var        vn  = self.tu.decl_name(unsafe (v as unsafe *Decl))
+            var unsafe *ps = self._payload_struct(v, vn, edc, if (prefix) => (ttype) else => &null)
             // `Err { e: E }...`: the struct is a template over one element,
             // and its union member holds one per element (InterfaceEmitter).
-            if v->is_pack_expansion { ps->adt_pack_param = en->generic_params[adt_pack_param(en)]; }
-            ldc->add_decl(static_cast::<*Decl>(ps));
-            var m = FieldDecl::create(self.ctx, v->name.range,
-                                      self.synth.ident(v->name.range, LowerTargets::adt_payload_field(vn)),
-                                      StorageClass::Var, self._type_of(static_cast::<*Decl>(ps)), u32(members.size()));
-            self._place(static_cast::<*Decl>(m), edc, VisibilityKind::Public, v->name.range);
-            members.push(m);
-            mvec.push_back(m);
-            v->adt_member = m;
-            v->adt_ctor   = (AdtCtorForm::Lambda) if (v->is_pack_expansion || knobs.void_payload) else (self._ctor_form(v, generic));
+            if v->is_pack_expansion {
+                ps->adt_pack_param = en->generic_params[adt_pack_param(en)]
+            }
+
+            ldc->add_decl(ps)
+            var unsafe *m = Declarations::FieldDecl::create(
+                self.ctx,
+                v->name.range,
+                self.synth.ident(v->name.range, LowerTargets::adt_payload_field(vn)),
+                Declarations::StorageClass::Var,
+                self._type_of(ps),
+                members.size() as u32,
+            )
+
+            self._place(m, edc, VisibilityKind::Public, v->name.range)
+            members.push(m)
+            mvec.push_back(m)
+            v->adt_member = m
+            v->adt_ctor = if (v->is_pack_expansion
+                              || knobs.void_payload) => (Declarations::AdtCtorForm::Lambda)
+                          else => self._ctor_form(v, generic)
         }
 
-        var fields = self.list_builder::<*FieldDecl>();
-        var tf = FieldDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_tag_field()),
-                                   StorageClass::Var, self._type_of(static_cast::<*Decl>(tag)), 0);
-        self._place(static_cast::<*Decl>(tf), edc, VisibilityKind::Public, at);
-        ldc->add_decl(static_cast::<*Decl>(tf));
-        fields.push(tf);
+        var fields = self.list_builder<unsafe *Declarations::FieldDecl>()
+        var unsafe *tf = Declarations::FieldDecl::create(
+            self.ctx,
+            at,
+            self.synth.ident(at, LowerTargets::adt_tag_field()),
+            Declarations::StorageClass::Var,
+            self._type_of(tag),
+            0,
+        )
+
+        self._place(tf, edc, VisibilityKind::Public, at)
+        ldc->add_decl(tf)
+        fields.push(tf)
         if knobs.site_slot {
-            var sf = FieldDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_site_field()),
-                                       StorageClass::Var, self.sc->builtin(BuiltinKind::U32), 1);
-            self._place(static_cast::<*Decl>(sf), edc, VisibilityKind::Public, at);
-            ldc->add_decl(static_cast::<*Decl>(sf));
-            fields.push(sf);
-            en->adt_site_field = sf;
+            var unsafe *sf = Declarations::FieldDecl::create(
+                self.ctx,
+                at,
+                self.synth.ident(at, LowerTargets::adt_site_field()),
+                Declarations::StorageClass::Var,
+                self.sc->builtin(BuiltinKind::U32),
+                1,
+            )
+
+            self._place(sf, edc, VisibilityKind::Public, at)
+            ldc->add_decl(sf)
+            fields.push(sf)
+            en->adt_site_field = sf
         }
-        en->adt_union_align = knobs.union_floor;
-        en->adt_void_unit   = knobs.void_payload;
+
+        en->adt_union_align = knobs.union_floor
+        en->adt_void_unit   = knobs.void_payload
         if knobs.union_floor > 0 {
             // The union's alignment, which is where every payload starts
-            // (PANIC.md §1.1a, §4.6: read from here, never assumed to be 8).
+            // (Compiler/Spec/Panic.md#layout, §4.6: read from here, never assumed to be 8).
             // Before the union: its `alignas` names it.
-            var po = FieldDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_payload_offset()),
-                                       StorageClass::Eval, self.sc->builtin(BuiltinKind::U32), u32(fields.size()));
-            self._place(static_cast::<*Decl>(po), edc, VisibilityKind::Public, at);
-            ldc->add_decl(static_cast::<*Decl>(po));
-            fields.push(po);
-            en->adt_payload_offset = po;
+            var unsafe *po = Declarations::FieldDecl::create(
+                self.ctx,
+                at,
+                self.synth.ident(at, LowerTargets::adt_payload_offset()),
+                Declarations::StorageClass::Eval,
+                self.sc->builtin(BuiltinKind::U32),
+                fields.size() as u32,
+            )
+
+            self._place(po, edc, VisibilityKind::Public, at)
+            ldc->add_decl(po)
+            fields.push(po)
+            en->adt_payload_offset = po
         }
 
         // No name, and declared only by the field that holds it: its members
         // are the record's to C++, and that field is in no field_of chain
         // (FieldDecl::is_anonymous_union).
-        var un = UnionDecl::create(self.ctx, at, Token(), edc);
-        un->mark_definition();
-        self._place(static_cast::<*Decl>(un), edc, VisibilityKind::Public, at);
-        un->is_anonymous   = true;
-        un->methods        = create_empty_frozen_list::<*FunctionDecl>();
-        un->generic_params = create_empty_frozen_list::<*GenericParamDecl>();
-        un->spec_args      = create_empty_frozen_list::<*Type>();
+        var unsafe *un = Declarations::UnionDecl::create(self.ctx, at, Token(), edc)
+        un->mark_definition()
+        self._place(un, edc, VisibilityKind::Public, at)
+        un->is_anonymous   = true
+        un->methods        = create_empty_frozen_list<unsafe *Declarations::FunctionDecl>()
+        un->generic_params = create_empty_frozen_list<unsafe *Declarations::GenericParamDecl>()
+        un->spec_args      = create_empty_frozen_list<unsafe *Type>()
         if prefix {
             // The tag-only member, first: reading the tag through it is the
             // common-initial-sequence read every payload struct allows.
-            var ts = StructDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_tag_only_type()), edc);
-            ts->mark_definition();
-            self._place(static_cast::<*Decl>(ts), edc, VisibilityKind::Public, at);
-            self._no_members(ts);
-            ts->is_adt_payload = true;
-            var tsl = self.list_builder::<*FieldDecl>();
-            var pt  = FieldDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_tag_field()), StorageClass::Var, ttype, 0);
-            self._place(static_cast::<*Decl>(pt), static_cast::<*DeclContext>(ts), VisibilityKind::Public, at);
-            tsl.push(pt);
-            tsl.freeze_into(&(ts->fields));
-            ldc->add_decl(static_cast::<*Decl>(ts));
-            var tm = FieldDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_tag_member()),
-                                       StorageClass::Var, self._type_of(static_cast::<*Decl>(ts)), 0);
-            self._place(static_cast::<*Decl>(tm), edc, VisibilityKind::Public, at);
-            var all = self.list_builder::<*FieldDecl>();
-            all.push(tm);
-            for var i: usize = 0; i < mvec.size(); ++i { all.push(mvec[i]); }
-            all.freeze_into(&(un->fields));
-            en->adt_tag_member = tm;
-            en->adt_prefix_tag = pt;
-        } else {
-            members.freeze_into(&(un->fields));
-        }
-        ldc->add_decl(static_cast::<*Decl>(un));
+            var unsafe *ts = Declarations::StructDecl::create(
+                self.ctx,
+                at,
+                self.synth.ident(at, LowerTargets::adt_tag_only_type()),
+                edc,
+            )
 
-        var uf = FieldDecl::create(self.ctx, at, Token(), StorageClass::Var, self._type_of(static_cast::<*Decl>(un)), u32(fields.size()));
-        uf->is_anonymous_union = true;
-        self._place(static_cast::<*Decl>(uf), edc, VisibilityKind::Public, at);
-        ldc->add_decl(static_cast::<*Decl>(uf));
-        fields.push(uf);
+            ts->mark_definition()
+            self._place(ts, edc, VisibilityKind::Public, at)
+            self._no_members(ts)
+            ts->is_adt_payload = true
+            var tsl = self.list_builder<unsafe *Declarations::FieldDecl>()
+            var unsafe *pt = Declarations::FieldDecl::create(
+                self.ctx,
+                at,
+                self.synth.ident(at, LowerTargets::adt_tag_field()),
+                Declarations::StorageClass::Var,
+                ttype,
+                0,
+            )
+
+            self._place(pt, ts, VisibilityKind::Public, at)
+            tsl.push(pt)
+            tsl.freeze_into(&ts->fields)
+            ldc->add_decl(ts)
+            var unsafe *tm = Declarations::FieldDecl::create(
+                self.ctx,
+                at,
+                self.synth.ident(at, LowerTargets::adt_tag_member()),
+                Declarations::StorageClass::Var,
+                self._type_of(ts),
+                0,
+            )
+
+            self._place(tm, edc, VisibilityKind::Public, at)
+            var all = self.list_builder<unsafe *Declarations::FieldDecl>()
+            all.push(tm)
+            for var i: usize = 0; i < mvec.size(); ++i {
+                all.push(mvec[i])
+            }
+
+            all.freeze_into(&un->fields)
+            en->adt_tag_member = tm
+            en->adt_prefix_tag = pt
+        } else {
+            members.freeze_into(&un->fields)
+        }
+
+        ldc->add_decl(un)
+
+        var unsafe *uf = Declarations::FieldDecl::create(
+            self.ctx,
+            at,
+            Token(),
+            Declarations::StorageClass::Var,
+            self._type_of(un),
+            fields.size() as u32,
+        )
+
+        uf->is_anonymous_union = true
+        self._place(uf, edc, VisibilityKind::Public, at)
+        ldc->add_decl(uf)
+        fields.push(uf)
 
         // What a generic ADT's constraints test. No expression stands behind
         // a flag: InterfaceEmitter writes its initializer from the payload
         // structs, so the field only names it.
         if generic {
-            self._flag(LowerTargets::adt_trivial_dtor(), at, edc, ldc, &fields);
-            self._flag(LowerTargets::adt_trivial_copy(), at, edc, ldc, &fields);
-            self._flag(LowerTargets::adt_destructible(), at, edc, ldc, &fields);
-            self._flag(LowerTargets::adt_copyable(),     at, edc, ldc, &fields);
-            self._flag(LowerTargets::adt_movable(),      at, edc, ldc, &fields);
+            self._flag(LowerTargets::adt_trivial_dtor(), at, edc, ldc, &fields)
+            self._flag(LowerTargets::adt_trivial_copy(), at, edc, ldc, &fields)
+            self._flag(LowerTargets::adt_destructible(), at, edc, ldc, &fields)
+            self._flag(LowerTargets::adt_copyable(), at, edc, ldc, &fields)
+            self._flag(LowerTargets::adt_movable(), at, edc, ldc, &fields)
         }
-        fields.freeze_into(&(lay->fields));
 
-        var methods = self.list_builder::<*FunctionDecl>();
+        fields.freeze_into(&lay->fields)
+
+        var methods = self.list_builder<unsafe *Declarations::FunctionDecl>()
         for var i: usize = 0; i < en->variants.size(); ++i {
-            self._member(ldc, &methods, self._role(en, en->name, AdtRole::VariantCtor, AdtForm::Body, u32(i), VisibilityKind::Public));
+            self._member(
+                ldc,
+                &methods,
+                self._role(
+                    en,
+                    en->name,
+                    Declarations::AdtRole::VariantCtor,
+                    Declarations::AdtForm::Body,
+                    i as u32,
+                    VisibilityKind::Public,
+                ),
+            )
         }
+
         if generic {
-            self._three(ldc, &methods, en, AdtRole::CopyCtor);
-            self._three(ldc, &methods, en, AdtRole::MoveCtor);
-            self._three(ldc, &methods, en, AdtRole::CopyAssign);
-            self._three(ldc, &methods, en, AdtRole::MoveAssign);
-            self._three(ldc, &methods, en, AdtRole::Dtor);
+            self._three(ldc, &methods, en, Declarations::AdtRole::CopyCtor)
+            self._three(ldc, &methods, en, Declarations::AdtRole::MoveCtor)
+            self._three(ldc, &methods, en, Declarations::AdtRole::CopyAssign)
+            self._three(ldc, &methods, en, Declarations::AdtRole::MoveAssign)
+            self._three(ldc, &methods, en, Declarations::AdtRole::Dtor)
         } else {
-            self._chosen(ldc, &methods, en);
+            self._chosen(ldc, &methods, en)
         }
+
         // What the bodies above call; nothing outside the record may.
-        self._member(ldc, &methods, self._role(en, self.synth.ident(at, LowerTargets::adt_destroy()),
-                                               AdtRole::Destroy, AdtForm::Body, 0, VisibilityKind::Private));
-        self._member(ldc, &methods, self._role(en, self.synth.ident(at, LowerTargets::adt_construct_from()),
-                                               AdtRole::ConstructFrom, AdtForm::Body, 0, VisibilityKind::Private));
-        if self._is_nullable(en) { self._nullable_surface(ldc, &methods, en); }
+        self._member(
+            ldc,
+            &methods,
+            self._role(
+                en,
+                self.synth.ident(at, LowerTargets::adt_destroy()),
+                Declarations::AdtRole::Destroy,
+                Declarations::AdtForm::Body,
+                0,
+                VisibilityKind::Private,
+            ),
+        )
+
+        self._member(
+            ldc,
+            &methods,
+            self._role(
+                en,
+                self.synth.ident(at, LowerTargets::adt_construct_from()),
+                Declarations::AdtRole::ConstructFrom,
+                Declarations::AdtForm::Body,
+                0,
+                VisibilityKind::Private,
+            ),
+        )
+
+        if self._is_nullable(en) {
+            self._nullable_surface(ldc, &methods, en)
+        }
 
         // Niche layout (file header). The facts are set before which() is
         // minted: a generic ADT may be laid out either way per instance, a
         // niche-filled one has no tag to read, and both answer which().
-        en->adt_tag_field   = tf;
-        en->adt_niche_shape = shaped;
-        en->adt_niche       = niche;
+        en->adt_tag_field   = tf
+        en->adt_niche_shape = shaped
+        en->adt_niche       = niche
         if generic || en->adt_niche {
-            var w = self._role(en, self.synth.ident(at, LowerTargets::adt_which()), AdtRole::Which, AdtForm::Body, 0, VisibilityKind::Public);
-            self._member(ldc, &methods, w);
-            en->adt_which = w;
-        }
-        methods.freeze_into(&(lay->methods));
+            var unsafe *w = self._role(
+                en,
+                self.synth.ident(at, LowerTargets::adt_which()),
+                Declarations::AdtRole::Which,
+                Declarations::AdtForm::Body,
+                0,
+                VisibilityKind::Public,
+            )
 
-        en->adt_layout    = static_cast::<*Decl>(lay);
-        en->adt_tag_field = tf;
+            self._member(ldc, &methods, w)
+            en->adt_which = w
+        }
+
+        methods.freeze_into(&lay->methods)
+
+        en->adt_layout    = lay
+        en->adt_tag_field = tf
     }
 
     /// `enum class __kairo_Tag : u8 { V0, V1, ... }`: every variant, payload
@@ -1434,46 +2336,72 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     /// is the variant's position and InterfaceEmitter writes the names bare.
     /// The narrowest word that holds them (_tag_kind): the tag sits before
     /// the union, so every byte past it is padding a small payload pays.
-    priv fn _tag_enum(self, en: *EnumDecl, at: SourceRange, edc: *DeclContext, knobs: *AdtLayoutKnobs) -> *EnumDecl {
-        var tag = EnumDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_tag_type()), edc);
-        self._place(static_cast::<*Decl>(tag), edc, VisibilityKind::Public, at);
-        tag->underlying     = self.sc->builtin((knobs->tag_kind) if (knobs->tag_kind_set) else (self._tag_kind(en)));
-        tag->generic_params = create_empty_frozen_list::<*GenericParamDecl>();
-        tag->spec_args      = create_empty_frozen_list::<*Type>();
-        var tdc = static_cast::<*DeclContext>(tag);
-        var vs  = self.list_builder::<*EnumVariantDecl>();
+    priv fn _tag_enum(self,
+                      en:    unsafe *Declarations::EnumDecl,
+                      at:    SourceRange,
+                      edc:   unsafe *DeclContext,
+                      knobs: *AdtLayoutKnobs) -> unsafe *Declarations::EnumDecl {
+        var unsafe *tag = Declarations::EnumDecl::create(
+            self.ctx,
+            at,
+            self.synth.ident(at, LowerTargets::adt_tag_type()),
+            edc,
+        )
+
+        self._place(tag, edc, VisibilityKind::Public, at)
+        tag->underlying = self.sc->builtin(
+            if (knobs->tag_kind_set) => (knobs->tag_kind) else => self._tag_kind(en),
+        )
+
+        tag->generic_params = create_empty_frozen_list<unsafe *Declarations::GenericParamDecl>()
+        tag->spec_args      = create_empty_frozen_list<unsafe *Type>()
+        var unsafe *tdc = unsafe (tag as unsafe *DeclContext)
+        var        vs   = self.list_builder<unsafe *Declarations::EnumVariantDecl>()
         for var i: usize = 0; i < en->variants.size(); ++i {
-            var v  = en->variants[i];
-            var tv = EnumVariantDecl::create(self.ctx, v->range, v->name, u32(i));
-            self._place(static_cast::<*Decl>(tv), tdc, VisibilityKind::Public, v->name.range);
-            tv->payload = create_empty_frozen_list::<*FieldDecl>();
-            vs.push(tv);
+            var unsafe *v = en->variants[i]
+            var unsafe *tv = Declarations::EnumVariantDecl::create(
+                self.ctx,
+                v->range,
+                v->name,
+                i as u32,
+            )
+
+            self._place(tv, tdc, VisibilityKind::Public, v->name.range)
+            tv->payload = create_empty_frozen_list<unsafe *Declarations::FieldDecl>()
+            vs.push(tv)
         }
-        vs.freeze_into(&(tag->variants));
+
+        vs.freeze_into(&tag->variants)
         // Type-id tags: a pack element's tag is no enumerator (it is its
         // type's id, per instance); the pack variant's enumerator only
         // names the variant, and nothing stores or compares it.
-        en->adt_explicit_tags = knobs->type_id_tags;
-        return tag;
+        en->adt_explicit_tags = knobs->type_id_tags
+        return tag
     }
 
     /// \p en's layout overrides (AdtLayoutKnobs), by identity with the lang
     /// item that wants them -- never by name: a user may declare an enum
-    /// called Panic. The Panic lang item (PANIC.md §1.1a): type-id tags in
+    /// called Panic. The Panic lang item (Compiler/Spec/Panic.md#layout): type-id tags in
     /// a u32, the u32 site beside it (word 0, one 64-bit store), the union
     /// at `max(8, alignof(...))`, and a `void` Ok.
-    priv fn _knobs(self, en: *EnumDecl) -> AdtLayoutKnobs {
-        var k = AdtLayoutKnobs();
+    priv fn _knobs(self, en: unsafe *Declarations::EnumDecl) -> AdtLayoutKnobs {
+        var k = AdtLayoutKnobs()
         if PanicSets(self.sc).panic_enum() == en {
-            ICE_IF(adt_pack_variant(en) == &null, "EnumLayoutLowering: the Panic lang item without its pack-expanded Err; Lib/builtin declares it");
-            k.type_id_tags = true;
-            k.tag_kind_set = true;
-            k.tag_kind     = BuiltinKind::U32;
-            k.union_floor  = 8;
-            k.site_slot    = true;
-            k.void_payload = true;
+            if adt_pack_variant(en) == &null {
+                kairo::std::ice_fail(
+                    "EnumLayoutLowering: the Panic lang item without its pack-expanded Err; Lib/builtin declares it",
+                )
+            }
+
+            k.type_id_tags = true
+            k.tag_kind_set = true
+            k.tag_kind     = BuiltinKind::U32
+            k.union_floor  = 8
+            k.site_slot    = true
+            k.void_payload = true
         }
-        return k;
+
+        return k
     }
 
     /// \p en can keep its tag in its payloads' common prefix (spec
@@ -1484,26 +2412,42 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     /// a tag that is no longer a member of its own. Anything else keeps the
     /// external tag. v1: non-generic only; a generic ADT's payloads are
     /// standard-layout per instance, which only a third C++ form could ask.
-    priv fn _prefix_ok(self, en: *EnumDecl) -> bool {
+    priv fn _prefix_ok(self, en: unsafe *Declarations::EnumDecl) -> bool {
         for var i: usize = 0; i < en->variants.size(); ++i {
-            var v = en->variants[i];
+            var unsafe *v = en->variants[i]
             for var j: usize = 0; j < v->payload.size(); ++j {
-                var t = v->payload[j]->type_;
-                if (t == &null) || (t->canonical == &null) { return false; }
-                var c = canon_unqual(t->canonical);
-                if (c == &null) || (canon_quals(t->canonical) != 0) { return false; }
+                var unsafe *t = v->payload[j]->type_
+                if t == &null || t->canonical == &null {
+                    return false
+                }
+
+                var unsafe *c = canon_unqual(t->canonical)
+                if c == &null || canon_quals(t->canonical) != 0 {
+                    return false
+                }
+
                 // The variant constructor is then the field one (_ctor_form
                 // asks the same), which is the only form the prefix renders.
-                if !self._moves(t) { return false; }
-                if isa::<BuiltinType>(c) || isa::<PointerType>(c) { continue; }
-                if isa::<RecordType>(c) {
-                    var pe = dyn_cast::<EnumDecl>(cast::<RecordType>(c)->decl);
-                    if (pe != &null) && (!pe->is_adt) { continue; }
+                if !self._moves(t) {
+                    return false
                 }
-                return false;
+
+                if isa<BuiltinType>(c) || isa<PointerType>(c) {
+                    continue
+                }
+
+                if isa<RecordType>(c) {
+                    var unsafe *pe = dyn_cast<Declarations::EnumDecl>(cast<RecordType>(c)->decl)
+                    if pe != &null && !pe->is_adt {
+                        continue
+                    }
+                }
+
+                return false
             }
         }
-        return true;
+
+        return true
     }
 
     /// \p en could be laid out without a tag (spec ENUMLAYOUT §5.2): exactly
@@ -1512,51 +2456,88 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     /// not laid out -- EnumLayoutQuery::niche_of), at least one variant has
     /// none, and no generic parameter is a pack. Whether it IS is the
     /// field's niche and triviality, per instance for a generic enum.
-    priv fn _niche_shaped(self, en: *EnumDecl) -> bool {
-        var payloads: usize = 0;
-        var dataless: usize = 0;
+    priv fn _niche_shaped(self, en: unsafe *Declarations::EnumDecl) -> bool {
+        var payloads: usize = 0
+        var dataless: usize = 0
         for var i: usize = 0; i < en->variants.size(); ++i {
-            var v = en->variants[i];
-            if v->payload.size() == 0 { dataless += 1; continue; }
-            payloads += 1;
-            if v->payload.size() != 1 { return false; }
+            var unsafe *v = en->variants[i]
+            if v->payload.size() == 0 {
+                dataless += 1
+                continue
+            }
+
+            payloads += 1
+            if v->payload.size() != 1 {
+                return false
+            }
         }
-        if (payloads != 1) || (dataless == 0) { return false; }
+
+        if payloads != 1 || dataless == 0 {
+            return false
+        }
+
         // The specialization's head carries the niche constraint; a declared
         // one beside it would be a second requires-clause.
-        if decl_requires_clause(static_cast::<*Decl>(en)) != &null { return false; }
-        for var i: usize = 0; i < en->generic_params.size(); ++i {
-            var gp = en->generic_params[i];
-            if (gp == &null) || gp->is_pack { return false; }
+        if decl_requires_clause(en) != &null {
+            return false
         }
-        return true;
+
+        for var i: usize = 0; i < en->generic_params.size(); ++i {
+            var unsafe *gp = en->generic_params[i]
+            if gp == &null || gp->is_pack {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// Build the layout of every ADT \p t holds by value first, so a
     /// non-generic enum's verdict reads its field's real shape whatever
     /// order the walk meets the declarations in. By-value ADT cycles are
     /// TypeCycleCheck's to reject, so this terminates.
-    priv fn _prebuild(self, t: *Type) {
-        if (t == &null) || (t->canonical == &null) { return; }
-        var c = canon_unqual(t->canonical);
-        if c == &null { return; }
-        if isa::<NullableType>(c) {
-            var nd = self.sc->nullable_enum();
-            if (nd != &null) && self._wants_layout(nd) { self._build(nd); }
-            self._prebuild(cast::<NullableType>(c)->inner);
-            return;
+    priv fn _prebuild(self, t: unsafe *Type) {
+        if t == &null || t->canonical == &null {
+            return
         }
-        if !isa::<RecordType>(c) { return; }
-        var r  = cast::<RecordType>(c);
-        var en = dyn_cast::<EnumDecl>(NameLookup::representative(self.tu.pattern_of(r->decl)));
-        if (en != &null) && en->is_adt && self._wants_layout(en) { self._build(en); }
-        for var i: usize = 0; i < r->args.size(); ++i { self._prebuild(*(r->args.get(i))); }
+
+        var unsafe *c = canon_unqual(t->canonical)
+        if c == &null {
+            return
+        }
+
+        if isa<NullableType>(c) {
+            var unsafe *nd = self.sc->nullable_enum()
+            if nd != &null && self._wants_layout(nd) {
+                self._build(nd)
+            }
+
+            self._prebuild(cast<NullableType>(c)->inner)
+            return
+        }
+
+        if !isa<RecordType>(c) {
+            return
+        }
+
+        var unsafe *r = cast<RecordType>(c)
+        var unsafe *en = dyn_cast<Declarations::EnumDecl>(
+            NameLookup::representative(self.tu.pattern_of(r->decl)),
+        )
+
+        if en != &null && en->is_adt && self._wants_layout(en) {
+            self._build(en)
+        }
+
+        for var i: usize = 0; i < r->args.size(); ++i {
+            self._prebuild(*r->args.get(i))
+        }
     }
 
     /// The tag word (EnumNiche: adt_declared_tag_kind, which TypeExport's
     /// phase-A stand-in reads too, before this pass has run).
-    priv fn _tag_kind(self, en: *EnumDecl) -> BuiltinKind {
-        return adt_declared_tag_kind(en);
+    priv fn _tag_kind(self, en: unsafe *Declarations::EnumDecl) -> BuiltinKind {
+        return adt_declared_tag_kind(en)
     }
 
     /// How variant \p v is constructed (AdtCtorForm). A non-generic ADT knows
@@ -1573,30 +2554,52 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     /// can count (Codegen/adt/categories.k and smoke.k do), so only for a
     /// field whose move is its bytes and whose destruction is nothing are
     /// the two forms the same program.
-    priv fn _ctor_form(self, v: *EnumVariantDecl, generic: bool) -> AdtCtorForm {
+    priv fn _ctor_form(self,
+                       v:       unsafe *Declarations::EnumVariantDecl,
+                       generic: bool) -> Declarations::AdtCtorForm {
         for var j: usize = 0; j < v->payload.size(); ++j {
-            var t = v->payload[j]->type_;
-            if (t == &null) || (t->canonical == &null) || isa::<FixedArrayType>(canon_unqual(t->canonical)) {
-                return AdtCtorForm::Lambda;
+            var unsafe *t = v->payload[j]->type_
+            if t == &null
+                || t->canonical == &null
+                || isa<FixedArrayType>(canon_unqual(t->canonical)) {
+                return Declarations::AdtCtorForm::Lambda
             }
         }
-        if generic { return AdtCtorForm::Both; }
-        for var j: usize = 0; j < v->payload.size(); ++j {
-            if !self._moves(v->payload[j]->type_) { return AdtCtorForm::Lambda; }
+
+        if generic {
+            return Declarations::AdtCtorForm::Both
         }
-        return AdtCtorForm::Fields;
+
+        for var j: usize = 0; j < v->payload.size(); ++j {
+            if !self._moves(v->payload[j]->type_) {
+                return Declarations::AdtCtorForm::Lambda
+            }
+        }
+
+        return Declarations::AdtCtorForm::Fields
     }
 
     /// \p t moves as its bytes and is destroyed as nothing, and is no array
     /// (_ctor_form).
-    priv fn _moves(self, t: *Type) -> bool {
-        if (t == &null) || (t->canonical == &null) { return false; }
-        if isa::<FixedArrayType>(canon_unqual(t->canonical)) { return false; }
+    priv fn _moves(self, t: unsafe *Type) -> bool {
+        if t == &null || t->canonical == &null {
+            return false
+        }
+
+        if isa<FixedArrayType>(canon_unqual(t->canonical)) {
+            return false
+        }
+
         // A non-generic ADT's payload: concrete, so an open fact would pick
         // the Lambda form silently (Asked too early, ClassLifecycle).
-        var f = lifecycle_of(self.sc)->facts_of_type_concrete(t->canonical, "EnumLayoutLowering::_moves");
-        return (f.movable == LifecycleTri::Yes) && (f.trivially_copyable == LifecycleTri::Yes)
-            && (f.trivial_dtor == LifecycleTri::Yes);
+        var f = lifecycle_of(self.sc)->facts_of_type_concrete(
+            t->canonical,
+            "EnumLayoutLowering::_moves",
+        )
+
+        return f.movable == LifecycleTri::Yes
+            && f.trivially_copyable == LifecycleTri::Yes
+            && f.trivial_dtor == LifecycleTri::Yes
     }
 
     /// `struct __kairo_<V>_t` over the variant's own payload FieldDecls (file
@@ -1604,23 +2607,41 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     /// A prefix-tagged ADT's (\p prefix_tag, the tag enum's type) starts
     /// with a tag of its own: the common initial sequence the union's
     /// tag-only member reads.
-    priv fn _payload_struct(self, v: *EnumVariantDecl, vn: string, edc: *DeclContext, prefix_tag: *Type) -> *StructDecl {
-        var ps = StructDecl::create(self.ctx, v->range, self.synth.ident(v->name.range, LowerTargets::adt_payload_type(vn)), edc);
-        ps->mark_definition();
-        self._place(static_cast::<*Decl>(ps), edc, VisibilityKind::Public, v->name.range);
-        self._no_members(ps);
-        ps->is_adt_payload = true;
-        var pdc = reinterpret_cast::<*void>(static_cast::<*DeclContext>(ps));
-        var fs  = self.list_builder::<*FieldDecl>();
+    priv fn _payload_struct(self,
+                            v:          unsafe *Declarations::EnumVariantDecl,
+                            const vn:   string,
+                            edc:        unsafe *DeclContext,
+                            prefix_tag: unsafe *Type) -> unsafe *Declarations::StructDecl {
+        var unsafe *ps = Declarations::StructDecl::create(
+            self.ctx,
+            v->range,
+            self.synth.ident(v->name.range, LowerTargets::adt_payload_type(vn)),
+            edc,
+        )
+
+        ps->mark_definition()
+        self._place(ps, edc, VisibilityKind::Public, v->name.range)
+        self._no_members(ps)
+        ps->is_adt_payload = true
+        var unsafe *pdc = unsafe (ps as unsafe *DeclContext)
+        var        fs   = self.list_builder<unsafe *Declarations::FieldDecl>()
         if prefix_tag != &null {
-            var pt = FieldDecl::create(self.ctx, v->name.range, self.synth.ident(v->name.range, LowerTargets::adt_tag_field()),
-                                       StorageClass::Var, prefix_tag, 0);
-            self._place(static_cast::<*Decl>(pt), static_cast::<*DeclContext>(ps), VisibilityKind::Public, v->name.range);
-            fs.push(pt);
+            var unsafe *pt = Declarations::FieldDecl::create(
+                self.ctx,
+                v->name.range,
+                self.synth.ident(v->name.range, LowerTargets::adt_tag_field()),
+                Declarations::StorageClass::Var,
+                prefix_tag,
+                0,
+            )
+
+            self._place(pt, ps, VisibilityKind::Public, v->name.range)
+            fs.push(pt)
         }
+
         for var j: usize = 0; j < v->payload.size(); ++j {
-            var f = v->payload[j];
-            fs.push(f);
+            var unsafe *f = v->payload[j]
+            fs.push(f)
             // A variant is not a DeclContext, so the parser leaves its
             // payload fields with no scope at all. To C++ they are members
             // of this struct, and that is where a spelling of one
@@ -1628,149 +2649,393 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
             // one (EmitPlan::_member_owner) must find it. This is the only
             // writer: a scope already here means a second one exists, and
             // whichever ran last would silently decide where the field lives.
-            var fd = static_cast::<*Decl>(f);
-            ICE_IF((fd->semantic_dc != &null) || (fd->lexical_dc != &null),
-                   "EnumLayoutLowering: payload field already has a scope; this pass is its only writer");
-            fd->semantic_dc = pdc;
-            fd->lexical_dc  = pdc;
+            var unsafe *fd = unsafe (f as unsafe *Decl)
+            if fd->semantic_dc != &null || fd->lexical_dc != &null {
+                kairo::std::ice_fail(
+                    "EnumLayoutLowering: payload field already has a scope; this pass is its only writer",
+                )
+            }
+
+            fd->semantic_dc = pdc
+            fd->lexical_dc  = pdc
         }
-        fs.freeze_into(&(ps->fields));
-        return ps;
+
+        fs.freeze_into(&ps->fields)
+        return ps
     }
 
     /// A generic ADT's flag: a compile-time bool (eval, C++'s `static
     /// constexpr`) whose initializer InterfaceEmitter writes.
-    priv fn _flag(self, name: string, at: SourceRange, edc: *DeclContext, ldc: *DeclContext,
-                  fields: *ListBuilder::<*FieldDecl>) {
-        var f = FieldDecl::create(self.ctx, at, self.synth.ident(at, name), StorageClass::Eval,
-                                  self.sc->builtin(BuiltinKind::Bool), u32(fields->size()));
-        self._place(static_cast::<*Decl>(f), edc, VisibilityKind::Public, at);
-        ldc->add_decl(static_cast::<*Decl>(f));
-        fields->push(f);
+    priv fn _flag(self,
+                  const name: string,
+                  at:         SourceRange,
+                  edc:        unsafe *DeclContext,
+                  ldc:        unsafe *DeclContext,
+                  fields:     *ListBuilder<unsafe *Declarations::FieldDecl>) {
+        var unsafe *f = Declarations::FieldDecl::create(
+            self.ctx,
+            at,
+            self.synth.ident(at, name),
+            Declarations::StorageClass::Eval,
+            self.sc->builtin(BuiltinKind::Bool),
+            fields->size() as u32,
+        )
+
+        self._place(f, edc, VisibilityKind::Public, at)
+        ldc->add_decl(f)
+        fields->push(f)
     }
 
-    // --- the Nullable lang item -----------------------------------------------------
+    /// # the Nullable lang item
 
     /// By identity with the lang item, never by name: a user may declare an
     /// enum called Nullable.
-    priv fn _is_nullable(self, en: *EnumDecl) -> bool {
-        var nd = self.sc->nullable_enum();
-        return (nd != &null) && (nd == en);
+    priv fn _is_nullable(self, en: unsafe *Declarations::EnumDecl) -> bool {
+        var unsafe *nd = self.sc->nullable_enum()
+        return nd != &null && nd == en
     }
 
-    /// `T?`'s C++ surface on top of the ADT (NULLABLE.md 1.2): the ADT
+    /// `T?`'s C++ surface on top of the ADT (Compiler/Spec/Nullables.md#the-library-type): the ADT
     /// already holds a real T only while present and transfers it as T
     /// does; these are the constructors every implicit conversion into a
     /// nullable is, and the primitives the desugars and a C++ host call.
     /// The null constructor's parameter is a real ParamDecl so its null_t is
     /// spelled like any type; the rest are rendered from the payload.
-    priv fn _nullable_surface(self, ldc: *DeclContext, methods: *ListBuilder::<*FunctionDecl>, en: *EnumDecl) {
-        var at = en->name.range;
-        self._member(ldc, methods, self._role(en, en->name, AdtRole::NullDefault, AdtForm::Body, 0, VisibilityKind::Public));
-        var from = self._role(en, en->name, AdtRole::NullFrom, AdtForm::Body, 0, VisibilityKind::Public);
-        var nt   = self.sc->well_known->get(WellKnownType::NullT);
-        ICE_IF(nt == &null, "EnumLayoutLowering: the Nullable lang item without null_t; Lib/builtin declares both");
-        var ps = self.list_builder::<*ParamDecl>();
-        ps.push(ParamDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::nullable_null_param()), self._type_of(NameLookup::representative(nt)), 0));
-        ps.freeze_into(&(from->params));
-        self._member(ldc, methods, from);
-        self._member(ldc, methods, self._role(en, en->name, AdtRole::ValueCopy, AdtForm::Body, 0, VisibilityKind::Public));
-        self._member(ldc, methods, self._role(en, en->name, AdtRole::ValueMove, AdtForm::Body, 0, VisibilityKind::Public));
-        var is_null = self.synth.ident(at, LowerTargets::nullable_is_null());
-        var value   = self.synth.ident(at, LowerTargets::nullable_value());
-        self._member(ldc, methods, self._role(en, is_null, AdtRole::IsNull,    AdtForm::Body, 0, VisibilityKind::Public));
-        self._member(ldc, methods, self._role(en, value,   AdtRole::ValueRef,  AdtForm::Body, 0, VisibilityKind::Public));
-        self._member(ldc, methods, self._role(en, value,   AdtRole::ValueCref, AdtForm::Body, 0, VisibilityKind::Public));
-        self._member(ldc, methods, self._role(en, en->name, AdtRole::Equal,    AdtForm::Body, 0, VisibilityKind::Public));
+    priv fn _nullable_surface(self,
+                              ldc:     unsafe *DeclContext,
+                              methods: *ListBuilder<unsafe *Declarations::FunctionDecl>,
+                              en:      unsafe *Declarations::EnumDecl) {
+        var at = en->name.range
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                en->name,
+                Declarations::AdtRole::NullDefault,
+                Declarations::AdtForm::Body,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
+
+        var unsafe *from = self._role(
+            en,
+            en->name,
+            Declarations::AdtRole::NullFrom,
+            Declarations::AdtForm::Body,
+            0,
+            VisibilityKind::Public,
+        )
+
+        var unsafe *nt = self.sc->well_known->get(WellKnownType::NullT)
+        if nt == &null {
+            kairo::std::ice_fail(
+                "EnumLayoutLowering: the Nullable lang item without null_t; Lib/builtin declares both",
+            )
+        }
+
+        var ps = self.list_builder<unsafe *Declarations::ParamDecl>()
+        ps.push(
+            Declarations::ParamDecl::create(
+                self.ctx,
+                at,
+                self.synth.ident(at, LowerTargets::nullable_null_param()),
+                self._type_of(NameLookup::representative(nt)),
+                0,
+            ),
+        )
+
+        ps.freeze_into(&from->params)
+        self._member(ldc, methods, from)
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                en->name,
+                Declarations::AdtRole::ValueCopy,
+                Declarations::AdtForm::Body,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
+
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                en->name,
+                Declarations::AdtRole::ValueMove,
+                Declarations::AdtForm::Body,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
+
+        var is_null = self.synth.ident(at, LowerTargets::nullable_is_null())
+        var value   = self.synth.ident(at, LowerTargets::nullable_value())
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                is_null,
+                Declarations::AdtRole::IsNull,
+                Declarations::AdtForm::Body,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
+
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                value,
+                Declarations::AdtRole::ValueRef,
+                Declarations::AdtForm::Body,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
+
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                value,
+                Declarations::AdtRole::ValueCref,
+                Declarations::AdtForm::Body,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
+
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                en->name,
+                Declarations::AdtRole::Equal,
+                Declarations::AdtForm::Body,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
     }
 
-    // --- the special members ------------------------------------------------------
+    /// # the special members
 
     /// The one form of each special member a non-generic ADT's facts select
     /// (file header). Each assignment takes its constructor's form.
-    priv fn _chosen(self, ldc: *DeclContext, methods: *ListBuilder::<*FunctionDecl>, en: *EnumDecl) {
-        var f = lifecycle_of(self.sc)->facts_of(static_cast::<*Decl>(en));
+    priv fn _chosen(self,
+                    ldc:     unsafe *DeclContext,
+                    methods: *ListBuilder<unsafe *Declarations::FunctionDecl>,
+                    en:      unsafe *Declarations::EnumDecl) {
+        var unsafe *f = lifecycle_of(self.sc)->facts_of(en)
         // Nothing in a non-generic enum's own declaration waits on a
         // parameter. An Unknown comes from a payload whose facts do -- an
         // instance of a generic record reads its pattern's until facts are
         // computed per instance -- and a form picked for it would be a guess.
         // FeatureGateCheck reports exactly this case (the same
         // lifecycle_open), so reaching it means that gate has a hole.
-        ICE_IF(lifecycle_open(f), "EnumLayoutLowering: non-generic ADT with unknown lifecycle facts");
-        var copy_form = AdtForm::Trivial;
-        var move_form = AdtForm::Trivial;
-        var dtor_form = AdtForm::Trivial;
+        if lifecycle_open(f) {
+            kairo::std::ice_fail("EnumLayoutLowering: non-generic ADT with unknown lifecycle facts")
+        }
+
+        var copy_form = Declarations::AdtForm::Trivial
+        var move_form = Declarations::AdtForm::Trivial
+        var dtor_form = Declarations::AdtForm::Trivial
         if f->trivially_copyable != LifecycleTri::Yes {
-            copy_form = (AdtForm::Body) if (f->category == LifecycleCategory::Copy) else (AdtForm::Deleted);
-            move_form = (AdtForm::Deleted) if (f->category == LifecycleCategory::NonTransfer) else (AdtForm::Body);
+            copy_form = if (f->category == LifecycleCategory::Copy) => (Declarations::AdtForm::Body)
+                        else => Declarations::AdtForm::Deleted
+            move_form = if (f->category == LifecycleCategory::NonTransfer) => (Declarations::AdtForm::Deleted)
+                        else => Declarations::AdtForm::Body
         }
+
         if f->trivial_dtor != LifecycleTri::Yes {
-            dtor_form = (AdtForm::Body) if (f->destructible == LifecycleTri::Yes) else (AdtForm::Deleted);
+            dtor_form = if (f->destructible == LifecycleTri::Yes) => (Declarations::AdtForm::Body)
+                        else => Declarations::AdtForm::Deleted
         }
-        self._member(ldc, methods, self._role(en, en->name, AdtRole::CopyCtor,   copy_form, 0, VisibilityKind::Public));
-        self._member(ldc, methods, self._role(en, en->name, AdtRole::MoveCtor,   move_form, 0, VisibilityKind::Public));
-        self._member(ldc, methods, self._role(en, en->name, AdtRole::CopyAssign, copy_form, 0, VisibilityKind::Public));
-        self._member(ldc, methods, self._role(en, en->name, AdtRole::MoveAssign, move_form, 0, VisibilityKind::Public));
-        self._member(ldc, methods, self._role(en, en->name, AdtRole::Dtor,       dtor_form, 0, VisibilityKind::Public));
+
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                en->name,
+                Declarations::AdtRole::CopyCtor,
+                copy_form,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
+
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                en->name,
+                Declarations::AdtRole::MoveCtor,
+                move_form,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
+
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                en->name,
+                Declarations::AdtRole::CopyAssign,
+                copy_form,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
+
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                en->name,
+                Declarations::AdtRole::MoveAssign,
+                move_form,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
+
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                en->name,
+                Declarations::AdtRole::Dtor,
+                dtor_form,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
     }
 
     /// A generic ADT's three forms of \p role, in the order InterfaceEmitter
     /// writes them.
-    priv fn _three(self, ldc: *DeclContext, methods: *ListBuilder::<*FunctionDecl>, en: *EnumDecl, role: AdtRole) {
-        self._member(ldc, methods, self._role(en, en->name, role, AdtForm::Trivial, 0, VisibilityKind::Public));
-        self._member(ldc, methods, self._role(en, en->name, role, AdtForm::Body,    0, VisibilityKind::Public));
-        self._member(ldc, methods, self._role(en, en->name, role, AdtForm::Deleted, 0, VisibilityKind::Public));
+    priv fn _three(self,
+                   ldc:     unsafe *DeclContext,
+                   methods: *ListBuilder<unsafe *Declarations::FunctionDecl>,
+                   en:      unsafe *Declarations::EnumDecl,
+                   role:    Declarations::AdtRole) {
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                en->name,
+                role,
+                Declarations::AdtForm::Trivial,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
+
+        self._member(
+            ldc,
+            methods,
+            self._role(en, en->name, role, Declarations::AdtForm::Body, 0, VisibilityKind::Public),
+        )
+
+        self._member(
+            ldc,
+            methods,
+            self._role(
+                en,
+                en->name,
+                role,
+                Declarations::AdtForm::Deleted,
+                0,
+                VisibilityKind::Public,
+            ),
+        )
     }
 
     /// A function with no Kairo body, rendered from \p role and \p form.
     /// Never an operator, whatever C++ it becomes (`~E`, `operator=`): its
     /// name is an identifier token, which is all a minted decl can spell. A
     /// defaulted or deleted form carries that body kind; the others none.
-    priv fn _role(self, en: *EnumDecl, name: Token, role: AdtRole, form: AdtForm, variant: u32,
-                  vis: VisibilityKind) -> *FunctionDecl {
-        var edc = static_cast::<*DeclContext>(en);
-        var f   = FunctionDecl::create(self.ctx, name.range, name, edc);
-        self._place(static_cast::<*Decl>(f), edc, vis, name.range);
-        f->params          = create_empty_frozen_list::<*ParamDecl>();
-        f->op_token        = create_empty_frozen_list::<Token>();
-        f->generic_params  = create_empty_frozen_list::<*GenericParamDecl>();
-        f->spec_args       = create_empty_frozen_list::<*Type>();
-        f->requires_clause = &null;
-        f->is_implicit     = true;
-        f->body_kind       = FnBodyKind::None;
-        if form == AdtForm::Trivial { f->body_kind = FnBodyKind::Default; }
-        if form == AdtForm::Deleted { f->body_kind = FnBodyKind::Delete; }
-        f->adt_role    = role;
-        f->adt_form    = form;
-        f->adt_variant = variant;
-        return f;
+    priv fn _role(self,
+                  en:      unsafe *Declarations::EnumDecl,
+                  name:    Token,
+                  role:    Declarations::AdtRole,
+                  form:    Declarations::AdtForm,
+                  variant: u32,
+                  vis:     VisibilityKind) -> unsafe *Declarations::FunctionDecl {
+        var unsafe *edc = unsafe (en as unsafe *DeclContext)
+        var unsafe *f   = Declarations::FunctionDecl::create(self.ctx, name.range, name, edc)
+        self._place(f, edc, vis, name.range)
+        f->params          = create_empty_frozen_list<unsafe *Declarations::ParamDecl>()
+        f->op_token        = create_empty_frozen_list<Token>()
+        f->generic_params  = create_empty_frozen_list<unsafe *Declarations::GenericParamDecl>()
+        f->spec_args       = create_empty_frozen_list<unsafe *Type>()
+        f->requires_clause = &null
+        f->is_implicit     = true
+        f->body_kind       = Declarations::FnBodyKind::None
+        if form == Declarations::AdtForm::Trivial {
+            f->body_kind = Declarations::FnBodyKind::Default
+        }
+
+        if form == Declarations::AdtForm::Deleted {
+            f->body_kind = Declarations::FnBodyKind::Delete
+        }
+
+        f->adt_role    = role
+        f->adt_form    = form
+        f->adt_variant = variant
+        return f
     }
 
-    priv fn _member(self, ldc: *DeclContext, methods: *ListBuilder::<*FunctionDecl>, f: *FunctionDecl) {
-        ldc->add_decl(static_cast::<*Decl>(f));
-        methods->push(f);
+    priv fn _member(self,
+                    ldc:     unsafe *DeclContext,
+                    methods: *ListBuilder<unsafe *Declarations::FunctionDecl>,
+                    f:       unsafe *Declarations::FunctionDecl) {
+        ldc->add_decl(unsafe (f as unsafe *Decl))
+        methods->push(f)
     }
 
-    // --- minting ------------------------------------------------------------------
+    /// # minting
 
     /// Every minted decl belongs to the enum, so it is spelled and planned as
     /// a member of it (a tag enum's variants belong to the tag enum). None
     /// joins a symbol table: nothing finds them by name.
-    priv fn _place(self, d: *Decl, dc: *DeclContext, vis: VisibilityKind, at: SourceRange) {
-        d->semantic_dc = reinterpret_cast::<*void>(dc);
-        d->lexical_dc  = reinterpret_cast::<*void>(dc);
-        d->set_visibility(vis, at);
+    priv fn _place(self,
+                   d:   unsafe *Decl,
+                   dc:  unsafe *DeclContext,
+                   vis: VisibilityKind,
+                   at:  SourceRange) {
+        d->semantic_dc = dc
+        d->lexical_dc  = dc
+        d->set_visibility(vis, at)
     }
 
-    priv fn _no_members(self, s: *StructDecl) {
-        s->fields         = create_empty_frozen_list::<*FieldDecl>();
-        s->methods        = create_empty_frozen_list::<*FunctionDecl>();
-        s->implements     = create_empty_frozen_list::<InheritEdge>();
-        s->generic_params = create_empty_frozen_list::<*GenericParamDecl>();
-        s->spec_args      = create_empty_frozen_list::<*Type>();
+    priv fn _no_members(self, s: unsafe *Declarations::StructDecl) {
+        s->fields         = create_empty_frozen_list<unsafe *Declarations::FieldDecl>()
+        s->methods        = create_empty_frozen_list<unsafe *Declarations::FunctionDecl>()
+        s->implements     = create_empty_frozen_list<Declarations::InheritEdge>()
+        s->generic_params = create_empty_frozen_list<unsafe *Declarations::GenericParamDecl>()
+        s->spec_args      = create_empty_frozen_list<unsafe *Type>()
     }
 
-    priv fn _type_of(self, d: *Decl) -> *Type {
-        return self.sc->types->record(d, &null);
+    priv fn _type_of(self, d: unsafe *Decl) -> unsafe *Type {
+        return self.sc->types->record(d, &null)
     }
 }

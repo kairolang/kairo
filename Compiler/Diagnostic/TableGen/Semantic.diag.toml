@@ -3,8 +3,8 @@
 #   Part of the Kairo Project, under the Apache License v2.0 with the
 #   Kairo Runtime Library Exception.
 #
-#   See: https://www.kairolang.org/LICENSE.txt
-#   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+#   See: https://www.kairolang.org/LICENSE
+#   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 #   Copyright (c) 2026 Dhruvan Kartik
 #
 # ------------------------------------------------------------------------ #
@@ -677,16 +677,24 @@ group = "casts"
     explain = """
     # this cast does nothing
 
-    the value already converts implicitly to the target type where it is used, so the explicit
-    `as` is noise.
+    the operand already has the target type, or converts implicitly to it in the slot that
+    receives the cast, so removing `as T` changes nothing.
 
     ```kairo
-    let x: i64 = small as i64;   // warning
+    let x: i64 = small as i64;   // warning: small converts to i64 here
+    var n = len as usize;        // warning when len is already usize
     ```
+
+    not reported when the cast decides a type:
+
+    - a literal (`0 as usize`, `1 as u64`, `null as *T`), unless the slot has exactly the
+      cast's type; the cast gives the literal its type (`(1 as u64) << 63`).
+    - an argument to an overloaded callee or to a deduced parameter (`T`, `Args&&...`); the
+      cast can select the overload or the deduced type.
 
     ## how to fix
 
-    remove the cast.
+    remove the cast (the fix-it does).
     """
 
 [SC032]
@@ -2598,12 +2606,17 @@ group = "unimplemented"
     ```
 
     currently reported for a `for ... in` loop over a vector `[T]`, a set `{T}`, a map `{K: V}` or
-    a `string`. arrays, slices, ranges and types with `fn op in (self) -> yield T` are supported.
+    a `string`, and for an explicit early destructor call, `x.finally()` or `x.op finally()`
+    (planned for 0.3). arrays, slices, ranges and types with `fn op in (self) -> yield T` are
+    supported.
 
     ## how to fix
 
     use a supported form until the feature lands. for the loops above, iterate a slice of the
-    data or an index range instead.
+    data or an index range instead. for `x.finally()`: a local is destroyed when its scope ends,
+    so end the scope early with a block (`{ var x = ...; ... }`); a heap object is destroyed with
+    `@destroy`, and a C++-allocated one with `@cxx::delete`. the destructor itself,
+    `fn op finally(self)`, is unchanged.
     """
 
     [SC116.N]
@@ -3239,4 +3252,2302 @@ group = "calling-convention"
 
     remove the attribute, or keep the declaration that carries it in code built only for x86-64
     and AArch64.
+    """
+
+[SC138]
+brief = "global allocator set more than once"
+group = "global-allocator"
+
+    [SC138.E]
+    explain = """
+    # global allocator set more than once
+
+    a program has exactly one global allocator, set by one '@set_global_allocator' line, and a second one (in this file or another) was found.
+
+    ## how to fix
+
+    keep one '@set_global_allocator'.
+    """
+
+    [SC138.N]
+    explain = "Points at the first place that set the allocator."
+
+[SC139]
+brief = "'@set_global_allocator' misplaced"
+group = "global-allocator"
+
+    [SC139.E]
+    explain = """
+    # '@set_global_allocator' misplaced
+
+    '@set_global_allocator' stands on a line of its own at file scope. It declares nothing, so it takes no attributes and is not an attribute of a declaration or statement.
+
+    ## how to fix
+
+    put it on its own line at file scope and remove the attributes on it.
+    """
+
+[SC140]
+brief = "global allocator macro is not defined in this build"
+group = "global-allocator"
+
+    [SC140.E]
+    explain = """
+    # global allocator macro is not defined in this build
+
+    files that set the global allocator are compiled separately, and this build does not define the macro that tells the C++ side that one is set.
+
+    ## how to fix
+
+    pass --global-allocator-set when compiling the program's files separately.
+    """
+
+[SC141]
+brief = "type cannot be the global allocator"
+group = "global-allocator"
+
+    [SC141.E]
+    explain = """
+    # type cannot be the global allocator
+
+    the global allocator must be a class or struct with the static allocator functions the runtime calls; the type named is not one, or lacks one of the functions.
+
+    ## how to fix
+
+    name a class or struct that has every static allocator function.
+    """
+
+    [SC141.N]
+    explain = "Points at the related declaration."
+
+[SC142]
+brief = "two script files in one program"
+group = "scripts"
+
+    [SC142.E]
+    explain = """
+    # two script files in one program
+
+    a script file runs its top-level statements as 'main', and a program has one 'main'.
+
+    ## how to fix
+
+    keep one script file; make the others modules.
+    """
+
+    [SC142.N]
+    explain = "Points at the first top-level statement of the other script."
+
+[SC143]
+brief = "attribute does not apply here"
+group = "attributes"
+
+    [SC143.E]
+    explain = """
+    # attribute does not apply here
+
+    the attribute only applies to certain declarations or statements, such as a function, and was written on another kind.
+
+    ## how to fix
+
+    remove the attribute, or move it to a declaration it applies to.
+    """
+
+[SC144]
+brief = "attribute argument is invalid"
+group = "attributes"
+
+    [SC144.E]
+    explain = """
+    # attribute argument is invalid
+
+    the arguments written on the attribute do not match what it takes; the message says which one is wrong.
+
+    ## how to fix
+
+    correct the argument.
+    """
+
+[SC145]
+brief = "unknown attribute"
+group = "attributes"
+
+    [SC145.E]
+    explain = """
+    # unknown attribute
+
+    no attribute of this name exists.
+
+    ## how to fix
+
+    check the spelling of the attribute.
+    """
+
+[SC146]
+brief = "use of a deprecated declaration"
+group = "attributes"
+
+    [SC146.W]
+    explain = """
+    # use of a deprecated declaration
+
+    the declaration is marked '@deprecated'; the message carries the reason the author gave.
+
+    ## how to fix
+
+    move to the replacement the message names.
+    """
+
+[SC147]
+brief = "'@hot_path' and '@cold_path' on one declaration"
+group = "attributes"
+
+    [SC147.E]
+    explain = """
+    # '@hot_path' and '@cold_path' on one declaration
+
+    a path cannot be both hot and cold.
+
+    ## how to fix
+
+    keep one.
+    """
+
+[SC148]
+brief = "'@assume' attached to a following statement"
+group = "attributes"
+
+    [SC148.E]
+    explain = """
+    # '@assume' attached to a following statement
+
+    '@assume' is a statement of its own and does not attach to what follows on the same line.
+
+    ## how to fix
+
+    put the statement on the next line.
+    """
+
+[SC149]
+brief = "a class cannot declare its own allocator"
+group = "memory"
+
+    [SC149.E]
+    explain = """
+    # a class cannot declare its own allocator
+
+    `static fn op new` / `static fn op delete` (any `op new`, and a static `op
+    delete`) would give a class its own allocator. Kairo does not allow it: every
+    block `@create` hands out goes back to the allocator in effect at `@destroy`, and
+    every Kairo object a C++ `delete` frees goes back to the program's global
+    allocator. A per-class allocator breaks both pairings.
+
+    ```kairo
+    class Node {
+        static fn op new(size: usize, align: usize) -> unsafe *u8 { ... }   // error
+    }
+    ```
+
+    The destructor is `fn op finally(self)`, which is not an allocator.
+
+    ## how to fix
+
+    remove the operator. To allocate from a pool or arena, use the allocator
+    interface: `create_in<T, A>(...)` / `destroy_in<T, A>(p)`, a scoped allocator, or
+    `@set_global_allocator`.
+    """
+
+[SC150]
+brief = "'override' overrides nothing: C++ parameter types differ"
+group = "calling-convention"
+
+    [SC150.E]
+    explain = """
+    # 'override' overrides nothing: C++ parameter types differ
+
+    the method is marked 'override', but as C++ declares it the parameter types differ from the base method's, so it overrides nothing.
+
+    ## how to fix
+
+    match the base method's parameter types.
+    """
+
+[SC151]
+brief = "named function in a body uses a local of the enclosing function"
+group = "closures"
+
+    [SC151.E]
+    explain = """
+    # named function in a body uses a local of the enclosing function
+
+    a named function declared in a body is not a closure and captures nothing, so it cannot use the locals around it.
+
+    ## how to fix
+
+    pass the value as an argument, or write a closure.
+    """
+
+[SC152]
+brief = "closure does not capture a name"
+group = "closures"
+
+    [SC152.E]
+    explain = """
+    # closure does not capture a name
+
+    the closure uses a name it cannot capture; the message gives the reason.
+
+    ## how to fix
+
+    capture it explicitly, or pass it as a parameter.
+    """
+
+[SC153]
+brief = "method called whose 'requires' clause does not hold"
+group = "interfaces"
+
+    [SC153.E]
+    explain = """
+    # method called whose 'requires' clause does not hold
+
+    the method is available only when its 'requires' clause holds, and it does not for this receiver.
+
+    ## how to fix
+
+    call it on a type that satisfies the clause.
+    """
+
+    [SC153.N]
+    explain = "Points at the related declaration."
+
+[SC154]
+brief = "associated type default does not meet its bound"
+group = "interfaces"
+
+    [SC154.E]
+    explain = """
+    # associated type default does not meet its bound
+
+    the default given for an associated type is not a type that meets the bound the interface declares for it.
+
+    ## how to fix
+
+    use a default that meets the bound.
+    """
+
+[SC155]
+brief = "no bound provides the required member"
+group = "interfaces"
+
+    [SC155.E]
+    explain = """
+    # no bound provides the required member
+
+    a call through a generic parameter needs a member that none of its bounds provides.
+
+    ## how to fix
+
+    bound the parameter with the interface that declares the member.
+    """
+
+[SC156]
+brief = "type does not derive an interface"
+group = "interfaces"
+
+    [SC156.E]
+    explain = """
+    # type does not derive an interface
+
+    an interface that must be derived is not derived by this type.
+
+    ## how to fix
+
+    derive it.
+    """
+
+[SC157]
+brief = "ambiguous partial specializations"
+group = "generics"
+
+    [SC157.E]
+    explain = """
+    # ambiguous partial specializations
+
+    two or more partial specializations match the arguments and neither is more specialized.
+
+    ## how to fix
+
+    add a specialization that covers the overlap.
+    """
+
+    [SC157.N]
+    explain = "Points at the related declaration."
+
+[SC158]
+brief = "partial specialization cannot be decided"
+group = "generics"
+
+    [SC158.E]
+    explain = """
+    # partial specialization cannot be decided
+
+    whether a partial specialization applies depends on something not known for these arguments.
+
+    ## how to fix
+
+    make the arguments concrete.
+    """
+
+    [SC158.N]
+    explain = "Points at the related declaration."
+
+[SC159]
+brief = "pointee layout needed but type is polymorphic without a virtual destructor"
+group = "generics"
+
+    [SC159.E]
+    explain = """
+    # pointee layout needed but type is polymorphic without a virtual destructor
+
+    the instantiation needs the layout of what the pointer points at, but that type is polymorphic and has no virtual destructor.
+
+    ## how to fix
+
+    give it a virtual destructor.
+    """
+
+    [SC159.N]
+    explain = "Points at the related declaration."
+
+[SC160]
+brief = "instantiation depth exceeded"
+group = "generics"
+
+    [SC160.E]
+    explain = """
+    # instantiation depth exceeded
+
+    the generic instantiation nests deeper than the limit.
+
+    ## how to fix
+
+    simplify the recursion, or raise the limit.
+    """
+
+[SC161]
+brief = "type does not conform: associated type"
+group = "interfaces"
+
+    [SC161.E]
+    explain = """
+    # type does not conform: associated type
+
+    an associated type of the interface is missing, takes a different number of generic parameters, has two defaults, or does not meet the bounds the interface declares.
+
+    ## how to fix
+
+    declare the associated type with the arity and bounds the interface asks for.
+    """
+
+[SC162]
+brief = "type does not conform: member missing or hidden"
+group = "interfaces"
+
+    [SC162.E]
+    explain = """
+    # type does not conform: member missing or hidden
+
+    a member the interface requires is not provided, is not public, or is implemented by an extension this file does not import.
+
+    ## how to fix
+
+    implement the member publicly, or import the extension.
+    """
+
+[SC163]
+brief = "conformance has two implementations"
+group = "interfaces"
+
+    [SC163.E]
+    explain = """
+    # conformance has two implementations
+
+    the type conforms to the interface through different implementations in different places; a conformance has one implementation.
+
+    ## how to fix
+
+    keep one.
+    """
+
+[SC164]
+brief = "interface derives from itself"
+group = "interfaces"
+
+    [SC164.E]
+    explain = """
+    # interface derives from itself
+
+    an interface's 'derives' clause leads back to the interface.
+
+    ## how to fix
+
+    remove the cycle.
+    """
+
+[SC165]
+brief = "interface has no requirements"
+group = "interfaces"
+
+    [SC165.E]
+    explain = """
+    # interface has no requirements
+
+    every type conforms to it, so it constrains nothing.
+
+    ## how to fix
+
+    remove it, or add a requirement.
+    """
+
+[SC166]
+brief = "'derives' names something that is not an interface"
+group = "interfaces"
+
+    [SC166.E]
+    explain = """
+    # 'derives' names something that is not an interface
+
+    a 'derives' clause composes interfaces.
+
+    ## how to fix
+
+    name an interface.
+    """
+
+[SC167]
+brief = "one requirement returns two types"
+group = "interfaces"
+
+    [SC167.E]
+    explain = """
+    # one requirement returns two types
+
+    the composition requires the same function with the same parameters twice, with different return types.
+
+    ## how to fix
+
+    remove one requirement.
+    """
+
+[SC168]
+brief = "associated type given two different defaults"
+group = "interfaces"
+
+    [SC168.E]
+    explain = """
+    # associated type given two different defaults
+
+    the derived interfaces give the associated type different defaults.
+
+    ## how to fix
+
+    give one default in the composing interface.
+    """
+
+[SC169]
+brief = "composition removes an associated type that another requirement names"
+group = "interfaces"
+
+    [SC169.E]
+    explain = """
+    # composition removes an associated type that another requirement names
+
+    the composition drops an associated type but keeps a member that names it through 'Self'.
+
+    ## how to fix
+
+    keep the associated type, or drop the member.
+    """
+
+[SC170]
+brief = "associated type override not permitted"
+group = "interfaces"
+
+    [SC170.E]
+    explain = """
+    # associated type override not permitted
+
+    a derived interface may give an inherited associated type a default, but not bounds of its own, and may not change a default that already exists.
+
+    ## how to fix
+
+    remove the bounds, or the second default.
+    """
+
+[SC171]
+brief = "assignment to a const field"
+group = "initialization"
+
+    [SC171.E]
+    explain = """
+    # assignment to a const field
+
+    a const field is initialized once, in the constructor, and never assigned.
+
+    ## how to fix
+
+    initialize it in the constructor.
+    """
+
+[SC172]
+brief = "const field initialized more than once or in a loop"
+group = "initialization"
+
+    [SC172.E]
+    explain = """
+    # const field initialized more than once or in a loop
+
+    a const field is initialized exactly once: not twice, not in a loop, and not in a constructor when it has a default.
+
+    ## how to fix
+
+    initialize it once, on every path.
+    """
+
+[SC173]
+brief = "constructor leaves a field uninitialized"
+group = "initialization"
+
+    [SC173.E]
+    explain = """
+    # constructor leaves a field uninitialized
+
+    every field has to be initialized on every path through a constructor; a defaulted constructor needs a default for each field.
+
+    ## how to fix
+
+    initialize the field on every path, or give it a default.
+    """
+
+    [SC173.N]
+    explain = "Points at the related declaration."
+
+[SC174]
+brief = "constructor returns before its fields are initialized"
+group = "initialization"
+
+    [SC174.E]
+    explain = """
+    # constructor returns before its fields are initialized
+
+    a constructor cannot return before it has initialized the fields.
+
+    ## how to fix
+
+    initialize them before returning.
+    """
+
+[SC175]
+brief = "field read before it is initialized"
+group = "initialization"
+
+    [SC175.E]
+    explain = """
+    # field read before it is initialized
+
+    the object does not exist until its fields are initialized, so neither 'self' nor a field may be used before that.
+
+    ## how to fix
+
+    move the use after the initialization.
+    """
+
+    [SC175.N]
+    explain = "Points at the related declaration."
+
+[SC176]
+brief = "array field element initialization rule"
+group = "initialization"
+
+    [SC176.E]
+    explain = """
+    # array field element initialization rule
+
+    an array field built element by element writes each element exactly once, with a constant index in range, outside any loop.
+
+    ## how to fix
+
+    write each element once with a constant index.
+    """
+
+    [SC176.N]
+    explain = "Points at the related declaration."
+
+[SC177]
+brief = "static field initializer reads an instance field"
+group = "initialization"
+
+    [SC177.E]
+    explain = """
+    # static field initializer reads an instance field
+
+    a static belongs to no object, so its initializer has no instance fields to read.
+
+    ## how to fix
+
+    read a static or a constant.
+    """
+
+[SC178]
+brief = "field default reads a field not yet built"
+group = "initialization"
+
+    [SC178.E]
+    explain = """
+    # field default reads a field not yet built
+
+    a default is evaluated in declaration order and may use only earlier fields.
+
+    ## how to fix
+
+    reorder the fields, or remove the dependency.
+    """
+
+[SC179]
+brief = "variable declared without an initializer"
+group = "initialization"
+
+    [SC179.E]
+    explain = """
+    # variable declared without an initializer
+
+    Kairo has no uninitialized variables; the message says why no default exists for this type.
+
+    ## how to fix
+
+    give the variable an initializer.
+    """
+
+[SC180]
+brief = "base initializer rule"
+group = "initialization"
+
+    [SC180.E]
+    explain = """
+    # base initializer rule
+
+    a constructor initializes its direct or virtual bases by calling them by name, once, as one of its first statements, with 'self' as first argument and without using 'self' in the other arguments.
+
+    ## how to fix
+
+    follow the form the message names.
+    """
+
+    [SC180.N]
+    explain = "Points at the construct that sets the rule."
+
+[SC181]
+brief = "constructor does not initialize a base"
+group = "initialization"
+
+    [SC181.E]
+    explain = """
+    # constructor does not initialize a base
+
+    a base without a default constructor must be initialized by every constructor of the derived class, or by an implicit one.
+
+    ## how to fix
+
+    initialize the base, or give it a default constructor.
+    """
+
+    [SC181.N]
+    explain = "Points at the base initializer or the base."
+
+[SC182]
+brief = "type cannot be copied"
+group = "move"
+
+    [SC182.E]
+    explain = """
+    # type cannot be copied
+
+    the type is not copyable, for the reason shown.
+
+    ## how to fix
+
+    move it, or make it copyable.
+    """
+
+[SC183]
+brief = "type not allowed for a generic value parameter"
+group = "eval"
+
+    [SC183.E]
+    explain = """
+    # type not allowed for a generic value parameter
+
+    a generic value parameter has a type that can be a compile-time constant.
+
+    ## how to fix
+
+    choose such a type.
+    """
+
+    [SC183.N]
+    explain = "Points at the related declaration."
+
+[SC184]
+brief = "eval value has a non-trivial destructor"
+group = "eval"
+
+    [SC184.E]
+    explain = """
+    # eval value has a non-trivial destructor
+
+    a compile-time object is never destroyed, so its destructor must be trivial.
+
+    ## how to fix
+
+    use a type whose destructor is trivial.
+    """
+
+    [SC184.N]
+    explain = "Points at the related declaration."
+
+[SC185]
+brief = "eval constant has no initializer"
+group = "eval"
+
+    [SC185.E]
+    explain = """
+    # eval constant has no initializer
+
+    an 'eval' constant's value is computed at compile time.
+
+    ## how to fix
+
+    give it an initializer.
+    """
+
+[SC186]
+brief = "requires expression is not compile-time evaluable"
+group = "eval"
+
+    [SC186.E]
+    explain = """
+    # requires expression is not compile-time evaluable
+
+    a 'requires' condition is decided at compile time.
+
+    ## how to fix
+
+    use compile-time values only.
+    """
+
+    [SC186.N]
+    explain = "Points at the related declaration."
+
+[SC187]
+brief = "'eval' function with a 'where' clause"
+group = "eval"
+
+    [SC187.E]
+    explain = """
+    # 'eval' function with a 'where' clause
+
+    an 'eval' function is bounded with 'requires'.
+
+    ## how to fix
+
+    replace 'where' with 'requires'.
+    """
+
+[SC188]
+brief = "'eval' function takes a pointer"
+group = "eval"
+
+    [SC188.E]
+    explain = """
+    # 'eval' function takes a pointer
+
+    there is no addressable memory at compile time.
+
+    ## how to fix
+
+    pass a value, or a reference type.
+    """
+
+[SC189]
+brief = "eval context uses a run-time construct"
+group = "eval"
+
+    [SC189.E]
+    explain = """
+    # eval context uses a run-time construct
+
+    an eval context calls only 'eval' functions and operators and reads only compile-time values.
+
+    ## how to fix
+
+    use an 'eval' function or a compile-time value.
+    """
+
+    [SC189.N]
+    explain = "Points at the related declaration."
+
+[SC190]
+brief = "'eval for' over something it cannot iterate"
+group = "eval"
+
+    [SC190.E]
+    explain = """
+    # 'eval for' over something it cannot iterate
+
+    an 'eval for' iterates a range with eval bounds, an eval array, or an eval generator, and an eval generator is iterated only by one.
+
+    ## how to fix
+
+    iterate one of those.
+    """
+
+    [SC190.N]
+    explain = "Points at the related declaration."
+
+[SC191]
+brief = "unsupported test in a function-body 'eval if'"
+group = "eval"
+
+    [SC191.E]
+    explain = """
+    # unsupported test in a function-body 'eval if'
+
+    in a function body, an 'eval if' tests an interface with 'impl' on a generic parameter of the function or its class.
+
+    ## how to fix
+
+    test with 'impl' on such a parameter.
+    """
+
+[SC192]
+brief = "compile-time value required"
+group = "eval"
+
+    [SC192.E]
+    explain = """
+    # compile-time value required
+
+    a type-level value, such as an array length or a generic argument, is computed at compile time, from 'eval' constants and functions.
+
+    ## how to fix
+
+    use an 'eval' constant or function.
+    """
+
+    [SC192.N]
+    explain = "Points at the related declaration."
+
+[SC193]
+brief = "constant out of range"
+group = "eval"
+
+    [SC193.E]
+    explain = """
+    # constant out of range
+
+    an array length is a non-negative constant that fits 64 bits.
+
+    ## how to fix
+
+    use a value in range.
+    """
+
+    [SC193.N]
+    explain = "Points at the related declaration."
+
+[SC194]
+brief = "eval rule violated"
+group = "eval"
+
+    [SC194.E]
+    explain = """
+    # eval rule violated
+
+    an 'eval' declaration breaks a rule of compile-time evaluation; the message gives it.
+
+    ## how to fix
+
+    follow the rule the message names.
+    """
+
+[SC195]
+brief = "eval value computed from an incomplete type"
+group = "eval"
+
+    [SC195.E]
+    explain = """
+    # eval value computed from an incomplete type
+
+    inside its own definition a type is not complete, so no order of the C++ declarations can compute a value from it.
+
+    ## how to fix
+
+    move the value outside the type.
+    """
+
+    [SC195.N]
+    explain = "Points at the related declaration."
+
+[SC196]
+brief = "eval binding depends on itself"
+group = "eval"
+
+    [SC196.E]
+    explain = """
+    # eval binding depends on itself
+
+    an eval binding cannot be computed from its own value.
+
+    ## how to fix
+
+    break the cycle.
+    """
+
+    [SC196.N]
+    explain = "Points at the related declaration."
+
+[SC197]
+brief = "plain enum cannot be generic"
+group = "enums"
+
+    [SC197.E]
+    explain = """
+    # plain enum cannot be generic
+
+    no variant carries a payload for a type parameter to type.
+
+    ## how to fix
+
+    give a variant a payload, or drop the parameter.
+    """
+
+    [SC197.N]
+    explain = "Points at the related declaration."
+
+[SC198]
+brief = "language feature disabled by a flag"
+group = "flags"
+
+    [SC198.E]
+    explain = """
+    # language feature disabled by a flag
+
+    the feature is off for this build; the flag that turns it on or off is named.
+
+    ## how to fix
+
+    pass the flag, or avoid the feature.
+    """
+
+[SC199]
+brief = "language limit exceeded"
+group = "flags"
+
+    [SC199.E]
+    explain = """
+    # language limit exceeded
+
+    a count in the program is over a limit set by a flag.
+
+    ## how to fix
+
+    reduce it, or raise the limit.
+    """
+
+[SC200]
+brief = "operation not allowed in a promising function"
+group = "purity"
+
+    [SC200.E]
+    explain = """
+    # operation not allowed in a promising function
+
+    a const or pure function promised not to do this.
+
+    `fn f(...) const` becomes `[[gnu::const]]` and `@pure` becomes
+    `[[gnu::pure]]`. clang optimizes on both without reading the body: it
+    deletes a call whose result is unused, merges repeated calls (a const
+    one even across a store), and assumes the call returns, never unwinds
+    and frees nothing. So:
+
+    - the function returns a value, returns at all (not `-> !`), is not
+      `@unwind`, virtual, an interface requirement, a generator or `async`,
+      and its result type owns no memory;
+    - a const function reads only its inputs: no global or static, no
+      dereference, no field read through a pointer, no read of a parameter
+      passed by reference (`@inout`, `@move`, `const p: Record`, `self`);
+    - a pure function writes no memory outside its own locals;
+    - both call only const fns, @pure fns, eval fns and the side-effect-free
+      intrinsics, never a function value or an interface requirement; make
+      no value that owns memory (a string, a vector, an f-string, a by-value
+      copy of one); and have no `assert`, `unwrap!`, asserting downcast,
+      `delete`, inline C++, `spawn`, `thread` or `await`.
+
+    `panic` is a return, and is allowed.
+
+    ## how to fix
+
+    remove the operation or the promise.
+    """
+
+[SC201]
+brief = "'op panic' signature"
+group = "panic"
+
+    [SC201.E]
+    explain = """
+    # 'op panic' signature
+
+    'op panic' takes 'const self' and returns the message as a string.
+
+    ## how to fix
+
+    fix the signature.
+    """
+
+    [SC201.N]
+    explain = "Points at the related declaration."
+
+[SC202]
+brief = "operator shadows one derived from 'op <=>'"
+group = "operators"
+
+    [SC202.W]
+    explain = """
+    # operator shadows one derived from 'op <=>'
+
+    'op <=>' already derives the comparisons, so a separate one replaces them.
+
+    ## how to fix
+
+    remove the redundant operator.
+    """
+
+[SC203]
+brief = "type pack used where a single type is required"
+group = "packs"
+
+    [SC203.E]
+    explain = """
+    # type pack used where a single type is required
+
+    a type pack stands for several types.
+
+    ## how to fix
+
+    expand it or take one element.
+    """
+
+[SC204]
+brief = "passing mode on a pack parameter"
+group = "packs"
+
+    [SC204.E]
+    explain = """
+    # passing mode on a pack parameter
+
+    a passing mode on a pack has no meaning for its elements yet.
+
+    ## how to fix
+
+    remove the mode.
+    """
+
+[SC205]
+brief = "pack-expanded enum variant rule"
+group = "packs"
+
+    [SC205.E]
+    explain = """
+    # pack-expanded enum variant rule
+
+    a variant that names a type pack is followed by '...' to make one variant per element, has a payload that names a pack, is the only such variant, and is last.
+
+    ## how to fix
+
+    follow the rule the message gives.
+    """
+
+[SC206]
+brief = "pack expansion in the wrong place"
+group = "packs"
+
+    [SC206.E]
+    explain = """
+    # pack expansion in the wrong place
+
+    a pack expansion is written only as a call argument, and only a pack parameter can be expanded.
+
+    ## how to fix
+
+    expand a pack as an argument.
+    """
+
+[SC207]
+brief = "pack of values of different types"
+group = "packs"
+
+    [SC207.E]
+    explain = """
+    # pack of values of different types
+
+    a heterogeneous pack cannot be used as one value.
+
+    ## how to fix
+
+    pass it expanded, or iterate it.
+    """
+
+[SC208]
+brief = "implementation panics with errors outside the interface's panic set"
+group = "panic"
+
+    [SC208.E]
+    explain = """
+    # implementation panics with errors outside the interface's panic set
+
+    an implementation or override may panic only with errors in the panic set of what it implements or overrides.
+
+    ## how to fix
+
+    catch the extra errors, or widen the declared set.
+    """
+
+    [SC208.N]
+    explain = "Points at the function that may panic, and at the declaration with the set."
+
+[SC209]
+brief = "two 'catch' arms catch the same error"
+group = "panic"
+
+    [SC209.E]
+    explain = """
+    # two 'catch' arms catch the same error
+
+    an earlier arm of the same 'try' takes every error the second names, so the second never runs.
+
+    ## how to fix
+
+    remove one arm.
+    """
+
+    [SC209.N]
+    explain = "Points at the arms involved."
+
+[SC210]
+brief = "'catch' arm can never run"
+group = "panic"
+
+    [SC210.W]
+    explain = """
+    # 'catch' arm can never run
+
+    the error the arm names is not in the panic set of its 'try'.
+
+    ## how to fix
+
+    remove the arm.
+    """
+
+[SC211]
+brief = "'finally' placed after the 'try' it seems to follow"
+group = "panic"
+
+    [SC211.W]
+    explain = """
+    # 'finally' placed after the 'try' it seems to follow
+
+    'finally' runs when the enclosing block exits, not when the 'try' before it finishes.
+
+    ## how to fix
+
+    put it first in a block of its own.
+    """
+
+    [SC211.N]
+    explain = "Explains when it runs."
+
+[SC212]
+brief = "type cannot be panicked with"
+group = "panic"
+
+    [SC212.E]
+    explain = """
+    # type cannot be panicked with
+
+    only a type that can be copied out and thrown can be in a panic set.
+
+    ## how to fix
+
+    use another type.
+    """
+
+    [SC212.N]
+    explain = "Points at the type."
+
+[SC213]
+brief = "'main' cannot panic"
+group = "panic"
+
+    [SC213.E]
+    explain = """
+    # 'main' cannot panic
+
+    nothing above 'main' could handle the error.
+
+    ## how to fix
+
+    handle every error in 'main'.
+    """
+
+    [SC213.N]
+    explain = "Points at 'main'."
+
+[SC214]
+brief = "'panic' together with '-> !'"
+group = "panic"
+
+    [SC214.E]
+    explain = """
+    # 'panic' together with '-> !'
+
+    a panic returns its error, and '!' never returns.
+
+    ## how to fix
+
+    remove one.
+    """
+
+    [SC214.N]
+    explain = "Points at the function or closure."
+
+[SC215]
+brief = "function that runs implicitly cannot panic"
+group = "panic"
+
+    [SC215.E]
+    explain = """
+    # function that runs implicitly cannot panic
+
+    constructors, destructors and operations that run without a written call have no caller to handle the error.
+
+    ## how to fix
+
+    use a static factory for fallible construction.
+    """
+
+    [SC215.N]
+    explain = "Points at the function."
+
+[SC216]
+brief = "panic set grows without bound"
+group = "panic"
+
+    [SC216.E]
+    explain = """
+    # panic set grows without bound
+
+    a recursive generic function enlarges its own set at every instantiation.
+
+    ## how to fix
+
+    declare the set.
+    """
+
+    [SC216.N]
+    explain = "Says how to bound it."
+
+[SC217]
+brief = "panic set of a public function is inferred"
+group = "panic"
+
+    [SC217.W]
+    explain = """
+    # panic set of a public function is inferred
+
+    a change to the body changes the callers' contract.
+
+    ## how to fix
+
+    declare the set.
+    """
+
+[SC218]
+brief = "panic set must be written here"
+group = "panic"
+
+    [SC218.E]
+    explain = """
+    # panic set must be written here
+
+    a bare 'panic' needs its set written in this position.
+
+    ## how to fix
+
+    write the set.
+    """
+
+    [SC218.N]
+    explain = "Says there is no body to infer it from."
+
+[SC219]
+brief = "function value whose panic set is inferred"
+group = "panic"
+
+    [SC219.E]
+    explain = """
+    # function value whose panic set is inferred
+
+    a 'fn' value's type carries the set, so the function must declare it.
+
+    ## how to fix
+
+    declare the set.
+    """
+
+    [SC219.N]
+    explain = "Points at the function."
+
+[SC220]
+brief = "'catch' of a C++ exception without C++ exceptions"
+group = "panic"
+
+    [SC220.E]
+    explain = """
+    # 'catch' of a C++ exception without C++ exceptions
+
+    the build has no C++ exceptions, so such an arm cannot run.
+
+    ## how to fix
+
+    remove the arm, or enable exceptions.
+    """
+
+    [SC220.N]
+    explain = "Points at the declaration."
+
+[SC221]
+brief = "panic escapes a function not marked 'panic'"
+group = "panic"
+
+    [SC221.E]
+    explain = """
+    # panic escapes a function not marked 'panic'
+
+    an error can reach the end of a function whose declared set (or lack of one) does not allow it.
+
+    ## how to fix
+
+    catch it, or add it to the set.
+    """
+
+    [SC221.N]
+    explain = "Points at the callee or the default."
+
+[SC222]
+brief = "global initializer panics"
+group = "panic"
+
+    [SC222.E]
+    explain = """
+    # global initializer panics
+
+    a global's initializer runs at file scope, with no function to propagate to.
+
+    ## how to fix
+
+    initialize it in a function.
+    """
+
+    [SC222.N]
+    explain = "Points at the global."
+
+[SC223]
+brief = "errors that cannot share a panic set"
+group = "panic"
+
+    [SC223.E]
+    explain = """
+    # errors that cannot share a panic set
+
+    the set cannot hold both, for the reason the message gives.
+
+    ## how to fix
+
+    split the set.
+    """
+
+    [SC223.N]
+    explain = "Points at each declaration."
+
+[SC224]
+brief = "parameter is never mutated"
+group = "lint"
+
+    [SC224.W]
+    explain = """
+    # parameter is never mutated
+
+    declaring it 'const' says so.
+
+    ## how to fix
+
+    write 'const'.
+    """
+
+[SC225]
+brief = "allocator-scope pointer escapes"
+group = "memory"
+
+    [SC225.W]
+    explain = """
+    # allocator-scope pointer escapes
+
+    a pointer from the allocator scope dangles once the scope closes.
+
+    ## how to fix
+
+    copy the data out first.
+    """
+
+[SC226]
+brief = "pointer or nullable written without its shorthand"
+group = "lint"
+
+    [SC226.W]
+    explain = """
+    # pointer or nullable written without its shorthand
+
+    the shorthand form is the spelling the style uses.
+
+    ## how to fix
+
+    use the shorthand.
+    """
+
+[SC227]
+brief = "type held by value while only forward-declared"
+group = "layout"
+
+    [SC227.E]
+    explain = """
+    # type held by value while only forward-declared
+
+    its size is unknown here.
+
+    ## how to fix
+
+    hold a pointer, or define the type first.
+    """
+
+    [SC227.N]
+    explain = "Points at the held type."
+
+[SC228]
+brief = "where-guard dispatch rule"
+group = "where-guards"
+
+    [SC228.E]
+    explain = """
+    # where-guard dispatch rule
+
+    a set of overloads guarded by 'where' needs a fallback, is not allowed on interface methods or unsafe overloads, needs bodies, and agrees on the signature C++ sees.
+
+    ## how to fix
+
+    follow the rule the message names.
+    """
+
+    [SC228.N]
+    explain = "Points at the declaration it refers to."
+
+[SC229]
+brief = "'where' guard never selected"
+group = "where-guards"
+
+    [SC229.W]
+    explain = """
+    # 'where' guard never selected
+
+    the guard can never hold, is unreachable, or overlaps an earlier guard.
+
+    ## how to fix
+
+    remove or reorder the overload.
+    """
+
+    [SC229.N]
+    explain = "Points at the earlier guard."
+
+[SC230]
+brief = "'eval if' condition outside a function body"
+group = "eval"
+
+    [SC230.E]
+    explain = """
+    # 'eval if' condition outside a function body
+
+    the condition is decided at compile time from what is known at that point.
+
+    ## how to fix
+
+    use a condition that is.
+    """
+
+    [SC230.N]
+    explain = "Points at the related declaration."
+
+[SC231]
+brief = "'eval if' branch declares something it cannot"
+group = "eval"
+
+    [SC231.E]
+    explain = """
+    # 'eval if' branch declares something it cannot
+
+    in a module or class body an 'eval if' holds declarations; when its condition reads a type fact, only functions, constants and fields.
+
+    ## how to fix
+
+    move the declaration.
+    """
+
+[SC232]
+brief = "integer constant wider than 128 bits"
+group = "literals"
+
+    [SC232.E]
+    explain = """
+    # integer constant wider than 128 bits
+
+    constants wider than 128 bits are not emitted yet.
+
+    ## how to fix
+
+    use a narrower constant.
+    """
+
+[SC233]
+brief = "intrinsic needs a concrete type"
+group = "intrinsics"
+
+    [SC233.E]
+    explain = """
+    # intrinsic needs a concrete type
+
+    the type depends on a generic parameter or has no C++ type.
+
+    ## how to fix
+
+    use it in a concrete context.
+    """
+
+[SC234]
+brief = "top-level statements in the wrong file"
+group = "scripts"
+
+    [SC234.E]
+    explain = """
+    # top-level statements in the wrong file
+
+    top-level statements run in the program's root file, which then has no 'fn main'.
+
+    ## how to fix
+
+    move them.
+    """
+
+    [SC234.N]
+    explain = "Points at the related declaration."
+
+[SC235]
+brief = "script feature not supported yet"
+group = "scripts"
+
+    [SC235.E]
+    explain = """
+    # script feature not supported yet
+
+    a nullable script variable with a non-constant initializer, or a destructuring declaration at the top level.
+
+    ## how to fix
+
+    restructure.
+    """
+
+    [SC235.N]
+    explain = "Points at the related declaration."
+
+[SC236]
+brief = "script variable read before it has a value"
+group = "scripts"
+
+    [SC236.E]
+    explain = """
+    # script variable read before it has a value
+
+    the line that gives the variable its value has not run.
+
+    ## how to fix
+
+    reorder.
+    """
+
+    [SC236.N]
+    explain = "Points at the related declaration."
+
+[SC237]
+brief = "top-level 'return' value is not an integer"
+group = "scripts"
+
+    [SC237.E]
+    explain = """
+    # top-level 'return' value is not an integer
+
+    it is the program's exit status.
+
+    ## how to fix
+
+    return an integer.
+    """
+
+[SC238]
+brief = "'jump!' crosses a script variable's initialization"
+group = "scripts"
+
+    [SC238.E]
+    explain = """
+    # 'jump!' crosses a script variable's initialization
+
+    the jump skips the line that gives the variable its value.
+
+    ## how to fix
+
+    move the label.
+    """
+
+    [SC238.N]
+    explain = "Points at the related declaration."
+
+[SC239]
+brief = "'finally' outside a function body"
+group = "control-flow"
+
+    [SC239.E]
+    explain = """
+    # 'finally' outside a function body
+
+    file scope is never left, so 'finally' would never run.
+
+    ## how to fix
+
+    put it in a function.
+    """
+
+[SC240]
+brief = "'catch' arm after a bare 'catch'"
+group = "control-flow"
+
+    [SC240.E]
+    explain = """
+    # 'catch' arm after a bare 'catch'
+
+    a bare 'catch' already handles everything.
+
+    ## how to fix
+
+    move the bare 'catch' last.
+    """
+
+    [SC240.N]
+    explain = "Points at the bare 'catch'."
+
+[SC241]
+brief = "shift count not proven below the width"
+group = "operators"
+
+    [SC241.W]
+    explain = """
+    # shift count not proven below the width
+
+    masking costs an instruction on this target.
+
+    ## how to fix
+
+    bound the count.
+    """
+
+[SC242]
+brief = "member not accessible"
+group = "access"
+
+    [SC242.E]
+    explain = """
+    # member not accessible
+
+    the member is private, protected, or reached through a base derived non-publicly.
+
+    ## how to fix
+
+    change the access, or use the public interface.
+    """
+
+    [SC242.N]
+    explain = "Points at the declaration."
+
+[SC243]
+brief = "member type named without a qualifier"
+group = "lint"
+
+    [SC243.W]
+    explain = """
+    # member type named without a qualifier
+
+    write 'Self::Name' so it reads as a member.
+
+    ## how to fix
+
+    add the qualifier.
+    """
+
+    [SC243.N]
+    explain = "Points at the member."
+
+[SC244]
+brief = "attribute does not apply to an ADT enum"
+group = "attributes"
+
+    [SC244.E]
+    explain = """
+    # attribute does not apply to an ADT enum
+
+    no cast makes its tag, so it is always closed.
+
+    ## how to fix
+
+    remove the attribute.
+    """
+
+[SC245]
+brief = "'string' passed through C's '...'"
+group = "ffi"
+
+    [SC245.E]
+    explain = """
+    # 'string' passed through C's '...'
+
+    pass its bytes as a C string with '.c_str()'.
+
+    ## how to fix
+
+    call '.c_str()'.
+    """
+
+[SC246]
+brief = "'destroy' of a class with its own allocator"
+group = "memory"
+
+    [SC246.E]
+    explain = """
+    # 'destroy' of a class with its own allocator
+
+    the destroy must name the type.
+
+    ## how to fix
+
+    write 'destroy<T>(p)'.
+    """
+
+[SC247]
+brief = "static member called through a value"
+group = "calls"
+
+    [SC247.E]
+    explain = """
+    # static member called through a value
+
+    it takes no 'self' and is called through the type.
+
+    ## how to fix
+
+    call it through the type.
+    """
+
+    [SC247.N]
+    explain = "Points at the related declaration."
+
+[SC248]
+brief = "qualified call on a generic needs the instance"
+group = "calls"
+
+    [SC248.E]
+    explain = """
+    # qualified call on a generic needs the instance
+
+    write the generic arguments before the name.
+
+    ## how to fix
+
+    add them.
+    """
+
+[SC249]
+brief = "object of an abstract class"
+group = "classes"
+
+    [SC249.E]
+    explain = """
+    # object of an abstract class
+
+    the class has pure virtual members.
+
+    ## how to fix
+
+    construct a derived class.
+    """
+
+    [SC249.N]
+    explain = "Points at the pure member."
+
+[SC250]
+brief = "function cannot be called"
+group = "calls"
+
+    [SC250.E]
+    explain = """
+    # function cannot be called
+
+    the function is not callable here, for the reason shown.
+
+    ## how to fix
+
+    see the reason.
+    """
+
+    [SC250.N]
+    explain = "Points at the function."
+
+[SC251]
+brief = "cannot construct a type through an associated type's bounds"
+group = "calls"
+
+    [SC251.E]
+    explain = """
+    # cannot construct a type through an associated type's bounds
+
+    no bound requires a constructor taking these arguments.
+
+    ## how to fix
+
+    add the requirement.
+    """
+
+[SC252]
+brief = "value is not a value of the closed enum"
+group = "enums"
+
+    [SC252.E]
+    explain = """
+    # value is not a value of the closed enum
+
+    a closed enum holds only its variants' values.
+
+    ## how to fix
+
+    use a variant.
+    """
+
+[SC253]
+brief = "downcast crashes when the object is not the target type"
+group = "casts"
+
+    [SC253.W]
+    explain = """
+    # downcast crashes when the object is not the target type
+
+    the checked form returns null instead.
+
+    ## how to fix
+
+    use the checked form.
+    """
+
+[SC254]
+brief = "match on a nullable must answer null first"
+group = "match"
+
+    [SC254.E]
+    explain = """
+    # match on a nullable must answer null first
+
+    the first arm answers null, so later arms match non-null values.
+
+    ## how to fix
+
+    put the null arm first.
+    """
+
+[SC255]
+brief = "variant of an empty pack"
+group = "packs"
+
+    [SC255.E]
+    explain = """
+    # variant of an empty pack
+
+    the pack is empty, so the variant does not exist.
+
+    ## how to fix
+
+    remove the variant use.
+    """
+
+[SC256]
+brief = "type of this value cannot decide the variant"
+group = "match"
+
+    [SC256.E]
+    explain = """
+    # type of this value cannot decide the variant
+
+    which pack variant is built depends on the value type, which is not known or fits none or several.
+
+    ## how to fix
+
+    name the payload type.
+    """
+
+[SC257]
+brief = "value type can only be matched by a binding"
+group = "match"
+
+    [SC257.E]
+    explain = """
+    # value type can only be matched by a binding
+
+    use a binding, '_' or 'default' with a guard.
+
+    ## how to fix
+
+    use one.
+    """
+
+[SC258]
+brief = "raw conversion not allowed"
+group = "casts"
+
+    [SC258.E]
+    explain = """
+    # raw conversion not allowed
+
+    the conversion to a raw pointer or integer breaks a rule.
+
+    ## how to fix
+
+    see the reason.
+    """
+
+[SC259]
+brief = "'&null' stored in a safe pointer"
+group = "pointers"
+
+    [SC259.E]
+    explain = """
+    # '&null' stored in a safe pointer
+
+    a safe pointer is never null.
+
+    ## how to fix
+
+    use a nullable.
+    """
+
+[SC260]
+brief = "nullable operator on a non-nullable value"
+group = "nullability"
+
+    [SC260.E]
+    explain = """
+    # nullable operator on a non-nullable value
+
+    the operator guards a null the value cannot hold.
+
+    ## how to fix
+
+    drop the operator.
+    """
+
+[SC261]
+brief = "raw pointer used as nullable"
+group = "nullability"
+
+    [SC261.E]
+    explain = """
+    # raw pointer used as nullable
+
+    a raw pointer's null is '&null'.
+
+    ## how to fix
+
+    compare with '&null'.
+    """
+
+[SC262]
+brief = "shift count out of range"
+group = "operators"
+
+    [SC262.E]
+    explain = """
+    # shift count out of range
+
+    a constant count must be below the width.
+
+    ## how to fix
+
+    use a count in range.
+    """
+
+[SC263]
+brief = "'===' on raw pointers needs unsafe"
+group = "operators"
+
+    [SC263.E]
+    explain = """
+    # '===' on raw pointers needs unsafe
+
+    it dereferences.
+
+    ## how to fix
+
+    use 'unsafe' or compare addresses.
+    """
+
+[SC264]
+brief = "'===' with 'null' is never true"
+group = "operators"
+
+    [SC264.E]
+    explain = """
+    # '===' with 'null' is never true
+
+    '===' holds only when both sides have a value.
+
+    ## how to fix
+
+    use '=='.
+    """
+
+[SC265]
+brief = "nullable value used without a check"
+group = "nullability"
+
+    [SC265.E]
+    explain = """
+    # nullable value used without a check
+
+    no null check narrows it.
+
+    ## how to fix
+
+    check it first.
+    """
+
+[SC266]
+brief = "variable declaration disagrees with its initializer's nullability or pointer kind"
+group = "declarations"
+
+    [SC266.E]
+    explain = """
+    # variable declaration disagrees with its initializer's nullability or pointer kind
+
+    write the declaration the way the value is.
+
+    ## how to fix
+
+    follow the message.
+    """
+
+[SC267]
+brief = "'@unwind' and '@no_unwind' together"
+group = "attributes"
+
+    [SC267.E]
+    explain = """
+    # '@unwind' and '@no_unwind' together
+
+    they contradict.
+
+    ## how to fix
+
+    keep one.
+    """
+
+    [SC267.N]
+    explain = "Points at the related declaration."
+
+[SC268]
+brief = "expression result unused"
+group = "lint"
+
+    [SC268.W]
+    explain = """
+    # expression result unused
+
+    the statement has no effect.
+
+    ## how to fix
+
+    remove it.
+    """
+
+[SC269]
+brief = "generator returns a value"
+group = "generators"
+
+    [SC269.E]
+    explain = """
+    # generator returns a value
+
+    a generator ends with 'return' and yields.
+
+    ## how to fix
+
+    yield it.
+    """
+
+[SC270]
+brief = "'typeof' in an unsupported position"
+group = "typeof"
+
+    [SC270.E]
+    explain = """
+    # 'typeof' in an unsupported position
+
+    it is the whole declared type of a variable only.
+
+    ## how to fix
+
+    write the type out.
+    """
+
+[SC271]
+brief = "'typeof' as a value is not implemented"
+group = "typeof"
+
+    [SC271.E]
+    explain = """
+    # 'typeof' as a value is not implemented
+
+    'TypeInfo' is not implemented yet.
+
+    ## how to fix
+
+    use it as a type.
+    """
+
+[SC272]
+brief = "'prot' declaration in a file with no module"
+group = "access"
+
+    [SC272.W]
+    explain = """
+    # 'prot' declaration in a file with no module
+
+    `prot` makes a declaration visible to every file of its module: the
+    files under the nearest directory, at or above the declaring file, that
+    holds a `module.k`. The declaring file has no `module.k` above it, so it
+    belongs to no module and its `prot` reaches only what `priv` reaches:
+    the file itself (and, for a member, the classes deriving from its class).
+    The use this warning rides on is in another file, so it was refused.
+
+    ```kairo
+    // shapes/area.k, with no shapes/module.k
+    prot fn scale() -> i32 { return 2; }
+
+    // shapes/main.k
+    import self::area;
+    fn main() -> i32 { return area::scale(); }   // refused
+    ```
+
+    ## how to fix
+
+    put a `module.k` in the directory that should share the declaration
+    (an empty file is enough), or make the declaration `pub`.
+    """
+
+    [SC272.N]
+    explain = "Points at the declaration."
+
+[SC273]
+brief = "method never mutates 'self'"
+group = "const-self"
+
+    [SC273.W]
+    explain = """
+    # method never mutates 'self'
+
+    Opt-in (`-Wconst-self`). The method takes `self` but nothing in its body
+    changes the object: every use of `self` reads a field, calls a
+    `const self` method (or one this lint finds the same about, decided over
+    the whole file at once), or passes it where it is only read. Declaring
+    it `const self` says so, and lets the method be called on a `const`
+    object or through a `const` reference.
+
+    ```kairo
+    class Counter {
+        var n: i32 = 0
+        fn get(self) -> i32 { return self.n }   // warned
+        fn bump(self) { self.n += 1 }           // writes self.n: not warned
+    }
+    ```
+
+    Not warned: a constructor, `op delete`, an assignment operator, a
+    `virtual` / `override` method or one in a class with a polymorphic base,
+    a method of a record or extension that implements an interface (the
+    requirement fixes the signature), a generic method or one in a generic
+    record, an out-of-line definition, and library code. A use of `self`
+    the analysis does not recognise as a read keeps the method quiet: the
+    lint never claims a method is const-able when it might not be.
+
+    ## how to fix
+
+    write `const self`; the fix-it inserts `const`.
+    """
+
+[SC274]
+brief = "'@inout' parameter is never mutated"
+group = "const-self"
+
+    [SC274.W]
+    explain = """
+    # '@inout' parameter is never mutated
+
+    Opt-in (`-Wconst-self`). An `@inout` parameter promises the caller that
+    the function may change the argument, and makes every caller pass a
+    mutable place. This body only reads it, so `const` says what it does:
+    the argument is still passed without a copy, and a caller may pass a
+    `const` value or a temporary.
+
+    ```kairo
+    fn total(@inout xs: [i32]) -> i32 { ... }   // only reads xs: warned
+    ```
+
+    The same functions are skipped as for a method's `self` (SC273W). A
+    by-value record parameter that is never mutated is SC224W, which is on
+    by default.
+
+    ## how to fix
+
+    replace `@inout` with `const` (the fix-it does), then drop the `&`
+    at each call: `total(&v)` becomes `total(v)`.
     """

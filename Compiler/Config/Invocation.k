@@ -1,27 +1,31 @@
 /// --- The Kairo Project -------------------------- Config/Invocation.k --- ///
 ///
-///   The canonical, strongly-typed representation of one compiler run.
+///   CompilerInvocation: the typed options of one compiler run.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Command::ParsedArgs::*;
-import Command::Command::*;
-import Command::FlagRegistry::*;
-import Diagnostic::Engine::*;
-import Config::Language::*;
-import Config::Diagnostic::*;
-import Config::Preprocessor::*;
-import Config::CodeGen::*;
-import Config::Frontend::*;
-import Config::Target::*;
-import Config::Linker::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
+
+import Command::Command::Command
+import Command::FlagRegistry::register_kairo_flags
+import Command::ParsedArgs::ParsedArgs
+import Config::CodeGen::CodeGenOptions
+import Config::Diagnostic::DiagnosticOptions
+import Config::Frontend::FrontendOptions
+import Config::Language::LangOptions
+import Config::Linker::LinkerOptions
+import Config::Preprocessor::PreprocessorOptions
+import Config::Target::TargetOptions
+import Diagnostic::Engine::DiagEngine
+import std::c_char
 
 ///
 /// \class CompilerInvocation
@@ -43,31 +47,33 @@ import Config::Linker::*;
 ///      strings for the CLI parser to re-parse. Mirrors clang's
 ///      CompilerInvocation::CreateFromArgs / CompilerInstance::setInvocation.
 ///
-class CompilerInvocation {
-    // -- sub-option structs (one per subsystem) ----------------------------
-    pub var lang:     LangOptions;
-    pub var diag:     DiagnosticOptions;
-    pub var pp:       PreprocessorOptions;
-    pub var codegen:  CodeGenOptions;
-    pub var frontend: FrontendOptions;
-    pub var target:   TargetOptions;
-    pub var linker:   LinkerOptions;
-    // -- input files & search paths ----------------------------------------
-    pub var working_dir:    string = "";
-    pub var input_encoding: string = "utf-8";
-    pub var input_files:    vec::<string>;
+pub class CompilerInvocation {
+    /// # sub-option structs (one per subsystem)
+
+    pub var lang:     LangOptions
+    pub var diag:     DiagnosticOptions
+    pub var pp:       PreprocessorOptions
+    pub var codegen:  CodeGenOptions
+    pub var frontend: FrontendOptions
+    pub var target:   TargetOptions
+    pub var linker:   LinkerOptions
+    /// # input files & search paths
+
+    pub var working_dir:    string                   = ""
+    pub var input_encoding: string                   = "utf-8"
+    pub var input_files:    cxx::std::vector<string>
     /// Parallel to input_files: the -x language each was given under ("" =
     /// classify by extension). May be SHORTER than input_files on the
     /// programmatic path; input_lang() treats a missing entry as "".
-    pub var input_langs:    vec::<string>;
-    pub var include_dirs:   vec::<string>;
-    pub var ffi_includes:   vec::<string>;
-    pub var cxx_includes:   vec::<string>;
-    pub var cxx_defines:    vec::<string>;   ///< --cxx-define: clang -D
-    pub var cxx_undefines:  vec::<string>;   ///< --cxx-undefine: clang -U
-    pub var macro_paths:    vec::<string>;
+    pub var input_langs:   cxx::std::vector<string>
+    pub var include_dirs:  cxx::std::vector<string>
+    pub var ffi_includes:  cxx::std::vector<string>
+    pub var cxx_includes:  cxx::std::vector<string>
+    pub var cxx_defines:   cxx::std::vector<string> ///< --cxx-define: clang -D
+    pub var cxx_undefines: cxx::std::vector<string> ///< --cxx-undefine: clang -U
+    pub var macro_paths:   cxx::std::vector<string>
 
-    // -- provenance --------------------------------------------------------
+    /// # provenance
 
     /// \brief the raw parsed CLI this invocation came from.
     ///
@@ -80,7 +86,7 @@ class CompilerInvocation {
     ///          ParsedArgs getter returns the zero value for a key it does not
     ///          hold, so an invocation built by hand answers "not asked" to all
     ///          of them.
-    pub var args: ParsedArgs;
+    pub var args: ParsedArgs
 
     /// \brief whether this invocation is usable.
     ///
@@ -88,7 +94,7 @@ class CompilerInvocation {
     ///          hand-built invocation is ok by construction   there is no flag
     ///          syntax to get wrong   so the default is true and a programmatic
     ///          caller never has to set it.
-    pub var ok: bool = true;
+    pub var ok: bool = true
 
     /// The header dirs clang searches with -I, in the order it gets them:
     /// -I (a Kairo search dir AND a clang -I, one flag as under clang), then
@@ -99,44 +105,74 @@ class CompilerInvocation {
     /// (CompilerInstance::_backend_config, _native_words_for), and the scan
     /// leaves it out: the .k files under it are builtin's and std's, which
     /// are libraries the resolver already knows, never inputs to discover.
-    fn clang_include_dirs(self) -> vec::<string> {
-        var out = vec::<string>();
-        for d: string in self.include_dirs { out.push_back(d); }
-        for d: string in self.ffi_includes { out.push_back(d); }
-        for d: string in self.cxx_includes { out.push_back(d); }
-        return out;
+    pub fn clang_include_dirs(self) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
+        for *d in self.include_dirs {
+            out.push_back(*d)
+        }
+
+        for *d in self.ffi_includes {
+            out.push_back(*d)
+        }
+
+        for *d in self.cxx_includes {
+            out.push_back(*d)
+        }
+
+        return out
     }
 
     /// The -x language of input \p i, "" when none was given.
-    fn input_lang(self, i: usize) -> string {
-        if i < self.input_langs.size() { return self.input_langs[i]; }
-        return "";
+    pub fn input_lang(self, i: usize) -> string {
+        if i < self.input_langs.size() {
+            return self.input_langs[i]
+        }
+
+        return ""
     }
 
-    static fn from_args(args: ref!(ParsedArgs)) -> CompilerInvocation {
-        var inv = CompilerInvocation();
-        (inv.args)     = args;
-        (inv.ok)       = args.ok;
-        (inv.lang)     = LangOptions::from_args(args);
-        (inv.diag)     = DiagnosticOptions::from_args(args);
-        (inv.pp)       = PreprocessorOptions::from_args(args);
-        (inv.codegen)  = CodeGenOptions::from_args(args);
-        (inv.frontend) = FrontendOptions::from_args(args);
-        (inv.target)   = TargetOptions::from_args(args);
-        (inv.linker)   = LinkerOptions::from_args(args);
+    pub static fn from_args(@inout args: ParsedArgs) -> CompilerInvocation {
+        var inv = CompilerInvocation()
+        inv.args     = args
+        inv.ok       = args.ok
+        inv.lang     = LangOptions::from_args(&args)
+        inv.diag     = DiagnosticOptions::from_args(&args)
+        inv.pp       = PreprocessorOptions::from_args(&args)
+        inv.codegen  = CodeGenOptions::from_args(&args)
+        inv.frontend = FrontendOptions::from_args(&args)
+        inv.target   = TargetOptions::from_args(&args)
+        inv.linker   = LinkerOptions::from_args(&args)
 
-        (inv.input_files)    = (args.files);
-        (inv.input_langs)    = (args.file_langs);
-        (inv.working_dir)    = (args.get_string("working-dir"));
-        (inv.input_encoding) = (args.get_string("input-encoding"));
+        inv.input_files    = args.files
+        inv.input_langs    = args.file_langs
+        inv.working_dir    = args.get_string("working-dir")
+        inv.input_encoding = args.get_string("input-encoding")
 
-        for s in (args.get_list("include-dirs"))      { (inv.include_dirs.push_back(s)); }
-        for s in (args.get_list("ffi-include"))       { (inv.ffi_includes.push_back(s)); }
-        for s in (args.get_list("cxx-include"))       { (inv.cxx_includes.push_back(s)); }
-        for s in (args.get_list("cxx-define"))        { (inv.cxx_defines.push_back(s));  }
-        for s in (args.get_list("cxx-undefine"))      { (inv.cxx_undefines.push_back(s)); }
-        for s in (args.get_list("macro-search-path")) { (inv.macro_paths.push_back(s));  }
-        return inv;
+        for s in *args.get_list("include-dirs") {
+            inv.include_dirs.push_back(s)
+        }
+
+        for s in *args.get_list("ffi-include") {
+            inv.ffi_includes.push_back(s)
+        }
+
+        for s in *args.get_list("cxx-include") {
+            inv.cxx_includes.push_back(s)
+        }
+
+        for s in *args.get_list("cxx-define") {
+            inv.cxx_defines.push_back(s)
+        }
+
+        for s in *args.get_list("cxx-undefine") {
+            inv.cxx_undefines.push_back(s)
+        }
+
+        for s in *args.get_list("macro-search-path") {
+            inv.macro_paths.push_back(s)
+        }
+
+        return inv
     }
 
     /// \brief the whole argv -> options path, with no CompilerInstance in it.
@@ -168,32 +204,32 @@ class CompilerInvocation {
     ///         and still reports the --target and --sysroot it was given.
     ///         The rest stay default on purpose: a read --error-format with
     ///         no consumer attached for it would swallow the flag errors.
-    static fn from_args(
-        argc: i32,
-        argv: *(*kairo::std::Legacy::char),
-        diag: *DiagEngine
-    ) -> CompilerInvocation {
-        var inv = CompilerInvocation();
+    pub static fn from_args(argc: i32,
+                            argv: unsafe *(unsafe *c_char),
+                            diag: unsafe *DiagEngine) -> CompilerInvocation {
+        var inv = CompilerInvocation()
 
         if diag == &null {
-            (inv.ok) = false;
-            return inv;
+            inv.ok = false
+            return inv
         }
 
-        var cmd = std::create::<Command>(argc, argv, diag);
-        finally { std::destroy(cmd); }
+        var unsafe *cmd = kairo::std::create<Command>(argc, argv, diag)
+        finally {
+            kairo::std::destroy(cmd)
+        }
 
-        register_kairo_flags(cmd);
-        var parsed = cmd->parse();
+        register_kairo_flags(cmd)
+        var parsed = cmd->parse()
 
         if parsed.ok {
-            inv = CompilerInvocation::from_args(parsed);
+            inv = CompilerInvocation::from_args(&parsed)
         } else {
-            (inv.args)   = parsed;
-            (inv.ok)     = false;
-            (inv.target) = TargetOptions::from_args(parsed);
+            inv.args   = parsed
+            inv.ok     = false
+            inv.target = TargetOptions::from_args(&parsed)
         }
 
-        return inv;
+        return inv
     }
 }

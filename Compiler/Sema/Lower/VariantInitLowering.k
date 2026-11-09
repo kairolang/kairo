@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------- Sema/Lower/VariantInitLowering.k --- ///
+/// --- The Kairo Project ------------- Sema/Lower/VariantInitLowering.k --- ///
 ///
 ///   \brief An enum variant construction becomes the node EmitIR renders.
 ///
@@ -42,133 +42,225 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::SemaContext::*;
-import Sema::Type::TypeUtil::*;
-import Sema::Type::VariadicEnum::*;
-import Sema::Lower::LowerSynth::*;
-import AST::Visitor::ASTWriter::*;
-import AST::ASTSupport::*;
-import AST::Context::DeclContext::*;
-import AST::Node::Base::*;
-import AST::Node::Expressions::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Declarations::*;
-import AST::Node::Casting::*;
-import Token::Token::*;
-import Location::SourceRange::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
 
-class VariantInitLowering derives ASTWriter::<VariantInitLowering> {
-    pub var sc: *SemaContext;
-    priv var tu: TypeUtil;
-    priv var synth: LowerSynth;
+import AST::ASTSupport::{
+    FrozenList,
+    create_empty_frozen_list,
+}
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Type,
+}
+import AST::Node::Casting::{
+    cast,
+    dyn_cast,
+}
+import AST::Node::Declarations::{
+    EnumDecl,
+    EnumVariantDecl,
+}
+import AST::Node::Expressions::{
+    InitField,
+    NamedInitializerExpr,
+    VariantInitExpr,
+}
+import AST::Node::PrimaryExpressions::{
+    ChainExpr,
+    NamedIdentExpr,
+}
+import AST::Visitor::ASTWriter::ASTWriter
+import Sema::Lower::LowerSynth::LowerSynth
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+import Sema::Type::TypeUtil::TypeUtil
+import Sema::Type::VariadicEnum::VariadicEnum
 
-    fn VariantInitLowering(self, sc: *SemaContext) {
-        self.sc    = sc;
-        self.ctx   = sc->ctx;
-        self.tu    = TypeUtil(sc);
-        self.synth = LowerSynth(sc);
+pub class VariantInitLowering derives ASTWriter<VariantInitLowering> {
+    pub var  sc:    unsafe *SemaContext
+    priv var tu:    TypeUtil
+    priv var synth: LowerSynth
+
+    fn VariantInitLowering(self, sc: unsafe *SemaContext) {
+        self.sc    = sc
+        self.ctx   = sc->ctx
+        self.tu    = TypeUtil(sc)
+        self.synth = LowerSynth(sc)
     }
 
     fn run(self) {
-        self.sc->require_phase(SemaPhase::Checked);
-        if self.sc->tu == &null { return; }
-        ASTWriter::<VariantInitLowering>::run(self.sc->tu);
+        self.sc->require_phase(SemaPhase::Checked)
+        if self.sc->tu == &null {
+            return
+        }
+
+        ASTWriter<VariantInitLowering>::run(self, self.sc->tu)
     }
 
-    // --- entry points: the three nodes a construction is written as ----------------
+    /// # entry points: the three nodes a construction is written as
 
-    fn transform_named_initializer_expr(self, n: *NamedInitializerExpr) -> *Expr {
-        var out = ASTWriter::<VariantInitLowering>::transform_named_initializer_expr(n);
-        if n->variant_decl == &null { return out; }
-        return self._lower(static_cast::<*Expr>(n), n->variant_decl, n->fields);
+    fn transform_named_initializer_expr(self, n: unsafe *NamedInitializerExpr) -> unsafe *Expr {
+        var unsafe *out = ASTWriter<VariantInitLowering>::transform_named_initializer_expr(self, n)
+        if n->variant_decl == &null {
+            return out
+        }
+
+        return self._lower(unsafe (n as unsafe *Expr), n->variant_decl, n->fields)
     }
 
-    fn transform_chain_expr(self, n: *ChainExpr) -> *Expr {
-        var out = ASTWriter::<VariantInitLowering>::transform_chain_expr(n);
-        if n->variant_decl == &null { return out; }
-        return self._lower(static_cast::<*Expr>(n), n->variant_decl, create_empty_frozen_list::<InitField>());
+    fn transform_chain_expr(self, n: unsafe *ChainExpr) -> unsafe *Expr {
+        var unsafe *out = ASTWriter<VariantInitLowering>::transform_chain_expr(self, n)
+        if n->variant_decl == &null {
+            return out
+        }
+
+        return self._lower(
+            unsafe (n as unsafe *Expr),
+            n->variant_decl,
+            create_empty_frozen_list<InitField>(),
+        )
     }
 
-    fn transform_named_ident_expr(self, n: *NamedIdentExpr) -> *Expr {
-        var out = ASTWriter::<VariantInitLowering>::transform_named_ident_expr(n);
-        if n->variant_decl == &null { return out; }
-        return self._lower(static_cast::<*Expr>(n), n->variant_decl, create_empty_frozen_list::<InitField>());
+    fn transform_named_ident_expr(self, n: unsafe *NamedIdentExpr) -> unsafe *Expr {
+        var unsafe *out = ASTWriter<VariantInitLowering>::transform_named_ident_expr(self, n)
+        if n->variant_decl == &null {
+            return out
+        }
+
+        return self._lower(
+            unsafe (n as unsafe *Expr),
+            n->variant_decl,
+            create_empty_frozen_list<InitField>(),
+        )
     }
 
-    // --- the rewrite -------------------------------------------------------------------
+    /// # the rewrite
 
     /// \p n built the variant \p vd from \p fields (none for a name). Left as
     /// it is when poisoned or untyped: a conversion checked after X typed it
     /// (a var's declared type) can poison it, and the pipeline then stops
     /// before codegen.
-    priv fn _lower(self, n: *Expr, vd: *Decl, fields: FrozenList::<InitField>) -> *Expr {
-        if n->is_poisoned() || (n->type_ == &null) { return n; }
-        var v   = cast::<EnumVariantDecl>(vd);
-        var en  = self._enum_of(v);
-        var idx = self._index_of(en, v);
+    priv fn _lower(self,
+                   n:      unsafe *Expr,
+                   vd:     unsafe *Decl,
+                   fields: FrozenList<InitField>) -> unsafe *Expr {
+        if n->is_poisoned() || n->type_ == &null {
+            return n
+        }
+
+        var unsafe *v  = cast<EnumVariantDecl>(vd)
+        var unsafe *en = self._enum_of(v)
+        var        idx = self._index_of(en, v)
 
         if !en->is_adt {
-            ICE_IF((fields.size() > 0), "VariantInitLowering: a plain enum's variant with fields; ControlTyping::_check_variant rejects braces on it");
-            var id = NamedIdentExpr::create(self.ctx, n->range, self.synth.ident(n->range, self.tu.decl_name(vd)));
-            id->resolved_decl = vd;
-            id->adopt_sema(n);
-            return static_cast::<*Expr>(id);
+            if fields.size() > 0 {
+                kairo::std::ice_fail(
+                    "VariantInitLowering: a plain enum's variant with fields; ControlTyping::_check_variant rejects braces on it",
+                )
+            }
+
+            var unsafe *id = NamedIdentExpr::create(
+                self.ctx,
+                n->range,
+                self.synth.ident(n->range, self.tu.decl_name(vd)),
+            )
+
+            id->resolved_decl = vd
+            id->adopt_sema(n)
+            return id
         }
 
-        var np = v->payload.size();
-        ICE_IF((fields.size() != np), "VariantInitLowering: field count differs from the payload; ControlTyping::_check_variant records one field per payload field");
-        var vi = VariantInitExpr::create(self.ctx, n->range, static_cast::<*Decl>(en), u32(idx));
-        var fl = self.list_builder::<*Expr>();
-        var ol = self.list_builder::<u32>();
+        var np = v->payload.size()
+        if fields.size() != np {
+            kairo::std::ice_fail(
+                "VariantInitLowering: field count differs from the payload; ControlTyping::_check_variant records one field per payload field",
+            )
+        }
+
+        var unsafe *vi = VariantInitExpr::create(self.ctx, n->range, en, idx as u32)
+        var        fl  = self.list_builder<unsafe *Expr>()
+        var        ol  = self.list_builder<u32>()
         for var k: usize = 0; k < np; ++k {
-            var want = static_cast::<*Decl>(v->payload[k]);
-            var at: i32 = -1;
+            var unsafe *want     = unsafe (v->payload[k] as unsafe *Decl)
+            var        at:   i32 = -1
             for var i: usize = 0; i < fields.size(); ++i {
-                if fields.get(i)->field_decl == want { at = i32(i); break; }
+                if fields.get(i)->field_decl == want {
+                    at = (i as i32)
+                    break
+                }
             }
-            ICE_IF((at < 0), "VariantInitLowering: a payload field no initializer fills; ControlTyping::_check_variant matched every one");
-            fl.push(fields.get(usize(at))->value);
-            ol.push(u32(at));
+
+            if at < 0 {
+                kairo::std::ice_fail(
+                    "VariantInitLowering: a payload field no initializer fills; ControlTyping::_check_variant matched every one",
+                )
+            }
+
+            fl.push(fields.get(at as usize)->value)
+            ol.push(at as u32)
         }
-        fl.freeze_into(&(vi->fields));
-        ol.freeze_into(&(vi->source_order));
+
+        fl.freeze_into(&vi->fields)
+        ol.freeze_into(&vi->source_order)
         // A pack-expanded variant: the element X picked, and its type.
-        var ni = dyn_cast::<NamedInitializerExpr>(n);
+        var unsafe *ni = dyn_cast<NamedInitializerExpr>(n)
         if v->is_pack_expansion {
-            ICE_IF((ni == &null) || (ni->variant_pack < 0), "VariantInitLowering: a pack-expanded variant built with no element picked; ControlTyping::_pick_element records one");
-            var es = vec::<*Type>();
-            var ok = VariadicEnum(self.sc).elems(n->type_, &es);
-            ICE_IF((!ok) || (usize(ni->variant_pack) >= es.size()), "VariantInitLowering: the picked element is not one of the instance's");
-            vi->pack_index = ni->variant_pack;
-            vi->pack_elem  = es[usize(ni->variant_pack)];
+            if ni == &null || ni->variant_pack < 0 {
+                kairo::std::ice_fail(
+                    "VariantInitLowering: a pack-expanded variant built with no element picked; ControlTyping::_pick_element records one",
+                )
+            }
+
+            var es = cxx::std::vector<unsafe *Type>()
+            var ok = VariadicEnum(self.sc).elems(n->type_, unsafe &es)
+            if !ok || (ni->variant_pack as usize) >= es.size() {
+                kairo::std::ice_fail(
+                    "VariantInitLowering: the picked element is not one of the instance's",
+                )
+            }
+
+            vi->pack_index = ni->variant_pack
+            vi->pack_elem  = es[ni->variant_pack as usize]
         }
-        vi->adopt_sema(n);
-        return static_cast::<*Expr>(vi);
+
+        vi->adopt_sema(n)
+        return vi
     }
 
     /// The enum \p v belongs to. X records the pattern enum's own variant, so
     /// this is the pattern decl, whose list positions are the tags.
-    priv fn _enum_of(self, v: *EnumVariantDecl) -> *EnumDecl {
-        var dc = reinterpret_cast::<*DeclContext>(v->semantic_dc);
-        var en: *EnumDecl = &null;
-        if dc != &null { en = dyn_cast::<EnumDecl>(dc->owner_decl()); }
-        ICE_IF((en == &null), "VariantInitLowering: a variant with no owning enum");
-        return en;
+    priv fn _enum_of(self, v: unsafe *EnumVariantDecl) -> unsafe *EnumDecl {
+        var unsafe *dc                  = v->semantic_dc
+        var        en: unsafe *EnumDecl = &null
+        if dc != &null {
+            en = dyn_cast<EnumDecl>(dc->owner_decl())
+        }
+
+        if en == &null {
+            kairo::std::ice_fail("VariantInitLowering: a variant with no owning enum")
+        }
+
+        return en
     }
 
     /// \p v's position in \p en's list: its tag.
-    priv fn _index_of(self, en: *EnumDecl, v: *EnumVariantDecl) -> usize {
+    priv fn _index_of(self, en: unsafe *EnumDecl, v: unsafe *EnumVariantDecl) -> usize {
         for var i: usize = 0; i < en->variants.size(); ++i {
-            if en->variants[i] == v { return i; }
+            if en->variants[i] == v {
+                return i
+            }
         }
-        ICE_FAIL("VariantInitLowering: a variant missing from its own enum's list");
-        return 0;
+
+        kairo::std::ice_fail("VariantInitLowering: a variant missing from its own enum's list")
     }
 }
-

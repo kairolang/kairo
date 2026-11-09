@@ -5,17 +5,20 @@
 ///   Recovery (error) nodes set kind = RecoveryPattern and store the intended
 ///   PatternKind in recovery_kind, mirroring the Expr/Stmt/Decl/Type contract.
 ///
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-enum PatternKind derives u8 {
-    // -- Sentinel --------------------------------------------------------
+
+pub enum PatternKind derives u8 {
+    /// # Sentinel
+
     /// Parser error sentinel. recovery_kind holds the intended kind.
     RecoveryPattern = 0,
 
-    // -- Leaf patterns ---------------------------------------------------
+    /// # Leaf patterns
+
     /// Wildcard:  _
     WildcardPattern,
 
@@ -26,7 +29,8 @@ enum PatternKind derives u8 {
     /// Carries the explicit-type case too (no separate TypeAscribed kind).
     BindingPattern,
 
-    // -- Composite patterns ----------------------------------------------
+    /// # Composite patterns
+
     /// Tuple destructure:  (p, p, ...)   no path head, unambiguous.
     TupleDestructurePattern,
 
@@ -51,22 +55,34 @@ enum PatternKind derives u8 {
     /// Slice destructure:  [first, ..rest] | [a, b, ..] | [.., last]
     SlicePattern,
 
-    // -- Marker ----------------------------------------------------------
+    /// # Marker
     PatternKindCount,
 }
 
-fn to_string(pk: PatternKind) -> string {
-    switch pk {
-        case PatternKind::RecoveryPattern: return "RecoveryPattern";
-        case PatternKind::WildcardPattern: return "WildcardPattern";
-        case PatternKind::LiteralPattern: return "LiteralPattern";
-        case PatternKind::BindingPattern: return "BindingPattern";
-        case PatternKind::TupleDestructurePattern: return "TupleDestructurePattern";
-        case PatternKind::ConstructorPattern: return "ConstructorPattern";
-        case PatternKind::UnresolvedConstructorPattern: return "UnresolvedConstructorPattern";
-        case PatternKind::AlternationPattern: return "AlternationPattern";
-        case PatternKind::RangePattern: return "RangePattern";
-        case PatternKind::SlicePattern: return "SlicePattern";
-        default: return "<unknown>";
+pub fn to_string(pk: PatternKind) -> string {
+    match pk {
+        case PatternKind::RecoveryPattern {
+            return "RecoveryPattern"
+        } case PatternKind::WildcardPattern {
+            return "WildcardPattern"
+        } case PatternKind::LiteralPattern {
+            return "LiteralPattern"
+        } case PatternKind::BindingPattern {
+            return "BindingPattern"
+        } case PatternKind::TupleDestructurePattern {
+            return "TupleDestructurePattern"
+        } case PatternKind::ConstructorPattern {
+            return "ConstructorPattern"
+        } case PatternKind::UnresolvedConstructorPattern {
+            return "UnresolvedConstructorPattern"
+        } case PatternKind::AlternationPattern {
+            return "AlternationPattern"
+        } case PatternKind::RangePattern {
+            return "RangePattern"
+        } case PatternKind::SlicePattern {
+            return "SlicePattern"
+        } default {
+            return "<unknown>"
+        }
     }
 }

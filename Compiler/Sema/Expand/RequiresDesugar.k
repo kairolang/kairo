@@ -1,4 +1,4 @@
-/// --- The Kairo Project --------------------- Sema/RequiresDesugar.k --- ///
+/// --- The Kairo Project ---------------- Sema/Expand/RequiresDesugar.k --- ///
 ///
 ///   \brief Desugar inline generic bounds into the `requires` clause.
 ///
@@ -32,102 +32,111 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ----------------------------------------------------------------- ///
 
-import AST::Context::ASTContext::*;
-import AST::Context::DeclContext::*;
-import AST::Context::TranslationUnit::*;
-import AST::ASTSupport::*;
-import AST::Node::Base::*;
-import AST::Node::Program::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Expressions::*;
-import AST::Node::Types::*;
-import AST::Node::Declarations::*;
-import AST::Node::Casting::*;
-import AST::Kind::DeclKind::*;
-import Token::Token::*;
-import Token::TokenKind::*;
+import AST::ASTSupport::FrozenList
+import AST::Context::ASTContext::ASTContext
+import AST::Context::DeclContext::DeclContext
+import AST::Context::TranslationUnit::TranslationUnit
+import AST::Kind::DeclKind::DeclKind
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Type,
+}
+import AST::Node::Casting::cast
+import AST::Node::Declarations::{
+    ClassDecl,     EnumDecl,   ExtensionDecl, FunctionDecl, GenericParamDecl, InheritEdge,
+    InterfaceDecl, StructDecl, TypeAliasDecl, UnionDecl,
+}
+import AST::Node::Expressions::{
+    BinaryOperatorExpr,
+    ConstraintExpr,
+}
+import AST::Node::PrimaryExpressions::NamedIdentExpr
+import AST::Node::Program::TopLevelKind
+import Token::Token::Token
+import Token::TokenKind::TokenKind
 
-class RequiresDesugar {
-    pub var ctx: *ASTContext;
+pub class RequiresDesugar {
+    pub var ctx: unsafe *ASTContext
 
-    fn RequiresDesugar(self, ctx: *ASTContext) {
-        self.ctx = ctx;
+    fn RequiresDesugar(self, ctx: unsafe *ASTContext) {
+        self.ctx = ctx
     }
 
     /// Drive over the whole TU: every top-level decl, recursing into nested
     /// type bodies.
-    fn run(self, tu: *TranslationUnit) {
-        if tu == &null { return; }
-        if tu->program == &null { return; }
-        var items = &(tu->program->items);
+    fn run(self, tu: unsafe *TranslationUnit) {
+        if tu == &null {
+            return
+        }
+
+        if tu->program == &null {
+            return
+        }
+
+        var *items = &tu->program->items
         for var i: usize = 0; i < items->size(); i++ {
-            var item = *(items->get(i));
+            var item = *items->get(i)
             if item.kind == TopLevelKind::Decl {
-                self._visit_decl(item.as_decl());
+                self._visit_decl(item.as_decl())
             }
         }
     }
 
-    priv fn _visit_decl(self, d: *Decl) {
-        if d == &null { return; }
+    priv fn _visit_decl(self, d: unsafe *Decl) {
+        if d == &null {
+            return
+        }
 
         // Hoist bounds on whichever generic-param-carrying decl this is, and
         // recurse into the DeclContext members for context-bearing kinds.
-        switch d->kind {
+        match d->kind {
             case DeclKind::FunctionDecl {
-                var n = cast::<FunctionDecl>(d);
-                self._hoist_bounds(&(n->generic_params), &(n->requires_clause));
-                self._recurse_members(static_cast::<*DeclContext>(n));
-            }
-            case DeclKind::StructDecl {
-                var n = cast::<StructDecl>(d);
-                self._hoist_bounds(&(n->generic_params), &(n->requires_clause));
-                self._recurse_members(static_cast::<*DeclContext>(n));
-                self._recurse_methods(&(n->methods));
-            }
-            case DeclKind::ClassDecl {
-                var n = cast::<ClassDecl>(d);
-                self._hoist_bounds(&(n->generic_params), &(n->requires_clause));
-                self._recurse_members(static_cast::<*DeclContext>(n));
-                self._recurse_methods(&(n->methods));
-            }
-            case DeclKind::InterfaceDecl {
-                var n = cast::<InterfaceDecl>(d);
-                self._hoist_bounds(&(n->generic_params), &(n->requires_clause));
-                self._recurse_members(static_cast::<*DeclContext>(n));
-                self._recurse_methods(&(n->methods));
-            }
-            case DeclKind::EnumDecl {
-                var n = cast::<EnumDecl>(d);
-                self._hoist_bounds(&(n->generic_params), &(n->requires_clause));
-                self._recurse_members(static_cast::<*DeclContext>(n));
-            }
-            case DeclKind::UnionDecl {
-                var n = cast::<UnionDecl>(d);
-                self._hoist_bounds(&(n->generic_params), &(n->requires_clause));
-                self._recurse_members(static_cast::<*DeclContext>(n));
-                self._recurse_methods(&(n->methods));
-            }
-            case DeclKind::ExtensionDecl {
-                var n = cast::<ExtensionDecl>(d);
-                self._hoist_bounds(&(n->generic_params), &(n->requires_clause));
-                self._recurse_members(static_cast::<*DeclContext>(n));
-                self._recurse_methods(&(n->methods));
-            }
-            case DeclKind::TypeAliasDecl {
+                var unsafe *n = cast<FunctionDecl>(d)
+                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._recurse_members(n)
+            } case DeclKind::StructDecl {
+                var unsafe *n = cast<StructDecl>(d)
+                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._recurse_members(n)
+                self._recurse_methods(&n->methods)
+            } case DeclKind::ClassDecl {
+                var unsafe *n = cast<ClassDecl>(d)
+                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._recurse_members(n)
+                self._recurse_methods(&n->methods)
+            } case DeclKind::InterfaceDecl {
+                var unsafe *n = cast<InterfaceDecl>(d)
+                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._recurse_members(n)
+                self._recurse_methods(&n->methods)
+            } case DeclKind::EnumDecl {
+                var unsafe *n = cast<EnumDecl>(d)
+                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._recurse_members(n)
+            } case DeclKind::UnionDecl {
+                var unsafe *n = cast<UnionDecl>(d)
+                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._recurse_members(n)
+                self._recurse_methods(&n->methods)
+            } case DeclKind::ExtensionDecl {
+                var unsafe *n = cast<ExtensionDecl>(d)
+                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._recurse_members(n)
+                self._recurse_methods(&n->methods)
+            } case DeclKind::TypeAliasDecl {
                 // Alias bounds are meaningless (no body); still normalized so
                 // the inline lists are uniformly empty. ConstraintExtraction
                 // owns the diagnostic. Aliases carry no DeclContext members.
-                var n = cast::<TypeAliasDecl>(d);
-                self._hoist_bounds(&(n->generic_params), &(n->requires_clause));
-            }
-            default { }
+                var unsafe *n = cast<TypeAliasDecl>(d)
+                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+            } default { }
         }
     }
 
@@ -135,79 +144,89 @@ class RequiresDesugar {
     /// Recurse into a type body's methods. A type body's dc_decls holds only
     /// nested types and visibility-group wrappers; its methods live in the
     /// flat `methods` list (grouped ones included), so they are walked here.
-    priv fn _recurse_methods(self, ms: *FrozenList::<*FunctionDecl>) {
+    priv fn _recurse_methods(self, ms: *FrozenList<unsafe *FunctionDecl>) {
         for var i: usize = 0; i < ms->size(); i++ {
-            self._visit_decl(static_cast::<*Decl>(*(ms->get(i))));
+            self._visit_decl(*ms->get(i))
         }
     }
 
-    priv fn _recurse_members(self, dc: *DeclContext) {
-        if dc == &null { return; }
+    priv fn _recurse_members(self, dc: unsafe *DeclContext) {
+        if dc == &null {
+            return
+        }
+
         for var i: usize = 0; i < dc->dc_decls.size(); i++ {
-            self._visit_decl(*(dc->dc_decls.get(i)));
+            self._visit_decl(*dc->dc_decls.get(i))
         }
     }
 
     /// Move every param's impl/derives edges into *req_slot as ConstraintExpr
     /// conjuncts, then clear the inline lists. Conjunction order: existing
     /// requires, then per param derives, then impl.
-    priv fn _hoist_bounds(
-        self,
-        params:   *FrozenList::<*GenericParamDecl>,
-        req_slot: *(*Expr)
-    ) {
-        if params->is_empty() { return; }
-        var acc: *Expr = *req_slot;   // existing requires (may be null)
-
-        for var pi: usize = 0; pi < params->size(); pi++ {
-            var gp = *(params->get(pi));
-            if gp == &null { continue; }
-
-            for var i: usize = 0; i < gp->derives_bounds.size(); i++ {
-                var e = gp->derives_bounds.get(i);
-                if e->base == &null { continue; }
-                acc = self._conjoin(acc, self._make_constraint(gp, e->base, TokenKind::KwDerives));
-            }
-            for var i: usize = 0; i < gp->impl_bounds.size(); i++ {
-                var e = gp->impl_bounds.get(i);
-                if e->base == &null { continue; }
-                acc = self._conjoin(acc, self._make_constraint(gp, e->base, TokenKind::KwImpl));
-            }
-
-            gp->impl_bounds    = FrozenList::<InheritEdge>{};
-            gp->derives_bounds = FrozenList::<InheritEdge>{};
+    priv fn _hoist_bounds(self,
+                          params:   *FrozenList<unsafe *GenericParamDecl>,
+                          req_slot: unsafe *(unsafe *Expr)) {
+        if params->is_empty() {
+            return
         }
 
-        (*req_slot) = acc;
+        var acc: unsafe *Expr = *req_slot // existing requires (may be null)
+
+        for var pi: usize = 0; pi < params->size(); pi++ {
+            var unsafe *gp = *params->get(pi)
+            if gp == &null {
+                continue
+            }
+
+            for var i: usize = 0; i < gp->derives_bounds.size(); i++ {
+                var unsafe *e = gp->derives_bounds.get(i)
+                if e->base == &null {
+                    continue
+                }
+
+                acc = self._conjoin(acc, self._make_constraint(gp, e->base, TokenKind::KwDerives))
+            }
+
+            for var i: usize = 0; i < gp->impl_bounds.size(); i++ {
+                var unsafe *e = gp->impl_bounds.get(i)
+                if e->base == &null {
+                    continue
+                }
+
+                acc = self._conjoin(acc, self._make_constraint(gp, e->base, TokenKind::KwImpl))
+            }
+
+            gp->impl_bounds    = FrozenList<InheritEdge>{}
+            gp->derives_bounds = FrozenList<InheritEdge>{}
+        }
+
+        *req_slot = acc
     }
 
     /// Build `<param> impl/derives <base>` as a ConstraintExpr, reusing the
     /// param's own name token for the LHS so ranges point at real source.
-    priv fn _make_constraint(
-        self,
-        gp:   *GenericParamDecl,
-        base: *Type,
-        opr:   TokenKind
-    ) -> *Expr {
-        var lhs = NamedIdentExpr::create(self.ctx, gp->name.range, gp->name);
-        var op_tok = Token(gp->name.range, opr);
-        return static_cast::<*Expr>(ConstraintExpr::create(
+    priv fn _make_constraint(self,
+                             gp:   unsafe *GenericParamDecl,
+                             base: unsafe *Type,
+                             opr:  TokenKind) -> unsafe *Expr {
+        var unsafe *lhs   = NamedIdentExpr::create(self.ctx, gp->name.range, gp->name)
+        var        op_tok = Token(gp->name.range, opr)
+        return (unsafe (ConstraintExpr::create(
             self.ctx,
             gp->name.range | base->range,
-            static_cast::<*Expr>(lhs),
+            lhs,
             base,
             op_tok
-        ));
+        ) as unsafe *Expr))
     }
 
     /// lhs && rhs, dropping a null lhs (first-conjunct case).
-    priv fn _conjoin(self, lhs: *Expr, rhs: *Expr) -> *Expr {
-        if lhs == &null { return rhs; }
-        var and_tok = Token(lhs->range | rhs->range, TokenKind::OpAmpAmp);
-        return static_cast::<*Expr>(BinaryOperatorExpr::create(
-            self.ctx,
-            lhs->range | rhs->range,
-            lhs, rhs, and_tok
-        ));
+    priv fn _conjoin(self, lhs: unsafe *Expr, rhs: unsafe *Expr) -> unsafe *Expr {
+        if lhs == &null {
+            return rhs
+        }
+
+        var and_tok = Token(lhs->range | rhs->range, TokenKind::OpAmpAmp)
+        return ((BinaryOperatorExpr::create(self.ctx, lhs->range | rhs->range, lhs, rhs, and_tok)))
     }
 }

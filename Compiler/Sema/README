@@ -1,16 +1,15 @@
 # Sema
 
 Name resolution, type checking, the semantic checks, and the lowerings that
-reduce a checked tree to the core Kairo Codegen emits. Complete through name
-and type resolution (`--type-check-only` is the dependable loop); lowering
-and codegen are in progress.
+reduce a checked tree to the core Kairo Codegen emits. The compiler builds
+itself through this Sema; `--type-check-only` stops after it and is the fast
+loop when a change does not touch lowering or codegen.
 
-The specs, read before changing anything here:
-- RESOLUTION.md  THE spec: pass order (P -> I -> E -> V -> N -> T ->
-                 ChainBinding -> checks), what each pass owns, the hard
-                 invariants (§3), and what remains (§4).
-- IMPORTS.md     the import / overlay model, module roots and paths.
-- ../Codegen/CODEGEN.md  the contract between Lower/ and Codegen.
+The specification, read before changing anything here: Compiler/Spec/
+(index in Compiler/Spec/README.md). Pass order and invariants are in
+Compiler/Spec/Pipeline.md; imports in Compiler/Spec/Imports.md; the contract
+between Lower/ and Codegen in Compiler/Spec/Lowering.md and
+Compiler/Spec/Codegen.md.
 
 Layout:
 - Sema.k, SemaContext.k, SemaDump.k  driver, shared state, --print-sema
@@ -53,14 +52,14 @@ Layout:
 - Mono: every use of a generic at concrete arguments registers an instance
   (AST/Context/InstantiationRegistry.k); the instance has one home TU that
   emits the specialization, and every other TU using it emits
-  `extern template` (CODEGEN.md). A generic body is checked once, against
+  `extern template` (Compiler/Spec/Codegen.md). A generic body is checked once, against
   its bounds, never per instance; per-instance facts (layout, lifecycle,
   rows, panic sets) are computed by substitution into the bounds and
-  pinned or selected in C++ (MONO.md D0).
+  pinned or selected in C++ (Compiler/Spec/Generics.md#decisions).
 
 ## Open
 
-See RESOLUTION.md §4 and private/IMPORTANT/TICKETS.TXT. Notably: no
+See Compiler/Spec/Pipeline.md#remaining-work. Notably: no
 conformance check at a generic's instantiation site yet, and calls through
 an interface bound that need an extension method wait on EmitWitness
-(CODEGEN.md §7b).
+(Compiler/Spec/Witnesses.md).

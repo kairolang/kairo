@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------------------------- AST/ParamMode.k --- ///
+/// --- The Kairo Project ------------------------------ AST/ParamMode.k --- ///
 ///
 ///   \brief Parameter passing modes.
 ///
@@ -21,8 +21,7 @@
 ///
 ///     A mode is legal ONLY on a function/closure/method parameter and on a
 ///     parameter position of a function pointer type. `@inout`/`@move` are
-///     OpAt + identifier, deliberately: the token table is frozen until
-///     Stage 1 self-compiles.
+///     OpAt + identifier, deliberately: no new keywords in the token table.
 ///
 ///     Modes are part of the FUNCTION TYPE (FunctionPointerType::modes,
 ///     folded into the canonical key) because a closure lowers to a lambda
@@ -38,33 +37,41 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-enum ParamMode derives u8 {
-    Value = 0,   ///< `x: T` / `const x: T`. The zero value: ASTContext::alloc's memset is a correct default.
-    Inout,       ///< `@inout x: T`.
-    Move,        ///< `@move x: T`.
+pub enum ParamMode derives u8 {
+    Value = 0, ///< `x: T` / `const x: T`. The zero value: ASTContext::alloc's memset is a correct default.
+    Inout, ///< `@inout x: T`.
+    Move,  ///< `@move x: T`.
 }
 
 /// The source spelling of a mode, with a trailing space so a printer can
 /// prefix it to a parameter; "" for Value.
-fn param_mode_prefix(m: ParamMode) -> string {
-    switch m {
-        case ParamMode::Inout { return "@inout "; }
-        case ParamMode::Move  { return "@move ";  }
-        default               { return "";        }
+pub fn param_mode_prefix(m: ParamMode) -> string {
+    match m {
+        case ParamMode::Inout {
+            return "@inout "
+        } case ParamMode::Move {
+            return "@move "
+        } default {
+            return ""
+        }
     }
 }
 
 /// The bare keyword, for diagnostics: "@inout" / "@move" / "by value".
-fn param_mode_name(m: ParamMode) -> string {
-    switch m {
-        case ParamMode::Inout { return "@inout";   }
-        case ParamMode::Move  { return "@move";    }
-        default               { return "by value"; }
+pub fn param_mode_name(m: ParamMode) -> string {
+    match m {
+        case ParamMode::Inout {
+            return "@inout"
+        } case ParamMode::Move {
+            return "@move"
+        } default {
+            return "by value"
+        }
     }
 }

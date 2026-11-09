@@ -5,7 +5,7 @@
 ///          wait for their member set.
 ///
 ///   \detail
-///     EVAL.md 4.2b. A declaration-scope `eval if` whose condition reads a
+///     Compiler/Spec/Eval.md#deferred-conditions. A declaration-scope `eval if` whose condition reads a
 ///     type fact cannot be decided in phase E, before types are resolved.
 ///     EvalIfFolding leaves it in place with every branch indexed (the
 ///     parser indexed them all) and files it here; EvalIfLateFolding decides
@@ -34,105 +34,144 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import AST::Node::Base::*;
-import AST::Context::DeclContext::*;
+ffi "c++" import "vector"
 
-class EvalBranchTable {
+import AST::Context::DeclContext::DeclContext
+import AST::Node::Base::{
+    Decl,
+    Stmt,
+}
+
+pub class EvalBranchTable {
     /// Per deferred `eval if`: its head statement, the scope its branches
     /// declare into, and whether it is decided (or discarded with a branch
     /// of another one).
-    priv var _heads:  vec::<*Stmt>;
-    priv var _owners: vec::<*DeclContext>;
-    priv var _done:   vec::<bool>;
+    priv var _heads:  cxx::std::vector<unsafe *Stmt>
+    priv var _owners: cxx::std::vector<unsafe *DeclContext>
+    priv var _done:   cxx::std::vector<u8>
     /// Per row: a declaration, the index of its `eval if` in _heads, and the
     /// branch of that `eval if` it sits in.
-    priv var _decls: vec::<*Decl>;
-    priv var _ifs:   vec::<usize>;
-    priv var _arms:  vec::<*Stmt>;
+    priv var _decls: cxx::std::vector<unsafe *Decl>
+    priv var _ifs:   cxx::std::vector<usize>
+    priv var _arms:  cxx::std::vector<unsafe *Stmt>
 
     fn EvalBranchTable(self) { }
 
     /// File \p head, whose branches declare into \p owner; its index.
-    fn add_if(self, head: *Stmt, owner: *DeclContext) -> usize {
-        self._heads.push_back(head);
-        self._owners.push_back(owner);
-        self._done.push_back(false);
-        return self._heads.size() - 1;
+    fn add_if(self, head: unsafe *Stmt, owner: unsafe *DeclContext) -> usize {
+        self._heads.push_back(head)
+        self._owners.push_back(owner)
+        self._done.push_back(0)
+        return self._heads.size() - 1
     }
 
     /// \p d sits in branch \p arm of the `eval if` filed at \p at.
-    fn add_decl(self, at: usize, arm: *Stmt, d: *Decl) {
-        self._decls.push_back(d);
-        self._ifs.push_back(at);
-        self._arms.push_back(arm);
+    fn add_decl(self, at: usize, arm: unsafe *Stmt, d: unsafe *Decl) {
+        self._decls.push_back(d)
+        self._ifs.push_back(at)
+        self._arms.push_back(arm)
     }
 
     /// \p head is decided, or gone with a discarded branch: it holds nothing
     /// back any more. A head never filed is ignored.
-    fn retire(self, head: *Stmt) {
+    fn retire(self, head: unsafe *Stmt) {
         for var i: usize = 0; i < self._heads.size(); ++i {
-            if self._heads[i] == head { self._done[i] = true; }
+            if self._heads[i] == head {
+                self._done[i] = 1
+            }
         }
     }
 
     /// Any declaration filed at all: the fast "no" for N(a) and R(a).
-    fn has_rows(self) -> bool { return self._decls.size() > 0; }
+    fn has_rows(self) -> bool {
+        return self._decls.size() > 0
+    }
 
     /// How many filed `eval if`s are still undecided.
-    fn pending(self) -> usize {
-        var n: usize = 0;
+    pub fn pending(self) -> usize {
+        var n: usize = 0
         for var i: usize = 0; i < self._done.size(); ++i {
-            if !self._done[i] { n += 1; }
+            if self._done[i] == 0 {
+                n += 1
+            }
         }
-        return n;
+
+        return n
     }
 
     /// An undecided `eval if` declares into \p dc: its member set is open.
-    fn pending_in(self, dc: *DeclContext) -> bool {
-        if dc == &null { return false; }
-        for var i: usize = 0; i < self._heads.size(); ++i {
-            if (!self._done[i]) && (self._owners[i] == dc) { return true; }
+    fn pending_in(self, dc: unsafe *DeclContext) -> bool {
+        if dc == &null {
+            return false
         }
-        return false;
+
+        for var i: usize = 0; i < self._heads.size(); ++i {
+            if self._done[i] == 0 && self._owners[i] == dc {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// \p d sits in a branch of an undecided `eval if`: it may yet be
     /// discarded.
-    fn in_pending(self, d: *Decl) -> bool {
+    fn in_pending(self, d: unsafe *Decl) -> bool {
         for var i: usize = 0; i < self._decls.size(); ++i {
-            if (self._decls[i] == d) && (!self._done[self._ifs[i]]) { return true; }
+            if self._decls[i] == d && !(self._done[self._ifs[i]] != 0) {
+                return true
+            }
         }
-        return false;
+
+        return false
     }
 
     /// \p a and \p b sit in different branches of one filed `eval if`, so at
     /// most one of them is ever declared.
-    fn exclusive(self, a: *Decl, b: *Decl) -> bool {
-        if (self._decls.size() == 0) || (a == &null) || (b == &null) || (a == b) { return false; }
+    fn exclusive(self, a: unsafe *Decl, b: unsafe *Decl) -> bool {
+        if self._decls.size() == 0 || a == &null || b == &null || a == b {
+            return false
+        }
+
         for var i: usize = 0; i < self._decls.size(); ++i {
-            if self._decls[i] != a { continue; }
+            if self._decls[i] != a {
+                continue
+            }
+
             for var j: usize = 0; j < self._decls.size(); ++j {
-                if self._decls[j] != b { continue; }
-                if (self._ifs[i] == self._ifs[j]) && (self._arms[i] != self._arms[j]) { return true; }
+                if self._decls[j] != b {
+                    continue
+                }
+
+                if self._ifs[i] == self._ifs[j] && self._arms[i] != self._arms[j] {
+                    return true
+                }
             }
         }
-        return false;
+
+        return false
     }
 
     /// Every pair in \p ds is exclusive: a cell whose entries never coexist.
-    fn all_exclusive(self, ds: *vec::<*Decl>) -> bool {
-        if (ds == &null) || (ds->size() < 2) || (self._decls.size() == 0) { return false; }
+    fn all_exclusive(self, ds: unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
+        if ds == &null || ds->size() < 2 || self._decls.size() == 0 {
+            return false
+        }
+
         for var i: usize = 0; i < ds->size(); ++i {
             for var j: usize = i + 1; j < ds->size(); ++j {
-                if !self.exclusive((*ds)[i], (*ds)[j]) { return false; }
+                if !self.exclusive((*ds)[i], (*ds)[j]) {
+                    return false
+                }
             }
         }
-        return true;
+
+        return true
     }
 }

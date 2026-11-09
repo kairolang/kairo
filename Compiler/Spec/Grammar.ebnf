@@ -1,8 +1,12 @@
-// REV: Q4-2025-11
-// Language Grammar Definition File, right now this does look like a mess, and
-// it is. But this will never be used for a parser generator, this is just to
-// have a formal definition of the language grammar for reference and to help
-// while writing the parser manually.
+// Kairo grammar sketch. Status: informative only.
+//
+// This file is not generated from the parser and is not verified against it.
+// It predates much of the current syntax and is known to be out of date (for
+// example: fixed arrays are written `[T; N]`, the power operator is `^^`,
+// `intl`, `noreturn` and `switch` are not keywords, and identifiers may contain
+// `#` and non-ASCII letters). The authority for syntax is the parser in
+// Compiler/Parser/ (see Compiler/Spec/Parsing.md); the authority for meaning
+// is the language reference. Do not cite this file for either.
 
 /* Base */
 delimiter   ::= "\t" | "\n" | "EOF" | ' '  | ','  | ';' ;

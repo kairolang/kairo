@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------------------ Native/KShims.hh --- ///
+/// --- The Kairo Project ----------------------------- Native/KShims.hh --- ///
 ///
 ///   One-line C/C++ spellings that Kairo has no syntax for, given names so
 ///   Kairo code can use them.
@@ -18,8 +18,8 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -42,9 +42,11 @@
 #else
 // isatty / fileno (the console checks): <io.h> declares the POSIX names.
 #include <io.h>
-#include <windows.h>
 #endif
 // fileno
+#if defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
 #include <atomic>
 #include <cstdio>
 
@@ -52,6 +54,8 @@
 // builds against LLVM, but the guard keeps this header usable without it.
 #if __has_include(<llvm/Config/llvm-config.h>)
 #include <llvm/Config/llvm-config.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/raw_ostream.h>
 #endif
 
 #if defined(__APPLE__)
@@ -112,6 +116,14 @@ inline void prefetch_t0(const void *p) noexcept { __builtin_prefetch(p, 0, 3); }
 #ifdef LLVM_VERSION_MAJOR
 inline constexpr int llvm_version_major() noexcept { return LLVM_VERSION_MAJOR; }
 #endif
+#if defined(KAIRO_VERSION_EXTERN)
+/// build.py: the version is defined once, in the tool's meta object
+/// (write_meta), not as a define on every TU. A define is a cc1 word, so it is
+/// in every incremental object key, and it differs per tool and per day: the
+/// tools could not share one object cache (Compiler/Spec/Incremental.md).
+extern "C" const char *kairo_version_cstr() noexcept;
+inline const char *version_string() noexcept { return kairo_version_cstr(); }
+#else
 inline const char *version_string() noexcept {
 #ifdef VERSION
     return VERSION;
@@ -119,19 +131,58 @@ inline const char *version_string() noexcept {
     return "unknown";
 #endif
 }
+#endif
 
-/// Uses of a header set's clang AST after it was released early (P380:
-/// HeaderSet::_note_late). Expected 0; the driver reports a nonzero count.
+/// Uses of a header set's clang AST after it was released early
+/// (HeaderSet::_note_late). Expected 0; the driver reports a nonzero count.
 inline ::std::atomic<unsigned long long> &header_set_late_uses() noexcept {
     static ::std::atomic<unsigned long long> n{0};
     return n;
 }
 
-/// Header sets re-parsed after HeaderSet::release_unused (P380).
+/// -finfer-purity's totals over the build (FnPurityCheck::infer, one add per
+/// TU, from the Sema pool); --print-stats reports them.
+inline ::std::atomic<unsigned long long> &purity_inferred_const() noexcept {
+    static ::std::atomic<unsigned long long> n{0};
+    return n;
+}
+inline ::std::atomic<unsigned long long> &purity_inferred_pure() noexcept {
+    static ::std::atomic<unsigned long long> n{0};
+    return n;
+}
+
+/// Header sets re-parsed after HeaderSet::release_unused.
 inline ::std::atomic<unsigned long long> &header_set_revivals() noexcept {
     static ::std::atomic<unsigned long long> n{0};
     return n;
 }
+
+#if defined(__ARM_NEON)
+/// NEON loads and stores as functions: arm_neon.h defines vld1q_u8 / vst1q_u8 as
+/// macros (statement expressions over __builtin_neon_*), which ffi cannot call;
+/// vdupq_n_u8 / vceqq_u8 are real inline functions and need nothing.
+inline uint8x16_t neon_ld_u8(const uint8_t *p) noexcept { return vld1q_u8(p); }
+inline void neon_st_u8(uint8_t *p, uint8x16_t v) noexcept { vst1q_u8(p, v); }
+#endif
+
+/// \p text written to \p path byte for byte: no newline translation on any
+/// host. llvm::sys::writeFileWithEncoding writes in text mode, so on Windows
+/// every '\n' became "\r\n" while LinkFS::read hands bytes back as they are;
+/// the Kairo library's manifest read back paths ending in '\r' (2026-11-06).
+inline bool write_file_exact(llvm::StringRef path, llvm::StringRef text) noexcept {
+    ::std::error_code ec;
+    llvm::raw_fd_ostream os(path, ec, llvm::sys::fs::OF_None);
+    if (ec) { return false; }
+    os << text;
+    os.close();
+    return !os.has_error();
+}
+
+/// The C streams as functions. stdout / stderr are macros on Darwin (__stdoutp) and
+/// MinGW (__acrt_iob_func(1)), which ffi cannot name; a function returns what
+/// the macro expands to on every libc.
+inline FILE *std_out() noexcept { return stdout; }
+inline FILE *std_err() noexcept { return stderr; }
 
 }  // namespace kairo
 

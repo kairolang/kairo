@@ -1,413 +1,191 @@
 /// --- The Kairo Project ---------------------------- Lexer/Immediate.k --- ///
 ///
-///   <short description>
+///   ImmediateTable: the evaluated literal and identifier values of a file.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "llvm/ADT/SmallVector.h";
-ffi "c++" import "Native/KInt128.hh";   // kairo::wide: 64x64 -> 128 multiply-add
-import Location::SourceRange::*;
-import Location::SourceManager::*;
-import Token::TokenBuffer::*;
-import Memory::ArenaList::*;
-import Support::EvalHash::*;
-import Support::Limits::*;
+ffi "c++" import "llvm/ADT/SmallVector.h"
+ffi "c++" import "Native/KInt128.hh" // kairo::wide: 64x64 -> 128 multiply-add
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "bit"
+ffi "c++" import "vector"
+
+import Lexer::ImmBig::{
+    ImmBigFloat,
+    ImmBigInt,
+    Int128,
+}
+import Location::SourceManager::SourceManager
+import Location::SourceRange::SourceRange
+import Memory::ArenaList::ArenaList
+import Support::EvalHash::{
+    compute_hash,
+    to_hex_string,
+}
+import Support::FlagSet::{
+    FlagBit,
+    FlagSet,
+}
+import Support::Limits::U32_MAX
+import Token::Token::Token
+import Token::TokenBuffer::TokenBuffer
+import Token::TokenKind::TokenKind
+import std::c_char
+
+/// A float literal's value while it is lexed: f128 on every host (software,
+/// compiler-rt's *tf* builtins). One type everywhere, so a literal lexes to the same
+/// value whichever host compiled it; f80 exists only where `long double` is x87 and
+/// was a P003E on every other host.
+pub type ImmFloat = f128
 
 /// TODO: change suffixes to Tokens itself rather then SourceRange since we
 ///       don't want to reparse and a Token is smaller (32 bytes vs 64 bytes)
 
-/// \brief portable 128-bit arithmetic operations
-/// \details uses compiler intrinsics where available, falls back to manual implementation
-module Int128 {
-    /// \brief multiplies a 64-bit value by a factor and adds addend
-    /// \param val 64-bit value (in/out)
-    /// \param factor 64-bit multiplier
-    /// \param addend 64-bit value to add
-    /// \param hi receives the high 64 bits if overflow
-    /// \returns true if result overflows 64 bits
-    inline static fn mul_add_64(val: ref!(u64), factor: u64, addend: u64, hi: ref!(u64)) -> bool {
-        // The wide paths are intrinsics / unsigned __int128, which have no
-        // Kairo spelling: Native/KInt128.hh, defined under the same tests.
-        const eval if defined(_MSC_VER) {
-            return kairo::wide::mul_add_64(&val, factor, addend, &hi);
-        } else if defined(__SIZEOF_INT128__) {
-            return kairo::wide::mul_add_64(&val, factor, addend, &hi);
-        } else {
-            // manual 32-bit multiplication fallback
-            var a0: u64 = val & U32_MAX;
-            var a1: u64 = val >> 32;
-            var b0: u64 = factor & U32_MAX;
-            var b1: u64 = factor >> 32;
 
-            var p00: u64 = a0 * b0;
-            var p01: u64 = a0 * b1;
-            var p10: u64 = a1 * b0;
-            var p11: u64 = a1 * b1;
-
-            var r0: u64 = p00 & U32_MAX;
-            var c:  u64 = p00 >> 32;
-
-            c += (p01 & U32_MAX) + (p10 & U32_MAX);
-            var r1: u64 = c & U32_MAX;
-            c >>= 32;
-
-            c += (p01 >> 32) + (p10 >> 32) + (p11 & U32_MAX);
-            var r2: u64 = c & U32_MAX;
-            c >>= 32;
-
-            c += (p11 >> 32);
-            var r3: u64 = c;
-
-            var new_lo: u64 = r0 | (r1 << 32);
-            var new_hi: u64 = r2 | (r3 << 32);
-
-            // add addend
-            new_lo += addend;
-            if new_lo < addend {
-                new_hi += 1;
-            }
-
-            val = new_lo;
-            hi = new_hi;
-            return new_hi != 0;
-        }
-    }
-
-    /// \brief multiplies a 128-bit value by a 64-bit factor and adds a 64-bit addend
-    /// \param lo lower 64 bits (in/out)
-    /// \param hi upper 64 bits (in/out)
-    /// \param factor 64-bit multiplier
-    /// \param addend 64-bit value to add
-    /// \returns true if result overflows 128 bits
-    inline static fn mul_add_128(lo: ref!(u64), hi: ref!(u64), factor: u64, addend: u64) -> bool {
-        // The wide paths, and the overflow reasoning for each, are in
-        // Native/KInt128.hh (intrinsics / unsigned __int128).
-        const eval if defined(_MSC_VER) {
-            return kairo::wide::mul_add_128(&lo, &hi, factor, addend);
-        } else if defined(__SIZEOF_INT128__) {
-            return kairo::wide::mul_add_128(&lo, &hi, factor, addend);
-        } else {
-            // manual fallback: split into 32-bit chunks
-            // 128-bit value as (a3:a2:a1:a0) where each is 32-bit
-            var a0: u64 = lo & U32_MAX;
-            var a1: u64 = lo >> 32;
-            var a2: u64 = hi & U32_MAX;
-            var a3: u64 = hi >> 32;
-
-            var b0: u64 = factor & U32_MAX;
-            var b1: u64 = factor >> 32;
-
-            // partial products for lower 128 bits
-            var p00: u64 = a0 * b0;
-            var p01: u64 = a0 * b1;
-            var p10: u64 = a1 * b0;
-            var p11: u64 = a1 * b1;
-            var p20: u64 = a2 * b0;
-            var p21: u64 = a2 * b1;
-            var p30: u64 = a3 * b0;
-            var p31: u64 = a3 * b1; // overflow indicator
-
-            // accumulate
-            var r0: u64 = p00 & U32_MAX;
-            var c:  u64 = p00 >> 32;
-
-            c += (p01 & U32_MAX) + (p10 & U32_MAX);
-            var r1: u64 = c & U32_MAX;
-            c >>= 32;
-
-            c += (p01 >> 32) + (p10 >> 32) + (p11 & U32_MAX) + (p20 & U32_MAX);
-            var r2: u64 = c & U32_MAX;
-            c >>= 32;
-
-            c += (p11 >> 32) + (p20 >> 32) + (p21 & U32_MAX) + (p30 & U32_MAX);
-            var r3: u64 = c & U32_MAX;
-            c >>= 32;
-
-            // overflow detection
-            var ov: u64 = c + (p21 >> 32) + (p30 >> 32) + p31;
-
-            // combine results
-            var new_lo: u64 = r0 | (r1 << 32);
-            var new_hi: u64 = r2 | (r3 << 32);
-
-            // add addend
-            var add_carry: u64 = 0;
-            new_lo += addend;
-            if new_lo < addend {
-                add_carry = 1;
-            }
-            new_hi += add_carry;
-            if new_hi < add_carry {
-                ov += 1;
-            }
-
-            lo = new_lo;
-            hi = new_hi;
-            return ov != 0;
-        }
-    }
-
-    /// \brief multiplies a single 64-bit limb by factor and adds carry
-    /// \param limb the limb value (in/out)
-    /// \param factor 64-bit multiplier
-    /// \param carry carry-in value, updated to carry-out
-    inline static fn mul_limb(limb: ref!(u64), factor: u64, carry: ref!(u64)) {
-        const eval if defined(_MSC_VER) {
-            kairo::wide::mul_limb(&limb, factor, &carry);
-        } else if defined(__SIZEOF_INT128__) {
-            kairo::wide::mul_limb(&limb, factor, &carry);
-        } else {
-            // manual multiplication
-            var a0: u64 = limb & U32_MAX;
-            var a1: u64 = limb >> 32;
-            var b0: u64 = factor & U32_MAX;
-            var b1: u64 = factor >> 32;
-
-            var p00: u64 = a0 * b0;
-            var p01: u64 = a0 * b1;
-            var p10: u64 = a1 * b0;
-            var p11: u64 = a1 * b1;
-
-            var r0: u64 = p00 & U32_MAX;
-            var c:  u64 = p00 >> 32;
-
-            c += (p01 & U32_MAX) + (p10 & U32_MAX);
-            var r1: u64 = c & U32_MAX;
-            c >>= 32;
-
-            c += (p01 >> 32) + (p10 >> 32) + (p11 & U32_MAX);
-            var r2: u64 = c & U32_MAX;
-            c >>= 32;
-
-            c += (p11 >> 32);
-            var r3: u64 = c;
-
-            var lo: u64 = r0 | (r1 << 32);
-            var hi: u64 = r2 | (r3 << 32);
-
-            // add carry
-            lo += carry;
-            if lo < carry {
-                hi += 1;
-            }
-
-            limb = lo;
-            carry = hi;
-        }
-    }
-}
-
-/// \brief arbitrary precision integer for literals exceeding 128 bits
-/// \details uses a limb array with least-significant limb first (little-endian)
-class BigInt {
-    pub var limbs: llvm::SmallVector::<u64, 2>;   ///< 1-2 limbs is the common case: inline, no heap.
-    pub var bits:  usize;
-    pub var sign:  i8;
-
-    fn BigInt(self) {
-        self.sign = 1;
-        self.bits = 0;
-    }
-
-    fn BigInt(self, initial_bits: usize) {
-        self.sign = 1;
-        self.bits = initial_bits;
-        var num_limbs = (initial_bits + 63) / 64;
-        for var i: usize = 0; i < num_limbs; ++i {
-            self.limbs.push_back(0);
-        }
-    }
-
-    /// \brief multiplies the entire BigInt by a small factor and adds a value
-    /// \param factor multiplier (typically the base: 2, 8, 10, 16)
-    /// \param addend value to add after multiplication
-    fn mul_add(self, factor: u64, addend: u64) {
-        var carry: u64 = addend;
-
-        for var i: usize = 0; i < self.limbs.size(); ++i {
-            Int128::mul_limb(self.limbs[i], factor, carry);
-        }
-
-        // extend if carry overflows
-        while carry != 0 {
-            self.limbs.push_back(carry);
-            carry = 0;
-        }
-    }
-
-    /// \brief returns the minimum number of bits needed to represent this value
-    fn bit_width(self) -> usize {
-        if self.limbs.empty() {
-            return 0;
-        }
-
-        var top_idx = self.limbs.size() - 1;
-        while top_idx > 0 && self.limbs[top_idx] == 0 {
-            --top_idx;
-        }
-
-        if self.limbs[top_idx] == 0 {
-            return 0;
-        }
-
-        var top_bits: usize = 64 - static_cast::<usize>(libcxx::countl_zero(self.limbs[top_idx]));
-        return top_idx * 64 + top_bits;
-    }
-
-    /// \brief extracts lower 64 bits
-    fn lo64(self) -> u64 {
-        if self.limbs.empty() { return 0; }
-        return self.limbs[0];
-    }
-
-    /// \brief extracts bits 64-127
-    fn hi64(self) -> u64 {
-        if self.limbs.size() < 2 { return 0; }
-        return self.limbs[1];
-    }
-
-    /// \brief checks if value fits in 128 bits
-    fn fits_in_128(self) -> bool {
-        return self.bit_width() <= 128;
-    }
-
-    /// \brief resets to zero
-    fn reset(self) {
-        for var i: usize = 0; i < self.limbs.size(); ++i {
-            self.limbs[i] = 0;
-        }
-    }
-}
-
-/// \brief arbitrary precision float for literals exceeding native precision
-/// \details stores mantissa as BigInt with separate exponent
-class BigFloat {
-    pub var mantissa:  BigInt;
-    pub var precision: usize;
-    pub var exponent:  i64;
-    pub var sign:      i8;
-    pub var is_hex:    bool;
-
-    fn BigFloat(self) {
-        self.sign      = 1;
-        self.exponent  = 0;
-        self.precision = 64;
-        self.is_hex    = false;
-    }
-}
-
-/// Forward decl breaks the ImmediateTable <-> literal-sheet cycle: the table
-/// stores complete IntData/FloatData/CharData/StringData, and evaluate() takes
-/// the table back. Only pointer uses appear before the definition; the two
-/// evaluate() bodies are defined out-of-line at the bottom of this file.
-class ImmediateTable;
-
-module Immediate {
+pub module Immediate {
     /// \brief digit value of an ASCII code point in any base up to 36:
     ///        '0'-'9' -> 0-9, 'A'-'Z' and 'a'-'z' -> 10-35, else 0xFF.
     /// \details was a 128-entry table spelled as a C++ aggregate initializer;
     ///          the ranges say the same thing in Kairo.
-    inline static fn digit_table_value(c: usize) -> u8 {
-        if (c >= 48) && (c <= 57)  { return static_cast::<u8>(c - 48); }       // '0'-'9'
-        if (c >= 65) && (c <= 90)  { return static_cast::<u8>(c - 65 + 10); }  // 'A'-'Z'
-        if (c >= 97) && (c <= 122) { return static_cast::<u8>(c - 97 + 10); }  // 'a'-'z'
-        return 0xFF;
+    pub inline static fn digit_table_value(c: usize) -> u8 {
+        if c >= 48 && c <= 57 { // '0'-'9'
+            return (c - 48) as u8
+        }
+
+        if c >= 65 && c <= 90 { // 'A'-'Z'
+            return (c - 65 + 10) as u8
+        }
+
+        if c >= 97 && c <= 122 { // 'a'-'z'
+            return (c - 97 + 10) as u8
+        }
+
+        return 0xFF
     }
 
     /// \brief fast digit lookup with base validation
     /// \param c character to look up
     /// \param base numeric base (2, 8, 10, 16)
     /// \returns digit value or 0xFF if invalid
-    inline static fn get_digit_value(c: char, base: u8) -> u8 {
-        if c >= 128 { return 0xFF; }
-        var val = digit_table_value(static_cast::<usize>(c));
-        if val >= base { return 0xFF; }
-        return val;
+    pub inline static fn get_digit_value(c: u8, base: u8) -> u8 {
+        if c >= 128 {
+            return 0xFF
+        }
+
+        var val = digit_table_value(c as usize)
+        if val >= base {
+            return 0xFF
+        }
+
+        return val
     }
 
     /// \brief determines bit width and signedness from integer suffix
     /// \param suffix the suffix text (e.g., "u64", "i32")
     /// \param is_unsigned output: set to true if unsigned suffix
     /// \returns bit width, or 0 if no valid suffix
-    static fn parse_int_suffix(suffix: string, is_unsigned: ref!(bool)) -> u16 {
-        var len = suffix.length();
-        if len == 0 { return 0; }
+    pub static fn parse_int_suffix(const suffix: string, @inout is_unsigned: bool) -> u16 {
+        var len = suffix.length()
+        if len == 0 {
+            return 0
+        }
 
-        var data = suffix.raw();
-        var idx: usize = 0;
+        var *data       = suffix.raw()
+        var idx:  usize = 0
 
-        is_unsigned = false;
+        is_unsigned = false
 
         // check for u/i prefix
-        if data[0] == 'u' || data[0] == 'U' {
-            is_unsigned = true;
-            idx = 1;
-        } else if data[0] == 'i' || data[0] == 'I' {
-            is_unsigned = false;
-            idx = 1;
+        if data[0] == ('u' as u8) || data[0] == ('U' as u8) {
+            is_unsigned = true
+            idx         = 1
+        } else if data[0] == ('i' as u8) || data[0] == ('I' as u8) {
+            is_unsigned = false
+            idx         = 1
         } else {
-            return 0;
+            return 0
         }
 
-        if idx >= len { return 0; }
+        if idx >= len {
+            return 0
+        }
 
         // parse the number part
-        var bits: u64 = 0;
+        var bits: u64 = 0
         while idx < len {
-            var c = data[idx];
-            if c < '0' || c > '9' { return 0; }
-            bits = bits * 10 + static_cast::<u64>(c - '0');
-            if bits > 65535 { return 0; }
-            ++idx;
+            var c = data[idx]
+            if c < ('0' as u8) || c > ('9' as u8) {
+                return 0
+            }
+
+            bits = bits * 10 + ((c - ('0' as u8)) as u64)
+            if bits > 65535 {
+                return 0
+            }
+
+            ++idx
         }
 
-        return static_cast::<u16>(bits);
+        return bits as u16
     }
 
     /// \brief determines bit width from float suffix
     /// \param suffix the suffix text (e.g., "f32", "f64", "f128")
     /// \returns bit width, or 0 if no valid suffix
-    static fn parse_float_suffix(suffix: string) -> u32 {
-        var len = suffix.length();
-        if len == 0 { return 0; }
-
-        var data = suffix.raw();
-
-        // must start with 'f' or 'F'
-        if data[0] != 'f' && data[0] != 'F' { return 0; }
-        if len == 1 { return 0; }
-
-        // parse the number part
-        var bits: u64 = 0;
-        for var idx: usize = 1; idx < len; ++idx {
-            var c = data[idx];
-            if c < '0' || c > '9' { return 0; }
-            bits = bits * 10 + static_cast::<u64>(c - '0');
-            if bits > U32_MAX { return 0; }
+    pub static fn parse_float_suffix(const suffix: string) -> u32 {
+        var len = suffix.length()
+        if len == 0 {
+            return 0
         }
 
-        return static_cast::<u32>(bits);
+        var *data = suffix.raw()
+
+        // must start with 'f' or 'F'
+        if data[0] != ('f' as u8) && data[0] != ('F' as u8) {
+            return 0
+        }
+
+        if len == 1 {
+            return 0
+        }
+
+        // parse the number part
+        var bits: u64 = 0
+        for var idx: usize = 1; idx < len; ++idx {
+            var c = data[idx]
+            if c < ('0' as u8) || c > ('9' as u8) {
+                return 0
+            }
+
+            bits = bits * 10 + ((c - ('0' as u8)) as u64)
+            if bits > U32_MAX {
+                return 0
+            }
+        }
+
+        return bits as u32
     }
 
-    class IntData {
-        pub var body:     SourceRange;
-        pub var prefix:   SourceRange;
-        pub var suffix:   SourceRange;
+    pub class IntData {
+        pub var body:   SourceRange
+        pub var prefix: SourceRange
+        pub var suffix: SourceRange
 
-        pub var value_lo: u64;
-        pub var value_hi: u64;
-        pub var big:      *BigInt = &null;
+        pub var value_lo: u64
+        pub var value_hi: u64
+        pub var big:      unsafe *ImmBigInt = &null
 
-        pub var bits:     u16;
-        pub var base:     u8;
-        pub var flags:    u8;
+        pub var bits:  u16
+        pub var base:  u8
+        pub var flags: u8
         // flags layout:
         //   bit 0: unsigned
         //   bit 1: negative
@@ -417,43 +195,231 @@ module Immediate {
         //   bit 5: pointer-sized suffix (`usize` / `isize`; bit 0 tells which)
 
         fn IntData(self) {
-            self.value_lo = 0;
-            self.value_hi = 0;
-            self.bits     = 0;
-            self.base     = 10;
-            self.flags    = 0;
+            self.value_lo = 0
+            self.value_hi = 0
+            self.bits     = 0
+            self.base     = 10
+            self.flags    = 0
         }
 
         /// \brief decodes the literal text into value_lo/value_hi/big.
         /// \param tbl the owning table, whose in-flight counter brackets the run.
-        /// \note defined out-of-line at the bottom of this file, where
-        ///       ImmediateTable is complete.
-        fn evaluate(self, sm: *SourceManager, tbl: *ImmediateTable);
+        fn evaluate(self, sm: unsafe *SourceManager, tbl: unsafe *ImmediateTable) {
+            tbl->begin_evaluation()
 
-        fn to_string(self, sm: *SourceManager) -> string {
-            var body_str   = sm->get_text(self.body);
-            var prefix_str = sm->get_text(self.prefix);
-            var suffix_str = sm->get_text(self.suffix);
+            // reset values
+            self.value_lo = 0
+            self.value_hi = 0
 
-            return f"IntData(base={(self.base) as u64}, body='{body_str}', prefix='{prefix_str}', suffix='{suffix_str}', flags=0x{to_hex_string(self.flags)}, bits={self.bits}, value_lo=0x{to_hex_string(self.value_lo)}, value_hi=0x{to_hex_string(self.value_hi)})\n";
+            if self.big != &null {
+                kairo::std::destroy(self.big)
+                self.big = &null
+            }
+
+            // clear is_big flag, preserve others
+            self.flags &= ~(0b00000100 as u8)
+
+            var body_text = sm->get_text(self.body)
+            var body_len  = body_text.length()
+
+            if body_len == 0 {
+                tbl->end_evaluation()
+                return
+            }
+
+            var *data    = body_text.raw()
+            var base_u64 = (self.base as u64)
+
+            // phase 1: try to fit in 64 bits
+            var overflow_hi: u64   = 0
+            var overflowed:  bool  = false
+            var idx:         usize = 0
+
+            while idx < body_len {
+                var c = data[idx]
+                ++idx
+
+                // skip underscores
+                if c == ('_' as u8) {
+                    continue
+                }
+
+                var digit = get_digit_value(c, self.base)
+                if digit == 0xFF {
+                    continue
+                }
+
+                if Int128::mul_add_64(&self.value_lo, base_u64, digit, &overflow_hi) {
+                    overflowed = true
+                    break
+                }
+            }
+
+            if !overflowed {
+                // fits in 64 bits
+                self.value_hi = 0
+            } else {
+                // phase 2: try to fit in 128 bits
+                self.value_lo = 0
+                self.value_hi = 0
+
+                var in_128: bool = true
+                idx = 0
+
+                while idx < body_len {
+                    var c = data[idx]
+                    ++idx
+
+                    if c == ('_' as u8) {
+                        continue
+                    }
+
+                    var digit = get_digit_value(c, self.base)
+                    if digit == 0xFF {
+                        continue
+                    }
+
+                    if Int128::mul_add_128(&self.value_lo, &self.value_hi, base_u64, digit) {
+                        in_128 = false
+                        break
+                    }
+                }
+
+                if !in_128 {
+                    // phase 3: use ImmBigInt
+                    self.flags |= 0b00000100 // set is_big flag
+
+                    self.big = kairo::std::create<ImmBigInt>(256)
+                    idx      = 0
+
+                    while idx < body_len {
+                        var c = data[idx]
+                        ++idx
+
+                        if c == ('_' as u8) {
+                            continue
+                        }
+
+                        var digit = get_digit_value(c, self.base)
+                        if digit == 0xFF {
+                            continue
+                        }
+
+                        self.big->mul_add(base_u64, digit)
+                    }
+
+                    // copy lo/hi from ImmBigInt for convenience
+                    self.value_lo = self.big->lo64()
+                    self.value_hi = self.big->hi64()
+                }
+            }
+
+            // parse suffix to determine bit width and signedness
+            if (self.flags & 0b00001000) != 0 { // has_suffix
+                var suffix_text       = sm->get_text(self.suffix)
+                var is_unsigned: bool = false
+                var suffix_bits       = parse_int_suffix(suffix_text, &is_unsigned)
+
+                if suffix_bits > 0 {
+                    self.bits = suffix_bits
+                    if is_unsigned {
+                        self.flags |= 0b00000001 // set unsigned flag
+                    } else {
+                        self.flags &= ~(0b00000001 as u8) // clear unsigned flag
+                    }
+                } else if suffix_text == "usize" || suffix_text == "isize" {
+                    // No width of its own: the target's pointer width, which only
+                    // Sema knows. Without the mark the literal fell through to the
+                    // minimum-width inference below and `1usize` was an i8.
+                    self.flags |= 0b00100000
+                    if suffix_text == "usize" {
+                        self.flags |= 0b00000001
+                    } else {
+                        self.flags &= ~(0b00000001 as u8)
+                    }
+                }
+            }
+
+            // infer minimum bit width if no suffix
+            if self.bits == 0 {
+                if self.big != &null {
+                    var actual_bits = self.big->bit_width()
+                    // round up to next power of 2
+                    if actual_bits <= 128 {
+                        self.bits = 128
+                    } else if actual_bits <= 256 {
+                        self.bits = 256
+                    } else if actual_bits <= 512 {
+                        self.bits = 512
+                    } else if actual_bits <= 1024 {
+                        self.bits = 1024
+                    } else {
+                        self.bits = ((actual_bits) + 63 & ~(63 as usize)) as u16
+                    }
+                } else if self.value_hi != 0 {
+                    self.bits = 128
+                } else {
+                    // calculate actual bit width needed for value_lo
+                    if self.value_lo == 0 {
+                        self.bits = 8
+                    } else {
+                        var bit_width: usize = 64 - (cxx::std::countl_zero(self.value_lo) as usize)
+
+                        if bit_width <= 8 {
+                            self.bits = 8
+                        } else if bit_width <= 16 {
+                            self.bits = 16
+                        } else if bit_width <= 32 {
+                            self.bits = 32
+                        } else {
+                            self.bits = 64
+                        }
+                    }
+                }
+            }
+
+            tbl->end_evaluation()
         }
 
-        fn op delete (self) {
+        fn to_string(self, sm: *SourceManager) -> string {
+            var body_str   = sm->get_text(self.body)
+            var prefix_str = sm->get_text(self.prefix)
+            var suffix_str = sm->get_text(self.suffix)
+
+            return f"IntData(base={(self.base) as u64}, body='{body_str}', prefix='{prefix_str}', suffix='{suffix_str}', flags=0x{to_hex_string((self.flags as usize))}, bits={self.bits}, value_lo=0x{to_hex_string((self.value_lo as usize))}, value_hi=0x{to_hex_string((self.value_hi as usize))})\n"
+        }
+
+        // Move-only: the destructor frees `big`, so a copy would free it twice.
+        // The source is left owning nothing.
+        @move fn IntData(self, other: Self) {
+            self.body     = other.body
+            self.prefix   = other.prefix
+            self.suffix   = other.suffix
+            self.value_lo = other.value_lo
+            self.value_hi = other.value_hi
+            self.big      = other.big
+            self.bits     = other.bits
+            self.base     = other.base
+            self.flags    = other.flags
+            other.big     = &null
+        }
+
+        fn op finally (self) {
             if self.big != &null {
-                std::destroy(self.big);
-                self.big = &null;
+                kairo::std::destroy(self.big)
+                self.big = &null
             }
         }
     }
 
-    class FloatData {
-        pub var body:   SourceRange;
-        pub var prefix: SourceRange;
-        pub var suffix: SourceRange;
+    pub class FloatData {
+        pub var body:   SourceRange
+        pub var prefix: SourceRange
+        pub var suffix: SourceRange
 
-        pub var bits:   u32;
-        pub var base:   u8;
-        pub var flags:  u8;
+        pub var bits:  u32
+        pub var base:  u8
+        pub var flags: u8
         // flags layout:
         //   bit 0: has_exponent
         //   bit 1: negative
@@ -461,44 +427,322 @@ module Immediate {
         //   bit 3: use_bigfloat
         //   bit 4: has_suffix
 
-        pub var value_ieee: f80 = 0.0;
-        pub var big_float:  *BigFloat = &null;
+        pub var value_ieee: ImmFloat            = 0.0
+        pub var big_float:  unsafe *ImmBigFloat = &null
 
         fn FloatData(self) {
-            self.bits  = 0;
-            self.base  = 10;
-            self.flags = 0;
+            self.bits  = 0
+            self.base  = 10
+            self.flags = 0
         }
 
         /// \brief decodes the literal text into value_ieee / big_float.
         /// \param tbl the owning table, whose in-flight counter brackets the run.
-        /// \note defined out-of-line at the bottom of this file, where
-        ///       ImmediateTable is complete.
-        fn evaluate(self, sm: *SourceManager, tbl: *ImmediateTable);
+        fn evaluate(self, sm: unsafe *SourceManager, tbl: unsafe *ImmediateTable) {
+            tbl->begin_evaluation()
 
-        /// \brief computes f80 value from parsed components
+            self.value_ieee = 0.0
+
+            if self.big_float != &null {
+                kairo::std::destroy(self.big_float)
+                self.big_float = &null
+            }
+
+            // clear use_bigfloat flag, preserve others
+            self.flags &= ~(0b00001000 as u8)
+
+            var body_text = sm->get_text(self.body)
+            var body_len  = body_text.length()
+
+            if body_len == 0 {
+                tbl->end_evaluation()
+                return
+            }
+
+            var *data  = body_text.raw()
+            var is_hex = (self.flags & 0b00000100) != 0
+
+            // parsing state
+            var integer_part:     u64  = 0
+            var frac_numerator:   u64  = 0
+            var frac_digits:      i32  = 0
+            var exp_value:        i64  = 0
+            var exp_negative:     bool = false
+            var has_integer:      bool = false
+            var has_fraction:     bool = false
+            var integer_overflow: bool = false
+            var frac_overflow:    bool = false
+
+            var idx:     usize = 0
+            var base_u64       = (self.base as u64)
+
+            // parse integer part
+            while idx < body_len {
+                var c = data[idx]
+
+                if c == ('_' as u8) {
+                    ++idx
+                    continue
+                }
+
+                if c == ('.' as u8) {
+                    ++idx
+                    break
+                }
+
+                // check for exponent start
+                if is_hex {
+                    if c == ('p' as u8) || c == ('P' as u8) {
+                        break
+                    }
+                } else {
+                    if c == ('e' as u8) || c == ('E' as u8) {
+                        break
+                    }
+                }
+
+                var digit = get_digit_value(c, self.base)
+                if digit == 0xFF {
+                    break
+                }
+
+                has_integer = true
+
+                if !integer_overflow {
+                    var old = integer_part
+                    integer_part = integer_part * base_u64 + (digit as u64)
+                    if integer_part < old {
+                        integer_overflow = true
+                    }
+                }
+
+                ++idx
+            }
+
+            // check if we just consumed a dot
+            var consumed_dot = idx > 0 && data[idx - 1] == ('.' as u8)
+
+            // parse fractional part
+            if consumed_dot {
+                while idx < body_len {
+                    var c = data[idx]
+
+                    if c == ('_' as u8) {
+                        ++idx
+                        continue
+                    }
+
+                    // check for exponent start
+                    if is_hex {
+                        if c == ('p' as u8) || c == ('P' as u8) {
+                            break
+                        }
+                    } else {
+                        if c == ('e' as u8) || c == ('E' as u8) {
+                            break
+                        }
+                    }
+
+                    var digit = get_digit_value(c, self.base)
+                    if digit == 0xFF {
+                        break
+                    }
+
+                    has_fraction = true
+
+                    if !frac_overflow {
+                        var old = frac_numerator
+                        frac_numerator = frac_numerator * base_u64 + (digit as u64)
+                        if frac_numerator < old {
+                            frac_overflow = true
+                        } else {
+                            ++frac_digits
+                        }
+                    }
+
+                    ++idx
+                }
+            }
+
+            // parse exponent
+            if idx < body_len {
+                var c           = data[idx]
+                var is_exp_char = false
+
+                if is_hex {
+                    is_exp_char = c == ('p' as u8) || c == ('P' as u8)
+                } else {
+                    is_exp_char = c == ('e' as u8) || c == ('E' as u8)
+                }
+
+                if is_exp_char {
+                    ++idx
+
+                    // check for sign
+                    if idx < body_len {
+                        if data[idx] == ('-' as u8) {
+                            exp_negative = true
+                            ++idx
+                        } else if data[idx] == ('+' as u8) {
+                            ++idx
+                        }
+                    }
+
+                    // parse exponent digits (always base 10, but allow underscores)
+                    while idx < body_len {
+                        var ec = data[idx]
+
+                        // skip underscores in exponent
+                        if ec == ('_' as u8) {
+                            ++idx
+                            continue
+                        }
+
+                        if ec < ('0' as u8) || ec > ('9' as u8) {
+                            break
+                        }
+
+                        exp_value = exp_value * 10 + ((ec - ('0' as u8)) as i64)
+                        ++idx
+                    }
+
+                    if exp_negative {
+                        exp_value = -exp_value
+                    }
+                }
+            }
+
+            // determine if we need ImmBigFloat
+            // thresholds: ImmFloat max exponent is ~4932 (base 10) or ~16383 (base 2)
+            var needs_big = integer_overflow || frac_overflow
+
+            if !needs_big {
+                if is_hex {
+                    needs_big = exp_value > 16383 || exp_value < -16494
+                } else {
+                    needs_big = exp_value > 4932 || exp_value < -4951
+                }
+            }
+
+            if needs_big {
+                self.flags |= 0b00001000 // set use_bigfloat flag
+                self.big_float           = kairo::std::create<ImmBigFloat>()
+                self.big_float->is_hex   = is_hex
+                self.big_float->exponent = exp_value
+
+                // reparse integer part into ImmBigInt mantissa
+                self.big_float->mantissa = ImmBigInt(512)
+                idx                      = 0
+
+                var frac_start:   usize = 0
+                var parsing_frac: bool  = false
+
+                while idx < body_len {
+                    var c = data[idx]
+
+                    if c == ('_' as u8) {
+                        ++idx
+                        continue
+                    }
+
+                    if c == ('.' as u8) {
+                        ++idx
+                        frac_start   = idx
+                        parsing_frac = true
+                        continue
+                    }
+
+                    if is_hex {
+                        if c == ('p' as u8) || c == ('P' as u8) {
+                            break
+                        }
+                    } else {
+                        if c == ('e' as u8) || c == ('E' as u8) {
+                            break
+                        }
+                    }
+
+                    var digit = get_digit_value(c, self.base)
+                    if digit == 0xFF {
+                        break
+                    }
+
+                    self.big_float->mantissa.mul_add(base_u64, digit)
+
+                    if parsing_frac {
+                        // adjust exponent for fractional digits
+                        if is_hex {
+                            self.big_float->exponent -= 4 // each hex digit = 4 bits
+                        } else {
+                            // for decimal, we track separately and convert later
+                        }
+                    }
+
+                    ++idx
+                }
+
+                // also compute ImmFloat approximation for convenience
+                self.value_ieee = self.compute_float_approx(
+                    integer_part,
+                    frac_numerator,
+                    frac_digits,
+                    exp_value,
+                    is_hex,
+                    base_u64,
+                    integer_overflow,
+                    frac_overflow,
+                )
+            } else {
+                // compute ImmFloat value directly
+                self.value_ieee = self.compute_float(
+                    integer_part,
+                    frac_numerator,
+                    frac_digits,
+                    exp_value,
+                    is_hex,
+                    base_u64,
+                )
+            }
+
+            // parse suffix
+            if (self.flags & 0b00010000) != 0 { // has_suffix
+                var suffix_text = sm->get_text(self.suffix)
+                var suffix_bits = parse_float_suffix(suffix_text)
+
+                if suffix_bits > 0 {
+                    self.bits = suffix_bits
+                }
+            }
+
+            // default to f64 if no suffix
+            if self.bits == 0 {
+                self.bits = 64
+            }
+
+            tbl->end_evaluation()
+        }
+
+        /// \brief computes ImmFloat value from parsed components
         /// \details used when value fits in extended precision
-        priv fn compute_f80(
-            self,
-            integer_part:   u64,
-            frac_numerator: u64,
-            frac_digits:    i32,
-            exp_value:      i64,
-            is_hex:         bool,
-            base:           u64
-        ) -> f80 {
-            var result: f80 = static_cast::<f80>(integer_part);
+        priv fn compute_float(self,
+                              integer_part:   u64,
+                              frac_numerator: u64,
+                              frac_digits:    i32,
+                              exp_value:      i64,
+                              is_hex:         bool,
+                              base:           u64) -> ImmFloat {
+            var result: ImmFloat = (integer_part as ImmFloat)
 
             // add fractional part
             if frac_digits > 0 {
-                var frac: f80 = static_cast::<f80>(frac_numerator);
-                var divisor: f80 = 1.0;
+                var frac:    ImmFloat = (frac_numerator as ImmFloat)
+                var divisor: ImmFloat = 1.0
 
                 for var i: i32 = 0; i < frac_digits; ++i {
-                    divisor *= static_cast::<f80>(base);
+                    divisor *= (base as ImmFloat)
                 }
 
-                result += frac / divisor;
+                result += frac / divisor
             }
 
             // apply exponent
@@ -509,112 +753,135 @@ module Immediate {
                     // hex float: exponent is base-2
                     if exp_value > 0 {
                         for var i: i64 = 0; i < exp_value; ++i {
-                            result *= 2.0;
+                            result *= 2.0
                         }
                     } else {
                         for var i: i64 = 0; i < -exp_value; ++i {
-                            result /= 2.0;
+                            result /= 2.0
                         }
                     }
                 } else {
                     // decimal: exponent is base-10
                     if exp_value > 0 {
                         for var i: i64 = 0; i < exp_value; ++i {
-                            result *= 10.0;
+                            result *= 10.0
                         }
                     } else {
                         for var i: i64 = 0; i < -exp_value; ++i {
-                            result /= 10.0;
+                            result /= 10.0
                         }
                     }
                 }
             }
 
-            return result;
+            return result
         }
 
-        /// \brief computes approximate f80 value when BigFloat is used
+        /// \brief computes approximate ImmFloat value when ImmBigFloat is used
         /// \details provides a best-effort approximation even for huge values
-        priv fn compute_f80_approx(
-            self,
-            integer_part:     u64,
-            frac_numerator:   u64,
-            frac_digits:      i32,
-            exp_value:        i64,
-            is_hex:           bool,
-            base:             u64,
-            integer_overflow: bool,
-            frac_overflow:    bool
-        ) -> f80 {
+        priv fn compute_float_approx(self,
+                                     integer_part:     u64,
+                                     frac_numerator:   u64,
+                                     frac_digits:      i32,
+                                     exp_value:        i64,
+                                     is_hex:           bool,
+                                     base:             u64,
+                                     integer_overflow: bool,
+                                     frac_overflow:    bool) -> ImmFloat {
             // for overflowed values, we can still get a rough approximation
             // by using the last computed value and scaling
 
-            var result: f80;
+            var result: ImmFloat
 
             if integer_overflow {
                 // integer_part wrapped, use max u64 as approximation base
-                result = static_cast::<f80>(0xFFFFFFFFFFFFFFFF);
+                result = (0xFFFFFFFFFFFFFFFF)
             } else {
-                result = static_cast::<f80>(integer_part);
+                result = (integer_part as ImmFloat)
             }
 
             if frac_digits > 0 && !frac_overflow {
-                var frac: f80 = static_cast::<f80>(frac_numerator);
-                var divisor: f80 = 1.0;
+                var frac:    ImmFloat = (frac_numerator as ImmFloat)
+                var divisor: ImmFloat = 1.0
 
                 for var i: i32 = 0; i < frac_digits; ++i {
-                    divisor *= static_cast::<f80>(base);
+                    divisor *= (base as ImmFloat)
                 }
 
-                result += frac / divisor;
+                result += frac / divisor
             }
 
             // apply exponent with saturation
             if exp_value != 0 {
-                var exp_base: f80 = 2.0 if is_hex else 10.0;
+                var exp_base: ImmFloat = if is_hex => 2.0 else => 10.0
 
                 // clamp to avoid infinity in intermediate calcs
-                var clamped_exp = exp_value;
+                var clamped_exp = exp_value
                 if is_hex {
-                    if clamped_exp > 16383 { clamped_exp = 16383; }
-                    if clamped_exp < -16494 { clamped_exp = -16494; }
+                    if clamped_exp > 16383 {
+                        clamped_exp = 16383
+                    }
+
+                    if clamped_exp < -16494 {
+                        clamped_exp = -16494
+                    }
                 } else {
-                    if clamped_exp > 4932 { clamped_exp = 4932; }
-                    if clamped_exp < -4951 { clamped_exp = -4951; }
+                    if clamped_exp > 4932 {
+                        clamped_exp = 4932
+                    }
+
+                    if clamped_exp < -4951 {
+                        clamped_exp = -4951
+                    }
                 }
 
                 if clamped_exp > 0 {
                     for var i: i64 = 0; i < clamped_exp; ++i {
-                        result *= exp_base;
+                        result *= exp_base
                     }
                 } else {
                     for var i: i64 = 0; i < -clamped_exp; ++i {
-                        result /= exp_base;
+                        result /= exp_base
                     }
                 }
             }
 
-            return result;
+            return result
         }
 
         fn to_string(self, sm: *SourceManager) -> string {
-            var body_str   = sm->get_text(self.body);
-            var prefix_str = sm->get_text(self.prefix);
-            var suffix_str = sm->get_text(self.suffix);
+            var body_str   = sm->get_text(self.body)
+            var prefix_str = sm->get_text(self.prefix)
+            var suffix_str = sm->get_text(self.suffix)
 
-            return f"FloatData(base={(self.base) as u64}, body='{body_str}', prefix='{prefix_str}', suffix='{suffix_str}', flags=0x{to_hex_string(self.flags)}, bits={self.bits}, value_ieee={self.value_ieee})\n";
+            return f"FloatData(base={(self.base) as u64}, body='{body_str}', prefix='{prefix_str}', suffix='{suffix_str}', flags=0x{to_hex_string((self.flags as usize))}, bits={self.bits}, value_ieee={(self.value_ieee as f64)})\n"
         }
 
-        fn op delete (self) {
+        // Move-only: the destructor frees `big_float`, so a copy would free it
+        // twice. The source is left owning nothing.
+        @move fn FloatData(self, other: Self) {
+            self.body       = other.body
+            self.prefix     = other.prefix
+            self.suffix     = other.suffix
+            self.bits       = other.bits
+            self.base       = other.base
+            self.flags      = other.flags
+            self.value_ieee = other.value_ieee
+            self.big_float  = other.big_float
+            other.big_float = &null
+        }
+
+        fn op finally (self) {
             if self.big_float != &null {
-                std::destroy(self.big_float);
-                self.big_float = &null;
+                kairo::std::destroy(self.big_float)
+                self.big_float = &null
             }
         }
     }
 
-    enum TextPrefixKind derives u8 {
-        None   = 0,
+    /// A text literal's prefix letters, one bit each; a literal's set of them
+    /// is a FlagSet (Support/FlagSet.k), empty for none, so `rf` is both.
+    pub enum TextPrefixKind derives u8 {
         Format = 1 << 0,
         Raw    = 1 << 1,
         // Format
@@ -626,26 +893,26 @@ module Immediate {
     /// the `:` (an invalid range when none was written) and, for a
     /// self-documenting hole `{x=}`, the source text printed ahead of the
     /// value (invalid otherwise). Parallel to `exprs`.
-    struct HoleSpec {
-        var spec: SourceRange;
-        var doc:  SourceRange;
+    pub struct HoleSpec {
+        pub var spec: SourceRange
+        pub var doc:  SourceRange
     }
 
-    class StringData {
+    pub class StringData {
         /// NOTE: the TokenBuffer is allocated in the Lexer or elsewhere, but
         ///       StringData will be freeing it within its destructor.
         ///
         /// NOLINT (MA1FW) "non owner scope freeing underling memory"
         /// ^^ remember this to implement this error.
-        pub var exprs: llvm::SmallVector::<(*TokenBuffer::<16>, SourceRange), 4>; // exprs tokens
-                // along with the start and end from { and }
-        pub var holes: llvm::SmallVector::<HoleSpec, 4>;   ///< parallel to exprs
+        pub var exprs: llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4> // exprs tokens
+        // along with the start and end from { and }
+        pub var holes: llvm::SmallVector<HoleSpec, 4> ///< parallel to exprs
 
-        pub var body:        SourceRange; // string range excl quotes prefix and suffix
-        pub var prefix:      Token;
-        pub var suffix:      Token;
-        pub var next:        u32; // for chained strings, contains the next imm string idx
-        pub var prefix_kind: TextPrefixKind;
+        pub var body:        SourceRange // string range excl quotes prefix and suffix
+        pub var prefix:      Token
+        pub var suffix:      Token
+        pub var next:        u32 // for chained strings, contains the next imm string idx
+        pub var prefix_kind: FlagSet<TextPrefixKind, u8>
 
         /// OWNED-TEXT representation for synthesized strings (stringify! on
         /// synthesized tokens, file!, future gensym): bytes live in
@@ -653,62 +920,94 @@ module Immediate {
         /// When owned_ptr is set it is the authoritative text; `body` may
         /// ADDITIONALLY be valid when the text is also a contiguous source
         /// slice (lets unstringify! re-lex without owned-text lexing support).
-        pub var owned_ptr: std::ConstPtr::<u8> = &null;
-        pub var owned_len: u32 = 0;
+        pub var owned_ptr: kairo::std::ConstPtr<u8> = &null
+        pub var owned_len: u32                      = 0
 
         fn StringData(self) {
-            self.next = u32(-1);
+            self.next = u32::MAX
         }
 
-        const fn has_owned_text(self) -> bool {
-            return self.owned_ptr != &null;
+        pub fn has_owned_text(const self) -> bool {
+            return self.owned_ptr != &null
+        }
+
+        // Move-only: the destructor frees every expression TokenBuffer in
+        // `exprs`, so a copy would free them twice. The source's `exprs` is
+        // cleared so its destructor frees nothing.
+        @move fn StringData(self, other: Self) {
+            self.exprs       = cxx::std::move(other.exprs)
+            self.holes       = cxx::std::move(other.holes)
+            self.body        = other.body
+            self.prefix      = other.prefix
+            self.suffix      = other.suffix
+            self.next        = other.next
+            self.prefix_kind = other.prefix_kind
+            self.owned_ptr   = other.owned_ptr
+            self.owned_len   = other.owned_len
+            other.exprs.clear()
+            other.holes.clear()
         }
 
         /// basic cleanup of all internally stored pools
-        fn op delete (self) {
-            self.destroy();
+        fn op finally (self) {
+            self.destroy()
         }
 
         fn destroy(self) {
             for var i: usize = 0; i < self.exprs.size(); ++i {
-                std::destroy(libcxx::get::<0>(self.exprs[i]));
+                kairo::std::destroy(self.exprs[i].0)
             }
         }
     }
 
-    class CharData {
-        pub var exprs: llvm::SmallVector::<(*TokenBuffer::<16>, SourceRange), 4>; // exprs tokens
-                // along with the start and end from { and }
-        pub var holes: llvm::SmallVector::<HoleSpec, 4>;   ///< parallel to exprs
+    pub class CharData {
+        pub var exprs: llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4> // exprs tokens
+        // along with the start and end from { and }
+        pub var holes: llvm::SmallVector<HoleSpec, 4> ///< parallel to exprs
 
-        pub var prefix:      Token;
-        pub var suffix:      Token;
-        pub var body:        SourceRange; // string range excl quotes prefix and suffix
-        pub var prefix_kind: TextPrefixKind;
-        pub var next:        u32; // for chained strings, contains the next imm string idx
+        pub var prefix:      Token
+        pub var suffix:      Token
+        pub var body:        SourceRange // string range excl quotes prefix and suffix
+        pub var prefix_kind: FlagSet<TextPrefixKind, u8>
+        pub var next:        u32 // for chained strings, contains the next imm string idx
 
         fn CharData(self) {
-            self.next = u32(-1);
+            self.next = u32::MAX
         }
 
-        fn op delete (self) {
-            self.destroy();
+        // Move-only: the destructor frees every expression TokenBuffer in
+        // `exprs`, so a copy would free them twice. The source's `exprs` is
+        // cleared so its destructor frees nothing.
+        @move fn CharData(self, other: Self) {
+            self.exprs       = cxx::std::move(other.exprs)
+            self.holes       = cxx::std::move(other.holes)
+            self.prefix      = other.prefix
+            self.suffix      = other.suffix
+            self.body        = other.body
+            self.prefix_kind = other.prefix_kind
+            self.next        = other.next
+            other.exprs.clear()
+            other.holes.clear()
+        }
+
+        fn op finally (self) {
+            self.destroy()
         }
 
         fn destroy(self) {
             for var i: usize = 0; i < self.exprs.size(); ++i {
-                std::destroy(libcxx::get::<0>(self.exprs[i]));
+                kairo::std::destroy(self.exprs[i].0)
             }
         }
     }
 
-    class MacroExpansionInfo {
-        pub var invoke_range:  SourceRange;///< source range of the invocation site
-        pub var def_range:     SourceRange;///< source range in the macro definition body
-        pub var original_kind: TokenKind;  ///< original token kind before expansion
-        pub var original_imm:  u32;        ///< original imm index (-1 if none)
-        pub var parent_idx:    u32;        ///< index of parent MacroExpansionInfo (-1 = root)
-        pub var macro_name:    u32;        ///< which macro produced this token
+    pub class MacroExpansionInfo {
+        pub var invoke_range:  SourceRange ///< source range of the invocation site
+        pub var def_range:     SourceRange ///< source range in the macro definition body
+        pub var original_kind: TokenKind   ///< original token kind before expansion
+        pub var original_imm:  u32         ///< original imm index (-1 if none)
+        pub var parent_idx:    u32         ///< index of parent MacroExpansionInfo (-1 = root)
+        pub var macro_name:    u32         ///< which macro produced this token
     }
 
     /// \brief descriptor for one interned identifier within a file (fid).
@@ -725,14 +1024,14 @@ module Immediate {
     ///          ImmediateTable::ident_blob. This descriptor is just the
     ///          `(offset, len)` slice into that blob, which keeps lookups a pure
     ///          byte compare with no per-identifier allocation or decoding.
-    class IdentData {
-        pub var ptr: std::ConstPtr::<u8> = &null; ///< raw UTF-8 bytes (into source buffer or sema scratch)
-        pub var len: u32 = 0;                     ///< byte length of the identifier
+    pub class IdentData {
+        pub var ptr: kairo::std::ConstPtr<u8> = &null ///< raw UTF-8 bytes (into source buffer or sema scratch)
+        pub var len: u32                      = 0 ///< byte length of the identifier
 
-        fn IdentData(self) = default;
-        fn IdentData(self, ptr: std::ConstPtr::<u8>, len: usize) {
-            self.ptr = ptr;
-            self.len = static_cast::<u32>(len);
+        fn IdentData(self) = default
+        fn IdentData(self, ptr: kairo::std::ConstPtr<u8>, len: usize) {
+            self.ptr = ptr
+            self.len = (len as u32)
         }
     }
 
@@ -742,28 +1041,36 @@ module Immediate {
     ///          slot. Collisions are resolved by linear probing; the stored
     ///          `hash` lets a probe reject non-matching entries with a single
     ///          u32 compare before ever touching the byte blob.
-    class InternBucket {
-        pub var hash: u32 = 0;
-        pub var idx:  u32 = static_cast::<u32>(-1); ///< u32(-1) == empty slot
+    pub class InternBucket {
+        pub var hash: u32 = 0
+        pub var idx:  u32 = ((-1) as i32 as u32) ///< u32(-1) == empty slot
     }
 }
 
-class ImmediateTable {
-    const MAX_IMMEDIATES: u32 = ((-1) as u32);
+/// Immediate::TextPrefixKind's variants are its FlagSet's bits
+/// (Support/FlagSet.k).
+extend Immediate::TextPrefixKind impl FlagBit<u8> {
+    inline fn bit(const self) -> u8 {
+        return self as u8
+    }
+}
 
-    var int_literals:      own::<ArenaList::<Immediate::IntData>>;
-    var float_literals:    own::<ArenaList::<Immediate::FloatData>>;
-    var char_literals:     own::<ArenaList::<Immediate::CharData>>;
-    var string_literals:   own::<ArenaList::<Immediate::StringData>>;
-    var macro_expansions:  own::<ArenaList::<Immediate::MacroExpansionInfo>>;
-    var ident_descs:       own::<ArenaList::<Immediate::IdentData>>;   ///< idx -> (offset,len) into ident_blob
-    var synth_names:       own::<ArenaList::<string>>;                ///< owned bytes for synthesized identifiers
-                                                                       ///  (no backing source buffer); ArenaList
-                                                                       ///  never moves, so raw() ptrs stay stable.
-    var ident_buckets:     vec::<Immediate::InternBucket>;             ///< open-addressed (hash -> idx) table
-    var ident_mask:        u32 = 0;                                    ///< bucket capacity - 1 (power of two); 0 = uninitialized
-    var ident_live:        u32 = 0;                                    ///< number of occupied buckets (load factor)
-    var source_manager:    obs::<SourceManager> = &null;
+pub class ImmediateTable {
+    const MAX_IMMEDIATES: u32 = u32::MAX
+
+    var int_literals:     unsafe *ArenaList<Immediate::IntData>
+    var float_literals:   unsafe *ArenaList<Immediate::FloatData>
+    var char_literals:    unsafe *ArenaList<Immediate::CharData>
+    var string_literals:  unsafe *ArenaList<Immediate::StringData>
+    var macro_expansions: unsafe *ArenaList<Immediate::MacroExpansionInfo>
+    var ident_descs:      unsafe *ArenaList<Immediate::IdentData> ///< idx -> (offset,len) into ident_blob
+    var synth_names:      unsafe *ArenaList<string> ///< owned bytes for synthesized identifiers
+    ///  (no backing source buffer); ArenaList
+    ///  never moves, so raw() ptrs stay stable.
+    var ident_buckets:  cxx::std::vector<Immediate::InternBucket> ///< open-addressed (hash -> idx) table
+    var ident_mask:     u32                                       = 0 ///< bucket capacity - 1 (power of two); 0 = uninitialized
+    var ident_live:     u32                                       = 0 ///< number of occupied buckets (load factor)
+    var source_manager: unsafe *SourceManager                     = &null
 
     /// \brief number of evaluate() calls currently in flight against this table.
     ///
@@ -773,130 +1080,173 @@ class ImmediateTable {
     ///          the flag while the second is still running, and
     ///          wait_for_evaluation returns early on live data. A counter only
     ///          reads zero when nothing is in flight.
-    priv var _evaluating: std::Atomic::<u32> = 0;
+    priv var _evaluating: kairo::std::Atomic<u32> = kairo::std::Atomic<u32>(0)
+    /// \brief guards the identifier sheet (\c ident_buckets, \c ident_descs)
+    ///        against a reader on another thread.
+    ///
+    /// \details A table is written by its owner (the file's lexer, then its
+    ///          parser and Sema interning synthesized names) while other
+    ///          threads probe it: a parse worker's generic-name fallback reads
+    ///          an imported file's table (a probe crashed on a bucket
+    ///          vector the owner was regrowing), and with parallel Sema
+    ///          a TU reads the tables of everything it imports. Writers
+    ///          take it exclusively; find_ident shares it. Uncontended it is
+    ///          one atomic per intern, and only cross-file probes contend.
+    ///          The *_copy writers take it too, around their synth_names (and
+    ///          string sheet) push: a table another file's thread writes into
+    ///          (the builtin root's, by TupleRecords; a header TU's, by a
+    ///          foreign fill) then needs no outside lock to be safe.
+    priv var _ident_mu: kairo::std::SharedMutex
 
-    fn initialize(self, sm: *SourceManager) {
-        self.source_manager   = sm;
-        self.int_literals     = std::create::<ArenaList::<Immediate::IntData>>(256);
-        self.float_literals   = std::create::<ArenaList::<Immediate::FloatData>>(64);
-        self.char_literals    = std::create::<ArenaList::<Immediate::CharData>>(64);
-        self.string_literals  = std::create::<ArenaList::<Immediate::StringData>>(64);
-        self.macro_expansions = std::create::<ArenaList::<Immediate::MacroExpansionInfo>>(256);
-        self.ident_descs      = std::create::<ArenaList::<Immediate::IdentData>>(512);
-        self.synth_names      = std::create::<ArenaList::<string>>(64);
-        Logger::debug(Logger::Stage::Lexer, "ImmediateTable::initialize: initialized with source manager at {sm}");
+    pub fn initialize(self, sm: unsafe *SourceManager) {
+        self.source_manager   = sm
+        self.int_literals     = kairo::std::create<ArenaList<Immediate::IntData>>(256)
+        self.float_literals   = kairo::std::create<ArenaList<Immediate::FloatData>>(64)
+        self.char_literals    = kairo::std::create<ArenaList<Immediate::CharData>>(64)
+        self.string_literals  = kairo::std::create<ArenaList<Immediate::StringData>>(64)
+        self.macro_expansions = kairo::std::create<ArenaList<Immediate::MacroExpansionInfo>>(256)
+        self.ident_descs      = kairo::std::create<ArenaList<Immediate::IdentData>>(512)
+        self.synth_names      = kairo::std::create<ArenaList<string>>(64)
+        kairo::Logger::debug(
+            kairo::Logger::Stage::Lexer,
+            "ImmediateTable::initialize: initialized with source manager at {sm}",
+        )
     }
 
     fn reset(self) {
         // reset() may run before initialize() (e.g. a lexer reset before its
         // first lex)   every list is null until then. guard all of them.
-        if self.int_literals     != &null { self.int_literals->clear();     }
-        if self.float_literals   != &null { self.float_literals->clear();   }
-        if self.char_literals    != &null { self.char_literals->clear();    }
-        if self.string_literals  != &null { self.string_literals->clear();  }
-        if self.macro_expansions != &null { self.macro_expansions->clear(); }
-        if self.ident_descs      != &null { self.ident_descs->clear();      }
-        if self.synth_names      != &null { self.synth_names->clear();      }
-        self.ident_buckets.clear();
-        self.ident_mask = 0;
-        self.ident_live = 0;
-        Logger::debug(Logger::Stage::Lexer, "ImmediateTable::reset: cleared all immediate literals and macro expansions");
+        if self.int_literals != &null {
+            self.int_literals->clear()
+        }
+
+        if self.float_literals != &null {
+            self.float_literals->clear()
+        }
+
+        if self.char_literals != &null {
+            self.char_literals->clear()
+        }
+
+        if self.string_literals != &null {
+            self.string_literals->clear()
+        }
+
+        if self.macro_expansions != &null {
+            self.macro_expansions->clear()
+        }
+
+        if self.ident_descs != &null {
+            self.ident_descs->clear()
+        }
+
+        if self.synth_names != &null {
+            self.synth_names->clear()
+        }
+
+        self.ident_buckets.clear()
+        self.ident_mask = 0
+        self.ident_live = 0
+        kairo::Logger::debug(
+            kairo::Logger::Stage::Lexer,
+            "ImmediateTable::reset: cleared all immediate literals and macro expansions",
+        )
     }
 
     /// \brief marks one evaluate() as entered. Pairs with end_evaluation().
     fn begin_evaluation(self) {
-        self._evaluating.fetch_add(1, std::MemoryOrder::relaxed);
+        self._evaluating.fetch_add(1, kairo::std::MemoryOrder::relaxed)
     }
 
     /// \brief marks one evaluate() as finished.
     /// \note release, so a waiter that observes zero also observes every write
     ///       the evaluation made to its immediate.
     fn end_evaluation(self) {
-        self._evaluating.fetch_sub(1, std::MemoryOrder::release);
+        self._evaluating.fetch_sub(1, kairo::std::MemoryOrder::release)
     }
 
-    fn <T> create(self) -> u32 {
-        eval if std::Meta::is_same_as::<T, Immediate::IntData> {
-            if (self.int_literals->size()) > MAX_IMMEDIATES {
-                std::crash(std::Error::RuntimeError(
-                    f"ImmediateTable::create<IntData>: overflow at {MAX_IMMEDIATES}"));
+    pub fn <T> create(self) -> u32 {
+        eval if typeof T == Immediate::IntData {
+            if self.int_literals->size() > (self.MAX_IMMEDIATES as usize) {
+                kairo::std::ice_fail(
+                    f"ImmediateTable::create<IntData>: overflow at {self.MAX_IMMEDIATES}",
+                )
             }
 
-            self.int_literals->push(Immediate::IntData());
-            return static_cast::<u32>((self.int_literals->size()) - 1);
-
-        } else if std::Meta::is_same_as::<T, Immediate::FloatData> {
-            if (self.float_literals->size()) > MAX_IMMEDIATES {
-                std::crash(std::Error::RuntimeError(
-                    f"ImmediateTable::create<FloatData>: overflow at {MAX_IMMEDIATES}"));
+            self.int_literals->push(Immediate::IntData())
+            return (self.int_literals->size() - 1) as u32
+        } else if typeof T == Immediate::FloatData {
+            if self.float_literals->size() > (self.MAX_IMMEDIATES as usize) {
+                kairo::std::ice_fail(
+                    f"ImmediateTable::create<FloatData>: overflow at {self.MAX_IMMEDIATES}",
+                )
             }
 
-            self.float_literals->push(Immediate::FloatData());
-            return static_cast::<u32>((self.float_literals->size()) - 1);
-
-        } else if std::Meta::is_same_as::<T, Immediate::CharData> {
-            if (self.char_literals->size()) > MAX_IMMEDIATES {
-                std::crash(std::Error::RuntimeError(
-                    f"ImmediateTable::create<CharData>: overflow at {MAX_IMMEDIATES}"));
+            self.float_literals->push(Immediate::FloatData())
+            return (self.float_literals->size() - 1) as u32
+        } else if typeof T == Immediate::CharData {
+            if self.char_literals->size() > (self.MAX_IMMEDIATES as usize) {
+                kairo::std::ice_fail(
+                    f"ImmediateTable::create<CharData>: overflow at {self.MAX_IMMEDIATES}",
+                )
             }
 
-            self.char_literals->push(Immediate::CharData());
-            return static_cast::<u32>((self.char_literals->size()) - 1);
-
-        } else if std::Meta::is_same_as::<T, Immediate::StringData> {
-            if (self.string_literals->size()) > MAX_IMMEDIATES {
-                std::crash(std::Error::RuntimeError(
-                    f"ImmediateTable::create<StringData>: overflow at {MAX_IMMEDIATES}"));
+            self.char_literals->push(Immediate::CharData())
+            return (self.char_literals->size() - 1) as u32
+        } else if typeof T == Immediate::StringData {
+            if self.string_literals->size() > (self.MAX_IMMEDIATES as usize) {
+                kairo::std::ice_fail(
+                    f"ImmediateTable::create<StringData>: overflow at {self.MAX_IMMEDIATES}",
+                )
             }
 
-            self.string_literals->push(Immediate::StringData());
-            return static_cast::<u32>((self.string_literals->size()) - 1);
-
-        } else if std::Meta::is_same_as::<T, Immediate::MacroExpansionInfo> {
-            if (self.macro_expansions->size()) > MAX_IMMEDIATES {
-                std::crash(std::Error::RuntimeError(
-                    f"ImmediateTable::create<MacroExpansionInfo>: overflow at {MAX_IMMEDIATES}"));
+            self.string_literals->push(Immediate::StringData())
+            return (self.string_literals->size() - 1) as u32
+        } else if typeof T == Immediate::MacroExpansionInfo {
+            if self.macro_expansions->size() > (self.MAX_IMMEDIATES as usize) {
+                kairo::std::ice_fail(
+                    f"ImmediateTable::create<MacroExpansionInfo>: overflow at {self.MAX_IMMEDIATES}",
+                )
             }
 
-            self.macro_expansions->push(Immediate::MacroExpansionInfo());
-            return static_cast::<u32>((self.macro_expansions->size()) - 1);
-
+            self.macro_expansions->push(Immediate::MacroExpansionInfo())
+            return (self.macro_expansions->size() - 1) as u32
         } else {
-            std::crash(std::Error::RuntimeError("ImmediateTable::create: unsupported type"));
+            kairo::std::ice_fail("ImmediateTable::create: unsupported type")
         }
     }
 
-    fn <T> get(self, idx: u32) -> *T {
-        eval if std::Meta::is_same_as::<T, Immediate::IntData> {
-            return self.int_literals->get(static_cast::<usize>(idx));
-        } else if std::Meta::is_same_as::<T, Immediate::FloatData> {
-            return self.float_literals->get(static_cast::<usize>(idx));
-        } else if std::Meta::is_same_as::<T, Immediate::CharData> {
-            return self.char_literals->get(static_cast::<usize>(idx));
-        } else if std::Meta::is_same_as::<T, Immediate::StringData> {
-            return self.string_literals->get(static_cast::<usize>(idx));
-        } else if std::Meta::is_same_as::<T, Immediate::MacroExpansionInfo> {
-            return self.macro_expansions->get(static_cast::<usize>(idx));
-        } else if std::Meta::is_same_as::<T, Immediate::IdentData> {
-            return self.ident_descs->get(static_cast::<usize>(idx));
+    pub fn <T> get(self, idx: u32) -> unsafe *T {
+        eval if typeof T == Immediate::IntData {
+            return self.int_literals->get(idx as usize)
+        } else if typeof T == Immediate::FloatData {
+            return self.float_literals->get(idx as usize)
+        } else if typeof T == Immediate::CharData {
+            return self.char_literals->get(idx as usize)
+        } else if typeof T == Immediate::StringData {
+            return self.string_literals->get(idx as usize)
+        } else if typeof T == Immediate::MacroExpansionInfo {
+            return self.macro_expansions->get(idx as usize)
+        } else if typeof T == Immediate::IdentData {
+            return self.ident_descs->get(idx as usize)
         } else {
-            std::crash(std::Error::RuntimeError("ImmediateTable::get: unsupported type"));
+            kairo::std::ice_fail("ImmediateTable::get: unsupported type")
         }
     }
 
     fn <T> pop(self) -> T {
-        eval if std::Meta::is_same_as::<T, Immediate::IntData> {
-            return self.int_literals->pop();
-        } else if std::Meta::is_same_as::<T, Immediate::FloatData> {
-            return self.float_literals->pop();
-        } else if std::Meta::is_same_as::<T, Immediate::CharData> {
-            return self.char_literals->pop();
-        } else if std::Meta::is_same_as::<T, Immediate::StringData> {
-            return self.string_literals->pop();
-        } else if std::Meta::is_same_as::<T, Immediate::MacroExpansionInfo> {
-            return self.macro_expansions->pop();
+        eval if typeof T == Immediate::IntData {
+            return self.int_literals->pop()
+        } else if typeof T == Immediate::FloatData {
+            return self.float_literals->pop()
+        } else if typeof T == Immediate::CharData {
+            return self.char_literals->pop()
+        } else if typeof T == Immediate::StringData {
+            return self.string_literals->pop()
+        } else if typeof T == Immediate::MacroExpansionInfo {
+            return self.macro_expansions->pop()
         } else {
-            std::crash(std::Error::RuntimeError("ImmediateTable::pop: unsupported type"));
+            kairo::std::ice_fail("ImmediateTable::pop: unsupported type")
         }
     }
 
@@ -925,57 +1275,59 @@ class ImmediateTable {
     ///             lexer's running HashState). Must be produced consistently for
     ///             a given spelling so identical identifiers collide and dedup.
     /// \return the interned index into the identifier sheet.
-    fn intern_ident(self, const data: *u8, len: usize, hash: u32) -> u32 {
+    pub fn intern_ident(self, data: unsafe *const u8, len: usize, hash: u32) -> u32 {
+        var wlock = kairo::std::LockGuard(self._ident_mu)
         if self.ident_mask == 0 {
-            self._ident_grow();
+            self._ident_grow()
         }
 
-        var mask = self.ident_mask;
-        var slot = hash & mask;
+        var mask = self.ident_mask
+        var slot = hash & mask
 
         while true {
-            var b = &(self.ident_buckets[static_cast::<usize>(slot)]);
-            if b->idx == ((-1) as u32) {
-                break;
+            var *b = &self.ident_buckets[slot as usize]
+            if b->idx == u32::MAX {
+                break
             }
-            if (b->hash == hash) && self._ident_eq(b->idx, data, len) {
-                return b->idx;
+
+            if b->hash == hash && self._ident_eq(b->idx, data, len) {
+                return b->idx
             }
-            slot = (slot + 1) & mask;
+
+            slot = slot + 1 & mask
         }
 
-        if ((static_cast::<u64>(self.ident_live) + 1) * 4) >= ((static_cast::<u64>(mask) + 1) * 3) {
-            self._ident_grow();
-            mask = self.ident_mask;
-            slot = hash & mask;
-            while self.ident_buckets[static_cast::<usize>(slot)].idx != ((-1) as u32) {
-                slot = (slot + 1) & mask;
+        if ((self.ident_live as u64) + 1) * 4 >= ((mask as u64) + 1) * 3 {
+            self._ident_grow()
+            mask = self.ident_mask
+            slot = hash & mask
+            while self.ident_buckets[slot as usize].idx != u32::MAX {
+                slot = slot + 1 & mask
             }
         }
 
-        var idx = static_cast::<u32>(self.ident_descs->size());
-        if idx >= MAX_IMMEDIATES {
-            std::crash(std::Error::RuntimeError(
-                f"ImmediateTable::intern_ident: overflow at {MAX_IMMEDIATES}"));
+        var idx = (self.ident_descs->size() as u32)
+        if idx >= self.MAX_IMMEDIATES {
+            kairo::std::ice_fail(f"ImmediateTable::intern_ident: overflow at {self.MAX_IMMEDIATES}")
         }
 
         // store pointer directly no copy
-        self.ident_descs->push(Immediate::IdentData(data, len));
+        self.ident_descs->push(Immediate::IdentData(data, len))
 
-        var nb = &(self.ident_buckets[static_cast::<usize>(slot)]);
-        nb->hash = hash;
-        nb->idx  = idx;
-        ++self.ident_live;
+        var *nb = &self.ident_buckets[slot as usize]
+        nb->hash = hash
+        nb->idx  = idx
+        ++self.ident_live
 
-        return idx;
+        return idx
     }
 
-    fn get_ident(self, idx: u32) -> string {
-        var d = self.ident_descs->get(static_cast::<usize>(idx));
+    pub fn get_ident(self, idx: u32) -> string {
+        var unsafe *d = self.ident_descs->get(idx as usize)
         return string(
-            reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(d->ptr),
-            static_cast::<usize>(d->len)
-        );
+            unsafe ((unsafe (d->ptr as kairo::std::ConstPtr<c_char>) as unsafe *const u8) as *const u8),
+            d->len as usize,
+        )
     }
 
     /// \brief NON-MUTATING identifier probe: index of \p data if already
@@ -992,21 +1344,27 @@ class ImmediateTable {
     /// \param data raw UTF-8 bytes (need not be NUL-terminated).
     /// \param len  byte length.
     /// \param hash folded 32-bit hash of those bytes (same hashing as intern).
-    fn find_ident(self, const data: *u8, len: usize, hash: u32) -> u32 {
-        if self.ident_mask == 0 { return static_cast::<u32>(-1); }
+    pub fn find_ident(self, data: unsafe *const u8, len: usize, hash: u32) -> u32 {
+        var rlock = kairo::std::SharedLock(self._ident_mu)
+        if self.ident_mask == 0 {
+            return (-1) as i32 as u32
+        }
 
-        var mask = self.ident_mask;
-        var slot = hash & mask;
+        var mask = self.ident_mask
+        var slot = hash & mask
 
         while true {
-            var b = &(self.ident_buckets[static_cast::<usize>(slot)]);
-            if b->idx == ((-1) as u32) { return static_cast::<u32>(-1); }
-            if (b->hash == hash) && self._ident_eq(b->idx, data, len) {
-                return b->idx;
+            var *b = &self.ident_buckets[slot as usize]
+            if b->idx == u32::MAX {
+                return (-1) as i32 as u32
             }
-            slot = (slot + 1) & mask;
+
+            if b->hash == hash && self._ident_eq(b->idx, data, len) {
+                return b->idx
+            }
+
+            slot = slot + 1 & mask
         }
-        return static_cast::<u32>(-1);
     }
 
     /// \brief string-keyed convenience over find_ident (hashes for the caller).
@@ -1017,12 +1375,13 @@ class ImmediateTable {
     ///          byte-compare match what the lexer produced this mirrors
     ///          intern_ident_copy exactly, minus the synth_names store (a probe
     ///          needs no persistent copy). Cold path (import boundary only).
-    fn find_ident(self, s: string) -> u32 {
-        var ns = s;
-        var r  = reinterpret_cast::<std::ConstPtr::<u8>>(ns.raw());
-        var l  = ns.size();
-        var h  = compute_hash(r, l);
-        return self.find_ident(r, l, h);
+    pub fn find_ident(self, const s: string) -> u32 {
+        // string::raw is const: read s in place (the copy this made was a
+        // heap allocation per probe, for nothing).
+        var unsafe *r = unsafe (s.raw() as kairo::std::ConstPtr<u8>)
+        var        l  = s.size()
+        var        h  = compute_hash(r, l)
+        return self.find_ident(r, l, (h as u32))
     }
 
     /// \brief interns an identifier spelling that has no backing source buffer.
@@ -1035,15 +1394,22 @@ class ImmediateTable {
     ///
     /// \note hashing matches the lexer's incremental hash (compute_hash), so
     ///       a synthesized `foo` and a lexed `foo` intern to the same slot.
-    fn intern_ident_copy(self, s: string) -> u32 {
-        if self.synth_names == &null {
-            self.synth_names = std::create::<ArenaList::<string>>(64);
+    pub fn intern_ident_copy(self, const s: string) -> u32 {
+        var stored: unsafe *string = &null
+        {
+            // Released before intern_ident, which takes it again.
+            var wlock = kairo::std::LockGuard(self._ident_mu)
+            if self.synth_names == &null {
+                self.synth_names = kairo::std::create<ArenaList<string>>(64)
+            }
+
+            stored = self.synth_names->push(s)
         }
-        var stored = self.synth_names->push(s);
-        var r = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
-        var l = stored->size();
-        var h = compute_hash(r, l);
-        return self.intern_ident(r, l, h);
+
+        var unsafe *r = unsafe (stored->raw() as kairo::std::ConstPtr<u8>)
+        var        l  = stored->size()
+        var        h  = compute_hash(r, l)
+        return self.intern_ident(r, l, (h as u32))
     }
 
     /// \brief creates a StringData slot whose text is table-owned (no backing
@@ -1058,77 +1424,89 @@ class ImmediateTable {
     ///
     /// \note the caller may additionally set `body` on the returned slot when
     ///       the text also happens to be a contiguous source slice.
-    fn intern_string_copy(self, s: string) -> u32 {
+    pub fn intern_string_copy(self, const s: string) -> u32 {
+        var wlock = kairo::std::LockGuard(self._ident_mu)
         if self.synth_names == &null {
-            self.synth_names = std::create::<ArenaList::<string>>(64);
+            self.synth_names = kairo::std::create<ArenaList<string>>(64)
         }
-        var idx  = self.create::<Immediate::StringData>();
-        var data = self.get::<Immediate::StringData>(idx);
 
-        var stored = self.synth_names->push(s);
-        data->owned_ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
-        data->owned_len   = static_cast::<u32>(stored->size());
-        data->prefix_kind = Immediate::TextPrefixKind::None;
-        return idx;
+        var        idx   = self.create<Immediate::StringData>()
+        var unsafe *data = self.get<Immediate::StringData>(idx)
+
+        var unsafe *stored = self.synth_names->push(s)
+        data->owned_ptr   = unsafe (stored->raw() as kairo::std::ConstPtr<u8>)
+        data->owned_len   = (stored->size() as u32)
+        data->prefix_kind = FlagSet<Immediate::TextPrefixKind, u8>()
+        return idx
     }
 
     /// \brief a StringData slot over raw BYTES the compiler minted: the
     ///        decoded body of a lowered literal. Same storage and same
     ///        contract as intern_string_copy; takes bytes because a `string`
     ///        is wide and would re-encode anything past 0x7F.
-    fn intern_bytes_copy(self, data: std::ConstPtr::<u8>, len: usize) -> u32 {
+    pub fn intern_bytes_copy(self, data: kairo::std::ConstPtr<u8>, len: usize) -> u32 {
+        var wlock = kairo::std::LockGuard(self._ident_mu)
         if self.synth_names == &null {
-            self.synth_names = std::create::<ArenaList::<string>>(64);
+            self.synth_names = kairo::std::create<ArenaList<string>>(64)
         }
-        var idx  = self.create::<Immediate::StringData>();
-        var slot = self.get::<Immediate::StringData>(idx);
 
-        var stored = self.synth_names->push(
-            string(reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(data), len));
-        slot->owned_ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
-        slot->owned_len   = static_cast::<u32>(stored->size());
-        slot->prefix_kind = Immediate::TextPrefixKind::None;
-        return idx;
+        var        idx   = self.create<Immediate::StringData>()
+        var unsafe *slot = self.get<Immediate::StringData>(idx)
+
+        var unsafe *stored = self.synth_names->push(
+            string(
+                unsafe ((unsafe (data as kairo::std::ConstPtr<c_char>) as unsafe *const u8) as *const u8),
+                len,
+            ),
+        )
+
+        slot->owned_ptr   = unsafe (stored->raw() as kairo::std::ConstPtr<u8>)
+        slot->owned_len   = (stored->size() as u32)
+        slot->prefix_kind = FlagSet<Immediate::TextPrefixKind, u8>()
+        return idx
     }
 
     /// \brief authoritative text of a string literal slot: owned bytes when
     ///        present, otherwise the source slice behind `body`.
-    fn string_text(self, idx: u32, sm: *SourceManager) -> string {
-        var d = self.string_literals->get(static_cast::<usize>(idx));
+    pub fn string_text(self, idx: u32, sm: unsafe *SourceManager) -> string {
+        var unsafe *d = self.string_literals->get(idx as usize)
         if d->owned_ptr != &null {
             return string(
-                reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(d->owned_ptr),
-                static_cast::<usize>(d->owned_len)
-            );
+                unsafe ((unsafe (d->owned_ptr as kairo::std::ConstPtr<c_char>) as unsafe *const u8) as *const u8),
+                d->owned_len as usize,
+            )
         }
-        return sm->get_text(d->body);
+
+        return sm->get_text(d->body)
     }
 
-    fn ident_bytes(self, idx: u32) -> std::ConstPtr::<u8> {
-        return self.ident_descs->get(static_cast::<usize>(idx))->ptr;
+    fn ident_bytes(self, idx: u32) -> kairo::std::ConstPtr<u8> {
+        return self.ident_descs->get(idx as usize)->ptr
     }
 
-    priv fn _ident_eq(self, idx: u32, const data: *u8, len: usize) -> bool {
-        var d = self.ident_descs->get(static_cast::<usize>(idx));
-        if static_cast::<usize>(d->len) != len {
-            return false;
+    priv fn _ident_eq(self, idx: u32, data: unsafe *const u8, len: usize) -> bool {
+        var unsafe *d = self.ident_descs->get(idx as usize)
+        if (d->len as usize) != len {
+            return false
         }
+
         for var i: usize = 0; i < len; ++i {
             if d->ptr[i] != data[i] {
-                return false;
+                return false
             }
         }
-        return true;
+
+        return true
     }
 
     /// \brief byte length of an interned identifier.
     fn ident_len(self, idx: u32) -> usize {
-        return static_cast::<usize>(self.ident_descs->get(static_cast::<usize>(idx))->len);
+        return self.ident_descs->get(idx as usize)->len as usize
     }
 
     /// \brief number of unique identifiers interned for this file.
     fn ident_count(self) -> usize {
-        return self.ident_descs->size();
+        return self.ident_descs->size()
     }
 
     /// \brief seeds or doubles the bucket table and rehashes the live entries.
@@ -1138,497 +1516,90 @@ class ImmediateTable {
     ///          larger table. Descriptor indices (the values stored in `imm`) are
     ///          unaffected; only the hash->index acceleration structure moves.
     priv fn _ident_grow(self) {
-        var old_cap: u32 = 0;
+        var old_cap: u32 = 0
         if self.ident_mask != 0 {
-            old_cap = self.ident_mask + 1;
+            old_cap = self.ident_mask + 1
         }
 
-        var new_cap: u32 = 256;
+        var new_cap: u32 = 256
         if old_cap != 0 {
-            new_cap = old_cap << 1;
+            new_cap = old_cap << 1
         }
-        var new_mask: u32 = new_cap - 1;
 
-        var fresh = vec::<Immediate::InternBucket>();
-        fresh.resize(static_cast::<usize>(new_cap)); // default-constructed => empty
+        var new_mask: u32 = new_cap - 1
+
+        var fresh = cxx::std::vector<Immediate::InternBucket>()
+        fresh.resize(new_cap as usize) // default-constructed => empty
 
         for var i: usize = 0; i < self.ident_buckets.size(); ++i {
-            var ob = self.ident_buckets[i];
-            if ob.idx == ((-1) as u32) {
-                continue;
+            var ob = self.ident_buckets[i]
+            if ob.idx == u32::MAX {
+                continue
             }
-            var slot = ob.hash & new_mask;
-            while fresh[static_cast::<usize>(slot)].idx != ((-1) as u32) {
-                slot = (slot + 1) & new_mask;
+
+            var slot = ob.hash & new_mask
+            while fresh[slot as usize].idx != u32::MAX {
+                slot = slot + 1 & new_mask
             }
-            fresh[static_cast::<usize>(slot)] = ob;
+
+            fresh[slot as usize] = ob
         }
 
-        self.ident_buckets = fresh;
-        self.ident_mask    = new_mask;
+        self.ident_buckets = fresh
+        self.ident_mask    = new_mask
     }
 
     fn destroy(self) {
         if self.int_literals != &null {
-            std::destroy(self.int_literals);
-            self.int_literals = &null;
+            kairo::std::destroy(self.int_literals)
+            self.int_literals = &null
         }
+
         if self.float_literals != &null {
-            std::destroy(self.float_literals);
-            self.float_literals = &null;
+            kairo::std::destroy(self.float_literals)
+            self.float_literals = &null
         }
+
         if self.macro_expansions != &null {
-            std::destroy(self.macro_expansions);
-            self.macro_expansions = &null;
+            kairo::std::destroy(self.macro_expansions)
+            self.macro_expansions = &null
         }
 
         if self.string_literals != &null {
-            std::destroy(self.string_literals);
-            self.string_literals = &null;
+            kairo::std::destroy(self.string_literals)
+            self.string_literals = &null
         }
+
         if self.char_literals != &null {
-            std::destroy(self.char_literals);
-            self.char_literals = &null;
+            kairo::std::destroy(self.char_literals)
+            self.char_literals = &null
         }
+
         if self.ident_descs != &null {
-            std::destroy(self.ident_descs);
-            self.ident_descs = &null;
+            kairo::std::destroy(self.ident_descs)
+            self.ident_descs = &null
         }
 
         if self.synth_names != &null {
-            std::destroy(self.synth_names);
-            self.synth_names = &null;
+            kairo::std::destroy(self.synth_names)
+            self.synth_names = &null
         }
 
-        Logger::debug(Logger::Stage::Lexer, "ImmediateTable::destroy(): destroyed all immediate literals and macro expansions");
+        kairo::Logger::debug(
+            kairo::Logger::Stage::Lexer,
+            "ImmediateTable::destroy(): destroyed all immediate literals and macro expansions",
+        )
     }
 
-    fn op delete (self) {
-        self.destroy();
+    fn op finally (self) {
+        self.destroy()
     }
 
     fn wait_for_evaluation(self) {
-        std::sleep_while(fn () -> bool {
-            return self._evaluating.load(std::MemoryOrder::acquire) != 0;
-        });
+        kairo::std::sleep_while(
+            fn () -> bool {
+                return self._evaluating.load(kairo::std::MemoryOrder::acquire) != 0
+            },
+        )
     }
-}
-fn Immediate::IntData::evaluate(sm: *SourceManager, tbl: *ImmediateTable) {
-    tbl->begin_evaluation();
-
-    // reset values
-    self.value_lo = 0;
-    self.value_hi = 0;
-
-    if self.big != &null {
-        std::destroy(self.big);
-        self.big = &null;
-    }
-
-    // clear is_big flag, preserve others
-    self.flags &= ~(0b00000100 as u8);
-
-    var body_text = sm->get_text(self.body);
-    var body_len  = body_text.length();
-
-    if body_len == 0 {
-        tbl->end_evaluation();
-        return;
-    }
-
-    var data     = body_text.raw();
-    var base_u64 = static_cast::<u64>(self.base);
-
-    // phase 1: try to fit in 64 bits
-    var overflow_hi: u64 = 0;
-    var overflowed: bool = false;
-    var idx: usize = 0;
-
-    while idx < body_len {
-        var c = data[idx];
-        ++idx;
-
-        // skip underscores
-        if c == '_' { continue; }
-
-        var digit = get_digit_value(c, self.base);
-        if digit == 0xFF { continue; }
-
-        if Int128::mul_add_64(self.value_lo, base_u64, static_cast::<u64>(digit), overflow_hi) {
-            overflowed = true;
-            break;
-        }
-    }
-
-    if !overflowed {
-        // fits in 64 bits
-        self.value_hi = 0;
-    } else {
-        // phase 2: try to fit in 128 bits
-        self.value_lo = 0;
-        self.value_hi = 0;
-
-        var in_128: bool = true;
-        idx = 0;
-
-        while idx < body_len {
-            var c = data[idx];
-            ++idx;
-
-            if c == '_' { continue; }
-
-            var digit = get_digit_value(c, self.base);
-            if digit == 0xFF { continue; }
-
-            if Int128::mul_add_128(self.value_lo, self.value_hi, base_u64, static_cast::<u64>(digit)) {
-                in_128 = false;
-                break;
-            }
-        }
-
-        if !in_128 {
-            // phase 3: use BigInt
-            self.flags |= 0b00000100; // set is_big flag
-
-            self.big = std::create::<BigInt>(256);
-            idx = 0;
-
-            while idx < body_len {
-                var c = data[idx];
-                ++idx;
-
-                if c == '_' { continue; }
-
-                var digit = get_digit_value(c, self.base);
-                if digit == 0xFF { continue; }
-
-                self.big->mul_add(base_u64, static_cast::<u64>(digit));
-            }
-
-            // copy lo/hi from BigInt for convenience
-            self.value_lo = self.big->lo64();
-            self.value_hi = self.big->hi64();
-        }
-    }
-
-    // parse suffix to determine bit width and signedness
-    if (self.flags & 0b00001000) != 0 { // has_suffix
-        var suffix_text = sm->get_text(self.suffix);
-        var is_unsigned: bool = false;
-        var suffix_bits = parse_int_suffix(suffix_text, is_unsigned);
-
-        if suffix_bits > 0 {
-            self.bits = suffix_bits;
-            if is_unsigned {
-                self.flags |= 0b00000001; // set unsigned flag
-            } else {
-                self.flags &= ~(0b00000001 as u8); // clear unsigned flag
-            }
-        } else if (suffix_text == "usize") || (suffix_text == "isize") {
-            // No width of its own: the target's pointer width, which only
-            // Sema knows. Without the mark the literal fell through to the
-            // minimum-width inference below and `1usize` was an i8.
-            self.flags |= 0b00100000;
-            if suffix_text == "usize" {
-                self.flags |= 0b00000001;
-            } else {
-                self.flags &= ~(0b00000001 as u8);
-            }
-        }
-    }
-
-    // infer minimum bit width if no suffix
-    if self.bits == 0 {
-        if self.big != &null {
-            var actual_bits = self.big->bit_width();
-            // round up to next power of 2
-            if actual_bits <= 128 {
-                self.bits = 128;
-            } else if actual_bits <= 256 {
-                self.bits = 256;
-            } else if actual_bits <= 512 {
-                self.bits = 512;
-            } else if actual_bits <= 1024 {
-                self.bits = 1024;
-            } else {
-                self.bits = static_cast::<u16>((actual_bits + 63) & ~63);
-            }
-        } else if self.value_hi != 0 {
-            self.bits = 128;
-        } else {
-            // calculate actual bit width needed for value_lo
-            if self.value_lo == 0 {
-                self.bits = 8;
-            } else {
-                var bit_width: usize = 64 - static_cast::<usize>(libcxx::countl_zero(self.value_lo));
-                
-                if bit_width <= 8 {
-                    self.bits = 8;
-                } else if bit_width <= 16 {
-                    self.bits = 16;
-                } else if bit_width <= 32 {
-                    self.bits = 32;
-                } else {
-                    self.bits = 64;
-                }
-            }
-        }
-    }
-
-    tbl->end_evaluation();
-}
-
-fn Immediate::FloatData::evaluate(sm: *SourceManager, tbl: *ImmediateTable) {
-    tbl->begin_evaluation();
-
-    self.value_ieee = 0.0;
-
-    if self.big_float != &null {
-        std::destroy(self.big_float);
-        self.big_float = &null;
-    }
-
-    // clear use_bigfloat flag, preserve others
-    self.flags &= ~(0b00001000 as u8);
-
-    var body_text = sm->get_text(self.body);
-    var body_len  = body_text.length();
-
-    if body_len == 0 {
-        tbl->end_evaluation();
-        return;
-    }
-
-    var data   = body_text.raw();
-    var is_hex = (self.flags & 0b00000100) != 0;
-
-    // parsing state
-    var integer_part:     u64  = 0;
-    var frac_numerator:   u64  = 0;
-    var frac_digits:      i32  = 0;
-    var exp_value:        i64  = 0;
-    var exp_negative:     bool = false;
-    var has_integer:      bool = false;
-    var has_fraction:     bool = false;
-    var integer_overflow: bool = false;
-    var frac_overflow:    bool = false;
-
-    var idx: usize = 0;
-    var base_u64 = static_cast::<u64>(self.base);
-
-    // parse integer part
-    while idx < body_len {
-        var c = data[idx];
-
-        if c == '_' {
-            ++idx;
-            continue;
-        }
-
-        if c == '.' {
-            ++idx;
-            break;
-        }
-
-        // check for exponent start
-        if is_hex {
-            if c == 'p' || c == 'P' { break; }
-        } else {
-            if c == 'e' || c == 'E' { break; }
-        }
-
-        var digit = get_digit_value(c, self.base);
-        if digit == 0xFF { break; }
-
-        has_integer = true;
-
-        if !integer_overflow {
-            var old = integer_part;
-            integer_part = integer_part * base_u64 + static_cast::<u64>(digit);
-            if integer_part < old {
-                integer_overflow = true;
-            }
-        }
-
-        ++idx;
-    }
-
-    // check if we just consumed a dot
-    var consumed_dot = (idx > 0) && (data[idx - 1] == '.');
-
-    // parse fractional part
-    if consumed_dot {
-        while idx < body_len {
-            var c = data[idx];
-
-            if c == '_' {
-                ++idx;
-                continue;
-            }
-
-            // check for exponent start
-            if is_hex {
-                if c == 'p' || c == 'P' { break; }
-            } else {
-                if c == 'e' || c == 'E' { break; }
-            }
-
-            var digit = get_digit_value(c, self.base);
-            if digit == 0xFF { break; }
-
-            has_fraction = true;
-
-            if !frac_overflow {
-                var old = frac_numerator;
-                frac_numerator = frac_numerator * base_u64 + static_cast::<u64>(digit);
-                if frac_numerator < old {
-                    frac_overflow = true;
-                } else {
-                    ++frac_digits;
-                }
-            }
-
-            ++idx;
-        }
-    }
-
-    // parse exponent
-    if idx < body_len {
-        var c = data[idx];
-        var is_exp_char = false;
-
-        if is_hex {
-            is_exp_char = (c == 'p' || c == 'P');
-        } else {
-            is_exp_char = (c == 'e' || c == 'E');
-        }
-
-        if is_exp_char {
-            ++idx;
-
-            // check for sign
-            if idx < body_len {
-                if data[idx] == '-' {
-                    exp_negative = true;
-                    ++idx;
-                } else if data[idx] == '+' {
-                    ++idx;
-                }
-            }
-
-            // parse exponent digits (always base 10, but allow underscores)
-            while idx < body_len {
-                var ec = data[idx];
-
-                // skip underscores in exponent
-                if ec == '_' {
-                    ++idx;
-                    continue;
-                }
-
-                if ec < '0' || ec > '9' { break; }
-
-                exp_value = exp_value * 10 + static_cast::<i64>(ec - '0');
-                ++idx;
-            }
-
-            if exp_negative {
-                exp_value = -exp_value;
-            }
-        }
-    }
-
-    // determine if we need BigFloat
-    // thresholds: f80 max exponent is ~4932 (base 10) or ~16383 (base 2)
-    var needs_big = integer_overflow || frac_overflow;
-
-    if !needs_big {
-        if is_hex {
-            needs_big = (exp_value > 16383) || (exp_value < -16494);
-        } else {
-            needs_big = (exp_value > 4932) || (exp_value < -4951);
-        }
-    }
-
-    if needs_big {
-        self.flags |= 0b00001000; // set use_bigfloat flag
-        self.big_float = std::create::<BigFloat>();
-        self.big_float->is_hex = is_hex;
-        self.big_float->exponent = exp_value;
-
-        // reparse integer part into BigInt mantissa
-        self.big_float->mantissa = BigInt(512);
-        idx = 0;
-
-        var frac_start: usize = 0;
-        var parsing_frac: bool = false;
-
-        while idx < body_len {
-            var c = data[idx];
-
-            if c == '_' {
-                ++idx;
-                continue;
-            }
-
-            if c == '.' {
-                ++idx;
-                frac_start = idx;
-                parsing_frac = true;
-                continue;
-            }
-
-            if is_hex {
-                if c == 'p' || c == 'P' { break; }
-            } else {
-                if c == 'e' || c == 'E' { break; }
-            }
-
-            var digit = get_digit_value(c, self.base);
-            if digit == 0xFF { break; }
-
-            self.big_float->mantissa.mul_add(base_u64, static_cast::<u64>(digit));
-
-            if parsing_frac {
-                // adjust exponent for fractional digits
-                if is_hex {
-                    self.big_float->exponent -= 4; // each hex digit = 4 bits
-                } else {
-                    // for decimal, we track separately and convert later
-                }
-            }
-
-            ++idx;
-        }
-
-        // also compute f80 approximation for convenience
-        self.value_ieee = self.compute_f80_approx(
-            integer_part, frac_numerator, frac_digits,
-            exp_value, is_hex, base_u64,
-            integer_overflow, frac_overflow
-        );
-    } else {
-        // compute f80 value directly
-        self.value_ieee = self.compute_f80(
-            integer_part, frac_numerator, frac_digits,
-            exp_value, is_hex, base_u64
-        );
-    }
-
-    // parse suffix
-    if (self.flags & 0b00010000) != 0 { // has_suffix
-        var suffix_text = sm->get_text(self.suffix);
-        var suffix_bits = parse_float_suffix(suffix_text);
-
-        if suffix_bits > 0 {
-            self.bits = suffix_bits;
-        }
-    }
-
-    // default to f64 if no suffix
-    if self.bits == 0 {
-        self.bits = 64;
-    }
-
-    tbl->end_evaluation();
 }

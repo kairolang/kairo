@@ -1,13 +1,12 @@
-/// --- The Kairo Project ----------------- Interop/Clang/ClangLocMap.k --- ///
+/// --- The Kairo Project ------------------ Interop/Clang/ClangLocMap.k --- ///
 ///
-///   Bidirectional Kairo <-> clang source-location translation over a
-///   SHARED clang translation unit.
+///   Maps source locations between Kairo and a shared clang TU, both ways.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -97,62 +96,73 @@
 ///   longer any off-thread preload to race with.
 ///
 
-ffi "c++" import "llvm/Support/Allocator.h";
-ffi "c++" import "llvm/Support/StringSaver.h";
-ffi "c++" import "Native/Types.hh";
-ffi "c++" import "clang/Basic/SourceLocation.h";
-ffi "c++" import "clang/Basic/SourceManager.h";
-ffi "c++" import "clang/Frontend/CompilerInstance.h";
-ffi "c++" import "llvm/ADT/StringRef.h";
-ffi "c++" import "llvm/Support/MemoryBufferRef.h";
+ffi "c++" import "llvm/Support/Allocator.h"
+ffi "c++" import "llvm/Support/StringSaver.h"
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "clang/Basic/SourceLocation.h"
+ffi "c++" import "clang/Basic/SourceManager.h"
+ffi "c++" import "clang/Frontend/CompilerInstance.h"
+ffi "c++" import "llvm/ADT/StringRef.h"
+ffi "c++" import "llvm/Support/MemoryBufferRef.h"
+ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "vector"
 
-import Location::SourceLocation::*;
-import Location::SourceRange::*;
-import Location::SourceManager::*;
-import Support::FileIO::Path::*;
+import Location::SourceLocation::SourceLocation
+import Location::SourceManager::{
+    FileID,
+    SourceManager,
+}
+import Location::SourceRange::SourceRange
+import Support::FileIO::Path::Path
+import std::c_char
+import std::io
 
-class ClangLocMap {
-    priv var _ksm: obs::<SourceManager>;                ///< owned by the driver, outlives this
-    priv var _csm: opt::<clang::SourceManager> = &null; ///< shared clang SM; owned by the bridge
+pub class ClangLocMap {
+    priv var _ksm: unsafe *SourceManager                ///< owned by the driver, outlives this
+    priv var _csm: unsafe *clang::SourceManager = &null ///< shared clang SM; owned by the bridge
 
     /// index == kairo fid; value == clang's raw SLoc base for that file.
     /// Dense, u32, contiguous with _cfid0's block.
-    priv var _sloc: vec::<u32>;
+    priv var _sloc: cxx::std::vector<u32>
 
     /// clang FileID of kairo fid 0. MEASURED at rebind, never assumed.
-    priv var _cfid0: clang::FileID;
+    priv var _cfid0: clang::FileID
 
     /// Number of kairo fids in the contiguous block (== _sloc.size()).
-    priv var _n: usize = 0;
+    priv var _n: usize = 0
 
     /// Narrow names handed to clang for virtual fids; deque so addresses stay
     /// stable under growth (clang keeps StringRef views into these).
     /// Buffer names the clang SM keeps as StringRefs (it does not copy).
     /// Bump-allocated so they never move; Reset() with the SM's tables in
     /// rebind, exactly where the old container was cleared.
-    priv var _names: llvm::BumpPtrAllocator;
+    priv var _names: llvm::BumpPtrAllocator
 
     /// Set by rebind(); queries before the first successful rebind are a
     /// driver bug. Cleared at the START of every rebind so a failed
     /// re-registration cannot leave a half-built table readable.
-    priv var _ready: bool = false;
+    priv var _ready: bool = false
 
-    // --- Construction ------------------------------------------------------
+    /// # Construction
 
-    fn ClangLocMap(self, ksm: *SourceManager) {
+    fn ClangLocMap(self, ksm: unsafe *SourceManager) {
         if ksm == &null {
-            std::crash(std::Error::RuntimeError(
-                "ClangLocMap: a valid Kairo SourceManager is required"));
+            kairo::std::ice_fail("ClangLocMap: a valid Kairo SourceManager is required")
         }
-        self._ksm = ksm;
+
+        self._ksm = ksm
     }
 
-    fn ready(self) -> bool { return self._ready; }
+    pub fn ready(self) -> bool {
+        return self._ready
+    }
 
     /// Number of Kairo fids currently mapped.
-    fn mapped_count(self) -> usize { return self._n; }
+    fn mapped_count(self) -> usize {
+        return self._n
+    }
 
-    // --- Registration (driver thread, inside the action window) -------------
+    /// # Registration (driver thread, inside the action window)
 
     /// Registers EVERY Kairo fid into \p ci's SourceManager as one contiguous
     /// FileID block, then records the base and each file's SLoc start.
@@ -166,65 +176,75 @@ class ClangLocMap {
     /// \return false if a fid could not be registered. The map is left
     ///         NOT ready, so every subsequent query returns invalid rather
     ///         than a plausible-looking wrong answer.
-    fn rebind(self, ci: *clang::CompilerInstance) -> bool {
-        ICE_IF(ci == &null, "ClangLocMap::rebind with no CompilerInstance");
+    pub fn rebind(self, ci: unsafe *clang::CompilerInstance) -> bool {
+        if ci == &null {
+            kairo::std::ice_fail("ClangLocMap::rebind with no CompilerInstance")
+        }
 
-        self._ready = false;
-        self._sloc.clear();
-        self._names.Reset();
-        self._cfid0 = clang::FileID();
-        self._n     = 0;
+        self._ready = false
+        self._sloc.clear()
+        self._names.Reset()
+        self._cfid0 = clang::FileID()
+        self._n     = 0
 
-        self._csm = &ci->getSourceManager();
-        var fm    = &ci->getFileManager();
+        self._csm = unsafe &ci->getSourceManager()
+        var unsafe *fm = unsafe &ci->getFileManager()
 
-        var n = self._ksm->file_count();
-        if n == 0 { return false; }
+        var n = self._ksm->file_count()
+        if n == 0 {
+            return false
+        }
 
         for var i: usize = 0; i < n; ++i {
-            var kfid = static_cast::<FileID>(i);
-            var cfid = self._register_one(fm, kfid);
+            var kfid = (i as FileID)
+            var cfid = self._register_one(fm, kfid)
 
             if !cfid.isValid() {
-                Logger::error(Logger::Stage::Driver,
+                kairo::Logger::error(
+                    kairo::Logger::Stage::Driver,
                     f"ClangLocMap::rebind: fid {i} ('{self._ksm->get_filename(kfid)}') "
-                    "could not be registered; loc translation disabled for this TU");
-                self._sloc.clear();
-                self._n = 0;
-                return false;
+                    "could not be registered; loc translation disabled for this TU",
+                )
+
+                self._sloc.clear()
+                self._n = 0
+                return false
             }
 
             if i == 0 {
-                self._cfid0 = cfid;
+                self._cfid0 = cfid
             } else {
                 // The whole design in one assert. If clang allocated a FileID
                 // between two of ours, the arithmetic below is silently wrong
                 // for every location for the rest of the run.
-                ICE_IF(
-                    cfid.getHashValue() != (self._cfid0.getHashValue() + static_cast::<u32>(i)),
-                    "ClangLocMap: clang allocated a FileID inside the Kairo "
-                    "block; the contiguity invariant is broken and fid "
-                    "arithmetic is invalid");
+                if cfid.getHashValue() != self._cfid0.getHashValue() + (i as u32) {
+                    kairo::std::ice_fail(
+                        "ClangLocMap: clang allocated a FileID inside the Kairo "
+                            "block; the contiguity invariant is broken and fid "
+                            "arithmetic is invalid",
+                    )
+                }
             }
 
-            self._sloc.push_back(
-                self._csm->getLocForStartOfFile(cfid).getRawEncoding());
+            self._sloc.push_back(self._csm->getLocForStartOfFile(cfid).getRawEncoding())
         }
 
-        self._n     = n;
-        self._ready = true;
+        self._n     = n
+        self._ready = true
 
-        Logger::info(Logger::Stage::Driver,
-            f"ClangLocMap::rebind: {n} fid(s) mapped to clang block [{self._cfid0.getHashValue()}, {self._cfid0.getHashValue() + u32(n)})");
+        kairo::Logger::info(
+            kairo::Logger::Stage::Driver,
+            f"ClangLocMap::rebind: {n} fid(s) mapped to clang block [{self._cfid0.getHashValue()}, {self._cfid0.getHashValue() + (n as u32)})",
+        )
 
-        return true;
+        return true
     }
 
     /// Real path -> FileEntryRef (ContentCache survives clearIDTables).
     /// Virtual fid -> MemoryBufferRef over the VFM mapping. Either way the
     /// SLoc block stays contiguous, which is the only thing the math needs.
-    priv fn _register_one(self, fm: *clang::FileManager, kfid: FileID) -> clang::FileID {
-        var path = self._ksm->get_filename(kfid);
+    priv fn _register_one(self, fm: unsafe *clang::FileManager, kfid: FileID) -> clang::FileID {
+        var path = self._ksm->get_filename(kfid)
 
         // Stat only, not open (OpenFile=false): rebind registers EVERY fid,
         // the C++ headers Kairo indexed included -- hundreds -- and an open
@@ -234,49 +254,48 @@ class ClangLocMap {
         // to 37 ms a TU at 12 workers (the per-process fd table, growing
         // under threads, is the likely contention). A file clang does read
         // is opened then.
-        var fref = fm->getFileRef(sref(path), false);
-        if fref {
-            return self._csm->createFileID(
-                *fref, clang::SourceLocation(), clang::SrcMgr::C_User);
+        var fref = fm->getFileRef(kairo::sref(path), false)
+        if fref as bool {
+            return self._csm->createFileID(*fref, clang::SourceLocation(), clang::SrcMgr::C_User)
         }
 
         // No FileEntry: synthetic buffer. Own the narrow name for the clang
         // SM's lifetime   it keeps a StringRef view, it does not copy.
-        var hview = self._ksm->get_file_view(kfid);
-        if (hview.data == &null) || (hview.size == 0) {
-            return clang::FileID();
+        var hview = self._ksm->get_file_view(kfid)
+        if hview.data == &null || hview.size == 0 {
+            return clang::FileID()
         }
 
-        var name = llvm::StringSaver(self._names).save(sref(path));
+        var name = llvm::StringSaver(&self._names).save(kairo::sref(path))
 
         var bref = llvm::MemoryBufferRef(
-            llvm::StringRef(
-                reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(hview.data),
-                hview.size),
-            name);
+            llvm::StringRef(unsafe (hview.data as kairo::std::ConstPtr<c_char>), hview.size),
+            name,
+        )
 
-        return self._csm->createFileID(bref, clang::SrcMgr::C_User);
+        return self._csm->createFileID(bref, clang::SrcMgr::C_User)
     }
 
-    // --- Kairo -> clang ------------------------------------------------------
+    /// # Kairo -> clang
 
     /// One resolve, one table index, one add. No getComposedLoc: a file loc's
     /// raw encoding IS its file's SLoc base plus the byte offset.
-    fn to_clang(self, loc: SourceLocation) -> clang::SourceLocation {
-        ICE_IF(!self._ready, "ClangLocMap::to_clang before rebind()");
+    pub fn to_clang(self, loc: SourceLocation) -> clang::SourceLocation {
+        if !self._ready {
+            kairo::std::ice_fail("ClangLocMap::to_clang before rebind()")
+        }
 
         if !loc.is_valid() {
-            return clang::SourceLocation();
+            return clang::SourceLocation()
         }
 
-        var res = self._ksm->resolve(loc);
+        var res = self._ksm->resolve(loc)
         if res.fid >= self._n {
             // fid loaded after this action's rebind; the next action maps it.
-            return clang::SourceLocation();
+            return clang::SourceLocation()
         }
 
-        return clang::SourceLocation::getFromRawEncoding(
-            self._sloc[res.fid] + static_cast::<u32>(res.offset));
+        return clang::SourceLocation::getFromRawEncoding(self._sloc[res.fid] + (res.offset as u32))
     }
 
     /// Kairo range -> clang CharSourceRange. Kairo ranges are half-open byte
@@ -284,20 +303,20 @@ class ClangLocMap {
     /// on the clang side).
     fn to_clang(self, range: SourceRange) -> clang::CharSourceRange {
         if !range.is_valid() {
-            return clang::CharSourceRange();
+            return clang::CharSourceRange()
         }
 
-        var b = self.to_clang(range.start);
-        var e = self.to_clang(range.end);
+        var b = self.to_clang(range.start)
+        var e = self.to_clang(range.end)
 
-        if (b.isInvalid()) || (e.isInvalid()) {
-            return clang::CharSourceRange();
+        if b.isInvalid() || e.isInvalid() {
+            return clang::CharSourceRange()
         }
 
-        return clang::CharSourceRange::getCharRange(b, e);
+        return clang::CharSourceRange::getCharRange(b, e)
     }
 
-    // --- clang -> Kairo ------------------------------------------------------
+    /// # clang -> Kairo
 
     /// Returns the Kairo loc for a clang loc via its EXPANSION location
     /// (macro-blamed and arena-literal locs land on the expansion site, which
@@ -305,20 +324,22 @@ class ClangLocMap {
     /// block   headers, predefines, scratch buffers. The caller's policy layer
     /// classifies those, typically as a loc-less forward.
     fn to_kairo(self, cloc: clang::SourceLocation) -> SourceLocation {
-        ICE_IF(!self._ready, "ClangLocMap::to_kairo before rebind()");
+        if !self._ready {
+            kairo::std::ice_fail("ClangLocMap::to_kairo before rebind()")
+        }
 
         if cloc.isInvalid() {
-            return SourceLocation::invalid();
+            return SourceLocation::invalid()
         }
 
-        var dec  = self._csm->getDecomposedExpansionLoc(cloc);
-        var kfid = self.kairo_fid(dec.first);
+        var dec  = self._csm->getDecomposedExpansionLoc(cloc)
+        var kfid = self.kairo_fid(dec.first)
 
-        if kfid == static_cast::<FileID>(u32(-1)) {
-            return SourceLocation::invalid();
+        if kfid == (u32::MAX as FileID) {
+            return SourceLocation::invalid()
         }
 
-        return self._ksm->get_loc(kfid, static_cast::<usize>(dec.second));
+        return self._ksm->get_loc(kfid, dec.second as usize)
     }
 
     /// clang range -> Kairo range. Token-range ends cover at least the first
@@ -326,48 +347,55 @@ class ClangLocMap {
     /// which needs LangOptions   caller's concern, not the map's).
     fn to_kairo(self, cr: clang::CharSourceRange) -> SourceRange {
         if !cr.isValid() {
-            return SourceRange::invalid();
+            return SourceRange::invalid()
         }
 
-        var b = self.to_kairo(cr.getBegin());
-        var e = self.to_kairo(cr.getEnd());
+        var b = self.to_kairo(cr.getBegin())
+        var e = self.to_kairo(cr.getEnd())
 
-        if (!b.is_valid()) || (!e.is_valid()) {
-            return SourceRange::invalid();
+        if !b.is_valid() || !e.is_valid() {
+            return SourceRange::invalid()
         }
 
         if cr.isTokenRange() {
-            e = e.advance(1);
+            e = e.advance(1)
         }
 
         if e <= b {
-            e = b.advance(1);
+            e = b.advance(1)
         }
 
-        return SourceRange::from_bounds(b, e);
+        return SourceRange::from_bounds(b, e)
     }
 
-    // --- fid arithmetic --------------------------------------------------------
+    /// # fid arithmetic
 
     /// clang fid -> kairo fid. One subtract, one unsigned range check, no
     /// table. Returns u32(-1) for any FileID outside the Kairo block.
     ///
     /// This is THE hot path: every clang diagnostic goes through it.
-    fn kairo_fid(self, cfid: clang::FileID) -> FileID {
-        if !self._ready { return static_cast::<FileID>(u32(-1)); }
-        if !cfid.isValid() { return static_cast::<FileID>(u32(-1)); }
-
-        var h = cfid.getHashValue();
-        var b = self._cfid0.getHashValue();
-
-        if h < b { return self._by_path(cfid); }
-
-        var k = h - b;
-        if static_cast::<usize>(k) >= self._n {
-            return self._by_path(cfid);
+    pub fn kairo_fid(self, cfid: clang::FileID) -> FileID {
+        if !self._ready {
+            return u32::MAX
         }
 
-        return static_cast::<FileID>(k);
+        if !cfid.isValid() {
+            return u32::MAX
+        }
+
+        var h = cfid.getHashValue()
+        var b = self._cfid0.getHashValue()
+
+        if h < b {
+            return self._by_path(cfid)
+        }
+
+        var k = h - b
+        if (k as usize) >= self._n {
+            return self._by_path(cfid)
+        }
+
+        return k
     }
 
     /// COLD: a FileID outside the Kairo block, i.e. a header clang entered
@@ -377,11 +405,19 @@ class ClangLocMap {
     /// file's bytes. A scratch buffer or <built-in> has no FileEntry and no
     /// Kairo fid.
     priv fn _by_path(self, cfid: clang::FileID) -> FileID {
-        if self._csm == &null { return static_cast::<FileID>(u32(-1)); }
-        var fe = self._csm->getFileEntryRefForID(cfid);
-        if !fe { return static_cast::<FileID>(u32(-1)); }
-        var name = fe->getName();
-        return self._ksm->find_fid(Path(string(name.data(), name.size())));
+        if self._csm == &null {
+            return u32::MAX
+        }
+
+        var fe = self._csm->getFileEntryRefForID(cfid)
+        if !fe.has_value() {
+            return u32::MAX
+        }
+
+        var name = fe->getName()
+        return self._ksm->find_fid(
+            Path(string(unsafe ((name.data() as unsafe *const u8) as *const u8), name.size())),
+        )
     }
 
     /// kairo fid -> clang FileID. COLD PATH: this is a binary search over
@@ -389,30 +425,39 @@ class ClangLocMap {
     /// clang::FileID has no public integer constructor and cannot be built by
     /// arithmetic. Called once per action, for the TU being emitted   never
     /// per location, which is why the hot direction is kairo_fid() above.
-    fn clang_fid_of(self, kfid: FileID) -> clang::FileID {
-        if !self._ready { return clang::FileID(); }
-        if static_cast::<usize>(kfid) >= self._n { return clang::FileID(); }
+    pub fn clang_fid_of(self, kfid: FileID) -> clang::FileID {
+        if !self._ready {
+            return clang::FileID()
+        }
 
-        return self._csm->getFileID(
-            clang::SourceLocation::getFromRawEncoding(self._sloc[kfid]));
+        if (kfid as usize) >= self._n {
+            return clang::FileID()
+        }
+
+        return self._csm->getFileID(clang::SourceLocation::getFromRawEncoding(self._sloc[kfid]))
     }
 
-    // --- Introspection ---------------------------------------------------------
+    /// # Introspection
 
     /// The clang FileID block base. Exposed for tests and --print-locmap; the
     /// arithmetic in kairo_fid() is only auditable if you can see the base it
     /// is subtracting.
-    fn block_base(self) -> u32 { return self._cfid0.getHashValue(); }
+    fn block_base(self) -> u32 {
+        return self._cfid0.getHashValue()
+    }
 
     /// clang's raw SLoc base for \p kfid. u32(-1) if unmapped.
     fn sloc_base(self, kfid: FileID) -> u32 {
-        if static_cast::<usize>(kfid) >= self._n { return u32(-1); }
-        return self._sloc[kfid];
+        if (kfid as usize) >= self._n {
+            return u32::MAX
+        }
+
+        return self._sloc[kfid]
     }
 
     /// Kairo's raw SourceLocation for byte 0 of \p kfid.
-    fn kairo_base(self, kfid: FileID) -> u32 {
-        return self._ksm->get_loc(kfid, 0).raw();
+    pub fn kairo_base(self, kfid: FileID) -> u32 {
+        return self._ksm->get_loc(kfid, 0).raw()
     }
 
     /// clang_base - kairo_base for \p kfid.
@@ -425,16 +470,17 @@ class ClangLocMap {
     /// Signed, and negative for every fid past the first (Kairo's bases climb
     /// in 4 KB steps, clang's pack).
     fn delta(self, kfid: FileID) -> i64 {
-        ICE_IF(static_cast::<usize>(kfid) >= self._n,
-            "ClangLocMap::delta on an unmapped fid");
-        return static_cast::<i64>(self._sloc[kfid])
-             - static_cast::<i64>(self.kairo_base(kfid));
+        if (kfid as usize) >= self._n {
+            kairo::std::ice_fail("ClangLocMap::delta on an unmapped fid")
+        }
+
+        return self._sloc[kfid] as i64 - (self.kairo_base(kfid) as i64)
     }
 
     /// Kairo loc for byte \p off of \p kfid. eof() needs a loc for the last
     /// byte of the file it is closing and has no token to borrow it from.
-    fn ksm_loc(self, kfid: FileID, off: usize) -> SourceLocation {
-        return self._ksm->get_loc(kfid, off);
+    pub fn ksm_loc(self, kfid: FileID, off: usize) -> SourceLocation {
+        return self._ksm->get_loc(kfid, off)
     }
 
     /// Dumps the whole mapping: per fid, Kairo base vs clang SLoc base and the
@@ -447,22 +493,24 @@ class ClangLocMap {
     /// they stand, and seeing by how much is what tells you the size of the
     /// filler buffer that would force it constant.
     fn dump(self) {
-        std::print(f"=== ClangLocMap: {self._n} fid(s), clang block base {self.block_base()} ===");
-        std::print("  fid  kairo_base   clang_base        delta  size  path");
+        io::println(f"=== ClangLocMap: {self._n} fid(s), clang block base {self.block_base()} ===")
+        io::println("  fid  kairo_base   clang_base        delta  size  path")
 
         for var i: usize = 0; i < self._n; ++i {
-            var kfid = static_cast::<FileID>(i);
-            var kb   = self._ksm->get_loc(kfid, 0).raw();
-            var cb   = self._sloc[i];
-            var d    = static_cast::<i64>(cb) - static_cast::<i64>(kb);
+            var kfid = (i as FileID)
+            var kb   = self._ksm->get_loc(kfid, 0).raw()
+            var cb   = self._sloc[i]
+            var d    = (cb as i64) - (kb as i64)
 
-            std::print(f"  {i}  {kb}  {cb}  {d}  {self._ksm->get_file_size(kfid)}  {self._ksm->get_filename(kfid)}");
+            io::println(
+                f"  {i}  {kb}  {cb}  {d}  {self._ksm->get_file_size(kfid)}  {self._ksm->get_filename(kfid)}",
+            )
         }
 
-        std::print("==========================================================");
+        io::println("==========================================================")
     }
 
-    // --- Self-check ------------------------------------------------------------
+    /// # Self-check
 
     /// Exhaustive round-trip verification of the whole map.
     ///
@@ -483,59 +531,81 @@ class ClangLocMap {
     /// O(fids), not O(bytes)   cheap enough to leave on.
     fn verify(self) -> bool {
         if !self._ready {
-            Logger::error(Logger::Stage::Driver,
-                "ClangLocMap::verify: map is not ready");
-            return false;
+            kairo::Logger::error(
+                kairo::Logger::Stage::Driver,
+                "ClangLocMap::verify: map is not ready",
+            )
+
+            return false
         }
 
-        var ok = true;
+        var ok = true
 
         for var i: usize = 0; i < self._n; ++i {
-            var kfid = static_cast::<FileID>(i);
-            var size = self._ksm->get_file_size(kfid);
-            if size == 0 { continue; }
-
-            // fid arithmetic must agree with the SLoc table it was built from.
-            var cfid = self.clang_fid_of(kfid);
-            if self.kairo_fid(cfid) != kfid {
-                Logger::error(Logger::Stage::Driver,
-                    f"ClangLocMap::verify: fid {i} round-trips to {self.kairo_fid(cfid)} (base={self._cfid0.getHashValue()})");
-                ok = false;
-                continue;
+            var kfid = (i as FileID)
+            var size = self._ksm->get_file_size(kfid)
+            if size == 0 {
+                continue
             }
 
-            var probes: vec::<usize>;
-            probes.push_back(0);
-            if size > 1 { probes.push_back(1); }
-            if size > 2 { probes.push_back(size / 2); }
-            probes.push_back(size - 1);
+            // fid arithmetic must agree with the SLoc table it was built from.
+            var cfid = self.clang_fid_of(kfid)
+            if self.kairo_fid(cfid) != kfid {
+                kairo::Logger::error(
+                    kairo::Logger::Stage::Driver,
+                    f"ClangLocMap::verify: fid {i} round-trips to {self.kairo_fid(cfid)} (base={self._cfid0.getHashValue()})",
+                )
 
-            for off: usize in probes {
-                var kloc = self._ksm->get_loc(kfid, off);
-                var cloc = self.to_clang(kloc);
+                ok = false
+                continue
+            }
+
+            var probes: cxx::std::vector<usize>
+            probes.push_back(0)
+            if size > 1 {
+                probes.push_back(1)
+            }
+
+            if size > 2 {
+                probes.push_back(size / 2)
+            }
+
+            probes.push_back(size - 1)
+
+            for var off: usize in probes {
+                var kloc = self._ksm->get_loc(kfid, (off))
+                var cloc = self.to_clang(kloc)
 
                 if cloc.isInvalid() {
-                    Logger::error(Logger::Stage::Driver,
-                        f"ClangLocMap::verify: fid {i} off {off} -> invalid clang loc");
-                    ok = false;
-                    continue;
+                    kairo::Logger::error(
+                        kairo::Logger::Stage::Driver,
+                        f"ClangLocMap::verify: fid {i} off {off} -> invalid clang loc",
+                    )
+
+                    ok = false
+                    continue
                 }
 
                 // The clang loc must land in THIS file at THIS offset.
-                var dec = self._csm->getDecomposedLoc(cloc);
-                if (self.kairo_fid(dec.first) != kfid)
-                    || (static_cast::<usize>(dec.second) != off) {
-                    Logger::error(Logger::Stage::Driver,
-                        f"ClangLocMap::verify: fid {i} off {off} decomposed to fid {self.kairo_fid(dec.first)} off {dec.second}");
-                    ok = false;
-                    continue;
+                var dec = self._csm->getDecomposedLoc(cloc)
+                if self.kairo_fid(dec.first) != kfid || (dec.second as usize) != off {
+                    kairo::Logger::error(
+                        kairo::Logger::Stage::Driver,
+                        f"ClangLocMap::verify: fid {i} off {off} decomposed to fid {self.kairo_fid(dec.first)} off {dec.second}",
+                    )
+
+                    ok = false
+                    continue
                 }
 
-                var back = self.to_kairo(cloc);
+                var back = self.to_kairo(cloc)
                 if back != kloc {
-                    Logger::error(Logger::Stage::Driver,
-                        f"ClangLocMap::verify: fid {i} off {off} failed round-trip ({kloc.raw()} -> {cloc.getRawEncoding()} -> {back.raw()})");
-                    ok = false;
+                    kairo::Logger::error(
+                        kairo::Logger::Stage::Driver,
+                        f"ClangLocMap::verify: fid {i} off {off} failed round-trip ({kloc.raw()} -> {cloc.getRawEncoding()} -> {back.raw()})",
+                    )
+
+                    ok = false
                 }
             }
         }
@@ -543,22 +613,29 @@ class ClangLocMap {
         // Anything immediately below or above the block must be rejected.
         // These are the IDs headers and scratch buffers actually occupy, and a
         // wrong answer here is the silent-wrong-caret failure mode.
-        var below = self._cfid0.getHashValue();
+        var below = self._cfid0.getHashValue()
         if below > 0 {
             var probe = self._csm->getFileID(
-                clang::SourceLocation::getFromRawEncoding(self._sloc[0] - 1));
-            if self.kairo_fid(probe) != static_cast::<FileID>(u32(-1)) {
-                Logger::error(Logger::Stage::Driver,
-                    "ClangLocMap::verify: a FileID below the block was accepted");
-                ok = false;
+                clang::SourceLocation::getFromRawEncoding(self._sloc[0] - 1),
+            )
+
+            if self.kairo_fid(probe) != (u32::MAX as FileID) {
+                kairo::Logger::error(
+                    kairo::Logger::Stage::Driver,
+                    "ClangLocMap::verify: a FileID below the block was accepted",
+                )
+
+                ok = false
             }
         }
 
-        var verdict: string = ("OK") if (ok) else ("FAILED");
-        Logger::info(Logger::Stage::Driver,
-            f"ClangLocMap::verify: {self._n} fid(s) {verdict}");
+        var verdict: string = if (ok) => ("OK") else => "FAILED"
+        kairo::Logger::info(
+            kairo::Logger::Stage::Driver,
+            f"ClangLocMap::verify: {self._n} fid(s) {verdict}",
+        )
 
-        return ok;
+        return ok
     }
 
     /// True when \p cfid is Kairo fid \p kfid. The comparison every consumer
@@ -566,6 +643,6 @@ class ClangLocMap {
     /// staleness bug this class was rewritten to remove, so nothing outside
     /// here caches one.
     fn is_kairo_fid(self, cfid: clang::FileID, kfid: FileID) -> bool {
-        return self.kairo_fid(cfid) == kfid;
+        return self.kairo_fid(cfid) == kfid
     }
 }

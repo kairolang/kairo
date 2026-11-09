@@ -1,25 +1,28 @@
 /// --- The Kairo Project ------------------- Location/SourceLineTable.k --- ///
 ///
-///   <short description>
+///   SourceLineTable: per-file newline offsets for line and column lookup.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/Types.hh";
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/KShims.hh"
+ffi "c++" import "vector"
+ffi "c++" import "thread"
+ffi "c++" import "chrono"
+ffi "c++" import "bit"
 
-import Support::FileIO::Path::*;
-import Memory::MappedFileBuffer::*;
-import Memory::MemoryBuffer::*;
-import Support::FileIO::VirtualFileManager::*;
-import Location::FullSourceLocation::*;
-import Location::SourceLocation::*;
-import Location::SourceRange::*;
+import Location::FullSourceLocation::FullSourceLocation
+import Memory::MemoryBuffer::MemoryBuffer
+import Support::FileIO::Path::Path
+import std::c_char
 
 ///
 /// \file SourceLineTable.hlx
@@ -59,15 +62,16 @@ import Location::SourceRange::*;
 ///
 /// uses relaxed atomic storage to allow concurrent access and safe teardown.
 ///
-class SourceLineTable {
-    class FileEntry; ///< forward declaration
+pub class SourceLineTable {
+    priv var _file_table: kairo::std::Atomic<unsafe *cxx::std::vector<unsafe *Self::FileEntry>> = kairo::std::Atomic<unsafe *cxx::std::vector<unsafe *Self::FileEntry>>(
+        &null,
+    )
 
-    priv var _file_table: std::Atomic::<oot::<vec::<oot::<FileEntry>>>> = std::Atomic::<oot::<vec::<oot::<FileEntry>>>>(&null);
     //                                  ^ owned     ^ owned if not null
     //                                if not null
-    priv var _file_count: std::Atomic::<u64>   = std::Atomic::<u64>(0);
-    priv var _active:     std::Atomic::<bool>  = std::Atomic::<bool>(false);
-    priv var _builds:     std::Atomic::<u64>   = std::Atomic::<u64>(0);
+    priv var _file_count: kairo::std::Atomic<u64>  = kairo::std::Atomic<u64>(0)
+    priv var _active:     kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(false)
+    priv var _builds:     kairo::std::Atomic<u64>  = kairo::std::Atomic<u64>(0)
 
     ///
     /// \class FileEntry
@@ -77,53 +81,54 @@ class SourceLineTable {
     /// and pointer to a vector of newline offsets.
     ///
     class FileEntry {
-        pub var line_count: std::Atomic::<u32> = std::Atomic::<u32>(0); ///< number of lines.
-        pub var file_size:  u32; ///< total size in bytes.
-        pub var file_id:    u32; ///< file index in table.
-        pub var ready:      std::Atomic::<bool> = std::Atomic::<bool>(false);
-        pub var lines:      std::Atomic::<oot::<vec::<u32>>> = std::Atomic::<oot::<vec::<u32>>>(&null);
+        pub var line_count: kairo::std::Atomic<u32>  = kairo::std::Atomic<u32>(0) ///< number of lines.
+        pub var file_size:  u32 ///< total size in bytes.
+        pub var file_id:    u32 ///< file index in table.
+        pub var ready:      kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(false)
+        pub var lines: kairo::std::Atomic<unsafe *cxx::std::vector<u32>> = kairo::std::Atomic<unsafe *cxx::std::vector<u32>>(
+            &null,
+        )
 
         ///
         /// \brief default constructor.
         ///
-        default fn FileEntry(self);
+        fn FileEntry(self) = default
 
         ///
         /// \brief copy constructor deleted to prevent copies.
         ///
-        delete fn FileEntry(self, other: ref!(FileEntry));
+        @copy fn FileEntry(self, const other: Self) = delete
 
         ///
         /// \brief copy assignment operator deleted to prevent copies.
         ///
-        delete fn op = (self, other: ref!(FileEntry));
 
         ///
         /// \brief constructs a FileEntry with given id and size.
         ///
         fn FileEntry(self, id: u32, size: u32) {
-            self.file_id   = id;
-            self.file_size = size;
+            self.file_id   = id
+            self.file_size = size
         }
 
         ///
         /// \brief checks if the entry is ready (index built).
         ///
         fn is_ready(self) -> bool {
-            return self.ready.load(std::MemoryOrder::acquire);
+            return self.ready.load(kairo::std::MemoryOrder::acquire)
         }
 
         ///
         /// \brief publishes the computed line offsets.
         ///
-        fn publish_lines(self, lines: *vec::<u32>, count: u32) {
-            self.lines.store(lines, std::MemoryOrder::release);
-            self.line_count.store(count, std::MemoryOrder::release);
-            self.ready.store(true, std::MemoryOrder::release);
+        fn publish_lines(self, lines: unsafe *cxx::std::vector<u32>, count: u32) {
+            self.lines.store(lines, kairo::std::MemoryOrder::release)
+            self.line_count.store(count, kairo::std::MemoryOrder::release)
+            self.ready.store(true, kairo::std::MemoryOrder::release)
         }
 
         fn op as (self) -> string {
-            return f"FileEntry(file_id:{self.file_id}, file_size:{self.file_size}, line_count:{self.line_count.load(std::MemoryOrder::acquire)}, ready:{self.is_ready()})";
+            return f"FileEntry(file_id:{self.file_id}, file_size:{self.file_size}, line_count:{self.line_count.load(kairo::std::MemoryOrder::acquire)}, ready:{self.is_ready()})"
         }
     }
 
@@ -131,17 +136,17 @@ class SourceLineTable {
     /// \brief constructs the global table with initial capacity.
     ///
     fn SourceLineTable(self) {
-        var tbl = std::create::<vec::<*FileEntry>>();
-        tbl->reserve(256);
+        var unsafe *tbl = unsafe (@create cxx::std::vector<unsafe *Self::FileEntry>() as unsafe *cxx::std::vector<unsafe *Self::FileEntry>)
+        tbl->reserve(256)
 
-        self._file_table.store(tbl, std::MemoryOrder::relaxed);
+        self._file_table.store(tbl, kairo::std::MemoryOrder::relaxed)
     }
 
     ///
     /// \brief destructor, cleans all file entries and buffers.
     ///
-    fn op delete (self) {
-        self.shutdown();
+    fn op finally (self) {
+        self.shutdown()
     }
 
     ///
@@ -149,55 +154,66 @@ class SourceLineTable {
     ///
     fn shutdown(self) {
         /// wait for any active builds to finish
-        self._drain_builds();
-        
-        var tbl = self._file_table.load(std::MemoryOrder::acquire);
-        if tbl == &null { return; }
+        self._drain_builds()
 
-        for f: *FileEntry in *tbl {
+        var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
+        if tbl == &null {
+            return
+        }
+
+        for var f: *FileEntry? in *tbl {
             if f != &null {
-                var lines = f->lines.load(std::MemoryOrder::relaxed);
-                if lines != &null { delete lines; }
-                delete f;
+                var unsafe *lines = f->lines.load(kairo::std::MemoryOrder::relaxed)
+                if lines != &null {
+                    @destroy unsafe (lines as *cxx::std::vector<u32>)
+                }
+
+                @destroy unsafe (f as *Self::FileEntry)
             }
         }
 
-        delete tbl;
+        @destroy unsafe (tbl as *cxx::std::vector<unsafe *Self::FileEntry>)
 
-        self._file_table.store(&null, std::MemoryOrder::release);
-        self._file_count.store(0, std::MemoryOrder::release);
+        self._file_table.store(&null, kairo::std::MemoryOrder::release)
+        self._file_count.store(0, kairo::std::MemoryOrder::release)
     }
 
     ///
     /// \brief registers a new file entry in the line table.
     ///
     fn register_file(self, fid: u32, size: u32) {
-        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
         if tbl == &null {
-            return;
+            return
         }
 
-        if fid >= tbl->size() {
-            tbl->resize(fid + 1, &null);
+        if (fid as usize) >= tbl->size() {
+            tbl->resize(fid + 1, &null)
         }
 
-        var existing = (*tbl)[fid];
+        var unsafe *existing = (*tbl)[fid]
         if existing != &null {
-            Logger::debug(Logger::Stage::Driver, f"SourceLineTable::register_file: fid={fid} already registered");
+            kairo::Logger::debug(
+                kairo::Logger::Stage::Driver,
+                f"SourceLineTable::register_file: fid={fid} already registered",
+            )
 
-            return;
+            return
         }
 
-        var entry = std::create::<FileEntry>(fid, size);
-        (*tbl)[fid] = entry;
-        self._file_count.fetch_add(1, std::MemoryOrder::relaxed);
+        var unsafe *entry = unsafe (@create Self::FileEntry(fid, size) as unsafe *Self::FileEntry)
+        (*tbl)[fid] = entry
+        self._file_count.fetch_add(1, kairo::std::MemoryOrder::relaxed)
 
-        Logger::debug(Logger::Stage::Driver, f"SourceLineTable::register_file: fid={fid} size={size}B total_files={self._file_count.load(std::MemoryOrder::relaxed)}");
+        kairo::Logger::debug(
+            kairo::Logger::Stage::Driver,
+            f"SourceLineTable::register_file: fid={fid} size={size}B total_files={self._file_count.load(kairo::std::MemoryOrder::relaxed)}",
+        )
     }
 
     /// Live file entries. One per distinct file; flat once the graph is loaded.
     fn file_count(self) -> usize {
-        return static_cast::<usize>(self._file_count.load(std::MemoryOrder::relaxed));
+        return self._file_count.load(kairo::std::MemoryOrder::relaxed) as usize
     }
 
     ///
@@ -216,8 +232,8 @@ class SourceLineTable {
     ///          a real reclamation protocol, which is exactly the cost the old
     ///          "line entries are deliberately never dropped" note was avoiding.
     priv fn _drain_builds(self) {
-        while self._builds.load(std::MemoryOrder::acquire) > 0 {
-            libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
+        while self._builds.load(kairo::std::MemoryOrder::acquire) > 0 {
+            cxx::std::this_thread::sleep_for(cxx::std::chrono::microseconds(50))
         }
     }
 
@@ -229,7 +245,7 @@ class SourceLineTable {
     ///          drains too, but by then the old bytes are already gone.
     ///
     fn drain_builds(self) {
-        self._drain_builds();
+        self._drain_builds()
     }
 
     ///
@@ -244,28 +260,37 @@ class SourceLineTable {
     /// \return false if \p fid has no entry.
     ///
     fn invalidate(self, fid: u32, bytes: MemoryBuffer) -> bool {
-        self._drain_builds();
+        self._drain_builds()
 
-        var tbl = self._file_table.load(std::MemoryOrder::acquire);
-        if tbl == &null       { return false; }
-        if fid >= tbl->size() { return false; }
+        var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
+        if tbl == &null {
+            return false
+        }
 
-        var entry = (*tbl)[fid];
-        if entry == &null { return false; }
+        if (fid as usize) >= tbl->size() {
+            return false
+        }
+
+        var unsafe *entry = (*tbl)[fid]
+        if entry == &null {
+            return false
+        }
 
         // Unpublish before freeing, so a reader that raced in sees "not ready"
         // rather than a live pointer to a vector about to be deleted.
-        entry->ready.store(false, std::MemoryOrder::release);
-        entry->line_count.store(0, std::MemoryOrder::release);
+        entry->ready.store(false, kairo::std::MemoryOrder::release)
+        entry->line_count.store(0, kairo::std::MemoryOrder::release)
 
-        var old = entry->lines.load(std::MemoryOrder::acquire);
-        entry->lines.store(&null, std::MemoryOrder::release);
-        if old != &null { delete old; }
+        var unsafe *old = entry->lines.load(kairo::std::MemoryOrder::acquire)
+        entry->lines.store(&null, kairo::std::MemoryOrder::release)
+        if old != &null {
+            @destroy unsafe (old as *cxx::std::vector<u32>)
+        }
 
-        entry->file_size = static_cast::<u32>(bytes.size());
+        entry->file_size = (bytes.size() as u32)
 
-        self.build_index(fid, bytes);
-        return true;
+        self.build_index(fid, bytes)
+        return true
     }
 
     ///
@@ -274,24 +299,34 @@ class SourceLineTable {
     /// \return false if \p fid had no entry.
     ///
     fn drop_file(self, fid: u32) -> bool {
-        self._drain_builds();
+        self._drain_builds()
 
-        var tbl = self._file_table.load(std::MemoryOrder::acquire);
-        if tbl == &null       { return false; }
-        if fid >= tbl->size() { return false; }
+        var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
+        if tbl == &null {
+            return false
+        }
 
-        var entry = (*tbl)[fid];
-        if entry == &null { return false; }
+        if (fid as usize) >= tbl->size() {
+            return false
+        }
+
+        var unsafe *entry = (*tbl)[fid]
+        if entry == &null {
+            return false
+        }
 
         // Slot is nulled, not erased: the table is indexed by fid.
-        (*tbl)[fid] = &null;
+        (*tbl)[fid] = &null
 
-        var lines = entry->lines.load(std::MemoryOrder::acquire);
-        if lines != &null { delete lines; }
-        delete entry;
+        var unsafe *lines = entry->lines.load(kairo::std::MemoryOrder::acquire)
+        if lines != &null {
+            @destroy unsafe (lines as *cxx::std::vector<u32>)
+        }
 
-        self._file_count.fetch_sub(1, std::MemoryOrder::relaxed);
-        return true;
+        @destroy unsafe (entry as *Self::FileEntry)
+
+        self._file_count.fetch_sub(1, kairo::std::MemoryOrder::relaxed)
+        return true
     }
 
     ///
@@ -303,15 +338,17 @@ class SourceLineTable {
     ///          reserve_build() / run_reserved_build() instead.
     ///
     fn build_index(self, fid: u32, bytes: MemoryBuffer) {
-        self._builds.fetch_add(1, std::MemoryOrder::acq_rel);
-        finally { self._builds.fetch_sub(1, std::MemoryOrder::acq_rel); }
-
-        var tbl = _file_table.load(std::MemoryOrder::acquire);
-        if ((!tbl) || fid >= tbl->size()) {
-            return;
+        self._builds.fetch_add(1, kairo::std::MemoryOrder::acq_rel)
+        finally {
+            self._builds.fetch_sub(1, kairo::std::MemoryOrder::acq_rel)
         }
 
-        self._scan((*tbl)[fid], bytes);
+        var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
+        if tbl == &null || (fid as usize) >= tbl->size() {
+            return
+        }
+
+        self._scan((*tbl)[fid], bytes)
     }
 
     ///
@@ -334,24 +371,31 @@ class SourceLineTable {
     ///
     /// \return the entry to fill, or null if there is nothing to build.
     ///
-    fn reserve_build(self, fid: u32) -> *FileEntry {
-        var tbl = self._file_table.load(std::MemoryOrder::acquire);
-        if (tbl == &null) || (fid >= tbl->size()) { return &null; }
+    fn reserve_build(self, fid: u32) -> unsafe *Self::FileEntry {
+        var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
+        if tbl == &null || (fid as usize) >= tbl->size() {
+            return &null
+        }
 
-        var entry = (*tbl)[fid];
-        if (entry == &null) || (entry->is_ready()) { return &null; }
+        var unsafe *entry = (*tbl)[fid]
+        if entry == &null || entry->is_ready() {
+            return &null
+        }
 
-        self._builds.fetch_add(1, std::MemoryOrder::acq_rel);
-        return entry;
+        self._builds.fetch_add(1, kairo::std::MemoryOrder::acq_rel)
+        return entry
     }
 
     ///
     /// \brief the pool half of reserve_build(): fills \p entry from \p bytes,
     ///        then releases the reservation.
     ///
-    fn run_reserved_build(self, entry: *FileEntry, bytes: MemoryBuffer) {
-        finally { self._builds.fetch_sub(1, std::MemoryOrder::acq_rel); }
-        self._scan(entry, bytes);
+    fn run_reserved_build(self, entry: unsafe *Self::FileEntry, bytes: MemoryBuffer) {
+        finally {
+            self._builds.fetch_sub(1, kairo::std::MemoryOrder::acq_rel)
+        }
+
+        self._scan(entry, bytes)
     }
 
     ///
@@ -366,194 +410,209 @@ class SourceLineTable {
     /// VirtualFileManager   so it is safe off the loader's thread. the caller
     /// accounts for _builds.
     ///
-    priv fn _scan(self, entry: *FileEntry, buff: MemoryBuffer) {
-        if ((!entry) || entry->is_ready()) {
-            Logger::debug(Logger::Stage::Driver, f"SourceLineTable::build_index: entry missing or already ready, skipping");
-            return;
+    priv fn _scan(self, entry: unsafe *Self::FileEntry, buff: MemoryBuffer) {
+        if entry == &null || entry->is_ready() {
+            kairo::Logger::debug(
+                kairo::Logger::Stage::Driver,
+                f"SourceLineTable::build_index: entry missing or already ready, skipping",
+            )
+
+            return
         }
 
-        var fid = entry->file_id;
+        var fid = entry->file_id
 
-        if ((!buff.data()) || buff.size() == 0) {
-            var lines = std::create::<vec::<u32>>();
-            lines->push_back(0);
-            entry->publish_lines(lines, 1);
-            return;
+        if buff.data() == &null || buff.size() == 0 {
+            var unsafe *lines = unsafe (@create cxx::std::vector<u32>() as unsafe *cxx::std::vector<u32>)
+            lines->push_back(0)
+            entry->publish_lines(lines, 1)
+            return
         }
 
-        const data: *u8   = buff.data();
-        const size: usize = buff.size();
-        var   lines       = std::create::<vec::<u32>>();
+        var   data: unsafe *const u8 = buff.data()
+        const size: usize            = buff.size()
+        var   unsafe *lines = unsafe (@create cxx::std::vector<u32>() as unsafe *cxx::std::vector<u32>)
 
-        lines->reserve(size / 64);
-        lines->push_back(0);
+        lines->reserve(size / 64)
+        lines->push_back(0)
 
-        var count: u32   = 1;
-        var i:     usize = 0;
+        var count: u32   = 1
+        var i:     usize = 0
 
-        //===--------------------------------------------------------------===//
-        // simd scanning AVX512                                               //
-        //===--------------------------------------------------------------===//
-        const eval if defined(__AVX512BW__) && defined(__AVX512VL__) {
-            const STRIDE: usize = 64;
-            const nl: __m512i = _mm512_set1_epi8(static_cast::<u8>('\n'));
+        /// # simd scanning AVX512
+        eval if defined!(__AVX512BW__) && defined!(__AVX512VL__) {
+            const STRIDE: usize   = 64
+            const nl:     __m512i = _mm512_set1_epi8(('\n' as u8) as c_char)
 
-            for (; (i + STRIDE) <= size; i += (STRIDE * 2)) {
-                _mm_prefetch(reinterpret_cast::<const *u8>(data + i + 512), _MM_HINT_T0);
+            for ; i + STRIDE <= size; i += STRIDE * 2 {
+                kairo::prefetch_t0(unsafe ((data + i + 512) as unsafe *const u8))
 
-                var c0: __m512i = _mm512_loadu_si512(reinterpret_cast::<const *__m512i>(data + i));
-                var c1: __m512i = _mm512_loadu_si512(reinterpret_cast::<const *__m512i>(data + i + STRIDE));
+                var c0: __m512i = _mm512_loadu_si512(unsafe ((data + i) as unsafe *const __m512i))
+                var c1: __m512i = _mm512_loadu_si512(
+                    unsafe ((data + i + STRIDE) as unsafe *const __m512i),
+                )
 
-                var m0: __mmask64 = _mm512_cmpeq_epi8_mask(c0, nl);
-                var m1: __mmask64 = _mm512_cmpeq_epi8_mask(c1, nl);
+                // _mm512_cmpeq_epi8_mask is a function-like macro, which FFI cannot
+                // call. testn(x, x) sets a bit where x's byte is zero, so on
+                // x = c ^ nl it is exactly the byte-equality mask.
+                var x0: __m512i   = _mm512_xor_si512(c0, nl)
+                var x1: __m512i   = _mm512_xor_si512(c1, nl)
+                var m0: __mmask64 = _mm512_testn_epi8_mask(x0, x0)
+                var m1: __mmask64 = _mm512_testn_epi8_mask(x1, x1)
 
-                while (m0) {
-                    var offset: u32 = libcxx::countr_zero(m0);
-                    lines->push_back(static_cast::<u32>(i + offset + 1));
-                    ++count;
-                    m0 &= (m0 - 1);
+                while m0 != 0 {
+                    var offset = cxx::std::countr_zero(m0) as usize
+                    lines->push_back((i + offset + 1) as u32)
+                    ++count
+                    m0 &= m0 - 1
                 }
 
-                while (m1) {
-                    var offset: u32 = libcxx::countr_zero(m1);
-                    lines->push_back(static_cast::<u32>(i + STRIDE + offset + 1));
-                    ++count;
-                    m1 &= (m1 - 1);
+                while m1 != 0 {
+                    var offset = cxx::std::countr_zero(m1) as usize
+                    lines->push_back((i + STRIDE + offset + 1) as u32)
+                    ++count
+                    m1 &= m1 - 1
                 }
             }
+        } /// # simd scanning AVX2
+        else if defined!(__AVX2__) {
+            const STRIDE: usize   = 32
+            const nl:     __m256i = _mm256_set1_epi8(('\n' as u8) as c_char)
+            for ; i + STRIDE * 4 <= size; i += STRIDE * 4 {
+                kairo::prefetch_t0(unsafe ((data + i + 256) as unsafe *const c_char))
 
-        }
+                var c0: __m256i = _mm256_loadu_si256(unsafe ((data + i) as unsafe *const __m256i))
+                var c1: __m256i = _mm256_loadu_si256(
+                    unsafe ((data + i + 32) as unsafe *const __m256i),
+                )
 
-        //===--------------------------------------------------------------===//
-        // simd scanning AVX2                                                 //
-        //===--------------------------------------------------------------===//
-        else if defined(__AVX2__) {
-            const STRIDE: usize = 32;
-            const nl: __m256i = _mm256_set1_epi8(static_cast::<std::Legacy::char>('\n'));
-            for (; (i + STRIDE * 4) <= size; i += (STRIDE * 4)) {
-                _mm_prefetch(reinterpret_cast::<const *std::Legacy::char>(data + i + 256), _MM_HINT_T0);
+                var c2: __m256i = _mm256_loadu_si256(
+                    unsafe ((data + i + 64) as unsafe *const __m256i),
+                )
 
-                var c0: __m256i = _mm256_loadu_si256(reinterpret_cast::<const *__m256i>(data + i));
-                var c1: __m256i = _mm256_loadu_si256(reinterpret_cast::<const *__m256i>(data + i + 32));
-                var c2: __m256i = _mm256_loadu_si256(reinterpret_cast::<const *__m256i>(data + i + 64));
-                var c3: __m256i = _mm256_loadu_si256(reinterpret_cast::<const *__m256i>(data + i + 96));
+                var c3: __m256i = _mm256_loadu_si256(
+                    unsafe ((data + i + 96) as unsafe *const __m256i),
+                )
 
-                var m0: u32 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(c0, nl));
-                var m1: u32 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(c1, nl));
-                var m2: u32 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(c2, nl));
-                var m3: u32 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(c3, nl));
+                var m0: u32 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(c0, nl))
+                var m1: u32 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(c1, nl))
+                var m2: u32 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(c2, nl))
+                var m3: u32 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(c3, nl))
 
                 var emit = fn (mask: u32, base: u32) {
-                    while (mask) {
-                        var offset: u32 = libcxx::countr_zero(mask);
+                    while mask {
+                        var offset: u32 = cxx::std::countr_zero(mask)
 
-                        lines->push_back(base + offset + 1);
-                        ++count;
-                        mask &= (mask - 1);
+                        lines->push_back(base + offset + 1)
+                        ++count
+                        mask &= mask - 1
                     }
-                };
+                }
 
-                emit(m0, i);
-                emit(m1, i + 32);
-                emit(m2, i + 64);
-                emit(m3, i + 96);
+                emit(m0, i)
+                emit(m1, i + 32)
+                emit(m2, i + 64)
+                emit(m3, i + 96)
             }
+        } /// # simd scanning SSE2
+        else if defined!(__SSE2__) {
+            const STRIDE: usize   = 16
+            const nl:     __m128i = _mm_set1_epi8(('\n' as u8) as c_char)
 
-        }
-        
-        //===--------------------------------------------------------------===//
-        // simd scanning SSE2                                                 //
-        //===--------------------------------------------------------------===//
-        else if defined(__SSE2__) {
-            const STRIDE: usize = 16;
-            const nl: __m128i = _mm_set1_epi8(static_cast::<std::Legacy::char>('\n'));
+            for ; i + STRIDE * 4 <= size; i += STRIDE * 4 {
+                kairo::prefetch_t0(unsafe ((data + i + 128) as kairo::std::ConstPtr<c_char>))
 
-            for (; (i + STRIDE * 4) <= size; i += (STRIDE * 4)) {
-                _mm_prefetch(reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(data + i + 128), _MM_HINT_T0);
+                var c0: __m128i = _mm_loadu_si128(
+                    unsafe ((data + i) as kairo::std::ConstPtr<__m128i>),
+                )
 
-                var c0: __m128i = _mm_loadu_si128(reinterpret_cast::<std::ConstPtr::<__m128i>>(data + i));
-                var c1: __m128i = _mm_loadu_si128(reinterpret_cast::<std::ConstPtr::<__m128i>>(data + i + 16));
-                var c2: __m128i = _mm_loadu_si128(reinterpret_cast::<std::ConstPtr::<__m128i>>(data + i + 32));
-                var c3: __m128i = _mm_loadu_si128(reinterpret_cast::<std::ConstPtr::<__m128i>>(data + i + 48));
+                var c1: __m128i = _mm_loadu_si128(
+                    unsafe ((data + i + 16) as kairo::std::ConstPtr<__m128i>),
+                )
 
-                var m0: u32 = _mm_movemask_epi8(_mm_cmpeq_epi8(c0, nl));
-                var m1: u32 = _mm_movemask_epi8(_mm_cmpeq_epi8(c1, nl));
-                var m2: u32 = _mm_movemask_epi8(_mm_cmpeq_epi8(c2, nl));
-                var m3: u32 = _mm_movemask_epi8(_mm_cmpeq_epi8(c3, nl));
+                var c2: __m128i = _mm_loadu_si128(
+                    unsafe ((data + i + 32) as kairo::std::ConstPtr<__m128i>),
+                )
+
+                var c3: __m128i = _mm_loadu_si128(
+                    unsafe ((data + i + 48) as kairo::std::ConstPtr<__m128i>),
+                )
+
+                var m0: u32 = (_mm_movemask_epi8(_mm_cmpeq_epi8(c0, nl))) as u32
+                var m1: u32 = (_mm_movemask_epi8(_mm_cmpeq_epi8(c1, nl))) as u32
+                var m2: u32 = (_mm_movemask_epi8(_mm_cmpeq_epi8(c2, nl))) as u32
+                var m3: u32 = (_mm_movemask_epi8(_mm_cmpeq_epi8(c3, nl))) as u32
 
                 // `count` is the caller's running total: by pointer, so the
                 // increments land on it rather than on a copy.
                 var emit = fn (mask: u32, base: u32) |lines, *count| {
-                    while (mask) {
-                        var offset: u32 = libcxx::countr_zero(mask);
-                        lines->push_back(base + offset + 1);
-                        ++(*count);
-                        mask &= (mask - 1);
+                    while mask != 0 {
+                        var offset: u32 = ((cxx::std::countr_zero(mask)) as u32)
+                        lines->push_back(base + offset + 1)
+                        ++(*count)
+                        mask &= mask - 1
                     }
-                };
+                }
 
-                emit(m0, i);
-                emit(m1, i + 16);
-                emit(m2, i + 32);
-                emit(m3, i + 48);
+                emit(m0, (i as u32))
+                emit(m1, ((i + 16) as u32))
+                emit(m2, ((i + 32) as u32))
+                emit(m3, ((i + 48) as u32))
             }
+        } /// # simd scanning NEON
+        else if defined!(__ARM_NEON) {
+            const STRIDE: usize      = 16
+            const nl:     uint8x16_t = vdupq_n_u8(('\n' as u8))
 
-        }
+            for ; i + STRIDE * 2 <= size; i += STRIDE * 2 {
+                var c0:  uint8x16_t = kairo::neon_ld_u8(data + i)
+                var c1:  uint8x16_t = kairo::neon_ld_u8(data + i + 16)
+                var eq0: uint8x16_t = vceqq_u8(c0, nl)
+                var eq1: uint8x16_t = vceqq_u8(c1, nl)
+                var tmp: [u8; 32]
 
-        //===--------------------------------------------------------------===//
-        // simd scanning NEON                                                 //
-        //===--------------------------------------------------------------===//
-        else if defined(__ARM_NEON) {
-            const STRIDE: usize = 16;
-            const nl: uint8x16_t = vdupq_n_u8(static_cast::<u8>('\n'));
+                kairo::neon_st_u8(unsafe &tmp[0], eq0)
+                kairo::neon_st_u8(unsafe &tmp[16], eq1)
 
-            for (; i + STRIDE * 2 <= size; i += STRIDE * 2) {
-                var c0:  uint8x16_t = vld1q_u8(data + i);
-                var c1:  uint8x16_t = vld1q_u8(data + i + 16);
-                var eq0: uint8x16_t = vceqq_u8(c0, nl);
-                var eq1: uint8x16_t = vceqq_u8(c1, nl);
-                var tmp: std::Memory::buffer::<u8, 32>;
-
-                vst1q_u8(tmp, eq0);
-                vst1q_u8(tmp + 16, eq1);
-
-                for (var j: i32 = 0; j < 32; ++j) {
+                for var j: usize = 0; j < 32; ++j {
                     if tmp[j] == 0xFF {
-                        lines->push_back(static_cast<u32>(i + j + 1));
-                        ++count;
+                        lines->push_back((i + j + 1) as u32)
+                        ++count
                     }
                 }
             }
-
-        }
-
-        //===--------------------------------------------------------------===//
-        // scalar fallback scan                                               //
-        //===--------------------------------------------------------------===//
+        } /// # scalar fallback scan
         else {
-            const STRIDE: usize = 0; // scalar only
+            const STRIDE: usize = 0 // scalar only
         }
 
         // tail scan
-        for (; i < size; ++i) {
-            if (data[i] == '\n') {
-                lines->push_back(static_cast<u32>(i + 1));
-                ++count;
+        for ; i < size; ++i {
+            if data[i] == ('\n' as u8) {
+                lines->push_back((i + 1) as u32)
+                ++count
             }
         }
 
-        Logger::info(Logger::Stage::Driver, f"SourceLineTable::build_index: fid={fid} indexed {count} lines size={size}B");
-        entry->publish_lines(lines, count);
+        kairo::Logger::info(
+            kairo::Logger::Stage::Driver,
+            f"SourceLineTable::build_index: fid={fid} indexed {count} lines size={size}B",
+        )
+
+        entry->publish_lines(lines, count)
     }
 
     ///
     /// \brief checks if the file entry is ready (index built).
     ///
     fn is_ready(self, fid: u32) -> bool {
-        var tbl = self._file_table.load(std::MemoryOrder::acquire);
-        if (tbl == &null) || (fid >= tbl->size()) { return false; }
-        var entry = (*tbl)[fid];
-        return (entry != &null) && (entry->is_ready());
+        var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
+        if tbl == &null || (fid as usize) >= tbl->size() {
+            return false
+        }
+
+        var unsafe *entry = (*tbl)[fid]
+        return entry != &null && entry->is_ready()
     }
 
     ///
@@ -561,32 +620,41 @@ class SourceLineTable {
     ///
     fn wait_until_ready(self, fid: u32) {
         // check if fid is even registered before waiting
-        var tbl = self._file_table.load(std::MemoryOrder::acquire);
-        if (tbl == &null) || (fid >= tbl->size()) { return; }
-        var entry = (*tbl)[fid];
-        if entry == &null { return; }
-
-        var count: u32 = 0;
-        const var MAX_WAIT: u32 = 100000; // ~5 seconds max
-
-        while count < MAX_WAIT {
-            if self.is_ready(fid) { return; }
-
-            if count >= 10000 {
-                libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
-            } else if count >= 5000 {
-                libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(25));
-            } else if count >= 1000 {
-                libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(5));
-            } else {
-                _thread_pause();
-            }
-
-            ++count;
+        var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
+        if tbl == &null || (fid as usize) >= tbl->size() {
+            return
         }
 
-        Logger::error(Logger::Stage::Driver,
-            f"SourceLineTable::wait_until_ready: fid={fid} timed out after {MAX_WAIT} iterations, proceeding without line table");
+        var unsafe *entry = (*tbl)[fid]
+        if entry == &null {
+            return
+        }
+
+        var   count:    u32 = 0
+        const MAX_WAIT: u32 = 100000 // ~5 seconds max
+
+        while count < MAX_WAIT {
+            if self.is_ready(fid) {
+                return
+            }
+
+            if count >= 10000 {
+                cxx::std::this_thread::sleep_for(cxx::std::chrono::microseconds(50))
+            } else if count >= 5000 {
+                cxx::std::this_thread::sleep_for(cxx::std::chrono::microseconds(25))
+            } else if count >= 1000 {
+                cxx::std::this_thread::sleep_for(cxx::std::chrono::microseconds(5))
+            } else {
+                kairo::thread_pause()
+            }
+
+            ++count
+        }
+
+        kairo::Logger::error(
+            kairo::Logger::Stage::Driver,
+            f"SourceLineTable::wait_until_ready: fid={fid} timed out after {MAX_WAIT} iterations, proceeding without line table",
+        )
     }
 
     ///
@@ -596,92 +664,75 @@ class SourceLineTable {
     /// performs a binary search on the line offsets to find the
     /// corresponding line number and column within that line.
     ///
-    fn get_line_col(self, fid: u32, offset: u32, file_name: Path) -> FullSourceLocation {
-        var tbl = self._file_table.load(std::MemoryOrder::acquire);
-        if (tbl == &null) || (fid >= tbl->size()) {
-            return FullSourceLocation(
-                fid,
-                0, 0,
-                file_name
-            );
+    fn get_line_col(self, fid: u32, offset: u32, const file_name: Path) -> FullSourceLocation {
+        var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
+        if tbl == &null || (fid as usize) >= tbl->size() {
+            return FullSourceLocation((fid as usize), 0, 0, file_name)
         }
 
-        var entry = (*tbl)[fid];
-        if (entry == &null) || (!entry->is_ready()) {
-            return FullSourceLocation(
-                fid,
-                0, 0,
-                file_name
-            );
+        var unsafe *entry = (*tbl)[fid]
+        if entry == &null || !entry->is_ready() {
+            return FullSourceLocation((fid as usize), 0, 0, file_name)
         }
 
-        var lines = entry->lines.load(std::MemoryOrder::acquire);
+        var unsafe *lines = entry->lines.load(kairo::std::MemoryOrder::acquire)
         if lines == &null {
-            return FullSourceLocation(
-                fid,
-                0, 0,
-                file_name
-            );
+            return FullSourceLocation((fid as usize), 0, 0, file_name)
         }
 
-        var end: usize = entry->line_count.load(std::MemoryOrder::acquire);
+        var end: usize = ((entry->line_count.load(kairo::std::MemoryOrder::acquire)) as usize)
         if end == 0 {
-            return FullSourceLocation(
-                fid,
-                0, 0,
-                file_name
-            );
+            return FullSourceLocation((fid as usize), 0, 0, file_name)
         }
 
-        var lo: usize = 0;
-        var hi: usize = end - 1;
+        var lo: usize = 0
+        var hi: usize = end - 1
 
         while lo < hi {
-            var mid = (lo + hi + 1) >> 1;
+            var mid = lo + hi + 1 >> 1
             if (*lines)[mid] <= offset {
-                lo = mid;
+                lo = mid
             } else {
-                hi = mid - 1;
+                hi = mid - 1
             }
         }
 
-        var line_start = (*lines)[lo];
-        var col = offset - line_start + 1;
+        var line_start = (*lines)[lo]
+        var col        = offset - line_start + 1
 
         return FullSourceLocation(
-            fid,
-            lo + 1,
-            col,
+            (fid as usize),
+            (lo + 1),
+            col as usize,
             file_name
-        );
+        )
     }
 
     ///
     /// \brief dumps the internal state of the source line table.
     ///
     fn op as (self) -> string {
-        var out = f"SourceLineTable(\n";
-        out += f"  _file_count: {self._file_count}\n"
-            +  f"  _active: {self._active}\n";
-        
-        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        var out = f"SourceLineTable(\n"
+        out += f"  _file_count: {self._file_count}\n" + f"  _active: {self._active}\n"
+
+        var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
         if tbl == &null {
-            out += "  _file_table: &null\n)";
-            return out;
+            out += "  _file_table: &null\n)"
+            return out
         }
 
-        out +=  "  _file_table:\n";
-        for i in range::<usize>(0, tbl->size()) {
-            var entry = (*tbl)[i];
+        out += "  _file_table:\n"
+        for i in (0 as usize)..tbl->size() {
+            var unsafe *entry = (*tbl)[i]
             if entry == &null {
-                out += f"    [{i}] &null\n";
-                continue;
+                out += f"    [{i}] &null\n"
+                continue
             }
 
-            out += f"    [{i}] {*entry}\n";
+            out += f"    [{i}] {*entry}\n"
         }
 
-        return out + ")";
+        return out + ")"
     }
 
     ///
@@ -692,29 +743,29 @@ class SourceLineTable {
     /// \return byte offset of line start, or 0 if invalid.
     ///
     fn get_line_offset(self, fid: u32, line_num: u32) -> u32 {
-        var tbl = self._file_table.load(std::MemoryOrder::acquire);
-        if (tbl == &null) || (fid >= tbl->size()) {
-            return 0;
+        var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
+        if tbl == &null || (fid as usize) >= tbl->size() {
+            return 0
         }
 
-        var entry = (*tbl)[fid];
-        if (entry == &null) || (!entry->is_ready()) {
-            return 0;
+        var unsafe *entry = (*tbl)[fid]
+        if entry == &null || !entry->is_ready() {
+            return 0
         }
 
-        var lines = entry->lines.load(std::MemoryOrder::acquire);
+        var unsafe *lines = entry->lines.load(kairo::std::MemoryOrder::acquire)
         if lines == &null {
-            return 0;
+            return 0
         }
 
-        var line_count = entry->line_count.load(std::MemoryOrder::acquire);
-        
+        var line_count = entry->line_count.load(kairo::std::MemoryOrder::acquire)
+
         // line_num is 1-based, but array is 0-indexed
-        if (line_num == 0) || (line_num > line_count) {
-            return 0;
+        if line_num == 0 || line_num > line_count {
+            return 0
         }
 
-        return (*lines)[line_num - 1];
+        return (*lines)[line_num - 1]
     }
 
     ///
@@ -725,35 +776,35 @@ class SourceLineTable {
     /// \return byte offset where line ends (exclusive).
     ///
     fn get_line_end_offset(self, fid: u32, line_num: u32) -> u32 {
-        var tbl = self._file_table.load(std::MemoryOrder::acquire);
-        if (tbl == &null) || (fid >= tbl->size()) {
-            return 0;
+        var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
+        if tbl == &null || (fid as usize) >= tbl->size() {
+            return 0
         }
 
-        var entry = (*tbl)[fid];
-        if (entry == &null) || (!entry->is_ready()) {
-            return 0;
+        var unsafe *entry = (*tbl)[fid]
+        if entry == &null || !entry->is_ready() {
+            return 0
         }
 
-        var lines = entry->lines.load(std::MemoryOrder::acquire);
+        var unsafe *lines = entry->lines.load(kairo::std::MemoryOrder::acquire)
         if lines == &null {
-            return 0;
+            return 0
         }
 
-        var line_count = entry->line_count.load(std::MemoryOrder::acquire);
-        
-        if (line_num == 0) || (line_num > line_count) {
-            return 0;
+        var line_count = entry->line_count.load(kairo::std::MemoryOrder::acquire)
+
+        if line_num == 0 || line_num > line_count {
+            return 0
         }
 
         // if this is the last line, return file size
         if line_num == line_count {
-            return entry->file_size;
+            return entry->file_size
         }
 
         // otherwise return start of next line (which is after the newline)
         // we want the position before the newline
-        return (*lines)[line_num] - 1;
+        return (*lines)[line_num] - 1
     }
 
     ///
@@ -764,25 +815,29 @@ class SourceLineTable {
     ///
     fn reset(self) {
         // wait for any active builds
-        self._drain_builds();
-        
-        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        self._drain_builds()
+
+        var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
         if tbl != &null {
-            for f: *FileEntry in *tbl {
+            for var f: *FileEntry? in *tbl {
                 if f != &null {
-                    var lines = f->lines.load(std::MemoryOrder::relaxed);
-                    if lines != &null { delete lines; }
-                    delete f;
+                    var unsafe *lines = f->lines.load(kairo::std::MemoryOrder::relaxed)
+                    if lines != &null {
+                        @destroy unsafe (lines as *cxx::std::vector<u32>)
+                    }
+
+                    @destroy unsafe (f as *Self::FileEntry)
                 }
             }
-            delete tbl;
+
+            @destroy unsafe (tbl as *cxx::std::vector<unsafe *Self::FileEntry>)
         }
 
         // reallocate fresh table
-        var new_tbl = std::create::<vec::<*FileEntry>>();
-        new_tbl->reserve(256);
-        
-        self._file_table.store(new_tbl, std::MemoryOrder::release);
-        self._file_count.store(0, std::MemoryOrder::release);
+        var unsafe *new_tbl = unsafe (@create cxx::std::vector<unsafe *Self::FileEntry>() as unsafe *cxx::std::vector<unsafe *Self::FileEntry>)
+        new_tbl->reserve(256)
+
+        self._file_table.store(new_tbl, kairo::std::MemoryOrder::release)
+        self._file_count.store(0, kairo::std::MemoryOrder::release)
     }
 }

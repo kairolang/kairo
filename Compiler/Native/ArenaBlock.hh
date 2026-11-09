@@ -3,6 +3,9 @@
 
 #include "Types.hh"
 #include "GlobalRecycler.hh"
+#if defined(__APPLE__)
+#include <sys/sysctl.h>  // sysctlbyname: AVX-512 detection without compiler-rt
+#endif
 
 namespace kairo {
 
@@ -106,7 +109,11 @@ struct alignas(64) ArenaBlock {
         Logger::debug(Logger::Stage::Driver,
                       libcxx::format("ArenaBlock::destroy: hard-free cap={}B",
                                      capacity));
+#if defined(_WIN32)
+        _aligned_free(ptr);   // alloc_block's _aligned_malloc
+#else
         libcxx::free(ptr);
+#endif
         ptr = nullptr;
     }
 
@@ -169,7 +176,30 @@ struct alignas(64) ArenaBlock {
             return;
         }
 #if defined(_x86_64_simd)
+        // reset_avx512 is compiled for AVX-512 (gnu::target) whatever the build's
+        // floor, so it needs this CPU to have it: a shipped x86-64-v2 compiler on a
+        // CPU without AVX-512 (most Intel desktop parts) died here with SIGILL on
+        // the first large arena reset. Checked once.
+#if defined(__AVX512F__)
         reset_avx512(len);
+#else
+#if defined(__APPLE__)
+        // __builtin_cpu_supports reads __cpu_model from compiler-rt, which the
+        // macOS link does not pull in (undefined symbol); ask the kernel instead.
+        static const bool has_avx512f = [] {
+            int v = 0;
+            size_t n = sizeof v;
+            return sysctlbyname("hw.optional.avx512f", &v, &n, nullptr, 0) == 0 && v != 0;
+        }();
+#else
+        static const bool has_avx512f = __builtin_cpu_supports("avx512f");
+#endif
+        if (has_avx512f) {
+            reset_avx512(len);
+        } else {
+            libcxx::memset(ptr, 0, len);
+        }
+#endif
 #elif defined(_aarch64_simd)
         reset_neon(len);
 #else
@@ -203,8 +233,10 @@ struct alignas(64) ArenaBlock {
             return blk;
         }
 
+        // Windows' CRTs (MSVC's and MinGW's msvcrt / ucrt alike) have no C11
+        // aligned_alloc; _aligned_malloc's blocks must go back via _aligned_free.
         return static_cast<std::Byte *>(
-#ifndef _MSC_VER
+#if !defined(_WIN32)
             libcxx::aligned_alloc(64, cap)
 #else
             _aligned_malloc(cap, 64)

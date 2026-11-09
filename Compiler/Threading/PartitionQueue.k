@@ -1,27 +1,29 @@
 /// --- The Kairo Project ------------------- Threading/PartitionQueue.k --- ///
 ///
-///   Defines the `PartitionQueue` class, a lock-free circular buffer for
-///   per-thread task storage in the thread pool.
+///   PartitionQueue: the lock-free circular task buffer of one pool thread.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/SmallFunction.hh";
-ffi "c++" import "Native/Types.hh";
-ffi "c++" import "Native/KThread.hh";   // SeqCell
+ffi "c++" import "Native/SmallFunction.hh"
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "Native/KThread.hh" // SeqCell
+ffi "c++" import "vector"
+ffi "c++" import "utility"
 
-import Threading::Task::*;
-import Threading::CacheLines::*;
+import Threading::CacheLines::CACHE_LINE
+import Threading::Task::Task
 
 /// Default ring capacity, in tasks, for a PartitionQueue and so for each of
 /// a ThreadPool's queues. Module scope: Kairo has no class-level constant.
-const DEFAULT_QUEUE_SIZE: usize = 1 << 14;
+pub
+const DEFAULT_QUEUE_SIZE: usize = 1 << 14
 
 ///
 /// \class PartitionQueue
@@ -42,7 +44,7 @@ const DEFAULT_QUEUE_SIZE: usize = 1 << 14;
 ///
 /// \see Task, ThreadPool
 ///
-class PartitionQueue {
+pub class PartitionQueue {
     ///
     /// \struct ThreadPool::PartitionQueue::Cell
     ///
@@ -93,14 +95,14 @@ class PartitionQueue {
     ///
     /// The cell is Native/KThread.hh's SeqCell: Kairo has no `alignas`, and
     /// its move has to relax through the atomic counter.
-    type Cell = kairo::SeqCell::<Task, CACHE_LINE>;
+    type Cell = kairo::SeqCell<Task, CACHE_LINE>
 
-    priv var _buf:  vec::<Cell>;
-    priv var _mask: u64 = 0;
-    priv var _cap:  u64 = 0;
+    priv var _buf:  cxx::std::vector<Self::Cell>
+    priv var _mask: u64                          = 0
+    priv var _cap:  u64                          = 0
 
-    priv var _enqueue_pos: std::Atomic::<u64> = std::Atomic::<u64>(0);
-    priv var _dequeue_pos: std::Atomic::<u64> = std::Atomic::<u64>(0);
+    priv var _enqueue_pos: kairo::std::Atomic<u64> = kairo::std::Atomic<u64>(0)
+    priv var _dequeue_pos: kairo::std::Atomic<u64> = kairo::std::Atomic<u64>(0)
 
     ///
     /// \brief Constructs a partitioned queue with the specified capacity.
@@ -117,22 +119,36 @@ class PartitionQueue {
     ///
     /// \see push, pop, steal
     ///
-    fn PartitionQueue(self, cap_req: usize = DEFAULT_QUEUE_SIZE) {
-        var c: usize = 1;
+    fn PartitionQueue(self) {
+        var cap_req: usize = DEFAULT_QUEUE_SIZE
+        var c:       usize = 1
 
         while c < cap_req {
-            c <<= 1;
+            c <<= 1
         }
 
-        self._cap  = static_cast::<u64>(c);
-        self._mask = static_cast::<u64>(c - 1);
-        self._buf.resize(c);
+        self._cap  = (c as u64)
+        self._mask = ((c - 1) as u64)
+        self._buf.resize(c)
 
-        for i in range::<usize>(0, c) {
-            self._buf[i].seq.store(
-                static_cast::<u64>(i),
-                std::MemoryOrder::relaxed
-            );
+        for i in (0 as usize)..c {
+            self._buf[i].seq.store(i as u64, kairo::std::MemoryOrder::relaxed)
+        }
+    }
+
+    fn PartitionQueue(self, cap_req: usize) {
+        var c: usize = 1
+
+        while c < cap_req {
+            c <<= 1
+        }
+
+        self._cap  = (c as u64)
+        self._mask = ((c - 1) as u64)
+        self._buf.resize(c)
+
+        for i in (0 as usize)..c {
+            self._buf[i].seq.store(i as u64, kairo::std::MemoryOrder::relaxed)
         }
     }
 
@@ -142,32 +158,33 @@ class PartitionQueue {
     /// \param v Task to enqueue (moved).
     /// \return `true` if the task was successfully enqueued, otherwise `false` if full.
     ///
-    inline fn push(self, v: ref!(Task)) -> bool {
-        var pos = self._enqueue_pos.load(std::MemoryOrder::relaxed);
+    inline fn push(self, @inout v: Task) -> bool {
+        var pos = self._enqueue_pos.load(kairo::std::MemoryOrder::relaxed)
 
         while true {
-            var idx  = static_cast::<usize>(pos & self._mask);
-            var cell = &self._buf[idx];
-            var seq  = cell->seq.load(std::MemoryOrder::acquire);
-            var dif  = static_cast::<i64>(seq) - static_cast::<i64>(pos);
+            var idx   = ((pos & self._mask) as usize)
+            var *cell = &self._buf[idx]
+            var seq   = cell->seq.load(kairo::std::MemoryOrder::acquire)
+            var dif   = (seq as i64) - (pos as i64)
 
             if dif == 0 {
                 if self._enqueue_pos.compare_exchange_weak(
-                    pos, pos + 1,
-                    std::MemoryOrder::acq_rel,
-                    std::MemoryOrder::relaxed) {
-
-                    cell->val = std::Memory::move(v);
-                    cell->seq.store(pos + 1, std::MemoryOrder::release);
-                    return true;
+                    &pos,
+                    pos + 1,
+                    kairo::std::MemoryOrder::acq_rel,
+                    kairo::std::MemoryOrder::relaxed,
+                ) {
+                    cell->val = cxx::std::move(v)
+                    cell->seq.store(pos + 1, kairo::std::MemoryOrder::release)
+                    return true
                 }
             } else if dif < 0 {
-                return false;
+                return false
             } else {
-                _thread_pause();
+                kairo::thread_pause()
             }
 
-            pos = self._enqueue_pos.load(std::MemoryOrder::relaxed);
+            pos = self._enqueue_pos.load(kairo::std::MemoryOrder::relaxed)
         }
     }
 
@@ -178,27 +195,30 @@ class PartitionQueue {
     /// \return `true` if successful, `false` if queue is empty.
     ///
     inline fn pop(self, out: *Task) -> bool {
-        var pos = self._dequeue_pos.load(std::MemoryOrder::relaxed);
+        var pos = self._dequeue_pos.load(kairo::std::MemoryOrder::relaxed)
 
         while true {
-            var idx  = static_cast::<usize>(pos & self._mask);
-            var cell = &self._buf[idx];
-            var seq  = cell->seq.load(std::MemoryOrder::acquire);
-            var dif  = static_cast::<i64>(seq) - static_cast::<i64>(pos + 1);
+            var idx   = ((pos & self._mask) as usize)
+            var *cell = &self._buf[idx]
+            var seq   = cell->seq.load(kairo::std::MemoryOrder::acquire)
+            var dif   = (seq as i64) - ((pos + 1) as i64)
 
             if dif == 0 {
-                if self._dequeue_pos.compare_exchange_weak(pos, pos + 1,
-                    std::MemoryOrder::release, std::MemoryOrder::relaxed)
-                {
-                    (*out) = std::Memory::move(cell->val);
-                    cell->seq.store(pos + self._cap, std::MemoryOrder::release);
-                    return true;
+                if self._dequeue_pos.compare_exchange_weak(
+                    &pos,
+                    pos + 1,
+                    kairo::std::MemoryOrder::release,
+                    kairo::std::MemoryOrder::relaxed,
+                ) {
+                    *out = cxx::std::move(cell->val)
+                    cell->seq.store(pos + self._cap, kairo::std::MemoryOrder::release)
+                    return true
                 }
             } else if dif < 0 {
-                return false;
+                return false
             } else {
-                _thread_pause();
-                pos = self._dequeue_pos.load(std::MemoryOrder::relaxed);
+                kairo::thread_pause()
+                pos = self._dequeue_pos.load(kairo::std::MemoryOrder::relaxed)
             }
         }
     }
@@ -210,6 +230,6 @@ class PartitionQueue {
     /// \return `true` if a task was stolen, otherwise `false`.
     ///
     inline fn steal(self, out: *Task) -> bool {
-        return self.pop(out);
+        return self.pop(out)
     }
 }

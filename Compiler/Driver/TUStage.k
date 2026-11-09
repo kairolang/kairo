@@ -5,8 +5,8 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -17,14 +17,17 @@
 /// A stage method returning false halts the pipeline and leaves the stage at
 /// \c Failed. A fatal diagnostic in any file sets \c BatchResult::aborted,
 /// causing \c execute() to skip all remaining input files.
-enum TUStage derives u8 {
-    Pending,        ///< Constructed, not yet dispatched.
-    Loading,        ///< SourceManager::load_file in progress.
-    Lexing,         ///< TokenCacheManager::lex_file in progress.
-    Preprocessing,  ///< PreProcessor::preprocess in progress.
-    Parsing,        ///< Parser not yet implemented.
-    Sema,           ///< Semantic analysis not yet implemented.
-    Codegen,        ///< Code generation not yet implemented.
-    Done,           ///< All requested stages completed successfully.
-    Failed,         ///< Halted due to a diagnostic error or fatal.
+// No imports: an enum that names nothing outside itself must stay a leaf.
+// ASTContext imports this file, so an import of Sema here closes a cycle
+// through SemaContext back to ASTContext (287 of the 322 R001W cycles).
+pub enum TUStage derives u8 {
+    Pending,       ///< Constructed, not yet dispatched.
+    Loading,       ///< SourceManager::load_file in progress.
+    Lexing,        ///< TokenCacheManager::lex_file in progress.
+    Preprocessing, ///< PreProcessor::preprocess in progress.
+    Parsing,       ///< Parser not yet implemented.
+    Sema,          ///< Semantic analysis not yet implemented.
+    Codegen,       ///< Code generation not yet implemented.
+    Done,          ///< All requested stages completed successfully.
+    Failed,        ///< Halted due to a diagnostic error or fatal.
 }

@@ -1,12 +1,12 @@
 /// --- The Kairo Project -------------------------- AST/Kind/TypeKind.k --- ///
 ///
-///   <short description>
+///   TypeKind, the discriminator enum for type nodes.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -23,17 +23,14 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-enum TypeKind derives u8 {
-    /// -----------------------------------------------------------------------
-    ///  Sentinel
-    /// -----------------------------------------------------------------------
+
+pub enum TypeKind derives u8 {
+    /// # Sentinel
 
     /// Parser / sema error sentinel.
     RecoveryType = 0,
 
-    /// -----------------------------------------------------------------------
-    ///  Named / resolved types  [1 .. 2]
-    /// -----------------------------------------------------------------------
+    /// # Named / resolved types  [1 .. 2]
     ChainType,
 
     /// T inside fn foo<T>(x: T) unresolved generic param
@@ -55,22 +52,18 @@ enum TypeKind derives u8 {
     /// used in variadic generic signatures and variadic tuple types
     PackExpansionType,
 
-    /// -----------------------------------------------------------------------
-    ///  Pointer / optional types  [3 .. 4]
-    /// -----------------------------------------------------------------------
+    /// # Pointer / optional types  [3 .. 4]
 
     /// Fat pointer type:
     /// Node: PointerType pointee TypeRef.
     PointerType,
-    
+
     /// Nullable (optional) type:  T?
     /// Lowered to std::Optional<T> by sema unless --explicit-aliasing.
     /// Node: NullableType inner TypeRef.
     NullableType,
 
-    /// -----------------------------------------------------------------------
-    /// Canonical types  [5 .. 6]
-    /// -----------------------------------------------------------------------
+    /// # Canonical types  [5 .. 6]
 
     /// Canonical nominal type: a class/struct/union/interface/enum plus its
     /// canonical generic arguments. NEVER produced by the parser -- created
@@ -84,9 +77,7 @@ enum TypeKind derives u8 {
     /// singleton per kind per build.
     BuiltinType,
 
-    /// -----------------------------------------------------------------------
-    ///  Collection types  [7 .. 11]
-    /// -----------------------------------------------------------------------
+    /// # Collection types  [7 .. 11]
 
     /// Tuple type:  (i32, str, f64)
     /// Node: TupleType element TypeRef array.
@@ -112,17 +103,13 @@ enum TypeKind derives u8 {
     /// refers to the implementing type
     SelfType, // const can be attached here
 
-    /// -----------------------------------------------------------------------
-    ///  Callable type  [12]
-    /// -----------------------------------------------------------------------
+    /// # Callable type  [12]
 
     /// Function pointer type:  fn(i32, str) -> bool (explicit capture control is a part of the expression syntax, not the type syntax)
     /// Node: FunctionPointerType param TypeRef array + return TypeRef.
     FunctionPointerType,
 
-    /// -----------------------------------------------------------------------
-    ///  Compiler-inserted types  [13 .. 14]
-    /// -----------------------------------------------------------------------
+    /// # Compiler-inserted types  [13 .. 14]
 
     /// Type inference placeholder:  _ or omitted annotation
     /// Sema assigns a concrete type by solving constraints.
@@ -156,40 +143,64 @@ enum TypeKind derives u8 {
     /// (Substitution::assoc_witness). Node: AssocType base + iface + assoc.
     AssocType,
 
-    /// -----------------------------------------------------------------------
-    ///  Marker
-    /// -----------------------------------------------------------------------
+    /// # Marker
     TypeKindCount,
 }
 
-fn to_string(t: TypeKind) -> string {
-    switch t {
-        case TypeKind::RecoveryType { return "RecoveryType"; }
-        case TypeKind::ChainType { return "ChainType"; }
-        case TypeKind::GenericParamType { return "GenericParamType"; }
-        case TypeKind::SubstGenericParamType { return "SubstGenericParamType"; }
-        case TypeKind::TypeOfType { return "TypeOfType"; }
-        case TypeKind::VariadicPackType { return "VariadicPackType"; }
-        case TypeKind::PackExpansionType { return "PackExpansionType"; }
-        case TypeKind::PointerType { return "PointerType"; }
-        case TypeKind::NullableType { return "NullableType"; }
-        case TypeKind::RecordType { return "RecordType"; }
-        case TypeKind::BuiltinType { return "BuiltinType"; }
-        case TypeKind::TupleType { return "TupleType"; }
-        case TypeKind::FixedArrayType { return "FixedArrayType"; }
-        case TypeKind::VectorType { return "VectorType"; }
-        case TypeKind::MapType { return "MapType"; }
-        case TypeKind::SetType { return "SetType"; }
-        case TypeKind::SelfType { return "SelfType"; }
-        case TypeKind::FunctionPointerType { return "FunctionPointerType"; }
-        case TypeKind::InferredType { return "InferredType"; }
-        case TypeKind::CXXLValueRefType { return "CXXLValueRefType"; }
-        case TypeKind::CXXRValueRefType { return "CXXRValueRefType"; }
-        case TypeKind::OpaqueFFIType { return "OpaqueFFIType"; }
-        case TypeKind::QualifiedType { return "QualifiedType"; }
-        case TypeKind::TypeExpr { return "TypeExpr"; }
-        case TypeKind::AssocType { return "AssocType"; }
+pub fn to_string(t: TypeKind) -> string {
+    match t {
+        case TypeKind::RecoveryType {
+            return "RecoveryType"
+        } case TypeKind::ChainType {
+            return "ChainType"
+        } case TypeKind::GenericParamType {
+            return "GenericParamType"
+        } case TypeKind::SubstGenericParamType {
+            return "SubstGenericParamType"
+        } case TypeKind::TypeOfType {
+            return "TypeOfType"
+        } case TypeKind::VariadicPackType {
+            return "VariadicPackType"
+        } case TypeKind::PackExpansionType {
+            return "PackExpansionType"
+        } case TypeKind::PointerType {
+            return "PointerType"
+        } case TypeKind::NullableType {
+            return "NullableType"
+        } case TypeKind::RecordType {
+            return "RecordType"
+        } case TypeKind::BuiltinType {
+            return "BuiltinType"
+        } case TypeKind::TupleType {
+            return "TupleType"
+        } case TypeKind::FixedArrayType {
+            return "FixedArrayType"
+        } case TypeKind::VectorType {
+            return "VectorType"
+        } case TypeKind::MapType {
+            return "MapType"
+        } case TypeKind::SetType {
+            return "SetType"
+        } case TypeKind::SelfType {
+            return "SelfType"
+        } case TypeKind::FunctionPointerType {
+            return "FunctionPointerType"
+        } case TypeKind::InferredType {
+            return "InferredType"
+        } case TypeKind::CXXLValueRefType {
+            return "CXXLValueRefType"
+        } case TypeKind::CXXRValueRefType {
+            return "CXXRValueRefType"
+        } case TypeKind::OpaqueFFIType {
+            return "OpaqueFFIType"
+        } case TypeKind::QualifiedType {
+            return "QualifiedType"
+        } case TypeKind::TypeExpr {
+            return "TypeExpr"
+        } case TypeKind::AssocType {
+            return "AssocType"
+        } case TypeKind::TypeKindCount {
+            return "TypeKindCount"
+        }
     }
-
-    return "UnknownTypeKind";
 }

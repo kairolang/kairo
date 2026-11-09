@@ -1,17 +1,19 @@
 /// --- The Kairo Project ------------------------------ Config/Linker.k --- ///
 ///
-///   Linker, platform-specific, and embedded target options.
+///   LinkerOptions: linker, platform and embedded target settings.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Command::ParsedArgs::*;
+ffi "c++" import "vector"
+
+import Command::ParsedArgs::ParsedArgs
 
 ///
 /// \class LinkerOptions
@@ -23,235 +25,288 @@ import Command::ParsedArgs::*;
 /// CompilerInvocation can pass this directly to kld without the linker
 /// driver having to pick through unrelated option structs.
 ///
-class LinkerOptions {
-    // -- output shape and inputs -------------------------------------------
-    pub var lib_dirs:          vec::<string>;       ///< -L (repeatable)
-    pub var link_libs:         vec::<string>;       ///< -l [static:|dynamic:]name (repeatable)
-    pub var shared:            bool   = false;      ///< --shared, or --dll
-    pub var static_link:       bool   = false;      ///< --static
-    pub var no_entry:          bool   = false;      ///< --no-entry: no crt, no -e
-    pub var freestanding:      bool   = false;      ///< implies no_crt and no_default_libs
-    pub var no_crt:            bool   = false;      ///< --no-crt
-    pub var no_default_libs:   bool   = false;      ///< --no-default-libs
-    pub var entry:             string = "main";     ///< ELF entry only when there is no crt
-    pub var cache_dir:         string = "";         ///< --cache-dir: where objects go
-    pub var save_temps:        bool   = false;      ///< keep the object dir after linking
-    pub var compile_only:      bool   = false;      ///< -c, -S, or any --emit but the default obj
-    pub var emit_scope:        string = "graph";    ///< --emit-scope: graph | inputs
-    pub var kairo_lib:         bool   = false;      ///< --kairo-lib: link the cached builtin/std/runtime
-    pub var print_ld_args:     bool   = false;      ///< print the link line instead of linking
-    pub var strip:             bool   = false;
-    pub var strip_debug:       bool   = false;
-    pub var icf:               bool   = false;
-    pub var icf_mode:          string = "safe";
-    pub var rtlib:             string = "";         ///< "" = the sysroot's choice, else host detection
-    pub var unwindlib:         string = "";         ///< "" = follows rtlib / the sysroot
-    pub var f_pie:             i32    = -1;         ///< -1 unset: on for Linux executables
+pub class LinkerOptions {
+    /// # output shape and inputs
 
-    // -- general linking ---------------------------------------------------
-    pub var linker_script:     string = "";
-    pub var version_script:    string = "";
-    pub var map_file:          string = "";
-    pub var build_id:          string = "fast";
-    pub var hash_style:        string = "gnu";
-    pub var dynamic_linker:    string = "";
-    pub var emulation:         string = "";
-    pub var compress_debug:    string = "none";
-    pub var rpath:             vec::<string>;       ///< --rpath (repeatable)
-    pub var rpath_link:        vec::<string>;       ///< --rpath-link (repeatable)
-    pub var ld_flags:          vec::<string>;       ///< --ld-flags (repeatable)
-    pub var export_dynamic:    bool   = false;
-    pub var now:               bool   = false;      ///< -z now (full RELRO)
-    pub var z_noexecstack:     bool   = false;
+    pub var lib_dirs:        cxx::std::vector<string> ///< -L (repeatable)
+    pub var link_libs:       cxx::std::vector<string> ///< -l [static:|dynamic:]name (repeatable)
+    pub var shared:          bool                     = false ///< --shared, or --dll
+    pub var static_link:     bool                     = false ///< --static
+    pub var no_entry:        bool                     = false ///< --no-entry: no crt, no -e
+    pub var freestanding:    bool                     = false ///< implies no_crt and no_default_libs
+    pub var no_crt:          bool                     = false ///< --no-crt
+    pub var no_default_libs: bool                     = false ///< --no-default-libs
+    pub var entry:           string                   = "main" ///< ELF entry only when there is no crt
+    pub var cache_dir:       string                   = "" ///< --cache-dir: where objects go
+    pub var save_temps:      bool                     = false ///< keep the object dir after linking
+    pub var compile_only:    bool                     = false ///< -c, -S, or any --emit but the default obj
+    pub var emit_scope:      string                   = "graph" ///< --emit-scope: graph | inputs
+    pub var kairo_lib:       bool                     = false ///< --kairo-lib: link the cached builtin/std/runtime
+    pub var print_ld_args:   bool                     = false ///< print the link line instead of linking
+    pub var strip:           bool                     = false
+    pub var strip_debug:     bool                     = false
+    pub var icf:             bool                     = false
+    pub var icf_mode:        string                   = "safe"
+    pub var rtlib:           string                   = "" ///< "" = the sysroot's choice, else host detection
+    pub var unwindlib:       string                   = "" ///< "" = follows rtlib / the sysroot
+    pub var f_pie:           i32                      = -1 ///< -1 unset: on for Linux executables
 
-    // -- ELF/Linux feature toggles -----------------------------------------
-    pub var f_relro:           i32 = -1;
-    pub var f_eh_frame_hdr:    i32 = -1;
-    pub var f_gc_sections:     i32 = -1;
+    /// # general linking
 
-    // -- macOS / Darwin ----------------------------------------------------
-    pub var macos_version_min: string = "";
-    pub var ios_version_min:   string = "";
-    pub var macos_sdk:         string = "";
-    pub var install_name:      string = "";
-    pub var rpath_origin:      string = "";
-    pub var force_load:        vec::<string>;       ///< --force-load (repeatable)
-    pub var headerpad:         i32    = 0;
-    pub var f_dead_strip:      i32 = -1;
-    pub var f_bitcode:         i32 = -1;
+    pub var linker_script:  string                   = ""
+    pub var version_script: string                   = ""
+    pub var map_file:       string                   = ""
+    pub var build_id:       string                   = "fast"
+    pub var hash_style:     string                   = "gnu"
+    pub var dynamic_linker: string                   = ""
+    pub var emulation:      string                   = ""
+    pub var compress_debug: string                   = "none"
+    pub var rpath:          cxx::std::vector<string>          ///< --rpath (repeatable)
+    pub var rpath_link:     cxx::std::vector<string>          ///< --rpath-link (repeatable)
+    pub var ld_flags:       cxx::std::vector<string>          ///< --ld-flags (repeatable)
+    pub var export_dynamic: bool                     = false
+    pub var now:            bool                     = false  ///< -z now (full RELRO)
+    pub var z_noexecstack:  bool                     = false
 
-    // -- Windows / PE-COFF -------------------------------------------------
-    pub var subsystem:         string = "console";
-    pub var subsystem_set:     bool   = false;      ///< --subsystem given: unset leaves lld to infer it from main/WinMain
-    pub var pdb:               string = "";
-    pub var def:               string = "";
-    pub var implib:            string = "";
-    pub var manifest_file:     string = "";
-    pub var manifest:          bool   = false;
-    pub var kill_at:           bool   = false;
-    pub var stack_size:        i32    = 0;
-    pub var heap_size:         i32    = 0;
-    pub var f_high_entropy_va: i32 = -1;
-    pub var f_dynamicbase:     i32 = -1;
-    pub var f_nxcompat:        i32 = -1;
-    pub var f_guard_cf:        i32 = -1;
-    pub var f_tsaware:         i32 = -1;
+    /// # ELF/Linux feature toggles
 
-    // -- WASM / WASI -------------------------------------------------------
-    pub var wasm_exec_model:   string = "command";
-    pub var wasi_version:      string = "preview1";
-    pub var wasm_export:       vec::<string>;       ///< --wasm-export (repeatable)
-    pub var wasm_import_memory:  bool = false;
-    pub var wasm_export_memory:  bool = false;
-    pub var wasm_max_memory:     i32  = 0;
-    pub var wasm_initial_memory: i32  = 65536;
-    pub var wasm_stack_size:     i32  = 65536;
-    pub var wasm_initial_memory_set: bool = false;  ///< given on the command line; the 65536 default is not a request
-    pub var wasm_stack_size_set:     bool = false;  ///< same: wasm-ld sizes memory from the data when unasked
-    pub var wasi:                bool = false;
-    pub var f_wasm_bulk_memory:      i32 = -1;
-    pub var f_wasm_threads:          i32 = -1;
-    pub var f_wasm_tail_calls:       i32 = -1;
-    pub var f_wasm_simd:             i32 = -1;
-    pub var f_wasm_sign_ext:         i32 = -1;
-    pub var f_wasm_reference_types:  i32 = -1;
-    pub var f_wasm_exceptions:       i32 = -1;
+    pub var f_relro:        i32 = -1
+    pub var f_eh_frame_hdr: i32 = -1
+    pub var f_gc_sections:  i32 = -1
 
-    // -- embedded / bare metal ---------------------------------------------
-    pub var no_stack_check:    bool = false;
-    pub var fixed_stack_size:  i32  = 0;
+    /// # macOS / Darwin
+
+    pub var macos_version_min: string                   = ""
+    pub var ios_version_min:   string                   = ""
+    pub var macos_sdk:         string                   = ""
+    pub var install_name:      string                   = ""
+    pub var rpath_origin:      string                   = ""
+    pub var force_load:        cxx::std::vector<string>      ///< --force-load (repeatable)
+    pub var headerpad:         i32                      = 0
+    pub var f_dead_strip:      i32                      = -1
+    pub var f_bitcode:         i32                      = -1
+
+    /// # Windows / PE-COFF
+
+    pub var subsystem:         string = "console"
+    pub var subsystem_set:     bool   = false ///< --subsystem given: unset leaves lld to infer it from main/WinMain
+    pub var pdb:               string = ""
+    pub var def:               string = ""
+    pub var implib:            string = ""
+    pub var manifest_file:     string = ""
+    pub var manifest:          bool   = false
+    pub var kill_at:           bool   = false
+    pub var stack_size:        i32    = 0
+    pub var heap_size:         i32    = 0
+    pub var f_high_entropy_va: i32    = -1
+    pub var f_dynamicbase:     i32    = -1
+    pub var f_nxcompat:        i32    = -1
+    pub var f_guard_cf:        i32    = -1
+    pub var f_tsaware:         i32    = -1
+
+    /// # WASM / WASI
+
+    pub var wasm_exec_model:         string                   = "command"
+    pub var wasi_version:            string                   = "preview1"
+    pub var wasm_export:             cxx::std::vector<string> ///< --wasm-export (repeatable)
+    pub var wasm_import_memory:      bool                     = false
+    pub var wasm_export_memory:      bool                     = false
+    pub var wasm_max_memory:         i32                      = 0
+    pub var wasm_initial_memory:     i32                      = 65536
+    pub var wasm_stack_size:         i32                      = 65536
+    pub var wasm_initial_memory_set: bool                     = false ///< given on the command line; the 65536 default is not a request
+    pub var wasm_stack_size_set:     bool                     = false ///< same: wasm-ld sizes memory from the data when unasked
+    pub var wasi:                    bool                     = false
+    pub var f_wasm_bulk_memory:      i32                      = -1
+    pub var f_wasm_threads:          i32                      = -1
+    pub var f_wasm_tail_calls:       i32                      = -1
+    pub var f_wasm_simd:             i32                      = -1
+    pub var f_wasm_sign_ext:         i32                      = -1
+    pub var f_wasm_reference_types:  i32                      = -1
+    pub var f_wasm_exceptions:       i32                      = -1
+
+    /// # embedded / bare metal
+
+    pub var no_stack_check:   bool = false
+    pub var fixed_stack_size: i32  = 0
 
     /// --emit-scope=inputs: objects for the command line's own Kairo files
     /// only. What they import, builtin, std and the runtime come from
     /// separate runs or the toolchain's library (kairo_lib), as with clang -c.
-    fn inputs_only(self) -> bool { return self.emit_scope == "inputs"; }
+    pub fn inputs_only(self) -> bool {
+        return self.emit_scope == "inputs"
+    }
 
-    static fn from_args(args: ref!(ParsedArgs)) -> LinkerOptions {
-        var o = LinkerOptions();
+    static fn from_args(@inout args: ParsedArgs) -> LinkerOptions {
+        var o = LinkerOptions()
 
-        // -- output shape and inputs ---------------------------------------
-        for s in args.get_list("lib-dirs")  { o.lib_dirs.push_back(s);  }
-        for s in args.get_list("link-libs") { o.link_libs.push_back(s); }
-        (o.shared)          = args.get_bool("shared") || args.get_bool("dll");
-        (o.static_link)     = args.get_bool("static");
-        (o.no_entry)        = args.get_bool("no-entry");
-        (o.freestanding)    = args.get_bool("freestanding");
-        (o.no_crt)          = args.get_bool("no-crt") || o.freestanding;
-        (o.no_default_libs) = args.get_bool("no-default-libs") || o.freestanding;
-        (o.entry)           = args.get_string("entry");
-        (o.cache_dir)       = args.get_string("cache-dir");
-        (o.save_temps)      = args.get_bool("save-temps");
+        /// ## output shape and inputs
+        for s in *args.get_list("lib-dirs") {
+            o.lib_dirs.push_back(s)
+        }
+
+        for s in *args.get_list("link-libs") {
+            o.link_libs.push_back(s)
+        }
+
+        o.shared          = args.get_bool("shared") || args.get_bool("dll")
+        o.static_link     = args.get_bool("static")
+        o.no_entry        = args.get_bool("no-entry")
+        o.freestanding    = args.get_bool("freestanding")
+        o.no_crt          = args.get_bool("no-crt") || o.freestanding
+        o.no_default_libs = args.get_bool("no-default-libs") || o.freestanding
+        o.entry           = args.get_string("entry")
+        o.cache_dir       = args.get_string("cache-dir")
+        o.save_temps      = args.get_bool("save-temps")
         // `--emit obj,asm -o app` still links app: with more than one kind
         // listed, -o cannot be any one of them, so it is the executable and
         // the kinds are written beside it (CompilerInstance::_plan_outputs).
         // One kind other than obj is what -o names, and the run stops there.
-        var emit = args.get_string("emit");
-        var n_emit: usize = 0;
-        var run: usize = 0;
+        var emit          = args.get_string("emit")
+        var n_emit: usize = 0
+        var run:    usize = 0
         for var i: usize = 0; i < emit.size(); ++i {
-            if emit[i] == ',' { if run > 0 { n_emit += 1; } run = 0; continue; }
-            run += 1;
+            if emit[i] == (',' as u8) {
+                if run > 0 {
+                    n_emit += 1
+                }
+
+                run = 0
+                continue
+            }
+
+            run += 1
         }
-        if run > 0 { n_emit += 1; }
-        var emit_links = (n_emit > 1) && (!args.get_string("output").empty());
-        (o.compile_only)    = args.get_bool("compile-only") || args.get_bool("emit-asm")
-                           || ((emit != "obj") && (!emit_links));
-        (o.emit_scope)      = args.get_string("emit-scope");
-        (o.kairo_lib)       = args.get_bool("kairo-lib");
-        (o.print_ld_args)   = args.get_bool("print-ld-args");
-        (o.strip)           = args.get_bool("strip");
-        (o.strip_debug)     = args.get_bool("strip-debug");
+
+        if run > 0 {
+            n_emit += 1
+        }
+
+        var emit_links = n_emit > 1 && !args.get_string("output").empty()
+        o.compile_only = args.get_bool("compile-only")
+            || args.get_bool("emit-asm")
+            || emit != "obj" && !emit_links
+        o.emit_scope    = args.get_string("emit-scope")
+        o.kairo_lib     = args.get_bool("kairo-lib")
+        o.print_ld_args = args.get_bool("print-ld-args")
+        o.strip         = args.get_bool("strip")
+        o.strip_debug   = args.get_bool("strip-debug")
         // Safe ICF by default in an optimized build: the objects carry an
         // address-significance table (-faddrsig, ClangBackend), so lld folds
         // only functions whose address is never compared. Off at -O0, where
         // merged functions would confuse a debugger. --no-icf opts out.
-        var opt_val = args.get_string("opt");
-        if args.is_set("profile") && (!args.is_set("opt")) {
-            var prof = args.get_string("profile");
-            if prof == "release"       { opt_val = "2"; }
-            else if prof == "min-size" { opt_val = "s"; }
+        var opt_val = args.get_string("opt")
+        if args.is_set("profile") && !args.is_set("opt") {
+            var prof = args.get_string("profile")
+            if prof == "release" {
+                opt_val = "2"
+            } else if prof == "min-size" {
+                opt_val = "s"
+            }
         }
-        var optimized = (opt_val == "1") || (opt_val == "2") || (opt_val == "3")
-                     || (opt_val == "s") || (opt_val == "z") || (opt_val == "g");
-        (o.icf)             = args.get_bool("icf") || (optimized && (!args.get_bool("no-icf")));
-        (o.icf_mode)        = args.get_string("icf-mode");
-        (o.rtlib)           = args.get_string("rtlib");
-        (o.unwindlib)       = args.get_string("unwindlib");
-        (o.f_pie)           = args.get_feature("pie");
 
-        // -- general linking -----------------------------------------------
-        (o.linker_script)   = args.get_string("linker-script");
-        (o.version_script)  = args.get_string("version-script");
-        (o.map_file)        = args.get_string("map-file");
-        (o.build_id)        = args.get_string("build-id");
-        (o.hash_style)      = args.get_string("hash-style");
-        (o.dynamic_linker)  = args.get_string("dynamic-linker");
-        (o.emulation)       = args.get_string("emulation");
-        (o.compress_debug)  = args.get_string("compress-debug");
-        (o.export_dynamic)  = args.get_bool("export-dynamic");
-        (o.now)             = args.get_bool("now");
-        (o.z_noexecstack)   = args.get_bool("z-noexecstack");
-        for s in args.get_list("rpath")      { o.rpath.push_back(s);      }
-        for s in args.get_list("rpath-link") { o.rpath_link.push_back(s); }
-        for s in args.get_list("ld-flags")   { o.ld_flags.push_back(s);   }
+        var optimized = opt_val == "1"
+            || opt_val == "2"
+            || opt_val == "3"
+            || opt_val == "s"
+            || opt_val == "z"
+            || opt_val == "g"
+        // wasm-ld has no identical code folding, and its flavor rejects a request for it, so
+        // the optimised-build default skips wasm targets; an explicit --icf still reaches the
+        // flavor and gets its error.
+        var wasm = args.get_string("target").starts_with("wasm")
+        o.icf       = args.get_bool("icf") || optimized && !wasm && !args.get_bool("no-icf")
+        o.icf_mode  = args.get_string("icf-mode")
+        o.rtlib     = args.get_string("rtlib")
+        o.unwindlib = args.get_string("unwindlib")
+        o.f_pie     = args.get_feature("pie")
 
-        // -- ELF/Linux feature toggles -------------------------------------
-        (o.f_relro)          = args.get_feature("relro");
-        (o.f_eh_frame_hdr)   = args.get_feature("eh-frame-hdr");
-        (o.f_gc_sections)    = args.get_feature("gc-sections");
+        /// ## general linking
+        o.linker_script  = args.get_string("linker-script")
+        o.version_script = args.get_string("version-script")
+        o.map_file       = args.get_string("map-file")
+        o.build_id       = args.get_string("build-id")
+        o.hash_style     = args.get_string("hash-style")
+        o.dynamic_linker = args.get_string("dynamic-linker")
+        o.emulation      = args.get_string("emulation")
+        o.compress_debug = args.get_string("compress-debug")
+        o.export_dynamic = args.get_bool("export-dynamic")
+        o.now            = args.get_bool("now")
+        o.z_noexecstack  = args.get_bool("z-noexecstack")
+        for s in *args.get_list("rpath") {
+            o.rpath.push_back(s)
+        }
 
-        // -- macOS / Darwin ------------------------------------------------
-        (o.macos_version_min) = args.get_string("macos-version-min");
-        (o.ios_version_min)   = args.get_string("ios-version-min");
-        (o.macos_sdk)         = args.get_string("macos-sdk");
-        (o.install_name)      = args.get_string("install-name");
-        (o.rpath_origin)      = args.get_string("rpath-origin");
-        (o.headerpad)         = args.get_i32("headerpad");
-        (o.f_dead_strip)      = args.get_feature("dead-strip");
-        (o.f_bitcode)         = args.get_feature("bitcode");
-        for s in args.get_list("force-load") { o.force_load.push_back(s); }
+        for s in *args.get_list("rpath-link") {
+            o.rpath_link.push_back(s)
+        }
 
-        // -- Windows / PE-COFF ---------------------------------------------
-        (o.subsystem)         = args.get_string("subsystem");
-        (o.subsystem_set)     = args.is_set("subsystem");
-        (o.pdb)               = args.get_string("pdb");
-        (o.def)               = args.get_string("def");
-        (o.implib)            = args.get_string("implib");
-        (o.manifest)          = args.get_bool("manifest");
-        (o.manifest_file)     = args.get_string("manifest-file");
-        (o.kill_at)           = args.get_bool("kill-at");
-        (o.stack_size)        = args.get_i32("stack-size");
-        (o.heap_size)         = args.get_i32("heap-size");
-        (o.f_high_entropy_va) = args.get_feature("high-entropy-va");
-        (o.f_dynamicbase)     = args.get_feature("dynamicbase");
-        (o.f_nxcompat)        = args.get_feature("nxcompat");
-        (o.f_guard_cf)        = args.get_feature("guard-cf");
-        (o.f_tsaware)         = args.get_feature("tsaware");
+        for s in *args.get_list("ld-flags") {
+            o.ld_flags.push_back(s)
+        }
 
-        // -- WASM / WASI --------------------------------------------------
-        (o.wasm_exec_model)     = args.get_string("wasm-exec-model");
-        (o.wasi_version)        = args.get_string("wasi-version");
-        (o.wasm_import_memory)  = args.get_bool("wasm-import-memory");
-        (o.wasm_export_memory)  = args.get_bool("wasm-export-memory");
-        (o.wasm_max_memory)     = args.get_i32("wasm-max-memory");
-        (o.wasm_initial_memory) = args.get_i32("wasm-initial-memory");
-        (o.wasm_stack_size)     = args.get_i32("wasm-stack-size");
-        (o.wasm_initial_memory_set) = args.is_set("wasm-initial-memory");
-        (o.wasm_stack_size_set)     = args.is_set("wasm-stack-size");
-        (o.wasi)                = args.get_bool("wasi");
-        for s in args.get_list("wasm-export") { o.wasm_export.push_back(s); }
-        (o.f_wasm_bulk_memory)     = args.get_feature("wasm-bulk-memory");
-        (o.f_wasm_threads)         = args.get_feature("wasm-threads");
-        (o.f_wasm_tail_calls)      = args.get_feature("wasm-tail-calls");
-        (o.f_wasm_simd)            = args.get_feature("wasm-simd");
-        (o.f_wasm_sign_ext)        = args.get_feature("wasm-sign-ext");
-        (o.f_wasm_reference_types) = args.get_feature("wasm-reference-types");
-        (o.f_wasm_exceptions)      = args.get_feature("wasm-exceptions");
+        /// ## ELF/Linux feature toggles
+        o.f_relro        = args.get_feature("relro")
+        o.f_eh_frame_hdr = args.get_feature("eh-frame-hdr")
+        o.f_gc_sections  = args.get_feature("gc-sections")
 
-        // -- embedded / bare metal -----------------------------------------
-        (o.no_stack_check)    = args.get_bool("no-stack-check");
-        (o.fixed_stack_size)  = args.get_i32("fixed-stack-size");
+        /// ## macOS / Darwin
+        o.macos_version_min = args.get_string("macos-version-min")
+        o.ios_version_min   = args.get_string("ios-version-min")
+        o.macos_sdk         = args.get_string("macos-sdk")
+        o.install_name      = args.get_string("install-name")
+        o.rpath_origin      = args.get_string("rpath-origin")
+        o.headerpad         = args.get_i32("headerpad")
+        o.f_dead_strip      = args.get_feature("dead-strip")
+        o.f_bitcode         = args.get_feature("bitcode")
+        for s in *args.get_list("force-load") {
+            o.force_load.push_back(s)
+        }
 
-        return o;
+        /// ## Windows / PE-COFF
+        o.subsystem         = args.get_string("subsystem")
+        o.subsystem_set     = args.is_set("subsystem")
+        o.pdb               = args.get_string("pdb")
+        o.def               = args.get_string("def")
+        o.implib            = args.get_string("implib")
+        o.manifest          = args.get_bool("manifest")
+        o.manifest_file     = args.get_string("manifest-file")
+        o.kill_at           = args.get_bool("kill-at")
+        o.stack_size        = args.get_i32("stack-size")
+        o.heap_size         = args.get_i32("heap-size")
+        o.f_high_entropy_va = args.get_feature("high-entropy-va")
+        o.f_dynamicbase     = args.get_feature("dynamicbase")
+        o.f_nxcompat        = args.get_feature("nxcompat")
+        o.f_guard_cf        = args.get_feature("guard-cf")
+        o.f_tsaware         = args.get_feature("tsaware")
+
+        /// ## WASM / WASI
+        o.wasm_exec_model         = args.get_string("wasm-exec-model")
+        o.wasi_version            = args.get_string("wasi-version")
+        o.wasm_import_memory      = args.get_bool("wasm-import-memory")
+        o.wasm_export_memory      = args.get_bool("wasm-export-memory")
+        o.wasm_max_memory         = args.get_i32("wasm-max-memory")
+        o.wasm_initial_memory     = args.get_i32("wasm-initial-memory")
+        o.wasm_stack_size         = args.get_i32("wasm-stack-size")
+        o.wasm_initial_memory_set = args.is_set("wasm-initial-memory")
+        o.wasm_stack_size_set     = args.is_set("wasm-stack-size")
+        o.wasi                    = args.get_bool("wasi")
+        for s in *args.get_list("wasm-export") {
+            o.wasm_export.push_back(s)
+        }
+
+        o.f_wasm_bulk_memory     = args.get_feature("wasm-bulk-memory")
+        o.f_wasm_threads         = args.get_feature("wasm-threads")
+        o.f_wasm_tail_calls      = args.get_feature("wasm-tail-calls")
+        o.f_wasm_simd            = args.get_feature("wasm-simd")
+        o.f_wasm_sign_ext        = args.get_feature("wasm-sign-ext")
+        o.f_wasm_reference_types = args.get_feature("wasm-reference-types")
+        o.f_wasm_exceptions      = args.get_feature("wasm-exceptions")
+
+        /// ## embedded / bare metal
+        o.no_stack_check   = args.get_bool("no-stack-check")
+        o.fixed_stack_size = args.get_i32("fixed-stack-size")
+
+        return o
     }
 }

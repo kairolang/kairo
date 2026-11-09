@@ -1,19 +1,19 @@
 /// --- The Kairo Project --------------------------- Support/UTF8View.k --- ///
 ///
-///   <short description>
+///   UTF8View: a forward iterator decoding UTF-8 into code points.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/UTF8Decode.hh";
+ffi "c++" import "Native/UTF8Decode.hh"
 
-import Memory::MMapRegion::*;
+import Memory::MMapRegion::MMapRegion
 
 ///
 /// \file UTF8View.k
@@ -50,9 +50,9 @@ import Memory::MMapRegion::*;
 /// yields a single unicode code point. the class can be constructed from either
 /// a raw pointer or an `MMapRegion`.
 ///
-class UTF8View {
-    var data: const_obs::<u8>; ///< pointer to utf-8 data.
-    var size: usize;           ///< data length in bytes.
+pub class UTF8View {
+    var data: unsafe *const u8 ///< pointer to utf-8 data.
+    var size: usize            ///< data length in bytes.
 
     ///
     /// \brief constructs from a raw pointer and byte size.
@@ -60,9 +60,9 @@ class UTF8View {
     /// \param data pointer to utf-8 encoded bytes.
     /// \param size total number of bytes available.
     ///
-    fn UTF8View(self, const data: *u8, size: usize) {
-        self.data = data;
-        self.size = size;
+    pub fn UTF8View(self, data: unsafe *const u8, size: usize) {
+        self.data = data
+        self.size = size
     }
 
     ///
@@ -70,9 +70,9 @@ class UTF8View {
     ///
     /// \param region memory-mapped region containing utf-8 text.
     ///
-    fn UTF8View(self, region: MMapRegion) {
-        self.data = region.data();
-        self.size = region.size();
+    fn UTF8View(self, const region: MMapRegion) {
+        self.data = region.data()
+        self.size = region.size()
     }
 
     ///
@@ -89,8 +89,8 @@ class UTF8View {
     ///       decode_utf8_lut opens with exactly that test and returns exactly
     ///       that value. It cost a redundant branch on every character, and it
     ///       kept this wrapper from being a pure forwarder.
-    static fn decode_utf8(const ptr: *u8, remaining: usize) -> DecodeResult {
-        return decode_utf8_lut(ptr, remaining);
+    pub static fn decode_utf8(ptr: unsafe *const u8, remaining: usize) -> kairo::DecodeResult {
+        return kairo::decode_utf8_lut(ptr, remaining)
     }
 
     ///
@@ -108,18 +108,18 @@ class UTF8View {
     /// }
     /// ```
     ///
-    fn op in (self)[iter] -> yield char32_t {
-        var pos: usize = 0;
+    fn op in (self) -> yield char {
+        var pos: usize = 0
 
         while pos < self.size {
-            var decoded = UTF8View::decode_utf8(self.data + pos, self.size - pos);
+            var decoded = UTF8View::decode_utf8(self.data + pos, self.size - pos)
 
-            if (decoded.len) == 0 { // no progress safeguard
-                break;
+            if decoded.len == 0 { // no progress safeguard
+                break
             }
 
-            yield decoded.chr;
-            pos += (decoded.len) as usize;
+            yield decoded.chr
+            pos += decoded.len as usize
         }
     }
 }

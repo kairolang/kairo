@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------------- Sema/Type/StmtTyping.k --- ///
+/// --- The Kairo Project ----------------------- Sema/Type/StmtTyping.k --- ///
 ///
 ///   \brief The statement half: function frames, `return` against the
 ///          signature, declarations that infer, conditions that must be bool,
@@ -25,76 +25,135 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::SemaContext::*;
-import Sema::Resolve::NameLookup::*;
-import Sema::Resolve::ResolutionState::*;
-import Sema::Type::TypeUtil::*;
-import Sema::Type::Conversion::*;
-import Sema::Type::OverloadResolution::*;
-import Sema::Type::NullnessFlow::*;
-import Sema::Lower::LowerSynth::*;
-import Sema::Check::ConstEval::*;
-import AST::Context::DeclContext::*;
-import AST::Context::SymbolTable::*;
-import AST::ASTSupport::*;
-import AST::DeclFacts::*;
-import AST::Node::Base::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Expressions::*;
-import AST::Node::Statements::*;
-import AST::Node::Patterns::*;
-import AST::Node::Types::*;
-import AST::Node::CanonicalNodes::*;
-import AST::Node::Declarations::*;
-import AST::LangItems::*;
-import AST::Node::Casting::*;
-import AST::Kind::DeclKind::*;
-import AST::Kind::StmtKind::*;
-import Token::TokenKind::*;
-import Location::SourceRange::*;
-import AST::Visitor::RecursiveASTVisitor::*;
-import Diagnostic::Registry::*;
-import AST::ParamMode::*;
+ffi "c++" import "vector"
+
+import AST::ASTSupport::FrozenList
+import AST::Context::DeclContext::DeclContext
+import AST::Context::InstantiationRegistry::InstanceEntry
+import AST::Context::SymbolTable::DeclName
+import AST::DeclFacts::{
+    decl_instantiated_from,
+    decl_is_imported,
+    decl_is_instance,
+    param_is_type_pack,
+}
+import AST::Kind::ExprKind::ExprKind
+import AST::LangItems::{
+    LangAttrs,
+    LowerTargets,
+    WellKnownType,
+    entry_point_name,
+}
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Type,
+}
+import AST::Node::CanonicalNodes::{
+    BuiltinKind,
+    QUAL_CONST,
+    QUAL_VOLATILE,
+    RecordType,
+    canon_unqual,
+}
+import AST::Node::Casting::{
+    cast,
+    dyn_cast,
+    isa,
+}
+import AST::Node::Declarations::{
+    EnumDecl,
+    EnumVariantDecl,
+    FieldDecl,
+    FnBodyKind,
+    FunctionDecl,
+    IntConst,
+    ParamDecl,
+    VariableDecl,
+    pointer_shorthand_spelling,
+}
+import AST::Node::Expressions::{
+    BinaryOperatorExpr,
+    ClosureExpr,
+    RangeExpr,
+    UnaryOperatorExpr,
+}
+import AST::Node::PrimaryExpressions::{
+    BooleanLiteralExpr,
+    ChainExpr,
+    NamedIdentExpr,
+    NullLiteralExpr,
+}
+import AST::Node::Statements
+import AST::Node::Types::{
+    CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, MapType,
+    NullableType,     PointerType,      SetType,        TupleType,           TypeOfType,
+    VectorType,
+}
+import AST::ParamMode::ParamMode
+import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import Diagnostic::Code::DiagCode
+import Diagnostic::Registry::DiagID
+import Location::SourceRange::SourceRange
+import Sema::Check::ConstEval::ConstEval
+import Sema::Lower::LowerSynth::LowerSynth
+import Sema::Resolve::NameLookup::NameLookup
+import Sema::Resolve::ResolutionState::ResolveState
+import Sema::Type::OverloadResolution::{
+    ArgInfo,
+    OvlOutcome,
+}
+import Token::TokenKind::TokenKind
 
 /// The first name in a default argument that binds to a parameter of \p fn,
 /// `self` included. A default is evaluated by a nullary thunk (CallLowering),
 /// so it has no parameters to read; this is a language rule, not a lowering
 /// limit.
-class DefaultRefScan derives RecursiveASTVisitor::<DefaultRefScan> {
-    pub var fn_decl: *FunctionDecl  = &null;
-    pub var hit:     *NamedIdentExpr = &null;
+pub class DefaultRefScan derives RecursiveASTVisitor<DefaultRefScan> {
+    pub var fn_decl: unsafe *FunctionDecl   = &null
+    pub var hit:     unsafe *NamedIdentExpr = &null
 
-    fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
-        if (self.hit != &null) || (n == &null) { return true; }
-        var p = dyn_cast::<ParamDecl>(n->resolved_decl);
-        if p == &null { return true; }
-        for var i: usize = 0; i < self.fn_decl->params.size(); ++i {
-            if self.fn_decl->params[i] == p { self.hit = n; return true; }
+    fn visit_named_ident_expr(self, n: unsafe *NamedIdentExpr) -> bool {
+        if self.hit != &null || n == &null {
+            return true
         }
-        return true;
+
+        var unsafe *p = dyn_cast<ParamDecl>(n->resolved_decl)
+        if p == &null {
+            return true
+        }
+
+        for var i: usize = 0; i < self.fn_decl->params.size(); ++i {
+            if self.fn_decl->params[i] == p {
+                self.hit = n
+                return true
+            }
+        }
+
+        return true
     }
 }
 
-class TyperFrame {
-    pub var fn_decl:  *FunctionDecl = &null;   ///< null for a closure.
-    pub var closure:  *ClosureExpr  = &null;
-    pub var declared: *Type = &null;           ///< return type, null = infer.
-    pub var inferred: *Type = &null;           ///< join of `return e` seen so far.
-    pub var saw_return_value: bool = false;
-    pub var saw_bare_return:  bool = false;
+pub class TyperFrame {
+    pub var fn_decl:          unsafe *FunctionDecl = &null ///< null for a closure.
+    pub var closure:          unsafe *ClosureExpr  = &null
+    pub var declared:         unsafe *Type         = &null ///< return type, null = infer.
+    pub var inferred:         unsafe *Type         = &null ///< join of `return e` seen so far.
+    pub var saw_return_value: bool                 = false
+    pub var saw_bare_return:  bool                 = false
     /// `-> yield T`: `declared` is the canonical, which carries cv only and
     /// drops the qualifier, so the frame keeps it here.
-    pub var is_generator:     bool = false;
+    pub var is_generator: bool = false
     /// A generator's element: `T` of its Yield<T>, what each `yield` is
     /// typed against. Null otherwise, and null for a closure (which cannot
     /// yield yet).
-    pub var yield_elem:       *Type = &null;
+    pub var yield_elem: unsafe *Type = &null
     fn TyperFrame(self) { }
 }
 
@@ -102,158 +161,260 @@ class TyperFrame {
 /// OVERRIDES, and two sibling bases declaring the same name is an ambiguity in
 /// the emitted C++, not an override. ExprTyper therefore reaches the visitor
 /// through this mixin and does not derive it a second time.
-class <T> StmtTyping derives RecursiveASTVisitor::<T> {
-    priv inline fn dyn(self) -> *T { return static_cast::<*T>(&self); }
-
-    // === frames =============================================================
-
-    fn push_fn_frame(self, f: *FunctionDecl, declared: *Type) {
-        var fr = TyperFrame{};
-        fr.fn_decl  = f;
-        fr.declared = declared;
-        fr.is_generator = (f != &null) && dyn()->tu.is_generator_return(f->return_type);
-        if f != &null { fr.declared = self._effect_inner(f->return_type, declared); }
-        if fr.is_generator && (declared != &null) && dyn()->tu.is_lang(declared, WellKnownType::Yield) {
-            var args = dyn()->tu.record_args(declared);
-            if args.size() > 0 { fr.yield_elem = args[0]; }
-        }
-        dyn()->frames.push_back(fr);
-        dyn()->flow.enter();   // a body starts knowing nothing about any nullable.
+// TODO(DUCK-GENERIC): T uses arg_info, call_result_type, check_convertible, conv, ded_scratch, discr_enum, dispatch_stmt, fail, flow, frames, mark_list_storage, match_arm_enter, ... (30). Stage 0 was duck-typed; bound it or keep `: type`.
+pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
+    @move
+    fn StmtTyping(self, other: Self) = default
+    fn StmtTyping(self) = default
+    priv inline fn dyn(self) -> unsafe *T {
+        return unsafe ((&self) as *T)
     }
 
-    fn push_closure_frame(self, c: *ClosureExpr, declared: *Type) {
-        var fr = TyperFrame{};
-        fr.closure  = c;
-        fr.declared = declared;
-        fr.is_generator = (c != &null) && dyn()->tu.is_generator_return(c->return_type);
-        if c != &null { fr.declared = self._effect_inner(c->return_type, declared); }
-        dyn()->frames.push_back(fr);
+    /// # frames
+
+    fn push_fn_frame(self, f: unsafe *FunctionDecl, declared: unsafe *Type) {
+        var fr = TyperFrame()
+        fr.fn_decl      = f
+        fr.declared     = declared
+        fr.is_generator = f != &null && self.dyn()->tu.is_generator_return(f->return_type)
+        if f != &null {
+            fr.declared = self._effect_inner(f->return_type, declared)
+        }
+
+        if fr.is_generator
+            && declared != &null
+            && self.dyn()->tu.is_lang(declared, WellKnownType::Yield) {
+            var args = self.dyn()->tu.record_args(declared)
+            if args.size() > 0 {
+                fr.yield_elem = args[0]
+            }
+        }
+
+        self.dyn()->frames.push_back(fr)
+        self.dyn()->flow.enter() // a body starts knowing nothing about any nullable.
+    }
+
+    fn push_closure_frame(self, c: unsafe *ClosureExpr, declared: unsafe *Type) {
+        var fr = TyperFrame()
+        fr.closure      = c
+        fr.declared     = declared
+        fr.is_generator = c != &null && self.dyn()->tu.is_generator_return(c->return_type)
+        if c != &null {
+            fr.declared = self._effect_inner(c->return_type, declared)
+        }
+
+        self.dyn()->frames.push_back(fr)
         // A closure may run anywhere: what it captures is Maybe inside it
-        // (NULLABLE.md 3.7), which a fresh state says.
-        dyn()->flow.enter(c);
+        // (Compiler/Spec/Nullables.md#aliases-and-closures), which a fresh state says.
+        self.dyn()->flow.enter(c)
     }
 
     /// `-> async T` canonicalizes to Future<T> (TypeResolve), but the body
     /// `return`s a T: the Future is what the CALLER sees. Unwrap it for the
     /// frame. A generator keeps Yield<T>; its returns are bare and the
     /// is_generator branch owns them.
-    priv fn _effect_inner(self, written: *Type, declared: *Type) -> *Type {
-        if (written == &null) || (declared == &null) { return declared; }
-        if !written->is_async() { return declared; }
-        if !dyn()->tu.is_lang(declared, WellKnownType::Future) { return declared; }
-        var args = dyn()->tu.record_args(declared);
-        return (args[0]) if (args.size() > 0) else (declared);
+    priv fn _effect_inner(self, written: unsafe *Type, declared: unsafe *Type) -> unsafe *Type {
+        if written == &null || declared == &null {
+            return declared
+        }
+
+        if !written->is_async() {
+            return declared
+        }
+
+        if !self.dyn()->tu.is_lang(declared, WellKnownType::Future) {
+            return declared
+        }
+
+        var args = self.dyn()->tu.record_args(declared)
+        return if (args.size() > 0) => (args[0]) else => declared
     }
 
     fn pop_frame(self) {
-        if !dyn()->frames.empty() {
-            dyn()->frames.pop_back();
-            dyn()->flow.leave();
+        if !self.dyn()->frames.empty() {
+            self.dyn()->frames.pop_back()
+            self.dyn()->flow.leave()
         }
     }
 
-    fn cur_frame(self) -> *TyperFrame {
-        if dyn()->frames.empty() { return &null; }
-        return &(dyn()->frames[dyn()->frames.size() - 1]);
+    fn cur_frame(self) -> unsafe *TyperFrame {
+        if self.dyn()->frames.empty() {
+            return &null
+        }
+
+        return &self.dyn()->frames[self.dyn()->frames.size() - 1]
     }
 
-    fn frame_inferred_return(self) -> *Type {
-        var fr = self.cur_frame();
-        if fr == &null { return &null; }
-        if (fr->inferred == &null) && (!fr->saw_return_value) { return dyn()->tu.builtin(BuiltinKind::Void); }
-        return fr->inferred;
+    fn frame_inferred_return(self) -> unsafe *Type {
+        var unsafe *fr = self.cur_frame()
+        if fr == &null {
+            return &null
+        }
+
+        if fr->inferred == &null && !fr->saw_return_value {
+            return self.dyn()->tu.builtin(BuiltinKind::Void)
+        }
+
+        return fr->inferred
     }
 
     fn in_unsafe(self) -> bool {
-        if dyn()->unsafe_depth > 0 { return true; }
-        var fr = self.cur_frame();
-        if (fr != &null) && (fr->fn_decl != &null) && fr->fn_decl->is_unsafe() { return true; }
-        return false;
+        if self.dyn()->unsafe_depth > 0 {
+            return true
+        }
+
+        var unsafe *fr = self.cur_frame()
+        if fr != &null && fr->fn_decl != &null && fr->fn_decl->is_unsafe() {
+            return true
+        }
+
+        return false
     }
 
-    // === return type on demand ==============================================
+    /// # return type on demand
 
     /// PRE: T ran. Declared -> canonical; `!` -> Never; expr-bodied without an
     /// annotation -> typed now under a cycle guard; a foreign one is read.
-    fn fn_return_type(self, f: *FunctionDecl) -> *Type {
-        if f == &null { return &null; }
-        if f->is_noreturn { return dyn()->tu.builtin(BuiltinKind::Never); }
-        if f->return_type != &null { return f->return_type->canonical; }
-        if f->body_kind != FnBodyKind::Expr { return dyn()->tu.builtin(BuiltinKind::Void); }
-        if f->body_expr == &null { return dyn()->tu.builtin(BuiltinKind::Void); }
+    fn fn_return_type(self, f: unsafe *FunctionDecl) -> unsafe *Type {
+        if f == &null {
+            return &null
+        }
 
-        if dyn()->tu.is_foreign(static_cast::<*Decl>(f)) {
+        if f->is_noreturn {
+            return self.dyn()->tu.builtin(BuiltinKind::Never)
+        }
+
+        if f->return_type != &null {
+            return f->return_type->canonical
+        }
+
+        if f->body_kind != FnBodyKind::Expr {
+            return self.dyn()->tu.builtin(BuiltinKind::Void)
+        }
+
+        if f->body_expr == &null {
+            return self.dyn()->tu.builtin(BuiltinKind::Void)
+        }
+
+        if self.dyn()->tu.is_foreign(f) {
             // DAG order: its own TU typed it and wrote the slot. Null here means
             // it failed there, and that TU reported it.
-            return (f->body_expr->type_) if (f->body_expr->type_ != &null) else (&null);
+            return if (f->body_expr->type_ != &null) => (f->body_expr->type_) else => &null
         }
 
-        var st = dyn()->sc->rstate.decl_state(static_cast::<*Decl>(f));
-        if st == ResolveState::Resolved { return (f->return_type->canonical) if (f->return_type != &null) else (f->body_expr->type_); }
-        if st == ResolveState::Errored  { return &null; }
+        var st = self.dyn()->sc->rstate.decl_state(f)
+        if st == ResolveState::Resolved {
+            return if (f->return_type != &null) => (f->return_type->canonical)
+                   else => f->body_expr->type_
+        }
+
+        if st == ResolveState::Errored {
+            return &null
+        }
+
         if st == ResolveState::InProgress {
-            dyn()->sc->diag->report(DiagID::SC043E, f->range.start,
-                f"cannot infer the return type of '{dyn()->tu.decl_name(static_cast::<*Decl>(f))}': its body refers to itself; annotate the return type"
-            ).first(f->range).emit();
-            f->poison();
-            dyn()->sc->rstate.set_decl_state(static_cast::<*Decl>(f), ResolveState::Errored);
-            return &null;
+            self.dyn()->sc->diag->report(
+                DiagID::SC043E,
+                f->range.start,
+                f"cannot infer the return type of '{self.dyn()->tu.decl_name((unsafe (f as unsafe *Decl)))}': its body refers to itself; annotate the return type",
+            ).first(f->range)->emit()
+            f->poison()
+            self.dyn()->sc->rstate.set_decl_state(f, ResolveState::Errored)
+            return &null
         }
-        if !dyn()->sc->rstate.begin_decl(static_cast::<*Decl>(f), f->range) { return &null; }
 
-        self.push_fn_frame(f, &null);
-        var saved_unsafe = dyn()->unsafe_depth;
-        dyn()->unsafe_depth = 0;
-        var t = dyn()->type_of(f->body_expr, &null);
-        dyn()->unsafe_depth = saved_unsafe;
-        self.pop_frame();
+        if !self.dyn()->sc->rstate.begin_decl(f, f->range) {
+            return &null
+        }
 
-        var ok = (t != &null) && (!f->body_expr->is_poisoned());
-        if ok { f->return_type = canon_unqual(t); }   // inferred slot := canonical.
-        dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(f), ok || (!f->body_expr->is_poisoned()));
-        return t;
+        self.push_fn_frame(f, &null)
+        var saved_unsafe = self.dyn()->unsafe_depth
+        self.dyn()->unsafe_depth = 0
+        var t = self.dyn()->type_of(f->body_expr, &null)
+        self.dyn()->unsafe_depth = saved_unsafe
+        self.pop_frame()
+
+        var ok = t != &null && !f->body_expr->is_poisoned()
+        if ok { // inferred slot := canonical.
+            f->return_type = canon_unqual(t)
+        }
+
+        self.dyn()->sc->rstate.finish_decl(f, ok || !f->body_expr->is_poisoned())
+        return t
     }
 
     /// A variable's canonical, inferring a file-scope `var x = e` on demand
     /// when a use precedes its declaration in walk order.
-    fn var_type(self, v: *VariableDecl) -> *Type {
-        if v == &null { return &null; }
+    fn var_type(self, v: unsafe *VariableDecl) -> unsafe *Type {
+        if v == &null {
+            return &null
+        }
+
         if v->type_ != &null {
-            if v->type_->canonical == &null { return self.resolve_typeof_type(v->type_); }
-            return v->type_->canonical;
+            if v->type_->canonical == &null {
+                return self.resolve_typeof_type(v->type_)
+            }
+
+            return v->type_->canonical
         }
-        if v->init == &null { return &null; }
-        if dyn()->tu.is_foreign(static_cast::<*Decl>(v)) { return v->init->type_; }
-        var st = dyn()->sc->rstate.decl_state(static_cast::<*Decl>(v));
-        if st == ResolveState::Errored { return &null; }
+
+        if v->init == &null {
+            return &null
+        }
+
+        if self.dyn()->tu.is_foreign(v) {
+            return v->init->type_
+        }
+
+        var st = self.dyn()->sc->rstate.decl_state(v)
+        if st == ResolveState::Errored {
+            return &null
+        }
+
         if st == ResolveState::InProgress {
-            dyn()->sc->diag->report(DiagID::SC043E, v->range.start,
-                f"cannot infer the type of '{dyn()->tu.decl_name(static_cast::<*Decl>(v))}': its initializer refers to itself"
-            ).first(v->range).emit();
-            v->poison();
-            dyn()->sc->rstate.set_decl_state(static_cast::<*Decl>(v), ResolveState::Errored);
-            return &null;
+            self.dyn()->sc->diag->report(
+                DiagID::SC043E,
+                v->range.start,
+                f"cannot infer the type of '{self.dyn()->tu.decl_name((unsafe (v as unsafe *Decl)))}': its initializer refers to itself",
+            ).first(v->range)->emit()
+            v->poison()
+            self.dyn()->sc->rstate.set_decl_state(v, ResolveState::Errored)
+            return &null
         }
-        if st == ResolveState::Resolved { return (v->type_->canonical) if (v->type_ != &null) else (&null); }
-        if !dyn()->sc->rstate.begin_decl(static_cast::<*Decl>(v), v->range) { return &null; }
+
+        if st == ResolveState::Resolved {
+            return if (v->type_ != &null) => (v->type_->canonical) else => &null
+        }
+
+        if !self.dyn()->sc->rstate.begin_decl(v, v->range) {
+            return &null
+        }
+
         if !self._shorthand_has_source(v) {
-            dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(v), false);
-            return &null;
+            self.dyn()->sc->rstate.finish_decl(v, false)
+            return &null
         }
+
         // Typed on demand from wherever the use is: the initializer must
         // not see that body's nullness facts.
-        dyn()->flow.enter();
-        var t = dyn()->type_of(v->init, &null);
-        dyn()->flow.leave();
-        if t == &null { self._reject_type_value(v); }
-        dyn()->mark_list_storage(v->init);
-        self._reject_array_copy(v, t);
-        if t != &null { v->type_ = self._shorthand_type(v, t); }
-        dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(v), t != &null);
-        return (v->type_) if ((t != &null) && v->nullable_shorthand) else (t);
+        self.dyn()->flow.enter()
+        var t = self.dyn()->type_of(v->init, &null)
+        self.dyn()->flow.leave()
+        if t == &null {
+            self._reject_type_value(v)
+        }
+
+        self.dyn()->mark_list_storage(v->init)
+        self._reject_array_copy(v, t)
+        if t != &null {
+            v->type_ = self._shorthand_type(v, t)
+        }
+
+        self.dyn()->sc->rstate.finish_decl(v, t != &null)
+        return if (t != &null && v->nullable_shorthand) => (v->type_) else => t
     }
 
-    /// A written `typeof e` (P113): the type of \p e as `var y = e` would
+    /// A written `typeof e`: the type of \p e as `var y = e` would
     /// infer it (a copy: top-level cv and a C++ reference dropped), with the
     /// cv written on the typeof itself. T cannot do this -- it runs before
     /// any expression has a type -- so the node leaves T with no canonical
@@ -261,66 +422,104 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// walk, or a use that demands the variable first). Only a variable's
     /// whole declared type comes here; anywhere else is _check_typeof_types.
     /// \return the canonical, or null (reported, poisoned).
-    fn resolve_typeof_type(self, t: *Type) -> *Type {
-        if t == &null { return &null; }
-        if t->canonical != &null { return t->canonical; }
-        if t->is_poisoned() || (!isa::<TypeOfType>(t)) { return &null; }
-        var tt = cast::<TypeOfType>(t);
-        var st = dyn()->sc->rstate.type_state(t);
+    fn resolve_typeof_type(self, t: unsafe *Type) -> unsafe *Type {
+        if t == &null {
+            return &null
+        }
+
+        if t->canonical != &null {
+            return t->canonical
+        }
+
+        if t->is_poisoned() || !isa<TypeOfType>(t) {
+            return &null
+        }
+
+        var unsafe *tt = cast<TypeOfType>(t)
+        var        st  = self.dyn()->sc->rstate.type_state(t)
         if st == ResolveState::InProgress {
             // `var x: typeof x`: the operand needs the type it is to name.
-            dyn()->sc->diag->report(DiagID::SC043E, t->range.start,
-                "cannot take 'typeof' of an expression whose type depends on this declaration\x27s own type"
-            ).first(t->range).emit();
-            t->poison();
-            return &null;
+            self.dyn()->sc->diag->report(
+                DiagID::SC043E,
+                t->range.start,
+                "cannot take 'typeof' of an expression whose type depends on this declaration's own type",
+            ).first(t->range)->emit()
+            t->poison()
+            return &null
         }
-        if tt->expr == &null { t->poison(); return &null; }
-        dyn()->sc->rstate.set_type_state(t, ResolveState::InProgress);
+
+        if tt->expr == &null {
+            t->poison()
+            return &null
+        }
+
+        self.dyn()->sc->rstate.set_type_state(t, ResolveState::InProgress)
         // The operand is never evaluated, and its type is the declared one:
         // no nullness fact of the surrounding body narrows it.
-        dyn()->flow.enter();
-        var et = dyn()->type_of(tt->expr, &null);
-        dyn()->flow.leave();
-        if t->is_poisoned() { dyn()->sc->rstate.set_type_state(t, ResolveState::Errored); return &null; }
-        if (et == &null) || tt->expr->is_poisoned() {
-            if !tt->expr->is_poisoned() {
-                dyn()->sc->diag->report(DiagID::U001E, t->range.start,
-                    "the type of this expression is not known until the generic is instantiated; 'typeof' of it is not supported yet, write the type out"
-                ).first(t->range).emit();
-            }
-            t->poison();
-            dyn()->sc->rstate.set_type_state(t, ResolveState::Errored);
-            return &null;
+        self.dyn()->flow.enter()
+        var et = self.dyn()->type_of(tt->expr, &null)
+        self.dyn()->flow.leave()
+        if t->is_poisoned() {
+            self.dyn()->sc->rstate.set_type_state(t, ResolveState::Errored)
+            return &null
         }
-        var c = self._cxx_referee(canon_unqual(et));
-        var q: u8 = 0;
-        if t->is_const()    { q = q | QUAL_CONST();    }
-        if t->is_volatile() { q = q | QUAL_VOLATILE(); }
-        if q != 0 { c = dyn()->sc->types->qualified(c, q); }
-        t->canonical = c;
-        tt->resolved = c;
+
+        if et == &null || tt->expr->is_poisoned() {
+            if !tt->expr->is_poisoned() {
+                self.dyn()->sc->diag->report(
+                    DiagID::SC270E,
+                    t->range.start,
+                    "the type of this expression is not known until the generic is instantiated; 'typeof' of it is not supported yet, write the type out",
+                ).first(t->range)->emit()
+            }
+
+            t->poison()
+            self.dyn()->sc->rstate.set_type_state(t, ResolveState::Errored)
+            return &null
+        }
+
+        var c     = self._cxx_referee(canon_unqual(et))
+        var q: u8 = 0
+        if t->is_const() {
+            q = q | QUAL_CONST
+        }
+
+        if t->is_volatile() {
+            q = q | QUAL_VOLATILE
+        }
+
+        if q != 0 {
+            c = self.dyn()->sc->types->qualified(c, q)
+        }
+
+        t->canonical = c
+        tt->resolved = c
         // T marked the node instantiation-dependent while its type was
         // unknown; a concrete answer is not, or a non-generic body would
         // carry a "dependent" declaration into template-only paths.
         if !(c->is_dependent() || c->is_instantiation_dependent()) {
-            t->type_flags = static_cast::<Type::TypeFlags>(
-                static_cast::<u8>(t->type_flags)
-              & (~static_cast::<u8>(Type::TypeFlags::IsInstantiationDependent)));
+            t->type_flags.clear(Type::TypeFlags::IsInstantiationDependent)
         }
-        dyn()->sc->rstate.set_type_state(t, ResolveState::Resolved);
-        return c;
+
+        self.dyn()->sc->rstate.set_type_state(t, ResolveState::Resolved)
+        return c
     }
 
     /// `var i = P` / `var info = typeof x`: an initializer that names a
-    /// type (P252; typeof as a value is a TypeInfo, P113) types to nothing
+    /// type (typeof as a value is a TypeInfo) types to nothing
     /// by design, so the variable would reach codegen with no type.
     /// ExprTyper::reject_type_value reports it. \return reported.
-    priv fn _reject_type_value(self, v: *VariableDecl) -> bool {
-        if (v == &null) || (v->init == &null) || v->init->is_poisoned() { return false; }
-        if !dyn()->reject_type_value(v->init) { return false; }
-        v->poison();
-        return true;
+    priv fn _reject_type_value(self, v: unsafe *VariableDecl) -> bool {
+        if v == &null || v->init == &null || v->init->is_poisoned() {
+            return false
+        }
+
+        if !self.dyn()->reject_type_value(v->init) {
+            return false
+        }
+
+        v->poison()
+        return true
     }
 
     /// The inferred slot of `var g = f` (a named function) or `var g = fn
@@ -330,20 +529,32 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// and `g = <a capturing closure>` later must still be legal. A value
     /// that IS raw by its declaration (a C struct's callback field, an
     /// `unsafe fn` variable) keeps its type.
-    priv fn _fn_value_decay(self, init: *Expr, t: *Type) -> *Type {
-        var c = canon_unqual(t);
-        if (c == &null) || (!isa::<FunctionPointerType>(c)) || (!cast::<FunctionPointerType>(c)->is_raw) { return t; }
-        var e = dyn()->tu.strip_parens(init);
-        var names_fn = isa::<ClosureExpr>(e);
-        var ni = dyn_cast::<NamedIdentExpr>(e);
-        if (ni != &null) && (ni->resolved_decl != &null) && isa::<FunctionDecl>(ni->resolved_decl) { names_fn = true; }
-        var ch = dyn_cast::<ChainExpr>(e);
-        if (ch != &null) && (ch->steps.size() > 0) {
-            var last = ch->steps.get(ch->steps.size() - 1);
-            if (last->resolved_decl != &null) && isa::<FunctionDecl>(last->resolved_decl) { names_fn = true; }
+    priv fn _fn_value_decay(self, init: *Expr, t: unsafe *Type) -> unsafe *Type {
+        var unsafe *c = canon_unqual(t)
+        if c == &null || (!isa<FunctionPointerType>(c)) || !cast<FunctionPointerType>(c)->is_raw {
+            return t
         }
-        if !names_fn { return t; }
-        return dyn()->sc->types->fn_with_raw(c, false);
+
+        var e        = self.dyn()->tu.strip_parens(init)
+        var names_fn = isa<ClosureExpr>(e)
+        var ni       = dyn_cast<NamedIdentExpr>(e)
+        if ni != &null && ni->resolved_decl != &null && isa<FunctionDecl>(ni->resolved_decl) {
+            names_fn = true
+        }
+
+        var ch = dyn_cast<ChainExpr>(e)
+        if ch != &null && ch->steps.size() > 0 {
+            var last = ch->steps.get(ch->steps.size() - 1)
+            if last->resolved_decl != &null && isa<FunctionDecl>(last->resolved_decl) {
+                names_fn = true
+            }
+        }
+
+        if !names_fn {
+            return t
+        }
+
+        return self.dyn()->sc->types->fn_with_raw(c, false)
     }
 
     /// The inferred slot of `var x = e` / `var x? = e`. The shorthand wraps
@@ -351,32 +562,47 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// when `e` is one (`var b? = find()` with `find() -> i32?` is `i32?`,
     /// not `(i32?)?`), because the shorthand says "this may be null", not
     /// "add a level". A deliberate `(T?)?` is still writable as a type.
-    priv fn _shorthand_type(self, v: *VariableDecl, t: *Type) -> *Type {
-        var c = canon_unqual(t);
-        if v->pointer_depth > 0 { self._check_pointer_shorthand(v, self._cxx_referee(c)); }
+    priv fn _shorthand_type(self, v: *VariableDecl, t: unsafe *Type) -> unsafe *Type {
+        var unsafe *c = canon_unqual(t)
+        if v->pointer_depth > 0 {
+            self._check_pointer_shorthand(v, self._cxx_referee(c))
+        }
+
         // A copy, as `typeof e` already reads it and as C++'s `auto` does:
         // `var c = v.at(i)` is the value `v.at(i)` refers to, never the
         // C++ reference (`unsafe *DirEntry&` from an unordered_map's
-        // `op []` failed to unify with a plain `unsafe *DirEntry` arm, G27).
-        if !v->nullable_shorthand { return self._cxx_referee(c); }
+        // `op []` failed to unify with a plain `unsafe *DirEntry` arm).
+        if !v->nullable_shorthand {
+            return self._cxx_referee(c)
+        }
+
         // `var *p? = ptrs[0]` of a `vector<*Node?>`: the `?` is about the
         // value the reference refers to, and a nullable reference is no
         // type at all, so the slot is the referee's nullable -- `*Node?`,
         // already one, not `(*Node?&)?`.
-        return self._nullable_once(self._cxx_referee(c));
+        return self._nullable_once(self._cxx_referee(c))
     }
 
     /// \p c, or what it refers to when it is a C++ reference: the stars of
     /// `var *p = ptrs.at(0)` state the pointer `ptrs.at(0)` refers to
     /// (`*Node&`), as for any other read of a reference.
-    priv fn _cxx_referee(self, c: *Type) -> *Type {
-        if c == &null { return c; }
-        if isa::<CXXLValueRefType>(c) { return canon_unqual(cast::<CXXLValueRefType>(c)->referee); }
-        if isa::<CXXRValueRefType>(c) { return canon_unqual(cast::<CXXRValueRefType>(c)->referee); }
-        return c;
+    priv fn _cxx_referee(self, c: unsafe *Type) -> unsafe *Type {
+        if c == &null {
+            return c
+        }
+
+        if isa<CXXLValueRefType>(c) {
+            return canon_unqual(cast<CXXLValueRefType>(c)->referee)
+        }
+
+        if isa<CXXRValueRefType>(c) {
+            return canon_unqual(cast<CXXRValueRefType>(c)->referee)
+        }
+
+        return c
     }
 
-    /// `var *y = e` (NULLABLE.md 1.7): the stars state the pointer depth of
+    /// `var *y = e` (Compiler/Spec/Nullables.md#declaration-shorthands): the stars state the pointer depth of
     /// `e`'s type, and `unsafe` its outermost pointer's safety. A marker,
     /// never a conversion: `y` is `typeof(e)` whatever is written, and a
     /// wrong marker is an error with a fix-it but does NOT poison `y`, so
@@ -390,83 +616,130 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// at least the visible stars, and nothing re-checks it per instance
     /// (bodies are typed once, on the dependent type): deferred means
     /// unchecked.
-    priv fn _check_pointer_shorthand(self, v: *VariableDecl, c: *Type) {
-        if c == &null { return; }
-        var nm    = dyn()->tu.decl_name(static_cast::<*Decl>(v));
-        var wrote = pointer_shorthand_spelling(v->pointer_depth, v->pointer_unsafe);
+    priv fn _check_pointer_shorthand(self, v: *VariableDecl, c: unsafe *Type) {
+        if c == &null {
+            return
+        }
+
+        var nm    = self.dyn()->tu.decl_name(v)
+        var wrote = pointer_shorthand_spelling(v->pointer_depth, v->pointer_unsafe)
 
         // `var *y = e` with `e: (*T)?`: the value may be null and nothing
         // on the name says so. The `?` is what is missing, not a star.
-        var base  = c;
-        var inner = dyn()->tu.nullable_inner(c);
+        var unsafe *base = c
+        var        inner = self.dyn()->tu.nullable_inner(c)
         if inner != &null {
-            base = canon_unqual(inner);
-            if !v->nullable_shorthand {
-                var b = dyn()->sc->diag->report(DiagID::SC001E, v->name.range.start,
-                    f"'{wrote}{nm}' is initialized with a nullable '{dyn()->tu.str(c)}'; write '{wrote}{nm}?' so the declaration says it may be null"
-                );
-                b.first(v->name.range);
-                b.second(v->init->range, f"this has type '{dyn()->tu.str(c)}\x27");
-                b.insert(v->name.range.end, "?", "mark the binding nullable");
-                b.emit();
+            base = canon_unqual(inner)
+        }
+
+        var shape        = self.dyn()->tu.pointer_shape(base)
+        var depth        = shape.depth
+        var outer_unsafe = shape.outer_unsafe
+        var leaf         = shape.leaf
+        var opaque       = leaf != &null && self._is_opaque_dependent(leaf)
+
+        var depth_ok = v->pointer_depth == depth || opaque && v->pointer_depth > depth
+        if inner != &null && !v->nullable_shorthand {
+            // The `?` and the stars are ONE fix when both are wrong: `var
+            // unsafe *x = <*T?>` wants `*x?`. Two separate fix-its, the `?`
+            // one restating the written `unsafe *`, left a tool that applies
+            // only the first with a nullable RAW pointer.
+            var stars_ok = depth == 0 || depth_ok && v->pointer_unsafe == outer_unsafe
+            var fixd     = if (depth_ok) => (v->pointer_depth) else => depth
+            var want0 = if (stars_ok) => (wrote)
+                        else => pointer_shorthand_spelling(fixd, outer_unsafe)
+            var b = self.dyn()->sc->diag->report(
+                DiagID::SC266E,
+                v->name.range.start,
+                f"'{wrote}{nm}' is initialized with a nullable '{self.dyn()->tu.str(c)}'; write '{want0}{nm}?' so the declaration says it may be null",
+            )
+
+            b.first(v->name.range)
+            b.second(v->init->range, f"this has type '{self.dyn()->tu.str(c)}'")
+            if !stars_ok {
+                b.fix(v->pointer_range, want0, f"write '{want0}'")
+            }
+
+            b.insert(v->name.range.end, "?", "mark the binding nullable")
+            b.emit()
+            if !stars_ok {
+                return
             }
         }
 
-        var shape        = dyn()->tu.pointer_shape(base);
-        var depth        = shape.depth;
-        var outer_unsafe = shape.outer_unsafe;
-        var leaf         = shape.leaf;
-        var opaque = (leaf != &null) && self._is_opaque_dependent(leaf);
-
-        var depth_ok = (v->pointer_depth == depth) || (opaque && (v->pointer_depth > depth));
-        if (depth == 0) && opaque { return; }   // `var *y = t`, `t: T`: undecidable here.
-        if depth == 0 {
-            var b = dyn()->sc->diag->report(DiagID::SC001E, v->pointer_range.start,
-                f"'{wrote}{nm}' declares a pointer, but its initializer has type '{dyn()->tu.str(c)}', which is not one"
-            );
-            b.first(v->pointer_range);
-            b.second(v->init->range, f"this has type '{dyn()->tu.str(c)}\x27");
-            b.remove(v->pointer_range, "remove the shorthand");
-            b.emit();
-            return;
+        if depth == 0 && opaque { // `var *y = t`, `t: T`: undecidable here.
+            return
         }
-        if depth_ok && (v->pointer_unsafe == outer_unsafe) { return; }
+
+        if depth == 0 {
+            var b = self.dyn()->sc->diag->report(
+                DiagID::SC266E,
+                v->pointer_range.start,
+                f"'{wrote}{nm}' declares a pointer, but its initializer has type '{self.dyn()->tu.str(c)}', which is not one",
+            )
+
+            b.first(v->pointer_range)
+            b.second(v->init->range, f"this has type '{self.dyn()->tu.str(c)}'")
+            b.remove(v->pointer_range, "remove the shorthand")
+            b.emit()
+            return
+        }
+
+        if depth_ok && v->pointer_unsafe == outer_unsafe {
+            return
+        }
 
         // One fix-it rewrites both the count and the safety: what the
         // initializer's type spells (the visible stars when it is opaque).
-        var want_depth = (v->pointer_depth) if (depth_ok) else (depth);
-        var want = pointer_shorthand_spelling(want_depth, outer_unsafe);
-        var msg: string = "";
+        var want_depth        = if (depth_ok) => (v->pointer_depth) else => depth
+        var want              = pointer_shorthand_spelling(want_depth, outer_unsafe)
+        var msg:       string = ""
         if !depth_ok {
-            msg = f"'{wrote}{nm}' states a pointer of depth {v->pointer_depth}, but its initializer is '{dyn()->tu.str(c)}', a pointer of depth {depth}; write '{want}{nm}\x27";
+            msg = f"'{wrote}{nm}' states a pointer of depth {v->pointer_depth}, but its initializer is '{self.dyn()->tu.str(c)}', a pointer of depth {depth}; write '{want}{nm}'"
         } else if outer_unsafe {
-            msg = f"'{wrote}{nm}' declares a safe pointer, but its initializer is the unsafe pointer '{dyn()->tu.str(c)}'; write '{want}{nm}\x27";
+            msg = f"'{wrote}{nm}' declares a safe pointer, but its initializer is the unsafe pointer '{self.dyn()->tu.str(c)}'; write '{want}{nm}'"
         } else {
-            msg = f"'{wrote}{nm}' declares an unsafe pointer, but its initializer is the safe pointer '{dyn()->tu.str(c)}'; write '{want}{nm}\x27";
+            msg = f"'{wrote}{nm}' declares an unsafe pointer, but its initializer is the safe pointer '{self.dyn()->tu.str(c)}'; write '{want}{nm}'"
         }
-        var b = dyn()->sc->diag->report(DiagID::SC001E, v->pointer_range.start, msg);
-        b.first(v->pointer_range);
-        b.second(v->init->range, f"this has type '{dyn()->tu.str(c)}\x27");
-        b.fix(v->pointer_range, want, f"write '{want}\x27");
-        b.emit();
+
+        var b = self.dyn()->sc->diag->report(DiagID::SC266E, v->pointer_range.start, msg)
+        b.first(v->pointer_range)
+        b.second(v->init->range, f"this has type '{self.dyn()->tu.str(c)}'")
+        b.fix(v->pointer_range, want, f"write '{want}'")
+        b.emit()
     }
 
     /// A dependent type with no visible shape: a generic parameter (or a
     /// type computed from one) that some argument could make a pointer.
     /// A dependent record, tuple, array or function pointer is never one.
-    priv fn _is_opaque_dependent(self, t: *Type) -> bool {
-        if (t == &null) || (!t->is_dependent()) { return false; }
-        if isa::<RecordType>(t) || isa::<TupleType>(t) || isa::<FixedArrayType>(t) { return false; }
-        if isa::<VectorType>(t) || isa::<MapType>(t) || isa::<SetType>(t) { return false; }
-        if isa::<FunctionPointerType>(t) || isa::<NullableType>(t) { return false; }
-        return true;
+    priv fn _is_opaque_dependent(self, t: unsafe *Type) -> bool {
+        if t == &null || !t->is_dependent() {
+            return false
+        }
+
+        if isa<RecordType>(t) || isa<TupleType>(t) || isa<FixedArrayType>(t) {
+            return false
+        }
+
+        if isa<VectorType>(t) || isa<MapType>(t) || isa<SetType>(t) {
+            return false
+        }
+
+        if isa<FunctionPointerType>(t) || isa<NullableType>(t) {
+            return false
+        }
+
+        return true
     }
 
     /// `T` -> `T?`, `T?` -> `T?`: what every `?` shorthand (declaration or
     /// binder) makes of the type it infers.
-    priv fn _nullable_once(self, c: *Type) -> *Type {
-        if (c == &null) || (dyn()->tu.nullable_inner(c) != &null) { return c; }
-        return dyn()->sc->types->nullable(c);
+    priv fn _nullable_once(self, c: unsafe *Type) -> unsafe *Type {
+        if c == &null || self.dyn()->tu.nullable_inner(c) != &null {
+            return c
+        }
+
+        return self.dyn()->sc->types->nullable(c)
     }
 
     /// `var x? = null` (or `&null`): the shorthand infers the payload from
@@ -474,94 +747,152 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// the literal so the error names the shorthand, not the generic
     /// "annotate the target" SC076E that `type_null_literal` would give;
     /// same code, it is the same mistake (nothing to infer from).
-    priv fn _shorthand_has_source(self, v: *VariableDecl) -> bool {
-        if (!v->nullable_shorthand) || (v->init == &null) { return true; }
-        var e = dyn()->tu.strip_parens(v->init);
-        if (e == &null) || (!isa::<NullLiteralExpr>(e)) { return true; }
-        var nm  = dyn()->tu.decl_name(static_cast::<*Decl>(v));
-        var lit = ("&null") if (cast::<NullLiteralExpr>(e)->is_ref) else ("null");
-        var b = dyn()->sc->diag->report(DiagID::SC076E, v->init->range.start,
-            f"nothing to infer the nullable's type from: '{nm}?' takes its type from the initializer, and '{lit}' has none"
-        );
-        b.first(v->init->range);
-        b.second(v->range, f"declare the type instead: 'var {nm}: T? = null\x27");
-        b.emit();
-        v->poison();
-        return false;
+    priv fn _shorthand_has_source(self, v: unsafe *VariableDecl) -> bool {
+        if !v->nullable_shorthand || v->init == &null {
+            return true
+        }
+
+        var e = self.dyn()->tu.strip_parens(v->init)
+        if e == &null || !isa<NullLiteralExpr>(e) {
+            return true
+        }
+
+        var nm  = self.dyn()->tu.decl_name(v)
+        var lit = if (cast<NullLiteralExpr>(e)->is_ref) => ("&null") else => "null"
+        var b = self.dyn()->sc->diag->report(
+            DiagID::SC076E,
+            v->init->range.start,
+            f"nothing to infer the nullable's type from: '{nm}?' takes its type from the initializer, and '{lit}' has none",
+        )
+
+        b.first(v->init->range)
+        b.second(v->range, f"declare the type instead: 'var {nm}: T? = null'")
+        b.emit()
+        v->poison()
+        return false
     }
 
-    priv fn _reject_array_return(self, f: *FunctionDecl, t: *Type) {
-        var c = canon_unqual(t);
-        if (c == &null) || (!isa::<FixedArrayType>(c)) { return; }
-        dyn()->sc->diag->report(DiagID::SC044E, f->range.start,
-            f"'{dyn()->tu.decl_name(static_cast::<*Decl>(f))}' returns an array; an array is not returned by value, return '[T]' or fill an '@inout' parameter"
-        ).first(f->name.range).emit();
+    priv fn _reject_array_return(self, f: unsafe *FunctionDecl, t: unsafe *Type) {
+        var unsafe *c = canon_unqual(t)
+        if c == &null || !isa<FixedArrayType>(c) {
+            return
+        }
+
+        self.dyn()->sc->diag->report(
+            DiagID::SC044E,
+            f->range.start,
+            f"'{self.dyn()->tu.decl_name((unsafe (f as unsafe *Decl)))}' returns an array; an array is not returned by value, return '[T]' or fill an '@inout' parameter",
+        ).first(f->name.range)->emit()
     }
 
     /// An array is initialized from a list literal and from nothing else
     /// (LiteralTyping::reject_array_copy, shared with a field initializer).
-    priv fn _reject_array_copy(self, v: *VariableDecl, t: *Type) {
-        dyn()->reject_array_copy(v->init, t);
+    priv fn _reject_array_copy(self, v: unsafe *VariableDecl, t: unsafe *Type) {
+        self.dyn()->reject_array_copy(v->init, t)
     }
 
-    // === traversal overrides (scope) ========================================
+    /// # traversal overrides (scope)
 
-    fn traverse_function_decl(self, n: *FunctionDecl) -> *FunctionDecl {
-        if n == &null { return n; }
-        if n->is_poisoned() { return n; }
+    fn traverse_function_decl(self, n: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
+        if n == &null {
+            return n
+        }
+
+        if n->is_poisoned() {
+            return n
+        }
 
         // signature pieces first: defaults against their param types. A
         // default may not read another parameter or `self`, and may not be a
         // slice literal (its thunk would return a view of a dead array).
         for var i: usize = 0; i < n->params.size(); ++i {
-            var p = n->params[i];
-            if (p == &null) || (p->default_val == &null) { continue; }
-            var pt = (p->type_->canonical) if (p->type_ != &null) else (&null);
-            dyn()->push_null_target(p->default_val, p->type_, static_cast::<*Decl>(p));
-            dyn()->type_of(p->default_val, pt);
-            dyn()->pop_null_target();
-            if dyn()->reject_slice_literal(p->default_val, "used as a default argument") { continue; }
-            if pt != &null { dyn()->check_convertible(p->default_val, pt); }
-            var scan = DefaultRefScan();
-            scan.fn_decl = n;
-            scan.dispatch_expr(p->default_val);
+            var unsafe *p = n->params[i]
+            if p == &null || p->default_val == &null {
+                continue
+            }
+
+            var unsafe *pt = if (p->type_ != &null) => (p->type_->canonical) else => &null
+            self.dyn()->push_null_target(p->default_val, p->type_, p)
+            self.dyn()->type_of(p->default_val, pt)
+            self.dyn()->pop_null_target()
+            if self.dyn()->reject_slice_literal(p->default_val, "used as a default argument") {
+                continue
+            }
+
+            if pt != &null {
+                self.dyn()->check_convertible(p->default_val, pt)
+            }
+
+            var scan = DefaultRefScan()
+            scan.fn_decl = n
+            scan.dispatch_expr(p->default_val)
             if scan.hit != &null {
-                var rp = cast::<ParamDecl>(scan.hit->resolved_decl);
-                var what = ("'self\x27") if (rp->is_self) else (f"parameter '{dyn()->tu.param_name(rp)}\x27");
-                dyn()->fail(scan.hit, DiagID::SC106E,
-                    f"a default argument cannot refer to {what}; a default is evaluated with no access to the call's other arguments");
+                var unsafe *rp = cast<ParamDecl>(scan.hit->resolved_decl)
+                var what = if (rp->is_self) => ("'self'")
+                           else => f"parameter '{self.dyn()->tu.param_name(rp)}'"
+                self.dyn()->fail(
+                    scan.hit,
+                    DiagID::SC106E,
+                    f"a default argument cannot refer to {what}; a default is evaluated with no access to the call's other arguments",
+                )
             }
         }
+
         // `[T; N]` is a C array: by value it would decay to a pointer and
         // pass by reference. `const` and `@inout` say what is meant.
         for var i: usize = 0; i < n->params.size(); ++i {
-            var p = n->params[i];
-            if (p == &null) || p->is_self || (p->type_ == &null) { continue; }
-            var pc = canon_unqual(p->type_->canonical);
-            if (pc == &null) || (!isa::<FixedArrayType>(pc)) { continue; }
-            if p->is_const || (p->mode != ParamMode::Value) { continue; }
-            dyn()->sc->diag->report(DiagID::SC045E, p->range.start,
-                f"parameter '{dyn()->tu.param_name(p)}' takes an array by value; write 'const', '@inout', or take a slice"
-            ).first(p->range).emit();
+            var unsafe *p = n->params[i]
+            if p == &null || p->is_self || p->type_ == &null {
+                continue
+            }
+
+            var unsafe *pc = canon_unqual(p->type_->canonical)
+            if pc == &null || !isa<FixedArrayType>(pc) {
+                continue
+            }
+
+            if p->is_const || p->mode != ParamMode::Value {
+                continue
+            }
+
+            self.dyn()->sc->diag->report(
+                DiagID::SC045E,
+                p->range.start,
+                f"parameter '{self.dyn()->tu.param_name(p)}' takes an array by value; write 'const', '@inout', or take a slice",
+            ).first(p->range)->emit()
         }
-        self._stamp_no_unwind(n);
+
+        self._stamp_no_unwind(n)
 
         // The generator fact, before anything reads it: the body's `yield`s
         // and `return`s below, then ReturnPathCheck and EmitIR. The WRITTEN
         // `-> yield T` decides, not the canonical Yield<T> (see
         // TypeUtil::is_generator_return).
-        n->is_generator = dyn()->tu.is_generator_return(n->return_type);
-        n->has_yield    = false;
-        if n->is_generator { self._check_generator_kind(n); }
+        n->is_generator = self.dyn()->tu.is_generator_return(n->return_type)
+        n->has_yield    = false
+        if n->is_generator {
+            self._check_generator_kind(n)
+        }
 
-        if n->requires_clause != &null { dyn()->type_of(n->requires_clause, dyn()->tu.builtin(BuiltinKind::Bool)); }
-        if n->where_clause != &null    { dyn()->require_bool(n->where_clause, "a 'where' clause"); }
+        if n->requires_clause != &null {
+            self.dyn()->type_of(n->requires_clause, self.dyn()->tu.builtin(BuiltinKind::Bool))
+        }
 
-        var declared: *Type = &null;
-        if n->return_type != &null { declared = n->return_type->canonical; }
-        if n->is_noreturn { declared = dyn()->tu.builtin(BuiltinKind::Never); }
-        if (n->return_type == &null) && (!n->is_noreturn) && (n->body_kind != FnBodyKind::Expr) {
-            declared = dyn()->tu.builtin(BuiltinKind::Void);
+        if n->where_clause != &null {
+            self.dyn()->require_bool(n->where_clause, "a 'where' clause")
+        }
+
+        var declared: unsafe *Type = &null
+        if n->return_type != &null {
+            declared = n->return_type->canonical
+        }
+
+        if n->is_noreturn {
+            declared = self.dyn()->tu.builtin(BuiltinKind::Never)
+        }
+
+        if n->return_type == &null && !n->is_noreturn && n->body_kind != FnBodyKind::Expr {
+            declared = self.dyn()->tu.builtin(BuiltinKind::Void)
         }
 
         // An expression body abbreviates `{ return e }` (ExprBodyDesugar), so a
@@ -571,42 +902,56 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         // recursive call in the body read its own InProgress state (SC043E).
         if n->body_kind == FnBodyKind::Expr {
             if declared == &null {
-                self.fn_return_type(n);
-                if n->return_type != &null { self._reject_array_return(n, n->return_type->canonical); }
-                return n;
+                self.fn_return_type(n)
+                if n->return_type != &null {
+                    self._reject_array_return(n, n->return_type->canonical)
+                }
+
+                return n
             }
-            self._reject_array_return(n, declared);
-            if n->body_expr == &null { return n; }
-            self.push_fn_frame(n, declared);
-            var saved_unsafe_e = dyn()->unsafe_depth;
-            dyn()->unsafe_depth = 0;
-            var want = self.cur_frame()->declared;
-            var bt = dyn()->type_of(n->body_expr, want);
-            dyn()->reject_slice_literal(n->body_expr, "returned from a function");
-            if (want != &null) && dyn()->tu.is_void(want) {
+
+            self._reject_array_return(n, declared)
+            if n->body_expr == &null {
+                return n
+            }
+
+            self.push_fn_frame(n, declared)
+            var saved_unsafe_e = self.dyn()->unsafe_depth
+            self.dyn()->unsafe_depth = 0
+            var unsafe *want = self.cur_frame()->declared
+            var        bt    = self.dyn()->type_of(n->body_expr, want)
+            self.dyn()->reject_slice_literal(n->body_expr, "returned from a function")
+            if want != &null && self.dyn()->tu.is_void(want) {
                 // desugars to `return e;` in a void function: legal C++ only
                 // for a void (or never-returning) `e`.
-                if (bt != &null) && (!dyn()->tu.is_void(bt)) && (!dyn()->tu.is_never(bt)) {
-                    dyn()->sc->diag->report(DiagID::SC050E, n->body_expr->range.start,
-                        f"an expression body of type '{dyn()->tu.str(bt)}' in a function returning 'void\x27"
-                    ).first(n->body_expr->range).emit();
+                if bt != &null && !self.dyn()->tu.is_void(bt) && !self.dyn()->tu.is_never(bt) {
+                    self.dyn()->sc->diag->report(
+                        DiagID::SC050E,
+                        n->body_expr->range.start,
+                        f"an expression body of type '{self.dyn()->tu.str(bt)}' in a function returning 'void'",
+                    ).first(n->body_expr->range)->emit()
                 }
             } else if want != &null {
-                dyn()->check_convertible(n->body_expr, want);
+                self.dyn()->check_convertible(n->body_expr, want)
             }
-            dyn()->unsafe_depth = saved_unsafe_e;
-            self.pop_frame();
-            return n;
-        }
-        self._reject_array_return(n, declared);
 
-        self.push_fn_frame(n, declared);
-        var saved_unsafe = dyn()->unsafe_depth;
-        dyn()->unsafe_depth = 0;
-        if n->body_block != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body_block)); }
-        dyn()->unsafe_depth = saved_unsafe;
-        self.pop_frame();
-        return n;
+            self.dyn()->unsafe_depth = saved_unsafe_e
+            self.pop_frame()
+            return n
+        }
+
+        self._reject_array_return(n, declared)
+
+        self.push_fn_frame(n, declared)
+        var saved_unsafe = self.dyn()->unsafe_depth
+        self.dyn()->unsafe_depth = 0
+        if n->body_block != &null {
+            self.dyn()->dispatch_stmt(n->body_block)
+        }
+
+        self.dyn()->unsafe_depth = saved_unsafe
+        self.pop_frame()
+        return n
     }
 
     /// Whether the function is spelled `noexcept` (FunctionDecl::no_unwind),
@@ -622,113 +967,170 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// header already states. Both attributes on one function is SC001E.
     /// Names probed, never interned: a name this file never spelled is on
     /// no decl.
-    priv fn _stamp_no_unwind(self, n: *FunctionDecl) {
-        var head = n->first_decl();
-        if n->has_ffi_linkage() || (n->clang_decl != &null) { return; }
-        var k_no = dyn()->sc->imm_table()->find_ident(LangAttrs::no_unwind());
-        var k_un = dyn()->sc->imm_table()->find_ident(LangAttrs::unwind());
-        var no_at: *FunctionDecl = &null;
-        var un_at: *FunctionDecl = &null;
-        var cur  = head;
-        while true {
-            if (k_no != u32(-1)) && cur->has_attribute_named(k_no) && (no_at == &null) { no_at = cur; }
-            if (k_un != u32(-1)) && cur->has_attribute_named(k_un) && (un_at == &null) { un_at = cur; }
-            cur = cur->next_in_chain();
-            if cur == head { break; }
+    priv fn _stamp_no_unwind(self, n: unsafe *FunctionDecl) {
+        var unsafe *head = n->first_decl()
+        if n->has_ffi_linkage() || n->clang_decl != &null {
+            return
         }
+
+        var k_no = self.dyn()->sc->imm_table()->find_ident(LangAttrs::no_unwind())
+        var k_un = self.dyn()->sc->imm_table()->find_ident(LangAttrs::unwind())
+        var        no_at: unsafe *FunctionDecl = &null
+        var        un_at: unsafe *FunctionDecl = &null
+        var unsafe *cur                        = head
+        while true {
+            if k_no != u32::MAX && cur->has_attribute_named(k_no) && no_at == &null {
+                no_at = cur
+            }
+
+            if k_un != u32::MAX && cur->has_attribute_named(k_un) && un_at == &null {
+                un_at = cur
+            }
+
+            cur = cur->next_in_chain()
+            if cur == head {
+                break
+            }
+        }
+
         // Reported once, from the link that carries `@unwind`.
-        if (no_at != &null) && (un_at == n) {
-            var nm = dyn()->tu.decl_name(static_cast::<*Decl>(n));
-            var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
-                f"'{nm}' is marked both '@unwind' and '@no_unwind\x27");
-            b.first(n->range);
-            b.note(DiagID::SC001N, no_at->range.start, "'@no_unwind' is here; it wins: the function is 'noexcept\x27").first(no_at->range);
-            b.emit();
+        if no_at != &null && un_at == n {
+            var nm = self.dyn()->tu.decl_name(n)
+            var b = self.dyn()->sc->diag->report(
+                DiagID::SC267E,
+                n->range.start,
+                f"'{nm}' is marked both '@unwind' and '@no_unwind'",
+            )
+
+            b.first(n->range)
+            b.note(
+                DiagCode(DiagID::SC267N),
+                no_at->range.start,
+                "'@no_unwind' is here; it wins: the function is 'noexcept'",
+            )->first(no_at->range)
+            b.emit()
         }
-        var spell = (no_at != &null) || ((un_at == &null) && (!dyn()->sc->opts.unwind_all));
-        cur = head;
+
+        var spell = no_at != &null || un_at == &null && !self.dyn()->sc->opts.unwind_all
+        cur = head
         while true {
-            cur->no_unwind = spell;
-            cur = cur->next_in_chain();
-            if cur == head { break; }
+            cur->no_unwind = spell
+            cur            = cur->next_in_chain()
+            if cur == head {
+                break
+            }
         }
     }
 
     /// The functions that cannot be generators, each for a reason C++ makes
     /// fatal or Kairo makes meaningless. One error, at the name.
-    priv fn _check_generator_kind(self, n: *FunctionDecl) {
-        var why = "";
-        if n->is_operator && (n->op_token.size() > 0) && (n->op_token[0].kind == TokenKind::KwDelete) {
-            why = "a destructor cannot be a generator; it runs to completion when the object dies";
+    priv fn _check_generator_kind(self, n: unsafe *FunctionDecl) {
+        var why = ""
+        if n->is_operator && n->op_token.size() > 0 && n->op_token[0].kind == TokenKind::KwFinally {
+            why = "a destructor cannot be a generator; it runs to completion when the object dies"
         } else if self._is_ctor(n) {
-            why = "a constructor cannot be a generator; it returns the object it builds, not a sequence";
+            why = "a constructor cannot be a generator; it returns the object it builds, not a sequence"
         } else if self._is_main(n) {
-            why = "'main' cannot be a generator; it returns the process\x27s exit status";
+            why = "'main' cannot be a generator; it returns the process's exit status"
         } else if n->ffi_c_variadic {
-            why = "a C-variadic function cannot be a generator; its '...' arguments do not outlive the call";
+            why = "a C-variadic function cannot be a generator; its '...' arguments do not outlive the call"
         } else if n->is_noreturn {
-            why = "a function returning '!' cannot be a generator; a generator ends";
+            why = "a function returning '!' cannot be a generator; a generator ends"
         }
-        if why.size() == 0 { return; }
-        var at = (n->range) if (n->is_operator) else (n->name.range);
-        dyn()->sc->diag->report(DiagID::SC112E, at.start, why).first(at).emit();
+
+        if why.size() == 0 {
+            return
+        }
+
+        var at = if (n->is_operator) => (n->range) else => n->name.range
+        self.dyn()->sc->diag->report(DiagID::SC112E, at.start, why).first(at)->emit()
     }
 
     /// A method named after the type it is declared in. Operators have no
     /// name token to compare.
-    priv fn _is_ctor(self, f: *FunctionDecl) -> bool {
-        if f->is_operator || (!f->is_method()) { return false; }
-        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
-        if (dc == &null) || (!dc->is_type_scope()) || (dc->dc_owner == &null) { return false; }
-        return dyn()->tu.decl_name(static_cast::<*Decl>(f)) == dyn()->tu.decl_name(dc->dc_owner);
+    priv fn _is_ctor(self, f: unsafe *FunctionDecl) -> bool {
+        if f->is_operator || !f->is_method() {
+            return false
+        }
+
+        var unsafe *dc = f->semantic_dc
+        if dc == &null || !dc->is_type_scope() || dc->dc_owner == &null {
+            return false
+        }
+
+        return self.dyn()->tu.decl_name(f) == self.dyn()->tu.decl_name(dc->dc_owner)
     }
 
     /// A free function named `main` outside any type. Whether this TU is the
     /// entry is codegen's question; a generator `main` is wrong in any TU.
-    priv fn _is_main(self, f: *FunctionDecl) -> bool {
-        if f->is_operator || f->is_method() { return false; }
-        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
-        if (dc != &null) && dc->is_type_scope() { return false; }
-        return dyn()->tu.decl_name(static_cast::<*Decl>(f)) == entry_point_name();
+    priv fn _is_main(self, f: unsafe *FunctionDecl) -> bool {
+        if f->is_operator || f->is_method() {
+            return false
+        }
+
+        var unsafe *dc = f->semantic_dc
+        if dc != &null && dc->is_type_scope() {
+            return false
+        }
+
+        return self.dyn()->tu.decl_name(f) == entry_point_name()
     }
 
-    fn traverse_field_decl(self, n: *FieldDecl) -> *FieldDecl {
-        if n == &null { return n; }
+    fn traverse_field_decl(self, n: unsafe *FieldDecl) -> unsafe *FieldDecl {
+        if n == &null {
+            return n
+        }
+
         if n->init != &null {
-            var ft = (n->type_->canonical) if (n->type_ != &null) else (&null);
-            dyn()->flow.enter();   // a default runs in no body's state.
-            dyn()->push_null_target(n->init, n->type_, static_cast::<*Decl>(n));
-            dyn()->type_of(n->init, ft);
-            dyn()->pop_null_target();
-            dyn()->reject_slice_literal(n->init, "used as a field default");
+            var unsafe *ft = if (n->type_ != &null) => (n->type_->canonical) else => &null
+            self.dyn()->flow.enter() // a default runs in no body's state.
+            self.dyn()->push_null_target(n->init, n->type_, n)
+            self.dyn()->type_of(n->init, ft)
+            self.dyn()->pop_null_target()
+            self.dyn()->reject_slice_literal(n->init, "used as a field default")
             // An array field is initialized from a list literal, as a `var`
             // is (collections.mdx: an array is not copyable).
-            var copied = (ft != &null) && dyn()->reject_array_copy(n->init, ft);
-            if (ft != &null) && (!copied) { dyn()->check_convertible(n->init, ft); }
-            dyn()->flow.leave();
+            var copied = ft != &null && self.dyn()->reject_array_copy(n->init, ft)
+            if ft != &null && !copied {
+                self.dyn()->check_convertible(n->init, ft)
+            }
+
+            self.dyn()->flow.leave()
         }
-        return n;
+
+        return n
     }
 
-    fn traverse_enum_variant_decl(self, n: *EnumVariantDecl) -> *EnumVariantDecl {
-        if n == &null { return n; }
-        var edc = reinterpret_cast::<*DeclContext>(n->semantic_dc);
-        var ed  = (dyn_cast::<EnumDecl>(edc->owner_decl())) if (edc != &null) else (&null);
-        var under: *Type = dyn()->tu.builtin(BuiltinKind::U32);
-        if (ed != &null) && (ed->underlying != &null) && (ed->underlying->canonical != &null) { under = ed->underlying->canonical; }
-        var typed_ok = true;
+    fn traverse_enum_variant_decl(self, n: unsafe *EnumVariantDecl) -> unsafe *EnumVariantDecl {
+        if n == &null {
+            return n
+        }
+
+        var unsafe *edc = n->semantic_dc
+        var unsafe *ed = if (edc != &null) => (dyn_cast<EnumDecl>(edc->owner_decl())) else => &null
+        var under: unsafe *Type = self.dyn()->tu.builtin(BuiltinKind::U32)
+        if ed != &null && ed->underlying != &null && ed->underlying->canonical != &null {
+            under = ed->underlying->canonical
+        }
+
+        var typed_ok = true
         if n->discriminant != &null {
             // An earlier variant named here is its integer value, not an enum
             // object; see ExprTyper::discr_enum.
-            var saved = dyn()->discr_enum;
-            dyn()->discr_enum = (NameLookup::representative(static_cast::<*Decl>(ed))) if (ed != &null) else (&null);
-            dyn()->type_of(n->discriminant, under);
-            typed_ok = dyn()->check_convertible(n->discriminant, under);
-            dyn()->discr_enum = saved;
+            var saved = self.dyn()->discr_enum
+            self.dyn()->discr_enum = if (ed != &null) => (NameLookup::representative(ed))
+                                     else => &null
+            self.dyn()->type_of(n->discriminant, under)
+            typed_ok               = self.dyn()->check_convertible(n->discriminant, under)
+            self.dyn()->discr_enum = saved
         }
-        self._enum_variant_value(n, ed, under, typed_ok);
-        for var i: usize = 0; i < n->payload.size(); ++i { self.traverse_field_decl(n->payload[i]); }
-        return n;
+
+        self._enum_variant_value(n, ed, under, typed_ok)
+        for var i: usize = 0; i < n->payload.size(); ++i {
+            self.traverse_field_decl(n->payload[i])
+        }
+
+        return n
     }
 
     /// Write EnumVariantDecl::value (this is its one writer): the
@@ -736,57 +1138,95 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// The RAV visits `variants` in order, so the previous variant's slot,
     /// and every slot a discriminant may name, is already written. An
     /// imported C++ enum is clang's to number and is left alone.
-    priv fn _enum_variant_value(self, n: *EnumVariantDecl, ed: *EnumDecl, under: *Type, typed_ok: bool) {
-        n->value = IntConst{};
-        if (ed != &null) && ed->is_imported() { return; }
-        var ce = ConstEval(dyn()->sc);
-        var pos = usize(n->index);
+    priv fn _enum_variant_value(self,
+                                n:        unsafe *EnumVariantDecl,
+                                ed:       unsafe *EnumDecl,
+                                under:    unsafe *Type,
+                                typed_ok: bool) {
+        n->value = IntConst{}
+        if ed != &null && ed->is_imported() {
+            return
+        }
+
+        var ce  = ConstEval(self.dyn()->sc)
+        var pos = (n->index as usize)
         if ed != &null {
             for var i: usize = 0; i < ed->variants.size(); ++i {
-                if ed->variants[i] == n { pos = i; break; }
+                if ed->variants[i] == n {
+                    pos = i
+                    break
+                }
             }
         }
 
         if n->discriminant != &null {
             // X has already said what is wrong with a discriminant that
             // did not type or convert (SC075E for `256` in a u8 enum).
-            if (!typed_ok) || n->discriminant->is_poisoned() { return; }
-            var c = ce.eval_discriminant(n->discriminant, ed, pos);
+            if !typed_ok || n->discriminant->is_poisoned() {
+                return
+            }
+
+            var c = ce.eval_discriminant(n->discriminant, ed, pos)
             if c.ok && ce.fits(c, under) {
-                n->value = c;
-                self._reject_duplicate_value(n, ed, pos);
-                return;
+                n->value = c
+                self._reject_duplicate_value(n, ed, pos)
+                return
             }
-            if (!c.ok) && ce.quiet { return; }
+
+            if !c.ok && ce.quiet {
+                return
+            }
+
             if !c.ok {
-                var at = (ce.bad) if (ce.bad != &null) else (n->discriminant);
-                var why = (ce.bad_why) if (ce.bad_why.size() > 0) else ("it is not a constant");
-                var b = dyn()->sc->diag->report(DiagID::SC128E, at->range.start,
-                    f"an enum discriminant must be an integer constant that fits '{dyn()->tu.str(under)}'; this one does not evaluate: {why}"
-                );
-                b.first(at->range);
+                var unsafe *at = if (ce.bad != &null) => (ce.bad) else => n->discriminant
+                var why = if (ce.bad_why.size() > 0) => (ce.bad_why) else => "it is not a constant"
+                var b = self.dyn()->sc->diag->report(
+                    DiagID::SC128E,
+                    at->range.start,
+                    f"an enum discriminant must be an integer constant that fits '{self.dyn()->tu.str(under)}'; this one does not evaluate: {why}",
+                )
+
+                b.first(at->range)
                 if ce.bad_decl != &null {
-                    b.note(ce.bad_decl->range.start, f"'{dyn()->tu.decl_name(ce.bad_decl)}' is declared here");
+                    b.note(
+                        ce.bad_decl->range.start,
+                        f"'{self.dyn()->tu.decl_name(ce.bad_decl)}' is declared here",
+                    )
                 }
-                b.emit();
-                return;
+
+                b.emit()
+                return
             }
-            self._report_value_misfit(ed, under, n->discriminant->range, f"it is {ce.str(c)}");
-            return;
+
+            self._report_value_misfit(ed, under, n->discriminant->range, f"it is {ce.str(c)}")
+            return
         }
 
-        if pos == 0 { n->value = ce.make(false, u64(0)); return; }
-        var prev = (ed->variants[pos - 1]) if ((ed != &null) && (pos < ed->variants.size())) else (&null);
-        if (prev == &null) || (!prev->value.ok) { return; }   // the previous one failed, and said so.
-        var c = ce.add(prev->value, ce.make(false, u64(1)));
-        if ce.fits(c, under) {
-            n->value = c;
-            self._reject_duplicate_value(n, ed, pos);
-            return;
+        if pos == 0 {
+            n->value = ce.make(false, 0)
+            return
         }
+
+        var unsafe *prev = if (ed != &null && pos < ed->variants.size()) => (ed->variants[pos - 1])
+                           else => &null
+        if prev == &null || !prev->value.ok { // the previous one failed, and said so.
+            return
+        }
+
+        var c = ce.add(prev->value, ce.make(false, 1))
+        if ce.fits(c, under) {
+            n->value = c
+            self._reject_duplicate_value(n, ed, pos)
+            return
+        }
+
         // C++ rejects the enumerator too; say it here, where the cause is.
-        self._report_value_misfit(ed, under, n->name.range,
-            f"'{dyn()->tu.decl_name(static_cast::<*Decl>(n))}' is one past '{dyn()->tu.decl_name(static_cast::<*Decl>(prev))}', so it is {ce.str(c)}");
+        self._report_value_misfit(
+            ed,
+            under,
+            n->name.range,
+            f"'{self.dyn()->tu.decl_name((unsafe (n as unsafe *Decl)))}' is one past '{self.dyn()->tu.decl_name((unsafe (prev as unsafe *Decl)))}', so it is {ce.str(c)}",
+        )
     }
 
     /// SC130E when \p n, just given its value, repeats the value of a
@@ -799,237 +1239,393 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// whose value failed has no ok slot and takes no part; its error is
     /// already out. An ADT is not checked: its match switches on the tag,
     /// which is the variant's position (MatchLowering), never its value.
-    priv fn _reject_duplicate_value(self, n: *EnumVariantDecl, ed: *EnumDecl, pos: usize) {
-        if (ed == &null) || ed->is_adt || (!n->value.ok) { return; }
-        var lim = (pos) if (pos < ed->variants.size()) else (ed->variants.size());
+    priv fn _reject_duplicate_value(self,
+                                    n:   unsafe *EnumVariantDecl,
+                                    ed:  unsafe *EnumDecl,
+                                    pos: usize) {
+        if ed == &null || ed->is_adt || !n->value.ok {
+            return
+        }
+
+        var lim = if (pos < ed->variants.size()) => (pos) else => ed->variants.size()
         for var i: usize = 0; i < lim; ++i {
-            var a = ed->variants[i];
-            if (a == &null) || (a == n) || (!a->value.ok) || a->value.overflow { continue; }
-            if (a->value.neg != n->value.neg) || (a->value.mag != n->value.mag) { continue; }
-            var ce = ConstEval(dyn()->sc);
-            var an = dyn()->tu.decl_name(static_cast::<*Decl>(a));
-            var b = dyn()->sc->diag->report(DiagID::SC130E, n->name.range.start,
-                f"'{dyn()->tu.decl_name(static_cast::<*Decl>(n))}' has the same value as '{an}' ({ce.str(n->value)})"
-            );
-            b.first(n->name.range);
-            b.note(DiagID::SC130N, a->name.range.start, f"'{an}' is declared here");
-            b.emit();
-            return;
+            var unsafe *a = ed->variants[i]
+            if a == &null || a == n || !a->value.ok || a->value.overflow {
+                continue
+            }
+
+            if a->value.neg != n->value.neg || a->value.mag != n->value.mag {
+                continue
+            }
+
+            var ce = ConstEval(self.dyn()->sc)
+            var an = self.dyn()->tu.decl_name(a)
+            var b = self.dyn()->sc->diag->report(
+                DiagID::SC130E,
+                n->name.range.start,
+                f"'{self.dyn()->tu.decl_name((unsafe (n as unsafe *Decl)))}' has the same value as '{an}' ({ce.str(n->value)})",
+            )
+
+            b.first(n->name.range)
+            b.note(DiagCode(DiagID::SC130N), a->name.range.start, f"'{an}' is declared here")
+            b.emit()
+            return
         }
     }
 
     /// SC128E for a value outside the underlying type, with a note on
     /// where that type comes from.
-    priv fn _report_value_misfit(self, ed: *EnumDecl, under: *Type, at: SourceRange, what: string) {
-        var b = dyn()->sc->diag->report(DiagID::SC128E, at.start,
-            f"an enum discriminant must be an integer constant that fits '{dyn()->tu.str(under)}'; {what}, which does not fit"
-        );
-        b.first(at);
-        if (ed != &null) && (ed->underlying != &null) && ed->underlying->range.is_valid() {
-            b.note(ed->underlying->range.start, "the underlying type is declared here");
+    priv fn _report_value_misfit(self,
+                                 ed:         unsafe *EnumDecl,
+                                 under:      unsafe *Type,
+                                 at:         SourceRange,
+                                 const what: string) {
+        var b = self.dyn()->sc->diag->report(
+            DiagID::SC128E,
+            at.start,
+            f"an enum discriminant must be an integer constant that fits '{self.dyn()->tu.str(under)}'; {what}, which does not fit",
+        )
+
+        b.first(at)
+        if ed != &null && ed->underlying != &null && ed->underlying->range.is_valid() {
+            b.note(ed->underlying->range.start, "the underlying type is declared here")
         } else if ed != &null {
-            b.note(ed->name.range.start,
-                f"'{dyn()->tu.decl_name(static_cast::<*Decl>(ed))}' has the default underlying type 'u32'; name a wider one with 'derives\x27"
-            );
+            b.note(
+                ed->name.range.start,
+                f"'{self.dyn()->tu.decl_name((unsafe (ed as unsafe *Decl)))}' has the default underlying type 'u32'; name a wider one with 'derives'",
+            )
         }
-        b.emit();
+
+        b.emit()
     }
 
-    fn traverse_variable_decl(self, n: *VariableDecl) -> *VariableDecl {
-        if n == &null { return n; }
-        if n->is_poisoned() { return n; }
-        var declared: *Type = &null;
+    fn traverse_variable_decl(self, n: unsafe *VariableDecl) -> unsafe *VariableDecl {
+        if n == &null {
+            return n
+        }
+
+        if n->is_poisoned() {
+            return n
+        }
+
+        var declared: unsafe *Type = &null
         if n->type_ != &null {
-            if n->type_->canonical == &null { self.resolve_typeof_type(n->type_); }
-            if n->type_->is_poisoned() { if n->init != &null { dyn()->type_of(n->init, &null); } return n; }
-            declared = n->type_->canonical;
-        }
-        if n->init == &null {
-            if (n->type_ == &null) {
-                dyn()->sc->diag->report(DiagID::SC046E, n->range.start,
-                    f"'{dyn()->tu.decl_name(static_cast::<*Decl>(n))}' has neither a type nor an initializer"
-                ).first(n->range).emit();
-                n->poison();
+            if n->type_->canonical == &null {
+                self.resolve_typeof_type(n->type_)
             }
-            dyn()->flow.define(n);   // `var x: T?` starts null.
-            return n;
+
+            if n->type_->is_poisoned() {
+                if n->init != &null {
+                    self.dyn()->type_of(n->init, &null)
+                }
+
+                return n
+            }
+
+            declared = n->type_->canonical
         }
-        var st = dyn()->sc->rstate.decl_state(static_cast::<*Decl>(n));
-        if st != ResolveState::Unresolved { return n; }   // demand-typed already.
-        dyn()->sc->rstate.begin_decl(static_cast::<*Decl>(n), n->range);
+
+        if n->init == &null {
+            if n->type_ == &null {
+                self.dyn()->sc->diag->report(
+                    DiagID::SC046E,
+                    n->range.start,
+                    f"'{self.dyn()->tu.decl_name((unsafe (n as unsafe *Decl)))}' has neither a type nor an initializer",
+                ).first(n->range)->emit()
+                n->poison()
+            }
+
+            self.dyn()->flow.define(n) // `var x: T?` starts null.
+            return n
+        }
+
+        var st = self.dyn()->sc->rstate.decl_state(n)
+        if st != ResolveState::Unresolved { // demand-typed already.
+            return n
+        }
+
+        self.dyn()->sc->rstate.begin_decl(n, n->range)
         if !self._shorthand_has_source(n) {
-            dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(n), false);
-            return n;
+            self.dyn()->sc->rstate.finish_decl(n, false)
+            return n
         }
-        dyn()->push_null_target(n->init, n->type_, static_cast::<*Decl>(n));
-        var t = dyn()->type_of(n->init, declared);
-        dyn()->pop_null_target();
-        dyn()->mark_list_storage(n->init);
-        self._reject_array_copy(n, (declared) if (declared != &null) else (t));
-        var ok = true;
+
+        self.dyn()->push_null_target(n->init, n->type_, n)
+        var t = self.dyn()->type_of(n->init, declared)
+        self.dyn()->pop_null_target()
+        self.dyn()->mark_list_storage(n->init)
+        self._reject_array_copy(n, if (declared != &null) => (declared) else => t)
+        var ok = true
         if declared != &null {
-            ok = dyn()->check_convertible(n->init, declared);
+            ok = self.dyn()->check_convertible(n->init, declared)
         } else if t != &null {
-            if dyn()->tu.is_void(t) {
-                dyn()->sc->diag->report(DiagID::SC047E, n->range.start,
-                    f"'{dyn()->tu.decl_name(static_cast::<*Decl>(n))}' is initialized with an expression of type 'void\x27"
-                ).first(n->range).emit();
-                n->poison(); ok = false;
+            if self.dyn()->tu.is_void(t) {
+                self.dyn()->sc->diag->report(
+                    DiagID::SC047E,
+                    n->range.start,
+                    f"'{self.dyn()->tu.decl_name((unsafe (n as unsafe *Decl)))}' is initialized with an expression of type 'void'",
+                ).first(n->range)->emit()
+                n->poison()
+                ok = false
             } else {
-                n->type_ = self._shorthand_type(n, self._fn_value_decay(n->init, t));   // inferred slot := the value's type (a copy has no cv), `?` applied.
+                n->type_ = self._shorthand_type(n, self._fn_value_decay(n->init, t)) // inferred slot := the value's type (a copy has no cv), `?` applied.
             }
         } else if self._reject_type_value(n) {
-            ok = false;
+            ok = false
         } else if n->init->is_poisoned() {
-            ok = false;
+            ok = false
         }
-        dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(n), ok);
-        if ok { dyn()->flow.define(n); }   // the value SETS the state (NULLABLE.md 3.2).
-        return n;
+
+        self.dyn()->sc->rstate.finish_decl(n, ok)
+        if ok { // the value SETS the state (Compiler/Spec/Nullables.md#definitions-and-conditions).
+            self.dyn()->flow.define(n)
+        }
+
+        return n
     }
 
-    // === statements =========================================================
+    /// # statements
 
-    fn traverse_expression_stmt(self, n: *ExpressionStmt) -> *ExpressionStmt {
-        if (n == &null) || (n->expr == &null) { return n; }
-        var t = dyn()->type_of(n->expr, &null);
-        if (t != &null) && dyn()->tu.is_never(t) { dyn()->flow.diverge(); }   // a `-> !` call ends the path.
+    fn traverse_expression_stmt(self,
+                                n: unsafe *Statements::ExpressionStmt) -> unsafe *Statements::ExpressionStmt {
+        if n == &null || n->expr == &null {
+            return n
+        }
+
+        var t = self.dyn()->type_of(n->expr, &null)
+        if t != &null && self.dyn()->tu.is_never(t) { // a `-> !` call ends the path.
+            self.dyn()->flow.diverge()
+        }
+
         // An attributed statement (`@note` NL `p`) was written to be there.
-        if (t != &null) && (!n->has_attribute()) && self._discards_pure_value(n->expr) {
+        if t != &null && !n->has_attribute() && self._discards_pure_value(n->expr) {
             // `x = a` NEWLINE `+ b` is two statements (a newline ends one),
             // the second a value thrown away: a silent miscompile of the
-            // continuation it looks like (G44), as C++'s -Wunused-value.
-            var b = dyn()->sc->diag->report(DiagID::SC001W, n->expr->range.start,
-                "expression result unused; the statement has no effect");
-            b.first(n->expr->range);
-            b.note(n->expr->range.start, "a newline ends a statement: an operator that continues the line above belongs at the end of that line");
-            b.emit();
+            // continuation it looks like, as C++'s -Wunused-value.
+            var b = self.dyn()->sc->diag->report(
+                DiagID::SC268W,
+                n->expr->range.start,
+                "expression result unused; the statement has no effect",
+            )
+
+            b.first(n->expr->range)
+            b.note(
+                n->expr->range.start,
+                "a newline ends a statement: an operator that continues the line above belongs at the end of that line",
+            )
+
+            b.emit()
         }
-        return n;
+
+        return n
     }
 
     /// \p e computes a value and does nothing else: a literal, a bare name,
     /// or a BUILTIN unary / binary operator (not `++`/`--`, not a user `op`,
     /// which may act, and not `&&` / `||` / `??`, which are control flow).
-    priv fn _discards_pure_value(self, e_in: *Expr) -> bool {
-        var e = dyn()->tu.strip_parens(e_in);
-        if (e == &null) || e->is_poisoned() || e->is_instantiation_dependent() { return false; }
-        if e->range.start.is_invalid() { return false; }   // synthesized, not written.
-        var k = e->kind;
-        if (k == ExprKind::IntegerLiteralExpr) || (k == ExprKind::FloatingLiteralExpr) || (k == ExprKind::StringLiteralExpr)
-            || (k == ExprKind::CharacterLiteralExpr) || (k == ExprKind::BooleanLiteralExpr) || (k == ExprKind::NullLiteralExpr)
-            || (k == ExprKind::NamedIdentExpr) {
-            return true;
+    priv fn _discards_pure_value(self, e_in: unsafe *Expr) -> bool {
+        var e = self.dyn()->tu.strip_parens(e_in)
+        if e == &null || e->is_poisoned() || e->is_instantiation_dependent() {
+            return false
         }
+
+        if e->range.start.is_invalid() { // synthesized, not written.
+            return false
+        }
+
+        var k = e->kind
+        if k == ExprKind::IntegerLiteralExpr
+            || k == ExprKind::FloatingLiteralExpr
+            || k == ExprKind::StringLiteralExpr
+            || k == ExprKind::CharacterLiteralExpr
+            || k == ExprKind::BooleanLiteralExpr
+            || k == ExprKind::NullLiteralExpr
+            || k == ExprKind::NamedIdentExpr {
+            return true
+        }
+
         if k == ExprKind::UnaryOperatorExpr {
-            var u = cast::<UnaryOperatorExpr>(e);
-            if u->is_mode_marker || (u->resolved_op != &null) { return false; }
-            var uk = u->op_token.kind;
-            if (uk == TokenKind::OpPlusPlus) || (uk == TokenKind::OpMinusMinus) { return false; }
-            return u->fix == UnaryOperatorExpr::Fix::Prefix;
+            var u = cast<UnaryOperatorExpr>(e)
+            if u->is_mode_marker || u->resolved_op != &null {
+                return false
+            }
+
+            var uk = u->op_token.kind
+            if uk == TokenKind::OpPlusPlus || uk == TokenKind::OpMinusMinus {
+                return false
+            }
+
+            return u->fix == UnaryOperatorExpr::Fix::Prefix
         }
+
         if k == ExprKind::BinaryOperatorExpr {
-            var bo = cast::<BinaryOperatorExpr>(e);
-            if bo->resolved_op != &null { return false; }
-            var bk = bo->op_token.kind;
-            if (bk == TokenKind::OpAmpAmp) || (bk == TokenKind::OpPipePipe) || (bk == TokenKind::OpQuestionQuestion) { return false; }
-            return true;
+            var bo = cast<BinaryOperatorExpr>(e)
+            if bo->resolved_op != &null {
+                return false
+            }
+
+            var bk = bo->op_token.kind
+            if bk == TokenKind::OpAmpAmp
+                || bk == TokenKind::OpPipePipe
+                || bk == TokenKind::OpQuestionQuestion {
+                return false
+            }
+
+            return true
         }
-        return false;
+
+        return false
     }
 
-    fn traverse_return_stmt(self, n: *ReturnStmt) -> *ReturnStmt {
-        if n == &null { return n; }
-        self._type_return(n);
-        dyn()->flow.diverge();
-        return n;
+    fn traverse_return_stmt(self,
+                            n: unsafe *Statements::ReturnStmt) -> unsafe *Statements::ReturnStmt {
+        if n == &null {
+            return n
+        }
+
+        self._type_return(n)
+        self.dyn()->flow.diverge()
+        return n
     }
 
-    fn traverse_break_stmt(self, n: *BreakStmt) -> *BreakStmt {
-        if n == &null { return n; }
-        dyn()->flow.on_break((dyn()->sc->ctx->get_spelling(n->label)) if (n->has_label) else (""));
-        return n;
+    fn traverse_break_stmt(self,
+                           n: unsafe *Statements::BreakStmt) -> unsafe *Statements::BreakStmt {
+        if n == &null {
+            return n
+        }
+
+        self.dyn()->flow.on_break(
+            if (n->has_label) => (self.dyn()->sc->ctx->get_spelling(n->label)) else => "",
+        )
+
+        return n
     }
 
-    fn traverse_continue_stmt(self, n: *ContinueStmt) -> *ContinueStmt {
-        if n == &null { return n; }
+    fn traverse_continue_stmt(self,
+                              n: unsafe *Statements::ContinueStmt) -> unsafe *Statements::ContinueStmt {
+        if n == &null {
+            return n
+        }
+
         // The loop's head already assumes whatever the back edge brings.
-        dyn()->flow.diverge();
-        return n;
+        self.dyn()->flow.diverge()
+        return n
     }
 
-    priv fn _type_return(self, n: *ReturnStmt) -> *ReturnStmt {
-        var fr = self.cur_frame();
+    priv fn _type_return(self,
+                         n: unsafe *Statements::ReturnStmt) -> unsafe *Statements::ReturnStmt {
+        var unsafe *fr = self.cur_frame()
         if fr == &null {
-            if n->value != &null { dyn()->type_of(n->value, &null); }
-            return n;
+            if n->value != &null {
+                self.dyn()->type_of(n->value, &null)
+            }
+
+            return n
         }
+
         // A generator's `-> yield T` types what it YIELDS. A bare `return`
         // ends the sequence early (functions.md); a value has nowhere to go.
         if fr->is_generator {
-            if n->value == &null { fr->saw_bare_return = true; return n; }
-            dyn()->type_of(n->value, &null);
-            dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
-                "a generator ends with 'return' and yields its values; it has no return value"
-            ).first(n->range).emit();
-            return n;
-        }
-        if n->value == &null {
-            fr->saw_bare_return = true;
-            if (fr->declared != &null) && (!dyn()->tu.is_void(fr->declared)) && (!dyn()->tu.is_never(fr->declared)) {
-                dyn()->sc->diag->report(DiagID::SC048E, n->range.start,
-                    f"'return' with no value in a function returning '{dyn()->tu.str(fr->declared)}\x27"
-                ).first(n->range).emit();
+            if n->value == &null {
+                fr->saw_bare_return = true
+                return n
             }
-            return n;
+
+            self.dyn()->type_of(n->value, &null)
+            self.dyn()->sc->diag->report(
+                DiagID::SC269E,
+                n->range.start,
+                "a generator ends with 'return' and yields its values; it has no return value",
+            ).first(n->range)->emit()
+            return n
         }
-        fr->saw_return_value = true;
-        var rw: *Type = (fr->fn_decl->return_type) if (fr->fn_decl != &null) else (&null);
-        dyn()->push_null_target(n->value, rw, static_cast::<*Decl>(fr->fn_decl));
-        var t = dyn()->type_of(n->value, fr->declared);
-        dyn()->pop_null_target();
+
+        if n->value == &null {
+            fr->saw_bare_return = true
+            if fr->declared != &null
+                && !self.dyn()->tu.is_void(fr->declared)
+                && !self.dyn()->tu.is_never(fr->declared) {
+                self.dyn()->sc->diag->report(
+                    DiagID::SC048E,
+                    n->range.start,
+                    f"'return' with no value in a function returning '{self.dyn()->tu.str(fr->declared)}'",
+                ).first(n->range)->emit()
+            }
+
+            return n
+        }
+
+        fr->saw_return_value = true
+        var rw: unsafe *Type = if (fr->fn_decl != &null) => (fr->fn_decl->return_type) else => &null
+        self.dyn()->push_null_target(n->value, rw, fr->fn_decl)
+        var t = self.dyn()->type_of(n->value, fr->declared)
+        self.dyn()->pop_null_target()
         // Re-read: typing a closure in the value pushes its frame, and a
         // `frames` that grew moved this one. The old pointer read freed
         // memory (an inferred return wrote to it), harmless only while
         // nothing reused the block.
-        fr = self.cur_frame();
-        dyn()->reject_slice_literal(n->value, "returned from a function");
+        fr = self.cur_frame()
+        self.dyn()->reject_slice_literal(n->value, "returned from a function")
         if fr->declared != &null {
-            if dyn()->tu.is_never(fr->declared) {
-                dyn()->sc->diag->report(DiagID::SC049E, n->range.start, "a function returning '!' cannot return").first(n->range).emit();
-                return n;
+            if self.dyn()->tu.is_never(fr->declared) {
+                self.dyn()->sc->diag->report(
+                    DiagID::SC049E,
+                    n->range.start,
+                    "a function returning '!' cannot return",
+                ).first(n->range)->emit()
+                return n
             }
-            if dyn()->tu.is_void(fr->declared) {
-                if (t != &null) && (!dyn()->tu.is_void(t)) {
-                    dyn()->sc->diag->report(DiagID::SC050E, n->range.start,
-                        f"'return' with a value of type '{dyn()->tu.str(t)}' in a function returning 'void\x27"
-                    ).first(n->range).emit();
+
+            if self.dyn()->tu.is_void(fr->declared) {
+                if t != &null && !self.dyn()->tu.is_void(t) {
+                    self.dyn()->sc->diag->report(
+                        DiagID::SC050E,
+                        n->range.start,
+                        f"'return' with a value of type '{self.dyn()->tu.str(t)}' in a function returning 'void'",
+                    ).first(n->range)->emit()
                 }
-                return n;
+
+                return n
             }
-            dyn()->check_convertible(n->value, fr->declared);
-            return n;
+
+            self.dyn()->check_convertible(n->value, fr->declared)
+            return n
         }
+
         // inferring
-        if t == &null { dyn()->reject_type_value(n->value); return n; }
-        var j = dyn()->conv.join(fr->inferred, t);
-        if j == &null {
-            dyn()->sc->diag->report(DiagID::SC039E, n->range.start,
-                f"this 'return' has type '{dyn()->tu.str(t)}', which does not unify with an earlier return of type '{dyn()->tu.str(fr->inferred)}\x27"
-            ).first(n->range).emit();
-            return n;
+        if t == &null {
+            self.dyn()->reject_type_value(n->value)
+            return n
         }
-        fr->inferred = j;
-        return n;
+
+        var j = self.dyn()->conv.join(fr->inferred, t)
+        if j == &null {
+            self.dyn()->sc->diag->report(
+                DiagID::SC039E,
+                n->range.start,
+                f"this 'return' has type '{self.dyn()->tu.str(t)}', which does not unify with an earlier return of type '{self.dyn()->tu.str(fr->inferred)}'",
+            ).first(n->range)->emit()
+            return n
+        }
+
+        fr->inferred = j
+        return n
     }
 
     /// The branches start from the condition's true and false sets, and
     /// the code after from their join; a branch that diverges contributes
-    /// nothing (NULLABLE.md 3.3).
-    fn traverse_conditional_stmt(self, n: *ConditionalStmt) -> *ConditionalStmt {
-        if n == &null { return n; }
-        if n->cond != &null { dyn()->require_bool(n->cond, "the 'if' condition"); }
-        // An `eval if` over `typeof T == U` (EVAL.md "Type-based branching"):
+    /// nothing (Compiler/Spec/Nullables.md#definitions-and-conditions).
+    fn traverse_conditional_stmt(self,
+                                 n: unsafe *Statements::ConditionalStmt) -> unsafe *Statements::ConditionalStmt {
+        if n == &null {
+            return n
+        }
+
+        if n->cond != &null {
+            self.dyn()->require_bool(n->cond, "the 'if' condition")
+        }
+
+        // An `eval if` over `typeof T == U` (Compiler/Spec/Eval.md "Type-based branching"):
         // the unselected branches are not type-checked. Decided here (0/1),
         // the untaken branch is dropped from the tree, so no later pass and
         // no C++ compile sees code that is invalid for these types. Decided
@@ -1037,25 +1633,51 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         // with its diagnostics dropped -- the tree still gets its terminal
         // states -- and `if constexpr (__is_same(T, U))` lets C++ check the
         // one branch each instance takes.
-        var sel = (self._type_cmp_truth(n->cond)) if (n->is_eval) else (-1);
-        if sel == 1 { n->else_ = &null; n->eval_taken = 1; }
-        if (sel == 0) && (n->then_ != &null) { n->then_ = CompoundStmt::create(dyn()->sc->ctx, n->then_->range); n->eval_taken = 2; }
-        if sel == 2 { dyn()->sc->diag->push_suppress(); }
-        var c = dyn()->flow.cond_of(n->cond);
-        dyn()->flow.env = c.t;
-        if n->then_ != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->then_)); }
-        if sel == 2 { dyn()->sc->diag->pop_suppress(); }
-        var then_env = dyn()->flow.env;
-        dyn()->flow.env = c.f;
+        var sel = if (n->is_eval) => (self._type_cmp_truth(n->cond)) else => -1
+        if sel == 1 {
+            n->else_      = &null
+            n->eval_taken = 1
+        }
+
+        if sel == 0 && n->then_ != &null {
+            n->then_      = Statements::CompoundStmt::create(self.dyn()->sc->ctx, n->then_->range)
+            n->eval_taken = 2
+        }
+
+        if sel == 2 {
+            self.dyn()->sc->diag->push_suppress()
+        }
+
+        var c = self.dyn()->flow.cond_of(n->cond)
+        self.dyn()->flow.env = c.t
+        if n->then_ != &null {
+            self.dyn()->dispatch_stmt(n->then_)
+        }
+
+        if sel == 2 {
+            self.dyn()->sc->diag->pop_suppress()
+        }
+
+        var then_env = self.dyn()->flow.env
+        self.dyn()->flow.env = c.f
         // An else-if link is a ConditionalStmt of its own, decided when it
         // is dispatched; a final `else` here is the dependent chain's.
-        var sup_else = (sel == 2) && (n->else_ != &null) && (!isa::<ConditionalStmt>(n->else_));
-        if sup_else { dyn()->sc->diag->push_suppress(); }
-        if n->else_ != &null { dyn()->dispatch_stmt(n->else_); }
-        if sup_else { dyn()->sc->diag->pop_suppress(); }
-        var else_env = dyn()->flow.env;
-        dyn()->flow.env = dyn()->flow.join(&then_env, &else_env);
-        return n;
+        var sup_else = sel == 2 && n->else_ != &null && !isa<Statements::ConditionalStmt>(n->else_)
+        if sup_else {
+            self.dyn()->sc->diag->push_suppress()
+        }
+
+        if n->else_ != &null {
+            self.dyn()->dispatch_stmt(n->else_)
+        }
+
+        if sup_else {
+            self.dyn()->sc->diag->pop_suppress()
+        }
+
+        var else_env = self.dyn()->flow.env
+        self.dyn()->flow.env = self.dyn()->flow.join(&then_env, &else_env)
+        return n
     }
 
     /// \p e, an `eval if` condition built of `typeof T == U` comparisons
@@ -1063,157 +1685,282 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// and bool literals: 1 / 0 when it is decided here, 2 when it depends
     /// on a generic parameter, -1 when it is not such a condition (it stays
     /// an ordinary `eval if`).
-    priv fn _type_cmp_truth(self, e0: *Expr) -> i32 {
-        var e = dyn()->tu.strip_parens(e0);
-        if (e == &null) || e->is_poisoned() { return -1; }
-        if isa::<BooleanLiteralExpr>(e) { return (1) if (cast::<BooleanLiteralExpr>(e)->value) else (0); }
-        var u = dyn_cast::<UnaryOperatorExpr>(e);
-        if (u != &null) && u->is_prefix() && ((u->op_token.kind == TokenKind::OpExclaim) || (u->op_token.kind == TokenKind::KwNot)) {
-            var v = self._type_cmp_truth(u->operand);
-            if (v == 0) || (v == 1) { return 1 - v; }
-            return v;
+    priv fn _type_cmp_truth(self, e0: unsafe *Expr) -> i32 {
+        var e = self.dyn()->tu.strip_parens(e0)
+        if e == &null || e->is_poisoned() {
+            return -1
         }
-        var b = dyn_cast::<BinaryOperatorExpr>(e);
-        if b == &null { return -1; }
+
+        if isa<BooleanLiteralExpr>(e) {
+            return if (cast<BooleanLiteralExpr>(e)->value) => (1) else => 0
+        }
+
+        var u = dyn_cast<UnaryOperatorExpr>(e)
+        if u != &null
+            && u->is_prefix()
+            && (u->op_token.kind == TokenKind::OpExclaim || u->op_token.kind == TokenKind::KwNot) {
+            var v = self._type_cmp_truth(u->operand)
+            if v == 0 || v == 1 {
+                return 1 - v
+            }
+
+            return v
+        }
+
+        var b = dyn_cast<BinaryOperatorExpr>(e)
+        if b == &null {
+            return -1
+        }
+
         if b->type_cmp_lhs != &null {
-            if b->type_cmp_lhs->is_dependent() || b->type_cmp_rhs->is_dependent() { return 2; }
-            var same = b->type_cmp_lhs == b->type_cmp_rhs;
-            if b->op_token.kind != TokenKind::OpEqualEqual { same = !same; }
-            return (1) if (same) else (0);
+            if b->type_cmp_lhs->is_dependent() || b->type_cmp_rhs->is_dependent() {
+                return 2
+            }
+
+            var same = b->type_cmp_lhs == b->type_cmp_rhs
+            if b->op_token.kind != TokenKind::OpEqualEqual {
+                same = !same
+            }
+
+            return if (same) => (1) else => 0
         }
-        var k = b->op_token.kind;
-        var is_and = (k == TokenKind::OpAmpAmp) || (k == TokenKind::KwAnd);
-        var is_or  = (k == TokenKind::OpPipePipe) || (k == TokenKind::KwOr);
-        if (!is_and) && (!is_or) { return -1; }
-        var l = self._type_cmp_truth(b->lhs);
-        var r = self._type_cmp_truth(b->rhs);
-        if (l == -1) || (r == -1) { return -1; }
+
+        var k      = b->op_token.kind
+        var is_and = k == TokenKind::OpAmpAmp || k == TokenKind::KwAnd
+        var is_or  = k == TokenKind::OpPipePipe || k == TokenKind::KwOr
+        if !is_and && !is_or {
+            return -1
+        }
+
+        var l = self._type_cmp_truth(b->lhs)
+        var r = self._type_cmp_truth(b->rhs)
+        if l == -1 || r == -1 {
+            return -1
+        }
+
         // A decided side settles it when it is the absorbing value.
-        if is_and && ((l == 0) || (r == 0)) { return 0; }
-        if is_or  && ((l == 1) || (r == 1)) { return 1; }
-        if (l == 2) || (r == 2) { return 2; }
-        return (1) if (is_and) else (0);
+        if is_and && (l == 0 || r == 0) {
+            return 0
+        }
+
+        if is_or && (l == 1 || r == 1) {
+            return 1
+        }
+
+        if l == 2 || r == 2 {
+            return 2
+        }
+
+        return if (is_and) => (1) else => 0
     }
 
     /// `outer: while ...`: the loop's `break outer` joins into it, not into
-    /// whichever loop is innermost (NULLABLE.md 3.5).
-    fn traverse_labeled_stmt(self, n: *LabeledStmt) -> *LabeledStmt {
-        if n == &null { return n; }
-        dyn()->flow.label_next(dyn()->sc->ctx->get_spelling(n->label));
-        if n->inner != &null { dyn()->dispatch_stmt(n->inner); }
-        dyn()->flow.label_next("");
-        return n;
+    /// whichever loop is innermost (Compiler/Spec/Nullables.md#loops).
+    fn traverse_labeled_stmt(self,
+                             n: unsafe *Statements::LabeledStmt) -> unsafe *Statements::LabeledStmt {
+        if n == &null {
+            return n
+        }
+
+        self.dyn()->flow.label_next(self.dyn()->sc->ctx->get_spelling(n->label))
+        if n->inner != &null {
+            self.dyn()->dispatch_stmt(n->inner)
+        }
+
+        self.dyn()->flow.label_next("")
+        return n
     }
 
     /// The head holds what every back edge brings (NullnessFlow::
     /// loop_enter); the condition, typed there, narrows the body; after the
     /// loop, its false set joined with each `break`.
-    fn traverse_while_loop_stmt(self, n: *WhileLoopStmt) -> *WhileLoopStmt {
-        if n == &null { return n; }
-        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), &null);
-        if n->cond != &null { dyn()->require_bool(n->cond, "the 'while' condition"); }
-        var c = dyn()->flow.cond_of(n->cond);
-        dyn()->flow.env = c.t;
-        if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
-        var brk = dyn()->flow.loop_leave();
-        dyn()->flow.env = dyn()->flow.join(&(c.f), &brk);
-        return n;
+    fn traverse_while_loop_stmt(self,
+                                n: unsafe *Statements::WhileLoopStmt) -> unsafe *Statements::WhileLoopStmt {
+        if n == &null {
+            return n
+        }
+
+        self.dyn()->flow.loop_enter(n->body, &null)
+        if n->cond != &null {
+            self.dyn()->require_bool(n->cond, "the 'while' condition")
+        }
+
+        var c = self.dyn()->flow.cond_of(n->cond)
+        self.dyn()->flow.env = c.t
+        if n->body != &null {
+            self.dyn()->dispatch_stmt(n->body)
+        }
+
+        var brk = self.dyn()->flow.loop_leave()
+        self.dyn()->flow.env = self.dyn()->flow.join(&c.f, &brk)
+        return n
     }
 
     /// `loop { }`: left only by a `break` (or not at all).
-    fn traverse_loop_stmt(self, n: *LoopStmt) -> *LoopStmt {
-        if n == &null { return n; }
-        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), &null);
-        if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
-        dyn()->flow.env = dyn()->flow.loop_leave();
-        return n;
+    fn traverse_loop_stmt(self, n: unsafe *Statements::LoopStmt) -> unsafe *Statements::LoopStmt {
+        if n == &null {
+            return n
+        }
+
+        self.dyn()->flow.loop_enter(n->body, &null)
+        if n->body != &null {
+            self.dyn()->dispatch_stmt(n->body)
+        }
+
+        self.dyn()->flow.env = self.dyn()->flow.loop_leave()
+        return n
     }
 
-    fn traverse_indexed_for_stmt(self, n: *IndexedForStmt) -> *IndexedForStmt {
-        if n == &null { return n; }
-        if n->init   != &null { dyn()->dispatch_stmt(n->init); }
-        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), n->update);
-        var head = dyn()->flow.env;
-        if n->cond   != &null { dyn()->require_bool(n->cond, "the loop condition"); }
-        var c = dyn()->flow.cond_of(n->cond);
+    fn traverse_indexed_for_stmt(self,
+                                 n: unsafe *Statements::IndexedForStmt) -> unsafe *Statements::IndexedForStmt {
+        if n == &null {
+            return n
+        }
+
+        if n->init != &null {
+            self.dyn()->dispatch_stmt(n->init)
+        }
+
+        self.dyn()->flow.loop_enter(n->body, n->update)
+        var head = self.dyn()->flow.env
+        if n->cond != &null {
+            self.dyn()->require_bool(n->cond, "the loop condition")
+        }
+
+        var c = self.dyn()->flow.cond_of(n->cond)
         // The update runs after the body or a `continue`: the head's state
         // (which already assumes the body's assignments) covers both.
-        dyn()->flow.env = head;
-        if n->update != &null { dyn()->type_of(n->update, &null); }
-        dyn()->flow.env = c.t;
-        if n->body   != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
-        var brk = dyn()->flow.loop_leave();
-        dyn()->flow.env = dyn()->flow.join(&(c.f), &brk);
-        return n;
+        self.dyn()->flow.env = head
+        if n->update != &null {
+            self.dyn()->type_of(n->update, &null)
+        }
+
+        self.dyn()->flow.env = c.t
+        if n->body != &null {
+            self.dyn()->dispatch_stmt(n->body)
+        }
+
+        var brk = self.dyn()->flow.loop_leave()
+        self.dyn()->flow.env = self.dyn()->flow.join(&c.f, &brk)
+        return n
     }
 
     /// The element type an iterable yields, or null (diagnosed). With \p rf,
     /// also records on the loop how IterLowering walks it.
-    fn iter_elem_type(self, at: *Expr, t: *Type, rf: *RangedForStmt = &null) -> *Type {
-        if t == &null { return &null; }
-        var kind = IterKind::None;
-        var _op: *Decl = &null;
-        var inst: *void = &null;
-        var elem = self._iter_classify(at, t, &kind, &_op, &inst, rf);
-        if (rf != &null) && (elem != &null) {
-            rf->iter_kind = kind;
-            rf->iter_op   = _op;
-            rf->iter_inst = inst;
-            rf->iter_elem = canon_unqual(elem);
+    fn iter_elem_type(self,
+                      at: unsafe *Expr,
+                      t:  unsafe *Type,
+                      rf: unsafe *Statements::RangedForStmt = &null) -> unsafe *Type {
+        if t == &null {
+            return &null
         }
-        return elem;
+
+        var kind                        = Statements::IterKind::None
+        var _op:  unsafe *Decl          = &null
+        var inst: unsafe *InstanceEntry = &null
+        var unsafe *elem = self._iter_classify(at, t, unsafe &kind, unsafe &_op, unsafe &inst, rf)
+        if rf != &null && elem != &null {
+            rf->iter_kind = kind
+            rf->iter_op   = _op
+            rf->iter_inst = inst
+            rf->iter_elem = canon_unqual(elem)
+        }
+
+        return elem
     }
 
     /// `fn op in (self) -> yield T` on \p t: the element type it yields, with
     /// \p kind / \p _op / \p inst set to the call, or null when \p t
     /// declares none. The iteration form takes `self` only; `op in (self, x)`
     /// is containment and is never picked here.
-    priv fn _iter_own_op(self, at: *Expr, t: *Type, kind: *IterKind, _op: *(*Decl), inst: *(*void)) -> *Type {
-        var cands = vec::<*Decl>();
-        dyn()->ml.lookup(dyn()->tu.strip_nullable(t), DeclName::op_name(TokenKind::KwIn, TokenKind::TkUnknown), &cands);
+    priv fn _iter_own_op(self,
+                         at:   unsafe *Expr,
+                         t:    unsafe *Type,
+                         kind: unsafe *Statements::IterKind,
+                         _op:  unsafe *(unsafe *Decl),
+                         inst: unsafe *(unsafe *InstanceEntry)) -> unsafe *Type {
+        var cands = cxx::std::vector<unsafe *Decl>()
+        self.dyn()->ml.lookup(
+            self.dyn()->tu.strip_nullable(t),
+            DeclName::op_name(TokenKind::KwIn, TokenKind::TkUnknown),
+            &cands,
+        )
+
         for var i: usize = 0; i < cands.size(); ++i {
-            var f = dyn_cast::<FunctionDecl>(cands[i]);
-            if f == &null { continue; }
-            var extra: usize = 0;
-            for var p: usize = 0; p < f->params.size(); ++p {
-                if (f->params[p] != &null) && (!f->params[p]->is_self) { extra += 1; }
+            var unsafe *f = dyn_cast<FunctionDecl>(cands[i])
+            if f == &null {
+                continue
             }
-            if extra != 0 { continue; }
-            var rt = self.fn_return_type(f);
-            if rt == &null { continue; }
-            rt = dyn()->ded_scratch()->member_through(t, rt);
-            if !dyn()->tu.is_lang(rt, WellKnownType::Yield) { continue; }
-            var args = dyn()->tu.record_args(rt);
-            if args.size() == 0 { continue; }
+
+            var extra: usize = 0
+            for var p: usize = 0; p < f->params.size(); ++p {
+                if f->params[p] != &null && !f->params[p]->is_self {
+                    extra += 1
+                }
+            }
+
+            if extra != 0 {
+                continue
+            }
+
+            var unsafe *rt = self.fn_return_type(f)
+            if rt == &null {
+                continue
+            }
+
+            rt = self.dyn()->ded_scratch()->member_through(t, rt)
+            if !self.dyn()->tu.is_lang(rt, WellKnownType::Yield) {
+                continue
+            }
+
+            var args = self.dyn()->tu.record_args(rt)
+            if args.size() == 0 {
+                continue
+            }
+
             // The winner is resolved once more, alone, for its instance and
             // its result through the receiver: a generic one -- an
             // extension's on `[T]` above all, the form a builtin's iteration
             // takes -- is called with X's arguments, never clang's
             // (ExtensionLowering refuses it without them), and its `T` is
             // the extension's, which member_through does not reach.
-            var one  = vec::<*Decl>(); one.push_back(cands[i]);
-            var none = vec::<ArgInfo>();
-            var recv = canon_unqual(dyn()->tu.strip_nullable(t));
-            var r = dyn()->ovl.resolve(&one, &none, true, at->range, "op in", recv);
+            var one = cxx::std::vector<unsafe *Decl>()
+            one.push_back(cands[i])
+            var none = cxx::std::vector<ArgInfo>()
+            var recv = canon_unqual(self.dyn()->tu.strip_nullable(t))
+            var r    = self.dyn()->ovl.resolve(&one, &none, true, at->range, "op in", recv)
             if r.outcome == OvlOutcome::Selected {
-                r.ded.bind_from_record(recv);
-                var srt = dyn()->call_result_type(r.decl, &r);
-                (*inst) = reinterpret_cast::<*void>(r.instance);
-                if (srt != &null) && dyn()->tu.is_lang(srt, WellKnownType::Yield) {
-                    var sargs = dyn()->tu.record_args(srt);
-                    if sargs.size() > 0 { args = sargs; }
+                r.ded.bind_from_record(recv)
+                var srt = self.dyn()->call_result_type(r.decl, &r)
+                *inst = r.instance
+                if srt != &null && self.dyn()->tu.is_lang(srt, WellKnownType::Yield) {
+                    var sargs = self.dyn()->tu.record_args(srt)
+                    if sargs.size() > 0 {
+                        args = sargs
+                    }
                 }
             }
-            (*kind) = IterKind::User;
-            (*_op)   = cands[i];
-            return args[0];
+
+            *kind = Statements::IterKind::User
+            *_op  = cands[i]
+            return args[0]
         }
-        return &null;
+
+        return &null
     }
 
-    priv fn _iter_classify(self, at: *Expr, t: *Type, kind: *IterKind, _op: *(*Decl), inst: *(*void), rf: *RangedForStmt) -> *Type {
-        var arr = dyn()->tu.element_of(t);
-        if arr != &null { (*kind) = IterKind::Array; return arr; }
+    priv fn _iter_classify(self,
+                           at:   unsafe *Expr,
+                           t:    unsafe *Type,
+                           kind: unsafe *Statements::IterKind,
+                           _op:  unsafe *(unsafe *Decl),
+                           inst: unsafe *(unsafe *InstanceEntry),
+                           rf:   unsafe *Statements::RangedForStmt) -> unsafe *Type {
+        var arr = self.dyn()->tu.element_of(t)
+        if arr != &null {
+            *kind = Statements::IterKind::Array
+            return arr
+        }
 
         // A record's own `op in` wins, the builtin containers' included: the
         // shapes below are only what a lang record that declares no
@@ -1221,64 +1968,105 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         // `string` a real `op in` without a compiler change and without the
         // gate in FeatureGateCheck (SC116E) refusing it. Asked only of a
         // record: an array (above), a pointer or a builtin has no members.
-        if dyn()->tu.record_decl(dyn()->tu.strip_nullable(t)) != &null {
-            var own = self._iter_own_op(at, t, kind, _op, inst);
-            if own != &null { return own; }
-        }
-
-        if dyn()->tu.is_slice(t)       { (*kind) = IterKind::Slice;  return dyn()->tu.container_elem(t); }
-        if dyn()->tu.is_vector_like(t) { (*kind) = IterKind::Vector; return dyn()->tu.container_elem(t); }
-        if dyn()->tu.is_set_like(t)    { (*kind) = IterKind::Set;    return dyn()->tu.container_elem(t); }
-
-        var k: *Type = &null; var v: *Type = &null;
-        if dyn()->tu.map_key_value(t, &k, &v) {
-            (*kind) = IterKind::Map;
-            var e = vec::<*Type>(); e.push_back(k); e.push_back(v);
-            return dyn()->tu.tuple_of(&e);
-        }
-
-        if dyn()->tu.is_string(t) { (*kind) = IterKind::String; return dyn()->tu.builtin(BuiltinKind::Char); }
-
-        if dyn()->tu.is_lang(t, WellKnownType::Range) {
-            var r = dyn_cast::<RangeExpr>(dyn()->tu.strip_parens(at));
-            if r != &null {
-                if (r->begin == &null) || (r->end == &null) {
-                    dyn()->fail(at, DiagID::SC095E, "an open range cannot be iterated; give it both bounds");
-                    return &null;
-                }
-                (*kind) = IterKind::RangeLit;
-            } else {
-                (*kind) = IterKind::RangeValue;
+        if self.dyn()->tu.record_decl(self.dyn()->tu.strip_nullable(t)) != &null {
+            var unsafe *own = self._iter_own_op(at, t, kind, _op, inst)
+            if own != &null {
+                return own
             }
-            var args = dyn()->tu.record_args(t);
-            return (args[0]) if (args.size() > 0) else (dyn()->tu.builtin(BuiltinKind::I32));
+        }
+
+        if self.dyn()->tu.is_slice(t) {
+            *kind = Statements::IterKind::Slice
+            return self.dyn()->tu.container_elem(t)
+        }
+
+        if self.dyn()->tu.is_vector_like(t) {
+            *kind = Statements::IterKind::Vector
+            return self.dyn()->tu.container_elem(t)
+        }
+
+        if self.dyn()->tu.is_set_like(t) {
+            *kind = Statements::IterKind::Set
+            return self.dyn()->tu.container_elem(t)
+        }
+
+        var k: unsafe *Type = &null
+        var v: unsafe *Type = &null
+        if self.dyn()->tu.map_key_value(t, unsafe &k, unsafe &v) {
+            *kind = Statements::IterKind::Map
+            var e = cxx::std::vector<unsafe *Type>()
+            e.push_back(k)
+            e.push_back(v)
+            return self.dyn()->tu.tuple_of(unsafe &e)
+        }
+
+        if self.dyn()->tu.is_string(t) {
+            *kind = Statements::IterKind::String
+            return self.dyn()->tu.builtin(BuiltinKind::Char)
+        }
+
+        if self.dyn()->tu.is_lang(t, WellKnownType::Range) {
+            var r = dyn_cast<RangeExpr>(self.dyn()->tu.strip_parens(at))
+            if r != &null {
+                if r->begin == &null || r->end == &null {
+                    self.dyn()->fail(
+                        at,
+                        DiagID::SC095E,
+                        "an open range cannot be iterated; give it both bounds",
+                    )
+
+                    return &null
+                }
+
+                *kind = Statements::IterKind::RangeLit
+            } else {
+                *kind = Statements::IterKind::RangeValue
+            }
+
+            var args = self.dyn()->tu.record_args(t)
+            return if (args.size() > 0) => (args[0])
+                   else => self.dyn()->tu.builtin(BuiltinKind::I32)
         }
 
         // A Yield<T> value is a generator already -- a call of a `-> yield T`
         // function, or a variable holding one -- so the loop drives it with
         // no `op in` to call (IterLowering::_user reads the null op).
-        if dyn()->tu.is_lang(t, WellKnownType::Yield) {
-            var yargs = dyn()->tu.record_args(t);
+        if self.dyn()->tu.is_lang(t, WellKnownType::Yield) {
+            var yargs = self.dyn()->tu.record_args(t)
             if yargs.size() > 0 {
-                (*kind) = IterKind::User;
-                (*_op)   = &null;
-                return yargs[0];
+                *kind = Statements::IterKind::User
+                *_op  = &null
+                return yargs[0]
             }
         }
 
-        var cxx_ok = false;
-        var ce = self._cxx_range(at, t, rf, &cxx_ok);
-        if cxx_ok { (*kind) = IterKind::Cxx; return ce; }
-        if (ce == &null) && at->is_poisoned() { return &null; }   // the protocol applied and failed: reported.
+        var        cxx_ok = false
+        var unsafe *ce    = self._cxx_range(at, t, rf, unsafe &cxx_ok)
+        if cxx_ok {
+            *kind = Statements::IterKind::Cxx
+            return ce
+        }
+
+        if ce == &null && at->is_poisoned() { // the protocol applied and failed: reported.
+            return &null
+        }
 
         // A Kairo type has one iteration protocol, so its message names one.
-        var how = "no 'op in (self) -> yield T\x27";
-        if self._is_cxx_record(t) { how = "no 'op in (self) -> yield T' and no 'begin()'/'end()\x27"; }
-        dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' is not iterable; it has {how}");
-        return &null;
+        var how = "no 'op in (self) -> yield T'"
+        if self._is_cxx_record(t) {
+            how = "no 'op in (self) -> yield T' and no 'begin()'/'end()'"
+        }
+
+        self.dyn()->fail(
+            at,
+            DiagID::SC095E,
+            f"'{self.dyn()->tu.str(t)}' is not iterable; it has {how}",
+        )
+
+        return &null
     }
 
-    // --- C++'s range protocol -------------------------------------------------
+    /// ## C++'s range protocol
 
     /// [stmt.ranged]/1 for a class: a member named `begin` or `end` makes the
     /// loop `r.begin()` / `r.end()`; with neither, `begin(r)` / `end(r)` by
@@ -1300,432 +2088,703 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// \p ok: the protocol applied and every piece typed. Not applying (a
     /// Kairo type, or no begin or end anywhere) reports nothing, so the
     /// caller's SC095E speaks; applying and failing reports, and poisons \p at.
-    priv fn _cxx_range(self, at: *Expr, t: *Type, rf: *RangedForStmt, ok: *bool) -> *Type {
-        (*ok) = false;
+    priv fn _cxx_range(self,
+                       at: unsafe *Expr,
+                       t:  unsafe *Type,
+                       rf: unsafe *Statements::RangedForStmt,
+                       ok: unsafe *bool) -> unsafe *Type {
+        *ok = false
         // The object, cv kept: a const range must pick `begin() const`, so
         // only a reference is looked through (peel_ref would drop the const).
-        var obj = t;
-        if isa::<CXXLValueRefType>(obj)      { obj = cast::<CXXLValueRefType>(obj)->referee; }
-        else if isa::<CXXRValueRefType>(obj) { obj = cast::<CXXRValueRefType>(obj)->referee; }
-        if !self._is_cxx_record(obj) { return &null; }
+        var unsafe *obj = t
+        if isa<CXXLValueRefType>(obj) {
+            obj = cast<CXXLValueRefType>(obj)->referee
+        } else if isa<CXXRValueRefType>(obj) {
+            obj = cast<CXXRValueRefType>(obj)->referee
+        }
 
-        var mb = vec::<*Decl>();
-        var me = vec::<*Decl>();
-        var kb = LowerTargets::cxx_range_begin();
-        var ke = LowerTargets::cxx_range_end();
-        var nb = self._cxx_name(kb);
-        var ne = self._cxx_name(ke);
-        dyn()->ml.lookup(obj, nb, &mb);
-        dyn()->ml.lookup(obj, ne, &me);
+        if !self._is_cxx_record(obj) {
+            return &null
+        }
+
+        var mb = cxx::std::vector<unsafe *Decl>()
+        var me = cxx::std::vector<unsafe *Decl>()
+        var kb = LowerTargets::cxx_range_begin()
+        var ke = LowerTargets::cxx_range_end()
+        var nb = self._cxx_name(kb)
+        var ne = self._cxx_name(ke)
+        self.dyn()->ml.lookup(obj, nb, &mb)
+        self.dyn()->ml.lookup(obj, ne, &me)
         // A hidden friend `friend It begin(R&)` sits in the class's table but
         // is no member ([stmt.ranged] asks for a MEMBER named begin): it is
         // one of the free candidates, which ADL alone would never reach.
-        var hb = vec::<*Decl>();
-        var he = vec::<*Decl>();
-        self._split_friends(&mb, &hb);
-        self._split_friends(&me, &he);
+        var hb = cxx::std::vector<unsafe *Decl>()
+        var he = cxx::std::vector<unsafe *Decl>()
+        self._split_friends(&mb, &hb)
+        self._split_friends(&me, &he)
 
-        var bt: *Type = &null;
-        var et: *Type = &null;
-        var bf: *FunctionDecl = &null;
-        var ef: *FunctionDecl = &null;
-        var bi: *void = &null;
-        var ei: *void = &null;
-        var free = false;
-        if (mb.size() > 0) || (me.size() > 0) {
+        var bt:  unsafe *Type          = &null
+        var et:  unsafe *Type          = &null
+        var bf:  unsafe *FunctionDecl  = &null
+        var ef:  unsafe *FunctionDecl  = &null
+        var bi:  unsafe *InstanceEntry = &null
+        var ei:  unsafe *InstanceEntry = &null
+        var free                       = false
+        if mb.size() > 0 || me.size() > 0 {
             // Members, both or neither: one alone is not a fallback to the
             // free pair ([stmt.ranged]/1.2), it is an error.
-            if (mb.size() == 0) || (me.size() == 0) {
-                var have = kb;
-                var miss = ke;
-                if mb.size() == 0 { have = ke; miss = kb; }
-                dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' has a member '{have}' but no '{miss}'; a C++ range needs both");
-                return &null;
+            if mb.size() == 0 || me.size() == 0 {
+                var have = kb
+                var miss = ke
+                if mb.size() == 0 {
+                    have = ke
+                    miss = kb
+                }
+
+                self.dyn()->fail(
+                    at,
+                    DiagID::SC095E,
+                    f"'{self.dyn()->tu.str(t)}' has a member '{have}' but no '{miss}'; a C++ range needs both",
+                )
+
+                return &null
             }
-            bf = self._cxx_member(at, obj, &mb, kb, &bt, &bi);
-            ef = self._cxx_member(at, obj, &me, ke, &et, &ei);
+
+            bf = self._cxx_member(at, obj, unsafe &mb, kb, unsafe &bt, unsafe &bi)
+            ef = self._cxx_member(at, obj, unsafe &me, ke, unsafe &et, unsafe &ei)
         } else {
-            var scopes = vec::<*DeclContext>();
-            dyn()->ml.associated_scopes(obj, &scopes);
-            var fb = hb;
-            var fe = he;
-            dyn()->ml.adl_candidates(&scopes, nb, kb, &hb, &fb);
-            dyn()->ml.adl_candidates(&scopes, ne, ke, &he, &fe);
-            if (fb.size() == 0) && (fe.size() == 0) { return &null; }
+            var scopes = cxx::std::vector<unsafe *DeclContext>()
+            self.dyn()->ml.associated_scopes(obj, &scopes)
+            var fb = hb
+            var fe = he
+            self.dyn()->ml.adl_candidates(&scopes, nb, kb, &hb, &fb)
+            self.dyn()->ml.adl_candidates(&scopes, ne, ke, &he, &fe)
+            if fb.size() == 0 && fe.size() == 0 {
+                return &null
+            }
+
             // A `begin` that cannot take this range is some other type's:
             // ADL reaches every free `begin` in the namespace. Not iterable,
             // not a failed call.
-            var probe = vec::<ArgInfo>();
-            probe.push_back(dyn()->arg_info(at));
-            var nofree = vec::<*Decl>();
-            if !dyn()->ovl.any_viable(&nofree, &probe, false, &fb, &probe) { return &null; }
-            if (fb.size() == 0) || (fe.size() == 0) {
-                var have = kb;
-                var miss = ke;
-                if fb.size() == 0 { have = ke; miss = kb; }
-                dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' has a free '{have}' but no '{miss}'; a C++ range needs both");
-                return &null;
+            var probe = cxx::std::vector<ArgInfo>()
+            probe.push_back(self.dyn()->arg_info(at))
+            var nofree = cxx::std::vector<unsafe *Decl>()
+            if !self.dyn()->ovl.any_viable(&nofree, &probe, false, &fb, &probe) {
+                return &null
             }
-            free = true;
-            bf = self._cxx_free(at, &fb, kb, &bt, &bi);
-            ef = self._cxx_free(at, &fe, ke, &et, &ei);
+
+            if fb.size() == 0 || fe.size() == 0 {
+                var have = kb
+                var miss = ke
+                if fb.size() == 0 {
+                    have = ke
+                    miss = kb
+                }
+
+                self.dyn()->fail(
+                    at,
+                    DiagID::SC095E,
+                    f"'{self.dyn()->tu.str(t)}' has a free '{have}' but no '{miss}'; a C++ range needs both",
+                )
+
+                return &null
+            }
+
+            free = true
+            bf   = self._cxx_free(at, unsafe &fb, kb, unsafe &bt, unsafe &bi)
+            ef   = self._cxx_free(at, unsafe &fe, ke, unsafe &et, unsafe &ei)
         }
-        if (bf == &null) || (ef == &null) { dyn()->poison_only(at); return &null; }
 
-        var synth = LowerSynth(dyn()->sc);
-        var r     = at->range;
-        var it    = synth.local(r, "it",  bt, &null);
-        var end   = synth.local(r, "end", et, &null);
+        if bf == &null || ef == &null {
+            self.dyn()->poison_only(at)
+            return &null
+        }
 
-        var ctx  = dyn()->sc->ctx;
-        var cond = static_cast::<*Expr>(BinaryOperatorExpr::create(ctx, r,
+        var        synth = LowerSynth(self.dyn()->sc)
+        var        r     = at->range
+        var unsafe *it   = synth.local(r, "it", bt, &null)
+        var unsafe *end  = synth.local(r, "end", et, &null)
+
+        var ctx = self.dyn()->sc->ctx
+        var cond = (unsafe (BinaryOperatorExpr::create(ctx, r,
                        synth.use_of(it, r, Expr::ValueCategory::LValue),
                        synth.use_of(end, r, Expr::ValueCategory::LValue),
-                       synth.punct(r, TokenKind::OpExclaimEqual)));
-        var deref = static_cast::<*Expr>(UnaryOperatorExpr::create(ctx, r,
+                       synth.punct(r, TokenKind::OpExclaimEqual)) as unsafe *Expr))
+        var deref = (unsafe (UnaryOperatorExpr::create(ctx, r,
                        synth.use_of(it, r, Expr::ValueCategory::LValue),
-                       synth.punct(r, TokenKind::OpStar), UnaryOperatorExpr::Fix::Prefix));
-        var next = static_cast::<*Expr>(UnaryOperatorExpr::create(ctx, r,
+                       synth.punct(r, TokenKind::OpStar), UnaryOperatorExpr::Fix::Prefix) as unsafe *Expr))
+        var next = (unsafe (UnaryOperatorExpr::create(ctx, r,
                        synth.use_of(it, r, Expr::ValueCategory::LValue),
-                       synth.punct(r, TokenKind::OpPlusPlus), UnaryOperatorExpr::Fix::Prefix));
+                       synth.punct(r, TokenKind::OpPlusPlus), UnaryOperatorExpr::Fix::Prefix) as unsafe *Expr))
 
-        dyn()->require_bool(cond, "a C++ range\x27s 'begin() != end()\x27");
-        var elem = dyn()->type_of(deref, &null);
+        self.dyn()->require_bool(cond, "a C++ range's 'begin() != end()'")
+        var elem = self.dyn()->type_of(deref, &null)
         // A pointer iterator (std::array, span, a C array member) steps by
         // C++'s builtin `++`. Kairo has no `++` on pointers for user code, and
         // this one is the loop's own step over [begin, end), so it is minted
         // typed rather than offered to the operator table.
-        if isa::<PointerType>(canon_unqual(bt)) {
-            next->type_          = bt;
-            next->value_category = Expr::ValueCategory::LValue;
+        if isa<PointerType>(canon_unqual(bt)) {
+            next->type_          = bt
+            next->value_category = Expr::ValueCategory::LValue
         } else {
-            dyn()->type_of(next, &null);
+            self.dyn()->type_of(next, &null)
         }
-        if cond->is_poisoned() || deref->is_poisoned() || next->is_poisoned() || (elem == &null) {
-            dyn()->poison_only(at);
-            return &null;
+
+        if cond->is_poisoned() || deref->is_poisoned() || next->is_poisoned() || elem == &null {
+            self.dyn()->poison_only(at)
+            return &null
         }
 
         if rf != &null {
-            rf->cxx_begin_fn   = static_cast::<*Decl>(bf);
-            rf->cxx_end_fn     = static_cast::<*Decl>(ef);
-            rf->cxx_free       = free;
-            rf->cxx_begin_inst = bi;
-            rf->cxx_end_inst   = ei;
-            rf->cxx_it         = static_cast::<*Decl>(it);
-            rf->cxx_end        = static_cast::<*Decl>(end);
-            rf->cxx_cond       = cond;
-            rf->cxx_deref      = deref;
-            rf->cxx_next       = next;
+            rf->cxx_begin_fn   = unsafe (bf as unsafe *Decl)
+            rf->cxx_end_fn     = unsafe (ef as unsafe *Decl)
+            rf->cxx_free       = free
+            rf->cxx_begin_inst = bi
+            rf->cxx_end_inst   = ei
+            rf->cxx_it         = it
+            rf->cxx_end        = end
+            rf->cxx_cond       = cond
+            rf->cxx_deref      = deref
+            rf->cxx_next       = next
         }
-        (*ok) = true;
-        return dyn()->tu.as_value(elem);
+
+        *ok = true
+        return self.dyn()->tu.as_value(elem)
     }
 
     /// A record imported from a C++ header, or an instance of an imported
     /// template (only its primary carries the import stamp).
-    priv fn _is_cxx_record(self, t: *Type) -> bool {
-        var c = t;
-        if (c != &null) && isa::<CXXLValueRefType>(c)      { c = cast::<CXXLValueRefType>(c)->referee; }
-        else if (c != &null) && isa::<CXXRValueRefType>(c) { c = cast::<CXXRValueRefType>(c)->referee; }
-        var d = dyn()->tu.record_decl(c);
-        if d == &null { return false; }
-        if decl_is_imported(d) { return true; }
-        return decl_is_instance(d) && decl_is_imported(decl_instantiated_from(d));
+    priv fn _is_cxx_record(self, t: unsafe *Type) -> bool {
+        var unsafe *c = t
+        if c != &null && isa<CXXLValueRefType>(c) {
+            c = cast<CXXLValueRefType>(c)->referee
+        } else if c != &null && isa<CXXRValueRefType>(c) {
+            c = cast<CXXRValueRefType>(c)->referee
+        }
+
+        var d = self.dyn()->tu.record_decl(c)
+        if d == &null {
+            return false
+        }
+
+        if decl_is_imported(d) {
+            return true
+        }
+
+        return decl_is_instance(d) && decl_is_imported(decl_instantiated_from(d))
     }
 
     /// Move the non-methods member lookup found (hidden friends) to \p frees.
-    priv fn _split_friends(self, found: *vec::<*Decl>, frees: *vec::<*Decl>) {
-        var keep = vec::<*Decl>();
-        for var i: usize = 0; i < found->size(); ++i {
-            var f = dyn_cast::<FunctionDecl>((*found)[i]);
-            if (f != &null) && (!f->is_method()) { frees->push_back((*found)[i]); continue; }
-            keep.push_back((*found)[i]);
+    priv fn _split_friends(self,
+                           @inout found: cxx::std::vector<unsafe *Decl>,
+                           @inout frees: cxx::std::vector<unsafe *Decl>) {
+        var keep = cxx::std::vector<unsafe *Decl>()
+        for var i: usize = 0; i < found.size(); ++i {
+            var unsafe *f = dyn_cast<FunctionDecl>((found)[i])
+            if f != &null && !f->is_method() {
+                frees.push_back((found)[i])
+                continue
+            }
+
+            keep.push_back((found)[i])
         }
-        (*found) = keep;
+
+        (found) = keep
     }
 
     /// This TU's DeclName for the identifier \p s.
-    priv fn _cxx_name(self, s: string) -> DeclName {
-        return DeclName::ident(dyn()->sc->imm_table()->intern_ident_copy(s));
+    priv fn _cxx_name(self, const s: string) -> DeclName {
+        return DeclName::ident(self.dyn()->sc->imm_table()->intern_ident_copy(s))
     }
 
     /// `obj.<name>()` resolved on \p obj's cv: the method, its result type
     /// read as the value the hidden local holds, and the instance.
-    priv fn _cxx_member(self, at: *Expr, obj: *Type, cands: *vec::<*Decl>, name: string,
-                        ty: *(*Type), inst: *(*void)) -> *FunctionDecl {
-        var args = vec::<ArgInfo>();
-        var r = dyn()->ovl.resolve(cands, &args, true, at->range, name, obj);
-        if r.outcome != OvlOutcome::Selected { return &null; }
-        r.ded.bind_from_record(canon_unqual(obj));
-        var rt = dyn()->call_result_type(r.decl, &r);
-        if rt == &null { return &null; }
-        (*ty)   = canon_unqual(dyn()->tu.as_value(rt));
-        (*inst) = reinterpret_cast::<*void>(r.instance);
-        return r.decl;
+    priv fn _cxx_member(self,
+                        at:         unsafe *Expr,
+                        obj:        unsafe *Type,
+                        cands:      unsafe *cxx::std::vector<unsafe *Decl>,
+                        const name: string,
+                        ty:         unsafe *(unsafe *Type),
+                        inst:       unsafe *(unsafe *InstanceEntry)) -> unsafe *FunctionDecl {
+        var args = cxx::std::vector<ArgInfo>()
+        var r    = self.dyn()->ovl.resolve(cands, &args, true, at->range, name, obj)
+        if r.outcome != OvlOutcome::Selected {
+            return &null
+        }
+
+        r.ded.bind_from_record(canon_unqual(obj))
+        var rt = self.dyn()->call_result_type(r.decl, &r)
+        if rt == &null {
+            return &null
+        }
+
+        *ty   = canon_unqual(self.dyn()->tu.as_value(rt))
+        *inst = r.instance
+        return r.decl
     }
 
     /// `<name>(r)` among the ADL candidates \p cands, the range as its one
     /// argument.
-    priv fn _cxx_free(self, at: *Expr, cands: *vec::<*Decl>, name: string,
-                      ty: *(*Type), inst: *(*void)) -> *FunctionDecl {
-        var args = vec::<ArgInfo>();
-        args.push_back(dyn()->arg_info(at));
-        var r = dyn()->ovl.resolve(cands, &args, false, at->range, name);
-        if r.outcome != OvlOutcome::Selected { return &null; }
-        var rt = dyn()->call_result_type(r.decl, &r);
-        if rt == &null { return &null; }
-        (*ty)   = canon_unqual(dyn()->tu.as_value(rt));
-        (*inst) = reinterpret_cast::<*void>(r.instance);
-        return r.decl;
+    priv fn _cxx_free(self,
+                      at:         unsafe *Expr,
+                      cands:      unsafe *cxx::std::vector<unsafe *Decl>,
+                      const name: string,
+                      ty:         unsafe *(unsafe *Type),
+                      inst:       unsafe *(unsafe *InstanceEntry)) -> unsafe *FunctionDecl {
+        var args = cxx::std::vector<ArgInfo>()
+        args.push_back(self.dyn()->arg_info(at))
+        var r = self.dyn()->ovl.resolve(cands, &args, false, at->range, name)
+        if r.outcome != OvlOutcome::Selected {
+            return &null
+        }
+
+        var rt = self.dyn()->call_result_type(r.decl, &r)
+        if rt == &null {
+            return &null
+        }
+
+        *ty   = canon_unqual(self.dyn()->tu.as_value(rt))
+        *inst = r.instance
+        return r.decl
     }
 
     /// Apply binding shorthands and write the binder's type.
-    priv fn _bind_one(self, b: *Binding, t: *Type) {
-        if (b == &null) || b->is_discard || (b->decl == &null) { return; }
-        var vd = dyn_cast::<VariableDecl>(b->decl);
-        if vd == &null { return; }
-        if (b->type_ != &null) && (b->type_->canonical != &null) {
-            vd->type_ = canon_unqual(b->type_->canonical);
-            if (t != &null) && (!dyn()->conv.convertible(t, vd->type_->canonical)) {
-                dyn()->sc->diag->report(DiagID::SC041E, b->range.start,
-                    f"binding annotated '{dyn()->tu.str(vd->type_->canonical)}' cannot take a value of type '{dyn()->tu.str(t)}\x27"
-                ).first(b->range).emit();
-                vd->poison();
+    priv fn _bind_one(self, b: unsafe *Statements::Binding, t: unsafe *Type) {
+        if b == &null || b->is_discard || b->decl == &null {
+            return
+        }
+
+        var unsafe *vd = dyn_cast<VariableDecl>(b->decl)
+        if vd == &null {
+            return
+        }
+
+        if b->type_ != &null && b->type_->canonical != &null {
+            vd->type_ = canon_unqual(b->type_->canonical)
+            if t != &null && !self.dyn()->conv.convertible(t, vd->type_->canonical) {
+                self.dyn()->sc->diag->report(
+                    DiagID::SC041E,
+                    b->range.start,
+                    f"binding annotated '{self.dyn()->tu.str(vd->type_->canonical)}' cannot take a value of type '{self.dyn()->tu.str(t)}'",
+                ).first(b->range)->emit()
+                vd->poison()
             }
-            return;
+
+            return
         }
-        if t == &null { return; }
-        var shaped = canon_unqual(t);
-        var sh = static_cast::<u8>(b->shorthand);
-        if (sh & static_cast::<u8>(BindingShorthand::Pointer)) != 0 {
-            shaped = dyn()->sc->types->pointer(shaped, (sh & static_cast::<u8>(BindingShorthand::Unsafe)) != 0);
+
+        if t == &null {
+            return
         }
-        if (sh & static_cast::<u8>(BindingShorthand::Nullable)) != 0 {
-            shaped = self._nullable_once(shaped);
+
+        var unsafe *shaped = canon_unqual(t)
+        if b->shorthand.has(Statements::BindingShorthand::Pointer) {
+            shaped = self.dyn()->sc->types->pointer(
+                shaped,
+                b->shorthand.has(Statements::BindingShorthand::Unsafe),
+            )
         }
-        vd->type_ = shaped;
+
+        if b->shorthand.has(Statements::BindingShorthand::Nullable) {
+            shaped = self._nullable_once(shaped)
+        }
+
+        vd->type_ = shaped
     }
 
-    priv fn _bind_list(self, list: *FrozenList::<Binding>, t: *Type, at: *Expr) {
-        if list->size() == 1 { self._bind_one(list->get(0), t); return; }
-        var tu_  = canon_unqual(t);
-        var have = (tu_ != &null) && dyn()->tu.is_tuple(tu_);
-        var elems = dyn()->tu.tuple_elems(tu_);
-        if have && (elems.size() != list->size()) {
-            dyn()->fail(at, DiagID::SC042E, f"{list->size()} binding(s) but '{dyn()->tu.str(t)}' has {elems.size()} element(s)");
-            have = false;
+    priv fn _bind_list(self, list: *FrozenList<Statements::Binding>, t: unsafe *Type, at: *Expr) {
+        if list->size() == 1 {
+            self._bind_one(list->get(0), t)
+            return
         }
-        if (tu_ != &null) && (!dyn()->tu.is_tuple(tu_)) {
-            dyn()->fail(at, DiagID::SC096E, f"cannot destructure '{dyn()->tu.str(t)}' into {list->size()} bindings");
+
+        var unsafe *tu_  = canon_unqual(t)
+        var        have  = tu_ != &null && self.dyn()->tu.is_tuple(tu_)
+        var        elems = self.dyn()->tu.tuple_elems(tu_)
+        if have && elems.size() != list->size() {
+            self.dyn()->fail(
+                at,
+                DiagID::SC042E,
+                f"{list->size()} binding(s) but '{self.dyn()->tu.str(t)}' has {elems.size()} element(s)",
+            )
+
+            have = false
         }
+
+        if tu_ != &null && !self.dyn()->tu.is_tuple(tu_) {
+            self.dyn()->fail(
+                at,
+                DiagID::SC096E,
+                f"cannot destructure '{self.dyn()->tu.str(t)}' into {list->size()} bindings",
+            )
+        }
+
         for var i: usize = 0; i < list->size(); ++i {
-            self._bind_one(list->get(i), (elems[i]) if (have) else (&null));
+            self._bind_one(list->get(i), if (have) => (elems[i]) else => &null)
         }
     }
 
-    fn traverse_ranged_for_stmt(self, n: *RangedForStmt) -> *RangedForStmt {
-        if n == &null { return n; }
-        var it = dyn()->type_of(n->iterable, &null);
-        var elem = (self.iter_elem_type(n->iterable, it, n)) if (it != &null) else (&null);
+    fn traverse_ranged_for_stmt(self,
+                                n: unsafe *Statements::RangedForStmt) -> unsafe *Statements::RangedForStmt {
+        if n == &null {
+            return n
+        }
+
+        var it   = self.dyn()->type_of(n->iterable, &null)
+        var elem = if (it != &null) => (self.iter_elem_type(n->iterable, it, n)) else => &null
         // `for x in xs` over a type pack: one copy of the body per element,
         // each with its own type, so `x` is typed as the pack (dependent,
         // like any generic body) and C++ unrolls it (EmitIR::_pack_for).
-        var pk = self._type_pack_ref(n->iterable);
-        if (pk != &null) && (!n->is_eval) {
-            n->iter_kind = IterKind::Pack;
-            n->iter_elem = canon_unqual(pk->type_->canonical);
-            elem = n->iter_elem;
+        var unsafe *pk = self._type_pack_ref(n->iterable)
+        if pk != &null && !n->is_eval {
+            n->iter_kind = Statements::IterKind::Pack
+            n->iter_elem = canon_unqual(pk->type_->canonical)
+            elem         = n->iter_elem
         }
-        self._bind_list(&(n->bindings), elem, n->iterable);
+
+        self._bind_list(&n->bindings, elem, n->iterable)
         // No condition refines it; it may run zero times, so after it is
         // the head's state joined with each `break`.
-        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), &null);
-        var head = dyn()->flow.env;
-        if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
-        var brk = dyn()->flow.loop_leave();
-        dyn()->flow.env = dyn()->flow.join(&head, &brk);
-        return n;
+        self.dyn()->flow.loop_enter(n->body, &null)
+        var head = self.dyn()->flow.env
+        if n->body != &null {
+            self.dyn()->dispatch_stmt(n->body)
+        }
+
+        var brk = self.dyn()->flow.loop_leave()
+        self.dyn()->flow.env = self.dyn()->flow.join(&head, &brk)
+        return n
     }
 
     /// \p e names a type pack parameter (`xs` of `...xs: T`), or null.
-    priv fn _type_pack_ref(self, e: *Expr) -> *ParamDecl {
-        var u = dyn()->tu.strip_parens(e);
-        if (u == &null) || (!isa::<NamedIdentExpr>(u)) { return &null; }
-        var p = dyn_cast::<ParamDecl>(cast::<NamedIdentExpr>(u)->resolved_decl);
-        return (p) if (param_is_type_pack(p)) else (&null);
+    priv fn _type_pack_ref(self, e: unsafe *Expr) -> unsafe *ParamDecl {
+        var u = self.dyn()->tu.strip_parens(e)
+        if u == &null || !isa<NamedIdentExpr>(u) {
+            return &null
+        }
+
+        var p = dyn_cast<ParamDecl>(cast<NamedIdentExpr>(u)->resolved_decl)
+        return if (param_is_type_pack(p)) => (p) else => &null
     }
 
-    fn traverse_destructuring_decl_stmt(self, n: *DestructuringDeclStmt) -> *DestructuringDeclStmt {
-        if n == &null { return n; }
-        var t = dyn()->type_of(n->value, &null);
-        if n->kind_ == DestructureKind::Tuple {
-            self._bind_list(&(n->bindings), t, n->value);
-            return n;
+    fn traverse_destructuring_decl_stmt(self,
+                                        n: unsafe *Statements::DestructuringDeclStmt) -> unsafe *Statements::DestructuringDeclStmt {
+        if n == &null {
+            return n
         }
+
+        var t = self.dyn()->type_of(n->value, &null)
+        if n->kind_ == Statements::DestructureKind::Tuple {
+            self._bind_list(&n->bindings, t, n->value)
+            return n
+        }
+
         // struct destructure: by field name.
-        var d = dyn()->tu.record_decl(dyn()->tu.strip_nullable(t));
-        if (t != &null) && (d == &null) { dyn()->fail(n->value, DiagID::SC096E, f"cannot destructure '{dyn()->tu.str(t)}' by field name"); return n; }
-        var dc = (NameLookup::context_of(dyn()->sc->body_of(d))) if (d != &null) else (&null);
-        for var i: usize = 0; i < n->bindings.size(); ++i {
-            var b = n->bindings.get(i);
-            if (b == &null) || b->is_discard || (b->name == &null) { continue; }
-            var ft: *Type = &null;
-            if dc != &null {
-                var spelled = dyn()->sc->ctx->get_spelling(b->name->name);
-                var imm = dyn()->sc->ctx->get_ident_imm(b->name->name);
-                var cell = dyn()->sc->lookup.in_context(dc, DeclName::ident(imm), spelled);
-                var fd = (dyn_cast::<FieldDecl>(cell.first())) if (cell.found()) else (&null);
-                if fd == &null {
-                    dyn()->sc->diag->report(DiagID::SC040E, b->range.start,
-                        f"'{dyn()->tu.decl_name(d)}' has no field named '{spelled}\x27"
-                    ).first(b->range).emit();
-                    continue;
-                }
-                if fd->type_ != &null { ft = dyn()->ded_scratch()->member_through(t, fd->type_->canonical); }
-            }
-            self._bind_one(b, ft);
+        var d = self.dyn()->tu.record_decl(self.dyn()->tu.strip_nullable(t))
+        if t != &null && d == &null {
+            self.dyn()->fail(
+                n->value,
+                DiagID::SC096E,
+                f"cannot destructure '{self.dyn()->tu.str(t)}' by field name",
+            )
+
+            return n
         }
-        return n;
+
+        var dc = if (d != &null) => (NameLookup::context_of(self.dyn()->sc->body_of(d)))
+                 else => &null
+        for var i: usize = 0; i < n->bindings.size(); ++i {
+            var unsafe *b = n->bindings.get(i)
+            if b == &null || b->is_discard || b->name == &null {
+                continue
+            }
+
+            var ft: unsafe *Type = &null
+            if dc != &null {
+                var spelled = self.dyn()->sc->ctx->get_spelling(b->name->name)
+                var imm     = self.dyn()->sc->ctx->get_ident_imm(b->name->name)
+                var cell    = self.dyn()->sc->lookup.in_context(dc, DeclName::ident(imm), spelled)
+                var fd      = if (cell.found()) => (dyn_cast<FieldDecl>(cell.first())) else => &null
+                if fd == &null {
+                    self.dyn()->sc->diag->report(
+                        DiagID::SC040E,
+                        b->range.start,
+                        f"'{self.dyn()->tu.decl_name(d)}' has no field named '{spelled}'",
+                    ).first(b->range)->emit()
+                    continue
+                }
+
+                if fd->type_ != &null {
+                    ft = self.dyn()->ded_scratch()->member_through(t, fd->type_->canonical)
+                }
+            }
+
+            self._bind_one(b, ft)
+        }
+
+        return n
     }
 
-    fn traverse_context_binding_stmt(self, n: *ContextBindingStmt) -> *ContextBindingStmt {
-        if n == &null { return n; }
-        var t = dyn()->type_of(n->value, &null);
+    fn traverse_context_binding_stmt(self,
+                                     n: unsafe *Statements::ContextBindingStmt) -> unsafe *Statements::ContextBindingStmt {
+        if n == &null {
+            return n
+        }
+
+        var t = self.dyn()->type_of(n->value, &null)
         // enter/exit protocol lowering is a lang-item question; the binder
         // takes the value's type until ContextLowering says otherwise.
-        self._bind_list(&(n->bindings), t, n->value);
-        if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
-        return n;
+        self._bind_list(&n->bindings, t, n->value)
+        if n->body != &null {
+            self.dyn()->dispatch_stmt(n->body)
+        }
+
+        return n
     }
 
     /// Each arm starts from the state before the match, refined by what its
-    /// pattern proves (NULLABLE.md 3.6: on a `T?`, `case null` sees the
+    /// pattern proves (Compiler/Spec/Nullables.md#match: on a `T?`, `case null` sees the
     /// place Null and every later arm NonNull) and by its guard's true set.
     /// After it, the join of the arms' ends, a diverging arm excluded: the
     /// state before the match is not joined in, since a match is exhaustive
     /// (a non-exhaustive one is SC120E), so no path skips every arm.
-    fn traverse_match_stmt(self, n: *MatchStmt) -> *MatchStmt {
-        if n == &null { return n; }
-        var st = dyn()->type_of(n->scrutinee, &null);
-        st = dyn()->match_infer_column(n->scrutinee, &(n->cases), st);
-        var entry = dyn()->flow.env;
-        n->null_arm = dyn()->match_null_first(n->scrutinee, &(n->cases), st, n->range, true);
-        var bad_null = dyn()->match_null_missed(n->null_arm, st);
-        var acc = dyn()->flow.dead_env();
-        for var i: usize = 0; i < n->cases.size(); ++i {
-            var mc = n->cases.get(i);
-            var col = dyn()->match_arm_enter(n->null_arm, n->scrutinee, mc, i, st, &entry);
-            for var j: usize = 0; j < mc->patterns.size(); ++j { dyn()->type_pattern(mc->patterns[j], col); }
-            dyn()->match_guard(mc);
-            if mc->body  != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(mc->body)); }
-            if mc->expression != &null { dyn()->type_of(mc->expression, &null); }
-            var end = dyn()->flow.env;
-            acc = dyn()->flow.join(&acc, &end);
+    fn traverse_match_stmt(self,
+                           n: unsafe *Statements::MatchStmt) -> unsafe *Statements::MatchStmt {
+        if n == &null {
+            return n
         }
-        if n->cases.size() == 0 { acc = entry; }
-        dyn()->flow.env = acc;
-        if bad_null { n->scrutinee->poison(); }
-        return n;
+
+        var st = self.dyn()->type_of(n->scrutinee, &null)
+        st = self.dyn()->match_infer_column(n->scrutinee, &n->cases, st)
+        var entry = self.dyn()->flow.env
+        n->null_arm = self.dyn()->match_null_first(n->scrutinee, &n->cases, st, n->range, true)
+        var bad_null = self.dyn()->match_null_missed(n->null_arm, st)
+        var acc      = self.dyn()->flow.dead_env()
+        for var i: usize = 0; i < n->cases.size(); ++i {
+            var unsafe *mc = n->cases.get(i)
+            var col = self.dyn()->match_arm_enter(n->null_arm, n->scrutinee, mc, i, st, &entry)
+            for var j: usize = 0; j < mc->patterns.size(); ++j {
+                self.dyn()->type_pattern(mc->patterns[j], col)
+            }
+
+            self.dyn()->match_guard(mc)
+            if mc->body != &null {
+                self.dyn()->dispatch_stmt(mc->body)
+            }
+
+            if mc->expression != &null {
+                self.dyn()->type_of(mc->expression, &null)
+            }
+
+            var end = self.dyn()->flow.env
+            acc = self.dyn()->flow.join(&acc, &end)
+        }
+
+        if n->cases.size() == 0 {
+            acc = entry
+        }
+
+        self.dyn()->flow.env = acc
+        if bad_null {
+            n->scrutinee->poison()
+        }
+
+        return n
     }
 
     /// A `catch` arm starts from the state before the `try` with whatever
     /// the body assigns assumed (it may throw anywhere); after the
     /// statement, the body's end joined with every arm's.
-    fn traverse_try_catch_stmt(self, n: *TryCatchStmt) -> *TryCatchStmt {
-        if n == &null { return n; }
-        var entry = dyn()->flow.env;
-        if n->try_body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->try_body)); }
-        var acc = dyn()->flow.env;
-        var arm_entry = dyn()->flow.try_entry(&entry, static_cast::<*Stmt>(n->try_body), &null);
-        for var i: usize = 0; i < n->arms.size(); ++i {
-            var arm = n->arms.get(i);
-            var vd = dyn_cast::<VariableDecl>(arm->decl);
-            if (vd != &null) && (vd->type_ == &null) {
-                var ft: *Type = &null;
-                if (arm->filter != &null) && (arm->filter->canonical != &null) { ft = arm->filter->canonical; }
-                if ft == &null { var a = vec::<*Type>(); ft = dyn()->tu.lang_record(WellKnownType::Panic, &a); }
-                if ft != &null { vd->type_ = canon_unqual(ft); }
-            }
-            dyn()->flow.env = arm_entry;
-            if arm->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(arm->body)); }
-            var end = dyn()->flow.env;
-            acc = dyn()->flow.join(&acc, &end);
+    fn traverse_try_catch_stmt(self,
+                               n: unsafe *Statements::TryCatchStmt) -> unsafe *Statements::TryCatchStmt {
+        if n == &null {
+            return n
         }
-        dyn()->flow.env = acc;
-        return n;
+
+        var entry = self.dyn()->flow.env
+        if n->try_body != &null {
+            self.dyn()->dispatch_stmt(n->try_body)
+        }
+
+        var acc       = self.dyn()->flow.env
+        var arm_entry = self.dyn()->flow.try_entry(&entry, n->try_body, &null)
+        for var i: usize = 0; i < n->arms.size(); ++i {
+            var unsafe *arm = n->arms.get(i)
+            var unsafe *vd  = dyn_cast<VariableDecl>(arm->decl)
+            if vd != &null && vd->type_ == &null {
+                var ft: unsafe *Type = &null
+                if arm->filter != &null && arm->filter->canonical != &null {
+                    ft = arm->filter->canonical
+                }
+
+                if ft == &null {
+                    var a = cxx::std::vector<*Type>()
+                    ft = self.dyn()->tu.lang_record(WellKnownType::Panic, &a)
+                }
+
+                if ft != &null {
+                    vd->type_ = canon_unqual(ft)
+                }
+            }
+
+            self.dyn()->flow.env = arm_entry
+            if arm->body != &null {
+                self.dyn()->dispatch_stmt(arm->body)
+            }
+
+            var end = self.dyn()->flow.env
+            acc = self.dyn()->flow.join(&acc, &end)
+        }
+
+        self.dyn()->flow.env = acc
+        return n
     }
 
-    fn traverse_unsafe_block_stmt(self, n: *UnsafeBlockStmt) -> *UnsafeBlockStmt {
-        if n == &null { return n; }
-        dyn()->unsafe_depth += 1;
-        if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
-        dyn()->unsafe_depth -= 1;
-        return n;
+    fn traverse_unsafe_block_stmt(self,
+                                  n: unsafe *Statements::UnsafeBlockStmt) -> unsafe *Statements::UnsafeBlockStmt {
+        if n == &null {
+            return n
+        }
+
+        self.dyn()->unsafe_depth += 1
+        if n->body != &null {
+            self.dyn()->dispatch_stmt(n->body)
+        }
+
+        self.dyn()->unsafe_depth -= 1
+        return n
     }
 
-    fn traverse_runtime_assert_stmt(self, n: *RuntimeAssertStmt) -> *RuntimeAssertStmt {
-        if n == &null { return n; }
-        if n->condition != &null { dyn()->require_bool(n->condition, "an 'assert' condition"); }
-        if n->message   != &null { dyn()->type_of(n->message, dyn()->tu.string_type()); }
-        return n;
+    fn traverse_runtime_assert_stmt(self,
+                                    n: unsafe *Statements::RuntimeAssertStmt) -> unsafe *Statements::RuntimeAssertStmt {
+        if n == &null {
+            return n
+        }
+
+        if n->condition != &null {
+            self.dyn()->require_bool(n->condition, "an 'assert' condition")
+        }
+
+        if n->message != &null {
+            self.dyn()->type_of(n->message, self.dyn()->tu.string_type())
+        }
+
+        return n
     }
 
-    fn traverse_static_assert_stmt(self, n: *StaticAssertStmt) -> *StaticAssertStmt {
-        if n == &null { return n; }
-        if n->condition != &null { dyn()->require_bool(n->condition, "a static assertion"); }
-        if n->message   != &null { dyn()->type_of(n->message, dyn()->tu.string_type()); }
-        return n;
+    fn traverse_static_assert_stmt(self,
+                                   n: unsafe *Statements::StaticAssertStmt) -> unsafe *Statements::StaticAssertStmt {
+        if n == &null {
+            return n
+        }
+
+        if n->condition != &null {
+            self.dyn()->require_bool(n->condition, "a static assertion")
+        }
+
+        if n->message != &null {
+            self.dyn()->type_of(n->message, self.dyn()->tu.string_type())
+        }
+
+        return n
     }
 
-    fn traverse_panic_stmt(self, n: *PanicStmt) -> *PanicStmt {
-        if n == &null { return n; }
-        if n->payload != &null { dyn()->type_of(n->payload, &null); }
-        dyn()->flow.diverge();
-        return n;
+    fn traverse_panic_stmt(self,
+                           n: unsafe *Statements::PanicStmt) -> unsafe *Statements::PanicStmt {
+        if n == &null {
+            return n
+        }
+
+        if n->payload != &null {
+            self.dyn()->type_of(n->payload, &null)
+        }
+
+        self.dyn()->flow.diverge()
+        return n
     }
 
     /// `yield e` types against the enclosing generator's element. Every
     /// other place a `yield` can sit is an error here, so EmitIR only ever
     /// meets one inside a function it knows is a generator.
-    fn traverse_yield_stmt(self, n: *YieldStmt) -> *YieldStmt {
-        if n == &null { return n; }
-        var fr = self.cur_frame();
-        if (fr == &null) || (fr->closure != &null) || (!fr->is_generator) {
-            if n->value != &null { dyn()->type_of(n->value, &null); }
+    fn traverse_yield_stmt(self,
+                           n: unsafe *Statements::YieldStmt) -> unsafe *Statements::YieldStmt {
+        if n == &null {
+            return n
+        }
+
+        var unsafe *fr = self.cur_frame()
+        if fr == &null || fr->closure != &null || !fr->is_generator {
+            if n->value != &null {
+                self.dyn()->type_of(n->value, &null)
+            }
+
             if fr == &null {
-                dyn()->sc->diag->report(DiagID::SC111E, n->range.start, "'yield' outside a function").first(n->range).emit();
+                self.dyn()->sc->diag->report(
+                    DiagID::SC111E,
+                    n->range.start,
+                    "'yield' outside a function",
+                ).first(n->range)->emit()
             } else if fr->closure != &null {
                 // Lifts when closures are emitted at all; a closure frame has
                 // no FunctionDecl to carry the generator fact yet.
-                dyn()->sc->diag->report(DiagID::SC111E, n->range.start, "a closure cannot yield yet").first(n->range).emit();
+                self.dyn()->sc->diag->report(
+                    DiagID::SC111E,
+                    n->range.start,
+                    "a closure cannot yield yet",
+                ).first(n->range)->emit()
             } else {
-                var f = fr->fn_decl;
-                var b = dyn()->sc->diag->report(DiagID::SC111E, n->range.start,
-                    "'yield' in a function that does not return 'yield T\x27"
-                );
-                b.first(n->range);
-                if (f != &null) && (f->return_type != &null) && f->return_type->range.is_valid() {
-                    b.note(f->return_type->range.start, "declare the return type 'yield T' to make this a generator").first(f->return_type->range);
-                } else if (f != &null) && (!f->is_operator) {
-                    b.note(f->name.range.start, "this function has no return type; declare '-> yield T' to make it a generator").first(f->name.range);
+                var unsafe *f = fr->fn_decl
+                var b = self.dyn()->sc->diag->report(
+                    DiagID::SC111E,
+                    n->range.start,
+                    "'yield' in a function that does not return 'yield T'",
+                )
+
+                b.first(n->range)
+                if f != &null && f->return_type != &null && f->return_type->range.is_valid() {
+                    b.note(
+                        f->return_type->range.start,
+                        "declare the return type 'yield T' to make this a generator",
+                    )->first(f->return_type->range)
+                } else if f != &null && !f->is_operator {
+                    b.note(
+                        f->name.range.start,
+                        "this function has no return type; declare '-> yield T' to make it a generator",
+                    )->first(f->name.range)
                 }
-                b.emit();
+
+                b.emit()
             }
-            return n;
+
+            return n
         }
 
-        if fr->fn_decl != &null { fr->fn_decl->has_yield = true; }
-        if n->value == &null { return n; }
-        var elem = fr->yield_elem;
-        dyn()->type_of(n->value, elem);
+        if fr->fn_decl != &null {
+            fr->fn_decl->has_yield = true
+        }
+
+        if n->value == &null {
+            return n
+        }
+
+        var unsafe *elem = fr->yield_elem
+        self.dyn()->type_of(n->value, elem)
         // The backing array of `[1, 2]` as a slice dies at the suspension.
-        if dyn()->reject_slice_literal(n->value, "yielded from a generator") { return n; }
-        if elem == &null { return n; }
+        if self.dyn()->reject_slice_literal(n->value, "yielded from a generator") {
+            return n
+        }
+
+        if elem == &null {
+            return n
+        }
+
         // Either side dependent is the instance's question.
-        var vt = n->value->type_;
-        if elem->is_dependent() || ((vt != &null) && vt->is_dependent()) { return n; }
-        dyn()->check_convertible(n->value, elem);
-        return n;
+        var unsafe *vt = n->value->type_
+        if elem->is_dependent() || vt != &null && vt->is_dependent() {
+            return n
+        }
+
+        self.dyn()->check_convertible(n->value, elem)
+        return n
     }
 }

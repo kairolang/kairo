@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------- Sema/Lower/ExprBodyDesugar.k --- ///
+/// --- The Kairo Project ----------------- Sema/Lower/ExprBodyDesugar.k --- ///
 ///
 ///   \brief An expression-bodied function becomes the block it abbreviates.
 ///
@@ -39,89 +39,124 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::SemaContext::*;
-import AST::Visitor::ASTWriter::*;
-import AST::ASTSupport::*;
-import AST::Node::Base::*;
-import AST::Node::Statements::*;
-import AST::Node::Declarations::*;
-import AST::Node::Casting::*;
-import AST::Node::Types::*;
-import AST::Node::CanonicalNodes::*;
-import AST::Node::Expressions::*;
+ffi "c++" import "vector"
 
-class ExprBodyDesugar derives ASTWriter::<ExprBodyDesugar> {
-    pub var sc: *SemaContext;
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Stmt,
+    Type,
+}
+import AST::Node::CanonicalNodes::{
+    BuiltinKind,
+    BuiltinType,
+    canon_unqual,
+}
+import AST::Node::Casting::{
+    cast,
+    isa,
+}
+import AST::Node::Declarations::{
+    FnBodyKind,
+    FunctionDecl,
+}
+import AST::Node::Expressions::ClosureExpr
+import AST::Node::Statements::{
+    CompoundStmt,
+    ExpressionStmt,
+    ReturnStmt,
+}
+import AST::Visitor::ASTWriter::ASTWriter
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+
+pub class ExprBodyDesugar derives ASTWriter<ExprBodyDesugar> {
+    pub var sc: *SemaContext
 
     fn ExprBodyDesugar(self, sc: *SemaContext) {
-        self.sc  = sc;
-        self.ctx = sc->ctx;
+        self.sc  = sc
+        self.ctx = sc->ctx
     }
 
     fn run(self) {
-        self.sc->require_phase(SemaPhase::Checked);
-        if self.sc->tu == &null { return; }
-        ASTWriter::<ExprBodyDesugar>::run(self.sc->tu);
-    }
-
-    fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
-        var out = ASTWriter::<ExprBodyDesugar>::transform_function_decl(n);
-        if (n->body_kind != FnBodyKind::Expr) || (n->body_expr == &null) { return out; }
-
-        var e = n->body_expr;
-        var s: *Stmt = &null;
-        if n->is_noreturn || (n->return_type == &null) {
-            s = static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, e->range, e));
-        } else {
-            s = static_cast::<*Stmt>(ReturnStmt::create(self.ctx, e->range, e));
+        self.sc->require_phase(SemaPhase::Checked)
+        if self.sc->tu == &null {
+            return
         }
 
-        var stmts = self.list_builder::<*Stmt>();
-        stmts.push(s);
-        var body = CompoundStmt::create(self.ctx, e->range);
-        stmts.freeze_into(&(body->body));
-
-        n->body_block = body;
-        n->body_expr  = &null;
-        n->body_kind  = FnBodyKind::Block;
-        return out;
+        ASTWriter<ExprBodyDesugar>::run(self, self.sc->tu)
     }
 
-    fn transform_closure_expr(self, n: *ClosureExpr) -> *Expr {
-        var out = ASTWriter::<ExprBodyDesugar>::transform_closure_expr(n);
-        if n->body_expr == &null { return out; }
+    fn transform_function_decl(self, n: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
+        var out = ASTWriter<ExprBodyDesugar>::transform_function_decl(self, n)
+        if n->body_kind != FnBodyKind::Expr || n->body_expr == &null {
+            return out
+        }
 
-        var e = n->body_expr;
-        var s: *Stmt = &null;
+        var unsafe *e              = n->body_expr
+        var        s: unsafe *Stmt = &null
+        if n->is_noreturn || n->return_type == &null {
+            s = ExpressionStmt::create(self.ctx, e->range, e)
+        } else {
+            s = ReturnStmt::create(self.ctx, e->range, e)
+        }
+
+        var stmts = self.list_builder<unsafe *Stmt>()
+        stmts.push(s)
+        var unsafe *body = CompoundStmt::create(self.ctx, e->range)
+        stmts.freeze_into(&body->body)
+
+        n->body_block = body
+        n->body_expr  = &null
+        n->body_kind  = FnBodyKind::Block
+        return out
+    }
+
+    fn transform_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *Expr {
+        var unsafe *out = ASTWriter<ExprBodyDesugar>::transform_closure_expr(self, n)
+        if n->body_expr == &null {
+            return out
+        }
+
+        var unsafe *e              = n->body_expr
+        var        s: unsafe *Stmt = &null
         if n->is_noreturn || self._is_void(n->return_type) {
-            s = static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, e->range, e));
+            s = ExpressionStmt::create(self.ctx, e->range, e)
         } else {
-            s = static_cast::<*Stmt>(ReturnStmt::create(self.ctx, e->range, e));
+            s = ReturnStmt::create(self.ctx, e->range, e)
         }
 
-        var stmts = self.list_builder::<*Stmt>();
-        stmts.push(s);
-        var body = CompoundStmt::create(self.ctx, e->range);
-        stmts.freeze_into(&(body->body));
+        var stmts = self.list_builder<unsafe *Stmt>()
+        stmts.push(s)
+        var unsafe *body = CompoundStmt::create(self.ctx, e->range)
+        stmts.freeze_into(&body->body)
 
-        n->body_block = body;
-        n->body_expr  = &null;
-        n->body_kind  = FnBodyKind::Block;
-        return out;
+        n->body_block = body
+        n->body_expr  = &null
+        n->body_kind  = FnBodyKind::Block
+        return out
     }
 
     /// No return type at all, or one that is `void` / `!`.
-    priv fn _is_void(self, t: *Type) -> bool {
-        if (t == &null) || (t->canonical == &null) { return true; }
-        var c = canon_unqual(t->canonical);
-        if (c == &null) || (!isa::<BuiltinType>(c)) { return false; }
-        var k = cast::<BuiltinType>(c)->builtin;
-        return (k == BuiltinKind::Void) || (k == BuiltinKind::Never);
+    priv fn _is_void(self, t: unsafe *Type) -> bool {
+        if t == &null || t->canonical == &null {
+            return true
+        }
+
+        var unsafe *c = canon_unqual(t->canonical)
+        if c == &null || !isa<BuiltinType>(c) {
+            return false
+        }
+
+        var k = cast<BuiltinType>(c)->builtin
+        return k == BuiltinKind::Void || k == BuiltinKind::Never
     }
 }

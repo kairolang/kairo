@@ -1,25 +1,27 @@
 /// --- The Kairo Project ----------------------------- Config/CodeGen.k --- ///
 ///
-///   Code generation, optimization, and instrumentation options.
+///   CodeGenOptions: code generation, optimization and instrumentation.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Command::ParsedArgs::*;
+ffi "c++" import "vector"
+
+import Command::ParsedArgs::ParsedArgs
 
 /// What an exhaustive match does with a value no arm declares: an
 /// undeclared enum discriminant, an invalid ADT tag (MatchStmt::open_tail).
 /// One writer: this config. MatchLowering reads it; nothing tests the
 /// optimization level itself.
-enum UnmatchedPolicy derives u8 {
-    Trap,          ///< `default: __builtin_trap();`
-    Unreachable,   ///< `default: __builtin_unreachable();` -- UB on a bad value
+pub enum UnmatchedPolicy derives u8 {
+    Trap,        ///< `default: __builtin_trap();`
+    Unreachable, ///< `default: __builtin_unreachable();` -- UB on a bad value
 }
 
 ///
@@ -28,263 +30,314 @@ enum UnmatchedPolicy derives u8 {
 /// \brief Controls optimization, debug info, instrumentation, hardening,
 ///        reproducible builds, and code generation behaviour.
 ///
-class CodeGenOptions {
-    // -- misc codegen ------------------------------------------------------
-    pub var fp_model:              string = "precise";
-    pub var fp_contract:           string = "off";
-    pub var thread_model:          string = "posix";
-    pub var unwind_tables:         string = "";
+pub class CodeGenOptions {
+    /// # misc codegen
+
+    pub var fp_model:      string = "precise"
+    pub var fp_contract:   string = "off"
+    pub var thread_model:  string = "posix"
+    pub var unwind_tables: string = ""
     /// Whether --unwind-tables / --fp-contract were given. cc1 without the
     /// flag is NOT "sync" / "off" for these (the target probe already yields
     /// async tables on x86_64, and the driver adds contract=on), so forwarding
     /// a default would silently change every build; only an explicit flag does.
-    pub var unwind_tables_set:     bool   = false;
-    pub var fp_contract_set:       bool   = false;
-    pub var unwindlib:             string = "";
-    // -- optimization ------------------------------------------------------
-    pub var lto:                   string = "off";
-    pub var profile:               string = "debug";
-    // -- inliner / loop limits (from --c* config flags) --------------------
-    pub var inline_cost:           f64    = 225.0;
+    pub var unwind_tables_set: bool   = false
+    pub var fp_contract_set:   bool   = false
+    pub var unwindlib:         string = ""
+    /// # optimization
+
+    pub var lto:     string = "off"
+    pub var profile: string = "debug"
+    /// # inliner / loop limits (from --c* config flags)
+
+    pub var inline_cost: f64 = 225.0
     /// --cinline-cost-threshold given. LLVM's own threshold differs per level
     /// (225 at -O2, 75 at -Os), so the 225.0 default must not be forwarded.
-    pub var inline_cost_set:       bool   = false;
-    pub var max_inline_depth:      i32    = 256;
-    pub var max_unroll_count:      i32    = 0;
-    pub var max_for_unroll:        i32    = 1024;
-    pub var max_lambda_capture:    i32    = 1024;
-    pub var max_codegen_passes:    i32    = 0;
-    pub var max_object_size_mb:    i32    = 512;
-    // -- optimization ------------------------------------------------------
-    pub var opt_level:             i32    = 0;
-    pub var opt_size:              bool   = false;
-    pub var opt_size_z:            bool   = false;
+    pub var inline_cost_set:    bool = false
+    pub var max_inline_depth:   i32  = 256
+    pub var max_unroll_count:   i32  = 0
+    pub var max_for_unroll:     i32  = 1024
+    pub var max_lambda_capture: i32  = 1024
+    pub var max_codegen_passes: i32  = 0
+    pub var max_object_size_mb: i32  = 512
+    /// # optimization
+
+    pub var opt_level:  i32  = 0
+    pub var opt_size:   bool = false
+    pub var opt_size_z: bool = false
     /// `--unmatched`: "trap", "unreachable", or "" to follow -O; read it
     /// through unmatched_policy().
-    pub var unmatched:             string = "";
+    pub var unmatched: string = ""
     /// `--hardening=enum-tags`: an ADT's exhaustive match traps on a tag no
     /// variant has instead of assuming none reaches it; read it through
     /// adt_tag_policy().
-    pub var harden_enum_tags:      bool   = false;
-    // -- debug info --------------------------------------------------------
-    pub var dwarf_version:         i32    = 5;
-    pub var debug_info:            bool   = false;
-    pub var no_debug_info:         bool   = false;
-    pub var split_dwarf:           bool   = false;
-    pub var debug_macros:          bool   = false;
-    pub var embed_source:          bool   = false;
-    // -- misc codegen ------------------------------------------------------
-    pub var signed_wrap:           bool   = false;
-    pub var unsigned_trap:         bool   = false;
-    pub var strict_aliasing:       bool   = false;
-    pub var instrument_functions:  bool   = false;
+    pub var harden_enum_tags: bool = false
+    /// # debug info
 
-    // -- codegen feature toggles (-f/-fno-) --------------------------------
-    //  -1 = unset (profile default applies), 0 = disabled, 1 = enabled
-    pub var f_inline:              i32 = -1;
-    pub var f_force_inline:        i32 = -1;
-    pub var f_tail_call:           i32 = -1;
-    pub var f_dead_code_elim:      i32 = -1;
-    pub var f_vectorize:           i32 = -1;
-    pub var f_unroll_loops:        i32 = -1;
-    pub var f_merge_functions:     i32 = -1;
-    pub var f_function_sections:   i32 = -1;
-    pub var f_data_sections:       i32 = -1;
-    pub var f_omit_frame_pointer:  i32 = -1;
-    pub var f_fast_math:           i32 = -1;
-    pub var f_export_all:          i32 = -1;
+    pub var dwarf_version: i32  = 5
+    pub var debug_info:    bool = false
+    pub var no_debug_info: bool = false
+    pub var split_dwarf:   bool = false
+    pub var debug_macros:  bool = false
+    pub var embed_source:  bool = false
+    /// # misc codegen
 
-    // -- hardening feature toggles -----------------------------------------
-    pub var f_stack_protector:     i32 = -1;
-    pub var f_pic:                 i32 = -1;
-    pub var f_split_stack:         i32 = -1;
-    pub var f_trap_unreachable:    i32 = -1;
-    pub var f_soft_float:          i32 = -1;
-    pub var f_plt:                 i32 = -1;
-    pub var f_red_zone:            i32 = -1;
-    pub var f_delete_null_checks:  i32 = -1;
-    pub var f_vis_inlines_hidden:  i32 = -1;
+    pub var signed_wrap:          bool = false
+    pub var unsigned_trap:        bool = false
+    pub var strict_aliasing:      bool = false
+    pub var instrument_functions: bool = false
+
+    /// # codegen feature toggles (-f/-fno-)
+    ///  -1 = unset (profile default applies), 0 = disabled, 1 = enabled
+
+    pub var f_inline:             i32 = -1
+    pub var f_force_inline:       i32 = -1
+    pub var f_tail_call:          i32 = -1
+    pub var f_dead_code_elim:     i32 = -1
+    pub var f_vectorize:          i32 = -1
+    pub var f_unroll_loops:       i32 = -1
+    pub var f_merge_functions:    i32 = -1
+    pub var f_function_sections:  i32 = -1
+    pub var f_data_sections:      i32 = -1
+    pub var f_omit_frame_pointer: i32 = -1
+    pub var f_fast_math:          i32 = -1
+    pub var f_export_all:         i32 = -1
+
+    /// # hardening feature toggles
+
+    pub var f_stack_protector:    i32 = -1
+    pub var f_pic:                i32 = -1
+    pub var f_split_stack:        i32 = -1
+    pub var f_trap_unreachable:   i32 = -1
+    pub var f_soft_float:         i32 = -1
+    pub var f_plt:                i32 = -1
+    pub var f_red_zone:           i32 = -1
+    pub var f_delete_null_checks: i32 = -1
+    pub var f_vis_inlines_hidden: i32 = -1
     /// The value flags below are "" when not given: the target's or the
     /// driver's own choice stands, and nothing is forwarded.
-    pub var tls_model:             string = "";
-    pub var visibility:            string = "";
-    pub var stack_protector:       string = "";   ///< wins over f_stack_protector
-    pub var cf_protection:         string = "";
-    pub var auto_var_init:         string = "";
-    pub var mcmodel:               string = "";
-    pub var zero_call_used_regs:   string = "";
+    pub var tls_model:           string = ""
+    pub var visibility:          string = ""
+    pub var stack_protector:     string = "" ///< wins over f_stack_protector
+    pub var cf_protection:       string = ""
+    pub var auto_var_init:       string = ""
+    pub var mcmodel:             string = ""
+    pub var zero_call_used_regs: string = ""
 
-    // -- instrumentation feature toggles -----------------------------------
-    pub var f_coverage:            i32 = -1;
-    pub var f_profile_generate:    i32 = -1;
-    pub var f_sanitize_address:    i32 = -1;
-    pub var f_sanitize_thread:     i32 = -1;
-    pub var f_sanitize_memory:     i32 = -1;
-    pub var f_sanitize_ub:         i32 = -1;
+    /// # instrumentation feature toggles
 
-    // -- LLVM pass control -------------------------------------------------
-    pub var pass_plugins:          vec::<string>;  ///< --pass-plugin (repeatable)
-    pub var disabled_passes:       vec::<string>;  ///< --disable-llvm-pass (repeatable)
-    pub var mllvm_flags:           vec::<string>;  ///< --mllvm (repeatable)
+    pub var f_coverage:         i32 = -1
+    pub var f_profile_generate: i32 = -1
+    pub var f_sanitize_address: i32 = -1
+    pub var f_sanitize_thread:  i32 = -1
+    pub var f_sanitize_memory:  i32 = -1
+    pub var f_sanitize_ub:      i32 = -1
+
+    /// # LLVM pass control
+
+    pub var pass_plugins:    cxx::std::vector<string> ///< --pass-plugin (repeatable)
+    pub var disabled_passes: cxx::std::vector<string> ///< --disable-llvm-pass (repeatable)
+    pub var mllvm_flags:     cxx::std::vector<string> ///< --mllvm (repeatable)
     /// --cxx-flags: clang DRIVER words for C/C++ inputs, verbatim and last,
     /// so they win. Kairo's own TUs never see them (they are driver
     /// spellings, and that line is cc1). What kcc's clang-only words become.
-    pub var cxx_flags:             vec::<string>;
+    pub var cxx_flags: cxx::std::vector<string>
 
-    // -- XRay instrumentation ----------------------------------------------
-    pub var xray:                  string = "none";
-    pub var xray_threshold:        i32    = 200;
+    /// # XRay instrumentation
 
-    // -- link-time optimizations -------------------------------------------
-    pub var whole_program_vtables: bool   = false;
-    pub var devirt:                bool   = false;
+    pub var xray:           string = "none"
+    pub var xray_threshold: i32    = 200
 
-    // -- security hardening ------------------------------------------------
-    pub var stack_clash:           bool   = false;
-    pub var hot_cold_split:        bool   = false;
-    pub var no_implicit_float:     bool   = false;
-    pub var kernel_mode:           bool   = false;
+    /// # link-time optimizations
 
-    // -- reproducible builds -----------------------------------------------
-    pub var source_date_epoch:     string = "";
-    pub var remap_path_prefix:     vec::<string>;  ///< --remap-path-prefix (repeatable)
-    pub var debug_prefix_map:      vec::<string>;  ///< --debug-prefix-map (repeatable)
-    pub var no_timestamps:         bool   = false;
+    pub var whole_program_vtables: bool = false
+    pub var devirt:                bool = false
 
-    // -- PGO / coverage config ---------------------------------------------
-    pub var profile_use:           string = "";
-    pub var coverage_format:       string = "llvm";
-    pub var coverage_prefix_map:   vec::<string>;  ///< --coverage-prefix-map (repeatable)
+    /// # security hardening
 
-    static fn from_args(args: ref!(ParsedArgs)) -> CodeGenOptions {
-        var o = CodeGenOptions();
+    pub var stack_clash:       bool = false
+    pub var hot_cold_split:    bool = false
+    pub var no_implicit_float: bool = false
+    pub var kernel_mode:       bool = false
+
+    /// # reproducible builds
+
+    pub var source_date_epoch: string                   = ""
+    pub var remap_path_prefix: cxx::std::vector<string> ///< --remap-path-prefix (repeatable)
+    pub var debug_prefix_map:  cxx::std::vector<string> ///< --debug-prefix-map (repeatable)
+    pub var no_timestamps:     bool                     = false
+
+    /// # PGO / coverage config
+
+    pub var profile_use:         string                   = ""
+    pub var coverage_format:     string                   = "llvm"
+    pub var coverage_prefix_map: cxx::std::vector<string> ///< --coverage-prefix-map (repeatable)
+
+    static fn from_args(@inout args: ParsedArgs) -> CodeGenOptions {
+        var o = CodeGenOptions()
         // -O's value is one of 0 1 2 3 s z g (FlagRegistry rejects the
         // rest). s and z are level 2 plus a size goal and g is level 1,
         // exactly what clang's cc1 makes of them.
-        var o_val = args.get_string("opt");
+        var o_val = args.get_string("opt")
         // --profile only fills in what the user left unsaid, and only when it
         // was actually given: "debug" is also the registry default, so acting
         // on it unconditionally would force -g onto every plain build.
-        var prof = args.get_string("profile");
-        var prof_given = args.is_set("profile");
-        if prof_given && (!args.is_set("opt")) {
-            if prof == "release"       { o_val = "2"; }
-            else if prof == "min-size" { o_val = "s"; }
+        var prof       = args.get_string("profile")
+        var prof_given = args.is_set("profile")
+        if prof_given && !args.is_set("opt") {
+            if prof == "release" {
+                o_val = "2"
+            } else if prof == "min-size" {
+                o_val = "s"
+            }
         }
-        (o.opt_size)             = (o_val == "s") || (o_val == "z");
-        (o.opt_size_z)           = o_val == "z";
-        if o.opt_size                             { (o.opt_level) = 2; }
-        else if (o_val == "1") || (o_val == "g")  { (o.opt_level) = 1; }
-        else if o_val == "2"                      { (o.opt_level) = 2; }
-        else if o_val == "3"                      { (o.opt_level) = 3; }
-        else                                      { (o.opt_level) = 0; }
-        (o.unmatched)            = args.get_string("unmatched");
-        for h in args.get_list("hardening") {
-            if h == "enum-tags" { (o.harden_enum_tags) = true; }
+
+        o.opt_size   = o_val == "s" || o_val == "z"
+        o.opt_size_z = o_val == "z"
+        if o.opt_size {
+            o.opt_level = 2
+        } else if o_val == "1" || o_val == "g" {
+            o.opt_level = 1
+        } else if o_val == "2" {
+            o.opt_level = 2
+        } else if o_val == "3" {
+            o.opt_level = 3
+        } else {
+            o.opt_level = 0
         }
-        (o.lto)                  = args.get_string("lto");
-        (o.profile)              = prof;
-        (o.debug_info)           = args.get_bool("debug-info");
-        (o.no_debug_info)        = args.get_bool("no-debug-info");
-        if prof_given && (prof == "debug") && (!args.is_set("debug-info")) && (!args.is_set("no-debug-info")) {
-            (o.debug_info) = true;
+
+        o.unmatched = args.get_string("unmatched")
+        for h in *args.get_list("hardening") {
+            if h == "enum-tags" {
+                o.harden_enum_tags = true
+            }
         }
-        (o.dwarf_version)        = args.get_i32("dwarf-version");
-        (o.split_dwarf)          = args.get_bool("split-dwarf");
-        (o.debug_macros)         = args.get_bool("debug-macros");
-        (o.embed_source)         = args.get_bool("embed-source");
-        (o.max_inline_depth)     = args.get_cfg_i32("max-inline-depth");
-        (o.inline_cost)          = args.get_cfg_f64("inline-cost-threshold");
-        (o.inline_cost_set)      = args.cfg_is_set("inline-cost-threshold");
-        (o.max_unroll_count)     = args.get_cfg_i32("max-unroll-count");
-        (o.max_for_unroll)       = args.get_cfg_i32("max-for-unroll-count");
-        (o.max_lambda_capture)   = args.get_cfg_i32("max-lambda-capture-size");
-        (o.max_codegen_passes)   = args.get_cfg_i32("max-codegen-passes");
-        (o.max_object_size_mb)   = args.get_cfg_i32("max-object-size-mb");
-        (o.signed_wrap)          = args.get_bool("signed-wrap");
-        (o.unsigned_trap)        = args.get_bool("unsigned-trap");
-        (o.strict_aliasing)      = args.get_bool("strict-aliasing");
-        (o.instrument_functions) = args.get_bool("instrument-functions");
-        (o.fp_model)             = args.get_string("fp-model");
-        (o.fp_contract)          = args.get_string("fp-contract");
-        (o.fp_contract_set)      = args.is_set("fp-contract");
-        (o.thread_model)         = args.get_string("thread-model");
-        (o.unwind_tables)        = args.get_string("unwind-tables");
-        (o.unwind_tables_set)    = args.is_set("unwind-tables");
-        (o.unwindlib)            = args.get_string("unwindlib");
 
-        // -- codegen feature toggles ---------------------------------------
-        (o.f_inline)             = args.get_feature("inline");
-        (o.f_force_inline)       = args.get_feature("force-inline");
-        (o.f_tail_call)          = args.get_feature("tail-call");
-        (o.f_dead_code_elim)     = args.get_feature("dead-code-elim");
-        (o.f_vectorize)          = args.get_feature("vectorize");
-        (o.f_unroll_loops)       = args.get_feature("unroll-loops");
-        (o.f_merge_functions)    = args.get_feature("merge-functions");
-        (o.f_function_sections)  = args.get_feature("function-sections");
-        (o.f_data_sections)      = args.get_feature("data-sections");
-        (o.f_omit_frame_pointer) = args.get_feature("omit-frame-pointer");
-        (o.f_fast_math)          = args.get_feature("fast-math");
-        (o.f_export_all)         = args.get_feature("export-all");
+        o.lto           = args.get_string("lto")
+        o.profile       = prof
+        o.debug_info    = args.get_bool("debug-info")
+        o.no_debug_info = args.get_bool("no-debug-info")
+        if prof_given
+            && prof == "debug"
+            && !args.is_set("debug-info")
+            && !args.is_set("no-debug-info") {
+            o.debug_info = true
+        }
 
-        // -- hardening feature toggles -------------------------------------
-        (o.f_stack_protector)    = args.get_feature("stack-protector");
-        (o.f_pic)                = args.get_feature("pic");
-        (o.f_split_stack)        = args.get_feature("split-stack");
-        (o.f_trap_unreachable)   = args.get_feature("trap-unreachable");
-        (o.f_soft_float)         = args.get_feature("soft-float");
-        (o.f_plt)                = args.get_feature("plt");
-        (o.f_red_zone)           = args.get_feature("red-zone");
-        (o.f_delete_null_checks) = args.get_feature("delete-null-pointer-checks");
-        (o.f_vis_inlines_hidden) = args.get_feature("visibility-inlines-hidden");
-        (o.tls_model)            = args.get_string("tls-model");
-        (o.visibility)           = args.get_string("visibility");
-        (o.stack_protector)      = args.get_string("stack-protector");
-        (o.cf_protection)        = args.get_string("cf-protection");
-        (o.auto_var_init)        = args.get_string("trivial-auto-var-init");
-        (o.mcmodel)              = args.get_string("mcmodel");
-        (o.zero_call_used_regs)  = args.get_string("zero-call-used-regs");
+        o.dwarf_version        = args.get_i32("dwarf-version")
+        o.split_dwarf          = args.get_bool("split-dwarf")
+        o.debug_macros         = args.get_bool("debug-macros")
+        o.embed_source         = args.get_bool("embed-source")
+        o.max_inline_depth     = args.get_cfg_i32("max-inline-depth")
+        o.inline_cost          = args.get_cfg_f64("inline-cost-threshold")
+        o.inline_cost_set      = args.cfg_is_set("inline-cost-threshold")
+        o.max_unroll_count     = args.get_cfg_i32("max-unroll-count")
+        o.max_for_unroll       = args.get_cfg_i32("max-for-unroll-count")
+        o.max_lambda_capture   = args.get_cfg_i32("max-lambda-capture-size")
+        o.max_codegen_passes   = args.get_cfg_i32("max-codegen-passes")
+        o.max_object_size_mb   = args.get_cfg_i32("max-object-size-mb")
+        o.signed_wrap          = args.get_bool("signed-wrap")
+        o.unsigned_trap        = args.get_bool("unsigned-trap")
+        o.strict_aliasing      = args.get_bool("strict-aliasing")
+        o.instrument_functions = args.get_bool("instrument-functions")
+        o.fp_model             = args.get_string("fp-model")
+        o.fp_contract          = args.get_string("fp-contract")
+        o.fp_contract_set      = args.is_set("fp-contract")
+        o.thread_model         = args.get_string("thread-model")
+        o.unwind_tables        = args.get_string("unwind-tables")
+        o.unwind_tables_set    = args.is_set("unwind-tables")
+        o.unwindlib            = args.get_string("unwindlib")
 
-        // -- instrumentation feature toggles -------------------------------
-        (o.f_coverage)           = args.get_feature("coverage");
-        (o.f_profile_generate)   = args.get_feature("profile-generate");
-        (o.f_sanitize_address)   = args.get_feature("sanitize-address");
-        (o.f_sanitize_thread)    = args.get_feature("sanitize-thread");
-        (o.f_sanitize_memory)    = args.get_feature("sanitize-memory");
-        (o.f_sanitize_ub)        = args.get_feature("sanitize-ub");
+        /// ## codegen feature toggles
+        o.f_inline             = args.get_feature("inline")
+        o.f_force_inline       = args.get_feature("force-inline")
+        o.f_tail_call          = args.get_feature("tail-call")
+        o.f_dead_code_elim     = args.get_feature("dead-code-elim")
+        o.f_vectorize          = args.get_feature("vectorize")
+        o.f_unroll_loops       = args.get_feature("unroll-loops")
+        o.f_merge_functions    = args.get_feature("merge-functions")
+        o.f_function_sections  = args.get_feature("function-sections")
+        o.f_data_sections      = args.get_feature("data-sections")
+        o.f_omit_frame_pointer = args.get_feature("omit-frame-pointer")
+        o.f_fast_math          = args.get_feature("fast-math")
+        o.f_export_all         = args.get_feature("export-all")
 
-        // -- LLVM pass control ---------------------------------------------
-        for s in args.get_list("pass-plugin")       { o.pass_plugins.push_back(s);    }
-        for s in args.get_list("disable-llvm-pass") { o.disabled_passes.push_back(s); }
-        for s in args.get_list("mllvm")             { o.mllvm_flags.push_back(s);     }
-        for s in args.get_list("cxx-flags")         { o.cxx_flags.push_back(s);       }
+        /// ## hardening feature toggles
+        o.f_stack_protector    = args.get_feature("stack-protector")
+        o.f_pic                = args.get_feature("pic")
+        o.f_split_stack        = args.get_feature("split-stack")
+        o.f_trap_unreachable   = args.get_feature("trap-unreachable")
+        o.f_soft_float         = args.get_feature("soft-float")
+        o.f_plt                = args.get_feature("plt")
+        o.f_red_zone           = args.get_feature("red-zone")
+        o.f_delete_null_checks = args.get_feature("delete-null-pointer-checks")
+        o.f_vis_inlines_hidden = args.get_feature("visibility-inlines-hidden")
+        o.tls_model            = args.get_string("tls-model")
+        o.visibility           = args.get_string("visibility")
+        o.stack_protector      = args.get_string("stack-protector")
+        o.cf_protection        = args.get_string("cf-protection")
+        o.auto_var_init        = args.get_string("trivial-auto-var-init")
+        o.mcmodel              = args.get_string("mcmodel")
+        o.zero_call_used_regs  = args.get_string("zero-call-used-regs")
 
-        // -- XRay ----------------------------------------------------------
-        (o.xray)                  = args.get_string("xray");
-        (o.xray_threshold)       = args.get_i32("xray-threshold");
+        /// ## instrumentation feature toggles
+        o.f_coverage         = args.get_feature("coverage")
+        o.f_profile_generate = args.get_feature("profile-generate")
+        o.f_sanitize_address = args.get_feature("sanitize-address")
+        o.f_sanitize_thread  = args.get_feature("sanitize-thread")
+        o.f_sanitize_memory  = args.get_feature("sanitize-memory")
+        o.f_sanitize_ub      = args.get_feature("sanitize-ub")
 
-        // -- link-time optimizations ---------------------------------------
-        (o.whole_program_vtables) = args.get_bool("whole-program-vtables");
-        (o.devirt)                = args.get_bool("devirt");
+        /// ## LLVM pass control
+        for s in *args.get_list("pass-plugin") {
+            o.pass_plugins.push_back(s)
+        }
 
-        // -- security hardening --------------------------------------------
-        (o.stack_clash)           = args.get_bool("stack-clash");
-        (o.hot_cold_split)        = args.get_bool("hot-cold-split");
-        (o.no_implicit_float)     = args.get_bool("no-implicit-float");
-        (o.kernel_mode)           = args.get_bool("kernel-mode");
+        for s in *args.get_list("disable-llvm-pass") {
+            o.disabled_passes.push_back(s)
+        }
 
-        // -- reproducible builds -------------------------------------------
-        (o.source_date_epoch)     = args.get_string("source-date-epoch");
-        (o.no_timestamps)         = args.get_bool("no-timestamps");
-        for s in args.get_list("remap-path-prefix")   { o.remap_path_prefix.push_back(s);   }
-        for s in args.get_list("debug-prefix-map")     { o.debug_prefix_map.push_back(s);     }
+        for s in *args.get_list("mllvm") {
+            o.mllvm_flags.push_back(s)
+        }
 
-        // -- PGO / coverage config -----------------------------------------
-        (o.profile_use)           = args.get_string("profile-use");
-        (o.coverage_format)       = args.get_string("coverage-format");
-        for s in args.get_list("coverage-prefix-map") { o.coverage_prefix_map.push_back(s); }
+        for s in *args.get_list("cxx-flags") {
+            o.cxx_flags.push_back(s)
+        }
 
-        return o;
+        /// ## XRay
+        o.xray           = args.get_string("xray")
+        o.xray_threshold = args.get_i32("xray-threshold")
+
+        /// ## link-time optimizations
+        o.whole_program_vtables = args.get_bool("whole-program-vtables")
+        o.devirt                = args.get_bool("devirt")
+
+        /// ## security hardening
+        o.stack_clash       = args.get_bool("stack-clash")
+        o.hot_cold_split    = args.get_bool("hot-cold-split")
+        o.no_implicit_float = args.get_bool("no-implicit-float")
+        o.kernel_mode       = args.get_bool("kernel-mode")
+
+        /// ## reproducible builds
+        o.source_date_epoch = args.get_string("source-date-epoch")
+        o.no_timestamps     = args.get_bool("no-timestamps")
+        for s in *args.get_list("remap-path-prefix") {
+            o.remap_path_prefix.push_back(s)
+        }
+
+        for s in *args.get_list("debug-prefix-map") {
+            o.debug_prefix_map.push_back(s)
+        }
+
+        /// ## PGO / coverage config
+        o.profile_use     = args.get_string("profile-use")
+        o.coverage_format = args.get_string("coverage-format")
+        for s in *args.get_list("coverage-prefix-map") {
+            o.coverage_prefix_map.push_back(s)
+        }
+
+        return o
     }
 
     /// What an exhaustive match over an ADT's tag does with a tag no variant
@@ -293,18 +346,33 @@ class CodeGenOptions {
     /// table load, unless `--hardening=enum-tags` asks for the check (or
     /// `--unmatched=trap` for every match). A plain enum's undeclared value
     /// is different: a cast makes one legitimately (unmatched_policy).
-    fn adt_tag_policy(self) -> UnmatchedPolicy {
-        if self.harden_enum_tags   { return UnmatchedPolicy::Trap; }
-        if self.unmatched == "trap" { return UnmatchedPolicy::Trap; }
-        return UnmatchedPolicy::Unreachable;
+    pub fn adt_tag_policy(self) -> UnmatchedPolicy {
+        if self.harden_enum_tags {
+            return UnmatchedPolicy::Trap
+        }
+
+        if self.unmatched == "trap" {
+            return UnmatchedPolicy::Trap
+        }
+
+        return UnmatchedPolicy::Unreachable
     }
 
     /// `--unmatched` when given; otherwise Trap at -O0 through -O2 and
     /// Unreachable at -O3, where the check is the one being optimized away.
-    fn unmatched_policy(self) -> UnmatchedPolicy {
-        if self.unmatched == "trap"        { return UnmatchedPolicy::Trap; }
-        if self.unmatched == "unreachable" { return UnmatchedPolicy::Unreachable; }
-        if self.opt_level >= 3             { return UnmatchedPolicy::Unreachable; }
-        return UnmatchedPolicy::Trap;
+    pub fn unmatched_policy(self) -> UnmatchedPolicy {
+        if self.unmatched == "trap" {
+            return UnmatchedPolicy::Trap
+        }
+
+        if self.unmatched == "unreachable" {
+            return UnmatchedPolicy::Unreachable
+        }
+
+        if self.opt_level >= 3 {
+            return UnmatchedPolicy::Unreachable
+        }
+
+        return UnmatchedPolicy::Trap
     }
 }

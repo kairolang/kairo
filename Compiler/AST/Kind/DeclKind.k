@@ -1,12 +1,12 @@
 /// --- The Kairo Project -------------------------- AST/Kind/DeclKind.k --- ///
 ///
-///   <short description>
+///   DeclKind, the discriminator enum for declaration nodes.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -20,17 +20,14 @@
 ///     [8 .. 9]   Alias / module declarations
 ///     [10 .. 12] Meta / tooling declarations
 ///
-enum DeclKind derives u8 {
-    // -----------------------------------------------------------------------
-    //  Sentinel
-    // -----------------------------------------------------------------------
+
+pub enum DeclKind derives u8 {
+    /// # Sentinel
 
     /// Parser error sentinel.
     RecoveryDecl = 0,
 
-    // -----------------------------------------------------------------------
-    //  Callable / binding declarations
-    // -----------------------------------------------------------------------
+    /// # Callable / binding declarations
 
     /// fn foo(...) -> T { } | fn op+(...) | override fn bar()
     /// Out-of-line defs (fn Class::method) are still FunctionDecl.
@@ -54,9 +51,7 @@ enum DeclKind derives u8 {
     /// bounds (kept separate), kind constraint, pack flag, and optional default.
     GenericParamDecl,
 
-    // -----------------------------------------------------------------------
-    //  Type declarations
-    // -----------------------------------------------------------------------
+    /// # Type declarations
 
     /// struct Foo<T> impl Bar { }
     StructDecl,
@@ -80,9 +75,7 @@ enum DeclKind derives u8 {
     /// union Foo { } (unsafe by default, C++ FFI)
     UnionDecl,
 
-    // -----------------------------------------------------------------------
-    //  Alias / module / import declarations
-    // -----------------------------------------------------------------------
+    /// # Alias / module / import declarations
 
     /// type Meters<T> = Vec<T>
     TypeAliasDecl,
@@ -93,9 +86,7 @@ enum DeclKind derives u8 {
     /// import a::b::c | import x as y | ffi "c++" import "h.hh" as z
     ImportDecl,
 
-    // -----------------------------------------------------------------------
-    //  Grouping declarations
-    // -----------------------------------------------------------------------
+    /// # Grouping declarations
 
     /// pub { fn foo() {} fn bar() {} } visibility group at decl scope.
     VisibilityGroupDecl,
@@ -107,9 +98,7 @@ enum DeclKind derives u8 {
     /// (The stmt-position eval block is StmtKind::EvalBlockStmt.)
     EvalBlockDecl,
 
-    // -----------------------------------------------------------------------
-    //  Meta / tooling declarations
-    // -----------------------------------------------------------------------
+    /// # Meta / tooling declarations
 
     /// test "name" { }
     TestDecl,
@@ -120,36 +109,58 @@ enum DeclKind derives u8 {
     /// macro @derive(...) { } procedural / attribute macro.
     ProcedureMacroDecl,
 
-    // -----------------------------------------------------------------------
-    //  Marker
-    // -----------------------------------------------------------------------
+    /// # Marker
     DeclKindCount,
 }
 
-fn to_string(dk: DeclKind) -> string {
-    switch dk {
-        case DeclKind::RecoveryDecl { return "RecoveryDecl"; }
-        case DeclKind::FunctionDecl { return "FunctionDecl"; }
-        case DeclKind::VariableDecl { return "VariableDecl"; }
-        case DeclKind::FieldDecl { return "FieldDecl"; }
-        case DeclKind::ParamDecl { return "ParamDecl"; }
-        case DeclKind::GenericParamDecl { return "GenericParamDecl"; }
-        case DeclKind::StructDecl { return "StructDecl"; }
-        case DeclKind::ClassDecl { return "ClassDecl"; }
-        case DeclKind::InterfaceDecl { return "InterfaceDecl"; }
-        case DeclKind::ExtensionDecl { return "ExtensionDecl"; }
-        case DeclKind::EnumDecl { return "EnumDecl"; }
-        case DeclKind::EnumVariantDecl { return "EnumVariantDecl"; }
-        case DeclKind::UnionDecl { return "UnionDecl"; }
-        case DeclKind::TypeAliasDecl { return "TypeAliasDecl"; }
-        case DeclKind::ModuleDecl { return "ModuleDecl"; }
-        case DeclKind::ImportDecl { return "ImportDecl"; }
-        case DeclKind::VisibilityGroupDecl { return "VisibilityGroupDecl"; }
-        case DeclKind::FFIBlockDecl { return "FFIBlockDecl"; }
-        case DeclKind::EvalBlockDecl { return "EvalBlockDecl"; }
-        case DeclKind::TestDecl { return "TestDecl"; }
-        case DeclKind::MacroDecl { return "MacroDecl"; }
-        case DeclKind::ProcedureMacroDecl { return "ProcedureMacroDecl"; }
-        case DeclKind::DeclKindCount { return "DeclKindCount"; }
+pub fn to_string(dk: DeclKind) -> string {
+    match dk {
+        case DeclKind::RecoveryDecl {
+            return "RecoveryDecl"
+        } case DeclKind::FunctionDecl {
+            return "FunctionDecl"
+        } case DeclKind::VariableDecl {
+            return "VariableDecl"
+        } case DeclKind::FieldDecl {
+            return "FieldDecl"
+        } case DeclKind::ParamDecl {
+            return "ParamDecl"
+        } case DeclKind::GenericParamDecl {
+            return "GenericParamDecl"
+        } case DeclKind::StructDecl {
+            return "StructDecl"
+        } case DeclKind::ClassDecl {
+            return "ClassDecl"
+        } case DeclKind::InterfaceDecl {
+            return "InterfaceDecl"
+        } case DeclKind::ExtensionDecl {
+            return "ExtensionDecl"
+        } case DeclKind::EnumDecl {
+            return "EnumDecl"
+        } case DeclKind::EnumVariantDecl {
+            return "EnumVariantDecl"
+        } case DeclKind::UnionDecl {
+            return "UnionDecl"
+        } case DeclKind::TypeAliasDecl {
+            return "TypeAliasDecl"
+        } case DeclKind::ModuleDecl {
+            return "ModuleDecl"
+        } case DeclKind::ImportDecl {
+            return "ImportDecl"
+        } case DeclKind::VisibilityGroupDecl {
+            return "VisibilityGroupDecl"
+        } case DeclKind::FFIBlockDecl {
+            return "FFIBlockDecl"
+        } case DeclKind::EvalBlockDecl {
+            return "EvalBlockDecl"
+        } case DeclKind::TestDecl {
+            return "TestDecl"
+        } case DeclKind::MacroDecl {
+            return "MacroDecl"
+        } case DeclKind::ProcedureMacroDecl {
+            return "ProcedureMacroDecl"
+        } case DeclKind::DeclKindCount {
+            return "DeclKindCount"
+        }
     }
 }

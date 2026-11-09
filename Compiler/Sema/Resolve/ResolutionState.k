@@ -4,7 +4,7 @@
 ///          resolution. A component on SemaContext, not a pass.
 ///
 ///   \detail
-///     RESOLUTION.md §2 orders N before T. That ordering is right as a contract
+///     Compiler/Spec/Pipeline.md#sema-pass-order orders N before T. That ordering is right as a contract
 ///     between their JOBS and wrong as a hard pass boundary, because the
 ///     dependency between a name and a type is a genuine CYCLE, not a sortable
 ///     edge:
@@ -46,15 +46,20 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "llvm/ADT/DenseMap.h";
-import AST::Node::Base::*;
-import Location::SourceRange::*;
+ffi "c++" import "llvm/ADT/DenseMap.h"
+ffi "c++" import "vector"
+
+import AST::Node::Base::{
+    Decl,
+    Type,
+}
+import Location::SourceRange::SourceRange
 
 /// \enum ResolveState
 /// \brief Where one node is in its own resolution.
@@ -64,7 +69,7 @@ import Location::SourceRange::*;
 ///        USER's program, not a bug in the resolver. A two-state
 ///        (done/not-done) table cannot tell that apart from "not started" and
 ///        would recurse forever on `type A = B; type B = A`.
-enum ResolveState derives u8 {
+pub enum ResolveState derives u8 {
     Unresolved = 0, ///< never entered.
     InProgress,     ///< currently on the resolution stack -- re-entry is a cycle.
     Resolved,       ///< finished successfully; the node's own slots are filled.
@@ -77,9 +82,9 @@ enum ResolveState derives u8 {
 ///        possible message is "circular dependency"; with them the pass can
 ///        name every edge, which is the difference between a usable diagnostic
 ///        and a shrug.
-class ResolveFrame {
-    pub var decl: *Decl = &null;        ///< the decl being resolved.
-    pub var at:   SourceRange;          ///< where resolution was demanded FROM.
+pub class ResolveFrame {
+    pub var decl: unsafe *Decl = &null ///< the decl being resolved.
+    pub var at:   SourceRange          ///< where resolution was demanded FROM.
 
     fn ResolveFrame(self) { }
 }
@@ -88,41 +93,54 @@ class ResolveFrame {
 /// \class ResolutionState
 /// \brief The memo table + the active stack.
 ///
-class ResolutionState {
-    priv var _decls: llvm::DenseMap::<u64, u8>;   ///< by address: never a reserved key.
-    priv var _types: llvm::DenseMap::<u64, u8>;
+pub class ResolutionState {
+    priv var _decls: llvm::DenseMap<u64, u8> ///< by address: never a reserved key.
+    priv var _types: llvm::DenseMap<u64, u8>
 
     /// The active chain, innermost last. Depth is bounded by _max_depth, not by
     /// the C++ stack: deeply chained aliases recurse hard, and a segfault is a
     /// worse answer than a diagnostic.
-    pub var stack: vec::<ResolveFrame>;
+    pub var stack: cxx::std::vector<ResolveFrame>
 
-    priv var _max_depth: usize = 256;
+    priv var _max_depth: usize = 256
 
     fn ResolutionState(self) {
-        self._decls.reserve(64);
-        self._types.reserve(256);
-        self.stack.reserve(16);
+        self._decls.reserve(64)
+        self._types.reserve(256)
+        self.stack.reserve(16)
     }
 
     fn set_max_depth(self, d: usize) {
-        if d > 0 { self._max_depth = d; }
+        if d > 0 {
+            self._max_depth = d
+        }
     }
 
-    fn max_depth(self) -> usize { return self._max_depth; }
-
-    // --- Decl state -----------------------------------------------------------
-
-    fn decl_state(self, d: *Decl) -> ResolveState {
-        if d == &null { return ResolveState::Errored; }
-        var it = self._decls.find(self._key(reinterpret_cast::<*void>(d)));
-        if it == self._decls.end() { return ResolveState::Unresolved; }
-        return static_cast::<ResolveState>(it->second);
+    fn max_depth(self) -> usize {
+        return self._max_depth
     }
 
-    fn set_decl_state(self, d: *Decl, s: ResolveState) {
-        if d == &null { return; }
-        self._decls[self._key(reinterpret_cast::<*void>(d))] = static_cast::<u8>(s);
+    /// # Decl state
+
+    fn decl_state(self, d: unsafe *Decl) -> ResolveState {
+        if d == &null {
+            return ResolveState::Errored
+        }
+
+        var it = self._decls.find(self._key(unsafe (d as unsafe *void)))
+        if it == self._decls.end() {
+            return ResolveState::Unresolved
+        }
+
+        return it->second as ResolveState
+    }
+
+    fn set_decl_state(self, d: unsafe *Decl, s: ResolveState) {
+        if d == &null {
+            return
+        }
+
+        self._decls[self._key(unsafe (d as unsafe *void))] = (s as u8)
     }
 
     /// \brief Claim \p d for resolution, pushing a frame.
@@ -133,77 +151,107 @@ class ResolutionState {
     ///         silent -- one error, one home), a cycle, or the depth cap. The
     ///         caller distinguishes those by asking decl_state / cycle_index
     ///         BEFORE calling this.
-    fn begin_decl(self, d: *Decl, at: SourceRange) -> bool {
-        if d == &null { return false; }
-        var st = self.decl_state(d);
-        if st != ResolveState::Unresolved { return false; }
-        if self.stack.size() >= self._max_depth { return false; }
+    fn begin_decl(self, d: unsafe *Decl, at: SourceRange) -> bool {
+        if d == &null {
+            return false
+        }
 
-        self.set_decl_state(d, ResolveState::InProgress);
-        var f = ResolveFrame{};
-        f.decl = d;
-        f.at   = at;
-        self.stack.push_back(f);
-        return true;
+        var st = self.decl_state(d)
+        if st != ResolveState::Unresolved {
+            return false
+        }
+
+        if self.stack.size() >= self._max_depth {
+            return false
+        }
+
+        self.set_decl_state(d, ResolveState::InProgress)
+        var f = ResolveFrame()
+        f.decl = d
+        f.at   = at
+        self.stack.push_back(f)
+        return true
     }
 
     /// \brief Release \p d. `ok == false` records Errored, which is permanent:
     ///        a decl whose resolution was diagnosed is never re-attempted and
     ///        never re-reported, so a bad alias used fifty times yields one
     ///        error, not fifty.
-    fn finish_decl(self, d: *Decl, ok: bool) {
-        if d == &null { return; }
-        self.set_decl_state(d, (ResolveState::Resolved) if (ok) else (ResolveState::Errored));
-        if !self.stack.empty() { self.stack.pop_back(); }
+    fn finish_decl(self, d: unsafe *Decl, ok: bool) {
+        if d == &null {
+            return
+        }
+
+        self.set_decl_state(d, if (ok) => (ResolveState::Resolved) else => ResolveState::Errored)
+        if !self.stack.empty() {
+            self.stack.pop_back()
+        }
     }
 
     /// \brief Index of \p d in the active stack, or usize(-1) if absent.
     ///        A hit IS the cycle, and the slice from here to the top is the
     ///        edge list the diagnostic should name.
-    fn cycle_index(self, d: *Decl) -> usize {
-        if d == &null { return usize(-1); }
-        for var i: usize = 0; i < self.stack.size(); ++i {
-            if self.stack[i].decl == d { return i; }
+    fn cycle_index(self, d: unsafe *Decl) -> usize {
+        if d == &null {
+            return usize::MAX
         }
-        return usize(-1);
+
+        for var i: usize = 0; i < self.stack.size(); ++i {
+            if self.stack[i].decl == d {
+                return i
+            }
+        }
+
+        return usize::MAX
     }
 
-    fn in_progress(self, d: *Decl) -> bool {
-        return self.decl_state(d) == ResolveState::InProgress;
+    fn in_progress(self, d: unsafe *Decl) -> bool {
+        return self.decl_state(d) == ResolveState::InProgress
     }
 
-    fn depth(self) -> usize { return self.stack.size(); }
+    fn depth(self) -> usize {
+        return self.stack.size()
+    }
 
     fn at_depth_limit(self) -> bool {
-        return self.stack.size() >= self._max_depth;
+        return self.stack.size() >= self._max_depth
     }
 
-    // --- Type-node state ------------------------------------------------------
-    //
-    // Separate from decls because a Type node's "done" is cheap to read off the
-    // node itself (canonical != null) for the SUCCESS case, but not for the
-    // dependent case: a dependent type is legitimately finished with a null
-    // canonical (hard invariant #5), and without a state bit the resolver would
-    // re-walk it on every reference.
+    /// # Type-node state
+    ///
+    /// Separate from decls because a Type node's "done" is cheap to read off the
+    /// node itself (canonical != null) for the SUCCESS case, but not for the
+    /// dependent case: a dependent type is legitimately finished with a null
+    /// canonical (hard invariant #5), and without a state bit the resolver would
+    /// re-walk it on every reference.
 
-    fn type_state(self, t: *Type) -> ResolveState {
-        if t == &null { return ResolveState::Errored; }
-        var it = self._types.find(self._key(reinterpret_cast::<*void>(t)));
-        if it == self._types.end() { return ResolveState::Unresolved; }
-        return static_cast::<ResolveState>(it->second);
+    fn type_state(self, t: unsafe *Type) -> ResolveState {
+        if t == &null {
+            return ResolveState::Errored
+        }
+
+        var it = self._types.find(self._key(unsafe (t as unsafe *void)))
+        if it == self._types.end() {
+            return ResolveState::Unresolved
+        }
+
+        return it->second as ResolveState
     }
 
-    fn set_type_state(self, t: *Type, s: ResolveState) {
-        if t == &null { return; }
-        self._types[self._key(reinterpret_cast::<*void>(t))] = static_cast::<u8>(s);
+    fn set_type_state(self, t: unsafe *Type, s: ResolveState) {
+        if t == &null {
+            return
+        }
+
+        self._types[self._key(unsafe (t as unsafe *void))] = (s as u8)
     }
 
-    fn type_done(self, t: *Type) -> bool {
-        var s = self.type_state(t);
-        return (s == ResolveState::Resolved) || (s == ResolveState::Errored);
+    fn type_done(self, t: unsafe *Type) -> bool {
+        var s = self.type_state(t)
+        return s == ResolveState::Resolved || s == ResolveState::Errored
     }
 
-    priv fn _key(self, p: *void) -> u64 {
-        return reinterpret_cast::<u64>(p);
+    priv fn _key(self, p: unsafe *void) -> u64 {
+        return p as usize as u64
     }
 }

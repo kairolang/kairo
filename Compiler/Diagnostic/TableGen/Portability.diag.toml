@@ -3,8 +3,8 @@
 #   Part of the Kairo Project, under the Apache License v2.0 with the
 #   Kairo Runtime Library Exception.
 #
-#   See: https://www.kairolang.org/LICENSE.txt
-#   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+#   See: https://www.kairolang.org/LICENSE
+#   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 #   Copyright (c) 2026 Dhruvan Kartik
 #
 # ------------------------------------------------------------------------ #
@@ -194,3 +194,38 @@ group = "target"
 
     [P007.N]
     explain = "Says what is wrong with the bundled sysroot directory."
+
+[P008]
+brief = "root or sysroot not found"
+group = "portability"
+
+    [P008.W]
+    explain = """
+    # root or sysroot not found
+
+    the compiler found no usable root for its bundled resources, or no sysroot for the target. The message names the flag that points at one.
+
+    ## how to fix
+
+    pass the flag the message names, or build with --freestanding.
+    """
+
+    [P008.E]
+    explain = """
+    # no sysroot for a target whose SDK is never shipped
+
+    Apple (`*-apple-*`) and MSVC (`*-windows-msvc`) SDKs cannot be redistributed, so the compiler never bundles them. Without one there are no system headers, and compiling would only fail later in the builtin library, far from the cause. The compile stops before parsing.
+
+    ## example
+
+    ```
+    kairo --target=x86_64-apple-macosx hello.k
+    ```
+
+    ## how to fix
+
+    pass `--sysroot=<dir>` with an SDK you have installed, or build with `--freestanding`. On a macOS or Windows host the installed SDK is used and this is not reported.
+    """
+
+    [P008.N]
+    explain = "Says which flag to pass."

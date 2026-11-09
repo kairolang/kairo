@@ -1,10 +1,13 @@
-/// --- The Kairo Project -------------------------------------------------- ///
+/// --- The Kairo Project ---------------------- Native/SmallFunction.hh --- ///
+///
+///   Out-of-line members of SmallFunction (declared in Types.hh), the
+///   allocation-free move-only callable.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -43,7 +46,8 @@
 #include "Types.hh"
 
 #if defined(_WIN32)
-#include <windows.h>
+// (nothing: no Win32 call here, and <windows.h> must stay out of every header
+// a Kairo module imports; see Win32.hh)
 #elif defined(__linux__)
 #include <pthread.h>
 #include <sched.h>

@@ -69,8 +69,18 @@ Compiler/
 │                   KairoIncludeScan), loc mapping (ClangLocMap); header sets
 │                   (HeaderSet.k, HeaderSetCache.k) and the merged codegen
 │                   PCH (CodegenPCH.k)
-├── Driver/         CompilerInstance (shared resources), FrontendAction (the
-│                   per-file pipeline); entry points Kairo.k (kairo) and
+├── Driver/         CompilerInstance (shared resources; the class, its fields,
+│                   construction, initialize and execute), split by concern
+│                   into `extend CompilerInstance` files that reach its
+│                   members as `prot` (module.k makes Driver/ one module):
+│                   CompilerSetup (target/sysroot, backend config, the
+│                   invocation), CompilerInfo (--help/--version/--explain/
+│                   --print-*), CompilerGraph (input order, included .k,
+│                   the incremental API), CompilerNative (runtime and C/C++
+│                   inputs through clang), CompilerCache (runtime object
+│                   cache, --kairo-lib), CompilerLink (outputs, the link);
+│                   FrontendAction (the per-file pipeline); entry points
+│                   Kairo.k (kairo) and
 │                   Kcc.k (kcc), both starting through Runtime.k; input kinds
 │                   (InputKinds), KairoIncludes (kcc's #include "foo.k"
 │                   answer), per-TU / batch results and stages
@@ -94,8 +104,7 @@ Compiler/
 │                   Scripts/gen_clang_diag_table.py)
 ├── Spec/           the compiler specification: pipeline, per-pass contracts,
 │                   build system, self-hosting, incremental compilation
-│                   (index: Compiler/Spec/README.md; Issues/ holds the
-│                   ticket write-ups)
+│                   (index: Compiler/Spec/README.md)
 └── Native/         C++ interop headers (.hh) pooled, path-coupled: arenas
                     (ArenaBlock, GlobalRecycler, KPlacement), text and numbers
                     (CharTable, UTF8Decode, KInt128, KLocale), threading and
@@ -107,6 +116,19 @@ Compiler/
                     the fan-out's shared in-memory file layer)
 
 The linker (KLD) is not under Compiler/: it is ../Linker (Linker::API).
+
+Modules and exports (2026-11-08). Every top-level directory above that holds
+.k files is one module: it has a comments-only module.k (no `module` pin, so
+module paths and C++ namespaces are unchanged), and its nested directories
+belong to it (Sema/Resolve is part of Sema). Compiler/ itself has no module.k.
+The tree builds under the language's own visibility rule
+(-fdefault-visibility=spec): an unmarked declaration is `prot`, visible to
+every file of its module; `pub` marks what other modules use, i.e. the
+module's API; `priv` is one file. A declaration another module needs is made
+`pub` at the declaration, never by widening the default. Linker/API and
+Linker/Driver are modules the same way. Note the generated full registry
+(build/registry/Compiler/Diagnostic/Registry.k) compiles outside the
+Diagnostic module, so what it names (DiagMeta's fields) is `pub`.
 
 --------------------------------------------------------------------------------
 
@@ -127,7 +149,7 @@ The compiler has its own lexer, preprocessor, parser, full Sema (name
 resolution, overload resolution, ADL, SFINAE, concept and conformance
 checking, instance enumeration, all done Kairo-side), and a CodeGen that does
 NOT emit C++ source. Many programs compile, link through KLD and run (Tests/
-Codegen); a few constructs do not lower yet (see Compiler/Spec/Issues/).
+Codegen); a few constructs do not lower yet.
 `--type-check-only` stops after Sema and is the fast loop when a change does
 not touch codegen.
 Panic is built end to end outside generic bodies: inferred and declared
@@ -320,7 +342,7 @@ Per-Action pipeline (parallelism shown explicitly):
         |  patterns, eval.                                |
         |                                                 |
         |  ONE BARRIER, the Typed barrier: the import     |   Sema/Check/EffectPropagation.k
-        |  graph runs in groups (one per import cycle,    |   Driver/CompilerInstance.k
+        |  graph runs in groups (one per import cycle,    |   Driver/FrontendAction.k
         |  one TU when there is none). Every TU of a      |
         |  group reaches Typed, then the build-wide       |
         |  EffectTable solves the group's inferred panic  |
@@ -342,8 +364,9 @@ Per-Action pipeline (parallelism shown explicitly):
         |  through a body, as a clang specialization.     |
         |  M2 (instance facts by substitution into the    |
         |  bounds: layout built; lifecycle, rows, panic   |
-        |  sets open) is a Sema.k slot; until P10, a      |
-        |  panicking call in a generic body is SC116E.    |
+        |  sets open) is a Sema.k slot; until its panic   |
+        |  sets land, a panicking call in a generic body  |
+        |  is SC116E.                                     |
         *=================================================*
                                 v
         *=================================================*
@@ -534,7 +557,7 @@ jobs and the link without building).
 Every build writes the diagnostic registry first: Scripts/gen_diag.py reads
 Diagnostic/TableGen/*.diag.toml, emits Diagnostic/Registry.k (generated, never
 edited) and the registry object build/registry, which is linked into every
-tool and so references no compiler-module symbol (P501; TableGen/README says
+tool and so references no compiler-module symbol (TableGen/README says
 why). Never rebuild a compiler
 binary while a compile is running from it.
 

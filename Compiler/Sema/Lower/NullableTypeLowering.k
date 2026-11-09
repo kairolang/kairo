@@ -1,10 +1,10 @@
-/// --- The Kairo Project -------------- Sema/Lower/NullableTypeLowering.k --- ///
+/// --- The Kairo Project ------------ Sema/Lower/NullableTypeLowering.k --- ///
 ///
 ///   \brief `T?` is `::builtin::Nullable<T>` to C++, and the `null` literal
 ///          is that record's null.
 ///
 ///   \detail
-///     Two rewrites (NULLABLE.md 1.1, §5 step 4):
+///     Two rewrites (Compiler/Spec/Nullables.md#the-canonical-type-and-its-record, §5 step 4):
 ///
 ///       i32?            canonical NullableType  ->  lowered = record(Nullable, [i32])
 ///       null : i32?     NullLiteralExpr         ->  VariantInitExpr Nullable<i32>::Null
@@ -17,7 +17,7 @@
 ///     inside instance keys (`Box<i32?>`), pointers (`*(i32?)`) and
 ///     function types, and an expression's type is often a canonical no
 ///     written type names (`var b = find(3)`); re-keying all of them is the
-///     repointing G0 found breaks deduction. So the pass walks the
+///     repointing that breaks deduction. So the pass walks the
 ///     canonical TABLE, not the tree: whatever `T?` any TU minted is lowered,
 ///     and one this TU never uses costs one record. `T?`'s inner is the
 ///     record's argument as it is: `(i32?)?` is Nullable<i32?>, which spells
@@ -50,89 +50,145 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::SemaContext::*;
-import Sema::Type::TypeUtil::*;
-import AST::Visitor::ASTWriter::*;
-import AST::ASTSupport::*;
-import AST::LangItems::*;
-import AST::Context::CanonicalTypes::*;
-import AST::Node::Base::*;
-import AST::Node::Types::*;
-import AST::Node::Expressions::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Declarations::*;
-import AST::Node::Casting::*;
-import AST::Node::CanonicalNodes::*;
+ffi "c++" import "Native/KThread.hh" // sema_mint_rank
+ffi "c++" import "Native/KThread.hh" // sema_mint_rank
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
 
-class NullableTypeLowering derives ASTWriter::<NullableTypeLowering> {
-    pub var sc: *SemaContext;
-    priv var tu: TypeUtil;
-    priv var _en: *EnumDecl = &null;       ///< the Nullable lang item's pattern.
-    priv var _null_ix: u32 = 0;            ///< its payload-less variant's tag.
+import AST::LangItems::WellKnownType
+import AST::Node::Base::{
+    Expr,
+    Type,
+}
+import AST::Node::CanonicalNodes::canon_unqual
+import AST::Node::Casting::{
+    cast,
+    isa,
+}
+import AST::Node::Declarations::EnumDecl
+import AST::Node::Expressions::VariantInitExpr
+import AST::Node::PrimaryExpressions::NullLiteralExpr
+import AST::Node::Types::NullableType
+import AST::Visitor::ASTWriter::ASTWriter
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+import Sema::Type::TypeUtil::TypeUtil
 
-    fn NullableTypeLowering(self, sc: *SemaContext) {
-        self.sc  = sc;
-        self.ctx = sc->ctx;
-        self.tu  = TypeUtil(sc);
+pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
+    pub var  sc:       unsafe *SemaContext
+    priv var tu:       TypeUtil
+    priv var _en:      unsafe *EnumDecl    = &null ///< the Nullable lang item's pattern.
+    priv var _null_ix: u32                 = 0     ///< its payload-less variant's tag.
+
+    fn NullableTypeLowering(self, sc: unsafe *SemaContext) {
+        self.sc  = sc
+        self.ctx = sc->ctx
+        self.tu  = TypeUtil(sc)
     }
 
     fn run(self) {
-        self.sc->require_phase(SemaPhase::Checked);
-        if self.sc->tu == &null { return; }
+        self.sc->require_phase(SemaPhase::Checked)
+        if self.sc->tu == &null {
+            return
+        }
+
         // A build with no builtin root has no `T?` to lower to; a `T?` that
         // reaches codegen then ICEs naming this pass (CXXSpell), which is the
         // truth: nothing could lower it.
-        if !self.sc->well_known->has(WellKnownType::Nullable) { return; }
-        self._en = self.sc->nullable_enum();
-        ICE_IF(self._en == &null, "NullableTypeLowering: the Nullable lang item is not an enum");
-        var found = false;
-        for var i: usize = 0; i < self._en->variants.size(); ++i {
-            var v = self._en->variants[i];
-            if (v != &null) && v->payload.is_empty() { self._null_ix = u32(i); found = true; }
+        if !self.sc->well_known->has(WellKnownType::Nullable) {
+            return
         }
-        ICE_IF(!found, "NullableTypeLowering: the Nullable lang item has no payload-less variant");
 
-        self._lower_types();
-        ASTWriter::<NullableTypeLowering>::run(self.sc->tu);
+        self._en = self.sc->nullable_enum()
+        if self._en == &null {
+            kairo::std::ice_fail("NullableTypeLowering: the Nullable lang item is not an enum")
+        }
+
+        var found = false
+        for var i: usize = 0; i < self._en->variants.size(); ++i {
+            var unsafe *v = self._en->variants[i]
+            if v != &null && v->payload.is_empty() {
+                self._null_ix = (i as u32)
+                found         = true
+            }
+        }
+
+        if !found {
+            kairo::std::ice_fail(
+                "NullableTypeLowering: the Nullable lang item has no payload-less variant",
+            )
+        }
+
+        self._lower_types()
+        ASTWriter<NullableTypeLowering>::run(self, self.sc->tu)
     }
 
     /// Every canonical `T?` gets its record (file header). Poisoned or
     /// absent inners are skipped: the pipeline stopped before codegen.
     priv fn _lower_types(self) {
-        var all = self.sc->types->nullables();
+        // Every `T?` an earlier TU interned is lowered already; the walk
+        // below would find nothing to do.
+        if !self.sc->types->has_unlowered_nullables() {
+            return
+        }
+
+        var all = self.sc->types->nullables()
+        // Only the `T?`s a one-thread run would have interned by now: a TU
+        // later in import order may have interned one already, typing on
+        // another thread (NullableType::seen_rank). Its own lowering
+        // takes it.
+        var rank = *kairo::sema_mint_rank()
         for var i: usize = 0; i < all.size(); ++i {
-            var n = all[i];
-            if (n->lowered != &null) || (n->inner == &null) { continue; }
-            var args = vec::<*Type>();
-            args.push_back(n->inner);
-            var r = self.sc->lang_record(WellKnownType::Nullable, &args);
-            self.sc->types->set_nullable_lowered(n, r);
+            var unsafe *n = all[i]
+            if n->lowered != &null || n->inner == &null {
+                continue
+            }
+
+            if rank != u64::MAX && n->seen_rank > rank {
+                continue
+            }
+
+            var args = cxx::std::vector<unsafe *Type>()
+            args.push_back(n->inner)
+            var unsafe *r = self.sc->lang_record(WellKnownType::Nullable, unsafe &args)
+            self.sc->types->set_nullable_lowered(n, r)
         }
     }
 
     /// The record \p t is to C++ when it is a `T?`, else null.
-    priv fn _record_of(self, t: *Type) -> *Type {
-        var c = canon_unqual(t);
-        if (c == &null) || (!isa::<NullableType>(c)) { return &null; }
-        return cast::<NullableType>(c)->lowered;
+    priv fn _record_of(self, t: unsafe *Type) -> unsafe *Type {
+        var unsafe *c = canon_unqual(t)
+        if c == &null || !isa<NullableType>(c) {
+            return &null
+        }
+
+        return cast<NullableType>(c)->lowered
     }
 
     /// `null` and `&null` typed as a nullable: the record's null variant.
     /// `&null` against a plain pointer stays the null pointer.
-    fn transform_null_literal_expr(self, n: *NullLiteralExpr) -> *Expr {
-        if n->is_poisoned() { return n; }
-        var r = self._record_of(n->type_);
-        if r == &null { return n; }
-        var vi = VariantInitExpr::create(self.ctx, n->range, static_cast::<*Decl>(self._en), self._null_ix);
-        vi->adopt_sema(n);
-        vi->type_          = r;
-        vi->value_category = Expr::ValueCategory::RValue;
-        return static_cast::<*Expr>(vi);
+    fn transform_null_literal_expr(self, n: unsafe *NullLiteralExpr) -> unsafe *Expr {
+        if n->is_poisoned() {
+            return n
+        }
+
+        var unsafe *r = self._record_of(n->type_)
+        if r == &null {
+            return n
+        }
+
+        var unsafe *vi = VariantInitExpr::create(self.ctx, n->range, self._en, self._null_ix)
+        vi->adopt_sema(n)
+        vi->type_          = r
+        vi->value_category = Expr::ValueCategory::RValue
+        return vi
     }
 }

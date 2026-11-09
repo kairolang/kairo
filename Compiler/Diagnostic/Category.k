@@ -5,8 +5,8 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -15,7 +15,7 @@
 /// string: \c S001E means category \c Syntax, code \c 001, severity \c Error.
 ///
 /// \note \c Count is a sentinel not a valid category.
-enum DiagCategory derives u8 {
+pub enum DiagCategory derives u8 {
     /// Parser and lexer diagnostics. Code: \c S
     Syntax,
 

@@ -41,75 +41,96 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/Types.hh";
-ffi "c++" import "clang/AST/ASTContext.h";
-ffi "c++" import "clang/AST/Decl.h";
-ffi "c++" import "clang/AST/DeclCXX.h";
-ffi "c++" import "clang/AST/DeclTemplate.h";
-ffi "c++" import "clang/AST/Expr.h";
-ffi "c++" import "clang/Basic/DiagnosticSema.h";
-ffi "c++" import "clang/Basic/PartialDiagnostic.h";
-ffi "c++" import "clang/Sema/Sema.h";
-ffi "c++" import "clang/Sema/TemplateDeduction.h";
-ffi "c++" import "llvm/ADT/SmallString.h";
-ffi "c++" import "llvm/ADT/SmallVector.h";
-ffi "c++" import "llvm/ADT/StringMap.h";
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "clang/AST/ASTContext.h"
+ffi "c++" import "clang/AST/Decl.h"
+ffi "c++" import "clang/AST/DeclCXX.h"
+ffi "c++" import "clang/AST/DeclTemplate.h"
+ffi "c++" import "clang/AST/Expr.h"
+ffi "c++" import "clang/Basic/DiagnosticSema.h"
+ffi "c++" import "clang/Basic/PartialDiagnostic.h"
+ffi "c++" import "clang/Sema/Sema.h"
+ffi "c++" import "clang/Sema/TemplateDeduction.h"
+ffi "c++" import "llvm/ADT/DenseSet.h"
+ffi "c++" import "llvm/ADT/SmallString.h"
+ffi "c++" import "llvm/ADT/SmallVector.h"
+ffi "c++" import "llvm/ADT/StringMap.h"
+ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/KThread.hh" // sema_mint_rank
+ffi "c++" import "atomic"
+ffi "c++" import "vector"
+ffi "c++" import "memory"
 
-import AST::Context::ASTContext::*;
-import AST::Context::DeclContext::*;
-import AST::Context::SymbolTable::*;
-import AST::Context::InstantiationRegistry::*;
-import AST::Node::Base::*;
-import AST::Node::Declarations::*;
-import AST::DeclFacts::*;
-import AST::Node::Casting::*;
-import AST::Node::Types::*;
-import AST::Node::CanonicalNodes::*;
-import Sema::Resolve::NameLookup::*;
-import Sema::Foreign::ForeignRegistry::*;
-import Sema::Foreign::TypeImport::*;
-import Sema::Foreign::TypeExport::*;
-import Sema::Foreign::DeclImport::*;
-import Sema::Foreign::HeaderIndex::*;
-import Interop::Clang::HeaderSet::*;
-import Preprocessor::PreprocessorSymbolTable::*;
-import Diagnostic::BufferedDiagSink::*;
-import Diagnostic::ClangDiagAdapter::*;
+import AST::Context::InstantiationRegistry::{
+    InstanceEntry,
+    InstantiationRegistry,
+}
+import AST::DeclFacts::{
+    decl_clang,             decl_cxx_spelling,     decl_fill_failed, decl_instantiated,
+    decl_instantiated_from, decl_origin_fid,       decl_origin_set,  decl_set_fill_failed,
+    decl_set_imported,      decl_set_instantiated,
+}
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Type,
+}
+import AST::Node::CanonicalNodes::{
+    BuiltinType,
+    canon_unqual,
+}
+import AST::Node::Casting::dyn_cast
+import Diagnostic::BufferedDiagSink::BufferedDiagSink
+import Diagnostic::ClangDiagAdapter::ClangDiagAdapter
+import Interop::Clang::HeaderSet::HeaderSet
+import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
+import Sema::Foreign::DeclImport::{
+    DeclImport,
+    HeaderTarget,
+}
+import Sema::Foreign::ForeignRegistry::ForeignRegistry
+import Sema::Foreign::HeaderIndex::HeaderIndex
+import Sema::Foreign::TypeExport::TypeExport
+import Sema::Foreign::TypeImport::TypeImport
+import Sema::Resolve::NameLookup::NameLookup
 
-class ForeignInstantiate {
-    priv var _mu:        std::RecursiveMutex;      ///< ONE lock for all fills; see the file header.
-    priv var _active:    vec::<*Decl>;             ///< shells mid-fill, outermost first; guarded by `_mu`.
-    priv var _hindex:    obs::<HeaderIndex>;
-    priv var _reg:       obs::<ForeignRegistry>;
-    priv var _instances: obs::<InstantiationRegistry>;
-    priv var _why:       string = "";              ///< the last failure's reason, for the log line.
+pub class ForeignInstantiate {
+    priv var _mu:        kairo::std::RecursiveMutex ///< ONE lock for all fills; see the file header.
+    priv var _active:    cxx::std::vector<unsafe *Decl> ///< shells mid-fill, outermost first; guarded by `_mu`.
+    priv var _hindex:    *HeaderIndex
+    priv var _reg:       unsafe *ForeignRegistry
+    priv var _instances: unsafe *InstantiationRegistry
+    priv var _why:       string                         = "" ///< the last failure's reason, for the log line.
     /// The last failure was only that no set tried could spell an argument
     /// (_fill_in's -1), not clang's verdict on the instance.
-    priv var _unspelled: bool = false;
+    priv var _unspelled: bool = false
     /// Shells whose fill failed that way, each beside the demanding set it
     /// was tried with (null: none); parallel, guarded by `_mu`. Such a
     /// failure is not sticky: another TU's set may see the argument's
-    /// header (G101).
-    priv var _unspelled_shell: vec::<*Decl>;
-    priv var _unspelled_set:   vec::<*HeaderSet>;
+    /// header.
+    priv var _unspelled_shell: cxx::std::vector<unsafe *Decl>
+    priv var _unspelled_set:   cxx::std::vector<unsafe *HeaderSet>
     /// For TypeExport's stand-ins of Kairo records (`vector<S>`), which
     /// are named as EmitIR names them. Null until the driver has a
     /// preprocessor; a Kairo-record argument is refused until then.
-    pub var psym:        obs::<PreprocessorSymbolTable> = &null;
+    pub var psym: unsafe *PreprocessorSymbolTable = &null
 
-    pub var n_filled: usize = 0;
-    pub var n_failed: usize = 0;
+    pub var n_filled: usize = 0
+    pub var n_failed: usize = 0
 
-    fn ForeignInstantiate(self, hindex: *HeaderIndex, reg: *ForeignRegistry, instances: *InstantiationRegistry) {
-        self._hindex    = hindex;
-        self._reg       = reg;
-        self._instances = instances;
+    fn ForeignInstantiate(self,
+                          hindex:    *HeaderIndex,
+                          reg:       unsafe *ForeignRegistry,
+                          instances: unsafe *InstantiationRegistry) {
+        self._hindex    = hindex
+        self._reg       = reg
+        self._instances = instances
     }
 
     /// Fill \p shell (an unfilled instance whose primary is imported). True
@@ -121,93 +142,192 @@ class ForeignInstantiate {
     /// -1 when no TU demands it (fid 0 is a TU: the first file loaded).
     /// \p alt is that TU's own header set, the fallback when the primary's
     /// set cannot spell the arguments (see _fill_locked); null for none.
-    fn fill(self, shell: *Decl, sink: *BufferedDiagSink = &null, fid: i64 = -1, alt: *HeaderSet = &null) -> bool {
-        if shell == &null { return false; }
-        // Unlocked fast path. Both flags only ever go false -> true, each is
-        // written LAST by a fill holding `_mu`, and today every caller is the
-        // driver thread; the re-check under the lock is what is load-bearing.
-        if decl_instantiated(shell) { return true; }
-        if decl_fill_failed(shell) { return false; }
+    fn fill(self,
+            shell: unsafe *Decl,
+            sink:  unsafe *BufferedDiagSink = &null,
+            fid:   i64 = -1,
+            alt:   unsafe *HeaderSet = &null) -> bool {
+        if shell == &null {
+            return false
+        }
 
-        var lock = std::LockGuard(self._mu);
-        if decl_instantiated(shell) { return true; }
-        if decl_fill_failed(shell) { return false; }
+        // Unlocked fast path. Both flags only ever go false -> true, each is
+        // written LAST by a fill holding `_mu` (after a release fence), and
+        // TUs that do not import each other run their typed checks on pool
+        // workers: the acquire fence makes everything the fill wrote
+        // visible to a reader that saw the flag. The re-check under the lock
+        // is what is load-bearing for the slow path.
+        if decl_instantiated(shell) {
+            cxx::std::atomic_thread_fence(cxx::std::memory_order_acquire)
+            self._rerequest(shell, fid, alt)
+            return true
+        }
+
+        if decl_fill_failed(shell) {
+            return false
+        }
+
+        var lock = kairo::std::LockGuard(self._mu)
+        if decl_instantiated(shell) {
+            self._rerequest(shell, fid, alt)
+            return true
+        }
+
+        if decl_fill_failed(shell) {
+            return false
+        }
+
         // Re-entered for a shell this thread is already filling: not a
         // failure (the outer fill will finish it), so no sticky flag.
         for var i: usize = 0; i < self._active.size(); ++i {
-            if self._active[i] == shell { return false; }
+            if self._active[i] == shell {
+                return false
+            }
         }
+
         // Already found unspellable with this same demanding set: nothing
         // has changed that a retry would see.
         for var i: usize = 0; i < self._unspelled_shell.size(); ++i {
-            if (self._unspelled_shell[i] == shell) && (self._unspelled_set[i] == alt) { return false; }
+            if self._unspelled_shell[i] == shell && self._unspelled_set[i] == alt {
+                return false
+            }
         }
 
-        self._active.push_back(shell);
-        self._unspelled = false;
-        var ok = self._fill_locked(shell, sink, fid, alt);
-        self._active.pop_back();
+        self._active.push_back(shell)
+        self._unspelled = false
+        // Every registry request the fill makes is recorded on the shell's
+        // entry, for a TU earlier in import order that comes later.
+        var unsafe *fe   = self._instances->entry_of(shell)
+        var unsafe *prev = self._instances->begin_fill(fe, fid, unsafe (alt as unsafe *void))
+        var        ok    = self._fill_locked(shell, sink, fid, alt)
+        self._instances->end_fill(fe, prev)
+        self._active.pop_back()
         if ok {
-            self.n_filled += 1;
-            return true;
+            self.n_filled += 1
+            return true
         }
-        self.n_failed += 1;
+
+        self.n_failed += 1
         // A fill no set tried could spell is the demanding TU's gap, not the
         // instance's. With the whole tree in one compile, a TU whose set never
         // includes Compilation.h read a member of `unique_ptr<Compilation>`
         // first; a sticky failure there left the instance unfilled for
         // ClangJobs.k too, whose own set spells it, and its `pointer` stayed
-        // '<ffi type>' (G101). So only clang's own verdict is sticky; an
+        // '<ffi type>'. So only clang's own verdict is sticky; an
         // unspelled fill is retried for each other demanding set.
         if self._unspelled {
-            self._unspelled_shell.push_back(shell);
-            self._unspelled_set.push_back(alt);
+            self._unspelled_shell.push_back(shell)
+            self._unspelled_set.push_back(alt)
         } else {
-            decl_set_fill_failed(shell);
+            decl_set_fill_failed(shell)
         }
+
         // clang's own errors for the fill already went to `sink`, with spans
         // in the header. TODO(diag): a Kairo note pointing at the USE that
         // demanded the fill; until then the use's member typing reports
         // `unknown` as it did before fills.
-        var prim = decl_instantiated_from(shell);
-        var what = "<no pattern>";
-        if prim != &null { what = decl_cxx_spelling(prim); }
-        Logger::warn(Logger::Stage::Driver,
-            f"ForeignInstantiate: instance of {what} not filled: {self._why}");
-        return false;
+        var unsafe *prim = decl_instantiated_from(shell)
+        var        what  = "<no pattern>"
+        if prim != &null {
+            what = decl_cxx_spelling(prim)
+        }
+
+        kairo::Logger::warn(
+            kairo::Logger::Stage::Driver,
+            f"ForeignInstantiate: instance of {what} not filled: {self._why}",
+        )
+
+        return false
     }
 
-    priv fn _fill_locked(self, shell: *Decl, sink: *BufferedDiagSink, fid: i64, alt: *HeaderSet) -> bool {
+    /// \p shell was filled for some TU; if that TU comes after the caller's
+    /// in import order, the caller re-makes the fill's registry requests,
+    /// so homes and worklist order are what they would have been had the
+    /// caller filled it first, as a one-thread run does. Cheap when
+    /// it does nothing: no Sema rank on this thread, or no earlier demand.
+    priv fn _rerequest(self, shell: unsafe *Decl, fid: i64, alt: unsafe *HeaderSet) {
+        if *kairo::sema_mint_rank() == u64::MAX {
+            return
+        }
+
+        var unsafe *e = self._instances->entry_of(shell)
+        if e == &null {
+            return
+        }
+
+        self._instances->rerequest(e, fid, unsafe (alt as unsafe *void))
+    }
+
+    priv fn _fill_locked(self,
+                         shell: unsafe *Decl,
+                         sink:  unsafe *BufferedDiagSink,
+                         fid:   i64,
+                         alt:   unsafe *HeaderSet) -> bool {
         // 1. who owns the pattern.
-        var prim = decl_instantiated_from(shell);
-        if prim == &null { self._why = "no pattern"; return false; }
-        var hs = reinterpret_cast::<*HeaderSet>(decl_origin_set(prim));
-        if hs == &null { self._why = "primary has no header set"; return false; }
+        var unsafe *prim = decl_instantiated_from(shell)
+        if prim == &null {
+            self._why = "no pattern"
+            return false
+        }
+
+        var unsafe *hs = unsafe (decl_origin_set(prim) as unsafe *HeaderSet)
+        if hs == &null {
+            self._why = "primary has no header set"
+            return false
+        }
+
         // A set's clang instance lives until HeaderSetCache::release_all,
         // after every TU's sema. A fill past that is a pass looking into an
         // instance after Checked -- a schedule bug, never the user's.
-        ICE_IF((!hs->alive()), "ForeignInstantiate: fill after the primary's header set was released");
-        var cctx = hs->ast();
-        var csema = hs->sema();
-        if (cctx == &null) || (csema == &null) { self._why = "header set has no AST / Sema"; return false; }
+        if !hs->alive() {
+            kairo::std::ice_fail(
+                "ForeignInstantiate: fill after the primary's header set was released",
+            )
+        }
 
-        var ct = TypeExport::class_template_of(reinterpret_cast::<*clang::Decl>(decl_clang(prim)));
-        if ct == &null { self._why = "primary is not a class template"; return false; }
-        var t = self._hindex->target_for_fid(decl_origin_fid(prim));
-        if t == &null { self._why = "primary's header has no import target"; return false; }
+        var unsafe *cctx  = hs->ast()
+        var unsafe *csema = hs->sema()
+        if cctx == &null || csema == &null {
+            self._why = "header set has no AST / Sema"
+            return false
+        }
+
+        var unsafe *ct = TypeExport::class_template_of(
+            unsafe (decl_clang(prim) as unsafe *clang::Decl),
+        )
+
+        if ct == &null {
+            self._why = "primary is not a class template"
+            return false
+        }
+
+        var unsafe *t = self._hindex->target_for_fid(decl_origin_fid(prim))
+        if t == &null {
+            self._why = "primary's header has no import target"
+            return false
+        }
+
         // The shell's own spec_args are empty by design; its args are the
         // registry entry's (canonical, parameter order, defaults filled).
-        var e = self._instances->entry_of(shell);
-        if e == &null { self._why = "not a registry instance"; return false; }
+        var unsafe *e = self._instances->entry_of(shell)
+        if e == &null {
+            self._why = "not a registry instance"
+            return false
+        }
+
         // Where a Kairo instance a stand-in names is homed (TypeExport::
         // home_fid): the demanding TU, else the TU that named the shell.
-        var home = (fid) if (fid >= 0) else (i64(e->home_fid));
+        var home = if (fid >= 0) => (fid) else => (e->home_fid)
 
-        var r = self._fill_in(shell, sink, home, hs, ct, t, e);
+        var r = self._fill_in(shell, sink, home, hs, ct, t, e)
         // A nested fill (an argument's own instance) may have left the flag
         // set; this verdict is the outer one.
-        if r >= 0 { self._unspelled = false; return r == 1; }
-        self._unspelled = true;
+        if r >= 0 {
+            self._unspelled = false
+            return r == 1
+        }
+
+        self._unspelled = true
 
         // The primary's set could not spell an argument. The primary is the
         // FIRST set to import its header, not the one that named the
@@ -219,65 +339,101 @@ class ForeignInstantiate {
         // usually sees every argument's header too: re-find the template
         // there and fill through it. The shell then belongs to that set, as
         // one imported from it would.
-        if (alt == &null) || (alt == hs) || (!alt->alive()) { return false; }
-        if (alt->ast() == &null) || (alt->sema() == &null) { return false; }
-        var why = self._why;
-        var ax = TypeExport(alt->ast(), alt->sema(), reinterpret_cast::<*void>(alt));
-        var act = ax.refind_template(ct);
-        if act == &null { return false; }
-        r = self._fill_in(shell, sink, home, alt, act, t, e);
-        if r == -1 { self._why = f"{why}; also in the demanding TU's set"; }
-        else { self._unspelled = false; }
-        return r == 1;
+        if alt == &null || alt == hs || !alt->alive() {
+            return false
+        }
+
+        if alt->ast() == &null || alt->sema() == &null {
+            return false
+        }
+
+        var        why  = self._why
+        var        ax   = TypeExport(alt->ast(), alt->sema(), unsafe (alt as unsafe *void))
+        var unsafe *act = ax.refind_template(ct)
+        if act == &null {
+            return false
+        }
+
+        e->fill_used_alt = true // InstantiationRegistry::rerequest; under `_mu`.
+        r                = self._fill_in(shell, sink, home, alt, act, t, e)
+        if r == -1 {
+            self._why = f"{why}; also in the demanding TU's set"
+        } else {
+            self._unspelled = false
+        }
+
+        return r == 1
     }
 
     /// Steps 2-6 of a fill, in \p hs's AST with \p ct its template: 1
     /// filled, 0 failed, -1 an argument has no clang spelling in this set or
     /// the set only declares the template (the caller may retry in another).
-    priv fn _fill_in(self, shell: *Decl, sink: *BufferedDiagSink, home: i64, hs: *HeaderSet,
-                     ct: *clang::ClassTemplateDecl, t: *HeaderTarget, e: *InstanceEntry) -> i32 {
-        var cctx = hs->ast();
-        var csema = hs->sema();
+    priv fn _fill_in(self,
+                     shell: unsafe *Decl,
+                     sink:  unsafe *BufferedDiagSink,
+                     home:  i64,
+                     hs:    unsafe *HeaderSet,
+                     ct:    unsafe *clang::ClassTemplateDecl,
+                     t:     unsafe *HeaderTarget,
+                     e:     unsafe *InstanceEntry) -> i32 {
+        var unsafe *cctx  = hs->ast()
+        var unsafe *csema = hs->sema()
 
         // Everything from here asks clang::Sema, including spelling the args:
         // a nested instance argument is itself a CheckTemplateIdType.
-        var slock = std::LockGuard(*(hs->sema_lock()));
+        var slock = kairo::std::LockGuard(*hs->sema_lock())
 
         // clang's diagnostics for this fill -- a static_assert in the
         // pattern, an undefined specialization it names -- go to the TU that
         // demanded it, through the engine, with spans in the header.
-        var da: *ClangDiagAdapter = &null;
-        if sink != &null { da = hs->begin_diag(sink); }
-        finally { hs->end_diag(da); }
+        var da: unsafe *ClangDiagAdapter = &null
+        if sink != &null {
+            da = hs->begin_diag(sink)
+        }
+
+        finally {
+            hs->end_diag(da)
+        }
 
         // 2. the specialization. When the shell was imported FROM one in this
         //    set's AST, that decl is the answer: the Kairo args are lossy
         //    (ForeignRegistry::note_spec) and re-spelling them can name a
         //    different specialization. Otherwise spell the args in THIS
         //    set's AST and ask for the template-id.
-        var ty = clang::QualType();
-        var hint = reinterpret_cast::<*clang::ClassTemplateSpecializationDecl>(self._reg->spec_of(shell));
+        var ty = clang::QualType()
+        var unsafe *hint = unsafe (self._reg->spec_of(shell) as unsafe *clang::ClassTemplateSpecializationDecl)
         if hint != &null {
-            // A decl of another set's AST is not usable here; the address
-            // goes through a `var` because Stage 0 drops a leading `&(...)`
-            // inside a comparison.
-            var hint_ctx = &(hint->getASTContext());
-            if hint_ctx == cctx { ty = clang::QualType(cctx->getCanonicalTagType(hint)); }
-        }
-        if ty.isNull() {
-            var tx = TypeExport(cctx, csema, reinterpret_cast::<*void>(hs));
-            tx.reg       = self._reg;
-            tx.psym      = self.psym;
-            tx.instances = self._instances;
-            tx.home_fid  = home;
-            var qs: llvm::SmallVector::<clang::TemplateArgument, 8>;
-            for var i: usize = 0; i < e->args.size(); ++i {
-                var a = tx.to_clang_arg(ct, i, e->args[i], qs);
-                if a.isNull() { self._why = f"template argument {i} has no clang spelling in phase A"; return -1; }
-                qs.push_back(a);
+            // A decl of another set's AST is not usable here.
+            var unsafe *hint_ctx = unsafe &hint->getASTContext()
+            if hint_ctx == cctx {
+                ty = clang::QualType::getFromOpaquePtr(
+                    (cctx->getCanonicalTagType(hint)).getAsOpaquePtr(),
+                )
             }
-            ty = tx.template_id(ct, qs);
-            if ty.isNull() { self._why = "clang rejected the template-id"; return 0; }
+        }
+
+        if ty.isNull() {
+            var tx = TypeExport(cctx, csema, unsafe (hs as unsafe *void))
+            tx.reg       = self._reg
+            tx.psym      = self.psym
+            tx.instances = self._instances
+            tx.home_fid  = home
+            var qs: llvm::SmallVector<clang::TemplateArgument, 8>
+            for var i: usize = 0; i < e->args.size(); ++i {
+                var a = tx.to_clang_arg(ct, i, e->args[i], &qs)
+                if a.isNull() {
+                    self._why = f"template argument {i} has no clang spelling in phase A"
+                    return -1
+                }
+
+                qs.push_back(a)
+            }
+
+            ty = tx.template_id(ct, &qs)
+            if ty.isNull() {
+                self._why = "clang rejected the template-id"
+                return 0
+            }
         }
 
         // 3. complete. RequireCompleteType is what instantiates the class
@@ -294,128 +450,180 @@ class ForeignInstantiate {
         //    template" (CL001E) for a `map<i32, i32>` class field nobody
         //    used. Errors inside an instantiation that does happen (a
         //    static_assert in the pattern) are still clang's to report.
-        var diags  = &(csema->getDiagnostics());
-        var before = diags->getNumErrors();
+        var *diags = &csema->getDiagnostics()
+        var before = diags->getNumErrors()
         // An instance with a class-type argument this set only declares
         // (`DenseMapPair<GlobalDecl, V>` named by DenseMapBase's members while
         // ASTContext.h forward-declares GlobalDecl) is often named only, never
         // used: clang itself would never complete it. Completing it here is a
         // hard error in libc++ (`pair` field of incomplete type) that no
         // importer asked for, so the attempt is silent and the instance stays
-        // unfilled (G94). Any other fill keeps clang's diagnostics.
-        var quiet = false;
-        var qspec = llvm::dyn_cast_or_null::<clang::ClassTemplateSpecializationDecl>(ty->getAsCXXRecordDecl());
+        // unfilled. Any other fill keeps clang's diagnostics.
+        var quiet = false
+        var unsafe *qspec = llvm::dyn_cast_or_null<clang::ClassTemplateSpecializationDecl>(
+            ty->getAsCXXRecordDecl(),
+        )
+
         if qspec != &null {
-            var qargs = qspec->getTemplateArgs().asArray();
+            var qargs = qspec->getTemplateArgs().asArray()
             for var qi: usize = 0; qi < qargs.size(); ++qi {
-                if qargs[qi].getKind() != clang::TemplateArgument::Type { continue; }
-                var qrd = qargs[qi].getAsType()->getAsCXXRecordDecl();
-                if (qrd != &null) && (qrd->getDefinition() == &null) && (!llvm::isa::<clang::ClassTemplateSpecializationDecl>(qrd)) {
-                    quiet = true;
-                    break;
+                if qargs[qi].getKind() != clang::TemplateArgument::Type {
+                    continue
+                }
+
+                var unsafe *qrd = qargs[qi].getAsType()->getAsCXXRecordDecl()
+                if qrd != &null
+                    && qrd->getDefinition() == &null
+                    && !llvm::isa<clang::ClassTemplateSpecializationDecl>(qrd) {
+                    quiet = true
+                    break
                 }
             }
         }
-        var was_quiet = diags->getSuppressAllDiagnostics();
-        if quiet { diags->setSuppressAllDiagnostics(true); }
-        var incomplete = !csema->isCompleteType(ct->getLocation(), ty);
+
+        var was_quiet = diags->getSuppressAllDiagnostics()
         if quiet {
-            diags->setSuppressAllDiagnostics(was_quiet);
-            var qd = ty->getAsCXXRecordDecl();
-            if (qd != &null) && qd->isInvalidDecl() {
-                self._why = "clang could not complete the specialization";
-                return 0;
+            diags->setSuppressAllDiagnostics(true)
+        }
+
+        var incomplete = !csema->isCompleteType(ct->getLocation(), ty)
+        if quiet {
+            diags->setSuppressAllDiagnostics(was_quiet)
+            var unsafe *qd = ty->getAsCXXRecordDecl()
+            if qd != &null && qd->isInvalidDecl() {
+                self._why = "clang could not complete the specialization"
+                return 0
             }
         }
-        if incomplete || (diags->getNumErrors() > before) {
-            self._why = "clang could not complete the specialization";
+
+        if incomplete || diags->getNumErrors() > before {
+            self._why = "clang could not complete the specialization"
             // Incomplete with no error is this SET's gap, not the instance's:
             // the primary is the FIRST set to import its header, and there
             // the template may be only declared (a set that reaches
             // `SmallString` through <DependencyDirectivesScanner.h>'s
             // forward declaration, while the demanding TU includes
             // SmallString.h). The caller retries in the demanding TU's set;
-            // without that, `s.size()` on a SmallString was R025E (G62).
+            // without that, `s.size()` on a SmallString was R025E.
             // An error means the pattern itself rejected these arguments,
             // which no other set changes.
-            if (!(diags->getNumErrors() > before)) { return -1; }
-            return 0;
+            if !(diags->getNumErrors() > before) {
+                return -1
+            }
+
+            return 0
         }
-        var spec = llvm::dyn_cast_or_null::<clang::ClassTemplateSpecializationDecl>(ty->getAsCXXRecordDecl());
-        if spec == &null { self._why = "completed type is not a class template specialization"; return 0; }
+
+        var unsafe *spec = llvm::dyn_cast_or_null<clang::ClassTemplateSpecializationDecl>(
+            ty->getAsCXXRecordDecl(),
+        )
+
+        if spec == &null {
+            self._why = "completed type is not a class template specialization"
+            return 0
+        }
 
         // 4. import, in fill mode: every decl lands in the primary's header,
         //    the specialization itself maps to the shell.
-        var di = self._hindex->importer_for(hs);
-        di.fill_target = t;
-        di.fill_scope  = NameLookup::context_of(shell);
-        di.fill_spec   = static_cast::<*clang::Decl>(spec);
-        var ti = self._hindex->type_importer_for(hs, t->ctx, t->fid);
+        var di = self._hindex->importer_for(hs)
+        di.fill_target = t
+        di.fill_scope  = NameLookup::context_of(shell)
+        di.fill_spec   = unsafe (spec as unsafe *clang::Decl)
+        var ti = self._hindex->type_importer_for(hs, t->ctx, t->fid)
         // The instance's pointer arguments keep the flavour they were written
         // with (`vector<*Node>` hands out `*Node`, not `unsafe *Node`):
         // TypeImport::note_pointer_arg. Spelled again here because the hint
         // path above never spelled them.
-        var px = TypeExport(cctx, csema, reinterpret_cast::<*void>(hs));
-        px.reg       = self._reg;
-        px.psym      = self.psym;
-        px.instances = self._instances;
-        px.home_fid  = home;
+        var px = TypeExport(cctx, csema, unsafe (hs as unsafe *void))
+        px.reg       = self._reg
+        px.psym      = self.psym
+        px.instances = self._instances
+        px.home_fid  = home
         // A sibling argument with the same canonical C++ type must be seen
-        // too, or it is mistaken for the one that was noted (G91).
-        var any_noted = false;
+        // too, or it is mistaken for the one that was noted.
+        var any_noted = false
         for var i: usize = 0; i < e->args.size(); ++i {
-            if TypeImport::has_pointer_arg(e->args[i]) { any_noted = true; }
+            if TypeImport::has_pointer_arg(e->args[i]) {
+                any_noted = true
+            }
         }
+
         for var i: usize = 0; i < e->args.size(); ++i {
-            if !any_noted { continue; }
-            var ab = dyn_cast::<BuiltinType>(canon_unqual(e->args[i]));
-            if (ab == &null) && (!TypeImport::has_pointer_arg(e->args[i])) { continue; }
-            ti.note_pointer_arg(e->args[i], px.to_clang(e->args[i]));
+            if !any_noted {
+                continue
+            }
+
+            var unsafe *ab = dyn_cast<BuiltinType>(canon_unqual(e->args[i]))
+            if ab == &null && !TypeImport::has_pointer_arg(e->args[i]) {
+                continue
+            }
+
+            ti.note_pointer_arg(e->args[i], px.to_clang(e->args[i]))
         }
 
         // A VARIANT: another Kairo instance already owns this clang
         // specialization (`vector<u64>` beside `vector<usize>`, both
         // `vector<unsigned long>` to clang). It shares the specialization
         // but not the members, whose types follow each instance's own
-        // arguments (DeclImport::fill_usr, G108). The spec's own USR maps to
+        // arguments (DeclImport::fill_usr). The spec's own USR maps to
         // this shell inside the fill, so `const vector&` is this instance.
-        var own_usr: llvm::StringMap::<*Decl>;
-        var spec_usr = TypeImport::usr_of(spec);
+        var own_usr: llvm::StringMap<unsafe *Decl>
+        var spec_usr                               = TypeImport::usr_of(spec)
         if !spec_usr.empty() {
-            var owner = self._reg->find(spec_usr);
-            if (owner != &null) && (owner != shell) {
-                own_usr.try_emplace(spec_usr, shell);
-                di.fill_usr = &own_usr;
-                ti.fill_usr = &own_usr;
+            var unsafe *owner = self._reg->find((spec_usr).str())
+            if owner != &null && owner != shell {
+                own_usr.try_emplace((spec_usr).str(), shell)
+                di.fill_usr = unsafe &own_usr
+                ti.fill_usr = unsafe &own_usr
             }
         }
 
-        var pairs = vec::<(*void, *Decl)>();
-        self._hindex->walk_declare(spec, &di, pairs);
-        self._complete_nested(csema, cctx, &di, pairs);
+        var pairs = cxx::std::vector<(unsafe *void, unsafe *Decl)>()
+        self._hindex->walk_declare(spec, &di, &pairs)
+        self._complete_nested(csema, cctx, &di, &pairs)
         for var i: usize = 0; i < pairs.size(); ++i {
-            di.define(reinterpret_cast::<*clang::Decl>(libcxx::get::<0>(pairs[i])), libcxx::get::<1>(pairs[i]), &ti);
+            di.define(unsafe (pairs[i].0 as unsafe *clang::Decl), pairs[i].1, unsafe &ti)
         }
-        di.define_instance(spec, shell, &ti);
+
+        di.define_instance(spec, shell, unsafe &ti)
 
         // 5. the shell becomes an imported decl: EmitIR spells it by the
         //    specialization's full name, and the registry maps the spec's
         //    USR to it so a later import naming the spec finds this node.
-        var usr = TypeImport::usr_of(spec);
-        var sp  = ti.spelling(clang::QualType(cctx->getCanonicalTagType(spec)));
-        decl_set_imported(shell, reinterpret_cast::<*void>(spec), string(usr.data(), usr.size()),
-                          sp, reinterpret_cast::<*void>(hs), t->fid);
-        if !usr.empty() { self._reg->put(usr, shell); }
+        var usr = TypeImport::usr_of(spec)
+        var sp = ti.spelling(
+            clang::QualType::getFromOpaquePtr((cctx->getCanonicalTagType(spec)).getAsOpaquePtr()),
+        )
+
+        decl_set_imported(
+            shell,
+            unsafe (spec as unsafe *void),
+            string(unsafe ((usr.data() as unsafe *const u8) as *const u8), usr.size()),
+            sp,
+            unsafe (hs as unsafe *void),
+            t->fid,
+        )
+
+        if !usr.empty() {
+            self._reg->put((usr).str(), shell)
+        }
 
         // 6. freeze what the fill created, THEN publish. `instantiated` is
         //    the fast path's flag and must be the last write.
         for var i: usize = 0; i < di.fill_scopes.size(); ++i {
-            if di.fill_scopes[i]->dc_symbols != &null { di.fill_scopes[i]->dc_symbols->freeze(); }
+            if di.fill_scopes[i]->dc_symbols != &null {
+                di.fill_scopes[i]->dc_symbols->freeze()
+            }
         }
-        decl_set_instantiated(shell);
-        Logger::info(Logger::Stage::Driver,
-            f"ForeignInstantiate: filled {sp}: {di.n_declared} decl(s) declared, {di.n_defined} defined, {ti.n_opaque} opaque type(s)");
-        return 1;
+
+        cxx::std::atomic_thread_fence(cxx::std::memory_order_release) // pairs with fill()'s acquire.
+        decl_set_instantiated(shell)
+        kairo::Logger::info(
+            kairo::Logger::Stage::Driver,
+            f"ForeignInstantiate: filled {sp}: {di.n_declared} decl(s) declared, {di.n_defined} defined, {ti.n_opaque} opaque type(s)",
+        )
+
+        return 1
     }
 
     /// Whether clang's own template argument deduction and substitution
@@ -454,108 +662,214 @@ class ForeignInstantiate {
     /// \p fid is the calling TU (-1 none), as for fill(); \p alt_set its own
     /// HeaderSet (null for none), the retry when \p f's set cannot spell the
     /// arguments.
-    fn deduce_call(self, f: *Decl, explicit_args: *vec::<*Type>, arg_tys: *vec::<*Type>,
-                   arg_cats: *vec::<Expr::ValueCategory>, sink: *BufferedDiagSink, why: *string,
-                   want_ret: bool, ret: ref!(*Type), fid: i64 = -1, alt_set: *void = &null) -> i8 {
-        var cd = reinterpret_cast::<*clang::Decl>(decl_clang(f));
-        if cd == &null { return -1; }
-        var ftd = llvm::dyn_cast::<clang::FunctionTemplateDecl>(cd);
-        if ftd == &null {
-            var fd = llvm::dyn_cast::<clang::FunctionDecl>(cd);
-            if fd != &null { ftd = fd->getDescribedFunctionTemplate(); }
+    fn deduce_call(self,
+                   f:             unsafe *Decl,
+                   explicit_args: unsafe *cxx::std::vector<unsafe *Type>,
+                   arg_tys:       unsafe *cxx::std::vector<unsafe *Type>,
+                   arg_cats:      unsafe *cxx::std::vector<Expr::ValueCategory>,
+                   sink:          unsafe *BufferedDiagSink,
+                   why:           unsafe *string,
+                   want_ret:      bool,
+                   @inout ret:    unsafe *Type,
+                   fid:           i64 = -1,
+                   alt_set:       unsafe *void = &null) -> i8 {
+        var unsafe *cd = unsafe (decl_clang(f) as unsafe *clang::Decl)
+        if cd == &null {
+            return -1
         }
-        if ftd == &null { return -1; }
+
+        var unsafe *ftd = llvm::dyn_cast<clang::FunctionTemplateDecl>(cd)
+        if ftd == &null {
+            var unsafe *fd = llvm::dyn_cast<clang::FunctionDecl>(cd)
+            if fd != &null {
+                ftd = fd->getDescribedFunctionTemplate()
+            }
+        }
+
+        if ftd == &null {
+            return -1
+        }
+
         // A member template of a class template's PATTERN: its enclosing
         // arguments are not known, so there is nothing concrete to deduce.
         // A filled instance's members are concrete and take the path below.
-        if ftd->getDeclContext()->isDependentContext() { return -1; }
-        var hs = reinterpret_cast::<*HeaderSet>(decl_origin_set(f));
-        if (hs == &null) || (!hs->alive()) { return -1; }
-        if (hs->ast() == &null) || (hs->sema() == &null) { return -1; }
+        if ftd->getDeclContext()->isDependentContext() {
+            return -1
+        }
 
-        var alt = reinterpret_cast::<*HeaderSet>(alt_set);
-        var lock = std::LockGuard(self._mu);
-        var opaque = false;
-        var r = self._deduce_in(f, ftd, hs, explicit_args, arg_tys, arg_cats, sink, why, want_ret, ret, fid, opaque);
+        var unsafe *hs = unsafe (decl_origin_set(f) as unsafe *HeaderSet)
+        if hs == &null || !hs->alive() {
+            return -1
+        }
+
+        if hs->ast() == &null || hs->sema() == &null {
+            return -1
+        }
+
+        var unsafe *alt   = unsafe (alt_set as unsafe *HeaderSet)
+        var        lock   = kairo::std::LockGuard(self._mu)
+        var        opaque = false
+        var r = self._deduce_in(
+            f,
+            ftd,
+            hs,
+            &*explicit_args,
+            &*arg_tys,
+            &*arg_cats,
+            sink,
+            &*why,
+            want_ret,
+            &ret,
+            fid,
+            &opaque,
+        )
+
         // The function's set is the FIRST to import its header, not the
         // caller's: `std::move` belongs to whichever set reached <utility>
         // first, and that set may never include llvm/Support/Error.h. There
         // `std::move(err)` spelled its argument as an opaque blob, so the
         // return type clang substitutes (`remove_reference_t<T>&&`) was never
         // imported and the call typed as `<ffi type>&&`; every `consumeError(
-        // std::move(err))` then had no overload (G101). The calling TU's own
+        // std::move(err))` then had no overload. The calling TU's own
         // set names the argument's type in its source, so it usually sees its
         // header: re-find the template there and deduce again, as a fill
-        // retries an instance (G58). Only an answer the first set could not
+        // retries an instance. Only an answer the first set could not
         // give is taken from the retry; a firm verdict there stands.
-        var unspelled = (r == -1) || ((r == 1) && want_ret && opaque);
-        if (!unspelled) || (alt == &null) || (alt == hs) || (!alt->alive()) { return r; }
-        if (alt->ast() == &null) || (alt->sema() == &null) { return r; }
-        var ax = TypeExport(alt->ast(), alt->sema(), reinterpret_cast::<*void>(alt));
-        var aftd = ax.refind_function_template(ftd);
-        if aftd == &null { return r; }
-        var aret: *Type = &null;
-        var awhy = "";
-        var aopaque = false;
-        var r2 = self._deduce_in(f, aftd, alt, explicit_args, arg_tys, arg_cats, sink, &awhy, want_ret, aret, fid, aopaque);
-        if r == -1 {
-            (*why) = awhy;
-            ret = aret;
-            return r2;
+        var unspelled = r == -1 || r == 1 && want_ret && opaque
+        if !unspelled || alt == &null || alt == hs || !alt->alive() {
+            return r
         }
-        if (r2 == 1) && (aret != &null) { ret = aret; }
-        return r;
+
+        if alt->ast() == &null || alt->sema() == &null {
+            return r
+        }
+
+        var        ax    = TypeExport(alt->ast(), alt->sema(), unsafe (alt as unsafe *void))
+        var unsafe *aftd = ax.refind_function_template(ftd)
+        if aftd == &null {
+            return r
+        }
+
+        var aret:   unsafe *Type = &null
+        var awhy                 = ""
+        var aopaque              = false
+        var r2 = self._deduce_in(
+            f,
+            aftd,
+            alt,
+            &*explicit_args,
+            &*arg_tys,
+            &*arg_cats,
+            sink,
+            &awhy,
+            want_ret,
+            &aret,
+            fid,
+            &aopaque,
+        )
+
+        if r == -1 {
+            *why = awhy
+            ret  = aret
+            return r2
+        }
+
+        if r2 == 1 && aret != &null {
+            ret = aret
+        }
+
+        return r
     }
 
     /// deduce_call's work in one set: \p ftd is the template as \p hs's AST
     /// declares it. \p opaque reports that an argument had no spelling there
     /// but an opaque blob, so no return type was imported. Under `_mu`.
-    priv fn _deduce_in(self, f: *Decl, ftd: *clang::FunctionTemplateDecl, hs: *HeaderSet,
-                       explicit_args: *vec::<*Type>, arg_tys: *vec::<*Type>,
-                       arg_cats: *vec::<Expr::ValueCategory>, sink: *BufferedDiagSink, why: *string,
-                       want_ret: bool, ret: ref!(*Type), fid: i64, opaque: ref!(bool)) -> i8 {
-        var cctx = hs->ast();
-        var csema = hs->sema();
-        var slock = std::LockGuard(*(hs->sema_lock()));
+    priv fn _deduce_in(self,
+                       f:                    unsafe *Decl,
+                       ftd:                  unsafe *clang::FunctionTemplateDecl,
+                       hs:                   unsafe *HeaderSet,
+                       @inout explicit_args: cxx::std::vector<unsafe *Type>,
+                       @inout arg_tys:       cxx::std::vector<unsafe *Type>,
+                       @inout arg_cats:      cxx::std::vector<Expr::ValueCategory>,
+                       sink:                 unsafe *BufferedDiagSink,
+                       @inout why:           string,
+                       want_ret:             bool,
+                       @inout ret:           unsafe *Type,
+                       fid:                  i64,
+                       @inout opaque:        bool) -> i8 {
+        var unsafe *cctx  = hs->ast()
+        var unsafe *csema = hs->sema()
+        var        slock  = kairo::std::LockGuard(*hs->sema_lock())
         // A hard error outside the immediate context (a static_assert in a
         // trait the condition instantiates) is the program's error in C++
         // too; it goes to the calling TU like a fill's.
-        var da: *ClangDiagAdapter = &null;
-        if sink != &null { da = hs->begin_diag(sink); }
-        finally { hs->end_diag(da); }
+        var da: unsafe *ClangDiagAdapter = &null
+        if sink != &null {
+            da = hs->begin_diag(sink)
+        }
 
-        var tx = TypeExport(cctx, csema, reinterpret_cast::<*void>(hs));
-        tx.reg       = self._reg;
-        tx.psym      = self.psym;
-        tx.instances = self._instances;
-        tx.home_fid  = fid;            // \p fid: the calling TU, which a Kairo instance spelled here is homed in.
-        tx.allow_opaque_args = true;   // see TypeExport::allow_opaque_args; a removal over a blob is soft (below).
-        var loc = ftd->getLocation();
-        var tpl = ftd->getTemplateParameters();
+        finally {
+            hs->end_diag(da)
+        }
 
-        var ali = clang::TemplateArgumentListInfo(loc, loc);
-        var prior: llvm::SmallVector::<clang::TemplateArgument, 8>;
-        for var i: usize = 0; i < explicit_args->size(); ++i {
-            var a = tx.to_clang_arg_of(tpl, i, (*explicit_args)[i], prior);
-            if a.isNull() { return -1; }
-            if !tx.add_arg_loc(ali, a, loc) { return -1; }
-            prior.push_back(a);
+        var tx = TypeExport(cctx, csema, unsafe (hs as unsafe *void))
+        tx.reg               = self._reg
+        tx.psym              = self.psym
+        tx.instances         = self._instances
+        tx.home_fid          = fid // \p fid: the calling TU, which a Kairo instance spelled here is homed in.
+        tx.allow_opaque_args = true // see TypeExport::allow_opaque_args; a removal over a blob is soft (below).
+        var        loc  = ftd->getLocation()
+        var unsafe *tpl = ftd->getTemplateParameters()
+
+        var ali = clang::TemplateArgumentListInfo(loc, loc)
+        var prior: llvm::SmallVector<clang::TemplateArgument, 8>
+        for var i: usize = 0; i < explicit_args.size(); ++i {
+            var a = tx.to_clang_arg_of(tpl, i, (explicit_args)[i], &prior)
+            if a.isNull() {
+                return -1
+            }
+
+            if !tx.add_arg_loc(&ali, a, loc) {
+                return -1
+            }
+
+            prior.push_back(a)
         }
 
         // Each argument as an expression of its type and category, which is
         // all [temp.deduct.call] reads of one. Allocated in the set's
         // ASTContext: the deduction's bookkeeping may keep pointers to them.
-        var exprs: llvm::SmallVector::<*clang::Expr, 8>;
-        for var i: usize = 0; i < arg_tys->size(); ++i {
-            var q = tx.to_clang((*arg_tys)[i]);
-            if q.isNull() { return -1; }
-            var vk = clang::VK_PRValue;
-            if (*arg_cats)[i] == Expr::ValueCategory::LValue { vk = clang::VK_LValue; }
-            if (*arg_cats)[i] == Expr::ValueCategory::XValue { vk = clang::VK_XValue; }
-            var mem = cctx->Allocate(sizeof(clang::OpaqueValueExpr), alignof(clang::OpaqueValueExpr));
-            var e = libcxx::construct_at(reinterpret_cast::<*clang::OpaqueValueExpr>(mem), loc, q, vk,
-                                         clang::OK_Ordinary, static_cast::<*clang::Expr>(&null));
-            exprs.push_back(static_cast::<*clang::Expr>(e));
+        var exprs: llvm::SmallVector<unsafe *clang::Expr, 8>
+        for var i: usize = 0; i < arg_tys.size(); ++i {
+            var q = tx.to_clang((arg_tys)[i])
+            if q.isNull() {
+                return -1
+            }
+
+            var vk = clang::VK_PRValue
+            if (arg_cats)[i] == Expr::ValueCategory::LValue {
+                vk = clang::VK_LValue
+            }
+
+            if (arg_cats)[i] == Expr::ValueCategory::XValue {
+                vk = clang::VK_XValue
+            }
+
+            var unsafe *mem = cctx->Allocate(
+                sizeof(clang::OpaqueValueExpr),
+                alignof(clang::OpaqueValueExpr) as u32,
+            )
+
+            var unsafe *e = cxx::std::construct_at(
+                unsafe (mem as unsafe *clang::OpaqueValueExpr),
+                loc,
+                q,
+                vk,
+                clang::OK_Ordinary,
+                unsafe (&null as unsafe *clang::Expr),
+            )
+
+            exprs.push_back(unsafe (e as unsafe *clang::Expr))
         }
 
         // An argument class this set only forward-declares (`ofstream` in
@@ -565,52 +879,88 @@ class ForeignInstantiate {
         // _Stream&&, const _Tp&)`) is a hard libc++ error clang would never
         // raise for a caller that included <fstream>. The attempt is silent
         // and, unless it succeeds anyway, undecided so the demanding TU's
-        // set deduces it again (G103; the same rule as a fill's, G94).
-        var quiet_args = false;
+        // set deduces it again (the same rule as a fill's).
+        var quiet_args = false
         for var qi: usize = 0; qi < exprs.size(); ++qi {
-            var qt = exprs[qi]->getType().getNonReferenceType();
-            while qt->isPointerType() { qt = qt->getPointeeType(); }
-            var qrd = qt->getAsCXXRecordDecl();
-            if qrd == &null { continue; }
-            var qspec = llvm::dyn_cast::<clang::ClassTemplateSpecializationDecl>(qrd);
-            var qdef = qrd->getDefinition();
-            if (qdef == &null) && (qspec != &null) {
+            var qt = exprs[qi]->getType().getNonReferenceType()
+            while qt->isPointerType() {
+                qt = qt->getPointeeType()
+            }
+
+            var unsafe *qrd = qt->getAsCXXRecordDecl()
+            if qrd == &null {
+                continue
+            }
+
+            var unsafe *qspec = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(qrd)
+            var unsafe *qdef  = qrd->getDefinition()
+            if qdef == &null && qspec != &null {
                 // An implicit instance is complete when its template's pattern
                 // is defined: clang instantiates it on demand.
-                var qpat = qspec->getSpecializedTemplate()->getTemplatedDecl();
-                if qpat->getDefinition() != &null { continue; }
+                var unsafe *qpat = qspec->getSpecializedTemplate()->getTemplatedDecl()
+                if qpat->getDefinition() != &null {
+                    continue
+                }
             }
-            if qdef == &null { quiet_args = true; break; }
+
+            if qdef == &null {
+                quiet_args = true
+                break
+            }
         }
-        var info = clang::sema::TemplateDeductionInfo(loc, 0);
-        var spec: *clang::FunctionDecl = &null;
-        var eap: *clang::TemplateArgumentListInfo = &null;
-        if explicit_args->size() > 0 { eap = &ali; }
-        var qdiags = &(csema->getDiagnostics());
-        var args_were_quiet = qdiags->getSuppressAllDiagnostics();
-        if quiet_args { qdiags->setSuppressAllDiagnostics(true); }
+
+        var info = clang::sema::TemplateDeductionInfo(loc, 0)
+        var spec: unsafe *clang::FunctionDecl             = &null
+        var eap:  unsafe *clang::TemplateArgumentListInfo = &null
+        if explicit_args.size() > 0 {
+            eap = unsafe &ali
+        }
+
+        var *qdiags         = &csema->getDiagnostics()
+        var args_were_quiet = qdiags->getSuppressAllDiagnostics()
+        if quiet_args {
+            qdiags->setSuppressAllDiagnostics(true)
+        }
+
         // The trap counts errors even while diagnostics are suppressed, and an
         // immediate-context SFINAE failure is never one (Sema captures it), so
         // it tells a hard error from a template's own substitution failure.
-        var trap = clang::DiagnosticErrorTrap(*qdiags);
+        var trap = clang::DiagnosticErrorTrap(&*qdiags)
         // No non-dependent conversion check: Kairo ranked every argument
         // against its parameter already, with its own conversions.
-        var r = csema->DeduceTemplateArguments(ftd, eap, exprs, spec, info,
-                    false, false, false, clang::QualType(), clang::Expr::Classification(), false,
-                    fn (ps: llvm::ArrayRef::<clang::QualType>, only: bool) -> bool { return false; });
-        opaque = tx.used_opaque;
+        var r = csema->DeduceTemplateArguments(
+            ftd,
+            eap,
+            llvm::ArrayRef<unsafe *clang::Expr>(exprs),
+            &spec,
+            &info,
+            false,
+            false,
+            false,
+            clang::QualType(),
+            clang::Expr::Classification(),
+            false,
+            llvm::function_ref<fn (llvm::ArrayRef<clang::QualType>, bool) -> bool>(
+                fn (ps: llvm::ArrayRef<clang::QualType>, only: bool) -> bool { return false },
+            ),
+        )
+
+        opaque = tx.used_opaque
         if quiet_args {
-            qdiags->setSuppressAllDiagnostics(args_were_quiet);
+            qdiags->setSuppressAllDiagnostics(args_were_quiet)
             // Only a HARD error (an incomplete class read by a trait) makes
             // the verdict unreliable. A SFINAE removal over an incomplete
             // argument is clang's own answer: `make_unique<PCHGenerator>(
             // module_cache_ref)` drops the bounded-array overload by its
-            // `enable_if` whatever ModuleCache's completeness (G107). Other
+            // `enable_if` whatever ModuleCache's completeness. Other
             // failure classes fall to the checks below.
-            if (r != clang::TemplateDeductionResult::Success) && trap.hasErrorOccurred() { return -1; }
+            if r != clang::TemplateDeductionResult::Success && trap.hasErrorOccurred() {
+                return -1
+            }
         }
+
         if r == clang::TemplateDeductionResult::Success {
-            if want_ret && (spec != &null) && (!tx.used_opaque) {
+            if want_ret && spec != &null && !tx.used_opaque {
                 // `decltype(auto)` / `auto` (llvm::dyn_cast, cast, isa): the
                 // specialization's declared return type is the placeholder
                 // until its body is instantiated, and imported as such it is
@@ -619,24 +969,30 @@ class ForeignInstantiate {
                 // at a call: by instantiating the definition, quietly (a
                 // failure leaves the placeholder, and the call untyped).
                 if spec->getReturnType()->getContainedDeducedType() != &null {
-                    csema->DeduceReturnType(spec, loc, false);
+                    csema->DeduceReturnType(spec, loc, false)
                 }
-                var t = self._hindex->target_for_fid(decl_origin_fid(f));
+
+                var unsafe *t = self._hindex->target_for_fid(decl_origin_fid(f))
                 if t != &null {
-                    var ti = self._hindex->type_importer_for(hs, t->ctx, t->fid);
-                    ret = ti._import(spec->getReturnType());
+                    var ti = self._hindex->type_importer_for(hs, t->ctx, t->fid)
+                    ret = ti._import(spec->getReturnType())
                 }
             }
-            return 1;
+
+            return 1
         }
 
-        if (r != clang::TemplateDeductionResult::ConstraintsNotSatisfied)
-        && (r != clang::TemplateDeductionResult::SubstitutionFailure)
-        && (r != clang::TemplateDeductionResult::InvalidExplicitArguments) {
-            Logger::info(Logger::Stage::Driver,
-                f"ForeignInstantiate: clang's deduction of {string(ftd->getQualifiedNameAsString())} disagreed with Kairo's (result {static_cast::<i32>(r)}); Kairo's verdict kept");
-            return -1;
+        if r != clang::TemplateDeductionResult::ConstraintsNotSatisfied
+            && r != clang::TemplateDeductionResult::SubstitutionFailure
+            && r != clang::TemplateDeductionResult::InvalidExplicitArguments {
+            kairo::Logger::info(
+                kairo::Logger::Stage::Driver,
+                f"ForeignInstantiate: clang's deduction of {kairo::std::from_std_string<string>(ftd->getQualifiedNameAsString())} disagreed with Kairo's (result {(r as i32)}); Kairo's verdict kept",
+            )
+
+            return -1
         }
+
         // A removal that read a Kairo record through its stand-in (fields,
         // no methods: TypeExport::used_standin) may be the stand-in's fault
         // -- `IndexableBuffer<RingBuf<i32>>` probes `len()`, which only the
@@ -644,34 +1000,40 @@ class ForeignInstantiate {
         // overloads fail on `Cp` being no array, which the stand-in shows
         // truly). So it is a SOFT removal (2): the candidate loses to any
         // firm one it ties, and stands when nothing else does.
-        var verdict: i8 = (2) if (tx.used_standin) else (0);
+        var verdict: i8 = if (tx.used_standin) => (2) else => 0
         if r == clang::TemplateDeductionResult::ConstraintsNotSatisfied {
-            (*why) = "its constraints are not satisfied";
-            return verdict;
+            (why) = "its constraints are not satisfied"
+            return verdict
         }
-        (*why) = "substitution failure";
+
+        (why) = "substitution failure"
         if info.hasSFINAEDiagnostic() {
             // getStringArg is not const; the diagnostic is ours to read.
-            var pd = const_cast::<*clang::PartialDiagnosticAt>(&(info.peekSFINAEDiagnostic()));
-            var d  = &(libcxx::get::<1>(*pd));
+            var unsafe *pd = unsafe ((&info.peekSFINAEDiagnostic()) as unsafe *clang::PartialDiagnosticAt)
+            var *d = &(*pd).second
             // clang's own note for a failed enable_if condition
             // (DiagnoseBadDeduction): the error text reads "'enable_if'
             // cannot be used to disable this declaration", which is what a
             // hard error would say, not why this candidate went.
-            if d->getDiagID() == clang::diag::err_typename_nested_not_found_requirement {
-                var req = d->getStringArg(0);
-                (*why) = f"requirement '{string(req.data(), req.size())}' was not satisfied";
-                return verdict;
+            if d->getDiagID() == (clang::diag::err_typename_nested_not_found_requirement as u32) {
+                var req = d->getStringArg(0)
+                (why) = f"requirement '{string(unsafe ((req.data() as unsafe *const u8) as *const u8), req.size())}' was not satisfied"
+                return verdict
             }
-            if d->getDiagID() == clang::diag::err_typename_nested_not_found_enable_if {
-                (*why) = "disabled by 'enable_if\x27";
-                return verdict;
+
+            if d->getDiagID() == (clang::diag::err_typename_nested_not_found_enable_if as u32) {
+                (why) = "disabled by 'enable_if'"
+                return verdict
             }
-            var buf: llvm::SmallString::<128>;
-            d->EmitToString(csema->getDiagnostics(), buf);
-            if buf.size() > 0 { (*why) = f"substitution failure: {string(buf.data(), buf.size())}"; }
+
+            var buf: llvm::SmallString<128>
+            d->EmitToString(&csema->getDiagnostics(), &buf)
+            if buf.size() > 0 {
+                (why) = f"substitution failure: {string(unsafe ((buf.data() as unsafe *const u8) as *const u8), buf.size())}"
+            }
         }
-        return verdict;
+
+        return verdict
     }
 
     /// Nested records of the specialization. Implicit instantiation of
@@ -691,37 +1053,61 @@ class ForeignInstantiate {
     /// Runs inside _fill_locked, under `_mu` and the set's sema_lock already:
     /// no lock of its own, so no second ordering. A record clang cannot
     /// complete is skipped (memberless, logged), as for the outer fill.
-    priv fn _complete_nested(self, csema: *clang::Sema, cctx: *clang::ASTContext,
-                             di: *DeclImport, pairs: ref!(vec::<(*void, *Decl)>)) {
-        var seen = set::<u64>();
-        var diags = &(csema->getDiagnostics());
+    priv fn _complete_nested(self,
+                             csema:        unsafe *clang::Sema,
+                             cctx:         unsafe *clang::ASTContext,
+                             di:           *DeclImport,
+                             @inout pairs: cxx::std::vector<(unsafe *void, unsafe *Decl)>) {
+        var seen   = llvm::DenseSet<u64>()    // record addresses: never the reserved keys
+        var *diags = &csema->getDiagnostics()
         for var i: usize = 0; i < pairs.size(); ++i {
-            var d  = reinterpret_cast::<*clang::Decl>(libcxx::get::<0>(pairs[i]));
-            var rd = llvm::dyn_cast::<clang::CXXRecordDecl>(d);
-            if rd == &null { continue; }
-            if rd->isCompleteDefinition() { continue; }
+            var unsafe *d  = unsafe (pairs[i].0 as unsafe *clang::Decl)
+            var unsafe *rd = llvm::dyn_cast<clang::CXXRecordDecl>(d)
+            if rd == &null {
+                continue
+            }
+
+            if rd->isCompleteDefinition() {
+                continue
+            }
+
             // A member class of the instantiation, not a forward declaration
             // the header left incomplete on purpose.
-            if rd->getInstantiatedFromMemberClass() == &null { continue; }
-            var key = reinterpret_cast::<u64>(rd);
-            if seen.contains(key) { continue; }
-            seen.insert(key);
+            if rd->getInstantiatedFromMemberClass() == &null {
+                continue
+            }
+
+            var key = (rd as usize as u64)
+            if !seen.insert(key).second {
+                continue
+            }
+
             // Each completion only adds records nested in the one completed,
             // so this terminates on any finite header; the cap turns a clang
             // or walk bug that re-offers records forever into an ICE, not a hang.
-            ICE_IF((seen.size() > 4096), "ForeignInstantiate: nested-record completion did not converge");
-
-            var before = diags->getNumErrors();
-            var ty = clang::QualType(cctx->getCanonicalTagType(rd));
-            var incomplete = csema->RequireCompleteType(rd->getLocation(), ty, clang::diag::err_incomplete_type);
-            var def = rd->getDefinition();
-            if incomplete || (diags->getNumErrors() > before) || (def == &null) {
-                Logger::warn(Logger::Stage::Driver,
-                    f"ForeignInstantiate: nested {string(rd->getQualifiedNameAsString())} not completed; left without members");
-                continue;
+            if seen.size() > 4096 {
+                kairo::std::ice_fail(
+                    "ForeignInstantiate: nested-record completion did not converge",
+                )
             }
-            self._hindex->walk_declare(def, di, pairs);
+
+            var before = diags->getNumErrors()
+            var ty = clang::QualType::getFromOpaquePtr(
+                (cctx->getCanonicalTagType(rd)).getAsOpaquePtr(),
+            )
+
+            var incomplete = csema->RequireCompleteType(rd->getLocation(), ty, (clang::diag::err_incomplete_type as u32))
+            var unsafe *def = rd->getDefinition()
+            if incomplete || diags->getNumErrors() > before || def == &null {
+                kairo::Logger::warn(
+                    kairo::Logger::Stage::Driver,
+                    f"ForeignInstantiate: nested {kairo::std::from_std_string<string>(rd->getQualifiedNameAsString())} not completed; left without members",
+                )
+
+                continue
+            }
+
+            self._hindex->walk_declare(def, di, &pairs)
         }
     }
-
 }

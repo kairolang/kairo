@@ -5,42 +5,46 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Driver::TUResult::*;
+ffi "c++" import "vector"
+
+import Driver::TUResult::TUResult
 
 /// Aggregate result returned by \c CompilerInstance::execute().
 ///
 /// Collects per-file \c TUResult records and accumulates totals across all
 /// input files. \c aborted is set when any file emits a fatal diagnostic,
 /// causing \c execute() to skip remaining files.
-class BatchResult {
-    
-    pub var tu_results:     vec::<TUResult>; ///< One entry per input file, in order.
-    pub var elapsed_ms:     f64  = 0.0;     ///< Total wall time for the batch.
-    pub var total_errors:   u32  = 0;
-    pub var total_warnings: u32  = 0;
-    pub var aborted:        bool = false;    ///< True if a fatal triggered early exit.
+pub class BatchResult {
+    pub var tu_results:     cxx::std::vector<TUResult> ///< One entry per input file, in order.
+    pub var elapsed_ms:     f64                        = 0.0 ///< Total wall time for the batch.
+    pub var total_errors:   u32                        = 0
+    pub var total_warnings: u32                        = 0
+    pub var aborted:        bool                       = false ///< True if a fatal triggered early exit.
 
     fn BatchResult(self) {
-        self.tu_results.reserve(8);
+        self.tu_results.reserve(8)
     }
 
     /// Returns true if the batch completed without errors or abort.
     fn ok(self) -> bool {
-        return (!self.aborted) && (self.total_errors == 0);
+        return !self.aborted && self.total_errors == 0
     }
 
     /// Returns a one-line human-readable summary of the batch result.
     fn summary(self) -> string {
-        var s  = f"{self.tu_results.size()} file(s): ";
-            s += f"{self.total_errors} error(s), {self.total_warnings} warning(s)";
-        if self.aborted { s += " [ABORTED - fatal error]"; }
-            s += f" ({self.elapsed_ms:.1}ms)";
-        return s;
+        var s = f"{self.tu_results.size()} file(s): "
+        s += f"{self.total_errors} error(s), {self.total_warnings} warning(s)"
+        if self.aborted {
+            s += " [ABORTED - fatal error]"
+        }
+
+        s += f" ({self.elapsed_ms:.1}ms)"
+        return s
     }
 }

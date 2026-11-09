@@ -1,19 +1,20 @@
 /// --- The Kairo Project ------------------------ Location/SourceFile.k --- ///
 ///
-///   <short description>
+///   SourceFile: a handle on one memory-mapped source file.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Support::FileIO::Path::*;
-import Memory::MappedFileBuffer::*;
-import Memory::MemoryBuffer::*;
+ffi "c++" import "Native/Types.hh"
+
+import Memory::MappedFileBuffer::MappedFileBuffer
+import Support::FileIO::Path::Path
 
 ///
 /// \file SourceFile.k
@@ -45,18 +46,18 @@ import Memory::MemoryBuffer::*;
 /// this type is purely referential and does not manage lifetime of the
 /// underlying buffer.
 ///
-class SourceFile {
-    pub var path:        Path;                     ///< filesystem path of the file.
-    pub var buffer:      view::<MappedFileBuffer>; ///< pointer to mapped memory region.
-    pub var base_offset: usize = 0;                ///< base offset within global space.
-    pub var size_bytes:  usize = 0;                ///< size of the file in bytes.
+pub class SourceFile {
+    pub var path:        Path                         ///< filesystem path of the file.
+    pub var buffer:      unsafe *MappedFileBuffer     ///< pointer to mapped memory region.
+    pub var base_offset: usize                    = 0 ///< base offset within global space.
+    pub var size_bytes:  usize                    = 0 ///< size of the file in bytes.
 
     /// Set once by SourceManager::validate_utf8. Checked-and-valid is two
     /// flags rather than one because "not yet scanned" must not read as
     /// either verdict: the scan reports diagnostics, and a second scan of the
     /// same buffer would report them twice.
-    pub var utf8_checked: bool = false;
-    pub var utf8_valid:   bool = true;
+    pub var utf8_checked: bool = false
+    pub var utf8_valid:   bool = true
 
     ///
     /// \brief constructs a `SourceFile` from an existing mapped buffer.
@@ -67,15 +68,15 @@ class SourceFile {
     ///
     /// \throws RuntimeError if buffer is null or invalid.
     ///
-    fn SourceFile(self, path: Path, buffer: *MappedFileBuffer, base: usize) {
-        if (buffer == &null) || (!buffer->is_valid()) {
-            std::crash(std::Error::RuntimeError("SourceFile: Invalid buffer for SourceFile"));
+    fn SourceFile(self, const path: Path, buffer: unsafe *MappedFileBuffer, base: usize) {
+        if buffer == &null || !buffer->is_valid() {
+            kairo::std::ice_fail("SourceFile: Invalid buffer for SourceFile")
         }
 
-        self.path        = path;
-        self.buffer      = buffer;
-        self.base_offset = base;
-        self.size_bytes  = buffer->bytes().size();
+        self.path        = path
+        self.buffer      = buffer
+        self.base_offset = base
+        self.size_bytes  = buffer->bytes().size()
     }
 
     ///
@@ -83,8 +84,8 @@ class SourceFile {
     ///
     /// \return `base_offset + size_bytes`.
     ///
-    const fn end_offset(self) -> usize {
-        return base_offset + size_bytes;
+    fn end_offset(const self) -> usize {
+        return self.base_offset + self.size_bytes
     }
 
     ///
@@ -92,7 +93,7 @@ class SourceFile {
     ///
     /// \return true if the buffer exists and is valid.
     ///
-    const fn is_valid(self) -> bool {
-        return (buffer != &null) && (buffer->is_valid());
+    fn is_valid(const self) -> bool {
+        return self.buffer != &null && self.buffer->is_valid()
     }
 }

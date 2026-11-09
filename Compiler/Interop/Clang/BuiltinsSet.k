@@ -1,9 +1,7 @@
-/// --- The Kairo Project ---------------- Interop/Clang/BuiltinsSet.k --- ///
+/// --- The Kairo Project ------------------ Interop/Clang/BuiltinsSet.k --- ///
 ///
-///   \brief A parse-free clang instance whose one job is to say what a clang
-///          builtin is: its ID, its prototype, its attributes.
+///   A parse-free clang instance that answers what a clang builtin is.
 ///
-///   \detail
 ///     No ClangBackend or HeaderSet instance can answer this for a TU with no
 ///     ffi imports. The backend's CompilerInstance has no Preprocessor or
 ///     ASTContext, and the ones ExecuteAction creates are per action. A
@@ -25,150 +23,225 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/Types.hh";
-ffi "c++" import "clang/AST/ASTContext.h";
-ffi "c++" import "clang/Basic/Builtins.h";
-ffi "c++" import "clang/Basic/IdentifierTable.h";
-ffi "c++" import "clang/Basic/TargetInfo.h";
-ffi "c++" import "clang/Frontend/CompilerInstance.h";
-ffi "c++" import "clang/Frontend/CompilerInvocation.h";
-ffi "c++" import "clang/Frontend/TextDiagnosticPrinter.h";
-ffi "c++" import "clang/Lex/PreprocessorOptions.h";
-ffi "c++" import "clang/Lex/Preprocessor.h";
-ffi "c++" import "llvm/ADT/IntrusiveRefCntPtr.h";
-ffi "c++" import "llvm/ADT/STLExtras.h";
-ffi "c++" import "llvm/ADT/StringMap.h";
-ffi "c++" import "llvm/Support/VirtualFileSystem.h";
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "clang/AST/ASTContext.h"
+ffi "c++" import "clang/Basic/Builtins.h"
+ffi "c++" import "clang/Basic/IdentifierTable.h"
+ffi "c++" import "clang/Basic/TargetInfo.h"
+ffi "c++" import "clang/Frontend/CompilerInstance.h"
+ffi "c++" import "clang/Frontend/CompilerInvocation.h"
+ffi "c++" import "clang/Frontend/TextDiagnosticPrinter.h"
+ffi "c++" import "clang/Lex/PreprocessorOptions.h"
+ffi "c++" import "clang/Lex/Preprocessor.h"
+ffi "c++" import "llvm/ADT/IntrusiveRefCntPtr.h"
+ffi "c++" import "llvm/ADT/STLExtras.h"
+ffi "c++" import "llvm/ADT/StringMap.h"
+ffi "c++" import "llvm/Support/VirtualFileSystem.h"
+ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "vector"
+ffi "c++" import "utility"
+ffi "c++" import "memory"
 
-class BuiltinsSet {
-    priv var _ci:     opt::<clang::CompilerInstance> = &null;
+pub class BuiltinsSet {
+    priv var _ci: unsafe *clang::CompilerInstance = &null
     /// name -> builtin ID. The ONE owner of the name bytes: a StringMap
     /// entry stores its key inline and never moves, so _sorted views into it
     /// instead of holding a second copy, and id_of probes with a StringRef
     /// rather than building a std::string per lookup.
-    priv var _ids:    llvm::StringMap::<u32>;
+    priv var _ids: llvm::StringMap<u32>
     /// The target's predefined macros (`__linux__`, `__x86_64__`), by name:
-    /// what `defined!` answers in a file with no ffi header (EVAL.md §4.3).
-    priv var _predef: llvm::StringMap::<u32>;
+    /// what `defined!` answers in a file with no ffi header (Compiler/Spec/Eval.md#defined).
+    priv var _predef: llvm::StringMap<u32>
     /// Every builtin the target and language register, sorted by name;
     /// keys view _ids' entries.
-    priv var _sorted: libcxx::vector::<libcxx::pair::<llvm::StringRef, u32>>;
-    priv var _ready:  bool = false;
+    priv var _sorted: cxx::std::vector<cxx::std::pair<llvm::StringRef, u32>>
+    priv var _ready:  bool                                                   = false
 
     fn BuiltinsSet(self) { }
 
-    fn op delete (self) { self.release(); }
+    // Move-only: the destructor destroys `_ci`, so a copy would destroy it twice.
+    // The source is left holding no instance.
+    @move fn BuiltinsSet(self, other: Self) {
+        self._ci     = other._ci
+        self._ids    = cxx::std::move(other._ids)
+        self._predef = cxx::std::move(other._predef)
+        self._sorted = cxx::std::move(other._sorted)
+        self._ready  = other._ready
+        other._ci    = &null
+        other._ready = false
+    }
+
+    fn op finally (self) {
+        self.release()
+    }
 
     /// Destroy the instance. Called by ClangBackend BEFORE its printer dies:
     /// this instance's engine borrows it.
     fn release(self) {
-        if self._ci != &null { std::destroy(self._ci); self._ci = &null; }
-        self._ready = false;
+        if self._ci != &null {
+            kairo::std::destroy(self._ci)
+            self._ci = &null
+        }
+
+        self._ready = false
     }
 
-    fn ready(self) -> bool { return self._ready; }
+    pub fn ready(self) -> bool {
+        return self._ready
+    }
 
     /// Build once. False leaves the oracle unready, and every builtin then
     /// misses into R020E, which is what the build did without it.
-    fn build(self, inv: *clang::CompilerInvocation,
-             vfs: llvm::IntrusiveRefCntPtr::<llvm::vfs::FileSystem>,
-             printer: *clang::TextDiagnosticPrinter) -> bool {
-        if self._ready { return true; }
-        if inv == &null { return false; }
+    fn build(self,
+             inv:     unsafe *clang::CompilerInvocation,
+             vfs:     llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>,
+             printer: unsafe *clang::TextDiagnosticPrinter) -> bool {
+        if self._ready {
+            return true
+        }
 
-        var copy = libcxx::make_shared::<clang::CompilerInvocation>(*inv);
-        copy->getPreprocessorOpts().Includes.clear();     // no main file is ever entered.
+        if inv == &null {
+            return false
+        }
 
-        self._ci = std::create::<clang::CompilerInstance>(copy);
-        self._ci->setVirtualFileSystem(vfs);
-        self._ci->createDiagnostics(printer, false);
-        if !self._ci->hasDiagnostics() { self.release(); return false; }
-        self._ci->setTarget(clang::TargetInfo::CreateTargetInfo(
-            self._ci->getDiagnostics(), self._ci->getInvocation().getTargetOpts()));
-        if !self._ci->hasTarget() { self.release(); return false; }
-        self._ci->getTarget().adjust(self._ci->getDiagnostics(), self._ci->getLangOpts(), &null);
+        var copy = cxx::std::make_shared<clang::CompilerInvocation>(*inv)
+        copy->getPreprocessorOpts().Includes.clear() // no main file is ever entered.
 
-        self._ci->createFileManager();
-        self._ci->createSourceManager();
-        self._ci->createPreprocessor(clang::TU_Complete);   // PP::Initialize -> BuiltinInfo.InitializeTarget.
-        self._ci->createASTContext();                       // InitBuiltinTypes.
+        self._ci = kairo::std::create<clang::CompilerInstance>(copy)
+        self._ci->setVirtualFileSystem(vfs)
+        self._ci->createDiagnostics(printer, false)
+        if !self._ci->hasDiagnostics() {
+            self.release()
+            return false
+        }
+
+        self._ci->setTarget(
+            clang::TargetInfo::CreateTargetInfo(
+                &self._ci->getDiagnostics(),
+                &self._ci->getInvocation().getTargetOpts(),
+            ),
+        )
+
+        if !self._ci->hasTarget() {
+            self.release()
+            return false
+        }
+
+        self._ci->getTarget().adjust(&self._ci->getDiagnostics(), &self._ci->getLangOpts(), &null)
+
+        self._ci->createFileManager()
+        self._ci->createSourceManager()
+        self._ci->createPreprocessor(clang::TU_Complete) // PP::Initialize -> BuiltinInfo.InitializeTarget.
+        self._ci->createASTContext() // InitBuiltinTypes.
 
         // The step BeginSourceFile would have taken: give every supported
         // builtin's identifier its ID.
-        var pp = &(self._ci->getPreprocessor());
-        pp->getBuiltinInfo().initializeBuiltins(pp->getIdentifierTable(), self._ci->getLangOpts());
+        var *pp = &self._ci->getPreprocessor()
+        pp->getBuiltinInfo().initializeBuiltins(&pp->getIdentifierTable(), self._ci->getLangOpts())
 
         // createPreprocessor wrote the predefines buffer (`#define __linux__
         // 1` ...) but no main file is entered, so none is defined in the
         // preprocessor: read the names off the buffer instead.
-        var pd   = pp->getPredefines();
-        var all  = llvm::StringRef(pd.data(), pd.size());
+        var pd  = pp->getPredefines()
+        var all = llvm::StringRef(pd.data(), pd.size())
         // The spellings outlive their views: sref of a temporary dangles.
-        var def_s  = string("#define ");
-        var nl_s   = string("\n");
-        var stop_s = string(" (");
-        var def  = sref(def_s);
-        var nl   = sref(nl_s);
-        var stop = sref(stop_s);
+        var def_s  = "#define "
+        var nl_s   = "\n"
+        var stop_s = " ("
+        var def    = kairo::sref(def_s)
+        var nl     = kairo::sref(nl_s)
+        var stop   = kairo::sref(stop_s)
         while !all.empty() {
-            var pr = all.split(nl);
-            var line = pr.first;
-            all = pr.second;
-            if !line.starts_with(def) { continue; }
-            var rest = line.drop_front(def.size());
-            self._predef.try_emplace(rest.substr(0, rest.find_first_of(stop)), u32(1));
+            var pr   = all.split(nl)
+            var line = pr.first
+            all = pr.second
+            if !line.starts_with(def) {
+                continue
+            }
+
+            var rest = line.drop_front(def.size())
+            self._predef.try_emplace(rest.substr(0, rest.find_first_of(stop)), 1 as u32)
         }
 
         // Read back what got an ID. Iterating the table rather than the ID
         // space keeps this independent of how a clang version shards its
         // builtin tables: only supported builtins were stamped.
-        var idt = &(pp->getIdentifierTable());
+        var *idt = &pp->getIdentifierTable()
         for var it = idt->begin(); it != idt->end(); ++it {
-            var id = it->getValue()->getBuiltinID();
-            if id == 0 { continue; }
-            self._ids.try_emplace(it->getKey(), static_cast::<u32>(id));
+            var id = it->getValue()->getBuiltinID()
+            if id == 0 {
+                continue
+            }
+
+            self._ids.try_emplace(it->getKey(), id)
         }
-        self._sorted.reserve(self._ids.size());
+
+        self._sorted.reserve(self._ids.size())
         for var e = self._ids.begin(); e != self._ids.end(); ++e {
-            self._sorted.push_back(libcxx::make_pair(e->getKey(), e->getValue()));
+            self._sorted.push_back(cxx::std::pair<llvm::StringRef, u32>(e->getKey(), e->getValue()))
         }
+
         // Sorted: the pseudo-header BuiltinImport writes from this is then the
         // same bytes every build, whatever order the StringMap hashed into.
-        llvm::sort(self._sorted);
+        llvm::sort(self._sorted)
 
-        self._ready = true;
-        Logger::info(Logger::Stage::Driver, f"BuiltinsSet: {self._sorted.size()} builtin(s) for this target");
-        return true;
+        self._ready = true
+        kairo::Logger::info(
+            kairo::Logger::Stage::Driver,
+            f"BuiltinsSet: {self._sorted.size()} builtin(s) for this target",
+        )
+
+        return true
     }
 
     /// Is \p name one of the target's predefined macros. Read-only; any thread.
-    fn predefined(self, name: string) -> bool {
-        if !self._ready { return false; }
-        return self._predef.find(sref(name)) != self._predef.end();
+    pub fn predefined(self, const name: string) -> bool {
+        if !self._ready {
+            return false
+        }
+
+        return self._predef.find(kairo::sref(name)) != self._predef.end()
     }
 
     /// The builtin ID \p name has here, or 0. Read-only; any thread.
-    fn id_of(self, name: string) -> u32 {
-        if !self._ready { return 0; }
-        var it = self._ids.find(sref(name));
-        if it == self._ids.end() { return 0; }
-        return it->second;
+    pub fn id_of(self, const name: string) -> u32 {
+        if !self._ready {
+            return 0
+        }
+
+        var it = self._ids.find(kairo::sref(name))
+        if it == self._ids.end() {
+            return 0
+        }
+
+        return it->second
     }
 
-    fn count(self) -> usize { return self._sorted.size(); }
-    fn name_at(self, i: usize) -> string {
-        var k = self._sorted[i].first;
-        return string(k.data(), k.size());
+    pub fn count(self) -> usize {
+        return self._sorted.size()
     }
-    fn id_at(self, i: usize) -> u32 { return self._sorted[i].second; }
+
+    pub fn name_at(self, i: usize) -> string {
+        var k = self._sorted[i].first
+        return string(unsafe ((k.data() as unsafe *const u8) as *const u8), k.size())
+    }
+
+    pub fn id_at(self, i: usize) -> u32 {
+        return self._sorted[i].second
+    }
 
     /// BuiltinImport only, under its lock.
-    fn ast(self) -> *clang::ASTContext { return &(self._ci->getASTContext()); }
-    fn builtins(self) -> *clang::Builtin::Context { return &(self._ci->getPreprocessor().getBuiltinInfo()); }
+    pub fn ast(self) -> unsafe *clang::ASTContext {
+        return unsafe &self._ci->getASTContext()
+    }
+
+    pub fn builtins(self) -> unsafe *clang::Builtin::Context {
+        return unsafe &self._ci->getPreprocessor().getBuiltinInfo()
+    }
 }

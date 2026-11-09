@@ -1,9 +1,9 @@
-/// --- The Kairo Project -------------------- Sema/Lower/NullTestLowering.k --- ///
+/// --- The Kairo Project ---------------- Sema/Lower/NullTestLowering.k --- ///
 ///
 ///   \brief Every null test becomes a call of the Nullable's `is_null()`.
 ///
 ///   \detail
-///     NULLABLE.md 2.1, 2.2, §5 step 2. Each spelling `null_test_of`
+///     Compiler/Spec/Nullables.md#null-test, 2.2, §5 step 2. Each spelling `null_test_of`
 ///     (Sema/Type/NullnessFlow.k) recognises lowers by its polarity:
 ///
 ///       x?   x != null   null != x   !(x == null)   ->  !x.is_null()
@@ -33,87 +33,126 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::SemaContext::*;
-import Sema::Lower::LowerSynth::*;
-import Sema::Type::NullnessFlow::*;
-import AST::Visitor::ASTWriter::*;
-import AST::ASTSupport::*;
-import AST::LangItems::*;
-import AST::Node::Base::*;
-import AST::Node::Expressions::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Declarations::*;
-import AST::Node::CanonicalNodes::*;
-import AST::Node::Casting::*;
-import Token::Token::*;
-import Token::TokenKind::*;
+ffi "c++" import "Native/Types.hh"
 
-class NullTestLowering derives ASTWriter::<NullTestLowering> {
-    pub var sc: *SemaContext;
-    priv var synth: LowerSynth;
-    priv var _is_null: *FunctionDecl = &null;   ///< the layout's AdtRole::IsNull member.
+import AST::LangItems::{
+    LowerTargets,
+    WellKnownType,
+}
+import AST::Node::Base::Expr
+import AST::Node::CanonicalNodes::BuiltinKind
+import AST::Node::Declarations::{
+    AdtRole,
+    FunctionDecl,
+}
+import AST::Node::Expressions::{
+    BinaryOperatorExpr,
+    UnaryOperatorExpr,
+}
+import AST::Visitor::ASTWriter::ASTWriter
+import Sema::Lower::LowerSynth::LowerSynth
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+import Sema::Type::NullnessFlow::{
+    NullTest,
+    null_test_of,
+}
+import Token::TokenKind::TokenKind
 
-    fn NullTestLowering(self, sc: *SemaContext) {
-        self.sc    = sc;
-        self.ctx   = sc->ctx;
-        self.synth = LowerSynth(sc);
+pub class NullTestLowering derives ASTWriter<NullTestLowering> {
+    pub var  sc:       unsafe *SemaContext
+    priv var synth:    LowerSynth
+    priv var _is_null: unsafe *FunctionDecl = &null ///< the layout's AdtRole::IsNull member.
+
+    fn NullTestLowering(self, sc: unsafe *SemaContext) {
+        self.sc    = sc
+        self.ctx   = sc->ctx
+        self.synth = LowerSynth(sc)
     }
 
     fn run(self) {
-        self.sc->require_phase(SemaPhase::Checked);
-        if self.sc->tu == &null { return; }
+        self.sc->require_phase(SemaPhase::Checked)
+        if self.sc->tu == &null {
+            return
+        }
+
         // No builtin root: no `T?` was typed, so there is no test to lower.
-        if !self.sc->well_known->has(WellKnownType::Nullable) { return; }
-        self._is_null = self.sc->nullable_member(AdtRole::IsNull, "NullTestLowering");
-        ICE_IF(self._is_null == &null, "NullTestLowering: the Nullable layout has no " + LowerTargets::nullable_is_null()
-                                       + "(); EnumLayoutLowering::_nullable_surface mints it");
-        ASTWriter::<NullTestLowering>::run(self.sc->tu);
+        if !self.sc->well_known->has(WellKnownType::Nullable) {
+            return
+        }
+
+        self._is_null = self.sc->nullable_member(AdtRole::IsNull, "NullTestLowering")
+        if self._is_null == &null {
+            kairo::std::ice_fail(
+                "NullTestLowering: the Nullable layout has no " + LowerTargets::nullable_is_null() + "(); EnumLayoutLowering::_nullable_surface mints it",
+            )
+        }
+
+        ASTWriter<NullTestLowering>::run(self, self.sc->tu)
     }
 
-    // --- the rewrites ---------------------------------------------------------
+    /// # the rewrites
 
     /// `x?`, and `!` over any null test (`!x?`, `!(x == null)`): classified
     /// whole BEFORE the children are visited, so the outer `!` folds into
     /// the polarity instead of leaving `!!x.is_null()`.
-    fn transform_unary_operator_expr(self, n: *UnaryOperatorExpr) -> *Expr {
-        var t = null_test_of(static_cast::<*Expr>(n));
-        if t.operand != &null { return self._lower(static_cast::<*Expr>(n), t); }
-        return ASTWriter::<NullTestLowering>::transform_unary_operator_expr(n);
+    fn transform_unary_operator_expr(self, n: unsafe *UnaryOperatorExpr) -> unsafe *Expr {
+        var t = null_test_of(unsafe (n as unsafe *Expr))
+        if t.operand != &null {
+            return self._lower(unsafe (n as unsafe *Expr), t)
+        }
+
+        return ASTWriter<NullTestLowering>::transform_unary_operator_expr(self, n)
     }
 
     /// `x == null`, `null == x`, `x != null`, `null != x`.
-    fn transform_binary_operator_expr(self, n: *BinaryOperatorExpr) -> *Expr {
-        var t = null_test_of(static_cast::<*Expr>(n));
-        if t.operand != &null { return self._lower(static_cast::<*Expr>(n), t); }
-        return ASTWriter::<NullTestLowering>::transform_binary_operator_expr(n);
+    fn transform_binary_operator_expr(self, n: unsafe *BinaryOperatorExpr) -> unsafe *Expr {
+        var t = null_test_of(unsafe (n as unsafe *Expr))
+        if t.operand != &null {
+            return self._lower(unsafe (n as unsafe *Expr), t)
+        }
+
+        return ASTWriter<NullTestLowering>::transform_binary_operator_expr(self, n)
     }
 
     /// \p n, the test \p t classified, as `x.is_null()` or `!x.is_null()`.
     /// The operand is lowered first: it may hold a test of its own
     /// (`f(a?)?`).
-    priv fn _lower(self, n: *Expr, t: NullTest) -> *Expr {
-        if n->is_poisoned() { return n; }
-        var operand = self.dyn()->transform_expr(t.operand);
-        var _bool = self.sc->builtin(BuiltinKind::Bool);
-        var args  = self.list_builder::<*Expr>();
-        var call  = self.synth.member_call(n->range, operand, static_cast::<*Decl>(self._is_null), &args, _bool);
-        if !t.present {
-            call->adopt_sema(n);
-            call->type_          = _bool;
-            call->value_category = Expr::ValueCategory::RValue;
-            return call;
+    priv fn _lower(self, n: unsafe *Expr, t: NullTest) -> unsafe *Expr {
+        if n->is_poisoned() {
+            return n
         }
-        var no = UnaryOperatorExpr::create(self.ctx, n->range, call, self.synth.punct(n->range, TokenKind::OpExclaim),
-                                           UnaryOperatorExpr::Fix::Prefix);
-        no->adopt_sema(n);
-        no->type_          = _bool;
-        no->value_category = Expr::ValueCategory::RValue;
-        return static_cast::<*Expr>(no);
+
+        var unsafe *operand = self.dyn()->transform_expr(t.operand)
+        var unsafe *_bool   = self.sc->builtin(BuiltinKind::Bool)
+        var        args     = self.list_builder<unsafe *Expr>()
+        var unsafe *call    = self.synth.member_call(n->range, operand, self._is_null, &args, _bool)
+        if !t.present {
+            call->adopt_sema(n)
+            call->type_          = _bool
+            call->value_category = Expr::ValueCategory::RValue
+            return call
+        }
+
+        var unsafe *no = UnaryOperatorExpr::create(
+            self.ctx,
+            n->range,
+            call,
+            self.synth.punct(n->range, TokenKind::OpExclaim),
+            UnaryOperatorExpr::Fix::Prefix,
+        )
+
+        no->adopt_sema(n)
+        no->type_          = _bool
+        no->value_category = Expr::ValueCategory::RValue
+        return no
     }
 }

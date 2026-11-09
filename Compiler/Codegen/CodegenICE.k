@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------- Codegen/CodegenICE.k ----- ///
+/// --- The Kairo Project ------------------------- Codegen/CodegenICE.k --- ///
 ///
 ///   \brief An ICE that names the Kairo source it was emitting.
 ///
@@ -24,45 +24,59 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import AST::Context::ASTContext::*;
-import Location::SourceLocation::*;
-import Location::SourceRange::*;
-import Location::SourceManager::*;
-import Location::FullSourceLocation::*;
-import Diagnostic::Registry::*;
+ffi "c++" import "Native/Types.hh"
+
+import AST::Context::ASTContext::ASTContext
+import Diagnostic::Code::DiagCode
+import Diagnostic::Registry::DiagID
+import Location::FullSourceLocation::FullSourceLocation
+import Location::SourceLocation::SourceLocation
+import Location::SourceRange::SourceRange
 
 /// `path:line:col` of \p loc, or empty when it maps to nothing.
-fn codegen_ice_loc(ctx: *ASTContext, loc: SourceLocation) -> string {
-    if (ctx == &null) || (ctx->sm == &null) { return ""; }
-    if !loc.is_valid() { return ""; }
-    var sm = ctx->sm;
-    var full: FullSourceLocation = sm->get_line_col(loc);
-    if full.line == 0 { return ""; }   // not is_valid(): that rejects fid 0, the main file.
-    return f"{full.path.full_path()}:{full.line}:{full.column}";
+pub fn codegen_ice_loc(ctx: unsafe *ASTContext, loc: SourceLocation) -> string {
+    if ctx == &null || ctx->sm == &null {
+        return ""
+    }
+
+    if !loc.is_valid() {
+        return ""
+    }
+
+    var unsafe *sm                      = ctx->sm
+    var        full: FullSourceLocation = sm->get_line_col(loc)
+    if full.line == 0 { // not is_valid(): that rejects fid 0, the main file.
+        return ""
+    }
+
+    return f"{full.path.full_path()}:{full.line}:{full.column}"
 }
 
 /// ICE at \p at, reported as \p id. Never returns.
-fn codegen_ice(ctx: *ASTContext, id: DiagID, at: SourceRange, msg: string) {
-    var where_ = codegen_ice_loc(ctx, at.start);
-    if where_.size() == 0 { ICE_FAIL(msg); }
-
-    var b = ctx->diag_sink.report(DiagCode(id), at.start, f"internal compiler error: {msg}");
-    b.first(at);
-    b.emit();
-    if ctx->diags != &null {
-        ctx->diag_sink.drain_into(ctx->diags, ctx->sm);
-        ctx->diags->flush_consumers_for_ice();
+pub fn codegen_ice(ctx: unsafe *ASTContext, id: DiagID, at: SourceRange, const msg: string) {
+    var where_ = codegen_ice_loc(ctx, at.start)
+    if where_.size() == 0 {
+        kairo::std::ice_fail(msg)
     }
-    ICE_FAIL(f"{msg}, at {where_}");
+
+    var b = ctx->diag_sink.report(DiagCode(id), at.start, f"internal compiler error: {msg}")
+    b.first(at)
+    b.emit()
+    if ctx->diags != &null {
+        ctx->diag_sink.drain_into(ctx->diags, ctx->sm)
+        ctx->diags->flush_consumers_for_ice()
+    }
+
+    kairo::std::ice_fail(f"{msg}, at {where_}")
 }
 
 /// ICE at \p at, reported as I003E (internal invariant violation).
-fn codegen_ice(ctx: *ASTContext, at: SourceRange, msg: string) {
-    codegen_ice(ctx, DiagID::I003E, at, msg);
+pub fn codegen_ice(ctx: unsafe *ASTContext, at: SourceRange, const msg: string) {
+    codegen_ice(ctx, DiagID::I003E, at, msg)
 }

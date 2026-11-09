@@ -7,17 +7,18 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Location::SourceRange::*;
-import AST::Node::Base::*;
-import AST::Context::TranslationUnit::*;
+import AST::Context::TranslationUnit::*
+import AST::Node::Base::*
+import Location::SourceLocation::*
+import Location::SourceRange::*
 
-class PositionQuery {
+pub class PositionQuery {
     /// Finds the innermost node covering `loc` in `tu`.
     /// Returns a ParentRef whose kind tells you what you got; None if out of bounds.
     /// O(depth). Relies on parent pointers + accurate ranges.
@@ -28,13 +29,13 @@ class PositionQuery {
         //
         //       Skeleton only. Implementation comes after the AST is fleshed out
         //       enough to have children-enumeration per node kind.
-        return ParentRef::none();
+        return ParentRef::none()
     }
 
     /// Walks from `node` up the parent chain, returning the first ancestor
     /// of the given parent-kind. Null if none.
     static fn enclosing(node: ParentRef, kind: ParentKind) -> ParentRef {
         // TODO: climb .parent pointers, match on ParentKind.
-        return ParentRef::none();
+        return ParentRef::none()
     }
 }

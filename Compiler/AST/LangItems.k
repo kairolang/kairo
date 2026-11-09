@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------- AST/LangItems.k --- ///
+/// --- The Kairo Project ------------------------------ AST/LangItems.k --- ///
 ///
 ///   \brief Names the compiler knows that are not in the user's source.
 ///          Two kinds, one bucket test:
@@ -38,58 +38,62 @@
 ///     invents them; the parser or sema matches them, and every matcher
 ///     and every message reads the one row.
 ///
-///   Layer: AST leaf. Imports Base and CanonicalNodes only; imported by Sema and Codegen.
+///   Layer: AST leaf. Imports Base and CanonicalNodes only; imported by Sema
+///       and Codegen.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import AST::Node::Base::*;
-import AST::Node::CanonicalNodes::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
+
+import AST::Node::Base::Decl
+import AST::Node::CanonicalNodes::BuiltinKind
 
 /// \enum WellKnownType
 /// \brief The lang items. One row per decl a lowering needs a handle to.
-enum WellKnownType derives u8 {
+pub enum WellKnownType derives u8 {
     Future = 0, ///< spawn foo() desugar type: Future<T>.
-    Range,      ///< 1..2 | 1..=2 desugar type: Range(a, b, t/f).
-    Yield,      ///< yield T desugar target: Yield<T>.
-    Ordering,   ///< <=> builtin value type: Ordering::Less | Equal | Greater.
-    Nullable,   ///< T? lowering target: Nullable<T> (NullableTypeLowering).
-    NullT,      ///< `null`'s type: null_t, whose constant C++ spells `null`.
-    Panic,      ///< fn () panic -> T result type: `enum <T, ...E> Panic` (PANIC.md §1.1).
+    Range, ///< 1..2 | 1..=2 desugar type: Range(a, b, t/f).
+    Yield, ///< yield T desugar target: Yield<T>.
+    Ordering, ///< <=> builtin value type: Ordering::Less | Equal | Greater.
+    Nullable, ///< T? lowering target: Nullable<T> (NullableTypeLowering).
+    NullT, ///< `null`'s type: null_t, whose constant C++ spells `null`.
+    Panic, ///< fn () panic -> T result type: `enum <T, ...E> Panic` (Compiler/Spec/Panic.md#the-result-type).
 
-    String,   ///< ""     library type: string.
-    Vector,   ///< [T]    library type: vector.
-    Slice,    ///< [T;]   library type: slice.
-    Array,    ///< [T; N] library type: array.
-    HashMap,  ///< {K: V} library type: hashmap.
-    HashSet,  ///< {T}    library type: hashset.
+    String,  ///< ""     library type: string.
+    Vector,  ///< [T]    library type: vector.
+    Slice,   ///< [T;]   library type: slice.
+    Array,   ///< [T; N] library type: array.
+    HashMap, ///< {K: V} library type: hashmap.
+    HashSet, ///< {T}    library type: hashset.
 
-    BigInt,   ///< 3.0e+100 library type: BigInt.
-    BigFloat, ///< 1.2e+100 library type: BigFloat.
+    ImmBigInt,   ///< 3.0e+100 library type: ImmBigInt.
+    ImmBigFloat, ///< 1.2e+100 library type: ImmBigFloat.
 
     PanicRaise, ///< PanicLowering: raise entry point.
     PanicCatch, ///< PanicLowering: catch entry point.
     AssertFail, ///< PanicLowering: `assert` failure entry point.
 
-    Pow,        ///< `^^` on primitives: `fn <B, E> pow(base: B, exp: E) -> B`.
+    Pow, ///< `^^` on primitives: `fn <B, E> pow(base: B, exp: E) -> B`.
 
-    FmtBuf,     ///< f-string: the builder every f-string lowers onto.
-    Byte,       ///< `byte`'s C++ spelling: `enum class Byte : unsigned char`.
+    FmtBuf, ///< f-string: the builder every f-string lowers onto.
+    Byte,   ///< `byte`'s C++ spelling: `enum class Byte : unsigned char`.
 
-    RangeFrom,  ///< `a..` / `..` as a subscript index: RangeFrom<T>{ begin }.
-    RangeTo,    ///< `..b` / `..=b` as a subscript index: RangeTo<T>{ end, inclusive }.
+    RangeFrom, ///< `a..` / `..` as a subscript index: RangeFrom<T>{ begin }.
+    RangeTo,   ///< `..b` / `..=b` as a subscript index: RangeTo<T>{ end, inclusive }.
 
     UnwrapFailed, ///< `unwrap!(x)` on null: `fn unwrap_failed(msg, len) -> !` (CoalesceLowering).
-    NicheOf,    ///< `__builtin_niche_of<T>()`: EnumLayoutLowering answers each call with niche_of(T).
-    TypeIdOf,   ///< `__builtin_type_id<T>()`: T's panic type id (PANIC.md §1.3), answered like NicheOf.
-    PanicSiteOf, ///< `__builtin_panic_site()`: the call's panic site id (PANIC.md §1.4), registered in the TU's site table.
-    CChar,      ///< `type __builtin_c_char`: the alias TypeResolve gives BuiltinKind::CChar (C's `char`); std spells it std::c_char.
+    NicheOf, ///< `__builtin_niche_of<T>()`: EnumLayoutLowering answers each call with niche_of(T).
+    TypeIdOf, ///< `__builtin_type_id<T>()`: T's panic type id (Compiler/Spec/Panic.md#canonical-sets), answered like NicheOf.
+    PanicSiteOf, ///< `__builtin_panic_site()`: the call's panic site id (Compiler/Spec/Panic.md#site-ids), registered in the TU's site table.
+    CChar, ///< `type __builtin_c_char`: the alias TypeResolve gives BuiltinKind::CChar (C's `char`); std spells it std::c_char.
     // Kairo-only type queries: C++ cannot tell these cases apart (a safe and
     // an unsafe pointer are both `T*`; a class, a struct and an ADT are all
     // C++ structs), so EnumLayoutLowering answers each call for a concrete T
@@ -105,7 +109,7 @@ enum WellKnownType derives u8 {
     /// `__builtin_expect(cond, expected)` (base/intrinsics.k): a call is
     /// clang's own builtin at the call site (FunctionDecl::lowers_to_expect),
     /// where the branch it guards can take the weight; behind a call the
-    /// hint lands on the callee's return, and the branch keeps none (P230).
+    /// hint lands on the callee's return, and the branch keeps none.
     Expect,
     /// `__builtin_assume(cond)` (base/intrinsics.k), which `@assume(cond)`
     /// parses to: clang's builtin at the call site
@@ -114,7 +118,7 @@ enum WellKnownType derives u8 {
     /// `__builtin_is_trivially_copyable<T>()` / `..._destructible<T>()`
     /// (base/intrinsics.k): C++ answers them, but ConformanceChecking reads
     /// them as ClassLifecycle's facts to check a member `requires` at a call
-    /// on a concrete instance (P235).
+    /// on a concrete instance.
     IsTriviallyCopyable,
     IsTriviallyDestructible,
     /// `__builtin_dynamic_size<T>(p)` / `__builtin_dynamic_align<T>(p)`
@@ -124,7 +128,7 @@ enum WellKnownType derives u8 {
     DynamicSize,
     DynamicAlign,
     /// `create<T>(...args)` / `destroy<T>(p)` (base/alloc.k): what `@create`
-    /// / `@destroy` lower to (P91, AllocSugarDesugar). Bound from alloc.k's
+    /// / `@destroy` lower to (AllocSugarDesugar). Bound from alloc.k's
     /// own TU, which the dependency scan adds to the graph of any file that
     /// writes the sugar, so the sugar needs no import and a user `create`
     /// in scope cannot capture it.
@@ -134,64 +138,123 @@ enum WellKnownType derives u8 {
     /// to. An imported C++ type meets its `hash` requirement through
     /// `std::hash<T>` with no Kairo code (ConformanceChecking::_native_implementation).
     Hash,
+    /// `type __builtin_c_wchar` / `__builtin_c_char16` / `__builtin_c_char8`
+    /// (base/c_char.k): the aliases TypeResolve gives BuiltinKind::CWChar /
+    /// CChar16 / CChar8 (C++'s wchar_t / char16_t / char8_t), as CChar for
+    /// `char`; std spells them std::c_wchar / c_char16 / c_char8.
+    CWChar,
+    CChar16,
+    CChar8,
 
-    COUNT,      ///< keep last.
+    COUNT, ///< keep last.
 }
 
 /// The lang item's NAME as the builtin root declares it: the ONE spelling.
 /// `NameResolution::_bind_lang` looks this up, and every diagnostic that
 /// names a missing item quotes it, so the two cannot drift -- a message
 /// naming an item the tree does not declare is worse than no message.
-fn to_string(k: WellKnownType) -> string {
-    switch k {
-        case WellKnownType::Future     { return "Future";     }
-        case WellKnownType::Range      { return "Range";      }
-        case WellKnownType::Yield      { return "Yield";      }
-        case WellKnownType::Ordering   { return "Ordering";   }
-        case WellKnownType::Nullable   { return "Nullable";   }
-        case WellKnownType::NullT      { return "null_t";     }
-        case WellKnownType::Panic      { return "Panic";      }
-        case WellKnownType::String     { return "string";     }
-        case WellKnownType::Vector     { return "Vector";     }
-        case WellKnownType::Slice      { return "Slice";      }
-        case WellKnownType::Array      { return "Array";      }
-        case WellKnownType::HashMap    { return "HashMap";    }
-        case WellKnownType::HashSet    { return "HashSet";    }
-        case WellKnownType::BigInt     { return "BigInt";     }
-        case WellKnownType::BigFloat   { return "BigFloat";   }
-        case WellKnownType::PanicRaise { return "PanicRaise"; }
-        case WellKnownType::PanicCatch { return "PanicCatch"; }
-        case WellKnownType::AssertFail { return "AssertFail"; }
-        case WellKnownType::Pow        { return "pow"; }
-        case WellKnownType::FmtBuf     { return "FmtBuf";     }
-        case WellKnownType::Byte       { return "Byte";       }
-        case WellKnownType::RangeFrom  { return "RangeFrom";  }
-        case WellKnownType::RangeTo    { return "RangeTo";    }
-        case WellKnownType::UnwrapFailed { return "unwrap_failed"; }
-        case WellKnownType::NicheOf    { return "__builtin_niche_of"; }
-        case WellKnownType::TypeIdOf   { return "__builtin_type_id"; }
-        case WellKnownType::PanicSiteOf { return "__builtin_panic_site"; }
-        case WellKnownType::CChar       { return "__builtin_c_char"; }
-        case WellKnownType::IsSafePointer { return "__builtin_is_safe_pointer"; }
-        case WellKnownType::IsUnsafePointer { return "__builtin_is_unsafe_pointer"; }
-        case WellKnownType::IsNullable { return "__builtin_is_nullable"; }
-        case WellKnownType::IsAdtEnum { return "__builtin_is_adt_enum"; }
-        case WellKnownType::IsClass { return "__builtin_is_class"; }
-        case WellKnownType::IsStruct { return "__builtin_is_struct"; }
-        case WellKnownType::IsTuple { return "__builtin_is_tuple"; }
-        case WellKnownType::TupleArity { return "__builtin_tuple_arity"; }
-        case WellKnownType::Expect     { return "__builtin_expect"; }
-        case WellKnownType::Assume     { return "__builtin_assume"; }
-        case WellKnownType::IsTriviallyCopyable     { return "__builtin_is_trivially_copyable"; }
-        case WellKnownType::IsTriviallyDestructible { return "__builtin_is_trivially_destructible"; }
-        case WellKnownType::DynamicSize  { return "__builtin_dynamic_size"; }
-        case WellKnownType::DynamicAlign { return "__builtin_dynamic_align"; }
-        case WellKnownType::Create     { return "create"; }
-        case WellKnownType::Destroy    { return "destroy"; }
-        case WellKnownType::Hash       { return "Hash"; }
-        case WellKnownType::COUNT      { return "<count>";    }
+pub fn to_string(k: WellKnownType) -> string {
+    match k {
+        case WellKnownType::Future {
+            return "Future"
+        } case WellKnownType::Range {
+            return "Range"
+        } case WellKnownType::Yield {
+            return "Yield"
+        } case WellKnownType::Ordering {
+            return "Ordering"
+        } case WellKnownType::Nullable {
+            return "Nullable"
+        } case WellKnownType::NullT {
+            return "null_t"
+        } case WellKnownType::Panic {
+            return "Panic"
+        } case WellKnownType::String {
+            return "string"
+        } case WellKnownType::Vector {
+            return "Vector"
+        } case WellKnownType::Slice {
+            return "Slice"
+        } case WellKnownType::Array {
+            return "Array"
+        } case WellKnownType::HashMap {
+            return "HashMap"
+        } case WellKnownType::HashSet {
+            return "HashSet"
+        } case WellKnownType::ImmBigInt {
+            return "ImmBigInt"
+        } case WellKnownType::ImmBigFloat {
+            return "ImmBigFloat"
+        } case WellKnownType::PanicRaise {
+            return "PanicRaise"
+        } case WellKnownType::PanicCatch {
+            return "PanicCatch"
+        } case WellKnownType::AssertFail {
+            return "AssertFail"
+        } case WellKnownType::Pow {
+            return "pow"
+        } case WellKnownType::FmtBuf {
+            return "FmtBuf"
+        } case WellKnownType::Byte {
+            return "Byte"
+        } case WellKnownType::RangeFrom {
+            return "RangeFrom"
+        } case WellKnownType::RangeTo {
+            return "RangeTo"
+        } case WellKnownType::UnwrapFailed {
+            return "unwrap_failed"
+        } case WellKnownType::NicheOf {
+            return "__builtin_niche_of"
+        } case WellKnownType::TypeIdOf {
+            return "__builtin_type_id"
+        } case WellKnownType::PanicSiteOf {
+            return "__builtin_panic_site"
+        } case WellKnownType::CChar {
+            return "__builtin_c_char"
+        } case WellKnownType::IsSafePointer {
+            return "__builtin_is_safe_pointer"
+        } case WellKnownType::IsUnsafePointer {
+            return "__builtin_is_unsafe_pointer"
+        } case WellKnownType::IsNullable {
+            return "__builtin_is_nullable"
+        } case WellKnownType::IsAdtEnum {
+            return "__builtin_is_adt_enum"
+        } case WellKnownType::IsClass {
+            return "__builtin_is_class"
+        } case WellKnownType::IsStruct {
+            return "__builtin_is_struct"
+        } case WellKnownType::IsTuple {
+            return "__builtin_is_tuple"
+        } case WellKnownType::TupleArity {
+            return "__builtin_tuple_arity"
+        } case WellKnownType::Expect {
+            return "__builtin_expect"
+        } case WellKnownType::Assume {
+            return "__builtin_assume"
+        } case WellKnownType::IsTriviallyCopyable {
+            return "__builtin_is_trivially_copyable"
+        } case WellKnownType::IsTriviallyDestructible {
+            return "__builtin_is_trivially_destructible"
+        } case WellKnownType::DynamicSize {
+            return "__builtin_dynamic_size"
+        } case WellKnownType::DynamicAlign {
+            return "__builtin_dynamic_align"
+        } case WellKnownType::Create {
+            return "create"
+        } case WellKnownType::Destroy {
+            return "destroy"
+        } case WellKnownType::Hash {
+            return "Hash"
+        } case WellKnownType::CWChar {
+            return "__builtin_c_wchar"
+        } case WellKnownType::CChar16 {
+            return "__builtin_c_char16"
+        } case WellKnownType::CChar8 {
+            return "__builtin_c_char8"
+        } case WellKnownType::COUNT {
+            return "<count>"
+        }
     }
-    return "<unknown>";
 }
 
 /// The module roots the driver names, which no source file declares. The
@@ -202,16 +265,29 @@ fn to_string(k: WellKnownType) -> string {
 /// import's headers, so C++'s `std` is reached as `cxx::std`. The resource
 /// directory's `builtin/` and `std/` subdirectories share these words by
 /// design but are layout, not names: the driver spells those itself.
-fn builtin_root_name() -> string { return "builtin"; }
-fn std_root_name() -> string     { return "kairo::std"; }
-fn std_root_spelling() -> string { return "std"; }
-fn cxx_root_name() -> string     { return "cxx"; }
+pub fn builtin_root_name() -> string {
+    return "builtin"
+}
+
+pub fn std_root_name() -> string {
+    return "kairo::std"
+}
+
+pub fn std_root_spelling() -> string {
+    return "std"
+}
+
+pub fn cxx_root_name() -> string {
+    return "cxx"
+}
 
 /// C++'s own `std`: the namespace a bare ffi import's headers declare, which
 /// ImportResolution keeps out of the bare-name fold and rebinds as the one
-/// member of cxx_root_name() (IMPORTS.md §5). The same word as
+/// member of cxx_root_name() (Compiler/Spec/Interop.md#ffi-imports). The same word as
 /// std_root_spelling() and a different entity, so a different row.
-fn cxx_std_name() -> string      { return "std"; }
+pub fn cxx_std_name() -> string {
+    return "std"
+}
 
 /// The program's entry point: a free function by this name at file scope
 /// is the program's (CXXSpell::is_main emits it as the global `int main`,
@@ -219,7 +295,9 @@ fn cxx_std_name() -> string      { return "std"; }
 /// mints one around a script's top-level statements. The linker's default
 /// entry SYMBOL (Config/Linker.k) is the C runtime's word for the same
 /// function and is spelled there.
-fn entry_point_name() -> string  { return "main"; }
+pub fn entry_point_name() -> string {
+    return "main"
+}
 
 /// Tuples exist up to this arity. Not a lang item: `(A, B)` is the record
 /// `Tuple2<A, B>` that TupleRecords MINTS on first use (one per arity per
@@ -228,16 +306,25 @@ fn entry_point_name() -> string  { return "main"; }
 /// lower the cap: the arity is a u32 in every node that carries one, and
 /// 128 is where a C++ struct of that many members stops being a type a
 /// backend wants to see.
-eval fn TUPLE_MAX_ARITY() -> usize { return 128; }
+pub
+const TUPLE_MAX_ARITY: usize = 128
 
 /// The ONE spelling of a tuple record and its members, read by TupleRecords
 /// when it mints the pattern and by every message or test note that names
 /// one. Nothing else writes `Tuple2`, `T0` or `_0` as a literal: the names
 /// are a C++-facing ABI (`Tuple2<int, double>` with `._0`), and changing
 /// them is a change here, not a sweep.
-fn tuple_record_name(arity: usize) -> string { return f"Tuple{arity}"; }
-fn tuple_param_name(i: usize)      -> string { return f"T{i}"; }
-fn tuple_field_name(i: usize)      -> string { return f"_{i}"; }
+pub fn tuple_record_name(arity: usize) -> string {
+    return f"Tuple{arity}"
+}
+
+pub fn tuple_param_name(i: usize) -> string {
+    return f"T{i}"
+}
+
+pub fn tuple_field_name(i: usize) -> string {
+    return f"_{i}"
+}
 
 /// \class LangMembers
 /// \brief Members of lang items that the compiler finds BY NAME in the
@@ -250,34 +337,75 @@ fn tuple_field_name(i: usize)      -> string { return f"_{i}"; }
 ///        across string and Slice on purpose -- two declarations that
 ///        happen to share a spelling, so two rows. FmtBuf's `put_*` family
 ///        is fmt_put_name, below.
-class LangMembers {
+pub class LangMembers {
     /// Range<T>, RangeFrom<T>, RangeTo<T> fields (base/range.k): IterLowering
     /// reads them, RangeLowering initializes them by designator.
-    static fn range_begin() -> string     { return "begin"; }
-    static fn range_end() -> string       { return "end"; }
-    static fn range_inclusive() -> string { return "inclusive"; }
+    pub static fn range_begin() -> string {
+        return "begin"
+    }
+
+    pub static fn range_end() -> string {
+        return "end"
+    }
+
+    pub static fn range_inclusive() -> string {
+        return "inclusive"
+    }
+
     /// Slice<T> fields (containers/slice.k): IterLowering walks a slice by them.
-    static fn slice_data() -> string { return "data"; }
-    static fn slice_len() -> string  { return "len"; }
+    pub static fn slice_data() -> string {
+        return "data"
+    }
+
+    pub static fn slice_len() -> string {
+        return "len"
+    }
+
     /// string accessors (string.k), not its fields: the fields are private,
     /// and the emitted C++ enforces that even where Kairo's AccessCheck does
     /// not look (synthesized trees). MatchLowering compares a string head's
     /// bytes, LiteralTyping sizes an f-string's buffer, the kcc panic view
     /// reads a message.
-    static fn string_as_ptr() -> string { return "as_ptr"; }
-    static fn string_length() -> string { return "length"; }
-    static fn string_codepoints() -> string { return "codepoints"; }
-    static fn string_capacity() -> string   { return "capacity"; }
+    pub static fn string_as_ptr() -> string {
+        return "as_ptr"
+    }
+
+    pub static fn string_length() -> string {
+        return "length"
+    }
+
+    static fn string_codepoints() -> string {
+        return "codepoints"
+    }
+
+    static fn string_capacity() -> string {
+        return "capacity"
+    }
+
     /// Yield<T> methods (coro/generator.k): the generator protocol IterLowering drives.
-    static fn yield_next() -> string    { return "next"; }
-    static fn yield_current() -> string { return "current"; }
+    pub static fn yield_next() -> string {
+        return "next"
+    }
+
+    pub static fn yield_current() -> string {
+        return "current"
+    }
+
     /// FmtBuf methods (fmt/fmt_buf.k) every f-string lowers onto.
-    static fn fmtbuf_text() -> string   { return "text"; }
-    static fn fmtbuf_finish() -> string { return "finish"; }
+    pub static fn fmtbuf_text() -> string {
+        return "text"
+    }
+
+    pub static fn fmtbuf_finish() -> string {
+        return "finish"
+    }
+
     /// `fn repr(self) -> string` on a USER type: the one method the compiler
     /// calls by name on a type it did not declare, an f-string hole's
     /// conversion (LiteralTyping::_string_conv, preferred over `op as`).
-    static fn repr() -> string { return "repr"; }
+    pub static fn repr() -> string {
+        return "repr"
+    }
 }
 
 /// \class PureAccessors
@@ -301,13 +429,25 @@ class LangMembers {
 ///        in the String lang item's own scope (these names), Nullable's by
 ///        AdtRole (the Nullable roles only that lang item's record carries). Slice has no
 ///        getters: its `data` / `len` are fields, a plain read already.
-class PureAccessors {
-    static fn string_count() -> usize { return 4; }
-    static fn string_member(i: usize) -> string {
-        if i == 0 { return LangMembers::string_as_ptr(); }
-        if i == 1 { return LangMembers::string_length(); }
-        if i == 2 { return LangMembers::string_codepoints(); }
-        return LangMembers::string_capacity();
+pub class PureAccessors {
+    pub static fn string_count() -> usize {
+        return 4
+    }
+
+    pub static fn string_member(i: usize) -> string {
+        if i == 0 {
+            return LangMembers::string_as_ptr()
+        }
+
+        if i == 1 {
+            return LangMembers::string_length()
+        }
+
+        if i == 2 {
+            return LangMembers::string_codepoints()
+        }
+
+        return LangMembers::string_capacity()
     }
 }
 
@@ -318,26 +458,26 @@ class PureAccessors {
 ///        by sema through sc->well_known and by codegen through the
 ///        CodegenContext. A missing entry is an error only at USE, diagnosed
 ///        by the pass that needs it.
-class WellKnownDecls {
-    priv var _decls: vec::<*Decl>;   ///< indexed by WellKnownType; COUNT slots.
+pub class WellKnownDecls {
+    priv var _decls: cxx::std::vector<unsafe *Decl> ///< indexed by WellKnownType; COUNT slots.
 
     fn WellKnownDecls(self) {
-        for var i: usize = 0; i < static_cast::<usize>(WellKnownType::COUNT); ++i {
-            self._decls.push_back(&null);
+        for var i: usize = 0; i < (WellKnownType::COUNT as u8 as usize); ++i {
+            self._decls.push_back(&null)
         }
     }
 
-    fn _set(self, k: WellKnownType, d: *Decl) {
-        self._decls[static_cast::<usize>(k)] = d;
+    pub fn _set(self, k: WellKnownType, d: unsafe *Decl) {
+        self._decls[k as u8 as usize] = d
     }
 
     /// Canonical decl for the lang item, or null if not (yet) resolved.
-    fn get(self, k: WellKnownType) -> *Decl {
-        return self._decls[static_cast::<usize>(k)];
+    pub fn get(self, k: WellKnownType) -> unsafe *Decl {
+        return self._decls[k as u8 as usize]
     }
 
-    fn has(self, k: WellKnownType) -> bool {
-        return self._decls[static_cast::<usize>(k)] != &null;
+    pub fn has(self, k: WellKnownType) -> bool {
+        return self._decls[k as u8 as usize] != &null
     }
 }
 
@@ -347,160 +487,272 @@ class WellKnownDecls {
 ///        USE. The rows are matched to the enum's variants by NAME through
 ///        the lang item, never by value, so the numbering here is not an
 ///        ABI -- but keep the two lists identical anyway.
-enum FormatKind derives u8 {
-    None = 0,   ///< a trailing text segment; no argument.
-    Bool, Char, Byte,
-    I8, I16, I32, I64, I128, I256, I512,
-    U8, U16, U32, U64, U128, U256, U512,
-    ISize, USize,
-    F8E4M3, F8E5M2, F16, BF16, F32, F64, F80, F128, F256, F512,
-    String,     ///< a `string` value, converted or written.
-    Ptr,        ///< an address as usize: `<aux> @ 0x…`, or `&null` when 0.
+pub enum FormatKind derives u8 {
+    None = 0, ///< a trailing text segment; no argument.
+    Bool,
+    Char,
+    Byte,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    I256,
+    I512,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    U256,
+    U512,
+    ISize,
+    USize,
+    F8E4M3,
+    F8E5M2,
+    F16,
+    BF16,
+    F32,
+    F64,
+    F80,
+    F128,
+    F256,
+    F512,
+    String, ///< a `string` value, converted or written.
+    Ptr,    ///< an address as usize: `<aux> @ 0x…`, or `&null` when 0.
     COUNT,
 }
 
-fn to_string(k: FormatKind) -> string {
-    switch k {
-        case FormatKind::None   { return "None";   }
-        case FormatKind::Bool   { return "Bool";   }
-        case FormatKind::Char   { return "Char";   }
-        case FormatKind::Byte   { return "Byte";   }
-        case FormatKind::I8     { return "I8";     }
-        case FormatKind::I16    { return "I16";    }
-        case FormatKind::I32    { return "I32";    }
-        case FormatKind::I64    { return "I64";    }
-        case FormatKind::I128   { return "I128";   }
-        case FormatKind::I256   { return "I256";   }
-        case FormatKind::I512   { return "I512";   }
-        case FormatKind::U8     { return "U8";     }
-        case FormatKind::U16    { return "U16";    }
-        case FormatKind::U32    { return "U32";    }
-        case FormatKind::U64    { return "U64";    }
-        case FormatKind::U128   { return "U128";   }
-        case FormatKind::U256   { return "U256";   }
-        case FormatKind::U512   { return "U512";   }
-        case FormatKind::ISize  { return "ISize";  }
-        case FormatKind::USize  { return "USize";  }
-        case FormatKind::F8E4M3 { return "F8E4M3"; }
-        case FormatKind::F8E5M2 { return "F8E5M2"; }
-        case FormatKind::F16    { return "F16";    }
-        case FormatKind::BF16   { return "BF16";   }
-        case FormatKind::F32    { return "F32";    }
-        case FormatKind::F64    { return "F64";    }
-        case FormatKind::F80    { return "F80";    }
-        case FormatKind::F128   { return "F128";   }
-        case FormatKind::F256   { return "F256";   }
-        case FormatKind::F512   { return "F512";   }
-        case FormatKind::String { return "String"; }
-        case FormatKind::Ptr    { return "Ptr";    }
-        case FormatKind::COUNT  { return "<count>"; }
+pub fn to_string(k: FormatKind) -> string {
+    match k {
+        case FormatKind::None {
+            return "None"
+        } case FormatKind::Bool {
+            return "Bool"
+        } case FormatKind::Char {
+            return "Char"
+        } case FormatKind::Byte {
+            return "Byte"
+        } case FormatKind::I8 {
+            return "I8"
+        } case FormatKind::I16 {
+            return "I16"
+        } case FormatKind::I32 {
+            return "I32"
+        } case FormatKind::I64 {
+            return "I64"
+        } case FormatKind::I128 {
+            return "I128"
+        } case FormatKind::I256 {
+            return "I256"
+        } case FormatKind::I512 {
+            return "I512"
+        } case FormatKind::U8 {
+            return "U8"
+        } case FormatKind::U16 {
+            return "U16"
+        } case FormatKind::U32 {
+            return "U32"
+        } case FormatKind::U64 {
+            return "U64"
+        } case FormatKind::U128 {
+            return "U128"
+        } case FormatKind::U256 {
+            return "U256"
+        } case FormatKind::U512 {
+            return "U512"
+        } case FormatKind::ISize {
+            return "ISize"
+        } case FormatKind::USize {
+            return "USize"
+        } case FormatKind::F8E4M3 {
+            return "F8E4M3"
+        } case FormatKind::F8E5M2 {
+            return "F8E5M2"
+        } case FormatKind::F16 {
+            return "F16"
+        } case FormatKind::BF16 {
+            return "BF16"
+        } case FormatKind::F32 {
+            return "F32"
+        } case FormatKind::F64 {
+            return "F64"
+        } case FormatKind::F80 {
+            return "F80"
+        } case FormatKind::F128 {
+            return "F128"
+        } case FormatKind::F256 {
+            return "F256"
+        } case FormatKind::F512 {
+            return "F512"
+        } case FormatKind::String {
+            return "String"
+        } case FormatKind::Ptr {
+            return "Ptr"
+        } case FormatKind::COUNT {
+            return "<count>"
+        }
     }
-    return "<unknown>";
 }
 
 /// The primitive's FormatKind row, or COUNT for a kind that is not a value
 /// (Void, Never). Every value builtin has a row.
-fn format_kind_of(b: BuiltinKind) -> FormatKind {
-    switch b {
-        case BuiltinKind::Bool   { return FormatKind::Bool;   }
-        case BuiltinKind::Char   { return FormatKind::Char;   }
-        case BuiltinKind::Byte   { return FormatKind::Byte;   }
-        case BuiltinKind::I8     { return FormatKind::I8;     }
-        case BuiltinKind::I16    { return FormatKind::I16;    }
-        case BuiltinKind::I32    { return FormatKind::I32;    }
-        case BuiltinKind::I64    { return FormatKind::I64;    }
-        case BuiltinKind::I128   { return FormatKind::I128;   }
-        case BuiltinKind::I256   { return FormatKind::I256;   }
-        case BuiltinKind::I512   { return FormatKind::I512;   }
-        case BuiltinKind::U8     { return FormatKind::U8;     }
-        case BuiltinKind::U16    { return FormatKind::U16;    }
-        case BuiltinKind::U32    { return FormatKind::U32;    }
-        case BuiltinKind::U64    { return FormatKind::U64;    }
-        case BuiltinKind::U128   { return FormatKind::U128;   }
-        case BuiltinKind::U256   { return FormatKind::U256;   }
-        case BuiltinKind::U512   { return FormatKind::U512;   }
-        case BuiltinKind::ISize  { return FormatKind::ISize;  }
-        case BuiltinKind::USize  { return FormatKind::USize;  }
-        case BuiltinKind::F8E4M3 { return FormatKind::F8E4M3; }
-        case BuiltinKind::F8E5M2 { return FormatKind::F8E5M2; }
-        case BuiltinKind::F16    { return FormatKind::F16;    }
-        case BuiltinKind::BF16   { return FormatKind::BF16;   }
-        case BuiltinKind::F32    { return FormatKind::F32;    }
-        case BuiltinKind::F64    { return FormatKind::F64;    }
-        case BuiltinKind::F80    { return FormatKind::F80;    }
-        case BuiltinKind::F128   { return FormatKind::F128;   }
-        case BuiltinKind::F256   { return FormatKind::F256;   }
-        case BuiltinKind::F512   { return FormatKind::F512;   }
-        default                  { return FormatKind::COUNT;  }
+pub fn format_kind_of(b: BuiltinKind) -> FormatKind {
+    match b {
+        case BuiltinKind::Bool {
+            return FormatKind::Bool
+        } case BuiltinKind::Char {
+            return FormatKind::Char
+        } case BuiltinKind::Byte {
+            return FormatKind::Byte
+        } case BuiltinKind::I8 {
+            return FormatKind::I8
+        } case BuiltinKind::I16 {
+            return FormatKind::I16
+        } case BuiltinKind::I32 {
+            return FormatKind::I32
+        } case BuiltinKind::I64 {
+            return FormatKind::I64
+        } case BuiltinKind::I128 {
+            return FormatKind::I128
+        } case BuiltinKind::I256 {
+            return FormatKind::I256
+        } case BuiltinKind::I512 {
+            return FormatKind::I512
+        } case BuiltinKind::U8 {
+            return FormatKind::U8
+        } case BuiltinKind::U16 {
+            return FormatKind::U16
+        } case BuiltinKind::U32 {
+            return FormatKind::U32
+        } case BuiltinKind::U64 {
+            return FormatKind::U64
+        } case BuiltinKind::U128 {
+            return FormatKind::U128
+        } case BuiltinKind::U256 {
+            return FormatKind::U256
+        } case BuiltinKind::U512 {
+            return FormatKind::U512
+        } case BuiltinKind::ISize {
+            return FormatKind::ISize
+        } case BuiltinKind::USize {
+            return FormatKind::USize
+        } case BuiltinKind::F8E4M3 {
+            return FormatKind::F8E4M3
+        } case BuiltinKind::F8E5M2 {
+            return FormatKind::F8E5M2
+        } case BuiltinKind::F16 {
+            return FormatKind::F16
+        } case BuiltinKind::BF16 {
+            return FormatKind::BF16
+        } case BuiltinKind::F32 {
+            return FormatKind::F32
+        } case BuiltinKind::F64 {
+            return FormatKind::F64
+        } case BuiltinKind::F80 {
+            return FormatKind::F80
+        } case BuiltinKind::F128 {
+            return FormatKind::F128
+        } case BuiltinKind::F256 {
+            return FormatKind::F256
+        } case BuiltinKind::F512 {
+            return FormatKind::F512
+        } default {
+            return FormatKind::COUNT
+        }
     }
 }
 
 /// \enum FormatAlign  -- fmt_buf.k's FormatAlign, same name-matching rule.
-enum FormatAlign derives u8 { Default = 0, Left, Right, Center }
+pub enum FormatAlign derives u8 { Default = 0, Left, Right, Center }
 
-fn to_string(a: FormatAlign) -> string {
-    switch a {
-        case FormatAlign::Default { return "Default"; }
-        case FormatAlign::Left   { return "Left";   }
-        case FormatAlign::Right  { return "Right";  }
-        case FormatAlign::Center { return "Center"; }
+pub fn to_string(a: FormatAlign) -> string {
+    match a {
+        case FormatAlign::Default {
+            return "Default"
+        } case FormatAlign::Left {
+            return "Left"
+        } case FormatAlign::Right {
+            return "Right"
+        } case FormatAlign::Center {
+            return "Center"
+        }
     }
-    return "<unknown>";
 }
 
 /// FormatSeg::flags bits and the "no precision" value, as fmt_buf.k defines
 /// them. Two copies on purpose: the AST layer cannot read Lib/builtin, and
 /// the runtime cannot read the compiler.
-eval fn FMT_SIGN_PLUS() -> u8  { return 1;  }
-eval fn FMT_ALT()       -> u8  { return 2;  }
-eval fn FMT_ZERO()      -> u8  { return 4;  }
-eval fn FMT_UPPER()     -> u8  { return 8;  }
-eval fn FMT_DEBUG()     -> u8  { return 16; }
+pub
+const FMT_SIGN_PLUS: u8 = 1
+pub
+const FMT_ALT: u8 = 2
+pub
+const FMT_ZERO: u8 = 4
+pub
+const FMT_UPPER: u8 = 8
+pub
+const FMT_DEBUG: u8 = 16
 
 /// The spec word FStringLowering hands every put_* call; Lib/builtin/fmt/fmt_buf.k
 /// unpacks it bit for bit. All-defaults is 0.
 ///   bits  0..15 width (0 = none)     bits 16..31 precision + 1 (0 = none)
 ///   bits 32..52 fill codepoint (0 = ' ')   bits 53..54 align (FormatAlign)
 ///   bits 55..56 base (0 = 10, 1 = 16, 2 = 8, 3 = 2)   bits 57..61 FMT_* flags
-fn fmt_pack_spec(width: u64, prec1: u64, fill: u64, align: u64, base: u64, flags: u64) -> u64 {
-    return width | (prec1 << 16) | (fill << 32) | (align << 53) | (base << 55) | (flags << 57);
+pub fn fmt_pack_spec(width: u64, prec1: u64, fill: u64, align: u64, base: u64, flags: u64) -> u64 {
+    return width | prec1 << 16 | fill << 32 | align << 53 | base << 55 | flags << 57
 }
 
 /// The FmtBuf method for a hole of this kind. `i32` is a keyword token, so
 /// the methods carry a prefix.
-fn fmt_put_name(k: FormatKind) -> string {
-    if k == FormatKind::String { return "put_str"; }
-    if k == FormatKind::Ptr    { return "put_ptr"; }
-    if k == FormatKind::None   { return ""; }
-    var s = to_string(k);
-    var lower = "";
-    for var i: usize = 0; i < s.size(); ++i {
-        var c = s[i];
-        if (c >= 'A') && (c <= 'Z') { c = c + 32; }
-        lower += c;
+pub fn fmt_put_name(k: FormatKind) -> string {
+    if k == FormatKind::String {
+        return "put_str"
     }
-    return "put_" + lower;
+
+    if k == FormatKind::Ptr {
+        return "put_ptr"
+    }
+
+    if k == FormatKind::None {
+        return ""
+    }
+
+    var s     = to_string(k)
+    var lower = ""
+    for var i: usize = 0; i < s.size(); ++i {
+        var c = s[i]
+        if c >= ('A' as u8) && c <= ('Z' as u8) {
+            c = c + 32
+        }
+
+        lower.push_back(c)
+    }
+
+    return "put_" + lower
 }
 
 /// \p v as 16 lowercase hex digits: the stable suffix of a minted name
 /// keyed by a hash (LowerTargets::type_id_guard, panic_site_record).
-fn hex64(v: u64) -> string {
-    var digits = "0123456789abcdef";
-    var out = "";
+pub fn hex64(v: u64) -> string {
+    var digits = "0123456789abcdef"
+    var out    = ""
     for var i: i32 = 15; i >= 0; --i {
-        out += digits[usize((v >> u64(i * 4)) & u64(15))];
+        out.push_back(digits[(v >> ((i * 4) as u64) & (15 as u64)) as usize])
     }
-    return out;
+
+    return out
 }
 
 /// \p v as 8 lowercase hex digits (a panic type id in a message).
-fn hex32(v: u32) -> string {
-    var digits = "0123456789abcdef";
-    var out = "";
+pub fn hex32(v: u32) -> string {
+    var digits = "0123456789abcdef"
+    var out    = ""
     for var i: i32 = 7; i >= 0; --i {
-        out += digits[usize((v >> u32(i * 4)) & u32(15))];
+        out.push_back(digits[(v >> ((i * 4) as u32) & (15 as u32)) as usize])
     }
-    return out;
+
+    return out
 }
 
 /// \class LangAttrs
@@ -509,145 +761,301 @@ fn hex32(v: u32) -> string {
 ///        writes them): the one spelling the parser stamps from and every
 ///        diagnostic quotes, so a message cannot name an attribute the
 ///        parser does not read.
-class LangAttrs {
+pub class LangAttrs {
     /// `@copy fn T(self, other: Self)`: FunctionDecl::transfer (Parser).
-    static fn transfer_copy() -> string { return "copy"; }
+    pub static fn transfer_copy() -> string {
+        return "copy"
+    }
+
     /// `@move fn T(self, other: Self)`: FunctionDecl::transfer (Parser).
-    static fn transfer_move() -> string { return "move"; }
+    pub static fn transfer_move() -> string {
+        return "move"
+    }
+
     /// `@open enum E`: a plain enum that may hold any value of its
     /// underlying type, clang's `enum_extensibility(open)`. EnumDecl::is_open
     /// (Parser); no niche, `as` unchecked.
-    static fn open_enum() -> string { return "open"; }
+    pub static fn open_enum() -> string {
+        return "open"
+    }
+
     /// `@implicit fn op as`: a conversion the compiler may apply unasked.
     /// OperatorFacts::has_implicit_attr reads it; OperatorSignatureCheck
     /// rejects it anywhere but on a member `op as`.
-    static fn implicit_conversion() -> string { return "implicit"; }
+    pub static fn implicit_conversion() -> string {
+        return "implicit"
+    }
+
     /// `@no_unwind` / `@unwind` on a function: StmtTyping::_stamp_no_unwind
     /// reads both and rejects the pair.
-    static fn no_unwind() -> string { return "no_unwind"; }
-    static fn unwind() -> string    { return "unwind"; }
+    pub static fn no_unwind() -> string {
+        return "no_unwind"
+    }
+
+    pub static fn unwind() -> string {
+        return "unwind"
+    }
+
     /// `@inout x: T` / `@move x: T`: a parameter's passing mode
     /// (ASTParse::_peek_mode). `move` is transfer_move's word with another
     /// meaning -- a parameter, not a constructor -- so it is its own row.
-    static fn param_inout() -> string { return "inout"; }
-    static fn param_move() -> string  { return "move"; }
+    pub static fn param_inout() -> string {
+        return "inout"
+    }
+
+    pub static fn param_move() -> string {
+        return "move"
+    }
+
     /// `@likely if` / `@unlikely if`: the C++ `[[likely]]` / `[[unlikely]]`
     /// on the then-branch (EmitIR::_if).
-    static fn likely() -> string   { return "likely"; }
-    static fn unlikely() -> string { return "unlikely"; }
+    pub static fn likely() -> string {
+        return "likely"
+    }
+
+    pub static fn unlikely() -> string {
+        return "unlikely"
+    }
+
     /// `@assume(cond)`: a statement of its own, parsed to a call of the
     /// Assume lang item (StmtParse::_try_parse_assume).
-    static fn assume() -> string   { return "assume"; }
+    pub static fn assume() -> string {
+        return "assume"
+    }
+
     /// `@create<T>(args)` / `@create T(args)` and `@destroy(p)` / `@destroy
     /// p`: sugar for a call of Lib/builtin/base/alloc.k's `create<T>(args)`
     /// / `destroy(p)`, spelled with the attribute's own word
     /// (AllocSugarDesugar). The attribute and the function share it.
-    static fn create() -> string  { return "create"; }
-    static fn destroy() -> string { return "destroy"; }
+    pub static fn create() -> string {
+        return "create"
+    }
+
+    pub static fn destroy() -> string {
+        return "destroy"
+    }
+
+    /// `@cxx::new T(args)` / `@cxx::new [T; n]` / `@cxx::delete p` /
+    /// `@cxx::delete [] p`: C++'s own new and delete (c-cpp-memory.mdx),
+    /// parsed by ExprParse::_parse_cxx_mem_expr into CxxNewExpr / DeleteExpr.
+    /// `delete` is a keyword; `new` is not, so it is matched by spelling.
+    pub static fn cxx_mem() -> string {
+        return "cxx"
+    }
+
+    pub static fn cxx_new() -> string {
+        return "new"
+    }
+
     /// Function attributes (FunctionDecl::hot_path / cold_path / is_pure),
     /// stamped by ASTParse::apply_annotations_to_decl.
-    static fn hot_path() -> string  { return "hot_path"; }
-    static fn cold_path() -> string { return "cold_path"; }
-    static fn pure_fn() -> string   { return "pure"; }
+    pub static fn hot_path() -> string {
+        return "hot_path"
+    }
+
+    pub static fn cold_path() -> string {
+        return "cold_path"
+    }
+
+    pub static fn pure_fn() -> string {
+        return "pure"
+    }
+
     /// `@no_inline`: never inlined (FunctionDecl::no_inline); a benchmark's
     /// kernel keeps its own symbol and its own instruction count.
-    static fn no_inline() -> string { return "no_inline"; }
+    pub static fn no_inline() -> string {
+        return "no_inline"
+    }
+
     /// The calling conventions (FunctionDecl::call_conv), stamped by
     /// ASTParse::apply_annotations_to_decl; at most one per function.
-    static fn preserve_most() -> string { return "preserve_most"; }
-    static fn preserve_all() -> string  { return "preserve_all"; }
-    static fn preserve_none() -> string { return "preserve_none"; }
+    pub static fn preserve_most() -> string {
+        return "preserve_most"
+    }
+
+    pub static fn preserve_all() -> string {
+        return "preserve_all"
+    }
+
+    pub static fn preserve_none() -> string {
+        return "preserve_none"
+    }
+
     /// `@set_global_allocator(A)` on a line of its own at file scope: the
     /// program's Global is A (allocators.mdx). Not a declaration attribute:
     /// ASTParse::_parse_global_allocator takes it before the annotation
     /// buffer sees it, and the buffer refuses it anywhere else.
-    static fn set_global_allocator() -> string { return "set_global_allocator"; }
+    pub static fn set_global_allocator() -> string {
+        return "set_global_allocator"
+    }
+
     /// The attribute a FunctionDecl::call_conv value is written as, without
     /// the `@`; "" for the default convention. The one place a diagnostic
     /// or the ABI note turns the number back into a name.
-    static fn call_conv_name(cc: u8) -> string {
-        if cc == 1 { return LangAttrs::preserve_most(); }
-        if cc == 2 { return LangAttrs::preserve_all(); }
-        if cc == 3 { return LangAttrs::preserve_none(); }
-        return "";
+    pub static fn call_conv_name(cc: u8) -> string {
+        if cc == 1 {
+            return LangAttrs::preserve_most()
+        }
+
+        if cc == 2 {
+            return LangAttrs::preserve_all()
+        }
+
+        if cc == 3 {
+            return LangAttrs::preserve_none()
+        }
+
+        return ""
     }
+
     /// `@packed` / `@align(N)` on a class, struct or union; `@align(N)` on a
     /// field or variable too. AttrFacts reads them for the layout
     /// (EnumLayoutQuery::_plain_record_size) and for the C++ spelling.
-    static fn packed() -> string { return "packed"; }
-    static fn align() -> string  { return "align"; }
+    pub static fn packed() -> string {
+        return "packed"
+    }
+
+    pub static fn align() -> string {
+        return "align"
+    }
+
     /// `@deprecated` / `@deprecated(msg)` on any declaration: a warning at
     /// every use (AttributeCheck::run_uses).
-    static fn deprecated() -> string { return "deprecated"; }
+    pub static fn deprecated() -> string {
+        return "deprecated"
+    }
+
     /// `@no_warn(CODE, ...)` on any declaration: those warnings are dropped
     /// inside it (AttributeCheck::register_suppressions).
-    static fn no_warn() -> string { return "no_warn"; }
+    pub static fn no_warn() -> string {
+        return "no_warn"
+    }
+
     /// `@unreachable` on a branch: reserved, reported as not yet supported.
-    static fn unreachable() -> string { return "unreachable"; }
+    pub static fn unreachable() -> string {
+        return "unreachable"
+    }
 
     /// Every attribute name above, one per index, then "" past the last.
     /// AttributeCheck's known-name test and its did-you-mean read this, so
     /// an attribute is not "unknown" once its row is listed HERE: a new row
     /// that is not added to this list is rejected as unknown.
-    static fn known(i: usize) -> string {
-        switch i {
-            case 0  { return LangAttrs::transfer_copy(); }
-            case 1  { return LangAttrs::transfer_move(); }
-            case 2  { return LangAttrs::open_enum(); }
-            case 3  { return LangAttrs::implicit_conversion(); }
-            case 4  { return LangAttrs::no_unwind(); }
-            case 5  { return LangAttrs::unwind(); }
-            case 6  { return LangAttrs::param_inout(); }
-            case 7  { return LangAttrs::likely(); }
-            case 8  { return LangAttrs::unlikely(); }
-            case 9  { return LangAttrs::assume(); }
-            case 10 { return LangAttrs::hot_path(); }
-            case 11 { return LangAttrs::cold_path(); }
-            case 12 { return LangAttrs::pure_fn(); }
-            case 13 { return LangAttrs::preserve_most(); }
-            case 14 { return LangAttrs::preserve_all(); }
-            case 15 { return LangAttrs::preserve_none(); }
-            case 16 { return LangAttrs::packed(); }
-            case 17 { return LangAttrs::align(); }
-            case 18 { return LangAttrs::deprecated(); }
-            case 19 { return LangAttrs::no_warn(); }
-            case 20 { return LangAttrs::unreachable(); }
-            case 21 { return LangAttrs::create(); }
-            case 22 { return LangAttrs::destroy(); }
-            case 23 { return LangAttrs::set_global_allocator(); }
-            case 24 { return LangAttrs::no_inline(); }
-            default { return ""; }
+    pub static fn known(i: usize) -> string {
+        match i {
+            case 0 {
+                return LangAttrs::transfer_copy()
+            } case 1 {
+                return LangAttrs::transfer_move()
+            } case 2 {
+                return LangAttrs::open_enum()
+            } case 3 {
+                return LangAttrs::implicit_conversion()
+            } case 4 {
+                return LangAttrs::no_unwind()
+            } case 5 {
+                return LangAttrs::unwind()
+            } case 6 {
+                return LangAttrs::param_inout()
+            } case 7 {
+                return LangAttrs::likely()
+            } case 8 {
+                return LangAttrs::unlikely()
+            } case 9 {
+                return LangAttrs::assume()
+            } case 10 {
+                return LangAttrs::hot_path()
+            } case 11 {
+                return LangAttrs::cold_path()
+            } case 12 {
+                return LangAttrs::pure_fn()
+            } case 13 {
+                return LangAttrs::preserve_most()
+            } case 14 {
+                return LangAttrs::preserve_all()
+            } case 15 {
+                return LangAttrs::preserve_none()
+            } case 16 {
+                return LangAttrs::packed()
+            } case 17 {
+                return LangAttrs::align()
+            } case 18 {
+                return LangAttrs::deprecated()
+            } case 19 {
+                return LangAttrs::no_warn()
+            } case 20 {
+                return LangAttrs::unreachable()
+            } case 21 {
+                return LangAttrs::create()
+            } case 22 {
+                return LangAttrs::destroy()
+            } case 23 {
+                return LangAttrs::set_global_allocator()
+            } case 24 {
+                return LangAttrs::no_inline()
+            } default {
+                return ""
+            }
         }
-        return "";
     }
 }
 
 /// \class AllocNames
-/// \brief Lib/builtin/base/alloc.k's names that the compiler reads (P91,
-///        P215, P226). Not lang items (only create / destroy are, for the
+/// \brief Lib/builtin/base/alloc.k's names that the compiler reads.
+///        Not lang items (only create / destroy are, for the
 ///        sugar: WellKnownType::Create): alloc.k is not re-exported by the
 ///        builtin root, so each is matched by spelling AND by the builtin
 ///        fid of the declaration found, never by spelling alone.
-class AllocNames {
-    /// `static fn op new(size, align) -> unsafe *u8` / `static fn op
-    /// delete(ptr, size, align)` on a class: its own allocator. The parser
-    /// declares them under the Allocator interface's member names, so the
-    /// class is an Allocator by them and `create_in<T, T>` reaches them.
-    static fn op_new_word() -> string { return "new"; }
-    static fn alloc_member() -> string { return "alloc"; }
-    static fn free_member() -> string  { return "free"; }
-    /// The library calls a class allocator reroutes (CallTyping), each to
-    /// its `_in` form with the class as the allocator.
-    static fn create() -> string       { return "create"; }
-    static fn try_create() -> string   { return "try_create"; }
-    static fn destroy() -> string      { return "destroy"; }
-    static fn in_suffix() -> string    { return "_in"; }
+pub class AllocNames {
+    /// `static fn op new(...)` / `static fn op delete(...)` on a class: its
+    /// own allocator, which Kairo rejects (SC149E). The parser still
+    /// declares them under the Allocator interface's member names so the
+    /// head hoists; ClassAllocatorCheck reports each.
+    pub static fn op_new_word() -> string {
+        return "new"
+    }
+
+    pub static fn alloc_member() -> string {
+        return "alloc"
+    }
+
+    pub static fn free_member() -> string {
+        return "free"
+    }
+
+    /// alloc.k's allocation calls, by spelling.
+    pub static fn create() -> string {
+        return "create"
+    }
+
+    pub static fn try_create() -> string {
+        return "try_create"
+    }
+
+    pub static fn destroy() -> string {
+        return "destroy"
+    }
+
+    pub static fn in_suffix() -> string {
+        return "_in"
+    }
+
     /// What ScopeEscapeCheck tracks: the scope guard, and the calls whose
     /// result comes from the allocator in effect.
-    static fn scope_guard() -> string  { return "AllocatorScope"; }
-    static fn create_slice() -> string { return "create_slice"; }
-    static fn alloc_raw() -> string    { return "alloc_raw"; }
-    static fn resize_raw() -> string   { return "resize_raw"; }
+    pub static fn scope_guard() -> string {
+        return "AllocatorScope"
+    }
+
+    pub static fn create_slice() -> string {
+        return "create_slice"
+    }
+
+    pub static fn alloc_raw() -> string {
+        return "alloc_raw"
+    }
+
+    pub static fn resize_raw() -> string {
+        return "resize_raw"
+    }
 }
 
 /// \class LangIntrinsics
@@ -655,20 +1063,37 @@ class AllocNames {
 ///        like macro calls. The preprocessor recognizes them by the same
 ///        spelling to pass them through raw (Preprocessor::_detect_invocation),
 ///        and StmtParse / ExprParse match them; two layers, one row each.
-class LangIntrinsics {
+pub class LangIntrinsics {
     /// `label!(name)` / `jump!(name)`: StmtParse, lowered by LabelLowering.
-    static fn label() -> string   { return "label"; }
-    static fn jump() -> string    { return "jump"; }
+    pub static fn label() -> string {
+        return "label"
+    }
+
+    pub static fn jump() -> string {
+        return "jump"
+    }
+
     /// `unwrap!(expr)`: ExprParse; its operand stays an ordinary expression.
-    static fn unwrap() -> string  { return "unwrap"; }
+    pub static fn unwrap() -> string {
+        return "unwrap"
+    }
+
     /// `defined!(NAME)` the preprocessor's table could not answer: ExprParse
     /// asks clang's macros.
-    static fn defined() -> string { return "defined"; }
-    /// The type facts (EVAL.md 4.2b): their operand is a TYPE, which only
+    pub static fn defined() -> string {
+        return "defined"
+    }
+
+    /// The type facts (Compiler/Spec/Eval.md#deferred-conditions): their operand is a TYPE, which only
     /// the parser can tell from a value. TypeTraitKind maps them both ways
     /// (type_trait_of / type_trait_spelling).
-    static fn is_trivially_copyable() -> string     { return "is_trivially_copyable"; }
-    static fn is_trivially_destructible() -> string { return "is_trivially_destructible"; }
+    pub static fn is_trivially_copyable() -> string {
+        return "is_trivially_copyable"
+    }
+
+    pub static fn is_trivially_destructible() -> string {
+        return "is_trivially_destructible"
+    }
 }
 
 /// \class LangMacros
@@ -678,34 +1103,99 @@ class LangIntrinsics {
 ///        a builtin cannot be dispatched without being reserved. `defined!`
 ///        is LangIntrinsics::defined: the preprocessor answers it when its
 ///        table can, the parser otherwise.
-class LangMacros {
+pub class LangMacros {
     // source location
-    static fn file() -> string        { return "file"; }
-    static fn line() -> string        { return "line"; }
-    static fn column() -> string      { return "column"; }
-    static fn module_path() -> string { return "module_path"; }
+    pub static fn file() -> string {
+        return "file"
+    }
+
+    pub static fn line() -> string {
+        return "line"
+    }
+
+    pub static fn column() -> string {
+        return "column"
+    }
+
+    pub static fn module_path() -> string {
+        return "module_path"
+    }
+
     // argument manipulation
-    static fn count() -> string       { return "count"; }
-    static fn first() -> string       { return "first"; }
-    static fn last() -> string        { return "last"; }
-    static fn rest() -> string        { return "rest"; }
-    static fn butlast() -> string     { return "butlast"; }
+    pub static fn count() -> string {
+        return "count"
+    }
+
+    pub static fn first() -> string {
+        return "first"
+    }
+
+    pub static fn last() -> string {
+        return "last"
+    }
+
+    pub static fn rest() -> string {
+        return "rest"
+    }
+
+    pub static fn butlast() -> string {
+        return "butlast"
+    }
+
     // token manipulation
-    static fn paste() -> string       { return "paste"; }
-    static fn stringify() -> string   { return "stringify"; }
-    static fn unstringify() -> string { return "unstringify"; }
+    pub static fn paste() -> string {
+        return "paste"
+    }
+
+    pub static fn stringify() -> string {
+        return "stringify"
+    }
+
+    pub static fn unstringify() -> string {
+        return "unstringify"
+    }
+
     // deferred code generation
-    static fn todo() -> string        { return "todo"; }
-    static fn unreachable() -> string { return "unreachable"; }
-    static fn unreachable_unchecked() -> string { return "unreachable_unchecked"; }
-    static fn unique_id() -> string   { return "unique_id"; }
-    static fn include() -> string     { return "include"; }
-    static fn embed_str() -> string   { return "embed_str"; }
-    static fn embed() -> string       { return "embed"; }
+    pub static fn todo() -> string {
+        return "todo"
+    }
+
+    pub static fn unreachable() -> string {
+        return "unreachable"
+    }
+
+    pub static fn unreachable_unchecked() -> string {
+        return "unreachable_unchecked"
+    }
+
+    pub static fn unique_id() -> string {
+        return "unique_id"
+    }
+
+    pub static fn include() -> string {
+        return "include"
+    }
+
+    pub static fn embed_str() -> string {
+        return "embed_str"
+    }
+
+    pub static fn embed() -> string {
+        return "embed"
+    }
+
     // diagnostics
-    static fn compile_error() -> string { return "compile_error"; }
-    static fn compile_warn() -> string  { return "compile_warn"; }
-    static fn compile_note() -> string  { return "compile_note"; }
+    pub static fn compile_error() -> string {
+        return "compile_error"
+    }
+
+    pub static fn compile_warn() -> string {
+        return "compile_warn"
+    }
+
+    pub static fn compile_note() -> string {
+        return "compile_note"
+    }
 }
 
 /// \class LowerTargets
@@ -720,128 +1210,240 @@ class LangMacros {
 ///   construction. The moment another emitter names one -- EmitIR calling a
 ///   slot's `set` -- it becomes a row (ctor_slot_set), as every member
 ///   below did.
-class LowerTargets {
-    // --- Operators C++ cannot spell (writer: CXXSpell::operator_name) -----------
+pub class LowerTargets {
+    /// # Operators C++ cannot spell (writer: CXXSpell::operator_name)
 
     /// `fn op in (self, x: T) -> bool` -- containment.
-    static fn op_contains() -> string { return "__kairo_contains"; }
+    pub static fn op_contains() -> string {
+        return "__kairo_contains"
+    }
+
     /// `fn op in (self) -> yield T` -- iteration; IterLowering's output calls it.
-    static fn op_iter()     -> string { return "__kairo_iter"; }
+    pub static fn op_iter()     -> string {
+        return "__kairo_iter"
+    }
+
     /// `fn op ^^` -- exponentiation; not overloadable in C++.
-    static fn op_pow()      -> string { return "__kairo_pow"; }
+    pub static fn op_pow()      -> string {
+        return "__kairo_pow"
+    }
+
     /// `fn op await`.
-    static fn op_await()    -> string { return "__kairo_await"; }
+    pub static fn op_await()    -> string {
+        return "__kairo_await"
+    }
+
     /// `fn op spawn`.
-    static fn op_spawn()    -> string { return "__kairo_spawn"; }
+    pub static fn op_spawn()    -> string {
+        return "__kairo_spawn"
+    }
+
     /// `fn op thread`.
-    static fn op_thread()   -> string { return "__kairo_thread"; }
-    /// `fn op panic (const self) -> string` -- an error's message (PANIC.md
-    /// §1.5); the C++ view's `what()` calls it (P7).
-    static fn op_panic()    -> string { return "__kairo_op_panic"; }
+    pub static fn op_thread()   -> string {
+        return "__kairo_thread"
+    }
+
+    /// `fn op panic (const self) -> string` -- an error's message (Compiler/Spec/Panic.md
+    /// §1.5); the C++ view's `what()` calls it.
+    pub static fn op_panic()    -> string {
+        return "__kairo_op_panic"
+    }
+
     /// An extension operator's receiver in its C++ definition. The static
     /// member takes `X&` (so its forwarder, the C++ operator, has the
     /// class-typed parameter [over.oper]/7 wants), and the body's first
     /// statement binds `self` to its address, so the body is emitted exactly
     /// as any other extension member's.
-    static fn ext_self() -> string { return "__kairo_self"; }
+    pub static fn ext_self() -> string {
+        return "__kairo_self"
+    }
+
     /// An extension member's receiver as its C++ body sees it: the
     /// parameter of a non-operator member (InterfaceEmitter declares it,
     /// EmitIR defines it), the local an operator's body binds from
     /// ext_self, and every `self` and `[self]` capture EmitIR writes in
     /// that body. Not `__kairo_`-prefixed: it is Kairo's own keyword, which
     /// C++ does not reserve, so a body's `self` is spelled as written.
-    static fn ext_receiver_name() -> string { return "self"; }
+    pub static fn ext_receiver_name() -> string {
+        return "self"
+    }
+
     /// The \p k-th parameter of an extension operator's namespace-scope C++
     /// `operator<sym>` forwarder (InterfaceEmitter::_forwarder), receiver
     /// included, a postfix `++`/`--` dummy last.
-    static fn forwarder_arg(k: usize) -> string { return f"__kairo_a{k}"; }
+    pub static fn forwarder_arg(k: usize) -> string {
+        return f"__kairo_a{k}"
+    }
 
-    // --- Witnesses (writer: EmitWitness) -------------------------------------------------
+    /// # Witnesses (writer: EmitWitness)
 
     /// `<Interface>` + suffix: `Drawable_witness`, and the concept `Drawable_c`.
-    static fn witness_suffix() -> string { return "_witness"; }
-    static fn concept_suffix() -> string { return "_c"; }
+    pub static fn witness_suffix() -> string {
+        return "_witness"
+    }
+
+    pub static fn concept_suffix() -> string {
+        return "_c"
+    }
+
     /// The primary's and the concept's Self parameter: where a requirement's
-    /// bare `Self` is spelled inside the witness (CODEGEN.md §7b.3).
-    static fn witness_self() -> string { return "__kairo_Self"; }
+    /// bare `Self` is spelled inside the witness (Compiler/Spec/Witnesses.md#the-c-shape).
+    pub static fn witness_self() -> string {
+        return "__kairo_Self"
+    }
+
     /// The concept's requires-parameters: requirement \p i's receiver, and
     /// the \p k-th argument across all requirements.
-    static fn witness_recv(i: usize) -> string { return f"__kairo_r{i}"; }
-    static fn witness_arg(k: usize) -> string  { return f"__kairo_a{k}"; }
+    pub static fn witness_recv(i: usize) -> string {
+        return f"__kairo_r{i}"
+    }
+
+    pub static fn witness_arg(k: usize) -> string {
+        return f"__kairo_a{k}"
+    }
+
     /// A postfix `++`/`--` member's `int` dummy, forwarded as is.
-    static fn witness_postfix() -> string { return "__kairo_pf"; }
+    pub static fn witness_postfix() -> string {
+        return "__kairo_pf"
+    }
+
     /// A witness member's receiver parameter, and the receiver its body and
     /// its requires-gate call through (`self->m(...)`). Kairo's keyword, as
     /// ext_receiver_name.
-    static fn witness_receiver_name() -> string { return "self"; }
+    pub static fn witness_receiver_name() -> string {
+        return "self"
+    }
+
     /// The include guard around a witness definition in a header: every
     /// header that reaches one writes it, as a tuple record's. \p key is the
     /// witness and its Self, already an identifier (CXXSpell::_path_ident).
-    static fn witness_guard(key: string) -> string { return "__KAIRO_W_" + key; }
+    pub static fn witness_guard(const key: string) -> string {
+        return "__KAIRO_W_" + key
+    }
+
     /// The guard around an interface's concept in a header (tier 0, apart
     /// from the primary's tier-1 definition, so a guard of its own).
-    static fn concept_guard(key: string) -> string { return "__KAIRO_WC_" + key; }
+    pub static fn concept_guard(const key: string) -> string {
+        return "__KAIRO_WC_" + key
+    }
 
-    // --- Array prvalues (writer: InterfaceEmitter; reader: EmitIR) --------------------
+    /// # Array prvalues (writer: InterfaceEmitter; reader: EmitIR)
 
     /// `template <class T, decltype(sizeof(0)) N> using __kairo_array = T[N];`
     /// An alias, so it is never instantiated: `__kairo_array<int, 3>` IS
     /// `int[3]`, given a name a functional cast can use.
-    static fn array_alias() -> string { return "__kairo_array"; }
+    pub static fn array_alias() -> string {
+        return "__kairo_array"
+    }
 
-    // --- eval for / eval generators (writer: EmitIR; helpers: InterfaceEmitter) ---
+    /// # eval for / eval generators (writer: EmitIR; helpers: InterfaceEmitter)
+
     /// `template <class T, T... I> struct __kairo_iseq {}`: the index pack an
     /// `eval for` expands over (`__make_integer_seq<__kairo_iseq, ...>`).
-    static fn eval_iseq() -> string { return "__kairo_iseq"; }
+    pub static fn eval_iseq() -> string {
+        return "__kairo_iseq"
+    }
+
     /// The include guard around those helpers in a header.
-    static fn eval_helpers_guard() -> string { return "__KAIRO_EVAL_HELPERS"; }
+    pub static fn eval_helpers_guard() -> string {
+        return "__KAIRO_EVAL_HELPERS"
+    }
+
     /// The constexpr growable buffer an eval generator returns (`push`, `p`,
     /// `n`): transient compile-time allocation, freed before it escapes.
-    static fn eval_buf() -> string { return "__kairo_eval_buf"; }
+    pub static fn eval_buf() -> string {
+        return "__kairo_eval_buf"
+    }
+
     /// `__kairo_eval_arr<T, N>`: an eval generator's values, copied out of
     /// its buffer into a literal type a `static constexpr` can hold.
-    static fn eval_arr() -> string { return "__kairo_eval_arr"; }
+    pub static fn eval_arr() -> string {
+        return "__kairo_eval_arr"
+    }
+
     /// The members of those two EmitIR reads or calls: the buffer's storage,
     /// count and push (a generator's `yield`), the array's values. Plain
     /// names, as fn_value_own: members of a reserved type cannot collide.
-    static fn eval_buf_data() -> string   { return "p"; }
-    static fn eval_buf_count() -> string  { return "n"; }
-    static fn eval_buf_push() -> string   { return "push"; }
-    static fn eval_arr_values() -> string { return "v"; }
+    pub static fn eval_buf_data() -> string {
+        return "p"
+    }
+
+    pub static fn eval_buf_count() -> string {
+        return "n"
+    }
+
+    pub static fn eval_buf_push() -> string {
+        return "push"
+    }
+
+    pub static fn eval_arr_values() -> string {
+        return "v"
+    }
+
     /// An eval generator's buffer local, which `yield` pushes into.
-    static fn eval_yield_buf() -> string { return "__kairo_y"; }
+    pub static fn eval_yield_buf() -> string {
+        return "__kairo_y"
+    }
+
     /// One `eval for`'s pack and per-copy index.
     /// `d` is the nesting depth: an inner expansion's template parameters
     /// may not shadow an outer one's.
-    static fn eval_for_pack(d: u32) -> string { return f"__kairo_K{d}"; }
-    static fn eval_for_index(d: u32) -> string { return f"__kairo_I{d}"; }
+    pub static fn eval_for_pack(d: u32) -> string {
+        return f"__kairo_K{d}"
+    }
+
+    pub static fn eval_for_index(d: u32) -> string {
+        return f"__kairo_I{d}"
+    }
+
     /// The per-copy constant of an `eval for` that binds no name.
-    static fn eval_for_unused() -> string { return "__kairo_ef_unused"; }
+    pub static fn eval_for_unused() -> string {
+        return "__kairo_ef_unused"
+    }
+
     /// A `return` out of an `eval for` copy: the flag and the value slot the
     /// code after the expansion checks.
-    static fn eval_for_ret_flag() -> string { return "__kairo_efr"; }
-    static fn eval_for_ret_val() -> string { return "__kairo_efv"; }
+    pub static fn eval_for_ret_flag() -> string {
+        return "__kairo_efr"
+    }
+
+    pub static fn eval_for_ret_val() -> string {
+        return "__kairo_efv"
+    }
+
     /// An eval generator iterable's count and values, `k` counting them in
     /// the function.
-    static fn eval_for_gen_n(k: usize) -> string { return f"__kairo_egn{k}"; }
-    static fn eval_for_gen(k: usize) -> string { return f"__kairo_eg{k}"; }
+    pub static fn eval_for_gen_n(k: usize) -> string {
+        return f"__kairo_egn{k}"
+    }
+
+    pub static fn eval_for_gen(k: usize) -> string {
+        return f"__kairo_eg{k}"
+    }
+
     /// `template <unsigned char... C> inline constexpr unsigned char
     /// __kairo_estr[] = {C..., 0};`: a string literal's bytes where C++
-    /// reads them at compile time (EVAL.md 2a). `"..."` is `const char[]`
+    /// reads them at compile time (Compiler/Spec/Eval.md#strings-at-compile-time). `"..."` is `const char[]`
     /// and the builtin string holds `const unsigned char*`, so the run-time
     /// spelling needs a `reinterpret_cast`, which is not a constant
     /// expression. Keyed on the bytes, so one literal is one object in every
     /// TU and header that spells it (an eval string's `data` is the same
     /// address everywhere, and a header body naming it is no ODR hazard),
     /// and no array has to be hoisted ahead of the body that names it.
-    static fn eval_str() -> string { return "__kairo_estr"; }
+    pub static fn eval_str() -> string {
+        return "__kairo_estr"
+    }
+
     /// The most bytes a compile-time literal spells as `__kairo_estr<...>`
-    /// (EVAL.md §11, USER: a size switch). One template argument per byte is
+    /// (Compiler/Spec/Eval.md#value-nodes, USER: a size switch). One template argument per byte is
     /// fine for names and messages; a multi-kilobyte literal (an
     /// `embed_str!` result, a table) would be a template with thousands of
     /// arguments and a mangled name to match. Above it the literal is one
     /// named array, eval_str_hashed.
-    static fn eval_str_inline_max() -> usize { return 256; }
+    pub static fn eval_str_inline_max() -> usize {
+        return 256
+    }
+
     /// `inline constexpr unsigned char __kairo_estrh_<len>_<hash>[len + 1]`:
     /// a long compile-time literal's bytes, named for its content (FNV-1a
     /// over the bytes, eval_str_hash) and length, so the same literal is
@@ -849,38 +1451,48 @@ class LowerTargets {
     /// ODR hazard, one object after linking) and two different ones never
     /// share a name short of a 64-bit collision at equal length. At global
     /// scope, so `::` reaches it from any namespace.
-    static fn eval_str_hashed(hash: u64, len: usize) -> string {
-        return f"__kairo_estrh_{len}_" + hex64(hash);
+    pub static fn eval_str_hashed(hash: u64, len: usize) -> string {
+        return f"__kairo_estrh_{len}_" + hex64(hash)
     }
+
     /// A header's guard around one eval_str_hashed definition: two Kairo
     /// headers in one C++ TU may both carry it.
-    static fn eval_str_hashed_guard(hash: u64, len: usize) -> string {
-        return f"__KAIRO_ESTRH_{len}_" + hex64(hash);
-    }
-    /// FNV-1a, 64 bits, over \p n bytes at \p p: eval_str_hashed's key.
-    static fn eval_str_hash(p: std::ConstPtr::<u8>, n: usize) -> u64 {
-        var h: u64 = u64(0xcbf29ce484222325);
-        for var i: usize = 0; i < n; ++i {
-            h = h ^ static_cast::<u64>(p[i]);
-            h = h * u64(0x100000001b3);
-        }
-        return h;
+    pub static fn eval_str_hashed_guard(hash: u64, len: usize) -> string {
+        return f"__KAIRO_ESTRH_{len}_" + hex64(hash)
     }
 
-    // --- Extension scopes (writer: InterfaceEmitter; reader: CXXSpell) -----------------
+    /// FNV-1a, 64 bits, over \p n bytes at \p p: eval_str_hashed's key.
+    pub static fn eval_str_hash(p: kairo::std::ConstPtr<u8>, n: usize) -> u64 {
+        var h: u64 = (0xcbf29ce484222325)
+        for var i: usize = 0; i < n; ++i {
+            h = h ^ (p[i] as u64)
+            h = h * (0x100000001b3 as u64)
+        }
+
+        return h
+    }
+
+    /// # Extension scopes (writer: InterfaceEmitter; reader: CXXSpell)
 
     /// `struct N::__kairo_ext_<X>`: every extension member of X declared in
-    /// namespace N is a static member of it (RESOLUTION.md §2b).
-    static fn ext_scope_prefix() -> string { return "__kairo_ext_"; }
+    /// namespace N is a static member of it (Compiler/Spec/Generics.md#partial-selection).
+    pub static fn ext_scope_prefix() -> string {
+        return "__kairo_ext_"
+    }
 
     /// A friend template declaration's own parameter names (InterfaceEmitter
     /// ::_friends): inside a generic record the befriended template's names
     /// could redeclare the record's ([temp.local]/6), so they get these.
-    static fn friend_tparam(i: usize) -> string { return f"__kairo_ft{i}"; }
+    pub static fn friend_tparam(i: usize) -> string {
+        return f"__kairo_ft{i}"
+    }
+
     /// A namespace-scope variable whose initializer reaches a private
     /// member is initialized by calling this function, which its file's
     /// records befriend: a variable cannot be a friend (EmitIR::_global_var).
-    static fn global_init_thunk(name: string) -> string { return "__kairo_ginit_" + name; }
+    pub static fn global_init_thunk(const name: string) -> string {
+        return "__kairo_ginit_" + name
+    }
 
     /// An extension operator's static-member name. A static member cannot be
     /// named `operator+`, so it gets a mnemonic, and a namespace-scope
@@ -889,74 +1501,181 @@ class LowerTargets {
     /// `++`/`--` (an unmarked one is prefix). The operators with a name
     /// above (`in`, `^^`, `await`, `spawn`, `thread`) keep it and never
     /// reach here. "" for a symbol with no row; the caller ICEs.
-    static fn ext_op(sym: string) -> string {
-        var p = "__kairo_op_";
-        if sym == "+"   { return p + "plus"; }
-        if sym == "-"   { return p + "minus"; }
-        if sym == "*"   { return p + "mul"; }
-        if sym == "/"   { return p + "div"; }
-        if sym == "%"   { return p + "mod"; }
-        if sym == "=="  { return p + "eq"; }
-        if sym == "!="  { return p + "ne"; }
-        if sym == "<"   { return p + "lt"; }
-        if sym == "<="  { return p + "le"; }
-        if sym == ">"   { return p + "gt"; }
-        if sym == ">="  { return p + "ge"; }
-        if sym == "<=>" { return p + "cmp"; }
-        if sym == "&"   { return p + "band"; }
-        if sym == "|"   { return p + "bor"; }
-        if sym == "^"   { return p + "bxor"; }
-        if sym == "~"   { return p + "bnot"; }
-        if sym == "<<"  { return p + "shl"; }
-        if sym == ">>"  { return p + "shr"; }
-        if sym == "+="  { return p + "plus_eq"; }
-        if sym == "-="  { return p + "minus_eq"; }
-        if sym == "*="  { return p + "mul_eq"; }
-        if sym == "/="  { return p + "div_eq"; }
-        if sym == "%="  { return p + "mod_eq"; }
-        if sym == "&="  { return p + "band_eq"; }
-        if sym == "|="  { return p + "bor_eq"; }
-        if sym == "^="  { return p + "bxor_eq"; }
-        if sym == "<<=" { return p + "shl_eq"; }
-        if sym == ">>=" { return p + "shr_eq"; }
-        if sym == "l++" { return p + "preinc"; }
-        if sym == "r++" { return p + "postinc"; }
-        if sym == "l--" { return p + "predec"; }
-        if sym == "r--" { return p + "postdec"; }
-        if sym == "!"   { return p + "not"; }
-        return "";
+    pub static fn ext_op(const sym: string) -> string {
+        var p = "__kairo_op_"
+        if sym == "+" {
+            return p + "plus"
+        }
+
+        if sym == "-" {
+            return p + "minus"
+        }
+
+        if sym == "*" {
+            return p + "mul"
+        }
+
+        if sym == "/" {
+            return p + "div"
+        }
+
+        if sym == "%" {
+            return p + "mod"
+        }
+
+        if sym == "==" {
+            return p + "eq"
+        }
+
+        if sym == "!=" {
+            return p + "ne"
+        }
+
+        if sym == "<" {
+            return p + "lt"
+        }
+
+        if sym == "<=" {
+            return p + "le"
+        }
+
+        if sym == ">" {
+            return p + "gt"
+        }
+
+        if sym == ">=" {
+            return p + "ge"
+        }
+
+        if sym == "<=>" {
+            return p + "cmp"
+        }
+
+        if sym == "&" {
+            return p + "band"
+        }
+
+        if sym == "|" {
+            return p + "bor"
+        }
+
+        if sym == "^" {
+            return p + "bxor"
+        }
+
+        if sym == "~" {
+            return p + "bnot"
+        }
+
+        if sym == "<<" {
+            return p + "shl"
+        }
+
+        if sym == ">>" {
+            return p + "shr"
+        }
+
+        if sym == "+=" {
+            return p + "plus_eq"
+        }
+
+        if sym == "-=" {
+            return p + "minus_eq"
+        }
+
+        if sym == "*=" {
+            return p + "mul_eq"
+        }
+
+        if sym == "/=" {
+            return p + "div_eq"
+        }
+
+        if sym == "%=" {
+            return p + "mod_eq"
+        }
+
+        if sym == "&=" {
+            return p + "band_eq"
+        }
+
+        if sym == "|=" {
+            return p + "bor_eq"
+        }
+
+        if sym == "^=" {
+            return p + "bxor_eq"
+        }
+
+        if sym == "<<=" {
+            return p + "shl_eq"
+        }
+
+        if sym == ">>=" {
+            return p + "shr_eq"
+        }
+
+        if sym == "l++" {
+            return p + "preinc"
+        }
+
+        if sym == "r++" {
+            return p + "postinc"
+        }
+
+        if sym == "l--" {
+            return p + "predec"
+        }
+
+        if sym == "r--" {
+            return p + "postdec"
+        }
+
+        if sym == "!" {
+            return p + "not"
+        }
+
+        return ""
     }
 
     /// A witness member's name for an `op []` requirement. A witness member
     /// is static, as an extension member is, but `op []` is member-only
     /// (OperatorSignatureCheck), so ext_op has no row for it: only the
     /// witness ever needs this name, and no forwarder goes with it.
-    static fn witness_subscript() -> string { return "__kairo_op_index"; }
+    pub static fn witness_subscript() -> string {
+        return "__kairo_op_index"
+    }
 
     /// A witness member's name for an `op as` requirement (an interpolation
-    /// or a cast through a bound, MONO.md G11). Like `op []` it has no
+    /// or a cast through a bound, Compiler/Spec/Generics.md#body-regimes). Like `op []` it has no
     /// extension row. \p target is the requirement's result type as one C++
     /// identifier: two `op as` requirements of one interface (to `string`
     /// and to `i32`) take the same parameters and differ only in what they
     /// return, which a static member -- unlike `operator T` -- cannot be
     /// overloaded on, so the result is in the name.
-    static fn witness_conversion(target: string) -> string { return "__kairo_op_as_" + target; }
+    pub static fn witness_conversion(const target: string) -> string {
+        return "__kairo_op_as_" + target
+    }
 
     /// `static constexpr unsigned __kairo_spec = k;` in the primary (0) and
     /// each partial specialization (1 + its registration index) of a
     /// template that has a `requires`-selected partial, and the
     /// `static_assert(X<A>::__kairo_spec == k)` beside an instance's explicit
-    /// instantiation: Sema predicted k, C++ selected the body (MONO.md G12).
-    static fn spec_tag() -> string { return "__kairo_spec"; }
+    /// instantiation: Sema predicted k, C++ selected the body (Compiler/Spec/Generics.md#where-groups-on-generic-functions).
+    pub static fn spec_tag() -> string {
+        return "__kairo_spec"
+    }
 
-    // --- Materialized temporaries (writer: InterfaceEmitter; reader: EmitIR) ----------
+    /// # Materialized temporaries (writer: InterfaceEmitter; reader: EmitIR)
 
     /// `template <class T> auto* __kairo_tmp(T&& t)`: the address of a
     /// prvalue's materialized temporary, valid to the end of the
     /// full-expression. ExtensionLowering's `materialize` `&` spells it.
-    static fn tmp_addr() -> string { return "__kairo_tmp"; }
+    pub static fn tmp_addr() -> string {
+        return "__kairo_tmp"
+    }
 
-    // --- Deferred f-string holes (writer: InterfaceEmitter; reader: EmitIR) ----------
+    /// # Deferred f-string holes (writer: InterfaceEmitter; reader: EmitIR)
 
     /// `template <class B, class T> void __kairo_fmt_put(B&, T&&, name, len,
     /// spec)`: an f-string hole in a generic body whose value's type only
@@ -965,9 +1684,14 @@ class LowerTargets {
     /// a string, a pointer's address, a plain enum's discriminant, then a
     /// record's `repr()`, its `op as` string, its address. An instance
     /// whose value is none of these fails there (static_assert).
-    static fn fmt_dyn() -> string { return "__kairo_fmt_put"; }
+    pub static fn fmt_dyn() -> string {
+        return "__kairo_fmt_put"
+    }
+
     /// Its include guard in a header (one C++ TU may include several).
-    static fn fmt_dyn_guard() -> string { return "__KAIRO_FMT_DYN"; }
+    pub static fn fmt_dyn_guard() -> string {
+        return "__KAIRO_FMT_DYN"
+    }
 
     /// The temporaries of EmitIR's binding operator forms, by kind (`a` / `b`
     /// a division's operands, `p` a place, `o` a postfix's old value; in a
@@ -975,144 +1699,289 @@ class LowerTargets {
     /// a shift's register width and `S` the signed carrier an arithmetic
     /// `>>` sign-extends to) and nesting depth, so a form inside another
     /// never shadows it.
-    static fn wrap_tmp(kind: string, depth: u32) -> string { return f"__kairo_{kind}{depth}"; }
+    pub static fn wrap_tmp(const kind: string, depth: u32) -> string {
+        return f"__kairo_{kind}{depth}"
+    }
+
     /// The runtime's division-by-zero crash (Lib/rt/crash.c), declared by the
     /// prelude: noreturn and cold, so the check costs one predicted branch.
-    static fn div_zero_fn() -> string { return "kairo_rt_div_zero"; }
+    pub static fn div_zero_fn() -> string {
+        return "kairo_rt_div_zero"
+    }
+
     /// clang's infinity and quiet NaN for a float, by its builtins' type
     /// tag (`f`, `l`, `f16`, `f128`, "" for double): the primitive limits
     /// `f32::INFINITY` / `f32::NAN` (PrimitiveLimits::float_cxx), which no
     /// literal spells. Both are constant expressions to clang.
-    static fn float_inf(tag: string) -> string { return "__builtin_inf" + tag; }
-    static fn float_nan(tag: string) -> string { return "__builtin_nan" + tag; }
+    static fn float_inf(const tag: string) -> string {
+        return "__builtin_inf" + tag
+    }
+
+    static fn float_nan(const tag: string) -> string {
+        return "__builtin_nan" + tag
+    }
 
     /// The checked downcast's pointer, the parameter of the lambda EmitIR
     /// wraps `dynamic_cast` in to map its null onto the null nullable
     /// (EmitIR::_checked_downcast). Local to that lambda.
-    static fn checked_downcast_value() -> string { return "__kairo_dc"; }
+    pub static fn checked_downcast_value() -> string {
+        return "__kairo_dc"
+    }
 
     /// The reserved identifier prefix. CxxNameCheck rejects user identifiers
     /// that start with it.
-    static fn reserved_prefix() -> string { return "__kairo_"; }
+    pub static fn reserved_prefix() -> string {
+        return "__kairo_"
+    }
 
     /// The include guard around a tuple record's definition (writer:
     /// InterfaceEmitter). A tuple record is minted from no file, so no
     /// header owns it: every TU and header that reaches `Tuple2` defines
     /// it, and a C++ TU that includes two such headers sees it twice.
-    static fn tuple_guard(arity: usize) -> string { return f"__KAIRO_TUPLE_{arity}"; }
+    pub static fn tuple_guard(arity: usize) -> string {
+        return f"__KAIRO_TUPLE_{arity}"
+    }
+
     /// The include guard around the preamble helpers (`__kairo_array`,
     /// `__kairo_tmp`, `__kairo_vt`, construct/destroy) in a header (writer:
     /// InterfaceEmitter): one C++ TU may include several Kairo headers.
-    static fn lower_helpers_guard() -> string { return "__KAIRO_LOWER_HELPERS"; }
+    pub static fn lower_helpers_guard() -> string {
+        return "__KAIRO_LOWER_HELPERS"
+    }
 
-    // --- Default arguments (writer: CallLowering) -------------------------------
+    /// A Kairo record's C++ `operator new` / `operator delete` (writer:
+    /// InterfaceEmitter::_cxx_alloc_ops, C++-facing text only): the null
+    /// check every throwing form shares, and the guard around it and the
+    /// allocator declarations in a header.
+    pub static fn cxx_alloc_got() -> string {
+        return "__kairo_cxx_got"
+    }
+
+    pub static fn cxx_alloc_guard() -> string {
+        return "__KAIRO_CXX_ALLOC"
+    }
+
+    /// # Default arguments (writer: CallLowering)
 
     /// `__kairo_default_<fn>_<param>`: the nullary function a parameter's
     /// default becomes. CallLowering appends `_<k>` when the function's name
     /// cell holds more than one entity, k being the entity's 1-based position
     /// in the cell, which is source order and so the same in every TU.
-    static fn default_thunk(fn_name: string, param: string) -> string {
-        return "__kairo_default_" + fn_name + "_" + param;
+    pub static fn default_thunk(const fn_name: string, const param: string) -> string {
+        return "__kairo_default_" + fn_name + "_" + param
     }
 
-    // --- `where` dispatch (writer: WhereDispatchLowering) ----------------------
+    /// # `where` dispatch (writer: WhereDispatchLowering)
 
     /// `__kairo_where_<fn>_<k>`: the body of the k-th member, in source
     /// order, of a `where` dispatch group of `fn`; the group's dispatcher
     /// keeps the public name and calls these. Two groups of one name have
     /// different signatures, so their candidates are C++ overloads of each
     /// other, never a collision.
-    static fn where_candidate(fn_name: string, k: usize) -> string {
-        return "__kairo_where_" + fn_name + f"_{k}";
+    pub static fn where_candidate(const fn_name: string, k: usize) -> string {
+        return "__kairo_where_" + fn_name + f"_{k}"
     }
 
-    // --- Field initializers (writer: FieldInitLowering) -------------------------
+    /// # Field initializers (writer: FieldInitLowering)
 
     /// `__kairo_init_<field>`: the member function a field's initializer
     /// becomes, called by the field's C++ default member initializer. A
     /// field name is unique in its record, so this name is too.
-    static fn field_init_thunk(field: string) -> string {
-        return "__kairo_init_" + field;
+    pub static fn field_init_thunk(const field: string) -> string {
+        return "__kairo_init_" + field
     }
 
     /// `__kairo_init<i>_<field>`: element \p i of an array field's list
     /// literal (FieldFold::Elems). A digit follows `init`, where the one
     /// above has `_`, so no field's name makes the two collide.
-    static fn field_init_elem_thunk(field: string, i: usize) -> string {
-        return f"__kairo_init{i}_" + field;
+    pub static fn field_init_elem_thunk(const field: string, i: usize) -> string {
+        return f"__kairo_init{i}_" + field
     }
 
-    // --- Local declarations (writer: CXXSpell::leaf) -------------------------------
+    /// # Local declarations (writer: CXXSpell::leaf)
 
     /// A `fn`, class, struct, union or enum declared in a function body is
-    /// emitted at namespace scope (CODEGEN.md §6, Local declarations), so its
+    /// emitted at namespace scope (Compiler/Spec/Codegen.md#emitir, Local declarations), so its
     /// C++ name carries where it was written: `__kairo_local_<line>_<col>_<name>`.
     /// Two functions' locals of one name, two in sibling blocks, and an
     /// overload pair in one body each get their own, and the name is a
     /// function of the source alone, the same in every TU that spells it.
-    static fn local_decl(name: string, line: u32, col: u32) -> string { return f"__kairo_local_{line}_{col}_{name}"; }
+    pub static fn local_decl(const name: string, line: u32, col: u32) -> string {
+        return f"__kairo_local_{line}_{col}_{name}"
+    }
 
-    // --- finally (writer: FinallyLowering) -----------------------------------------
+    /// # finally (writer: FinallyLowering)
 
     /// `__kairo_FinK` is the record a `finally` becomes, `__kairo_finK` the
     /// local of it, `k` counting finallys in the TU; the owner field holds
     /// the enclosing `self`.
-    static fn finally_record(k: usize) -> string { return f"__kairo_Fin{k}"; }
-    static fn finally_local(k: usize)  -> string { return f"__kairo_fin{k}"; }
-    static fn finally_owner()          -> string { return "__kairo_owner"; }
+    pub static fn finally_record(k: usize) -> string {
+        return f"__kairo_Fin{k}"
+    }
 
-    // --- match (writer: MatchLowering) -----------------------------------------
+    pub static fn finally_local(k: usize) -> string {
+        return f"__kairo_fin{k}"
+    }
+
+    pub static fn finally_owner()          -> string {
+        return "__kairo_owner"
+    }
+
+    /// # match (writer: MatchLowering)
+
     /// Labels are function-scoped in C++; `n` is the match's number within its function.
-    static fn match_scrutinee(n: usize) -> string          { return f"__kairo_m{n}_s"; }
-    static fn match_column(n: usize, c: usize) -> string   { return f"__kairo_m{n}_s{c}"; }
-    static fn match_arm(n: usize, k: usize) -> string      { return f"__kairo_m{n}_a{k}"; }
-    static fn match_node(n: usize, k: usize) -> string     { return f"__kairo_m{n}_t{k}"; }
-    static fn match_guard(n: usize, k: usize) -> string    { return f"__kairo_m{n}_g{k}"; }
-    static fn match_slot(n: usize, i: usize) -> string     { return f"__kairo_m{n}_p{i}"; }
-    static fn match_end(n: usize) -> string                { return f"__kairo_m{n}_end"; }
-    static fn match_fail(n: usize) -> string               { return f"__kairo_m{n}_fail"; }
-    static fn match_arm_index(n: usize) -> string          { return f"__kairo_m{n}_arm"; }
-    static fn match_cont(n: usize) -> string               { return f"__kairo_m{n}_k"; }
+    pub static fn match_scrutinee(n: usize) -> string {
+        return f"__kairo_m{n}_s"
+    }
 
-    // --- labeled loops (writer: LabelLowering) -------------------------------------
+    pub static fn match_column(n: usize, c: usize) -> string {
+        return f"__kairo_m{n}_s{c}"
+    }
+
+    pub static fn match_arm(n: usize, k: usize) -> string {
+        return f"__kairo_m{n}_a{k}"
+    }
+
+    pub static fn match_node(n: usize, k: usize) -> string {
+        return f"__kairo_m{n}_t{k}"
+    }
+
+    pub static fn match_guard(n: usize, k: usize) -> string {
+        return f"__kairo_m{n}_g{k}"
+    }
+
+    pub static fn match_slot(n: usize, i: usize) -> string {
+        return f"__kairo_m{n}_p{i}"
+    }
+
+    pub static fn match_end(n: usize) -> string {
+        return f"__kairo_m{n}_end"
+    }
+
+    pub static fn match_fail(n: usize) -> string {
+        return f"__kairo_m{n}_fail"
+    }
+
+    pub static fn match_arm_index(n: usize) -> string {
+        return f"__kairo_m{n}_arm"
+    }
+
+    pub static fn match_cont(n: usize) -> string {
+        return f"__kairo_m{n}_k"
+    }
+
+    /// # labeled loops (writer: LabelLowering)
+
     /// `k` counts labeled loops in the function: a label name can repeat.
-    static fn loop_break(k: usize, label: string) -> string    { return f"__kairo_brk{k}_" + label; }
-    static fn loop_continue(k: usize, label: string) -> string { return f"__kairo_cont{k}_" + label; }
+    pub static fn loop_break(k: usize, const label: string) -> string {
+        return f"__kairo_brk{k}_" + label
+    }
 
-    // --- ADT enums (writer: EnumLayoutLowering) ---------------------------------
-    static fn adt_tag_field() -> string              { return "__kairo_tag"; }
-    static fn adt_tag_type() -> string               { return "__kairo_Tag"; }
-    static fn adt_payload_field(v: string) -> string { return "__kairo_" + v; }
-    static fn adt_payload_type(v: string) -> string  { return "__kairo_" + v + "_t"; }
-    static fn adt_variant_tag() -> string            { return "__kairo_vt"; }
-    static fn adt_destroy() -> string                { return "__kairo_destroy"; }
-    static fn adt_construct_from() -> string         { return "__kairo_construct_from"; }
-    static fn adt_trivial_dtor() -> string           { return "__kairo_trivial_dtor"; }
-    static fn adt_trivial_copy() -> string           { return "__kairo_trivial_copy"; }
-    static fn adt_destructible() -> string           { return "__kairo_destructible"; }
-    static fn adt_copyable() -> string               { return "__kairo_copyable"; }
-    static fn adt_movable() -> string                { return "__kairo_movable"; }
-    /// A pack-expanded variant (PANIC.md §1.2): its payload member is a
+    pub static fn loop_continue(k: usize, const label: string) -> string {
+        return f"__kairo_cont{k}_" + label
+    }
+
+    /// # ADT enums (writer: EnumLayoutLowering)
+
+    pub static fn adt_tag_field() -> string {
+        return "__kairo_tag"
+    }
+
+    pub static fn adt_tag_type() -> string {
+        return "__kairo_Tag"
+    }
+
+    pub static fn adt_payload_field(const v: string) -> string {
+        return "__kairo_" + v
+    }
+
+    pub static fn adt_payload_type(const v: string) -> string {
+        return "__kairo_" + v + "_t"
+    }
+
+    pub static fn adt_variant_tag() -> string {
+        return "__kairo_vt"
+    }
+
+    pub static fn adt_destroy() -> string {
+        return "__kairo_destroy"
+    }
+
+    pub static fn adt_construct_from() -> string {
+        return "__kairo_construct_from"
+    }
+
+    pub static fn adt_trivial_dtor() -> string {
+        return "__kairo_trivial_dtor"
+    }
+
+    pub static fn adt_trivial_copy() -> string {
+        return "__kairo_trivial_copy"
+    }
+
+    pub static fn adt_destructible() -> string {
+        return "__kairo_destructible"
+    }
+
+    pub static fn adt_copyable() -> string {
+        return "__kairo_copyable"
+    }
+
+    pub static fn adt_movable() -> string {
+        return "__kairo_movable"
+    }
+
+    /// A pack-expanded variant (Compiler/Spec/Panic.md#the-result-type): its payload member is a
     /// `__kairo_pu<P<E>...>`, the preamble's recursive union holding one
     /// payload per element, read through `.template __kairo_get<K>()`; its
     /// payload struct is a template over the element, `__kairo_pe`. The
     /// union's own two members are its head and the rest.
-    static fn adt_pack_union() -> string             { return "__kairo_pu"; }
-    static fn adt_pack_get() -> string               { return "__kairo_get"; }
-    static fn adt_pack_elem() -> string              { return "__kairo_pe"; }
-    static fn adt_pack_head() -> string              { return "__kairo_h"; }
-    static fn adt_pack_rest() -> string              { return "__kairo_r"; }
-    static fn adt_pack_guard() -> string             { return "__KAIRO_PACK_UNION"; }
+    pub static fn adt_pack_union() -> string {
+        return "__kairo_pu"
+    }
+
+    pub static fn adt_pack_get() -> string {
+        return "__kairo_get"
+    }
+
+    pub static fn adt_pack_elem() -> string {
+        return "__kairo_pe"
+    }
+
+    pub static fn adt_pack_head() -> string {
+        return "__kairo_h"
+    }
+
+    pub static fn adt_pack_rest() -> string {
+        return "__kairo_r"
+    }
+
+    pub static fn adt_pack_guard() -> string {
+        return "__KAIRO_PACK_UNION"
+    }
+
     /// The Nullable lang item's C++ members and `null_t`'s constant (writer:
     /// EnumLayoutLowering names the roles, InterfaceEmitter spells them).
     /// Not `__kairo_`-prefixed: a C++ host calls them.
-    static fn nullable_is_null() -> string           { return "is_null"; }
-    static fn nullable_value() -> string             { return "__value"; }
-    static fn null_constant() -> string              { return "null"; }
+    pub static fn nullable_is_null() -> string {
+        return "is_null"
+    }
+
+    pub static fn nullable_value() -> string {
+        return "__value"
+    }
+
+    pub static fn null_constant() -> string {
+        return "null"
+    }
+
     /// The parameter of Nullable's `null_t` constructor (EnumLayoutLowering
     /// mints the ParamDecl). Unprefixed like the members above: a C++ host
     /// sees it in the declaration.
-    static fn nullable_null_param() -> string        { return "n"; }
+    pub static fn nullable_null_param() -> string {
+        return "n"
+    }
+
     /// The niche machinery (EnumLayoutLowering decides, InterfaceEmitter
     /// writes). `__kairo_niche<T>` is the preamble trait answering a type's
     /// niche in C++: `count` invalid bit patterns, the i-th built by
@@ -1121,18 +1990,45 @@ class LowerTargets {
     /// constructor and `__kairo_niche_test`; the trait reads those.
     /// `__kairo_which()` is the variant held, in whichever layout C++ chose
     /// for a generic ADT's instance.
-    static fn niche_trait() -> string                { return "__kairo_niche"; }
-    static fn niche_trait_count() -> string          { return "count"; }
-    static fn niche_trait_pattern() -> string        { return "pattern"; }
-    static fn niche_trait_test() -> string           { return "test"; }
-    static fn niche_ctor_tag() -> string             { return "__kairo_np"; }
-    static fn niche_count() -> string                { return "__kairo_niche_count"; }
-    static fn niche_test() -> string                 { return "__kairo_niche_test"; }
-    static fn adt_which() -> string                  { return "__kairo_which"; }
+    pub static fn niche_trait() -> string {
+        return "__kairo_niche"
+    }
+
+    pub static fn niche_trait_count() -> string {
+        return "count"
+    }
+
+    pub static fn niche_trait_pattern() -> string {
+        return "pattern"
+    }
+
+    pub static fn niche_trait_test() -> string {
+        return "test"
+    }
+
+    pub static fn niche_ctor_tag() -> string {
+        return "__kairo_np"
+    }
+
+    pub static fn niche_count() -> string {
+        return "__kairo_niche_count"
+    }
+
+    pub static fn niche_test() -> string {
+        return "__kairo_niche_test"
+    }
+
+    pub static fn adt_which() -> string {
+        return "__kairo_which"
+    }
+
     /// The u32 slot a lang item's layout may ask for between the tag and the
-    /// payload union (EnumDecl::adt_site_field; PANIC.md §1.4's call site).
-    static fn adt_site_field() -> string             { return "__kairo_site"; }
-    /// The Panic lang item's layout (PANIC.md §1.1a; writer
+    /// payload union (EnumDecl::adt_site_field; Compiler/Spec/Panic.md#site-ids's call site).
+    pub static fn adt_site_field() -> string {
+        return "__kairo_site"
+    }
+
+    /// The Panic lang item's layout (Compiler/Spec/Panic.md#layout; writer
     /// EnumLayoutLowering's knobs, InterfaceEmitter spells them). The union
     /// is `alignas(__kairo_payload_offset)`, the max of 8 and every payload's
     /// alignment, which is also where every payload starts: the "trait"
@@ -1142,17 +2038,44 @@ class LowerTargets {
     /// error, never a silent 0), each guarded by `__KAIRO_TID_<key>` so a
     /// kcc include chain writes it once. `__kairo_nv<T>` is T, or an empty
     /// struct for `void`: `Panic<void, E...>`'s Ok payload.
-    static fn adt_payload_offset() -> string         { return "__kairo_payload_offset"; }
-    static fn type_id_trait() -> string              { return "__kairo_tid"; }
-    static fn type_id() -> string                    { return "__kairo_type_id"; }
-    static fn type_id_guard(key: u64) -> string      { return "__KAIRO_TID_" + hex64(key); }
-    static fn void_unit() -> string                  { return "__kairo_nv"; }
-    static fn unit_type() -> string                  { return "__kairo_unit"; }
-    static fn void_unit_trait() -> string            { return "__kairo_nv_s"; }
+    pub static fn adt_payload_offset() -> string {
+        return "__kairo_payload_offset"
+    }
+
+    pub static fn type_id_trait() -> string {
+        return "__kairo_tid"
+    }
+
+    pub static fn type_id() -> string {
+        return "__kairo_type_id"
+    }
+
+    pub static fn type_id_guard(key: u64) -> string {
+        return "__KAIRO_TID_" + hex64(key)
+    }
+
+    pub static fn void_unit() -> string {
+        return "__kairo_nv"
+    }
+
+    pub static fn unit_type() -> string {
+        return "__kairo_unit"
+    }
+
+    pub static fn void_unit_trait() -> string {
+        return "__kairo_nv_s"
+    }
+
     /// `max(floor, alignof(P)...)`, the initializer of __kairo_payload_offset.
-    static fn max_align() -> string                  { return "__kairo_max_align"; }
-    static fn panic_helpers_guard() -> string        { return "__KAIRO_PANIC_HELPERS"; }
-    /// PanicLowering's C++ (PANIC.md §4.3, §4.4; writers InterfaceEmitter's
+    pub static fn max_align() -> string {
+        return "__kairo_max_align"
+    }
+
+    pub static fn panic_helpers_guard() -> string {
+        return "__KAIRO_PANIC_HELPERS"
+    }
+
+    /// PanicLowering's C++ (Compiler/Spec/Panic.md#preamble-helpers, §4.4; writers InterfaceEmitter's
     /// _panic_helpers and EmitIR's PanicOpExpr). `__kairo_fwd<R, A>(s)`
     /// widens the panic result `s` into R: the bytes as they are when the
     /// two layouts agree, else one case per element (`__kairo_fwd_k`), each
@@ -1161,10 +2084,19 @@ class LowerTargets {
     /// a T built later: a union over `__kairo_rbox<T>` (which brings its
     /// own placement `new`, so no <new>), read once by `__kairo_take()`,
     /// which moves the value out and destroys the box.
-    static fn panic_fwd() -> string                  { return "__kairo_fwd"; }
-    static fn panic_fwd_step() -> string             { return "__kairo_fwd_k"; }
-    static fn panic_elem_index() -> string           { return "__kairo_pidx"; }
-    /// A panic set naming a type parameter (a generic body, PANIC.md P10) is
+    pub static fn panic_fwd() -> string {
+        return "__kairo_fwd"
+    }
+
+    pub static fn panic_fwd_step() -> string {
+        return "__kairo_fwd_k"
+    }
+
+    pub static fn panic_elem_index() -> string {
+        return "__kairo_pidx"
+    }
+
+    /// A panic set naming a type parameter (a generic body, Compiler/Spec/Panic.md#generic-bodies) is
     /// ordered by C++ at each instance: `__kairo_pset<P, T, E...>` is
     /// `P<T, E'...>` with E' the elements deduplicated and sorted by type id,
     /// the canonical order Sema forms every concrete set in (§1.3), so a
@@ -1173,177 +2105,426 @@ class LowerTargets {
     /// element (`__kairo_pins_at` by its id against the list's head),
     /// `__kairo_pcons` prepends, `__kairo_psort` folds the elements in,
     /// `__kairo_papply` makes the record.
-    static fn panic_set_alias() -> string            { return "__kairo_pset"; }
-    static fn panic_set_list() -> string             { return "__kairo_ptl"; }
-    static fn panic_set_insert() -> string           { return "__kairo_pins"; }
-    static fn panic_set_insert_at() -> string        { return "__kairo_pins_at"; }
-    static fn panic_set_cons() -> string             { return "__kairo_pcons"; }
-    static fn panic_set_sort() -> string             { return "__kairo_psort"; }
-    static fn panic_set_apply() -> string            { return "__kairo_papply"; }
-    static fn raw_slot() -> string                   { return "__kairo_raw"; }
-    static fn raw_slot_guard() -> string             { return "__KAIRO_RAW_SLOT"; }
-    static fn raw_box() -> string                    { return "__kairo_rbox"; }
-    static fn raw_box_member() -> string             { return "__kairo_b"; }
-    static fn raw_box_value() -> string              { return "__kairo_v"; }
-    static fn raw_take() -> string                   { return "__kairo_take"; }
+    pub static fn panic_set_alias() -> string {
+        return "__kairo_pset"
+    }
+
+    pub static fn panic_set_list() -> string {
+        return "__kairo_ptl"
+    }
+
+    pub static fn panic_set_insert() -> string {
+        return "__kairo_pins"
+    }
+
+    pub static fn panic_set_insert_at() -> string {
+        return "__kairo_pins_at"
+    }
+
+    pub static fn panic_set_cons() -> string {
+        return "__kairo_pcons"
+    }
+
+    pub static fn panic_set_sort() -> string {
+        return "__kairo_psort"
+    }
+
+    pub static fn panic_set_apply() -> string {
+        return "__kairo_papply"
+    }
+
+    pub static fn raw_slot() -> string {
+        return "__kairo_raw"
+    }
+
+    pub static fn raw_slot_guard() -> string {
+        return "__KAIRO_RAW_SLOT"
+    }
+
+    pub static fn raw_box() -> string {
+        return "__kairo_rbox"
+    }
+
+    pub static fn raw_box_member() -> string {
+        return "__kairo_b"
+    }
+
+    pub static fn raw_box_value() -> string {
+        return "__kairo_v"
+    }
+
+    pub static fn raw_take() -> string {
+        return "__kairo_take"
+    }
+
     /// A `fn` value whose set widens (EmitIR::_fn_effect_value): its call's
     /// result as the wider panic result, and the wrapper's captured value
     /// and parameter names.
-    static fn panic_call_as() -> string              { return "__kairo_pcall"; }
-    static fn panic_wrapped() -> string              { return "__kairo_w"; }
-    static fn panic_wrap_arg(i: usize) -> string     { return f"__kairo_a{i}"; }
+    pub static fn panic_call_as() -> string {
+        return "__kairo_pcall"
+    }
+
+    pub static fn panic_wrapped() -> string {
+        return "__kairo_w"
+    }
+
+    pub static fn panic_wrap_arg(i: usize) -> string {
+        return f"__kairo_a{i}"
+    }
+
     /// A member call through a `<T: type>` parameter (EmitIR::_call): only
     /// the instance knows the callee, so only C++ can tell it returns a
-    /// panic result, which a duck body cannot handle (MONO.md D1).
+    /// panic result, which a duck body cannot handle (Compiler/Spec/Generics.md#duck-regime).
     /// `(::__kairo_nopanic(), t.f())`: the tag's `operator,` static_asserts
     /// that the value is no Panic instance (`__kairo_is_panic`) and yields
     /// it; a `void` call takes the builtin comma.
-    static fn nopanic_call() -> string              { return "__kairo_nopanic"; }
-    static fn nopanic_tag() -> string               { return "__kairo_nopanic_t"; }
+    pub static fn nopanic_call() -> string {
+        return "__kairo_nopanic"
+    }
+
+    pub static fn nopanic_tag() -> string {
+        return "__kairo_nopanic_t"
+    }
+
     /// `(::__kairo_nopanic_of<X>(), X(args))`: the same check for a
     /// construction, whose type is known without the value. The check
     /// returns `void`, so the comma is the builtin one and X(args) stays a
     /// prvalue: through `operator,` it would be moved out, which a type
     /// with a deleted move (a RAII guard) cannot be.
-    static fn nopanic_of() -> string                { return "__kairo_nopanic_of"; }
-    static fn nopanic_trait() -> string             { return "__kairo_is_panic"; }
-    static fn nopanic_guard() -> string             { return "__KAIRO_NO_PANIC"; }
-    /// A nullable `fn` source's parameter in the null-keeping wrapper (P167).
-    static fn panic_wrap_src() -> string             { return "__kairo_h"; }
-    /// The per-TU panic site table (PANIC.md §1.4): one record per site, a
+    pub static fn nopanic_of() -> string {
+        return "__kairo_nopanic_of"
+    }
+
+    pub static fn nopanic_trait() -> string {
+        return "__kairo_is_panic"
+    }
+
+    pub static fn nopanic_guard() -> string {
+        return "__KAIRO_NO_PANIC"
+    }
+
+    /// A nullable `fn` source's parameter in the null-keeping wrapper.
+    pub static fn panic_wrap_src() -> string {
+        return "__kairo_h"
+    }
+
+    /// The per-TU panic site table (Compiler/Spec/Panic.md#site-ids): one record per site, a
     /// `__kairo_panic_site` named `__kairo_ps_<key>` (key: the 64-bit hash
     /// of the site's path and offset), in the linker-collected section.
     /// Mach-O names a section `segment,section` in at most 16 bytes, hence
     /// its own spelling.
-    static fn panic_site_type() -> string            { return "__kairo_panic_site"; }
-    static fn panic_site_guard() -> string           { return "__KAIRO_PANIC_SITE_T"; }
-    static fn panic_site_record(key: u64) -> string  { return "__kairo_ps_" + hex64(key); }
-    static fn panic_sites_section() -> string        { return "__kairo_panic_sites"; }
-    static fn panic_sites_section_macho() -> string  { return "__DATA,__kairo_psite"; }
+    pub static fn panic_site_type() -> string {
+        return "__kairo_panic_site"
+    }
+
+    pub static fn panic_site_guard() -> string {
+        return "__KAIRO_PANIC_SITE_T"
+    }
+
+    pub static fn panic_site_record(key: u64) -> string {
+        return "__kairo_ps_" + hex64(key)
+    }
+
+    pub static fn panic_sites_section() -> string {
+        return "__kairo_panic_sites"
+    }
+
+    pub static fn panic_sites_section_macho() -> string {
+        return "__DATA,__kairo_psite"
+    }
+
     /// The table's bounds, which the linker defines: `__start_<section>` /
     /// `__stop_<section>` on ELF (declared weak, so a program with no site
     /// still links), `section$start$__DATA$__kairo_psite` on Mach-O.
-    static fn panic_sites_start() -> string          { return "__start_" + LowerTargets::panic_sites_section(); }
-    static fn panic_sites_stop() -> string           { return "__stop_" + LowerTargets::panic_sites_section(); }
-    static fn panic_sites_start_macho() -> string    { return "section$start$__DATA$__kairo_psite"; }
-    static fn panic_sites_stop_macho() -> string     { return "section$end$__DATA$__kairo_psite"; }
-    static fn panic_sites_begin_sym() -> string      { return "__kairo_psites_begin"; }
-    static fn panic_sites_end_sym() -> string        { return "__kairo_psites_end"; }
-    /// The C++ view of a panic result (PANIC.md §4.6), for C++ code calling
+    pub static fn panic_sites_start() -> string {
+        return "__start_" + LowerTargets::panic_sites_section()
+    }
+
+    pub static fn panic_sites_stop() -> string {
+        return "__stop_" + LowerTargets::panic_sites_section()
+    }
+
+    pub static fn panic_sites_start_macho() -> string {
+        return "section$start$__DATA$__kairo_psite"
+    }
+
+    pub static fn panic_sites_stop_macho() -> string {
+        return "section$end$__DATA$__kairo_psite"
+    }
+
+    pub static fn panic_sites_begin_sym() -> string {
+        return "__kairo_psites_begin"
+    }
+
+    pub static fn panic_sites_end_sym() -> string {
+        return "__kairo_psites_end"
+    }
+
+    /// The C++ view of a panic result (Compiler/Spec/Panic.md#the-c-view), for C++ code calling
     /// Kairo: free templates in `::builtin`, beside `::builtin::null`. Each
     /// public name is the documented API (c-cpp-exceptions.mdx); the
     /// `__kairo_` ones are its machinery. `__kairo_tid<E>::name` is E's
     /// Kairo name, what `what()` prints; `__kairo_pmsg<E>::get(e)` is an
     /// `extend`'s `op panic` (a type's own is the member `__kairo_op_panic`).
-    static fn panic_api_ns() -> string               { return "builtin"; }
-    static fn panic_api_guard() -> string            { return "__KAIRO_PANIC_API"; }
-    static fn panic_api_ok() -> string               { return "ok"; }
-    static fn panic_api_value() -> string            { return "value"; }
-    static fn panic_api_is() -> string               { return "is"; }
-    static fn panic_api_error() -> string            { return "error"; }
-    static fn panic_api_site() -> string             { return "site"; }
-    static fn panic_api_source_site() -> string      { return "source_site"; }
-    static fn panic_api_type_id() -> string          { return "type_id"; }
-    static fn panic_api_set() -> string              { return "panic_set"; }
-    static fn panic_api_types() -> string            { return "panic_types"; }
-    static fn panic_api_error_type() -> string       { return "panic_error"; }
-    static fn panic_api_error_base() -> string       { return "panic_error_base"; }
-    static fn panic_api_value_or_throw() -> string   { return "value_or_throw"; }
-    static fn panic_api_impl() -> string             { return "__kairo_papi"; }
-    static fn panic_api_throw() -> string            { return "__kairo_pthrow"; }
-    static fn panic_api_text() -> string             { return "__kairo_what"; }
-    static fn panic_api_build() -> string            { return "__kairo_build"; }
-    static fn panic_api_drop() -> string             { return "__kairo_drop"; }
-    static fn type_id_name() -> string               { return "name"; }
-    static fn panic_msg_trait() -> string            { return "__kairo_pmsg"; }
-    static fn panic_msg_get() -> string              { return "get"; }
+    pub static fn panic_api_ns() -> string {
+        return "builtin"
+    }
+
+    pub static fn panic_api_guard() -> string {
+        return "__KAIRO_PANIC_API"
+    }
+
+    pub static fn panic_api_ok() -> string {
+        return "ok"
+    }
+
+    pub static fn panic_api_value() -> string {
+        return "value"
+    }
+
+    pub static fn panic_api_is() -> string {
+        return "is"
+    }
+
+    pub static fn panic_api_error() -> string {
+        return "error"
+    }
+
+    pub static fn panic_api_site() -> string {
+        return "site"
+    }
+
+    pub static fn panic_api_source_site() -> string {
+        return "source_site"
+    }
+
+    pub static fn panic_api_type_id() -> string {
+        return "type_id"
+    }
+
+    pub static fn panic_api_set() -> string {
+        return "panic_set"
+    }
+
+    pub static fn panic_api_types() -> string {
+        return "panic_types"
+    }
+
+    pub static fn panic_api_error_type() -> string {
+        return "panic_error"
+    }
+
+    pub static fn panic_api_error_base() -> string {
+        return "panic_error_base"
+    }
+
+    pub static fn panic_api_value_or_throw() -> string {
+        return "value_or_throw"
+    }
+
+    pub static fn panic_api_impl() -> string {
+        return "__kairo_papi"
+    }
+
+    pub static fn panic_api_throw() -> string {
+        return "__kairo_pthrow"
+    }
+
+    pub static fn panic_api_text() -> string {
+        return "__kairo_what"
+    }
+
+    pub static fn panic_api_build() -> string {
+        return "__kairo_build"
+    }
+
+    pub static fn panic_api_drop() -> string {
+        return "__kairo_drop"
+    }
+
+    pub static fn type_id_name() -> string {
+        return "name"
+    }
+
+    pub static fn panic_msg_trait() -> string {
+        return "__kairo_pmsg"
+    }
+
+    pub static fn panic_msg_get() -> string {
+        return "get"
+    }
+
     /// A prefix-tagged ADT's union member holding only the tag, and its type
     /// (EnumDecl::adt_tag_member): the tag is read through it.
-    static fn adt_tag_member() -> string             { return "__kairo_t"; }
-    static fn adt_tag_only_type() -> string          { return "__kairo_t_t"; }
-    static fn niche_guard() -> string                { return "__KAIRO_NICHE_HELPERS"; }
-    static fn construct_at() -> string               { return "__kairo_construct_at"; }
-    static fn destroy_at() -> string                 { return "__kairo_destroy_at"; }
+    pub static fn adt_tag_member() -> string {
+        return "__kairo_t"
+    }
 
-    // --- fn values and closures (writers: InterfaceEmitter, CXXSpell, EmitIR) ---
+    pub static fn adt_tag_only_type() -> string {
+        return "__kairo_t_t"
+    }
+
+    pub static fn niche_guard() -> string {
+        return "__KAIRO_NICHE_HELPERS"
+    }
+
+    pub static fn construct_at() -> string {
+        return "__kairo_construct_at"
+    }
+
+    pub static fn destroy_at() -> string {
+        return "__kairo_destroy_at"
+    }
+
+    /// # fn values and closures (writers: InterfaceEmitter, CXXSpell, EmitIR)
+
     /// `template <class S> class __kairo_fn`: a Kairo `fn(A) -> R` value,
     /// specialized on `R(A...)`. It holds either a plain function pointer
     /// or a heap-allocated lambda (a capturing closure), copies and frees
     /// the lambda, and converts back to `R(*)(A...)` for a C callee
-    /// (CODEGEN.md §6, Closures). `own` adopts a `new`ed lambda. The guard
+    /// (Compiler/Spec/Codegen.md#emitir, Closures). `own` adopts a `new`ed lambda. The guard
     /// is the header's.
-    static fn fn_value() -> string        { return "__kairo_fn"; }
-    static fn fn_value_own() -> string    { return "own"; }
-    static fn fn_value_guard() -> string  { return "__KAIRO_FN_HELPERS"; }
+    pub static fn fn_value() -> string {
+        return "__kairo_fn"
+    }
+
+    pub static fn fn_value_own() -> string {
+        return "own"
+    }
+
+    pub static fn fn_value_guard() -> string {
+        return "__KAIRO_FN_HELPERS"
+    }
+
     /// `template <class S> using __kairo_raw_fn = S*;`: a raw `unsafe fn(A)
     /// -> R` spelled `__kairo_raw_fn<R(A...)>`, the plain `R(*)(A...)` as a
     /// type that reads as one name, so it declares a variable, a parameter
-    /// or a function's result with no declarator around the name (P231).
-    static fn raw_fn() -> string          { return "__kairo_raw_fn"; }
+    /// or a function's result with no declarator around the name.
+    pub static fn raw_fn() -> string {
+        return "__kairo_raw_fn"
+    }
 
-    // --- const fields in a constructor (writers: InterfaceEmitter, EmitIR) ------
+    /// # const fields in a constructor (writers: InterfaceEmitter, EmitIR)
+
     /// The preamble helpers: `__kairo_slot<T>`, a value S_pre fills that does
     /// not exist until its first assignment, and `__kairo_lref<T>`, `T&` for
     /// any parameter spelling (reference collapsing). Their header guard.
-    static fn ctor_slot() -> string       { return "__kairo_slot"; }
-    static fn lref() -> string            { return "__kairo_lref"; }
-    static fn ctor_slot_guard() -> string { return "__KAIRO_CTOR_SLOT_HELPERS"; }
+    pub static fn ctor_slot() -> string {
+        return "__kairo_slot"
+    }
+
+    pub static fn lref() -> string {
+        return "__kairo_lref"
+    }
+
+    pub static fn ctor_slot_guard() -> string {
+        return "__KAIRO_CTOR_SLOT_HELPERS"
+    }
+
     /// `__kairo_slot<T>`'s members EmitIR uses: whether S_pre built the
     /// value, a first assignment, a later one, a read, the hand-off to the
     /// field's initializer (InterfaceEmitter::_ctor_slot_helpers).
-    static fn ctor_slot_set() -> string  { return "set"; }
-    static fn ctor_slot_init() -> string { return "init"; }
-    static fn ctor_slot_put() -> string  { return "put"; }
-    static fn ctor_slot_get() -> string  { return "get"; }
-    static fn ctor_slot_take() -> string { return "take"; }
+    pub static fn ctor_slot_set() -> string {
+        return "set"
+    }
+
+    pub static fn ctor_slot_init() -> string {
+        return "init"
+    }
+
+    pub static fn ctor_slot_put() -> string {
+        return "put"
+    }
+
+    pub static fn ctor_slot_get() -> string {
+        return "get"
+    }
+
+    pub static fn ctor_slot_take() -> string {
+        return "take"
+    }
+
     /// An array slot's element-by-element build: `init_at(k, e)` constructs
     /// element k (CtorInitCheck allows each once), and the slot counts as
     /// built once all N are.
-    static fn ctor_slot_init_at() -> string { return "init_at"; }
+    pub static fn ctor_slot_init_at() -> string {
+        return "init_at"
+    }
+
     /// The compiler builtin that makes an index pack (`__make_integer_seq<
     /// Q, usize, N>` is `Q<usize, 0, ..., N-1>`): an array slot builds its
     /// elements from one with no <utility>.
-    static fn make_index_seq() -> string { return "__make_integer_seq"; }
+    pub static fn make_index_seq() -> string {
+        return "__make_integer_seq"
+    }
+
     /// Per split constructor k of a record (FunctionDecl::ci_index): its slot
     /// record, its pre-function, and the slot record's parameter name in
     /// both. A local carried across is slot `__kairo_l<i>_<name>`, i its
     /// position in ci_slots (two S_pre scopes may reuse a name).
-    static fn ctor_slots(k: u32) -> string { return f"__kairo_ci{k}"; }
-    static fn ctor_pre(k: u32) -> string   { return f"__kairo_ctor_pre{k}"; }
-    static fn ctor_slot_arg() -> string    { return "__kairo_s"; }
-    static fn ctor_local_slot(i: usize, name: string) -> string { return f"__kairo_l{i}_" + name; }
+    pub static fn ctor_slots(k: u32) -> string {
+        return f"__kairo_ci{k}"
+    }
 
-    // --- Exported records (writer: TypeExport) ----------------------------------
+    pub static fn ctor_pre(k: u32) -> string {
+        return f"__kairo_ctor_pre{k}"
+    }
+
+    pub static fn ctor_slot_arg() -> string {
+        return "__kairo_s"
+    }
+
+    pub static fn ctor_local_slot(i: usize, const name: string) -> string {
+        return f"__kairo_l{i}_" + name
+    }
+
+    /// # Exported records (writer: TypeExport)
 
     /// The \p i-th field of the clang stand-in TypeExport builds for a Kairo
     /// record in phase A's AST. The stand-in carries layout only, and phase B
     /// compiles against the real record, so the fields need no real names.
-    static fn export_field(i: usize) -> string { return f"__kairo_f{i}"; }
+    pub static fn export_field(i: usize) -> string {
+        return f"__kairo_f{i}"
+    }
 
-    // --- unique_id! (writer: Preprocessor::_builtin_unique_id) ------------------
+    /// # unique_id! (writer: Preprocessor::_builtin_unique_id)
+
     /// The identifier `unique_id!()` / `unique_id!(tag)` expands to, \p k the
     /// preprocessor's per-file counter. From there on it is an ordinary user
     /// identifier, so it reaches the emitted C++ as whatever the user named
     /// with it.
-    static fn unique_ident(tag: string, fid: u32, k: u32) -> string {
-        if tag.empty() { return f"__synth_{fid}_{k}"; }
-        return f"__synth_{tag}_{fid}_{k}";
+    pub static fn unique_ident(const tag: string, fid: u32, k: u32) -> string {
+        if tag.empty() {
+            return f"__synth_{fid}_{k}"
+        }
+
+        return f"__synth_{tag}_{fid}_{k}"
     }
 
-    // --- Default-argument thunk overloads (writer: CallLowering) ---------------
+    /// # Default-argument thunk overloads (writer: CallLowering)
+
     /// The `_<k>` default_thunk carries when the function's name cell holds
     /// more than one entity; \p k is 1-based, source order.
-    static fn default_thunk_ordinal(k: usize) -> string { return f"_{k}"; }
+    pub static fn default_thunk_ordinal(k: usize) -> string {
+        return f"_{k}"
+    }
 
-    // --- Foreign parameters (writers: DeclImport, BuiltinImport) ----------------
+    /// # Foreign parameters (writers: DeclImport, BuiltinImport)
+
     /// The name an unnamed C/C++ parameter is imported under, and every
     /// clang builtin's k-th parameter (BuiltinImport writes these into its
     /// virtual buffer and slices the same text back out as tokens).
-    static fn foreign_param(k: usize) -> string  { return f"__arg{k}"; }
-    /// An unnamed C++ template parameter's imported name (DeclImport).
-    static fn foreign_tparam(k: u32) -> string   { return f"__P{k}"; }
+    pub static fn foreign_param(k: usize) -> string {
+        return f"__arg{k}"
+    }
 
-    // --- C++ and clang entities the output USES ---------------------------------
+    /// An unnamed C++ template parameter's imported name (DeclImport).
+    pub static fn foreign_tparam(k: u32) -> string {
+        return f"__P{k}"
+    }
+
+    /// # C++ and clang entities the output USES
+
     /// Not invented: these are clang's or the C++ library's, and the emitted
     /// text calls, includes or derives from them. Each is still spelled once
     /// so that every writer -- a lowering that resolves one through
@@ -1355,48 +2536,114 @@ class LowerTargets {
     ///
     /// The prefix of every clang builtin function: CxxNameCheck warns on it
     /// in a user identifier, which C++ would read as the implementation's.
-    static fn clang_builtin_prefix() -> string     { return "__builtin_"; }
-    static fn clang_trap() -> string               { return "__builtin_trap"; }
-    static fn clang_unreachable() -> string        { return "__builtin_unreachable"; }
-    static fn clang_memcmp() -> string             { return "__builtin_memcmp"; }
-    static fn clang_addressof() -> string          { return "__builtin_addressof"; }
-    static fn clang_bit_cast() -> string           { return "__builtin_bit_cast"; }
+    pub static fn clang_builtin_prefix() -> string {
+        return "__builtin_"
+    }
+
+    pub static fn clang_trap() -> string {
+        return "__builtin_trap"
+    }
+
+    pub static fn clang_unreachable() -> string {
+        return "__builtin_unreachable"
+    }
+
+    pub static fn clang_memcmp() -> string {
+        return "__builtin_memcmp"
+    }
+
+    pub static fn clang_addressof() -> string {
+        return "__builtin_addressof"
+    }
+
+    pub static fn clang_bit_cast() -> string {
+        return "__builtin_bit_cast"
+    }
+
     /// What a call of the Expect lang item is spelled as (EmitIR::_call).
-    static fn clang_expect() -> string             { return "__builtin_expect"; }
+    pub static fn clang_expect() -> string {
+        return "__builtin_expect"
+    }
+
     /// What a call of the Assume lang item is spelled as (EmitIR::_call).
-    static fn clang_assume() -> string             { return "__builtin_assume"; }
+    pub static fn clang_assume() -> string {
+        return "__builtin_assume"
+    }
+
     /// The hidden virtual of a class with a virtual destructor, returning
     /// its {size, align} (InterfaceEmitter::_layout_virtual), and the
     /// dynamic-layout intrinsics' body that reads it (EmitIR).
-    static fn layout_virtual() -> string           { return "__kairo_layout"; }
+    pub static fn layout_virtual() -> string {
+        return "__kairo_layout"
+    }
+
     /// The C++ attributes of `@hot_path`, `@cold_path`, `@pure` and `const fn`
     /// (CXXSpell::fn_attrs), each with its trailing space.
     // GNU spelling, not [[gnu::...]]: a C++11 attribute cannot follow
     // `static` / `virtual` in a member's head, and these lead it.
-    static fn attr_hot() -> string                 { return "__attribute__((hot)) "; }
-    static fn attr_cold() -> string                { return "__attribute__((cold)) "; }
-    static fn attr_noinline() -> string            { return "__attribute__((noinline)) "; }
-    static fn attr_pure() -> string                { return "__attribute__((pure)) "; }
-    static fn attr_const() -> string               { return "__attribute__((const)) "; }
+    pub static fn attr_hot() -> string {
+        return "__attribute__((hot)) "
+    }
+
+    pub static fn attr_cold() -> string {
+        return "__attribute__((cold)) "
+    }
+
+    pub static fn attr_noinline() -> string {
+        return "__attribute__((noinline)) "
+    }
+
+    pub static fn attr_pure() -> string {
+        return "__attribute__((pure)) "
+    }
+
+    pub static fn attr_const() -> string {
+        return "__attribute__((const)) "
+    }
+
     /// `__kairo_fn`'s call operator (InterfaceEmitter::_fn_value_helper).
-    static fn attr_always_inline() -> string       { return "__attribute__((always_inline)) "; }
+    pub static fn attr_always_inline() -> string {
+        return "__attribute__((always_inline)) "
+    }
+
     /// The calling conventions (FunctionDecl::call_conv), on every C++
     /// declaration of the function (CXXSpell::fn_attrs). The GNU spelling,
     /// not `[[clang::preserve_most]]`: a C++11 attribute may not follow
     /// `static` or `virtual`, which a method's head puts first.
-    static fn attr_preserve_most() -> string       { return "__attribute__((preserve_most)) "; }
-    static fn attr_preserve_all() -> string        { return "__attribute__((preserve_all)) "; }
-    static fn attr_preserve_none() -> string       { return "__attribute__((preserve_none)) "; }
+    pub static fn attr_preserve_most() -> string {
+        return "__attribute__((preserve_most)) "
+    }
+
+    pub static fn attr_preserve_all() -> string {
+        return "__attribute__((preserve_all)) "
+    }
+
+    pub static fn attr_preserve_none() -> string {
+        return "__attribute__((preserve_none)) "
+    }
+
     /// A `thread` global's ELF TLS model (CXXSpell::tls_model), trailing
     /// its declarator with a leading space: "local-exec" or "initial-exec".
-    static fn attr_tls_model(m: string) -> string  { return " __attribute__((tls_model(\x22" + m + "\x22)))"; }
+    pub static fn attr_tls_model(const m: string) -> string {
+        return " __attribute__((tls_model(\"" + m + "\")))"
+    }
+
     /// The object ABI note (EmitIR::_abi_note, read back by Linker::API::
     /// LinkABI): a used, internal byte array in its own section. The ELF and
     /// COFF name is a C identifier, so no `.note` prefix makes ELF give it
     /// note semantics it does not have.
-    static fn abi_note_section() -> string         { return "__kairo_abi"; }
-    static fn abi_note_section_macho() -> string   { return "__DATA,__kairo_abi"; }
-    static fn abi_note_symbol() -> string          { return "__kairo_abi_note"; }
+    pub static fn abi_note_section() -> string {
+        return "__kairo_abi"
+    }
+
+    pub static fn abi_note_section_macho() -> string {
+        return "__DATA,__kairo_abi"
+    }
+
+    pub static fn abi_note_symbol() -> string {
+        return "__kairo_abi_note"
+    }
+
     /// `@set_global_allocator(A)`: the file's private alias for A (the
     /// parser's TypeAliasDecl, so N and T resolve A like any written type),
     /// and the five C symbols the builtin's Global calls. The runtime
@@ -1406,31 +2653,69 @@ class LowerTargets {
     /// (Lib/rt/global_alloc.h); the order here is the order they are written.
     /// The alias is spelled with an `@` so no source can name it, and it
     /// never reaches C++ (EmitIR emits no alias; the forwarders spell A).
-    static fn global_allocator_alias() -> string   { return "@global_allocator"; }
-    static fn global_alloc_symbol_prefix() -> string { return "kairo_global_"; }
+    pub static fn global_allocator_alias() -> string {
+        return "@global_allocator"
+    }
+
+    pub static fn global_alloc_symbol_prefix() -> string {
+        return "kairo_global_"
+    }
+
     /// Defined for every Kairo file of a program some file of which sets
     /// the global allocator (PreprocessorOptions::global_allocator_set); the
     /// builtin's Global tests it with `defined!`.
-    static fn global_alloc_set_macro() -> string   { return "__KAIRO_GLOBAL_ALLOCATOR_SET"; }
+    pub static fn global_alloc_set_macro() -> string {
+        return "__KAIRO_GLOBAL_ALLOCATOR_SET"
+    }
+
     /// The ABI note's global-allocator record (EmitIR::_abi_note, LinkABI):
     /// a used byte array beside the conventions record, in the same section.
-    static fn abi_alloc_note_symbol() -> string    { return "__kairo_abi_alloc"; }
-    static fn clang_malloc() -> string             { return "__builtin_malloc"; }
-    static fn clang_free() -> string               { return "__builtin_free"; }
-    static fn clang_atomic_fetch_add() -> string   { return "__atomic_fetch_add"; }
-    static fn clang_atomic_sub_fetch() -> string   { return "__atomic_sub_fetch"; }
+    pub static fn abi_alloc_note_symbol() -> string {
+        return "__kairo_abi_alloc"
+    }
+
+    pub static fn clang_malloc() -> string {
+        return "__builtin_malloc"
+    }
+
+    pub static fn clang_free() -> string {
+        return "__builtin_free"
+    }
+
+    pub static fn clang_atomic_fetch_add() -> string {
+        return "__atomic_fetch_add"
+    }
+
+    pub static fn clang_atomic_sub_fetch() -> string {
+        return "__atomic_sub_fetch"
+    }
+
     /// `__type_pack_element<K, T...>`: the K-th type of a pack, clang's
     /// builtin template (the panic helpers index an error set by it).
-    static fn clang_pack_element() -> string       { return "__type_pack_element"; }
-    /// The base every C++-view panic exception derives from (P7), so a
+    pub static fn clang_pack_element() -> string {
+        return "__type_pack_element"
+    }
+
+    /// The base every C++-view panic exception derives from, so a
     /// plain `catch (const std::exception&)` sees it.
-    static fn cxx_exception_base() -> string       { return "::std::exception"; }
+    pub static fn cxx_exception_base() -> string {
+        return "::std::exception"
+    }
+
     /// The header that declares the global placement `::new` a rebuilding
     /// `op =` calls (InterfaceEmitter::_needs_new).
-    static fn cxx_new_header() -> string           { return "new"; }
+    pub static fn cxx_new_header() -> string {
+        return "new"
+    }
+
     /// The C++ range protocol's members / free functions ([stmt.ranged]): a
     /// `for x in r` over a C++ range finds them by this name (StmtTyping).
     /// Not LangMembers::range_begin -- that is a Kairo Range's field.
-    static fn cxx_range_begin() -> string          { return "begin"; }
-    static fn cxx_range_end() -> string            { return "end"; }
+    pub static fn cxx_range_begin() -> string {
+        return "begin"
+    }
+
+    pub static fn cxx_range_end() -> string {
+        return "end"
+    }
 }

@@ -1,17 +1,19 @@
-/// --- The Kairo Project
+/// --- The Kairo Project ---------------------------- Config/Frontend.k --- ///
 ///
-///   Frontend action selection, pipeline control, and testing options.
+///   FrontendOptions: action selection, pipeline control and testing settings.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
-///
+/// ------------------------------------------------------------------------ ///
 
-import Command::ParsedArgs::*;
+ffi "c++" import "vector"
+
+import Command::ParsedArgs::ParsedArgs
 
 ///
 /// \brief Selects the highest-priority pipeline action.
@@ -23,7 +25,7 @@ import Command::ParsedArgs::*;
 /// Post-stage dump flags (print_tokens, print_macros, print_ast, ...) are
 /// orthogonal to the primary action and can be combined with any of them.
 ///
-enum FrontendActionKind derives u8 {
+pub enum FrontendActionKind derives u8 {
     EmitObj,       ///< compile + link (default)
     EmitObjOnly,   ///< compile to .o, no link              (-c)
     EmitAsm,       ///< emit assembly                       (-S / --emit asm)
@@ -34,244 +36,273 @@ enum FrontendActionKind derives u8 {
     TypeCheckOnly, ///< stop after semantic analysis        (--type-check-only)
 }
 
-class FrontendOptions {
+pub class FrontendOptions {
     // output
-    pub var output:              string = "";
-    pub var emit:                string = "obj";
+    pub var output: string = ""
+    pub var emit:   string = "obj"
     /// --emit, split. Backend outputs codegen writes per TU, each beside the
     /// others under the object dir (`<module>.o/.s/.ll/.bc`).
-    pub var emit_obj:            bool   = true;
-    pub var emit_asm:            bool   = false;
-    pub var emit_llvm_ir:        bool   = false;
-    pub var emit_llvm_bc:        bool   = false;
+    pub var emit_obj:     bool = true
+    pub var emit_asm:     bool = false
+    pub var emit_llvm_ir: bool = false
+    pub var emit_llvm_bc: bool = false
     /// --emit items the driver rejects: not a kind at all, or a kind that is
     /// accepted by the flag but not produced yet. Diagnosed in _plan_outputs,
     /// where there is a diag engine.
-    pub var emit_unknown:        vec::<string>;
-    pub var emit_unsupported:    vec::<string>;
+    pub var emit_unknown:     cxx::std::vector<string>
+    pub var emit_unsupported: cxx::std::vector<string>
     // verbosity / timing
-    pub var time_trace:          string = "";
-    pub var stats_file:          string = "";
+    pub var time_trace: string = ""
+    pub var stats_file: string = ""
     // concurrency
-    pub var thread_count:        i32    = 0; ///< 0 = hardware concurrency
-    pub var max_threads:         i32    = 0; ///< 0 = no cap
-    pub var max_expr_depth:      i32    = 512;
-    pub var max_scope_depth:     i32    = 256;
+    pub var thread_count:    i32 = 0 ///< 0 = hardware concurrency
+    pub var max_threads:     i32 = 0 ///< 0 = no cap
+    pub var sema_threads:    i32 = 0 ///< --sema-threads: 0 = thread_count
+    pub var codegen_threads: i32 = 0 ///< --codegen-threads: 0 = thread_count
+    /// --interface-pch: "auto" (by size), "on" or "off".
+    pub var interface_pch: string = "auto"
+    /// -fno-shared-header-set turns this off: one clang parse per header list.
+    pub var shared_header_set: bool = true
+    pub var max_expr_depth:    i32  = 512
+    pub var max_scope_depth:   i32  = 256
     // primary action
-    pub var action:              FrontendActionKind = FrontendActionKind::EmitObj;
+    pub var action: FrontendActionKind = FrontendActionKind::EmitObj
     // verbosity / timing
-    pub var verbose:             bool   = false;
-    pub var quiet:               bool   = false;
-    pub var suppress:            bool   = false;
-    pub var time_passes:         bool   = false;
-    pub var print_stats:         bool   = false;
+    pub var verbose:     bool = false
+    pub var quiet:       bool = false
+    pub var suppress:    bool = false
+    pub var time_passes: bool = false
+    pub var print_stats: bool = false
     // post-stage dump flags (independent of primary action)
-    pub var dump_preprocessed:   bool   = false; ///< --dump-preprocessed: print reconstructed source to stdout
-    pub var print_tokens:        bool   = false;
-    pub var print_macros:        bool   = false;
-    pub var print_imports:       bool   = false;
-    pub var print_emit_plan:     bool   = false;
-    pub var print_panic_sets:    bool   = false;
-    pub var print_cxx:           bool   = false; ///< --print-cxx: the TU's C++ preamble (interface only) as text
-    pub var emit_headers:        string = "";    ///< --emit-headers <dir>: write each module's C++ interop header
-    pub var print_symbols:       bool   = false;
-    pub var print_ast:           string = "";
-    pub var print_sema:          bool   = false;
-    pub var print_lowered:       bool   = false; ///< --print-lowered: the same dump, after the Lower/ passes have rewritten the tree
-    pub var print_cg:            bool   = false;
-    pub var print_ir:            bool   = false;
-    pub var print_bcir:          bool   = false;
-    pub var print_generics:      bool   = false;
-    pub var dump_type_info:      bool   = false;
-    pub var print_regalloc:      bool   = false;
-    pub var print_pass_pipeline: bool   = false;
+    pub var dump_preprocessed:   bool   = false ///< --dump-preprocessed: print reconstructed source to stdout
+    pub var print_tokens:        bool   = false
+    pub var print_macros:        bool   = false
+    pub var print_imports:       bool   = false
+    pub var dump_import_uses:    string = "" ///< --dump-import-uses=<path.json>: Scripts/import_lint.py's input
+    pub var print_emit_plan:     bool   = false
+    pub var print_panic_sets:    bool   = false
+    pub var print_cxx:           bool   = false ///< --print-cxx: the TU's C++ preamble (interface only) as text
+    pub var emit_headers:        string = "" ///< --emit-headers <dir>: write each module's C++ interop header
+    pub var print_symbols:       bool   = false
+    pub var print_ast:           string = ""
+    pub var print_sema:          bool   = false
+    pub var print_lowered:       bool   = false ///< --print-lowered: the same dump, after the Lower/ passes have rewritten the tree
+    pub var print_cg:            bool   = false
+    pub var print_ir:            bool   = false
+    pub var print_bcir:          bool   = false
+    pub var print_generics:      bool   = false
+    pub var dump_type_info:      bool   = false
+    pub var print_regalloc:      bool   = false
+    pub var print_pass_pipeline: bool   = false
     // verification passes
-    pub var verify_ir:           bool   = false;
-    pub var verify_bcir:         bool   = false;
-    pub var bcir_verbose:        bool   = false;
-    pub var bcir_stats:          bool   = false;
+    pub var verify_ir:    bool = false
+    pub var verify_bcir:  bool = false
+    pub var bcir_verbose: bool = false
+    pub var bcir_stats:   bool = false
     // The linker owns shared/static/no-entry/dll/save-temps/entry
     // (Config/Linker.k); copies here were never read and could only drift.
 
     // parser / sema
-    pub var max_generic_instantiations: i32 = 16384; ///< matches the --cmax-generic-instantiations help; not read yet
-    pub var max_tuple_arity:            i32 = 128;  ///< a tuple is its arity's record, minted up to LangItems::TUPLE_MAX_ARITY; the flag only lowers (0 = no flag cap)
+    pub var max_generic_instantiations: i32 = 16384 ///< matches the --cmax-generic-instantiations help; not read yet
+    pub var max_tuple_arity:            i32 = 128 ///< a tuple is its arity's record, minted up to LangItems::TUPLE_MAX_ARITY; the flag only lowers (0 = no flag cap)
 
     // incremental compilation
-    pub var incremental:         bool   = false;
-    pub var incremental_dir:     string = ".kairo-cache";
-    pub var force_recompile:     bool   = false;
+    pub var incremental:     bool   = false
+    pub var incremental_dir: string = ".kairo-cache"
+    pub var force_recompile: bool   = false
 
     // module system
-    pub var module_name:         string = "";
-    pub var module_cache_dir:    string = ".kairo-modules";
-    pub var no_module_cache:     bool   = false;
+    pub var module_name:      string = ""
+    pub var module_cache_dir: string = ".kairo-modules"
+    pub var no_module_cache:  bool   = false
 
     // testing
-    pub var testing:             bool   = false;
-    pub var test_list:           bool   = false;
-    pub var test_filter:         string = "";
-    pub var test_format:         string = "pretty";
-    pub var test_threads:        i32    = 0;       ///< 0 = logical CPU count
-    pub var test_no_capture:     bool   = false;
-    pub var test_timeout:        i32    = 0;       ///< 0 = no timeout (ms)
-    pub var test_exit_code:      i32    = 1;
+    pub var testing:         bool   = false
+    pub var test_list:       bool   = false
+    pub var test_filter:     string = ""
+    pub var test_format:     string = "pretty"
+    pub var test_threads:    i32    = 0        ///< 0 = logical CPU count
+    pub var test_no_capture: bool   = false
+    pub var test_timeout:    i32    = 0        ///< 0 = no timeout (ms)
+    pub var test_exit_code:  i32    = 1
 
     // BCIR / AMT limits
-    pub var max_borrow_depth:          i32 = 512;
-    pub var max_amt_smartptr_rewrites: i32 = 8192;  ///< 0 = unlimited
+    pub var max_borrow_depth:          i32 = 512
+    pub var max_amt_smartptr_rewrites: i32 = 8192 ///< 0 = unlimited
 
     // helpers
 
-    fn stops_at_preprocess(self) -> bool {
-        return self.action == FrontendActionKind::Preprocess;
+    pub fn stops_at_preprocess(self) -> bool {
+        return self.action == FrontendActionKind::Preprocess
     }
 
-    fn is_syntax_only(self) -> bool {
-        return self.action == FrontendActionKind::SyntaxOnly;
+    pub fn is_syntax_only(self) -> bool {
+        return self.action == FrontendActionKind::SyntaxOnly
     }
 
-    fn stops_at_parse(self) -> bool {
-        return (self.action == FrontendActionKind::SyntaxOnly)
-            || (self.action == FrontendActionKind::Preprocess);
+    pub fn stops_at_parse(self) -> bool {
+        return self.action == FrontendActionKind::SyntaxOnly
+            || self.action == FrontendActionKind::Preprocess
     }
 
-    fn stops_at_sema(self) -> bool {
-        return (self.action == FrontendActionKind::TypeCheckOnly)
-            || self.stops_at_parse();
+    pub fn stops_at_sema(self) -> bool {
+        return self.action == FrontendActionKind::TypeCheckOnly || self.stops_at_parse()
     }
 
-    fn stops_before_codegen(self) -> bool {
-        return self.stops_at_sema();
+    pub fn stops_before_codegen(self) -> bool {
+        return self.stops_at_sema()
     }
-    
+
     /// Three-state string flag: absent -> "", bare -> `dfl`, =value -> value.
-    priv static fn _mode_or(args: ref!(ParsedArgs), key: string, dfl: string) -> string {
+    priv static fn _mode_or(@inout args: ParsedArgs, const key: string, dfl: string) -> string {
         if !args.is_set(key) {
-            return "";
+            return ""
         }
-        
-        var v = args.get_string(key);
-        return (dfl) if (v.empty()) else (v);
+
+        var v = args.get_string(key)
+        return if (v.empty()) => (dfl) else => v
     }
 
-    static fn from_args(args: ref!(ParsedArgs)) -> FrontendOptions {
-        var o = FrontendOptions();
-        (o.output)          = args.get_string("output");
-        (o.emit)            = args.get_string("emit");
-        FrontendOptions::_parse_emit(&o, args);
-        (o.verbose)         = args.get_bool("verbose");
-        (o.quiet)           = args.get_bool("quiet");
-        (o.suppress)        = args.get_bool("suppress");
-        (o.time_passes)     = args.get_bool("time-passes");
-        (o.time_trace)      = args.get_string("time-trace");
-        (o.print_stats)     = args.get_bool("print-stats");
-        (o.stats_file)      = args.get_string("stats-file");
-        (o.thread_count)    = args.get_i32("threads");
-        (o.max_expr_depth)  = args.get_cfg_i32("max-expr-depth");
-        (o.max_scope_depth) = args.get_cfg_i32("max-scope-depth");
-        (o.max_threads)     = args.get_cfg_i32("max-threads");
+    static fn from_args(@inout args: ParsedArgs) -> FrontendOptions {
+        var o = FrontendOptions()
+        o.output = args.get_string("output")
+        o.emit   = args.get_string("emit")
+        FrontendOptions::_parse_emit(&o, &args)
+        o.verbose           = args.get_bool("verbose")
+        o.quiet             = args.get_bool("quiet")
+        o.suppress          = args.get_bool("suppress")
+        o.time_passes       = args.get_bool("time-passes")
+        o.time_trace        = args.get_string("time-trace")
+        o.print_stats       = args.get_bool("print-stats")
+        o.stats_file        = args.get_string("stats-file")
+        o.thread_count      = args.get_i32("threads")
+        o.sema_threads      = args.get_i32("sema-threads")
+        o.codegen_threads   = args.get_i32("codegen-threads")
+        o.interface_pch     = args.get_string("interface-pch")
+        o.shared_header_set = args.get_feature("shared-header-set") != 0
+        o.max_expr_depth    = args.get_cfg_i32("max-expr-depth")
+        o.max_scope_depth   = args.get_cfg_i32("max-scope-depth")
+        o.max_threads       = args.get_cfg_i32("max-threads")
 
         // post-stage dump flags
-        (o.dump_preprocessed)   = args.get_bool("dump-preprocessed");
-        (o.print_tokens)        = args.get_bool("print-tokens");
-        (o.print_macros)        = args.get_bool("print-macros");
-        (o.print_imports)       = args.get_bool("print-imports");
-        (o.print_emit_plan)     = args.get_bool("print-emit-plan");
-        (o.print_panic_sets)    = args.get_bool("print-panic-sets");
-        (o.print_cxx)           = args.get_bool("print-cxx");
-        (o.emit_headers)        = args.get_string("emit-headers");
-        (o.print_symbols)       = args.get_bool("print-symbols");
-        (o.print_ast)           = FrontendOptions::_mode_or(args, "print-ast", "tree");
-        (o.print_sema)          = args.get_bool("print-sema");
-        (o.print_lowered)       = args.get_bool("print-lowered");
-        (o.print_cg)            = args.get_bool("print-cg");
-        (o.print_ir)            = args.get_bool("print-ir");
-        (o.print_bcir)          = args.get_bool("print-bcir");
-        (o.print_generics)      = args.get_bool("print-generics");
-        (o.dump_type_info)      = args.get_bool("dump-type-info");
-        (o.print_regalloc)      = args.get_bool("print-regalloc");
-        (o.print_pass_pipeline) = args.get_bool("print-pass-pipeline");
-        (o.verify_ir)           = args.get_bool("verify-ir");
-        (o.verify_bcir)         = args.get_bool("verify-bcir");
-        (o.bcir_verbose)        = args.get_bool("bcir-verbose");
-        (o.bcir_stats)          = args.get_bool("bcir-stats");
+        o.dump_preprocessed   = args.get_bool("dump-preprocessed")
+        o.print_tokens        = args.get_bool("print-tokens")
+        o.print_macros        = args.get_bool("print-macros")
+        o.print_imports       = args.get_bool("print-imports")
+        o.dump_import_uses    = args.get_string("dump-import-uses")
+        o.print_emit_plan     = args.get_bool("print-emit-plan")
+        o.print_panic_sets    = args.get_bool("print-panic-sets")
+        o.print_cxx           = args.get_bool("print-cxx")
+        o.emit_headers        = args.get_string("emit-headers")
+        o.print_symbols       = args.get_bool("print-symbols")
+        o.print_ast           = FrontendOptions::_mode_or(&args, "print-ast", "tree")
+        o.print_sema          = args.get_bool("print-sema")
+        o.print_lowered       = args.get_bool("print-lowered")
+        o.print_cg            = args.get_bool("print-cg")
+        o.print_ir            = args.get_bool("print-ir")
+        o.print_bcir          = args.get_bool("print-bcir")
+        o.print_generics      = args.get_bool("print-generics")
+        o.dump_type_info      = args.get_bool("dump-type-info")
+        o.print_regalloc      = args.get_bool("print-regalloc")
+        o.print_pass_pipeline = args.get_bool("print-pass-pipeline")
+        o.verify_ir           = args.get_bool("verify-ir")
+        o.verify_bcir         = args.get_bool("verify-bcir")
+        o.bcir_verbose        = args.get_bool("bcir-verbose")
+        o.bcir_stats          = args.get_bool("bcir-stats")
 
         // parser / sema
-        (o.max_generic_instantiations) = args.get_cfg_i32("max-generic-instantiations");
-        (o.max_tuple_arity)            = args.get_cfg_i32("max-tuple-arity");
+        o.max_generic_instantiations = args.get_cfg_i32("max-generic-instantiations")
+        o.max_tuple_arity            = args.get_cfg_i32("max-tuple-arity")
 
         // incremental compilation
-        (o.incremental)      = args.get_bool("incremental");
-        (o.incremental_dir)  = args.get_string("incremental-dir");
-        (o.force_recompile)  = args.get_bool("force-recompile");
+        o.incremental     = args.get_bool("incremental")
+        o.incremental_dir = args.get_string("incremental-dir")
+        o.force_recompile = args.get_bool("force-recompile")
 
         // module system
-        (o.module_name)      = args.get_string("module-name");
-        (o.module_cache_dir) = args.get_string("module-cache-dir");
-        (o.no_module_cache)  = args.get_bool("no-module-cache");
+        o.module_name      = args.get_string("module-name")
+        o.module_cache_dir = args.get_string("module-cache-dir")
+        o.no_module_cache  = args.get_bool("no-module-cache")
 
         // testing
-        (o.testing)          = args.get_bool("test");
-        (o.test_list)        = args.get_bool("test-list");
-        (o.test_filter)      = args.get_string("test-filter");
-        (o.test_format)      = args.get_string("test-format");
-        (o.test_threads)     = args.get_i32("test-threads");
-        (o.test_no_capture)  = args.get_bool("test-no-capture");
-        (o.test_timeout)     = args.get_i32("test-timeout");
-        (o.test_exit_code)   = args.get_i32("test-exit-code");
+        o.testing         = args.get_bool("test")
+        o.test_list       = args.get_bool("test-list")
+        o.test_filter     = args.get_string("test-filter")
+        o.test_format     = args.get_string("test-format")
+        o.test_threads    = args.get_i32("test-threads")
+        o.test_no_capture = args.get_bool("test-no-capture")
+        o.test_timeout    = args.get_i32("test-timeout")
+        o.test_exit_code  = args.get_i32("test-exit-code")
 
         // BCIR / AMT limits
-        (o.max_borrow_depth)          = args.get_cfg_i32("max-borrow-depth");
-        (o.max_amt_smartptr_rewrites) = args.get_cfg_i32("max-amt-smartptr-rewrites");
+        o.max_borrow_depth          = args.get_cfg_i32("max-borrow-depth")
+        o.max_amt_smartptr_rewrites = args.get_cfg_i32("max-amt-smartptr-rewrites")
 
         // primary action: highest-priority flag wins
-        if (args.get_bool("preprocess")) || (args.get_bool("dump-preprocessed")) {
-            o.action = FrontendActionKind::Preprocess;
+        if args.get_bool("preprocess") || args.get_bool("dump-preprocessed") {
+            o.action = FrontendActionKind::Preprocess
         } else if args.get_bool("syntax-only") {
-            o.action = FrontendActionKind::SyntaxOnly;
+            o.action = FrontendActionKind::SyntaxOnly
         } else if args.get_bool("type-check-only") {
-            o.action = FrontendActionKind::TypeCheckOnly;
+            o.action = FrontendActionKind::TypeCheckOnly
         } else if args.get_bool("compile-only") {
-            o.action = FrontendActionKind::EmitObjOnly;
+            o.action = FrontendActionKind::EmitObjOnly
         } else if args.get_bool("emit-asm") {
-            o.action = FrontendActionKind::EmitAsm;
-        } else if (!o.emit_obj) && o.emit_asm && (!o.emit_llvm_ir) && (!o.emit_llvm_bc) {
-            o.action = FrontendActionKind::EmitAsm;
-        } else if (!o.emit_obj) && (!o.emit_asm) && o.emit_llvm_ir && (!o.emit_llvm_bc) {
-            o.action = FrontendActionKind::EmitLLVMIR;
-        } else if (!o.emit_obj) && (!o.emit_asm) && (!o.emit_llvm_ir) && o.emit_llvm_bc {
-            o.action = FrontendActionKind::EmitLLVMBC;
+            o.action = FrontendActionKind::EmitAsm
+        } else if !o.emit_obj && o.emit_asm && !o.emit_llvm_ir && !o.emit_llvm_bc {
+            o.action = FrontendActionKind::EmitAsm
+        } else if !o.emit_obj && !o.emit_asm && o.emit_llvm_ir && !o.emit_llvm_bc {
+            o.action = FrontendActionKind::EmitLLVMIR
+        } else if !o.emit_obj && !o.emit_asm && !o.emit_llvm_ir && o.emit_llvm_bc {
+            o.action = FrontendActionKind::EmitLLVMBC
         } else {
-            o.action = FrontendActionKind::EmitObj;
+            o.action = FrontendActionKind::EmitObj
         }
 
-        return o;
+        return o
     }
 
     /// Split --emit on commas into the emit_* set. -S is `--emit asm`: alone
     /// it replaces the default obj, beside an explicit --emit it adds asm.
-    priv static fn _parse_emit(o: *FrontendOptions, args: ref!(ParsedArgs)) {
-        (o->emit_obj) = false;
-        var raw = args.get_string("emit");
-        var items = vec::<string>();
-        var cur = "";
+    priv static fn _parse_emit(o: *FrontendOptions, @inout args: ParsedArgs) {
+        o->emit_obj = false
+        var raw   = args.get_string("emit")
+        var items = cxx::std::vector<string>()
+        var cur   = ""
         for var i: usize = 0; i < raw.size(); ++i {
-            if raw[i] == ',' { items.push_back(cur); cur = ""; continue; }
-            cur += raw[i];
+            if raw[i] == (',' as u8) {
+                items.push_back(cur)
+                cur = ""
+                continue
+            }
+
+            cur.push_back(raw[i])
         }
-        items.push_back(cur);
-        for it: string in items {
-            if it.size() == 0 { continue; }
-            if it == "obj"          { (o->emit_obj)     = true; }
-            else if it == "asm"     { (o->emit_asm)     = true; }
-            else if it == "llvm-ir" { (o->emit_llvm_ir) = true; }
-            else if it == "llvm-bc" { (o->emit_llvm_bc) = true; }
-            else { o->emit_unknown.push_back(it); }
+
+        items.push_back(cur)
+        for *it in items {
+            if it->size() == 0 {
+                continue
+            }
+
+            if *it == "obj" {
+                o->emit_obj = true
+            } else if *it == "asm" {
+                o->emit_asm = true
+            } else if *it == "llvm-ir" {
+                o->emit_llvm_ir = true
+            } else if *it == "llvm-bc" {
+                o->emit_llvm_bc = true
+            } else {
+                o->emit_unknown.push_back(*it)
+            }
         }
+
         if args.get_bool("emit-asm") {
-            (o->emit_asm) = true;
-            if !args.is_set("emit") { (o->emit_obj) = false; }
+            o->emit_asm = true
+            if !args.is_set("emit") {
+                o->emit_obj = false
+            }
         }
     }
 }

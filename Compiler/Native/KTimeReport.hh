@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------------- Native/KTimeReport.hh --- ///
+/// --- The Kairo Project ------------------------ Native/KTimeReport.hh --- ///
 ///
 ///   Hierarchical, thread-aware pass timing.  The engine behind --time-passes
 ///   and --time-trace.
@@ -56,8 +56,8 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -86,7 +86,7 @@ class TimeReport {
     using Clock = libcxx::chrono::steady_clock;
     using Stamp = Clock::time_point;
 
-    // --- Record ----------------------------------------------------------
+    /// ## Record
 
     /// One named region. Heap-owned by the registry and never freed before
     /// process exit: every Record* handed out stays valid, which is what lets
@@ -170,7 +170,7 @@ class TimeReport {
         }
     };
 
-    // --- Trace -----------------------------------------------------------
+    /// ## Trace
 
     struct TraceEvent {
         uint64_t      ts_us;
@@ -185,7 +185,7 @@ class TimeReport {
         libcxx::vector<TraceEvent> events;
     };
 
-    // --- Global state ----------------------------------------------------
+    /// ## Global state
 
   private:
     struct Registry {
@@ -254,7 +254,7 @@ class TimeReport {
     }
 
   public:
-    // --- Lifecycle -------------------------------------------------------
+    /// ## Lifecycle
 
     static bool enabled() { return enabled_flag().load(libcxx::memory_order_relaxed); }
     static bool tracing() { return trace_flag().load(libcxx::memory_order_relaxed); }
@@ -289,7 +289,7 @@ class TimeReport {
                         libcxx::memory_order_relaxed);
     }
 
-    // --- Region resolution -----------------------------------------------
+    /// ## Region resolution
 
     /// Interns \p name as a child of the region active on this thread.
     static Record *region(const char *name) {
@@ -347,7 +347,7 @@ class TimeReport {
         if (rec) { rec->idle.store(true, libcxx::memory_order_relaxed); }
     }
 
-    // --- Measurement -----------------------------------------------------
+    /// ## Measurement
 
     struct Frame {
         Record  *rec         = nullptr;
@@ -479,11 +479,11 @@ class TimeReport {
         }
     }
 
-    // --- POD enter/leave, for the Kairo wrapper --------------------------
-    //
-    //   Scope and friends are non-copyable and have no default ctor, so they
-    //   cannot be members of a Kairo class. These pass the same state as plain
-    //   values instead. Support/TimeReport.k is the only caller.
+    /// ## POD enter/leave, for the Kairo wrapper
+    ///
+    ///   Scope and friends are non-copyable and have no default ctor, so they
+    ///   cannot be members of a Kairo class. These pass the same state as plain
+    ///   values instead. Support/TimeReport.k is the only caller.
 
     struct RootBox {
         Record  *saved       = nullptr;
@@ -533,7 +533,7 @@ class TimeReport {
         root_leave(w.root);
     }
 
-    // --- RAII ------------------------------------------------------------
+    /// ## RAII
 
     /// Scoped region. Checks the enable flag once at construction; when off it
     /// costs one relaxed load and reads no clock.
@@ -620,7 +620,7 @@ class TimeReport {
         WorkerBox _w;
     };
 
-    // --- Reporting -------------------------------------------------------
+    /// ## Reporting
 
     /// Writes the aggregate report. \p out defaults to stderr, matching
     /// clang's -ftime-report, so it never contaminates -E / --emit output.
@@ -899,15 +899,15 @@ class TimeReport {
     }
 };
 
-// --- Flat facade ---------------------------------------------------------
-//
-//   Support/TimeReport.k binds to THESE, not to TimeReport's nested types.
-//   Stage0 has to be able to spell every type it touches, and
-//   `kairo::TimeReport::Frame` is three levels of qualification into a class
-//   body. Aliases and free functions keep the Kairo side to one namespace hop.
-//
-//   No logic lives here. Anything that is not a one-line forward belongs on
-//   TimeReport, where the C++ call sites can reach it too.
+/// # Flat facade
+///
+///   Support/TimeReport.k binds to THESE, not to TimeReport's nested types.
+///   Stage0 has to be able to spell every type it touches, and
+///   `kairo::TimeReport::Frame` is three levels of qualification into a class
+///   body. Aliases and free functions keep the Kairo side to one namespace hop.
+///
+///   No logic lives here. Anything that is not a one-line forward belongs on
+///   TimeReport, where the C++ call sites can reach it too.
 
 using KTimeRecord = TimeReport::Record;
 using KTimeFrame  = TimeReport::Frame;
@@ -930,6 +930,18 @@ inline void ktime_set_pool_size(int n)        { TimeReport::set_pool_size(n); }
 
 inline KTimeFrame ktime_enter(KTimeRecord *rec)    { return TimeReport::enter(rec, 1); }
 inline void       ktime_leave(const KTimeFrame &f) { TimeReport::leave(f); }
+
+/// The region clock, or 0 while timing is off (ktime_bill_since then bills
+/// nothing). For a span whose variables must outlive any one scope.
+inline uint64_t ktime_clock() { return TimeReport::enabled() ? TimeReport::clock_ns() : 0; }
+
+/// Bills [t0, now) to the child \p name of the region open on this thread.
+inline void ktime_bill_since(const char *name, uint64_t t0) {
+    if (t0 == 0 || !TimeReport::enabled()) { return; }
+    uint64_t now = TimeReport::clock_ns();
+    if (now <= t0) { return; }
+    TimeReport::record_span(TimeReport::region(name), t0, now - t0);
+}
 
 /// Sampled entry. Returns an unarmed frame on the (stride-1)/stride of calls
 /// that are not sampled, so leave() is a null check.

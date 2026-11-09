@@ -1,12 +1,12 @@
 /// --- The Kairo Project -------------------------- AST/Kind/ExprKind.k --- ///
 ///
-///   <short description>
+///   ExprKind, the discriminator enum for expression nodes.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -31,19 +31,16 @@
 ///     Sema-inserted expressions
 ///
 
-enum ExprKind derives u8 {
-    // -----------------------------------------------------------------------
-    //  Sentinel
-    // -----------------------------------------------------------------------
+
+pub enum ExprKind derives u8 {
+    /// # Sentinel
 
     /// Produced by the parser on a syntax error. Carries the bad source
     /// range. Sema skips any node whose kind is RecoveryExpr.
     /// `recovery_kind` on the Expr base stores what we were trying to parse.
     RecoveryExpr = 0,
 
-    // -----------------------------------------------------------------------
-    //  Scalar literals  [1 .. 6]
-    // -----------------------------------------------------------------------
+    /// # Scalar literals  [1 .. 6]
 
     /// Integer literal: 42 | 0xFF | 0b1010 | 0o77 | 1_000_000
     /// Node: IntegerLiteralExpr: token + numeric suffix type.
@@ -72,9 +69,7 @@ enum ExprKind derives u8 {
     /// Node: NullLiteralExpr: is_ref flag distinguishes &null.
     NullLiteralExpr,
 
-    // -----------------------------------------------------------------------
-    //  Collection literals  [7 .. 10]
-    // -----------------------------------------------------------------------
+    /// # Collection literals  [7 .. 10]
 
     /// Array literal: [1, 2, 3]
     /// Node: ListLiteralExpr
@@ -92,12 +87,10 @@ enum ExprKind derives u8 {
     /// Node: MapLiteralExpr: stores key-value pairs.
     MapLiteralExpr,
 
-    // -----------------------------------------------------------------------
-    //  Initializer expressions  [11 .. 12]
-    //
-    //  Distinguished from literals: initializers describe a type's storage
-    //  layout rather than a value sequence.
-    // -----------------------------------------------------------------------
+    /// # Initializer expressions  [11 .. 12]
+    ///
+    /// Distinguished from literals: initializers describe a type's storage
+    /// layout rather than a value sequence.
 
     /// Named (typed) struct/class initializer: Point { x: 1, y: 2 }
     /// Node: NamedInitializerExpr: type path + field list.
@@ -107,9 +100,7 @@ enum ExprKind derives u8 {
     /// Node: AnonInitializerExpr: no type path, sema infers from context.
     AnonInitializerExpr,
 
-    // -----------------------------------------------------------------------
-    //  Name / path / postfix expressions  [13 .. 17]
-    // -----------------------------------------------------------------------
+    /// # Name / path / postfix expressions  [13 .. 17]
 
     /// Pure access chain. Covers:
     ///   - field access:           foo.bar.baz
@@ -151,9 +142,7 @@ enum ExprKind derives u8 {
     /// Node: NamedIdentExpr: name: Token + generic_args: FrozenList<GenericArg>
     NamedIdentExpr,
 
-    // -----------------------------------------------------------------------
-    //  Operator expressions  [18 .. 20]
-    // -----------------------------------------------------------------------
+    /// # Operator expressions  [18 .. 20]
 
     /// Unary prefix or postfix operator:
     ///   prefix:   ++x | --x | !x | -x | ~x | &x | *x | delete x
@@ -177,11 +166,9 @@ enum ExprKind derives u8 {
     /// Node: AssignOperatorExpr: operator token + lhs + rhs.
     AssignOperatorExpr,
 
-    // -----------------------------------------------------------------------
-    //  Type-relation expressions  [21 .. 22]
-    //
-    //  Produce bool. Appear in requires clauses and conditions.
-    // -----------------------------------------------------------------------
+    /// # Type-relation expressions  [21 .. 22]
+    ///
+    /// Produce bool. Appear in requires clauses and conditions.
 
     /// Interface conformance test: T impl Interface
     /// Node: ImplConformanceExpr: lhs type + interface type.
@@ -191,11 +178,9 @@ enum ExprKind derives u8 {
     /// Node: DerivesRelationExpr: lhs type + base type.
     DerivesRelationExpr,
 
-    // -----------------------------------------------------------------------
-    //  Control-flow expressions  [23 .. 26]
-    //
-    //  All produce values. Sema enforces branch type compatibility.
-    // -----------------------------------------------------------------------
+    /// # Control-flow expressions  [23 .. 26]
+    ///
+    /// All produce values. Sema enforces branch type compatibility.
 
     /// If expression (block form): if cond { expr } else { expr }
     /// Requires else branch: sema error if absent.
@@ -214,9 +199,7 @@ enum ExprKind derives u8 {
     /// Node: RangeExpr: begin (nullable) + end (nullable) + is_inclusive.
     RangeExpr,
 
-    // -----------------------------------------------------------------------
-    //  Lambda / closure  [27]
-    // -----------------------------------------------------------------------
+    /// # Lambda / closure  [27]
 
     /// Anonymous function expression:
     ///   fn <T> (x: T, y: i32)|foo| -> i32 { x + y + foo }
@@ -224,9 +207,7 @@ enum ExprKind derives u8 {
     /// Node: ClosureExpr: params + optional generics + captures + return type + body.
     ClosureExpr,
 
-    // -----------------------------------------------------------------------
-    //  Async / concurrency expressions  [28 .. 30]
-    // -----------------------------------------------------------------------
+    /// # Async / concurrency expressions  [28 .. 30]
 
     /// Suspend current async task and await a future: await expr
     /// Node: AwaitExpr: operand: *Expr
@@ -240,9 +221,7 @@ enum ExprKind derives u8 {
     /// Node: ThreadExpr: operand: *Expr
     ThreadExpr,
 
-    // -----------------------------------------------------------------------
-    //  Intrinsic / builtin expressions  [31 .. 35]
-    // -----------------------------------------------------------------------
+    /// # Intrinsic / builtin expressions  [31 .. 35]
 
     /// Type conformance constraint: T impl Foo | T derives Base.
     /// Node: ConstraintExpr: lhs type, op (impl/derives), rhs type. A bool-
@@ -273,42 +252,33 @@ enum ExprKind derives u8 {
     /// Node: UnsafeExpr: operand: *Expr
     UnsafeExpr,
 
-    // -----------------------------------------------------------------------
-    //  Memory / lifetime expressions  [36]
-    // -----------------------------------------------------------------------
+    /// # Memory / lifetime expressions  [36]
 
-    /// Explicit heap deallocation: delete expr | delete [expr]
-    /// Node: DeleteExpr: operand: *Expr + is_array: bool
+    /// C++ deallocation: @cxx::delete p | @cxx::delete [] p (a bare
+    /// `delete p` is S091E, kept as this node for recovery only)
+    /// Node: DeleteExpr: operand: *Expr + is_array: bool + is_cxx: bool
     DeleteExpr,
 
-    // -----------------------------------------------------------------------
-    //  Variadic pack expressions  [37]
-    // -----------------------------------------------------------------------
+    /// # Variadic pack expressions  [37]
 
     /// Variadic unpack expansion: foo...
     /// Node: PackExpansionExpr: operand: *Expr
     PackExpansionExpr,
 
-    // -----------------------------------------------------------------------
-    //  Type cast  [38]
-    // -----------------------------------------------------------------------
+    /// # Type cast  [38]
 
     /// Explicit type cast: expr as Type
     /// Node: TypeCastExpr: value: *Expr + target: *Type, is_unsafe: bool
     TypeCastExpr,
 
-    // -----------------------------------------------------------------------
-    //  Sema-inserted  [39]
-    // -----------------------------------------------------------------------
+    /// # Sema-inserted  [39]
 
     /// Inserted by sema at FFI call boundaries. Carries:
     ///   original expr + source type + target ABI type
     /// Invisible to the programmer, visible in AST dumps for debugging.
     ImplicitBoundaryCastExpr,
 
-    // -----------------------------------------------------------------------
-    //  Source-fidelity  [40]
-    // -----------------------------------------------------------------------
+    /// # Source-fidelity  [40]
 
     /// Explicit parentheses: ( expr )
     /// Node: ParenExpr: inner: *Expr
@@ -367,14 +337,14 @@ enum ExprKind derives u8 {
     /// `unwrap!(e)`: the value of a nullable, or the program aborts.
     /// Node: UnwrapExpr: operand: *Expr. A parser intrinsic (the PP passes
     /// `unwrap!` through raw, like `label!`), so `e` is an ordinary parsed
-    /// expression; CoalesceLowering expands it (NULLABLE.md 2.6).
+    /// expression; CoalesceLowering expands it (Compiler/Spec/Nullables.md#unwrap).
     UnwrapExpr,
 
     /// `defined!(NAME)` for a NAME the preprocessor's own table does not
     /// hold (it writes `true` for one it does): clang's predefined macros
     /// and the TU's ffi headers' macros answer it. Node: DefinedExpr: name:
     /// Token. EvalIfFolding replaces every one with a bool literal in phase
-    /// E (EVAL.md §4.3); nothing after it sees one.
+    /// E (Compiler/Spec/Eval.md#defined); nothing after it sees one.
     DefinedExpr,
 
     /// An attribute applied to an expression: `@create Config(8080)`,
@@ -384,7 +354,7 @@ enum ExprKind derives u8 {
     /// FeatureGateCheck reports every one (SC116E).
     AttributedExpr,
 
-    /// The panic lowering's C++ with no Kairo spelling (PANIC.md §4.3,
+    /// The panic lowering's C++ with no Kairo spelling (Compiler/Spec/Panic.md#preamble-helpers,
     /// §4.4): widening a panic result (`fwd`), and the raw-storage slot a
     /// multi-site `try` carries its error out in. Node: PanicOpExpr: the
     /// op, an operand, the slot. Never parsed; PanicLowering mints it and
@@ -392,71 +362,129 @@ enum ExprKind derives u8 {
     PanicOpExpr,
 
     /// A type fact as a parser intrinsic: `is_trivially_copyable!(T)`,
-    /// `is_trivially_destructible!(T)` (EVAL.md 4.2b). Node: TypeTraitExpr:
+    /// `is_trivially_destructible!(T)` (Compiler/Spec/Eval.md#deferred-conditions). Node: TypeTraitExpr:
     /// the fact and its type operand. A bool; C++ computes it with the clang
     /// builtin of the same name, and the late `eval if` fold answers it from
     /// ClassLifecycle. Appended last so no existing kind renumbers.
     TypeTraitExpr,
 
-    // -----------------------------------------------------------------------
-    //  Marker
-    // -----------------------------------------------------------------------
+    /// `@cxx::new T(args)` / `@cxx::new [T; n]`: C++'s own `new`
+    /// (c-cpp-memory.mdx). Node: CxxNewExpr: the construction `T(args)`, or
+    /// `sizeof T` and the count. Appended last so no existing kind renumbers.
+    CxxNewExpr,
+
+    /// # Marker
     ExprKindCount,
 }
 
-fn to_string(ek: ExprKind) -> string {
-    switch ek {
-        case ExprKind::RecoveryExpr { return "RecoveryExpr"; }
-        case ExprKind::IntegerLiteralExpr { return "IntegerLiteralExpr"; }
-        case ExprKind::FloatingLiteralExpr { return "FloatingLiteralExpr"; }
-        case ExprKind::StringLiteralExpr { return "StringLiteralExpr"; }
-        case ExprKind::CharacterLiteralExpr { return "CharacterLiteralExpr"; }
-        case ExprKind::BooleanLiteralExpr { return "BooleanLiteralExpr"; }
-        case ExprKind::NullLiteralExpr { return "NullLiteralExpr"; }
-        case ExprKind::ListLiteralExpr { return "ListLiteralExpr"; }
-        case ExprKind::TupleLiteralExpr { return "TupleLiteralExpr"; }
-        case ExprKind::SetLiteralExpr { return "SetLiteralExpr"; }
-        case ExprKind::MapLiteralExpr { return "MapLiteralExpr"; }
-        case ExprKind::NamedInitializerExpr { return "NamedInitializerExpr"; }
-        case ExprKind::AnonInitializerExpr { return "AnonInitializerExpr"; }
-        case ExprKind::ChainExpr { return "ChainExpr"; }
-        case ExprKind::CallExpr { return "CallExpr"; }
-        case ExprKind::SubscriptExpr { return "SubscriptExpr"; }
-        case ExprKind::NamedIdentExpr { return "NamedIdentExpr"; }
-        case ExprKind::UnaryOperatorExpr { return "UnaryOperatorExpr"; }
-        case ExprKind::BinaryOperatorExpr { return "BinaryOperatorExpr"; }
-        case ExprKind::AssignOperatorExpr { return "AssignOperatorExpr"; }
-        case ExprKind::ImplConformanceExpr { return "ImplConformanceExpr"; }
-        case ExprKind::DerivesRelationExpr { return "DerivesRelationExpr"; }
-        case ExprKind::IfExpr { return "IfExpr"; }
-        case ExprKind::TryCatchExpr { return "TryCatchExpr"; }
-        case ExprKind::MatchExpr { return "MatchExpr"; }
-        case ExprKind::RangeExpr { return "RangeExpr"; }
-        case ExprKind::ClosureExpr { return "ClosureExpr"; }
-        case ExprKind::AwaitExpr { return "AwaitExpr"; }
-        case ExprKind::SpawnExpr { return "SpawnExpr"; }
-        case ExprKind::ThreadExpr { return "ThreadExpr"; }
-        case ExprKind::ConstraintExpr { return "ConstraintExpr"; }
-        case ExprKind::SizeOfExpr { return "SizeOfExpr"; }
-        case ExprKind::AlignOfExpr { return "AlignOfExpr"; }
-        case ExprKind::TypeOfExpr { return "TypeOfExpr"; }
-        case ExprKind::EvalExpr { return "EvalExpr"; }
-        case ExprKind::UnsafeExpr { return "UnsafeExpr"; }
-        case ExprKind::DeleteExpr { return "DeleteExpr"; }
-        case ExprKind::PackExpansionExpr { return "PackExpansionExpr"; }
-        case ExprKind::TypeCastExpr { return "TypeCastExpr"; }
-        case ExprKind::ImplicitBoundaryCastExpr { return "ImplicitBoundaryCastExpr"; }
-        case ExprKind::ParenExpr { return "ParenExpr"; }
-        case ExprKind::VerbatimExpr { return "VerbatimExpr"; }
-        case ExprKind::NamedArgExpr { return "NamedArgExpr"; }
-        case ExprKind::InitListExpr { return "InitListExpr"; }
-        case ExprKind::StmtExpr { return "StmtExpr"; }
-        case ExprKind::VariantInitExpr { return "VariantInitExpr"; }
-        case ExprKind::UnwrapExpr { return "UnwrapExpr"; }
-        case ExprKind::DefinedExpr { return "DefinedExpr"; }
-        case ExprKind::AttributedExpr { return "AttributedExpr"; }
-        case ExprKind::PanicOpExpr { return "PanicOpExpr"; }
-        case ExprKind::TypeTraitExpr { return "TypeTraitExpr"; }
-        case ExprKind::ExprKindCount { return "ExprKindCount"; }
+pub fn to_string(ek: ExprKind) -> string {
+    match ek {
+        case ExprKind::RecoveryExpr {
+            return "RecoveryExpr"
+        } case ExprKind::IntegerLiteralExpr {
+            return "IntegerLiteralExpr"
+        } case ExprKind::FloatingLiteralExpr {
+            return "FloatingLiteralExpr"
+        } case ExprKind::StringLiteralExpr {
+            return "StringLiteralExpr"
+        } case ExprKind::CharacterLiteralExpr {
+            return "CharacterLiteralExpr"
+        } case ExprKind::BooleanLiteralExpr {
+            return "BooleanLiteralExpr"
+        } case ExprKind::NullLiteralExpr {
+            return "NullLiteralExpr"
+        } case ExprKind::ListLiteralExpr {
+            return "ListLiteralExpr"
+        } case ExprKind::TupleLiteralExpr {
+            return "TupleLiteralExpr"
+        } case ExprKind::SetLiteralExpr {
+            return "SetLiteralExpr"
+        } case ExprKind::MapLiteralExpr {
+            return "MapLiteralExpr"
+        } case ExprKind::NamedInitializerExpr {
+            return "NamedInitializerExpr"
+        } case ExprKind::AnonInitializerExpr {
+            return "AnonInitializerExpr"
+        } case ExprKind::ChainExpr {
+            return "ChainExpr"
+        } case ExprKind::CallExpr {
+            return "CallExpr"
+        } case ExprKind::SubscriptExpr {
+            return "SubscriptExpr"
+        } case ExprKind::NamedIdentExpr {
+            return "NamedIdentExpr"
+        } case ExprKind::UnaryOperatorExpr {
+            return "UnaryOperatorExpr"
+        } case ExprKind::BinaryOperatorExpr {
+            return "BinaryOperatorExpr"
+        } case ExprKind::AssignOperatorExpr {
+            return "AssignOperatorExpr"
+        } case ExprKind::ImplConformanceExpr {
+            return "ImplConformanceExpr"
+        } case ExprKind::DerivesRelationExpr {
+            return "DerivesRelationExpr"
+        } case ExprKind::IfExpr {
+            return "IfExpr"
+        } case ExprKind::TryCatchExpr {
+            return "TryCatchExpr"
+        } case ExprKind::MatchExpr {
+            return "MatchExpr"
+        } case ExprKind::RangeExpr {
+            return "RangeExpr"
+        } case ExprKind::ClosureExpr {
+            return "ClosureExpr"
+        } case ExprKind::AwaitExpr {
+            return "AwaitExpr"
+        } case ExprKind::SpawnExpr {
+            return "SpawnExpr"
+        } case ExprKind::ThreadExpr {
+            return "ThreadExpr"
+        } case ExprKind::ConstraintExpr {
+            return "ConstraintExpr"
+        } case ExprKind::SizeOfExpr {
+            return "SizeOfExpr"
+        } case ExprKind::AlignOfExpr {
+            return "AlignOfExpr"
+        } case ExprKind::TypeOfExpr {
+            return "TypeOfExpr"
+        } case ExprKind::EvalExpr {
+            return "EvalExpr"
+        } case ExprKind::UnsafeExpr {
+            return "UnsafeExpr"
+        } case ExprKind::DeleteExpr {
+            return "DeleteExpr"
+        } case ExprKind::PackExpansionExpr {
+            return "PackExpansionExpr"
+        } case ExprKind::TypeCastExpr {
+            return "TypeCastExpr"
+        } case ExprKind::ImplicitBoundaryCastExpr {
+            return "ImplicitBoundaryCastExpr"
+        } case ExprKind::ParenExpr {
+            return "ParenExpr"
+        } case ExprKind::VerbatimExpr {
+            return "VerbatimExpr"
+        } case ExprKind::NamedArgExpr {
+            return "NamedArgExpr"
+        } case ExprKind::InitListExpr {
+            return "InitListExpr"
+        } case ExprKind::StmtExpr {
+            return "StmtExpr"
+        } case ExprKind::VariantInitExpr {
+            return "VariantInitExpr"
+        } case ExprKind::UnwrapExpr {
+            return "UnwrapExpr"
+        } case ExprKind::DefinedExpr {
+            return "DefinedExpr"
+        } case ExprKind::AttributedExpr {
+            return "AttributedExpr"
+        } case ExprKind::PanicOpExpr {
+            return "PanicOpExpr"
+        } case ExprKind::TypeTraitExpr {
+            return "TypeTraitExpr"
+        } case ExprKind::CxxNewExpr {
+            return "CxxNewExpr"
+        } case ExprKind::ExprKindCount {
+            return "ExprKindCount"
+        }
     }
 }

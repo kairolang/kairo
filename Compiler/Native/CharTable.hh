@@ -1,10 +1,13 @@
-/// --- The Kairo Project -------------------------------------------------- ///
+/// --- The Kairo Project -------------------------- Native/CharTable.hh --- ///
+///
+///   Character classification tables for the lexer: ASCII name/operator flags,
+///   Unicode ranges and char32_t normalization.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -309,9 +312,8 @@ inline char32_t normalize_char32(char32_t ch) noexcept {
     return ch;
 }
 
-///------------------------------------------------------------
-///  Unicode classification (for non-ASCII chars)
-///------------------------------------------------------------
+/// # Unicode classification (for non-ASCII chars)
+
 inline CharClass classify_unicode(char32_t ch) noexcept {
     if (libcxx::iswspace(static_cast<wint_t>(ch)) != 0) {
         return CharClass::Whitespace;

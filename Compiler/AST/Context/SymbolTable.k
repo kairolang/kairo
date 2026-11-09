@@ -12,17 +12,23 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "llvm/ADT/MapVector.h";
-import AST::Node::Base::*;
-import Token::TokenKind::*;
-import AST::Context::ASTContext::*;
-import Lexer::Immediate::*;
+ffi "c++" import "llvm/ADT/MapVector.h"
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
+
+import AST::Context::ASTContext::ASTContext
+import AST::Node::Base::Decl
+import Lexer::Immediate::ImmediateTable
+import Token::TokenKind::{
+    TokenKind,
+    canonical_operator_kind,
+}
 
 /// \enum DeclNameKind
 /// \brief Discriminates the kind of a lookup key.
@@ -34,7 +40,7 @@ import Lexer::Immediate::*;
 ///          unlike Clang's CanQualType-keyed constructor names   Kairo ctors
 ///          are only declarable inside the type body, so no global key is
 ///          ever needed.
-enum DeclNameKind derives u8 {
+pub enum DeclNameKind derives u8 {
     /// Plain identifier. payload = this TU's imm ident index.
     Identifier = 0,
     /// Overloaded operator. payload = packed op-token kinds (see op_name).
@@ -42,7 +48,7 @@ enum DeclNameKind derives u8 {
     /// Constructor of the enclosing type scope. payload = 0.
     Constructor,
     /// Destructor of the enclosing type scope. payload = 0.
-    /// NOTE: `fn op delete` currently keys as Operator(delete); this kind is
+    /// NOTE: `fn op finally` currently keys as Operator(finally); this kind is
     ///       reserved for when sema canonicalizes lifecycle members.
     Destructor,
 }
@@ -52,18 +58,18 @@ enum DeclNameKind derives u8 {
 ///
 /// \invariant Identifier payloads are PER-TU imm indices. A DeclName built
 ///            in TU A never keys a table of TU B import folding re-interns
-///            (RESOLUTION.md hard invariant #2).
-class DeclName {
-    pub var kind:    DeclNameKind = DeclNameKind::Identifier;
-    pub var payload: u32          = u32(-1);
+///            (Compiler/Spec/Pipeline.md hard invariant #2).
+pub class DeclName {
+    pub var kind:    DeclNameKind = DeclNameKind::Identifier
+    pub var payload: u32          = u32::MAX
 
     fn DeclName(self) { }
 
-    static fn ident(imm: u32) -> DeclName {
-        var n = DeclName{};
-        n.kind    = DeclNameKind::Identifier;
-        n.payload = imm;
-        return n;
+    pub static fn ident(imm: u32) -> DeclName {
+        var n = DeclName()
+        n.kind    = DeclNameKind::Identifier
+        n.payload = imm
+        return n
     }
 
     /// Operator key from the (up to two) operator tokens of `fn op <x>`.
@@ -73,74 +79,86 @@ class DeclName {
     /// keys, are safe to compare cross-TU (ADL relies on this).
     /// Keyed on the canonical kinds, so a word-form operator (`op bitand`)
     /// and its symbol (`a & b`) are one cell.
-    static fn op_name(k0: TokenKind, k1: TokenKind) -> DeclName {
-        var c0 = canonical_operator_kind(k0);
-        var c1 = canonical_operator_kind(k1);
-        var n = DeclName{};
-        n.kind    = DeclNameKind::Operator;
-        n.payload = ((static_cast::<u32>(c0) & 0xFFFF) << 16)
-                  |  (static_cast::<u32>(c1) & 0xFFFF);
-        return n;
+    pub static fn op_name(k0: TokenKind, k1: TokenKind) -> DeclName {
+        var c0 = canonical_operator_kind(k0)
+        var c1 = canonical_operator_kind(k1)
+        var n  = DeclName()
+        n.kind    = DeclNameKind::Operator
+        n.payload = ((c0 as u32) & 0xFFFF) << 16 | (c1 as u32) & 0xFFFF
+        return n
     }
 
-    static fn op_name(k0: TokenKind) -> DeclName {
-        return DeclName::op_name(k0, TokenKind::TkUnknown);
+    pub static fn op_name(k0: TokenKind) -> DeclName {
+        return DeclName::op_name(k0, TokenKind::TkUnknown)
     }
 
     /// Context-relative constructor key. The context being queried already
     /// identifies the type, so the key carries none.
-    static fn ctor() -> DeclName {
-        var n = DeclName{};
-        n.kind    = DeclNameKind::Constructor;
-        n.payload = 0;
-        return n;
+    pub static fn ctor() -> DeclName {
+        var n = DeclName()
+        n.kind    = DeclNameKind::Constructor
+        n.payload = 0
+        return n
     }
 
     static fn dtor() -> DeclName {
-        var n = DeclName{};
-        n.kind    = DeclNameKind::Destructor;
-        n.payload = 0;
-        return n;
+        var n = DeclName()
+        n.kind    = DeclNameKind::Destructor
+        n.payload = 0
+        return n
     }
 
     /// The map key. Integer hash, no string compares on the hot path.
-    fn as_key(self) -> u64 {
-        return (static_cast::<u64>(static_cast::<u8>(self.kind)) << 32)
-             |  static_cast::<u64>(self.payload);
+    pub fn as_key(self) -> u64 {
+        return ((self.kind as u8) as u64) << 32 | (self.payload as u64)
     }
 
-    fn is_ident(self) -> bool { return self.kind == DeclNameKind::Identifier;  }
-    fn is_op(self)    -> bool { return self.kind == DeclNameKind::Operator;    }
-    fn is_ctor(self)  -> bool { return self.kind == DeclNameKind::Constructor; }
+    pub fn is_ident(self) -> bool {
+        return self.kind == DeclNameKind::Identifier
+    }
+
+    pub fn is_op(self) -> bool {
+        return self.kind == DeclNameKind::Operator
+    }
+
+    fn is_ctor(self) -> bool {
+        return self.kind == DeclNameKind::Constructor
+    }
 
     /// A default-constructed / failed-intern name. Never insert these.
     fn is_valid(self) -> bool {
-        return (self.kind != DeclNameKind::Identifier) || (self.payload != u32(-1));
+        return self.kind != DeclNameKind::Identifier || self.payload != u32::MAX
     }
 
     /// Reverse-decode this key to a human-readable name for dumps ONLY.
     /// Never use in a hot path diagnostics/dump.
-    fn describe(self, ctx: *ASTContext) -> string {
-        switch self.kind {
+    pub fn describe(self, ctx: unsafe *ASTContext) -> string {
+        match self.kind {
             case DeclNameKind::Identifier {
-                if ctx == &null { return "<ident?>"; }
-                var tbl = ctx->get_imm_table();
-                if tbl == &null { return "<ident?>"; }
-                return tbl->get_ident(self.payload);
-            }
-            case DeclNameKind::Operator {
+                if ctx == &null {
+                    return "<ident?>"
+                }
+
+                var unsafe *tbl = ctx->get_imm_table()
+                if tbl == &null {
+                    return "<ident?>"
+                }
+
+                return tbl->get_ident(self.payload)
+            } case DeclNameKind::Operator {
                 // The operator key packs two u32 TokenKind hashes lossily into
                 // one u32 payload   good enough to key/disambiguate, but NOT
                 // reversible to a spelling. Callers that have the decl in hand
                 // (e.g. the symbol dumper) render the name from the operator's
                 // op_token via ctx->get_spelling instead. This is only the
                 // keyless fallback for when no decl is available.
-                return "op";
+                return "op"
+            } case DeclNameKind::Constructor {
+                return "<ctor>"
+            } case DeclNameKind::Destructor {
+                return "<dtor>"
             }
-            case DeclNameKind::Constructor { return "<ctor>"; }
-            case DeclNameKind::Destructor  { return "<dtor>"; }
         }
-        return "<name?>";
     }
 }
 
@@ -154,35 +172,50 @@ class DeclName {
 ///          pile in. The parser records; sema judges (redefinition errors,
 ///          Redeclarable chain linking, and overload validation are N(a)'s
 ///          job, nowhere else).
-class OverloadCell {
-    pub var first: obs::<Decl>;    ///< first decl appended; non-null once the cell exists.
-    pub var rest:  vec::<*Decl>;   ///< 2nd+ decls; empty in the common case.
+pub class OverloadCell {
+    pub var first: unsafe *Decl ///< first decl appended; non-null once the cell exists.
+    pub var rest:  cxx::std::vector<unsafe *Decl> ///< 2nd+ decls; empty in the common case.
 
-    fn OverloadCell(self) {
-        self.first = &null;
+    pub fn OverloadCell(self) {
+        self.first = &null
     }
 
-    fn append(self, d: *Decl) {
+    pub fn append(self, d: unsafe *Decl) {
         if self.first == &null {
-            self.first = d;
-            return;
+            self.first = d
+            return
         }
-        self.rest.push_back(d);
+
+        self.rest.push_back(d)
     }
 
-    fn size(self) -> usize {
-        if self.first == &null { return 0; }
-        return 1 + self.rest.size();
+    pub fn size(self) -> usize {
+        if self.first == &null {
+            return 0
+        }
+
+        return 1 + self.rest.size()
     }
 
-    fn get(self, i: usize) -> *Decl {
-        if i == 0 { return self.first; }
-        if (i - 1) < self.rest.size() { return self.rest[(i - 1)]; }
-        return &null;
+    pub fn get(self, i: usize) -> unsafe *Decl {
+        if i == 0 {
+            return self.first
+        }
+
+        if i - 1 < self.rest.size() {
+            return self.rest[i - 1]
+        }
+
+        return &null
     }
 
-    fn is_single(self)     -> bool { return (self.first != &null) && (self.rest.empty()); }
-    fn is_overloaded(self) -> bool { return !self.rest.empty(); }
+    pub fn is_single(self) -> bool {
+        return self.first != &null && self.rest.empty()
+    }
+
+    pub fn is_overloaded(self) -> bool {
+        return !self.rest.empty()
+    }
 }
 
 /// \class SymbolTable
@@ -211,52 +244,73 @@ class OverloadCell {
 ///   address: lookup() hands out an *OverloadCell that must survive later
 ///   appends, and MapVector's values move as it grows. One arena per
 ///   context, not per table -- there is a table per DeclContext.
-class SymbolTable {
-    priv var _cells:  llvm::MapVector::<u64, *OverloadCell>;
-    priv var _ctx:    obs::<ASTContext>;      ///< arena the cells come from.
-    priv var _frozen: bool = false;
+pub class SymbolTable {
+    priv var _cells:  llvm::MapVector<u64, unsafe *OverloadCell>
+    priv var _ctx:    unsafe *ASTContext ///< arena the cells come from.
+    priv var _frozen: bool                                       = false
 
-    fn SymbolTable(self, ctx: *ASTContext) {
-        self._ctx    = ctx;
-        self._frozen = false;
+    fn SymbolTable(self, ctx: unsafe *ASTContext) {
+        self._ctx    = ctx
+        self._frozen = false
     }
 
-    // --- Population (parse-time only) ----------------------------------------
+    /// # Population (parse-time only)
 
-    fn append(self, name: DeclName, d: *Decl) {
-        assert((!self._frozen) && r"SymbolTable::append after freeze: post-parse source tables take no inserts (RESOLUTION.md hard invariant #1)");
-        if !name.is_valid() { return; }
-        var slot = &(self._cells[name.as_key()]);
-        if (*slot) == &null { (*slot) = self._ctx->alloc::<OverloadCell>(); }
-        (*slot)->append(d);
+    pub fn append(self, name: DeclName, d: unsafe *Decl) {
+        eval if defined!(DEBUG) {
+            if self._frozen {
+                kairo::std::ice_fail(
+                    r"SymbolTable::append after freeze: post-parse source tables take no inserts (Compiler/Spec/Pipeline.md hard invariant #1)",
+                )
+            }
+        }
+
+        if !name.is_valid() {
+            return
+        }
+
+        var unsafe **slot = unsafe &self._cells[name.as_key()]
+        if *slot == &null {
+            *slot = self._ctx->alloc<OverloadCell>()
+        }
+
+        (*slot)->append(d)
     }
 
-    fn append_ident(self, imm: u32, d: *Decl) {
-        self.append(DeclName::ident(imm), d);
+    pub fn append_ident(self, imm: u32, d: unsafe *Decl) {
+        self.append(DeclName::ident(imm), d)
     }
 
-    fn freeze(self)          { self._frozen = true;  }
-    fn is_frozen(self) -> bool { return self._frozen; }
+    pub fn freeze(self) {
+        self._frozen = true
+    }
 
-    // --- Lookup ---------------------------------------------------------------
+    pub fn is_frozen(self) -> bool {
+        return self._frozen
+    }
+
+    /// # Lookup
 
     /// This scope only, no parent walk. Null if absent. Unqualified lookup
     /// (DC parent chain, then import_overlay at TU level) and qualified
     /// lookup (follow decl->dc_symbols per segment) are built on top of
     /// this by NameResolution.
-    fn lookup(self, name: DeclName) -> *OverloadCell {
-        var it = self._cells.find(name.as_key());
-        if it == self._cells.end() { return &null; }
-        return it->second;
+    pub fn lookup(self, name: DeclName) -> unsafe *OverloadCell {
+        var unsafe *it = self._cells.find(name.as_key())
+        if it == self._cells.end() {
+            return &null
+        }
+
+        return it->second
     }
 
-    fn lookup_ident(self, imm: u32) -> *OverloadCell {
-        return self.lookup(DeclName::ident(imm));
+    fn lookup_ident(self, imm: u32) -> unsafe *OverloadCell {
+        return self.lookup(DeclName::ident(imm))
     }
 
     /// \brief Cross-TU boundary lookup (ImportResolution ONLY).
     ///
-    /// \details Frozen tables are keyed by PER-TU imm indices (RESOLUTION.md
+    /// \details Frozen tables are keyed by PER-TU imm indices (Compiler/Spec/Pipeline.md
     ///          hard invariant #2): a raw u32 from the importing TU is
     ///          meaningless in the source TU. At the import boundary we spell
     ///          the importing token and re-intern it against the SOURCE TU's
@@ -278,46 +332,56 @@ class SymbolTable {
     /// \param src_imms  the SOURCE TU's imm table (tcm->get_imm_table_for_fid).
     /// \param spelling  the imported name as spelled in the importing TU.
     /// \return the matching OverloadCell in \p tbl, or null (absent/foreign).
-    static fn lookup_foreign(tbl: *SymbolTable, src_imms: *ImmediateTable,
-                             spelling: string) -> *OverloadCell {
-        if (tbl == &null) || (src_imms == &null) { return &null; }
-        var src_imm = src_imms->find_ident(spelling);
-        if src_imm != static_cast::<u32>(-1) { return tbl->lookup_ident(src_imm); }
+    pub static fn lookup_foreign(tbl:            unsafe *SymbolTable,
+                                 src_imms:       unsafe *ImmediateTable,
+                                 const spelling: string) -> unsafe *OverloadCell {
+        if tbl == &null || src_imms == &null {
+            return &null
+        }
+
+        var src_imm = src_imms->find_ident(spelling)
+        if src_imm != ((-1) as i32 as u32) {
+            return tbl->lookup_ident(src_imm)
+        }
+
         // `#name` is the escape for a foreign name that is a Kairo keyword:
         // `cxx::std::#thread`. Only on a miss, so a Kairo name declared with
         // the `#` keeps it, and a C or C++ name can never contain one.
-        if (spelling.size() > 1) && (spelling[0] == '#') {
-            src_imm = src_imms->find_ident(spelling.subslice(1, spelling.size() - 1));
-            if src_imm != static_cast::<u32>(-1) { return tbl->lookup_ident(src_imm); }
+        if spelling.size() > 1 && spelling[0] == ('#' as u8) {
+            src_imm = src_imms->find_ident(spelling.subslice(1, spelling.size() - 1))
+            if src_imm != ((-1) as i32 as u32) {
+                return tbl->lookup_ident(src_imm)
+            }
         }
-        return &null;   // absent in source
+
+        return &null // absent in source
     }
 
     fn has(self, name: DeclName) -> bool {
-        return self._cells.count(name.as_key()) > 0;
+        return self._cells.count(name.as_key()) > 0
     }
 
-    fn size(self) -> usize {
-        return self._cells.size();
+    pub fn size(self) -> usize {
+        return self._cells.size()
     }
 
     fn empty(self) -> bool {
-        return self._cells.size() == 0;
+        return self._cells.size() == 0
     }
 
     /// A single row, materialized for dumping.
-    class Entry {
-        pub var name: DeclName;            ///< reconstructed key; decode with name.describe(ctx).
-        pub var cell: obs::<OverloadCell>;
+    pub class Entry {
+        pub var name: DeclName             ///< reconstructed key; decode with name.describe(ctx).
+        pub var cell: unsafe *OverloadCell
     }
 
-    fn collect_entries(self, out: ref!(vec::<Entry>)) {
-        for var it = self._cells.begin(); it != self._cells.end(); ++it {
-            var e = Entry{};
-            e.name.kind    = static_cast::<DeclNameKind>(static_cast::<u8>((it->first >> 32) & 0xFF));
-            e.name.payload = static_cast::<u32>(it->first & 0xFFFFFFFF);
-            e.cell         = it->second;
-            out.push_back(e);
+    pub fn collect_entries(self, @inout out: cxx::std::vector<Self::Entry>) {
+        for var unsafe *it = self._cells.begin(); it != self._cells.end(); ++it {
+            var e = Self::Entry{}
+            e.name.kind    = (((it->first >> 32 & 0xFF) as u8) as DeclNameKind)
+            e.name.payload = ((it->first & 0xFFFFFFFF) as u32)
+            e.cell         = it->second
+            out.push_back(e)
         }
     }
 }

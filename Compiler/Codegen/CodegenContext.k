@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------- Codegen/CodegenContext.k ----- ///
+/// --- The Kairo Project --------------------- Codegen/CodegenContext.k --- ///
 ///
 ///   \brief Durable shared state for all emitters. Emitters borrow a
 ///          *CodegenContext; only the Backend driver constructs one.
@@ -16,104 +16,123 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import AST::Context::ASTContext::*;
-import AST::Context::TranslationUnit::*;
-import AST::Context::InstantiationRegistry::*;
-import AST::Node::Base::*;
-import Preprocessor::PreprocessorSymbolTable::*;
-import Codegen::Sink::EmitSink::*;
+ffi "c++" import "Native/Types.hh"
 
-enum CodegenPhase derives u8 {
-    Ready = 0,   ///< Context wired, nothing emitted.
-    Planned,     ///< EmitPlan built.
-    Emitted,     ///< Token stream fully emitted; eof appended.
+import AST::Context::ASTContext::ASTContext
+import AST::Context::InstantiationRegistry::InstantiationRegistry
+import AST::Context::TranslationUnit::TranslationUnit
+import Codegen::Sink::EmitSink::EmitSink
+import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
+
+pub enum CodegenPhase derives u8 {
+    Ready = 0, ///< Context wired, nothing emitted.
+    Planned,   ///< EmitPlan built.
+    Emitted,   ///< Token stream fully emitted; eof appended.
 }
 
 /// Emission switches. Every one is a build-wide decision, never per site.
-class EmitOptions {
+pub class EmitOptions {
     /// Same-file extension members ALSO declared as inline member wrappers
     /// in the class body. OFF: the class text carries only its `friend
     /// struct` line and an extension member is reached as a static member
     /// of its scope from Kairo and C++ alike. Kept as a switch, not deleted, so the surface can be
     /// reopened without re-deriving where the wrapper would go.
-    pub var extension_member_wrappers: bool = false;
+    pub var extension_member_wrappers: bool = false
     /// -funwind: closures and `__kairo_fn`'s call path are not `noexcept`
     /// (a function's own spelling is FunctionDecl::no_unwind, decided in X).
-    pub var unwind: bool = false;
+    pub var unwind: bool = false
     /// -Wshift-count-unproven: EmitIR names every shift that pays for its
     /// count mask, on an ARM32 target (the only ones it costs on).
-    pub var warn_unproven_shift: bool = false;
+    pub var warn_unproven_shift: bool = false
     /// The triple the C++ is compiled for; "" before the driver resolved it.
-    pub var target_triple: string = "";
+    pub var target_triple: string = ""
     /// The objects are linked into an executable here (no --shared, no -c):
     /// every Kairo TU lands in it, so a user `thread` global's offset from
     /// the thread pointer is a link-time constant (CXXSpell::tls_model).
-    pub var exe_link: bool = false;
+    pub var exe_link: bool = false
     /// The target's objects are ELF, the one format whose TLS models the
     /// tls_model attribute picks between.
-    pub var elf: bool = false;
+    pub var elf: bool = false
     /// --tls-model, "" when not given (CXXSpell::tls_model picks per global).
-    pub var tls_model: string = "";
+    pub var tls_model: string = ""
 
     fn EmitOptions(self) { }
 }
 
-class CodegenContext {
-    pub var ctx:       obs::<ASTContext>;
-    pub var tu:        obs::<TranslationUnit>;
-    pub var sink:      obs::<EmitSink>;
+pub class CodegenContext {
+    pub var ctx:  unsafe *ASTContext
+    pub var tu:   unsafe *TranslationUnit
+    pub var sink: unsafe *EmitSink
     /// PP symbol table: `module_base` segments are PP SymbolIDs, and the C++
-    /// namespace path is rendered from them (IMPORTS.md invariant 9).
-    pub var psym:      obs::<PreprocessorSymbolTable>;
+    /// namespace path is rendered from them (Compiler/Spec/Pipeline.md invariant 20).
+    pub var psym: unsafe *PreprocessorSymbolTable
     /// The build's instance registry: tier 3 of the plan, and the args a
     /// shell node does not carry itself.
-    pub var instances: obs::<InstantiationRegistry>;
-    pub var opts:      EmitOptions;
-    pub var phase:     CodegenPhase = CodegenPhase::Ready;
+    pub var instances: unsafe *InstantiationRegistry
+    pub var opts:      EmitOptions
+    pub var phase:     CodegenPhase                  = CodegenPhase::Ready
 
 
     fn CodegenContext(self) {
-        self.ctx       = &null;
-        self.tu        = &null;
-        self.sink      = &null;
-        self.psym      = &null;
-        self.instances = &null;
-        self.phase     = CodegenPhase::Ready;
+        self.ctx       = &null
+        self.tu        = &null
+        self.sink      = &null
+        self.psym      = &null
+        self.instances = &null
+        self.phase     = CodegenPhase::Ready
     }
 
-    fn CodegenContext(self, ctx: *ASTContext, sink: *EmitSink,
-                      psym: *PreprocessorSymbolTable, instances: *InstantiationRegistry) {
-        self.ctx       = ctx;
-        self.tu        = reinterpret_cast::<*TranslationUnit>(ctx->tu);
-        self.sink      = sink;
-        self.psym      = psym;
-        self.instances = instances;
-        self.phase     = CodegenPhase::Ready;
-        if sink != &null { sink->ice_ctx = ctx; }
-        if (ctx->ci != &null) && (ctx->ci->lang.unwind == 1) { self.opts.unwind = true; }
+    pub fn CodegenContext(self,
+                          ctx:       unsafe *ASTContext,
+                          sink:      unsafe *EmitSink,
+                          psym:      unsafe *PreprocessorSymbolTable,
+                          instances: unsafe *InstantiationRegistry) {
+        self.ctx       = ctx
+        self.tu        = ctx->tu
+        self.sink      = sink
+        self.psym      = psym
+        self.instances = instances
+        self.phase     = CodegenPhase::Ready
+        if sink != &null {
+            sink->ice_ctx = ctx
+        }
+
+        if ctx->ci != &null && ctx->ci->lang.unwind == 1 {
+            self.opts.unwind = true
+        }
+
         if ctx->ci != &null {
-            self.opts.warn_unproven_shift = ctx->ci->diag.Wshift_count_unproven;
-            self.opts.target_triple       = ctx->ci->target.effective_triple;
-            self.opts.exe_link            = (!ctx->ci->linker.shared) && (!ctx->ci->linker.compile_only);
-            self.opts.elf                 = ctx->ci->target.object_format == "ELF";
-            self.opts.tls_model           = ctx->ci->codegen.tls_model;
+            self.opts.warn_unproven_shift = ctx->ci->diag.Wshift_count_unproven
+            self.opts.target_triple       = ctx->ci->target.effective_triple
+            self.opts.exe_link            = !ctx->ci->linker.shared && !ctx->ci->linker.compile_only
+            self.opts.elf                 = ctx->ci->target.object_format == "ELF"
+            self.opts.tls_model           = ctx->ci->codegen.tls_model
         }
     }
 
     fn require_phase(self, min: CodegenPhase) {
-        assert((static_cast::<u8>(self.phase) >= static_cast::<u8>(min))
-               && r"CodegenContext: emitter ran before its precondition phase (driver schedule bug)");
+        eval if defined!(DEBUG) {
+            if !((self.phase as u8) >= (min as u8)) {
+                kairo::std::ice_fail(
+                    r"CodegenContext: emitter ran before its precondition phase (driver schedule bug)",
+                )
+            }
+        }
     }
 
-    fn advance_phase(self, p: CodegenPhase) {
-        assert((static_cast::<u8>(p) > static_cast::<u8>(self.phase))
-               && r"CodegenContext: phase must advance monotonically");
-        self.phase = p;
+    pub fn advance_phase(self, p: CodegenPhase) {
+        eval if defined!(DEBUG) {
+            if !((p as u8) > (self.phase as u8)) {
+                kairo::std::ice_fail(r"CodegenContext: phase must advance monotonically")
+            }
+        }
+
+        self.phase = p
     }
 }

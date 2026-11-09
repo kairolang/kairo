@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------- Diagnostic/ClangDiagAdapter.k ------ ///
+/// --- The Kairo Project ---------------- Diagnostic/ClangDiagAdapter.k --- ///
 ///
 ///   Adapter: clang::DiagnosticConsumer -> DiagEngine/BufferedDiagSink.
 ///   Translates backend diagnostics into Kairo Diagnostic objects so
@@ -7,31 +7,40 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "llvm/ADT/DenseMap.h";
-ffi "c++" import "Native/Types.hh";
-ffi "c++" import "clang/Basic/Diagnostic.h";
-ffi "c++" import "clang/Basic/DiagnosticIDs.h";
-ffi "c++" import "clang/Basic/SourceManager.h";
-ffi "c++" import "llvm/ADT/SmallString.h";
-ffi "c++" import "clang/Lex/Lexer.h";
+ffi "c++" import "llvm/ADT/DenseMap.h"
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "Native/KClangDiag.hh"
+ffi "c++" import "clang/Basic/Diagnostic.h"
+ffi "c++" import "clang/Basic/DiagnosticIDs.h"
+ffi "c++" import "clang/Basic/SourceManager.h"
+ffi "c++" import "llvm/ADT/SmallString.h"
+ffi "c++" import "clang/Lex/Lexer.h"
+ffi "c++" import "vector"
 
-import Location::SourceLocation::*;
-import Location::SourceRange::*;
-import Location::SourceManager::*;
-import Diagnostic::Registry::*;
-import Diagnostic::Engine::*;
-import Diagnostic::BufferedDiagSink::*;
-import Diagnostic::ClangDiagLookup::*;
-import Interop::Clang::ClangLocMap::*;
-import Support::FileIO::Path::*;
+import Diagnostic::BufferedDiagSink::BufferedDiagSink
+import Diagnostic::ClangDiagLookup::clang_diag_number
+import Diagnostic::Code::DiagCode
+import Diagnostic::DiagBuilder::DiagBuilder
+import Diagnostic::Registry::{
+    Diag,
+    DiagID,
+}
+import Diagnostic::Severity::DiagSeverity
+import Interop::Clang::ClangLocMap::ClangLocMap
+import Location::SourceManager::{
+    FileID,
+    SourceManager,
+}
+import Location::SourceRange::SourceRange
+import Support::FileIO::Path::Path
 
 /// One instance per bridged clang CompilerInstance (i.e. per TU).
 /// Thread-confined: writes only to this TU's BufferedDiagSink, preserving
 /// the byte-identical serial/parallel guarantee.
-class ClangDiagAdapter derives clang::DiagnosticConsumer {
-    pub var sink:       obs::<BufferedDiagSink>;
-    pub var ksm:        obs::<SourceManager>;              ///< Kairo SM, for span construction
-    pub var kfid:       FileID;                            ///< Kairo fid of the TU being compiled
+pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
+    pub var sink: unsafe *BufferedDiagSink
+    pub var ksm:  unsafe *SourceManager    ///< Kairo SM, for span construction
+    pub var kfid: FileID                   ///< Kairo fid of the TU being compiled
 
     /// The live fid map. Asked per diagnostic, never snapshotted.
     ///
@@ -41,69 +50,83 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
     /// would start matching whatever header happened to land on the same ID.
     /// Every diagnostic in that header then rendered against this TU's Kairo
     /// file at a bogus offset. Ask the map; it knows when it was last rebound.
-    pub var locmap:     obs::<ClangLocMap>;
+    pub var locmap: unsafe *ClangLocMap
 
     /// A header set's own clang instance maps its files through ITS table,
     /// not the backend's locmap: clang FileID hash -> Kairo fid, 0 for none
     /// (HeaderSet::cfid_to_kfid). Set instead of `locmap` for that instance;
     /// a raw table rather than the set so this layer never imports Interop's
     /// HeaderSet (which imports the backend, which imports this).
-    pub var fidmap: const_obs::<llvm::DenseMap::<u64, u32>> = &null;   ///< HeaderSet::cfid_to_kfid (u64 key: see there).
+    pub var fidmap: unsafe *const llvm::DenseMap<u64, u32> = &null ///< HeaderSet::cfid_to_kfid (u64 key: see there).
     /// A header set's synthesized main buffer: line - 1 -> the .k import
     /// span that line includes (HeaderSet::_main_locs). Null otherwise.
-    pub var main_locs: const_obs::<vec::<SourceRange>> = &null;
-    priv var _lo: const_obs::<clang::LangOptions> = &null; ///< owned by the CI, valid for the action.
+    pub var  main_locs: unsafe *const cxx::std::vector<SourceRange> = &null
+    priv var _lo:       unsafe *const clang::LangOptions            = &null ///< owned by the CI, valid for the action.
 
     /// Note-attachment state: clang emits notes as separate HandleDiagnostic
     /// calls (lvl == Note) immediately after their primary. We hold the
     /// builder open (heap-allocated, owned) until the next primary or flush.
-    priv var _open:        opt::<DiagBuilder> = &null; ///< owned; freed in _flush_open
-    priv var _last_fwded:  bool = false;
+    priv var _open:       unsafe *DiagBuilder = &null ///< owned; freed in _flush_open
+    priv var _last_fwded: bool                = false
 
-    // ------------------------------------------------------------------
-    //  clang::DiagnosticConsumer overrides
-    // ------------------------------------------------------------------
+    /// # clang::DiagnosticConsumer overrides
 
-    override fn BeginSourceFile(self, lo: cref::<clang::LangOptions>, pp: const_obs::<clang::Preprocessor>) {
-        self._lo = &lo;
+    pub override fn BeginSourceFile(self,
+                                    const lo: clang::LangOptions,
+                                    pp:       unsafe *const clang::Preprocessor) {
+        self._lo = unsafe &lo
     }
 
-    override fn EndSourceFile(self) {
-        self._flush_open();
-        self._lo = &null;
+    pub override fn EndSourceFile(self) {
+        self._flush_open()
+        self._lo = &null
     }
 
     override fn HandleDiagnostic(self,
-                        lvl:  clang::DiagnosticsEngine::Level,
-                        info: cref::<clang::Diagnostic>) {
+                                 lvl:        clang::DiagnosticsEngine::Level,
+                                 const info: clang::Diagnostic) {
         // MANDATORY first: base impl maintains NumErrors/NumWarnings, which
         // CompilerInstance::ExecuteAction reads for pass/fail.
-        clang::DiagnosticConsumer::HandleDiagnostic(lvl, info);
+        clang::DiagnosticConsumer::HandleDiagnostic(self, lvl, info)
 
-        var msg     = self._format(info);
-        var kloc    = self._to_kairo_loc(info);      // invalid == "none"
-        var is_note = lvl == clang::DiagnosticsEngine::Note;
+        var msg     = self._format(info)
+        var kloc    = self._to_kairo_loc(info)              // invalid == "none"
+        var is_note = lvl == clang::DiagnosticsEngine::Note
 
         // A loc in no file Kairo loaded still names one clang knows. Keep it
         // in the text, as the TextDiagnosticPrinter this replaces did, so a
         // header-set diagnostic before its fids exist (build time) is not
         // left pointing nowhere.
-        if (!kloc.is_valid()) && info.hasSourceManager() && info.getLocation().isValid() {
-            var pl = info.getSourceManager().getPresumedLoc(info.getLocation());
+        if !kloc.is_valid() && info.hasSourceManager() && info.getLocation().isValid() {
+            var pl = info.getSourceManager().getPresumedLoc(info.getLocation())
             if pl.isValid() {
-                var file = string(llvm::StringRef(pl.getFilename()).str());
-                msg = f"{file}:{pl.getLine()}:{pl.getColumn()}: {msg}";
+                var file = string(
+                    unsafe ((llvm::StringRef(pl.getFilename()).str().c_str() as unsafe *const u8) as *const u8),
+                )
+
+                msg = f"{file}:{pl.getLine()}:{pl.getColumn()}: {msg}"
             }
         }
 
-        if (is_note) && (self._last_fwded) && (self._open != &null) {
-            self._attach_child_note(kloc, msg);
-            return;
+        // "'hn_test' declared here" about a module namespace: codegen wrote it,
+        // so the note points at an arbitrary token of the user's `.k` file and
+        // names nothing they declared. A namespace from a header keeps
+        // its note.
+        if is_note
+            && kloc.is_valid()
+            && self._in_kairo_source(kloc)
+            && (kairo::clang_diag_names_namespace(info) || self._declared_elsewhere(kloc, msg)) {
+            return
         }
 
-        self._flush_open();
+        if is_note && self._last_fwded && self._open != &null {
+            self._attach_child_note(kloc, msg)
+            return
+        }
 
-        var code = self._map_code(lvl, info);        // C0xxx{E,W,R} / CL001x
+        self._flush_open()
+
+        var code = self._map_code(lvl, info) // C0xxx{E,W,R} / CL001x
 
         // An access error in Kairo's own emitted C++ is never the user's:
         // AccessCheck admitted the access, and the record's C++ access
@@ -111,79 +134,103 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         // meant to admit exactly that. Said as the compiler bug it is, not
         // as a clang error the user should fix. A C++ host's own access
         // errors (kcc) are in its own file and stay clang's.
-        if (lvl == clang::DiagnosticsEngine::Error) && kloc.is_valid() && self._in_kairo_source(kloc) && self._is_access_error(msg) {
-            code = DiagCode(DiagID::I003E);
-            msg = "the emitted C++ refuses an access Kairo accepted (AccessCheck and the record's C++ access levels or friends disagree; a compiler bug): " + msg;
+        if lvl == clang::DiagnosticsEngine::Error
+            && kloc.is_valid()
+            && self._in_kairo_source(kloc)
+            && self._is_access_error(msg) {
+            code = DiagCode(DiagID::I003E)
+            msg = "the emitted C++ refuses an access Kairo accepted (AccessCheck and the record's C++ access levels or friends disagree; a compiler bug): " + msg
         }
 
         if kloc.is_valid() {
-            self._open = std::create::<DiagBuilder>(
-                self.sink, code, kloc.start, msg);
-            self._open->first(kloc);
-            self._apply_ranges_and_fixits(self._open, info);
+            self._open = kairo::std::create<DiagBuilder>(self.sink, code, kloc.start, msg)
+            self._open->first(kloc)
+            self._apply_ranges_and_fixits(self._open, info)
             // stays open for trailing notes; emitted in _flush_open
         } else {
             // loc-less (cc1 args, target setup, header-blamed): plain no-loc
-            self.sink->report(code, msg).emit();
-            self._open = &null;                      // nothing to attach notes to
+            self.sink->report(code, msg).emit()
+            self._open = &null // nothing to attach notes to
         }
 
-        self._last_fwded = true;
+        self._last_fwded = true
     }
 
-    override fn finish(self) { self._flush_open(); }
+    pub override fn finish(self) {
+        self._flush_open()
+    }
 
     // IncludeInDiagnosticCounts: leave defaulted (true).
 
-    fn op delete (self) {
-        self._flush_open();
+    fn ClangDiagAdapter(self) = default
+
+    // Not transferable: clang holds it as its consumer and it owns the open DiagBuilder; a copy would flush it twice.
+    @copy fn ClangDiagAdapter(self, const other: Self) = delete
+
+    fn op finally (self) {
+        self._flush_open()
     }
 
-    // ------------------------------------------------------------------
-    //  internals
-    // ------------------------------------------------------------------
+    /// # internals
 
     /// The Kairo fid behind a clang FileID, or u32(-1) for none: through the
     /// header set's table when one is set, else the backend's locmap.
-    priv fn _kfid_of(self, cfid: clang::FileID, csm: cref::<clang::SourceManager>) -> FileID {
+    priv fn _kfid_of(self, cfid: clang::FileID, const csm: clang::SourceManager) -> FileID {
         if self.fidmap != &null {
-            var it = self.fidmap->find(static_cast::<u64>(cfid.getHashValue()));
-            if (it != self.fidmap->end()) && (it->second != 0) {
-                return static_cast::<FileID>(it->second);
+            var it = self.fidmap->find(cfid.getHashValue() as u64)
+            if it != self.fidmap->end() && it->second != 0 {
+                return it->second
             }
+
             // The table fills at index(), after the build. A build-time
             // diagnostic (a bad header) would otherwise render as bare
             // text with no snippet: load the header by path instead. Same
             // bytes, so clang's offset is the Kairo offset. load_file is
             // _load_mu-guarded, so the pool thread may call it.
-            return self._load_by_path(cfid, csm);
+            return self._load_by_path(cfid, csm)
         }
+
         // Neither: a C/C++ input compiled by clang's own driver (ClangJobs).
         // Kairo never loaded its files, so load them as they are named.
-        if self.locmap == &null { return self._load_by_path(cfid, csm); }
-        return self.locmap->kairo_fid(cfid);
+        if self.locmap == &null {
+            return self._load_by_path(cfid, csm)
+        }
+
+        return self.locmap->kairo_fid(cfid)
     }
 
-    priv fn _load_by_path(self, cfid: clang::FileID, csm: cref::<clang::SourceManager>) -> FileID {
-        var none = static_cast::<FileID>(u32(-1));
-        if self.ksm == &null { return none; }
-        var fe = csm.getFileEntryRefForID(cfid);
-        if !fe { return none; }
-        var name = fe->getName();
-        var p = Path(string(name.data(), name.size()));
+    priv fn _load_by_path(self, cfid: clang::FileID, const csm: clang::SourceManager) -> FileID {
+        var none = (u32::MAX as FileID)
+        if self.ksm == &null {
+            return none
+        }
+
+        var fe = csm.getFileEntryRefForID(cfid)
+        if !fe.has_value() {
+            return none
+        }
+
+        var name = fe->getName()
+        var p = Path(string(unsafe ((name.data() as unsafe *const u8) as *const u8), name.size()))
         // Checked here: load_file reports a missing path as I005F itself.
-        if (!p.exists()) || (!p.is_regular_file()) { return none; }
-        var kf = self.ksm->load_file(p);
+        if !p.exists() || !p.is_regular_file() {
+            return none
+        }
+
+        var kf = self.ksm->load_file(p)
         // load_file builds the line index on the pool; a diagnostic rendered
         // before it is done reads line 0, column 0.
-        if kf != none { self.ksm->wait_for_line_index(kf); }
-        return kf;
+        if kf != none {
+            self.ksm->wait_for_line_index(kf)
+        }
+
+        return kf
     }
 
-    priv fn _format(self, info: cref::<clang::Diagnostic>) -> string {
-        var s: llvm::SmallString::<256>;
-        info.FormatDiagnostic(s);
-        return string(s.str().str());
+    priv fn _format(self, const info: clang::Diagnostic) -> string {
+        var s: llvm::SmallString<256>
+        info.FormatDiagnostic(&s)
+        return string(unsafe ((s.str().str().c_str() as unsafe *const u8) as *const u8))
     }
 
     /// clang loc -> Kairo SourceRange via EXPANSION loc (never spelling loc:
@@ -196,53 +243,63 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
     /// Returns SourceRange::invalid() for "none": a loc in no file Kairo
     /// loaded (runtime include, scratch buffer) -> loc-less forward; policy
     /// layer classifies.
-    priv fn _to_kairo_loc(self, info: cref::<clang::Diagnostic>) -> SourceRange {
-        if (!info.hasSourceManager()) || (info.getLocation().isInvalid()) {
-            return SourceRange::invalid();
+    priv fn _to_kairo_loc(self, const info: clang::Diagnostic) -> SourceRange {
+        if !info.hasSourceManager() || info.getLocation().isInvalid() {
+            return SourceRange::invalid()
         }
 
-        var dec = info.getSourceManager()
-                      .getDecomposedExpansionLoc(info.getLocation());
+        var dec = info.getSourceManager().getDecomposedExpansionLoc(info.getLocation())
 
-        var csm = &(info.getSourceManager());
+        var *csm = &info.getSourceManager()
         // The set's own `#include` lines: the .k import that wrote them.
-        if (self.main_locs != &null) && (dec.first == csm->getMainFileID()) {
-            var line = static_cast::<usize>(csm->getLineNumber(dec.first, dec.second));
-            if (line > 0) && (line <= self.main_locs->size()) {
-                return (*self.main_locs)[line - 1];
+        if self.main_locs != &null && dec.first == csm->getMainFileID() {
+            var line = (csm->getLineNumber(dec.first, dec.second) as usize)
+            if line > 0 && line <= self.main_locs->size() {
+                return (*self.main_locs)[line - 1]
             }
-            return SourceRange::invalid();
+
+            return SourceRange::invalid()
         }
 
-        var kf = self._kfid_of(dec.first, *csm);
-        if kf == static_cast::<FileID>(u32(-1)) { return SourceRange::invalid(); }
+        var kf = self._kfid_of(dec.first, *csm)
+        if kf == (u32::MAX as FileID) {
+            return SourceRange::invalid()
+        }
 
         // dec.second == byte offset in kf. Single-byte primary span;
         // ranges/fixits widen it in _apply_ranges_and_fixits.
-        return self.ksm->get_range(kf, static_cast::<usize>(dec.second), 1);
+        return self.ksm->get_range(kf, dec.second as usize, 1)
     }
 
     /// Translates one clang CharSourceRange into a Kairo SourceRange in the
     /// fid its BEGIN is in, or invalid if the end is in a different file (or
     /// in none): a span cannot cross files.
-    priv fn _range_in_kfid(self, cr: cref::<clang::CharSourceRange>, info: cref::<clang::Diagnostic>) -> SourceRange {
-        if (!cr.isValid()) || (!info.hasSourceManager()) {
-            return SourceRange::invalid();
+    priv fn _range_in_kfid(self,
+                           const cr:   clang::CharSourceRange,
+                           const info: clang::Diagnostic) -> SourceRange {
+        if !cr.isValid() || !info.hasSourceManager() {
+            return SourceRange::invalid()
         }
 
-        var b = info.getSourceManager().getDecomposedExpansionLoc(cr.getBegin());
-        var e = info.getSourceManager().getDecomposedExpansionLoc(cr.getEnd());
+        var b = info.getSourceManager().getDecomposedExpansionLoc(cr.getBegin())
+        var e = info.getSourceManager().getDecomposedExpansionLoc(cr.getEnd())
 
         // A range in a set's injected main has no Kairo bytes behind it.
-        if (self.main_locs != &null) && (b.first == info.getSourceManager().getMainFileID()) {
-            return SourceRange::invalid();
+        if self.main_locs != &null && b.first == info.getSourceManager().getMainFileID() {
+            return SourceRange::invalid()
         }
-        var kb = self._kfid_of(b.first, info.getSourceManager());
-        if kb == static_cast::<FileID>(u32(-1)) { return SourceRange::invalid(); }
-        if self._kfid_of(e.first, info.getSourceManager()) != kb { return SourceRange::invalid(); }
 
-        var start: usize = static_cast::<usize>(b.second);
-        var end:   usize = static_cast::<usize>(e.second);
+        var kb = self._kfid_of(b.first, info.getSourceManager())
+        if kb == (u32::MAX as FileID) {
+            return SourceRange::invalid()
+        }
+
+        if self._kfid_of(e.first, info.getSourceManager()) != kb {
+            return SourceRange::invalid()
+        }
+
+        var start: usize = (b.second as usize)
+        var end:   usize = (e.second as usize)
 
         // Token ranges end at the START of the last token. Without dragging
         // clang::Lexer::MeasureTokenLength (needs stashed LangOptions) into
@@ -250,96 +307,189 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         // TODO(diag): exact token end via MeasureTokenLength once LangOptions
         // is stashed in BeginSourceFile.
         if cr.isTokenRange() {
-            var tlen: u32 = 1;
+            var tlen: u32 = 1
             if self._lo != &null {
                 tlen = clang::Lexer::MeasureTokenLength(
-                    cr.getEnd(), info.getSourceManager(), *self._lo);
-                if tlen == 0 { tlen = 1; }
+                    cr.getEnd(),
+                    info.getSourceManager(),
+                    *self._lo,
+                )
+
+                if tlen == 0 {
+                    tlen = 1
+                }
             }
-            end += static_cast::<usize>(tlen);
+
+            end += (tlen as usize)
         }
 
         if end <= start {
-            end = start + 1;
+            end = start + 1
         }
 
-        return self.ksm->get_range(kb, start, end - start);
+        return self.ksm->get_range(kb, start, end - start)
+    }
+
+    /// \p msg is a "'X' declared here" note whose location in a `.k` file
+    /// does not spell X: the declaration is one codegen wrote (a module
+    /// namespace, under typo correction, passes its name as text, so
+    /// clang_diag_names_namespace cannot see it), and the note would point
+    /// the user at an unrelated token.
+    priv fn _declared_elsewhere(self, kloc: SourceRange, const msg: string) -> bool {
+        if !msg.ends_with("declared here") {
+            return false
+        }
+
+        var q1: usize = msg.size()
+        var q2: usize = msg.size()
+        for var i: usize = 0; i < msg.size(); ++i {
+            if msg[i] != (39 as u8) {
+                continue
+            }
+
+            if q1 == msg.size() {
+                q1 = i
+            } else {
+                q2 = i
+                break
+            }
+        }
+
+        if q2 == msg.size() || q2 <= q1 + 1 {
+            return false
+        }
+
+        var name = msg.subslice(q1 + 1, q2 - q1 - 1)
+        // A qualified name is spelled by its last component at the declaration.
+        for var i: usize = name.size(); i > 1; --i {
+            if name[i - 1] == (':' as u8) && name[i - 2] == (':' as u8) {
+                name = name.subslice(i, name.size() - i)
+                break
+            }
+        }
+
+        if name.size() == 0 {
+            return false
+        }
+
+        var line = self.ksm->get_full_line(kloc.start)
+        var col  = self.ksm->get_line_col(kloc.start).column
+        if col == 0 || col - 1 >= line.size() {
+            return false
+        }
+
+        var rest = line.subslice(col - 1, line.size() - (col - 1))
+        return !rest.starts_with(name)
     }
 
     /// \p r is in a `.k` file: C++ Kairo emitted, not a host's own source.
     priv fn _in_kairo_source(self, r: SourceRange) -> bool {
-        var nm = self.ksm->get_filename(r);
-        var n = nm.size();
-        return (n >= 2) && (nm[n - 2] == '.') && (nm[n - 1] == 'k');
+        var nm = self.ksm->get_filename(r)
+        var n  = nm.size()
+        return n >= 2 && nm[n - 2] == ('.' as u8) && nm[n - 1] == ('k' as u8)
     }
 
     /// clang's access refusals (err_access and its constructor, destructor
     /// and base forms), by their text: their IDs are ungrouped, and the
     /// wording is all they share.
     priv fn _is_access_error(self, msg: string) -> bool {
-        return self._has(msg, " is a private member of ") || self._has(msg, " is a protected member of ")
-            || self._has(msg, "calling a private constructor") || self._has(msg, "calling a protected constructor")
-            || self._has(msg, "has private destructor") || self._has(msg, "has protected destructor")
-            || self._has(msg, "is a private member") || self._has(msg, "is a protected member");
+        return self._has(msg, " is a private member of ")
+            || self._has(msg, " is a protected member of ")
+            || self._has(msg, "calling a private constructor")
+            || self._has(msg, "calling a protected constructor")
+            || self._has(msg, "has private destructor")
+            || self._has(msg, "has protected destructor")
+            || self._has(msg, "is a private member")
+            || self._has(msg, "is a protected member")
     }
 
-    priv fn _has(self, s: string, sub: string) -> bool {
-        var n = s.size();
-        var m = sub.size();
-        if m > n { return false; }
-        for var i: usize = 0; i + m <= n; ++i {
-            var hit = true;
-            for var j: usize = 0; j < m; ++j {
-                if s[i + j] != sub[j] { hit = false; break; }
-            }
-            if hit { return true; }
+    priv fn _has(self, const s: string, const sub: string) -> bool {
+        var n = s.size()
+        var m = sub.size()
+        if m > n {
+            return false
         }
-        return false;
+
+        for var i: usize = 0; i + m <= n; ++i {
+            var hit = true
+            for var j: usize = 0; j < m; ++j {
+                if s[i + j] != sub[j] {
+                    hit = false
+                    break
+                }
+            }
+
+            if hit {
+                return true
+            }
+        }
+
+        return false
     }
 
     priv fn _map_severity(self, lvl: clang::DiagnosticsEngine::Level) -> DiagSeverity {
         // Stage 1: backend-detected user error. Fatal maps to Error here;
         // Stage 2 flips E->F ("compiler bug") via CompilerInvocation policy,
         // in ONE place: here.
-        if lvl == clang::DiagnosticsEngine::Fatal   { return DiagSeverity::Error;   }
-        if lvl == clang::DiagnosticsEngine::Error   { return DiagSeverity::Error;   }
-        if lvl == clang::DiagnosticsEngine::Warning { return DiagSeverity::Warning; }
-        if lvl == clang::DiagnosticsEngine::Remark  { return DiagSeverity::Remark;  }
-        if lvl == clang::DiagnosticsEngine::Note    { return DiagSeverity::Note;    }
-        return DiagSeverity::Ignored;
+        if lvl == clang::DiagnosticsEngine::Fatal {
+            return DiagSeverity::Error
+        }
+
+        if lvl == clang::DiagnosticsEngine::Error {
+            return DiagSeverity::Error
+        }
+
+        if lvl == clang::DiagnosticsEngine::Warning {
+            return DiagSeverity::Warning
+        }
+
+        if lvl == clang::DiagnosticsEngine::Remark {
+            return DiagSeverity::Remark
+        }
+
+        if lvl == clang::DiagnosticsEngine::Note {
+            return DiagSeverity::Note
+        }
+
+        return DiagSeverity::Ignored
     }
 
     /// Grouped diags (have a -W option) map into the stable C-code space
     /// (Clang.diag.toml, keyed via clang_diag_number). Ungrouped diags
     /// (hard errors, unattached notes) fall back to the CL001 placeholder
     /// family, which carries every severity letter.
-    priv fn _map_code(self, lvl: clang::DiagnosticsEngine::Level, info: cref::<clang::Diagnostic>) -> DiagCode {
-        var sev = self._map_severity(lvl);
-        var de  = info.getDiags();
+    priv fn _map_code(self,
+                      lvl:        clang::DiagnosticsEngine::Level,
+                      const info: clang::Diagnostic) -> DiagCode {
+        var        sev = self._map_severity(lvl)
+        var unsafe *de = info.getDiags()
 
         if de != &null {
-            var wopt = de->getDiagnosticIDs()->getWarningOptionForDiag(info.getID());
+            var wopt = de->getDiagnosticIDs()->getWarningOptionForDiag(info.getID())
             if !wopt.empty() {
-                var num = clang_diag_number(string(wopt.str()));
+                var num = clang_diag_number(
+                    string(unsafe ((wopt.str().c_str() as unsafe *const u8) as *const u8)),
+                )
+
                 if num != 0 {
-                    return DiagCode(Diag::C(num, sev));
+                    return DiagCode(Diag::C(num, sev))
                 }
             }
         }
 
-        return DiagCode(Diag::CL(1, sev));
+        return DiagCode(Diag::CL(1, sev))
     }
 
-    priv fn _apply_ranges_and_fixits(self, b: *DiagBuilder, info: cref::<clang::Diagnostic>) {
+    priv fn _apply_ranges_and_fixits(self, b: unsafe *DiagBuilder, const info: clang::Diagnostic) {
         if !info.hasSourceManager() {
-            return;
+            return
         }
 
-        var nr = info.getNumRanges();
+        var nr = info.getNumRanges()
         for var i: u32 = 0; i < nr; ++i {
-            var r = self._range_in_kfid(info.getRange(i), info);
+            var r = self._range_in_kfid(info.getRange(i), info)
             if r.is_valid() {
-                b->highlight(r);
+                b->highlight(r)
             }
         }
 
@@ -354,21 +504,32 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         // between emitted tokens names no Kairo position. All-or-nothing
         // over the diagnostic's hints, because clang's multi-hint fixes are
         // one edit and half of one is worse than none. The message stays.
-        var nf = info.getNumFixItHints();
-        if nf == 0 { return; }
-        for var i: u32 = 0; i < nf; ++i {
-            if !self._kairo_fixit(info.getFixItHint(i), info) { return; }
+        var nf = info.getNumFixItHints()
+        if nf == 0 {
+            return
         }
 
         for var i: u32 = 0; i < nf; ++i {
-            var h    = info.getFixItHint(i);
-            var rr   = self._range_in_kfid(h.RemoveRange, info);
-            var text = string(h.CodeToInsert);
-            var msg  = "apply the change suggested by the backend";
+            if !self._kairo_fixit(info.getFixItHint(i), info) {
+                return
+            }
+        }
+
+        for var i: u32 = 0; i < nf; ++i {
+            var h  = info.getFixItHint(i)
+            var rr = self._range_in_kfid(h.RemoveRange, info)
+            var text = string(
+                unsafe ((h.CodeToInsert.data() as unsafe *const u8) as *const u8),
+                h.CodeToInsert.size(),
+            )
+
+            // No text: the edit is the whole message, and the pretty form
+            // shows it inline as a diff. A fixed sentence here only repeated it.
+            var msg = ""
             if text.length() == 0 {
-                b->remove(rr, msg);
+                b->remove(rr, msg)
             } else {
-                b->fix(rr, text, msg);
+                b->fix(rr, text, msg)
             }
         }
     }
@@ -379,46 +540,64 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
     /// synthesized is spelled in a scratch buffer and only EXPANDS into the
     /// Kairo file, so its text there differs from the Kairo token it borrowed
     /// a location from, and that difference is exactly what rejects it.
-    priv fn _kairo_fixit(self, h: cref::<clang::FixItHint>, info: cref::<clang::Diagnostic>) -> bool {
-        if h.InsertFromRange.isValid() { return false; }
-        if self._lo == &null { return false; }     // no LangOptions: no token measure, no proof.
-        var cr = h.RemoveRange;
-        if (!cr.isValid()) || (!cr.isTokenRange()) { return false; }
-        if cr.getBegin() != cr.getEnd() { return false; }   // a token range of exactly one token.
+    priv fn _kairo_fixit(self, const h: clang::FixItHint, const info: clang::Diagnostic) -> bool {
+        if h.InsertFromRange.isValid() {
+            return false
+        }
 
-        var rr = self._range_in_kfid(cr, info);
-        if (!rr.is_valid()) || rr.is_empty() { return false; }
+        if self._lo == &null { // no LangOptions: no token measure, no proof.
+            return false
+        }
 
-        var sm  = &(info.getSourceManager());
-        var sp  = sm->getSpellingLoc(cr.getBegin());
-        var len = clang::Lexer::MeasureTokenLength(sp, *sm, *self._lo);
-        if len == 0 { return false; }
-        var bad  = false;
-        var data = sm->getCharacterData(sp, &bad);
-        if bad || (data == &null) { return false; }
+        var cr = h.RemoveRange
+        if !cr.isValid() || !cr.isTokenRange() {
+            return false
+        }
 
-        var cxx = string(data, static_cast::<usize>(len));
-        return cxx == self.ksm->get_text(rr);
+        if cr.getBegin() != cr.getEnd() { // a token range of exactly one token.
+            return false
+        }
+
+        var rr = self._range_in_kfid(cr, info)
+        if !rr.is_valid() || rr.is_empty() {
+            return false
+        }
+
+        var *sm = &info.getSourceManager()
+        var sp  = sm->getSpellingLoc(cr.getBegin())
+        var len = clang::Lexer::MeasureTokenLength(sp, *sm, *self._lo)
+        if len == 0 {
+            return false
+        }
+
+        var        bad   = false
+        var unsafe *data = sm->getCharacterData(sp, unsafe &bad)
+        if bad || data == &null {
+            return false
+        }
+
+        var cxx_v = string(unsafe ((data as unsafe *const u8) as *const u8), len as usize)
+        return cxx_v == self.ksm->get_text(rr)
     }
 
     priv fn _attach_child_note(self, kloc: SourceRange, msg: string) {
         if self._open == &null {
-            return;
+            return
         }
 
         if kloc.is_valid() {
-            self._open->note(kloc.start, msg);
-            self._open->child_first(kloc);
+            self._open->note(kloc.start, msg)
+            self._open->child_first(kloc)
         } else {
-            self._open->note(msg);
+            self._open->note(msg)
         }
     }
 
     priv fn _flush_open(self) {
         if self._open != &null {
-            self._open->emit();
-            std::destroy(self._open);
-            self._open = &null;
+            self._open->emit()
+            kairo::std::destroy(self._open)
+            self._open = &null
         }
     }
 }

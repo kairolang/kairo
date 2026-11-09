@@ -8,81 +8,82 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "llvm/ADT/MapVector.h";
-ffi "c++" import "Native/KPlacement.hh";   // construct_at, destroy_in_place
-import Memory::ArenaList::*;
-import Driver::TUStage::*;   // standalone enum, no imports of its own; no cycle
-import Location::SourceManager::*;
-import Token::TokenCacheManager::*;
-import Lexer::Immediate::*;
-import Resolution::ModulePath::*;
-import Resolution::ImportProbe::*;
-import Token::TokenSpan::*;
-import Config::Invocation::*;
-import Diagnostic::Engine::*;
-import Diagnostic::Registry::*;
-import Diagnostic::BufferedDiagSink::*;
-import Token::TokenText::*;
+ffi "c++" import "llvm/ADT/MapVector.h"
+ffi "c++" import "Native/KPlacement.hh" // construct_at, destroy_in_place
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
+ffi "c++" import "cstring"
+ffi "c++" import "utility"
 
-/// \brief Forward declaration required by ASTContext.
-///
-/// DisambigTable and ASTContext are mutually dependent: ASTContext owns the
-/// arena that DisambigTable allocates from, and DisambigTable holds an obs<>
-/// back-pointer to ASTContext for that allocation. This forward declaration
-/// breaks the cycle.
-///
-/// Full definition follows ASTContext in this file. This is a Stage 0
-/// compiler limitation Stage 0 cannot split a forward declaration and its
-/// implementation across files when they would land in different generated
-/// namespaces. Stage 1 removes this constraint entirely.
-///
-/// Do not move DisambigTable above ASTContext or extract it to a separate
-/// file until Stage 1 is self-hosting.
-class DisambigTable;
+import AST::Context::DisambigTable::DisambigTable
+import AST::Context::TranslationUnit::TranslationUnit
+import Config::Invocation::CompilerInvocation
+import Diagnostic::BufferedDiagSink::BufferedDiagSink
+import Diagnostic::Engine::DiagEngine
+import Diagnostic::Registry::DiagID
+import Driver::TUStage::TUStage // standalone enum, no imports of its own; no cycle
+import Lexer::Immediate::{
+    Immediate,
+    ImmediateTable,
+}
+import Location::SourceManager::SourceManager
+import Location::SourceRange::SourceRange
+import Memory::ArenaAllocator::ArenaAllocator
+import Resolution::ImportProbe::ImportResolver
+import Resolution::ModulePath::ModulePath
+import Support::EvalHash::compute_hash
+import Support::FileIO::Path::Path
+import Token::Token::Token
+import Token::TokenCacheManager::TokenCacheManager
+import Token::TokenKind::TokenKind
+import Token::TokenSpan::TokenSpan
+import Token::TokenText::{
+    TokenText,
+    unwrap_expansion,
+}
 
-class ASTContext {
-    pub var source_path: Path;
-    pub var module_base: ModulePath;
+pub class ASTContext {
+    pub var source_path: Path
+    pub var module_base: ModulePath
 
     /// `module_base`'s LEAF segment, interned into THIS file's imm table.
     /// ModulePath segments carry PreprocessorSymbolTable SymbolIDs, which are
     /// a different name domain from an imm index; a synthesized module name
     /// token built from one spells as the interner's fallback text. The PP
     /// writes this once, next to module_base. u32(-1) = anonymous root file.
-    pub var module_leaf_imm: u32 = u32(-1);
-    
+    pub var module_leaf_imm: u32 = u32::MAX
+
     /// This is the general allocators for the compiler pipeline.
     /// One allocator per transiatve stage of the pipeline. Each allocator is reset when the stage is complete.
-    pub var string_alloc:  ArenaAllocator = ArenaAllocator(1024 * sizeof(string)); ///< interned strings; outlives every stage.
-    pub var pp_alloc:      ArenaAllocator = ArenaAllocator(64 * 1024);             ///< TU, ImportDecl, MacroDecl, import edges.
-    pub var index_alloc:   ArenaAllocator = ArenaAllocator(64 * 1024);             ///< DisambigTable/Node. Read CROSS-FID during parse,
-                                                                                   ///  so it outlives this fid's ast_alloc.
-    pub var ast_alloc:     ArenaAllocator = ArenaAllocator(1024 * 1024);           ///< Program + every Decl/Stmt/Expr/Type/Pattern.
-    pub var sema_alloc:    ArenaAllocator = ArenaAllocator();                      ///< lazy   nothing allocates here until Sema exists.
-    pub var codegen_alloc: ArenaAllocator = ArenaAllocator();                      ///< lazy   CodegenBackend's node storage.
-    pub var scratch_alloc: ArenaAllocator = ArenaAllocator();                      ///< lazy   For transient tooling buffers whose contents never become AST.
-    pub var diag_sink:     BufferedDiagSink;
+    pub var string_alloc: ArenaAllocator = ArenaAllocator(1024 * sizeof(string)) ///< interned strings; outlives every stage.
+    pub var pp_alloc:     ArenaAllocator = ArenaAllocator(64 * 1024) ///< TU, ImportDecl, MacroDecl, import edges.
+    pub var index_alloc:  ArenaAllocator = ArenaAllocator(64 * 1024) ///< DisambigTable/Node. Read CROSS-FID during parse,
+    ///  so it outlives this fid's ast_alloc.
+    pub var ast_alloc:     ArenaAllocator   = ArenaAllocator(1024 * 1024) ///< Program + every Decl/Stmt/Expr/Type/Pattern.
+    pub var sema_alloc:    ArenaAllocator   = ArenaAllocator() ///< lazy   nothing allocates here until Sema exists.
+    pub var codegen_alloc: ArenaAllocator   = ArenaAllocator() ///< lazy   CodegenBackend's node storage.
+    pub var scratch_alloc: ArenaAllocator   = ArenaAllocator() ///< lazy   For transient tooling buffers whose contents never become AST.
+    pub var diag_sink:     BufferedDiagSink
     /// Sema reported an error against this TU. Kept past the sink's drain
     /// because a LATER input of the same batch that imports this TU finds it
     /// already analysed and reports nothing, yet its codegen would walk this
-    /// TU's poisoned or never-lowered decls and hit an emitter ICE guard
-    /// (O10); FrontendAction::_codegen refuses a graph holding one.
-    pub var sema_errored:  bool = false;
-    pub var sm:            obs::<SourceManager>              = &null;
-    pub var tcm:           obs::<TokenCacheManager>          = &null; // we can get the imm table from the tcm
-    pub var diags:         obs::<DiagEngine>                 = &null;
-    pub var resolver:      obs::<ImportResolver>             = &null;
-    pub var hoisted:       obs::<DisambigTable>              = &null;
-    pub var ci:            obs::<CompilerInvocation>         = &null;
-    pub var tu:            obs::<void /* TranslationUnit */> = &null; // stage0 limit with fwd decls, hence void ptr,
-                                                                      // but replace with TranslationUnit once stage1 is self-hosting
-    pub var fid:           u32; // needed to get the right lexer
+    /// TU's poisoned or never-lowered decls and hit an emitter ICE guard;
+    /// FrontendAction::_codegen refuses a graph holding one.
+    pub var sema_errored: bool                       = false
+    pub var sm:           unsafe *SourceManager      = &null
+    pub var tcm:          unsafe *TokenCacheManager  = &null // we can get the imm table from the tcm
+    pub var diags:        unsafe *DiagEngine         = &null
+    pub var resolver:     unsafe *ImportResolver     = &null
+    pub var hoisted:      unsafe *DisambigTable      = &null
+    pub var ci:           unsafe *CompilerInvocation = &null
+    pub var tu:           unsafe *TranslationUnit    = &null
+    pub var fid:          u32 // needed to get the right lexer
 
     // Arena reset frees the BLOCKS; it does not run destructors. Anything
     // allocated into an arena whose type is not trivially destructible   it
@@ -97,60 +98,58 @@ class ASTContext {
     // storage itself still belongs to the arena) before resetting.
 
     struct ArenaCleanup {
-        var obj: *void;
-        var run: fn(*void);
+        var obj: unsafe *void
+        var run: fn(unsafe *void)
     }
 
-    priv var _cleanup_pp:    vec::<ArenaCleanup>;
-    priv var _cleanup_index: vec::<ArenaCleanup>;
-    priv var _cleanup_ast:   vec::<ArenaCleanup>;
-    priv var _cleanup_sema:  vec::<ArenaCleanup>;
+    priv var _cleanup_pp:    cxx::std::vector<Self::ArenaCleanup>
+    priv var _cleanup_index: cxx::std::vector<Self::ArenaCleanup>
+    priv var _cleanup_ast:   cxx::std::vector<Self::ArenaCleanup>
+    priv var _cleanup_sema:  cxx::std::vector<Self::ArenaCleanup>
 
 
-    fn ASTContext(
-        self,
-        fid:       u32,
-        sm:       *SourceManager,
-        tcm:      *TokenCacheManager,
-        diags:    *DiagEngine,
-        resolver: *ImportResolver,
-        ci:       *CompilerInvocation
-    ) {
-        self.fid      = fid;
-        self.sm       = sm;
-        self.tcm      = tcm;
-        self.diags    = diags;
-        self.resolver = resolver;
-        self.ci       = ci;
+    fn ASTContext(self,
+                  fid:      u32,
+                  sm:       unsafe *SourceManager,
+                  tcm:      unsafe *TokenCacheManager,
+                  diags:    unsafe *DiagEngine,
+                  resolver: unsafe *ImportResolver,
+                  ci:       unsafe *CompilerInvocation) {
+        self.fid      = fid
+        self.sm       = sm
+        self.tcm      = tcm
+        self.diags    = diags
+        self.resolver = resolver
+        self.ci       = ci
     }
 
-    fn get_imm_table(self) -> *ImmediateTable {
+    pub fn get_imm_table(self) -> unsafe *ImmediateTable {
         if self.tcm != &null {
-            return self.tcm->get_imm_table_for_fid(self.fid);
+            return self.tcm->get_imm_table_for_fid(self.fid)
         }
 
-        return &null;
+        return &null
     }
 
-    fn get_tokens(self) -> TokenSpan {
-        var token_buff = self.tcm->get_tokens(self.fid);
+    pub fn get_tokens(self) -> TokenSpan {
+        var unsafe *token_buff = self.tcm->get_tokens(self.fid)
         if token_buff == &null {
-            return TokenSpan(&null, 0, 0);
+            return TokenSpan(&null, 0, 0)
         }
 
-        return TokenSpan(token_buff);
+        return TokenSpan(token_buff)
     }
 
     /// The unqualified alloc* family targets ast_alloc. That is the parse
     /// stage, which is ~113 node create() functions and the overwhelming
     /// majority of call sites, so it stays the default and they stay
     /// untouched. Every OTHER stage names its arena explicitly below.
-    fn <T> alloc(self) -> *T {
-        var mem: *void = self.ast_alloc.alloc(sizeof(T), alignof(T));
-        libcxx::memset(mem, 0, sizeof(T));
-        static_assert(libcxx::is_default_constructible_v::<T>,
-            r"ASTContext::alloc<T>: T must be default-constructible");
-        return kairo::construct_at::<T>(mem);
+    pub fn <T> alloc(self) -> unsafe *T {
+        var mem: unsafe *void = self.ast_alloc.alloc(sizeof(T), alignof(T))
+        cxx::std::memset(mem, 0, sizeof(T))
+        assert static cxx::std::is_default_constructible<T>::value,
+            r"ASTContext::alloc<T>: T must be default-constructible"
+        return kairo::construct_at<T>(mem)
 
         // Zeroed, THEN constructed. Zero alone is not a valid object for every
         // member type: an all-zero MSVC wstring has capacity 0, which its own
@@ -161,147 +160,173 @@ class ASTContext {
         // design for the AST's lifetime.
     }
 
-    // --- Construct-in-arena ----------------------------------------------
-    //
-    // alloc_init*<T>(args) allocate a T in one stage's arena and construct
-    // it there; the *_cleanup forms also register its destructor with that
-    // stage's cleanup list (see the arena block above). Kairo generics are
-    // not variadic, so each name has one overload per arity some caller
-    // uses; add one when a new arity is needed. Arguments are taken by value
-    // and moved into T's constructor, one copy at the call, as forwarding an
-    // lvalue was. Every argument passed today is a pointer, enum or integer.
+    /// # Construct-in-arena
+    ///
+    /// alloc_init*<T>(args) allocate a T in one stage's arena and construct
+    /// it there; the *_cleanup forms also register its destructor with that
+    /// stage's cleanup list (see the arena block above). Kairo generics are
+    /// not variadic, so each name has one overload per arity some caller
+    /// uses; add one when a new arity is needed. Arguments are taken by value
+    /// and moved into T's constructor, one copy at the call, as forwarding an
+    /// lvalue was. Every argument passed today is a pointer, enum or integer.
 
     /// Registers \p p's destructor on \p list and returns \p p.
-    priv fn <T> _with_cleanup(self, list: *vec::<ArenaCleanup>, p: *T) -> *T {
-        var c: ArenaCleanup;
-        c.obj = static_cast::<*void>(p);
-        c.run = kairo::destroy_in_place::<T>;
-        list->push_back(c);
-        return p;
+    priv fn <T> _with_cleanup(self,
+                              @inout list: cxx::std::vector<Self::ArenaCleanup>,
+                              p:           unsafe *T) -> unsafe *T {
+        var c: Self::ArenaCleanup
+        c.obj = unsafe (p as unsafe *void)
+        c.run = kairo::destroy_in_place<T>
+        list.push_back(c)
+        return p
     }
 
-    fn <T, A0, A1> alloc_init(self, a0: A0, a1: A1) -> *T {
-        var mem: *void = self.ast_alloc.alloc(sizeof(T), alignof(T));
-        return kairo::construct_at::<T>(mem, std::Memory::move(a0), std::Memory::move(a1));
+    pub fn <T, A0, A1> alloc_init(self, a0: A0, a1: A1) -> unsafe *T {
+        var mem: unsafe *void = self.ast_alloc.alloc(sizeof(T), alignof(T))
+        return kairo::construct_at<T>(mem, cxx::std::move(a0), cxx::std::move(a1))
     }
 
-    fn <T> alloc_array(self, n: usize) -> *T {
+    pub fn <T> alloc_array(self, n: usize) -> unsafe *T {
         if n == 0 {
-            return &null;
+            return &null
         }
 
-        var mem: *void = self.ast_alloc.alloc(sizeof(T) * n, alignof(T));
-        return static_cast::<*T>(mem);
+        var mem: unsafe *void = self.ast_alloc.alloc(sizeof(T) * n, alignof(T))
+        return unsafe (mem as unsafe *T)
     }
 
-    fn <T> alloc_array_zeroed(self, n: usize) -> *T {
+    fn <T> alloc_array_zeroed(self, n: usize) -> unsafe *T {
         if n == 0 {
-            return &null;
+            return &null
         }
 
-        var mem: *void = self.ast_alloc.alloc(sizeof(T) * n, alignof(T));
-        libcxx::memset(mem, 0, sizeof(T) * n);
-        return static_cast::<*T>(mem);
+        var mem: unsafe *void = self.ast_alloc.alloc(sizeof(T) * n, alignof(T))
+        cxx::std::memset(mem, 0, sizeof(T) * n)
+        return unsafe (mem as unsafe *T)
     }
 
-    priv fn _run_cleanups(self, list: *vec::<ArenaCleanup>) {
+    priv fn _run_cleanups(self, @inout list: cxx::std::vector<Self::ArenaCleanup>) {
         // reverse order: later allocations may reference earlier ones.
-        var n = list->size();
+        var n = list.size()
         for var i: usize = 0; i < n; ++i {
-            var c = (*list)[(n - 1) - i];
-            if c.obj != &null { c.run(c.obj); }
+            var c = (list)[n - 1 - i]
+            if c.obj != &null {
+                c.run(c.obj)
+            }
         }
-        list->clear();
+
+        list.clear()
     }
 
-    fn <T> alloc_init_cleanup(self) -> *T {
-        var mem: *void = self.ast_alloc.alloc(sizeof(T), alignof(T));
-        return self._with_cleanup::<T>(&(self._cleanup_ast), kairo::construct_at::<T>(mem));
+    pub fn <T> alloc_init_cleanup(self) -> unsafe *T {
+        var mem: unsafe *void = self.ast_alloc.alloc(sizeof(T), alignof(T))
+        return self._with_cleanup<T>(&self._cleanup_ast, kairo::construct_at<T>(mem))
     }
 
-    fn <T, A0> alloc_init_cleanup(self, a0: A0) -> *T {
-        var mem: *void = self.ast_alloc.alloc(sizeof(T), alignof(T));
-        return self._with_cleanup::<T>(&(self._cleanup_ast),
-            kairo::construct_at::<T>(mem, std::Memory::move(a0)));
+    pub fn <T, A0> alloc_init_cleanup(self, a0: A0) -> unsafe *T {
+        var mem: unsafe *void = self.ast_alloc.alloc(sizeof(T), alignof(T))
+        return self._with_cleanup<T>(
+            &self._cleanup_ast,
+            kairo::construct_at<T>(mem, cxx::std::move(a0)),
+        )
     }
 
-    fn <T, A0, A1, A2> alloc_init_cleanup(self, a0: A0, a1: A1, a2: A2) -> *T {
-        var mem: *void = self.ast_alloc.alloc(sizeof(T), alignof(T));
-        return self._with_cleanup::<T>(&(self._cleanup_ast),
-            kairo::construct_at::<T>(mem, std::Memory::move(a0), std::Memory::move(a1), std::Memory::move(a2)));
+    pub fn <T, A0, A1, A2> alloc_init_cleanup(self, a0: A0, a1: A1, a2: A2) -> unsafe *T {
+        var mem: unsafe *void = self.ast_alloc.alloc(sizeof(T), alignof(T))
+        return self._with_cleanup<T>(
+            &self._cleanup_ast,
+            kairo::construct_at<T>(mem, cxx::std::move(a0), cxx::std::move(a1), cxx::std::move(a2)),
+        )
     }
 
-    fn <T> alloc_init_sema_cleanup(self) -> *T {
-        var mem: *void = self.sema_alloc.alloc(sizeof(T), alignof(T));
-        return self._with_cleanup::<T>(&(self._cleanup_sema), kairo::construct_at::<T>(mem));
+    pub fn <T> alloc_init_sema_cleanup(self) -> unsafe *T {
+        var mem: unsafe *void = self.sema_alloc.alloc(sizeof(T), alignof(T))
+        return self._with_cleanup<T>(&self._cleanup_sema, kairo::construct_at<T>(mem))
     }
 
-    fn <T> alloc_init_pp_cleanup(self) -> *T {
-        var mem: *void = self.pp_alloc.alloc(sizeof(T), alignof(T));
-        return self._with_cleanup::<T>(&(self._cleanup_pp), kairo::construct_at::<T>(mem));
+    pub fn <T> alloc_init_pp_cleanup(self) -> unsafe *T {
+        var mem: unsafe *void = self.pp_alloc.alloc(sizeof(T), alignof(T))
+        return self._with_cleanup<T>(&self._cleanup_pp, kairo::construct_at<T>(mem))
     }
 
-    fn <T, A0, A1, A2, A3> alloc_init_pp_cleanup(self, a0: A0, a1: A1, a2: A2, a3: A3) -> *T {
-        var mem: *void = self.pp_alloc.alloc(sizeof(T), alignof(T));
-        return self._with_cleanup::<T>(&(self._cleanup_pp),
-            kairo::construct_at::<T>(mem, std::Memory::move(a0), std::Memory::move(a1),
-                                          std::Memory::move(a2), std::Memory::move(a3)));
+    pub fn <T, A0, A1, A2, A3> alloc_init_pp_cleanup(self,
+                                                     a0: A0,
+                                                     a1: A1,
+                                                     a2: A2,
+                                                     a3: A3) -> unsafe *T {
+        var mem: unsafe *void = self.pp_alloc.alloc(sizeof(T), alignof(T))
+        return self._with_cleanup<T>(
+            &self._cleanup_pp,
+            kairo::construct_at<T>(
+                mem,
+                cxx::std::move(a0),
+                cxx::std::move(a1),
+                cxx::std::move(a2),
+                cxx::std::move(a3),
+            ),
+        )
     }
 
-    fn <T> alloc_init_index_cleanup(self) -> *T {
-        var mem: *void = self.index_alloc.alloc(sizeof(T), alignof(T));
-        return self._with_cleanup::<T>(&(self._cleanup_index), kairo::construct_at::<T>(mem));
+    fn <T> alloc_init_index_cleanup(self) -> unsafe *T {
+        var mem: unsafe *void = self.index_alloc.alloc(sizeof(T), alignof(T))
+        return self._with_cleanup<T>(&self._cleanup_index, kairo::construct_at<T>(mem))
     }
 
-    fn <T, A0> alloc_init_index_cleanup(self, a0: A0) -> *T {
-        var mem: *void = self.index_alloc.alloc(sizeof(T), alignof(T));
-        return self._with_cleanup::<T>(&(self._cleanup_index),
-            kairo::construct_at::<T>(mem, std::Memory::move(a0)));
+    pub fn <T, A0> alloc_init_index_cleanup(self, a0: A0) -> unsafe *T {
+        var mem: unsafe *void = self.index_alloc.alloc(sizeof(T), alignof(T))
+        return self._with_cleanup<T>(
+            &self._cleanup_index,
+            kairo::construct_at<T>(mem, cxx::std::move(a0)),
+        )
     }
 
-    // --- Stage-qualified allocation --------------------------------------
-    //
-    // Callers outside the parse stage MUST use these. See the arena block
-    // above for why the choice is per-stage and not per-node-type.
+    /// # Stage-qualified allocation
+    ///
+    /// Callers outside the parse stage MUST use these. See the arena block
+    /// above for why the choice is per-stage and not per-node-type.
 
-    fn <T> alloc_pp(self) -> *T {
-        var mem: *void = self.pp_alloc.alloc(sizeof(T), alignof(T));
-        libcxx::memset(mem, 0, sizeof(T));
-        return static_cast::<*T>(mem);
+    fn <T> alloc_pp(self) -> unsafe *T {
+        var mem: unsafe *void = self.pp_alloc.alloc(sizeof(T), alignof(T))
+        cxx::std::memset(mem, 0, sizeof(T))
+        return unsafe (mem as unsafe *T)
     }
 
-    fn <T, A0, A1, A2, A3> alloc_init_pp(self, a0: A0, a1: A1, a2: A2, a3: A3) -> *T {
-        var mem: *void = self.pp_alloc.alloc(sizeof(T), alignof(T));
-        return kairo::construct_at::<T>(mem, std::Memory::move(a0), std::Memory::move(a1),
-                                             std::Memory::move(a2), std::Memory::move(a3));
+    pub fn <T, A0, A1, A2, A3> alloc_init_pp(self, a0: A0, a1: A1, a2: A2, a3: A3) -> unsafe *T {
+        var mem: unsafe *void = self.pp_alloc.alloc(sizeof(T), alignof(T))
+        return kairo::construct_at<T>(
+            mem,
+            cxx::std::move(a0),
+            cxx::std::move(a1),
+            cxx::std::move(a2),
+            cxx::std::move(a3),
+        )
     }
 
     // No caller yet; kept at the zero-argument arity so the per-stage set
     // stays complete.
-    fn <T> alloc_init_index(self) -> *T {
-        var mem: *void = self.index_alloc.alloc(sizeof(T), alignof(T));
-        return kairo::construct_at::<T>(mem);
+    fn <T> alloc_init_index(self) -> unsafe *T {
+        var mem: unsafe *void = self.index_alloc.alloc(sizeof(T), alignof(T))
+        return kairo::construct_at<T>(mem)
     }
 
-    fn <T> alloc_init_scratch(self) -> *T {
-        var mem: *void = self.scratch_alloc.alloc(sizeof(T), alignof(T));
-        return kairo::construct_at::<T>(mem);
+    fn <T> alloc_init_scratch(self) -> unsafe *T {
+        var mem: unsafe *void = self.scratch_alloc.alloc(sizeof(T), alignof(T))
+        return kairo::construct_at<T>(mem)
     }
 
-    fn mem_profile(self) -> (usize, usize, usize) {
-        var pp  = self.pp_alloc.profile();
-        var ix  = self.index_alloc.profile();
-        var ast = self.ast_alloc.profile();
-        var sem = self.sema_alloc.profile();
-        var scr = self.scratch_alloc.profile();
-        var s   = self.string_alloc.profile();
+    pub fn mem_profile(self) -> (usize, usize, usize) {
+        var pp  = self.pp_alloc.profile()
+        var ix  = self.index_alloc.profile()
+        var ast = self.ast_alloc.profile()
+        var sem = self.sema_alloc.profile()
+        var scr = self.scratch_alloc.profile()
+        var s   = self.string_alloc.profile()
         // (total bytes, total slabs, total alloc calls)
-        return (pp.bytes_allocated + ix.bytes_allocated + ast.bytes_allocated
-                    + sem.bytes_allocated + scr.bytes_allocated + s.bytes_allocated,
-                pp.slab_count + ix.slab_count + ast.slab_count
-                    + sem.slab_count + scr.slab_count + s.slab_count,
-                pp.alloc_calls + ix.alloc_calls + ast.alloc_calls
-                    + sem.alloc_calls + scr.alloc_calls + s.alloc_calls);
+        return (
+            pp.bytes_allocated + ix.bytes_allocated + ast.bytes_allocated + sem.bytes_allocated + scr.bytes_allocated + s.bytes_allocated,
+            pp.slab_count + ix.slab_count + ast.slab_count + sem.slab_count + scr.slab_count + s.slab_count,
+            pp.alloc_calls + ix.alloc_calls + ast.alloc_calls + sem.alloc_calls + scr.alloc_calls + s.alloc_calls,
+        )
     }
 
     /// Frees everything produced at \p from and every LATER stage.
@@ -318,39 +343,39 @@ class ASTContext {
     /// table is read cross-fid while DEPENDENT files parse. It is dropped
     /// with the context.
     fn release_from(self, from: TUStage) {
-        if from <= TUStage::Codegen {
-            self.codegen_alloc.reset_fast();
+        if (from as u8) <= (TUStage::Codegen as u8) {
+            self.codegen_alloc.reset_fast()
         }
 
-        if from <= TUStage::Sema {
-            self._run_cleanups(&(self._cleanup_sema));
-            self.sema_alloc.reset_fast();
+        if (from as u8) <= (TUStage::Sema as u8) {
+            self._run_cleanups(&self._cleanup_sema)
+            self.sema_alloc.reset_fast()
         }
 
-        if from <= TUStage::Parsing {
-            self._run_cleanups(&(self._cleanup_ast));
-            self.ast_alloc.reset_fast();
-            self.scratch_alloc.reset_fast();
-            self.hoisted = &null;
+        if (from as u8) <= (TUStage::Parsing as u8) {
+            self._run_cleanups(&self._cleanup_ast)
+            self.ast_alloc.reset_fast()
+            self.scratch_alloc.reset_fast()
+            self.hoisted = &null
         }
 
-        if from <= TUStage::Preprocessing {
-            self._run_cleanups(&(self._cleanup_pp));
-            self._run_cleanups(&(self._cleanup_index));
-            self.pp_alloc.reset_fast();
-            self.index_alloc.reset_fast();
-            self.tu = &null;
+        if (from as u8) <= (TUStage::Preprocessing as u8) {
+            self._run_cleanups(&self._cleanup_pp)
+            self._run_cleanups(&self._cleanup_index)
+            self.pp_alloc.reset_fast()
+            self.index_alloc.reset_fast()
+            self.tu = &null
         }
     }
 
     /// Arena storage is reclaimed by each ArenaAllocator's own destructor, but
     /// registered destructors are not   run them here or every context
     /// teardown leaks the heap members of its non-trivial allocations.
-    fn op delete (self) {
-        self._run_cleanups(&(self._cleanup_sema));
-        self._run_cleanups(&(self._cleanup_ast));
-        self._run_cleanups(&(self._cleanup_index));
-        self._run_cleanups(&(self._cleanup_pp));
+    fn op finally (self) {
+        self._run_cleanups(&self._cleanup_sema)
+        self._run_cleanups(&self._cleanup_ast)
+        self._run_cleanups(&self._cleanup_index)
+        self._run_cleanups(&self._cleanup_pp)
     }
 
     /// Drops the parsed AST and the disambig table, keeping the PP's work
@@ -364,28 +389,31 @@ class ASTContext {
     /// token stream rather than kept for dependents. Callers holding a
     /// cross-fid DisambigTable pointer must re-fetch after this.
     fn reset_for_reparse(self) {
-        self.release_from(TUStage::Parsing);
-        self.index_alloc.reset_fast();
+        self.release_from(TUStage::Parsing)
+        self.index_alloc.reset_fast()
     }
 
-    fn make_token(self, range: SourceRange, kind: TokenKind, s: string) -> Token {
-        var tok = Token();
-        tok = kind;
-        tok = range;
+    pub fn make_token(self, range: SourceRange, kind: TokenKind, const s: string) -> Token {
+        var tok = Token()
+        tok.set_kind(kind)
+        tok.set_range(range)
         // token = lexer->intern_ident(s_p, length, h);
         // fn intern_ident(self, const data: *u8, len: usize, hash: u32) -> u32
-        var str = self.string_alloc.alloc_init::<string>(s);
+        var unsafe *str = self.string_alloc.alloc_init<string>(s)
         if str == &null {
-            self.diags->report(DiagID::I002F, range.start,
-                f"internal error: ASTContext::make_token failed to allocate string for token \x27{s}\x27"
-            ).first(range).emit();
-            return Token();
+            self.diags->report(
+                DiagID::I002F,
+                range.start,
+                f"internal error: ASTContext::make_token failed to allocate string for token '{s}'",
+            ).first(range)->emit()
+            return Token()
         }
-        var r   = reinterpret_cast::<std::ConstPtr::<u8>>(str->raw());
-        var l   = str->size();
-        var h   = compute_hash(r, l);
-        tok.imm = self.tcm->intern_ident(self.fid, r, l, h);
-        return tok;
+
+        var unsafe *r = unsafe (str->raw() as kairo::std::ConstPtr<u8>)
+        var        l  = str->size()
+        var        h  = compute_hash(r, l)
+        tok.imm = self.tcm->intern_ident(self.fid, r, l, (h as u32))
+        return tok
     }
 
     /// \brief resolved imm ident index for a token, or u32(-1) if it is not an
@@ -399,15 +427,21 @@ class ASTContext {
     ///          token. Same spelling collapses to the same index as a string
     ///          interned via intern_ident_copy, so token-keyed and text-keyed
     ///          lookups agree within a file.
-    fn get_ident_imm(self, tok: Token) -> u32 {
-        var tbl = self.get_imm_table();
-        if tbl == &null { return u32(-1); }
-
-        var u = unwrap_expansion(tok, self.tcm);
-        if u.is_sentinel { return u32(-1); }
-        if static_cast::<u32>(u.kind) != static_cast::<u32>(TokenKind::LitIdentifier) {
-            return u32(-1);
+    pub fn get_ident_imm(self, tok: Token) -> u32 {
+        var unsafe *tbl = self.get_imm_table()
+        if tbl == &null {
+            return u32::MAX
         }
+
+        var u = unwrap_expansion(tok, self.tcm)
+        if u.is_sentinel {
+            return u32::MAX
+        }
+
+        if (u.kind as u32) != (TokenKind::LitIdentifier as u32) {
+            return u32::MAX
+        }
+
         // An identifier from a macro body written in ANOTHER file (an
         // imported `pub macro`, the prelude's `crash!`) indexes THAT file's
         // table; read against this one the same index is some other name
@@ -415,13 +449,17 @@ class ASTContext {
         // intern_ident_copy stores a fresh copy on every call, and this
         // runs per lookup. The literal half of the problem is the SC073E
         // ticket; only identifiers are re-keyed.
-        if (u.depth > 0) && (u.tbl != &null) && (u.tbl != tbl) {
-            var sp  = u.tbl->get_ident(u.imm);
-            var idx = tbl->find_ident(sp);
-            if idx == u32(-1) { idx = tbl->intern_ident_copy(sp); }
-            return idx;
+        if u.depth > 0 && u.tbl != &null && u.tbl != tbl {
+            var sp  = u.tbl->get_ident(u.imm)
+            var idx = tbl->find_ident(sp)
+            if idx == u32::MAX {
+                idx = tbl->intern_ident_copy(sp)
+            }
+
+            return idx
         }
-        return u.imm;
+
+        return u.imm
     }
 
     /// \brief a macro-wrapped token's ORIGINAL kind and imm, kept at the
@@ -432,12 +470,21 @@ class ASTContext {
     ///          and Sema's operator switch on that kind found no `+` (SC066E
     ///          "not defined on primitives" for `a + b` in any macro body).
     ///          Sentinels stay wrapped: their identity IS the wrapper.
-    fn unwrap_token(self, tok: Token) -> Token {
-        if self.tcm == &null { return tok; }
-        if static_cast::<u32>(tok.kind) != static_cast::<u32>(TokenKind::TkMacroExpand) { return tok; }
-        var u = unwrap_expansion(tok, self.tcm);
-        if u.is_sentinel || u.hit_limit || (u.depth == 0) { return tok; }
-        return Token(tok.range, u.kind, u.imm);
+    pub fn unwrap_token(self, tok: Token) -> Token {
+        if self.tcm == &null {
+            return tok
+        }
+
+        if (tok.kind as u32) != (TokenKind::TkMacroExpand as u32) {
+            return tok
+        }
+
+        var u = unwrap_expansion(tok, self.tcm)
+        if u.is_sentinel || u.hit_limit || u.depth == 0 {
+            return tok
+        }
+
+        return Token(tok.range, u.kind, u.imm)
     }
 
     /// \brief the table that owns a literal token's payload (IntData,
@@ -450,14 +497,23 @@ class ASTContext {
     ///          invoking file). Reading the record index against this file's
     ///          literal list was SC073E when it ran off the end and, worse, a
     ///          different literal of this file when it did not.
-    fn get_payload_table(self, tok: Token) -> *ImmediateTable {
-        var tbl = self.get_imm_table();
-        if self.tcm == &null { return tbl; }
-        if static_cast::<u32>(tok.kind) != static_cast::<u32>(TokenKind::TkMacroExpand) { return tbl; }
-        var u = unwrap_expansion(tok, self.tcm);
-        if u.is_sentinel || u.hit_limit || (u.depth == 0) || (u.tbl == &null) { return tbl; }
-        tbl = u.tbl;
-        return tbl;
+    pub fn get_payload_table(self, tok: Token) -> unsafe *ImmediateTable {
+        var unsafe *tbl = self.get_imm_table()
+        if self.tcm == &null {
+            return tbl
+        }
+
+        if (tok.kind as u32) != (TokenKind::TkMacroExpand as u32) {
+            return tbl
+        }
+
+        var u = unwrap_expansion(tok, self.tcm)
+        if u.is_sentinel || u.hit_limit || u.depth == 0 || u.tbl == &null {
+            return tbl
+        }
+
+        tbl = u.tbl
+        return tbl
     }
 
     /// \brief where a token was WRITTEN: a macro-wrapped token's innermost
@@ -469,11 +525,20 @@ class ASTContext {
     ///          read off those ranges reports whitespace that was never
     ///          written. Spacing questions about wrapped tokens ask this.
     fn written_range(self, tok: Token) -> SourceRange {
-        if self.tcm == &null { return tok.range; }
-        if static_cast::<u32>(tok.kind) != static_cast::<u32>(TokenKind::TkMacroExpand) { return tok.range; }
-        var u = unwrap_expansion(tok, self.tcm);
-        if u.is_sentinel || u.hit_limit || (u.depth == 0) { return tok.range; }
-        return u.def_range;
+        if self.tcm == &null {
+            return tok.range
+        }
+
+        if (tok.kind as u32) != (TokenKind::TkMacroExpand as u32) {
+            return tok.range
+        }
+
+        var u = unwrap_expansion(tok, self.tcm)
+        if u.is_sentinel || u.hit_limit || u.depth == 0 {
+            return tok.range
+        }
+
+        return u.def_range
     }
 
     /// \brief \p tok, a raw token another file lexed, wrapped as a macro
@@ -496,539 +561,55 @@ class ASTContext {
     ///          this file into that one (TokenSink I003E). The buffer's end
     ///          marker stays as it is.
     fn wrap_foreign_token(self, tok: Token, site: Token) -> Token {
-        var tbl = self.get_imm_table();
-        if (tbl == &null) || (self.tcm == &null) { return tok; }
-        if static_cast::<u32>(tok.kind) == static_cast::<u32>(TokenKind::TkEof) { return tok; }
-        if static_cast::<u32>(tok.kind) == static_cast::<u32>(TokenKind::TkMacroExpand) { return tok; }
+        var unsafe *tbl = self.get_imm_table()
+        if tbl == &null || self.tcm == &null {
+            return tok
+        }
+
+        if (tok.kind as u32) == (TokenKind::TkEof as u32) {
+            return tok
+        }
+
+        if (tok.kind as u32) == (TokenKind::TkMacroExpand as u32) {
+            return tok
+        }
+
         // The invocation's macro name, for the "in expansion of" chain.
-        var name = u32(-1);
-        if static_cast::<u32>(site.kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
-            var rec_tbl = self.tcm->get_imm_table_for_token(site);
+        var name = u32::MAX
+        if (site.kind as u32) == (TokenKind::TkMacroExpand as u32) {
+            var unsafe *rec_tbl = self.tcm->get_imm_table_for_token(site)
             if rec_tbl != &null {
-                var outer = rec_tbl->get::<Immediate::MacroExpansionInfo>(site.imm);
-                if outer != &null { name = outer->macro_name; }
+                var unsafe *outer = rec_tbl->get<Immediate::MacroExpansionInfo>(site.imm)
+                if outer != &null {
+                    name = outer->macro_name
+                }
             }
         }
-        var idx  = tbl->create::<Immediate::MacroExpansionInfo>();
-        var info = tbl->get::<Immediate::MacroExpansionInfo>(idx);
-        info->invoke_range  = site.range;
-        info->def_range     = tok.range;
-        info->original_kind = tok.kind;
-        info->original_imm  = tok.imm;
-        info->macro_name    = name;
-        info->parent_idx    = u32(-1);
-        return Token(site.range, TokenKind::TkMacroExpand, idx);
+
+        var        idx   = tbl->create<Immediate::MacroExpansionInfo>()
+        var unsafe *info = tbl->get<Immediate::MacroExpansionInfo>(idx)
+        info->invoke_range  = site.range
+        info->def_range     = tok.range
+        info->original_kind = tok.kind
+        info->original_imm  = tok.imm
+        info->macro_name    = name
+        info->parent_idx    = u32::MAX
+        return Token(site.range, TokenKind::TkMacroExpand, idx)
     }
 
     fn get_token_text(self, tok: Token) -> TokenText {
-        return TokenText::resolve(tok, self.tcm);
+        return TokenText::resolve(tok, self.tcm)
     }
 
     fn get_token_text(self, rng: SourceRange) -> TokenText {
-        return TokenText::from_range(rng, self.sm);
+        return TokenText::from_range(rng, self.sm)
     }
 
-    fn get_spelling(self, tok: Token) -> string {
-        return self.get_token_text(tok).get_text();
+    pub fn get_spelling(self, tok: Token) -> string {
+        return *self.get_token_text(tok).get_text()
     }
 
-    fn get_spelling(self, rng: SourceRange) -> string {
-        return self.get_token_text(rng).get_text();
-    }
-}
-
-/// Coarse declaration kind enough for parser disambiguation.
-/// Sema refines these into concrete DeclKind values.
-enum DisambigKind derives u8 {
-    ClassType,      ///< class Foo
-    EnumType,       ///< enum Foo
-    UnionType,      ///< union Foo
-    StructType,     ///< struct Foo
-    InterfaceType,  ///< interface Foo
-    TypeAlias,      ///< type Foo = ...
-    Function,       ///< fn foo
-    Operator,       ///< fn op +
-    Variable,       ///< var foo / const foo
-    ProcMacro,      ///< @foo
-    BasicMacro,     ///< foo!
-    Module,         ///< namespace / module block
-}
-
-/// A single entry in the hoisted scope table.
-///
-/// \c decl is null for declarations originating from C++ FFI use
-/// \c origin for source location in that case.
-/// \c is_foreign is true for symbols introduced via import, not declared
-/// locally in the file being indexed.
-///
-/// \c generic mirrors TemplateParams::is_generic() on the declaring node:
-/// true iff the decl carries explicit `<T>` type params OR is a Primary
-/// specialization form. Explicit/Partial specializations do NOT set it
-/// genericness of a name is owned by the primary declaration. The zero
-/// value (false) is the safe default: an entry never accidentally reads
-/// as generic. (Replaces the old num_params sentinel, whose two competing
-/// contracts 0-means-not-generic vs -1-means-not-generic made every
-/// zero-count path read as generic.)
-class DisambigEntry {
-    struct DeclEntry { // 128 bits
-        pub var origin: SourceRange;
-    }
-
-    pub var extend_of_name: u32 = u32(-1); ///< imm ident index of the extended type's name.
-    pub var name:           u32 = u32(-1); ///< imm ident index of this entry's name.
-    pub var kind:           DisambigKind;
-    pub var decl:           DeclEntry;
-    pub var extend_of:      DeclEntry;
-    pub var generic:        bool = false; ///< See class docs; from TemplateParams::is_generic().
-    pub var is_foreign:     bool; ///< True if introduced via import.
-    pub var extended:       bool; ///< True if this is an extended impl of an existing type, not a new declaration.
-
-    fn is_type(self) -> bool {
-        switch self.kind {
-            case DisambigKind::ClassType     { return true;  }
-            case DisambigKind::EnumType      { return true;  }
-            case DisambigKind::UnionType     { return true;  }
-            case DisambigKind::StructType    { return true;  }
-            case DisambigKind::InterfaceType { return true;  }
-            case DisambigKind::TypeAlias     { return true;  }
-            default                         { return false; }
-        }
-    }
-
-    fn is_value(self) -> bool {
-        return self.kind == DisambigKind::Function
-            || self.kind == DisambigKind::Operator
-            || self.kind == DisambigKind::Variable;
-    }
-
-    fn is_macro(self) -> bool {
-        return self.kind == DisambigKind::ProcMacro
-            || self.kind == DisambigKind::BasicMacro;
-    }
-
-    fn is_generic(self)   -> bool { return self.generic;        }
-    fn is_extension(self) -> bool { return self.extended;       }
-    fn is_from_foreign(self)   -> bool { return self.is_foreign;     }
-}
-
-/// One node in the hoisted scope trie.
-///
-/// \c entries holds names declared at this scope level.
-/// \c children holds nested scopes (modules, classes, enums with variants).
-///
-/// Keyed on the u32 imm ident index, WIDENED to u64: lookups arrive
-/// unguarded, and u32(-1) is DenseMap<u32>'s empty key, which asserts even
-/// on a find. Memory is arena-owned; the destructor intentionally leaks
-/// child pointers since the arena reclaims everything at once.
-///
-/// MapVector, in declaration (insertion) order: _collect_extensions and the
-/// dumps walk these, and which extension comes first is observable. Each
-/// name's entry list lives in the context arena, the map holds its address
-/// -- lookup() hands it out as LookupResult.entries, and MapVector's values
-/// move as it grows.
-class DisambigNode {
-    pub var entries:  llvm::MapVector::<u64, *vec::<DisambigEntry>>;
-    pub var children: llvm::MapVector::<u64, *DisambigNode>;
-
-    fn DisambigNode(self) { }
-
-    // NOTE: no op delete here. The arena reclaims the NODE STRUCT, but
-    // `entries` and `children` are MapVectors with heap storage (the entry
-    // vecs are cleanup-registered on their own). Their destructors
-    // must still run, so DisambigNode is allocated via
-    // alloc_init_index_cleanup() and torn down through ASTContext's cleanup
-    // registry. Defining a no-op op delete here would silently defeat that.
-
-    /// Inserts \p entry under \p name. First declaration wins; duplicates ignored.
-    /// Sema will catch redefinition errors with full source context.
-    fn insert(self, name: u32, entry: DisambigEntry, ctx: *ASTContext) {
-        var slot = &(self.entries[static_cast::<u64>(name)]);
-        if (*slot) == &null { (*slot) = ctx->alloc_init_index_cleanup::<vec::<DisambigEntry>>(); }
-        (*slot)->push_back(entry);
-    }
-
-    /// Returns the child scope for \p name, creating it if absent.
-    fn get_or_create_child(self, name: u32, ctx: *ASTContext) -> *DisambigNode {
-        var slot = &(self.children[static_cast::<u64>(name)]);
-        if (*slot) == &null { (*slot) = ctx->alloc_init_index_cleanup::<DisambigNode>(); }
-        return *slot;
-    }
-
-    /// Returns the child scope for \p name, or null if absent.
-    fn get_child(self, name: u32) -> *DisambigNode {
-        var it = self.children.find(static_cast::<u64>(name));
-        if it == self.children.end() { return &null; }
-        return it->second;
-    }
-
-    /// Looks up \p name at this scope level only. Does not search children.
-    fn lookup(self, name: u32) -> *vec::<DisambigEntry> {
-        var it = self.entries.find(static_cast::<u64>(name));
-        if it == self.entries.end() { return &null; }
-        return it->second;
-    }
-
-    fn has_child(self, name: u32) -> bool {
-        return self.children.count(static_cast::<u64>(name)) > 0;
-    }
-
-    fn has_entry(self, name: u32) -> bool {
-        return self.entries.count(static_cast::<u64>(name)) > 0;
-    }
-}
-
-/// Result of a lookup into DisambigTable.
-/// Carries both the entry and the scope node it was found in,
-/// so the parser can continue walking children if needed.
-class LookupResult {
-    pub var entries: *vec::<DisambigEntry>;  ///< Null if not found.
-    pub var node:    *DisambigNode;            ///< Scope where entry lives. Null if not found.
-
-    fn found(self) -> bool    { return (self.entries != &null) && (!self.entries->empty()); }
-    fn is_type(self) -> bool  { return (self.found()) && ((*self.entries)[0].is_type());  }
-    fn is_value(self) -> bool { return (self.found()) && ((*self.entries)[0].is_value()); }
-    fn is_macro(self) -> bool { return (self.found()) && ((*self.entries)[0].is_macro()); }
-
-    static fn not_found() -> LookupResult {
-        var r     = LookupResult{};
-        r.entries = &null;
-        r.node    = &null;
-        return r;
-    }
-
-    fn first(self) -> *DisambigEntry {
-        if (self.entries == &null) || (self.entries->empty()) { return &null; }
-        return &(*self.entries)[0];
-    }
-
-    fn is_overloaded(self) -> bool {
-        return (self.entries != &null) && (self.entries->size() > 1);
-    }
-
-    fn is_extended(self) -> bool {
-        if (self.entries == &null) { return false; }
-        for entry in *self.entries {
-            if entry.extended { return true; }
-        }
-        return false;
-    }
-
-    fn extensions(self) -> vec::<*DisambigEntry> {
-        var result = vec::<*DisambigEntry>();
-        if self.entries == &null { return result; }
-        for var i: usize = 0; i < self.entries->size(); ++i {
-            if (*self.entries)[i].extended {
-                result.push_back(&(*self.entries)[i]);
-            }
-        }
-        return result;
-    }
-
-    fn non_extensions(self) -> vec::<*DisambigEntry> {
-        var result = vec::<*DisambigEntry>();
-        if self.entries == &null { return result; }
-        for var i: usize = 0; i < self.entries->size(); ++i {
-            if !(*self.entries)[i].extended {
-                result.push_back(&(*self.entries)[i]);
-            }
-        }
-        return result;
-    }
-}
-
-/// Hierarchical symbol table built by the index pass over a single file
-/// and its transitive imports.
-///
-/// Structured as a trie of \c DisambigNode instances keyed on the u32 imm ident index.
-/// Lookup for a qualified name like \c foo::bar::Baz costs one hashmap
-/// lookup per segment O(1) per segment, O(depth) total.
-///
-/// \par Parser API
-/// The parser holds a \c *DisambigTable and calls:
-///   - \c lookup(ident)         for unqualified names
-///   - \c lookup(chain)         for qualified names from a \c ChainExpr
-///   - \c is_type / is_value    for quick boolean disambiguation
-///   - \c enter(name)           to get a child \c DisambigNode for manual walking
-///
-/// \par Population
-/// The \c Indexer calls \c insert() and \c insert_into() during the index
-/// pass. After the pass completes the scope is read-only.
-class DisambigTable {
-    priv var _root: DisambigNode;
-    priv var _ctx:  obs::<ASTContext>;
-
-    fn DisambigTable(self, ctx: *ASTContext) {
-        self._ctx = ctx;
-    }
-
-    // --- Interning -----------------------------------------------------------
-    //
-    // Post interner-consolidation the key space IS the per-fid ImmediateTable
-    // ident index, unified with Token.imm. String inputs (synth names, path
-    // segments spanning multiple tokens) are copied in via intern_ident_copy;
-    // token inputs use their resolved imm directly (see lookup_tok / intern_tok).
-
-    priv fn _tbl(self) -> *ImmediateTable {
-        return self._ctx->get_imm_table();
-    }
-
-    /// Interns \p s and returns its imm ident index. String path only prefer
-    /// \c intern_tok when a token is in hand to avoid the byte copy.
-    fn intern(self, s: string) -> u32 {
-        return self._tbl()->intern_ident_copy(s);
-    }
-
-    /// Imm ident index for an identifier token, using its resolved imm directly.
-    /// Returns u32(-1) for non-identifier tokens (never matches an entry).
-    fn intern_tok(self, tok: Token) -> u32 {
-        return self._ctx->get_ident_imm(tok);
-    }
-
-    fn str(self, h: u32) -> string {
-        return self._tbl()->get_ident(h);
-    }
-
-    // --- Population ----------------------------------------------------------
-
-    /// Inserts \p entry at root scope under \p name.
-    fn insert(self, name: string, entry: DisambigEntry) {
-        var key        = self.intern(name);
-        entry.name     = key;
-        self._root.insert(key, entry, self._ctx);
-    }
-
-    /// Inserts \p entry at the scope reached by walking \p scope_path from root.
-    /// Creates intermediate scope nodes as needed.
-    /// \p scope_path is the sequence of parent names, e.g. ["A", "B"] for A::B::Foo.
-    fn insert_into(self, scope_path: *vec::<string>, name: string, entry: DisambigEntry) {
-        var node = &self._root;
-        for s: string in *scope_path {
-            var k = self.intern(s);
-            node  = node->get_or_create_child(k, self._ctx);
-        }
-        var key    = self.intern(name);
-        entry.name = key;
-        node->insert(key, entry, self._ctx);
-    }
-
-    // --- Parser API ----------------------------------------------------------
-
-    /// Looks up an unqualified name at root scope.
-    fn lookup(self, name: string) -> LookupResult {
-        var key = self.intern(name);
-        return self._lookup_in(&self._root, key);
-    }
-
-    /// Looks up an already-interned imm ident index at root scope. O(1).
-    fn lookup(self, name: u32) -> LookupResult {
-        return self._lookup_in(&self._root, name);
-    }
-
-    /// Looks up an identifier token at root scope by its resolved imm. O(1),
-    /// no byte copy the sanctioned hot-path lookup for the parser.
-    fn lookup_tok(self, tok: Token) -> LookupResult {
-        var key = self.intern_tok(tok);
-        if key == u32(-1) { return LookupResult::not_found(); }
-        return self._lookup_in(&self._root, key);
-    }
-
-    /// Non-mutating twins of lookup(string) / lookup(segments), for a probe
-    /// from ANOTHER file's parse (GlobalDisambigTable::lookup_in). The
-    /// string overloads intern their key, i.e. write this file's imm table
-    /// from a thread that does not own it while the owner's parser interns
-    /// too -- two unsynchronized writers on `synth_names` and the ident hash.
-    /// A spelling the table has never seen cannot key an entry, so a find
-    /// miss answers not-found exactly as an intern would have.
-    fn lookup_existing(self, name: string) -> LookupResult {
-        var key = self._tbl()->find_ident(name);
-        if key == u32(-1) { return LookupResult::not_found(); }
-        return self._lookup_in(&self._root, key);
-    }
-
-    fn lookup_existing(self, segments: *vec::<string>) -> LookupResult {
-        if segments->empty() { return LookupResult::not_found(); }
-
-        var tbl  = self._tbl();
-        var node = &self._root;
-        for var i: usize = 0; i < segments->size() - 1; ++i {
-            var k = tbl->find_ident((*segments)[i]);
-            if k == u32(-1) { return LookupResult::not_found(); }
-            var next = node->get_child(k);
-            if next == &null { return LookupResult::not_found(); }
-            node = next;
-        }
-
-        var last = tbl->find_ident(segments->back());
-        if last == u32(-1) { return LookupResult::not_found(); }
-        return self._lookup_in(node, last);
-    }
-
-    /// Walks a qualified name chain and returns the final entry.
-    /// \p segments is the sequence of names from a parsed \c ChainExpr,
-    /// e.g. ["foo", "bar", "Baz"] for foo::bar::Baz.
-    /// Returns \c LookupResult::not_found() if any segment is missing.
-    fn lookup(self, segments: *vec::<string>) -> LookupResult {
-        if segments->empty() { return LookupResult::not_found(); }
-
-        var node = &self._root;
-        for var i: usize = 0; i < segments->size() - 1; ++i {
-            var k    = self.intern((*segments)[i]);
-            var next = node->get_child(k);
-            if next == &null { return LookupResult::not_found(); }
-            node = next;
-        }
-
-        var last = self.intern(segments->back());
-        return self._lookup_in(node, last);
-    }
-
-    fn insert_extension(self, scope_path: *vec::<string>, name: string, entry: DisambigEntry) {
-        assert(entry.extended && r"insert_extension: entry.extended must be true");
-        self.insert_into(scope_path, name, entry);
-    }
-
-    // DisambigTable::lookup_extensions - new
-    fn lookup_extensions(self, type_name: u32) -> vec::<*DisambigEntry> {
-        var result = vec::<*DisambigEntry>();
-        self._collect_extensions(&self._root, type_name, &result);
-        return result;
-    }
-
-    /// Returns the child scope node for \p name at root, or null.
-    /// Used by the parser to manually walk a scope chain one segment at a time.
-    fn enter(self, name: string) -> *DisambigNode {
-        var k = self.intern(name);
-        return self._root.get_child(k);
-    }
-
-    fn enter(self, name: u32) -> *DisambigNode {
-        return self._root.get_child(name);
-    }
-
-    fn enter(self, segments: *vec::<string>) -> *DisambigNode {
-        var node = &self._root;
-        for s in *segments {
-            var k = self.intern(s);
-            node  = node->get_child(k);
-            if node == &null { return &null; }
-        }
-        return node;
-    }
-
-    /// Quick boolean queries on root scope.
-    fn is_type(self, name: string)  -> bool { return self.lookup(name).is_type();  }
-    fn is_value(self, name: string) -> bool { return self.lookup(name).is_value(); }
-    fn is_macro(self, name: string) -> bool { return self.lookup(name).is_macro(); }
-
-    fn root(self) -> *DisambigNode { return &self._root; }
-
-    fn dump(self) {
-        std::print("=== DisambigTable Dump ===");
-        self._dump_node(&self._root, "", true);
-        std::print("=========================");
-    }
-
-
-    // --- Private -------------------------------------------------------------
-
-    priv fn _lookup_in(self, node: *DisambigNode, key: u32) -> LookupResult {
-        var entries = node->lookup(key);
-        if entries == &null {
-            return LookupResult::not_found();
-        }
-        var r    = LookupResult{};
-        r.entries = entries;
-        r.node    = node;
-        return r;
-    }
-
-    priv fn _collect_extensions(self, node: *DisambigNode, type_name: u32, result: *vec::<*DisambigEntry>) {
-        for var it = node->entries.begin(); it != node->entries.end(); ++it {
-            for var i: usize = 0; i < it->second->size(); ++i {
-                var entry = &((*it->second)[i]);
-                if entry->extended {
-                    if entry->extend_of_name == type_name {
-                        result->push_back(entry);
-                    }
-                }
-            }
-        }
-        for var it = node->children.begin(); it != node->children.end(); ++it {
-            self._collect_extensions(it->second, type_name, result);
-        }
-    }
-
-    priv fn _dump_node(self, node: *DisambigNode, prefix: string, is_root: bool) {
-        var entries_it = node->entries.begin();
-        var total_entries: usize = 0;
-
-        // count total entry vectors for branching logic
-        for var it = node->entries.begin(); it != node->entries.end(); ++it {
-            total_entries += 1;
-        }
-        var total_children: usize = node->children.size();
-        var total_items: usize    = total_entries + total_children;
-
-        var item_idx: usize = 0;
-
-        // print entries
-        for var it = node->entries.begin(); it != node->entries.end(); ++it {
-            ++item_idx;
-            var is_last    = (item_idx == total_items);
-            var connector  = (("└── ") if (is_last) else ("├── "));
-            var child_pfx  = (("    ") if (is_last) else ("│   "));
-
-            var name = self.str(static_cast::<u32>(it->first));
-            var vec  = *(it->second);
-
-            if vec.size() == 1 {
-                std::print(f"{prefix}{connector}{name}  [{self._kind_str(vec[0].kind)}]{self._flags_str(vec[0])}");
-            } else {
-                std::print(f"{prefix}{connector}{name}  (overloaded x{vec.size()})");
-                for var i: usize = 0; i < vec.size(); ++i {
-                    var sub_last      = (i == vec.size() - 1);
-                    var sub_connector = (("└── ") if (sub_last) else ("├── "));
-                    std::print(f"{prefix}{child_pfx}{sub_connector}[{self._kind_str(vec[i].kind)}]{self._flags_str(vec[i])}");
-                }
-            }
-        }
-
-        // print children (nested scopes)
-        for var it = node->children.begin(); it != node->children.end(); ++it {
-            ++item_idx;
-            var is_last   = (item_idx == total_items);
-            var connector = (("└── ") if (is_last) else ("├── "));
-            var child_pfx = (("    ") if (is_last) else ("│   "));
-
-            var name = self.str(static_cast::<u32>(it->first));
-            std::print(f"{prefix}{connector}{name}/");
-            self._dump_node(it->second, prefix + child_pfx, false);
-        }
-    }
-
-    priv static fn _kind_str(kind: DisambigKind) -> string {
-        switch kind {
-            case DisambigKind::ClassType     { return "class";     }
-            case DisambigKind::EnumType      { return "enum";      }
-            case DisambigKind::UnionType     { return "union";     }
-            case DisambigKind::StructType    { return "struct";    }
-            case DisambigKind::InterfaceType { return "interface"; }
-            case DisambigKind::TypeAlias     { return "type";      }
-            case DisambigKind::Function      { return "fn";        }
-            case DisambigKind::Operator      { return "fn op";     }
-            case DisambigKind::Variable      { return "var";       }
-            case DisambigKind::ProcMacro     { return "@macro";    }
-            case DisambigKind::BasicMacro    { return "macro!";    }
-            case DisambigKind::Module        { return "module";    }
-            default                         { return "?";         }
-        }
-    }
-
-    priv static fn _flags_str(entry: ref!(DisambigEntry)) -> string {
-        var s: string = "";
-        if entry.is_generic()  { s = (s + "  <generic>"); }
-        if entry.is_from_foreign()  { s = (s + "  [foreign]");  }
-        if entry.extended      { s = (s + "  [extension]"); }
-        return s;
+    pub fn get_spelling(self, rng: SourceRange) -> string {
+        return *self.get_token_text(rng).get_text()
     }
 }

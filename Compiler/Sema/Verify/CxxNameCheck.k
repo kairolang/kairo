@@ -28,73 +28,84 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::SemaContext::*;
-import AST::Context::ASTContext::*;
-import AST::Context::TranslationUnit::*;
-import AST::ASTSupport::*;
-import AST::Node::Base::*;
-import AST::Node::Program::*;
-import AST::Node::Declarations::*;
-import AST::Node::Patterns::*;
-import AST::Node::Casting::*;
-import AST::Visitor::RecursiveASTVisitor::*;
-import AST::CxxReservedWords::*;
-import AST::LangItems::*;
-import Token::Token::*;
-import Diagnostic::Registry::*;
+import AST::CxxReservedWords::{
+    CxxKeywordSet,
+    cxx_reserved_everywhere,
+    cxx_reserved_reason,
+}
+import AST::LangItems::LowerTargets
+import AST::Node::Declarations
+import AST::Node::Patterns::BindingPattern
+import AST::Node::Program::TopLevelKind
+import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import Diagnostic::Registry::DiagID
+import Sema::SemaContext::SemaContext
+import Token::Token::Token
 
-class CxxNameCheck derives RecursiveASTVisitor::<CxxNameCheck> {
-    pub var sc: *SemaContext;
-    var kw: CxxKeywordSet;   ///< table-local index set; dies with the pass.
+pub class CxxNameCheck derives RecursiveASTVisitor<CxxNameCheck> {
+    pub var sc: *SemaContext
+    var     kw: CxxKeywordSet ///< table-local index set; dies with the pass.
 
     fn CxxNameCheck(self, sc: *SemaContext) {
-        self.sc = sc;
+        self.sc = sc
     }
 
     fn run(self) {
-        var tu = self.sc->tu;
-        if tu == &null { return; }
-        if tu->program == &null { return; }
+        var unsafe *tu = self.sc->tu
+        if tu == &null {
+            return
+        }
+
+        if tu->program == &null {
+            return
+        }
 
         // Requires a fully-populated imm table   see CxxReservedWords.k.
-        self.kw.build(self.sc->imm_table());
+        self.kw.build(self.sc->imm_table())
 
-        var items = &(tu->program->items);
+        var *items = &tu->program->items
         for var i: usize = 0; i < items->size(); i++ {
-            var item = *(items->get(i));
-            switch item.kind {
-                case TopLevelKind::Decl { self.dispatch_decl(item.as_decl()); }
-                case TopLevelKind::Stmt { self.dispatch_stmt(item.as_stmt()); }
-                case TopLevelKind::Expr { self.dispatch_expr(item.as_expr()); }
-                default { }
+            var item = *items->get(i)
+            match item.kind {
+                case TopLevelKind::Decl {
+                    self.dispatch_decl(item.as_decl())
+                } case TopLevelKind::Stmt {
+                    self.dispatch_stmt(item.as_stmt())
+                } case TopLevelKind::Expr {
+                    self.dispatch_expr(item.as_expr())
+                }
             }
         }
     }
 
     /// \p what is the noun used in the message ("function", "class", ...).
-    priv fn _check(self, name: Token, what: string) {
+    priv fn _check(self, name: Token, const what: string) {
         // get_ident_imm unwraps macro-expansion chains and yields u32(-1)
         // for anything that is not an identifier   an empty/absent name
         // token (anonymous module, unnamed param) lands there and is
         // correctly skipped.
-        var imm = self.sc->ctx->get_ident_imm(name);
-        if imm == u32(-1) { return; }
-
-        if self.kw.contains(imm) {
-            var kw = self.sc->ctx->get_spelling(name);
-            self.sc->diag->report(DiagID::SC004E, name.range.start,
-                f"{what} name \x27{kw}\x27 is a C++ keyword; Kairo names are emitted unchanged, so C++ cannot declare or name it"
-            ).first(name.range).emit();
-            return;
+        var imm = self.sc->ctx->get_ident_imm(name)
+        if imm == u32::MAX {
+            return
         }
 
-        var s = self.sc->ctx->get_spelling(name);
+        if self.kw.contains(imm) {
+            var kw = self.sc->ctx->get_spelling(name)
+            self.sc->diag->report(
+                DiagID::SC004E,
+                name.range.start,
+                f"{what} name '{kw}' is a C++ keyword; Kairo names are emitted unchanged, so C++ cannot declare or name it",
+            ).first(name.range)->emit()
+            return
+        }
+
+        var s = self.sc->ctx->get_spelling(name)
 
         // BEFORE the [lex.name] patterns below, not after: the reserved prefix
         // contains a double underscore, so cxx_reserved_reason would answer
@@ -102,128 +113,146 @@ class CxxNameCheck derives RecursiveASTVisitor::<CxxNameCheck> {
         // compiler MINTS names with this prefix (LowerTargets: `op in` becomes
         // __kairo_contains, and so on), so a user declaring one does not merely
         // risk UB -- it collides with an invented name in the emitted C++.
-        var rp = LowerTargets::reserved_prefix();
+        var rp = LowerTargets::reserved_prefix()
         if s.length() >= rp.length() {
-            var hit = true;
+            var hit = true
             for var i: usize = 0; i < rp.length(); ++i {
-                if s[i] != rp[i] { hit = false; break; }
+                if s[i] != rp[i] {
+                    hit = false
+                    break
+                }
             }
+
             if hit {
-                self.sc->diag->report(DiagID::SC017E, name.range.start,
-                    f"identifier \x27{s}\x27 uses the reserved prefix \x27{rp}\x27"
-                ).first(name.range).emit();
-                return;
+                self.sc->diag->report(
+                    DiagID::SC017E,
+                    name.range.start,
+                    f"identifier '{s}' uses the reserved prefix '{rp}'",
+                ).first(name.range)->emit()
+                return
             }
         }
 
         // The builtin root IS the implementation the C++ rule reserves these
         // names for: a `__builtin_` intrinsic it declares (__builtin_niche_of)
         // is answered by the compiler, and spelled that way on purpose.
-        if (self.sc->g != &null) && self.sc->g->is_builtin_fid(self.sc->ctx->fid) && self._is_intrinsic_name(s) { return; }
+        if self.sc->g != &null
+            && self.sc->g->is_builtin_fid(self.sc->ctx->fid)
+            && self._is_intrinsic_name(s) {
+            return
+        }
 
-        var why = cxx_reserved_reason(s);
+        var why = cxx_reserved_reason(s)
         if !why.empty() {
             // Two messages, because only one of them is C++'s rule. A plain
             // `_lower` is reserved by C++ at global scope alone; a member or
             // a local spelled so is legal C++, and Kairo refuses it on its
             // own account (file header). Saying "reserved in C++" there sent
-            // people looking for a C++ rule that does not exist (P372).
-            var msg = f"{what} name is reserved by C++ at every scope: {why}";
+            // people looking for a C++ rule that does not exist.
+            var msg = f"{what} name is reserved by C++ at every scope: {why}"
             if !cxx_reserved_everywhere(s) {
-                msg = f"{what} name begins with an underscore; Kairo reserves leading-underscore names at every scope for C++ interop";
+                msg = f"{what} name begins with an underscore; Kairo reserves leading-underscore names at every scope for C++ interop"
             }
-            self.sc->diag->report(DiagID::SC005W, name.range.start, msg).first(name.range).emit();
+
+            self.sc->diag->report(DiagID::SC005W, name.range.start, msg).first(name.range)->emit()
         }
     }
 
-    /// \p s starts `__builtin_`. MIGRATE(raw_string): a char loop.
-    priv fn _is_intrinsic_name(self, s: string) -> bool {
-        var p = LowerTargets::clang_builtin_prefix();
-        if s.length() < p.length() { return false; }
-        for var i: usize = 0; i < p.length(); ++i {
-            if s[i] != p[i] { return false; }
-        }
-        return true;
+    /// \p s starts `__builtin_`.
+    priv fn _is_intrinsic_name(self, const s: string) -> bool {
+        return s.starts_with(LowerTargets::clang_builtin_prefix())
     }
 
     /// Operators carry no user identifier   `op_token` is the spelling and
     /// its C++ form is synthesized by Lower/, not written by the user. Ctors
     /// share the type name and are checked at the type decl.
-    fn visit_function_decl(self, n: *FunctionDecl) -> bool {
-        if n->is_operator { return true; }
-        self._check(n->name, "function");
-        return true;
+    fn visit_function_decl(self, n: *Declarations::FunctionDecl) -> bool {
+        if n->is_operator {
+            return true
+        }
+
+        self._check(n->name, "function")
+        return true
     }
 
-    fn visit_variable_decl(self, n: *VariableDecl) -> bool {
-        self._check(n->name, "variable");
-        return true;
+    fn visit_variable_decl(self, n: *Declarations::VariableDecl) -> bool {
+        self._check(n->name, "variable")
+        return true
     }
 
-    fn visit_field_decl(self, n: *FieldDecl) -> bool {
-        self._check(n->name, "field");
-        return true;
+    fn visit_field_decl(self, n: *Declarations::FieldDecl) -> bool {
+        self._check(n->name, "field")
+        return true
     }
 
     /// `self` is synthesized-by-grammar and never emitted as a C++ param
     /// name; `unname` params have no name to emit.
-    fn visit_param_decl(self, n: *ParamDecl) -> bool {
-        if n->is_self { return true; }
-        if n->unname  { return true; }
-        self._check(n->name, "parameter");
-        return true;
+    fn visit_param_decl(self, n: *Declarations::ParamDecl) -> bool {
+        if n->is_self {
+            return true
+        }
+
+        if n->unname {
+            return true
+        }
+
+        self._check(n->name, "parameter")
+        return true
     }
 
-    fn visit_generic_param_decl(self, n: *GenericParamDecl) -> bool {
-        self._check(n->name, "generic parameter");
-        return true;
+    fn visit_generic_param_decl(self, n: *Declarations::GenericParamDecl) -> bool {
+        self._check(n->name, "generic parameter")
+        return true
     }
 
-    fn visit_struct_decl(self, n: *StructDecl) -> bool {
-        self._check(n->name, "struct");
-        return true;
+    fn visit_struct_decl(self, n: *Declarations::StructDecl) -> bool {
+        self._check(n->name, "struct")
+        return true
     }
 
-    fn visit_class_decl(self, n: *ClassDecl) -> bool {
-        self._check(n->name, "class");
-        return true;
+    fn visit_class_decl(self, n: *Declarations::ClassDecl) -> bool {
+        self._check(n->name, "class")
+        return true
     }
 
-    fn visit_interface_decl(self, n: *InterfaceDecl) -> bool {
-        self._check(n->name, "interface");
-        return true;
+    fn visit_interface_decl(self, n: *Declarations::InterfaceDecl) -> bool {
+        self._check(n->name, "interface")
+        return true
     }
 
-    fn visit_enum_decl(self, n: *EnumDecl) -> bool {
-        self._check(n->name, "enum");
-        return true;
+    fn visit_enum_decl(self, n: *Declarations::EnumDecl) -> bool {
+        self._check(n->name, "enum")
+        return true
     }
 
-    fn visit_enum_variant_decl(self, n: *EnumVariantDecl) -> bool {
-        self._check(n->name, "enum variant");
-        return true;
+    fn visit_enum_variant_decl(self, n: *Declarations::EnumVariantDecl) -> bool {
+        self._check(n->name, "enum variant")
+        return true
     }
 
-    fn visit_union_decl(self, n: *UnionDecl) -> bool {
-        self._check(n->name, "union");
-        return true;
+    fn visit_union_decl(self, n: *Declarations::UnionDecl) -> bool {
+        self._check(n->name, "union")
+        return true
     }
 
-    fn visit_type_alias_decl(self, n: *TypeAliasDecl) -> bool {
-        self._check(n->name, "type alias");
-        return true;
+    fn visit_type_alias_decl(self, n: *Declarations::TypeAliasDecl) -> bool {
+        self._check(n->name, "type alias")
+        return true
     }
 
     /// Anonymous modules have no name token; get_ident_imm rejects it.
-    fn visit_module_decl(self, n: *ModuleDecl) -> bool {
-        if n->is_anonymous { return true; }
-        self._check(n->name, "module");
-        return true;
+    fn visit_module_decl(self, n: *Declarations::ModuleDecl) -> bool {
+        if n->is_anonymous {
+            return true
+        }
+
+        self._check(n->name, "module")
+        return true
     }
 
     /// Pattern bindings become C++ locals after match lowering.
     fn visit_binding_pattern(self, n: *BindingPattern) -> bool {
-        self._check(n->name, "binding");
-        return true;
+        self._check(n->name, "binding")
+        return true
     }
 }

@@ -10,7 +10,7 @@
 ///     the name the header used.
 ///
 ///     Rules that are decisions, not translations:
-///       T*            -> unsafe *T    (Spec/Docs/c-c++.md: a C pointer carries
+///       T*            -> unsafe *T    (Docs/c-c++.md: a C pointer carries
 ///                                     none of AMT's guarantees, so it is raw;
 ///                                     passing one means `unsafe &x`)
 ///       const T&      -> cxx_lref(qualified(CONST, T))
@@ -29,56 +29,69 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
 /// FIXME: _BitInt(N) comes under clang::BitIntType, not a BuiltinType, add a dyn_cast<BitIntType> arm mapping 128/256/512 by getNumBits()
 
-ffi "c++" import "Native/Types.hh";
-ffi "c++" import "clang/AST/ASTContext.h";
-ffi "c++" import "clang/AST/Decl.h";
-ffi "c++" import "clang/AST/DeclCXX.h";
-ffi "c++" import "clang/AST/DeclTemplate.h";
-ffi "c++" import "clang/AST/ODRHash.h";
-ffi "c++" import "clang/AST/PrettyPrinter.h";
-ffi "c++" import "clang/AST/QualTypeNames.h";
-ffi "c++" import "llvm/ADT/StringMap.h";
-ffi "c++" import "clang/AST/Type.h";
-ffi "c++" import "clang/Index/USRGeneration.h";
-ffi "c++" import "llvm/ADT/APSInt.h";
-ffi "c++" import "llvm/ADT/DenseMap.h";
-ffi "c++" import "llvm/ADT/SmallString.h";
-ffi "c++" import "llvm/Support/xxhash.h";
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "clang/AST/ASTContext.h"
+ffi "c++" import "clang/AST/Decl.h"
+ffi "c++" import "clang/AST/DeclCXX.h"
+ffi "c++" import "clang/AST/DeclTemplate.h"
+ffi "c++" import "clang/AST/ODRHash.h"
+ffi "c++" import "clang/AST/PrettyPrinter.h"
+ffi "c++" import "clang/AST/QualTypeNames.h"
+ffi "c++" import "llvm/ADT/StringMap.h"
+ffi "c++" import "clang/AST/Type.h"
+ffi "c++" import "clang/Index/USRGeneration.h"
+ffi "c++" import "llvm/ADT/APSInt.h"
+ffi "c++" import "llvm/ADT/DenseMap.h"
+ffi "c++" import "llvm/ADT/SmallString.h"
+ffi "c++" import "llvm/Support/xxhash.h"
+ffi "c++" import "vector"
 
-import AST::Context::ASTContext::*;
-import AST::Context::CanonicalTypes::*;
-import AST::Context::InstantiationRegistry::*;
-import AST::Node::Base::*;
-import AST::Node::Declarations::*;
-import AST::Node::CanonicalNodes::*;
-import AST::Node::Casting::*;
-import AST::Node::Types::*;
-import Sema::Resolve::NameLookup::*;
-import Sema::Foreign::ForeignRegistry::*;
+import AST::Context::ASTContext::ASTContext
+import AST::Context::CanonicalTypes::CanonicalTypeStore
+import AST::Context::InstantiationRegistry::InstantiationRegistry
+import AST::Node::Base::{
+    Decl,
+    Type,
+}
+import AST::Node::CanonicalNodes::{
+    BuiltinKind,  BuiltinType, QUAL_CONST, QUAL_VOLATILE, RecordType, builtin_for_c_typedef,
+    canon_unqual,
+}
+import AST::Node::Casting::{
+    cast,
+    dyn_cast,
+    isa,
+}
+import AST::Node::Types::{
+    NullableType,
+    PointerType,
+}
+import Sema::Foreign::ForeignRegistry::ForeignRegistry
+import Sema::Resolve::NameLookup::NameLookup
 
-class TypeImport {
-    pub var store:     obs::<CanonicalTypeStore>;
-    pub var instances: obs::<InstantiationRegistry>;
-    pub var reg:       obs::<ForeignRegistry>;
-    pub var cctx:      obs::<clang::ASTContext>;       ///< the phase-A context.
-    pub var kctx:      obs::<ASTContext>;              ///< for opaque-name interning (any header ctx of the set).
-    pub var fid:       u32 = 0;                        ///< home fid for registry entries.
-    pub var n_opaque:  usize = 0;
+pub class TypeImport {
+    pub var store:     unsafe *CanonicalTypeStore
+    pub var instances: unsafe *InstantiationRegistry
+    pub var reg:       unsafe *ForeignRegistry
+    pub var cctx:      unsafe *clang::ASTContext ///< the phase-A context.
+    pub var kctx:      unsafe *ASTContext ///< for opaque-name interning (any header ctx of the set).
+    pub var fid:       u32                           = 0 ///< home fid for registry entries.
+    pub var n_opaque:  usize                         = 0
 
     /// Owners of the template parameter lists in scope at the decl being
     /// defined, outermost first: index = clang template depth. Set by
     /// DeclImport::define before it imports anything. A CANONICAL template
     /// type parameter carries only (depth, index), and this is how it finds
     /// the GenericParamDecl it stands for.
-    pub var tpl_owners: vec::<*Decl>;
+    pub var tpl_owners: cxx::std::vector<unsafe *Decl>
 
     /// A fill's Kairo pointer arguments, by the clang type they spell
     /// (unqualified canonical clang::Type* -> unqualified Kairo canonical).
@@ -90,64 +103,73 @@ class TypeImport {
     /// (SC063E). A Kairo record is reachable from a header only through the
     /// arguments, so within the fill the argument's own flavour is the
     /// answer. Empty outside a fill (note_pointer_arg).
-    priv var _ptr_args: llvm::DenseMap::<u64, *Type>;
+    priv var _ptr_args: llvm::DenseMap<u64, unsafe *Type>
 
     /// The same for a pointer-sized integer argument. `vector<usize>` is
     /// `vector<unsigned long>` to C++ and `unsigned long` canonicalizes to
-    /// u64, so `v[i]` came back `u64&` and no usize converts to it (G87).
+    /// u64, so `v[i]` came back `u64&` and no usize converts to it.
     /// Keyed by the canonical builtin; a fill is one TypeImport, so the
     /// entry cannot leak into another instance. A key two arguments claim
     /// with different Kairo types (`map<u64, usize>`) holds null: the
     /// canonical type cannot say which, and the ordinary mapping answers.
-    priv var _int_args: llvm::DenseMap::<u64, *Type>;
+    priv var _int_args: llvm::DenseMap<u64, unsafe *Type>
 
     /// A variant fill's own members (DeclImport::fill_usr); null otherwise.
-    pub var fill_usr: *llvm::StringMap::<*Decl> = &null;
+    pub var fill_usr: unsafe *llvm::StringMap<unsafe *Decl> = &null
 
-    fn TypeImport(self, store: *CanonicalTypeStore, instances: *InstantiationRegistry,
-                  reg: *ForeignRegistry, cctx: *clang::ASTContext, kctx: *ASTContext, fid: u32) {
-        self.store     = store;
-        self.instances = instances;
-        self.reg       = reg;
-        self.cctx      = cctx;
-        self.kctx      = kctx;
-        self.fid       = fid;
+    fn TypeImport(self,
+                  store:     unsafe *CanonicalTypeStore,
+                  instances: unsafe *InstantiationRegistry,
+                  reg:       unsafe *ForeignRegistry,
+                  cctx:      unsafe *clang::ASTContext,
+                  kctx:      unsafe *ASTContext,
+                  fid:       u32) {
+        self.store     = store
+        self.instances = instances
+        self.reg       = reg
+        self.cctx      = cctx
+        self.kctx      = kctx
+        self.fid       = fid
     }
 
-    // === spelling ===========================================================
+    /// # spelling
 
     /// The fully qualified C++ spelling of a (sugared) type, for EmitIR.
     fn spelling(self, qt: clang::QualType) -> string {
-        var pol = clang::PrintingPolicy(self.cctx->getLangOpts());
+        var pol = clang::PrintingPolicy(self.cctx->getLangOpts())
         // getFullyQualifiedName below already puts a `::`-rooted qualifier on
         // every tag and template name; FullyQualifiedName would make the
         // printer drop it and re-walk the decl contexts unrooted. An instance
         // spelled `std::vector<Dg::Dg::Dg *>` inside EmitIR's `namespace
-        // Dg::Dg` then read `Dg::Dg` as the class's injected constructor name
-        // (O18). Off, the qualifier is printed as written; a canonical type
+        // Dg::Dg` then read `Dg::Dg` as the class's injected constructor name.
+        // Off, the qualifier is printed as written; a canonical type
         // the rewrite does not reach (a pack element) still gets its scope.
-        pol.FullyQualifiedName   = false;
-        pol.SuppressScope        = false;
-        pol.SuppressUnwrittenScope = true;
-        pol.AnonymousTagLocations = false;
+        pol.FullyQualifiedName     = (false as u32)
+        pol.SuppressScope          = (false as u32)
+        pol.SuppressUnwrittenScope = (true as u32)
+        pol.AnonymousTagLocations  = (false as u32)
         // A value argument printed bare can name a different instance than
         // the one meant: a `char`-typed one prints as a character literal, so
         // `Narrow<255>` (unsigned char) came out `Narrow<'\xff'>`, which is
         // the plain-char -1 and does not convert back. With its type it is
         // `(unsigned char)'\xff'`, and an integer is `4UL` -- both exact.
-        pol.AlwaysIncludeTypeForTemplateArgument = true;
-        var s = clang::TypeName::getFullyQualifiedName(qt, *(self.cctx), pol, true);
-        return string(s);
+        pol.AlwaysIncludeTypeForTemplateArgument = (true as u32)
+        var s = clang::TypeName::getFullyQualifiedName(qt, *self.cctx, pol, true)
+        return kairo::std::from_std_string<string>(s)
     }
 
     /// Inline buffer, not std::string: almost every USR fits in 128 bytes,
     /// and every consumer (ForeignRegistry's StringMap) takes a StringRef,
     /// so the common case never touches the heap.
-    static fn usr_of(d: const_obs::<clang::Decl>) -> llvm::SmallString::<128> {
-        var buf: llvm::SmallString::<128>;
-        if clang::index::generateUSRForDecl(d, buf) { buf.clear(); return buf; }
-        TypeImport::_tpl_discriminator(d, buf);
-        return buf;
+    static fn usr_of(d: unsafe *const clang::Decl) -> llvm::SmallString<128> {
+        var buf: llvm::SmallString<128>
+        if clang::index::generateUSRForDecl(d, &buf) {
+            buf.clear()
+            return buf
+        }
+
+        TypeImport::_tpl_discriminator(d, &buf)
+        return buf
     }
 
     /// A function template's USR leaves out what C++ overloads it by
@@ -160,50 +182,80 @@ class TypeImport {
     /// it. The ODRHash of those parts goes on the end: it hashes by name,
     /// not by node, so every header set that sees one template agrees on
     /// it. Templates with neither keep the bare USR.
-    static fn _tpl_discriminator(d: const_obs::<clang::Decl>, buf: ref!(llvm::SmallString::<128>)) {
-        var ftd = llvm::dyn_cast::<clang::FunctionTemplateDecl>(d);
+    static fn _tpl_discriminator(d: unsafe *const clang::Decl, @inout buf: llvm::SmallString<128>) {
+        var unsafe *ftd = llvm::dyn_cast<clang::FunctionTemplateDecl>(d)
         if ftd == &null {
-            var fd = llvm::dyn_cast::<clang::FunctionDecl>(d);
-            if fd != &null { ftd = fd->getDescribedFunctionTemplate(); }
+            var unsafe *fd = llvm::dyn_cast<clang::FunctionDecl>(d)
+            if fd != &null {
+                ftd = fd->getDescribedFunctionTemplate()
+            }
         }
-        if ftd == &null { return; }
-        ftd = ftd->getCanonicalDecl();
-        var rt = ftd->getTemplatedDecl()->getReturnType();
-        var by_decltype = llvm::isa::<clang::DecltypeType>(rt.getTypePtr());
-        var acs: llvm::SmallVector::<clang::AssociatedConstraint, 4>;
-        ftd->getAssociatedConstraints(acs);
-        if (acs.size() == 0) && (!by_decltype) { return; }
-        var h = clang::ODRHash();
+
+        if ftd == &null {
+            return
+        }
+
+        ftd = ftd->getCanonicalDecl()
+        var rt = ftd->getTemplatedDecl()->getReturnType()
+        var by_decltype = llvm::isa<clang::DecltypeType>(rt.getTypePtr())
+        var acs: llvm::SmallVector<clang::AssociatedConstraint, 4>
+        ftd->getAssociatedConstraints(&acs)
+        if acs.size() == 0 && !by_decltype {
+            return
+        }
+
+        var h = clang::ODRHash()
         for var i: usize = 0; i < acs.size(); ++i {
-            if acs[i].ConstraintExpr != &null { h.AddStmt(acs[i].ConstraintExpr); }
+            if acs[i].ConstraintExpr != &null {
+                h.AddStmt(acs[i].ConstraintExpr)
+            }
         }
-        if by_decltype { h.AddQualType(rt); }
-        buf.append(sref(f"@K{h.CalculateHash()}"));
+
+        if by_decltype {
+            h.AddQualType(rt)
+        }
+
+        buf.append(kairo::sref(f"@K{h.CalculateHash()}"))
     }
 
-    // === the mapping ========================================================
+    /// # the mapping
 
     /// Canonical for \p qt, never null: anything unmappable is opaque.
-    fn _import(self, qt_in: clang::QualType) -> *Type {
-        var ps = self._pointer_sized(qt_in);
-        if ps != &null { return ps; }
-        var sg = self._sugared_indirect(qt_in);
-        if sg != &null { return sg; }
-        var qt = qt_in.getCanonicalType();
-        var t  = self._map(qt);
-        if t != &null { return t; }
-        self.n_opaque += 1;
-        return self.opaque(qt_in);
+    fn _import(self, qt_in: clang::QualType) -> unsafe *Type {
+        var unsafe *ps = self._pointer_sized(qt_in)
+        if ps != &null {
+            return ps
+        }
+
+        var unsafe *sg = self._sugared_indirect(qt_in)
+        if sg != &null {
+            return sg
+        }
+
+        var        qt = qt_in.getCanonicalType()
+        var unsafe *t = self._map(qt)
+        if t != &null {
+            return t
+        }
+
+        self.n_opaque += 1
+        return self.opaque(qt_in)
     }
 
     /// Canonical or null (no opaque fallback). For callers that want to
     /// decide themselves what an unmappable type means.
-    fn try_import(self, qt_in: clang::QualType) -> *Type {
-        var ps = self._pointer_sized(qt_in);
-        if ps != &null { return ps; }
-        var sg = self._sugared_indirect(qt_in);
-        if sg != &null { return sg; }
-        return self._map(qt_in.getCanonicalType());
+    fn try_import(self, qt_in: clang::QualType) -> unsafe *Type {
+        var unsafe *ps = self._pointer_sized(qt_in)
+        if ps != &null {
+            return ps
+        }
+
+        var unsafe *sg = self._sugared_indirect(qt_in)
+        if sg != &null {
+            return sg
+        }
+
+        return self._map(qt_in.getCanonicalType())
     }
 
     /// usize / isize, cv included, when \p qt is spelled through a
@@ -218,20 +270,28 @@ class TypeImport {
     ///          `::size_t` and is found by walking on. Only a type that
     ///          arrives sugared benefits: a pointee is canonical by the time
     ///          the pointer arm maps it.
-    priv fn _pointer_sized(self, qt: clang::QualType) -> *Type {
-        var cur = qt;
-        for var depth: usize = 0; (depth < 16) && (!cur.isNull()); ++depth {
-            var tt = cur->getAs::<clang::TypedefType>();
-            if tt == &null { return &null; }
-            var nm = tt->getDecl()->getName();
-            var name = string(nm.data(), nm.size());
-            var k = builtin_for_c_typedef(name);
-            if k != BuiltinKind::COUNT {
-                return self.store->qualified(self.store->builtin(k), TypeImport::quals_of(qt.getCanonicalType()));
+    priv fn _pointer_sized(self, qt: clang::QualType) -> unsafe *Type {
+        var cur = qt
+        for var depth: usize = 0; depth < 16 && !cur.isNull(); ++depth {
+            var unsafe *tt = cur->getAs<clang::TypedefType>()
+            if tt == &null {
+                return &null
             }
-            cur = tt->desugar();
+
+            var nm   = tt->getDecl()->getName()
+            var name = string(unsafe ((nm.data() as unsafe *const u8) as *const u8), nm.size())
+            var k    = builtin_for_c_typedef(name)
+            if k != BuiltinKind::COUNT {
+                return self.store->qualified(
+                    self.store->builtin(k),
+                    TypeImport::quals_of(qt.getCanonicalType()),
+                )
+            }
+
+            cur = tt->desugar()
         }
-        return &null;
+
+        return &null
     }
 
     /// A pointer or reference mapped with its pointee's sugar intact, or
@@ -248,30 +308,89 @@ class TypeImport {
     ///          recurses for `size_t**`). Function pointers, arrays and
     ///          everything else keep the canonical path. A fill's pointer
     ///          argument is still found by its canonical clang type first.
-    priv fn _sugared_indirect(self, qt: clang::QualType) -> *Type {
-        if qt.isNull() { return &null; }
-        var canon = qt.getCanonicalType();
-        var cty = canon.getTypePtr();
-        var pt = qt->getAs::<clang::PointerType>();
-        if pt != &null {
-            if pt->getPointeeType()->isFunctionType() { return &null; }
-            if !self._ptr_args.empty() {
-                var it = self._ptr_args.find(reinterpret_cast::<u64>(cty));
-                if it != self._ptr_args.end() { return self.store->qualified(it->second, TypeImport::quals_of(canon)); }
-            }
-            var inner = self._map_or_opaque(pt->getPointeeType());
-            return self.store->qualified(self.store->pointer(inner, true), TypeImport::quals_of(canon));
+    priv fn _sugared_indirect(self, qt: clang::QualType) -> unsafe *Type {
+        if qt.isNull() {
+            return &null
         }
-        var lr = qt->getAs::<clang::LValueReferenceType>();
-        if lr != &null { return self.store->cxx_lref(self._map_or_opaque(lr->getPointeeType())); }
-        var rr = qt->getAs::<clang::RValueReferenceType>();
-        if rr != &null { return self.store->cxx_rref(self._map_or_opaque(rr->getPointeeType())); }
-        return &null;
+
+        var        canon = qt.getCanonicalType()
+        var unsafe *cty  = canon.getTypePtr()
+        var unsafe *pt   = qt->getAs<clang::PointerType>()
+        if pt != &null {
+            if pt->getPointeeType()->isFunctionType() {
+                return &null
+            }
+
+            if !self._ptr_args.empty() {
+                var it = self._ptr_args.find(cty as usize as u64)
+                if it != self._ptr_args.end() {
+                    return self.store->qualified(it->second, TypeImport::quals_of(canon))
+                }
+            }
+
+            var unsafe *inner = self._map_or_opaque(pt->getPointeeType())
+            return self.store->qualified(
+                self.store->pointer(inner, true),
+                TypeImport::quals_of(canon),
+            )
+        }
+
+        var unsafe *lr = qt->getAs<clang::LValueReferenceType>()
+        if lr != &null {
+            return self.store->cxx_lref(self._map_or_opaque(lr->getPointeeType()))
+        }
+
+        var unsafe *rr = qt->getAs<clang::RValueReferenceType>()
+        if rr != &null {
+            return self.store->cxx_rref(self._map_or_opaque(rr->getPointeeType()))
+        }
+
+        return &null
     }
 
-    fn opaque(self, qt: clang::QualType) -> *Type {
-        var sp  = self.spelling(qt);
-        return self.store->opaque(TypeImport::opaque_key(sp));
+    fn opaque(self, qt: clang::QualType) -> unsafe *Type {
+        var        sp = self.spelling(qt)
+        var unsafe *t = self.store->opaque(TypeImport::opaque_key(sp))
+        self._note_opaque_origin(t, qt)
+        return t
+    }
+
+    /// Remember \p qt as what opaque \p t is in this context, so TypeExport
+    /// can hand it back to clang (`vector<__m128i>`, `std::move(v)`).
+    ///
+    /// \details only a CANONICAL type: clang canonicalizes a template
+    ///          argument, so what a fill imports back is the canonical type,
+    ///          and the opaque is keyed by spelling. A typedef'd member
+    ///          pointer (`MP`) exported would come back as `int S::*`, a
+    ///          different opaque, and the filled `push_back(const int
+    ///          S::*&)` would then refuse the `MP` an unfilled instance
+    ///          accepted. The vector arm already keys on the canonical type.
+    ///          Not a tag: an opaque record or enum is one DeclImport never
+    ///          registered, and spelling it here would skip the refind and
+    ///          demanding-set retries a registered one gets. Not dependent:
+    ///          a dependent argument has no instance to fill.
+    priv fn _note_opaque_origin(self, t: unsafe *Type, qt: clang::QualType) {
+        if t == &null || self.reg == &null || qt.isNull() {
+            return
+        }
+
+        if !qt.isCanonical() {
+            return
+        }
+
+        if qt->isDependentType() || qt->isInstantiationDependentType() {
+            return
+        }
+
+        if qt->getAsTagDecl() != &null {
+            return
+        }
+
+        self.reg->note_opaque_qt(
+            unsafe (t as unsafe *void),
+            unsafe (self.cctx as unsafe *void),
+            qt.getAsOpaquePtr(),
+        )
     }
 
     /// The name an opaque type is interned under. The interner caps a
@@ -282,237 +401,375 @@ class TypeImport {
     /// prefix plus a hash of the WHOLE spelling: two types may share the
     /// prefix, never the key.
     static fn opaque_key(sp: string) -> string {
-        if sp.size() < 200 { return sp; }
-        var h = llvm::xxh3_64bits(sref(sp));
-        var key = sp.subslice(0, 160) + f"...#{h}";
+        if sp.size() < 200 {
+            return sp
+        }
+
+        var h   = llvm::xxh3_64bits(kairo::sref(sp))
+        var key = sp.subslice(0, 160) + f"...#{h}"
         // A prefix of non-ASCII identifiers could still be over the cap once
         // encoded; the hash alone is always short enough.
-        if key.size() >= 255 { return f"opaque#{h}"; }
-        return key;
+        if key.size() >= 255 {
+            return f"opaque#{h}"
+        }
+
+        return key
     }
 
     /// Canonical for a canonical clang type, cv included. clang keeps cv on
     /// the canonical QualType, so the bits are read here once and never
     /// per arm. A function type carries no object cv, and an array type's
     /// cv lives on its element (clang agrees), so neither is wrapped.
-    priv fn _map(self, qt: clang::QualType) -> *Type {
-        if qt.isNull() { return &null; }
-        var inner = self._map_unqual(qt);
-        if inner == &null { return &null; }
-        var ty = qt.getTypePtr();
-        if ty->isFunctionType() || ty->isArrayType() { return inner; }
-        return self.store->qualified(inner, TypeImport::quals_of(qt));
+    priv fn _map(self, qt: clang::QualType) -> unsafe *Type {
+        if qt.isNull() {
+            return &null
+        }
+
+        var unsafe *inner = self._map_unqual(qt)
+        if inner == &null {
+            return &null
+        }
+
+        var unsafe *ty = qt.getTypePtr()
+        if ty->isFunctionType() || ty->isArrayType() {
+            return inner
+        }
+
+        return self.store->qualified(inner, TypeImport::quals_of(qt))
     }
 
     static fn quals_of(qt: clang::QualType) -> u8 {
-        var q: u8 = 0;
-        if qt.isConstQualified()    { q = q | QUAL_CONST();    }
-        if qt.isVolatileQualified() { q = q | QUAL_VOLATILE(); }
-        return q;
+        var q: u8 = 0
+        if qt.isConstQualified() {
+            q = q | QUAL_CONST
+        }
+
+        if qt.isVolatileQualified() {
+            q = q | QUAL_VOLATILE
+        }
+
+        return q
     }
 
-    priv fn _map_unqual(self, qt: clang::QualType) -> *Type {
-        if qt.isNull() { return &null; }
-        var ty = qt.getTypePtr();
+    priv fn _map_unqual(self, qt: clang::QualType) -> unsafe *Type {
+        if qt.isNull() {
+            return &null
+        }
 
-        // --- builtins ---------------------------------------------------------
-        var bt = llvm::dyn_cast::<clang::BuiltinType>(ty);
+        var unsafe *ty = qt.getTypePtr()
+
+        /// ## builtins
+        var unsafe *bt = llvm::dyn_cast<clang::BuiltinType>(ty)
         if bt != &null {
             if !self._int_args.empty() {
-                var ii = self._int_args.find(reinterpret_cast::<u64>(ty));
-                if (ii != self._int_args.end()) && (ii->second != &null) { return ii->second; }
+                var ii = self._int_args.find(ty as usize as u64)
+                if ii != self._int_args.end() && ii->second != &null {
+                    return ii->second
+                }
             }
-            return self._builtin(bt);
+
+            return self._builtin(bt)
         }
 
-        // --- pointers / references --------------------------------------------
-        var pt = llvm::dyn_cast::<clang::PointerType>(ty);
-        if (pt != &null) && (!self._ptr_args.empty()) {
-            var it = self._ptr_args.find(reinterpret_cast::<u64>(ty));
-            if it != self._ptr_args.end() { return it->second; }
-        }
-        if pt != &null {
-            var pointee = pt->getPointeeType();
-            if pointee->isFunctionType() {
-                var f = self._map(pointee.getCanonicalType());
-                return f;                                 // Kairo `fn(...)` IS the pointer.
+        /// ## pointers / references
+        var unsafe *pt = llvm::dyn_cast<clang::PointerType>(ty)
+        if pt != &null && !self._ptr_args.empty() {
+            var it = self._ptr_args.find(ty as usize as u64)
+            if it != self._ptr_args.end() {
+                return it->second
             }
-            var inner = self._map_or_opaque(pointee);
-            return self.store->pointer(inner, true);
         }
-        var lr = llvm::dyn_cast::<clang::LValueReferenceType>(ty);
+
+        if pt != &null {
+            var pointee = pt->getPointeeType()
+            if pointee->isFunctionType() {
+                var unsafe *f = self._map(pointee.getCanonicalType())
+                return f // Kairo `fn(...)` IS the pointer.
+            }
+
+            var unsafe *inner = self._map_or_opaque(pointee)
+            return self.store->pointer(inner, true)
+        }
+
+        var unsafe *lr = llvm::dyn_cast<clang::LValueReferenceType>(ty)
         if lr != &null {
             // the const rides in through _map.
-            return self.store->cxx_lref(self._map_or_opaque(lr->getPointeeType()));
+            return self.store->cxx_lref(self._map_or_opaque(lr->getPointeeType()))
         }
-        var rr = llvm::dyn_cast::<clang::RValueReferenceType>(ty);
+
+        var unsafe *rr = llvm::dyn_cast<clang::RValueReferenceType>(ty)
         if rr != &null {
-            return self.store->cxx_rref(self._map_or_opaque(rr->getPointeeType()));
+            return self.store->cxx_rref(self._map_or_opaque(rr->getPointeeType()))
         }
 
-        // --- arrays -------------------------------------------------------------
-        var ca = llvm::dyn_cast::<clang::ConstantArrayType>(ty);
+        /// ## arrays
+        var unsafe *ca = llvm::dyn_cast<clang::ConstantArrayType>(ty)
         if ca != &null {
-            return self.store->array(self._map_or_opaque(ca->getElementType()),
-                                     ca->getSize().getZExtValue());
-        }
-        var ia = llvm::dyn_cast::<clang::IncompleteArrayType>(ty);
-        if ia != &null {
-            return self.store->incomplete_array(self._map_or_opaque(ia->getElementType()));
+            return self.store->array(
+                self._map_or_opaque(ca->getElementType()),
+                ca->getSize().getZExtValue(),
+            )
         }
 
-        // --- functions ------------------------------------------------------------
-        var fp = llvm::dyn_cast::<clang::FunctionProtoType>(ty);
+        var unsafe *ia = llvm::dyn_cast<clang::IncompleteArrayType>(ty)
+        if ia != &null {
+            return self.store->incomplete_array(self._map_or_opaque(ia->getElementType()))
+        }
+
+        /// ## functions
+        var unsafe *fp = llvm::dyn_cast<clang::FunctionProtoType>(ty)
         if fp != &null {
-            var params = vec::<*Type>();
-            var n = fp->getNumParams();
+            var params = cxx::std::vector<unsafe *Type>()
+            var n      = fp->getNumParams()
             for var i: u32 = 0; i < n; ++i {
-                params.push_back(self._map_or_opaque(fp->getParamType(i)));
+                params.push_back(self._map_or_opaque(fp->getParamType(i)))
             }
+
             // A C/C++ function pointer is raw (`unsafe fn`): the C++ side holds
             // `R(*)(A)`, so only a function or a closure that captures nothing
             // can be stored there, and Kairo says so at compile time.
-            return self.store->func(&params, &null, self._map_or_opaque(fp->getReturnType()), false, &null, true);
-        }
-        var fnp = llvm::dyn_cast::<clang::FunctionNoProtoType>(ty);
-        if fnp != &null {
-            var params = vec::<*Type>();
-            return self.store->func(&params, &null, self._map_or_opaque(fnp->getReturnType()), false, &null, true);
+            return self.store->func(
+                unsafe &params,
+                &null,
+                self._map_or_opaque(fp->getReturnType()),
+                false,
+                &null,
+                true,
+            )
         }
 
-        // --- template parameters -----------------------------------------------
-        var tp = llvm::dyn_cast::<clang::TemplateTypeParmType>(ty);
+        var unsafe *fnp = llvm::dyn_cast<clang::FunctionNoProtoType>(ty)
+        if fnp != &null {
+            var params = cxx::std::vector<unsafe *Type>()
+            return self.store->func(
+                unsafe &params,
+                &null,
+                self._map_or_opaque(fnp->getReturnType()),
+                false,
+                &null,
+                true,
+            )
+        }
+
+        /// ## template parameters
+        var unsafe *tp = llvm::dyn_cast<clang::TemplateTypeParmType>(ty)
         if tp != &null {
             // _import canonicalizes first, and a canonical parameter has no
             // decl -- so the decl path is for sugared callers, and the depth
             // table is the one every signature actually takes.
-            var owner: *Decl = &null;
-            var pd = tp->getDecl();
+            var        owner: unsafe *Decl = &null
+            var unsafe *pd                 = tp->getDecl()
             if pd != &null {
-                owner = self._owner_of_param(pd);
-            } else if static_cast::<usize>(tp->getDepth()) < self.tpl_owners.size() {
-                owner = NameLookup::representative(self.tpl_owners[static_cast::<usize>(tp->getDepth())]);
+                owner = self._owner_of_param(pd)
+            } else if (tp->getDepth() as usize) < self.tpl_owners.size() {
+                owner = NameLookup::representative(self.tpl_owners[tp->getDepth() as usize])
             }
-            if owner == &null { return &null; }
-            return self.store->generic_param(owner, tp->getIndex(), tp->isParameterPack());
-        }
-        var st = llvm::dyn_cast::<clang::SubstTemplateTypeParmType>(ty);
-        if st != &null { return self._map(st->getReplacementType().getCanonicalType()); }
 
-        // --- records / enums ------------------------------------------------------
-        var rt = llvm::dyn_cast::<clang::RecordType>(ty);
-        if rt != &null { return self._record(rt->getDecl()); }
-        var et = llvm::dyn_cast::<clang::EnumType>(ty);
+            if owner == &null {
+                return &null
+            }
+
+            return self.store->generic_param(owner, tp->getIndex(), tp->isParameterPack())
+        }
+
+        var unsafe *st = llvm::dyn_cast<clang::SubstTemplateTypeParmType>(ty)
+        if st != &null {
+            return self._map(st->getReplacementType().getCanonicalType())
+        }
+
+        /// ## records / enums
+        var unsafe *rt = llvm::dyn_cast<clang::RecordType>(ty)
+        if rt != &null {
+            return self._record(rt->getDecl())
+        }
+
+        var unsafe *et = llvm::dyn_cast<clang::EnumType>(ty)
         if et != &null {
-            var kd = self._decl_for(et->getDecl());
-            if kd == &null { return &null; }
-            var args = vec::<*Type>();
-            return self.store->record(NameLookup::representative(kd), &args);
+            var unsafe *kd = self._decl_for(et->getDecl())
+            if kd == &null {
+                return &null
+            }
+
+            var args = cxx::std::vector<unsafe *Type>()
+            return self.store->record(NameLookup::representative(kd), unsafe &args)
         }
 
         // A dependent specialization (`std::vector<T>` in a template body):
         // the primary with dependent args, a pattern (#5).
-        var tst = llvm::dyn_cast::<clang::TemplateSpecializationType>(ty);
+        var unsafe *tst = llvm::dyn_cast<clang::TemplateSpecializationType>(ty)
         if tst != &null {
-            var td = tst->getTemplateName().getAsTemplateDecl();
-            if td == &null { return &null; }
-            var prim = self._decl_for(td);
-            if prim == &null { return &null; }
-            var args = vec::<*Type>();
-            if !self._args(tst->template_arguments(), args) { return &null; }
-            return self.store->record(NameLookup::representative(prim), &args);
+            var unsafe *td = tst->getTemplateName().getAsTemplateDecl()
+            if td == &null {
+                return &null
+            }
+
+            var unsafe *prim = self._decl_for(td)
+            if prim == &null {
+                return &null
+            }
+
+            var args = cxx::std::vector<unsafe *Type>()
+            if !self._args(tst->template_arguments(), &args) {
+                return &null
+            }
+
+            return self.store->record(NameLookup::representative(prim), unsafe &args)
         }
 
-        // --- GNU / ext vectors --------------------------------------------------
-        // `__m128i` and `__m128i_u` are one canonical VectorType (the aligned(1)
-        // lives on the typedef), but the opaque fallback keys on the SPELLING
-        // of the type as written, so each typedef became its own type and
-        // `_mm_loadu_si128(*const __m128i)` (parameter `const __m128i_u *`)
-        // never matched. A vector has no Kairo operators and is only handed
-        // between intrinsics, so it is one opaque keyed by the canonical
-        // spelling: same element type + width, same type.
-        if llvm::isa::<clang::VectorType>(ty) {   // ExtVectorType derives from it
-            return self.opaque(qt.getUnqualifiedType());
+        /// ## GNU / ext vectors
+        /// `__m128i` and `__m128i_u` are one canonical VectorType (the aligned(1)
+        /// lives on the typedef), but the opaque fallback keys on the SPELLING
+        /// of the type as written, so each typedef became its own type and
+        /// `_mm_loadu_si128(*const __m128i)` (parameter `const __m128i_u *`)
+        /// never matched. A vector has no Kairo operators and is only handed
+        /// between intrinsics, so it is one opaque keyed by the canonical
+        /// spelling: same element type + width, same type.
+        if llvm::isa<clang::VectorType>(ty) { // ExtVectorType derives from it
+            return self.opaque(qt.getUnqualifiedType())
         }
 
         // Everything else (member pointers, atomics, decltype that
         // stayed dependent, `nullptr_t`, ...): the caller decides.
-        return &null;
+        return &null
     }
 
-    priv fn _map_or_opaque(self, qt: clang::QualType) -> *Type {
-        var ps = self._pointer_sized(qt);
-        if ps != &null { return ps; }
-        var sg = self._sugared_indirect(qt);
-        if sg != &null { return sg; }
-        var t = self._map(qt.getCanonicalType());
-        if t != &null { return t; }
-        self.n_opaque += 1;
-        return self.opaque(qt);
+    priv fn _map_or_opaque(self, qt: clang::QualType) -> unsafe *Type {
+        var unsafe *ps = self._pointer_sized(qt)
+        if ps != &null {
+            return ps
+        }
+
+        var unsafe *sg = self._sugared_indirect(qt)
+        if sg != &null {
+            return sg
+        }
+
+        var unsafe *t = self._map(qt.getCanonicalType())
+        if t != &null {
+            return t
+        }
+
+        self.n_opaque += 1
+        return self.opaque(qt)
     }
 
     /// A record: concrete specialization -> registry instance; template
     /// pattern -> the primary; plain -> its decl.
-    priv fn _record(self, rd: *clang::RecordDecl) -> *Type {
-        if rd == &null { return &null; }
-        var spec = llvm::dyn_cast::<clang::ClassTemplateSpecializationDecl>(rd);
-        if (spec != &null) && (!llvm::isa::<clang::ClassTemplatePartialSpecializationDecl>(rd)) {
-            var prim = self._decl_for(spec->getSpecializedTemplate());
-            if prim == &null { return &null; }
-            var args = vec::<*Type>();
-            if !self._args(spec->getTemplateArgs().asArray(), args) { return &null; }
-            var dep = false;
-            for var i: usize = 0; i < args.size(); ++i {
-                if args[i]->is_dependent() || args[i]->is_instantiation_dependent() { dep = true; }
+    priv fn _record(self, rd: unsafe *clang::RecordDecl) -> unsafe *Type {
+        if rd == &null {
+            return &null
+        }
+
+        var unsafe *spec = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(rd)
+        if spec != &null && !llvm::isa<clang::ClassTemplatePartialSpecializationDecl>(rd) {
+            var unsafe *prim = self._decl_for(spec->getSpecializedTemplate())
+            if prim == &null {
+                return &null
             }
-            var rep = NameLookup::representative(prim);
+
+            var args = cxx::std::vector<unsafe *Type>()
+            if !self._args(spec->getTemplateArgs().asArray(), &args) {
+                return &null
+            }
+
+            var dep = false
+            for var i: usize = 0; i < args.size(); ++i {
+                if args[i]->is_dependent() || args[i]->is_instantiation_dependent() {
+                    dep = true
+                }
+            }
+
+            var unsafe *rep = NameLookup::representative(prim)
             // `::builtin::Nullable<T>` is `T?`, never a record: TypeExport
             // spells every `T?` as it (a fill's `vector<*Node?>`), and the
             // record has no Kairo surface before NullableTypeLowering -- a
             // member typed `Nullable<*Node>` would take neither `null` nor a
             // `*Node`, nor answer `?`. Build-wide, as the export is.
-            if self._is_nullable(rep) && (args.size() == 1) { return self.store->nullable(args[0]); }
-            if dep { return self.store->record(rep, &args); }
-            var e = self.instances->instance_for(rep, &args, self.fid, NameLookup::ctx_of(rep));
-            // `args` cannot always name `spec` back (`char` imports as i8);
-            // remember the exact decl for ForeignInstantiate.
-            if (e != &null) && (self.reg != &null) {
-                self.reg->note_spec(e->decl, reinterpret_cast::<*void>(spec));
+            if self._is_nullable(rep) && args.size() == 1 {
+                return self.store->nullable(args[0])
             }
-            var inst = (e->decl) if (e != &null) else (rep);
-            return self.store->record(inst, &args);
+
+            if dep {
+                return self.store->record(rep, unsafe &args)
+            }
+
+            var unsafe *e = self.instances->instance_for(
+                rep,
+                unsafe &args,
+                self.fid,
+                NameLookup::ctx_of(rep),
+            )
+
+            // `args` cannot always name `spec` back (a non-natural integer alias);
+            // remember the exact decl for ForeignInstantiate -- unless a type
+            // argument is a C integer that is not its width's natural one
+            // (is_int_alias: `unsigned long` on Darwin, whose uint64_t is
+            // `unsigned long long`). There the Kairo type has ONE spelling
+            // (u64 is the target's uint64_t; docs: primitives, c-cpp), and a
+            // header's `allocator<unsigned long>` claiming the allocator<u64>
+            // shell first made Kairo's own set<u64> come out as
+            // set<unsigned long long, ..., allocator<unsigned long>> (libc++'s
+            // static_assert). Such a shell is re-spelled from its args.
+            // The character types are no aliases: wchar_t, char16_t and
+            // char8_t import as their own types (c_wchar, ...), so
+            // `wstring`'s args name it back and its spec is kept like any
+            // other (it was once re-spelled as basic_string<int>).
+            var alias_arg = false
+            for var ta: clang::TemplateArgument in spec->getTemplateArgs().asArray() {
+                if ta.getKind() == clang::TemplateArgument::Type
+                    && self.is_int_alias(ta.getAsType()) {
+                    alias_arg = true
+                }
+            }
+
+            if e != &null && self.reg != &null && !alias_arg {
+                self.reg->note_spec(e->decl, unsafe (spec as unsafe *void))
+            }
+
+            var unsafe *inst = if (e != &null) => (e->decl) else => rep
+            return self.store->record(inst, unsafe &args)
         }
-        var kd = self._decl_for(rd);
-        if kd == &null { return &null; }
-        var rep = NameLookup::representative(kd);
+
+        var unsafe *kd = self._decl_for(rd)
+        if kd == &null {
+            return &null
+        }
+
+        var unsafe *rep = NameLookup::representative(kd)
         // A template's own record (the injected-class-name / pattern) is the
         // primary with its own params as args, dependent by construction.
-        var args = vec::<*Type>();
-        var cxx = llvm::dyn_cast::<clang::CXXRecordDecl>(rd);
-        if (cxx != &null) && (cxx->getDescribedClassTemplate() != &null) {
-            var tpl = cxx->getDescribedClassTemplate()->getTemplateParameters();
+        var        args   = cxx::std::vector<unsafe *Type>()
+        var unsafe *cxx_v = llvm::dyn_cast<clang::CXXRecordDecl>(rd)
+        if cxx_v != &null && cxx_v->getDescribedClassTemplate() != &null {
+            var unsafe *tpl = cxx_v->getDescribedClassTemplate()->getTemplateParameters()
             for var i: u32 = 0; i < tpl->size(); ++i {
-                var p = tpl->getParam(i);
-                args.push_back(self.store->generic_param(rep, i, p->isParameterPack()));
+                var unsafe *p = tpl->getParam(i)
+                args.push_back(self.store->generic_param(rep, i, p->isParameterPack()))
             }
         }
-        return self.store->record(rep, &args);
+
+        return self.store->record(rep, unsafe &args)
     }
 
     /// \p rep is the Nullable lang item (ForeignRegistry::nullable_lang).
-    priv fn _is_nullable(self, rep: *Decl) -> bool {
-        if (self.reg == &null) || (rep == &null) { return false; }
-        var nd = self.reg->nullable_lang();
-        return (nd != &null) && (NameLookup::representative(nd) == rep);
+    priv fn _is_nullable(self, rep: unsafe *Decl) -> bool {
+        if self.reg == &null || rep == &null {
+            return false
+        }
+
+        var unsafe *nd = self.reg->nullable_lang()
+        return nd != &null && NameLookup::representative(nd) == rep
     }
 
     /// Template argument list -> canonicals. False if any argument is
     /// neither a type nor an integer (a declaration, template or unfolded
     /// expression argument has no registry shape and makes the whole use
     /// opaque).
-    priv fn _args(self, list: llvm::ArrayRef::<clang::TemplateArgument>, out: ref!(vec::<*Type>)) -> bool {
+    priv fn _args(self,
+                  list:       llvm::ArrayRef<clang::TemplateArgument>,
+                  @inout out: cxx::std::vector<unsafe *Type>) -> bool {
         for var i: usize = 0; i < list.size(); ++i {
-            var a = list[i];
+            var a = list[i]
             if a.getKind() == clang::TemplateArgument::Type {
                 // A C++ FUNCTION type argument (`function_ref<bool(int)>`) is
                 // the written `fn(i32) -> bool`, not the raw pointer: the
@@ -520,23 +777,40 @@ class TypeImport {
                 // it back into `R(A)`), and both must be one registry entry
                 // or the imported parameter never accepts the written
                 // argument (SC063E, G104b). `R(*)(A)` stays a raw `unsafe fn`.
-                var at = a.getAsType().getCanonicalType();
-                var afp = llvm::dyn_cast::<clang::FunctionProtoType>(at.getTypePtr());
+                var        at   = a.getAsType().getCanonicalType()
+                var unsafe *afp = llvm::dyn_cast<clang::FunctionProtoType>(at.getTypePtr())
                 if afp != &null {
-                    var fparams = vec::<*Type>();
+                    var fparams = cxx::std::vector<unsafe *Type>()
                     for var j: u32 = 0; j < afp->getNumParams(); ++j {
-                        fparams.push_back(self._map_or_opaque(afp->getParamType(j)));
+                        fparams.push_back(self._map_or_opaque(afp->getParamType(j)))
                     }
-                    out.push_back(self.store->func(&fparams, &null, self._map_or_opaque(afp->getReturnType()), false, &null, false));
-                    continue;
+
+                    out.push_back(
+                        self.store->func(
+                            unsafe &fparams,
+                            &null,
+                            self._map_or_opaque(afp->getReturnType()),
+                            false,
+                            &null,
+                            false,
+                        ),
+                    )
+
+                    continue
                 }
-                out.push_back(self._map_or_opaque(a.getAsType()));
-                continue;
+
+                out.push_back(self._map_or_opaque(a.getAsType()))
+                continue
             }
+
             if a.getKind() == clang::TemplateArgument::Pack {
-                if !self._args(a.pack_elements(), out) { return false; }
-                continue;
+                if !self._args(a.pack_elements(), &out) {
+                    return false
+                }
+
+                continue
             }
+
             // `array<int, 4>`, `SmallVectorTemplateBase<T, true>`: the exact
             // integer, the same canonical value argument a Kairo `<4>` folds
             // to (CanonicalTypeStore::value_arg), so the instance a header
@@ -544,14 +818,19 @@ class TypeImport {
             // parameter's type is not part of the identity on either side;
             // TypeExport recovers it from the template when it spells one.
             if a.getKind() == clang::TemplateArgument::Integral {
-                var va = self.integral(a.getAsIntegral());
-                if va == &null { return false; }
-                out.push_back(va);
-                continue;
+                var unsafe *va = self.integral(a.getAsIntegral())
+                if va == &null {
+                    return false
+                }
+
+                out.push_back(va)
+                continue
             }
-            return false;   // Declaration / Template / Expression: no canonical shape yet.
+
+            return false // Declaration / Template / Expression: no canonical shape yet.
         }
-        return true;
+
+        return true
     }
 
     /// Record \p kt, a fill's template argument, against \p ct, the clang
@@ -562,129 +841,206 @@ class TypeImport {
     /// name the inner `vector<*Node>` and not a `vector<unsafe *Node>`.
     /// Anything else is left to the ordinary mapping, which already round
     /// trips it.
-    fn note_pointer_arg(self, kt: *Type, ct: clang::QualType) {
-        self._note_arg(kt, ct, 0);
+    fn note_pointer_arg(self, kt: unsafe *Type, ct: clang::QualType) {
+        self._note_arg(kt, ct, 0)
     }
 
-    priv fn _note_arg(self, kt: *Type, ct: clang::QualType, depth: usize) {
-        if (kt == &null) || ct.isNull() || (depth > 16) { return; }
-        var ku = canon_unqual(kt);
-        var cu = ct.getCanonicalType().getTypePtr();
+    priv fn _note_arg(self, kt: unsafe *Type, ct: clang::QualType, depth: usize) {
+        if kt == &null || ct.isNull() || depth > 16 {
+            return
+        }
+
+        var unsafe *ku = canon_unqual(kt)
+        var unsafe *cu = ct.getCanonicalType().getTypePtr()
         // `T?` is `Nullable<T>` to C++ (TypeExport::_nullable): its one
         // argument is T, so `*Node?` keeps `*Node` inside.
-        var kn = dyn_cast::<NullableType>(ku);
+        var unsafe *kn = dyn_cast<NullableType>(ku)
         if kn != &null {
-            var ns = llvm::dyn_cast_or_null::<clang::ClassTemplateSpecializationDecl>(cu->getAsCXXRecordDecl());
-            if ns == &null { return; }
-            var nargs = ns->getTemplateArgs().asArray();
-            if (nargs.size() != 1) || (nargs[0].getKind() != clang::TemplateArgument::Type) { return; }
-            self._note_arg(kn->inner, nargs[0].getAsType(), depth + 1);
-            return;
+            var unsafe *ns = llvm::dyn_cast_or_null<clang::ClassTemplateSpecializationDecl>(
+                cu->getAsCXXRecordDecl(),
+            )
+
+            if ns == &null {
+                return
+            }
+
+            var nargs = ns->getTemplateArgs().asArray()
+            if nargs.size() != 1 || nargs[0].getKind() != clang::TemplateArgument::Type {
+                return
+            }
+
+            self._note_arg(kn->inner, nargs[0].getAsType(), depth + 1)
+            return
         }
+
         // Any builtin claims its canonical type, not only usize/isize: in
         // `DenseMap<u64, usize>` both arguments are `unsigned long`, and a
-        // usize that was the only claimant made the KEY come back usize too
-        // (G91). A second claimant with another Kairo type nulls the entry.
-        var kb = dyn_cast::<BuiltinType>(ku);
+        // usize that was the only claimant made the KEY come back usize too.
+        // A second claimant with another Kairo type nulls the entry.
+        var unsafe *kb = dyn_cast<BuiltinType>(ku)
         if kb != &null {
-            if !cu->isBuiltinType() { return; }
-            var ie = self._int_args.find(reinterpret_cast::<u64>(cu));
-            if ie == self._int_args.end() {
-                self._int_args.try_emplace(reinterpret_cast::<u64>(cu), ku);
-            } else if ie->second != ku {
-                ie->second = &null;
+            if !cu->isBuiltinType() {
+                return
             }
-            return;
+
+            var ie = self._int_args.find(cu as usize as u64)
+            if ie == self._int_args.end() {
+                self._int_args.try_emplace(cu as usize as u64, ku)
+            } else if ie->second != ku {
+                ie->second = &null
+            }
+
+            return
         }
-        var cp = llvm::dyn_cast::<clang::PointerType>(cu);
+
+        var unsafe *cp = llvm::dyn_cast<clang::PointerType>(cu)
         if cp != &null {
-            if !isa::<PointerType>(ku) { return; }
-            if cp->getPointeeType()->isFunctionType() { return; }   // `fn(...)` is not a pointer to Kairo.
-            self._ptr_args.try_emplace(reinterpret_cast::<u64>(cu), ku);
-            self._note_arg(cast::<PointerType>(ku)->pointee, cp->getPointeeType(), depth + 1);
-            return;
+            if !isa<PointerType>(ku) {
+                return
+            }
+
+            if cp->getPointeeType()->isFunctionType() { // `fn(...)` is not a pointer to Kairo.
+                return
+            }
+
+            self._ptr_args.try_emplace(cu as usize as u64, ku)
+            self._note_arg(cast<PointerType>(ku)->pointee, cp->getPointeeType(), depth + 1)
+            return
         }
+
         // An instance argument: its arguments against the specialization's,
         // position by position. A pack is flat on the Kairo side and nested
         // on clang's, so the counts differ and nothing is recorded -- the
         // ordinary mapping, as before.
-        var rk = dyn_cast::<RecordType>(ku);
-        var spec = llvm::dyn_cast_or_null::<clang::ClassTemplateSpecializationDecl>(cu->getAsCXXRecordDecl());
-        if (rk == &null) || (spec == &null) { return; }
-        var cargs = spec->getTemplateArgs().asArray();
-        if cargs.size() != rk->args.size() { return; }
+        var unsafe *rk = dyn_cast<RecordType>(ku)
+        var unsafe *spec = llvm::dyn_cast_or_null<clang::ClassTemplateSpecializationDecl>(
+            cu->getAsCXXRecordDecl(),
+        )
+
+        if rk == &null || spec == &null {
+            return
+        }
+
+        var cargs = spec->getTemplateArgs().asArray()
+        if cargs.size() != rk->args.size() {
+            return
+        }
+
         for var i: usize = 0; i < cargs.size(); ++i {
-            if cargs[i].getKind() != clang::TemplateArgument::Type { continue; }
-            self._note_arg(*(rk->args.get(i)), cargs[i].getAsType(), depth + 1);
+            if cargs[i].getKind() != clang::TemplateArgument::Type {
+                continue
+            }
+
+            self._note_arg(*rk->args.get(i), cargs[i].getAsType(), depth + 1)
         }
     }
 
-    static fn is_ptr_int(b: *BuiltinType) -> bool {
-        return (b->builtin == BuiltinKind::USize) || (b->builtin == BuiltinKind::ISize);
+    static fn is_ptr_int(b: unsafe *BuiltinType) -> bool {
+        return b->builtin == BuiltinKind::USize || b->builtin == BuiltinKind::ISize
     }
 
     /// \p t holds a Kairo pointer or usize/isize: is one, or is an instance
     /// with one among its arguments (the args note_pointer_arg has anything
     /// to record for).
-    static fn has_pointer_arg(t: *Type) -> bool {
-        var u = canon_unqual(t);
-        if u == &null { return false; }
-        var ub = dyn_cast::<BuiltinType>(u);
-        if (ub != &null) && TypeImport::is_ptr_int(ub) { return true; }
-        if isa::<PointerType>(u) { return true; }
-        if isa::<NullableType>(u) { return TypeImport::has_pointer_arg(cast::<NullableType>(u)->inner); }
-        var rk = dyn_cast::<RecordType>(u);
-        if rk == &null { return false; }
-        for var i: usize = 0; i < rk->args.size(); ++i {
-            if TypeImport::has_pointer_arg(*(rk->args.get(i))) { return true; }
+    static fn has_pointer_arg(t: unsafe *Type) -> bool {
+        var unsafe *u = canon_unqual(t)
+        if u == &null {
+            return false
         }
-        return false;
+
+        var unsafe *ub = dyn_cast<BuiltinType>(u)
+        if ub != &null && TypeImport::is_ptr_int(ub) {
+            return true
+        }
+
+        if isa<PointerType>(u) {
+            return true
+        }
+
+        if isa<NullableType>(u) {
+            return TypeImport::has_pointer_arg(cast<NullableType>(u)->inner)
+        }
+
+        var unsafe *rk = dyn_cast<RecordType>(u)
+        if rk == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < rk->args.size(); ++i {
+            if TypeImport::has_pointer_arg(*rk->args.get(i)) {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// A C++ integer template argument (or a non-type parameter's default)
     /// as the canonical value argument, or null for one past 64 bits of
     /// magnitude (`__int128`), which value_arg cannot hold.
-    fn integral(self, v: llvm::APSInt) -> *Type {
-        var neg = v.isSigned() && v.isNegative();
-        var mag: u64 = 0;
+    fn integral(self, v: llvm::APSInt) -> unsafe *Type {
+        var neg      = v.isSigned() && v.isNegative()
+        var mag: u64 = 0
         if neg {
-            var m = v.abs();
-            if m.getActiveBits() > 64 { return &null; }
-            mag = m.getZExtValue();
+            var m = v.abs()
+            if m.getActiveBits() > 64 {
+                return &null
+            }
+
+            mag = m.getZExtValue()
         } else {
-            if v.getActiveBits() > 64 { return &null; }
-            mag = v.getZExtValue();
+            if v.getActiveBits() > 64 {
+                return &null
+            }
+
+            mag = v.getZExtValue()
         }
-        return self.store->value_arg(neg, mag);
+
+        return self.store->value_arg(neg, mag)
     }
 
     /// The Kairo decl a clang decl was imported as. Through the canonical
     /// decl's USR, so redeclarations and instances of one entity agree.
-    fn _decl_for(self, d: const_obs::<clang::Decl>) -> *Decl {
-        if d == &null { return &null; }
-        var usr = TypeImport::usr_of(d->getCanonicalDecl());
-        if usr.empty() { return &null; }
-        // A variant fill's own members first (DeclImport::fill_usr, G108).
-        if self.fill_usr != &null {
-            var it = self.fill_usr->find(usr);
-            if it != self.fill_usr->end() { return it->second; }
+    fn _decl_for(self, d: unsafe *const clang::Decl) -> unsafe *Decl {
+        if d == &null {
+            return &null
         }
-        return self.reg->find(usr);
+
+        var usr = TypeImport::usr_of(d->getCanonicalDecl())
+        if usr.empty() {
+            return &null
+        }
+
+        // A variant fill's own members first (DeclImport::fill_usr).
+        if self.fill_usr != &null {
+            var it = self.fill_usr->find((usr).str())
+            if it != self.fill_usr->end() {
+                return it->second
+            }
+        }
+
+        return self.reg->find((usr).str())
     }
 
     /// The Kairo decl that DECLARES a template parameter: the templated
     /// decl (class/function/alias) that owns the parameter list.
-    priv fn _owner_of_param(self, pd: const_obs::<clang::TemplateTypeParmDecl>) -> *Decl {
-        var dc = pd->getDeclContext();
+    priv fn _owner_of_param(self, pd: unsafe *const clang::TemplateTypeParmDecl) -> unsafe *Decl {
+        var unsafe *dc = pd->getDeclContext()
         // DeclContext is not in the Decl isa hierarchy; clang's explicit
         // cross-cast is the only correct one.
-        var owner = clang::Decl::castFromDeclContext(dc);
-        if owner == &null { return &null; }
+        var unsafe *owner = clang::Decl::castFromDeclContext(dc)
+        if owner == &null {
+            return &null
+        }
+
         // The context is the TEMPLATED decl (the CXXRecordDecl / FunctionDecl);
         // its USR is what DeclImport registered.
-        var kd = self._decl_for(owner);
-        if kd == &null { return &null; }
-        return NameLookup::representative(kd);
+        var unsafe *kd = self._decl_for(owner)
+        if kd == &null {
+            return &null
+        }
+
+        return NameLookup::representative(kd)
     }
 
     /// Whether \p qt (through a reference) is a C integer that is NOT the one
@@ -696,18 +1052,51 @@ class TypeImport {
     /// an integral conversion, so a tie prefers the natural parameter.
     /// usize/isize typedefs are their own Kairo types and never aliases.
     fn is_int_alias(self, qt: clang::QualType) -> bool {
-        if self._pointer_sized(qt.getNonReferenceType()) != &null { return false; }
-        var c  = qt.getNonReferenceType().getCanonicalType().getUnqualifiedType();
-        var bt = c->getAs::<clang::BuiltinType>();
-        if (bt == &null) || (!bt->isInteger()) { return false; }
-        // Bool, char and char32_t map to their own Kairo types, not an integer.
-        if (bt->getKind() == clang::BuiltinType::Bool) || (bt->getKind() == clang::BuiltinType::Char32) { return false; }
-        if (bt->getKind() == clang::BuiltinType::Char_S) || (bt->getKind() == clang::BuiltinType::Char_U) { return false; }
-        var bits = static_cast::<u32>(self.cctx->getTypeSize(c));
-        var sgn: u32 = (1) if (bt->isSignedInteger()) else (0);
-        var nat  = self.cctx->getIntTypeForBitwidth(bits, sgn);
-        if nat.isNull() { return false; }
-        return nat.getCanonicalType() != c;
+        if self._pointer_sized(qt.getNonReferenceType()) != &null {
+            return false
+        }
+
+        var        c   = qt.getNonReferenceType().getCanonicalType().getUnqualifiedType()
+        var unsafe *bt = c->getAs<clang::BuiltinType>()
+        if bt == &null || !bt->isInteger() {
+            return false
+        }
+
+        // Bool and the character types map to their own Kairo types, not an integer.
+        if bt->getKind() == clang::BuiltinType::Bool
+            || bt->getKind() == clang::BuiltinType::Char32 {
+            return false
+        }
+
+        if TypeImport::_c_character(bt) != BuiltinKind::COUNT {
+            return false
+        }
+
+        var bits     = (self.cctx->getTypeSize(c) as u32)
+        var sgn: u32 = if (bt->isSignedInteger()) => (1) else => 0
+        // 64 bits: the target's int64_t type, as TypeExport::_int_of spells i64/u64
+        // (by width alone it was `long` on Darwin, whose int64_t is `long long`).
+        var nat = self.cctx->getIntTypeForBitwidth(bits, sgn)
+        if bits == 64 {
+            var ll = self.cctx->getTargetInfo().getInt64Type() == clang::TargetInfo::SignedLongLong
+            if ll {
+                nat = clang::QualType::getFromOpaquePtr(
+                    (if (sgn != 0) => (self.cctx->LongLongTy)
+                     else => self.cctx->UnsignedLongLongTy).getAsOpaquePtr(),
+                )
+            } else {
+                nat = clang::QualType::getFromOpaquePtr(
+                    (if (sgn != 0) => (self.cctx->LongTy)
+                     else => self.cctx->UnsignedLongTy).getAsOpaquePtr(),
+                )
+            }
+        }
+
+        if nat.isNull() {
+            return false
+        }
+
+        return nat.getCanonicalType() != c
     }
 
     /// Whether \p qt is a pointer, or a non-const lvalue reference, to a C
@@ -719,54 +1108,149 @@ class TypeImport {
     /// spelling (ParamDecl::cxx_alias_ptr). A const reference binds through
     /// a conversion and needs no cast.
     fn is_alias_indirect(self, qt: clang::QualType) -> bool {
-        var pt = qt->getAs::<clang::PointerType>();
-        if pt != &null { return self.is_int_alias(pt->getPointeeType()); }
-        var lr = qt->getAs::<clang::LValueReferenceType>();
-        if (lr != &null) && (!lr->getPointeeType().isConstQualified()) { return self.is_int_alias(lr->getPointeeType()); }
-        return false;
+        var unsafe *pt = qt->getAs<clang::PointerType>()
+        if pt != &null {
+            return self.is_int_alias(pt->getPointeeType())
+        }
+
+        var unsafe *lr = qt->getAs<clang::LValueReferenceType>()
+        if lr != &null && !lr->getPointeeType().isConstQualified() {
+            return self.is_int_alias(lr->getPointeeType())
+        }
+
+        return false
     }
 
-    // === builtins ===========================================================
+    /// # builtins
 
-    priv fn _builtin(self, bt: const_obs::<clang::BuiltinType>) -> *Type {
-        var k = bt->getKind();
-        if k == clang::BuiltinType::Void     { return self.store->builtin(BuiltinKind::Void); }
-        if k == clang::BuiltinType::Bool     { return self.store->builtin(BuiltinKind::Bool); }
-        if k == clang::BuiltinType::NullPtr  { return self.store->nullptr_t(); }   // opaque; `&null` is its value (G93)
-        if k == clang::BuiltinType::Char32   { return self.store->builtin(BuiltinKind::Char); }
+    /// The Kairo type of C++'s character types without a keyword: `char`
+    /// (Char_S or Char_U by the target's signedness), `wchar_t` (likewise),
+    /// `char16_t`, `char8_t`. COUNT for every other kind.
+    static fn _c_character(bt: unsafe *const clang::BuiltinType) -> BuiltinKind {
+        var k = bt->getKind()
+        if k == clang::BuiltinType::Char_S || k == clang::BuiltinType::Char_U {
+            return BuiltinKind::CChar
+        }
+
+        if k == clang::BuiltinType::WChar_S || k == clang::BuiltinType::WChar_U {
+            return BuiltinKind::CWChar
+        }
+
+        if k == clang::BuiltinType::Char16 {
+            return BuiltinKind::CChar16
+        }
+
+        if k == clang::BuiltinType::Char8 {
+            return BuiltinKind::CChar8
+        }
+
+        return BuiltinKind::COUNT
+    }
+
+    priv fn _builtin(self, bt: unsafe *const clang::BuiltinType) -> unsafe *Type {
+        var k = bt->getKind()
+        if k == clang::BuiltinType::Void {
+            return self.store->builtin(BuiltinKind::Void)
+        }
+
+        if k == clang::BuiltinType::Bool {
+            return self.store->builtin(BuiltinKind::Bool)
+        }
+
+        if k == clang::BuiltinType::NullPtr { // opaque; `&null` is its value
+            return self.store->nullptr_t()
+        }
+
+        if k == clang::BuiltinType::Char32 {
+            return self.store->builtin(BuiltinKind::Char)
+        }
+
         // Plain `char` (Char_S or Char_U by the target's signedness) is its
         // own type, not i8/u8: `const char*` binds only `const char*`, and
         // f(char) / f(signed char) / f(unsigned char) are three overloads.
-        if (k == clang::BuiltinType::Char_S) || (k == clang::BuiltinType::Char_U) { return self.store->builtin(BuiltinKind::CChar); }
-        if k == clang::BuiltinType::Float    { return self.store->builtin(BuiltinKind::F32); }
-        if k == clang::BuiltinType::Double   { return self.store->builtin(BuiltinKind::F64); }
-        if k == clang::BuiltinType::Half     { return self.store->builtin(BuiltinKind::F16); }
-        if k == clang::BuiltinType::Float16  { return self.store->builtin(BuiltinKind::F16); }
-        if k == clang::BuiltinType::BFloat16 { return self.store->builtin(BuiltinKind::BF16); }
-        if k == clang::BuiltinType::Float128 { return self.store->builtin(BuiltinKind::F128); }
+        // wchar_t, char16_t and char8_t likewise. Before isInteger,
+        // which clang answers true for all four.
+        var ck = TypeImport::_c_character(bt)
+        if ck != BuiltinKind::COUNT {
+            return self.store->builtin(ck)
+        }
+
+        if k == clang::BuiltinType::Float {
+            return self.store->builtin(BuiltinKind::F32)
+        }
+
+        if k == clang::BuiltinType::Double {
+            return self.store->builtin(BuiltinKind::F64)
+        }
+
+        if k == clang::BuiltinType::Half {
+            return self.store->builtin(BuiltinKind::F16)
+        }
+
+        if k == clang::BuiltinType::Float16 {
+            return self.store->builtin(BuiltinKind::F16)
+        }
+
+        if k == clang::BuiltinType::BFloat16 {
+            return self.store->builtin(BuiltinKind::BF16)
+        }
+
+        if k == clang::BuiltinType::Float128 {
+            return self.store->builtin(BuiltinKind::F128)
+        }
+
         if k == clang::BuiltinType::LongDouble {
-            var bits = self.cctx->getTypeSize(clang::QualType(bt, 0));
-            if bits == 64  { return self.store->builtin(BuiltinKind::F64); }
+            var bits = self.cctx->getTypeSize(clang::QualType(bt, 0))
+            if bits == 64 {
+                return self.store->builtin(BuiltinKind::F64)
+            }
+
             if bits == 128 {
                 // x86: 80-bit extended padded to 16 bytes. PPC double-double
                 // and true binary128 also report 128; ask the format.
-                var fmt = &(self.cctx->getFloatTypeSemantics(clang::QualType(bt, 0)));
-                if fmt == &(llvm::APFloat::x87DoubleExtended()) { return self.store->builtin(BuiltinKind::F80); }
-                if fmt == &(llvm::APFloat::IEEEquad())          { return self.store->builtin(BuiltinKind::F128); }
-                return &null;                                  // PPC double-double: opaque.
+                var *fmt = &self.cctx->getFloatTypeSemantics(clang::QualType(bt, 0))
+                if fmt == &llvm::APFloat::x87DoubleExtended() {
+                    return self.store->builtin(BuiltinKind::F80)
+                }
+
+                if fmt == &llvm::APFloat::IEEEquad() {
+                    return self.store->builtin(BuiltinKind::F128)
+                }
+
+                return &null // PPC double-double: opaque.
             }
-            return &null;
+
+            return &null
         }
+
         if bt->isInteger() {
-            var bits = self.cctx->getTypeSize(clang::QualType(bt, 0));
-            var sgn  = bt->isSignedInteger();
-            if bits == 8   { return self.store->builtin((BuiltinKind::I8)   if (sgn) else (BuiltinKind::U8));   }
-            if bits == 16  { return self.store->builtin((BuiltinKind::I16)  if (sgn) else (BuiltinKind::U16));  }
-            if bits == 32  { return self.store->builtin((BuiltinKind::I32)  if (sgn) else (BuiltinKind::U32));  }
-            if bits == 64  { return self.store->builtin((BuiltinKind::I64)  if (sgn) else (BuiltinKind::U64));  }
-            if bits == 128 { return self.store->builtin((BuiltinKind::I128) if (sgn) else (BuiltinKind::U128)); }
-            return &null;
+            var bits = self.cctx->getTypeSize(clang::QualType(bt, 0))
+            var sgn  = bt->isSignedInteger()
+            if bits == 8 {
+                return self.store->builtin(if (sgn) => (BuiltinKind::I8) else => BuiltinKind::U8)
+            }
+
+            if bits == 16 {
+                return self.store->builtin(if (sgn) => (BuiltinKind::I16) else => BuiltinKind::U16)
+            }
+
+            if bits == 32 {
+                return self.store->builtin(if (sgn) => (BuiltinKind::I32) else => BuiltinKind::U32)
+            }
+
+            if bits == 64 {
+                return self.store->builtin(if (sgn) => (BuiltinKind::I64) else => BuiltinKind::U64)
+            }
+
+            if bits == 128 {
+                return self.store->builtin(
+                    if (sgn) => (BuiltinKind::I128) else => BuiltinKind::U128,
+                )
+            }
+
+            return &null
         }
-        return &null;   // vector/OpenCL/ObjC kinds: opaque.
+
+        return &null // vector/OpenCL/ObjC kinds: opaque.
     }
 }

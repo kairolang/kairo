@@ -1,150 +1,55 @@
-# Diagnostics/TableGen Diagnostic Table Sources
+Diagnostic tables
+=================
 
-This directory contains the TOML source tables for every diagnostic the Kairo
-compiler can emit. The tables are consumed by `Scripts/gen_diag.py` to produce
-`Compiler/Diag/DiagRegistry.k`, which is the authoritative registry used at
-compile time.
+This directory holds the source tables for every diagnostic code the Kairo
+compiler emits. The code scheme, the table format, the registry, rendering
+and clang mapping are specified in Compiler/Spec/Diagnostics.md.
 
-**Do not edit `DiagRegistry.k` directly.** All diagnostic changes go here.
+Files
 
----
+  <Category>.diag.toml   one table per category: Syntax (S), Resolution (R),
+                         Semantic (SC), Lowering (CL), Memory (M), Linker (L),
+                         Portability (P), Optimization (OPT), Internal (I),
+                         Uncategorized (U). Edit these by hand.
+  Clang.diag.toml        C codes for clang warning groups. Generated; do not
+                         edit.
+  ClangDiagCodes.toml    the persistent allocation manifest behind
+                         Clang.diag.toml. Never renumber or delete entries.
 
-## Regenerating the registry and Clang diagnostic lookup table
+Generated from these files (never edit by hand):
 
-From the repo root (order matters, run `gen_clang_diag_table.py` first):
+  Compiler/Diagnostic/Registry.k          by Scripts/gen_diag.py
+  Compiler/Diagnostic/ClangDiagLookup.k   by Scripts/gen_clang_diag_table.py
 
-```bash
-./build/x86_64-linux-gnu/debug/bin/clang-diag-identity              \
-    | python3 Scripts/gen_clang_diag_table.py                       \
-        --manifest Compiler/Diagnostic/TableGen/ClangDiagCodes.toml \
-        --output Compiler/Diagnostic/TableGen/Clang.diag.toml       \
-        --lookup-output Compiler/Diagnostic/ClangDiagLookup.k
+Regenerating
 
-python3 Scripts/gen_diag.py         \
-      Compiler/Diagnostic/TableGen/ \
-    > Compiler/Diagnostic/Registry.k
-```
+The clang table first, since gen_diag.py reads its output (only needed when
+the clang version changes):
 
-Run this after any addition, removal, or modification to a `.diag.toml` file
-and commit both the table change and the regenerated registry together.
+  ./build/x86_64-linux-gnu/debug/bin/clang-diag-identity \
+      | python3 Scripts/gen_clang_diag_table.py \
+          --manifest Compiler/Diagnostic/TableGen/ClangDiagCodes.toml \
+          --output Compiler/Diagnostic/TableGen/Clang.diag.toml \
+          --lookup-output Compiler/Diagnostic/ClangDiagLookup.k
 
----
+Then the registry. build.py's prebuild step runs this on every build, so by
+hand it is only needed to inspect the output:
 
-## File layout
+  python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen \
+      --output=Compiler/Diagnostic/Registry.k \
+      --full-output=build/registry/Compiler/Diagnostic/Registry.k
 
-Each file covers one diagnostic category. One category per file, no exceptions.
+Compiler/Diagnostic/Registry.k carries the declarations the tree imports;
+build/registry/ holds declarations plus bodies, which each build compiles into
+its own registry object (<out>/obj/registry/registry.o, see build.py
+gen_registry / selfhost_registry). Both are rewritten only when their text
+changes, so an edited table needs nothing beyond a rebuild; the object is also
+recompiled when a module it imports changes (selfhost_registry keys on them).
 
-| File                      | Category              | Code  |
-|---------------------------|-----------------------|-------|
-| `Syntax.diag.toml`        | Syntax                | `S`   |
-| `Uncategorized.diag.toml` | Uncategorized         | `U`   |
-| `CodeGen.diag.toml`       | Code generation       | `C`   |
-| `Memory.diag.toml`        | Memory                | `M`   |
-| `Resolution.diag.toml`    | Resolution            | `R`   |
-| `Linker.diag.toml`        | Linker                | `L`   |
-| `Semantic.diag.toml`      | Semantic              | `SC`  |
-| `Portability.diag.toml`   | Portability           | `P`   |
-| `Lowering.diag.toml`      | Lowering (Clang/LLVM) | `CL`  |
-| `Optimization.diag.toml`  | Optimization          | `OPT` |
-| `Internal.diag.toml`      | Internal              | `I`   |
-
----
-
-## Diagnostic ID format
-
-Every emitted diagnostic has a string ID of the form:
-
-```
-<category><number><severity>
-```
-
-Examples: `SC041E`, `S003W`, `CL012F`, `OPT001R`
-
-- **Category code** from the table above.
-- **Number** three-digit, zero-padded (`001`–`999`).
-- **Severity suffix** single character from the table below.
-
-### Severity levels
-
-Ordered by impact, lowest to highest:
-
-| Severity  | Suffix | Meaning                                                 |
-|-----------|--------|---------------------------------------------------------|
-| Ignored   | `I`    | Suppressed entirely no output.                        |
-| Remark    | `R`    | Informational output from optimization passes.          |
-| Verbose   | `V`    | Shown only in verbose mode (`--verbose`).               |
-| Note      | `N`    | Subordinate annotation attached to a parent diagnostic. |
-| Debug     | `D`    | Debug-build only stripped in release.                 |
-| Warning   | `W`    | Recoverable compilation continues.                    |
-| Error     | `E`    | Hard error current translation unit fails.            |
-| Fatal     | `F`    | Unrecoverable compiler terminates immediately.        |
-
----
-
-## Table format
-
-Each diagnostic entry looks like this:
-
-```toml
-[SC041]
-brief = "return type mismatch"
-group = "type-checking"
-
-    [SC041.E]
-    explain = """
-    # return type mismatch
-    ...
-    """
-
-    [SC041.W]
-    explain = """
-    ...
-    """
-```
-
-### Fields
-
-| Field     | Required           | Description |
-|-----------|--------------------|-------------|
-| `brief`   | Yes                | One-line summary shown in `--explain` listings and IDE tooltips. No period.            |
-| `group`   | Yes                | Suppression group name used with `-W<group>` / `--suppress <group>`. Use `kebab-case`. |
-| `explain` | Yes (per severity) | Long-form Markdown explanation shown by `kairo --explain <ID>`. See below.             |
-
-### `explain` format
-
-Each `explain` block is Markdown. Follow this structure:
-
-```markdown
-# <short title matching brief>
-<one paragraph describing what went wrong and why it is an error>
-
-## Example
-<minimal reproducer with inline comment showing the bad line>
-
-## How to fix
-<concrete steps to resolve the diagnostic>
-```
-
-Keep examples minimal one bad case is enough. Do not repeat the brief in the
-opening paragraph verbatim.
-
----
-
-## Adding a new diagnostic
-
-1. Choose the correct category file.
-2. Pick the next unused three-digit number in that file.
-3. Add the `[CAT###]` block with `brief` and `group`.
-4. Add at least one severity sub-block (usually `[CAT###.E]`) with `explain`.
-5. Regenerate the registry and commit both files.
-
-Numbers are not reused after a diagnostic is removed. Mark removed diagnostics
-with `removed = true` and leave the slot empty rather than renumbering.
-
----
-
-## The `Uncategorized` category
-
-`U` codes are a temporary holding area. Every diagnostic in
-`Uncategorized.diag.toml` must be triaged into a real category before the
-release it appears in is cut. `U` codes must never ship in a stable release.
+That object is linked into EVERY tool build.py makes, including ones whose
+graph never reaches the compiler (kld, katar, clang-diag-identity), and it is
+compiled --emit-scope=inputs. So it must be self-contained: it may reference
+no symbol of a compiler module, only types and inline bodies. That is why
+diag_from_string's hash is written out by gen_diag.py (constants from
+Scripts/Migration/eval_hash.py) instead of calling Support/EvalHash.k's
+compute_hash. Check with `llvm-nm -u -C <out>/obj/registry/registry.o`.

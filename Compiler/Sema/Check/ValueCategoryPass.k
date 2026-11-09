@@ -1,4 +1,4 @@
-/// --- The Kairo Project --------------------- Sema/ValueCategoryPass.k --- ///
+/// --- The Kairo Project --------------- Sema/Check/ValueCategoryPass.k --- ///
 ///
 ///   \brief VERIFY that every typed expression carries a value category.
 ///
@@ -28,57 +28,78 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ----------------------------------------------------------------- ///
 
-ffi "c++" import "Native/Types.hh";
+ffi "c++" import "Native/Types.hh"
 
-import Sema::SemaContext::*;
-import AST::Context::TranslationUnit::*;
-import AST::Node::Base::*;
-import AST::Node::Program::*;
-import AST::Kind::ExprKind::*;
-import AST::Printer::ASTPrinter::*;
-import AST::Visitor::RecursiveASTVisitor::*;
+import AST::Node::Base::Expr
+import AST::Node::Program::TopLevelKind
+import AST::Printer::ASTPrinter::expr_kind_name
+import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
 
-class ValueCategoryPass derives RecursiveASTVisitor::<ValueCategoryPass> {
-    pub var sc: *SemaContext;
-    pub var n_checked: usize = 0;
+pub class ValueCategoryPass derives RecursiveASTVisitor<ValueCategoryPass> {
+    pub var sc:        *SemaContext
+    pub var n_checked: usize        = 0
 
     fn ValueCategoryPass(self, sc: *SemaContext) {
-        self.sc = sc;
+        self.sc = sc
     }
 
     /// PRE: ExprTyper ran (its phase is TypesResolved: Checked is advanced
     /// only when the whole check stage returns).
     fn run(self) {
-        self.sc->require_phase(SemaPhase::TypesResolved);
-        var tu = self.sc->tu;
-        if tu == &null { return; }
-        if tu->program == &null { return; }
+        self.sc->require_phase(SemaPhase::TypesResolved)
+        var unsafe *tu = self.sc->tu
+        if tu == &null {
+            return
+        }
 
-        var items = &(tu->program->items);
+        if tu->program == &null {
+            return
+        }
+
+        var *items = &tu->program->items
         for var i: usize = 0; i < items->size(); ++i {
-            if self.stop { break; }
-            var item = *(items->get(i));
-            switch item.get_kind() {
-                case TopLevelKind::Decl { self.dyn()->dispatch_decl(item.as_decl()); }
-                case TopLevelKind::Stmt { self.dyn()->dispatch_stmt(item.as_stmt()); }
-                case TopLevelKind::Expr { self.dyn()->dispatch_expr(item.as_expr()); }
+            if self.stop {
+                break
+            }
+
+            var item = *items->get(i)
+            match item.get_kind() {
+                case TopLevelKind::Decl {
+                    self.dyn()->dispatch_decl(item.as_decl())
+                } case TopLevelKind::Stmt {
+                    self.dyn()->dispatch_stmt(item.as_stmt())
+                } case TopLevelKind::Expr {
+                    self.dyn()->dispatch_expr(item.as_expr())
+                }
             }
         }
     }
 
-    fn visit_expr(self, n: *Expr) -> bool {
-        if n == &null { return true; }
-        if (n->type_ == &null) || n->is_poisoned() { return true; }   // untyped / unknown / diagnosed: nothing to classify.
-        self.n_checked += 1;
-        if n->value_category != Expr::ValueCategory::Unknown { return true; }
-        var msg = f"ValueCategoryPass: a typed {expr_kind_name(n->kind)} has no value category; its ExprTyper arm returned a type without deciding one";
-        ICE_FAIL(msg);
-        return false;
+    fn visit_expr(self, n: unsafe *Expr) -> bool {
+        if n == &null {
+            return true
+        }
+
+        if n->type_ == &null || n->is_poisoned() { // untyped / unknown / diagnosed: nothing to classify.
+            return true
+        }
+
+        self.n_checked += 1
+        if n->value_category != Expr::ValueCategory::Unknown {
+            return true
+        }
+
+        var msg = f"ValueCategoryPass: a typed {expr_kind_name(n->kind)} has no value category; its ExprTyper arm returned a type without deciding one"
+        kairo::std::ice_fail(msg)
     }
 }

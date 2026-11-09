@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------- Sema/Foreign/ForeignRegistry.k --- ///
+/// --- The Kairo Project --------------- Sema/Foreign/ForeignRegistry.k --- ///
 ///
 ///   \brief Build-wide USR -> Kairo Decl. THE identity for imported entities.
 ///
@@ -14,60 +14,75 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "llvm/ADT/DenseMap.h";
-ffi "c++" import "llvm/ADT/StringMap.h";
-ffi "c++" import "llvm/ADT/StringRef.h";
+ffi "c++" import "llvm/ADT/DenseMap.h"
+ffi "c++" import "llvm/ADT/StringMap.h"
+ffi "c++" import "llvm/ADT/StringRef.h"
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
 
-import AST::Node::Base::*;
-import AST::Node::Declarations::*;
-import AST::LangItems::*;
+import AST::LangItems::{
+    WellKnownDecls,
+    WellKnownType,
+}
+import AST::Node::Base::Decl
+import AST::Node::Declarations::ModuleDecl
 
-class ForeignRegistry {
+pub class ForeignRegistry {
     /// StringMap, not a map over std::string: it owns the key bytes in the
     /// entry, hashes once, and is probed with the StringRef clang already
     /// hands back -- a lookup allocates nothing.
-    priv var _by_usr: llvm::StringMap::<*Decl>;
-    priv var _mu:     std::SharedMutex;
-    priv var _spec_of: llvm::DenseMap::<*Decl, *void>;   ///< see note_spec().
-    priv var _ns_head: llvm::StringMap::<*ModuleDecl>;   ///< see link_namespace().
+    priv var _by_usr:  llvm::StringMap<unsafe *Decl>
+    priv var _mu:      kairo::std::SharedMutex
+    priv var _spec_of: llvm::DenseMap<unsafe *Decl, unsafe *void> ///< see note_spec().
+    priv var _ns_head: llvm::StringMap<unsafe *ModuleDecl>        ///< see link_namespace().
+    /// opaque type -> flat (ASTContext, QualType opaque ptr) pairs; see note_opaque_qt().
+    priv var _opaque_qt: llvm::DenseMap<unsafe *void, cxx::std::vector<unsafe *void>>
 
     /// The build's lang items, for the one Kairo type both directions of the
     /// mapping treat specially: `T?`, which is `::builtin::Nullable<T>` to
     /// C++ (nullable_lang). Null until the driver binds it; a `T?` argument
     /// then has no phase-A spelling, as before.
-    pub var well_known: obs::<WellKnownDecls> = &null;
+    pub var well_known: unsafe *WellKnownDecls = &null
 
-    fn ForeignRegistry(self) { self._by_usr = llvm::StringMap::<*Decl>(4096); }
+    fn ForeignRegistry(self) {
+        self._by_usr = llvm::StringMap<unsafe *Decl>(4096)
+    }
 
     /// The Nullable lang item's decl, or null (no builtin root, or not bound
     /// yet). Read at every use rather than cached: the lang items are bound
     /// once the builtin root has resolved, which may be after the driver
     /// wired this registry.
-    fn nullable_lang(self) -> *Decl {
-        if self.well_known == &null { return &null; }
-        return self.well_known->get(WellKnownType::Nullable);
+    fn nullable_lang(self) -> unsafe *Decl {
+        if self.well_known == &null {
+            return &null
+        }
+
+        return self.well_known->get(WellKnownType::Nullable)
     }
 
-    fn find(self, usr: llvm::StringRef) -> *Decl {
-        var rlock = std::SharedLock(self._mu);
-        var it = self._by_usr.find(usr);
-        if it == self._by_usr.end() { return &null; }
-        return it->second;
+    fn find(self, usr: llvm::StringRef) -> unsafe *Decl {
+        var rlock = kairo::std::SharedLock(self._mu)
+        var it    = self._by_usr.find(usr)
+        if it == self._by_usr.end() {
+            return &null
+        }
+
+        return it->second
     }
 
     /// Insert if absent; returns the decl that IS registered afterwards
     /// (the existing one on a race or a second set).
-    fn put(self, usr: llvm::StringRef, d: *Decl) -> *Decl {
-        var lock = std::LockGuard(self._mu);
+    fn put(self, usr: llvm::StringRef, d: unsafe *Decl) -> unsafe *Decl {
+        var lock = kairo::std::LockGuard(self._mu)
         // One probe: try_emplace leaves an existing entry alone.
-        var r = self._by_usr.try_emplace(usr, d);
-        return (r.first)->second;
+        var r = self._by_usr.try_emplace(usr, d)
+        return r.first->second
     }
 
     /// Link \p m, a fresh ModuleDecl for the C++ namespace \p qual, into
@@ -80,17 +95,25 @@ class ForeignRegistry {
     /// (NameLookup::module_scopes), so every reader that walks reopenings sees
     /// the whole namespace. Spliced under the lock: a fill can mint a
     /// namespace off the driver thread.
-    fn link_namespace(self, qual: llvm::StringRef, m: *ModuleDecl) {
-        if m == &null { return; }
-        var lock = std::LockGuard(self._mu);
-        var r = self._ns_head.try_emplace(qual, m);
-        if (r.second) { return; }
-        if (r.first)->second != m { m->set_prev((r.first)->second); }
+    fn link_namespace(self, qual: llvm::StringRef, m: unsafe *ModuleDecl) {
+        if m == &null {
+            return
+        }
+
+        var lock = kairo::std::LockGuard(self._mu)
+        var r    = self._ns_head.try_emplace(qual, m)
+        if r.second {
+            return
+        }
+
+        if r.first->second != m {
+            m->set_prev(r.first->second)
+        }
     }
 
     fn size(self) -> usize {
-        var rlock = std::SharedLock(self._mu);
-        return self._by_usr.size();
+        var rlock = kairo::std::SharedLock(self._mu)
+        return (self._by_usr.size() as usize)
     }
 
     /// The clang specialization an instance shell was IMPORTED from, when
@@ -103,16 +126,64 @@ class ForeignRegistry {
     /// char_traits<char>>` trips libc++'s static_assert). First writer wins,
     /// as for put(). The decl belongs to one set's ASTContext; the reader
     /// checks that before using it.
-    fn note_spec(self, shell: *Decl, spec: *void) {
-        if (shell == &null) || (spec == &null) { return; }
-        var lock = std::LockGuard(self._mu);
-        self._spec_of.try_emplace(shell, spec);   // first one wins
+    fn note_spec(self, shell: unsafe *Decl, spec: unsafe *void) {
+        if shell == &null || spec == &null {
+            return
+        }
+
+        var lock = kairo::std::LockGuard(self._mu)
+        self._spec_of.try_emplace(shell, spec) // first one wins
     }
 
-    fn spec_of(self, shell: *Decl) -> *void {
-        var rlock = std::SharedLock(self._mu);
-        var it = self._spec_of.find(shell);
-        if it == self._spec_of.end() { return &null; }
-        return it->second;
+    fn spec_of(self, shell: unsafe *Decl) -> unsafe *void {
+        var rlock = kairo::std::SharedLock(self._mu)
+        var it    = self._spec_of.find(shell)
+        if it == self._spec_of.end() {
+            return &null
+        }
+
+        return it->second
+    }
+
+    /// The clang type \p opaque (an OpaqueFFIType) was imported from in the
+    /// ASTContext \p cctx, so TypeExport can spell it back. An opaque
+    /// has no Kairo shape to rebuild a clang type from, and before this
+    /// `vector<__m128i>` never filled and `std::move(v)` of one never
+    /// deduced. Per context: the opaque is build-wide (keyed by spelling),
+    /// a clang type is not, and every set that imports the spelling records
+    /// its own. First writer per context wins, as for note_spec().
+    fn note_opaque_qt(self, opaque: unsafe *void, cctx: unsafe *void, qt: unsafe *void) {
+        if opaque == &null || cctx == &null || qt == &null {
+            return
+        }
+
+        var lock = kairo::std::LockGuard(self._mu)
+        var r    = self._opaque_qt.try_emplace(opaque, cxx::std::vector<unsafe *void>())
+        var *row = &r.first->second
+        for var i: usize = 0; i + 1 < row->size(); i += 2 {
+            if (*row)[i] == cctx {
+                return
+            }
+        }
+
+        row->push_back(cctx)
+        row->push_back(qt)
+    }
+
+    fn opaque_qt(self, opaque: unsafe *void, cctx: unsafe *void) -> unsafe *void {
+        var rlock = kairo::std::SharedLock(self._mu)
+        var it    = self._opaque_qt.find(opaque)
+        if it == self._opaque_qt.end() {
+            return &null
+        }
+
+        var *row = &it->second
+        for var i: usize = 0; i + 1 < row->size(); i += 2 {
+            if (*row)[i] == cctx {
+                return (*row)[i + 1]
+            }
+        }
+
+        return &null
     }
 }

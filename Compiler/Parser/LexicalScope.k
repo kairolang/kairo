@@ -1,32 +1,49 @@
 /// --- The Kairo Project ------------------------ Parser/LexicalScope.k --- ///
 ///
-///   <short description>
-/// 
+///   LexicalScope, ScopeStack and the parser's recovery sync sets.
+///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/Types.hh";
-ffi "c++" import "llvm/ADT/StringMap.h";
-import AST::Context::ASTContext::*;
-import AST::Context::TranslationUnit::*;
-import AST::CodeCompleteConsumer::*;
-import AST::Context::DeclContext::*;
-import AST::Mixin::TypeQual::*;
-import AST::Mixin::Annotation::*;
-import AST::Node::Base::*;
-import AST::Node::Program::*;
-import Token::TokenSpan::*;
-import Token::Token::*;
-import Diagnostic::Engine::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "llvm/ADT/StringMap.h"
+ffi "c++" import "vector"
+
+import AST::ASTSupport::FrozenList
+import AST::Context::ASTContext::ASTContext
+import AST::Context::DeclContext::DeclContext
+import AST::Mixin::Annotation::{
+    AnnotationEntry,
+    AnnotationKind,
+    VisibilityAnnotation,
+    VisibilityKind,
+}
+import AST::Mixin::TypeQual::{
+    QualSpan,
+    TypeQual,
+    TypeQualFlags,
+}
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Type,
+}
+import Location::SourceRange::SourceRange
+import Support::FlagSet::{
+    FlagBit,
+    FlagSet,
+}
 
 /// \enum SyncSet
-/// \brief bitmask of synchronization points used for error recovery during parsing.
+/// \brief synchronization points used for error recovery during parsing, one
+///        bit each; a recovery set is a `FlagSet<SyncSet, u32>`
+///        (Support/FlagSet.k), empty for no barriers.
 ///
 /// \details each `parse_*` method in `ASTParse` defines a set of tokens that act as
 ///          barriers to prevent error cascades. when a syntax error is encountered,
@@ -34,9 +51,7 @@ import Diagnostic::Engine::*;
 ///
 /// for example, a `SyncSet::TopLevel` recovery allows the parser to skip a malformed
 /// `class` body and resume at the next `fn` or `struct` declaration.
-enum SyncSet derives u32 {
-    None       = 0,      ///< no recovery barriers defined.
-
+pub enum SyncSet derives u32 {
     TopLevel   = 1 << 0, ///< declaration keywords: `fn`, `class`, `struct`, `enum`, `module`.
     StmtStart  = 1 << 1, ///< statement lead-ins: `var`, `const`, `return`, `if`, `while`.
     ExprEnd    = 1 << 2, ///< expression delimiters: `;`, `,`, `)`, `]`.
@@ -45,6 +60,13 @@ enum SyncSet derives u32 {
     ParenEnd   = 1 << 5, ///< closing parenthesis: `)`.
     BracketEnd = 1 << 6, ///< closing square bracket: `]`.
     LineEnd    = 1 << 7, ///< physical or virtual newline.
+}
+
+/// SyncSet's variants are its FlagSet's bits (Support/FlagSet.k).
+extend SyncSet impl FlagBit<u32> {
+    inline fn bit(const self) -> u32 {
+        return self as u32
+    }
 }
 
 /// \enum ScopeKind
@@ -57,7 +79,7 @@ enum SyncSet derives u32 {
 /// for example, a `Function` scope might block certain types of non-local lookups
 /// that a `Block` scope would allow, and a `ForLoop` scope provides a specific
 /// injection point for loop-variable bindings.
-enum ScopeKind derives u8 {
+pub enum ScopeKind derives u8 {
     Function,      ///< the top-level scope of a function body.
     Block,         ///< a basic lexical block, such as `{ ... }`.
     GenericParams, ///< scope containing template/generic type and value parameters.
@@ -77,12 +99,12 @@ enum ScopeKind derives u8 {
 /// the `decl` field is an observer pointer to the actual AST node representing
 /// the declaration. this allows the parser and sema to resolve identifier
 /// expressions to their specific declaration sites before full symbol resolution.
-class LocalBinding {
-    pub var name:      string;       ///< identifier name as written in source.
-    pub var decl:      obs::<Decl>;  ///< the AST node (VarDecl, ParamDecl, etc.) this name binds to.
-    pub var range:     SourceRange;  ///< location of the identifier token at the binding site.
-    pub var is_param:  bool = false;
-    pub var is_tparam: bool = false; ///< true if this binding represents a generic type parameter.
+pub class LocalBinding {
+    pub var name:      string ///< identifier name as written in source.
+    pub var decl:      *Decl ///< the AST node (VarDecl, ParamDecl, etc.) this name binds to.
+    pub var range:     SourceRange ///< location of the identifier token at the binding site.
+    pub var is_param:  bool        = false
+    pub var is_tparam: bool        = false ///< true if this binding represents a generic type parameter.
 }
 
 /// \class LexicalScope
@@ -103,24 +125,24 @@ class LocalBinding {
 ///
 /// a scope is usually transient, living only as long as `Sema` is traversing its
 /// corresponding AST block.
-class LexicalScope {
-    pub var kind:     ScopeKind;                    ///< determines lookup and shadowing rules.
-    pub var parent:   obs::<LexicalScope>;          ///< enclosing scope, or null for global/module scope.
+pub class LexicalScope {
+    pub var kind:   ScopeKind            ///< determines lookup and shadowing rules.
+    pub var parent: unsafe *LexicalScope ///< enclosing scope, or null for global/module scope.
     /// StringMap: lookups take the name's bytes as a StringRef, and every
     /// entry is its own allocation, so the *LocalBinding lookup_local hands
     /// out survives a later bind into the same scope.
-    pub var bindings: llvm::StringMap::<LocalBinding>;
-    pub var dc:       obs::<DeclContext>;           ///< the declaration context (e.g. FunctionDecl) containing this scope.
+    pub var bindings: llvm::StringMap<LocalBinding>
+    pub var dc:       unsafe *DeclContext ///< the declaration context (e.g. FunctionDecl) containing this scope.
 
     /// \brief initializes a new scope with its hierarchy and context links.
     ///
     /// \param kind    the classification of this scope (Block, Function, etc).
     /// \param parent  pointer to the outer scope.
     /// \param dc      the nearest owning declaration context.
-    fn LexicalScope(self, kind: ScopeKind, parent: *LexicalScope, dc: *DeclContext) {
-        self.kind   = kind;
-        self.parent = parent;
-        self.dc     = dc;
+    fn LexicalScope(self, kind: ScopeKind, parent: unsafe *LexicalScope, dc: unsafe *DeclContext) {
+        self.kind   = kind
+        self.parent = parent
+        self.dc     = dc
     }
 
     /// \brief adds a name-to-declaration mapping to the current scope level.
@@ -131,12 +153,12 @@ class LexicalScope {
     /// \param name   the identifier being bound.
     /// \param decl   the AST node representing the bound entity.
     /// \param range  source location of the identifier in the binding site.
-    fn bind(self, name: string, decl: *Decl, range: SourceRange) {
-        var b = LocalBinding{};
-        b.name  = name;
-        b.decl  = decl;
-        b.range = range;
-        self.bindings.try_emplace(sref(name), b);   // like insert: an existing name keeps its binding
+    fn bind(self, const name: string, decl: *Decl, range: SourceRange) {
+        var b = LocalBinding{}
+        b.name  = name
+        b.decl  = decl
+        b.range = range
+        self.bindings.try_emplace(kairo::sref(name), b) // like insert: an existing name keeps its binding
     }
 
     /// \brief searches only the current scope level for a binding.
@@ -146,10 +168,13 @@ class LexicalScope {
     ///
     /// \param name  the identifier to find.
     /// \return pointer to the local binding record, or null if not found.
-    fn lookup_local(self, name: string) -> *LocalBinding {
-        var it = self.bindings.find(sref(name));
-        if it == self.bindings.end() { return &null; }
-        return &(it->second);
+    fn lookup_local(self, const name: string) -> unsafe *LocalBinding {
+        var it = self.bindings.find(kairo::sref(name))
+        if it == self.bindings.end() {
+            return &null
+        }
+
+        return unsafe &it->second
     }
 }
 
@@ -173,20 +198,20 @@ class LexicalScope {
 /// \note this stack only manages local lexical bindings. global or hoisted
 ///       symbols (like classes or functions) are typically resolved via a
 ///       separate hoisted scope or by querying a `DeclContext` directly.
-class ScopeStack {
-    pub var _top: obs::<LexicalScope>;
-    pub var ctx:  obs::<ASTContext>;
+pub class ScopeStack {
+    pub var _top: unsafe *LexicalScope
+    pub var ctx:  unsafe *ASTContext
 
     fn ScopeStack(self) {
-        self.ctx  = &null;
-        self._top = &null;
+        self.ctx  = &null
+        self._top = &null
     }
 
     /// \brief associates an ASTContext with this stack for scope allocations.
     ///
     /// \param ctx  the context whose arena will back new LexicalScope nodes.
-    fn set_ctx(self, ctx: *ASTContext) {
-        self.ctx = ctx;
+    fn set_ctx(self, ctx: unsafe *ASTContext) {
+        self.ctx = ctx
     }
 
     /// \brief creates a new lexical scope and pushes it onto the stack.
@@ -194,28 +219,40 @@ class ScopeStack {
     /// \param kind  the category of scope (e.g., Block, Function, Loop).
     /// \param dc    the declaration context that will own declarations in this scope.
     /// \return a pointer to the newly allocated and activated scope.
-    fn push(self, kind: ScopeKind, dc: *DeclContext) -> *LexicalScope {
-        var s     = self.ctx->alloc_init_cleanup::<LexicalScope>(kind, self._top, dc);
-        self._top = s;
-        return s;
+    fn push(self, kind: ScopeKind, dc: unsafe *DeclContext) -> unsafe *LexicalScope {
+        var unsafe *s = self.ctx->alloc_init_cleanup<LexicalScope>(kind, self._top, dc)
+        self._top = s
+        return s
     }
 
     /// \brief deactivates the current scope and restores its parent as the top.
     fn pop(self) {
-        assert((self._top != &null) && r"ScopeStack::pop on empty stack");
-        self._top = self._top->parent;
+        eval if defined!(DEBUG) {
+            if !(self._top != &null) {
+                kairo::std::ice_fail(r"ScopeStack::pop on empty stack")
+            }
+        }
+
+        self._top = self._top->parent
     }
 
-    fn top(self) -> *LexicalScope { return self._top; }
+    fn top(self) -> unsafe *LexicalScope {
+        return self._top
+    }
 
     /// \brief creates a new local name binding in the innermost scope.
     ///
     /// \param name   the identifier being bound.
     /// \param decl   the AST node representing the declaration.
     /// \param range  source location of the identifier for diagnostics.
-    fn bind(self, name: string, decl: *Decl, range: SourceRange) {
-        assert((self._top != &null) && r"ScopeStack::bind with no active scope");
-        self._top->bind(name, decl, range);
+    fn bind(self, const name: string, decl: *Decl, range: SourceRange) {
+        eval if defined!(DEBUG) {
+            if !(self._top != &null) {
+                kairo::std::ice_fail(r"ScopeStack::bind with no active scope")
+            }
+        }
+
+        self._top->bind(name, decl, range)
     }
 
     /// \brief searches the scope hierarchy from top to bottom for a name.
@@ -225,20 +262,27 @@ class ScopeStack {
     ///
     /// \param name  the identifier to resolve.
     /// \return the local binding record, or null if the name is not in scope.
-    fn lookup(self, name: string) -> *LocalBinding {
-        var s = self._top;
+    fn lookup(self, const name: string) -> unsafe *LocalBinding {
+        var unsafe *s = self._top
         while s != &null {
-            var b = s->lookup_local(name);
-            if b != &null { return b; }
-            s = s->parent;
+            var unsafe *b = s->lookup_local(name)
+            if b != &null {
+                return b
+            }
+
+            s = s->parent
         }
-        return &null;
+
+        return &null
     }
 
     /// \brief returns the DeclContext associated with the current top scope.
-    fn current_dc(self) -> *DeclContext {
-        if self._top == &null { return &null; }
-        return self._top->dc;
+    fn current_dc(self) -> unsafe *DeclContext {
+        if self._top == &null {
+            return &null
+        }
+
+        return self._top->dc
     }
 }
 
@@ -257,21 +301,20 @@ class ScopeStack {
 /// ```
 /// here, `@deprecated` is stored in `entries` and `pub` is stored in `visibility`
 /// until the `FunctionDecl` for `old_api` is instantiated.
-class PendingAnnotations {
-    type VisAnnotation = VisibilityAnnotation::<Decl>;
+pub class PendingAnnotations {
+    type VisAnnotation = VisibilityAnnotation<Decl>
 
-    pub var visibility: VisibilityKind = VisibilityKind::None;
-    pub var vis_range:  SourceRange                    = SourceRange::invalid();
-    pub var entries:    vec::<AnnotationEntry>;
+    pub var visibility: VisibilityKind                    = VisibilityKind::None
+    pub var vis_range:  SourceRange                       = SourceRange::invalid()
+    pub var entries:    cxx::std::vector<AnnotationEntry>
 
     fn PendingAnnotations(self) {
-        self.entries.reserve(4);
+        self.entries.reserve(4)
     }
 
     /// \brief returns true if no annotations or visibility modifiers are buffered.
     fn empty(self) -> bool {
-        return self.entries.empty()
-            && self.visibility == VisibilityKind::None;
+        return self.entries.empty() && self.visibility == VisibilityKind::None
     }
 
     /// \brief appends a standard `@annotation` to the buffer.
@@ -280,21 +323,15 @@ class PendingAnnotations {
     /// \param name   the identifier associated with the annotation.
     /// \param range  source range covering the `@` through the closing delimiter.
     fn add(self, kind: AnnotationKind, name: u32, range: SourceRange) {
-        self.entries.push_back(AnnotationEntry(kind, name, range));
+        self.entries.push_back(AnnotationEntry(kind, name, range))
     }
 
     /// \brief appends an `@attr(...)` with already-frozen args.
-    fn add_attr(self, name: u32, range: SourceRange, args: FrozenList::<*Expr>) {
-        var e  = AnnotationEntry(AnnotationKind::Attribute, name, range);
+    fn add_attr(self, name: u32, range: SourceRange, args: FrozenList<unsafe *Expr>) {
+        var e = AnnotationEntry(AnnotationKind::Attribute, name, range)
+        e.args = args
 
-        var erased: FrozenList::<*void>;
-        erased.from_raw(
-            reinterpret_cast::<*(*void)>(args.items),
-            args.count
-        );
-        e.args = erased;
-
-        self.entries.push_back(e);
+        self.entries.push_back(e)
     }
 
     /// \brief records a visibility modifier (pub, prot, priv).
@@ -302,8 +339,8 @@ class PendingAnnotations {
     /// \details visibility is tracked separately from `entries` because it maps
     ///          to a fixed bitfield on many `Decl` types rather than an annotation list.
     fn set_visibility(self, kind: VisibilityKind, range: SourceRange) {
-        self.visibility = kind;
-        self.vis_range  = range;
+        self.visibility = kind
+        self.vis_range  = range
     }
 
     /// \brief resets the buffer for the next parsing unit.
@@ -311,9 +348,9 @@ class PendingAnnotations {
     /// \note does not deallocate the `entries` vector capacity; reuses the
     ///       existing allocation to reduce pressure on the global allocator.
     fn clear(self) {
-        self.entries.clear();
-        self.visibility = VisibilityKind::None;
-        self.vis_range  = SourceRange::invalid();
+        self.entries.clear()
+        self.visibility = VisibilityKind::None
+        self.vis_range  = SourceRange::invalid()
     }
 }
 
@@ -333,33 +370,33 @@ class PendingAnnotations {
 /// \note unlike `TypeQual`, this class uses a heap-allocated `vec` for spans
 ///       rather than an `ArenaList`, as its lifetime is limited to a single
 ///       type-parsing production.
-class PendingQuals {
-    type TypeQualifier = TypeQual::<Type>;
+pub class PendingQuals {
+    type TypeQualifier = TypeQual<Type>
 
-    pub var flags: TypeQualifier::Flags = TypeQualifier::Flags::None;
-    pub var spans: vec::<QualSpan>;
+    pub var flags: FlagSet<TypeQualFlags, u16>
+    pub var spans: cxx::std::vector<QualSpan>
 
     fn PendingQuals(self) {
-        self.spans.reserve(4);
+        self.spans.reserve(4)
     }
 
     /// \brief returns true if no qualifiers have been recorded.
     fn empty(self) -> bool {
-        return self.flags == TypeQualifier::Flags::None;
+        return self.flags.empty()
     }
 
     /// \brief records a qualifier flag and its source location.
     ///
     /// \param flag   the specific bit from `TypeQual::Flags` to set.
     /// \param range  source range of the qualifier keyword.
-    fn add(self, flag: TypeQualifier::Flags, range: SourceRange) {
-        self.flags |= flag;
-        self.spans.push_back(QualSpan(static_cast::<u16>(flag), range));
+    fn add(self, flag: Self::TypeQualifier::Flags, range: SourceRange) {
+        self.flags.set(flag)
+        self.spans.push_back(QualSpan(flag as u16, range))
     }
 
     /// \brief resets the accumulator for the next type production.
     fn clear(self) {
-        self.flags = TypeQualifier::Flags::None;
-        self.spans.clear();
+        self.flags = FlagSet<TypeQualFlags, u16>()
+        self.spans.clear()
     }
 }

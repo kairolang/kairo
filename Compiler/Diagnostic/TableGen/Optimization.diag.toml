@@ -3,8 +3,8 @@
 #   Part of the Kairo Project, under the Apache License v2.0 with the
 #   Kairo Runtime Library Exception.
 #
-#   See: https://www.kairolang.org/LICENSE.txt
-#   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+#   See: https://www.kairolang.org/LICENSE
+#   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 #   Copyright (c) 2026 Dhruvan Kartik
 #
 # ------------------------------------------------------------------------ #
@@ -28,3 +28,18 @@ group = "Uncategorized"
     explain = "This is placeholder diagnostics. (Error)"
     [OPT001.F]
     explain = "This is placeholder diagnostics. (Fatal)"
+
+[OPT002]
+brief = "enum is returned through memory"
+group = "optimization"
+
+    [OPT002.R]
+    explain = """
+    # enum is returned through memory
+
+    a function returning this enum returns it through memory, not in two registers, because a payload is wider than 8 bytes.
+
+    ## how to fix
+
+    keep every payload at most 8 bytes.
+    """

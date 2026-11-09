@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------- Sema/ControlFlowAnalysis.k --- ///
+/// --- The Kairo Project ------------- Sema/Check/ControlFlowAnalysis.k --- ///
 ///
 ///   \brief Divergence facts (FallThrough) and the unreachable-code warning
 ///          (ControlFlowAnalysis, SC003W).
@@ -46,248 +46,351 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ----------------------------------------------------------------- ///
 
-import Sema::SemaContext::*;
-import Sema::Type::TypeUtil::*;
-import AST::Context::ASTContext::*;
-import AST::Context::TranslationUnit::*;
-import AST::ASTSupport::*;
-import AST::Node::Base::*;
-import AST::Node::Program::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Expressions::*;
-import AST::Node::Statements::*;
-import AST::Node::Declarations::*;
-import AST::Node::Casting::*;
-import AST::Kind::StmtKind::*;
-import AST::Visitor::RecursiveASTVisitor::*;
-import Location::SourceRange::*;
-import Token::Token::*;
-import Diagnostic::Registry::*;
-import Sema::Check::ScriptRules::*;
-import Memory::ArenaList::*;
+import AST::Kind::StmtKind::StmtKind
+import AST::Node::Base::{
+    Expr,
+    Stmt,
+}
+import AST::Node::Casting::{
+    cast,
+    isa,
+}
+import AST::Node::Expressions::CallExpr
+import AST::Node::PrimaryExpressions::BooleanLiteralExpr
+import AST::Node::Program::{
+    TopLevelItem,
+    TopLevelKind,
+}
+import AST::Node::Statements
+import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import Diagnostic::Registry::DiagID
+import Location::SourceRange::SourceRange
+import Memory::ArenaList::ArenaList
+import Sema::Check::ScriptRules::ScriptRules
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+import Sema::Type::TypeUtil::TypeUtil
+import Token::Token::Token
 
-class FallThrough {
-    priv var sc: *SemaContext;
-    priv var _tu: TypeUtil;
-    priv var _unknown_ends: bool;
+pub class FallThrough {
+    priv var sc:            unsafe *SemaContext
+    priv var _tu:           TypeUtil
+    priv var _unknown_ends: bool
 
     fn FallThrough(self) {
-        self.sc            = &null;
-        self._unknown_ends = true;
+        self.sc            = &null
+        self._unknown_ends = true
     }
 
     /// \p unknown_ends_path: see "Unknowns" in the file header.
-    fn FallThrough(self, sc: *SemaContext, unknown_ends_path: bool) {
-        self.sc            = sc;
-        self._tu           = TypeUtil(sc);
-        self._unknown_ends = unknown_ends_path;
+    fn FallThrough(self, sc: unsafe *SemaContext, unknown_ends_path: bool) {
+        self.sc            = sc
+        self._tu           = TypeUtil(sc)
+        self._unknown_ends = unknown_ends_path
     }
 
     /// Can control leave \p s at its bottom and continue with the next
     /// statement? See the file header for the rule per statement.
-    fn falls_through(self, s: *Stmt) -> bool {
-        if s == &null { return true; }
-        switch s->kind {
-            case StmtKind::RecoveryStmt       { return !self._unknown_ends; }
-            case StmtKind::InlineBlockStmt    { return !self._unknown_ends; }
-            case StmtKind::ReturnStmt         { return false; }
-            case StmtKind::PanicStmt          { return false; }
-            case StmtKind::BreakStmt          { return false; }
-            case StmtKind::ContinueStmt       { return false; }
-            case StmtKind::JumpIntrinsicStmt  { return false; }
+    fn falls_through(self, s: unsafe *Stmt) -> bool {
+        if s == &null {
+            return true
+        }
 
-            case StmtKind::CompoundStmt {
-                return self.block_falls_through(cast::<CompoundStmt>(s));
-            }
-            case StmtKind::UnsafeBlockStmt {
-                return self.block_falls_through(cast::<UnsafeBlockStmt>(s)->body);
-            }
-            case StmtKind::ContextBindingStmt {
-                return self.block_falls_through(cast::<ContextBindingStmt>(s)->body);
-            }
-            case StmtKind::ExpressionStmt {
-                return !self.diverges(cast::<ExpressionStmt>(s)->expr);
-            }
-            case StmtKind::ConditionalStmt {
-                var c = cast::<ConditionalStmt>(s);
-                // A decided `eval if typeof T == U` (G67): only the taken
+        match s->kind {
+            case StmtKind::RecoveryStmt {
+                return !self._unknown_ends
+            } case StmtKind::InlineBlockStmt {
+                return !self._unknown_ends
+            } case StmtKind::ReturnStmt {
+                return false
+            } case StmtKind::PanicStmt {
+                return false
+            } case StmtKind::BreakStmt {
+                return false
+            } case StmtKind::ContinueStmt {
+                return false
+            } case StmtKind::JumpIntrinsicStmt {
+                return false
+            } case StmtKind::CompoundStmt {
+                return self.block_falls_through(cast<Statements::CompoundStmt>(s))
+            } case StmtKind::UnsafeBlockStmt {
+                return self.block_falls_through(cast<Statements::UnsafeBlockStmt>(s)->body)
+            } case StmtKind::ContextBindingStmt {
+                return self.block_falls_through(cast<Statements::ContextBindingStmt>(s)->body)
+            } case StmtKind::ExpressionStmt {
+                return !self.diverges(cast<Statements::ExpressionStmt>(s)->expr)
+            } case StmtKind::ConditionalStmt {
+                var unsafe *c = cast<Statements::ConditionalStmt>(s)
+                // A decided `eval if typeof T == U`: only the taken
                 // side ever runs; the other is emptied, not a path.
-                if c->eval_taken == 1 { return self.block_falls_through(c->then_); }
-                if c->eval_taken == 2 { return self.falls_through(c->else_); }
-                // No `else`: the false edge falls through regardless of `then`.
-                if c->else_ == &null { return true; }
-                if self.block_falls_through(c->then_) { return true; }
-                return self.falls_through(c->else_);
-            }
-            case StmtKind::MatchStmt {
-                return self._match_falls_through(cast::<MatchStmt>(s));
-            }
-            case StmtKind::TryCatchStmt {
-                var t = cast::<TryCatchStmt>(s);
-                if self.block_falls_through(t->try_body) { return true; }
-                for var i: usize = 0; i < t->arms.size(); ++i {
-                    var arm = t->arms.get(i);
-                    if self.block_falls_through(arm->body) { return true; }
+                if c->eval_taken == 1 {
+                    return self.block_falls_through(c->then_)
                 }
-                return false;
+
+                if c->eval_taken == 2 {
+                    return self.falls_through(c->else_)
+                }
+
+                // No `else`: the false edge falls through regardless of `then`.
+                if c->else_ == &null {
+                    return true
+                }
+
+                if self.block_falls_through(c->then_) {
+                    return true
+                }
+
+                return self.falls_through(c->else_)
+            } case StmtKind::MatchStmt {
+                return self._match_falls_through(cast<Statements::MatchStmt>(s))
+            } case StmtKind::TryCatchStmt {
+                var unsafe *t = cast<Statements::TryCatchStmt>(s)
+                if self.block_falls_through(t->try_body) {
+                    return true
+                }
+
+                for var i: usize = 0; i < t->arms.size(); ++i {
+                    var unsafe *arm = t->arms.get(i)
+                    if self.block_falls_through(arm->body) {
+                        return true
+                    }
+                }
+
+                return false
+            } case StmtKind::LabeledStmt {
+                var unsafe *l = cast<Statements::LabeledStmt>(s)
+                return self._loop_falls_through(l->inner, self._imm(l->label))
+            } case StmtKind::LoopStmt {
+                return self._loop_falls_through(s, u32::MAX)
+            } case StmtKind::WhileLoopStmt {
+                return self._loop_falls_through(s, u32::MAX)
+            } case StmtKind::IndexedForStmt {
+                return self._loop_falls_through(s, u32::MAX)
+            } default {
+                return true
             }
-            case StmtKind::LabeledStmt {
-                var l = cast::<LabeledStmt>(s);
-                return self._loop_falls_through(l->inner, self._imm(l->label));
-            }
-            case StmtKind::LoopStmt       { return self._loop_falls_through(s, u32(-1)); }
-            case StmtKind::WhileLoopStmt  { return self._loop_falls_through(s, u32(-1)); }
-            case StmtKind::IndexedForStmt { return self._loop_falls_through(s, u32(-1)); }
-            default { return true; }
         }
     }
 
-    fn block_falls_through(self, b: *CompoundStmt) -> bool {
-        if b == &null { return true; }
-        var dead = false;
+    fn block_falls_through(self, b: unsafe *Statements::CompoundStmt) -> bool {
+        if b == &null {
+            return true
+        }
+
+        var dead = false
         for var i: usize = 0; i < b->body.size(); ++i {
-            var s = b->body[i];
-            if s == &null { continue; }
+            var unsafe *s = b->body[i]
+            if s == &null {
+                continue
+            }
+
             // A `label!` is a `jump!` target: whatever precedes it, control
             // can arrive here, so the block is live again from this point.
-            if s->kind == StmtKind::LabelIntrinsicStmt { dead = false; continue; }
-            if !self.falls_through(s) { dead = true; }
+            if s->kind == StmtKind::LabelIntrinsicStmt {
+                dead = false
+                continue
+            }
+
+            if !self.falls_through(s) {
+                dead = true
+            }
         }
-        return !dead;
+
+        return !dead
     }
 
     /// An expression whose type is `!` -- a call to a `-> !` function is the
     /// case that matters. Unknown type is "may return".
-    fn diverges(self, e: *Expr) -> bool {
-        if e == &null { return false; }
-        if e->type_ == &null { return false; }
-        return self._tu.is_never(e->type_);
+    fn diverges(self, e: unsafe *Expr) -> bool {
+        if e == &null {
+            return false
+        }
+
+        if e->type_ == &null {
+            return false
+        }
+
+        return self._tu.is_never(e->type_)
     }
 
-    // --- loops ------------------------------------------------------------
+    /// # loops
 
     /// \p label is the imm of a LabeledStmt wrapping \p s, or -1.
-    priv fn _loop_falls_through(self, s: *Stmt, label: u32) -> bool {
-        if s == &null { return true; }
-        var body: *CompoundStmt = &null;
-        switch s->kind {
-            case StmtKind::LoopStmt { body = cast::<LoopStmt>(s)->body; }
-            case StmtKind::WhileLoopStmt {
-                var w = cast::<WhileLoopStmt>(s);
-                if !self.is_true_literal(w->cond) { return true; }
-                body = w->body;
+    priv fn _loop_falls_through(self, s: unsafe *Stmt, label: u32) -> bool {
+        if s == &null {
+            return true
+        }
+
+        var body: unsafe *Statements::CompoundStmt = &null
+        match s->kind {
+            case StmtKind::LoopStmt {
+                body = cast<Statements::LoopStmt>(s)->body
+            } case StmtKind::WhileLoopStmt {
+                var unsafe *w = cast<Statements::WhileLoopStmt>(s)
+                if !self.is_true_literal(w->cond) {
+                    return true
+                }
+
+                body = w->body
+            } case StmtKind::IndexedForStmt {
+                var unsafe *f = cast<Statements::IndexedForStmt>(s)
+                if f->cond != &null && !self.is_true_literal(f->cond) {
+                    return true
+                }
+
+                body = f->body
             }
-            case StmtKind::IndexedForStmt {
-                var f = cast::<IndexedForStmt>(s);
-                if (f->cond != &null) && (!self.is_true_literal(f->cond)) { return true; }
-                body = f->body;
-            }
+
             // A label on a finite loop (a ranged `for`, say): the loop
             // exhausts and falls through like the unlabeled form.
-            default { return self.falls_through(s); }
+            default {
+                return self.falls_through(s)
+            }
         }
+
         // Infinite: the only way past it is a `break` that targets it.
-        return self._breaks_out(static_cast::<*Stmt>(body), 0, label);
+        return self._breaks_out(body, 0, label)
     }
 
     /// Does \p s contain a `break` that exits the loop under inspection?
     /// \p depth counts loops entered below that one: an unlabeled break at
     /// depth 0 is ours, a labeled one is ours at any depth when it names us.
-    priv fn _breaks_out(self, s: *Stmt, depth: u32, label: u32) -> bool {
-        if s == &null { return false; }
-        switch s->kind {
+    priv fn _breaks_out(self, s: unsafe *Stmt, depth: u32, label: u32) -> bool {
+        if s == &null {
+            return false
+        }
+
+        match s->kind {
             case StmtKind::BreakStmt {
-                var b = cast::<BreakStmt>(s);
-                if (!b->has_label) { return depth == 0; }
-                return (label != u32(-1)) && (self._imm(b->label) == label);
-            }
-            case StmtKind::CompoundStmt {
-                var c = cast::<CompoundStmt>(s);
-                for var i: usize = 0; i < c->body.size(); ++i {
-                    if self._breaks_out(c->body[i], depth, label) { return true; }
+                var unsafe *b = cast<Statements::BreakStmt>(s)
+                if !b->has_label {
+                    return depth == 0
                 }
-                return false;
-            }
-            case StmtKind::UnsafeBlockStmt {
-                return self._breaks_out(static_cast::<*Stmt>(cast::<UnsafeBlockStmt>(s)->body), depth, label);
-            }
-            case StmtKind::ContextBindingStmt {
-                return self._breaks_out(static_cast::<*Stmt>(cast::<ContextBindingStmt>(s)->body), depth, label);
-            }
-            case StmtKind::ConditionalStmt {
-                var c = cast::<ConditionalStmt>(s);
-                if self._breaks_out(static_cast::<*Stmt>(c->then_), depth, label) { return true; }
-                return self._breaks_out(c->else_, depth, label);
-            }
-            case StmtKind::MatchStmt {
+
+                return label != u32::MAX && self._imm(b->label) == label
+            } case StmtKind::CompoundStmt {
+                var unsafe *c = cast<Statements::CompoundStmt>(s)
+                for var i: usize = 0; i < c->body.size(); ++i {
+                    if self._breaks_out(c->body[i], depth, label) {
+                        return true
+                    }
+                }
+
+                return false
+            } case StmtKind::UnsafeBlockStmt {
+                return self._breaks_out((cast<Statements::UnsafeBlockStmt>(s)->body), depth, label)
+            } case StmtKind::ContextBindingStmt {
+                return self._breaks_out(
+                    (cast<Statements::ContextBindingStmt>(s)->body),
+                    depth,
+                    label,
+                )
+            } case StmtKind::ConditionalStmt {
+                var unsafe *c = cast<Statements::ConditionalStmt>(s)
+                if self._breaks_out(c->then_, depth, label) {
+                    return true
+                }
+
+                return self._breaks_out(c->else_, depth, label)
+            } case StmtKind::MatchStmt {
                 // `break` inside a match targets the enclosing loop (StmtKind
                 // doc), so a match is not a depth step.
-                var m = cast::<MatchStmt>(s);
+                var unsafe *m = cast<Statements::MatchStmt>(s)
                 for var i: usize = 0; i < m->cases.size(); ++i {
-                    var mc = m->cases.get(i);
-                    if self._breaks_out(static_cast::<*Stmt>(mc->body), depth, label) { return true; }
+                    var unsafe *mc = m->cases.get(i)
+                    if self._breaks_out(mc->body, depth, label) {
+                        return true
+                    }
                 }
-                return false;
-            }
-            case StmtKind::TryCatchStmt {
-                var t = cast::<TryCatchStmt>(s);
-                if self._breaks_out(static_cast::<*Stmt>(t->try_body), depth, label) { return true; }
+
+                return false
+            } case StmtKind::TryCatchStmt {
+                var unsafe *t = cast<Statements::TryCatchStmt>(s)
+                if self._breaks_out(t->try_body, depth, label) {
+                    return true
+                }
+
                 for var i: usize = 0; i < t->arms.size(); ++i {
-                    var arm = t->arms.get(i);
-                    if self._breaks_out(static_cast::<*Stmt>(arm->body), depth, label) { return true; }
+                    var unsafe *arm = t->arms.get(i)
+                    if self._breaks_out(arm->body, depth, label) {
+                        return true
+                    }
                 }
-                return false;
+
+                return false
+            } case StmtKind::LabeledStmt {
+                return self._breaks_out(cast<Statements::LabeledStmt>(s)->inner, depth, label)
+            } case StmtKind::LoopStmt {
+                return self._breaks_out((cast<Statements::LoopStmt>(s)->body), depth + 1, label)
+            } case StmtKind::WhileLoopStmt {
+                return self._breaks_out(
+                    (cast<Statements::WhileLoopStmt>(s)->body),
+                    depth + 1,
+                    label,
+                )
+            } case StmtKind::IndexedForStmt {
+                return self._breaks_out(
+                    (cast<Statements::IndexedForStmt>(s)->body),
+                    depth + 1,
+                    label,
+                )
+            } case StmtKind::RangedForStmt {
+                return self._breaks_out(
+                    (cast<Statements::RangedForStmt>(s)->body),
+                    depth + 1,
+                    label,
+                )
+            } default {
+                return false
             }
-            case StmtKind::LabeledStmt {
-                return self._breaks_out(cast::<LabeledStmt>(s)->inner, depth, label);
-            }
-            case StmtKind::LoopStmt {
-                return self._breaks_out(static_cast::<*Stmt>(cast::<LoopStmt>(s)->body), depth + 1, label);
-            }
-            case StmtKind::WhileLoopStmt {
-                return self._breaks_out(static_cast::<*Stmt>(cast::<WhileLoopStmt>(s)->body), depth + 1, label);
-            }
-            case StmtKind::IndexedForStmt {
-                return self._breaks_out(static_cast::<*Stmt>(cast::<IndexedForStmt>(s)->body), depth + 1, label);
-            }
-            case StmtKind::RangedForStmt {
-                return self._breaks_out(static_cast::<*Stmt>(cast::<RangedForStmt>(s)->body), depth + 1, label);
-            }
-            default { return false; }
         }
     }
 
-    fn is_true_literal(self, e: *Expr) -> bool {
-        if e == &null { return false; }
-        if !isa::<BooleanLiteralExpr>(e) { return false; }
-        return cast::<BooleanLiteralExpr>(e)->value;
+    fn is_true_literal(self, e: unsafe *Expr) -> bool {
+        if e == &null {
+            return false
+        }
+
+        if !isa<BooleanLiteralExpr>(e) {
+            return false
+        }
+
+        return cast<BooleanLiteralExpr>(e)->value
     }
 
-    // --- match ------------------------------------------------------------
+    /// # match
 
     /// A non-exhaustive match is already PatternChecking's SC120E: whether
     /// it "ends the path" is the caller's unknown policy.
-    priv fn _match_falls_through(self, m: *MatchStmt) -> bool {
-        if !m->is_exhaustive { return !self._unknown_ends; }
+    priv fn _match_falls_through(self, m: unsafe *Statements::MatchStmt) -> bool {
+        if !m->is_exhaustive {
+            return !self._unknown_ends
+        }
+
         for var i: usize = 0; i < m->cases.size(); ++i {
-            var mc = m->cases.get(i);
+            var unsafe *mc = m->cases.get(i)
             if mc->body != &null {
-                if self.block_falls_through(mc->body) { return true; }
+                if self.block_falls_through(mc->body) {
+                    return true
+                }
             } else if !self.diverges(mc->expression) {
-                return true;
+                return true
             }
         }
-        return false;
+
+        return false
     }
 
     priv fn _imm(self, tok: Token) -> u32 {
-        return self.sc->ctx->get_ident_imm(tok);
+        return self.sc->ctx->get_ident_imm(tok)
     }
 }
 
@@ -321,36 +424,52 @@ class FallThrough {
 /// path when its type is `!`; REQUIRES PatternChecking: a match ends one
 /// only when it is exhaustive). Before every lowering, so every statement it
 /// sees was written by the user.
-class ControlFlowAnalysis derives RecursiveASTVisitor::<ControlFlowAnalysis> {
-    pub var sc: *SemaContext;
-    priv var _ft: FallThrough;
+pub class ControlFlowAnalysis derives RecursiveASTVisitor<ControlFlowAnalysis> {
+    pub var  sc:  unsafe *SemaContext
+    priv var _ft: FallThrough
 
-    fn ControlFlowAnalysis(self, sc: *SemaContext) {
-        self.sc  = sc;
-        self._ft = FallThrough(sc, false);
+    fn ControlFlowAnalysis(self, sc: unsafe *SemaContext) {
+        self.sc  = sc
+        self._ft = FallThrough(sc, false)
     }
 
     fn run(self) {
-        self.sc->require_phase(SemaPhase::TypesResolved);
-        var tu = self.sc->tu;
-        if tu == &null { return; }
-        if tu->program == &null { return; }
+        self.sc->require_phase(SemaPhase::TypesResolved)
+        var unsafe *tu = self.sc->tu
+        if tu == &null {
+            return
+        }
 
-        var items = &(tu->program->items);
-        var rules = ScriptRules(self.sc);
-        if rules.is_script() { self._script_top_level(items, &rules); return; }
+        if tu->program == &null {
+            return
+        }
+
+        var *items = &tu->program->items
+        var rules  = ScriptRules(self.sc)
+        if rules.is_script() {
+            self._script_top_level(items, &rules)
+            return
+        }
+
         for var i: usize = 0; i < items->size(); ++i {
-            if self.stop { break; }
-            var item = *(items->get(i));
-            switch item.get_kind() {
-                case TopLevelKind::Decl { self.dyn()->dispatch_decl(item.as_decl()); }
-                case TopLevelKind::Stmt { self.dyn()->dispatch_stmt(item.as_stmt()); }
-                case TopLevelKind::Expr { self.dyn()->dispatch_expr(item.as_expr()); }
+            if self.stop {
+                break
+            }
+
+            var item = *items->get(i)
+            match item.get_kind() {
+                case TopLevelKind::Decl {
+                    self.dyn()->dispatch_decl(item.as_decl())
+                } case TopLevelKind::Stmt {
+                    self.dyn()->dispatch_stmt(item.as_stmt())
+                } case TopLevelKind::Expr {
+                    self.dyn()->dispatch_expr(item.as_expr())
+                }
             }
         }
     }
 
-    /// A script's top level is its main's body (SCRIPT.md), so it gets the
+    /// A script's top level is its main's body (Compiler/Spec/ScriptMode.md), so it gets the
     /// block rule: after an item that does not fall through, the code up to
     /// the next `label!` is dead. Unlike a block's, the top level holds
     /// declarations between the statements -- a function, a type, a binding
@@ -360,223 +479,350 @@ class ControlFlowAnalysis derives RecursiveASTVisitor::<ControlFlowAnalysis> {
     /// cannot delete one. A declaration does not revive the path: the code
     /// after it is a new region of the same dead path. A deferred binding is
     /// a line of main, and dead like any statement.
-    priv fn _script_top_level(self, items: *ArenaList::<TopLevelItem>, rules: *ScriptRules) {
-        var cut       = SourceRange::invalid();   ///< the item that ended the path.
-        var cut_why   = "";
-        var fold      = SourceRange::invalid();   ///< the folded `eval if` that ended it, if one did.
-        var first     = SourceRange::invalid();   ///< the open dead region.
-        var last      = SourceRange::invalid();
+    priv fn _script_top_level(self, items: *ArenaList<TopLevelItem>, rules: *ScriptRules) {
+        var cut     = SourceRange::invalid() ///< the item that ended the path.
+        var cut_why = ""
+        var fold    = SourceRange::invalid() ///< the folded `eval if` that ended it, if one did.
+        var first   = SourceRange::invalid() ///< the open dead region.
+        var last    = SourceRange::invalid()
         for var i: usize = 0; i < items->size(); ++i {
-            if self.stop { break; }
-            var item = *(items->get(i));
-            var v = rules->binding_of(item);
-            var code = (item.get_kind() != TopLevelKind::Decl) && (v == &null);
-            if (v != &null) && rules->defers(v) { code = true; }
-            if !code {
-                if first.is_valid() { self._report_at(cut, cut_why, first, last); first = SourceRange::invalid(); }
-                if item.get_kind() == TopLevelKind::Decl { self.dyn()->dispatch_decl(item.as_decl()); }
-                else                                     { self.dyn()->dispatch_stmt(item.as_stmt()); }
-                continue;
+            if self.stop {
+                break
             }
 
-            var st: *Stmt = &null;
-            if item.get_kind() == TopLevelKind::Stmt { st = item.as_stmt(); }
-            var r = item.get_range();
+            var        item = *items->get(i)
+            var unsafe *v   = rules->binding_of(item)
+            var        code = item.get_kind() != TopLevelKind::Decl && v == &null
+            if v != &null && rules->defers(v) {
+                code = true
+            }
+
+            if !code {
+                if first.is_valid() {
+                    self._report_at(cut, cut_why, first, last)
+                    first = SourceRange::invalid()
+                }
+
+                if item.get_kind() == TopLevelKind::Decl {
+                    self.dyn()->dispatch_decl(item.as_decl())
+                } else {
+                    self.dyn()->dispatch_stmt(item.as_stmt())
+                }
+
+                continue
+            }
+
+            var st: unsafe *Stmt = &null
+            if item.get_kind() == TopLevelKind::Stmt {
+                st = item.as_stmt()
+            }
+
+            var r = item.get_range()
             if cut.is_valid() {
                 // A label revives the path: control can arrive by `jump!`.
-                var revives = (st != &null) && ((st->kind == StmtKind::LabelIntrinsicStmt) || self._contains_label(st));
-                if fold.is_valid() && r.start.is_valid() && (!fold.contains(r.start)) { revives = true; }
-                if !revives {
-                    if !first.is_valid() { first = r; }
-                    last = r;
-                    continue;   // dead: not walked, as in a block.
+                var revives = st != &null
+                    && (st->kind == StmtKind::LabelIntrinsicStmt || self._contains_label(st))
+                if fold.is_valid() && r.start.is_valid() && !fold.contains(r.start) {
+                    revives = true
                 }
-                if first.is_valid() { self._report_at(cut, cut_why, first, last); first = SourceRange::invalid(); }
-                cut = SourceRange::invalid();
-                fold = SourceRange::invalid();
+
+                if !revives {
+                    if !first.is_valid() {
+                        first = r
+                    }
+
+                    last = r
+                    continue // dead: not walked, as in a block.
+                }
+
+                if first.is_valid() {
+                    self._report_at(cut, cut_why, first, last)
+                    first = SourceRange::invalid()
+                }
+
+                cut  = SourceRange::invalid()
+                fold = SourceRange::invalid()
             }
 
             if st != &null {
-                self.dyn()->dispatch_stmt(st);  // discard
+                self.dyn()->dispatch_stmt(st) // discard
                 if !self._ft.falls_through(st) {
-                    cut = st->range; cut_why = self._why(st);
-                    fold = self._fold_of(st);
+                    cut     = st->range
+                    cut_why = self._why(st)
+                    fold    = self._fold_of(st)
                 }
             } else {
-                var e = item.as_expr();
-                self.dyn()->dispatch_expr(e);  // discard
+                var unsafe *e = item.as_expr()
+                self.dyn()->dispatch_expr(e) // discard
                 if self._ft.diverges(e) {
-                    cut = e->range;
-                    cut_why = "this expression never completes (its type is '!'), so any code after it is never run";
-                    if isa::<CallExpr>(e) { cut_why = "this call never returns (its type is '!'), so any code after it is never run"; }
+                    cut = e->range
+                    cut_why = "this expression never completes (its type is '!'), so any code after it is never run"
+                    if isa<CallExpr>(e) {
+                        cut_why = "this call never returns (its type is '!'), so any code after it is never run"
+                    }
                 }
             }
         }
-        if first.is_valid() { self._report_at(cut, cut_why, first, last); }
+
+        if first.is_valid() {
+            self._report_at(cut, cut_why, first, last)
+        }
     }
 
-    fn traverse_compound_stmt(self, n: *CompoundStmt) -> *CompoundStmt {
-        if n == &null { return n; }
-        if self.dyn()->walkup_compound_stmt(n) == false { return n; }
+    fn traverse_compound_stmt(self,
+                              n: unsafe *Statements::CompoundStmt) -> unsafe *Statements::CompoundStmt {
+        if n == &null {
+            return n
+        }
 
-        var cut: *Stmt = &null;     ///< the statement that ended the path.
-        var i: usize = 0;
+        if self.dyn()->walkup_compound_stmt(n) == false {
+            return n
+        }
+
+        var cut: unsafe *Stmt = &null ///< the statement that ended the path.
+        var i:   usize        = 0
         while i < n->body.size() {
-            if self.stop { break; }
-            var s = n->body[i];
-            if s == &null { ++i; continue; }
+            if self.stop {
+                break
+            }
+
+            var unsafe *s = n->body[i]
+            if s == &null {
+                ++i
+                continue
+            }
 
             if cut != &null {
                 // Dead from here: find the end of the region. A path that a
                 // folded `eval if` ended (its taken branch spliced into this
                 // block) ends only on this target, so the region stops where
                 // that branch does: the code after it runs on every other.
-                var fold = self._fold_of(cut);
-                var j = i;
-                var last: *Stmt = &null;
+                var fold               = self._fold_of(cut)
+                var j                  = i
+                var last: unsafe *Stmt = &null
                 while j < n->body.size() {
-                    var d = n->body[j];
+                    var unsafe *d = n->body[j]
                     if d != &null {
-                        if d->kind == StmtKind::LabelIntrinsicStmt { break; }
-                        if self._contains_label(d) { break; }
-                        if fold.is_valid() && (!fold.contains(d->range.start)) { break; }
-                        last = d;
+                        if d->kind == StmtKind::LabelIntrinsicStmt {
+                            break
+                        }
+
+                        if self._contains_label(d) {
+                            break
+                        }
+
+                        if fold.is_valid() && !fold.contains(d->range.start) {
+                            break
+                        }
+
+                        last = d
                     }
-                    ++j;
+
+                    ++j
                 }
-                if last != &null { self._report(cut, s, last); }
-                cut = &null;
+
+                if last != &null {
+                    self._report(cut, s, last)
+                }
+
+                cut = &null
                 // `j` is the reviving label (or the end): walk on from it.
-                i = j;
-                continue;
+                i = j
+                continue
             }
 
-            self.dyn()->dispatch_stmt(s);  // discard
-            if !self._ft.falls_through(s) { cut = s; }
-            ++i;
+            self.dyn()->dispatch_stmt(s) // discard
+            if !self._ft.falls_through(s) {
+                cut = s
+            }
+
+            ++i
         }
-        return n;
+
+        return n
     }
 
     /// The innermost folded function-body `eval if` holding `s`, or invalid.
-    priv fn _fold_of(self, s: *Stmt) -> SourceRange {
-        var best = SourceRange::invalid();
-        if !s->range.start.is_valid() { return best; }
-        for var i: usize = 0; i < self.sc->folded_eval_ifs.size(); ++i {
-            var r = self.sc->folded_eval_ifs[i];
-            if !r.contains(s->range.start) { continue; }
-            if (!best.is_valid()) || (r.size() < best.size()) { best = r; }
+    priv fn _fold_of(self, s: unsafe *Stmt) -> SourceRange {
+        var best = SourceRange::invalid()
+        if !s->range.start.is_valid() {
+            return best
         }
-        return best;
+
+        for var i: usize = 0; i < self.sc->folded_eval_ifs.size(); ++i {
+            var r = self.sc->folded_eval_ifs[i]
+            if !r.contains(s->range.start) {
+                continue
+            }
+
+            if !best.is_valid() || r.size() < best.size() {
+                best = r
+            }
+        }
+
+        return best
     }
 
-    priv fn _report(self, cut: *Stmt, first: *Stmt, last: *Stmt) {
-        self._report_at(cut->range, self._why(cut), first->range, last->range);
+    priv fn _report(self, cut: unsafe *Stmt, first: unsafe *Stmt, last: unsafe *Stmt) {
+        self._report_at(cut->range, self._why(cut), first->range, last->range)
     }
 
     /// The warning over the region \p first .. \p last, its note at \p cut.
-    priv fn _report_at(self, cut: SourceRange, why: string, first: SourceRange, last: SourceRange) {
-        if !first.start.is_valid() { return; }
-        var region = SourceRange(first.start, last.end);
-        if (!last.end.is_valid()) || (last.end <= first.start) {
-            region = first;
+    priv fn _report_at(self,
+                       cut:       SourceRange,
+                       const why: string,
+                       first:     SourceRange,
+                       last:      SourceRange) {
+        if !first.start.is_valid() {
+            return
         }
 
-        var b = self.sc->diag->report(DiagID::SC003W, first.start,
-            "unreachable code; the statement above always transfers control out of this block");
-        b.first(region);
-        if cut.start.is_valid() {
-            b.note(cut.start, why);
+        var region = SourceRange(first.start, last.end)
+        if !last.end.is_valid() || last.end <= first.start {
+            region = first
         }
+
+        var b = self.sc->diag->report(
+            DiagID::SC003W,
+            first.start,
+            "unreachable code; the statement above always transfers control out of this block",
+        )
+
+        b.first(region)
+        if cut.start.is_valid() {
+            b.note(cut.start, why)
+        }
+
         // Only a range that is the region itself, in one file: the fallback
         // above is one statement of a region whose end could not be placed,
         // and deleting part of the dead code is not the fix. A statement's
         // range stops before its `;`, which the deletion takes too, or the
         // edit leaves a stray empty statement behind.
-        var sm = self.sc->ctx->sm;
-        if (region.end == last.end) && (sm != &null) && sm->same_file(region.start, region.end) {
-            var stop = region.end;
-            if sm->get_char_at(stop) == ';' { stop = stop.with_offset(1); }
-            b.remove(SourceRange(region.start, stop), "remove the unreachable code");
+        var unsafe *sm = self.sc->ctx->sm
+        if region.end == last.end && sm != &null && sm->same_file(region.start, region.end) {
+            var stop = region.end
+            if sm->get_char_at(stop) == (';' as u8) {
+                stop = stop.with_offset(1)
+            }
+
+            b.remove(SourceRange(region.start, stop), "remove the unreachable code")
         }
-        b.emit();
+
+        b.emit()
     }
 
     /// The note at the statement that ended the path.
-    priv fn _why(self, s: *Stmt) -> string {
-        switch s->kind {
-            case StmtKind::ReturnStmt        { return "any code after this 'return' is never run"; }
-            case StmtKind::BreakStmt         { return "any code after this 'break' is never run"; }
-            case StmtKind::ContinueStmt      { return "any code after this 'continue' is never run"; }
-            case StmtKind::PanicStmt         { return "any code after this 'panic' is never run"; }
-            case StmtKind::JumpIntrinsicStmt { return "any code after this 'jump!' is never run"; }
-            case StmtKind::ExpressionStmt {
-                var e = cast::<ExpressionStmt>(s)->expr;
-                if (e != &null) && isa::<CallExpr>(e) {
-                    return "this call never returns (its type is '!'), so any code after it is never run";
+    priv fn _why(self, s: unsafe *Stmt) -> string {
+        match s->kind {
+            case StmtKind::ReturnStmt {
+                return "any code after this 'return' is never run"
+            } case StmtKind::BreakStmt {
+                return "any code after this 'break' is never run"
+            } case StmtKind::ContinueStmt {
+                return "any code after this 'continue' is never run"
+            } case StmtKind::PanicStmt {
+                return "any code after this 'panic' is never run"
+            } case StmtKind::JumpIntrinsicStmt {
+                return "any code after this 'jump!' is never run"
+            } case StmtKind::ExpressionStmt {
+                var unsafe *e = cast<Statements::ExpressionStmt>(s)->expr
+                if e != &null && isa<CallExpr>(e) {
+                    return "this call never returns (its type is '!'), so any code after it is never run"
                 }
-                return "this expression never completes (its type is '!'), so any code after it is never run";
+
+                return "this expression never completes (its type is '!'), so any code after it is never run"
+            } case StmtKind::ConditionalStmt {
+                return "every branch of this 'if' leaves the block, so any code after it is never run"
+            } case StmtKind::MatchStmt {
+                return "every arm of this 'match' leaves the block, so any code after it is never run"
+            } case StmtKind::TryCatchStmt {
+                return "the 'try' body and every 'catch' leave the block, so any code after it is never run"
+            } case StmtKind::LoopStmt {
+                return "this loop never exits (no 'break' leaves it), so any code after it is never run"
+            } case StmtKind::WhileLoopStmt {
+                return "this loop never exits (no 'break' leaves it), so any code after it is never run"
+            } case StmtKind::IndexedForStmt {
+                return "this loop never exits (no 'break' leaves it), so any code after it is never run"
+            } case StmtKind::LabeledStmt {
+                return "this loop never exits (no 'break' leaves it), so any code after it is never run"
+            } default {
+                return "this block never completes, so any code after it is never run"
             }
-            case StmtKind::ConditionalStmt {
-                return "every branch of this 'if' leaves the block, so any code after it is never run";
-            }
-            case StmtKind::MatchStmt {
-                return "every arm of this 'match' leaves the block, so any code after it is never run";
-            }
-            case StmtKind::TryCatchStmt {
-                return "the 'try' body and every 'catch' leave the block, so any code after it is never run";
-            }
-            case StmtKind::LoopStmt       { return "this loop never exits (no 'break' leaves it), so any code after it is never run"; }
-            case StmtKind::WhileLoopStmt  { return "this loop never exits (no 'break' leaves it), so any code after it is never run"; }
-            case StmtKind::IndexedForStmt { return "this loop never exits (no 'break' leaves it), so any code after it is never run"; }
-            case StmtKind::LabeledStmt    { return "this loop never exits (no 'break' leaves it), so any code after it is never run"; }
-            default { return "this block never completes, so any code after it is never run"; }
         }
     }
 
     /// Is there a `label!` anywhere in \p s? Only asked of dead statements,
     /// which are rare, so the walk is not worth caching.
-    priv fn _contains_label(self, s: *Stmt) -> bool {
-        if s == &null { return false; }
-        switch s->kind {
-            case StmtKind::LabelIntrinsicStmt { return true; }
-            case StmtKind::CompoundStmt { return self._block_contains_label(cast::<CompoundStmt>(s)); }
-            case StmtKind::UnsafeBlockStmt { return self._block_contains_label(cast::<UnsafeBlockStmt>(s)->body); }
-            case StmtKind::ContextBindingStmt { return self._block_contains_label(cast::<ContextBindingStmt>(s)->body); }
-            case StmtKind::ConditionalStmt {
-                var c = cast::<ConditionalStmt>(s);
-                if self._block_contains_label(c->then_) { return true; }
-                return self._contains_label(c->else_);
-            }
-            case StmtKind::MatchStmt {
-                var m = cast::<MatchStmt>(s);
+    priv fn _contains_label(self, s: unsafe *Stmt) -> bool {
+        if s == &null {
+            return false
+        }
+
+        match s->kind {
+            case StmtKind::LabelIntrinsicStmt {
+                return true
+            } case StmtKind::CompoundStmt {
+                return self._block_contains_label(cast<Statements::CompoundStmt>(s))
+            } case StmtKind::UnsafeBlockStmt {
+                return self._block_contains_label(cast<Statements::UnsafeBlockStmt>(s)->body)
+            } case StmtKind::ContextBindingStmt {
+                return self._block_contains_label(cast<Statements::ContextBindingStmt>(s)->body)
+            } case StmtKind::ConditionalStmt {
+                var unsafe *c = cast<Statements::ConditionalStmt>(s)
+                if self._block_contains_label(c->then_) {
+                    return true
+                }
+
+                return self._contains_label(c->else_)
+            } case StmtKind::MatchStmt {
+                var unsafe *m = cast<Statements::MatchStmt>(s)
                 for var i: usize = 0; i < m->cases.size(); ++i {
-                    if self._block_contains_label(m->cases.get(i)->body) { return true; }
+                    if self._block_contains_label(m->cases.get(i)->body) {
+                        return true
+                    }
                 }
-                return false;
-            }
-            case StmtKind::TryCatchStmt {
-                var t = cast::<TryCatchStmt>(s);
-                if self._block_contains_label(t->try_body) { return true; }
+
+                return false
+            } case StmtKind::TryCatchStmt {
+                var unsafe *t = cast<Statements::TryCatchStmt>(s)
+                if self._block_contains_label(t->try_body) {
+                    return true
+                }
+
                 for var i: usize = 0; i < t->arms.size(); ++i {
-                    if self._block_contains_label(t->arms.get(i)->body) { return true; }
+                    if self._block_contains_label(t->arms.get(i)->body) {
+                        return true
+                    }
                 }
-                return false;
+
+                return false
+            } case StmtKind::LabeledStmt {
+                return self._contains_label(cast<Statements::LabeledStmt>(s)->inner)
+            } case StmtKind::LoopStmt {
+                return self._block_contains_label(cast<Statements::LoopStmt>(s)->body)
+            } case StmtKind::WhileLoopStmt {
+                return self._block_contains_label(cast<Statements::WhileLoopStmt>(s)->body)
+            } case StmtKind::IndexedForStmt {
+                return self._block_contains_label(cast<Statements::IndexedForStmt>(s)->body)
+            } case StmtKind::RangedForStmt {
+                return self._block_contains_label(cast<Statements::RangedForStmt>(s)->body)
+            } default {
+                return false
             }
-            case StmtKind::LabeledStmt    { return self._contains_label(cast::<LabeledStmt>(s)->inner); }
-            case StmtKind::LoopStmt       { return self._block_contains_label(cast::<LoopStmt>(s)->body); }
-            case StmtKind::WhileLoopStmt  { return self._block_contains_label(cast::<WhileLoopStmt>(s)->body); }
-            case StmtKind::IndexedForStmt { return self._block_contains_label(cast::<IndexedForStmt>(s)->body); }
-            case StmtKind::RangedForStmt  { return self._block_contains_label(cast::<RangedForStmt>(s)->body); }
-            default { return false; }
         }
     }
 
-    priv fn _block_contains_label(self, b: *CompoundStmt) -> bool {
-        if b == &null { return false; }
-        for var i: usize = 0; i < b->body.size(); ++i {
-            if self._contains_label(b->body[i]) { return true; }
+    priv fn _block_contains_label(self, b: unsafe *Statements::CompoundStmt) -> bool {
+        if b == &null {
+            return false
         }
-        return false;
+
+        for var i: usize = 0; i < b->body.size(); ++i {
+            if self._contains_label(b->body[i]) {
+                return true
+            }
+        }
+
+        return false
     }
 }

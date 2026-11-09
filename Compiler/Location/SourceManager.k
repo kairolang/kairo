@@ -1,33 +1,39 @@
 /// --- The Kairo Project --------------------- Location/SourceManager.k --- ///
 ///
-///   <short description>
+///   SourceManager: loads source files and maps locations to their text.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/Types.hh";
-ffi "c++" import "Native/UTF8Decode.hh";
-ffi "c++" import "llvm/Support/FormatVariadic.h";
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "Native/UTF8Decode.hh"
+ffi "c++" import "llvm/Support/FormatVariadic.h"
+ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "vector"
+ffi "c++" import "string"
 
-import Location::SourceFile::*;
-import Location::SourceLocation::*;
-import Location::FullSourceLocation::*;
-import Support::FileIO::Path::*;
-import Memory::MemoryBuffer::*;
-import Location::SourceLineTable::*;
-import Threading::ThreadPool::*;
-import Support::FileIO::VirtualFileManager::*;
-import Support::Assert::*;
-import Diagnostic::Engine::*;
-import Diagnostic::Registry::*;
+import Diagnostic::Engine::DiagEngine
+import Diagnostic::Registry::DiagID
+import Location::FullSourceLocation::FullSourceLocation
+import Location::SourceFile::SourceFile
+import Location::SourceLineTable::SourceLineTable
+import Location::SourceLocation::SourceLocation
+import Location::SourceRange::SourceRange
+import Memory::MemoryBuffer::MemoryBuffer
+import Support::Assert::Assert
+import Support::FileIO::Path::Path
+import Support::FileIO::VirtualFileManager::VirtualFileManager
+import Support::UTF8View::UTF8View
+import Threading::ThreadPool::ThreadPool
+import std::io
 
-type FileID = u32;
+pub type FileID = u32
 
 /// FIXME: change the use of string paths in get_line_col to Path objects.
 
@@ -71,14 +77,14 @@ type FileID = u32;
 ///   - computing line/column (`get_line_col`)
 ///   - fetching views, buffers, and metadata
 ///
-class SourceManager {
-    pub  var _line_table: SourceLineTable;           ///< global line mapping table
-    priv var _files:      vec::<own::<SourceFile>>;  ///< all loaded files
-    priv var _total_b:    u64 = 0;                   ///< total bytes mapped
-    priv var _pool:       obs::<ThreadPool>;         ///< background worker pool
-    priv var _vfile_mgr:  obs::<VirtualFileManager>; ///< underlying virtual filesystem
-    priv var _load_mu:    std::Mutex;                ///< mutex for synchronizing file loads
-    priv var _diag:       obs::<DiagEngine>;         ///< diagnostic engine for reporting errors
+pub class SourceManager {
+    pub  var _line_table: SourceLineTable ///< global line mapping table
+    priv var _files:      cxx::std::vector<unsafe *SourceFile> ///< all loaded files
+    priv var _total_b:    u64                                  = 0 ///< total bytes mapped
+    priv var _pool:       unsafe *ThreadPool ///< background worker pool
+    priv var _vfile_mgr:  unsafe *VirtualFileManager ///< underlying virtual filesystem
+    priv var _load_mu:    kairo::std::Mutex ///< mutex for synchronizing file loads
+    priv var _diag:       unsafe *DiagEngine ///< diagnostic engine for reporting errors
 
     ///
     /// \brief constructs a new SourceManager with pool and vfile manager.
@@ -88,47 +94,44 @@ class SourceManager {
     ///
     /// \throws RuntimeError if either argument is null.
     ///
-    fn SourceManager(self, pool: obs::<ThreadPool>, vfile_mgr: *VirtualFileManager, diag: *DiagEngine) {
+    fn SourceManager(self,
+                     pool:      unsafe *ThreadPool,
+                     vfile_mgr: unsafe *VirtualFileManager,
+                     diag:      unsafe *DiagEngine) {
         if pool == &null {
-            std::crash(std::Error::RuntimeError(
-                "SourceManager: A valid ThreadPool is required"
-            ));
+            kairo::std::ice_fail("SourceManager: A valid ThreadPool is required")
         }
 
         if vfile_mgr == &null {
-            std::crash(std::Error::RuntimeError(
-                "SourceManager: A valid VirtualFileManager is required"
-            ));
+            kairo::std::ice_fail("SourceManager: A valid VirtualFileManager is required")
         }
 
         if diag == &null {
-            std::crash(std::Error::RuntimeError(
-                "SourceManager: A valid DiagEngine is required"
-            ));
+            kairo::std::ice_fail("SourceManager: A valid DiagEngine is required")
         }
 
-        self._diag      = diag;
-        self._pool      = pool;
-        self._files     = vec::<*SourceFile>();
-        self._total_b   = 0;
-        self._vfile_mgr = vfile_mgr;
-        Logger::info(Logger::Stage::Driver, f"SourceManager: initialized");
+        self._diag      = diag
+        self._pool      = pool
+        self._files     = cxx::std::vector<unsafe *SourceFile>()
+        self._total_b   = 0
+        self._vfile_mgr = vfile_mgr
+        kairo::Logger::info(kairo::Logger::Stage::Driver, f"SourceManager: initialized")
     }
 
     ///
     /// \brief destructor: cleans up all loaded files.
     ///
-    fn op delete (self) {
-        self._line_table.shutdown();
+    fn op finally (self) {
+        self._line_table.shutdown()
         // self._pool->wait_all();
 
-        for f: *SourceFile in _files {
+        for var f: *SourceFile? in self._files {
             if f != &null {
-                delete f;
+                @destroy unsafe (f as *SourceFile)
             }
         }
 
-        _files.clear();
+        self._files.clear()
     }
 
     ///
@@ -142,63 +145,75 @@ class SourceManager {
     /// - registers file in the VirtualFileManager and SourceLineTable.
     /// - schedules async line-index build on the thread pool.
     ///
-    fn load_file(self, path: Path, skip_indexing: bool = false) -> FileID /* file_id */ {
-        var lock = std::LockGuard(self._load_mu); // synchronize file loading
-        var known = self._vfile_mgr->fid_for_path(path);
-        if known != static_cast::<FileID>(u32(-1)) {
-            Logger::debug(
-                Logger::Stage::Driver,
-                f"SourceManager::load_file: cache hit for {path.full_path()} fid={known}"
-            );
-            self._materialize(known, path);
-            return known;
+    pub fn load_file(self, const path: Path, skip_indexing: bool = false) -> FileID /* file_id */ {
+        var lock  = kairo::std::LockGuard(self._load_mu) // synchronize file loading
+        var known = self._vfile_mgr->fid_for_path(path)
+        if known != (u32::MAX as FileID) {
+            kairo::Logger::debug(
+                kairo::Logger::Stage::Driver,
+                f"SourceManager::load_file: cache hit for {path.full_path()} fid={known}",
+            )
+
+            self._materialize(known, path)
+            return known
         }
 
         if !path.exists() {
-            self._diag->report(DiagID::I005F,
-                f"no such file: '{path.full_path()}\x27").emit();
-            return static_cast::<FileID>(u32(-1));
+            self._diag->report(DiagID::I005F, f"no such file: '{path.full_path()}'").emit()
+            return u32::MAX
         }
 
         if path.is_directory() {
-            self._diag->report(DiagID::I005F,
-                f"'{path.full_path()}' is a directory, not a source file").emit();
-            return static_cast::<FileID>(u32(-1));
+            self._diag->report(
+                DiagID::I005F,
+                f"'{path.full_path()}' is a directory, not a source file",
+            ).emit()
+            return u32::MAX
         }
 
-        if path.is_symlink() && (!path.is_regular_file()) {
-            self._diag->report(DiagID::I005F,
-                f"'{path.full_path()}' is a symlink to a non-file target").emit();
-            return static_cast::<FileID>(u32(-1));
+        if path.is_symlink() && !path.is_regular_file() {
+            self._diag->report(
+                DiagID::I005F,
+                f"'{path.full_path()}' is a symlink to a non-file target",
+            ).emit()
+            return u32::MAX
         }
 
-        if (!path.is_regular_file()) {
-            self._diag->report(DiagID::I005F,
-                f"'{path.full_path()}' is not a regular file").emit();
-            return static_cast::<FileID>(u32(-1));
+        if !path.is_regular_file() {
+            self._diag->report(DiagID::I005F, f"'{path.full_path()}' is not a regular file").emit()
+            return u32::MAX
         }
 
         // Metadata says regular file, but we may still lack read permission
         // (chmod 000). Path does no I/O, so the open can still fail with EACCES.
         // register_file below opens/maps the file;
-        var base_fid = _vfile_mgr->register_file(path);
-        if base_fid == static_cast::<FileID>(u32(-1)) {
-            self._diag->report(DiagID::I005F,
-                f"cannot read '{path.full_path()}': permission denied or I/O error").emit();
-            return static_cast::<FileID>(u32(-1));
+        var base_fid = self._vfile_mgr->register_file(path)
+        if base_fid == (u32::MAX as FileID) {
+            self._diag->report(
+                DiagID::I005F,
+                f"cannot read '{path.full_path()}': permission denied or I/O error",
+            ).emit()
+            return u32::MAX
         }
 
-        var info     = _vfile_mgr->get_info(base_fid);
-        var size     = info.size;
+        var info = self._vfile_mgr->get_info(base_fid)
+        var size = info.size
 
-        _line_table.register_file(base_fid, size);
+        self._line_table.register_file(base_fid, (size as u32))
 
-        self._materialize(base_fid, path);
-        Logger::info(Logger::Stage::Driver, f"SourceManager::load_file: loaded fid={base_fid} path={path.full_path()} size={size}B total={self._total_b}B");
-        
+        self._materialize(base_fid, path)
+        kairo::Logger::info(
+            kairo::Logger::Stage::Driver,
+            f"SourceManager::load_file: loaded fid={base_fid} path={path.full_path()} size={size}B total={self._total_b}B",
+        )
+
         if skip_indexing {
-            Logger::info(Logger::Stage::Driver, f"SourceManager::load_file: skipping line index for fid={base_fid} path={path.full_path()}");
-            return base_fid;
+            kairo::Logger::info(
+                kairo::Logger::Stage::Driver,
+                f"SourceManager::load_file: skipping line index for fid={base_fid} path={path.full_path()}",
+            )
+
+            return base_fid
         }
 
         // Bytes and entry are both resolved HERE, under _load_mu, and handed
@@ -207,24 +222,30 @@ class SourceManager {
         // _segments, and a pool thread indexing it mid-reallocation read a
         // null Segment. reserve_build also counts the task before it is
         // queued, so evict()/invalidate() wait for it before unmapping.
-        var bytes = self._bytes_of(base_fid);
-        var entry = self._line_table.reserve_build(base_fid);
-        if entry == &null { return base_fid; }
+        var        bytes  = self._bytes_of(base_fid)
+        var unsafe *entry = self._line_table.reserve_build(base_fid)
+        if entry == &null {
+            return base_fid
+        }
 
         // A stopped pool drops what it is handed, which would strand the
         // reservation and hang every later drain. The driver destroys the
         // pool after this manager, so this only catches misuse.
         if !self._pool->is_active() {
-            self._line_table.run_reserved_build(entry, bytes);
-            return base_fid;
+            self._line_table.run_reserved_build(entry, bytes)
+            return base_fid
         }
 
-        self._pool->enqueue(fn () |entry, bytes, self| {
-            self._line_table.run_reserved_build(entry, bytes);
-        });
+        self._pool->enqueue(
+            kairo::SmallFunction<64>(
+                fn () |entry, bytes, self| {
+                    self._line_table.run_reserved_build(entry, bytes)
+                },
+            ),
+        )
 
         // std::print(f"load_file: path={path.full_path()}, base_fid={base_fid}, _files.size()={self._files.size()}");
-        return base_fid;
+        return base_fid
     }
 
     ///
@@ -243,23 +264,28 @@ class SourceManager {
     /// \note Caller must hold \c _load_mu.
     priv fn _materialize(self, fid: FileID, path: Path) {
         while self._files.size() <= (fid as usize) {
-            self._files.push_back(&null);
+            self._files.push_back(&null)
         }
 
-        if self._files[fid] != &null { return; }
-
-        var buf = self._vfile_mgr->get_buffer(fid);
-        if (buf == &null) || (!buf->is_valid()) {
-            Logger::error(Logger::Stage::Driver,
-                f"SourceManager::_materialize: no buffer for fid={fid}");
-            return;
+        if self._files[fid] != &null {
+            return
         }
 
-        var file = std::create::<SourceFile>(path, buf, self._total_b);
+        var unsafe *buf = self._vfile_mgr->get_buffer(fid)
+        if buf == &null || !buf->is_valid() {
+            kairo::Logger::error(
+                kairo::Logger::Stage::Driver,
+                f"SourceManager::_materialize: no buffer for fid={fid}",
+            )
+
+            return
+        }
+
+        var unsafe *file = unsafe (@create SourceFile(path, buf, self._total_b) as unsafe *SourceFile)
 
         /// FIXME: an overflow can occur here. (shouldn't ever happen)
-        self._total_b   += file->size_bytes;
-        self._files[fid] = file;
+        self._total_b += ((file->size_bytes) as u64)
+        self._files[fid] = file
     }
 
     ///
@@ -272,9 +298,12 @@ class SourceManager {
     ///
     /// \note Caller must hold \c _load_mu.
     priv fn _bytes_of(self, fid: FileID) -> MemoryBuffer {
-        var buf = self._vfile_mgr->get_buffer(fid);
-        if (buf == &null) || (!buf->is_valid()) { return MemoryBuffer(); }
-        return buf->bytes();
+        var unsafe *buf = self._vfile_mgr->get_buffer(fid)
+        if buf == &null || !buf->is_valid() {
+            return MemoryBuffer()
+        }
+
+        return buf->bytes()
     }
 
     ///
@@ -289,18 +318,24 @@ class SourceManager {
     /// \note The caller is responsible for ensuring the data pointer
     ///       remains valid for the lifetime of the virtual file.
     ///
-    fn load_virtual(self, fake_path: Path, data: std::ConstPtr::<u8>, size: usize) -> FileID {
-        var lock = std::LockGuard(self._load_mu);
-        var fid = _vfile_mgr->register_virtual(fake_path, data, size);
+    pub fn load_virtual(self,
+                        const fake_path: Path,
+                        data:            kairo::std::ConstPtr<u8>,
+                        size:            usize) -> FileID {
+        var lock = kairo::std::LockGuard(self._load_mu)
+        var fid  = self._vfile_mgr->register_virtual(fake_path, data, size)
 
-        _line_table.register_file(fid, size);
+        self._line_table.register_file(fid, (size as u32))
 
-        self._materialize(fid, fake_path);
-        Logger::info(Logger::Stage::Driver, f"SourceManager::load_virtual: registered fid={fid} path={fake_path.full_path()} size={size}B");
-        
-        self._line_table.build_index(fid, self._bytes_of(fid));
+        self._materialize(fid, fake_path)
+        kairo::Logger::info(
+            kairo::Logger::Stage::Driver,
+            f"SourceManager::load_virtual: registered fid={fid} path={fake_path.full_path()} size={size}B",
+        )
 
-        return fid;
+        self._line_table.build_index(fid, self._bytes_of(fid))
+
+        return fid
     }
 
     ///
@@ -317,13 +352,18 @@ class SourceManager {
     ///          residency ever shows up in a profile.
     ///
     /// \return false if the fid was never loaded.
-    fn release(self, file_id: FileID) -> bool {
-        if (file_id as usize) >= self._files.size() { return false; }
-        if self._files[file_id] == &null            { return false; }
+    pub fn release(self, file_id: FileID) -> bool {
+        if (file_id as usize) >= self._files.size() {
+            return false
+        }
 
-        delete self._files[file_id];
-        self._files[file_id] = &null;
-        return true;
+        if self._files[file_id] == &null {
+            return false
+        }
+
+        @destroy unsafe (self._files[file_id] as *SourceFile)
+        self._files[file_id] = &null
+        return true
     }
 
     ///
@@ -344,28 +384,30 @@ class SourceManager {
     /// \return false if unknown, virtual, or the re-read failed (previous
     ///         contents are kept in that case).
     ///
-    fn invalidate(self, file_id: FileID) -> bool {
-        var lock = std::LockGuard(self._load_mu);
+    pub fn invalidate(self, file_id: FileID) -> bool {
+        var lock = kairo::std::LockGuard(self._load_mu)
 
         // A pool build may still be reading the current mapping, which the
         // re-map below destroys. The line table's own invalidate drains too,
         // but only after the bytes are already gone.
-        self._line_table.drain_builds();
+        self._line_table.drain_builds()
 
-        if !self._vfile_mgr->invalidate(file_id) { return false; }
-
-        var path = Path();
-        if ((file_id as usize) < self._files.size()) && (self._files[file_id] != &null) {
-            path = self._files[file_id]->path;
-            delete self._files[file_id];
-            self._files[file_id] = &null;
-        } else {
-            path = Path(self._vfile_mgr->get_info(file_id).path.full_path());
+        if !self._vfile_mgr->invalidate(file_id) {
+            return false
         }
 
-        self._materialize(file_id, path);
-        self._line_table.invalidate(file_id, self._bytes_of(file_id));
-        return true;
+        var path = Path()
+        if (file_id as usize) < self._files.size() && self._files[file_id] != &null {
+            path = self._files[file_id]->path
+            @destroy unsafe (self._files[file_id] as *SourceFile)
+            self._files[file_id] = &null
+        } else {
+            path = Path(self._vfile_mgr->get_info(file_id).path.full_path())
+        }
+
+        self._materialize(file_id, path)
+        self._line_table.invalidate(file_id, self._bytes_of(file_id))
+        return true
     }
 
     ///
@@ -379,50 +421,58 @@ class SourceManager {
     ///
     /// \return false if \p file_id was not loaded.
     ///
-    fn evict(self, file_id: FileID) -> bool {
-        var lock = std::LockGuard(self._load_mu);
+    pub fn evict(self, file_id: FileID) -> bool {
+        var lock = kairo::std::LockGuard(self._load_mu)
 
         if (file_id as usize) < self._files.size() {
             if self._files[file_id] != &null {
-                delete self._files[file_id];
-                self._files[file_id] = &null;
+                @destroy unsafe (self._files[file_id] as *SourceFile)
+                self._files[file_id] = &null
             }
         }
 
-        self._line_table.drop_file(file_id);
-        return self._vfile_mgr->evict(file_id);
+        self._line_table.drop_file(file_id)
+        return self._vfile_mgr->evict(file_id)
     }
 
     /// Live line-table entries. Flat once the graph is loaded.
-    fn line_table_files(self) -> usize { return self._line_table.file_count(); }
+    fn line_table_files(self) -> usize {
+        return self._line_table.file_count()
+    }
 
     /// Distinct files mapped by the VirtualFileManager. Flat once loaded   a
     /// climbing count means identity is being re-minted per pass.
-    fn mapped_files(self) -> usize { return self._vfile_mgr->file_count(); }
+    fn mapped_files(self) -> usize {
+        return self._vfile_mgr->file_count()
+    }
 
     /// Times this file has been re-read. See VirtualFileManager::generation_of.
     fn generation_of(self, file_id: FileID) -> u32 {
-        return self._vfile_mgr->generation_of(file_id);
+        return self._vfile_mgr->generation_of(file_id)
     }
 
     ///
     /// \brief resolves line and column for a given SourceLocation.
     ///
-    fn get_line_col(self, loc: SourceLocation) -> FullSourceLocation {
-        var res     = self.resolve(loc);
-        var file_id = res.fid;
-        var offset  = res.offset;
+    pub fn get_line_col(self, loc: SourceLocation) -> FullSourceLocation {
+        var res     = self.resolve(loc)
+        var file_id = res.fid
+        var offset  = res.offset
 
-        if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
-            Logger::warn(Logger::Stage::Driver, f"SourceManager::get_line_col: invalid fid={file_id}");
-            return FullSourceLocation();
+        if file_id >= self._files.size() || self._files[file_id] == &null {
+            kairo::Logger::warn(
+                kairo::Logger::Stage::Driver,
+                f"SourceManager::get_line_col: invalid fid={file_id}",
+            )
+
+            return FullSourceLocation()
         }
 
         return self._line_table.get_line_col(
-            file_id,
-            offset,
-            self.get_filename(file_id)
-        );
+            (file_id as u32),
+            (offset as u32),
+            Path(self.get_filename((file_id as u32)))
+        )
     }
 
     ///
@@ -431,30 +481,30 @@ class SourceManager {
     fn get_line_col(self, file_id: FileID, offset: usize) -> FullSourceLocation {
         return self._line_table.get_line_col(
             file_id,
-            offset,
-            self.get_filename(file_id)
-        );
+            (offset as u32),
+            Path(self.get_filename(file_id))
+        )
     }
 
-    fn get_full_line(self, loc: SourceLocation) -> string {
-        var range    = self.get_line_range(loc);
-        return self.get_text(range);
+    pub fn get_full_line(self, loc: SourceLocation) -> string {
+        var range = self.get_line_range(loc)
+        return self.get_text(range)
     }
 
-    fn get_line_text(self, fid: FileID, line: u32) -> string {
-        var line_start = self._line_table.get_line_offset(fid, line);
-        var line_end   = self._line_table.get_line_end_offset(fid, line);
+    pub fn get_line_text(self, fid: FileID, line: u32) -> string {
+        var line_start = self._line_table.get_line_offset(fid, line)
+        var line_end   = self._line_table.get_line_end_offset(fid, line)
         if line_start == line_end {
-            return "";
+            return ""
         }
 
         var line_range = self.get_range(
             fid,
-            static_cast::<usize>(line_start),
-            static_cast::<usize>(line_end - line_start)
-        );
+            line_start as usize,
+            ((line_end - line_start) as usize)
+        )
 
-        return self.get_text(line_range);
+        return self.get_text(line_range)
     }
 
     ///
@@ -462,22 +512,22 @@ class SourceManager {
     ///
     /// \return segment info `{fid, offset}` or invalid if not found.
     ///
-    fn resolve(self, loc: SourceLocation) -> VirtualFileManager::SegmentResolve {
-        return self._vfile_mgr->resolve_loc(loc);
+    pub fn resolve(self, loc: SourceLocation) -> VirtualFileManager::SegmentResolve {
+        return self._vfile_mgr->resolve_loc(loc)
     }
 
     ///
     /// \brief placeholder for async line index status.
     ///
     fn is_line_index_ready(self, file_id: FileID) -> bool {
-        return false;
+        return false
     }
 
     ///
     /// \brief blocks until line index for file is ready.
     ///
-    fn wait_for_line_index(self, file_id: FileID) {
-        self._line_table.wait_until_ready(file_id);
+    pub fn wait_for_line_index(self, file_id: FileID) {
+        self._line_table.wait_until_ready(file_id)
     }
 
     ///
@@ -500,88 +550,109 @@ class SourceManager {
     ///          cp_count) relies on this having run.
     ///
     /// \return true if the buffer is valid UTF-8 (or the fid is unknown).
-    fn validate_utf8(self, fid: FileID) -> bool {
-        var lock = std::LockGuard(self._load_mu);
-        if ((fid as usize) >= self._files.size()) || (self._files[fid] == &null) { return true; }
-        if self._files[fid]->utf8_checked { return self._files[fid]->utf8_valid; }
-        self._files[fid]->utf8_checked = true;
-
-        var buf = self._files[fid]->buffer->bytes();
-        const base: std::ConstPtr::<u8> = buf.data();
-        const end:  std::ConstPtr::<u8> = base + buf.size();
-        var p     = base;
-        var valid = true;
-
-        while p < end {
-            p = skip_ascii_simd(p, end);
-            if p >= end { break; }
-
-            var d = decode_utf8_lut(p, static_cast::<usize>(end - p));
-            if d.ok {
-                p += d.len;
-                continue;
-            }
-
-            var run = p;
-            while p < end {
-                var r = decode_utf8_lut(p, static_cast::<usize>(end - p));
-                if r.ok { break; }
-                p += r.len;   // always 1 on failure with bytes remaining
-            }
-
-            valid = false;
-            var off = static_cast::<usize>(run - base);
-            var len = static_cast::<usize>(p - run);
-            var range = self.get_range(fid, off, len);
-            var hex: string = string(llvm::formatv(r"{0:X-2}", static_cast::<u32>(run[0])).str());
-            var b = self._diag->report(DiagID::S072E, range.start,
-                f"invalid UTF-8 byte 0x{hex} in source");
-            b.first(range);
-            b.emit();
+    pub fn validate_utf8(self, fid: FileID) -> bool {
+        var lock = kairo::std::LockGuard(self._load_mu)
+        if (fid as usize) >= self._files.size() || self._files[fid] == &null {
+            return true
         }
 
-        self._files[fid]->utf8_valid = valid;
-        return valid;
+        if self._files[fid]->utf8_checked {
+            return self._files[fid]->utf8_valid
+        }
+
+        self._files[fid]->utf8_checked = true
+
+        var        buf                            = self._files[fid]->buffer->bytes()
+        const      base: kairo::std::ConstPtr<u8> = buf.data()
+        const      end:  kairo::std::ConstPtr<u8> = base + buf.size()
+        var unsafe *p                             = base
+        var        valid                          = true
+
+        while p < end {
+            p = kairo::skip_ascii_simd(p, end)
+            if p >= end {
+                break
+            }
+
+            var d = kairo::decode_utf8_lut(p, (end - p) as usize)
+            if d.ok {
+                p += d.len
+                continue
+            }
+
+            var unsafe *run = p
+            while p < end {
+                var r = kairo::decode_utf8_lut(p, (end - p) as usize)
+                if r.ok {
+                    break
+                }
+
+                p += r.len // always 1 on failure with bytes remaining
+            }
+
+            valid = false
+            var off   = ((run - base) as usize)
+            var len   = ((p - run) as usize)
+            var range = self.get_range(fid, off, len)
+            var hex: string = string(
+                unsafe ((llvm::formatv(r"{0:X-2}", run[0] as u32).str().c_str() as unsafe *const u8) as *const u8),
+            )
+
+            var b = self._diag->report(
+                DiagID::S072E,
+                range.start,
+                f"invalid UTF-8 byte 0x{hex} in source",
+            )
+
+            b.first(range)
+            b.emit()
+        }
+
+        self._files[fid]->utf8_valid = valid
+        return valid
     }
 
     ///
     /// \brief retrieves file buffer as MemoryBuffer view.
     ///
-    fn get_buffer(self, file_id: FileID) -> MemoryBuffer? {
-        if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
-            return null;
+    pub fn get_buffer(self, file_id: FileID) -> MemoryBuffer? {
+        if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
+            return null
         }
 
-        return self._files[file_id]->buffer->bytes();
+        return self._files[file_id]->buffer->bytes()
     }
 
     ///
     /// \brief returns full path for file id.
     ///
-    fn get_filename(self, file_id: FileID) -> string {
-        if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
-            return "<invalid>";
+    pub fn get_filename(self, file_id: FileID) -> string {
+        if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
+            return "<invalid>"
         }
 
-        return self._files[file_id]->path.full_path();
+        return self._files[file_id]->path.full_path()
     }
 
     ///
-    /// \brief returns the DIRECTORY holding a file, for relative import
-    ///        resolution (ImportResolver::resolve_module_rel).
+    /// \brief returns the DIRECTORY holding a file, for anchored import
+    ///        resolution (`self::`, `module::`; ImportResolver::resolve_module_in).
     /// \return the parent directory, or an empty Path when \p file_id is
     ///         unknown (callers treat that as "no importing file").
     ///
-    fn get_file_dir(self, file_id: FileID) -> Path {
-        var out = Path();
-        if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
-            return out;
+    pub fn get_file_dir(self, file_id: FileID) -> Path {
+        var out = Path()
+        if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
+            return out
         }
 
-        var full = self._files[file_id]->path;
-        var parent = full.parent_path();
-        if !parent.empty() { out = Path(parent, false); }
-        return out;
+        var full   = self._files[file_id]->path
+        var parent = full.parent_path()
+        if !parent.empty() {
+            out = Path(parent, false)
+        }
+
+        return out
     }
 
     ///
@@ -592,91 +663,90 @@ class SourceManager {
     ///          Kairo never loaded. load_file answers a known path the same
     ///          way, but loads an unknown one.
     ///
-    fn find_fid(self, path: Path) -> FileID {
-        var lock = std::LockGuard(self._load_mu);
-        return self._vfile_mgr->fid_for_path(path);
+    pub fn find_fid(self, const path: Path) -> FileID {
+        var lock = kairo::std::LockGuard(self._load_mu)
+        return self._vfile_mgr->fid_for_path(path)
     }
 
     ///
     /// \brief returns logical path for SourceLocation
     ///
-    fn get_filename(self, loc: SourceLocation) -> string {
-        var res = self.resolve(loc);
-        return self.get_filename(res.fid);
+    pub fn get_filename(self, loc: SourceLocation) -> string {
+        var res = self.resolve(loc)
+        return self.get_filename((res.fid as u32))
     }
 
     ///
     /// \brief returns logical path for SourceRange
     ///
-    fn get_filename(self, range: SourceRange) -> string {
-        var res = self.resolve(range.start);
-        return self.get_filename(res.fid);
+    pub fn get_filename(self, range: SourceRange) -> string {
+        var res = self.resolve(range.start)
+        return self.get_filename((res.fid as u32))
     }
 
     ///
     /// \brief returns file extension (if any).
     ///
     fn get_file_extension(self, file_id: FileID) -> string? {
-        if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
-            return null;
+        if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
+            return null
         }
 
-        return self._files[file_id]->path.extension();
+        return self._files[file_id]->path.extension()
     }
 
     ///
     /// \brief fetches file view handle from VirtualFileManager.
     ///
-    fn get_file_view(self, fid: FileID) -> VirtualFileManager::FileHandle {
-        return _vfile_mgr->get_file_view(fid);
+    pub fn get_file_view(self, fid: FileID) -> VirtualFileManager::FileHandle {
+        return self._vfile_mgr->get_file_view(fid)
     }
 
     ///
     /// \brief resolves a raw pointer back to file id + offset.
     ///
-    fn resolve_ptr(self, ptr: std::ConstPtr::<u8>)
-        -> VirtualFileManager::SegmentResolve
-    {
-        return _vfile_mgr->resolve_ptr(const_cast::<*u8>(ptr));
+    fn resolve_ptr(self, ptr: kairo::std::ConstPtr<u8>)
+        -> VirtualFileManager::SegmentResolve {
+        return self._vfile_mgr->resolve_ptr(unsafe (ptr as unsafe *u8))
     }
 
     ///
     /// \brief expands a SourceLocation into a FullSourceLocation.
     ///
-    fn get_full_loc(self, loc: SourceLocation) -> FullSourceLocation {
+    pub fn get_full_loc(self, loc: SourceLocation) -> FullSourceLocation {
         if !loc.is_valid() {
-            return FullSourceLocation();
+            return FullSourceLocation()
         }
 
-        var res = self.resolve(loc);
-        var lc  = self.get_line_col(res.fid, res.offset);
+        var res = self.resolve(loc)
+        var lc  = self.get_line_col((res.fid as FileID), res.offset)
 
-        return FullSourceLocation(res.fid, lc.line, lc.column, lc.path);
+        return FullSourceLocation(res.fid, lc.line, lc.column, lc.path)
     }
 
     ///
     /// \brief convenience wrapper to get SourceLocation from fid+offset.
     ///
-    fn get_loc(self, fid: FileID, off: usize) -> SourceLocation {
-        return _vfile_mgr->get_loc(fid, off);
+    pub fn get_loc(self, fid: FileID, off: usize) -> SourceLocation {
+        return self._vfile_mgr->get_loc(fid, off)
     }
 
-    fn get_loc(self, ptr: std::restrict_ptr::<u8>) -> SourceLocation {
-        return _vfile_mgr->get_loc(ptr);
+    fn get_loc(self, ptr: kairo::std::restrict_ptr<u8>) -> SourceLocation {
+        return self._vfile_mgr->get_loc(ptr)
     }
 
     ///
     /// \brief returns SourceRange for file id, offset, and length.
     ///
-    fn get_range(self, fid: FileID, off: usize, len: usize) -> SourceRange {
-        return _vfile_mgr->get_range(fid, off, len);
+    pub fn get_range(self, fid: FileID, off: usize, len: usize) -> SourceRange {
+        return self._vfile_mgr->get_range(fid, off, len)
     }
 
     ///
     /// \brief returns number of loaded files.
     ///
-    fn file_count(self) -> usize {
-        return self._files.size();
+    pub fn file_count(self) -> usize {
+        return self._files.size()
     }
 
     ///
@@ -684,47 +754,54 @@ class SourceManager {
     ///
     fn total_bytes(self) -> u64 {
         /// FIXME: an overflow can occur here.
-        return self._total_b;
+        return self._total_b
     }
 
     ///
     /// \brief retrieves a MemoryBuffer view for a SourceRange.
     ///
-    fn get_view(self, range: SourceRange) -> MemoryBuffer {
+    pub fn get_view(self, range: SourceRange) -> MemoryBuffer {
         // degenerate/invalid ranges (EOF tokens, synthesized nodes, failed
         // resolution) must degrade to an empty view, never UB. every guard
         // below has been hit in practice   do not remove them.
         if !range.is_valid() {
-            return MemoryBuffer();
+            return MemoryBuffer()
         }
 
-        var res     = self.resolve(range.start);
-        var file_id = res.fid;
-        var offset  = res.offset;
-        var length  = static_cast::<usize>(range.end.raw() - range.start.raw());
+        var res     = self.resolve(range.start)
+        var file_id = res.fid
+        var offset  = res.offset
+        var length  = ((range.end.raw() - range.start.raw()) as usize)
 
         if file_id >= self._files.size() {
-            Logger::warn(Logger::Stage::Driver,
-                f"SourceManager::get_view: unresolvable fid {file_id} (files={self._files.size()})");
-            return MemoryBuffer();
+            kairo::Logger::warn(
+                kairo::Logger::Stage::Driver,
+                f"SourceManager::get_view: unresolvable fid {file_id} (files={self._files.size()})",
+            )
+
+            return MemoryBuffer()
         }
 
-        var file = self._files[file_id];
-        if (file == &null) || (file->buffer == &null) {
-            Logger::warn(Logger::Stage::Driver,
-                f"SourceManager::get_view: null file/buffer for fid {file_id}");
-            return MemoryBuffer();
+        var unsafe *file = self._files[file_id]
+        if file == &null || file->buffer == &null {
+            kairo::Logger::warn(
+                kairo::Logger::Stage::Driver,
+                f"SourceManager::get_view: null file/buffer for fid {file_id}",
+            )
+
+            return MemoryBuffer()
         }
 
-        var buf = file->buffer->bytes();
+        var buf = file->buffer->bytes()
         if offset >= buf.size() {
-            return MemoryBuffer();
-        }
-        if (offset + length) >= buf.size() {
-            length = buf.size() - offset;
+            return MemoryBuffer()
         }
 
-        return MemoryBuffer(buf.data() + offset, length);
+        if offset + length >= buf.size() {
+            length = buf.size() - offset
+        }
+
+        return MemoryBuffer(buf.data() + offset, length)
     }
 
     ///
@@ -735,53 +812,53 @@ class SourceManager {
     ///
     /// \warning This is a very expensive operation. Use only for debugging.
     ///
-    fn get_text(self, range: SourceRange) -> string {
-        var mbuf = self.get_view(range);
-        var cstr = mbuf.data();
-        var str: string;
-        var p   = cstr;
-        var end = cstr + mbuf.size();
+    pub fn get_text(self, range: SourceRange) -> string {
+        var        mbuf         = self.get_view(range)
+        var unsafe *cstr        = mbuf.data()
+        var        str:  string
+        var unsafe *p           = cstr
+        var unsafe *end         = cstr + mbuf.size()
 
-        str.reserve(mbuf.size());
+        str.reserve(mbuf.size())
 
-        while (p <= end) {
-            var res = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
-            var codepoint = res.chr;
-            var len = res.len;
+        while p <= end {
+            var res       = UTF8View::decode_utf8(p, (end - p) as usize)
+            var codepoint = res.chr
+            var len       = res.len
 
             if len == 0 {
-                break;
+                break
             }
 
-            eval if sizeof(char) == 4 {
-                str.push_back(static_cast::<char>(codepoint));
+            eval if sizeof(u8) == 4 {
+                str.push_back(codepoint as u8)
             } else {
-                if codepoint < 0x10000 {
-                    str.push_back(static_cast::<char>(codepoint));
+                if (codepoint as u32) < 0x10000 {
+                    str.push_back(codepoint as u8)
                 } else {
-                    var hi = codepoint - 0x10000;
-                    str.push_back(static_cast::<char>(0xD800 + (hi >> 10)));
-                    str.push_back(static_cast::<char>(0xDC00 + (hi & 0x3FF)));
+                    var hi = (codepoint as u32) - 0x10000
+                    str.push_back((0xD800 + (hi >> 10)) as u8)
+                    str.push_back((0xDC00 + (hi & 0x3FF)) as u8)
                 }
             }
 
-            p += len;
+            p += len
         }
 
-        return str;
+        return str
     }
-    
+
     ///
     /// \brief prints loaded file metadata for debugging.
     ///
     fn dump_files(self) {
-        std::print("=== SourceManager File Dump ===");
+        io::println("=== SourceManager File Dump ===")
 
-        for i in range::<usize>(0, self._files.size()) {
-            var file = self._files[i];
-            std::print(f"[{i}] {file->path.full_path()}");
-            std::print(f"     size: {file->size_bytes} bytes");
-            std::print(f"     base offset: {file->base_offset}");
+        for i in (0 as usize)..self._files.size() {
+            var unsafe *file = self._files[i]
+            io::println(f"[{i}] {file->path.full_path()}")
+            io::println(f"     size: {file->size_bytes} bytes")
+            io::println(f"     base offset: {file->base_offset}")
         }
     }
 
@@ -795,24 +872,24 @@ class SourceManager {
     /// \warning returns 0 if locations are from different files.
     ///
     fn diff(self, a: SourceLocation, b: SourceLocation) -> usize {
-        var res_a = self.resolve(a);
-        var res_b = self.resolve(b);
-        
+        var res_a = self.resolve(a)
+        var res_b = self.resolve(b)
+
         // different files -> distance is meaningless
         if res_a.fid != res_b.fid {
-            return 0;
+            return 0
         }
-        
-        return a.distance_to(b);
+
+        return a.distance_to(b)
     }
 
     ///
     /// \brief checks if two locations are in the same file.
     ///
-    fn same_file(self, a: SourceLocation, b: SourceLocation) -> bool {
-        var res_a = self.resolve(a);
-        var res_b = self.resolve(b);
-        return res_a.fid == res_b.fid;
+    pub fn same_file(self, a: SourceLocation, b: SourceLocation) -> bool {
+        var res_a = self.resolve(a)
+        var res_b = self.resolve(b)
+        return res_a.fid == res_b.fid
     }
 
     ///
@@ -821,24 +898,27 @@ class SourceManager {
     /// \param loc location to read from.
     /// \return UTF-32 codepoint, or 0 if invalid.
     ///
-    fn get_char_at(self, loc: SourceLocation) -> char {
-        var range = SourceRange::single(loc);
-        var buf   = self.get_view(range);
-        
+    pub fn get_char_at(self, loc: SourceLocation) -> u8 {
+        var range = SourceRange::single(loc)
+        var buf   = self.get_view(range)
+
         if buf.size() == 0 {
-            return 0;
+            return 0
         }
-        
-        var res = UTF8View::decode_utf8(buf.data(), buf.size());
-        return res.chr;
+
+        var res = UTF8View::decode_utf8(buf.data(), buf.size())
+        return (res.chr as u8)
     }
 
     ///
     /// \brief checks if a location points to whitespace.
     ///
     fn is_whitespace_at(self, loc: SourceLocation) -> bool {
-        var chr = self.get_char_at(loc);
-        return (chr == ' ') || (chr == '\t') || (chr == '\n') || (chr == '\r');
+        var chr = self.get_char_at(loc)
+        return chr == (' ' as u8)
+            || chr == ('\t' as u8)
+            || chr == ('\n' as u8)
+            || chr == ('\r' as u8)
     }
 
     ///
@@ -849,31 +929,31 @@ class SourceManager {
     ///
     fn get_line_start(self, loc: SourceLocation) -> SourceLocation {
         if !loc.is_valid() {
-            return loc;
+            return loc
         }
 
-        var res = self.resolve(loc);
-        if (res.fid == u32(-1)) || (res.fid >= self._files.size()) {
-            return loc;
+        var res = self.resolve(loc)
+        if res.fid == usize::MAX || res.fid >= self._files.size() {
+            return loc
         }
 
-        self._line_table.wait_until_ready(res.fid);
+        self._line_table.wait_until_ready((res.fid as u32))
 
-        if !self._line_table.is_ready(res.fid) {
-            return loc;
+        if !self._line_table.is_ready((res.fid as u32)) {
+            return loc
         }
 
-        var full_loc = self.get_line_col(loc);
+        var full_loc = self.get_line_col(loc)
         var line_start_offset = self._line_table.get_line_offset(
-            res.fid,
-            full_loc.line
-        );
+            (res.fid as u32),
+            (full_loc.line as u32)
+        )
 
         if line_start_offset == 0 && full_loc.line == 0 {
-            return loc;
+            return loc
         }
 
-        return self.get_loc(res.fid, static_cast::<usize>(line_start_offset));
+        return self.get_loc((res.fid as u32), line_start_offset as usize)
     }
 
     ///
@@ -884,31 +964,31 @@ class SourceManager {
     ///
     fn get_line_end(self, loc: SourceLocation) -> SourceLocation {
         if !loc.is_valid() {
-            return loc;
+            return loc
         }
 
-        var res = self.resolve(loc);
-        if (res.fid == u32(-1)) || (res.fid >= self._files.size()) {
-            return loc;
+        var res = self.resolve(loc)
+        if res.fid == usize::MAX || res.fid >= self._files.size() {
+            return loc
         }
 
-        self._line_table.wait_until_ready(res.fid);
+        self._line_table.wait_until_ready((res.fid as u32))
 
-        if !self._line_table.is_ready(res.fid) {
-            return loc;
+        if !self._line_table.is_ready((res.fid as u32)) {
+            return loc
         }
 
-        var full_loc = self.get_line_col(loc);
+        var full_loc = self.get_line_col(loc)
         var line_end_offset = self._line_table.get_line_end_offset(
-            res.fid,
-            full_loc.line
-        );
+            (res.fid as u32),
+            (full_loc.line as u32)
+        )
 
         if line_end_offset == 0 && full_loc.line == 0 {
-            return loc;
+            return loc
         }
 
-        return self.get_loc(res.fid, static_cast::<usize>(line_end_offset));
+        return self.get_loc((res.fid as u32), line_end_offset as usize)
     }
 
     ///
@@ -918,51 +998,51 @@ class SourceManager {
     /// \return range covering the full line.
     ///
     fn get_line_range(self, loc: SourceLocation) -> SourceRange {
-        var start = self.get_line_start(loc);
-        var end   = self.get_line_end(loc);
-        return SourceRange::from_bounds(start, end);
+        var start = self.get_line_start(loc)
+        var end   = self.get_line_end(loc)
+        return SourceRange::from_bounds(start, end)
     }
 
     ///
     /// \brief checks if range spans multiple lines.
     ///
     fn is_multiline(self, range: SourceRange) -> bool {
-        var start_line = self.get_line_col(range.start).line;
-        var end_line = self.get_line_col(range.end).line;
-        return start_line != end_line;
+        var start_line = self.get_line_col(range.start).line
+        var end_line   = self.get_line_col(range.end).line
+        return start_line != end_line
     }
 
-    fn get_fid(self, loc: SourceLocation) -> FileID {
-        var res = self.resolve(loc);
-        return res.fid;
+    pub fn get_fid(self, loc: SourceLocation) -> FileID {
+        var res = self.resolve(loc)
+        return (res.fid as u32)
     }
 
-    fn get_fid(self, range: SourceRange) -> FileID {
-        var res = self.resolve(range.start);
-        return res.fid;
+    pub fn get_fid(self, range: SourceRange) -> FileID {
+        var res = self.resolve(range.start)
+        return (res.fid as u32)
     }
 
-    fn get_offset(self, loc: SourceLocation) -> usize {
-        var res = self.resolve(loc);
-        return res.offset;
+    pub fn get_offset(self, loc: SourceLocation) -> usize {
+        var res = self.resolve(loc)
+        return res.offset
     }
 
     fn get_offset(self, range: SourceRange) -> usize {
-        var res = self.resolve(range.start);
-        return res.offset;
+        var res = self.resolve(range.start)
+        return res.offset
     }
 
-    fn get_file_size(self, fid: FileID) -> usize {
-        if (fid >= self._files.size()) || (self._files[fid] == &null) {
-            return 0;
+    pub fn get_file_size(self, fid: FileID) -> usize {
+        if (fid as usize) >= self._files.size() || self._files[fid] == &null {
+            return 0
         }
 
-        return self._files[fid]->size_bytes;
+        return self._files[fid]->size_bytes
     }
 
     fn get_file_size(self, loc: SourceLocation) -> usize {
-        var res = self.resolve(loc);
-        return self.get_file_size(res.fid);
+        var res = self.resolve(loc)
+        return self.get_file_size((res.fid as u32))
     }
 
     ///
@@ -973,248 +1053,434 @@ class SourceManager {
     /// also resets the underlying VirtualFileManager.
     /// used for test isolation.
     ///
-    fn reset(self) {
-        self._line_table.shutdown();
-        Logger::debug(Logger::Stage::Driver, f"SourceManager::reset: releasing {self._files.size()} files, {self._total_b}B total");
-        
-        for f: *SourceFile in _files {
+    pub fn reset(self) {
+        self._line_table.shutdown()
+        kairo::Logger::debug(
+            kairo::Logger::Stage::Driver,
+            f"SourceManager::reset: releasing {self._files.size()} files, {self._total_b}B total",
+        )
+
+        for var f: *SourceFile? in self._files {
             if f != &null {
-                delete f;
+                @destroy unsafe (f as *SourceFile)
             }
         }
-        _files.clear();
-        
-        self._total_b = 0;
-        self._vfile_mgr->reset();
-        
+
+        self._files.clear()
+
+        self._total_b = 0
+        self._vfile_mgr->reset()
+
         // reinitialize line table if needed
-        self._line_table.reset();
+        self._line_table.reset()
     }
 }
 
-fn Test() -> i32 {
-    var pool = std::create::<ThreadPool>(4);
-    var diag = DiagEngine();
-    var vfm  = std::create::<VirtualFileManager>(&diag);
-    var sm   = std::create::<SourceManager>(pool, vfm, &diag);
+pub fn Test() -> i32 {
+    var unsafe *pool = kairo::std::create<ThreadPool>(4)
+    var        diag  = DiagEngine()
+    var unsafe *vfm  = kairo::std::create<VirtualFileManager>(&diag)
+    var unsafe *sm   = kairo::std::create<SourceManager>(pool, vfm, &diag)
 
     finally {
-        std::destroy(sm);
-        std::destroy(vfm);
-        std::destroy(pool);
+        kairo::std::destroy(sm)
+        kairo::std::destroy(vfm)
+        kairo::std::destroy(pool)
     }
 
-    var suite = Assert("SourceManager Multi-File Tests");
+    var suite = Assert("SourceManager Multi-File Tests")
 
     // HELPERS
 
-    static var data0: libcxx::string;
-    static var data1: libcxx::string;
+    static data0: cxx::std::string
+    static data1: cxx::std::string
 
-    var file0_str = "hello world\nline two\n";
-    var file1_str = "module Foo {\n    macro mac! { 10 }\n}\n";
+    var file0_str = "hello world\nline two\n"
+    var file1_str = "module Foo {\n    macro mac! { 10 }\n}\n"
 
-    var nd0 = file0_str;
-    data0 = nd0.std_string();
-    var nd1 = file1_str;
-    data1 = nd1.std_string();
+    var nd0 = file0_str
+    data0 = kairo::std::to_std_string(nd0)
+    var nd1 = file1_str
+    data1 = kairo::std::to_std_string(nd1)
 
     var fid0 = sm->load_virtual(
         Path("test_file0.k", false),
-        reinterpret_cast::<std::ConstPtr::<u8>>(data0.data()),
-        file0_str.size()
-    );
+        unsafe (data0.data() as kairo::std::ConstPtr<u8>),
+        file0_str.size(),
+    )
 
     var fid1 = sm->load_virtual(
         Path("test_file1.k", false),
-        reinterpret_cast::<std::ConstPtr::<u8>>(data1.data()),
-        file1_str.size()
-    );
+        unsafe (data1.data() as kairo::std::ConstPtr<u8>),
+        file1_str.size(),
+    )
 
     // FILE REGISTRATION
 
-    suite.equal::<string>("fid0 is 0", "pass", fn () -> string {
-        if fid0 != 0 { return f"expected fid0=0, got {fid0}"; }
-        return "pass";
-    });
+    suite.equal<string>(
+        "fid0 is 0",
+        "pass",
+        fn () -> string {
+            if fid0 != 0 {
+                return f"expected fid0=0, got {fid0}"
+            }
 
-    suite.equal::<string>("fid1 is 1", "pass", fn () -> string {
-        if fid1 != 1 { return f"expected fid1=1, got {fid1}"; }
-        return "pass";
-    });
+            return "pass"
+        },
+    )
 
-    suite.equal::<string>("total bytes = sum of file sizes", "pass", fn () -> string {
-        var expected = file0_str.size() + file1_str.size();
-        var actual = sm->total_bytes();
-        if actual != expected {
-            return f"expected total_bytes={expected}, got {actual}";
-        }
-        return "pass";
-    });
+    suite.equal<string>(
+        "fid1 is 1",
+        "pass",
+        fn () -> string {
+            if fid1 != 1 {
+                return f"expected fid1=1, got {fid1}"
+            }
+
+            return "pass"
+        },
+    )
+
+    suite.equal<string>(
+        "total bytes = sum of file sizes",
+        "pass",
+        fn () -> string {
+            var expected = file0_str.size() + file1_str.size()
+            var actual   = sm->total_bytes()
+            if actual != (expected as u64) {
+                return f"expected total_bytes={expected}, got {actual}"
+            }
+
+            return "pass"
+        },
+    )
 
     // GET_LOC / RESOLVE ROUND-TRIP: FILE 0
 
-    suite.equal::<string>("file0: get_loc(0) resolves to fid=0 offset=0", "pass", fn () -> string {
-        var loc = sm->get_loc(fid0, 0);
-        var res = sm->resolve(loc);
-        if res.fid != 0 { return f"fid: expected 0, got {res.fid}"; }
-        if res.offset != 0 { return f"offset: expected 0, got {res.offset}"; }
-        return "pass";
-    });
+    suite.equal<string>(
+        "file0: get_loc(0) resolves to fid=0 offset=0",
+        "pass",
+        fn () -> string {
+            var loc = sm->get_loc(fid0, 0)
+            var res = sm->resolve(loc)
+            if res.fid != 0 {
+                return f"fid: expected 0, got {res.fid}"
+            }
 
-    suite.equal::<string>("file0: get_loc(5) resolves to fid=0 offset=5", "pass", fn () -> string {
-        var loc = sm->get_loc(fid0, 5);
-        var res = sm->resolve(loc);
-        if res.fid != 0 { return f"fid: expected 0, got {res.fid}"; }
-        if res.offset != 5 { return f"offset: expected 5, got {res.offset}"; }
-        return "pass";
-    });
+            if res.offset != 0 {
+                return f"offset: expected 0, got {res.offset}"
+            }
 
-    suite.equal::<string>("file0: last byte resolves correctly", "pass", fn () -> string {
-        var last = file0_str.size() - 1;
-        var loc = sm->get_loc(fid0, last);
-        var res = sm->resolve(loc);
-        if res.fid != 0 { return f"fid: expected 0, got {res.fid}"; }
-        if res.offset != last { return f"offset: expected {last}, got {res.offset}"; }
-        return "pass";
-    });
+            return "pass"
+        },
+    )
+
+    suite.equal<string>(
+        "file0: get_loc(5) resolves to fid=0 offset=5",
+        "pass",
+        fn () -> string {
+            var loc = sm->get_loc(fid0, 5)
+            var res = sm->resolve(loc)
+            if res.fid != 0 {
+                return f"fid: expected 0, got {res.fid}"
+            }
+
+            if res.offset != 5 {
+                return f"offset: expected 5, got {res.offset}"
+            }
+
+            return "pass"
+        },
+    )
+
+    suite.equal<string>(
+        "file0: last byte resolves correctly",
+        "pass",
+        fn () -> string {
+            var last = file0_str.size() - 1
+            var loc  = sm->get_loc(fid0, last)
+            var res  = sm->resolve(loc)
+            if res.fid != 0 {
+                return f"fid: expected 0, got {res.fid}"
+            }
+
+            if res.offset != last {
+                return f"offset: expected {last}, got {res.offset}"
+            }
+
+            return "pass"
+        },
+    )
 
     // GET_LOC / RESOLVE ROUND-TRIP: FILE 1
 
-    suite.equal::<string>("file1: get_loc(0) resolves to fid=1 offset=0", "pass", fn () -> string {
-        var loc = sm->get_loc(fid1, 0);
-        var res = sm->resolve(loc);
-        if res.fid != 1 { return f"fid: expected 1, got {res.fid}"; }
-        if res.offset != 0 { return f"offset: expected 0, got {res.offset}"; }
-        return "pass";
-    });
+    suite.equal<string>(
+        "file1: get_loc(0) resolves to fid=1 offset=0",
+        "pass",
+        fn () -> string {
+            var loc = sm->get_loc(fid1, 0)
+            var res = sm->resolve(loc)
+            if res.fid != 1 {
+                return f"fid: expected 1, got {res.fid}"
+            }
 
-    suite.equal::<string>("file1: get_loc(7) resolves to fid=1 offset=7", "pass", fn () -> string {
-        var loc = sm->get_loc(fid1, 7);
-        var res = sm->resolve(loc);
-        if res.fid != 1 { return f"fid: expected 1, got {res.fid}"; }
-        if res.offset != 7 { return f"offset: expected 7, got {res.offset}"; }
-        return "pass";
-    });
+            if res.offset != 0 {
+                return f"offset: expected 0, got {res.offset}"
+            }
 
-    suite.equal::<string>("file1: last byte resolves correctly", "pass", fn () -> string {
-        var last = file1_str.size() - 1;
-        var loc = sm->get_loc(fid1, last);
-        var res = sm->resolve(loc);
-        if res.fid != 1 { return f"fid: expected 1, got {res.fid}"; }
-        if res.offset != last { return f"offset: expected {last}, got {res.offset}"; }
-        return "pass";
-    });
+            return "pass"
+        },
+    )
+
+    suite.equal<string>(
+        "file1: get_loc(7) resolves to fid=1 offset=7",
+        "pass",
+        fn () -> string {
+            var loc = sm->get_loc(fid1, 7)
+            var res = sm->resolve(loc)
+            if res.fid != 1 {
+                return f"fid: expected 1, got {res.fid}"
+            }
+
+            if res.offset != 7 {
+                return f"offset: expected 7, got {res.offset}"
+            }
+
+            return "pass"
+        },
+    )
+
+    suite.equal<string>(
+        "file1: last byte resolves correctly",
+        "pass",
+        fn () -> string {
+            var last = file1_str.size() - 1
+            var loc  = sm->get_loc(fid1, last)
+            var res  = sm->resolve(loc)
+            if res.fid != 1 {
+                return f"fid: expected 1, got {res.fid}"
+            }
+
+            if res.offset != last {
+                return f"offset: expected {last}, got {res.offset}"
+            }
+
+            return "pass"
+        },
+    )
 
     // GET_TEXT: FILE 0
 
-    suite.equal::<string>("file0: get_text [0,5] = 'hello\x27", "pass", fn () -> string {
-        var text = sm->get_text(sm->get_range(fid0, 0, 5));
-        if text != "hello" { return f"expected 'hello', got '{text}\x27"; }
-        return "pass";
-    });
+    suite.equal<string>(
+        "file0: get_text [0,5] = 'hello'",
+        "pass",
+        fn () -> string {
+            var text = sm->get_text(sm->get_range(fid0, 0, 5))
+            if text != "hello" {
+                return f"expected 'hello', got '{text}'"
+            }
 
-    suite.equal::<string>("file0: get_text [6,11] = 'world\x27", "pass", fn () -> string {
-        var text = sm->get_text(sm->get_range(fid0, 6, 5));
-        if text != "world" { return f"expected 'world', got '{text}\x27"; }
-        return "pass";
-    });
+            return "pass"
+        },
+    )
 
-    suite.equal::<string>("file0: get_text [0,11] = 'hello world\x27", "pass", fn () -> string {
-        var text = sm->get_text(sm->get_range(fid0, 0, 11));
-        if text != "hello world" { return f"expected 'hello world', got '{text}\x27"; }
-        return "pass";
-    });
+    suite.equal<string>(
+        "file0: get_text [6,11] = 'world'",
+        "pass",
+        fn () -> string {
+            var text = sm->get_text(sm->get_range(fid0, 6, 5))
+            if text != "world" {
+                return f"expected 'world', got '{text}'"
+            }
+
+            return "pass"
+        },
+    )
+
+    suite.equal<string>(
+        "file0: get_text [0,11] = 'hello world'",
+        "pass",
+        fn () -> string {
+            var text = sm->get_text(sm->get_range(fid0, 0, 11))
+            if text != "hello world" {
+                return f"expected 'hello world', got '{text}'"
+            }
+
+            return "pass"
+        },
+    )
 
     // GET_TEXT: FILE 1
 
-    suite.equal::<string>("file1: get_text [0,6] = 'module\x27", "pass", fn () -> string {
-        var text = sm->get_text(sm->get_range(fid1, 0, 6));
-        if text != "module" { return f"expected 'module', got '{text}\x27"; }
-        return "pass";
-    });
+    suite.equal<string>(
+        "file1: get_text [0,6] = 'module'",
+        "pass",
+        fn () -> string {
+            var text = sm->get_text(sm->get_range(fid1, 0, 6))
+            if text != "module" {
+                return f"expected 'module', got '{text}'"
+            }
 
-    suite.equal::<string>("file1: get_text [7,10] = 'Foo\x27", "pass", fn () -> string {
-        var text = sm->get_text(sm->get_range(fid1, 7, 3));
-        if text != "Foo" { return f"expected 'Foo', got '{text}\x27"; }
-        return "pass";
-    });
+            return "pass"
+        },
+    )
 
-    suite.equal::<string>("file1: get_text [17,22] = 'macro\x27", "pass", fn () -> string {
-        var text = sm->get_text(sm->get_range(fid1, 17, 5));
-        if text != "macro" { return f"expected 'macro', got '{text}\x27"; }
-        return "pass";
-    });
+    suite.equal<string>(
+        "file1: get_text [7,10] = 'Foo'",
+        "pass",
+        fn () -> string {
+            var text = sm->get_text(sm->get_range(fid1, 7, 3))
+            if text != "Foo" {
+                return f"expected 'Foo', got '{text}'"
+            }
+
+            return "pass"
+        },
+    )
+
+    suite.equal<string>(
+        "file1: get_text [17,22] = 'macro'",
+        "pass",
+        fn () -> string {
+            var text = sm->get_text(sm->get_range(fid1, 17, 5))
+            if text != "macro" {
+                return f"expected 'macro', got '{text}'"
+            }
+
+            return "pass"
+        },
+    )
 
     // GET_VIEW: BUFFER CORRECTNESS
 
-    suite.equal::<string>("file0: get_view bytes match 'hello\x27", "pass", fn () -> string {
-        var view = sm->get_view(sm->get_range(fid0, 0, 5));
-        if view.data() == &null { return "view data is null"; }
-        if view.size() != 5 { return f"expected size 5, got {view.size()}"; }
-        // h=104 e=101 l=108 l=108 o=111
-        if view.data()[0] != 104 { return f"byte 0: expected 104, got {view.data()[0]}"; }
-        if view.data()[1] != 101 { return f"byte 1: expected 101, got {view.data()[1]}"; }
-        if view.data()[4] != 111 { return f"byte 4: expected 111, got {view.data()[4]}"; }
-        return "pass";
-    });
+    suite.equal<string>(
+        "file0: get_view bytes match 'hello'",
+        "pass",
+        fn () -> string {
+            var view = sm->get_view(sm->get_range(fid0, 0, 5))
+            if view.data() == &null {
+                return "view data is null"
+            }
 
-    suite.equal::<string>("file1: get_view bytes match 'Foo\x27", "pass", fn () -> string {
-        var view = sm->get_view(sm->get_range(fid1, 7, 3));
-        if view.data() == &null { return "view data is null"; }
-        if view.size() != 3 { return f"expected size 3, got {view.size()}"; }
-        // F=70 o=111 o=111
-        if view.data()[0] != 70 { return f"byte 0: expected 70, got {view.data()[0]}"; }
-        if view.data()[1] != 111 { return f"byte 1: expected 111, got {view.data()[1]}"; }
-        return "pass";
-    });
+            if view.size() != 5 {
+                return f"expected size 5, got {view.size()}"
+            }
+
+            // h=104 e=101 l=108 l=108 o=111
+            if view.data()[0] != 104 {
+                return f"byte 0: expected 104, got {view.data()[0]}"
+            }
+
+            if view.data()[1] != 101 {
+                return f"byte 1: expected 101, got {view.data()[1]}"
+            }
+
+            if view.data()[4] != 111 {
+                return f"byte 4: expected 111, got {view.data()[4]}"
+            }
+
+            return "pass"
+        },
+    )
+
+    suite.equal<string>(
+        "file1: get_view bytes match 'Foo'",
+        "pass",
+        fn () -> string {
+            var view = sm->get_view(sm->get_range(fid1, 7, 3))
+            if view.data() == &null {
+                return "view data is null"
+            }
+
+            if view.size() != 3 {
+                return f"expected size 3, got {view.size()}"
+            }
+
+            // F=70 o=111 o=111
+            if view.data()[0] != 70 {
+                return f"byte 0: expected 70, got {view.data()[0]}"
+            }
+
+            if view.data()[1] != 111 {
+                return f"byte 1: expected 111, got {view.data()[1]}"
+            }
+
+            return "pass"
+        },
+    )
 
     // CROSS-FILE ISOLATION
 
-    suite.equal::<string>("file0 locations never resolve to file1", "pass", fn () -> string {
-        for i in range::<usize>(0, file0_str.size()) {
-            var loc = sm->get_loc(fid0, i);
-            var res = sm->resolve(loc);
-            if res.fid != 0 {
-                return f"offset {i}: resolved to fid={res.fid}, expected 0";
+    suite.equal<string>(
+        "file0 locations never resolve to file1",
+        "pass",
+        fn () -> string {
+            for i in (0 as usize)..file0_str.size() {
+                var loc = sm->get_loc(fid0, i)
+                var res = sm->resolve(loc)
+                if res.fid != 0 {
+                    return f"offset {i}: resolved to fid={res.fid}, expected 0"
+                }
             }
-        }
-        return "pass";
-    });
 
-    suite.equal::<string>("file1 locations never resolve to file0", "pass", fn () -> string {
-        for i in range::<usize>(0, file1_str.size()) {
-            var loc = sm->get_loc(fid1, i);
-            var res = sm->resolve(loc);
-            if res.fid != 1 {
-                return f"offset {i}: resolved to fid={res.fid}, expected 1";
+            return "pass"
+        },
+    )
+
+    suite.equal<string>(
+        "file1 locations never resolve to file0",
+        "pass",
+        fn () -> string {
+            for i in (0 as usize)..file1_str.size() {
+                var loc = sm->get_loc(fid1, i)
+                var res = sm->resolve(loc)
+                if res.fid != 1 {
+                    return f"offset {i}: resolved to fid={res.fid}, expected 1"
+                }
             }
-        }
-        return "pass";
-    });
+
+            return "pass"
+        },
+    )
 
     // GET_BUFFER
 
-    suite.equal::<string>("get_buffer(fid0) returns correct size", "pass", fn () -> string {
-        var buf = sm->get_buffer(fid0);
-        if buf == null { return "buffer is null"; }
-        var b = (*buf);
-        if b.size() != file0_str.size() {
-            return f"expected size {file0_str.size()}, got {b.size()}";
-        }
-        return "pass";
-    });
+    suite.equal<string>(
+        "get_buffer(fid0) returns correct size",
+        "pass",
+        fn () -> string {
+            var buf? = sm->get_buffer(fid0)
+            if buf == null {
+                return "buffer is null"
+            }
 
-    suite.equal::<string>("get_buffer(fid1) returns correct size", "pass", fn () -> string {
-        var buf = sm->get_buffer(fid1);
-        if buf == null { return "buffer is null"; }
-        var b = (*buf);
-        if b.size() != file1_str.size() {
-            return f"expected size {file1_str.size()}, got {b.size()}";
-        }
-        return "pass";
-    });
+            var b? = buf
+            if b.size() != file0_str.size() {
+                return f"expected size {file0_str.size()}, got {b.size()}"
+            }
 
-    pool->wait_all();
-    return 0;
+            return "pass"
+        },
+    )
+
+    suite.equal<string>(
+        "get_buffer(fid1) returns correct size",
+        "pass",
+        fn () -> string {
+            var buf? = sm->get_buffer(fid1)
+            if buf == null {
+                return "buffer is null"
+            }
+
+            var b? = buf
+            if b.size() != file1_str.size() {
+                return f"expected size {file1_str.size()}, got {b.size()}"
+            }
+
+            return "pass"
+        },
+    )
+
+    pool->wait_all()
+    return 0
 }

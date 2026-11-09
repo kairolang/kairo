@@ -1,19 +1,19 @@
 /// --- The Kairo Project ------------------------ Memory/MemoryBuffer.k --- ///
 ///
-///   <short description>
+///   MemoryBuffer: a read-only byte range with a UTF-8 view.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/Types.hh";
+ffi "c++" import "Native/Types.hh"
 
-import Support::UTF8View::*;
+import Support::UTF8View::UTF8View
 
 ///
 /// \file MemoryBuffer.k
@@ -45,14 +45,14 @@ import Support::UTF8View::*;
 /// through the `chars()` method. used heavily by the compiler's source and
 /// file management subsystems.
 ///
-class MemoryBuffer {
-    priv var _data: std::ConstPtr::<u8> = &null; ///< pointer to raw data bytes.
-    priv var _size: usize = 0;                    ///< total byte size of buffer.
+pub class MemoryBuffer {
+    priv var _data: kairo::std::ConstPtr<u8> = &null ///< pointer to raw data bytes.
+    priv var _size: usize                    = 0     ///< total byte size of buffer.
 
     ///
     /// \brief default constructor (invalid buffer).
     ///
-    default fn MemoryBuffer(self);
+    pub fn MemoryBuffer(self) = default
 
     ///
     /// \brief constructs from a raw pointer and size.
@@ -60,31 +60,27 @@ class MemoryBuffer {
     /// \param data pointer to constant byte memory.
     /// \param size total number of bytes available.
     ///
-    fn MemoryBuffer(self, data: std::ConstPtr::<u8>, size: usize) {
-        self._data = data;
-        self._size = size;
+    pub fn MemoryBuffer(self, data: kairo::std::ConstPtr<u8>, size: usize) {
+        self._data = data
+        self._size = size
     }
 
     ///
     /// \brief assignment operator.
     ///
-    inline fn op = (self, other: MemoryBuffer) {
-        self._data = other._data;
-        self._size = other._size;
-    }
 
     ///
     /// \brief returns pointer to underlying byte data.
     ///
-    inline fn data(self) -> std::ConstPtr::<u8> {
-        return self._data;
+    pub inline fn data(self) -> kairo::std::ConstPtr<u8> {
+        return self._data
     }
 
     ///
     /// \brief returns total size of the buffer in bytes.
     ///
-    inline fn size(self) -> usize {
-        return self._size;
+    pub inline fn size(self) -> usize {
+        return self._size
     }
 
     ///
@@ -92,8 +88,8 @@ class MemoryBuffer {
     ///
     /// \return true if `_data` is not null and `_size` > 0.
     ///
-    inline fn is_valid(self) -> bool {
-        return self._data != &null;
+    pub inline fn is_valid(self) -> bool {
+        return self._data != &null
     }
 
     ///
@@ -102,6 +98,6 @@ class MemoryBuffer {
     /// \return `UTF8View` initialized with buffer data.
     ///
     inline fn chars(self) -> UTF8View {
-        return UTF8View(self._data, self._size);
+        return UTF8View(self._data, self._size)
     }
 }

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------- AST/Node/CanonicalNodes.k --- ///
+/// --- The Kairo Project -------------------- AST/Node/CanonicalNodes.k --- ///
 ///
 ///   \brief The two type nodes the PARSER never produces: BuiltinType and
 ///          RecordType. Both exist only as canonical forms, created solely by
@@ -46,16 +46,27 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import AST::Node::Base::*;
-import AST::ASTSupport::*;
-import AST::Node::Casting::*;
-import Token::TokenKind::*;
+ffi "c++" import "vector"
+ffi "c++" import "array"
+ffi "c++" import "Native/Types.hh" // kairo::std::ice_fail
+
+import AST::ASTSupport::FrozenList
+import AST::Kind::TypeKind::TypeKind
+import AST::Node::Base::{
+    Decl,
+    Type,
+}
+import AST::Node::Casting::{
+    cast,
+    isa,
+}
+import Token::TokenKind::TokenKind
 
 /// \enum BuiltinKind
 /// \brief The primitive value types. One singleton Type node per entry, owned
@@ -76,9 +87,9 @@ import Token::TokenKind::*;
 ///   Three widths now carry more than one entry, and this is the invariant
 ///   most likely to be violated by accident:
 ///
-///     8 bits   `F8E4M3`, `F8E5M2`, `I8`, `U8`, `Byte`, `CChar`
-///     16 bits  `F16`, `BF16`, `I16`, `U16`
-///     32 bits  `F32`, `I32`, `U32`, `Char`
+///     8 bits   `F8E4M3`, `F8E5M2`, `I8`, `U8`, `Byte`, `CChar`, `CChar8`
+///     16 bits  `F16`, `BF16`, `I16`, `U16`, `CChar16`
+///     32 bits  `F32`, `I32`, `U32`, `Char` (and `CWChar`, 16 on Windows)
 ///
 ///   builtin_info()->bits answers "how wide", never "which type". A float
 ///   comparison keyed on width alone silently conflates F16 with BF16 and
@@ -98,7 +109,7 @@ import Token::TokenKind::*;
 ///     libcall     LLVM has the type and calls compiler-rt; correct, slow.
 ///     corelib     LLVM has NO type; kairo::rt struct, arithmetic in f32/f64.
 ///
-enum BuiltinKind derives u8 {
+pub enum BuiltinKind derives u8 {
     /// The empty type. Not a value type: no storage, no literals, legal only
     /// as a return type and as the pointee of an untyped pointer.
     Void = 0,
@@ -131,14 +142,27 @@ enum BuiltinKind derives u8 {
     /// versus i64. Document that in the language docs; it is real, and it is
     /// still faster than any heap-limb bignum an ecosystem crate would give.
 
-    I8, I16, I32, I64, I128, I256, I512,
-    U8, U16, U32, U64, U128, U256, U512,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    I256,
+    I512,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    U256,
+    U512,
 
     /// Pointer-width integers. Their size is TARGET-dependent, so unlike the
     /// fixed-width entries above their `size_bits` is filled from the target
     /// triple at store construction, not from the name.` builtin_info()->bits`
     /// returns 0 for these two on purpose, 0 means "ask the store".
-    USize, ISize,
+    USize,
+    ISize,
 
     /// # 8-bit floats
     ///
@@ -304,10 +328,25 @@ enum BuiltinKind derives u8 {
     /// this type, and TypeImport maps a C `char` here. C++: `char`.
     CChar,
 
-    COUNT,   ///< keep last.
+    /// `std::c_wchar`, `std::c_char16`, `std::c_char8`: C++'s `wchar_t`,
+    /// `char16_t` and `char8_t`. Each is its own C++ type, distinct from
+    /// every integer of its width, so importing them as integers made
+    /// `f(wchar_t)` and `f(int)` one overload, and `allocator<wchar_t>` and
+    /// `allocator<u32>` one registry shell. They follow CChar exactly: no
+    /// keyword, a lang alias each (`__builtin_c_wchar`, ...) that std
+    /// re-exports, `as` to and from the integers, no arithmetic, and a
+    /// literal only where it fits on every target (see literal_fits_int).
+    /// CWChar's width is the target's (32 bits, 16 on Windows): BF_TARGET_WIDTH,
+    /// filled by the store like usize.
+    CWChar,
+    CChar16,
+    CChar8,
+
+    COUNT, ///< keep last.
 }
 
-const TOTAL_BUILTINS_COUNT: u8 = static_cast::<u8>(BuiltinKind::COUNT);
+pub
+const TOTAL_BUILTINS_COUNT: u8 = (BuiltinKind::COUNT as u8)
 
 /// \enum FloatImpl
 /// \brief How a float type's operations are implemented. ORTHOGONAL to bit
@@ -315,11 +354,11 @@ const TOTAL_BUILTINS_COUNT: u8 = static_cast::<u8>(BuiltinKind::COUNT);
 ///        Libcall. Callers that want to know "will this be fast" ask this;
 ///        callers that want to know "what does a bit pattern mean" ask
 ///        FloatLayout's fields.
-enum FloatImpl derives u8 {
-    None,       ///< not a float.
-    Native,     ///< an LLVM IR type exists; emit it and stop.
-    Libcall,    ///< IR type exists, every op lowers to compiler-rt. f128 only.
-    Corelib,    ///< no IR type at all; kairo::rt struct, arithmetic in f32/f64.
+pub enum FloatImpl derives u8 {
+    None,    ///< not a float.
+    Native,  ///< an LLVM IR type exists; emit it and stop.
+    Libcall, ///< IR type exists, every op lowers to compiler-rt. f128 only.
+    Corelib, ///< no IR type at all; kairo::rt struct, arithmetic in f32/f64.
 }
 
 /// \enum FloatSem
@@ -336,20 +375,20 @@ enum FloatImpl derives u8 {
 ///   SoftDouble4/8 are not APFloat semantics. They are limb representations
 ///   with no single exponent field; the constant evaluator has no APFloat to
 ///   hand for them and must route through corelib.
-enum FloatSem derives u8 {
+pub enum FloatSem derives u8 {
     None = 0,
 
-    Float8E4M3FN,        ///< semFloat8E4M3FN. NOT semFloat8E4M3.
-    Float8E5M2,          ///< semFloat8E5M2.
-    IEEEHalf,            ///< semIEEEhalf.
-    BFloat,              ///< semBFloat.
-    IEEESingle,          ///< semIEEEsingle.
-    IEEEDouble,          ///< semIEEEdouble.
-    X87DoubleExtended,   ///< semX87DoubleExtended.
-    IEEEQuad,            ///< semIEEEquad.
+    Float8E4M3FN,      ///< semFloat8E4M3FN. NOT semFloat8E4M3.
+    Float8E5M2,        ///< semFloat8E5M2.
+    IEEEHalf,          ///< semIEEEhalf.
+    BFloat,            ///< semBFloat.
+    IEEESingle,        ///< semIEEEsingle.
+    IEEEDouble,        ///< semIEEEdouble.
+    X87DoubleExtended, ///< semX87DoubleExtended.
+    IEEEQuad,          ///< semIEEEquad.
 
-    SoftDouble4,         ///< four f64 limbs. No APFloat equivalent.
-    SoftDouble8,         ///< eight f64 limbs. No APFloat equivalent.
+    SoftDouble4, ///< four f64 limbs. No APFloat equivalent.
+    SoftDouble8, ///< eight f64 limbs. No APFloat equivalent.
 }
 
 /// \struct FloatLayout
@@ -362,20 +401,28 @@ enum FloatSem derives u8 {
 ///   exp/mant/bias are 0 for the SoftDouble limb formats, which have no single
 ///   exponent field. `exp == 0` on a row whose sem is not None means "ask
 ///   corelib"; every consumer must treat it as unknown rather than as zero.
-struct FloatLayout {
-    var sem:   FloatSem;
-    var fimpl: FloatImpl;
+pub struct FloatLayout {
+    var sem:   FloatSem
+    var fimpl: FloatImpl
 
-    var exp:  u8;  ///< exponent bits; 0 for limb formats and non-floats.
-    var mant: u8;  ///< STORED mantissa bits, excluding any implicit bit.
-    var bias: i16; ///< i16, not u8: FNUZ biases arriving through FFI do not fit.
+    var exp:  u8  ///< exponent bits; 0 for limb formats and non-floats.
+    var mant: u8  ///< STORED mantissa bits, excluding any implicit bit.
+    var bias: i16 ///< i16, not u8: FNUZ biases arriving through FFI do not fit.
 
-    var has_inf:          bool; ///< false for E4M3FN, whose all-ones exponent is NaN.
-    var explicit_int_bit: bool; ///< x87 only. Not an IEEE interchange format.
+    var has_inf:          bool ///< false for E4M3FN, whose all-ones exponent is NaN.
+    var explicit_int_bit: bool ///< x87 only. Not an IEEE interchange format.
 }
 
-eval fn float_layout_none() -> FloatLayout {
-    return FloatLayout(FloatSem::None, FloatImpl::None, 0, 0, 0, false, false);
+pub eval fn float_layout_none() -> FloatLayout {
+    return FloatLayout {
+        sem:              FloatSem::None,
+        fimpl:            FloatImpl::None,
+        exp:              0,
+        mant:             0,
+        bias:             0,
+        has_inf:          false,
+        explicit_int_bit: false,
+    }
 }
 
 /// \brief True when every value of \p from is exactly representable in \p to.
@@ -394,22 +441,37 @@ eval fn float_layout_none() -> FloatLayout {
 ///   Limb formats return false rather than comparing against a zeroed field.
 ///   Conservative refusal is the correct failure mode here; anything that
 ///   needs a real answer for f256/f512 goes through corelib anyway.
-fn float_widens_exactly(from: *FloatLayout, to: *FloatLayout) -> bool {
-    if (from->sem == FloatSem::None) || (to->sem == FloatSem::None) { return false; }
-    if (from->exp == 0) || (to->exp == 0) { return false; }
-    if (from->has_inf && (!to->has_inf))  { return false; }
-    return (to->exp >= from->exp) && (to->mant >= from->mant);
+pub fn float_widens_exactly(from: *FloatLayout, to: *FloatLayout) -> bool {
+    if from->sem == FloatSem::None || to->sem == FloatSem::None {
+        return false
+    }
+
+    if from->exp == 0 || to->exp == 0 {
+        return false
+    }
+
+    if from->has_inf && !to->has_inf {
+        return false
+    }
+
+    return to->exp >= from->exp && to->mant >= from->mant
 }
 
 /// Category bits for BuiltinInfo::flags. The predicates below read these
 /// instead of comparing enum values, which is what makes BuiltinKind's
 /// ordering genuinely arbitrary the way its doc comment claims.
-eval fn BF_INTEGER()      -> u8 { return 1;  }
-eval fn BF_SIGNED()       -> u8 { return 2;  }
-eval fn BF_FLOAT()        -> u8 { return 4;  }
-eval fn BF_TARGET_WIDTH() -> u8 { return 8;  }  ///< bits == 0; store fills from the triple.
-eval fn BF_TARGET_GATED() -> u8 { return 16; }  ///< availability decided from TargetInfo; TypeResolution hard-errors when absent.
-eval fn BF_TARGET_CXX()   -> u8 { return 32; }  ///< cxx == ""; store fills from the triple.
+pub
+const BF_INTEGER: u8 = 1
+pub
+const BF_SIGNED: u8 = 2
+pub
+const BF_FLOAT: u8 = 4
+pub
+const BF_TARGET_WIDTH: u8 = 8 ///< bits == 0; store fills from the triple.
+pub
+const BF_TARGET_GATED: u8 = 16 ///< availability decided from TargetInfo; TypeResolution hard-errors when absent.
+pub
+const BF_TARGET_CXX: u8 = 32 ///< cxx == ""; store fills from the triple.
 
 /// \struct BuiltinInfo
 /// \brief One row per BuiltinKind.
@@ -419,43 +481,54 @@ eval fn BF_TARGET_CXX()   -> u8 { return 32; }  ///< cxx == ""; store fills from
 ///   verify_builtin_table() can catch a misordered insert. That check is the
 ///   entire justification for this being a table instead of a switch: a
 ///   switch cannot be wrong about which arm it is in, a table can, so the
-///   table has to prove itself at eval time or it is strictly worse.
+///   table has to prove itself (make_builtin_table runs the check as it
+///   builds the table) or it is strictly worse.
 ///
 ///   Per-entry semantics stay on BuiltinKind's doc comments. A row holds data;
 ///   it does not hold the reasoning, and nothing here should be read as
 ///   replacing it.
-class BuiltinInfo {
-    pub var kind:     BuiltinKind;
-    pub var tk:       TokenKind;    ///< TokenKind::COUNT for the rows with no type-position token.
-    pub var spelling: string;       ///< source spelling, for diagnostics and dumps.
-    pub var cxx:      string;       ///< C++ emission. "" only on a BF_TARGET_CXX row before the store's init; a codegen bug anywhere else.
-    pub var bits:     usize;        ///< 0 for Void/Never and for the target-width pair.
-    pub var flags:    u8;
-    pub var fp:       FloatLayout;
+pub class BuiltinInfo {
+    pub var kind:     BuiltinKind
+    pub var tk:       TokenKind ///< TokenKind::COUNT for the rows with no type-position token.
+    pub var spelling: string ///< source spelling, for diagnostics and dumps.
+    pub var cxx:      string ///< C++ emission. "" only on a BF_TARGET_CXX row before the store's init; a codegen bug anywhere else.
+    pub var bits:     usize ///< 0 for Void/Never and for the target-width pair.
+    pub var flags:    u8
+    pub var fp:       FloatLayout
 
-    fn BuiltinInfo(self, kind: BuiltinKind, tk: TokenKind, spelling: string, cxx: string, bits: usize, flags: u8, fp: FloatLayout) {
-        self.kind     = kind;
-        self.tk       = tk;
-        self.spelling = spelling;
-        self.cxx      = cxx;
-        self.bits     = bits;
-        self.flags    = flags;
-        self.fp       = fp;
+    fn BuiltinInfo(self,
+                   kind:     BuiltinKind,
+                   tk:       TokenKind,
+                   spelling: string,
+                   cxx_v:    string,
+                   bits:     usize,
+                   flags:    u8,
+                   fp:       FloatLayout) {
+        self.kind     = kind
+        self.tk       = tk
+        self.spelling = spelling
+        self.cxx      = cxx_v
+        self.bits     = bits
+        self.flags    = flags
+        self.fp       = fp
     }
 
-    fn is_integer(self)  -> bool { return (self.flags & BF_INTEGER())  != 0; }
-    fn is_signed(self)   -> bool { return (self.flags & BF_SIGNED())   != 0; }
-    fn is_float(self)    -> bool { return (self.flags & BF_FLOAT())    != 0; }
-    fn is_target_gated(self) -> bool { return (self.flags & BF_TARGET_GATED()) != 0; }
-}
+    pub fn is_integer(self) -> bool {
+        return (self.flags & BF_INTEGER) != 0
+    }
 
-// if i had stage1: PORT(non-trivial)
-// extend BuiltinInfo {
-//     fn is_integer(self)  -> bool { return (self.flags & BF_INTEGER())  != 0; }
-//     fn is_signed(self)   -> bool { return (self.flags & BF_SIGNED())   != 0; }
-//     fn is_float(self)    -> bool { return (self.flags & BF_FLOAT())    != 0; }
-//     fn is_target_gated(self) -> bool { return (self.flags & BF_TARGET_GATED()) != 0; }
-// }
+    pub fn is_signed(self) -> bool {
+        return (self.flags & BF_SIGNED) != 0
+    }
+
+    pub fn is_float(self) -> bool {
+        return (self.flags & BF_FLOAT) != 0
+    }
+
+    fn is_target_gated(self) -> bool {
+        return (self.flags & BF_TARGET_GATED) != 0
+    }
+}
 
 /// \var BuiltinTable
 /// \brief Static description of every builtin, indexed by BuiltinKind. One row
@@ -523,46 +596,525 @@ class BuiltinInfo {
 ///      EmitPlan declares it wherever `types::byte` appears.
 ///      `Char` maps to `char32_t`, distinct from U32 despite equal width.
 ///      `CChar` maps to `char`, distinct from I8 and U8 (C++ has three
-///      character types at 8 bits). It is the one row with no keyword
-///      (`TkUnknown`): it is reached only through its lang alias.
+///      character types at 8 bits). `CWChar`, `CChar16` and `CChar8` map to
+///      `wchar_t`, `char16_t` and `char8_t`, as distinct from the integers.
+///      These four are the rows with no keyword (`TkUnknown`): each is
+///      reached only through its lang alias.
 /// Builds BuiltinTable's rows, in BuiltinKind order. Called once, by
 /// builtin_info().
-fn make_builtin_table() -> vec::<BuiltinInfo> {
-    var rows: vec::<BuiltinInfo>;
-    rows.reserve(static_cast::<usize>(TOTAL_BUILTINS_COUNT));
-    rows.push_back(BuiltinInfo(BuiltinKind::Void,   TokenKind::AtVoid,    "void",    "void",                  0,   0,                        float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::Never,  TokenKind::OpExclaim, "!",       "void",                  0,   0,                        float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::Bool,   TokenKind::AtBool,    "bool",    "bool",                  8,   0,                        float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::I8,     TokenKind::AtI8,      "i8",      "signed char",           8,   BF_INTEGER()|BF_SIGNED(), float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::I16,    TokenKind::AtI16,     "i16",     "signed short",          16,  BF_INTEGER()|BF_SIGNED(), float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::I32,    TokenKind::AtI32,     "i32",     "signed int",            32,  BF_INTEGER()|BF_SIGNED(), float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::I64,    TokenKind::AtI64,     "i64",     "",                      64,  BF_INTEGER()|BF_SIGNED()|BF_TARGET_CXX(), float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::I128,   TokenKind::AtI128,    "i128",    "__int128",              128, BF_INTEGER()|BF_SIGNED(), float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::I256,   TokenKind::AtI256,    "i256",    "_BitInt(256)",          256, BF_INTEGER()|BF_SIGNED(), float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::I512,   TokenKind::AtI512,    "i512",    "_BitInt(512)",          512, BF_INTEGER()|BF_SIGNED(), float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::U8,     TokenKind::AtU8,      "u8",      "unsigned char",         8,   BF_INTEGER(),             float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::U16,    TokenKind::AtU16,     "u16",     "unsigned short",        16,  BF_INTEGER(),             float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::U32,    TokenKind::AtU32,     "u32",     "unsigned int",          32,  BF_INTEGER(),             float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::U64,    TokenKind::AtU64,     "u64",     "",                      64,  BF_INTEGER()|BF_TARGET_CXX(),             float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::U128,   TokenKind::AtU128,    "u128",    "unsigned __int128",     128, BF_INTEGER(),             float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::U256,   TokenKind::AtU256,    "u256",    "unsigned _BitInt(256)", 256, BF_INTEGER(),             float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::U512,   TokenKind::AtU512,    "u512",    "unsigned _BitInt(512)", 512, BF_INTEGER(),             float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::USize,  TokenKind::AtUsize,   "usize",   "decltype(sizeof(0))",                                             0,   BF_INTEGER()|BF_TARGET_WIDTH(),             float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::ISize,  TokenKind::AtIsize,   "isize",   "decltype(static_cast<int*>(nullptr)-static_cast<int*>(nullptr))", 0,   BF_INTEGER()|BF_SIGNED()|BF_TARGET_WIDTH(), float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::F8E4M3, TokenKind::AtF8E4M3,  "f8e4m3",  "::kairo::rt::f8e4m3",   8,   BF_FLOAT(),               FloatLayout(FloatSem::Float8E4M3FN,      FloatImpl::Corelib, 4,  3,   7,     false, false)));
-    rows.push_back(BuiltinInfo(BuiltinKind::F8E5M2, TokenKind::AtF8E5M2,  "f8e5m2",  "::kairo::rt::f8e5m2",   8,   BF_FLOAT(),               FloatLayout(FloatSem::Float8E5M2,        FloatImpl::Corelib, 5,  2,   15,    true,  false)));
-    rows.push_back(BuiltinInfo(BuiltinKind::F16,    TokenKind::AtF16,     "f16",     "_Float16",              16,  BF_FLOAT(),               FloatLayout(FloatSem::IEEEHalf,          FloatImpl::Native,  5,  10,  15,    true,  false)));
-    rows.push_back(BuiltinInfo(BuiltinKind::BF16,   TokenKind::AtBf16,    "bf16",    "__bf16",                16,  BF_FLOAT(),               FloatLayout(FloatSem::BFloat,            FloatImpl::Native,  8,  7,   127,   true,  false)));
-    rows.push_back(BuiltinInfo(BuiltinKind::F32,    TokenKind::AtF32,     "f32",     "float",                 32,  BF_FLOAT(),               FloatLayout(FloatSem::IEEESingle,        FloatImpl::Native,  8,  23,  127,   true,  false)));
-    rows.push_back(BuiltinInfo(BuiltinKind::F64,    TokenKind::AtF64,     "f64",     "double",                64,  BF_FLOAT(),               FloatLayout(FloatSem::IEEEDouble,        FloatImpl::Native,  11, 52,  1023,  true,  false)));
-    rows.push_back(BuiltinInfo(BuiltinKind::F80,    TokenKind::AtF80,     "f80",     "long double",           80,  BF_FLOAT()|BF_TARGET_GATED(), FloatLayout(FloatSem::X87DoubleExtended, FloatImpl::Native,  15, 64,  16383, true,  true)));
-    rows.push_back(BuiltinInfo(BuiltinKind::F128,   TokenKind::AtF128,    "f128",    "__float128",            128, BF_FLOAT(),               FloatLayout(FloatSem::IEEEQuad,          FloatImpl::Libcall, 15, 112, 16383, true,  false)));
-    rows.push_back(BuiltinInfo(BuiltinKind::F256,   TokenKind::AtF256,    "f256",    "::kairo::rt::f256",     256, BF_FLOAT(),               FloatLayout(FloatSem::SoftDouble4,       FloatImpl::Corelib, 0,  0,   0,     true,  false)));
-    rows.push_back(BuiltinInfo(BuiltinKind::F512,   TokenKind::AtF512,    "f512",    "::kairo::rt::f512",     512, BF_FLOAT(),               FloatLayout(FloatSem::SoftDouble8,       FloatImpl::Corelib, 0,  0,   0,     true,  false)));
-    rows.push_back(BuiltinInfo(BuiltinKind::Byte,   TokenKind::AtByte,    "byte",    "::builtin::base::byte_t::Byte", 8,   0,                        float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::Char,   TokenKind::AtChar,    "char",    "char32_t",              32,  0,                        float_layout_none()));
-    rows.push_back(BuiltinInfo(BuiltinKind::CChar,  TokenKind::TkUnknown, "c_char",  "char",                  8,   0,                        float_layout_none()));
-    return rows;
+pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
+    var rows: cxx::std::vector<BuiltinInfo>
+    rows.reserve(TOTAL_BUILTINS_COUNT as usize)
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::Void,
+            TokenKind::AtVoid,
+            "void",
+            "void",
+            0,
+            0,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::Never,
+            TokenKind::OpExclaim,
+            "!",
+            "void",
+            0,
+            0,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::Bool,
+            TokenKind::AtBool,
+            "bool",
+            "bool",
+            8,
+            0,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::I8,
+            TokenKind::AtI8,
+            "i8",
+            "signed char",
+            8,
+            BF_INTEGER | BF_SIGNED,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::I16,
+            TokenKind::AtI16,
+            "i16",
+            "signed short",
+            16,
+            BF_INTEGER | BF_SIGNED,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::I32,
+            TokenKind::AtI32,
+            "i32",
+            "signed int",
+            32,
+            BF_INTEGER | BF_SIGNED,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::I64,
+            TokenKind::AtI64,
+            "i64",
+            "",
+            64,
+            BF_INTEGER | BF_SIGNED | BF_TARGET_CXX,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::I128,
+            TokenKind::AtI128,
+            "i128",
+            "__int128",
+            128,
+            BF_INTEGER | BF_SIGNED,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::I256,
+            TokenKind::AtI256,
+            "i256",
+            "_BitInt(256)",
+            256,
+            BF_INTEGER | BF_SIGNED,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::I512,
+            TokenKind::AtI512,
+            "i512",
+            "_BitInt(512)",
+            512,
+            BF_INTEGER | BF_SIGNED,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::U8,
+            TokenKind::AtU8,
+            "u8",
+            "unsigned char",
+            8,
+            BF_INTEGER,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::U16,
+            TokenKind::AtU16,
+            "u16",
+            "unsigned short",
+            16,
+            BF_INTEGER,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::U32,
+            TokenKind::AtU32,
+            "u32",
+            "unsigned int",
+            32,
+            BF_INTEGER,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::U64,
+            TokenKind::AtU64,
+            "u64",
+            "",
+            64,
+            BF_INTEGER | BF_TARGET_CXX,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::U128,
+            TokenKind::AtU128,
+            "u128",
+            "unsigned __int128",
+            128,
+            BF_INTEGER,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::U256,
+            TokenKind::AtU256,
+            "u256",
+            "unsigned _BitInt(256)",
+            256,
+            BF_INTEGER,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::U512,
+            TokenKind::AtU512,
+            "u512",
+            "unsigned _BitInt(512)",
+            512,
+            BF_INTEGER,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::USize,
+            TokenKind::AtUsize,
+            "usize",
+            "decltype(sizeof(0))",
+            0,
+            BF_INTEGER | BF_TARGET_WIDTH,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::ISize,
+            TokenKind::AtIsize,
+            "isize",
+            "decltype(static_cast<int*>(nullptr)-static_cast<int*>(nullptr))",
+            0,
+            BF_INTEGER | BF_SIGNED | BF_TARGET_WIDTH,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::F8E4M3,
+            TokenKind::AtF8E4M3,
+            "f8e4m3",
+            "::kairo::rt::f8e4m3",
+            8,
+            BF_FLOAT,
+            FloatLayout {
+                sem:              FloatSem::Float8E4M3FN,
+                fimpl:            FloatImpl::Corelib,
+                exp:              4,
+                mant:             3,
+                bias:             7,
+                has_inf:          false,
+                explicit_int_bit: false,
+            },
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::F8E5M2,
+            TokenKind::AtF8E5M2,
+            "f8e5m2",
+            "::kairo::rt::f8e5m2",
+            8,
+            BF_FLOAT,
+            FloatLayout {
+                sem:              FloatSem::Float8E5M2,
+                fimpl:            FloatImpl::Corelib,
+                exp:              5,
+                mant:             2,
+                bias:             15,
+                has_inf:          true,
+                explicit_int_bit: false,
+            },
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::F16,
+            TokenKind::AtF16,
+            "f16",
+            "_Float16",
+            16,
+            BF_FLOAT,
+            FloatLayout {
+                sem:              FloatSem::IEEEHalf,
+                fimpl:            FloatImpl::Native,
+                exp:              5,
+                mant:             10,
+                bias:             15,
+                has_inf:          true,
+                explicit_int_bit: false,
+            },
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::BF16,
+            TokenKind::AtBf16,
+            "bf16",
+            "__bf16",
+            16,
+            BF_FLOAT,
+            FloatLayout {
+                sem:              FloatSem::BFloat,
+                fimpl:            FloatImpl::Native,
+                exp:              8,
+                mant:             7,
+                bias:             127,
+                has_inf:          true,
+                explicit_int_bit: false,
+            },
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::F32,
+            TokenKind::AtF32,
+            "f32",
+            "float",
+            32,
+            BF_FLOAT,
+            FloatLayout {
+                sem:              FloatSem::IEEESingle,
+                fimpl:            FloatImpl::Native,
+                exp:              8,
+                mant:             23,
+                bias:             127,
+                has_inf:          true,
+                explicit_int_bit: false,
+            },
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::F64,
+            TokenKind::AtF64,
+            "f64",
+            "double",
+            64,
+            BF_FLOAT,
+            FloatLayout {
+                sem:              FloatSem::IEEEDouble,
+                fimpl:            FloatImpl::Native,
+                exp:              11,
+                mant:             52,
+                bias:             1023,
+                has_inf:          true,
+                explicit_int_bit: false,
+            },
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::F80,
+            TokenKind::AtF80,
+            "f80",
+            "long double",
+            80,
+            BF_FLOAT | BF_TARGET_GATED,
+            FloatLayout {
+                sem:              FloatSem::X87DoubleExtended,
+                fimpl:            FloatImpl::Native,
+                exp:              15,
+                mant:             64,
+                bias:             16383,
+                has_inf:          true,
+                explicit_int_bit: true,
+            },
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::F128,
+            TokenKind::AtF128,
+            "f128",
+            "__float128",
+            128,
+            BF_FLOAT,
+            FloatLayout {
+                sem:              FloatSem::IEEEQuad,
+                fimpl:            FloatImpl::Libcall,
+                exp:              15,
+                mant:             112,
+                bias:             16383,
+                has_inf:          true,
+                explicit_int_bit: false,
+            },
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::F256,
+            TokenKind::AtF256,
+            "f256",
+            "::kairo::rt::f256",
+            256,
+            BF_FLOAT,
+            FloatLayout {
+                sem:              FloatSem::SoftDouble4,
+                fimpl:            FloatImpl::Corelib,
+                exp:              0,
+                mant:             0,
+                bias:             0,
+                has_inf:          true,
+                explicit_int_bit: false,
+            },
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::F512,
+            TokenKind::AtF512,
+            "f512",
+            "::kairo::rt::f512",
+            512,
+            BF_FLOAT,
+            FloatLayout {
+                sem:              FloatSem::SoftDouble8,
+                fimpl:            FloatImpl::Corelib,
+                exp:              0,
+                mant:             0,
+                bias:             0,
+                has_inf:          true,
+                explicit_int_bit: false,
+            },
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::Byte,
+            TokenKind::AtByte,
+            "byte",
+            "::builtin::base::byte_t::Byte",
+            8,
+            0,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::Char,
+            TokenKind::AtChar,
+            "char",
+            "char32_t",
+            32,
+            0,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::CChar,
+            TokenKind::TkUnknown,
+            "c_char",
+            "char",
+            8,
+            0,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::CWChar,
+            TokenKind::TkUnknown,
+            "c_wchar",
+            "wchar_t",
+            0,
+            BF_TARGET_WIDTH,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::CChar16,
+            TokenKind::TkUnknown,
+            "c_char16",
+            "char16_t",
+            16,
+            0,
+            float_layout_none(),
+        ),
+    )
+
+    rows.push_back(
+        BuiltinInfo(
+            BuiltinKind::CChar8,
+            TokenKind::TkUnknown,
+            "c_char8",
+            "char8_t",
+            8,
+            0,
+            float_layout_none(),
+        ),
+    )
+
+    // The table is built at run time (a function-local static), so it is
+    // checked here, once, the first time anything asks for a row: a wrong
+    // insert fails every compile, not a test.
+    if !verify_builtin_table(&rows) {
+        kairo::std::ice_fail(
+            "BuiltinTable row is out of order, incomplete, or duplicates a FloatSem",
+        )
+    }
+
+    return rows
 }
 
 /// \brief THE builtin accessor. Every per-builtin fact (spelling, C++
@@ -580,9 +1132,9 @@ fn make_builtin_table() -> vec::<BuiltinInfo> {
 ///         CanonicalTypeStore::init writes the target's I64/U64 spellings
 ///         into it, and every reader must see that write. The vec is never
 ///         resized after it is built, so row pointers stay valid.
-fn builtin_info(b: BuiltinKind) -> *BuiltinInfo {
-    static var BuiltinTable: vec::<BuiltinInfo> = make_builtin_table();
-    return &BuiltinTable[static_cast::<usize>(static_cast::<u8>(b))];
+pub fn builtin_info(b: BuiltinKind) -> *BuiltinInfo {
+    static BuiltinTable: cxx::std::vector<BuiltinInfo> = make_builtin_table()
+    return &BuiltinTable[(b as u8) as usize]
 }
 
 /// \brief Map a type-position token kind to its builtin, or COUNT when the
@@ -598,45 +1150,73 @@ fn builtin_info(b: BuiltinKind) -> *BuiltinInfo {
 ///          type-position token in every parse; a switch is a jump table and a
 ///          scan is 30 comparisons. verify_builtin_table() round-trips every
 ///          row through it, so the two cannot drift apart.
-fn builtin_for_token(k: TokenKind) -> BuiltinKind {
-    switch k {
-        case TokenKind::AtVoid    { return BuiltinKind::Void;   }
-        case TokenKind::OpExclaim { return BuiltinKind::Never;  }
-        case TokenKind::AtBool    { return BuiltinKind::Bool;   }
-        case TokenKind::AtByte    { return BuiltinKind::Byte;   }
-        case TokenKind::AtChar    { return BuiltinKind::Char;   }
-
-        case TokenKind::AtI8      { return BuiltinKind::I8;     }
-        case TokenKind::AtI16     { return BuiltinKind::I16;    }
-        case TokenKind::AtI32     { return BuiltinKind::I32;    }
-        case TokenKind::AtI64     { return BuiltinKind::I64;    }
-        case TokenKind::AtI128    { return BuiltinKind::I128;   }
-        case TokenKind::AtI256    { return BuiltinKind::I256;   }
-        case TokenKind::AtI512    { return BuiltinKind::I512;   }
-
-        case TokenKind::AtU8      { return BuiltinKind::U8;     }
-        case TokenKind::AtU16     { return BuiltinKind::U16;    }
-        case TokenKind::AtU32     { return BuiltinKind::U32;    }
-        case TokenKind::AtU64     { return BuiltinKind::U64;    }
-        case TokenKind::AtU128    { return BuiltinKind::U128;   }
-        case TokenKind::AtU256    { return BuiltinKind::U256;   }
-        case TokenKind::AtU512    { return BuiltinKind::U512;   }
-
-        case TokenKind::AtUsize   { return BuiltinKind::USize;  }
-        case TokenKind::AtIsize   { return BuiltinKind::ISize;  }
-
-        case TokenKind::AtBf16    { return BuiltinKind::BF16;   }
-        case TokenKind::AtF16     { return BuiltinKind::F16;    }
-        case TokenKind::AtF32     { return BuiltinKind::F32;    }
-        case TokenKind::AtF64     { return BuiltinKind::F64;    }
-        case TokenKind::AtF80     { return BuiltinKind::F80;    }
-        case TokenKind::AtF128    { return BuiltinKind::F128;   }
-        case TokenKind::AtF256    { return BuiltinKind::F256;   }
-        case TokenKind::AtF512    { return BuiltinKind::F512;   }
-        case TokenKind::AtF8E4M3  { return BuiltinKind::F8E4M3; }
-        case TokenKind::AtF8E5M2  { return BuiltinKind::F8E5M2; }
-
-        default                   { return BuiltinKind::COUNT; }
+pub fn builtin_for_token(k: TokenKind) -> BuiltinKind {
+    match k {
+        case TokenKind::AtVoid {
+            return BuiltinKind::Void
+        } case TokenKind::OpExclaim {
+            return BuiltinKind::Never
+        } case TokenKind::AtBool {
+            return BuiltinKind::Bool
+        } case TokenKind::AtByte {
+            return BuiltinKind::Byte
+        } case TokenKind::AtChar {
+            return BuiltinKind::Char
+        } case TokenKind::AtI8 {
+            return BuiltinKind::I8
+        } case TokenKind::AtI16 {
+            return BuiltinKind::I16
+        } case TokenKind::AtI32 {
+            return BuiltinKind::I32
+        } case TokenKind::AtI64 {
+            return BuiltinKind::I64
+        } case TokenKind::AtI128 {
+            return BuiltinKind::I128
+        } case TokenKind::AtI256 {
+            return BuiltinKind::I256
+        } case TokenKind::AtI512 {
+            return BuiltinKind::I512
+        } case TokenKind::AtU8 {
+            return BuiltinKind::U8
+        } case TokenKind::AtU16 {
+            return BuiltinKind::U16
+        } case TokenKind::AtU32 {
+            return BuiltinKind::U32
+        } case TokenKind::AtU64 {
+            return BuiltinKind::U64
+        } case TokenKind::AtU128 {
+            return BuiltinKind::U128
+        } case TokenKind::AtU256 {
+            return BuiltinKind::U256
+        } case TokenKind::AtU512 {
+            return BuiltinKind::U512
+        } case TokenKind::AtUsize {
+            return BuiltinKind::USize
+        } case TokenKind::AtIsize {
+            return BuiltinKind::ISize
+        } case TokenKind::AtBf16 {
+            return BuiltinKind::BF16
+        } case TokenKind::AtF16 {
+            return BuiltinKind::F16
+        } case TokenKind::AtF32 {
+            return BuiltinKind::F32
+        } case TokenKind::AtF64 {
+            return BuiltinKind::F64
+        } case TokenKind::AtF80 {
+            return BuiltinKind::F80
+        } case TokenKind::AtF128 {
+            return BuiltinKind::F128
+        } case TokenKind::AtF256 {
+            return BuiltinKind::F256
+        } case TokenKind::AtF512 {
+            return BuiltinKind::F512
+        } case TokenKind::AtF8E4M3 {
+            return BuiltinKind::F8E4M3
+        } case TokenKind::AtF8E5M2 {
+            return BuiltinKind::F8E5M2
+        } default {
+            return BuiltinKind::COUNT
+        }
     }
 }
 
@@ -646,10 +1226,28 @@ fn builtin_for_token(k: TokenKind) -> BuiltinKind {
 ///        `isize` (TypeImport::_pointer_sized walks a typedef chain asking
 ///        this). The names are C's, so they are spelled here beside the
 ///        C++ spellings of the rows they map to.
-fn builtin_for_c_typedef(name: string) -> BuiltinKind {
-    if (name == "size_t") || (name == "uintptr_t") { return BuiltinKind::USize; }
-    if (name == "ptrdiff_t") || (name == "intptr_t") || (name == "ssize_t") { return BuiltinKind::ISize; }
-    return BuiltinKind::COUNT;
+pub fn builtin_for_c_typedef(const name: string) -> BuiltinKind {
+    if name == "size_t" || name == "uintptr_t" {
+        return BuiltinKind::USize
+    }
+
+    if name == "ptrdiff_t" || name == "intptr_t" || name == "ssize_t" {
+        return BuiltinKind::ISize
+    }
+
+    return BuiltinKind::COUNT
+}
+
+/// Whether \p b is one of C++'s character types that Kairo has no keyword
+/// for (`char`, `wchar_t`, `char16_t`, `char8_t`): characters, not
+/// numbers, so `as` converts them to and from the integers, they compare
+/// and order, and they do no arithmetic. Kairo's own `char` (char32_t) is
+/// not one: its conversions are its own (Conversion::_char_to_int).
+pub fn is_c_character(b: BuiltinKind) -> bool {
+    return b == BuiltinKind::CChar
+        || b == BuiltinKind::CWChar
+        || b == BuiltinKind::CChar16
+        || b == BuiltinKind::CChar8
 }
 
 /// \brief Every row lands at the index its `kind` names, carries a spelling
@@ -662,59 +1260,103 @@ fn builtin_for_c_typedef(name: string) -> BuiltinKind {
 ///   most: two rows sharing FloatSem::IEEEHalf is the f16/bf16 conflation the
 ///   enum spends three paragraphs warning about, and it should break the
 ///   build rather than a test.
-eval fn verify_builtin_table() -> bool {
-    var seen_sem: array::<bool, 16>;
-    for (var s = 0; s < 16; ++s) { seen_sem[s] = false; }
+pub fn verify_builtin_table(@inout rows: cxx::std::vector<BuiltinInfo>) -> bool {
+    if rows.size() != ((BuiltinKind::COUNT as u8) as usize) {
+        return false
+    }
 
-    for (var i = 0; i < static_cast::<u8>(BuiltinKind::COUNT); ++i) {
-        var row = builtin_info(static_cast::<BuiltinKind>(static_cast::<u8>(i)));
+    var seen_sem: cxx::std::array<bool, 16>
+    for var s = 0; s < 16; ++s {
+        seen_sem[(s as usize)] = false
+    }
 
-        if (static_cast::<u8>(row->kind) != i) { return false; }
-        if (row->spelling == "")               { return false; }
+    for var i = 0; i < (BuiltinKind::COUNT as u8); ++i {
+        var *row = &(rows)[(i as usize)]
 
-        var is_float  = (row->flags & BF_FLOAT())   != 0;
-        var is_int    = (row->flags & BF_INTEGER()) != 0;
-        var is_target = (row->flags & BF_TARGET_WIDTH()) != 0;
-        var is_tcxx   = (row->flags & BF_TARGET_CXX()) != 0;
-        var is_gated  = (row->flags & BF_TARGET_GATED()) != 0;
+        if (row->kind as u8) != i {
+            return false
+        }
+
+        if row->spelling == "" {
+            return false
+        }
+
+        var is_float  = (row->flags & BF_FLOAT) != 0
+        var is_int    = (row->flags & BF_INTEGER) != 0
+        var is_target = (row->flags & BF_TARGET_WIDTH) != 0
+        var is_tcxx   = (row->flags & BF_TARGET_CXX) != 0
+        var is_gated  = (row->flags & BF_TARGET_GATED) != 0
 
         // cxx == "" must mean "ask the store", and only for the rows that say so.
-        if ((!is_tcxx) && (row->cxx == "")) { return false; }
+        if !is_tcxx && row->cxx == "" {
+            return false
+        }
 
-        if (is_float && is_int) { return false; }
+        if is_float && is_int {
+            return false
+        }
 
         // The gate is only implemented for a float whose representation the
         // target may lack; on any other row it would be a silent no-op.
-        if (is_gated && (!is_float)) { return false; }
+        if is_gated && !is_float {
+            return false
+        }
 
-        if (is_float) {
-            if (row->fp.sem == FloatSem::None)   { return false; }
-            if (row->fp.fimpl == FloatImpl::None) { return false; }
+        if is_float {
+            if row->fp.sem == FloatSem::None {
+                return false
+            }
 
-            var s = static_cast::<u8>(row->fp.sem);
-            if (seen_sem[s]) { return false; }   // two rows, one APFloat semantics.
-            seen_sem[s] = true;
+            if row->fp.fimpl == FloatImpl::None {
+                return false
+            }
+
+            var s = (row->fp.sem as u8)
+            if seen_sem[s] { // two rows, one APFloat semantics.
+                return false
+            }
+
+            seen_sem[s] = true
         } else {
-            if (row->fp.sem != FloatSem::None)   { return false; }
-            if (row->fp.fimpl != FloatImpl::None) { return false; }
+            if row->fp.sem != FloatSem::None {
+                return false
+            }
+
+            if row->fp.fimpl != FloatImpl::None {
+                return false
+            }
         }
 
         // bits == 0 must mean "ask the store", and only for the rows that say so.
-        if (is_target && (row->bits != 0)) { return false; }
-        if ((!is_target) && (row->bits == 0)
-            && (row->kind != BuiltinKind::Void)
-            && (row->kind != BuiltinKind::Never)) { return false; }
+        if is_target && row->bits != 0 {
+            return false
+        }
+
+        if (!is_target
+            && row->bits == 0
+            && row->kind != BuiltinKind::Void
+            && row->kind != BuiltinKind::Never) {
+            return false
+        }
 
         // Every row round-trips through the switch above. No sentinel rows,
-        // except CChar, which has no keyword to round-trip through.
-        if (row->kind == BuiltinKind::CChar) { if (row->tk != TokenKind::TkUnknown) { return false; } continue; }
-        if (builtin_for_token(row->tk) != row->kind) { return false; }
+        // except the C character types, which have no keyword to round-trip through.
+        if is_c_character(row->kind) {
+            if row->tk != TokenKind::TkUnknown {
+                return false
+            }
+
+            continue
+        }
+
+        if builtin_for_token(row->tk) != row->kind {
+            return false
+        }
     }
-    return true;
+
+    return true
 }
 
-// PORT(trivial): the table is static not evaluated, so the static_assert is a no-op in stage0.
-// static_assert(verify_builtin_table(), r"BuiltinTable row is out of order, incomplete, or duplicates a FloatSem");
 
 // FIXME: REFACTOR into separate files.
 
@@ -726,16 +1368,18 @@ eval fn verify_builtin_table() -> bool {
 ///  `quals` is never 0 (the store returns `inner` for that). Layout is the
 ///  inner's.
 ///
-class QualifiedType derives Type {
-    pub var inner: *Type = &null;
-    pub var quals: u8    = 0;      ///< QUAL_CONST | QUAL_VOLATILE; the key.
+pub class QualifiedType derives Type {
+    pub var inner: unsafe *Type = &null
+    pub var quals: u8           = 0     ///< QUAL_CONST | QUAL_VOLATILE; the key.
 
-    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
-        return ptr->kind == TypeKind::QualifiedType;
+    /* OVERRIDE */
+    static fn classof(ptr: *const Type) -> bool {
+        return ptr->kind == TypeKind::QualifiedType
     }
 
-    /* OVERRIDE */ static fn type_kind() -> TypeKind {
-        return TypeKind::QualifiedType;
+    /* OVERRIDE */
+    static fn type_kind() -> TypeKind {
+        return TypeKind::QualifiedType
     }
 }
 
@@ -748,27 +1392,46 @@ class QualifiedType derives Type {
 ///  (a->canonical == b->canonical) work uniformly without a builtin special
 ///  case at every comparison site.
 ///
-class BuiltinType derives Type {
-    pub var builtin: BuiltinKind = BuiltinKind::Void;
+pub class BuiltinType derives Type {
+    pub var builtin: BuiltinKind = BuiltinKind::Void
     /// The declaration this builtin's C++ spelling names, or null. Only
     /// `byte` has one (the Byte lang item); EmitPlan admits it wherever the
     /// builtin appears, so the spelling always has a declaration behind it.
-    pub var lang_decl: *Decl = &null;
+    pub var lang_decl: unsafe *Decl = &null
 
-    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
-        return ptr->kind == TypeKind::BuiltinType;
+    /* OVERRIDE */
+    static fn classof(ptr: *const Type) -> bool {
+        return ptr->kind == TypeKind::BuiltinType
     }
 
-    /* OVERRIDE */ static fn type_kind() -> TypeKind {
-        return TypeKind::BuiltinType;
+    /* OVERRIDE */
+    static fn type_kind() -> TypeKind {
+        return TypeKind::BuiltinType
     }
 
-    fn info(self) -> *BuiltinInfo { return builtin_info(self.builtin); }
-    fn spelling(self) -> string { return self.info()->spelling;  }
-    fn cxx_emission(self) -> string { return self.info()->cxx;  }
-    fn is_integer(self) -> bool { return self.info()->is_integer(); }
-    fn is_signed(self)  -> bool { return self.info()->is_signed();  }
-    fn is_float(self)   -> bool { return self.info()->is_float();   }
+    pub fn info(self) -> *BuiltinInfo {
+        return builtin_info(self.builtin)
+    }
+
+    pub fn spelling(self) -> string {
+        return self.info()->spelling
+    }
+
+    pub fn cxx_emission(self) -> string {
+        return self.info()->cxx
+    }
+
+    fn is_integer(self) -> bool {
+        return self.info()->is_integer()
+    }
+
+    fn is_signed(self) -> bool {
+        return self.info()->is_signed()
+    }
+
+    fn is_float(self) -> bool {
+        return self.info()->is_float()
+    }
 }
 
 ///
@@ -784,9 +1447,9 @@ class BuiltinType derives Type {
 ///  Uniquing is on (decl, args...), so Vec<i32> and Vec<u8> are distinct
 ///  entities while two spellings of Vec<i32> are one.
 ///
-class RecordType derives Type {
-    pub var decl: *Decl = &null;          ///< canonical Class/Struct/Union/Interface/EnumDecl.
-    pub var args: FrozenList::<*Type>;    ///< canonical generic args; empty if non-generic.
+pub class RecordType derives Type {
+    pub var decl: unsafe *Decl             = &null ///< canonical Class/Struct/Union/Interface/EnumDecl.
+    pub var args: FrozenList<unsafe *Type> ///< canonical generic args; empty if non-generic.
     /// The enclosing record AS SEEN through an instance, for a record
     /// nested in a generic one and named through it (`L<i32>::P`: outer is
     /// `L<i32>`, decl the pattern's P, args P's own). Null for every other
@@ -795,17 +1458,21 @@ class RecordType derives Type {
     /// of the identity: `L<i32>::P` and `L<f64>::P` are two types. Never a
     /// registry entry: C++ instantiates a member class with its enclosing
     /// instance, so `L<i32>`'s explicit instantiation covers it.
-    pub var outer: *Type = &null;
+    pub var outer: unsafe *Type = &null
 
-    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
-        return ptr->kind == TypeKind::RecordType;
+    /* OVERRIDE */
+    static fn classof(ptr: *const Type) -> bool {
+        return ptr->kind == TypeKind::RecordType
     }
 
-    /* OVERRIDE */ static fn type_kind() -> TypeKind {
-        return TypeKind::RecordType;
+    /* OVERRIDE */
+    static fn type_kind() -> TypeKind {
+        return TypeKind::RecordType
     }
 
-    fn is_generic_instance(self) -> bool { return self.args.size() > 0; }
+    fn is_generic_instance(self) -> bool {
+        return self.args.size() > 0
+    }
 }
 
 ///
@@ -828,14 +1495,14 @@ class RecordType derives Type {
 ///  and then it is not an AssocType at all but the conformer's alias
 ///  (Substitution::assoc_witness).
 ///
-class AssocType derives Type {
-    pub var base:  *Type = &null;
-    pub var iface: *Type = &null;
-    pub var assoc: *Decl = &null;
+pub class AssocType derives Type {
+    pub var base:  unsafe *Type = &null
+    pub var iface: unsafe *Type = &null
+    pub var assoc: unsafe *Decl = &null
     /// A GENERIC associated type's arguments (`T::Map<K>` of `type <K>
     /// Map`), in its own parameter order; empty for every other. Part of
     /// the identity, as a record's arguments are.
-    pub var args: FrozenList::<*Type>;
+    pub var args: FrozenList<unsafe *Type>
     /// The interfaces a value of this type may be used through: its
     /// requirement's own `impl` bounds read with Self := `base`, the
     /// declaring interface's parameters := `iface`'s arguments and its own
@@ -845,36 +1512,51 @@ class AssocType derives Type {
     /// codegen can read the bound a member type is spelled through.
     /// `bounds_state`: 0 not computed, 1 being computed (a bound naming its
     /// own associated type), 2 done.
-    pub var bounds: FrozenList::<*Type>;
-    pub var bounds_state: u8 = 0;
+    pub var bounds:       FrozenList<unsafe *Type>
+    pub var bounds_state: u8                       = 0
 
-    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
-        return ptr->kind == TypeKind::AssocType;
+    /* OVERRIDE */
+    static fn classof(ptr: *const Type) -> bool {
+        return ptr->kind == TypeKind::AssocType
     }
 
-    /* OVERRIDE */ static fn type_kind() -> TypeKind {
-        return TypeKind::AssocType;
+    /* OVERRIDE */
+    static fn type_kind() -> TypeKind {
+        return TypeKind::AssocType
     }
 }
 
 /// QualifiedType::quals bits. A bitset, not a bool: `volatile` is in real
 /// headers (std::atomic members, MMIO wrappers) and retrofitting it would
 /// be this whole sweep a second time.
-eval fn QUAL_CONST()    -> u8 { return 1; }
-eval fn QUAL_VOLATILE() -> u8 { return 2; }
+pub
+const QUAL_CONST: u8 = 1
+pub
+const QUAL_VOLATILE: u8 = 2
 
 /// The top-level qualifiers of a canonical; 0 for any other kind.
-fn canon_quals(t: *Type) -> u8 {
-    if (t == &null) || (!isa::<QualifiedType>(t)) { return 0; }
-    return cast::<QualifiedType>(t)->quals;
+pub fn canon_quals(t: unsafe *Type) -> u8 {
+    if t == &null || !isa<QualifiedType>(t) {
+        return 0
+    }
+
+    return cast<QualifiedType>(t)->quals
 }
 
 /// \p t with its top-level qualifiers removed; \p t itself for any other
 /// kind. ONE level: `*const i32` stays `*const i32`.
-fn canon_unqual(t: *Type) -> *Type {
-    if (t == &null) || (!isa::<QualifiedType>(t)) { return t; }
-    return cast::<QualifiedType>(t)->inner;
+pub fn canon_unqual(t: unsafe *Type) -> unsafe *Type {
+    if t == &null || !isa<QualifiedType>(t) {
+        return t
+    }
+
+    return cast<QualifiedType>(t)->inner
 }
 
-fn canon_has_const(t: *Type)    -> bool { return (canon_quals(t) & QUAL_CONST())    != 0; }
-fn canon_has_volatile(t: *Type) -> bool { return (canon_quals(t) & QUAL_VOLATILE()) != 0; }
+pub fn canon_has_const(t: unsafe *Type) -> bool {
+    return (canon_quals(t) & QUAL_CONST) != 0
+}
+
+pub fn canon_has_volatile(t: unsafe *Type) -> bool {
+    return (canon_quals(t) & QUAL_VOLATILE) != 0
+}

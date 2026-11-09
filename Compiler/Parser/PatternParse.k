@@ -1,8 +1,7 @@
 /// --- The Kairo Project ------------------------ Parser/PatternParse.k --- ///
 ///
-///   \brief Pattern parsing mixin for `match` cases and destructuring binds.
+///   The pattern parser mixin, for `match` cases and destructuring binds.
 ///
-///   \detail
 ///     Entry: parse_pattern() -> dispatches on the leading resolved token.
 ///
 ///     Pattern-only forms are ruled out first (`_`, `var`/`const`, `(`, `[`,
@@ -33,105 +32,137 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the Kairo
 ///   Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ----------------------------------------------------------------------- ///
 
-import AST::Node::Base::*;
-import AST::Node::Patterns::*;
-import AST::Node::Declarations::*;   // VariableDecl for BindingPattern::decl
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Expressions::*;      // UnaryOperatorExpr for a negated literal
-import AST::Node::Casting::*;
-import AST::Context::ASTContext::*;
-import Diagnostic::Engine::*;
-import Diagnostic::Registry::*;
-import Location::SourceRange::*;
-import Token::Token::*;
-import Token::TokenKind::*;
+ffi "c++" import "Native/Types.hh"
 
-class <T> PatternParse {
-    priv inline fn dyn(self) -> *T {
-        return static_cast::<*T>(&self);
+import AST::Node::Base::{
+    Expr,
+    Pattern,
+    Type,
+}
+import AST::Node::Casting::{
+    cast,
+    is_recovery,
+    isa,
+}
+import AST::Node::Declarations::{
+    StorageClass,
+    VariableDecl,
+} // VariableDecl for BindingPattern::decl
+import AST::Node::Expressions::UnaryOperatorExpr // UnaryOperatorExpr for a negated literal
+import AST::Node::Patterns::{
+    BindingPattern,
+    ConstructorPattern,
+    LiteralPattern,
+    RangePattern,
+    SlicePattern,
+    TupleDestructurePattern,
+    UnresolvedConstructorPattern,
+    WildcardPattern,
+}
+import AST::Node::PrimaryExpressions::{
+    BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
+    IntegerLiteralExpr, NamedIdentExpr, NullLiteralExpr,      StringLiteralExpr,
+}
+import Diagnostic::Registry::DiagID
+import Location::SourceRange::SourceRange
+import Token::Token::Token
+import Token::TokenKind::{
+    TokenKind,
+    token_kind_to_readable_string,
+}
+
+// TODO(DUCK-GENERIC): T uses _reject_mode_binding, advance, check, check_peek, ctx, current, current_ptr, diag, enter_depth, exit_depth, ig_kind, is_eof, ... (18). Stage 0 was duck-typed; bound it or keep `: type`.
+pub class <T: type> PatternParse {
+    priv inline fn dyn(self) -> unsafe *T {
+        return unsafe ((&self) as *T)
     }
 
-    priv inline fn _error_pattern(self, range: SourceRange) -> *Pattern {
-        return static_cast::<*Pattern>(WildcardPattern::create_error(dyn()->ctx, range));
+    priv inline fn _error_pattern(self, range: SourceRange) -> unsafe *Pattern {
+        return WildcardPattern::create_error(self.dyn()->ctx, range)
     }
 
     //  Entry
 
     /// \brief parses a single pattern. Returns a recovery pattern (never null)
     ///        on failure so the surrounding match-arm structure keeps its shape.
-    fn parse_pattern(self) -> *Pattern {
-        if dyn()->is_eof() {
-            return self._error_pattern(SourceRange::invalid());
-        }
-        if !dyn()->enter_depth() {
-            return self._error_pattern(dyn()->current_ptr()->range);
+    fn parse_pattern(self) -> unsafe *Pattern {
+        if self.dyn()->is_eof() {
+            return self._error_pattern(SourceRange::invalid())
         }
 
-        var p = self._parse_pattern_inner();
+        if !self.dyn()->enter_depth() {
+            return self._error_pattern(self.dyn()->current_ptr()->range)
+        }
 
-        dyn()->exit_depth();
-        return p;
+        var unsafe *p = self._parse_pattern_inner()
+
+        self.dyn()->exit_depth()
+        return p
     }
 
-    priv fn _parse_pattern_inner(self) -> *Pattern {
-        var cur_ptr = dyn()->current_ptr();
-        if cur_ptr == &null { return self._error_pattern(SourceRange::invalid()); }
-        var start = cur_ptr->range;
-
-        var k = dyn()->resolve_kind_deep(cur_ptr);
-
-        // -- wildcard `_` (identifier whose text is exactly "_") -------------
-        if (k == TokenKind::LitIdentifier)
-        && (dyn()->ctx->get_spelling(*cur_ptr) == "_") {
-            dyn()->advance();
-            return static_cast::<*Pattern>(WildcardPattern::create(dyn()->ctx, start));
+    priv fn _parse_pattern_inner(self) -> unsafe *Pattern {
+        var cur_ptr = self.dyn()->current_ptr()
+        if cur_ptr == &null {
+            return self._error_pattern(SourceRange::invalid())
         }
 
-        // -- binding `var x` / `const x` / `var x: T` ------------------------
-        if (k == TokenKind::KwVar) || (k == TokenKind::KwConst) {
-            return self._parse_binding_pattern();
+        var start = cur_ptr->range
+
+        var k = self.dyn()->resolve_kind_deep(cur_ptr)
+
+        /// # wildcard `_` (identifier whose text is exactly "_")
+        if k == TokenKind::LitIdentifier && self.dyn()->ctx->get_spelling(*cur_ptr) == "_" {
+            self.dyn()->advance()
+            return WildcardPattern::create(self.dyn()->ctx, start)
         }
 
-        // -- tuple `(p, ...)` : always a tuple at pattern start --------------
+        /// # binding `var x` / `const x` / `var x: T`
+        if k == TokenKind::KwVar || k == TokenKind::KwConst {
+            return self._parse_binding_pattern()
+        }
+
+        /// # tuple `(p, ...)` : always a tuple at pattern start
         if k == TokenKind::OpLParen {
-            return self._parse_tuple_pattern();
+            return self._parse_tuple_pattern()
         }
 
-        // -- slice `[...]` ----------------------------------------------------
+        /// # slice `[...]`
         if k == TokenKind::OpLSquare {
-            return self._parse_slice_pattern();
+            return self._parse_slice_pattern()
         }
 
-        // -- dotted constructor `.Variant` / `.Variant(...)` -----------------
-        // No lookup: the scrutinee type (a sema fact) selects the enum.
+        /// # dotted constructor `.Variant` / `.Variant(...)`
+        /// No lookup: the scrutinee type (a sema fact) selects the enum.
         if k == TokenKind::OpDot {
-            return self._parse_dotted_pattern();
+            return self._parse_dotted_pattern()
         }
 
-        // -- leading range with no lower bound `..hi` / `..=hi` --------------
-        if (k == TokenKind::OpRange) || (k == TokenKind::OpRangeEqual) {
-            return self._parse_open_lower_range(start);
+        /// # leading range with no lower bound `..hi` / `..=hi`
+        if k == TokenKind::OpRange || k == TokenKind::OpRangeEqual {
+            return self._parse_open_lower_range(start)
         }
 
-        // -- literal or path head: parse a primary lead, then disambiguate ---
-        // A `-` counts only directly before a numeric literal (`case -1`,
-        // `case -10..=-1`); before anything else it is still no pattern.
+        /// # literal or path head: parse a primary lead, then disambiguate
+        /// A `-` counts only directly before a numeric literal (`case -1`,
+        /// `case -10..=-1`); before anything else it is still no pattern.
         if self._starts_literal(k) || self._starts_path_head(k) || self._starts_negated_literal(k) {
-            return self._parse_primary_led_pattern(start);
+            return self._parse_primary_led_pattern(start)
         }
 
-        // -- nothing matched --------------------------------------------------
-        dyn()->diag->report(DiagID::S061E, start.start,
-            f"expected a pattern, found '{token_kind_to_readable_string(k)}\x27"
-        ).first(start).emit();
-        dyn()->advance(); // forward progress
-        return self._error_pattern(start);
+        /// # nothing matched
+        self.dyn()->diag->report(
+            DiagID::S061E,
+            start.start,
+            f"expected a pattern, found '{token_kind_to_readable_string(k)}'",
+        ).first(start)->emit()
+        self.dyn()->advance() // forward progress
+        return self._error_pattern(start)
     }
 
     //  Predicates
@@ -143,24 +174,37 @@ class <T> PatternParse {
             || k == TokenKind::LitChar
             || k == TokenKind::KwTrue
             || k == TokenKind::KwFalse
-            || k == TokenKind::LitNull;
+            || k == TokenKind::LitNull
     }
 
     /// `-` immediately followed by an integer or float literal.
     priv fn _starts_negated_literal(self, k: TokenKind) -> bool {
-        if k != TokenKind::OpMinus { return false; }
-        return dyn()->check_peek(TokenKind::LitInt) || dyn()->check_peek(TokenKind::LitFloat);
+        if k != TokenKind::OpMinus {
+            return false
+        }
+
+        return self.dyn()->check_peek(TokenKind::LitInt)
+            || self.dyn()->check_peek(TokenKind::LitFloat)
     }
 
     /// `-<literal>`: the prefix UnaryOperatorExpr ExprParse builds for `-1`,
     /// so PatternSpace's constant reading sees one shape whichever parser
     /// produced it.
-    priv fn _is_negated_literal(self, e: *Expr) -> bool {
-        if !isa::<UnaryOperatorExpr>(e) { return false; }
-        var u = cast::<UnaryOperatorExpr>(e);
-        if u->fix != UnaryOperatorExpr::Fix::Prefix { return false; }
-        if u->op_token.kind != TokenKind::OpMinus { return false; }
-        return isa::<IntegerLiteralExpr>(u->operand) || isa::<FloatingLiteralExpr>(u->operand);
+    priv fn _is_negated_literal(self, e: unsafe *Expr) -> bool {
+        if !isa<UnaryOperatorExpr>(e) {
+            return false
+        }
+
+        var unsafe *u = cast<UnaryOperatorExpr>(e)
+        if u->fix != UnaryOperatorExpr::Fix::Prefix {
+            return false
+        }
+
+        if u->op_token.kind != TokenKind::OpMinus {
+            return false
+        }
+
+        return isa<IntegerLiteralExpr>(u->operand) || isa<FloatingLiteralExpr>(u->operand)
     }
 
     /// path head: a bare identifier, a global-root `::`, or `self`. Builtins
@@ -169,201 +213,269 @@ class <T> PatternParse {
         return k == TokenKind::LitIdentifier
             || k == TokenKind::OpColonColon
             || k == TokenKind::KwSelf
-            || k == TokenKind::BiSelf;
+            || k == TokenKind::BiSelf
     }
 
-    priv fn _is_literal_expr(self, e: *Expr) -> bool {
-        return isa::<IntegerLiteralExpr>(e)
-            || isa::<FloatingLiteralExpr>(e)
-            || isa::<StringLiteralExpr>(e)
-            || isa::<CharacterLiteralExpr>(e)
-            || isa::<BooleanLiteralExpr>(e)
-            || isa::<NullLiteralExpr>(e);
+    priv fn _is_literal_expr(self, e: unsafe *Expr) -> bool {
+        return isa<IntegerLiteralExpr>(e)
+            || isa<FloatingLiteralExpr>(e)
+            || isa<StringLiteralExpr>(e)
+            || isa<CharacterLiteralExpr>(e)
+            || isa<BooleanLiteralExpr>(e)
+            || isa<NullLiteralExpr>(e)
     }
 
     //  Binding   `var x` | `const x` | `var x: T`
 
-    priv fn _parse_binding_pattern(self) -> *Pattern {
-        var start    = dyn()->current_ptr()->range;
-        var is_const = dyn()->check(TokenKind::KwConst);
-        dyn()->advance(); // consume var/const
-        dyn()->_reject_mode_binding();   // `case var @move n`: parameter-only.
+    priv fn _parse_binding_pattern(self) -> unsafe *Pattern {
+        var start    = self.dyn()->current_ptr()->range
+        var is_const = self.dyn()->check(TokenKind::KwConst)
+        self.dyn()->advance()              // consume var/const
+        self.dyn()->_reject_mode_binding() // `case var @move n`: parameter-only.
 
-        if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S062E, start.start,
-                "expected a binding name after 'var'/'const' in pattern"
-            ).first(start).emit();
-            return static_cast::<*Pattern>(
-                BindingPattern::create_error(dyn()->ctx, start | dyn()->prev().range));
+        if !self.dyn()->check(TokenKind::LitIdentifier) {
+            self.dyn()->diag->report(
+                DiagID::S062E,
+                start.start,
+                "expected a binding name after 'var'/'const' in pattern",
+            ).first(start)->emit()
+            return (BindingPattern::create_error(self.dyn()->ctx, start | self.dyn()->prev().range))
         }
-        var name = dyn()->current();
-        dyn()->advance();
 
-        var ty: *Type = &null;
-        if dyn()->check(TokenKind::OpColon) {
-            dyn()->advance(T::SkipNL::After); // consume `:`
-            var parsed = dyn()->parse_type();
-            if (parsed != &null) && (!is_recovery(parsed)) {
-                ty = parsed;
+        var name = self.dyn()->current()
+        self.dyn()->advance()
+
+        var ty: unsafe *Type = &null
+        if self.dyn()->check(TokenKind::OpColon) {
+            self.dyn()->advance(T::SkipNL::After) // consume `:`
+            var parsed = self.dyn()->parse_type()
+            if parsed != &null && !is_recovery(parsed) {
+                ty = parsed
             }
         }
 
-        var bp = BindingPattern::create(dyn()->ctx, start | dyn()->prev().range,
-                                        name, is_const, ty);
+        var bp = BindingPattern::create(
+            self.dyn()->ctx,
+            start | self.dyn()->prev().range,
+            name,
+            is_const,
+            ty,
+        )
+
         // A binder IS a declaration; give uses in the arm body something to
         // bind to (BindingPattern::decl). Patterns.k cannot construct this
         // itself without importing Declarations.k.
-        var storage = (StorageClass::Const) if (is_const) else (StorageClass::Var);
-        var vd      = VariableDecl::create(dyn()->ctx, bp->range, name, storage);
-        vd->type_   = ty;
-        bp->decl    = static_cast::<*Decl>(vd);
-        return static_cast::<*Pattern>(bp);
+        var storage = if (is_const) => (StorageClass::Const) else => StorageClass::Var
+        var vd      = VariableDecl::create(self.dyn()->ctx, bp->range, name, storage)
+        vd->type_ = ty
+        bp->decl  = vd
+        return bp
     }
 
     //  Tuple   `(p, p, ...)`
 
-    priv fn _parse_tuple_pattern(self) -> *Pattern {
-        var start = dyn()->current_ptr()->range;
-        dyn()->advance(T::SkipNL::After); // consume `(`
+    priv fn _parse_tuple_pattern(self) -> unsafe *Pattern {
+        var start = self.dyn()->current_ptr()->range
+        self.dyn()->advance(T::SkipNL::After) // consume `(`
 
-        if dyn()->check(TokenKind::OpRParen) {
-            dyn()->diag->report(DiagID::S062E, start.start,
-                "empty tuple pattern '()' is not allowed"
-            ).first(start).emit();
-            dyn()->advance(); // consume `)`
-            return static_cast::<*Pattern>(
-                TupleDestructurePattern::create_error(dyn()->ctx, start | dyn()->prev().range));
+        if self.dyn()->check(TokenKind::OpRParen) {
+            self.dyn()->diag->report(
+                DiagID::S062E,
+                start.start,
+                "empty tuple pattern '()' is not allowed",
+            ).first(start)->emit()
+            self.dyn()->advance() // consume `)`
+            return (TupleDestructurePattern::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
 
-        var elems: std::StackBuf::<*Pattern, 8>;
+        var elems: kairo::std::StackBuf<unsafe *Pattern, 8>
 
-        while !dyn()->is_eof() {
-            if dyn()->check(TokenKind::OpRParen) { break; }
+        while !self.dyn()->is_eof() {
+            if self.dyn()->check(TokenKind::OpRParen) {
+                break
+            }
 
-            var elem = self.parse_pattern();
+            var unsafe *elem = self.parse_pattern()
             if is_recovery(elem) {
-                self._sync_pattern_in_parens();
-                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                break;
-            }
-            elems.push_back(elem);
+                self._sync_pattern_in_parens()
+                if self.dyn()->check(TokenKind::OpComma) {
+                    self.dyn()->advance(T::SkipNL::After)
+                    continue
+                }
 
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
-                if dyn()->check(TokenKind::OpRParen) { break; } // trailing comma
-                continue;
+                break
             }
-            break;
+
+            elems.push_back(elem)
+
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
+                if self.dyn()->check(TokenKind::OpRParen) { // trailing comma
+                    break
+                }
+
+                continue
+            }
+
+            break
         }
 
-        if dyn()->check(TokenKind::OpRParen) {
-            dyn()->advance();
+        if self.dyn()->check(TokenKind::OpRParen) {
+            self.dyn()->advance()
         } else {
-            dyn()->diag->report(DiagID::S062E, start.start,
-                "expected ')' to close tuple pattern"
-            ).first(start).emit();
+            self.dyn()->diag->report(
+                DiagID::S062E,
+                start.start,
+                "expected ')' to close tuple pattern",
+            ).first(start)->emit()
         }
 
-        var node = TupleDestructurePattern::create(dyn()->ctx, start | dyn()->prev().range);
-        node->elements.from_buf(elems.data(), elems.size(), dyn()->ctx);
-        return static_cast::<*Pattern>(node);
+        var node = TupleDestructurePattern::create(
+            self.dyn()->ctx,
+            start | self.dyn()->prev().range,
+        )
+
+        node->elements.from_buf(elems.data(), elems.size(), self.dyn()->ctx)
+        return node
     }
 
     //  Slice   `[p, p, ..rest]` | `[p, .., p]` | `[.., p]` | `[p, p]`
 
-    priv fn _parse_slice_pattern(self) -> *Pattern {
-        var start = dyn()->current_ptr()->range;
-        dyn()->advance(T::SkipNL::After); // consume `[`
+    priv fn _parse_slice_pattern(self) -> unsafe *Pattern {
+        var start = self.dyn()->current_ptr()->range
+        self.dyn()->advance(T::SkipNL::After) // consume `[`
 
-        var prefix: std::StackBuf::<*Pattern, 8>;
-        var suffix: std::StackBuf::<*Pattern, 8>;
-        var seen_rest = false;
-        var rest_binding: *Pattern = &null;
+        var prefix:       kairo::std::StackBuf<unsafe *Pattern, 8>
+        var suffix:       kairo::std::StackBuf<unsafe *Pattern, 8>
+        var seen_rest                                              = false
+        var rest_binding: unsafe *Pattern                          = &null
 
-        while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRSquare)) {
+        while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRSquare) {
             // rest element: `..` or `..name`
-            if dyn()->check(TokenKind::OpRange) {
+            if self.dyn()->check(TokenKind::OpRange) {
                 if seen_rest {
-                    dyn()->report_tok(DiagID::S062E, dyn()->current_ptr(),
-                        "a slice pattern may contain at most one '..' rest element"
-                    );
-                    self._sync_pattern_in_square();
-                    break;
-                }
-                seen_rest = true;
-                var rest_start = dyn()->current_ptr()->range;
-                dyn()->advance(); // consume `..`
+                    self.dyn()->report_tok(
+                        DiagID::S062E,
+                        self.dyn()->current_ptr(),
+                        "a slice pattern may contain at most one '..' rest element",
+                    )
 
-                if dyn()->check(TokenKind::LitIdentifier) {
-                    var nm = dyn()->current();
-                    dyn()->advance();
-                    rest_binding = static_cast::<*Pattern>(
-                        BindingPattern::create(dyn()->ctx, rest_start | nm.range, nm, false, &null));
+                    self._sync_pattern_in_square()
+                    break
                 }
 
-                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); }
-                continue;
+                seen_rest = true
+                var rest_start = self.dyn()->current_ptr()->range
+                self.dyn()->advance() // consume `..`
+
+                if self.dyn()->check(TokenKind::LitIdentifier) {
+                    var nm = self.dyn()->current()
+                    self.dyn()->advance()
+                    rest_binding = (BindingPattern::create(
+                        self.dyn()->ctx,
+                        rest_start | nm.range,
+                        nm,
+                        false,
+                        &null,
+                    ))
+                }
+
+                if self.dyn()->check(TokenKind::OpComma) {
+                    self.dyn()->advance(T::SkipNL::After)
+                }
+
+                continue
             }
 
-            var elem = self.parse_pattern();
+            var unsafe *elem = self.parse_pattern()
             if is_recovery(elem) {
-                self._sync_pattern_in_square();
-                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                break;
+                self._sync_pattern_in_square()
+                if self.dyn()->check(TokenKind::OpComma) {
+                    self.dyn()->advance(T::SkipNL::After)
+                    continue
+                }
+
+                break
             }
 
-            if seen_rest { suffix.push_back(elem); }
-            else         { prefix.push_back(elem); }
-
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
-                continue;
+            if seen_rest {
+                suffix.push_back(elem)
+            } else {
+                prefix.push_back(elem)
             }
-            break;
+
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
+                continue
+            }
+
+            break
         }
 
-        if dyn()->check(TokenKind::OpRSquare) {
-            dyn()->advance();
+        if self.dyn()->check(TokenKind::OpRSquare) {
+            self.dyn()->advance()
         } else {
-            dyn()->diag->report(DiagID::S062E, start.start,
-                "expected ']' to close slice pattern"
-            ).first(start).emit();
+            self.dyn()->diag->report(
+                DiagID::S062E,
+                start.start,
+                "expected ']' to close slice pattern",
+            ).first(start)->emit()
         }
 
         var node = SlicePattern::create(
-            dyn()->ctx, start | dyn()->prev().range, seen_rest, rest_binding);
-        node->prefix.from_buf(prefix.data(), prefix.size(), dyn()->ctx);
-        node->suffix.from_buf(suffix.data(), suffix.size(), dyn()->ctx);
-        return static_cast::<*Pattern>(node);
+            self.dyn()->ctx,
+            start | self.dyn()->prev().range,
+            seen_rest,
+            rest_binding,
+        )
+
+        node->prefix.from_buf(prefix.data(), prefix.size(), self.dyn()->ctx)
+        node->suffix.from_buf(suffix.data(), suffix.size(), self.dyn()->ctx)
+        return node
     }
 
     //  Dotted constructor   `.Variant` / `.Variant(...)`
 
-    priv fn _parse_dotted_pattern(self) -> *Pattern {
-        var start = dyn()->current_ptr()->range;
-        dyn()->advance(); // consume `.`
+    priv fn _parse_dotted_pattern(self) -> unsafe *Pattern {
+        var start = self.dyn()->current_ptr()->range
+        self.dyn()->advance() // consume `.`
 
-        if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S062E, start.start,
-                "expected a variant name after '.' in pattern"
-            ).first(start).emit();
-            return static_cast::<*Pattern>(
-                ConstructorPattern::create_error(dyn()->ctx, start | dyn()->prev().range));
+        if !self.dyn()->check(TokenKind::LitIdentifier) {
+            self.dyn()->diag->report(
+                DiagID::S062E,
+                start.start,
+                "expected a variant name after '.' in pattern",
+            ).first(start)->emit()
+            return (ConstructorPattern::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
-        var variant = dyn()->current();
-        dyn()->advance();
 
-        var has_parens = false;
-        var subs: std::StackBuf::<*Pattern, 8>;
-        if dyn()->check(TokenKind::OpLParen) {
-            has_parens = true;
-            self._parse_ctor_payload(&subs);
+        var variant = self.dyn()->current()
+        self.dyn()->advance()
+
+        var has_parens                                          = false
+        var subs:      kairo::std::StackBuf<unsafe *Pattern, 8>
+        if self.dyn()->check(TokenKind::OpLParen) {
+            has_parens = true
+            self._parse_ctor_payload(&subs)
         }
 
         var node = ConstructorPattern::create(
-            dyn()->ctx, start | dyn()->prev().range, &null, variant, true, has_parens);
-        node->subpatterns.from_buf(subs.data(), subs.size(), dyn()->ctx);
-        return static_cast::<*Pattern>(node);
+            self.dyn()->ctx,
+            start | self.dyn()->prev().range,
+            &null,
+            variant,
+            true,
+            has_parens,
+        )
+
+        node->subpatterns.from_buf(subs.data(), subs.size(), self.dyn()->ctx)
+        return node
     }
 
     //  Primary-led: literal value, range, or path constructor
@@ -372,58 +484,78 @@ class <T> PatternParse {
     /// (`foo`, `A::B`, `Foo<T>`). parse_pattern_lead stops before postfix `(`
     /// and before `..`, so we peek after to choose range vs constructor vs bare.
     priv fn _parse_primary_led_pattern(self, start: SourceRange) -> *Pattern {
-        var lead = self._parse_lead();
-        if (lead == &null) || is_recovery(lead) {
-            return self._error_pattern(start | dyn()->prev().range);
+        var unsafe *lead = self._parse_lead()
+        if lead == &null || is_recovery(lead) {
+            return self._error_pattern(start | self.dyn()->prev().range)
         }
 
         // range: `lead .. hi` / `lead ..= hi`  (lead is the lower bound)
-        if dyn()->check(TokenKind::OpRange) || dyn()->check(TokenKind::OpRangeEqual) {
-            var inclusive = dyn()->check(TokenKind::OpRangeEqual);
-            dyn()->advance(T::SkipNL::After); // consume `..` / `..=`
-            var hi = self._parse_range_hi();
-            return static_cast::<*Pattern>(
-                RangePattern::create(dyn()->ctx, start | dyn()->prev().range, lead, hi, inclusive));
+        if self.dyn()->check(TokenKind::OpRange) || self.dyn()->check(TokenKind::OpRangeEqual) {
+            var inclusive = self.dyn()->check(TokenKind::OpRangeEqual)
+            self.dyn()->advance(T::SkipNL::After) // consume `..` / `..=`
+            var unsafe *hi = self._parse_range_hi()
+            return (RangePattern::create(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+                lead,
+                hi,
+                inclusive,
+            ))
         }
 
         // constructor with payload: `lead ( ... )`
-        if dyn()->check(TokenKind::OpLParen) {
-            var subs: std::StackBuf::<*Pattern, 8>;
-            self._parse_ctor_payload(&subs);
-            return self._build_ctor(start, lead, true, &subs);
+        if self.dyn()->check(TokenKind::OpLParen) {
+            var subs: kairo::std::StackBuf<unsafe *Pattern, 8>
+            self._parse_ctor_payload(&subs)
+            return self._build_ctor(start, lead, true, subs)
         }
 
         // bare literal value
         if self._is_literal_expr(lead) || self._is_negated_literal(lead) {
-            return static_cast::<*Pattern>(
-                LiteralPattern::create(dyn()->ctx, start | dyn()->prev().range, lead));
+            return (LiteralPattern::create(self.dyn()->ctx, start | self.dyn()->prev().range, lead))
         }
 
         // bare (nullary) path constructor / name
-        var empty: std::StackBuf::<*Pattern, 8>;
-        return self._build_ctor(start, lead, false, &empty);
+        var empty: kairo::std::StackBuf<unsafe *Pattern, 8>
+        return self._build_ctor(start, lead, false, empty)
     }
 
     /// The lead, or `-` over a numeric literal as one prefix UnaryOperatorExpr
     /// spanning both tokens (a literal value or a range's lower bound).
-    priv fn _parse_lead(self) -> *Expr {
-        var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
-        if !self._starts_negated_literal(k) { return dyn()->parse_pattern_lead(); }
-        var op_tok = dyn()->current();
-        dyn()->advance(); // consume `-`
-        var lit = dyn()->parse_pattern_lead();
-        if (lit == &null) || is_recovery(lit) { return lit; }
-        return static_cast::<*Expr>(UnaryOperatorExpr::create(
-            dyn()->ctx, op_tok.range | lit->range, lit, op_tok, UnaryOperatorExpr::Fix::Prefix));
+    priv fn _parse_lead(self) -> unsafe *Expr {
+        var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
+        if !self._starts_negated_literal(k) {
+            return self.dyn()->parse_pattern_lead()
+        }
+
+        var op_tok = self.dyn()->current()
+        self.dyn()->advance() // consume `-`
+        var lit = self.dyn()->parse_pattern_lead()
+        if lit == &null || is_recovery(lit) {
+            return lit
+        }
+
+        return ((UnaryOperatorExpr::create(
+            self.dyn()->ctx,
+            op_tok.range | lit->range,
+            lit,
+            op_tok,
+            UnaryOperatorExpr::Fix::Prefix,
+        )))
     }
 
     /// `..hi` / `..=hi` with no lower bound at pattern start.
     priv fn _parse_open_lower_range(self, start: SourceRange) -> *Pattern {
-        var inclusive = dyn()->check(TokenKind::OpRangeEqual);
-        dyn()->advance(T::SkipNL::After); // consume `..` / `..=`
-        var hi = self._parse_range_hi();
-        return static_cast::<*Pattern>(
-            RangePattern::create(dyn()->ctx, start | dyn()->prev().range, &null, hi, inclusive));
+        var inclusive = self.dyn()->check(TokenKind::OpRangeEqual)
+        self.dyn()->advance(T::SkipNL::After) // consume `..` / `..=`
+        var unsafe *hi = self._parse_range_hi()
+        return (RangePattern::create(
+            self.dyn()->ctx,
+            start | self.dyn()->prev().range,
+            &null,
+            hi,
+            inclusive,
+        ))
     }
 
     /// the upper bound of a range: a full runtime expression. Stop at the case
@@ -431,153 +563,210 @@ class <T> PatternParse {
     /// (`{` or `=>`). `where` and `=>` end the expr naturally (neither is an
     /// infix continuation). NoStructLiteral keeps `case 0..N { }` from reading
     /// `N { }` as a named initializer: the brace is the arm's block.
-    priv fn _parse_range_hi(self) -> *Expr {
-        if dyn()->is_eof() { return &null; }
+    priv fn _parse_range_hi(self) -> unsafe *Expr {
+        if self.dyn()->is_eof() {
+            return &null
+        }
+
         // an open-upper range `lo..` is followed by the arm body `{` / `=>`, a
         // guard `where`, the next alternative `,`, or end. None can start the
         // upper bound.
-        var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+        var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
         if k == TokenKind::OpLBrace
-        || k == TokenKind::OpFatArrow
-        || k == TokenKind::OpComma
-        || k == TokenKind::KwWhere
-        || k == TokenKind::TkNewLine {
-            return &null;   // genuinely open-ended `lo..`
+            || k == TokenKind::OpFatArrow
+            || k == TokenKind::OpComma
+            || k == TokenKind::KwWhere
+            || k == TokenKind::TkNewLine {
+            return &null // genuinely open-ended `lo..`
         }
-        var hi = dyn()->parse_expr(static_cast::<T::ExprStopKind>(
-            static_cast::<u8>(T::ExprStopKind::StopComma)
-          | static_cast::<u8>(T::ExprStopKind::StopBrace)
-          | static_cast::<u8>(T::ExprStopKind::NoStructLiteral)));
-        if (hi == &null) || is_recovery(hi) { return &null; }
-        return hi;
+
+        var hi = self.dyn()->parse_expr(
+            self.dyn()->stop_on(T::ExprStopKind::StopComma).plus(T::ExprStopKind::StopBrace).plus(
+                T::ExprStopKind::NoStructLiteral,
+            ),
+        )
+
+        if hi == &null || is_recovery(hi) {
+            return &null
+        }
+
+        return hi
     }
 
     /// shared hit/miss split for constructor patterns (paren + bare path).
-    priv fn _build_ctor(
-        self,
-        start:      SourceRange,
-        head:       *Expr,
-        has_parens: bool,
-        subs:       *std::StackBuf::<*Pattern, 8>
-    ) -> *Pattern {
+    priv fn _build_ctor(self,
+                        start:      SourceRange,
+                        head:       unsafe *Expr,
+                        has_parens: bool,
+                        const subs: kairo::std::StackBuf<unsafe *Pattern, 8>) -> *Pattern {
         if self._head_resolves(head) {
             var node = ConstructorPattern::create(
-                dyn()->ctx, start | dyn()->prev().range, head, Token(), false, has_parens);
-            node->subpatterns.from_buf(subs->data(), subs->size(), dyn()->ctx);
-            return static_cast::<*Pattern>(node);
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+                head,
+                Token(),
+                false,
+                has_parens,
+            )
+
+            node->subpatterns.from_buf(subs.data(), subs.size(), self.dyn()->ctx)
+            return node
         }
+
         var miss = UnresolvedConstructorPattern::create(
-            dyn()->ctx, start | dyn()->prev().range, head, has_parens);
-        miss->subpatterns.from_buf(subs->data(), subs->size(), dyn()->ctx);
-        return static_cast::<*Pattern>(miss);
+            self.dyn()->ctx,
+            start | self.dyn()->prev().range,
+            head,
+            has_parens,
+        )
+
+        miss->subpatterns.from_buf(subs.data(), subs.size(), self.dyn()->ctx)
+        return miss
     }
 
     /// SHALLOW hoisted lookup on the leading path segment. Hit -> the head is a
     /// known declaration (ConstructorPattern); miss -> unknown root, sema runs
     /// one resolve-or-error path (UnresolvedConstructorPattern). Full path
     /// resolution (does B live in A, is C a real variant) is sema's job.
-    priv fn _head_resolves(self, head: *Expr) -> bool {
-        var lead: *NamedIdentExpr = &null;
+    priv fn _head_resolves(self, head: unsafe *Expr) -> bool {
+        var lead: unsafe *NamedIdentExpr = &null
 
-        if isa::<NamedIdentExpr>(head) {
-            lead = cast::<NamedIdentExpr>(head);
-        } else if isa::<ChainExpr>(head) {
-            var ce = cast::<ChainExpr>(head);
+        if isa<NamedIdentExpr>(head) {
+            lead = cast<NamedIdentExpr>(head)
+        } else if isa<ChainExpr>(head) {
+            var unsafe *ce = cast<ChainExpr>(head)
             if ce->base != &null {
-                lead = ce->leading_name();          // base as NamedIdentExpr, or null
+                lead = ce->leading_name() // base as NamedIdentExpr, or null
             }
-            if (lead == &null) && (!ce->steps.is_empty()) {
-                lead = ce->steps.get(0)->name;      // global-root chain: first step
+
+            if lead == &null && !ce->steps.is_empty() {
+                lead = ce->steps.get(0)->name // global-root chain: first step
             }
         }
 
-        if lead == &null { return false; }
+        if lead == &null {
+            return false
+        }
+
         // `Self` is not a table name; it is always a resolvable head (the
         // enclosing type), and sema owns the "outside a type body" error.
-        if lead->name.kind == TokenKind::BiSelf { return true; }
+        if lead->name.kind == TokenKind::BiSelf {
+            return true
+        }
 
         // is_type(), NOT found(): the table also stores value entries (vars,
         // functions) as negative evidence for `<` disambiguation, and a
         // global value name must never flip a bare binding pattern into a
         // constructor head. Constructor heads are types/variants only.
-        return dyn()->ctx->hoisted->lookup_tok(lead->name).is_type();
+        return self.dyn()->ctx->hoisted->lookup_tok(lead->name).is_type()
     }
 
     //  Constructor payload   `( p (, p)* ,? )`
 
     /// precondition: current is `(`. Consumes through the matching `)`.
-    priv fn _parse_ctor_payload(self, out: *std::StackBuf::<*Pattern, 8>) {
-        var lparen = dyn()->current_ptr()->range;
-        dyn()->advance(T::SkipNL::After); // consume `(`
+    priv fn _parse_ctor_payload(self, @inout out: kairo::std::StackBuf<unsafe *Pattern, 8>) {
+        var lparen = self.dyn()->current_ptr()->range
+        self.dyn()->advance(T::SkipNL::After) // consume `(`
 
-        if dyn()->check(TokenKind::OpRParen) {
-            dyn()->advance(); // empty payload `Foo()`
-            return;
+        if self.dyn()->check(TokenKind::OpRParen) {
+            self.dyn()->advance() // empty payload `Foo()`
+            return
         }
 
-        while !dyn()->is_eof() {
-            if dyn()->check(TokenKind::OpRParen) { break; }
+        while !self.dyn()->is_eof() {
+            if self.dyn()->check(TokenKind::OpRParen) {
+                break
+            }
 
-            var p = self.parse_pattern();
+            var unsafe *p = self.parse_pattern()
             if is_recovery(p) {
-                self._sync_pattern_in_parens();
-                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                break;
-            }
-            out->push_back(p);
+                self._sync_pattern_in_parens()
+                if self.dyn()->check(TokenKind::OpComma) {
+                    self.dyn()->advance(T::SkipNL::After)
+                    continue
+                }
 
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
-                if dyn()->check(TokenKind::OpRParen) { break; } // trailing comma
-                continue;
+                break
             }
-            break;
+
+            out.push_back(p)
+
+            if self.dyn()->check(TokenKind::OpComma) {
+                self.dyn()->advance(T::SkipNL::After)
+                if self.dyn()->check(TokenKind::OpRParen) { // trailing comma
+                    break
+                }
+
+                continue
+            }
+
+            break
         }
 
-        if dyn()->check(TokenKind::OpRParen) {
-            dyn()->advance();
+        if self.dyn()->check(TokenKind::OpRParen) {
+            self.dyn()->advance()
         } else {
-            dyn()->diag->report(DiagID::S062E, lparen.start,
-                "expected ')' to close constructor pattern payload"
-            ).first(lparen).emit();
+            self.dyn()->diag->report(
+                DiagID::S062E,
+                lparen.start,
+                "expected ')' to close constructor pattern payload",
+            ).first(lparen)->emit()
         }
     }
 
     //  Recovery
 
     priv fn _sync_pattern_in_parens(self) {
-        var depth: i32 = 0;
-        var iters: u32 = 0;
-        const var MAX: u32 = 128;
-        while (!dyn()->is_eof()) && iters < MAX {
-            ++iters;
-            var k = dyn()->ig_kind();
-            if k == TokenKind::OpLParen || k == TokenKind::OpLSquare { ++depth; }
-            else if k == TokenKind::OpRParen {
-                if depth == 0 { return; }
-                --depth;
+        var   depth: i32 = 0
+        var   iters: u32 = 0
+        const MAX:   u32 = 128
+        while !self.dyn()->is_eof() && iters < MAX {
+            ++iters
+            var k = self.dyn()->ig_kind()
+            if k == TokenKind::OpLParen || k == TokenKind::OpLSquare {
+                ++depth
+            } else if k == TokenKind::OpRParen {
+                if depth == 0 {
+                    return
+                }
+
+                --depth
+            } else if k == TokenKind::OpRSquare {
+                if depth > 0 {
+                    --depth
+                }
+            } else if depth == 0 && k == TokenKind::OpComma {
+                return
             }
-            else if k == TokenKind::OpRSquare { if depth > 0 { --depth; } }
-            else if depth == 0 && k == TokenKind::OpComma { return; }
-            dyn()->advance();
+
+            self.dyn()->advance()
         }
     }
 
     priv fn _sync_pattern_in_square(self) {
-        var depth: i32 = 0;
-        var iters: u32 = 0;
-        const var MAX: u32 = 128;
-        while (!dyn()->is_eof()) && iters < MAX {
-            ++iters;
-            var k = dyn()->ig_kind();
-            if k == TokenKind::OpLSquare || k == TokenKind::OpLParen { ++depth; }
-            else if k == TokenKind::OpRSquare {
-                if depth == 0 { return; }
-                --depth;
+        var   depth: i32 = 0
+        var   iters: u32 = 0
+        const MAX:   u32 = 128
+        while !self.dyn()->is_eof() && iters < MAX {
+            ++iters
+            var k = self.dyn()->ig_kind()
+            if k == TokenKind::OpLSquare || k == TokenKind::OpLParen {
+                ++depth
+            } else if k == TokenKind::OpRSquare {
+                if depth == 0 {
+                    return
+                }
+
+                --depth
+            } else if k == TokenKind::OpRParen {
+                if depth > 0 {
+                    --depth
+                }
+            } else if depth == 0 && k == TokenKind::OpComma {
+                return
             }
-            else if k == TokenKind::OpRParen { if depth > 0 { --depth; } }
-            else if depth == 0 && k == TokenKind::OpComma { return; }
-            dyn()->advance();
+
+            self.dyn()->advance()
         }
     }
 }

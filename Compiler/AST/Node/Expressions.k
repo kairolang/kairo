@@ -1,12 +1,13 @@
 /// --- The Kairo Project ----------------------- AST/Node/Expressions.k --- ///
 ///
-///   <short description>
+///   Compound expression AST nodes: calls, operators, literals with elements,
+///   control-flow, casts, closures and the like.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -25,13 +26,46 @@
 /// DO NOT allocate a bare Expr and set recovery_kindthe cast will
 /// read out of bounds. Always use the concrete node's create_error().
 ///
-import AST::Node::Base::*;
-import AST::Node::Casting::*;
-import AST::Node::PrimaryExpressions::*;
-import AST::Node::Types::*;
-import AST::Context::ASTContext::*;
-import AST::ASTSupport::*;
-import AST::LangItems::*;
+ffi "c++" import "Native/Types.hh"
+
+import AST::ASTSupport::{
+    FrozenList,
+    create_empty_frozen_list,
+}
+import AST::Context::ASTContext::ASTContext
+import AST::Context::InstantiationRegistry::{
+    ConformanceRow,
+    InstanceEntry,
+}
+import AST::Kind::ExprKind::ExprKind
+import AST::LangItems::LangIntrinsics
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Type,
+}
+import AST::Node::Casting::{
+    cast,
+    isa,
+}
+import AST::Node::Declarations::{
+    FnBodyKind,
+    FnModifier,
+    GenericParamDecl,
+    PanicSetState,
+    ParamDecl,
+}
+import AST::Node::PrimaryExpressions::{
+    ChainExpr,
+    NamedIdentExpr,
+}
+import AST::Node::Statements::{
+    CompoundStmt,
+    MatchCase,
+}
+import Location::SourceRange::SourceRange
+import Token::Token::Token
+import Token::TokenKind::TokenKind
 
 ///
 ///  CallExpr
@@ -46,12 +80,12 @@ import AST::LangItems::*;
 ///    (get_fn())(x)            callee=CallExpr(get_fn, [])
 ///    arr[0](x)                callee=SubscriptExpr(arr, 0)
 ///
-class CallExpr derives Expr {
+pub class CallExpr derives Expr {
     /// the expression being called.
-    pub var callee: *Expr;
+    pub var callee: unsafe *Expr
 
     /// the argument list. empty for no-arg calls like `foo()`.
-    pub var args:   FrozenList::<*Expr>;
+    pub var args: FrozenList<unsafe *Expr>
 
     /// Parallel to the CALLEE'S PARAMETERS (`f->params`, `self` included and
     /// occupying slot 0 on a method): the index into `args` of the argument
@@ -63,23 +97,29 @@ class CallExpr derives Expr {
     /// reorders from -- the argument order at the call site is the user's, the
     /// order C++ needs is the parameter list's, and nothing downstream should
     /// have to re-derive the mapping between them.
-    pub var arg_map:  FrozenList::<i32>;
-    pub var pack_len: u32 = 0;
+    pub var arg_map:  FrozenList<i32>
+    pub var pack_len: u32             = 0
 
-    /// A generic callee's registry entry (`*InstanceEntry`, stored as `*void`
-    /// like Decl::semantic_dc): written by CallTyping at Selected, copied by
+    /// A generic callee's registry entry: written by CallTyping at Selected, copied by
     /// OperatorLowering onto the calls it mints. EmitIR spells the instance's
     /// arguments explicitly from it: clang deducing them from the emitted
     /// argument expressions is headroom, and an argument whose C++ type is not
     /// its Kairo type (an int literal typed i64) deduces an instance nobody
     /// homed.
-    pub var instance: *void = &null;
+    pub var instance: unsafe *InstanceEntry = &null
 
     /// A constructor call's selected constructor. The callee names the TYPE
     /// (EmitIR spells the type from `type_`), so without this nothing after X
     /// knows which ctor `arg_map` is parallel to. Written by
     /// CallTyping::_ctor_call at Selected.
-    pub var ctor_decl: *Decl = &null;
+    pub var ctor_decl: unsafe *Decl = &null
+
+    /// A call of a C++ function object, `f(args)` with `f` a value whose
+    /// class has `operator()`: the selected operator, which `arg_map` is
+    /// parallel to (its `self` is the callee object). EmitIR writes the
+    /// call as written and clang picks the same operator. Written by
+    /// CallTyping::_functor_call at Selected.
+    pub var functor_op: unsafe *Decl = &null
 
     /// The record a static-member callee is named THROUGH, when that record
     /// is a generic one's instance, so EmitIR spells `Box<int>::zero()`
@@ -88,18 +128,18 @@ class CallExpr derives Expr {
     /// (the instance's arguments are on the qualifier and nowhere else), and
     /// CallLowering on a default-thunk call whose owner is generic
     /// (`Box<int>::__kairo_default_m_x()`). Null everywhere else.
-    pub var qualifier: *Type = &null;
+    pub var qualifier: unsafe *Type = &null
 
     /// An f-string hole whose value's type only an instance knows
     /// (FormatHole::deferred): `::__kairo_fmt_put(buf, value, name, len,
     /// spec)`, the preamble template that picks the put per instance
     /// (LowerTargets::fmt_dyn). The callee is a placeholder name bound to
     /// nothing. One writer, FStringLowering; one reader, EmitIR.
-    pub var fmt_dyn: bool = false;
+    pub var fmt_dyn: bool = false
 
     /// A call bound to an interface REQUIREMENT (its callee's `semantic_dc`
     /// owner an InterfaceDecl) goes through that interface's witness,
-    /// `::N::I_witness<Self, A...>::m(recv, ...)` (CODEGEN.md §7b.5).
+    /// `::N::I_witness<Self, A...>::m(recv, ...)` (Compiler/Spec/Witnesses.md#call-sites).
     /// Written by ExtensionLowering when it puts the receiver in front:
     /// `witness_iface` is the canonical instance of the DECLARING interface,
     /// `witness_self` the canonical Self (a dependent `T` in a generic body).
@@ -108,13 +148,13 @@ class CallExpr derives Expr {
     /// CallTyping writes the qualifier there, the only place a generic
     /// interface's arguments are, and ConformanceChecking narrows it to the
     /// bound it names before ExtensionLowering reads it.
-    pub var witness_iface: *Type = &null;
-    pub var witness_self:  *Type = &null;
+    pub var witness_iface: unsafe *Type = &null
+    pub var witness_self:  unsafe *Type = &null
     /// A qualified requirement call on a CONCRETE Self (`I::m(x)` with x a
-    /// Metric) names no instance to carry its row, so the call carries it:
-    /// `*ConformanceRow`, as `*void` like `instance`. Written by
-    /// ConformanceChecking; EmitPlan admits its specialization from it.
-    pub var witness_row:   *void = &null;
+    /// Metric) names no instance to carry its row, so the call carries it.
+    /// Written by ConformanceChecking; EmitPlan admits its specialization
+    /// from it.
+    pub var witness_row: unsafe *ConformanceRow = &null
 
     /// A generic callee's arguments when they are still DEPENDENT, so no
     /// instance exists yet (`inner(Wrap<T>{...})` inside `outer<T>`): what
@@ -122,78 +162,75 @@ class CallExpr derives Expr {
     /// generic, to reach the instances its body needs (M1's transitive
     /// registry, for the witness rows). Written by CallTyping; empty
     /// whenever `instance` is set.
-    pub var dep_args: FrozenList::<*Type>;
+    pub var dep_args: FrozenList<unsafe *Type>
 
-    /// `x?.f(args)` (NULLABLE.md 2.5): the call's OWN result `R`, while the
+    /// `x?.f(args)` (Compiler/Spec/Nullables.md#safe-access): the call's OWN result `R`, while the
     /// node is typed what the whole expression is (`R?`, or `R` when it is
     /// already nullable; `void` for a `void` or `-> !` method). Written by
     /// CallTyping; read by CoalesceLowering, whose then-arm is the call
     /// typed `R`. Null on every other call.
-    pub var safe_result: *Type = &null;
+    pub var safe_result: unsafe *Type = &null
 
     /// `x in xs` through a user `op in`: the call's operand zero (`xs`, the
     /// receiver, or a free operator's first argument) is the source's RIGHT
     /// operand, evaluated after the other. Written by OperatorLowering;
     /// SequenceLowering binds `x` first when the order is observable.
-    pub var recv_last: bool = false;
+    pub var recv_last: bool = false
 
-    static fn create(
-        ctx:    *ASTContext,
-        range:  SourceRange,
-        callee: *Expr
-    ) -> *CallExpr {
-        var node     = ctx->alloc::<CallExpr>();
-        node->kind   = ExprKind::CallExpr;
-        node->range  = range;
-        node->callee = callee;
-        node->pack_len = 0;
-        node->arg_map  = create_empty_frozen_list::<i32>();   // a minted call is positional; nothing may read an unset list.
-        node->instance = &null;
-        node->ctor_decl = &null;
-        node->qualifier = &null;
-        node->witness_iface = &null;
-        node->witness_self  = &null;
-        node->witness_row   = &null;
-        node->dep_args      = create_empty_frozen_list::<*Type>();
-        node->safe_result   = &null;
-        node->recv_last     = false;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:    unsafe *ASTContext,
+                         range:  SourceRange,
+                         callee: unsafe *Expr) -> unsafe *CallExpr {
+        var unsafe *node = ctx->alloc<CallExpr>()
+        node->kind          = ExprKind::CallExpr
+        node->range         = range
+        node->callee        = callee
+        node->pack_len      = 0
+        node->arg_map       = create_empty_frozen_list<i32>() // a minted call is positional; nothing may read an unset list.
+        node->instance      = &null
+        node->ctor_decl     = &null
+        node->functor_op    = &null
+        node->qualifier     = &null
+        node->witness_iface = &null
+        node->witness_self  = &null
+        node->witness_row   = &null
+        node->dep_args      = create_empty_frozen_list<unsafe *Type>()
+        node->safe_result   = &null
+        node->recv_last     = false
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *CallExpr {
-        var node            = ctx->alloc::<CallExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::CallExpr;
-        node->range         = range;
-        node->callee        = &null;
-        node->pack_len      = 0;
-        node->arg_map       = create_empty_frozen_list::<i32>();   // a minted call is positional; nothing may read an unset list.
-        node->instance      = &null;
-        node->ctor_decl     = &null;
-        node->qualifier     = &null;
-        node->witness_iface = &null;
-        node->witness_self  = &null;
-        node->witness_row   = &null;
-        node->dep_args      = create_empty_frozen_list::<*Type>();
-        node->recv_last     = false;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *CallExpr {
+        var unsafe *node = ctx->alloc<CallExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::CallExpr
+        node->range         = range
+        node->callee        = &null
+        node->pack_len      = 0
+        node->arg_map       = create_empty_frozen_list<i32>() // a minted call is positional; nothing may read an unset list.
+        node->instance      = &null
+        node->ctor_decl     = &null
+        node->functor_op    = &null
+        node->qualifier     = &null
+        node->witness_iface = &null
+        node->witness_self  = &null
+        node->witness_row   = &null
+        node->dep_args      = create_empty_frozen_list<unsafe *Type>()
+        node->recv_last     = false
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::CallExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::CallExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::CallExpr;
+        return ExprKind::CallExpr
     }
 
     fn arg_count(self) -> usize {
-        return self.args.size();
+        return self.args.size()
     }
 }
 
@@ -206,47 +243,42 @@ class CallExpr derives Expr {
 /// reader of an argument list to recognise that shape and step around the lhs.
 /// Placement (CallTyping) reads `name`; everything else reads `value`.
 ///
-class NamedArgExpr derives Expr {
+pub class NamedArgExpr derives Expr {
     /// the parameter name written at the call site.
-    pub var name:  Token;
+    pub var name: Token
 
     /// the argument value.
-    pub var value: *Expr;
+    pub var value: unsafe *Expr
 
-    static fn create(
-        ctx:   *ASTContext,
-        range: SourceRange,
-        name:  Token,
-        value: *Expr
-    ) -> *NamedArgExpr {
-        var node    = ctx->alloc::<NamedArgExpr>();
-        node->kind  = ExprKind::NamedArgExpr;
-        node->range = range;
-        node->name  = name;
-        node->value = value;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:   *ASTContext,
+                         range: SourceRange,
+                         name:  Token,
+                         value: unsafe *Expr) -> unsafe *NamedArgExpr {
+        var unsafe *node = ctx->alloc<NamedArgExpr>()
+        node->kind  = ExprKind::NamedArgExpr
+        node->range = range
+        node->name  = name
+        node->value = value
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *NamedArgExpr {
-        var node            = ctx->alloc::<NamedArgExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::NamedArgExpr;
-        node->range         = range;
-        node->value         = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *NamedArgExpr {
+        var unsafe *node = ctx->alloc<NamedArgExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::NamedArgExpr
+        node->range         = range
+        node->value         = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::NamedArgExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::NamedArgExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::NamedArgExpr;
+        return ExprKind::NamedArgExpr
     }
 }
 
@@ -261,122 +293,111 @@ class NamedArgExpr derives Expr {
 ///    arr[..3]     slice from start
 ///    mat[i][j]    nested: base is another SubscriptExpr
 ///
-class SubscriptExpr derives Expr {
+pub class SubscriptExpr derives Expr {
     /// the expression being indexed.
-    pub var base:  *Expr;
+    pub var base: unsafe *Expr
 
     /// the index or range expression inside the brackets.
-    pub var index: *Expr;
+    pub var index: unsafe *Expr
 
     /// The user operator overload resolution selected, or null for a builtin
     /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),
     /// read by OperatorLowering, which rewrites the node into the call.
-    pub var resolved_op: *Decl = &null;
-    pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+    pub var resolved_op: unsafe *Decl = &null
+    pub var op_via_free: bool         = false ///< a free `op` found by ADL (every operand is an argument).
     /// The registry entry of a GENERIC `op []`'s instance (a member
     /// template's, or a bound's generic requirement), as on
-    /// BinaryOperatorExpr. `*InstanceEntry`, stored as `*void`.
-    pub var op_instance: *void = &null;
+    /// BinaryOperatorExpr.
+    pub var op_instance: unsafe *InstanceEntry = &null
 
-    static fn create(
-        ctx:   *ASTContext,
-        range: SourceRange,
-        base:  *Expr,
-        index: *Expr
-    ) -> *SubscriptExpr {
-        var node    = ctx->alloc::<SubscriptExpr>();
-        node->kind  = ExprKind::SubscriptExpr;
-        node->range = range;
-        node->base  = base;
-        node->index = index;
-        node->resolved_op = &null;
-        node->op_via_free = false;
-        node->op_instance = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:   unsafe *ASTContext,
+                         range: SourceRange,
+                         base:  unsafe *Expr,
+                         index: unsafe *Expr) -> unsafe *SubscriptExpr {
+        var unsafe *node = ctx->alloc<SubscriptExpr>()
+        node->kind        = ExprKind::SubscriptExpr
+        node->range       = range
+        node->base        = base
+        node->index       = index
+        node->resolved_op = &null
+        node->op_via_free = false
+        node->op_instance = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *SubscriptExpr {
-        var node            = ctx->alloc::<SubscriptExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::SubscriptExpr;
-        node->range         = range;
-        node->base          = &null;
-        node->index         = &null;
-        node->resolved_op   = &null;
-        node->op_via_free   = false;
-        node->op_instance   = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *SubscriptExpr {
+        var unsafe *node = ctx->alloc<SubscriptExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::SubscriptExpr
+        node->range         = range
+        node->base          = &null
+        node->index         = &null
+        node->resolved_op   = &null
+        node->op_via_free   = false
+        node->op_instance   = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::SubscriptExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::SubscriptExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::SubscriptExpr;
+        return ExprKind::SubscriptExpr
     }
 }
 
 /// Where a Slice-typed list literal's backing array lives. X decides;
 /// ListLiteralLowering renders.
-enum ListStorage derives u8 {
-    FullExpr = 0,   ///< a temporary: dies at the end of the full-expression.
-    Extended,       ///< a named local in the scope of the `var` it initializes.
+pub enum ListStorage derives u8 {
+    FullExpr = 0, ///< a temporary: dies at the end of the full-expression.
+    Extended,     ///< a named local in the scope of the `var` it initializes.
 }
 
 ///
 ///  ListLiteralExpr
 ///  [1, 2, 3]
 ///
-class ListLiteralExpr derives Expr {
-    pub var elements: FrozenList::<*Expr>;
+pub class ListLiteralExpr derives Expr {
+    pub var elements: FrozenList<unsafe *Expr>
 
     /// Written by X (LiteralTyping / StmtTyping), read by ListLiteralLowering.
     /// The TARGET is `type_` itself: `[T; N]`, Slice or Vector.
-    pub var storage:    ListStorage = ListStorage::FullExpr;
-    pub var slice_ctor: *Decl = &null;   ///< Slice(data, len); set for a Slice or non-empty Vector target.
-    pub var owner_ctor: *Decl = &null;   ///< Vector(items), or Vector() when empty; set for a Vector target.
+    pub var storage:    ListStorage  = ListStorage::FullExpr
+    pub var slice_ctor: unsafe *Decl = &null ///< Slice(data, len); set for a Slice or non-empty Vector target.
+    pub var owner_ctor: unsafe *Decl = &null ///< Vector(items), or Vector() when empty; set for a Vector target.
 
-    static fn create(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *ListLiteralExpr {
-        var node    = ctx->alloc::<ListLiteralExpr>();
-        node->kind  = ExprKind::ListLiteralExpr;
-        node->range = range;
-        node->storage    = ListStorage::FullExpr;
-        node->slice_ctor = &null;
-        node->owner_ctor = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx: unsafe *ASTContext, range: SourceRange) -> unsafe *ListLiteralExpr {
+        var unsafe *node = ctx->alloc<ListLiteralExpr>()
+        node->kind       = ExprKind::ListLiteralExpr
+        node->range      = range
+        node->storage    = ListStorage::FullExpr
+        node->slice_ctor = &null
+        node->owner_ctor = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *ListLiteralExpr {
-        var node            = ctx->alloc::<ListLiteralExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::ListLiteralExpr;
-        node->range         = range;
-        node->storage       = ListStorage::FullExpr;
-        node->slice_ctor    = &null;
-        node->owner_ctor    = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *ListLiteralExpr {
+        var unsafe *node = ctx->alloc<ListLiteralExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::ListLiteralExpr
+        node->range         = range
+        node->storage       = ListStorage::FullExpr
+        node->slice_ctor    = &null
+        node->owner_ctor    = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::ListLiteralExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::ListLiteralExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::ListLiteralExpr;
+        return ExprKind::ListLiteralExpr
     }
 }
 
@@ -384,26 +405,23 @@ class ListLiteralExpr derives Expr {
 ///  InitListExpr
 ///  { a, b, c }   -- the C++ braced-init-list. Lower/ mints it; nothing parses into it.
 ///
-class InitListExpr derives Expr {
-    pub var elements: FrozenList::<*Expr>;
+pub class InitListExpr derives Expr {
+    pub var elements: FrozenList<unsafe *Expr>
 
-    static fn create(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *InitListExpr {
-        var node    = ctx->alloc::<InitListExpr>();
-        node->kind  = ExprKind::InitListExpr;
-        node->range = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx: unsafe *ASTContext, range: SourceRange) -> unsafe *InitListExpr {
+        var unsafe *node = ctx->alloc<InitListExpr>()
+        node->kind  = ExprKind::InitListExpr
+        node->range = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::InitListExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::InitListExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::InitListExpr;
+        return ExprKind::InitListExpr
     }
 }
 
@@ -411,36 +429,34 @@ class InitListExpr derives Expr {
 ///  StmtExpr
 ///  ({ s0; s1; e; })   -- the value is the last statement, an ExpressionStmt.
 ///
-class StmtExpr derives Expr {
-    pub var body: *CompoundStmt;
+pub class StmtExpr derives Expr {
+    pub var body: unsafe *CompoundStmt
     /// A `try` expression's arm that LEAVES instead of producing a value:
-    /// `catch => return v`, `=> break`, `=> continue` (PANIC.md §3.2). The
+    /// `catch => return v`, `=> break`, `=> continue` (Compiler/Spec/Panic.md#try-and-arms). The
     /// body is exactly that one jump statement, with no trailing value; the
     /// expression has type `!`, so it fits beside arms of any type. The
     /// parser writes it (ExprParse::_parse_jump_arm); PanicLowering renders
     /// it (a `return` inside a GNU statement expression returns from the
     /// enclosing function, §4.5a E).
-    pub var is_jump: bool = false;
+    pub var is_jump: bool = false
 
-    static fn create(
-        ctx:   *ASTContext,
-        range: SourceRange,
-        body:  *CompoundStmt
-    ) -> *StmtExpr {
-        var node    = ctx->alloc::<StmtExpr>();
-        node->kind  = ExprKind::StmtExpr;
-        node->range = range;
-        node->body  = body;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:   unsafe *ASTContext,
+                         range: SourceRange,
+                         body:  unsafe *CompoundStmt) -> unsafe *StmtExpr {
+        var unsafe *node = ctx->alloc<StmtExpr>()
+        node->kind  = ExprKind::StmtExpr
+        node->range = range
+        node->body  = body
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::StmtExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::StmtExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::StmtExpr;
+        return ExprKind::StmtExpr
     }
 }
 
@@ -455,68 +471,63 @@ class StmtExpr derives Expr {
 ///  plain enum's variant never becomes one: it is a value, and its `.V` is
 ///  lowered to the enumerator's name.
 ///
-class VariantInitExpr derives Expr {
+pub class VariantInitExpr derives Expr {
     /// The pattern EnumDecl: a `*Decl`, as every decl link in this file is.
-    pub var en:           *Decl = &null;
-    pub var variant:      u32   = 0;               ///< position in en->variants.
-    pub var fields:       FrozenList::<*Expr>;     ///< declaration order; empty for a nullary variant.
-    pub var source_order: FrozenList::<u32>;       ///< parallel to fields.
+    pub var en:           unsafe *Decl             = &null
+    pub var variant:      u32                      = 0 ///< position in en->variants.
+    pub var fields:       FrozenList<unsafe *Expr> ///< declaration order; empty for a nullary variant.
+    pub var source_order: FrozenList<u32> ///< parallel to fields.
     /// A generic ADT's variant (AdtCtorForm::Both): this site's instance is
     /// concrete and every field moves, so the field constructor is called.
     /// Otherwise the lambda one, which every such variant has. One writer:
     /// EnumLayoutLowering.
-    pub var field_ctor:   bool = false;
+    pub var field_ctor: bool = false
     /// A pack-expanded variant's construction: the pack element built
     /// (`variant`'s expanded index is variant + pack_index) and its type,
     /// what the payload's pack-typed fields hold. -1 / null otherwise.
-    pub var pack_index:   i32   = -1;
-    pub var pack_elem:    *Type = &null;
+    pub var pack_index: i32          = -1
+    pub var pack_elem:  unsafe *Type = &null
     /// A lang item with a site slot (EnumDecl::adt_site_field: the Panic
-    /// lang item's u32 beside the tag, PANIC.md §1.4): the site id this
+    /// lang item's u32 beside the tag, Compiler/Spec/Panic.md#site-ids): the site id this
     /// construction stores there, in the same word as the tag. 0 stores
     /// none. One writer: PanicLowering (a `panic X`).
-    pub var site:         u32   = 0;
+    pub var site: u32 = 0
 
-    static fn create(
-        ctx:     *ASTContext,
-        range:   SourceRange,
-        en:      *Decl,
-        variant: u32
-    ) -> *VariantInitExpr {
-        var node           = ctx->alloc::<VariantInitExpr>();
-        node->kind         = ExprKind::VariantInitExpr;
-        node->range        = range;
-        node->en           = en;
-        node->variant      = variant;
-        node->fields       = create_empty_frozen_list::<*Expr>();
-        node->source_order = create_empty_frozen_list::<u32>();
-        node->field_ctor   = false;
-        node->init_annotations(&(ctx->ast_alloc));
-        return node;
+    pub static fn create(ctx:     unsafe *ASTContext,
+                         range:   SourceRange,
+                         en:      unsafe *Decl,
+                         variant: u32) -> unsafe *VariantInitExpr {
+        var unsafe *node = ctx->alloc<VariantInitExpr>()
+        node->kind         = ExprKind::VariantInitExpr
+        node->range        = range
+        node->en           = en
+        node->variant      = variant
+        node->fields       = create_empty_frozen_list<unsafe *Expr>()
+        node->source_order = create_empty_frozen_list<u32>()
+        node->field_ctor   = false
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *VariantInitExpr {
-        var node            = ctx->alloc::<VariantInitExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::VariantInitExpr;
-        node->range         = range;
-        node->en            = &null;
-        node->variant       = 0;
-        node->fields        = create_empty_frozen_list::<*Expr>();
-        node->source_order  = create_empty_frozen_list::<u32>();
-        node->init_annotations(&(ctx->ast_alloc));
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *VariantInitExpr {
+        var unsafe *node = ctx->alloc<VariantInitExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::VariantInitExpr
+        node->range         = range
+        node->en            = &null
+        node->variant       = 0
+        node->fields        = create_empty_frozen_list<unsafe *Expr>()
+        node->source_order  = create_empty_frozen_list<u32>()
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::VariantInitExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::VariantInitExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::VariantInitExpr;
+        return ExprKind::VariantInitExpr
     }
 }
 
@@ -524,38 +535,32 @@ class VariantInitExpr derives Expr {
 ///  TupleLiteralExpr
 ///  (1, "two", 3.0)
 ///
-class TupleLiteralExpr derives Expr {
-    pub var elements: FrozenList::<*Expr>;
+pub class TupleLiteralExpr derives Expr {
+    pub var elements: FrozenList<unsafe *Expr>
 
-    static fn create(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *TupleLiteralExpr {
-        var node    = ctx->alloc::<TupleLiteralExpr>();
-        node->kind  = ExprKind::TupleLiteralExpr;
-        node->range = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx: *ASTContext, range: SourceRange) -> unsafe *TupleLiteralExpr {
+        var unsafe *node = ctx->alloc<TupleLiteralExpr>()
+        node->kind  = ExprKind::TupleLiteralExpr
+        node->range = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *TupleLiteralExpr {
-        var node            = ctx->alloc::<TupleLiteralExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::TupleLiteralExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *TupleLiteralExpr {
+        var unsafe *node = ctx->alloc<TupleLiteralExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::TupleLiteralExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::TupleLiteralExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::TupleLiteralExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::TupleLiteralExpr;
+        return ExprKind::TupleLiteralExpr
     }
 }
 
@@ -563,38 +568,32 @@ class TupleLiteralExpr derives Expr {
 ///  SetLiteralExpr
 ///  {1, 2, 3}
 ///
-class SetLiteralExpr derives Expr {
-    pub var elements: FrozenList::<*Expr>;
+pub class SetLiteralExpr derives Expr {
+    pub var elements: FrozenList<unsafe *Expr>
 
-    static fn create(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *SetLiteralExpr {
-        var node    = ctx->alloc::<SetLiteralExpr>();
-        node->kind  = ExprKind::SetLiteralExpr;
-        node->range = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx: *ASTContext, range: SourceRange) -> unsafe *SetLiteralExpr {
+        var unsafe *node = ctx->alloc<SetLiteralExpr>()
+        node->kind  = ExprKind::SetLiteralExpr
+        node->range = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *SetLiteralExpr {
-        var node            = ctx->alloc::<SetLiteralExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::SetLiteralExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *SetLiteralExpr {
+        var unsafe *node = ctx->alloc<SetLiteralExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::SetLiteralExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::SetLiteralExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::SetLiteralExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::SetLiteralExpr;
+        return ExprKind::SetLiteralExpr
     }
 }
 
@@ -602,134 +601,124 @@ class SetLiteralExpr derives Expr {
 ///  MapLiteralExpr
 ///  {"key": value, "other": value2}
 ///
-class MapLiteralExpr derives Expr {
-    struct Entry {
-        var key:   *Expr;
-        var value: *Expr;
-        var range: SourceRange;
+pub class MapLiteralExpr derives Expr {
+    pub struct Entry {
+        pub var key:   unsafe *Expr
+        pub var value: unsafe *Expr
+        pub var range: SourceRange
     }
 
-    pub var entries: FrozenList::<Entry>;
+    pub var entries: FrozenList<Self::Entry>
 
-    static fn create(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *MapLiteralExpr {
-        var node    = ctx->alloc::<MapLiteralExpr>();
-        node->kind  = ExprKind::MapLiteralExpr;
-        node->range = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx: *ASTContext, range: SourceRange) -> unsafe *MapLiteralExpr {
+        var unsafe *node = ctx->alloc<MapLiteralExpr>()
+        node->kind  = ExprKind::MapLiteralExpr
+        node->range = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *MapLiteralExpr {
-        var node            = ctx->alloc::<MapLiteralExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::MapLiteralExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *MapLiteralExpr {
+        var unsafe *node = ctx->alloc<MapLiteralExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::MapLiteralExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::MapLiteralExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::MapLiteralExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::MapLiteralExpr;
+        return ExprKind::MapLiteralExpr
     }
 }
 
-struct InitField {
-    var name:   Token;       ///< field name token
-    var value: *Expr;        ///< initializer expression
-    var range:  SourceRange; ///< range covering `name: value`
+pub struct InitField {
+    pub var name:  Token        ///< field name token
+    pub var value: unsafe *Expr ///< initializer expression
+    pub var range: SourceRange  ///< range covering `name: value`
     /// On a variant construction's field: the payload FieldDecl it fills.
     /// Null on a record's initializer, whose fields EmitIR matches by name.
     /// One writer: X (ControlTyping); read by VariantInitLowering.
-    var field_decl: *Decl = &null;
+    pub var field_decl: unsafe *Decl = &null
 }
 
 ///
 ///  NamedInitializerExpr
 ///  Point { x: 1, y: 2 }
 ///
-class NamedInitializerExpr derives Expr {
+pub class NamedInitializerExpr derives Expr {
     /// the type being initialized. ChainExpr or NamedIdentExpr; null for the
     /// dotted form, and for an initializer Lower/ mints (RangeLowering), which
     /// EmitIR spells from `type_`.
-    pub var type_expr: *Expr;
-    pub var ctx: *ASTContext;
+    pub var type_expr: unsafe *Expr
+    pub var ctx:       unsafe *ASTContext
     /// field initializers in source order.
-    pub var fields:    FrozenList::<InitField>;
+    pub var fields: FrozenList<InitField>
     /// `.Variant` / `.Variant { .. }`: a variant of the enum the expected type
     /// names, so there is no head to resolve and `dotted_name` is the
     /// variant's name. A null `type_expr` alone does not say this: a minted
     /// initializer has none either. One writer: the parser
     /// (ExprParse::_parse_dotted_variant).
-    pub var is_dotted:   bool = false;
-    pub var dotted_name: Token;
+    pub var is_dotted:   bool  = false
+    pub var dotted_name: Token
     /// The braces were written. Always true with a head; the dotted form may
     /// stand alone (`.None`), which a variant without a payload must and one
     /// with a payload must not. One writer: the parser.
-    pub var has_braces:  bool = true;
+    pub var has_braces: bool = true
     /// The EnumVariantDecl this initializer builds (`E::V { .. }`,
     /// `.V { .. }`, `.V`), the pattern enum's own, once X has checked the
     /// fields against its payload; null for a record's initializer and for a
     /// construction that failed. One writer: X (ControlTyping); read through
     /// variant_decl_of. VariantInitLowering replaces the node.
-    pub var variant_decl: *Decl = &null;
+    pub var variant_decl: unsafe *Decl = &null
     /// variant_decl is pack-expanded: the element its payload's type picked
     /// (ControlTyping::_check_variant); -1 otherwise.
-    pub var variant_pack: i32 = -1;
+    pub var variant_pack: i32 = -1
 
-    static fn create(
-        ctx:       *ASTContext,
-        range:     SourceRange,
-        type_expr: *Expr
-    ) -> *NamedInitializerExpr {
-        var node          = ctx->alloc::<NamedInitializerExpr>();
-        node->kind        = ExprKind::NamedInitializerExpr;
-        node->range       = range;
-        node->type_expr   = type_expr;
-        node->ctx         = ctx;
-        node->fields      = create_empty_frozen_list::<InitField>();   // the bare dotted form has no braces to fill it.
-        node->is_dotted   = false;
-        node->dotted_name = Token();
-        node->has_braces  = true;
-        node->variant_decl = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:       unsafe *ASTContext,
+                         range:     SourceRange,
+                         type_expr: unsafe *Expr) -> unsafe *NamedInitializerExpr {
+        var unsafe *node = ctx->alloc<NamedInitializerExpr>()
+        node->kind         = ExprKind::NamedInitializerExpr
+        node->range        = range
+        node->type_expr    = type_expr
+        node->ctx          = ctx
+        node->fields       = create_empty_frozen_list<InitField>() // the bare dotted form has no braces to fill it.
+        node->is_dotted    = false
+        node->dotted_name  = Token()
+        node->has_braces   = true
+        node->variant_decl = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *NamedInitializerExpr {
-        var node            = ctx->alloc::<NamedInitializerExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::NamedInitializerExpr;
-        node->range         = range;
-        node->type_expr     = &null;
-        node->ctx           = ctx;
-        node->fields        = create_empty_frozen_list::<InitField>();
-        node->is_dotted     = false;
-        node->dotted_name   = Token();
-        node->has_braces    = true;
-        node->variant_decl  = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx:   unsafe *ASTContext,
+                               range: SourceRange) -> unsafe *NamedInitializerExpr {
+        var unsafe *node = ctx->alloc<NamedInitializerExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::NamedInitializerExpr
+        node->range         = range
+        node->type_expr     = &null
+        node->ctx           = ctx
+        node->fields        = create_empty_frozen_list<InitField>()
+        node->is_dotted     = false
+        node->dotted_name   = Token()
+        node->has_braces    = true
+        node->variant_decl  = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::NamedInitializerExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::NamedInitializerExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::NamedInitializerExpr;
+        return ExprKind::NamedInitializerExpr
     }
 }
 
@@ -738,12 +727,24 @@ class NamedInitializerExpr derives Expr {
 /// (`E::V { .. }`, `.V`), a path (`Opt::None`), a bare name (`None` inside its
 /// enum) -- and each carries the fact as its own `variant_decl`. One reader
 /// for the three.
-fn variant_decl_of(e: *Expr) -> *Decl {
-    if e == &null { return &null; }
-    if isa::<NamedInitializerExpr>(e) { return cast::<NamedInitializerExpr>(e)->variant_decl; }
-    if isa::<ChainExpr>(e)            { return cast::<ChainExpr>(e)->variant_decl; }
-    if isa::<NamedIdentExpr>(e)       { return cast::<NamedIdentExpr>(e)->variant_decl; }
-    return &null;
+pub fn variant_decl_of(e: unsafe *Expr) -> unsafe *Decl {
+    if e == &null {
+        return &null
+    }
+
+    if isa<NamedInitializerExpr>(e) {
+        return cast<NamedInitializerExpr>(e)->variant_decl
+    }
+
+    if isa<ChainExpr>(e) {
+        return cast<ChainExpr>(e)->variant_decl
+    }
+
+    if isa<NamedIdentExpr>(e) {
+        return cast<NamedIdentExpr>(e)->variant_decl
+    }
+
+    return &null
 }
 
 ///
@@ -751,41 +752,35 @@ fn variant_decl_of(e: *Expr) -> *Decl {
 ///  { .x: 1, .y: 2 }
 ///  Sema infers the type from context (assignment target, return type, etc.).
 ///
-class AnonInitializerExpr derives Expr {
-    pub var fields: FrozenList::<InitField>;
-    pub var ctx: *ASTContext;
+pub class AnonInitializerExpr derives Expr {
+    pub var fields: FrozenList<InitField>
+    pub var ctx:    *ASTContext
 
-    static fn create(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *AnonInitializerExpr {
-        var node    = ctx->alloc::<AnonInitializerExpr>();
-        node->kind  = ExprKind::AnonInitializerExpr;
-        node->range = range;
-        node->ctx   = ctx;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx: *ASTContext, range: SourceRange) -> unsafe *AnonInitializerExpr {
+        var unsafe *node = ctx->alloc<AnonInitializerExpr>()
+        node->kind  = ExprKind::AnonInitializerExpr
+        node->range = range
+        node->ctx   = ctx
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *AnonInitializerExpr {
-        var node            = ctx->alloc::<AnonInitializerExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::AnonInitializerExpr;
-        node->range         = range;
-        node->ctx           = ctx;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *AnonInitializerExpr {
+        var unsafe *node = ctx->alloc<AnonInitializerExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::AnonInitializerExpr
+        node->range         = range
+        node->ctx           = ctx
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::AnonInitializerExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::AnonInitializerExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::AnonInitializerExpr;
+        return ExprKind::AnonInitializerExpr
     }
 }
 
@@ -794,211 +789,204 @@ class AnonInitializerExpr derives Expr {
 ///  prefix:  !x  -x  ~x  &x  *x  ++x  --x
 ///  postfix: x++  x--  x...
 ///
-class UnaryOperatorExpr derives Expr {
-    enum Fix derives u8 {
+pub class UnaryOperatorExpr derives Expr {
+    pub enum Fix derives u8 {
         Prefix,
         Postfix,
     }
 
-    pub var operand:  *Expr;
-    pub var op_token: Token;  ///< the operator token (!, -, *, &, ++, --, etc.)
-    pub var fix:      Fix;
+    pub var operand:  unsafe *Expr
+    pub var op_token: Token        ///< the operator token (!, -, *, &, ++, --, etc.)
+    pub var fix:      Self::Fix
     /// `&x` in argument position, bound to an `@inout` parameter: the `&` is
     /// the call-site MARKER, not address-of. Set by CallTyping after overload
     /// selection (the parser cannot know the callee); `type_` is then the
     /// operand's type and the node is an lvalue. Codegen emits the operand
     /// bare. False for every other `&`.
-    pub var is_mode_marker: bool = false;
+    pub var is_mode_marker: bool = false
     /// `&e` on a prvalue: the address of its materialized temporary, spelled
     /// `::__kairo_tmp(e)`. Written by ExtensionLowering only. SequenceLowering
     /// binds `e`, never the pointer.
-    pub var materialize: bool = false;
+    pub var materialize: bool = false
     /// `++`/`--`/`-`/`~` on an integer whose overflow is proven impossible
     /// (IterLowering's induction variable): EmitIR prints C++'s own operator,
     /// whose UB is then unreachable, instead of the wrapping form. Never
     /// inferred by the emitter.
-    pub var no_wrap: bool = false;
+    pub var no_wrap: bool = false
 
     /// The user operator overload resolution selected, or null for a builtin
     /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),
     /// read by OperatorLowering, which rewrites the node into the call.
-    pub var resolved_op: *Decl = &null;
-    pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+    pub var resolved_op: unsafe *Decl = &null
+    pub var op_via_free: bool         = false ///< a free `op` found by ADL (every operand is an argument).
     /// The registry entry of a GENERIC free operator's instance, written by X
-    /// with resolved_op. `*InstanceEntry`; stored as `*void` for the same
-    /// stage0 reason as Decl::semantic_dc. OperatorLowering copies it onto the
+    /// with resolved_op. OperatorLowering copies it onto the
     /// call it mints, and EmitIR spells the instance's arguments from it.
-    pub var op_instance: *void = &null;
-    /// A narrowed `*x` (NULLABLE.md 3.7, §4): `x` is a closure's pointer
+    pub var op_instance: unsafe *InstanceEntry = &null
+    /// A narrowed `*x` (Compiler/Spec/Nullables.md#aliases-and-closures, §4): `x` is a closure's pointer
     /// capture of a `T?` the nullness analysis proved non-null here, so the
     /// dereference is typed `T` and this holds the `T?` it was. Null for
     /// every other use. One writer: X (NullnessFlow::read_value); one
     /// reader, NarrowedAccessLowering, which makes it `(*x).__value()`.
-    pub var narrowed_from: *Type = &null;
+    pub var narrowed_from: unsafe *Type = &null
 
-    static fn create(
-        ctx:      *ASTContext,
-        range:    SourceRange,
-        operand:  *Expr,
-        op_token: Token,
-        fix:      Fix
-    ) -> *UnaryOperatorExpr {
-        var node       = ctx->alloc::<UnaryOperatorExpr>();
-        node->kind     = ExprKind::UnaryOperatorExpr;
-        node->range    = range;
-        node->operand  = operand;
+    pub static fn create(ctx:      unsafe *ASTContext,
+                         range:    SourceRange,
+                         operand:  unsafe *Expr,
+                         op_token: Token,
+                         fix:      Self::Fix) -> unsafe *UnaryOperatorExpr {
+        var unsafe *node = ctx->alloc<UnaryOperatorExpr>()
+        node->kind    = ExprKind::UnaryOperatorExpr
+        node->range   = range
+        node->operand = operand
         // Unwrapped: an operator from a macro body arrives as TkMacroExpand,
         // and every reader of op_token.kind (Sema's operator typing, the
         // printer, EmitIR) wants the operator. The range stays the wrapped
         // token's, so diagnostics still point at the invocation.
-        node->op_token = ctx->unwrap_token(op_token);
-        node->fix      = fix;
-        node->is_mode_marker = false;
-        node->materialize    = false;
-        node->no_wrap        = false;
-        node->resolved_op    = &null;
-        node->op_via_free    = false;
-        node->op_instance    = &null;
-        node->narrowed_from  = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+        node->op_token       = ctx->unwrap_token(op_token)
+        node->fix            = fix
+        node->is_mode_marker = false
+        node->materialize    = false
+        node->no_wrap        = false
+        node->resolved_op    = &null
+        node->op_via_free    = false
+        node->op_instance    = &null
+        node->narrowed_from  = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *UnaryOperatorExpr {
-        var node            = ctx->alloc::<UnaryOperatorExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::UnaryOperatorExpr;
-        node->range         = range;
-        node->operand       = &null;
-        node->is_mode_marker = false;
-        node->materialize    = false;
-        node->no_wrap        = false;
-        node->resolved_op    = &null;
-        node->op_via_free    = false;
-        node->op_instance    = &null;
-        node->narrowed_from  = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *UnaryOperatorExpr {
+        var unsafe *node = ctx->alloc<UnaryOperatorExpr>()
+        node->kind           = ExprKind::RecoveryExpr
+        node->recovery_kind  = ExprKind::UnaryOperatorExpr
+        node->range          = range
+        node->operand        = &null
+        node->is_mode_marker = false
+        node->materialize    = false
+        node->no_wrap        = false
+        node->resolved_op    = &null
+        node->op_via_free    = false
+        node->op_instance    = &null
+        node->narrowed_from  = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::UnaryOperatorExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::UnaryOperatorExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::UnaryOperatorExpr;
+        return ExprKind::UnaryOperatorExpr
     }
 
-    fn is_prefix(self) -> bool  { return self.fix == Fix::Prefix; }
-    fn is_postfix(self) -> bool { return self.fix == Fix::Postfix; }
+    pub fn is_prefix(self) -> bool {
+        return self.fix == Self::Fix::Prefix
+    }
+
+    pub fn is_postfix(self) -> bool {
+        return self.fix == Self::Fix::Postfix
+    }
 }
 
 /// How a comparison with no operator of its own is rendered from the one it
 /// was derived from (C++20's rewritten candidates, minus the reversed ones).
 /// Written by X beside `resolved_op`; read by OperatorLowering, which never
 /// looks an operator up again.
-enum OpRewrite derives u8 {
-    None = 0,   ///< resolved_op is the operator itself.
-    Not,        ///< `a != b` from `op ==`:  `!(a.op==(b))`.
-    Cmp,        ///< `a < b`, `a == b` and friends from `op <=>`:  `((a.op<=>(b)) as i8) <op> 0`.
+pub enum OpRewrite derives u8 {
+    None = 0, ///< resolved_op is the operator itself.
+    Not,      ///< `a != b` from `op ==`:  `!(a.op==(b))`.
+    Cmp,      ///< `a < b`, `a == b` and friends from `op <=>`:  `((a.op<=>(b)) as i8) <op> 0`.
 }
 
 ///
 ///  BinaryOperatorExpr
 ///  x + y | x && y | x == y | x << y | x ** y | etc.
 ///
-class BinaryOperatorExpr derives Expr {
-    pub var lhs:      *Expr;
-    pub var rhs:      *Expr;
-    pub var op_token: Token;
+pub class BinaryOperatorExpr derives Expr {
+    pub var lhs:      unsafe *Expr
+    pub var rhs:      unsafe *Expr
+    pub var op_token: Token
 
     /// The user operator overload resolution selected, or null for a builtin
     /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),
     /// read by OperatorLowering, which rewrites the node into the call.
-    pub var resolved_op: *Decl = &null;
-    pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
-    pub var op_rewrite:  OpRewrite = OpRewrite::None;
+    pub var resolved_op: unsafe *Decl = &null
+    pub var op_via_free: bool         = false ///< a free `op` found by ADL (every operand is an argument).
+    pub var op_rewrite:  OpRewrite    = OpRewrite::None
     /// `==` / `!=` on two values of one ADT enum that declares no `op ==`:
     /// equal when the variants are, whatever the payloads. resolved_op stays
     /// null -- no operator is bound -- and OperatorLowering rewrites the node
     /// into a builtin compare of the two tag fields. One writer: X
     /// (OperatorTyping).
-    pub var tag_eq:      bool  = false;
+    pub var tag_eq: bool = false
     /// `+`/`-`/`*` whose overflow is proven impossible: C++'s own operator,
     /// not the wrapping form (see UnaryOperatorExpr::no_wrap). On `<<` /
     /// `>>`: the count is proven in [0, W), so EmitIR leaves its mask out
     /// (SHIFT spec §4); X sets it for a constant or masked count,
     /// IterLowering for a range loop's binder.
-    pub var no_wrap:     bool  = false;
+    pub var no_wrap: bool = false
     /// The registry entry of a GENERIC free operator's instance, written by X
-    /// with resolved_op. `*InstanceEntry`; stored as `*void` for the same
-    /// stage0 reason as Decl::semantic_dc. OperatorLowering copies it onto the
+    /// with resolved_op. OperatorLowering copies it onto the
     /// call it mints, and EmitIR spells the instance's arguments from it.
-    pub var op_instance: *void = &null;
-    /// `typeof T == U` / `!=` (EVAL.md "Type-based branching", G67): the two
+    pub var op_instance: unsafe *InstanceEntry = &null
+    /// `typeof T == U` / `!=` (Compiler/Spec/Eval.md "Type-based branching"): the two
     /// canonical types compared, both set or both null. One writer: X
     /// (OperatorTyping). StmtTyping folds an `eval if` over them and EmitIR
     /// spells `__is_same(L, R)`: the operands are types, never emitted.
-    pub var type_cmp_lhs: *Type = &null;
-    pub var type_cmp_rhs: *Type = &null;
+    pub var type_cmp_lhs: unsafe *Type = &null
+    pub var type_cmp_rhs: unsafe *Type = &null
 
-    static fn create(
-        ctx:      *ASTContext,
-        range:    SourceRange,
-        lhs:      *Expr,
-        rhs:      *Expr,
-        op_token: Token
-    ) -> *BinaryOperatorExpr {
-        var node       = ctx->alloc::<BinaryOperatorExpr>();
-        node->kind     = ExprKind::BinaryOperatorExpr;
-        node->range    = range;
-        node->lhs      = lhs;
-        node->rhs      = rhs;
+    pub static fn create(ctx:      unsafe *ASTContext,
+                         range:    SourceRange,
+                         lhs:      unsafe *Expr,
+                         rhs:      unsafe *Expr,
+                         op_token: Token) -> unsafe *BinaryOperatorExpr {
+        var unsafe *node = ctx->alloc<BinaryOperatorExpr>()
+        node->kind  = ExprKind::BinaryOperatorExpr
+        node->range = range
+        node->lhs   = lhs
+        node->rhs   = rhs
         // Unwrapped, as in UnaryOperatorExpr::create.
-        node->op_token = ctx->unwrap_token(op_token);
-        node->resolved_op = &null;
-        node->op_via_free = false;
-        node->op_rewrite  = OpRewrite::None;
-        node->tag_eq      = false;
-        node->no_wrap     = false;
-        node->op_instance = &null;
-        node->type_cmp_lhs = &null;
-        node->type_cmp_rhs = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+        node->op_token     = ctx->unwrap_token(op_token)
+        node->resolved_op  = &null
+        node->op_via_free  = false
+        node->op_rewrite   = OpRewrite::None
+        node->tag_eq       = false
+        node->no_wrap      = false
+        node->op_instance  = &null
+        node->type_cmp_lhs = &null
+        node->type_cmp_rhs = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *BinaryOperatorExpr {
-        var node            = ctx->alloc::<BinaryOperatorExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::BinaryOperatorExpr;
-        node->range         = range;
-        node->lhs           = &null;
-        node->rhs           = &null;
-        node->resolved_op   = &null;
-        node->op_via_free   = false;
-        node->op_rewrite    = OpRewrite::None;
-        node->tag_eq        = false;
-        node->no_wrap       = false;
-        node->op_instance   = &null;
-        node->type_cmp_lhs  = &null;
-        node->type_cmp_rhs  = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *BinaryOperatorExpr {
+        var unsafe *node = ctx->alloc<BinaryOperatorExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::BinaryOperatorExpr
+        node->range         = range
+        node->lhs           = &null
+        node->rhs           = &null
+        node->resolved_op   = &null
+        node->op_via_free   = false
+        node->op_rewrite    = OpRewrite::None
+        node->tag_eq        = false
+        node->no_wrap       = false
+        node->op_instance   = &null
+        node->type_cmp_lhs  = &null
+        node->type_cmp_rhs  = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::BinaryOperatorExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::BinaryOperatorExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::BinaryOperatorExpr;
+        return ExprKind::BinaryOperatorExpr
     }
 }
 
@@ -1007,83 +995,81 @@ class BinaryOperatorExpr derives Expr {
 ///  x = y | x += y | x -= y | x **= y | etc.
 ///  Right-associative. Distinct from BinaryOperatorExpr for visitor dispatch.
 ///
-class AssignOperatorExpr derives Expr {
-    pub var lhs:      *Expr;
-    pub var rhs:      *Expr;
+pub class AssignOperatorExpr derives Expr {
+    pub var lhs: unsafe *Expr
+    pub var rhs: unsafe *Expr
     /// Never `:`. A `name: value` argument is a NamedArgExpr; this node
     /// carried that shape once, and every reader of an argument list had to
     /// know to step around the lhs. `create` rejects it so the old shape
     /// cannot come back by accident.
-    pub var op_token: Token;
+    pub var op_token: Token
 
     /// The user operator overload resolution selected, or null for a builtin
     /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),
     /// read by OperatorLowering, which rewrites the node into the call.
-    pub var resolved_op: *Decl = &null;
-    pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+    pub var resolved_op: unsafe *Decl = &null
+    pub var op_via_free: bool         = false ///< a free `op` found by ADL (every operand is an argument).
     /// The registry entry of a GENERIC free operator's instance, written by X
-    /// with resolved_op. `*InstanceEntry`; stored as `*void` for the same
-    /// stage0 reason as Decl::semantic_dc. OperatorLowering copies it onto the
+    /// with resolved_op. OperatorLowering copies it onto the
     /// call it mints, and EmitIR spells the instance's arguments from it.
-    pub var op_instance: *void = &null;
+    pub var op_instance: unsafe *InstanceEntry = &null
     /// `self.f[k] = e` in a constructor that builds array field f element by
     /// element: this write constructs element k (it did not exist before),
     /// so S_pre spells it `init_at(k, e)` on f's slot, not an assignment.
     /// One writer: CtorInitCheck. Read by EmitIR.
-    pub var ci_elem_init: bool = false;
+    pub var ci_elem_init: bool = false
     /// `<<=` / `>>=` whose count is proven in [0, W) (SHIFT spec §4): EmitIR
     /// leaves the count mask out (see BinaryOperatorExpr::no_wrap). Written by
     /// X (OperatorTyping, a constant or masked count) and IterLowering.
-    pub var no_wrap: bool = false;
+    pub var no_wrap: bool = false
 
-    static fn create(
-        ctx:      *ASTContext,
-        range:    SourceRange,
-        lhs:      *Expr,
-        rhs:      *Expr,
-        op_token: Token
-    ) -> *AssignOperatorExpr {
-        ICE_IF(ctx->unwrap_token(op_token).kind == TokenKind::OpColon,
-            "AssignOperatorExpr: `:` is not an assignment; a named argument is a NamedArgExpr");
-        var node       = ctx->alloc::<AssignOperatorExpr>();
-        node->kind     = ExprKind::AssignOperatorExpr;
-        node->range    = range;
-        node->lhs      = lhs;
-        node->rhs      = rhs;
+    pub static fn create(ctx:      unsafe *ASTContext,
+                         range:    SourceRange,
+                         lhs:      unsafe *Expr,
+                         rhs:      unsafe *Expr,
+                         op_token: Token) -> unsafe *AssignOperatorExpr {
+        if ctx->unwrap_token(op_token).kind == TokenKind::OpColon {
+            kairo::std::ice_fail(
+                "AssignOperatorExpr: `:` is not an assignment; a named argument is a NamedArgExpr",
+            )
+        }
+
+        var unsafe *node = ctx->alloc<AssignOperatorExpr>()
+        node->kind  = ExprKind::AssignOperatorExpr
+        node->range = range
+        node->lhs   = lhs
+        node->rhs   = rhs
         // Unwrapped, as in UnaryOperatorExpr::create.
-        node->op_token = ctx->unwrap_token(op_token);
-        node->resolved_op = &null;
-        node->op_via_free = false;
-        node->no_wrap     = false;
-        node->op_instance = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+        node->op_token    = ctx->unwrap_token(op_token)
+        node->resolved_op = &null
+        node->op_via_free = false
+        node->no_wrap     = false
+        node->op_instance = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *AssignOperatorExpr {
-        var node            = ctx->alloc::<AssignOperatorExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::AssignOperatorExpr;
-        node->range         = range;
-        node->lhs           = &null;
-        node->rhs           = &null;
-        node->resolved_op   = &null;
-        node->op_via_free   = false;
-        node->no_wrap       = false;
-        node->op_instance   = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *AssignOperatorExpr {
+        var unsafe *node = ctx->alloc<AssignOperatorExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::AssignOperatorExpr
+        node->range         = range
+        node->lhs           = &null
+        node->rhs           = &null
+        node->resolved_op   = &null
+        node->op_via_free   = false
+        node->no_wrap       = false
+        node->op_instance   = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::AssignOperatorExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::AssignOperatorExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::AssignOperatorExpr;
+        return ExprKind::AssignOperatorExpr
     }
 }
 
@@ -1091,72 +1077,78 @@ class AssignOperatorExpr derives Expr {
 ///  ImplConformanceExpr
 ///  T impl Interface produces bool.
 ///
-class ImplConformanceExpr derives Expr {
-    pub var subject:   *Type; ///< the type being tested.
-    pub var inter:     *Type; ///< the inter being checked.
+pub class ImplConformanceExpr derives Expr {
+    pub var subject: unsafe *Type ///< the type being tested.
+    pub var inter:   unsafe *Type ///< the inter being checked.
 
-    static fn create(
-        ctx:       *ASTContext,
-        range:     SourceRange,
-        subject:   *Type,
-        inter: *Type
-    ) -> *ImplConformanceExpr {
-        var node        = ctx->alloc::<ImplConformanceExpr>();
-        node->kind      = ExprKind::ImplConformanceExpr;
-        node->range     = range;
-        node->subject   = subject;
-        node->inter     = inter;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create(ctx:     *ASTContext,
+                     range:   SourceRange,
+                     subject: unsafe *Type,
+                     inter:   unsafe *Type) -> unsafe *ImplConformanceExpr {
+        var unsafe *node = ctx->alloc<ImplConformanceExpr>()
+        node->kind    = ExprKind::ImplConformanceExpr
+        node->range   = range
+        node->subject = subject
+        node->inter   = inter
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *ImplConformanceExpr {
-        var node            = ctx->alloc::<ImplConformanceExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::ImplConformanceExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *ImplConformanceExpr {
+        var unsafe *node = ctx->alloc<ImplConformanceExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::ImplConformanceExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::ImplConformanceExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::ImplConformanceExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::ImplConformanceExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::ImplConformanceExpr
+    }
 }
 
 ///
 ///  DerivesRelationExpr
 ///  T derives Base produces bool.
 ///
-class DerivesRelationExpr derives Expr {
-    pub var subject: *Type;
-    pub var base:    *Type;
+pub class DerivesRelationExpr derives Expr {
+    pub var subject: unsafe *Type
+    pub var base:    unsafe *Type
 
-    static fn create(
-        ctx:     *ASTContext,
-        range:   SourceRange,
-        subject: *Type,
-        base:    *Type
-    ) -> *DerivesRelationExpr {
-        var node      = ctx->alloc::<DerivesRelationExpr>();
-        node->kind    = ExprKind::DerivesRelationExpr;
-        node->range   = range;
-        node->subject = subject;
-        node->base    = base;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create(ctx:     *ASTContext,
+                     range:   SourceRange,
+                     subject: unsafe *Type,
+                     base:    unsafe *Type) -> unsafe *DerivesRelationExpr {
+        var unsafe *node = ctx->alloc<DerivesRelationExpr>()
+        node->kind    = ExprKind::DerivesRelationExpr
+        node->range   = range
+        node->subject = subject
+        node->base    = base
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *DerivesRelationExpr {
-        var node            = ctx->alloc::<DerivesRelationExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::DerivesRelationExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *DerivesRelationExpr {
+        var unsafe *node = ctx->alloc<DerivesRelationExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::DerivesRelationExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::DerivesRelationExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::DerivesRelationExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::DerivesRelationExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::DerivesRelationExpr
+    }
 }
 
 ///
@@ -1174,56 +1166,57 @@ class DerivesRelationExpr derives Expr {
 ///  `condition`/`then_expr`; zero or more `else if` arms live in `else_ifs`;
 ///  the trailing `else` value is `else_expr`. Sema walks `else_ifs` in order.
 ///
-class IfExpr derives Expr {
-    struct ElseIf {
-        var condition: *Expr;       ///< the `else if` guard.
-        var body:      *Expr;       ///< single-expression value for this arm.
-        var range:     SourceRange;
+pub class IfExpr derives Expr {
+    pub struct ElseIf {
+        pub var condition: unsafe *Expr ///< the `else if` guard.
+        pub var body:      unsafe *Expr ///< single-expression value for this arm.
+        pub var range:     SourceRange
     }
 
-    pub var condition: *Expr;
-    pub var then_expr: *Expr;
-    pub var else_ifs:  FrozenList::<ElseIf>; ///< zero or more `else if` arms, in order.
-    pub var else_expr: *Expr;                ///< mandatory final else value.
+    pub var condition: unsafe *Expr
+    pub var then_expr: unsafe *Expr
+    pub var else_ifs:  FrozenList<Self::ElseIf> ///< zero or more `else if` arms, in order.
+    pub var else_expr: unsafe *Expr             ///< mandatory final else value.
 
-    static fn create(
-        ctx:       *ASTContext,
-        range:     SourceRange,
-        condition: *Expr,
-        then_expr: *Expr,
-        else_expr: *Expr
-    ) -> *IfExpr {
-        var node        = ctx->alloc::<IfExpr>();
-        node->kind      = ExprKind::IfExpr;
-        node->range     = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        node->condition = condition;
-        node->then_expr = then_expr;
-        node->else_expr = else_expr;
-        return node;
+    pub static fn create(ctx:       unsafe *ASTContext,
+                         range:     SourceRange,
+                         condition: unsafe *Expr,
+                         then_expr: unsafe *Expr,
+                         else_expr: unsafe *Expr) -> unsafe *IfExpr {
+        var unsafe *node = ctx->alloc<IfExpr>()
+        node->kind  = ExprKind::IfExpr
+        node->range = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        node->condition = condition
+        node->then_expr = then_expr
+        node->else_expr = else_expr
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *IfExpr {
-        var node            = ctx->alloc::<IfExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::IfExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *IfExpr {
+        var unsafe *node = ctx->alloc<IfExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::IfExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::IfExpr;
+    /* OVERRIDE */
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::IfExpr
     }
-    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
-        return ExprKind::IfExpr;
+
+    /* OVERRIDE */
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::IfExpr
     }
 }
 
 ///
 ///  PanicOpExpr
 ///  Lowering-only: never parsed. The C++ PanicLowering needs that no Kairo
-///  expression spells (PANIC.md §4.3, §4.4):
+///  expression spells (Compiler/Spec/Panic.md#preamble-helpers, §4.4):
 ///
 ///    Fwd      `::__kairo_fwd<R>(operand)`: the error `operand` (a panic
 ///             result that is not Ok) as the panic result R, the node's
@@ -1238,17 +1231,17 @@ class IfExpr derives Expr {
 ///             destroyed, a prvalue of the slot's type. Read once, at the
 ///             `try`'s dispatch.
 ///    Holds    `operand` holds error `elem` (a bool), where the result's
-///             set is dependent (a generic body, PANIC.md P10): the tag
+///             set is dependent (a generic body, Compiler/Spec/Panic.md#generic-bodies): the tag
 ///             against `elem`'s type id, which only the instance knows.
 ///    ErrorRef an lvalue of `elem`, the error `operand` holds, read at
-///             `elem`'s place in the set C++ ordered (P10), where Sema
+///             `elem`'s place in the set C++ ordered, where Sema
 ///             cannot say which place that is.
 ///
 ///  `operand` is an lvalue for Fwd / FwdAll when it names a held result
 ///  (`__kairo_p0`), which it moves from. EmitIR spells every name through
 ///  LowerTargets.
 ///
-enum PanicOp derives u8 {
+pub enum PanicOp derives u8 {
     Fwd,
     FwdAll,
     SlotPut,
@@ -1257,43 +1250,53 @@ enum PanicOp derives u8 {
     ErrorRef,
 }
 
-fn panic_op_name(k: PanicOp) -> string {
-    switch k {
-        case PanicOp::Fwd      { return "fwd"; }
-        case PanicOp::FwdAll   { return "fwd_all"; }
-        case PanicOp::SlotPut  { return "slot_put"; }
-        case PanicOp::SlotTake { return "slot_take"; }
-        case PanicOp::Holds    { return "holds"; }
-        case PanicOp::ErrorRef { return "error_ref"; }
+pub fn panic_op_name(k: PanicOp) -> string {
+    match k {
+        case PanicOp::Fwd {
+            return "fwd"
+        } case PanicOp::FwdAll {
+            return "fwd_all"
+        } case PanicOp::SlotPut {
+            return "slot_put"
+        } case PanicOp::SlotTake {
+            return "slot_take"
+        } case PanicOp::Holds {
+            return "holds"
+        } case PanicOp::ErrorRef {
+            return "error_ref"
+        }
     }
-    return "?";
 }
 
-class PanicOpExpr derives Expr {
-    pub var which:   PanicOp = PanicOp::Fwd;
-    pub var operand: *Expr   = &null;
-    pub var slot:    *Expr   = &null;
+pub class PanicOpExpr derives Expr {
+    pub var which:   PanicOp      = PanicOp::Fwd
+    pub var operand: unsafe *Expr = &null
+    pub var slot:    unsafe *Expr = &null
     /// Holds / ErrorRef: the error type asked about (dependent).
-    pub var elem:    *Type   = &null;
+    pub var elem: unsafe *Type = &null
 
-    static fn create(ctx: *ASTContext, range: SourceRange, which: PanicOp, operand: *Expr, slot: *Expr) -> *PanicOpExpr {
-        var node     = ctx->alloc::<PanicOpExpr>();
-        node->kind    = ExprKind::PanicOpExpr;
-        node->range   = range;
-        node->which   = which;
-        node->operand = operand;
-        node->slot    = slot;
-        node->elem    = &null;
-        node->init_annotations(&(ctx->ast_alloc));
-        return node;
+    pub static fn create(ctx:     unsafe *ASTContext,
+                         range:   SourceRange,
+                         which:   PanicOp,
+                         operand: unsafe *Expr,
+                         slot:    unsafe *Expr) -> unsafe *PanicOpExpr {
+        var unsafe *node = ctx->alloc<PanicOpExpr>()
+        node->kind    = ExprKind::PanicOpExpr
+        node->range   = range
+        node->which   = which
+        node->operand = operand
+        node->slot    = slot
+        node->elem    = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::PanicOpExpr;
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::PanicOpExpr
     }
 
     static fn expr_kind() -> ExprKind {
-        return ExprKind::PanicOpExpr;
+        return ExprKind::PanicOpExpr
     }
 }
 
@@ -1315,51 +1318,56 @@ class PanicOpExpr derives Expr {
 ///  is immutable, `var e` is the explicit mutable form. `has_binding` is false
 ///  only for the bare `catch { }` default.
 ///
-class TryCatchExpr derives Expr {
-    struct CatchArm {
-        var has_binding: bool;            ///< false for bare `catch { }`.
-        var is_const:    bool;            ///< `const e`; false for `e` / `var e`.
-        var binding:     *NamedIdentExpr; ///< null when !has_binding.
-        var filter:      *Type;           ///< null for a default (untyped) arm.
-        var body:        *Expr;           ///< single-expression branch value.
-        var range:       SourceRange;
+pub class TryCatchExpr derives Expr {
+    pub struct CatchArm {
+        pub var has_binding: bool                   ///< false for bare `catch { }`.
+        pub var is_const:    bool                   ///< `const e`; false for `e` / `var e`.
+        pub var binding:     unsafe *NamedIdentExpr ///< null when !has_binding.
+        pub var filter:      unsafe *Type           ///< null for a default (untyped) arm.
+        pub var body:        unsafe *Expr           ///< single-expression branch value.
+        pub var range:       SourceRange
         /// Declaration introduced by `binding`; see Statements.k Binding::decl.
         /// Null when !has_binding.
-        var decl:        *Decl = &null;   ///< always a VariableDecl; see Binding::decl.
+        pub var decl: unsafe *Decl = &null ///< always a VariableDecl; see Binding::decl.
         /// The arm never runs (Statements.k CatchArm::is_dead).
-        var is_dead:     bool = false;
+        pub var is_dead: bool = false
         /// A C++ exception arm (Statements.k CatchArm::is_cxx).
-        var is_cxx:      bool = false;
+        pub var is_cxx: bool = false
     }
 
-    pub var try_expr:   *Expr;
-    pub var catch_arms: FrozenList::<CatchArm>;
+    pub var try_expr:   unsafe *Expr
+    pub var catch_arms: FrozenList<Self::CatchArm>
     /// The operand's panic set (Statements.k TryCatchStmt::reach).
-    pub var reach:      FrozenList::<*Type>;
+    pub var reach: FrozenList<unsafe *Type>
 
-    static fn create(ctx: *ASTContext, range: SourceRange, try_expr: *Expr) -> *TryCatchExpr {
-        var node       = ctx->alloc::<TryCatchExpr>();
-        node->kind     = ExprKind::TryCatchExpr;
-        node->range    = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        node->try_expr = try_expr;
-        return node;
+    pub static fn create(ctx:      *ASTContext,
+                         range:    SourceRange,
+                         try_expr: unsafe *Expr) -> unsafe *TryCatchExpr {
+        var unsafe *node = ctx->alloc<TryCatchExpr>()
+        node->kind  = ExprKind::TryCatchExpr
+        node->range = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        node->try_expr = try_expr
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *TryCatchExpr {
-        var node            = ctx->alloc::<TryCatchExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::TryCatchExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *TryCatchExpr {
+        var unsafe *node = ctx->alloc<TryCatchExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::TryCatchExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::TryCatchExpr;
+    /* OVERRIDE */
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::TryCatchExpr
     }
-    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
-        return ExprKind::TryCatchExpr;
+
+    /* OVERRIDE */
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::TryCatchExpr
     }
 }
 
@@ -1368,9 +1376,9 @@ class TryCatchExpr derives Expr {
 ///  Expression-form match. Each case yields a single value expression (held in
 ///  MatchCase.expression; body stays null in expr form). Exhaustiveness is a
 ///  sema concern. The scrutinee is the matched operand.
-class MatchExpr derives Expr {
-    pub var scrutinee: *Expr = &null;
-    pub var cases:     FrozenList::<MatchCase>;
+pub class MatchExpr derives Expr {
+    pub var scrutinee: unsafe *Expr          = &null
+    pub var cases:     FrozenList<MatchCase>
 
     /// Facts about this match. One writer: PatternChecking.
     /// is_exhaustive: every value of the scrutinee type reaches an arm.
@@ -1379,49 +1387,54 @@ class MatchExpr derives Expr {
     /// open_tail:     exhaustive only because a closed enum's variants are all
     ///                listed; an undeclared discriminant reaches no arm, and
     ///                MatchLowering applies UnmatchedPolicy to it.
-    pub var is_exhaustive: bool = true;
-    pub var covering_arm:  i32  = -1;
-    pub var open_tail:     bool = false;
-    pub var decision:      *void = &null; ///< PatternCompilation's *DecisionTree. One writer: PatternCompilation; read by MatchLowering and SemaDump.
-    /// A match on a `T?` whose first arm is `case null` (NULLABLE.md 3.6):
+    pub var is_exhaustive: bool         = true
+    pub var covering_arm:  i32          = -1
+    pub var open_tail:     bool         = false
+    pub var decision:      unsafe *void = &null ///< PatternCompilation's *DecisionTree. One writer: PatternCompilation; read by MatchLowering and SemaDump.
+    /// A match on a `T?` whose first arm is `case null` (Compiler/Spec/Nullables.md#match):
     /// every later arm matches the unwrapped `T`. One writer: X (the match
     /// typing, which also reports a `T?` match without it); read by
     /// PatternChecking and PatternCompilation (arm 0 is no row; the column
     /// is `T`), CoalesceLowering (which splits arm 0 off) and SemaDump.
-    pub var null_arm:      bool  = false;
+    pub var null_arm: bool = false
 
-    static fn create(ctx: *ASTContext, range: SourceRange, scrutinee: *Expr) -> *MatchExpr {
-        var node        = ctx->alloc::<MatchExpr>();
-        node->kind       = ExprKind::MatchExpr;
-        node->range      = range;
-        node->scrutinee  = scrutinee;
-        node->init_annotations(&(ctx->ast_alloc));;
-        node->is_exhaustive = true;
-        node->covering_arm  = -1;
-        node->open_tail     = false;
-        node->decision      = &null;
-        return node;
+    pub static fn create(ctx:       *ASTContext,
+                         range:     SourceRange,
+                         scrutinee: unsafe *Expr) -> unsafe *MatchExpr {
+        var unsafe *node = ctx->alloc<MatchExpr>()
+        node->kind      = ExprKind::MatchExpr
+        node->range     = range
+        node->scrutinee = scrutinee
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        node->is_exhaustive = true
+        node->covering_arm  = -1
+        node->open_tail     = false
+        node->decision      = &null
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *MatchExpr {
-        var node            = ctx->alloc::<MatchExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::MatchExpr;
-        node->range         = range;
-        node->scrutinee     = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        node->is_exhaustive = true;
-        node->covering_arm  = -1;
-        node->open_tail     = false;
-        node->decision      = &null;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *MatchExpr {
+        var unsafe *node = ctx->alloc<MatchExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::MatchExpr
+        node->range         = range
+        node->scrutinee     = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        node->is_exhaustive = true
+        node->covering_arm  = -1
+        node->open_tail     = false
+        node->decision      = &null
+        return node
     }
 
-    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::MatchExpr;
+    /* OVERRIDE */
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::MatchExpr
     }
-    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
-        return ExprKind::MatchExpr;
+
+    /* OVERRIDE */
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::MatchExpr
     }
 }
 
@@ -1429,42 +1442,45 @@ class MatchExpr derives Expr {
 ///  RangeExpr
 ///  x..y | x..=y | ..y | x.. | ..
 ///
-class RangeExpr derives Expr {
-    pub var begin:        *Expr; ///< null for `..y` or `..`
-    pub var end:          *Expr; ///< null for `x..` or `..`
-    pub var is_inclusive: bool;  ///< true for `..=`
-    pub var as_index: bool = false;   ///< the index of a subscript (`a[i..j]`); written by X (MemberTyping).
+pub class RangeExpr derives Expr {
+    pub var begin:        unsafe *Expr ///< null for `..y` or `..`
+    pub var end:          unsafe *Expr ///< null for `x..` or `..`
+    pub var is_inclusive: bool ///< true for `..=`
+    pub var as_index:     bool         = false ///< the index of a subscript (`a[i..j]`); written by X (MemberTyping).
 
-    static fn create(
-        ctx:          *ASTContext,
-        range:        SourceRange,
-        begin:        *Expr,
-        end:          *Expr,
-        is_inclusive: bool
-    ) -> *RangeExpr {
-        var node          = ctx->alloc::<RangeExpr>();
-        node->kind        = ExprKind::RangeExpr;
-        node->range       = range;
-        node->begin       = begin;
-        node->end         = end;
-        node->is_inclusive = is_inclusive;
-        node->as_index    = false;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:          *ASTContext,
+                         range:        SourceRange,
+                         begin:        unsafe *Expr,
+                         end:          unsafe *Expr,
+                         is_inclusive: bool) -> unsafe *RangeExpr {
+        var unsafe *node = ctx->alloc<RangeExpr>()
+        node->kind         = ExprKind::RangeExpr
+        node->range        = range
+        node->begin        = begin
+        node->end          = end
+        node->is_inclusive = is_inclusive
+        node->as_index     = false
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *RangeExpr {
-        var node            = ctx->alloc::<RangeExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::RangeExpr;
-        node->range         = range;
-        node->as_index      = false;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *RangeExpr {
+        var unsafe *node = ctx->alloc<RangeExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::RangeExpr
+        node->range         = range
+        node->as_index      = false
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::RangeExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::RangeExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::RangeExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::RangeExpr
+    }
 }
 
 ///
@@ -1472,56 +1488,68 @@ class RangeExpr derives Expr {
 ///  unwrap!(expr)
 ///
 ///  The value of a nullable, or the program aborts with a message naming
-///  the expression and where it is (NULLABLE.md 2.6). Not a panic. `range`
+///  the expression and where it is (Compiler/Spec/Nullables.md#unwrap). Not a panic. `range`
 ///  covers `unwrap!(...)`; the operand's own range is the text the message
 ///  quotes.
 ///
-class UnwrapExpr derives Expr {
-    pub var operand: *Expr;
+pub class UnwrapExpr derives Expr {
+    pub var operand: unsafe *Expr
 
-    static fn create(ctx: *ASTContext, range: SourceRange, operand: *Expr) -> *UnwrapExpr {
-        var node      = ctx->alloc::<UnwrapExpr>();
-        node->kind    = ExprKind::UnwrapExpr;
-        node->range   = range;
-        node->operand = operand;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:     *ASTContext,
+                         range:   SourceRange,
+                         operand: unsafe *Expr) -> unsafe *UnwrapExpr {
+        var unsafe *node = ctx->alloc<UnwrapExpr>()
+        node->kind    = ExprKind::UnwrapExpr
+        node->range   = range
+        node->operand = operand
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *UnwrapExpr {
-        var node            = ctx->alloc::<UnwrapExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::UnwrapExpr;
-        node->range         = range;
-        node->operand       = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *UnwrapExpr {
+        var unsafe *node = ctx->alloc<UnwrapExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::UnwrapExpr
+        node->range         = range
+        node->operand       = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::UnwrapExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::UnwrapExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::UnwrapExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::UnwrapExpr
+    }
 }
 
 ///
 ///  DefinedExpr
 ///  `defined!(NAME)` the preprocessor could not answer from Kairo's macro
 ///  table: a clang macro (predefined, or from an ffi header) or none.
-///  EvalIfFolding folds it to a bool literal (EVAL.md §4.3).
+///  EvalIfFolding folds it to a bool literal (Compiler/Spec/Eval.md#defined).
 ///
-class DefinedExpr derives Expr {
-    pub var name: Token;
+pub class DefinedExpr derives Expr {
+    pub var name: Token
 
-    static fn create(ctx: *ASTContext, range: SourceRange, name: Token) -> *DefinedExpr {
-        var node   = ctx->alloc::<DefinedExpr>();
-        node->kind  = ExprKind::DefinedExpr;
-        node->range = range;
-        node->name  = name;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx: *ASTContext, range: SourceRange, name: Token) -> unsafe *DefinedExpr {
+        var unsafe *node = ctx->alloc<DefinedExpr>()
+        node->kind  = ExprKind::DefinedExpr
+        node->range = range
+        node->name  = name
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::DefinedExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::DefinedExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::DefinedExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::DefinedExpr
+    }
 }
 
 ///
@@ -1532,125 +1560,154 @@ class DefinedExpr derives Expr {
 ///  written (`has_args` tells `@a()` from `@a`); `operand` the unary
 ///  expression it applies to. `range` covers all three.
 ///
-class AttributedExpr derives Expr {
-    pub var name:     Token;
-    pub var args:     FrozenList::<*Expr>;
-    pub var has_args: bool = false;
-    pub var operand:  *Expr;
+pub class AttributedExpr derives Expr {
+    pub var name:     Token
+    pub var args:     FrozenList<unsafe *Expr>
+    pub var has_args: bool                     = false
+    pub var operand:  unsafe *Expr
 
-    static fn create(ctx: *ASTContext, range: SourceRange, name: Token, operand: *Expr) -> *AttributedExpr {
-        var node      = ctx->alloc::<AttributedExpr>();
-        node->kind    = ExprKind::AttributedExpr;
-        node->range   = range;
-        node->name    = name;
-        node->args    = create_empty_frozen_list::<*Expr>();
-        node->has_args = false;
-        node->operand = operand;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:     *ASTContext,
+                         range:   SourceRange,
+                         name:    Token,
+                         operand: unsafe *Expr) -> unsafe *AttributedExpr {
+        var unsafe *node = ctx->alloc<AttributedExpr>()
+        node->kind     = ExprKind::AttributedExpr
+        node->range    = range
+        node->name     = name
+        node->args     = create_empty_frozen_list<unsafe *Expr>()
+        node->has_args = false
+        node->operand  = operand
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *AttributedExpr {
-        var node            = ctx->alloc::<AttributedExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::AttributedExpr;
-        node->range         = range;
-        node->args          = create_empty_frozen_list::<*Expr>();
-        node->has_args      = false;
-        node->operand       = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *AttributedExpr {
+        var unsafe *node = ctx->alloc<AttributedExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::AttributedExpr
+        node->range         = range
+        node->args          = create_empty_frozen_list<unsafe *Expr>()
+        node->has_args      = false
+        node->operand       = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::AttributedExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::AttributedExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::AttributedExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::AttributedExpr
+    }
 }
 
 ///
 ///  AwaitExpr
 ///  await expr
 ///
-class AwaitExpr derives Expr {
-    pub var operand: *Expr;
+pub class AwaitExpr derives Expr {
+    pub var operand: unsafe *Expr
 
-    static fn create(ctx: *ASTContext, range: SourceRange, operand: *Expr) -> *AwaitExpr {
-        var node      = ctx->alloc::<AwaitExpr>();
-        node->kind    = ExprKind::AwaitExpr;
-        node->range   = range;
-        node->operand = operand;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:     *ASTContext,
+                         range:   SourceRange,
+                         operand: unsafe *Expr) -> unsafe *AwaitExpr {
+        var unsafe *node = ctx->alloc<AwaitExpr>()
+        node->kind    = ExprKind::AwaitExpr
+        node->range   = range
+        node->operand = operand
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *AwaitExpr {
-        var node            = ctx->alloc::<AwaitExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::AwaitExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *AwaitExpr {
+        var unsafe *node = ctx->alloc<AwaitExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::AwaitExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::AwaitExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::AwaitExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::AwaitExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::AwaitExpr
+    }
 }
 
 ///
 ///  SpawnExpr
 ///  spawn expr
 ///
-class SpawnExpr derives Expr {
-    pub var operand: *Expr;
+pub class SpawnExpr derives Expr {
+    pub var operand: unsafe *Expr
 
-    static fn create(ctx: *ASTContext, range: SourceRange, operand: *Expr) -> *SpawnExpr {
-        var node      = ctx->alloc::<SpawnExpr>();
-        node->kind    = ExprKind::SpawnExpr;
-        node->range   = range;
-        node->operand = operand;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:     *ASTContext,
+                         range:   SourceRange,
+                         operand: unsafe *Expr) -> unsafe *SpawnExpr {
+        var unsafe *node = ctx->alloc<SpawnExpr>()
+        node->kind    = ExprKind::SpawnExpr
+        node->range   = range
+        node->operand = operand
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *SpawnExpr {
-        var node            = ctx->alloc::<SpawnExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::SpawnExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *SpawnExpr {
+        var unsafe *node = ctx->alloc<SpawnExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::SpawnExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::SpawnExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::SpawnExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::SpawnExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::SpawnExpr
+    }
 }
 
 ///
 ///  ThreadExpr
 ///  thread expr
 ///
-class ThreadExpr derives Expr {
-    pub var operand: *Expr;
+pub class ThreadExpr derives Expr {
+    pub var operand: unsafe *Expr
 
-    static fn create(ctx: *ASTContext, range: SourceRange, operand: *Expr) -> *ThreadExpr {
-        var node      = ctx->alloc::<ThreadExpr>();
-        node->kind    = ExprKind::ThreadExpr;
-        node->range   = range;
-        node->operand = operand;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:     *ASTContext,
+                         range:   SourceRange,
+                         operand: unsafe *Expr) -> unsafe *ThreadExpr {
+        var unsafe *node = ctx->alloc<ThreadExpr>()
+        node->kind    = ExprKind::ThreadExpr
+        node->range   = range
+        node->operand = operand
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *ThreadExpr {
-        var node            = ctx->alloc::<ThreadExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::ThreadExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *ThreadExpr {
+        var unsafe *node = ctx->alloc<ThreadExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::ThreadExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::ThreadExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::ThreadExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::ThreadExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::ThreadExpr
+    }
 }
 
 ///
@@ -1668,312 +1725,475 @@ class ThreadExpr derives Expr {
 ///  Sema classifies these as conformance conjuncts (feeding the bound table)
 ///  as opposed to value predicates like `sizeof T > 10`.
 ///
-class ConstraintExpr derives Expr {
-    pub var lhs:      *Expr;   ///< the constrained operand (names a type).
-    pub var rhs:      *Type;   ///< the interface/base type.
-    pub var op_token: Token;   ///< KwImpl or KwDerives.
+pub class ConstraintExpr derives Expr {
+    pub var lhs:      unsafe *Expr ///< the constrained operand (names a type).
+    pub var rhs:      unsafe *Type ///< the interface/base type.
+    pub var op_token: Token        ///< KwImpl or KwDerives.
 
-    static fn create(
-        ctx:      *ASTContext,
-        range:    SourceRange,
-        lhs:      *Expr,
-        rhs:      *Type,
-        op_token: Token
-    ) -> *ConstraintExpr {
-        var node       = ctx->alloc::<ConstraintExpr>();
-        node->kind     = ExprKind::ConstraintExpr;
-        node->range    = range;
-        node->lhs      = lhs;
-        node->rhs      = rhs;
+    pub static fn create(ctx:      unsafe *ASTContext,
+                         range:    SourceRange,
+                         lhs:      unsafe *Expr,
+                         rhs:      unsafe *Type,
+                         op_token: Token) -> unsafe *ConstraintExpr {
+        var unsafe *node = ctx->alloc<ConstraintExpr>()
+        node->kind  = ExprKind::ConstraintExpr
+        node->range = range
+        node->lhs   = lhs
+        node->rhs   = rhs
         // Unwrapped, as in UnaryOperatorExpr::create.
-        node->op_token = ctx->unwrap_token(op_token);
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+        node->op_token = ctx->unwrap_token(op_token)
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *ConstraintExpr {
-        var node            = ctx->alloc::<ConstraintExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::ConstraintExpr;
-        node->range         = range;
-        node->lhs           = &null;
-        node->rhs           = &null;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *ConstraintExpr {
+        var unsafe *node = ctx->alloc<ConstraintExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::ConstraintExpr
+        node->range         = range
+        node->lhs           = &null
+        node->rhs           = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
     /// true if op is `derives` (nominal); false if `impl` (structural).
-    fn is_derives(self) -> bool { return self.op_token.kind == TokenKind::KwDerives; }
+    pub fn is_derives(self) -> bool {
+        return self.op_token.kind == TokenKind::KwDerives
+    }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::ConstraintExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::ConstraintExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::ConstraintExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::ConstraintExpr
+    }
 }
 
-class SizeOfExpr derives Expr {
-    pub var type_arg: *Type;
+pub class SizeOfExpr derives Expr {
+    pub var type_arg: unsafe *Type
 
-    static fn create(ctx: *ASTContext, range: SourceRange, type_arg: *Type) -> *SizeOfExpr {
-        var node       = ctx->alloc::<SizeOfExpr>();
-        node->kind     = ExprKind::SizeOfExpr;
-        node->range    = range;
-        node->type_arg = type_arg;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:      *ASTContext,
+                         range:    SourceRange,
+                         type_arg: unsafe *Type) -> unsafe *SizeOfExpr {
+        var unsafe *node = ctx->alloc<SizeOfExpr>()
+        node->kind     = ExprKind::SizeOfExpr
+        node->range    = range
+        node->type_arg = type_arg
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *SizeOfExpr {
-        var node            = ctx->alloc::<SizeOfExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::SizeOfExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *SizeOfExpr {
+        var unsafe *node = ctx->alloc<SizeOfExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::SizeOfExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::SizeOfExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::SizeOfExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::SizeOfExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::SizeOfExpr
+    }
 }
 
 ///
 ///  AlignOfExpr
 ///  alignof T | alignof(T)
 ///
-class AlignOfExpr derives Expr {
-    pub var type_arg: *Type;
+pub class AlignOfExpr derives Expr {
+    pub var type_arg: unsafe *Type
 
-    static fn create(ctx: *ASTContext, range: SourceRange, type_arg: *Type) -> *AlignOfExpr {
-        var node       = ctx->alloc::<AlignOfExpr>();
-        node->kind     = ExprKind::AlignOfExpr;
-        node->range    = range;
-        node->type_arg = type_arg;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:      *ASTContext,
+                         range:    SourceRange,
+                         type_arg: unsafe *Type) -> unsafe *AlignOfExpr {
+        var unsafe *node = ctx->alloc<AlignOfExpr>()
+        node->kind     = ExprKind::AlignOfExpr
+        node->range    = range
+        node->type_arg = type_arg
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *AlignOfExpr {
-        var node            = ctx->alloc::<AlignOfExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::AlignOfExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *AlignOfExpr {
+        var unsafe *node = ctx->alloc<AlignOfExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::AlignOfExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::AlignOfExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::AlignOfExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::AlignOfExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::AlignOfExpr
+    }
 }
 
-/// A type fact a condition can read (EVAL.md 4.2b). Only the facts Sema has
+/// A type fact a condition can read (Compiler/Spec/Eval.md#deferred-conditions). Only the facts Sema has
 /// an oracle for exist -- ClassLifecycle's two triviality bits -- so the
 /// late `eval if` fold can answer every one of them before C++ does, and C++
 /// computes each with the clang builtin of the same name. None is the
 /// parser's "this name is not one".
-enum TypeTraitKind derives u8 {
+pub enum TypeTraitKind derives u8 {
     None = 0,
     TriviallyCopyable,
     TriviallyDestructible,
 }
 
 /// The fact the intrinsic \p name spells (without its `!`), or None.
-fn type_trait_of(name: string) -> TypeTraitKind {
-    if name == LangIntrinsics::is_trivially_copyable()     { return TypeTraitKind::TriviallyCopyable; }
-    if name == LangIntrinsics::is_trivially_destructible() { return TypeTraitKind::TriviallyDestructible; }
-    return TypeTraitKind::None;
+pub fn type_trait_of(const name: string) -> TypeTraitKind {
+    if name == LangIntrinsics::is_trivially_copyable() {
+        return TypeTraitKind::TriviallyCopyable
+    }
+
+    if name == LangIntrinsics::is_trivially_destructible() {
+        return TypeTraitKind::TriviallyDestructible
+    }
+
+    return TypeTraitKind::None
 }
 
 /// \p k as Kairo spells it, without its `!`.
-fn type_trait_spelling(k: TypeTraitKind) -> string {
-    if k == TypeTraitKind::TriviallyCopyable     { return LangIntrinsics::is_trivially_copyable(); }
-    if k == TypeTraitKind::TriviallyDestructible { return LangIntrinsics::is_trivially_destructible(); }
-    return "";
+pub fn type_trait_spelling(k: TypeTraitKind) -> string {
+    if k == TypeTraitKind::TriviallyCopyable {
+        return LangIntrinsics::is_trivially_copyable()
+    }
+
+    if k == TypeTraitKind::TriviallyDestructible {
+        return LangIntrinsics::is_trivially_destructible()
+    }
+
+    return ""
 }
 
 /// The clang builtin that computes \p k: what C++ answers for the same type.
-fn type_trait_cxx(k: TypeTraitKind) -> string {
-    if k == TypeTraitKind::TriviallyCopyable     { return "__is_trivially_copyable"; }
-    if k == TypeTraitKind::TriviallyDestructible { return "__is_trivially_destructible"; }
-    return "";
+pub fn type_trait_cxx(k: TypeTraitKind) -> string {
+    if k == TypeTraitKind::TriviallyCopyable {
+        return "__is_trivially_copyable"
+    }
+
+    if k == TypeTraitKind::TriviallyDestructible {
+        return "__is_trivially_destructible"
+    }
+
+    return ""
 }
 
 ///
 ///  TypeTraitExpr
 ///  is_trivially_copyable!(T) | is_trivially_destructible!(T)
 ///
-class TypeTraitExpr derives Expr {
-    pub var fact:     TypeTraitKind = TypeTraitKind::None;
-    pub var type_arg: *Type;
+pub class TypeTraitExpr derives Expr {
+    pub var fact:     TypeTraitKind = TypeTraitKind::None
+    pub var type_arg: unsafe *Type
 
-    static fn create(ctx: *ASTContext, range: SourceRange, fact: TypeTraitKind, type_arg: *Type) -> *TypeTraitExpr {
-        var node       = ctx->alloc::<TypeTraitExpr>();
-        node->kind     = ExprKind::TypeTraitExpr;
-        node->range    = range;
-        node->fact     = fact;
-        node->type_arg = type_arg;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:      *ASTContext,
+                         range:    SourceRange,
+                         fact:     TypeTraitKind,
+                         type_arg: unsafe *Type) -> unsafe *TypeTraitExpr {
+        var unsafe *node = ctx->alloc<TypeTraitExpr>()
+        node->kind     = ExprKind::TypeTraitExpr
+        node->range    = range
+        node->fact     = fact
+        node->type_arg = type_arg
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::TypeTraitExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::TypeTraitExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::TypeTraitExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::TypeTraitExpr
+    }
 }
 
 ///
 ///  TypeOfExpr
 ///  typeof expr | typeof(expr)
 ///
-class TypeOfExpr derives Expr {
-    pub var operand:      *Expr;
-    pub var resolved_type: *Type = &null; ///< set by sema.
+pub class TypeOfExpr derives Expr {
+    pub var operand:       unsafe *Expr
+    pub var resolved_type: *Type?       = &null ///< set by sema.
 
-    static fn create(ctx: *ASTContext, range: SourceRange, operand: *Expr) -> *TypeOfExpr {
-        var node      = ctx->alloc::<TypeOfExpr>();
-        node->kind    = ExprKind::TypeOfExpr;
-        node->range   = range;
-        node->operand = operand;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:     *ASTContext,
+                         range:   SourceRange,
+                         operand: unsafe *Expr) -> unsafe *TypeOfExpr {
+        var unsafe *node = ctx->alloc<TypeOfExpr>()
+        node->kind    = ExprKind::TypeOfExpr
+        node->range   = range
+        node->operand = operand
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *TypeOfExpr {
-        var node            = ctx->alloc::<TypeOfExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::TypeOfExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *TypeOfExpr {
+        var unsafe *node = ctx->alloc<TypeOfExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::TypeOfExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::TypeOfExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::TypeOfExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::TypeOfExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::TypeOfExpr
+    }
 }
 
 ///
 ///  EvalExpr
 ///  eval expr forces compile-time evaluation.
 ///
-class EvalExpr derives Expr {
-    pub var operand: *Expr;
+pub class EvalExpr derives Expr {
+    pub var operand: unsafe *Expr
 
-    static fn create(ctx: *ASTContext, range: SourceRange, operand: *Expr) -> *EvalExpr {
-        var node      = ctx->alloc::<EvalExpr>();
-        node->kind    = ExprKind::EvalExpr;
-        node->range   = range;
-        node->operand = operand;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:     *ASTContext,
+                         range:   SourceRange,
+                         operand: unsafe *Expr) -> unsafe *EvalExpr {
+        var unsafe *node = ctx->alloc<EvalExpr>()
+        node->kind    = ExprKind::EvalExpr
+        node->range   = range
+        node->operand = operand
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *EvalExpr {
-        var node            = ctx->alloc::<EvalExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::EvalExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *EvalExpr {
+        var unsafe *node = ctx->alloc<EvalExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::EvalExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::EvalExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::EvalExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::EvalExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::EvalExpr
+    }
 }
 
 ///
 ///  UnsafeExpr
 ///  unsafe expr permits otherwise-restricted operations.
 ///
-class UnsafeExpr derives Expr {
-    pub var operand: *Expr;
+pub class UnsafeExpr derives Expr {
+    pub var operand: unsafe *Expr
 
-    static fn create(ctx: *ASTContext, range: SourceRange, operand: *Expr) -> *UnsafeExpr {
-        var node      = ctx->alloc::<UnsafeExpr>();
-        node->kind    = ExprKind::UnsafeExpr;
-        node->range   = range;
-        node->operand = operand;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:     *ASTContext,
+                         range:   SourceRange,
+                         operand: unsafe *Expr) -> unsafe *UnsafeExpr {
+        var unsafe *node = ctx->alloc<UnsafeExpr>()
+        node->kind    = ExprKind::UnsafeExpr
+        node->range   = range
+        node->operand = operand
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *UnsafeExpr {
-        var node            = ctx->alloc::<UnsafeExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::UnsafeExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *UnsafeExpr {
+        var unsafe *node = ctx->alloc<UnsafeExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::UnsafeExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::UnsafeExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::UnsafeExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::UnsafeExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::UnsafeExpr
+    }
 }
 
 ///
 ///  DeleteExpr
-///  delete expr | delete [expr]
+///  @cxx::delete p | @cxx::delete [] p    (C++'s `delete p` / `delete[] p`)
 ///
-class DeleteExpr derives Expr {
-    pub var operand:  *Expr;
-    pub var is_array: bool;
+///  Kairo has no `delete` expression (0.2.0): a bare `delete p` is S091E,
+///  parsed into this node only for recovery (is_cxx false); `@destroy p`
+///  frees Kairo memory. `@cxx::delete` frees memory C++'s own allocation
+///  made (c-cpp-memory.mdx, "Memory that belongs to C++").
+///
+pub class DeleteExpr derives Expr {
+    pub var operand:  unsafe *Expr
+    pub var is_array: bool
+    /// Written `@cxx::delete`: the only form that reaches codegen.
+    pub var is_cxx: bool = false
 
-    static fn create(
-        ctx:      *ASTContext,
-        range:    SourceRange,
-        operand:  *Expr,
-        is_array: bool
-    ) -> *DeleteExpr {
-        var node       = ctx->alloc::<DeleteExpr>();
-        node->kind     = ExprKind::DeleteExpr;
-        node->range    = range;
-        node->operand  = operand;
-        node->is_array = is_array;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:      *ASTContext,
+                         range:    SourceRange,
+                         operand:  unsafe *Expr,
+                         is_array: bool) -> unsafe *DeleteExpr {
+        var unsafe *node = ctx->alloc<DeleteExpr>()
+        node->kind     = ExprKind::DeleteExpr
+        node->range    = range
+        node->operand  = operand
+        node->is_array = is_array
+        node->is_cxx   = false
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *DeleteExpr {
-        var node            = ctx->alloc::<DeleteExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::DeleteExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *DeleteExpr {
+        var unsafe *node = ctx->alloc<DeleteExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::DeleteExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::DeleteExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::DeleteExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::DeleteExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::DeleteExpr
+    }
+}
+
+///
+///  CxxNewExpr
+///  @cxx::new T(args) | @cxx::new [T; n]    (C++'s `new T(args)` / `new T[n]`)
+///
+///  An `unsafe *T` from C++'s own allocation, for memory a C++ library will
+///  free (c-cpp-memory.mdx). The single form keeps the construction as Kairo
+///  types it, `T(args)` (init: the constructor is chosen as for any `T(args)`),
+///  and C++ receives `new T(<init>)`, which C++17 initializes in place from
+///  the prvalue: no copy or move, so a NON_TRANSFER T is fine. The array form
+///  keeps `sizeof T` (elem_size, a SizeOfExpr whose type_arg is T) rather than
+///  a bare type, so every pass that plans a sizeof operand complete plans T
+///  complete, as `new T[n]` needs; and the count.
+///
+pub class CxxNewExpr derives Expr {
+    pub var init:      unsafe *Expr = &null ///< single form: `T(args)`
+    pub var elem_size: unsafe *Expr = &null ///< array form: `sizeof T`
+    pub var count:     unsafe *Expr = &null ///< array form: n
+
+    pub static fn create(ctx:   *ASTContext,
+                         range: SourceRange,
+                         init:  unsafe *Expr) -> unsafe *CxxNewExpr {
+        var unsafe *node = ctx->alloc<CxxNewExpr>()
+        node->kind      = ExprKind::CxxNewExpr
+        node->range     = range
+        node->init      = init
+        node->elem_size = &null
+        node->count     = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
+    }
+
+    pub static fn create_array(ctx:       *ASTContext,
+                               range:     SourceRange,
+                               elem_size: unsafe *Expr,
+                               count:     unsafe *Expr) -> unsafe *CxxNewExpr {
+        var unsafe *node = ctx->alloc<CxxNewExpr>()
+        node->kind      = ExprKind::CxxNewExpr
+        node->range     = range
+        node->init      = &null
+        node->elem_size = elem_size
+        node->count     = count
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
+    }
+
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *CxxNewExpr {
+        var unsafe *node = ctx->alloc<CxxNewExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::CxxNewExpr
+        node->range         = range
+        node->init          = &null
+        node->elem_size     = &null
+        node->count         = &null
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
+    }
+
+    pub fn is_array(self) -> bool {
+        return self.elem_size != &null
+    }
+
+    /// The element type of the array form.
+    pub fn elem_type(self) -> unsafe *Type {
+        if self.elem_size == &null || !isa<SizeOfExpr>(self.elem_size) {
+            return &null
+        }
+
+        return cast<SizeOfExpr>(self.elem_size)->type_arg
+    }
+
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::CxxNewExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::CxxNewExpr
+    }
 }
 
 ///
 ///  PackExpansionExpr
 ///  foo... variadic unpack expansion.
 ///
-class PackExpansionExpr derives Expr {
-    pub var operand: *Expr;
-    /// The pack is read again after this expansion on some path (MoveCheck,
-    /// P239), so it must not forward -- a forward moves each element -- and
+pub class PackExpansionExpr derives Expr {
+    pub var operand: unsafe *Expr
+    /// The pack is read again after this expansion on some path (MoveCheck),
+    /// so it must not forward -- a forward moves each element -- and
     /// EmitIR spells it `xs...`, which copies into a by-value parameter.
-    pub var reread: bool = false;
+    pub var reread: bool = false
 
-    static fn create(ctx: *ASTContext, range: SourceRange, operand: *Expr) -> *PackExpansionExpr {
-        var node      = ctx->alloc::<PackExpansionExpr>();
-        node->kind    = ExprKind::PackExpansionExpr;
-        node->range   = range;
-        node->operand = operand;
-        node->reread  = false;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:     *ASTContext,
+                         range:   SourceRange,
+                         operand: unsafe *Expr) -> unsafe *PackExpansionExpr {
+        var unsafe *node = ctx->alloc<PackExpansionExpr>()
+        node->kind    = ExprKind::PackExpansionExpr
+        node->range   = range
+        node->operand = operand
+        node->reread  = false
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *PackExpansionExpr {
-        var node            = ctx->alloc::<PackExpansionExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::PackExpansionExpr;
-        node->range         = range;
-        node->reread        = false;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *PackExpansionExpr {
+        var unsafe *node = ctx->alloc<PackExpansionExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::PackExpansionExpr
+        node->range         = range
+        node->reread        = false
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::PackExpansionExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::PackExpansionExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::PackExpansionExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::PackExpansionExpr
+    }
 }
 
 /// Which `as` was written. The word after `as` selects a DIFFERENT ladder,
@@ -1981,11 +2201,11 @@ class PackExpansionExpr derives Expr {
 /// asserts the const-cast rung and errors on anything else, `unsafe` opens
 /// the reinterpret rung. CastTyping dispatches on this before it looks at
 /// either type.
-enum CastMode derives u8 {
-    Default = 0,   ///< `a as T`
-    Static,        ///< `a as static T`
-    Const,         ///< `a as const T`
-    Unsafe,        ///< `a as unsafe *T`
+pub enum CastMode derives u8 {
+    Default = 0, ///< `a as T`
+    Static,      ///< `a as static T`
+    Const,       ///< `a as const T`
+    Unsafe,      ///< `a as unsafe *T`
 }
 
 ///
@@ -1993,59 +2213,59 @@ enum CastMode derives u8 {
 ///  expr as Type
 ///  expr as unsafe *Derived   (unsafe pointer cast)
 ///
-class TypeCastExpr derives Expr {
-    pub var operand:   *Expr;
-    pub var target:    *Type;
+pub class TypeCastExpr derives Expr {
+    pub var operand: unsafe *Expr
+    pub var target:  unsafe *Type
 
     /// Kept in step with `mode == CastMode::Unsafe`. Redundant on purpose for
     /// now -- the printer and ClangDiagAdapter still read the bool -- and goes
     /// away once every reader has moved to `mode`.
-    pub var is_unsafe: bool;
-    pub var mode:      CastMode = CastMode::Default;
+    pub var is_unsafe: bool
+    pub var mode:      CastMode = CastMode::Default
 
     /// The user operator overload resolution selected, or null for a builtin
     /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),
     /// read by OperatorLowering, which rewrites the node into the call.
-    pub var resolved_op: *Decl = &null;
-    pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+    pub var resolved_op: unsafe *Decl = &null
+    pub var op_via_free: bool         = false ///< a free `op` found by ADL (every operand is an argument).
 
     /// The converting constructor rung 5d selected, or null. Separate from
     /// resolved_op: a constructor has no op_token to spell. OperatorLowering
     /// rewrites the cast into the construction.
-    pub var resolved_ctor: *Decl = &null;
+    pub var resolved_ctor: unsafe *Decl = &null
 
     /// A widening the implicit rules would also do (a lattice I/W rung or a
     /// pointer upcast). Written by CastTyping; read where the slot's type is
     /// only known after the cast was typed -- a call argument, before
     /// overload resolution picks the parameter -- to decide the
     /// redundant-cast lint there.
-    pub var widening: bool = false;
+    pub var widening: bool = false
 
     /// `p as (*D)?` from a `*B` with D below B: the CHECKED downcast
     /// (casting.md), null when the dynamic type is not a D. Written by
     /// CastTyping; EmitIR spells it as a dynamic_cast whose null pointer
     /// becomes the null nullable (a static_cast to `Nullable<D*>` would
     /// neither check nor map null).
-    pub var checked_downcast: bool = false;
+    pub var checked_downcast: bool = false
 
     /// `p as *D` from a `*B` with D below B: the ASSERTING downcast
-    /// (PANIC.md §5), which crashes when the dynamic type is not a D.
+    /// (Compiler/Spec/Panic.md#crashes-are-not-panics), which crashes when the dynamic type is not a D.
     /// Written by CastTyping; OperatorLowering expands it into a
     /// statement expression over a `dynamic_only` cast and a crash call,
     /// and clears it.
-    pub var asserting_downcast: bool = false;
+    pub var asserting_downcast: bool = false
 
     /// The bare `dynamic_cast<D*>(p)`, a null pointer on a miss: only
     /// OperatorLowering's expansion of an asserting downcast makes one.
     /// EmitIR spells it as is.
-    pub var dynamic_only: bool = false;
+    pub var dynamic_only: bool = false
 
     /// E, for `v as E` (or `v as E?`) into a CLOSED plain enum (not
     /// `@open`) from an operand that is not a constant, else null: the value
-    /// is checked against E's variants at run time and a miss crashes (the crash family, PANIC.md §2.8). Written
+    /// is checked against E's variants at run time and a miss crashes (the crash family, Compiler/Spec/Panic.md#crashes-are-not-panics). Written
     /// by CastTyping once the operand is known not to fold (a constant is
     /// checked there, at compile time); OperatorLowering builds the check.
-    pub var enum_check: *Decl = &null;
+    pub var enum_check: unsafe *Decl = &null
 
     /// `p as unsafe *B` between two record pointees one of which derives
     /// from the other: the address moves to (or back from) the base
@@ -2053,46 +2273,49 @@ class TypeCastExpr derives Expr {
     /// is right only for a first base at offset 0; through any other base
     /// it reads the wrong fields. Written by CastTyping; EmitIR spells it
     /// as static_cast (a C-style cast when it also drops a qualifier).
-    pub var base_adjust: bool = false;
+    pub var base_adjust: bool = false
 
-    static fn create(
-        ctx:       *ASTContext,
-        range:     SourceRange,
-        operand:   *Expr,
-        target:    *Type,
-        is_unsafe: bool = false,
-        mode:      CastMode = CastMode::Default
-    ) -> *TypeCastExpr {
-        var node        = ctx->alloc::<TypeCastExpr>();
-        node->kind      = ExprKind::TypeCastExpr;
-        node->range     = range;
-        node->operand   = operand;
-        node->target    = target;
-        node->is_unsafe = is_unsafe;
-        node->mode      = mode;
-        node->resolved_op = &null;
-        node->op_via_free = false;
-        node->resolved_ctor = &null;
-        node->base_adjust = false;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:       unsafe *ASTContext,
+                         range:     SourceRange,
+                         operand:   unsafe *Expr,
+                         target:    unsafe *Type,
+                         is_unsafe: bool = false,
+                         mode:      CastMode = CastMode::Default) -> unsafe *TypeCastExpr {
+        var unsafe *node = ctx->alloc<TypeCastExpr>()
+        node->kind          = ExprKind::TypeCastExpr
+        node->range         = range
+        node->operand       = operand
+        node->target        = target
+        node->is_unsafe     = is_unsafe
+        node->mode          = mode
+        node->resolved_op   = &null
+        node->op_via_free   = false
+        node->resolved_ctor = &null
+        node->base_adjust   = false
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *TypeCastExpr {
-        var node            = ctx->alloc::<TypeCastExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::TypeCastExpr;
-        node->range         = range;
-        node->resolved_op   = &null;
-        node->op_via_free   = false;
-        node->resolved_ctor = &null;
-        node->base_adjust   = false;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *TypeCastExpr {
+        var unsafe *node = ctx->alloc<TypeCastExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::TypeCastExpr
+        node->range         = range
+        node->resolved_op   = &null
+        node->op_via_free   = false
+        node->resolved_ctor = &null
+        node->base_adjust   = false
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::TypeCastExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::TypeCastExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::TypeCastExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::TypeCastExpr
+    }
 }
 
 ///
@@ -2100,30 +2323,33 @@ class TypeCastExpr derives Expr {
 ///  Inserted by sema at FFI call boundaries. Not visible in source.
 ///  Carries original expr + source type + target ABI type for codegen.
 ///
-class ImplicitBoundaryCastExpr derives Expr {
-    pub var original:    *Expr;
-    pub var source_type: *Type;
-    pub var target_type: *Type;
+pub class ImplicitBoundaryCastExpr derives Expr {
+    pub var original:    unsafe *Expr
+    pub var source_type: unsafe *Type
+    pub var target_type: unsafe *Type
 
-    static fn create(
-        ctx:         *ASTContext,
-        range:       SourceRange,
-        original:    *Expr,
-        source_type: *Type,
-        target_type: *Type
-    ) -> *ImplicitBoundaryCastExpr {
-        var node          = ctx->alloc::<ImplicitBoundaryCastExpr>();
-        node->kind        = ExprKind::ImplicitBoundaryCastExpr;
-        node->range       = range;
-        node->original    = original;
-        node->source_type = source_type;
-        node->target_type = target_type;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:         unsafe *ASTContext,
+                         range:       SourceRange,
+                         original:    unsafe *Expr,
+                         source_type: unsafe *Type,
+                         target_type: unsafe *Type) -> unsafe *ImplicitBoundaryCastExpr {
+        var unsafe *node = ctx->alloc<ImplicitBoundaryCastExpr>()
+        node->kind        = ExprKind::ImplicitBoundaryCastExpr
+        node->range       = range
+        node->original    = original
+        node->source_type = source_type
+        node->target_type = target_type
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::ImplicitBoundaryCastExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::ImplicitBoundaryCastExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::ImplicitBoundaryCastExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::ImplicitBoundaryCastExpr
+    }
 }
 
 // // free function: is_primary_expr
@@ -2176,37 +2402,47 @@ class ImplicitBoundaryCastExpr derives Expr {
 ///
 ///  Source-fidelity only. See ExprKind::ParenExpr.
 ///
-class ParenExpr derives Expr {
-    pub var inner: *Expr;
+pub class ParenExpr derives Expr {
+    pub var inner: unsafe *Expr
 
-    static fn create(ctx: *ASTContext, range: SourceRange, inner: *Expr) -> *ParenExpr {
-        var node      = ctx->alloc::<ParenExpr>();
-        node->kind    = ExprKind::ParenExpr;
-        node->range   = range;
-        node->inner   = inner;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    pub static fn create(ctx:   unsafe *ASTContext,
+                         range: SourceRange,
+                         inner: unsafe *Expr) -> unsafe *ParenExpr {
+        var unsafe *node = ctx->alloc<ParenExpr>()
+        node->kind  = ExprKind::ParenExpr
+        node->range = range
+        node->inner = inner
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *ParenExpr {
-        var node            = ctx->alloc::<ParenExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::ParenExpr;
-        node->range         = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *ParenExpr {
+        var unsafe *node = ctx->alloc<ParenExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::ParenExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
     /// Strips any number of nested ParenExpr layers. What sema/codegen want
     /// whenever a Verbatim-parsed tree reaches them.
-    fn strip(self) -> *Expr {
-        var e = self.inner;
-        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
-        return e;
+    fn strip(self) -> unsafe *Expr {
+        var unsafe *e = self.inner
+        while e != &null && isa<ParenExpr>(e) {
+            e = cast<ParenExpr>(e)->inner
+        }
+
+        return e
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::ParenExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::ParenExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::ParenExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::ParenExpr
+    }
 }
 
 ///
@@ -2215,31 +2451,149 @@ class ParenExpr derives Expr {
 ///
 ///  Source-fidelity only. See ExprKind::VerbatimExpr.
 ///
-class VerbatimExpr derives Expr {
+pub class VerbatimExpr derives Expr {
     /// The exact source span to reproduce. `range` (from Expr) covers the same
     /// text; `span` is kept separate so a future lowering can rewrite `range`
     /// without losing what to print.
-    pub var span: SourceRange;
+    pub var span: SourceRange
 
-    static fn create(ctx: *ASTContext, range: SourceRange, span: SourceRange) -> *VerbatimExpr {
-        var node    = ctx->alloc::<VerbatimExpr>();
-        node->kind  = ExprKind::VerbatimExpr;
-        node->range = range;
-        node->span  = span;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create(ctx:   *ASTContext,
+                     range: SourceRange,
+                     span:  SourceRange) -> unsafe *VerbatimExpr {
+        var unsafe *node = ctx->alloc<VerbatimExpr>()
+        node->kind  = ExprKind::VerbatimExpr
+        node->range = range
+        node->span  = span
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *VerbatimExpr {
-        var node            = ctx->alloc::<VerbatimExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::VerbatimExpr;
-        node->range         = range;
-        node->span          = range;
-        node->init_annotations(&(ctx->ast_alloc));;
-        return node;
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *VerbatimExpr {
+        var unsafe *node = ctx->alloc<VerbatimExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::VerbatimExpr
+        node->range         = range
+        node->span          = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
     }
 
-    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::VerbatimExpr; }
-    static fn expr_kind() -> ExprKind { return ExprKind::VerbatimExpr; }
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::VerbatimExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::VerbatimExpr
+    }
+}
+
+/// How a closure holds one captured binding, as ClosureCaptures decided it
+/// (Sema/Check/CaptureAnalysis.k) and EmitIR spells it in the lambda's
+/// capture list (Compiler/Spec/Codegen.md#emitir, Closures).
+///
+///   Copy        its own copy (`x`): no list, or `|x|`.
+///   Move        its own value, moved in (`x = static_cast<T&&>(x)`): a by-copy
+///               capture of a MOVE type (ownership.md, Default capture).
+///   Ptr         a pointer to the original (`x = &x`): `|*x|`, `|*|`.
+///   ConstPtr    a `*const T` to it (`x = static_cast<const T*>(&x)`).
+///   Self        the enclosing `self`, a pointer already (`this`, or an
+///               extension member's receiver parameter).
+///
+/// A binding an enclosing closure already holds by pointer is that pointer
+/// inside it (ExprTyper::_capture_view), so an inner closure copies the
+/// pointer (Copy) or converts it (ConstPtr with `via_ptr`), never takes its
+/// address again.
+pub enum CaptureMode derives u8 {
+    Copy,
+    Move,
+    Ptr,
+    ConstPtr,
+    Receiver, // `self` (a method's receiver); not `Self`, a Stage 1 keyword
+}
+
+///
+///  ClosureExpr
+///  fn <T> (x: T, y: i32)|captured| -> i32 { x + y + captured }
+///  fn (x: i32) { std::print(x) }
+///
+///  params, generics, captures, return type, and body are all parsed by
+///  DeclParse since they share structure with function declarations.
+///  The body is a *Stmt (block statement) or *Expr (single expression).
+///
+pub class ClosureExpr derives Expr {
+    pub struct Capture {
+        pub var name:     unsafe *NamedIdentExpr ///< the captured variable's name token.
+        pub var by_ptr:   bool                   = false ///< true if `|&captured|`, false if `|captured|`.
+        pub var is_const: bool                   = false ///< true if `|const &captured|`, false otherwise.
+    }
+
+    pub var captures:       FrozenList<Self::Capture> ///< captured variables, in source order.
+    pub var params:         FrozenList<unsafe *ParamDecl>
+    pub var generic_params: FrozenList<unsafe *GenericParamDecl>
+    pub var body_block:     unsafe *CompoundStmt                 = &null
+    pub var body_expr:      unsafe *Expr                         = &null
+    pub var return_type:    unsafe *Type ///< null if inferred.
+    pub var body_kind:      FnBodyKind                           = FnBodyKind::None
+    pub var modifiers:      FnModifier                           = FnModifier::None
+    /// `fn (x: i32) panic(E) -> T`: the declared set, as on FunctionDecl.
+    pub var panic_set: FrozenList<unsafe *Type>
+    /// As on FunctionDecl: the specifier as written and the parameter
+    /// list's `)`, for fix-its; the final set and whether it is readable.
+    pub var panic_range: SourceRange
+    pub var params_end:  SourceRange
+    pub var panic_eff:   FrozenList<unsafe *Type>
+    pub var panic_state: PanicSetState            = PanicSetState::None
+    /// As on FunctionDecl: the lambda's C++ result when it panics.
+    pub var panic_result:        unsafe *Type = &null
+    pub var is_variadic:         bool         = false ///< trailing `...name: T` pack param.
+    pub var is_noreturn:         bool         = false
+    pub var explicit_no_capture: bool         = false
+    /// `|...|` / `||` as written, for a fix-it; invalid when there is none.
+    pub var capture_range: SourceRange
+
+    /// What the closure holds, decided once by ClosureCaptures (CHECK) and
+    /// read by MoveCheck, FinallyLowering and EmitIR: the captured bindings
+    /// in first-use order (a named list's order for a named list), each
+    /// with its mode, parallel. `cap_via_ptr[i]`: an enclosing closure holds
+    /// `cap_decls[i]` by pointer, so the name is that pointer here.
+    /// `caps_resolved` is false until the check has run; EmitIR ICEs on it.
+    pub var cap_decls:   FrozenList<unsafe *Decl>
+    pub var cap_modes:   FrozenList<CaptureMode>
+    pub var cap_via_ptr: FrozenList<bool>
+    /// The first use of each capture in the closure (a named capture's own
+    /// name in the list), parallel: what MoveCheck reads as the capture's
+    /// read. The tree's, before any lowering rebuilds it.
+    pub var cap_uses:      FrozenList<unsafe *NamedIdentExpr>
+    pub var caps_resolved: bool                               = false
+
+    pub static fn create(ctx: *ASTContext, range: SourceRange) -> unsafe *ClosureExpr {
+        var unsafe *node = ctx->alloc<ClosureExpr>()
+        node->kind          = ExprKind::ClosureExpr
+        node->range         = range
+        node->body_kind     = FnBodyKind::None
+        node->body_block    = &null
+        node->body_expr     = &null
+        node->return_type   = &null
+        node->capture_range = SourceRange::invalid()
+        node->caps_resolved = false
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
+    }
+
+    pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *ClosureExpr {
+        var unsafe *node = ctx->alloc<ClosureExpr>()
+        node->kind          = ExprKind::RecoveryExpr
+        node->recovery_kind = ExprKind::ClosureExpr
+        node->range         = range
+        node->init_annotations(unsafe &ctx->ast_alloc)
+        return node
+    }
+
+    static fn classof(ptr: *const Expr) -> bool {
+        return ptr->kind == ExprKind::ClosureExpr
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::ClosureExpr
+    }
 }

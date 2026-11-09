@@ -1,12 +1,12 @@
 /// --- The Kairo Project ----------------------------- AST/ASTSupport.k --- ///
 ///
-///   Provides shared utilities, types, and helper functions for the AST module.
+///   FrozenList, the arena-backed fixed-length list AST nodes keep children in.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
@@ -19,14 +19,14 @@
 ///   - Common data strcutures, interfaces, and utilities for the parser and related tools.
 ///   - Also our custom RTTI system.
 
-import AST::Context::ASTContext::*;
-import Token::TokenKind::*;
-import Memory::ArenaList::*;
-import Location::SourceManager::*;
-import Macro::Sentinel::*;
-import Lexer::Immediate::*;
-import Token::Token::*;
-import Token::TokenText::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "limits"
+ffi "c++" import "vector"
+ffi "c++" import "cstring"
+
+import AST::Context::ASTContext::ASTContext
+import Memory::ArenaAllocator::ArenaAllocator
+import Memory::ArenaList::ArenaList
 
 ///
 /// \class FrozenList<T>
@@ -46,10 +46,11 @@ import Token::TokenText::*;
 ///   ArgList::args
 ///   etc.
 ///
-class <T> FrozenList {
-    pub var items: *T    = &null;
-    pub var count: usize = 0;
-    pub var MAX:   usize = libcxx::numeric_limits::<usize>::max();
+// TODO(DUCK-GENERIC): T uses op ==. Stage 0 was duck-typed; bound it or keep `: type`.
+pub class <T: type> FrozenList {
+    pub var items: unsafe *T = &null
+    pub var count: usize     = 0
+    pub var MAX:   usize     = ((cxx::std::numeric_limits<usize>::max()))
 
     ///
     /// \brief Freeze an ArenaList into a FrozenList, allocating the
@@ -58,150 +59,166 @@ class <T> FrozenList {
     /// The ArenaList can be destroyed after this callthe FrozenList
     /// is fully independent.
     ///
-    fn from_list(self, l: *ArenaList::<T>, arena: *ArenaAllocator) {
-        self.count = l->size();
-        self.items = l->freeze(arena);
+    pub fn from_list(self, l: *ArenaList<T>, arena: unsafe *ArenaAllocator) {
+        self.count = l->size()
+        self.items = l->freeze(arena)
     }
 
-    fn from_vec(self, v: *vec::<T>, ctx: *ASTContext) {
-        if (v == &null) || (v->size() == 0) {
-            self.count = 0;
-            self.items = &null;
-            return;
+    pub fn from_vec(self, v: unsafe *cxx::std::vector<T>, ctx: unsafe *ASTContext) {
+        if v == &null || v->size() == 0 {
+            self.count = 0
+            self.items = &null
+            return
         }
 
-        self.count = v->size();
-        self.items = ctx->alloc_array::<T>(self.count);
+        self.count = v->size()
+        self.items = ctx->alloc_array<T>(self.count)
         for var i: usize = 0; i < self.count; ++i {
-            self.items[i] = (*v)[i];
+            self.items[i] = (*v)[i]
         }
     }
 
-    fn from_buf(self, data: *T, count: usize, ctx: *ASTContext) {
+    pub fn from_buf(self, data: unsafe *T, count: usize, ctx: unsafe *ASTContext) {
         if count == 0 {
-            self.count = 0;
-            self.items = &null;
-            return;
+            self.count = 0
+            self.items = &null
+            return
         }
 
-        self.count = count;
-        self.items = ctx->alloc_array::<T>(count);
-        libcxx::memcpy(items, data, sizeof(T) * count);
+        self.count = count
+        self.items = ctx->alloc_array<T>(count)
+        cxx::std::memcpy(self.items, data, sizeof(T) * count)
     }
 
-    fn begin(self) -> *T {
-        return self.items;
+    fn begin(const self) -> unsafe *T {
+        return self.items
     }
 
-    fn end(self) -> *T {
-        return self.items + self.count;
+    fn end(const self) -> unsafe *T {
+        return self.items + self.count
     }
 
     ///
     /// \brief Create directly from a raw pointer + count.
     /// Use when you already have an arena-allocated array.
     ///
-    fn from_raw(self, items: *T, count: usize) {
-        self.items = items;
-        self.count = count;
+    pub fn from_raw(self, items: unsafe *T, count: usize) {
+        self.items = items
+        self.count = count
     }
 
     ///
     /// \brief Empty FrozenListnull items, zero count.
     ///
-    static fn empty() -> FrozenList::<T> {
-        var fl: FrozenList::<T>;
-        fl.items = &null;
-        fl.count = 0;
-        return fl;
+    pub static fn empty() -> FrozenList<T> {
+        var fl: FrozenList<T>
+        fl.items = &null
+        fl.count = 0
+        return fl
     }
 
     ///
     /// \brief Bounds-checked element access. Returns null if OOB.
     ///
-    fn get(self, index: usize) -> *T {
+    pub fn get(const self, index: usize) -> unsafe *T {
         if index >= self.count {
-            return &null;
-        }
-        
-        if self.items == &null {
-            return &null;
+            return &null
         }
 
-        return self.items + index;
+        if self.items == &null {
+            return &null
+        }
+
+        return self.items + index
     }
 
     ///
     /// \brief Bounds-checked subscript. Asserts if OOB.
     ///
-    fn op [](self, index: usize) -> T {
-        assert((index < self.count) && r"FrozenList index out of bounds");
-        return *(self.items + index);
+    pub fn op [](const self, index: usize) -> T {
+        eval if defined!(DEBUG) {
+            if !(index < self.count) {
+                kairo::std::ice_fail(r"FrozenList index out of bounds")
+            }
+        }
+
+        return *(self.items + index)
     }
 
     ///
     /// \brief First element. Null if empty.
     ///
-    fn front(self) -> *T {
-        if self.count == 0 { return &null; }
-        return self.items;
+    fn front(const self) -> unsafe *T {
+        if self.count == 0 {
+            return &null
+        }
+
+        return self.items
     }
 
     ///
     /// \brief Last element. Null if empty.
     ///
-    fn back(self) -> *T {
-        if self.count == 0 { return &null; }
-        return self.items + (self.count - 1);
+    fn back(const self) -> unsafe *T {
+        if self.count == 0 {
+            return &null
+        }
+
+        return self.items + (self.count - 1)
     }
 
-    fn size(self)  -> usize { return self.count; }
-    fn is_empty(self) -> bool  { return self.count == 0; }
+    pub fn size(const self) -> usize {
+        return self.count
+    }
+
+    pub fn is_empty(const self) -> bool {
+        return self.count == 0
+    }
 
     ///
     /// \brief Linear searchreturns index of first match, usize::MAX if not found.
     /// Comparison uses == operator on T.
     ///
-    fn find(self, val: T) -> usize {
+    fn find(const self, val: T) -> usize {
         for var i: usize = 0; i < self.count; ++i {
             if self.items[i] == val {
-                return i;
+                return i
             }
         }
 
-        return MAX; // not found
+        return self.MAX // not found
     }
 
     ///
     /// \brief Returns true if any element satisfies the predicate.
     /// pred must be a callable: fn(*T) -> bool
     ///
-    fn any(self, pred: fn(*T) -> bool) -> bool {
+    fn any(const self, pred: fn(unsafe *T) -> bool) -> bool {
         for var i: usize = 0; i < self.count; ++i {
             if pred(self.items + i) {
-                return true;
+                return true
             }
         }
-        
-        return false;
+
+        return false
     }
 
     ///
     /// \brief Returns true if all elements satisfy the predicate.
     ///
-    fn all(self, pred: fn(*T) -> bool) -> bool {
+    fn all(const self, pred: fn(unsafe *T) -> bool) -> bool {
         for var i: usize = 0; i < self.count; ++i {
             if !pred(self.items + i) {
-                return false;
+                return false
             }
         }
-        
-        return true;
+
+        return true
     }
 }
 
-fn <T> create_empty_frozen_list() -> FrozenList::<T> {
-    return FrozenList::<T>::empty();
+pub fn <T> create_empty_frozen_list() -> FrozenList<T> {
+    return FrozenList<T>::empty()
 }
 
 /// ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ///

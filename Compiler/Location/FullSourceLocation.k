@@ -1,19 +1,17 @@
 /// --- The Kairo Project ---------------- Location/FullSourceLocation.k --- ///
 ///
-///   <short description>
+///   FullSourceLocation: a position resolved to file, line and column.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Location::SourceLocation::*;
-import Support::FileIO::Path::*;
-import Support::FileIO::VirtualFileManager::*;
+import Support::FileIO::Path::Path
 
 ///
 /// \file FullSourceLocation.k
@@ -49,20 +47,20 @@ import Support::FileIO::VirtualFileManager::*;
 ///   - representing precise code spans in tooling
 ///   - serializing source references for debugging or tracing
 ///
-class FullSourceLocation {
-    pub var file_id: usize = 0;   ///< numeric file identifier.
-    pub var line:    usize = 0;   ///< 1-based line number.
-    pub var column:  usize = 0;   ///< 1-based column number.
-    pub var path:    Path;        ///< canonical file path.
+pub class FullSourceLocation {
+    pub var file_id: usize = 0 ///< numeric file identifier.
+    pub var line:    usize = 0 ///< 1-based line number.
+    pub var column:  usize = 0 ///< 1-based column number.
+    pub var path:    Path      ///< canonical file path.
 
     ///
     /// \brief default constructor (invalid location).
     ///
     fn FullSourceLocation(self) {
-        self.file_id = 0;
-        self.line    = 0;
-        self.column  = 0;
-        self.path    = Path("<invalid>", false);
+        self.file_id = 0
+        self.line    = 0
+        self.column  = 0
+        self.path    = Path("<invalid>", false)
     }
 
     ///
@@ -73,11 +71,11 @@ class FullSourceLocation {
     /// \param column  column number (1-based).
     /// \param path    path of the file containing the location.
     ///
-    fn FullSourceLocation(self, file_id: usize, line: usize, column: usize, path: Path) {
-        self.file_id = file_id;
-        self.line    = line;
-        self.column  = column;
-        self.path    = path;
+    fn FullSourceLocation(self, file_id: usize, line: usize, column: usize, const path: Path) {
+        self.file_id = file_id
+        self.line    = line
+        self.column  = column
+        self.path    = path
     }
 
     ///
@@ -86,7 +84,7 @@ class FullSourceLocation {
     /// \return true if all components are non-zero and valid.
     ///
     fn is_valid(self) -> bool {
-        return self.file_id != 0 && self.line != 0 && self.column != 0;
+        return self.file_id != 0 && self.line != 0 && self.column != 0
     }
 
     ///
@@ -95,19 +93,19 @@ class FullSourceLocation {
     /// \details
     /// compares all components except the file path string itself.
     ///
-    fn op == (self, other: FullSourceLocation) -> bool {
-        return (self.file_id == other.file_id) &&
-               (self.line == other.line) &&
-               (self.column == other.column);
+    fn op == (self, const other: FullSourceLocation) -> bool {
+        return self.file_id == other.file_id
+            && self.line == other.line
+            && self.column == other.column
     }
 
     ///
     /// \brief inequality operator.
     ///
-    fn op != (self, other: FullSourceLocation) -> bool {
-        return (self.file_id != other.file_id) ||
-               (self.line != other.line) ||
-               (self.column != other.column);
+    fn op != (self, const other: FullSourceLocation) -> bool {
+        return self.file_id != other.file_id
+            || self.line != other.line
+            || self.column != other.column
     }
 
     ///
@@ -116,7 +114,7 @@ class FullSourceLocation {
     /// \return formatted `"path:line:column"` string suitable for diagnostics.
     ///
     fn op as (self) -> string {
-        return f"{self.path.full_path()}:{self.line}:{self.column}";
+        return f"{self.path.full_path()}:{self.line}:{self.column}"
     }
 
     ///
@@ -126,11 +124,11 @@ class FullSourceLocation {
     /// uses a simple FNV-1a variant combining file id, line, and column.
     /// suitable for diagnostic deduplication or lookup tables.
     ///
-    eval fn hash(self) -> u32 {
-        var h: u32 = 0x811C9DC5;
-        h = (h ^ self.file_id) * 0x01000193;
-        h = (h ^ static_cast::<u32>(self.line)) * 0x01000193;
-        h = (h ^ static_cast::<u32>(self.column)) * 0x01000193;
-        return h;
+    fn hash(self) -> u32 {
+        var h: u32 = 0x811C9DC5
+        h = (h ^ (self.file_id as u32)) * 0x01000193
+        h = (h ^ (self.line as u32)) * 0x01000193
+        h = (h ^ (self.column as u32)) * 0x01000193
+        return h
     }
 }

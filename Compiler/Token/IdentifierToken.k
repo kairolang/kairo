@@ -1,57 +1,60 @@
 /// --- The Kairo Project ---------------------- Token/IdentifierToken.k --- ///
 ///
+///   IdentifierToken: an identifier's SymbolID paired with its source Token.
+///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Token::Token::*;
-import Preprocessor::PreprocessorSymbolTable::*;
+import Preprocessor::PreprocessorSymbolTable::{
+    PreprocessorSymbolTable,
+    SymbolID,
+}
+import Token::Token::Token
 
-type SymbolID = u32;
+pub class IdentifierToken {
+    pub var name:  SymbolID
+    pub var token: unsafe *Token ///< pointer to the original identifier token
 
-class IdentifierToken {
-    pub var name:  SymbolID;
-    pub var token: obs::<Token>; ///< pointer to the original identifier token
-
-    fn IdentifierToken(self, name: SymbolID, token: *Token) {
-        self.name = name;
-        self.token = token;
+    fn IdentifierToken(self, name: SymbolID, token: unsafe *Token) {
+        self.name  = name
+        self.token = token
     }
 
-    default fn IdentifierToken(self);
+    pub fn IdentifierToken(self) = default
 
-    const fn as_string(self, sym_table: *PreprocessorSymbolTable) -> string {
-        var name_str_ptr = sym_table->resolve(self.name);
-        var name_str = "<invalid>" if (name_str_ptr == &null) else *name_str_ptr;
-        return f"IdentifierToken(name: '{name_str}', token: {self.token})";
+    pub fn as_string(const self, sym_table: unsafe *PreprocessorSymbolTable) -> string {
+        var unsafe *name_str_ptr = sym_table->resolve(self.name)
+        var        name_str      = if (name_str_ptr == &null) => "<invalid>" else => *name_str_ptr
+        return f"IdentifierToken(name: '{name_str}', token: {self.token})"
     }
 
-    const fn op == (self, other: IdentifierToken) -> bool {
-        return (self.token) == (other.token);
+    fn op == (const self, other: IdentifierToken) -> bool {
+        return self.token == other.token
     }
 
-    const fn op != (self, other: IdentifierToken) -> bool {
-        return !(self == other);
+    pub fn op != (const self, other: IdentifierToken) -> bool {
+        return !(self == other)
     }
 
-    const fn op == (self, other: SymbolID) -> bool {
-        return self.name == other;
+    fn op == (const self, other: SymbolID) -> bool {
+        return self.name == other
     }
 
-    const fn op != (self, other: SymbolID) -> bool {
-        return !(self == other);
+    fn op != (const self, other: SymbolID) -> bool {
+        return !(self == other)
     }
 
-    const fn op < (self, other: IdentifierToken) -> bool {
-        return self.name < other.name;
+    fn op < (const self, other: IdentifierToken) -> bool {
+        return self.name < other.name
     }
 
-    const fn op > (self, other: IdentifierToken) -> bool {
-        return self.name > other.name;
+    fn op > (const self, other: IdentifierToken) -> bool {
+        return self.name > other.name
     }
 }

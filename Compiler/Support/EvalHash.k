@@ -1,59 +1,41 @@
 /// --- The Kairo Project --------------------------- Support/EvalHash.k --- ///
 ///
-///   <short description>
+///   The 64-bit string hash and its 32-bit fold, usable at compile time.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "llvm/Support/FormatVariadic.h";
+ffi "c++" import "llvm/Support/FormatVariadic.h"
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "array"
 
-const FNV_OFFSET_BASIS:  u64   = 0x14650FB0739D0383;;
-const GOLDEN_RATIO_MIX:  u64   = 0x9e3779b97f4a7c15;;
-const RESERVED_LOW:      u64   = 0x00000000000000FF;;
-const FNV_PRIME:         u64   = 0x00000100000001b3;;
-const HASH_MAX:          usize = 0xFFFFFFFFFFFFFFFF;;
+pub
+const FNV_OFFSET_BASIS: u64 = 0x14650FB0739D0383
+pub
+const GOLDEN_RATIO_MIX: u64 = 0x9e3779b97f4a7c15
+pub
+const RESERVED_LOW: u64 = 0x00000000000000FF
+pub
+const FNV_PRIME: u64 = 0x00000100000001b3
+pub
+const HASH_MAX: u64 = u64::MAX
 
 
 ///
 /// \brief Converts a usize value to a hexadecimal string.
 ///
-inline fn to_hex_string(const value: usize) -> string {
-    return string(llvm::formatv(r"{0:x-}", value).str());
+pub inline fn to_hex_string(const value: usize) -> string {
+    return string(
+        unsafe ((llvm::formatv(r"{0:x-}", value).str().c_str() as unsafe *const u8) as *const u8),
+    )
 }
 
-///
-/// \brief A helper class to hold a string literal at compile time.
-///        This class is used to pass string literals to the hash function.
-///
-/// \tparam N The size of the string literal (including null terminator).
-///
-class <const N: usize> EvalStrBuffer {
-    pub var value: array::<char, N>;
-
-    ///
-    /// \brief Construct from a narrow string literal.
-    ///
-    eval fn EvalStrBuffer(self, const str: ref!(std::Memory::buffer::<std::Legacy::char, N>)) {
-        for var i: usize = 0; i < N; ++i {
-            value[i] = static_cast::<char>(str[i]);
-        }
-    }
-
-    ///
-    /// \brief Construct from a wide string literal.
-    ///
-    eval fn EvalStrBuffer(self, const str: ref!(std::Memory::buffer::<char, N>)) {
-        for var i: usize = 0; i < N; ++i {
-            value[i] = str[i];
-        }
-    }
-}
 
 ///
 /// \brief Fold a 64-bit hash into a 32-bit hash.
@@ -63,29 +45,10 @@ class <const N: usize> EvalStrBuffer {
 /// \param  hash64 The 64-bit hash value to fold.
 /// \return A 32-bit hash value.
 ///
-eval fn fold_hash(const hash64: u64) -> u32 {
-    return static_cast::<u32>((hash64 >> 32) ^ hash64);
+pub fn fold_hash(const hash64: u64) -> u32 {
+    return (hash64 >> 32 ^ hash64) as u32
 }
 
-///
-/// \brief compute the length of a null-terminated string.
-///        loop form is faster than recursion for constexpr and runtime.
-///
-/// \param  str A pointer to the character array (null-terminated).
-/// \return The number of characters before the null terminator.
-///
-/// \note This function is intended for use with string literals and
-///       null-terminated strings known at compile time.
-///
-eval fn compute_length(const str: *char) -> usize {
-    var n: usize = 0;
-    
-    while str[n] != '\0' {
-        n += 1;
-    }
-
-    return n;
-}
 
 ///
 /// \brief FNV-1a hash step with optional position mixing.
@@ -96,43 +59,13 @@ eval fn compute_length(const str: *char) -> usize {
 /// \param  pos  The position of the character in the string (0-based).
 /// \return The updated hash value after mixing in the character.
 ///
-eval fn mix_char(chr: char, hash: u64, pos: usize) -> u64 {
-    var h: u64 = hash ^ static_cast::<u64>(chr);
-    h *= FNV_PRIME;
-    h ^= static_cast::<u64>(pos); // TODO: benchmark if this helps or hurts
-    return h;
+pub fn mix_char(chr: u8, hash: u64, pos: usize) -> u64 {
+    var h: u64 = hash ^ (chr as u64)
+    h *= FNV_PRIME
+    h ^= (pos as u64) // TODO: benchmark if this helps or hurts
+    return h
 }
 
-///
-/// \brief Eval-time character hash step with position mixing.
-///        Inlined directly into loops to avoid call overhead.
-///
-/// \param  chr  The character to mix into the hash.
-/// \param  pos  The position of the character in the string (0-based).
-/// \param  hash The current hash value.
-/// \return The updated hash value after mixing in the character.
-///
-/// \ref Uses FNV-1a with position mixing.
-///
-eval fn <const N: usize> compute_hash(const str: *char) -> u64 {
-    static_assert(N <= 256, r"String too long for hashing");
-    
-    const len: usize = compute_length(str);
-    if len == 0 {
-        return HASH_MAX;
-    }
-
-    var hash: u64 = FNV_OFFSET_BASIS;
-    
-    for var i: usize = 0; i < len; ++i {
-        hash = mix_char(str[i], hash, i);
-    }
-
-    return fold_hash((
-        (hash ^ (static_cast::<u64>(len) * GOLDEN_RATIO_MIX))
-              + RESERVED_LOW
-        ) & HASH_MAX);
-}
 
 ///
 /// \brief Computes a hash from a string literal at compile time.
@@ -148,21 +81,18 @@ eval fn <const N: usize> compute_hash(const str: *char) -> u64 {
 ///       spelling (C++ headers carry identifiers well past 255 chars). Only
 ///       the literal templates bound N, for their eval-time buffers.
 ///
-eval fn compute_hash(const str: *u8, const len: usize) -> u64 {
+pub fn compute_hash(str: unsafe *const u8, const len: usize) -> u64 {
     if len == 0 {
-        return HASH_MAX;
+        return HASH_MAX
     }
 
-    var hash: u64 = FNV_OFFSET_BASIS;
-    
+    var hash: u64 = FNV_OFFSET_BASIS
+
     for var i: usize = 0; i < len; ++i {
-        hash = mix_char(static_cast::<char>(str[i]), hash, i);
+        hash = mix_char(str[i], hash, i)
     }
 
-    return fold_hash((
-        (hash ^ (static_cast::<u64>(len) * GOLDEN_RATIO_MIX))
-              + RESERVED_LOW
-        ) & HASH_MAX);
+    return fold_hash((hash ^ (len as u64) * GOLDEN_RATIO_MIX) + RESERVED_LOW & HASH_MAX)
 }
 
 ///
@@ -174,21 +104,18 @@ eval fn compute_hash(const str: *u8, const len: usize) -> u64 {
 /// \return A 64-bit hash value, or HASH_MAX if the string is empty.
 /// \ref Uses FNV-1a with position mixing.
 ///
-eval fn compute_hash(const str: *char32_t, const len: usize) -> u64 {
+pub fn compute_hash(str: unsafe *const char, const len: usize) -> u64 {
     if len == 0 {
-        return HASH_MAX;
+        return HASH_MAX
     }
 
-    var hash: u64 = FNV_OFFSET_BASIS;
-    
+    var hash: u64 = FNV_OFFSET_BASIS
+
     for var i: usize = 0; i < len; ++i {
-        hash = mix_char(static_cast::<char>(str[i]), hash, i);
+        hash = mix_char(str[i] as u8, hash, i)
     }
 
-    return fold_hash((
-        (hash ^ (static_cast::<u64>(len) * GOLDEN_RATIO_MIX))
-              + RESERVED_LOW
-        ) & HASH_MAX);
+    return fold_hash((hash ^ (len as u64) * GOLDEN_RATIO_MIX) + RESERVED_LOW & HASH_MAX)
 }
 
 ///
@@ -200,97 +127,76 @@ eval fn compute_hash(const str: *char32_t, const len: usize) -> u64 {
 ///
 /// \ref Uses FNV-1a with position mixing.
 ///
-eval fn compute_hash(const str: *string) -> u64 {
-    if (str == &null) || (str->length() == 0) {
-        return HASH_MAX;
+pub fn compute_hash(str: unsafe *const string) -> u64 {
+    if str == &null || str->length() == 0 {
+        return HASH_MAX
     }
 
-    var   hash : u64   = FNV_OFFSET_BASIS;
-    const len  : usize = str->length();
-    
+    var   hash: u64   = FNV_OFFSET_BASIS
+    const len:  usize = str->length()
+
     for var i: usize = 0; i < len; ++i {
-        hash = mix_char((*str)[i], hash, i);
+        hash = mix_char((*str)[i], hash, i)
     }
 
-    return fold_hash((
-        (hash ^ (static_cast::<u64>(len) * GOLDEN_RATIO_MIX))
-              + RESERVED_LOW
-        ) & HASH_MAX);
+    return fold_hash((hash ^ (len as u64) * GOLDEN_RATIO_MIX) + RESERVED_LOW & HASH_MAX)
 }
 
-///
-/// \brief Computes a hash from a string literal at compile time.
-///        This function is the main entry point for eval-time string hashing.
-///
-/// \tparam str The string literal to hash.
-/// \return A 64-bit hash value, or HASH_MAX if the string is empty.
-/// \ref Uses FNV-1a with position mixing.
-///
-eval fn <str: const EvalStrBuffer> compute_hash() -> u64 {
-    const len: usize = compute_length(str.value.data());
-    
-    eval if len == 0 {
-        return fold_hash(HASH_MAX);
-    }
-
-    return compute_hash::<len>(str.value.data());
-}
 
 ///
 /// \brief Stateful incremental hasher compatible with compute_hash.
 ///        Can be reused to hash multiple tokens in sequence.
 ///
-class HashState {
-    var value: u64   = FNV_OFFSET_BASIS;
-    var index: usize = 1;
+pub class HashState {
+    var value: u64   = FNV_OFFSET_BASIS
+    var index: usize = 1
 
     ///
     /// \brief Mix a single character into the hash state.
     ///
-    inline fn mix(self, chr: char) {
-        self.value = mix_char(chr, self.value, self.index - 1);
-        ++self.index;
+    pub inline fn mix(self, chr: u8) {
+        self.value = mix_char(chr, self.value, self.index - 1)
+        ++self.index
     }
 
     ///
     /// \brief Mix a buffer of chars (1-255 chars).
     ///
-    inline fn mix_buffer(self, const buf: *char, const len: usize) {
-        if (len == 0) || (len >= 256) || ((len + self.index) > 256) {
-            std::crash(std::Error::RuntimeError("Buffer too long for hashing (max 255 chars)"));
+    inline fn mix_buffer(self, buf: unsafe *const u8, const len: usize) {
+        if len == 0 || len >= 256 || len + self.index > 256 {
+            kairo::std::ice_fail("Buffer too long for hashing (max 255 chars)")
         }
 
         for var i: usize = 0; i < len; ++i {
-            self.mix(buf[i]);
+            self.mix(buf[i])
         }
     }
 
     ///
     /// \brief Finalize the hash into a folded 32-bit value.
     ///
-    inline fn finalize(self) -> u64 {
-        return fold_hash((
-            (self.value ^ (static_cast::<u64>(self.index - 1) * GOLDEN_RATIO_MIX))
-                + RESERVED_LOW
-        ) & HASH_MAX);
+    pub inline fn finalize(self) -> u64 {
+        return fold_hash(
+            (self.value ^ ((self.index - 1) as u64) * GOLDEN_RATIO_MIX) + RESERVED_LOW & HASH_MAX,
+        )
     }
 
     ///
     /// \brief Reset the hash state for reuse.
     ///
     inline fn reset(self) {
-        self.value = FNV_OFFSET_BASIS;
-        self.index = 0;
+        self.value = FNV_OFFSET_BASIS
+        self.index = 0
     }
 
-    inline fn copy(self) -> HashState {
-        var new_state: HashState;
-        new_state.value = self.value;
-        new_state.index = self.index;
-        
-        return new_state;
+    pub inline fn copy(self) -> HashState {
+        var new_state: HashState
+        new_state.value = self.value
+        new_state.index = self.index
+
+        return new_state
     }
-};
+}
 
 // fn Test() -> i32 {
 //     // --- eval-time string literal hashes ---

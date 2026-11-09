@@ -24,203 +24,281 @@
 ///   a different compiler. `-###` prints the jobs without running them:
 ///   each cc1 line, then the link (kairo's --print-jobs).
 ///
-///   Startup and teardown are Kairo.k's (a build target is one entry file,
-///   so this one cannot import that one's main), kept in step by hand.
+///   Startup is Driver/Runtime.k's init_runtime, shared with Kairo.k.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Driver::CompilerInstance::*;
-import Command::FlagTranslator::*;
-import Support::FileIO::Path::*;
+ffi "c++" import "Native/KLocale.hh" // init_process_locale
+ffi "c++" import "llvm/Support/InitLLVM.h"
+ffi "c++" import "llvm/Support/TargetSelect.h"
+ffi "c++" import "llvm/Support/raw_ostream.h"
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/GlobalRecycler.hh"
+ffi "c++" import "locale"
+ffi "c++" import "sstream"
+ffi "c++" import "vector"
+ffi "c++" import "cstring"
 
-ffi "c++" import "Native/KLocale.hh";      // init_process_locale
-ffi "c++" import "llvm/Support/InitLLVM.h";
-ffi "c++" import "llvm/Support/TargetSelect.h";
-ffi "c++" import "llvm/Support/raw_ostream.h";
+import Command::FlagTranslator::FlagTranslator
+import Driver::CompilerInstance::CompilerInstance
+import Driver::Runtime::init_runtime
+import Support::FileIO::Path::Path
+import std::c_char
+import std::env
+import std::io
 
-/// Kairo.k's init_runtime: see there for why the guard is returned rather
-/// than kept in a static.
-fn init_runtime(argc: i32, argv: *(*kairo::std::Legacy::char)) -> *llvm::InitLLVM {
-    var init_llvm = std::create::<llvm::InitLLVM>(argc, argv);
-    llvm::InitializeAllTargetInfos();
-    llvm::InitializeAllTargets();
-    llvm::InitializeAllTargetMCs();
-    llvm::InitializeAllAsmParsers();
-    llvm::InitializeAllAsmPrinters();
 
-    llvm::setBugReportMsg(
-        r"PLEASE submit a bug report to https://github.com/kairolang/kairo/issues and include the crash backtrace.\n"
-    );
-
-    kairo::init_process_locale();
-
-    libcxx::use_facet::<libcxx::num_put::<std::Legacy::char>>(libcxx::locale());
-    libcxx::use_facet::<libcxx::num_get::<std::Legacy::char>>(libcxx::locale());
-
-    { // Force narrow char locale facets used by stringstream/to_string
-        var oss: libcxx::ostringstream;
-        oss << static_cast::<usize>(1) << 1.0;
-        oss.str();
-    }
-
-    return init_llvm;
-}
-
-fn _kcc_usage() {
-    std::print("OVERVIEW: kcc, the Kairo toolchain's C/C++ compiler driver");
-    std::print("");
-    std::print("USAGE: kcc [clang options] <inputs>");
-    std::print("");
-    std::print("  Takes clang's options and C, C++, Objective-C(++), Kairo (.k), object and");
-    std::print("  archive inputs. A C++ input may #include a .k file; the .k is built and linked");
-    std::print("  with it. The target and sysroot are Kairo's.");
-    std::print("");
-    std::print("  -Xkairo <word>   pass <word> to kairo as is (`-Xkairo --help` lists them)");
-    std::print("  -###             print the compile and link jobs, run nothing");
+pub fn _kcc_usage() {
+    io::println("OVERVIEW: kcc, the Kairo toolchain's C/C++ compiler driver")
+    io::println("")
+    io::println("USAGE: kcc [clang options] <inputs>")
+    io::println("")
+    io::println("  Takes clang's options and C, C++, Objective-C(++), Kairo (.k), object and")
+    io::println("  archive inputs. A C++ input may #include a .k file; the .k is built and linked")
+    io::println("  with it. The target and sysroot are Kairo's.")
+    io::println("")
+    io::println("  -Xkairo <word>   pass <word> to kairo as is (`-Xkairo --help` lists them)")
+    io::println("  -###             print the compile and link jobs, run nothing")
 }
 
 /// \brief the kairo words for kcc's command line (\p argc / \p argv, argv[0]
 ///        included). \return false with \p error set when clang's option
 ///        table rejects a word.
-fn _kcc_words(argc: i32, argv: *(*kairo::std::Legacy::char), out: *vec::<string>, error: *string) -> bool {
-    var clang = vec::<string>();
-    var passed = vec::<string>();
+pub fn _kcc_words(argc:       i32,
+                  argv:       unsafe *(unsafe *c_char),
+                  @inout out: cxx::std::vector<string>,
+                  error:      unsafe *string) -> bool {
+    var clang  = cxx::std::vector<string>()
+    var passed = cxx::std::vector<string>()
     for var i: i32 = 1; i < argc; ++i {
-        var a = string(argv[i], libcxx::strlen(argv[i]));
+        var a = string(
+            unsafe ((argv[i] as unsafe *const u8) as *const u8),
+            cxx::std::strlen(argv[i]),
+        )
+
         if a == "-Xkairo" {
             if i + 1 >= argc {
-                (*error) = "argument to '-Xkairo' is missing (expected 1 value)";
-                return false;
+                *error = "argument to '-Xkairo' is missing (expected 1 value)"
+                return false
             }
-            passed.push_back(string(argv[i + 1], libcxx::strlen(argv[i + 1])));
-            i += 1;
-            continue;
+
+            passed.push_back(
+                string(
+                    unsafe ((argv[i + 1] as unsafe *const u8) as *const u8),
+                    cxx::std::strlen(argv[i + 1]),
+                ),
+            )
+
+            i += 1
+            continue
         }
-        clang.push_back(a);
+
+        clang.push_back(a)
     }
 
-    var kw = vec::<string>();
-    var cw = vec::<string>();
-    if !FlagTranslator::from_driver(clang, &kw, &cw, error) { return false; }
+    var kw = cxx::std::vector<string>()
+    var cw = cxx::std::vector<string>()
+    if !FlagTranslator::from_driver(&clang, &kw, &cw, &*error) {
+        return false
+    }
 
     // -emit-llvm is clang's modifier on -S / -c: IR text or bitcode
     // instead of assembly or an object, which kairo spells --emit.
-    var emit_llvm = false;
-    var kept = vec::<string>();
-    for w: string in cw { if w == "-emit-llvm" { emit_llvm = true; } else { kept.push_back(w); } }
-    cw = kept;
-    if emit_llvm {
-        var asm = false;
-        var obj = false;
-        var rest = vec::<string>();
-        for w: string in kw {
-            if w == "-S" { asm = true; continue; }
-            if w == "-c" { obj = true; continue; }
-            rest.push_back(w);
-        }
-        kw = rest;
-        if asm      { kw.push_back("--emit=llvm-ir"); }
-        else if obj { kw.push_back("--emit=llvm-bc"); }
-        else {
-            (*error) = "-emit-llvm needs -S or -c";
-            return false;
+    var emit_llvm = false
+    var kept      = cxx::std::vector<string>()
+    for *w in cw {
+        if *w == "-emit-llvm" {
+            emit_llvm = true
+        } else {
+            kept.push_back(*w)
         }
     }
 
-    var has_std = false;
-    for w: string in kw { if w.starts_with("--cxx-std=") { has_std = true; } }
-    for w: string in cw { if w.starts_with("-std=") { has_std = true; } }
-    for w: string in passed { if w.starts_with("--cxx-std") { has_std = true; } }
-    if !has_std { out->push_back("--cxx-std=c++23"); }
+    cw = kept
+    if emit_llvm {
+        var asm_ = false
+        var obj  = false
+        var rest = cxx::std::vector<string>()
+        for *w in kw {
+            if *w == "-S" {
+                asm_ = true
+                continue
+            }
 
-    for w: string in kw { out->push_back(w); }
+            if *w == "-c" {
+                obj = true
+                continue
+            }
+
+            rest.push_back(*w)
+        }
+
+        kw = rest
+        if asm_ {
+            kw.push_back("--emit=llvm-ir")
+        } else if obj {
+            kw.push_back("--emit=llvm-bc")
+        } else {
+            *error = "-emit-llvm needs -S or -c"
+            return false
+        }
+    }
+
+    var has_std = false
+    for *w in kw {
+        if w->starts_with("--cxx-std=") {
+            has_std = true
+        }
+    }
+
+    for *w in cw {
+        if w->starts_with("-std=") {
+            has_std = true
+        }
+    }
+
+    for *w in passed {
+        if w->starts_with("--cxx-std") {
+            has_std = true
+        }
+    }
+
+    if !has_std {
+        out.push_back("--cxx-std=c++23")
+    }
+
+    for *w in kw {
+        out.push_back(*w)
+    }
+
     // clang's -D is a C/C++ macro (--cxx-define); this one is the Kairo
     // files' as well: the program sets its global allocator, which every
     // Kairo TU must know (--global-allocator-set; CompilerInstance::
     // _settle_global_allocator). Also reachable as -Xkairo --global-allocator-set.
-    for w: string in kw {
-        if (w == "--cxx-define=__KAIRO_GLOBAL_ALLOCATOR_SET") || w.starts_with("--cxx-define=__KAIRO_GLOBAL_ALLOCATOR_SET=") {
-            out->push_back("--global-allocator-set");
-            break;
+    for *w in kw {
+        if *w == "--cxx-define=__KAIRO_GLOBAL_ALLOCATOR_SET"
+            || w->starts_with("--cxx-define=__KAIRO_GLOBAL_ALLOCATOR_SET=") {
+            out.push_back("--global-allocator-set")
+            break
         }
     }
+
     // clang's separate compilation: `-c y.k` writes y.o and nothing for what
     // y imports, and a link of such objects takes builtin, std and the
     // runtime from the toolchain's library.
-    var compile_only = false;
-    for w: string in kw { if (w == "-c") || (w == "-S") || w.starts_with("--emit=") { compile_only = true; } }
-    if compile_only { out->push_back("--emit-scope=inputs"); }
-    out->push_back("--kairo-lib");
-    for w: string in cw {
-        // kcc's own answer (see the header); clang's would name clang.
-        if w == "--version" { out->push_back("--version"); continue; }
-        // The jobs, not run: each cc1 line and the link (--print-jobs).
-        if w == "-###" { out->push_back("--print-jobs"); continue; }
-        out->push_back("--cxx-flags=" + w);
+    var compile_only = false
+    for *w in kw {
+        if *w == "-c" || *w == "-S" || w->starts_with("--emit=") {
+            compile_only = true
+        }
     }
-    for w: string in passed { out->push_back(w); }
-    return true;
+
+    if compile_only {
+        out.push_back("--emit-scope=inputs")
+    }
+
+    out.push_back("--kairo-lib")
+    for *w in cw {
+        // kcc's own answer (see the header); clang's would name clang.
+        if *w == "--version" {
+            out.push_back("--version")
+            continue
+        }
+
+        // The jobs, not run: each cc1 line and the link (--print-jobs).
+        if *w == "-###" {
+            out.push_back("--print-jobs")
+            continue
+        }
+
+        out.push_back("--cxx-flags=" + *w)
+    }
+
+    for *w in passed {
+        out.push_back(*w)
+    }
+
+    return true
 }
 
-fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
+pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     for var i: i32 = 1; i < argc; ++i {
-        if (libcxx::strcmp(argv[i], r"--help") == 0) || (libcxx::strcmp(argv[i], r"-help") == 0) {
-            _kcc_usage();
-            return 0;
+        if cxx::std::strcmp(argv[i], r"--help") == 0 || cxx::std::strcmp(argv[i], r"-help") == 0 {
+            _kcc_usage()
+            return 0
         }
-        if libcxx::strcmp(argv[i], r"-Xkairo") == 0 { i += 1; }
+
+        if cxx::std::strcmp(argv[i], r"-Xkairo") == 0 {
+            i += 1
+        }
     }
 
-    Logger::init(Logger::Level::Trace);
-    var llvm_init = init_runtime(argc, argv);
+    kairo::Logger::init(kairo::Logger::Level::Trace)
+    var unsafe *llvm_init = init_runtime(argc, argv)
 
     finally {
-        Logger::set_dump_path(
-            Path::join_str(Path::parent_of(std::get_exe_path()), "kcc.log")
-        );
-        Logger::dump_to_file();
-        Logger::shutdown();
-        GlobalRecycler::shutdown_allocator_runtime();
-        std::destroy(llvm_init);
+        kairo::Logger::set_dump_path(Path::join_str(Path::parent_of(env::exe_path()), "kcc.log"))
+        kairo::Logger::dump_to_file()
+        kairo::Logger::shutdown()
+        kairo::GlobalRecycler::shutdown_allocator_runtime()
+        kairo::std::destroy(llvm_init)
     }
 
-    var words = vec::<string>();
-    var error = "";
-    if !_kcc_words(argc, argv, &words, &error) {
-        std::eprintln(f"kcc: error: {error}");
-        return 1;
+    var words = cxx::std::vector<string>()
+    var error = ""
+    if !_kcc_words(argc, argv, &words, unsafe &error) {
+        io::eprintln(f"kcc: error: {error}")
+        return 1
     }
 
-    var ci = std::create::<CompilerInstance>(words);
-    finally { std::destroy(ci); }
+    var unsafe *ci = kairo::std::create<CompilerInstance>(words)
+    finally {
+        kairo::std::destroy(ci)
+    }
 
-    if ci->wants_help()    { ci->print_help();    return 0; }
-    if ci->wants_version() { ci->print_version(); return 0; }
-    if ci->wants_explain() { return ci->run_explain();      }
-    if ci->wants_info_query() { return ci->run_info_query(); }
+    if ci->wants_help() {
+        ci->print_help()
+        return 0
+    }
+
+    if ci->wants_version() {
+        ci->print_version()
+        return 0
+    }
+
+    if ci->wants_explain() {
+        return ci->run_explain()
+    }
+
+    if ci->wants_info_query() {
+        return ci->run_info_query()
+    }
 
     if !ci->args_ok() {
-        ci->flush_errors();
-        return 1;
+        ci->flush_errors()
+        return 1
     }
+
     if !ci->apply_input_options() {
-        ci->flush_errors();
-        return 1;
+        ci->flush_errors()
+        return 1
     }
 
-    ci->initialize(Path::cwd());
-    var result = ci->execute();
-    ci->flush_errors();
+    ci->initialize(Path::cwd())
+    var result = ci->execute()
+    ci->flush_errors()
 
-    if ci->invocation().frontend.verbose {
-        std::eprintln(f"compilation: {result.summary()}");
+    if ci->invocation()->frontend.verbose {
+        io::eprintln(f"compilation: {result.summary()}")
     }
-    return 0 if result.ok() else 1;
+
+    return if result.ok() => 0 else => 1
 }

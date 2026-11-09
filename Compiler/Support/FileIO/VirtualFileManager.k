@@ -1,26 +1,28 @@
 /// --- The Kairo Project ---------- Support/FileIO/VirtualFileManager.k --- ///
 ///
-///   <short description>
+///   VirtualFileManager: maps files into segments and resolves addresses.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/Types.hh";
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "vector"
+ffi "c++" import "llvm/ADT/StringMap.h"
 
-import Support::FileIO::Path::*;
-import Support::Limits::*;
-import Memory::MappedFileBuffer::*;
-import Memory::MemoryBuffer::*;
-import Location::SourceLocation::*;
-import Location::SourceRange::*;
-import Threading::ThreadPool::*;
-import Diagnostic::Engine::*;
+import Diagnostic::Engine::DiagEngine
+import Diagnostic::Registry::DiagID
+import Location::SourceLocation::SourceLocation
+import Location::SourceRange::SourceRange
+import Memory::MappedFileBuffer::MappedFileBuffer
+import Support::FileIO::Path::Path
+import Support::Limits::U32_MAX
 
 ///
 /// \file VirtualFileManager.k
@@ -57,9 +59,7 @@ import Diagnostic::Engine::*;
 /// i/o from compiler subsystems while maintaining cache locality and consistent
 /// id-based lookups.
 ///
-class VirtualFileManager {
-    class Segment; ///< forward declaration of Segment class.
-
+pub class VirtualFileManager {
     /// Indexed by fid. INVARIANT: no task that can overlap a registration
     /// reads this, directly or through get_buffer()/get_loc()/resolve_loc().
     /// register_file/register_virtual push onto it under
@@ -78,8 +78,8 @@ class VirtualFileManager {
     /// DepScanner preloads the import graph); the walk's own load_file calls
     /// are cache hits. A worker-side load that missed the cache would break
     /// that, and would need this read path locked.
-    priv var _segments:      vec::<own::<Segment>>          = vec::<own::<Segment>>();
-    priv var _page_table:    vec::<u32> = vec::<u32>(); ///< page index -> segment index, 0xFFFFFFFF = gap/invalid.
+    priv var _segments: cxx::std::vector<unsafe *Self::Segment> = cxx::std::vector<unsafe *Self::Segment>()
+    priv var _page_table: cxx::std::vector<u32> = cxx::std::vector<u32>() ///< page index -> segment index, 0xFFFFFFFF = gap/invalid.
 
     /// Canonical path -> fid. THE authority on file identity.
     ///
@@ -98,10 +98,10 @@ class VirtualFileManager {
     ///       its target do not map to two fids over the same bytes. Needs stat
     ///       plumbing through Path; the path key is correct for every case the
     ///       compiler hits today because callers canonicalize first.
-    priv var _by_path:       map::<string, u32> = map::<string, u32>();
-    priv var _diag:          obs::<DiagEngine>;
-    priv var _global_offset: usize = 0;
-    priv var _next_fid:      u32   = 0;
+    priv var _by_path:       llvm::StringMap<u32> ///< absolute path -> fid; probed with the path's bytes, never iterated
+    priv var _diag:          *DiagEngine
+    priv var _global_offset: usize                = 0
+    priv var _next_fid:      u32                  = 0
 
     ///
     /// \class Segment
@@ -113,12 +113,12 @@ class VirtualFileManager {
     /// `MappedFileBuffer` view of their region.
     ///
     class Segment {
-        pub var fid:    u32;              ///< unique file id for this segment.
-        pub var path:   Path;             ///< filesystem path to the file.
-        pub var offset: usize;            ///< byte offset within the file.
-        pub var size:   usize;            ///< segment size in bytes.
-        pub var buffer: MappedFileBuffer; ///< mapped region buffer.
-        pub var global_base: usize;  ///< cumulative offset in the global source space
+        pub var fid:         u32              ///< unique file id for this segment.
+        pub var path:        Path             ///< filesystem path to the file.
+        pub var offset:      usize            ///< byte offset within the file.
+        pub var size:        usize            ///< segment size in bytes.
+        pub var buffer:      MappedFileBuffer ///< mapped region buffer.
+        pub var global_base: usize            ///< cumulative offset in the global source space
 
         /// The mapping this segment views. OWNED   a segment is the lifetime
         /// of its mapping, so evict() and invalidate() can replace or drop one
@@ -128,7 +128,7 @@ class VirtualFileManager {
         ///
         /// Null for virtual segments: register_virtual attaches a caller-owned
         /// buffer, so there is nothing here to free or reload.
-        pub var parent: own::<MappedFileBuffer> = &null;
+        pub var parent: unsafe *MappedFileBuffer = &null
 
         /// Bytes of global address space held at global_base, >= size.
         ///
@@ -136,48 +136,49 @@ class VirtualFileManager {
         /// re-mapped IN PLACE, keeping the same base. Without slack every save
         /// would have to take a fresh range and abandon the old one, and the
         /// 4GB space would drain at one file-length per keystroke.
-        pub var reserved: usize = 0;
+        pub var reserved: usize = 0
 
         /// Bumped on every invalidate. A SourceLocation is a raw offset into
         /// the global space with no room for a tag, so this is what lets a
         /// holder of a location captured before an edit find out that the
         /// bytes under it have been replaced.
-        pub var generation: u32 = 0;
+        pub var generation: u32 = 0
 
         ///
         /// \brief default constructor (invalid segment).
         ///
         fn Segment(self) {
-            self.fid    = 0;
-            self.offset = 0;
-            self.size   = 0;
-            self.path   = Path();
-            self.global_base = 0;
+            self.fid         = 0
+            self.offset      = 0
+            self.size        = 0
+            self.path        = Path()
+            self.global_base = 0
         }
 
         ///
         /// \brief constructs a new segment with provided metadata.
         ///
-        fn Segment(self, fid: u32, path: Path, offset: usize, size: usize) {
-            self.fid    = fid;
-            self.path   = path;
-            self.offset = offset;
-            self.size   = size;
-            self.global_base = 0; // will be set by VirtualFileManager after creation
+        fn Segment(self, fid: u32, const path: Path, offset: usize, size: usize) {
+            self.fid         = fid
+            self.path        = path
+            self.offset      = offset
+            self.size        = size
+            self.global_base = 0      // will be set by VirtualFileManager after creation
         }
 
         ///
         /// \brief cleanup hook; ensures mapped region is closed if valid.
         ///
-        fn op delete (self) {
+        fn op finally (self) {
             if self.buffer.is_valid() {
-                self.buffer.close();
+                self.buffer.close()
             }
+
             // Owned since the parent moved into the segment; null for virtual
             // segments, where the bytes belong to the caller.
             if self.parent != &null {
-                std::destroy(self.parent);
-                self.parent = &null;
+                kairo::std::destroy(self.parent)
+                self.parent = &null
             }
         }
 
@@ -185,7 +186,7 @@ class VirtualFileManager {
         /// \brief converts segment info to human-readable string.
         ///
         fn op as (self) -> string {
-            return f"Segment(fid: {self.fid}, path: {self.path.full_path()}, offset: {self.offset}, size: {self.size}, buffer: {self.buffer})";
+            return f"Segment(fid: {self.fid}, path: {self.path.full_path()}, offset: {self.offset}, size: {self.size}, buffer: {self.buffer})"
         }
 
         ///
@@ -195,12 +196,12 @@ class VirtualFileManager {
         /// \param offset starting offset within parent.
         /// \param length number of bytes to map.
         ///
-        fn attach(self, parent: *MappedFileBuffer, offset: usize, length: usize) {
-            self.buffer.attach(parent, offset, length);
+        fn attach(self, parent: unsafe *MappedFileBuffer, offset: usize, length: usize) {
+            self.buffer.attach(parent, offset, length)
         }
     }
 
-    
+
     ///
     /// \struct FileHandle
     /// \brief lightweight view representing full file content.
@@ -209,53 +210,65 @@ class VirtualFileManager {
     /// returned by `get_file_view()`, it exposes a raw pointer and size
     /// covering the entire mapped file.
     ///
-    struct FileHandle {
-        const data: *u8    = &null; ///< pointer to file data.
-        var   size:  usize = 0;     ///< size of file data in bytes.
+    pub struct FileHandle {
+        pub const data: unsafe *u8 = &null ///< pointer to file data.
+        pub var   size: usize      = 0     ///< size of file data in bytes.
     }
 
     ///
     /// \struct SegmentResolve
     /// \brief identifies a specific location within a mapped segment.
     ///
-    struct SegmentResolve {
-        var fid:    usize  = 0; ///< segment file id.
-        var offset: usize  = 0; ///< byte offset within segment.
-    };
+    pub struct SegmentResolve {
+        pub var fid:    usize = 0 ///< segment file id.
+        pub var offset: usize = 0 ///< byte offset within segment.
+    }
 
     ///
     /// \struct SegmentInfo
     /// \brief metadata summary for a registered file segment.
     ///
     struct SegmentInfo {
-        var path:   Path   = Path(); ///< filesystem path of the segment.
-        var offset: usize  = 0;      ///< byte offset within the file.
-        var size:   usize  = 0;      ///< size of the segment in bytes.
-    };
+        pub var path:   Path  = Path() ///< filesystem path of the segment.
+        var     offset: usize = 0      ///< byte offset within the file.
+        pub var size:   usize = 0      ///< size of the segment in bytes.
+    }
 
     ///
     /// \brief default constructor.
     ///
-    fn VirtualFileManager(self, diag_engine: obs::<DiagEngine>) {
-        self._next_fid      = 0;
-        self._global_offset = 0;
-        self._diag          = diag_engine;
+    fn VirtualFileManager(self, diag_engine: *DiagEngine) {
+        self._next_fid      = 0
+        self._global_offset = 0
+        self._diag          = diag_engine
+    }
+
+    // Move-only: the destructor destroys every segment, so a copy would destroy
+    // them twice. The source is left with none.
+    @move fn VirtualFileManager(self, other: Self) {
+        self._segments      = cxx::std::move(other._segments)
+        self._page_table    = cxx::std::move(other._page_table)
+        self._by_path       = cxx::std::move(other._by_path)
+        self._diag          = other._diag
+        self._global_offset = other._global_offset
+        self._next_fid      = other._next_fid
+        other._segments.clear()
     }
 
     ///
     /// \brief destructor; releases all mapped segments and parent buffers.
     ///
-    fn op delete (self) {
+    fn op finally (self) {
         // Each segment frees its own mapping; there is no side list any more.
-        for seg: *Segment in _segments {
+        for var seg: unsafe *Segment in self._segments {
             if seg != &null {
-                std::destroy(seg);
+                kairo::std::destroy(seg)
             }
         }
 
-        _segments.clear();
+        self._segments.clear()
     }
-    
+
     ///
     /// \brief registers a file for virtual management.
     ///
@@ -270,70 +283,75 @@ class VirtualFileManager {
     ///          concurrently with this may index _segments; workers receive
     ///          the buffer instead. See the invariant there.
     ///
-    fn register_file(self, path: Path) -> u32 {
-        var abs      = Path(path.full_path());
-        var abs_full = abs.full_path();
+    pub fn register_file(self, const path: Path) -> u32 {
+        var abs      = Path(path.full_path())
+        var abs_full = abs.full_path()
 
         // Idempotent by path. A second register of a file already mapped hands
         // back the SAME fid rather than mapping it twice   see _by_path.
-        var hit = self._by_path.find(abs_full);
+        var hit = self._by_path.find(kairo::sref(abs_full))
         if hit != self._by_path.end() {
-            return hit->second;
+            return hit->second
         }
 
-        var parent = std::create::<MappedFileBuffer>();
+        var unsafe *parent = kairo::std::create<MappedFileBuffer>()
 
-        parent->load(&abs_full);
+        parent->load(unsafe &abs_full)
 
         if !parent->is_valid() {
-            std::destroy(parent);
-            Logger::error(Logger::Stage::Driver,
-                f"VirtualFileManager::register_file: failed to map {abs_full}");
-            self._diag->report(DiagID::I102F,
-                f"failed to map '{abs_full}\x27").emit();
-            return u32(-1);
+            kairo::std::destroy(parent)
+            kairo::Logger::error(
+                kairo::Logger::Stage::Driver,
+                f"VirtualFileManager::register_file: failed to map {abs_full}",
+            )
+
+            self._diag->report(DiagID::I102F, f"failed to map '{abs_full}'").emit()
+            return u32::MAX
         }
 
-        var total    = parent->bytes().size();
-        var reserved = self._reserve_for(total);
+        var total    = parent->bytes().size()
+        var reserved = self._reserve_for(total)
 
         // projected end of this file in the global space, after alignment
-        var aligned = (self._global_offset + 0xFFF) & (~usize(0xFFF));
-        if (total > U32_MAX) || ((aligned + reserved + 1) > U32_MAX) {
-            std::destroy(parent);
-            self._diag->report(DiagID::I102F,
-                f"cannot load '{abs_full}' ({total}B): total source size would exceed the 4GB address space limit"
-            ).emit();
-            return u32(-1);
+        var aligned = self._global_offset + 0xFFF & ~(0xFFF as usize)
+        if total > (U32_MAX as usize) || aligned + reserved + 1 > (U32_MAX as usize) {
+            kairo::std::destroy(parent)
+            self._diag->report(
+                DiagID::I102F,
+                f"cannot load '{abs_full}' ({total}B): total source size would exceed the 4GB address space limit",
+            ).emit()
+            return u32::MAX
         }
 
-        if total > U32_MAX {
-            std::destroy(parent);
-            self._diag->report(DiagID::I102F,
-                f"'{abs_full}' is {total}B; source files are limited to 4GB").emit();
-            return u32(-1);
+        if total > (U32_MAX as usize) {
+            kairo::std::destroy(parent)
+            self._diag->report(
+                DiagID::I102F,
+                f"'{abs_full}' is {total}B; source files are limited to 4GB",
+            ).emit()
+            return u32::MAX
         }
 
-        var seg_fid = self._next_fid;
-        self._next_fid += 1;
+        var seg_fid = self._next_fid
+        self._next_fid += 1
 
-        var seg = std::create::<Segment>(seg_fid, abs, 0, total);
-        seg->parent   = parent;          // segment owns its mapping from here
-        seg->reserved = reserved;
+        var unsafe *seg = kairo::std::create<Self::Segment>(seg_fid, abs, 0, total)
+        seg->parent   = parent   // segment owns its mapping from here
+        seg->reserved = reserved
 
-        self._align_global_offset();
-        seg->global_base = self._global_offset;
-        self._global_offset += reserved;
-        seg->attach(parent, 0, total);
-        _segments.push_back(seg);
+        self._align_global_offset()
+        seg->global_base = self._global_offset
+        self._global_offset += reserved
+        seg->attach(parent, 0, total)
+        self._segments.push_back(seg)
 
         // Map the whole RESERVED span, not just the current bytes: an edit that
         // grows the file re-attaches in place, and the pages it grows into have
         // to already resolve to this segment.
-        self._map_pages(static_cast::<u32>(self._segments.size() - 1), seg->global_base, reserved);
+        self._map_pages((self._segments.size() - 1) as u32, seg->global_base, reserved)
 
-        self._by_path[abs_full] = seg_fid;
-        return seg_fid;
+        self._by_path[kairo::sref(abs_full)] = seg_fid
+        return seg_fid
     }
 
     /// Address space to hold for a file of \p total bytes.
@@ -343,8 +361,8 @@ class VirtualFileManager {
     /// proportional margin would be a few hundred bytes and every edit would
     /// spill. Cheap: the whole compiler tree is a few MB against a 4GB space.
     priv fn _reserve_for(self, total: usize) -> usize {
-        var want = total + (total >> 1) + (64 * 1024);
-        return (want + 0xFFF) & (~usize(0xFFF));
+        var want = total + (total >> 1) + 64 * 1024
+        return want + 0xFFF & ~(0xFFF as usize)
     }
 
     ///
@@ -359,24 +377,32 @@ class VirtualFileManager {
     /// \param size size of the data buffer in bytes.
     /// \return file id assigned to the new segment.
     ///
-    fn register_virtual(self, fake_path: Path, data: std::ConstPtr::<u8>, size: usize) -> u32 {
-        var seg_fid = self._next_fid;
-        self._next_fid += 1;
-        var seg = std::create::<Segment>(seg_fid, Path(fake_path.full_path()), 0, size);
+    pub fn register_virtual(self,
+                            const fake_path: Path,
+                            data:            kairo::std::ConstPtr<u8>,
+                            size:            usize) -> u32 {
+        var seg_fid = self._next_fid
+        self._next_fid += 1
+        var unsafe *seg = kairo::std::create<Self::Segment>(
+            seg_fid,
+            Path(fake_path.full_path()),
+            0,
+            size,
+        )
 
-        self._align_global_offset();
-        seg->global_base = self._global_offset;
-        self._global_offset += (size + 1);
+        self._align_global_offset()
+        seg->global_base = self._global_offset
+        self._global_offset += size + 1
 
-        seg->buffer.attach_raw(const_cast::<*u8>(data), size);
-        self._segments.push_back(seg);
+        seg->buffer.attach_raw(unsafe (data as unsafe *u8), size)
+        self._segments.push_back(seg)
         // size + 1: the END position (off == size) is a legal location, and
         // for a zero-byte segment it is the only one. Mapping `size` left an
         // empty virtual file with no pages at all, so its one location
         // resolved as a gap. The slot is already reserved (+1 above).
-        self._map_pages(static_cast::<u32>(self._segments.size() - 1), seg->global_base, size + 1);
+        self._map_pages((self._segments.size() - 1) as u32, seg->global_base, size + 1)
 
-        return seg_fid;
+        return seg_fid
     }
 
     ///
@@ -384,15 +410,16 @@ class VirtualFileManager {
     ///
     /// \return pointer to `MappedFileBuffer`, or `&null` if invalid.
     ///
-    fn get_buffer(self, fid: u32) -> *MappedFileBuffer {
-        if fid >= _segments.size() {
-            return &null;
-        }
-        if _segments[fid] == &null {   // retired by evict()
-            return &null;
+    pub fn get_buffer(self, fid: u32) -> unsafe *MappedFileBuffer {
+        if (fid as usize) >= self._segments.size() {
+            return &null
         }
 
-        return &(_segments[fid]->buffer);
+        if self._segments[fid] == &null { // retired by evict()
+            return &null
+        }
+
+        return unsafe &self._segments[fid]->buffer
     }
 
     ///
@@ -400,29 +427,29 @@ class VirtualFileManager {
     ///
     /// \return path, offset, and size if valid; otherwise `<invalid>`.
     ///
-    fn get_info(self, fid: u32) -> SegmentInfo {
-        if fid >= _segments.size() {
+    pub fn get_info(self, fid: u32) -> Self::SegmentInfo {
+        if (fid as usize) >= self._segments.size() {
             return {
                 .path:   Path("<invalid>", false),
                 .offset: 0,
                 .size:   0
-            };
+            }
         }
 
-        var s = _segments[fid];
-        if s == &null {   // retired by evict()
+        var unsafe *s = self._segments[fid]
+        if s == &null { // retired by evict()
             return {
                 .path:   Path("<evicted>", false),
                 .offset: 0,
                 .size:   0
-            };
+            }
         }
 
         return {
             .path:   s->path,
             .offset: s->offset,
             .size:   s->size
-        };
+        }
     }
 
     ///
@@ -432,30 +459,33 @@ class VirtualFileManager {
     /// reconstructs the total byte span by summing all segments belonging to
     /// the same physical file.
     ///
-    fn get_file_view(self, base_fid: u32) -> FileHandle {
-        if base_fid >= _segments.size() {
-            return FileHandle{ data: &null, size: 0 };
+    pub fn get_file_view(self, base_fid: u32) -> Self::FileHandle {
+        if (base_fid as usize) >= self._segments.size() {
+            return Self::FileHandle { data: &null, size: 0 }
         }
 
-        var seg0 = _segments[base_fid];
-        if seg0 == &null {   // retired by evict()
-            return FileHandle{ data: &null, size: 0 };
+        var unsafe *seg0 = self._segments[base_fid]
+        if seg0 == &null { // retired by evict()
+            return Self::FileHandle { data: &null, size: 0 }
         }
 
-        var total: usize = 0;
-        var path = seg0->path.full_path();
+        var total: usize = 0
+        var path         = seg0->path.full_path()
 
-        for seg: *Segment in _segments {
-            if seg == &null { continue; }
+        for var seg: *Segment? in self._segments {
+            if seg == &null {
+                continue
+            }
+
             if seg->path.full_path() == path {
-                total += seg->size;
+                total += seg->size
             }
         }
 
-        return FileHandle{
-            data: seg0->buffer.bytes().data(),
-            size: total
-        };
+        return Self::FileHandle {
+            data: unsafe (seg0->buffer.bytes().data() as unsafe *u8),
+            size: total,
+        }
     }
 
     ///
@@ -465,24 +495,33 @@ class VirtualFileManager {
     /// finds which mapped segment the pointer belongs to, and computes its
     /// relative offset. aborts if pointer lies outside known regions.
     ///
-    fn resolve_ptr(self, ptr: std::restrict_ptr::<u8>) -> SegmentResolve {
-        for seg: *Segment in _segments {
-            if seg == &null { continue; }   // retired by evict()
-            var base = seg->buffer.bytes().data();
-            var end  = base + seg->size;
-            
-            if (ptr >= base) && (ptr < end) {
-                var off: usize = ptr - base;
-                
+    pub fn resolve_ptr(self, ptr: kairo::std::restrict_ptr<u8>) -> Self::SegmentResolve {
+        for var seg: *Segment? in self._segments {
+            if seg == &null { // retired by evict()
+                continue
+            }
+
+            var unsafe *base = seg->buffer.bytes().data()
+            var unsafe *end  = base + seg->size
+
+            if ptr >= base && ptr < end {
+                var off: usize = ((ptr - base) as usize)
+
                 return {
-                    .fid:    seg->fid,
+                    .fid:    ((seg->fid) as usize),
                     .offset: off
-                };
+                }
             }
         }
 
-        Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::resolve_ptr: ptr out of bounds across {self._segments.size()} segments");
-        std::crash(std::Error::RuntimeError(f"VirtualFileManager: Pointer {ptr as unsafe *void} out of bounds")); // TODO: This needs to use the diagnostic system instead of crashing
+        kairo::Logger::fatal(
+            kairo::Logger::Stage::Driver,
+            f"VirtualFileManager::resolve_ptr: ptr out of bounds across {self._segments.size()} segments",
+        )
+
+        kairo::std::ice_fail( // TODO: This needs to use the diagnostic system instead of crashing
+            f"VirtualFileManager: Pointer {unsafe (ptr as unsafe *void)} out of bounds",
+        )
     }
 
     ///
@@ -492,47 +531,68 @@ class VirtualFileManager {
     /// locates the corresponding segment and computes the encoded
     /// `SourceLocation` value.
     ///
-    fn get_loc(self, fid: u32, off: usize) -> SourceLocation {
-        if fid >= self._segments.size() {
-            Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: invalid fid={fid} off={off} seg_count={self._segments.size()}");
-            ICE_FAIL(f"VirtualFileManager: Invalid fid/offset pair (fid: {fid}, off: {off})");
+    pub fn get_loc(self, fid: u32, off: usize) -> SourceLocation {
+        if (fid as usize) >= self._segments.size() {
+            kairo::Logger::fatal(
+                kairo::Logger::Stage::Driver,
+                f"VirtualFileManager::get_loc: invalid fid={fid} off={off} seg_count={self._segments.size()}",
+            )
+
+            kairo::std::ice_fail(
+                f"VirtualFileManager: Invalid fid/offset pair (fid: {fid}, off: {off})",
+            )
         }
 
-        var seg = self._segments[fid];
+        var unsafe *seg = self._segments[fid]
         if seg == &null {
-            Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: fid={fid} was evicted");
-            ICE_FAIL(f"VirtualFileManager: location requested for an evicted fid ({fid})");
+            kairo::Logger::fatal(
+                kairo::Logger::Stage::Driver,
+                f"VirtualFileManager::get_loc: fid={fid} was evicted",
+            )
+
+            kairo::std::ice_fail(
+                f"VirtualFileManager: location requested for an evicted fid ({fid})",
+            )
         }
 
         if off > seg->size {
-            Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: off={off} exceeds segment size={seg->size} for fid={fid}");
-            ICE_FAIL(f"VirtualFileManager: Offset out of segment bounds (fid: {fid}, off: {off})");
+            kairo::Logger::fatal(
+                kairo::Logger::Stage::Driver,
+                f"VirtualFileManager::get_loc: off={off} exceeds segment size={seg->size} for fid={fid}",
+            )
+
+            kairo::std::ice_fail(
+                f"VirtualFileManager: Offset out of segment bounds (fid: {fid}, off: {off})",
+            )
         }
 
-        var raw = seg->global_base + off + 1;
+        var raw = seg->global_base + off + 1
 
-        if raw > U32_MAX {
-            Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: global source space exceeded 4GB (raw={raw})");
-            ICE_FAIL("VirtualFileManager: SourceLocation address space exhausted (4GB u32 cap)");
+        if raw > (U32_MAX as usize) {
+            kairo::Logger::fatal(
+                kairo::Logger::Stage::Driver,
+                f"VirtualFileManager::get_loc: global source space exceeded 4GB (raw={raw})",
+            )
+
+            kairo::std::ice_fail(
+                "VirtualFileManager: SourceLocation address space exhausted (4GB u32 cap)",
+            )
         }
 
-        return SourceLocation::from_raw(static_cast::<u32>(raw));
+        return SourceLocation::from_raw(raw as u32)
     }
 
     /// just a pointer should also return a srouce location
-    fn get_loc(self, ptr: std::restrict_ptr::<u8>) -> SourceLocation {
-        var res = self.resolve_ptr(ptr);
-        return self.get_loc(static_cast::<u32>(res.fid), res.offset);
+    pub fn get_loc(self, ptr: kairo::std::restrict_ptr<u8>) -> SourceLocation {
+        var res = self.resolve_ptr(ptr)
+        return self.get_loc(res.fid as u32, res.offset)
     }
 
     ///
     /// \brief constructs a `SourceRange` covering a byte span.
     ///
-    fn get_range(self, fid: u32, off: usize, len: usize) -> SourceRange {
-        return SourceRange::from_bounds(
-            self.get_loc(fid, off),
-            self.get_loc(fid, off + len)
-        );
+    pub fn get_range(self, fid: u32, off: usize, len: usize) -> SourceRange {
+        return SourceRange::from_bounds(self.get_loc(fid, off), self.get_loc(fid, off + len))
     }
 
 
@@ -545,49 +605,54 @@ class VirtualFileManager {
     /// gap (0xFFFFFFFF). gap hits mean a corrupted/stale location and
     /// resolve as invalid.
     ///
-    fn resolve_loc(self, loc: SourceLocation) -> SegmentResolve {
-        var id = static_cast::<usize>(loc.raw());
+    pub fn resolve_loc(self, loc: SourceLocation) -> Self::SegmentResolve {
+        var id = (loc.raw() as usize)
         if id == 0 {
-            return { .fid: static_cast::<usize>(-1), .offset: 0 };
+            return { .fid: usize::MAX, .offset: 0 }
         }
-        id -= 1; // SourceLocation is 1-based
 
-        var page = id >> 12;
+        id -= 1 // SourceLocation is 1-based
+
+        var page = id >> 12
         if page >= self._page_table.size() {
-            return { .fid: static_cast::<usize>(-1), .offset: 0 };
+            return { .fid: usize::MAX, .offset: 0 }
         }
 
-        var seg_index = self._page_table[page];
-        if seg_index == u32(-1) {
-            return { .fid: static_cast::<usize>(-1), .offset: 0 };
+        var seg_index = self._page_table[page]
+        if seg_index == u32::MAX {
+            return { .fid: usize::MAX, .offset: 0 }
         }
 
-        var seg = self._segments[seg_index];
-        if id > (seg->global_base + seg->size) {   // was >=
+        var unsafe *seg = self._segments[seg_index]
+        if id > seg->global_base + seg->size { // was >=
             // location points into the alignment gap past this segment's end
-            return { .fid: static_cast::<usize>(-1), .offset: 0 };
+            return { .fid: usize::MAX, .offset: 0 }
         }
 
         return {
-            .fid:    seg->fid,
+            .fid:    ((seg->fid) as usize),
             .offset: id - seg->global_base
-        };
+        }
     }
 
     ///
     /// \brief returns a human-readable dump of all managed segments.
     ///
     fn op as (self) -> string {
-        var result = "VirtualFileManager(\n";
-        result += "  _segments:\n";
+        var result = "VirtualFileManager(\n"
+        result += "  _segments:\n"
 
-        for seg: *Segment in _segments {
-            if seg == &null { result += "    <evicted>\n"; continue; }
-            result += f"    {*seg}\n";
+        for var seg: *Segment? in self._segments {
+            if seg == &null {
+                result += "    <evicted>\n"
+                continue
+            }
+
+            result += f"    {*seg}\n"
         }
 
-        result += ")";
-        return result;
+        result += ")"
+        return result
     }
 
     ///
@@ -597,35 +662,44 @@ class VirtualFileManager {
     /// destroys all segments and parent buffers, resets fid counter.
     /// used for test isolation.
     ///
-    fn reset(self) {
-        Logger::debug(Logger::Stage::Driver, f"VirtualFileManager::reset: dropping {self._segments.size()} segments");
+    pub fn reset(self) {
+        kairo::Logger::debug(
+            kairo::Logger::Stage::Driver,
+            f"VirtualFileManager::reset: dropping {self._segments.size()} segments",
+        )
 
-        for seg: *Segment in _segments {
+        for var seg: unsafe *Segment in self._segments {
             if seg != &null {
-                std::destroy(seg);
+                kairo::std::destroy(seg)
             }
         }
-        _segments.clear();
 
-        self._next_fid = 0;
-        self._page_table.clear();
-        self._by_path.clear();
-        self._global_offset = 0;
+        self._segments.clear()
+
+        self._next_fid = 0
+        self._page_table.clear()
+        self._by_path.clear()
+        self._global_offset = 0
     }
 
     /// \brief fid for an already-registered path, or u32(-1).
     ///
     /// \details Lookup only   never maps. For callers that want to know
     ///          whether a file is known without loading it.
-    fn fid_for_path(self, path: Path) -> u32 {
-        var abs_full = Path(path.full_path()).full_path();
-        var hit = self._by_path.find(abs_full);
-        if hit == self._by_path.end() { return u32(-1); }
-        return hit->second;
+    pub fn fid_for_path(self, const path: Path) -> u32 {
+        var abs_full = Path(path.full_path()).full_path()
+        var hit      = self._by_path.find(kairo::sref(abs_full))
+        if hit == self._by_path.end() {
+            return u32::MAX
+        }
+
+        return hit->second
     }
 
     /// Registered files. Distinct paths mapped, not passes run.
-    fn file_count(self) -> usize { return self._by_path.size(); }
+    pub fn file_count(self) -> usize { // StringMap counts in unsigned
+        return self._by_path.size() as usize
+    }
 
     /// \brief re-reads \p fid from disk, keeping its identity.
     ///
@@ -646,68 +720,85 @@ class VirtualFileManager {
     /// \return false if \p fid is unknown, virtual (caller owns the bytes), or
     ///         could not be re-mapped   in which case the OLD mapping is left
     ///         intact rather than leaving the segment with nothing.
-    fn invalidate(self, fid: u32) -> bool {
-        if fid >= self._segments.size() { return false; }
+    pub fn invalidate(self, fid: u32) -> bool {
+        if (fid as usize) >= self._segments.size() {
+            return false
+        }
 
-        var seg = self._segments[fid];
-        if seg == &null         { return false; }
-        if seg->parent == &null { return false; }   // virtual: not ours to reload
+        var unsafe *seg = self._segments[fid]
+        if seg == &null {
+            return false
+        }
 
-        var abs_full = seg->path.full_path();
+        if seg->parent == &null { // virtual: not ours to reload
+            return false
+        }
+
+        var abs_full = seg->path.full_path()
 
         // Load the replacement BEFORE dropping the old mapping: on a failed
         // re-read (file deleted mid-edit, transient I/O error) the segment
         // keeps working with stale-but-valid bytes.
-        var fresh = std::create::<MappedFileBuffer>();
-        fresh->load(&abs_full);
+        var unsafe *fresh = kairo::std::create<MappedFileBuffer>()
+        fresh->load(unsafe &abs_full)
         if !fresh->is_valid() {
-            std::destroy(fresh);
-            Logger::warn(Logger::Stage::Driver,
-                f"VirtualFileManager::invalidate: re-map failed for {abs_full}; keeping previous contents");
-            return false;
+            kairo::std::destroy(fresh)
+            kairo::Logger::warn(
+                kairo::Logger::Stage::Driver,
+                f"VirtualFileManager::invalidate: re-map failed for {abs_full}; keeping previous contents",
+            )
+
+            return false
         }
 
-        var total = fresh->bytes().size();
+        var total = fresh->bytes().size()
 
         if total <= seg->reserved {
-            std::destroy(seg->parent);
-            seg->parent = fresh;
-            seg->size   = total;
-            seg->attach(fresh, 0, total);
-            seg->generation += 1;
-            Logger::debug(Logger::Stage::Driver,
-                f"VirtualFileManager::invalidate: fid={fid} re-mapped in place ({total}B of {seg->reserved}B reserved)");
-            return true;
+            kairo::std::destroy(seg->parent)
+            seg->parent = fresh
+            seg->size   = total
+            seg->attach(fresh, 0, total)
+            seg->generation += 1
+            kairo::Logger::debug(
+                kairo::Logger::Stage::Driver,
+                f"VirtualFileManager::invalidate: fid={fid} re-mapped in place ({total}B of {seg->reserved}B reserved)",
+            )
+
+            return true
         }
 
         // Outgrew its reservation. Take a new range; the old one becomes a hole.
-        var reserved = self._reserve_for(total);
-        var aligned  = (self._global_offset + 0xFFF) & (~usize(0xFFF));
-        if (total > U32_MAX) || ((aligned + reserved + 1) > U32_MAX) {
-            std::destroy(fresh);
-            self._diag->report(DiagID::I102F,
-                f"cannot re-map '{abs_full}' ({total}B): total source size would exceed the 4GB address space limit"
-            ).emit();
-            return false;
+        var reserved = self._reserve_for(total)
+        var aligned  = self._global_offset + 0xFFF & ~(0xFFF as usize)
+        if total > (U32_MAX as usize) || aligned + reserved + 1 > (U32_MAX as usize) {
+            kairo::std::destroy(fresh)
+            self._diag->report(
+                DiagID::I102F,
+                f"cannot re-map '{abs_full}' ({total}B): total source size would exceed the 4GB address space limit",
+            ).emit()
+            return false
         }
 
-        self._unmap_pages(seg->global_base, seg->reserved);
+        self._unmap_pages(seg->global_base, seg->reserved)
 
-        self._align_global_offset();
-        seg->global_base = self._global_offset;
-        self._global_offset += reserved;
-        seg->reserved = reserved;
+        self._align_global_offset()
+        seg->global_base = self._global_offset
+        self._global_offset += reserved
+        seg->reserved = reserved
 
-        std::destroy(seg->parent);
-        seg->parent = fresh;
-        seg->size   = total;
-        seg->attach(fresh, 0, total);
-        seg->generation += 1;
+        kairo::std::destroy(seg->parent)
+        seg->parent = fresh
+        seg->size   = total
+        seg->attach(fresh, 0, total)
+        seg->generation += 1
 
-        self._map_pages(fid, seg->global_base, reserved);
-        Logger::debug(Logger::Stage::Driver,
-            f"VirtualFileManager::invalidate: fid={fid} outgrew reservation, rebased to {seg->global_base}");
-        return true;
+        self._map_pages(fid, seg->global_base, reserved)
+        kairo::Logger::debug(
+            kairo::Logger::Stage::Driver,
+            f"VirtualFileManager::invalidate: fid={fid} outgrew reservation, rebased to {seg->global_base}",
+        )
+
+        return true
     }
 
     /// \brief drops \p fid entirely: mapping, address range, and identity.
@@ -722,32 +813,42 @@ class VirtualFileManager {
     ///          recycling costs correctness.
     ///
     /// \return false if \p fid was not registered.
-    fn evict(self, fid: u32) -> bool {
-        if fid >= self._segments.size() { return false; }
+    pub fn evict(self, fid: u32) -> bool {
+        if (fid as usize) >= self._segments.size() {
+            return false
+        }
 
-        var seg = self._segments[fid];
-        if seg == &null { return false; }
+        var unsafe *seg = self._segments[fid]
+        if seg == &null {
+            return false
+        }
 
-        self._unmap_pages(seg->global_base, seg->reserved);
-        self._by_path.erase(seg->path.full_path());
+        self._unmap_pages(seg->global_base, seg->reserved)
+        self._by_path.erase(kairo::sref(seg->path.full_path()))
 
-        std::destroy(seg);
-        self._segments[fid] = &null;   // retired, never reissued
-        return true;
+        kairo::std::destroy(seg)
+        self._segments[fid] = &null // retired, never reissued
+        return true
     }
 
     /// Times \p fid has been invalidated. See Segment::generation.
-    fn generation_of(self, fid: u32) -> u32 {
-        if fid >= self._segments.size() { return 0; }
-        if self._segments[fid] == &null { return 0; }
-        return self._segments[fid]->generation;
+    pub fn generation_of(self, fid: u32) -> u32 {
+        if (fid as usize) >= self._segments.size() {
+            return 0
+        }
+
+        if self._segments[fid] == &null {
+            return 0
+        }
+
+        return self._segments[fid]->generation
     }
 
     ///
     /// \brief rounds _global_offset up to the next 4 KB page boundary.
     ///
     priv fn _align_global_offset(self) {
-        self._global_offset = (self._global_offset + 0xFFF) & (~usize(0xFFF));
+        self._global_offset = self._global_offset + 0xFFF & ~(0xFFF as usize)
     }
 
     ///
@@ -765,32 +866,34 @@ class VirtualFileManager {
     ///          SourceLocation reads a dead (or reused) segment instead of
     ///          failing cleanly.
     priv fn _unmap_pages(self, base: usize, len: usize) {
-        if len == 0 { return; }
+        if len == 0 {
+            return
+        }
 
-        var first_page = base >> 12;
-        var last_page  = (base + len) >> 12;
+        var first_page = base >> 12
+        var last_page  = base + len >> 12
 
-        for p in range::<usize>(first_page, last_page + 1) {
+        for p in (first_page)..(last_page + 1) {
             if p < self._page_table.size() {
-                self._page_table[p] = u32(-1);
+                self._page_table[p] = u32::MAX
             }
         }
     }
 
     priv fn _map_pages(self, seg_index: u32, base: usize, len: usize) {
         if len == 0 {
-            return;
+            return
         }
 
-        var first_page = base >> 12;
-        var last_page = (base + len) >> 12;
+        var first_page = base >> 12
+        var last_page  = base + len >> 12
 
         while self._page_table.size() <= last_page {
-            self._page_table.push_back(u32(-1));
+            self._page_table.push_back(u32::MAX)
         }
 
-        for p in range::<usize>(first_page, last_page + 1) {
-            self._page_table[p] = seg_index;
+        for p in (first_page)..(last_page + 1) {
+            self._page_table[p] = seg_index
         }
     }
 }

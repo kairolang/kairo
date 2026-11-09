@@ -1,46 +1,47 @@
 /// --- The Kairo Project -------------------------- Lexer/OctalParser.k --- ///
 ///
-///   <short description>
+///   OctalParser, the incremental octal digit parser for \ooo escapes.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
 /// \brief incremental octal digit parser
 /// \details used for byte escape sequences (\ooo)
-class OctalParser {
-    var value:  usize = 0;
-    var digits: usize = 0;
+
+pub class OctalParser {
+    var value:  usize = 0
+    var digits: usize = 0
 
     /// \brief appends an octal digit
     /// \param c octal digit character
     /// \requires is_digit(c) == true
-    inline eval fn push_back(self, c: char32) {
-        self.value = (self.value << 3) | (static_cast::<usize>(c - '0'));
-        ++(self.digits);
+    inline fn push_back(self, c: char) {
+        self.value = self.value << 3 | (((c as u32) - ('0' as u32)) as usize)
+        ++self.digits
     }
 
     /// \brief checks whether character is a valid octal digit
     /// \param c input character
     /// \returns true if valid octal digit
-    inline eval fn is_digit(self, c: char32) -> bool {
-        return static_cast::<u8>(c - '0') <= 7;
+    inline fn is_digit(self, c: char) -> bool {
+        return (c as u32) - ('0' as u32) <= 7
     }
 
     /// \brief returns accumulated numeric value
     /// \returns parsed value
-    inline eval fn get_value(self) -> usize {
-        return self.value;
+    inline fn get_value(self) -> usize {
+        return self.value
     }
 
     /// \brief returns number of digits consumed
     /// \returns digit count
-    inline eval fn get_digits(self) -> usize {
-        return self.digits;
+    inline fn get_digits(self) -> usize {
+        return self.digits
     }
 }

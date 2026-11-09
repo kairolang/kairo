@@ -1,25 +1,29 @@
 /// --- The Kairo Project ------------------ Preprocessor/WaveExecutor.k --- ///
 ///
-///   Wave-parallel executor for DepGraph traversal.
+///   Runs a DepGraph in dependency waves on the thread pool.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Preprocessor::DepScanner::*;
-import Resolution::ModulePath::*;
-import Threading::ThreadPool::*;
+ffi "c++" import "functional"
+ffi "c++" import "vector"
+ffi "c++" import "Native/SmallFunction.hh"
 
-class WaveExecutor {
-    priv var _pool: obs::<ThreadPool>;
+import Preprocessor::DepScanner::DepGraph
+import Resolution::ModulePath::ModulePath
+import Threading::ThreadPool::ThreadPool
+
+pub class WaveExecutor {
+    priv var _pool: *ThreadPool
 
     fn WaveExecutor(self, pool: *ThreadPool) {
-        self._pool = pool;
+        self._pool = pool
     }
 
     /// \brief Runs waves until no fid is ready.
@@ -29,40 +33,42 @@ class WaveExecutor {
     /// \returns how many fids were dispatched. Fewer than the graph holds
     ///          means some never became ready -- a cycle in the graph -- and
     ///          the caller must say so: those files were never walked.
-    fn run(
-        self,
-        graph:   *DepGraph,
-        task_fn:  std::Function::<void, u32, ModulePath>
-    ) -> usize {
-        var ready = graph->roots();
-        var dispatched: usize = 0;
+    fn run(self, graph: *DepGraph, task_fn: fn(u32, ModulePath) -> void) -> usize {
+        var ready             = graph->roots()
+        var dispatched: usize = 0
 
         while ready.size() > 0 {
-            dispatched += ready.size();
+            dispatched += ready.size()
             for fid in ready {
-                var mod_path = graph->mod_paths[fid];
-                
-                self._pool->enqueue(fn () |fid, mod_path, *task_fn| {
-                    libcxx::invoke(*task_fn, fid, mod_path);
-                }, static_cast::<u8>(1));
+                var mod_path = graph->mod_paths[fid]
+
+                self._pool->enqueue(
+                    kairo::SmallFunction<64>(
+                        fn () |fid, mod_path, *task_fn| {
+                            cxx::std::invoke(*task_fn, fid, mod_path)
+                        },
+                    ),
+                    1,
+                )
             }
 
             // drain this wave - worker_loop decrements group 1 after each task
-            self._pool->wait_group(u8(1));
+            self._pool->wait_group(1)
 
             // compute next wave
-            var next = vec::<u32>();
+            var next = cxx::std::vector<u32>()
             for fid in ready {
                 for dependent in graph->rdeps[fid] {
-                    graph->in_degree[dependent] -= 1;
+                    graph->in_degree[dependent] -= 1
                     if graph->in_degree[dependent] == 0 {
-                        next.push_back(dependent);
+                        next.push_back(dependent)
                     }
                 }
             }
 
-            ready = next;
+            ready = next
         }
-        return dispatched;
+
+        return dispatched
     }
 }

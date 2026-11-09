@@ -5,23 +5,38 @@
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------- ///
 
-import Memory::ArenaList::*;
-import Location::SourceRange::*;
-import AST::ASTSupport::*;
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "vector"
 
-enum VisibilityKind derives u8 {
+import AST::ASTSupport::{
+    FrozenList,
+    create_empty_frozen_list,
+}
+import AST::Node::Base::{
+    Decl,
+    Expr,
+}
+import Location::SourceRange::SourceRange
+import Memory::ArenaAllocator::ArenaAllocator
+import Memory::ArenaList::ArenaList
+import Support::FlagSet::{
+    FlagBit,
+    FlagSet,
+}
+
+pub enum VisibilityKind derives u8 {
     None = 0, ///< No keyword written. Sema resolves to a default.
     Private,
     Protected,
     Public,
     Internal, ///< Visible within the same module, including submodules.
-              ///< Not accessible across module boundaries even with import.
+    ///< Not accessible across module boundaries even with import.
 }
 
 /// CRTP mixin: Decl nodes derive VisibilityAnnotation::<SelfType> to get
@@ -30,42 +45,56 @@ enum VisibilityKind derives u8 {
 /// `None` means no visibility keyword was written. The language's default
 /// visibility rule is applied by sema, not here do NOT treat `None` as
 /// a synonym for `Public` at the AST level.
-class <T> VisibilityAnnotation {
-    pub var visibility:        VisibilityKind = VisibilityKind::None;
-    pub var _visibility_range: SourceRange    = SourceRange::invalid();
+pub class <T> VisibilityAnnotation {
+    @move
+    fn VisibilityAnnotation(self, other: Self) = default
+    fn VisibilityAnnotation(self) = default
+    pub var visibility:        VisibilityKind = VisibilityKind::None
+    pub var _visibility_range: SourceRange    = SourceRange::invalid()
 
-    // --- Queries --------------------------------------------------------
+    /// # Queries
 
-    const fn is_public(self)    -> bool { return self.visibility == VisibilityKind::Public;    }
-    const fn is_private(self)   -> bool { return self.visibility == VisibilityKind::Private;   }
-    const fn is_protected(self) -> bool { return self.visibility == VisibilityKind::Protected; }
-    const fn is_internal(self)  -> bool { return self.visibility == VisibilityKind::Internal;  }
+    pub fn is_public(const self) -> bool {
+        return self.visibility == VisibilityKind::Public
+    }
+
+    pub fn is_private(const self) -> bool {
+        return self.visibility == VisibilityKind::Private
+    }
+
+    pub fn is_protected(const self) -> bool {
+        return self.visibility == VisibilityKind::Protected
+    }
+
+    fn is_internal(const self) -> bool {
+        return self.visibility == VisibilityKind::Internal
+    }
 
     /// True if no visibility keyword was written. Sema will apply the
     /// language default; at the AST level this is NOT equivalent to public.
-    const fn is_unspecified(self) -> bool {
-        return self.visibility == VisibilityKind::None;
+    fn is_unspecified(const self) -> bool {
+        return self.visibility == VisibilityKind::None
     }
 
     /// True if any visibility keyword was written.
-    const fn has_visibility(self) -> bool {
-        return self.visibility != VisibilityKind::None;
+    pub fn has_visibility(const self) -> bool {
+        return self.visibility != VisibilityKind::None
     }
 
-    const fn visibility_range(self) -> SourceRange {
-        return self._visibility_range;
+    pub fn visibility_range(const self) -> SourceRange {
+        return self._visibility_range
     }
 
-    // --- Mutation -------------------------------------------------------
+    /// # Mutation
 
-    fn set_visibility(self, kind: VisibilityKind, range: SourceRange) {
-        self.visibility       = kind;
-        self._visibility_range = range;
+    pub fn set_visibility(self, kind: VisibilityKind, range: SourceRange) {
+        self.visibility        = kind
+        self._visibility_range = range
     }
 
     fn clear_visibility(self) {
-        self.visibility       = VisibilityKind::None;
-        self._visibility_range = SourceRange::invalid();
+        self.visibility        = VisibilityKind::None
+        self._visibility_range = SourceRange::invalid()
     }
 
     // switch v {
@@ -82,21 +111,29 @@ class <T> VisibilityAnnotation {
 ///
 /// Visibility is handled separately by VisibilityAnnotation and is NOT
 /// a member of this enum.
-enum AnnotationKind derives u8 {
-    Attribute = 0,  ///< @inline, @deprecated, etc.
-    DocComment,     ///< /// ... attached to the following declaration,
-                    ///  is concatenated into one token if multiple lines
-    LineComment,    ///< //  ... kept for tools that want to preserve non-doc comments
-    BlockComment,   ///< /*  ... */
+pub enum AnnotationKind derives u8 {
+    Attribute = 0, ///< @inline, @deprecated, etc.
+    DocComment,    ///< /// ... attached to the following declaration,
+    ///  is concatenated into one token if multiple lines
+    LineComment,  ///< //  ... kept for tools that want to preserve non-doc comments
+    BlockComment, ///< /*  ... */
 }
 
-/// Presence bitmask for annotation kinds. One bit per AnnotationKind.
-/// Used to make has_*() queries O(1) without scanning the entry list.
-enum AnnotationPresence derives u8 {
+/// Presence bits for annotation kinds. One bit per AnnotationKind; the set
+/// present is a FlagSet (Support/FlagSet.k). Used to make has_*() queries
+/// O(1) without scanning the entry list.
+pub enum AnnotationPresence derives u8 {
     HasAttribute    = 1 << 0,
     HasDocComment   = 1 << 1,
     HasLineComment  = 1 << 2,
     HasBlockComment = 1 << 3,
+}
+
+/// AnnotationPresence's variants are its FlagSet's bits (Support/FlagSet.k).
+extend AnnotationPresence impl FlagBit<u8> {
+    inline fn bit(const self) -> u8 {
+        return self as u8
+    }
 }
 
 /// A single annotation entry.
@@ -105,13 +142,11 @@ enum AnnotationPresence derives u8 {
 /// (e.g. the index for "inline" in `@inline`). For comment entries,
 /// `name` is u32(-1) (the invalid sentinel); do NOT use 0, which is a valid
 /// imm ident index.
-/// STAGE0: bug, stage0 doesnt like fwd decls so we use *void here MUST
-///         change to *Expr once stage1 is complete.
-class AnnotationEntry {
-    pub var kind:  AnnotationKind = AnnotationKind::Attribute;
-    pub var name:  u32            = u32(-1);
-    pub var range: SourceRange    = SourceRange::invalid();
-    pub var args:  FrozenList::<*void>; // Expr always, we need to check
+pub class AnnotationEntry {
+    pub var kind:  AnnotationKind           = AnnotationKind::Attribute
+    pub var name:  u32                      = u32::MAX
+    pub var range: SourceRange              = SourceRange::invalid()
+    pub var args:  FrozenList<unsafe *Expr>
 
     /// The declaration this attribute's NAME refers to, when it refers to one
     /// at all. Written by NameResolution N(b); null otherwise.
@@ -124,15 +159,15 @@ class AnnotationEntry {
     ///
     /// Argument expressions in `args` are NOT resolved by N: attribute
     /// argument folding is a later concern, names only here.
-    pub var resolved_decl: *void = &null;  ///< *Decl; *void dodges the stage0 cycle.
+    pub var resolved_decl: unsafe *Decl = &null
 
     fn AnnotationEntry(self) { }
 
-    fn AnnotationEntry(self, k: AnnotationKind, n: u32, r: SourceRange) {
-        self.kind  = k;
-        self.name  = n;
-        self.range = r;
-        self.args = create_empty_frozen_list::<*void>();
+    pub fn AnnotationEntry(self, k: AnnotationKind, n: u32, r: SourceRange) {
+        self.kind  = k
+        self.name  = n
+        self.range = r
+        self.args  = create_empty_frozen_list<unsafe *Expr>()
     }
 }
 
@@ -140,140 +175,166 @@ class AnnotationEntry {
 /// presence bitmask for O(1) existence checks.
 ///
 /// Call `init_annotations(ctx)` exactly once before any `add_*` call.
-class <T> Annotation {
-    pub var annotations: ArenaList::<AnnotationEntry>;
-    
-    /// `presence` is a redundant bitmask of which AnnotationKinds are present
+pub class <T> Annotation {
+    pub var annotations: ArenaList<AnnotationEntry>
+
+    /// `presence` is a redundant set of which AnnotationKinds are present
     /// in `annotations`. It exists so `has_*()` queries on sema hot paths are
     /// O(1) instead of scanning the list.
-    pub var presence: u8 = 0;
+    pub var presence: FlagSet<AnnotationPresence, u8>
 
-    fn init_annotations(self, arena: *ArenaAllocator) {
-        self.annotations.set_allocator(arena, 2);
+    pub fn init_annotations(self, arena: unsafe *ArenaAllocator) {
+        self.annotations.set_allocator(arena, 2)
     }
 
-    // --- O(1) presence queries -----------------------------------------
+    /// # O(1) presence queries
 
-    const fn has_any_annotation(self) -> bool {
-        return self.presence != 0;
+    fn has_any_annotation(const self) -> bool {
+        return !self.presence.empty()
     }
 
-    const fn has_attribute(self) -> bool {
-        return (self.presence & static_cast::<u8>(AnnotationPresence::HasAttribute)) != 0;
+    pub fn has_attribute(const self) -> bool {
+        return self.presence.has(AnnotationPresence::HasAttribute)
     }
 
-    const fn has_doc_comment(self) -> bool {
-        return (self.presence & static_cast::<u8>(AnnotationPresence::HasDocComment)) != 0;
+    fn has_doc_comment(const self) -> bool {
+        return self.presence.has(AnnotationPresence::HasDocComment)
     }
 
-    const fn has_line_comment(self) -> bool {
-        return (self.presence & static_cast::<u8>(AnnotationPresence::HasLineComment)) != 0;
+    fn has_line_comment(const self) -> bool {
+        return self.presence.has(AnnotationPresence::HasLineComment)
     }
 
-    const fn has_block_comment(self) -> bool {
-        return (self.presence & static_cast::<u8>(AnnotationPresence::HasBlockComment)) != 0;
+    fn has_block_comment(const self) -> bool {
+        return self.presence.has(AnnotationPresence::HasBlockComment)
     }
 
-    const fn has_kind(self, kind: AnnotationKind) -> bool {
-        return (self.presence & Annotation::<T>::_bit_for(kind)) != 0;
+    fn has_kind(const self, kind: AnnotationKind) -> bool {
+        return self.presence.has(Annotation<T>::_bit_for(kind))
     }
 
-    // --- O(N) range / lookup queries -----------------------------------
+    /// # O(N) range / lookup queries
 
     /// First range for `kind`, or invalid() if none. Guard with has_kind()
     /// to avoid the scan when you only need presence.
     fn first_range(self, kind: AnnotationKind) -> SourceRange {
-        if !self.has_kind(kind) { return SourceRange::invalid(); }
+        if !self.has_kind(kind) {
+            return SourceRange::invalid()
+        }
+
         for var i: usize = 0; i < self.annotations.size(); ++i {
-            var entry = self.annotations.get(i);
-            if (entry->kind) == kind {
-                return entry->range;
+            var unsafe *entry = self.annotations.get(i)
+            if entry->kind == kind {
+                return entry->range
             }
         }
-        return SourceRange::invalid();
+
+        return SourceRange::invalid()
     }
 
     /// True if an attribute with the given interned name is present.
-    fn has_attribute_named(self, name: u32) -> bool {
-        if !self.has_attribute() { return false; }
+    pub fn has_attribute_named(self, name: u32) -> bool {
+        if !self.has_attribute() {
+            return false
+        }
+
         for var i: usize = 0; i < self.annotations.size(); ++i {
-            var entry = self.annotations.get(i);
-            if (entry->kind == AnnotationKind::Attribute) && (entry->name == name) {
-                return true;
+            var unsafe *entry = self.annotations.get(i)
+            if entry->kind == AnnotationKind::Attribute && entry->name == name {
+                return true
             }
         }
-        return false;
+
+        return false
     }
 
-    fn attribute_range(self, name: u32) -> SourceRange {
-        if !self.has_attribute() { return SourceRange::invalid(); }
+    pub fn attribute_range(self, name: u32) -> SourceRange {
+        if !self.has_attribute() {
+            return SourceRange::invalid()
+        }
+
         for var i: usize = 0; i < self.annotations.size(); ++i {
-            var entry = self.annotations.get(i);
-            if (entry->kind == AnnotationKind::Attribute) && (entry->name == name) {
-                return entry->range;
+            var unsafe *entry = self.annotations.get(i)
+            if entry->kind == AnnotationKind::Attribute && entry->name == name {
+                return entry->range
             }
         }
-        return SourceRange::invalid();
+
+        return SourceRange::invalid()
     }
 
     /// Append all attribute entries to `out`. Preserves source order.
-    fn collect_attributes(self, out: *vec::<*AnnotationEntry>) {
-        if !self.has_attribute() { return; }
+    fn collect_attributes(self, @inout out: cxx::std::vector<unsafe *AnnotationEntry>) {
+        if !self.has_attribute() {
+            return
+        }
+
         for var i: usize = 0; i < self.annotations.size(); ++i {
-            var entry = self.annotations.get(i);
+            var unsafe *entry = self.annotations.get(i)
             if entry->kind == AnnotationKind::Attribute {
-                out->push_back(entry);
+                out.push_back(entry)
             }
         }
     }
 
-    // --- Mutation ------------------------------------------------------
-    // NOTE: add_* functions do NOT check for duplicates. If you need to enforce
-    // uniqueness, check with has_*() first and decide how to handle duplicates
-    // (e.g. ignore, merge spans, emit a diag, etc).
+    /// # Mutation
+    /// NOTE: add_* functions do NOT check for duplicates. If you need to enforce
+    /// uniqueness, check with has_*() first and decide how to handle duplicates
+    /// (e.g. ignore, merge spans, emit a diag, etc).
 
-    fn add_annotation(self, kind: AnnotationKind, name: u32, range: SourceRange) {
-        ICE_IF(!self.annotations.has_allocator(),
-                 "Annotation::add_* called before init_annotations()");
-        self.annotations.push(AnnotationEntry(kind, name, range));
-        self.presence |= Annotation::<T>::_bit_for(kind);
+    pub fn add_annotation(self, kind: AnnotationKind, name: u32, range: SourceRange) {
+        if !self.annotations.has_allocator() {
+            kairo::std::ice_fail("Annotation::add_* called before init_annotations()")
+        }
+
+        self.annotations.push(AnnotationEntry(kind, name, range))
+        self.presence.set(Annotation<T>::_bit_for(kind))
     }
 
-    fn add_annotation(self, kind: AnnotationKind, name: u32,
-                      range: SourceRange, args: FrozenList::<*void>) {
-        ICE_IF(!self.annotations.has_allocator(),
-                 "Annotation::add_* called before allocator wiring");
-        var e  = AnnotationEntry(kind, name, range);
-        e.args = args;
-        self.annotations.push(e);
-        self.presence |= Annotation::<T>::_bit_for(kind);
+    pub fn add_annotation(self,
+                          kind:  AnnotationKind,
+                          name:  u32,
+                          range: SourceRange,
+                          args:  FrozenList<unsafe *Expr>) {
+        if !self.annotations.has_allocator() {
+            kairo::std::ice_fail("Annotation::add_* called before allocator wiring")
+        }
+
+        var e = AnnotationEntry(kind, name, range)
+        e.args = args
+        self.annotations.push(e)
+        self.presence.set(Annotation<T>::_bit_for(kind))
     }
 
     fn add_attribute(self, name: u32, range: SourceRange) {
-        self.add_annotation(AnnotationKind::Attribute, name, range);
+        self.add_annotation(AnnotationKind::Attribute, name, range)
     }
 
     fn add_doc_comment(self, range: SourceRange) {
-        self.add_annotation(AnnotationKind::DocComment, u32(-1), range);
+        self.add_annotation(AnnotationKind::DocComment, u32::MAX, range)
     }
 
     fn add_line_comment(self, range: SourceRange) {
-        self.add_annotation(AnnotationKind::LineComment, u32(-1), range);
+        self.add_annotation(AnnotationKind::LineComment, u32::MAX, range)
     }
 
     fn add_block_comment(self, range: SourceRange) {
-        self.add_annotation(AnnotationKind::BlockComment, u32(-1), range);
+        self.add_annotation(AnnotationKind::BlockComment, u32::MAX, range)
     }
 
-    // --- Private -------------------------------------------------------
+    /// # Private
 
-    priv static fn _bit_for(kind: AnnotationKind) -> u8 {
-        switch kind {
-            case AnnotationKind::Attribute    { return static_cast::<u8>(AnnotationPresence::HasAttribute);    }
-            case AnnotationKind::DocComment   { return static_cast::<u8>(AnnotationPresence::HasDocComment);   }
-            case AnnotationKind::LineComment  { return static_cast::<u8>(AnnotationPresence::HasLineComment);  }
-            case AnnotationKind::BlockComment { return static_cast::<u8>(AnnotationPresence::HasBlockComment); }
-            default                           { return 0; }
+    priv static fn _bit_for(kind: AnnotationKind) -> AnnotationPresence {
+        match kind {
+            case AnnotationKind::Attribute {
+                return AnnotationPresence::HasAttribute
+            } case AnnotationKind::DocComment {
+                return AnnotationPresence::HasDocComment
+            } case AnnotationKind::LineComment {
+                return AnnotationPresence::HasLineComment
+            } case AnnotationKind::BlockComment {
+                return AnnotationPresence::HasBlockComment
+            }
         }
     }
 }
