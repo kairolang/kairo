@@ -2087,6 +2087,11 @@ pub class CXXSpell {
     ///     general-dynamic. A dlopen'd library's TLS has no static offset, and
     ///     an object built with -c may end up in one.
     /// An explicit --tls-model wins over both user-TU defaults.
+    /// x32: local-exec wherever the rules above say initial-exec. lld
+    /// relaxes initial-exec to local-exec only in its REX.W movq / addq
+    /// form, and x32's access is a REX-less movl, so a static link of the
+    /// library failed (P702). The cost: the library's objects cannot go into
+    /// an x32 shared object (P740).
     /// ELF only: elsewhere the attribute either means nothing (Mach-O,
     /// wasm) or is not the mechanism (COFF).
     fn tls_model(self, v: unsafe *Declarations::VariableDecl) -> string {
@@ -2094,8 +2099,9 @@ pub class CXXSpell {
             return ""
         }
 
+        var ie = if (self._cg->opts.x32) => ("local-exec") else => "initial-exec"
         if self._toolchain_tu(self._cg->tu) {
-            return LowerTargets::attr_tls_model("initial-exec")
+            return LowerTargets::attr_tls_model(ie)
         }
 
         if !self._cg->opts.tls_model.empty() {
@@ -2107,7 +2113,7 @@ pub class CXXSpell {
         }
 
         if self._toolchain_tu(CXXSpell::tu_of(unsafe (v as unsafe *Decl))) {
-            return LowerTargets::attr_tls_model("initial-exec")
+            return LowerTargets::attr_tls_model(ie)
         }
 
         return ""

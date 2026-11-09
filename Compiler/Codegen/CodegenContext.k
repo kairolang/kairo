@@ -61,6 +61,11 @@ pub class EmitOptions {
     pub var elf: bool = false
     /// --tls-model, "" when not given (CXXSpell::tls_model picks per global).
     pub var tls_model: string = ""
+    /// The target is x32 (x86_64 gnux32 / muslx32). lld relaxes an
+    /// initial-exec access only in its REX.W movq / addq form, and x32's is a
+    /// REX-less movl, so CXXSpell::tls_model never picks initial-exec there
+    /// (P702).
+    pub var x32: bool = false
 
     fn EmitOptions(self) { }
 }
@@ -113,6 +118,8 @@ pub class CodegenContext {
             self.opts.exe_link            = !ctx->ci->linker.shared && !ctx->ci->linker.compile_only
             self.opts.elf                 = ctx->ci->target.object_format == "ELF"
             self.opts.tls_model           = ctx->ci->codegen.tls_model
+            var tt = ctx->ci->target.effective_triple
+            self.opts.x32 = tt.starts_with("x86_64") && tt.ends_with("x32")
         }
     }
 

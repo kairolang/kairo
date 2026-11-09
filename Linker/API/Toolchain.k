@@ -1673,6 +1673,36 @@ pub class Toolchain {
             return "/lib64/ld-linux-loongarch-lp64d.so.1"
         }
 
+        // The rest are glibc's own: the soname from the arch's shlib-versions
+        // (Z4's glibc/abilists/targets.toml `ld` agrees), the directory from
+        // its configure's libc_cv_rtlddir, /lib where it sets none (P704).
+        if a == "powerpc" {
+            return "/lib/ld.so.1"
+        }
+
+        // MIPS: o32 /lib, n64 /lib64, n32 /lib32; the R6 ISAs are NaN-2008
+        // only, and glibc names their loader ld-linux-mipsn8.so.1.
+        var r6   = LinkText::starts_with(a, "mipsisa")
+        var mld  = if (r6) => ("ld-linux-mipsn8.so.1") else => "ld.so.1"
+        var mips = a == "mips" || a == "mipsel" || a == "mipsisa32r6" || a == "mipsisa32r6el"
+        if mips {
+            return "/lib/" + mld
+        }
+
+        var mips64 = a == "mips64" || a == "mips64el" || a == "mipsisa64r6" || a == "mipsisa64r6el"
+        if mips64 {
+            return if (LinkText::contains(env, "abin32")) => ("/lib32/" + mld)
+                   else => ("/lib64/" + mld)
+        }
+
+        if a == "sparc64" || a == "sparcv9" {
+            return "/lib64/ld-linux.so.2"
+        }
+
+        if a == "sparc" || a == "sparcel" {
+            return "/lib/ld-linux.so.2"
+        }
+
         return ""
     }
 

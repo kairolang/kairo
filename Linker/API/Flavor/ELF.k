@@ -112,8 +112,17 @@ pub class ELFArgs {
             argv.push_back(f"--sysroot={tc.sysroot}")
         }
 
-        if !want_stat && !o->hash_style.empty() {
-            argv.push_back(f"--hash-style={o->hash_style}")
+        // MIPS: sysv only, as clang's driver links it. Its ABI sorts .dynsym
+        // by GOT order and .gnu.hash wants bucket order, so lld refuses
+        // .gnu.hash outright and the "gnu" default would fail every MIPS link
+        // (P704).
+        var hs = o->hash_style
+        if LinkText::starts_with(tc.arch, "mips") && (hs == "gnu" || hs == "both") {
+            hs = "sysv"
+        }
+
+        if !want_stat && !hs.empty() {
+            argv.push_back(f"--hash-style={hs}")
         }
 
         // An empty value (--build-id=) means "the default", not "no note": the
