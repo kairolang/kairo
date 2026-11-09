@@ -403,7 +403,8 @@ def copy_root(src: Path, dst: Path) -> int:
 # build for both libcs of their own arch: the musl root and the glibc one (glibc's name
 # carries its version and, on armv7, the gnueabihf ABI, so names are spelled out here,
 # never derived). Windows keeps its own -windows-gnu root (the default target there);
-# the BSDs keep their own root. macOS keeps none: its native root is the user's Apple SDK
+# the BSDs keep none: their root would mostly repeat share/kairo/sysroot/<bsd>/ (about
+# 90 MiB xz per archive), and ksys builds it in about 12 s on first use. macOS keeps none: its native root is the user's Apple SDK
 # plus share/kairo/sdk-overlays (scripts/darwin-sysroot.sh, run by the installer).
 # Every key of cross_llvm.FAMILIES must be here: a new host is a decision, not a default.
 HOST_ROOTS = {
@@ -416,9 +417,9 @@ HOST_ROOTS = {
     "i686-windows-gnu":         ["i686-windows-gnu"],
     "aarch64-windows-gnu":      ["aarch64-windows-gnu"],
     "armv7-windows-gnu":        ["armv7-windows-gnu"],
-    "x86_64-unknown-freebsd":   ["x86_64-unknown-freebsd"],
-    "aarch64-unknown-freebsd":  ["aarch64-unknown-freebsd"],
-    "x86_64-unknown-netbsd":    ["x86_64-unknown-netbsd"],
+    "x86_64-unknown-freebsd":   [],
+    "aarch64-unknown-freebsd":  [],
+    "x86_64-unknown-netbsd":    [],
     "arm64-apple-macosx11.0":   [],
     "x86_64-apple-macosx10.15": [],
 }
