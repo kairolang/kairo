@@ -20,7 +20,7 @@ The driver turns a command line into a batch: it parses flags into a `CompilerIn
 2. Initialize LLVM (all targets, MC layers, asm parsers and printers), the process locale (`LC_CTYPE` forced to UTF-8), and the logger. The `InitLLVM` guard is a heap object destroyed last in `main`, so `llvm_shutdown` runs while lld's parallel executor is still alive.
 3. Construct `CompilerInstance` from argv. Flag errors are reported here.
 4. Identity exits: `--help`, `--version`, `--explain <code>`.
-5. Info queries, which exit without compiling: `--print-targets`, `--print-cpus`, `--print-target-info`, `--print-dirs`, `--print-clang-args`, `--print-jobs`, `--print-from-clang`, `--print-cfg`.
+5. Info queries, which exit without compiling: `--print-targets`, `--print-cpus`, `--print-target-info`, `--print-dirs`, `--print-clang-args`, `--print-jobs`, `--print-from-clang`, `--print-cfg`, `--print-runtimes-revision` (the LLVM runtimes revision the compiler was built from; `<prefix>/share/kairo/runtimes/REVISION` must equal it before the sysroot generator builds anything).
 6. `args_ok()`: any flag error exits 1.
 7. `apply_input_options()`: `--input-encoding` other than UTF-8 is U009E; `--working-dir` changes the process directory (U010E if it cannot), before anything reads the current directory.
 8. `initialize(cwd)`: report queued root warnings, build the `ImportResolver` (include dirs, macro search paths, then the `builtin` and `std` roots; see [Imports.md](Imports.md#path-resolution)), start the shared `ClangBackend` on the pool, and create the header-set cache, header index, foreign registry and `PreProcessor`.
@@ -234,6 +234,7 @@ A staged tree ([BuildSystem.md](BuildSystem.md#staged-trees)) runs with no root 
 | bundled sysroots | `<prefix>/sysroot/<triple>` | `--sysroot` |
 | out-of-process linker | `<prefix>/bin/kld[.exe]` | |
 | sysroot generator inputs | `<prefix>/share/kairo/sysroot` | `$KAIRO_SYSROOT_SHARE` |
+| sysroot generator cache | `<toolchain cache root>/sysroot` | `$KAIRO_SYSROOT_CACHE` |
 
 ### Root discovery
 
@@ -250,7 +251,7 @@ The sysroot is chosen by `_use_bundled_sysroot`:
 - `--native`: the host is the sysroot (`/`); the bundle for the host's C library still supplies libc++ and compiler-rt.
 - `--target`, or no `--sysroot`: `<prefix>/sysroot/<triple>`, or the one directory there naming the same target in another spelling (same arch, sub-arch, OS and environment). A bundle that is not a directory, lacks `SYSROOT.toml`, or has a malformed one is P007E.
 - `--sysroot` without `--target`: that directory, as given.
-- `--target` with no bundle and no `--sysroot`: the sysroot generator's cache, then its `ensure` in-process (`_sysroot_from_generator`; [SysRoot.md](SysRoot.md#8-cli-and-driver-hook)). A refusal is P009E and exit 2; `--no-sysroot-build` makes the missing root that refusal instead of a build. Without a share tree to build from, the run keeps the P008W below.
+- `--target` with no bundle and no `--sysroot`: the sysroot generator's cache, then its `ensure` in-process (`_sysroot_from_generator`; [SysRoot.md](SysRoot.md#8-cli-and-driver-hook)). A refusal is P009E and exit 2; `--no-sysroot-build` makes the missing root that refusal instead of a build. Without a share tree to build from, the run keeps the P008W below. The order is: a bundled `<prefix>/sysroot/<name>`, then the cache's `by-name/<name>` (also reported by `--version`, which never builds), then the build; the build is skipped for `--help`, `--version`, `--explain` and the info queries. A build that fails is P010E and exit 3. When a sysroot's `SYSROOT.toml` records `clang_triple`, clang's `-triple`, the driver probe and C/C++ `--target` use it instead of the name's triple. The target-spelling grammar, the stages and the cache layout are [SysRoot.md](SysRoot.md); the user-facing view is the `ksys` page of the website docs.
 
 `_check_sysroot` then reports P008W when no sysroot was found or the given one is not a directory, unless `--freestanding` asked for none or `--macos-sdk` stands in for one.
 

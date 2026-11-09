@@ -65,7 +65,7 @@ Self-hosting is proven by three builds from one migrated tree with one flag set:
 
 B and C must be bit-identical (binary and every object). A and B may differ only in embedded support paths (sysroot, resource dir, builtin library), which name the tree each compiler runs from. The recorded proof had B == C on `bin/kairo` and all 327 objects, and identical `.text` in every object of A and B. Any difference between B and C means the compiler's output depends on which compiler built it: a miscompile, to be found before anything else.
 
-Bit-identity requires the output to be a function of (source tree, compiler, flags) only. `build.py --reproducible` (default on for a single self-host release tree, always on for the `fixedpoint` and `reprocheck` phases) adds:
+Bit-identity requires the output to be a function of (source tree, compiler, flags) only. `build.py --reproducible` (opt-in; the `fixedpoint` and `reprocheck` phases always pass it) adds:
 
 | Flag | Removes |
 |---|---|

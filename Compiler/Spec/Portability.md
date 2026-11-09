@@ -79,7 +79,7 @@ The builtin library must compile on every target, so it carries no unconditional
 
 ### Codegen targets
 
-The vendored LLVM is built with the X86, AArch64, ARM, RISCV and WebAssembly backends (`Scripts/build_llvm.py`, `Scripts/cross_llvm.py`). The release tree ships sysroots for Linux (glibc 2.31 and musl; x86_64, i686, aarch64, armv7, riscv64), Windows (MinGW and MSVC environments; x86_64, i686, aarch64, armv7), macOS (x86_64, arm64, arm64e), FreeBSD (x86_64, aarch64), NetBSD (x86_64) and `wasm32-wasi`; their layout and selection are in [Linking.md](Linking.md#sysroots). Target-resolution diagnostics:
+The vendored LLVM is built with 16 backends plus the experimental Xtensa: X86, AArch64, ARM, RISCV, WebAssembly, PowerPC, SystemZ, Mips, LoongArch, Sparc, AVR, MSP430, BPF, NVPTX, AMDGPU and SPIRV (`TARGETS` in `Scripts/build_llvm.py`, shared with `Scripts/cross_llvm.py`; [BuildSystem.md](BuildSystem.md#native-build)). A backend being present does not mean a sysroot exists for it: `ksys` builds one on first use for the targets its recipes cover ([SysRoot.md](SysRoot.md)). The release tree ships sysroots for Linux (glibc 2.31 and musl; x86_64, i686, aarch64, armv7, riscv64), Windows (MinGW and MSVC environments; x86_64, i686, aarch64, armv7), macOS (x86_64, arm64, arm64e), FreeBSD (x86_64, aarch64), NetBSD (x86_64) and `wasm32-wasi`; their layout and selection are in [Linking.md](Linking.md#sysroots). Target-resolution diagnostics:
 
 | Code | When |
 |---|---|
