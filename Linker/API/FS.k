@@ -173,6 +173,15 @@ pub class LinkFS {
     /// fine to a linker, which reads the symbol table.
     pub static fn write_archive(const path:     string,
                                 @inout objects: cxx::std::vector<string>) -> bool {
+        return LinkFS::write_archive_as(path, &objects, false)
+    }
+
+    /// write_archive in COFF format when \p coff: what llvm-ar writes for
+    /// COFF members (an extra sorted linker member), which link.exe-style
+    /// readers expect of a Windows archive.
+    pub static fn write_archive_as(const path:     string,
+                                   @inout objects: cxx::std::vector<string>,
+                                   coff:           bool) -> bool {
         var members: cxx::std::vector<llvm::NewArchiveMember>
         for var o: string in objects {
             var m = llvm::NewArchiveMember::getFile(kairo::sref(o), true)
@@ -181,14 +190,24 @@ pub class LinkFS {
                 return false
             }
 
-            members.push_back(cxx::std::move(*m))
+            // getFile names the member after the whole path it was read
+            // from; llvm-ar (and `ar`) keep the basename. A path would put
+            // the build dir into every archive and change it per build.
+            var nm = cxx::std::move(*m)
+            nm.MemberName = llvm::sys::path::filename(nm.MemberName)
+            members.push_back(cxx::std::move(nm))
+        }
+
+        var kind = llvm::object::Archive::K_GNU
+        if coff {
+            kind = llvm::object::Archive::K_COFF
         }
 
         var err = llvm::writeArchive(
             kairo::sref(path),
             llvm::ArrayRef<llvm::NewArchiveMember>(members),
             llvm::SymtabWritingMode::NormalSymtab,
-            llvm::object::Archive::K_GNU,
+            kind,
             true,
             false,
         )

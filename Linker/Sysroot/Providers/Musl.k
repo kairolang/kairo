@@ -189,7 +189,8 @@ pub class MuslProvider derives SysrootProvider {
 
         var logs = ctx->log_dir + "/cc"
         LinkFS::make_dirs(logs)
-        var jobs    = SysJobs()
+        var jobs = SysJobs()
+        jobs.limit(ctx->jobs)
         var archive = cxx::std::vector<string>()
         var crts    = cxx::std::vector<string>()
         for var i: usize = 0; i < objs.size(); ++i {

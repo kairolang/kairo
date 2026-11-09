@@ -135,6 +135,7 @@ pub class GlibcProvider derives SysrootProvider {
 
         var work = ctx->stage + "/stubs"
         var jobs = SysJobs()
+        jobs.limit(ctx->jobs)
         for var l: GlibcLib in libs {
             var ab = ""
             var co = ""

@@ -252,6 +252,13 @@ pub class SysJobs {
         return self.failed_log.empty()
     }
 
+    /// At most \p n in flight instead of SysRun::jobs(); 0 keeps that.
+    pub fn limit(self, n: usize) {
+        if n > 0 {
+            self._max = n
+        }
+    }
+
     /// Starts \p argv with its output in \p log. False once any job failed.
     pub fn add(self, @inout argv: cxx::std::vector<string>, const log: string) -> bool {
         if !self.ok() {

@@ -47,6 +47,10 @@ BUNDLED = {"musl": ["x86_64", "i686", "aarch64", "armv7", "riscv64"],
            "freebsd": ["x86_64", "aarch64"],
            "netbsd": ["x86_64"],
            "wasi": ["wasm32"]}
+# Targets with no curated root: derived only when --headers holds a libc-headers root for
+# them (a ksys libc-headers stage product + its SYSROOT.toml, under <headers>/<name>/).
+EXTRA = {"musl": ["armv6", "riscv32"]}
+HEADERS: Path | None = None
 
 
 def log(m: str) -> None:
@@ -123,9 +127,11 @@ def all_targets(ship, only=None) -> list[Target]:
     out = []
     for fam, arches in BUNDLED.items():
         rec = ship.load_recipe(ship.FAMILIES[fam])
-        for a in arches:
+        for a in arches + EXTRA.get(fam, []):
             t = Target(fam, rec, a, quirks, ship)
             if only and t.name not in only:
+                continue
+            if a not in arches and not (HEADERS and (HEADERS / t.name / "SYSROOT.toml").is_file()):
                 continue
             out.append(t)
     return out
@@ -134,8 +140,11 @@ def all_targets(ship, only=None) -> list[Target]:
 # ---------------------------------------------------------------- stage 1: headers
 
 def header_stage(curated: Path, t: Target, dst: Path) -> Path:
-    """The curated root's libc headers and SYSROOT.toml, no c++/ dir anywhere."""
+    """The curated root's libc headers and SYSROOT.toml, no c++/ dir anywhere. A target
+    --headers has a root for takes that one instead (the only source for EXTRA targets)."""
     src = curated / t.name
+    if HEADERS and (HEADERS / t.name / "SYSROOT.toml").is_file():
+        src = HEADERS / t.name
     if not (src / "SYSROOT.toml").is_file():
         die(f"{t.name}: no curated root at {src}")
     if dst.exists():
@@ -668,8 +677,11 @@ def make_kit(tree: Path, kit: Path) -> Path:
     return kit
 
 
-def derive(share: Path, src: Path, curated: Path, tree: Path, scratch: Path, only=None, jobs=6) -> dict:
+def derive(share: Path, src: Path, curated: Path, tree: Path, scratch: Path, only=None, jobs=6,
+           headers: Path | None = None) -> dict:
     import ship_sysroot_inputs as ship
+    global HEADERS
+    HEADERS = headers
     kit = make_kit(tree, scratch / "kit")
     _src_index(src)             # once, before the worker threads read it
     targets = all_targets(ship, only)
@@ -696,9 +708,12 @@ def main() -> int:
     ap.add_argument("--scratch", type=Path, default=ROOT / "build" / "sysgen" / "b2")
     ap.add_argument("--only", nargs="+")
     ap.add_argument("-j", type=int, default=6, help="targets configured at once")
+    ap.add_argument("--headers", type=Path, default=None,
+                    help="dir of <name>/ libc-headers roots (SYSROOT.toml + include dirs), taken over the "
+                         "curated root; adds the EXTRA targets it has a root for (armv6/riscv32 musl)")
     a = ap.parse_args()
     derive(a.share.resolve(), a.runtimes.resolve(), a.curated.resolve(), a.tree.resolve(), a.scratch.resolve(),
-           a.only, a.j)
+           a.only, a.j, a.headers.resolve() if a.headers else None)
     return 0
 
 

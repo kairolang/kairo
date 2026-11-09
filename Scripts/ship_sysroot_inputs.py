@@ -1017,6 +1017,7 @@ class Ctx:
         self.bsd_trim = a.bsd_trim.resolve()
         self.cc = a.cc
         self.kcc_tree = a.kcc_tree.resolve()
+        self.runtimes_headers = a.runtimes_headers.resolve() if a.runtimes_headers else None
         self.prov = {}          # input key -> list of provenance lines
         self.dropped_links = {}
         self.mingw_defs = {}    # arch -> {lib name: def name}
@@ -1420,7 +1421,8 @@ def build_runtimes_recipe(c: Ctx) -> None:
     import runtimes_recipe
     rev, _, rt = stage_runtimes(c)
     tree = c.kcc_tree
-    runtimes_recipe.derive(c.share, rt, c.curated, tree, c.scratch / "runtimes-recipe")
+    runtimes_recipe.derive(c.share, rt, c.curated, tree, c.scratch / "runtimes-recipe",
+                           headers=getattr(c, "runtimes_headers", None))
     c.prov["runtimes-recipe"] = [
         f"Scripts/runtimes_recipe.py: CMake configure of each family recipe ([builtins], [runtimes_cmake], "
         f"quirks) for the bundled targets, runtimes REVISION {rev}, kcc {tree / 'bin' / 'kcc'}; "
@@ -1749,6 +1751,9 @@ def main() -> int:
     ap.add_argument("--kcc-tree", type=Path, default=ROOT / "build" / "x86_64-linux-musl" / "release",
                     help="toolchain tree whose kcc configures the runtimes-recipe step (its bin/ and lib/ "
                          "are linked into a kit without sysroot/: kcc prefers <prefix>/sysroot/<target>)")
+    ap.add_argument("--runtimes-headers", type=Path, default=None,
+                    help="runtimes-recipe step: dir of <name>/ libc-headers roots for targets with no curated "
+                         "root (armv6/riscv32 musl; Scripts/runtimes_recipe.py --headers)")
     ap.add_argument("--only", nargs="+", choices=STEPS, help="rebuild only these inputs (registry is always rewritten)")
     ap.add_argument("--report", action="store_true", help="size report + parity check into <scratch>/")
     a = ap.parse_args()

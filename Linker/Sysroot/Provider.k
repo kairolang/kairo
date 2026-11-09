@@ -31,15 +31,17 @@ import Sysroot::SysUtil::SysUtil
 
 /// What a stage hands a provider.
 pub class StageCtx {
-    pub var target:  SysTarget
-    pub var recipe:  SysRecipe
-    pub var quirks:  cxx::std::vector<SysQuirk> ///< the quirks that matched the target
-    pub var share:   string                     ///< the share tree root
-    pub var inputs:  cxx::std::vector<string>   ///< the recipe's input dirs, absolute, verified
-    pub var input:   string                     ///< --input DIR (user provider), "" otherwise
-    pub var stage:   string                     ///< the stage dir being written (<dir>.tmp)
-    pub var log_dir: string
-    pub var tools:   string                     ///< the dir kcc, kld and llvm-ar were found in
+    pub var target:      SysTarget
+    pub var recipe:      SysRecipe
+    pub var quirks:      cxx::std::vector<SysQuirk> ///< the quirks that matched the target
+    pub var share:       string ///< the share tree root
+    pub var inputs:      cxx::std::vector<string> ///< the recipe's input dirs, absolute, verified
+    pub var input_names: cxx::std::vector<string> ///< the same, as registry.toml names them
+    pub var input:       string ///< --input DIR (user provider), "" otherwise
+    pub var stage:       string ///< the stage dir being written (<dir>.tmp)
+    pub var log_dir:     string
+    pub var tools:       string ///< the dir kcc, kld and llvm-ar were found in
+    pub var jobs:        usize                      = 0 ///< compiles in flight, 0 = SysRun::jobs()
     /// The stages that ran before this one: names and their committed dirs,
     /// each holding its product under out/.
     pub var done_names: cxx::std::vector<string>
@@ -50,6 +52,18 @@ pub class StageCtx {
         for var i: usize = 0; i < self.done_names.size(); ++i {
             if self.done_names[i] == name {
                 return self.done_dirs[i] + "/out"
+            }
+        }
+
+        return ""
+    }
+
+    /// The verified input dir registry.toml names \p rel ("runtimes",
+    /// "runtimes-recipe"); "" when plan() did not verify one.
+    pub fn input_dir(self, const rel: string) -> string {
+        for var i: usize = 0; i < self.input_names.size() && i < self.inputs.size(); ++i {
+            if self.input_names[i] == rel {
+                return self.inputs[i]
             }
         }
 

@@ -12,7 +12,9 @@
 ///   Global options, before or after the command: --share DIR (the input
 ///   tree; else $KAIRO_SYSROOT_SHARE, else <prefix>/share/kairo/sysroot),
 ///   --cache DIR (else $KAIRO_SYSROOT_CACHE, else the toolchain cache root's
-///   sysroot/), -q. And --help, --version, --print-runtimes-revision.
+///   sysroot/), -j N / --jobs N (compiles in flight; else $KSYS_JOBS, else
+///   one per hardware thread), -q. And --help, --version,
+///   --print-runtimes-revision.
 ///
 ///   A thin shell over Linker/Sysroot: kairo's --target hook calls the same
 ///   library in-process, as it calls the linker library rather than kld.
@@ -44,7 +46,7 @@ import std::io
 
 fn ksys_usage() -> string {
     var u = ""
-    u += "usage: ksys [--share DIR] [--cache DIR] [-q] <command>\n"
+    u += "usage: ksys [--share DIR] [--cache DIR] [-j N] [-q] <command>\n"
     u += "  probe <target>                               parse and probe; print the table\n"
     u += "  ensure <target> [--glibc=X.Y] [--input DIR]  the cached sysroot (built if missing); path on stdout\n"
     u += "  build <target> [--glibc=X.Y] [--input DIR] --out DIR\n"
@@ -150,6 +152,27 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
             gen.input = v
         } else if ksys_opt(&args, &i, "--out", &v) {
             out_dir = v
+        } else if ksys_opt(&args, &i, "--jobs", &v)
+            || ksys_opt(&args, &i, "-j", &v)
+            || LinkText::starts_with(a, "-j") && a.size() > 2 {
+            if v.empty() {
+                v = LinkText::slice(a, 2, a.size())
+            }
+
+            var n: usize = 0
+            for var k: usize = 0; k < v.size(); ++k {
+                if v[k] < ('0' as u8) || v[k] > ('9' as u8) {
+                    return ksys_usage_error(f"-j wants a number of jobs, not {v}")
+                }
+
+                n = n * 10 + ((v[k] - ('0' as u8)) as usize)
+            }
+
+            if n == 0 {
+                return ksys_usage_error("-j wants at least one job")
+            }
+
+            gen.jobs = n
         } else if LinkText::starts_with(a, "-") && a.size() > 1 {
             return ksys_usage_error(f"unknown option {a}")
         } else {

@@ -9,11 +9,11 @@
 ///
 ///   Every stage writes its product under <stage dir>/out/ and reads the
 ///   earlier ones' through StageCtx::product. The provider stages are the
-///   providers'; assemble, toml, validate and the cache publish are here.
-///   builtins and runtimes are the seam the compiler-rt / libc++ build
-///   lands behind (_stage_builtins, _stage_runtimes); until it does they
-///   take the archives from a bundled root of the same name. Every refusal
-///   is exit 2 with one actionable line, never a half-built root.
+///   providers'; builtins and runtimes (compiler-rt, libunwind, libc++abi,
+///   libc++, compiled from the runtimes-recipe/ tables with no CMake) are
+///   Runtimes.k's; assemble, toml, validate and the cache publish are here.
+///   Every refusal is exit 2 with one actionable line, never a half-built
+///   root.
 ///
 ///   No network, ever (section 1): every input comes from the share tree or
 ///   --input.
@@ -60,6 +60,7 @@ import Sysroot::Provider::{
     SysrootProvider,
 }
 import Sysroot::Providers::ProviderSet::ProviderSet
+import Sysroot::Runtimes::SysRuntimes
 import Sysroot::Share::{
     GlibcVersions,
     QuirkSet,
@@ -124,6 +125,7 @@ pub class SysGen {
     pub var glibc:      string         ///< --glibc
     pub var input:      string         ///< --input
     pub var quiet:      bool   = false
+    pub var jobs:       usize  = 0     ///< -j: compiles in flight, 0 = SysRun::jobs()
 
     pub fn SysGen(self) = default
 
@@ -724,16 +726,6 @@ pub class SysGen {
             }
         }
 
-        if !p.recipe.runtimes.empty() {
-            if SysGen::find_tool("cmake").empty() || SysGen::find_tool("ninja").empty() {
-                p.row("tools", "cmake / ninja missing")
-                return out.refuse(
-                    "cmake / ninja not found (needed for the runtimes stage until it is built in)",
-                    "",
-                )
-            }
-        }
-
         p.row("tools", "ok")
         if !with_inputs {
             return true
@@ -745,11 +737,23 @@ pub class SysGen {
             rels.push_back(p.recipe.expand(tmpl, &p.target))
         }
 
-        if !p.recipe.runtimes.empty() && !SysUtil::contains(&rels, "runtimes") {
-            rels.push_back("runtimes")
+        // The builtins and runtimes stages compile the runtimes source with
+        // the runtimes-recipe/ tables, so both are inputs, verified and in
+        // every key: a changed table rebuilds the roots it serves. Required
+        // up front when the recipe builds C++ runtimes; otherwise (wasi:
+        // builtins only) taken when the registry lists them, and the
+        // builtins stage refuses if it does not.
+        var c    = self.cache()
+        var rtin = cxx::std::vector<string>()
+        rtin.push_back("runtimes")
+        rtin.push_back("runtimes-recipe")
+        for var rt: string in rtin {
+            var need = !p.recipe.runtimes.empty() || !p.share.registered(rt).empty()
+            if need && !SysUtil::contains(&rels, rt) {
+                rels.push_back(rt)
+            }
         }
 
-        var c = self.cache()
         for var rel: string in rels {
             var reg = p.share.registered(rel)
             if reg.empty() {
@@ -769,6 +773,18 @@ pub class SysGen {
             p.inputs.push_back(rel)
             p.in_paths.push_back(path)
             p.in_sha.push_back(got)
+        }
+
+        // A target the tables were not derived for would fail in the
+        // builtins stage, after the libc stages: refuse it before them.
+        if SysUtil::contains(&p.inputs, "runtimes-recipe") {
+            var rdir = p.share.input_path("runtimes-recipe")
+            if !LinkFS::is_file(f"{rdir}/targets/{p.target.name}.toml") {
+                return out.refuse(
+                    f"no runtimes recipe for {p.target.name} in {rdir}",
+                    "runtimes-recipe/index.toml lists the targets it was derived for",
+                )
+            }
         }
 
         /// ## keys (section 7)
@@ -797,13 +813,15 @@ pub class SysGen {
         }
 
         var ctx = StageCtx()
-        ctx.target = p->target
-        ctx.recipe = p->recipe
-        ctx.quirks = p->quirks
-        ctx.share  = p->share.dir
-        ctx.inputs = p->in_paths
-        ctx.input  = self.input
-        ctx.tools  = p->tools
+        ctx.target      = p->target
+        ctx.recipe      = p->recipe
+        ctx.quirks      = p->quirks
+        ctx.share       = p->share.dir
+        ctx.inputs      = p->in_paths
+        ctx.input       = self.input
+        ctx.tools       = p->tools
+        ctx.jobs        = self.jobs
+        ctx.input_names = p->inputs
 
         var stages = sys_stages()
         for var i: usize = 0; i < stages.size(); ++i {
@@ -875,74 +893,20 @@ pub class SysGen {
     /// # Generic stages
 
     /// Stage builtins (4.5): <out>/<builtins_name>, the compiler-rt builtins
-    /// archive for the target.
+    /// archive for the target, compiled from the runtimes source
+    /// (Runtimes.k).
     priv static fn _stage_builtins(ctx: *StageCtx, @inout out: SysOutcome) -> bool {
-        var name = ctx->recipe.expand(ctx->recipe.str("", "builtins_name"), &ctx->target)
-        var rl   = ctx->recipe.expand(ctx->recipe.str("", "resource_layout"), &ctx->target)
-        // TODO(SYSROOT-RT): the compiler-rt builtins compile loop (wave B2,
-        // build/sysroot-share/runtimes-recipe/) replaces this. Until it
-        // lands the archive comes from the bundled root of the same name.
-        var from = SysGen::_rt_fallback(&ctx->target) + "/" + rl + "/" + name
-        if !LinkFS::is_file(from) {
-            return out.refuse(
-                f"the builtins stage cannot compile compiler-rt yet, and there is no {from} to take it from",
-                "set KSYS_RT_FALLBACK to a dir holding a bundled root of this name",
-            )
-        }
-
-        if !SysRun::put_file(from, ctx->stage + "/out/" + name, false) {
-            return out.fail(f"cannot copy {from}", "")
-        }
-
-        return true
+        var toml = SysGen::render_toml(&ctx->recipe, &ctx->target)
+        return SysRuntimes::builtins(ctx, toml, &out)
     }
 
     /// Stage runtimes (4.7): an install prefix under <out>: every [layout]
     /// gather item at its install path (lib/libc++.a, include/c++/v1, ...),
     /// and crt/clang_rt.crtbegin.o / crtend.o when the recipe has
-    /// crt_objects.
+    /// crt_objects; compiled as the builtins are.
     priv static fn _stage_runtimes(ctx: *StageCtx, @inout out: SysOutcome) -> bool {
-        var gather = ctx->recipe.list("layout", "gather")
-        var crt    = ctx->recipe.flag("", "crt_objects", false)
-        if gather.empty() && !crt {
-            return true
-        }
-
-        // TODO(SYSROOT-RT): the libunwind / libc++abi / libc++ compile loops
-        // (wave B2) replace this. Until they land the runtimes come from the
-        // bundled root of the same name, mapped back through [layout].
-        var base = SysGen::_rt_fallback(&ctx->target)
-        if !LinkFS::is_dir(base) {
-            return out.refuse(
-                f"the runtimes stage cannot build libc++ yet, and there is no {base} to take it from",
-                "set KSYS_RT_FALLBACK to a dir holding a bundled root of this name",
-            )
-        }
-
-        var none = cxx::std::vector<string>()
-        var dst  = ctx->stage + "/out"
-        for var g: string in gather {
-            var from = base + "/" + SysGen::_layout_path(&ctx->recipe, g)
-            if LinkFS::is_dir(from) {
-                if !SysRun::copy_tree(from, dst + "/" + g, &none) {
-                    return out.fail(f"cannot copy {from}", "")
-                }
-            } else if !LinkFS::is_file(from) || !SysRun::put_file(from, dst + "/" + g, false) {
-                return out.fail(f"runtimes: {from} missing", "")
-            }
-        }
-
-        if crt {
-            var rl = ctx->recipe.expand(ctx->recipe.str("", "resource_layout"), &ctx->target)
-            for var n: string in SysGen::_crt_names() {
-                var from = base + "/" + rl + "/" + n
-                if !LinkFS::is_file(from) || !SysRun::put_file(from, dst + "/crt/" + n, false) {
-                    return out.fail(f"runtimes: {from} missing", "")
-                }
-            }
-        }
-
-        return true
+        var toml = SysGen::render_toml(&ctx->recipe, &ctx->target)
+        return SysRuntimes::runtimes(ctx, toml, &out)
     }
 
     /// Stage assemble (4.8): the root, from the stages' products, per the
@@ -971,7 +935,7 @@ pub class SysGen {
         var rt = ctx->product("runtimes")
         for var g: string in ctx->recipe.list("layout", "gather") {
             var from = rt + "/" + g
-            var to   = root + "/" + SysGen::_layout_path(&ctx->recipe, g)
+            var to   = root + "/" + SysRuntimes::layout_path(&ctx->recipe, g)
             if LinkFS::is_dir(from) {
                 if !SysRun::link_tree(from, to, &none) {
                     return out.fail(f"cannot lay {from} into {to}", "")
@@ -986,7 +950,7 @@ pub class SysGen {
         }
 
         if ctx->recipe.flag("", "crt_objects", false) {
-            for var n: string in SysGen::_crt_names() {
+            for var n: string in SysRuntimes::crt_names() {
                 if !SysRun::put_file(rt + "/crt/" + n, root + "/" + rl + "/" + n, true) {
                     return out.fail(f"the runtimes stage left no crt/{n}", "")
                 }
@@ -1185,41 +1149,6 @@ pub class SysGen {
         }
 
         return true
-    }
-
-    /// A [layout] gather item (an install path: include/..., lib/...) at
-    /// its place in the root: the recipe's first include / lib dir.
-    priv static fn _layout_path(r: *SysRecipe, const g: string) -> string {
-        var inc = r->list("layout", "include")
-        var lib = r->list("layout", "lib")
-        if LinkText::starts_with(g, "include/") && !inc.empty() {
-            return inc[0] + LinkText::slice(g, 7, g.size())
-        }
-
-        if LinkText::starts_with(g, "lib/") && !lib.empty() {
-            return lib[0] + LinkText::slice(g, 3, g.size())
-        }
-
-        return g
-    }
-
-    priv static fn _crt_names() -> cxx::std::vector<string> {
-        var v = cxx::std::vector<string>()
-        v.push_back("clang_rt.crtbegin.o")
-        v.push_back("clang_rt.crtend.o")
-        return v
-    }
-
-    /// TODO(SYSROOT-RT): where the builtins / runtimes stand-ins come from:
-    /// $KSYS_RT_FALLBACK/<name>, else the toolchain's own bundled
-    /// <prefix>/sysroot/<name>.
-    priv static fn _rt_fallback(t: *SysTarget) -> string {
-        var base = LinkFS::env("KSYS_RT_FALLBACK")
-        if base.empty() {
-            base = LinkText::join(LinkFS::parent(LinkFS::parent(env::exe_path())), "sysroot")
-        }
-
-        return LinkText::join(LinkText::strip_slash(base), t->name)
     }
 
     /// The dir the toolchain binaries are in: kcc's, as plan() finds it.
