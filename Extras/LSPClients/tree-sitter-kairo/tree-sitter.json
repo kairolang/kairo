@@ -11,7 +11,7 @@
   ],
   "metadata": {
     "version": "0.1.0",
-    "license": "Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION",
+    "license": "Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception",
     "description": "Kairo grammar for tree-sitter",
     "links": { "repository": "https://github.com/kairolang/kairo" }
   }

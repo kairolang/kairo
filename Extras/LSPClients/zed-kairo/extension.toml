@@ -4,9 +4,9 @@ version = "0.1.0"
 schema_version = 1
 authors = ["Dhruvan Kartik <kartd01@purdue.edu>"]
 description = "Kairo language support: syntax highlighting, outline, brackets, indentation, inline C++ injection."
-repository = "https://github.com/kairolang/zed-kairo"
+repository = "https://github.com/kairolang/kairo"
 
 [grammars.kairo]
-repository = "file:///mnt/linux-dev/projects/kairo-lang"
+repository = "https://github.com/kairolang/kairo"
 path = "Extras/LSPClients/tree-sitter-kairo"
 rev = "9bfd1652b3c47e8d598ab4806c00119519d0e580"

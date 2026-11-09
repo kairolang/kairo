@@ -1,6 +1,6 @@
 /**
  * @file Tree-sitter grammar for the Kairo programming language
- * @license Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+ * @license Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
  *
  * Mirrors Compiler/Parser/{ASTParse,DeclParse,StmtParse,ExprParse,TypeParse,
  * PatternParse}.k and Compiler/Lexer/Lexer.k.

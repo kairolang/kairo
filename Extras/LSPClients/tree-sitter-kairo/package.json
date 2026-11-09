@@ -2,7 +2,7 @@
   "name": "tree-sitter-kairo",
   "version": "0.1.0",
   "description": "Kairo grammar for tree-sitter",
-  "license": "Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION",
+  "license": "Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception",
   "main": "bindings/node",
   "keywords": ["tree-sitter", "kairo", "parser"],
   "files": ["grammar.js", "src/**", "queries/*", "tree-sitter.json"],
