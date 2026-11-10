@@ -17,7 +17,7 @@ set "x\" <# "
 # Both halves download kairo-<ver>-<triple>.{tar.xz,zip} and SHA256SUMS, verify the archive
 # BEFORE unpacking, never need root, and install per user:
 #
-#   KAIRO_VERSION    version to install            (default: 0.2.0)
+#   KAIRO_VERSION    version to install            (default: 0.2.1)
 #   KAIRO_PREFIX     sh: install prefix            (default: $HOME/.local; tree in
 #                       $KAIRO_PREFIX/share/kairo/<ver>, tools linked into $KAIRO_PREFIX/bin)
 #                    PowerShell: install root      (default: %LOCALAPPDATA%\Kairo; tree in
@@ -37,7 +37,7 @@ set "x\" <# "
 # is in the archive, and never the full CMake build. It never fails the install: a missing
 # SDK or a failure prints the command to run later.
 
-VERSION_DEFAULT=0.2.0
+VERSION_DEFAULT=0.2.1
 BUILD_CMD='python3 build.py --release kairo kcc kld kfmt'
 
 say() { printf 'kairo-install: %s\n' "$*"; }
@@ -309,7 +309,7 @@ function Install-Kairo {
     $ProgressPreference = 'SilentlyContinue'   # the progress bar makes 5.1 downloads ~10x slower
     try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
 
-    $ver = if ($env:KAIRO_VERSION) { $env:KAIRO_VERSION } else { '0.2.0' }
+    $ver = if ($env:KAIRO_VERSION) { $env:KAIRO_VERSION } else { '0.2.1' }
     $buildCmd = 'python3 build.py --release kairo kcc kld kfmt'
     # $IsWindows only exists in pwsh 6+; Windows PowerShell 5.1 is Windows by definition.
     $onWindows = ($PSVersionTable.PSVersion.Major -lt 6) -or [bool]$IsWindows

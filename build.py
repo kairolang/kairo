@@ -127,7 +127,7 @@ def host_triple() -> str:
 
 # The toolchain's version, one number for every binary (decided 2026-11-06: Stage 1.5 is
 # v0.2.0). Builds carry +dev.<date>; a release build drops it.
-KAIRO_VERSION = "0.2.0"
+KAIRO_VERSION = "0.2.1"
 DEV = f"-{KAIRO_VERSION}+dev"
 
 
