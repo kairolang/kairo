@@ -215,7 +215,10 @@ def mirror(src: Path, dst: Path, rel: str = "") -> int:
             continue
         want.add(entry.name)
         out = dst / entry.name
-        if entry.is_dir() and not entry.is_symlink():
+        # A directory reached through a symlink (a submodule linked into a
+        # build worktree) is mirrored as a real directory: copying the link
+        # itself would ship nothing, or a path into the build machine.
+        if entry.is_dir():
             if out.is_symlink() or out.is_file():
                 out.unlink()
             n += mirror(entry, out, f"{rel}/{entry.name}" if rel else entry.name)
