@@ -115,7 +115,7 @@ else:
 # KAIRO_LLVM_BUILD: a cross target's LLVM (Scripts/cross_llvm.py); its clang and
 # lld are the ones that tree ships. The resource dir's headers are the same fork's.
 LLVM_BUILD = Path(os.environ["KAIRO_LLVM_BUILD"]) if os.environ.get("KAIRO_LLVM_BUILD") else BUILD_DIR / "llvm"
-LIB_SRC    = ROOT / "Lib"
+LIB_SRC    = Path(getenv("KBLD_LIB_SRC", str(ROOT / "Lib")))   # build.py --src sets it
 # The staged copy is always there after stage_tools(); it reads ELF, Mach-O
 # and PE alike, so the gates need no host binutils.
 OBJDUMP    = BUILD_DIR / "llvm" / "bin" / ("llvm-objdump" + HOST_EXE)

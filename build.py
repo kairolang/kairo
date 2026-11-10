@@ -523,12 +523,17 @@ def gen_registry(src: Path) -> Path:
     return reg_k
 
 
-def postbuild(tree: Path, mode: str, triple: str, llvm_build: Path = None, target: str = None) -> None:
+def postbuild(tree: Path, mode: str, triple: str, llvm_build: Path = None, target: str = None,
+              src: Path = None) -> None:
     """Stage clang, lld, the resource dir and Lib/ into the tree and make it
     relocatable (stage_tree.py, every host). Idempotent. `llvm_build`: a cross
     target's LLVM, whose clang / lld are the ones the tree ships."""
     say(f"postbuild: Scripts/stage_tree.py {tree}")
     env = dict(os.environ, KBLD_MODE=mode, KBLD_TRIPLE=triple, KBLD_ROOT=str(ROOT))
+    # The tree ships the Lib/ of the source it was built from: with --src, that
+    # tree's Lib/, never the checkout's (which may hold unrelated uncommitted work).
+    if src is not None:
+        env["KBLD_LIB_SRC"] = str(src / "Lib")
     if llvm_build:
         env["KAIRO_LLVM_BUILD"] = str(llvm_build)
     if target:
@@ -1455,7 +1460,7 @@ def main() -> int:
     if staged:
         prog.next("stage tree (Scripts/stage_tree.py)")
         link_sysroot(out, triple, prog)
-        postbuild(out, mode_name, tree_triple, cross_dir(a.target) / "llvm" if a.target else None, a.target)
+        postbuild(out, mode_name, tree_triple, cross_dir(a.target) / "llvm" if a.target else None, a.target, src)
     if not (a.print_jobs or a.print_command):
         prog.done()
         for t in sorted(a.targets) if not check_only else []:
