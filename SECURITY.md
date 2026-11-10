@@ -25,6 +25,7 @@ Security issues include:
 - miscompilation that breaks a guarantee the language documents for code outside `unsafe`: a safe pointer (`*T`) that is null or was fabricated without provenance, a nullable (`T?`) accessed without its check, or a list (`[T]`) index that escapes its bounds check;
 - vulnerabilities in the runtime or libraries under `Lib/rt/`, `Lib/builtin/` and `Lib/std/`;
 - archive extraction (`katar`) escaping its destination;
+- `ksys` writing outside its cache or prefix while building a sysroot, or accepting a tampered sysroot input that fails its registry hash;
 - installers or release artifacts that can be tampered with.
 
 Kairo 0.2.0 does not yet promise full memory safety for safe code; the guarantees above are the ones it documents and checks today.
@@ -40,6 +41,6 @@ Security fixes go into the latest release line.
 
 ## Scope
 
-The toolchain (`kairo`, `kcc`, `kld`, `kfmt`, `katar`), the runtime and libraries, the release installers, and the sysroot scripts shipped in releases.
+The toolchain (`kairo`, `kcc`, `kld`, `kfmt`, `ksys`, `katar`), the runtime and libraries, the release installers, and the sysroot scripts shipped in releases.
 
 Third-party components (LLVM, mimalloc, musl and the rest listed in `NOTICE`) are in scope where Kairo's build or use of them introduces the problem. Report upstream bugs to their projects as well.

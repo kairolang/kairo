@@ -20,7 +20,7 @@ Kairo is a **statically typed compiled general purpose language**, built for sys
 
 ### Current Status
 
-The **Stage 1 compiler**, written in Kairo, is fully self hosted (November 2026). A release build is bootstrapped by the previous release, and having a seed kairo compiler is a strict requirement. there's a lit suite of about 2,000 tests and builds for 14 targets.
+The **Stage 1 compiler**, written in Kairo, is fully self hosted (November 2026). A release build is bootstrapped by the previous release, and having a seed kairo compiler is a strict requirement. There's a lit suite of about 2,000 tests. Releases ship prebuilt for 14 host platforms, and every one of them cross-compiles to about 50 targets out of the box: Linux (glibc from 2.17, and musl) on 19 architectures, Windows, macOS, FreeBSD, NetBSD and WebAssembly.
 
 > [!WARNING] The [documentation](https://www.kairolang.org/docs) covers the language as Stage 1 implements it, and the [status page](https://www.kairolang.org/docs/status/) lists what is not built yet. The compiler is not ready for production use. If you want to help with documentation, please reach out to us on [Discord](https://discord.gg/VHCnPccDc)
 
@@ -48,7 +48,7 @@ Kairo is built to slot directly into C **and** C++ ecosystems, offering a fresh 
 
 ### Example
 
-This builds today with the Stage 1 compiler (build from source for now; see [Getting Started](#getting-started)).
+This builds today with the Stage 1 compiler. Grab a prebuilt release with the one-line installer, or build from source; see [Getting Started](#getting-started).
 
 C++ includes a `.k` file directly. There is no generated header and no binding layer:
 
@@ -206,7 +206,7 @@ fn first(v: cxx::std::vector<i32>?) -> i32 {
 
 ### Getting Started
 
-**Download a release:** grab a prebuilt binary from the [releases page](https://github.com/kairolang/kairo/releases).
+**Download a release:** `curl -fsSL https://kairolang.org/install.sh | sh` (Linux, macOS, BSD) or `irm https://kairolang.org/install.ps1 | iex` (Windows PowerShell), or grab an archive from the [releases page](https://github.com/kairolang/kairo/releases).
 
 **Build from source:** see [BUILD.md](BUILD.md) - covers the quick install script, manual setup, PATH configuration, the VSCode extension, and debugging.
 

@@ -63,10 +63,10 @@ python3 build.py --debug kairo kcc
 
 Output: `build/<host-triple>/debug/bin/` (for example `build/x86_64-linux-gnu/debug/bin/kairo`). Debug builds are compiled by your release compiler, keep debug info and reuse the incremental object cache, so a rebuild after a small change only recompiles what changed.
 
-**Other targets in the toolchain:** `kld` (linker), `kfmt` (formatter), `katar`, `kparse`, `clang-diag-identity`:
+**Other targets in the toolchain:** `kld` (linker), `kfmt` (formatter), `ksys` (sysroot generator), `katar`, `kparse`, `clang-diag-identity`:
 
 ```bash
-python3 build.py --release kairo kcc kld kfmt
+python3 build.py --release kairo kcc kld kfmt ksys
 ```
 
 **Cross builds** (a toolchain that runs on another platform):
