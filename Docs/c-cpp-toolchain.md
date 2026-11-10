@@ -4,7 +4,7 @@
 
 Kairo ships two drivers, `kairo` and `kcc`, written in Kairo (the compiler compiles itself). Both embed the **same pinned Clang** (an LLVM 22 fork). Neither invokes a system compiler.
 
-A release archive holds `bin/` (`kairo`, `kcc`, `kld`, `kfmt`, `llvm-symbolizer`, `llvm-ar`, `llvm-ranlib`, `llvm-lib`) and `lib/` (including `lib/clang/22`). There are no `clang` or `clang++` binaries: `kairo` and `kcc` run clang in-process and `kld` runs lld in-process. The `lib/` tree holds Clang's resource directory with compiler-rt, and the builtin, std and runtime sources). Archives exist for static musl Linux (x86_64, i686, aarch64, armv7, riscv64), Windows (MinGW; x86_64, i686, aarch64, armv7), FreeBSD (x86_64, aarch64), NetBSD (x86_64) and macOS (x86_64 10.15+, arm64 11+). Only x86_64 Linux is run by the test suite. The sysroots for every cross target are one separate archive, unpacked as `<prefix>/sysroot`.
+A release archive holds `bin/` (`kairo`, `kcc`, `kld`, `kfmt`, `ksys`, `llvm-symbolizer`, `llvm-ar`, `llvm-ranlib`, `llvm-lib`) and `lib/` (including `lib/clang/22`). There are no `clang` or `clang++` binaries: `kairo` and `kcc` run clang in-process and `kld` runs lld in-process. The `lib/` tree holds Clang's resource directory with compiler-rt, and the builtin, std and runtime sources). Archives exist for static musl Linux (x86_64, i686, aarch64, armv7, riscv64), Windows (MinGW; x86_64, i686, aarch64, armv7), FreeBSD (x86_64, aarch64), NetBSD (x86_64) and macOS (x86_64 10.15+, arm64 11+). Only x86_64 Linux is run by the test suite. `<prefix>/sysroot` holds the host's own prebuilt sysroots; every other target's is built on first use by [ksys](/docs/toolchain/ksys/) from `<prefix>/share/kairo/sysroot` and cached.
 
 ### `kairo`: the Kairo compiler
 
@@ -56,7 +56,7 @@ Sysroots are pinned to specific library versions (a particular glibc, a particul
 
 How `--target` finds its sysroot:
 
-- A `--target` uses the sysroot generated for it, kept beside the compiler: `<prefix>/sysroot/<dir>`, where `<prefix>` is the directory above the one holding `kairo`.
+- A `--target` uses the sysroot for it, looked up in order: `<prefix>/sysroot/<dir>` beside the compiler (`<prefix>` is the directory above the one holding `kairo`), then the [ksys](/docs/toolchain/ksys/) cache, then a build by `ksys` from the shipped input tree (first use only; `--no-sysroot-build` refuses it with `P009E`).
 - The folder is matched by target, not by spelling. Vendor, OS version, and LLVM's aliases do not matter, but the sub-architecture does. So `x86_64-pc-windows-msvc` finds `x86_64-windows-msvc`, `x86_64-linux-gnu` finds `x86_64-linux-gnu-glibc2.31`, `aarch64-apple-darwin` finds `arm64-apple-macosx`, and `arm64e` does not match `arm64`.
 - `-m32` / `-m64` look up the architecture they switch to: `--target=x86_64-linux-musl -m32` uses `i686-linux-musl`.
 - A bundled sysroot takes precedence over `--sysroot`. With no matching folder, `--sysroot` is used if given; otherwise the compiler warns ([P008W](/docs/language/diagnostics/)) and there are no system headers.

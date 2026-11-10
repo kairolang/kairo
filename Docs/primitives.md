@@ -81,8 +81,8 @@ All floating-point types except `f80` follow the IEEE 754 standard. A float lite
 | `f64` | 8 bytes | Double | `double` |
 | `f80` | 16 bytes (12 on i386); 10 hold the value | x87 extended; only on some targets, see below | `long double` |
 | `f128` | 16 bytes | Quadruple | `__float128` |
-| `f256` | 32 bytes | Extended (software) |   |
-| `f512` | 64 bytes | Extended (software) |   |
+| `f256` | 32 bytes | IEEE binary256, in software | `::builtin::num::f256_t::F256` |
+| `f512` | 64 bytes | binary512 (see below), in software | `::builtin::num::f512_t::F512` |
 
 ```kairo
 var x = 3.14        // f64 (default)
@@ -92,12 +92,26 @@ var w = 0x1.8p3f32  // f32 hexadecimal float: 12.0
 var b = 1.5bf16     // bf16
 ```
 
-The float suffixes are `f16`, `bf16`, `f32`, `f64`, `f80` and `f128` (`f80` and `f128` only where the target has them, see below), in lower or upper case. A literal is rounded once, to the type it is used at, from its decimal digits: `16777217.0f32` is `16777216.0` and `16777217.0f64` is exact, and `var q: f128 = 0.1` is `0.1` at `f128` precision, not the `f64` value `0.1` widened. An unknown float suffix (`1.5f8`, `1.5xyz`) is [SC074E](/docs/language/diagnostics/).
+The float suffixes are `f16`, `bf16`, `f32`, `f64`, `f80`, `f128`, `f256` and `f512` (`f80` and `f128` only where the target has them, see below), in lower or upper case. A literal is rounded once, to the type it is used at, from its decimal digits: `16777217.0f32` is `16777216.0` and `16777217.0f64` is exact, and `var q: f128 = 0.1` is `0.1` at `f128` precision, not the `f64` value `0.1` widened. An unknown float suffix (`1.5f8`, `1.5xyz`) is [SC074E](/docs/language/diagnostics/).
 
-Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN` (e.g., `0.0 / 0.0`, `sqrt(-1.0)`) propagate `NaN` per IEEE 754 no crash, no trap. Test for `NaN` with `x != x`: a `NaN` compares unequal to everything, itself included, so `x == f64::NAN` is always `false`. An infinity is an ordinary value to compare with: `x == f64::INFINITY`. See [Limits](#limits).
+Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN` (e.g., `0.0 / 0.0`, `sqrt(-1.0)`) propagate `NaN` per IEEE 754 no crash, no trap. Test for `NaN` with `x.is_nan()` (or `x != x`): a `NaN` compares unequal to everything, itself included, so `x == f64::NAN` is always `false`. An infinity is an ordinary value to compare with: `x == f64::INFINITY`. See [Limits](#limits).
 
 > [!NOTE]
-> `f256` and `f512` are not natively supported on any current hardware and are implemented entirely in software, using SIMD instructions when available. Like extended-width integers, they are stack-allocated value types. Expect significantly lower performance compared to hardware-backed float types.
+> `f256` and `f512` are not natively supported on any current hardware and are implemented entirely in software (no LLVM type exists at these widths). Like extended-width integers, they are stack-allocated value types. Expect them to be far slower than hardware floats: on x86_64 at `-O2`, an `f256` add or multiply takes about 0.2 to 0.3 µs and a divide about 0.4 µs; `f512` up to about twice that.
+
+### `f256` and `f512`
+
+`f256` is IEEE 754 binary256: a sign bit, a 19-bit exponent (bias 262143) and a 236-bit fraction, so 237 bits of precision (about 71 decimal digits) and a range of about 10^±78913.
+
+IEEE 754 defines no 512-bit format. `f512` carries the standard's rule for its interchange formats (IEEE 754-2019, 3.6) to k = 512: precision p = k − round(4·log₂ k) + 13 = 489, leaving w = k − p = 23 exponent bits (bias 4194303) and a 488-bit fraction. The same rule gives the 15 exponent bits of binary128 and the 19 of binary256. That is about 147 decimal digits and a range of about 10^±1262612.
+
+Both behave as every other IEEE format does: each operation (`+ - * /`, conversions, square root, fused multiply-add) is rounded once, to nearest with ties to even; there are signed zeros, subnormals and infinities, and an operation that has no value gives a quiet NaN. That NaN is always the same one (sign 0, top fraction bit set); `-x` and `abs` only change the sign bit, NaN or not. There are no floating-point exceptions or flags.
+
+- **Conversions.** `x as T` between `f256`/`f512` and any float the target has (`f16`, `bf16`, `f32`, `f64`, `f80`, `f128`, each other) is rounded once, never through an intermediate format. To an integer it truncates toward zero and saturates at the type's limits, and NaN converts to 0, as for every float. From every integer type, `i8` to `u512`, it rounds to nearest even.
+- **Literals.** `1.5f256`, or any float literal used where an `f256` or `f512` is expected, is rounded once from all its digits, decimal or hex, as `var q: f128 = 0.1` is. A literal is converted when the code runs, not at compile time: an `f256` or `f512` value in an `eval` context (an `eval` constant, an `eval fn`'s parameter or result, an `eval if` condition) is not supported yet ([SC116E](/docs/language/diagnostics/)).
+- **Limits.** `f256::MAX`, `f256::EPSILON`, `f512::NAN` and the rest are the formats' own, as for every float ([Limits](#limits)).
+- **Methods.** The same as every float's ([Float methods](#float-methods)); `to_bits()` gives a `u256` / `u512`.
+- **Formatting.** In an f-string, `{x}` writes the shortest digits that read back as the same value (at most 73 for `f256`, 149 for `f512`); a precision (`{x:.30e}`, `{x:.10}`) gives that many digits, every one exact, the last rounded to even. Width, fill, alignment and sign work as for `f64`.
 
 ### `f80` follows the target's `long double`
 
@@ -121,6 +135,41 @@ var x: f80 = 1.0    // ok
 // building for aarch64-unknown-linux-gnu
 var y: f80 = 1.0    // error P003E: long double is binary128 here; use f128
 ```
+
+### Float methods
+
+Every float type has the same methods: `f16`, `bf16`, `f32`, `f64`, `f80` and `f128` (where the target has them), `f256` and `f512`. They are called on a value, a literal or a limit:
+
+```kairo
+var x: f64 = 2.0
+var r = x.sqrt()                 // 1.4142135623730951
+var y = x.fma(3.0, 1.0)          // 7.0: 2.0 * 3.0 + 1.0, rounded once
+var n = (0.0 / 0.0).is_nan()     // true
+var m = f64::MAX.is_finite()     // true
+var b = (-0.0f32).to_bits()      // 0x80000000
+```
+
+| Method | Meaning | Types |
+|---|---|---|
+| `to_bits()` | The encoding as an unsigned integer of the same width: `u16` for `f16` and `bf16`, `u32`, `u64`, `u128` for `f128`, `u256`, `u512`. `f80` gives a `u128` holding the 80-bit x87 encoding in its low bits (bit 79 the sign, bit 63 the explicit integer bit), the rest 0 | all |
+| `sqrt()` | The square root, correctly rounded; `sqrt(-0.0)` is `-0.0`, any other negative is NaN | all |
+| `fma(b, c)` | `self * b + c`, rounded once | all |
+| `abs()` | The magnitude: the sign bit cleared, NaN included | all |
+| `copysign(s)` | `self`'s magnitude with `s`'s sign bit | all |
+| `is_nan()` | Whether `self` is a NaN | all |
+| `is_infinite()` | Whether `self` is `+inf` or `-inf` | all |
+| `is_finite()` | Neither infinite nor NaN | all |
+| `is_zero()` | Whether `self` is `+0.0` or `-0.0` | all |
+| `is_subnormal()` | Nonzero and below the smallest normal (`T::MIN_POSITIVE`) | all |
+| `is_normal()` | Finite, nonzero and not subnormal | all |
+| `is_sign_negative()` | Whether the sign bit is set: true for `-0.0` and a negative NaN | all |
+| `is_unordered(o)` | Whether `self` or `o` is a NaN (IEEE 754's unordered relation) | all |
+
+"all" is every type above, on every target that has the type; `f8e4m3` and `f8e5m2` have no methods yet.
+
+- **Rounding.** `sqrt` and `fma` are correctly rounded (to nearest, ties to even) on every type. `f16` and `bf16` compute in `f32` and round back, which is exact for `sqrt`; their `fma` rounds the exact result to odd at `f32` and then to nearest, so it too rounds only once. `f32`, `f64` and `f80` use the hardware instruction, or the C library's `fmaf` / `fma` / `fmal` where there is none, which are correctly rounded in glibc and musl; elsewhere the result is as exact as that library's. `f80`'s `sqrt` is the x87 `fsqrt` instruction, exact at the default 64-bit precision control. `f128`, `f256` and `f512` use Kairo's software float engine, the same on every target.
+- **NaN results.** `f128`, `f256` and `f512` return the canonical quiet NaN. The hardware types return what the instruction or the C library gives, which may carry an operand's payload. `abs` and `copysign` only change the sign bit, so they keep a NaN's payload on every type.
+- **`f128` in a file.** `f128`'s methods are loaded only into the files that spell `f128` (the type, or a literal such as `1.5f128`), as `f256` and `f512` are, so that programs that never use it do not compile the software engine. A file that only receives an `f128` value from elsewhere and never names the type does not see them; writing the type anywhere in the file (`var x: f128 = v`) does.
 
 ---
 
@@ -379,8 +428,10 @@ Each one is a constant of its own type, exactly as a suffixed literal is: `u64::
 | `f64` | 53 | 2⁻⁵² | ≈1.80·10³⁰⁸ | 2⁻¹⁰²² | 2⁻¹⁰⁷⁴ | 15 | 17 | −1021 | 1024 | −307 | 308 |
 | `f80` | 64 | 2⁻⁶³ | ≈1.19·10⁴⁹³² | 2⁻¹⁶³⁸² | 2⁻¹⁶⁴⁴⁵ | 18 | 21 | −16381 | 16384 | −4931 | 4932 |
 | `f128` | 113 | 2⁻¹¹² | ≈1.19·10⁴⁹³² | 2⁻¹⁶³⁸² | 2⁻¹⁶⁴⁹⁴ | 33 | 36 | −16381 | 16384 | −4931 | 4932 |
+| `f256` | 237 | 2⁻²³⁶ | ≈1.61·10⁷⁸⁹¹³ | 2⁻²⁶²¹⁴² | 2⁻²⁶²³⁷⁸ | 71 | 73 | −262141 | 262144 | −78912 | 78913 |
+| `f512` | 489 | 2⁻⁴⁸⁸ | ≈2.07·10¹²⁶²⁶¹¹ | 2⁻⁴¹⁹⁴³⁰² | 2⁻⁴¹⁹⁴⁷⁹⁰ | 146 | 149 | −4194301 | 4194304 | −1262610 | 1262611 |
 
-The values are the formats' own (IEEE 754 for `f16`, `f32`, `f64` and `f128`; bfloat16; x87 extended; OCP FP8 E4M3FN and E5M2), computed by the compiler from each format's layout, never read from the host's `<float.h>`. Every finite one is exact.
+The values are the formats' own (IEEE 754 for `f16`, `f32`, `f64`, `f128` and `f256`; `f512`'s rule, see above; bfloat16; x87 extended; OCP FP8 E4M3FN and E5M2), computed by the compiler from each format's layout, never read from the host's `<float.h>`. Every finite one is exact.
 
 Comparing with an infinity works as with any value; comparing with `NAN` never does, because a `NaN` is unequal to everything, itself included:
 
@@ -396,7 +447,6 @@ A limit a format does not have is not defined, and naming it is an error ([R024E
 
 - `f8e4m3` is the FN format: it has no infinity, and overflow saturates to 448. `f8e4m3::INFINITY` and `f8e4m3::NEG_INFINITY` are errors; it has a `NAN`.
 - `f80` exists only where the target's `long double` is x87 extended. Elsewhere, `f80::MAX` is the same [P003E](/docs/language/diagnostics/) as spelling `f80` at all.
-- `f256` and `f512` have no limits until they have a fixed representation.
 - The float limits (`EPSILON`, `INFINITY`, ...) are not defined on integers.
 
 ### `char`, `byte`, `bool`
