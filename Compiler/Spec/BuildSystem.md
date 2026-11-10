@@ -8,7 +8,7 @@ Two build drivers exist:
 
 | Driver | Builds | With |
 |---|---|---|
-| `build.py` | Stage 1 source (the repo, marked by `.selfhosted`) | a Stage 1 compiler |
+| `build.py` | Stage 1 source (the repo) | a Stage 1 compiler |
 | `kbld` (`build.k`, `Extras/BuildTool`) | Stage 0-syntax source and the tools not yet migrated | Stage 0 |
 
 `build.py` restates `build.k`'s logic for a Stage 1 compiler: the same targets, the same pre- and post-build hooks, the same linkage invariant. `kbld` cannot build Stage 1 source.
@@ -20,8 +20,8 @@ Two build drivers exist:
 | Condition | Source | Output |
 |---|---|---|
 | `--src DIR` | `DIR` | `build/<triple>/stage1.5/<mode>` |
-| `.selfhosted` at the repo root, no `--src`/`--out`/`--print-jobs`/`--single` | the repo | the [pipeline](#pipeline) below |
-| `.selfhosted`, single-tree build | the repo | `build/<triple>/stage1.5/<mode>` |
+| no `--src`/`--out`/`--print-jobs`/`--single` | the repo | the [pipeline](#pipeline) below |
+| single-tree build | the repo | `build/<triple>/stage1.5/<mode>` |
 | otherwise | the repo | `build/<triple>/stage1/<mode>` |
 
 `--out` overrides the output; `build.py` refuses an output whose `bin/` holds the compiler doing the build. The compiler is chosen as in [Seed compiler](SelfHosting.md#bootstrap).
@@ -41,7 +41,7 @@ The toolchain is `kairo` and `kcc`; only those two trigger [staging](#staged-tre
 
 ### Pipeline
 
-With `.selfhosted` and no single-tree flag, `build.py` runs one of two pipelines:
+With no single-tree flag, `build.py` runs one of two pipelines:
 
 - `--debug`: the release compiler builds the toolchain into `build/<triple>/debug`, with the cache `build/<triple>/cache/debug`.
 - release (default): on Linux the release tree is the static musl triple (`x86_64-linux-gnu` releases as `x86_64-linux-musl`), which still runs on the host. Whenever the pipeline has a target (this one included), that target's LLVM is rebuilt first if stale ([Cross LLVM](#cross-llvm)), by the seed's `kcc`; a seed without `kcc` first builds one into `build/<host>/staging`. Steps:

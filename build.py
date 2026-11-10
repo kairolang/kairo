@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Stage 1 build of the Kairo toolchain, the stop-gap for kbld.
 
-The repo is self-hosted (`.selfhosted`): Compiler/ is Stage 1.5 source and the last good
-release compiler builds it.
+The repo is self-hosted: Compiler/ is Stage 1.5 source and the last good release
+compiler builds it.
 
     python3 build.py --release kairo kcc   # N-1 -> staging -> release, then PATH (the gate)
     python3 build.py --debug kairo kcc     # debug profile (the edit/test loop)
@@ -54,11 +54,10 @@ EXE = ".exe" if os.name == "nt" else ""
 # The full registry source (declarations + bodies, one module), written by gen_diag.py on
 # every build from Compiler/Diagnostic/TableGen; never committed.
 REGISTRY_DIR = ROOT / "build" / "registry"
-# Set when the repo's own Compiler/ + Linker/ ARE the self-hosted (Stage 1 syntax) tree:
-# the switch-over replaced them with the migrated sources (2026-11-06). Then the repo is
-# built like a self-host tree -- its registry from gen_diag.py's Stage 1 output in
-# build/registry -- and kbld (Stage 0) can no longer build it.
-REPO_SELFHOSTED = (ROOT / ".selfhosted").exists()
+# The repo's own Compiler/ + Linker/ are the self-hosted (Stage 1 syntax) tree since the
+# switch-over (2026-11-06); kbld (Stage 0) can no longer build it. This used to be read from
+# a `.selfhosted` marker file, which was easy to lose and made a fresh clone refuse to build.
+REPO_SELFHOSTED = True
 
 # What Stage 1 cannot express yet, printed with --explain-gaps so nobody wonders
 # why a build.k flag is missing below.

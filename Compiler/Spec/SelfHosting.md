@@ -82,7 +82,7 @@ Gaps in the flag set are listed by `build.py --explain-gaps` ([build.py](BuildSy
 
 The switch replaces `Compiler/`, `Linker/` and `Extras/KaTAR` with the migrated tree at a frozen commit whose phases are all green, then reruns the suite comparison and the fixed point on the result.
 
-- A `.selfhosted` file at the repo root marks the switch; `build.py` then builds the repo itself as a self-host tree ([build.py](BuildSystem.md#buildpy)).
+- Since the switch, `build.py` always builds the repo itself as a self-host tree (a `.selfhosted` marker file used to signal this; it is gone) ([build.py](BuildSystem.md#buildpy)).
 - `kbld` and `build.k` are Stage 0's build and cannot build Stage 1 source. `build.py` is the build of record for the compiler; tools whose sources are not migrated (`kbld`, `kfmt`, `kals`, `kpkg`) are refused by it.
 - Stage 0 becomes bootstrap-only: frozen, no further changes.
 

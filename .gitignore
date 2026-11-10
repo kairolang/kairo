@@ -46,3 +46,4 @@ EOF
 
 # Scratch at the repo root (agents and hand runs); never commit it.
 /tmp/
+.selfhosted
