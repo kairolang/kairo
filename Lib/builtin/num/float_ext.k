@@ -108,14 +108,18 @@ eval if defined!(__FLT16_MAX__) {
         /// Computed in f32 and rounded back: correctly rounded, as 24 >= 2 * 11 + 2.
         /// A NaN result is the one the hardware or libm gives.
         pub inline fn sqrt(const self) -> f16 {
-            return __builtin_sqrtf(self) as f16
+            var w = self as f32
+            return __builtin_sqrtf(w) as f16
         }
 
         /// self * b + c, rounded once.
         ///
         /// The exact sum rounded to odd at f32, then to nearest (float_ext_fma_odd_).
         pub inline fn fma(const self, b: f16, c: f16) -> f16 {
-            return float_ext_fma_odd_(self, b, c) as f16
+            var x = self as f64
+            var y = b as f64
+            var z = c as f64
+            return float_ext_fma_odd_(x, y, z) as f16
         }
 
         /// |self|: the sign bit cleared.
@@ -171,9 +175,11 @@ eval if defined!(__FLT16_MAX__) {
 }
 
 // bf16 where clang gives __bf16 arithmetic: x86 (SSE2), Arm, AArch64,
-// RISC-V, LoongArch, WebAssembly (fmt_buf.k's put_bf16 has the same list).
+// RISC-V, LoongArch. Not WebAssembly: its f32 -> bf16 narrowing calls
+// __truncsfbf2 with a signature compiler-rt does not define (P706), so a
+// wasm link warns L002W in every program; fmt_buf.k's put_bf16 only widens.
 eval if defined!(__x86_64__) || defined!(__i386__) || defined!(__aarch64__) || defined!(__arm__)
-     || defined!(__riscv) || defined!(__loongarch__) || defined!(__wasm__) {
+     || defined!(__riscv) || defined!(__loongarch__) {
     extend bf16 {
         /// The encoding (bit 15 the sign).
         pub inline fn to_bits(const self) -> u16 {
@@ -185,14 +191,18 @@ eval if defined!(__x86_64__) || defined!(__i386__) || defined!(__aarch64__) || d
         /// Computed in f32 and rounded back: correctly rounded, as 24 >= 2 * 8 + 2.
         /// A NaN result is the one the hardware or libm gives.
         pub inline fn sqrt(const self) -> bf16 {
-            return __builtin_sqrtf(self) as bf16
+            var w = self as f32
+            return __builtin_sqrtf(w) as bf16
         }
 
         /// self * b + c, rounded once.
         ///
         /// The exact sum rounded to odd at f32, then to nearest (float_ext_fma_odd_).
         pub inline fn fma(const self, b: bf16, c: bf16) -> bf16 {
-            return float_ext_fma_odd_(self, b, c) as bf16
+            var x = self as f64
+            var y = b as f64
+            var z = c as f64
+            return float_ext_fma_odd_(x, y, z) as bf16
         }
 
         /// |self|: the sign bit cleared.

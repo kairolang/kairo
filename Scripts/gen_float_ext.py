@@ -28,17 +28,24 @@ from gen_softfloat import kfmt  # noqa: E402  (the repo's kfmt invocation)
 # Lib/builtin/fmt/fmt_buf.k's put_* and the f256 / f512 classes.
 G_F16 = 'defined!(__FLT16_MAX__)'
 G_BF16 = ('defined!(__x86_64__) || defined!(__i386__) || defined!(__aarch64__) || defined!(__arm__)'
-          '\n     || defined!(__riscv) || defined!(__loongarch__) || defined!(__wasm__)')
+          '\n     || defined!(__riscv) || defined!(__loongarch__)')
 G_F80 = '(defined!(__x86_64__) || defined!(__i386__)) && !defined!(_MSC_VER) && !defined!(__ANDROID__)'
 G_F128 = 'defined!(__SIZEOF_FLOAT128__) || defined!(__wasm__)'
+
+# The library is type-checked under the user's flags, so -fno-implicit-conv
+# reaches these bodies. Widening through a typed local keeps them valid there
+# without a cast the default mode lints as redundant (SC031W fires only for a
+# cast into a slot that would accept the value; a plain `var` has no slot).
+WIDEN = 'var w = self as f32\n        '
+WIDEN3 = 'var x = self as f64\n        var y = b as f64\n        var z = c as f64\n        '
 
 # name: (bits type, guard, sqrt body, fma body, to_bits body, guard comment)
 TYPES = {
     'f16': dict(
         u='u16', guard=G_F16,
         why='clang defines __FLT16_MAX__ exactly where _Float16 exists.',
-        sqrt='return __builtin_sqrtf(self) as f16',
-        fma='return float_ext_fma_odd_(self, b, c) as f16',
+        sqrt=WIDEN + 'return __builtin_sqrtf(w) as f16',
+        fma=WIDEN3 + 'return float_ext_fma_odd_(x, y, z) as f16',
         bits='return __builtin_bitcast<u16, f16>(self)',
         sqrt_doc='computed in f32 and rounded back: correctly rounded, as 24 >= 2 * 11 + 2',
         fma_doc='the exact sum rounded to odd at f32, then to nearest (float_ext_fma_odd_)',
@@ -46,9 +53,11 @@ TYPES = {
     'bf16': dict(
         u='u16', guard=G_BF16,
         why=('bf16 where clang gives __bf16 arithmetic: x86 (SSE2), Arm, AArch64,\n'
-             '// RISC-V, LoongArch, WebAssembly (fmt_buf.k\'s put_bf16 has the same list).'),
-        sqrt='return __builtin_sqrtf(self) as bf16',
-        fma='return float_ext_fma_odd_(self, b, c) as bf16',
+             '// RISC-V, LoongArch. Not WebAssembly: its f32 -> bf16 narrowing calls\n'
+             '// __truncsfbf2 with a signature compiler-rt does not define (P706), so a\n'
+             '// wasm link warns L002W in every program; fmt_buf.k\'s put_bf16 only widens.'),
+        sqrt=WIDEN + 'return __builtin_sqrtf(w) as bf16',
+        fma=WIDEN3 + 'return float_ext_fma_odd_(x, y, z) as bf16',
         bits='return __builtin_bitcast<u16, bf16>(self)',
         sqrt_doc='computed in f32 and rounded back: correctly rounded, as 24 >= 2 * 8 + 2',
         fma_doc='the exact sum rounded to odd at f32, then to nearest (float_ext_fma_odd_)',
