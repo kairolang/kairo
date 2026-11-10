@@ -21,7 +21,11 @@ import Command::ParsedArgs::ParsedArgs
 /// \brief Target triple, ISA selection, and C++ interop ABI settings.
 ///
 pub class TargetOptions {
-    pub var triple:    string = "" ///< --target triple
+    /// --target, canonicalised by the driver before anything reads it
+    /// (CompilerInstance::_canonical_target): a glibc version is split off
+    /// into `glibc`, and a versionless macOS gets its deployment floor.
+    pub var triple:    string = ""
+    pub var glibc:     string = "" ///< the glibc version --target spelled (`-glibc2.28`, `.2.28`), else ""
     pub var host:      string = "" ///< --host triple
     pub var march:     string = "" ///< -march / --march
     pub var mcpu:      string = "" ///< -mcpu  / --mcpu
