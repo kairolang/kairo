@@ -2057,7 +2057,7 @@ pub class Toolchain {
     /// The SDK for \p platform, or "". SDKROOT counts only when its real
     /// name is for this platform: a macOS SDKROOT left in the environment
     /// must not satisfy an iOS link.
-    static fn find_sdk(const platform: string) -> string {
+    pub static fn find_sdk(const platform: string) -> string {
         var pname = Toolchain::sdk_platform_name(platform)
         if pname.empty() {
             return ""
@@ -2152,6 +2152,57 @@ pub class Toolchain {
         }
 
         return string(unsafe ((tt.getTriple().c_str() as unsafe *const u8) as *const u8))
+    }
+
+    /// \brief \p triple with the OS version made explicit where clang's
+    ///        default for a bare one is older than anything a Kairo program
+    ///        runs on.
+    ///
+    /// \details A macOS triple with no version (`x86_64-apple-macosx`,
+    ///          `arm64-apple-darwin`) makes clang assume Mac OS X 10.4, which
+    ///          has no thread-local storage: Lib/builtin's allocator state is
+    ///          thread_local, so every Kairo program failed CL001E (P746). The
+    ///          floor is the deployment target the darwin roots are built for
+    ///          (darwin-sysroot.sh, the recipe's min_macos): 11.0 on arm64 /
+    ///          arm64e, the first macOS for Apple silicon, and 10.15 on
+    ///          x86_64. A triple that names any version keeps it, a host's
+    ///          `arm64-apple-darwin25.6.0` included.
+    ///
+    ///          Nothing else needs one: FreeBSD and NetBSD read version 0 as
+    ///          "current" in clang's driver (libc++, init_array), Linux, wasm
+    ///          and Windows have no OS version in the triple, and the
+    ///          headers' own floors (mingw-w64's _WIN32_WINNT) are the C
+    ///          library's choice, not the triple's.
+    pub static fn with_os_floor(triple: string) -> string {
+        var tt = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
+        if !tt.isMacOSX() || tt.getOSMajorVersion() != 0 {
+            return triple
+        }
+
+        var floor = Toolchain::macos_floor(triple)
+        if floor.empty() {
+            return triple
+        }
+
+        // Named: a StringRef over an f-string temporary is a dangling view.
+        var os = f"macosx{floor}"
+        tt.setOSName(kairo::sref(os))
+        return string(unsafe ((tt.getTriple().c_str() as unsafe *const u8) as *const u8))
+    }
+
+    /// The macOS deployment floor for \p triple's arch: "11.0" (arm64,
+    /// arm64e), "10.15" (x86_64), "" for an arch no root is built for.
+    pub static fn macos_floor(const triple: string) -> string {
+        var tt = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
+        if tt.getArch() == llvm::Triple::aarch64 {
+            return "11.0"
+        }
+
+        if tt.getArch() == llvm::Triple::x86_64 {
+            return "10.15"
+        }
+
+        return ""
     }
 
     /// Same arch, OS and environment; vendor and spelling ignored, so

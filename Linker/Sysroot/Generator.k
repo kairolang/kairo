@@ -61,6 +61,7 @@ import Sysroot::Provider::{
 }
 import Sysroot::Providers::ProviderSet::ProviderSet
 import Sysroot::Runtimes::SysRuntimes
+import Sysroot::Sdk::SysSdk
 import Sysroot::Share::{
     GlibcVersions,
     QuirkSet,
@@ -170,6 +171,17 @@ pub class SysGen {
     /// `ksys ensure <target>`: the cached sysroot, built first if need be.
     /// \p path receives it.
     pub fn ensure(self, const target: string, @inout path: string, @inout out: SysOutcome) -> bool {
+        // macOS and MSVC roots are the user's SDK plus the shipped overlay,
+        // not the share tree's stages (Sdk.k).
+        var st    = SysTarget{}
+        var cands = cxx::std::vector<string>()
+        var why   = ""
+        if SysNames::parse(target, glibc_default_version(), &st, &cands, &why)
+            && SysSdk::handles(&st) {
+            var sc = self.cache()
+            return SysSdk::ensure(&sc, &st, self.input, SysGen::_tools_dir(), &path, &out)
+        }
+
         var p = SysPlan()
         if !self.plan(target, &p, &out, true) {
             return false

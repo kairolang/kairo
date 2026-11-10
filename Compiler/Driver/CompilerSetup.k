@@ -64,6 +64,7 @@ import Sysroot::Names::{
     glibc_default_version,
 }
 import Sysroot::Outcome::SysOutcome
+import Sysroot::Sdk::SysSdk
 import Sysroot::Share::ShareTree
 import std::env
 import std::io
@@ -106,7 +107,14 @@ extend CompilerInstance {
             // The same rule holds for the glibc default: x86_64-unknown-linux-gnu.
             triple.setVendor(llvm::Triple::UnknownVendor)
             var env = triple.getEnvironment()
-            var hf = env == llvm::Triple::GNUEABIHF || env == llvm::Triple::MuslEABIHF
+            // A plain gnu / musl on 32-bit Arm is the hard-float ABI here, as
+            // Toolchain::canonical_triple reads an explicit --target: the
+            // armv7 hosts' LLVM_HOST_TRIPLE is armv7-linux-musl, and taken as
+            // soft-float the native default compiled against the hard-float
+            // root and looked for the soft-float loader (P750).
+            var plain_arm = (triple.isARM() || triple.isThumb())
+                && (env == llvm::Triple::GNU || env == llvm::Triple::Musl)
+            var hf = env == llvm::Triple::GNUEABIHF || env == llvm::Triple::MuslEABIHF || plain_arm
             var eabi                 = env == llvm::Triple::GNUEABI || env == llvm::Triple::MuslEABI
             var an:  llvm::StringRef = triple.getArchName()
             var glibc = HostSystem::host_libc(
@@ -274,29 +282,36 @@ extend CompilerInstance {
         return true
     }
 
-    /// SysRoot.md section 8, steps 2 and 3, for a --target with no bundled
+    /// SysRoot.md section 8, steps 2 and 3, for a target with no bundled
     /// sysroot: the generator's cache (<cache>/by-name/<name>), then `ksys
     /// ensure`, in-process, as the linker library is called rather than kld.
     ///
-    /// Only for an explicit --target with no --sysroot: an explicit
-    /// --sysroot outranks anything built, and an implicit target is the
-    /// host's, which the bundle covers. Not under --freestanding or
-    /// --macos-sdk (no root wanted, or one given), and not for Apple / MSVC
-    /// targets on hosts without their SDK: those stay _check_sysroot's
-    /// P008E, which names the scripts that build them. The build itself is
+    /// For an explicit --target and for the implicit one alike, with no
+    /// --sysroot: an explicit --sysroot outranks anything built. The
+    /// implicit target used to be skipped as "the bundle covers the host",
+    /// which holds for Linux and Windows archives only: a hand-unzipped
+    /// macOS or BSD archive ships no root for its own host, so a plain
+    /// `kairo h.k` there had no system headers at all (P743).
+    ///
+    /// Not under --freestanding or --macos-sdk (no root wanted, or one
+    /// given), and not for Apple / MSVC targets on hosts without their SDK:
+    /// those stay _check_sysroot's P008E, which names the scripts that build
+    /// them. On their own host they are staged from the installed SDK
+    /// (Linker/Sysroot/Sdk.k), which needs no share tree. The build is
     /// skipped for --help, --version and the info queries, which must not
     /// spend minutes on a root they never read.
     ///
     /// No share tree (a development tree, or a toolchain that ships no
-    /// inputs) keeps today's P008W: there is nothing to build from, and the
-    /// warning already says to pass --sysroot. --no-sysroot-build makes
-    /// the missing root a refusal either way.
+    /// inputs) keeps today's P008W for the generated families: there is
+    /// nothing to build from, and the warning already says to pass
+    /// --sysroot. --no-sysroot-build makes the missing root a refusal
+    /// either way.
     ///
     /// \return false on a refusal or failure (reported; _sysroot_status set).
     priv fn _sysroot_from_generator(self, const want: string) -> bool {
         var *inv = self.invocation()
         var *tg  = &inv->target
-        if tg->triple.empty() || !tg->sysroot.empty() {
+        if !tg->sysroot.empty() {
             return true
         }
 
@@ -304,22 +319,26 @@ extend CompilerInstance {
             return true
         }
 
-        if self._unshipped_sdk(want) {
-            return true
-        }
-
         var tgt   = SysTarget{}
         var cands = cxx::std::vector<string>()
         var why   = ""
         var name  = want
+        var sdk   = false
         if SysNames::parse(want, glibc_default_version(), &tgt, &cands, &why) {
             name = tgt.name
+            sdk  = SysSdk::handles(&tgt)
         }
 
+        // Before the SDK check: a macOS / MSVC root staged by hand (ksys
+        // ensure --input, the SDK= of the scripts) serves any host.
         var cache  = SysCache(SysCache::default_root())
         var cached = if (cache.root.empty()) => ("") else => cache.lookup(name)
         if !cached.empty() && LinkFS::is_file(LinkText::join(cached, "SYSROOT.toml")) {
             tg->sysroot = cached
+            return true
+        }
+
+        if self._unshipped_sdk(want) {
             return true
         }
 
@@ -336,7 +355,7 @@ extend CompilerInstance {
             return false
         }
 
-        if !ShareTree::present(ShareTree::locate("")) {
+        if !sdk && !ShareTree::present(ShareTree::locate("")) {
             return true
         }
 
@@ -347,7 +366,12 @@ extend CompilerInstance {
             return true
         }
 
-        io::eprintln(f"building sysroot for {name}, first time only")
+        if sdk {
+            io::eprintln(f"staging sysroot for {name} from the installed SDK, first time only")
+        } else {
+            io::eprintln(f"building sysroot for {name}, first time only")
+        }
+
         var gen  = SysGen()
         var path = ""
         var o    = SysOutcome()
@@ -378,6 +402,36 @@ extend CompilerInstance {
             || want_tri.isWindowsMSVCEnvironment() && !host_tri.isOSWindows()
     }
 
+    /// --target in the one spelling everything downstream reads, decided
+    /// once (P745, P746):
+    ///
+    ///   - a glibc version, ours (`-glibc2.28`) or Zig's (`.2.28`), is split
+    ///     off into TargetOptions::glibc by the parser ksys names targets
+    ///     with (SysNames::split_glibc). The version names a sysroot, not a
+    ///     triple: left in, clang refused `aarch64-unknown-linux-gnu.2.28`
+    ///     and the env macro became `__kairo_env_gnu.2.28__`.
+    ///   - a macOS triple with no version gets the deployment floor its
+    ///     roots are built for (Toolchain::with_os_floor); clang's own
+    ///     default has no thread-local storage.
+    ///
+    /// The sysroot lookups put the version back (_sysroot_target), so a
+    /// pinned glibc still finds or builds its own root.
+    priv fn _canonical_target(self) {
+        var *tg = &self.invocation()->target
+        if tg->triple.empty() {
+            return
+        }
+
+        var ver  = ""
+        var bare = SysNames::split_glibc(tg->triple, &ver)
+        if !ver.empty() {
+            tg->glibc  = ver
+            tg->triple = bare
+        }
+
+        tg->triple = Toolchain::with_os_floor(tg->triple)
+    }
+
     /// The triple whose bundled sysroot this run looks up: --target, else
     /// the default target unless --sysroot was given (""), switched by
     /// -m32/-m64.
@@ -402,6 +456,20 @@ extend CompilerInstance {
             want = kairo::std::from_std_string<string>(tt.getTriple())
         }
 
+        // A pinned glibc names its root (aarch64-linux-gnu-glibc2.28), which
+        // _bundled_sysroot_dir matches exactly: the plain triple would find
+        // the bundled 2.31 root by spelling and silently build against it.
+        if !tg->glibc.empty() {
+            var spelled = want + "-glibc" + tg->glibc
+            var tgt     = SysTarget{}
+            var cands   = cxx::std::vector<string>()
+            var why     = ""
+            want = spelled
+            if SysNames::parse(spelled, glibc_default_version(), &tgt, &cands, &why) {
+                want = tgt.name
+            }
+        }
+
         return want
     }
 
@@ -411,6 +479,10 @@ extend CompilerInstance {
         var prefix = Path::parent_of(Path::parent_of(env::exe_path()))
         var root   = LinkText::join(prefix, "sysroot")
         var dir    = LinkText::join(root, want)
+        if !LinkFS::exists(dir) && !self.invocation()->target.glibc.empty() {
+            return ""
+        }
+
         if !LinkFS::exists(dir) {
             var pick = ""
             for var name: string in LinkFS::list_dir(root) {
@@ -1327,6 +1399,11 @@ extend CompilerInstance {
                 kairo::Logger::set_stream_level(kairo::Logger::Level::Info)
             }
         }
+
+        // First: every later reader of --target (the sysroot lookups, ksys,
+        // the cc1 and driver triples, the env macro, the link) sees one
+        // canonical spelling.
+        self._canonical_target()
 
         // Before _use_bundled_sysroot fills it: whether the user named the
         // root, which keeps a default build off the host's dirs.

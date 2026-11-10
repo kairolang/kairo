@@ -282,6 +282,39 @@ pub class SysNames {
         return out
     }
 
+    /// \p input without its glibc version, the version in \p ver ("" when
+    /// it names none). Both spellings: ours, `-glibc<X.Y>` (the name's), and
+    /// Zig's `.<X.Y>` after a gnu environment (`aarch64-linux-gnu.2.28`).
+    /// What is left is a plain triple, which llvm::Triple and clang read:
+    /// the driver canonicalises --target through this before anything sees
+    /// the spelling, so `.2.28` never reaches clang's triple or the env macro.
+    pub static fn split_glibc(const input: string, @inout ver: string) -> string {
+        ver = ""
+        var spelled = input
+        // Zig's spelling, `<...>-gnu<env>.<X.Y>`: the same as -glibc<X.Y>.
+        var gnu = LinkText::find(spelled, "-gnu", 0)
+        if gnu < spelled.size() {
+            // The dot ends the environment component: -glibc2.31 has its own
+            // dash first, and is not this spelling.
+            var dot  = LinkText::find(spelled, ".", gnu)
+            var dash = LinkText::find(spelled, "-", gnu + 1)
+            var tail = LinkText::slice(spelled, dot + 1, spelled.size())
+            if dot < spelled.size() && dash > dot && SysNames::_is_version(tail) {
+                ver = tail
+                return LinkText::slice(spelled, 0, dot)
+            }
+        }
+
+        // `-glibc<X.Y>` is ours, not llvm's.
+        var at = LinkText::find(spelled, "-glibc", 0)
+        if at < spelled.size() {
+            ver = LinkText::slice(spelled, at + 6, spelled.size())
+            return LinkText::slice(spelled, 0, at)
+        }
+
+        return spelled
+    }
+
     /// \p input (a name or a clang triple) to the one target it means.
     /// False with \p why set when it means none, or several (\p cands then
     /// holds their names). \p glibc_default is the version a glibc input
@@ -292,35 +325,13 @@ pub class SysNames {
                         @inout cands:        cxx::std::vector<string>,
                         @inout why:          string) -> bool {
         cands.clear()
-        var spelled = input
-        var glibc   = glibc_default
-
-        // Zig's spelling, `<...>-gnu<env>.<X.Y>`: the same as -glibc<X.Y>.
-        var gnu = LinkText::find(spelled, "-gnu", 0)
-        if gnu < spelled.size() {
-            // The dot ends the environment component: -glibc2.31 has its own
-            // dash first, and is not this spelling.
-            var dot  = LinkText::find(spelled, ".", gnu)
-            var dash = LinkText::find(spelled, "-", gnu + 1)
-            var tail = LinkText::slice(spelled, dot + 1, spelled.size())
-            if dot < spelled.size() && dash > dot && SysNames::_is_version(tail) {
-                var head = LinkText::slice(spelled, 0, dot)
-                var ver  = LinkText::slice(spelled, dot + 1, spelled.size())
-                spelled = head + "-glibc" + ver
-            }
-        }
-
-        var named = spelled
-
-        // `-glibc<X.Y>` is ours, not llvm's: split it off before either match.
-        var at = LinkText::find(spelled, "-glibc", 0)
-        if at < spelled.size() {
-            glibc   = LinkText::slice(spelled, at + 6, spelled.size())
-            spelled = LinkText::slice(spelled, 0, at)
-            if glibc.empty() {
-                why = f"\x27{input}\x27 names no glibc version after -glibc"
-                return false
-            }
+        var ver     = ""
+        var spelled = SysNames::split_glibc(input, &ver)
+        var glibc   = if (ver.empty()) => (glibc_default) else => ver
+        var named   = if (ver.empty()) => (spelled) else => spelled + "-glibc" + ver
+        if LinkText::ends_with(input, "-glibc") {
+            why = f"\x27{input}\x27 names no glibc version after -glibc"
+            return false
         }
 
         var table = SysNames::all(glibc)
@@ -428,7 +439,9 @@ pub class SysNames {
             fam = "netbsd"
         } else if LinkText::starts_with(os, "wasi") {
             fam = "wasi"
-        } else if tt.isOSDarwin() {
+        } else if tt.getOS() == llvm::Triple::Darwin || tt.getOS() == llvm::Triple::MacOSX {
+            // macOS only: iOS / tvOS / watchOS are Darwin too, and a macOS
+            // root for them would be the wrong SDK under the right name.
             fam = "darwin"
         } else {
             return false
