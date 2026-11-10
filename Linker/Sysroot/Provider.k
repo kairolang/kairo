@@ -123,6 +123,7 @@ pub class StageCtx {
         a.push_back(self.tool("kcc"))
         a.push_back("--target=" + self.target.clang_triple)
         a.push_back("--sysroot=" + sysroot)
+        a.push_back("-Xkairo")   // kcc takes kairo-only words this way
         a.push_back("--sysroot-exact")
         return a
     }
