@@ -63,6 +63,8 @@ python3 build.py --debug kairo kcc
 
 Output: `build/<host-triple>/debug/bin/` (for example `build/x86_64-linux-gnu/debug/bin/kairo`). Debug builds are compiled by your release compiler, keep debug info and reuse the incremental object cache, so a rebuild after a small change only recompiles what changed.
 
+**macOS and Windows hosts.** The compiler is developed and tested on Linux; the release archives for macOS and Windows are cross-built from a Linux host. Building from source on macOS or Windows works, but is newer: those hosts build against the SDK or bundled sysroot instead of the machine's C library (`--no-native` is implied), the LLVM step is the slow one, and not everything in the test suite has run there yet. Please report what breaks.
+
 **Other targets in the toolchain:** `kld` (linker), `kfmt` (formatter), `ksys` (sysroot generator), `katar`, `kparse`, `clang-diag-identity`:
 
 ```bash

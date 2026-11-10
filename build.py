@@ -1373,7 +1373,10 @@ def main() -> int:
     # versions), above the bundled sysroot's 2.31 floor, so a sysroot link warns L001W
     # and the binary only runs where that newer glibc is. Drop this once LLVM is built
     # against the old sysroot (KAIRO_HOST_SYSROOT, build_llvm.py).
-    native = not a.no_native and not os.environ.get("KAIRO_HOST_SYSROOT") and not a.target
+    # --native is implemented for Linux hosts only (the driver answers U017E elsewhere), so a
+    # macOS or Windows host builds against its bundled / first-use sysroot, as --no-native does.
+    native = (os_ == "linux" and not a.no_native and not os.environ.get("KAIRO_HOST_SYSROOT")
+              and not a.target)
     if native:
         common.append("--native")
     if not a.target:
