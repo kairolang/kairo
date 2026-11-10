@@ -320,6 +320,30 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
                 continue
             }
 
+            // f256 / f512: `v.fmt_put_(&fmt, spec)`, the class's own put
+            // (FormatHole::on_value). C++ spells the builtin as the class,
+            // so the value is a receiver of it there.
+            if h->on_value {
+                var vargs = self.list_builder<unsafe *Expr>()
+                vargs.push(
+                    self.synth.addr_of(
+                        self.synth.use_of(buf, e->range, Expr::ValueCategory::LValue),
+                    ),
+                )
+
+                vargs.push(self.synth.int_literal(e->range, h->spec, BuiltinKind::U64))
+                var unsafe *vput = self.synth.member_call(
+                    e->range,
+                    args[i],
+                    h->put,
+                    &vargs,
+                    self.sc->builtin(BuiltinKind::Void),
+                )
+
+                stmts.push(ExpressionStmt::create(self.ctx, e->range, vput))
+                continue
+            }
+
             var pargs = self.list_builder<unsafe *Expr>()
             pargs.push(args[i])
             if h->kind == FormatKind::Ptr {

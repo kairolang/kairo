@@ -70,6 +70,14 @@ pub class DepGraph {
     /// preprocessor adds alloc.k to the graph for each of them -- the scan
     /// is the one place every token of every file is seen before the walk.
     pub var alloc_sugar: cxx::std::set<u32>
+    /// Files that name `f256` / `f512` (the type keyword, or a literal with
+    /// the suffix), one set each. Their classes (num/f256_t.k, f512_t.k)
+    /// and the engine under them are four large builtin files, so the root
+    /// does not re-export them: the preprocessor adds them to the graph
+    /// only for a program that has one of these (P723), as alloc.k for
+    /// `@create`.
+    pub var f256_users: cxx::std::set<u32>
+    pub var f512_users: cxx::std::set<u32>
 
     fn add_node(self, fid: u32, const path: ModulePath) {
         if !self.all_fids.contains(fid) {
@@ -258,6 +266,23 @@ pub class DepScanner {
                 }
             }
 
+            // `f256` / `f512`: the keyword, or a literal's suffix (`1.5f256`).
+            // A hex literal whose last digits spell one (`0xf256`) is a
+            // false positive, which only costs the load. Like the sugar, a
+            // macro that expands to one is not seen.
+            if k == TokenKind::AtF256 {
+                graph->f256_users.insert(fid)
+            } else if k == TokenKind::AtF512 {
+                graph->f512_users.insert(fid)
+            } else if k == TokenKind::LitFloat || k == TokenKind::LitInt {
+                var w = DepScanner::_wide_float_suffix(TokenText::spelling(src.peek(0), self._tcm))
+                if w == 256 {
+                    graph->f256_users.insert(fid)
+                } else if w == 512 {
+                    graph->f512_users.insert(fid)
+                }
+            }
+
             src.next() // everything else: skip
         }
 
@@ -277,6 +302,33 @@ pub class DepScanner {
         //      read from it instead of re-lexing. Needs the walk's macro
         //      expansion to write into a separate output buffer rather than
         //      assuming it owns the input stream.
+    }
+
+    /// 256 or 512 when \p sp ends in `f256` / `f512` (either case of the
+    /// `f`), else 0.
+    priv static fn _wide_float_suffix(const sp: string) -> u32 {
+        var n = sp.size()
+        if n < 5 {
+            return 0
+        }
+
+        var f = sp[n - 4]
+        if f != ('f' as u8) && f != ('F' as u8) {
+            return 0
+        }
+
+        var a = sp[n - 3]
+        var b = sp[n - 2]
+        var c = sp[n - 1]
+        if a == ('2' as u8) && b == ('5' as u8) && c == ('6' as u8) {
+            return 256
+        }
+
+        if a == ('5' as u8) && b == ('1' as u8) && c == ('2' as u8) {
+            return 512
+        }
+
+        return 0
     }
 
     priv fn _skip_ffi_stream(self, src: *TokenSource) {

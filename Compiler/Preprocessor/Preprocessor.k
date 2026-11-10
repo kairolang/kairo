@@ -120,6 +120,10 @@ pub class PreProcessor {
     priv var _prelude_scope: ModulePath
     priv var _prelude_fid:   u32                 = 0
     priv var _prelude_files: llvm::DenseSet<u64>
+    /// Per file that names `f256` / `f512`: the class files it imports
+    /// implicitly (_add_wide_floats). Written before the waves start and
+    /// only read while they run (_walk_one).
+    priv var _wide_imports: cxx::std::map<u32, cxx::std::vector<u32>>
     /// Files on an import cycle, lexed ahead of the waves. Written before
     /// the waves start and only read while they run (_walk_one).
     priv var _prelexed:       llvm::DenseMap<u64, PrelexedFile>
@@ -519,7 +523,67 @@ pub class PreProcessor {
         }
 
         walker->run()
+        var wit = self._wide_imports.find(fid)
+        if wit != self._wide_imports.end() {
+            for var i: usize = 0; i < wit->second.size(); ++i {
+                walker->add_implicit_import(wit->second[i])
+            }
+        }
+
         return true
+    }
+
+    /// Folds builtin::num::<\p leaf> (an f256 / f512 class file) into the
+    /// graph for \p users, the files the scan saw name its type. The graph
+    /// edge orders the walk; _walk_one then gives each user a prelude-shaped
+    /// wildcard import of the file (PPWalker::add_implicit_import), whose
+    /// edge orders Sema: the class's N binds its lang item and the
+    /// builtin's lang_decl before the user is typed. A builtin file gets
+    /// neither: it imports what it uses, and the engine files' edge to the
+    /// class would close a cycle (the class imports them).
+    priv fn _add_wide_floats(self,
+                             scanner:     *DepScanner,
+                             graph:       *DepGraph,
+                             const leaf:  string,
+                             const users: cxx::std::set<u32>) {
+        if users.size() == 0 {
+            return
+        }
+
+        var bsym  = self._sym->intern(builtin_root_name())
+        var takes = cxx::std::vector<u32>()
+        for f in users {
+            if graph->mod_paths.contains(f) {
+                var *segs = &graph->mod_paths[f].segments
+                if segs->size() > 0 && (*segs)[0].name == bsym {
+                    continue
+                }
+            }
+
+            takes.push_back(f)
+        }
+
+        if takes.size() == 0 {
+            return
+        }
+
+        var segs = cxx::std::vector<string>()
+        segs.push_back(builtin_root_name())
+        segs.push_back("num")
+        segs.push_back(leaf)
+        var w_fid = scanner->add_module_dependency(segs, graph)
+        if w_fid == 0 || w_fid == u32::MAX {
+            return
+        }
+
+        for var i: usize = 0; i < takes.size(); ++i {
+            if takes[i] == w_fid {
+                continue
+            }
+
+            graph->add_edge(takes[i], w_fid)
+            self._wide_imports[takes[i]].push_back(w_fid)
+        }
     }
 
     /// Every file on an import cycle, opened, lexed in full and its macro
@@ -859,6 +923,14 @@ pub class PreProcessor {
                     }
                 }
             }
+        }
+
+        // `f256` / `f512` (P723): num/f256_t.k and num/f512_t.k, which the
+        // builtin root does not re-export, for the files that name one.
+        self._wide_imports.clear()
+        if !self._opts.no_prelude && self._opts.prelude_path.size() == 0 {
+            self._add_wide_floats(&scanner, &graph, "f256_t", graph.f256_users)
+            self._add_wide_floats(&scanner, &graph, "f512_t", graph.f512_users)
         }
 
         // The macro prelude needs the builtin root WALKED before any file

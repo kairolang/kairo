@@ -34,6 +34,7 @@
 
 import base::c_char::*
 import base::intrinsics::*
+import fmt::fmt_buf::FmtBuf
 import num::f256_t::*
 import num::softfloat::*
 import num::softfloat_text::*
@@ -409,9 +410,28 @@ pub class F512 {
 
     /// |self| as text into out[0..cap) (rt/fmt.h's contract: conv 'g',
     /// 'e' or 'E', prec < 0 for the shortest round-trip digits); returns the
-    /// bytes written. The sign is the caller's (FmtBuf::put_f512).
+    /// bytes written. The sign is the caller's (fmt_put_).
     pub fn format_into_(const self, out: unsafe *u8, cap: usize, prec: i32, conv: u8) -> i32 {
         return sf_format_bits(F512::fmt_(), self.bits, out, cap, prec, conv)
+    }
+
+    /// Appends self to `b` as an f-string hole, honouring the sign bit of -0.0 and NaN: what
+    /// `{x}` on an `f512` lowers to (FStringLowering calls `x.fmt_put_(&buf, spec)`; a put on
+    /// FmtBuf would name the type, P723). Precision, width, fill and alignment come from `spec`;
+    /// the `e` base selects exponent form, `E` with the upper flag. The shortest form has at
+    /// most 149 significant digits; a precision gives at most 600.
+    pub fn fmt_put_(const self, b: *FmtBuf, spec: u64) {
+        var prec = FmtBuf::prec_(spec)
+        var digits: usize = (if prec >= 0 => prec as usize else => 0) + 2 * (sf_rt_digits(
+            F512::fmt_(),
+        ) as usize) + 24
+        var slot     = b->number_slot_(spec, digits)
+        var n:   i32 = 0
+        unsafe {
+            n = self.format_into_(unsafe &b->data[slot], digits, prec as i32, FmtBuf::conv_(spec))
+        }
+
+        b->number_at_(slot, n as usize, self.bits >> 511 != 0, spec)
     }
 
     // --- arithmetic ---------------------------------------------------------
@@ -579,5 +599,90 @@ pub class F512 {
 
     priv inline static fn exp_mask_() -> u512 {
         return ((1 as u512) << 23) - 1 << 488
+    }
+}
+
+// --- the same, as methods of the `f512` type ----------------------------------
+//
+// Sema types `f512` as a builtin, unrelated to F512 (only C++ spells it as the
+// class), so the class's members are not members of an `f512` value. These
+// make them so (`x.sqrt()`, `x.is_nan()`), each a pass-through on the one
+// encoding both have. The limits are the type's associated constants
+// (`f512::MAX`, PrimitiveLimits.k), not methods.
+
+/// An `f512` as the class.
+priv inline fn f512_cls_(x: f512) -> F512 {
+    return F512::from_bits(__builtin_bitcast<u512, f512>(x))
+}
+
+/// The class as an `f512`.
+priv inline fn f512_val_(c: F512) -> f512 {
+    return __builtin_bitcast<f512, u512>(c.bits)
+}
+
+extend f512 {
+    /// The encoding (bit 511 the sign).
+    pub fn to_bits(const self) -> u512 {
+        return __builtin_bitcast<u512, f512>(self)
+    }
+
+    /// The square root, correctly rounded; sqrt(-0) is -0, other negatives NaN.
+    pub fn sqrt(const self) -> f512 {
+        return f512_val_(f512_cls_(self).sqrt())
+    }
+
+    /// self * b + c, rounded once.
+    pub fn fma(const self, b: f512, c: f512) -> f512 {
+        return f512_val_(f512_cls_(self).fma(f512_cls_(b), f512_cls_(c)))
+    }
+
+    /// |self|: the sign bit cleared.
+    pub fn abs(const self) -> f512 {
+        return f512_val_(f512_cls_(self).abs())
+    }
+
+    /// self's magnitude with s's sign.
+    pub fn copysign(const self, s: f512) -> f512 {
+        return f512_val_(f512_cls_(self).copysign(f512_cls_(s)))
+    }
+
+    /// Whether either is a NaN (IEEE's unordered predicate).
+    pub fn is_unordered(const self, o: f512) -> bool {
+        return f512_cls_(self).is_unordered(f512_cls_(o))
+    }
+
+    /// Whether self is a NaN.
+    pub fn is_nan(const self) -> bool {
+        return f512_cls_(self).is_nan()
+    }
+
+    /// Whether self is an infinity.
+    pub fn is_infinite(const self) -> bool {
+        return f512_cls_(self).is_infinite()
+    }
+
+    /// Whether self is neither infinite nor NaN.
+    pub fn is_finite(const self) -> bool {
+        return f512_cls_(self).is_finite()
+    }
+
+    /// Whether self is +0 or -0.
+    pub fn is_zero(const self) -> bool {
+        return f512_cls_(self).is_zero()
+    }
+
+    /// Whether self is subnormal (nonzero, below the smallest normal).
+    pub fn is_subnormal(const self) -> bool {
+        return f512_cls_(self).is_subnormal()
+    }
+
+    /// Whether self is normal (finite, nonzero, not subnormal).
+    pub fn is_normal(const self) -> bool {
+        return f512_cls_(self).is_normal()
+    }
+
+    /// Whether the sign bit is set (-0.0 and negative NaNs included).
+    pub fn is_sign_negative(const self) -> bool {
+        return f512_cls_(self).is_sign_negative()
     }
 }

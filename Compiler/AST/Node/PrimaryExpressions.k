@@ -846,7 +846,11 @@ pub struct FormatHole {
     pub var conv:    unsafe *Decl ///< the `repr` / `op as -> string` applied first, or null.
     pub var cast_to: unsafe *Type ///< a cast applied to the value first (usize for Ptr, the underlying int for a plain enum), or null.
     pub var by_addr: bool ///< Ptr with no pointer: the value's ADDRESS is printed.
-    pub var doc:     SourceRange ///< `{x=}`: source bytes printed before the value; invalid otherwise.
+    /// `put` is the VALUE's method, called `v.put(&buf, spec)`: f256 / f512,
+    /// whose classes format themselves (F256::fmt_put_), so FmtBuf never
+    /// names them (P723).
+    pub var on_value: bool
+    pub var doc:      SourceRange ///< `{x=}`: source bytes printed before the value; invalid otherwise.
     /// The value's type is a generic body's (a `T`, or a member result
     /// through a `: type` parameter): no put is chosen here. FStringLowering
     /// mints a `fmt_dyn` call and C++ picks the put per instance

@@ -80,6 +80,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
+    BuiltinKind,
     BuiltinType,
     QUAL_CONST,
     RecordType,
@@ -886,13 +887,15 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
     /// \p t is a collection, which has no compile-time form yet (Compiler/Spec/Eval.md
     /// 2b): reported at \p at. A string has one (2a).
     priv fn _no_eval_form(self, at: SourceRange, t: unsafe *Type) -> bool {
-        var what = ""
-        if self.tu.is_vector_like(t) {
-            what = "a vector"
-        } else if self.tu.is_set_like(t) {
-            what = "a set"
-        } else if self.tu.is_map_like(t) {
-            what = "a map"
+        var what = self._wide_float(t)
+        if what.size() == 0 {
+            if self.tu.is_vector_like(t) {
+                what = "a vector"
+            } else if self.tu.is_set_like(t) {
+                what = "a set"
+            } else if self.tu.is_map_like(t) {
+                what = "a map"
+            }
         }
 
         if what.size() == 0 {
@@ -908,6 +911,33 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         b.first(at)
         b.emit()
         return true
+    }
+
+    /// "an 'f256' value" / "an 'f512' value" when \p t is one, else "". The
+    /// two are library classes whose every operation, literals included,
+    /// is a run-time call into num/softfloat.k (P722): C++ has no
+    /// compile-time form of them, and clang would say so only about the
+    /// emitted text ("non-literal type").
+    priv fn _wide_float(self, t: unsafe *Type) -> string {
+        if t == &null {
+            return ""
+        }
+
+        var unsafe *c = canon_unqual(t)
+        if c == &null || !isa<BuiltinType>(c) {
+            return ""
+        }
+
+        var k = cast<BuiltinType>(c)->builtin
+        if k == BuiltinKind::F256 {
+            return "an 'f256' value"
+        }
+
+        if k == BuiltinKind::F512 {
+            return "an 'f512' value"
+        }
+
+        return ""
     }
 
     /// A local of an eval fn: no pointer, no type with a destructor, no
@@ -1263,13 +1293,15 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         // have no compile-time C++ form yet (2b): vectors, sets and maps do
         // not even compile at run time. Reported once, at the outermost one.
         var unsafe *t   = e->type_
-        var        what = ""
-        if self.tu.is_vector_like(t) {
-            what = "a vector"
-        } else if self.tu.is_set_like(t) {
-            what = "a set"
-        } else if self.tu.is_map_like(t) {
-            what = "a map"
+        var        what = self._wide_float(t)
+        if what.size() == 0 {
+            if self.tu.is_vector_like(t) {
+                what = "a vector"
+            } else if self.tu.is_set_like(t) {
+                what = "a set"
+            } else if self.tu.is_map_like(t) {
+                what = "a map"
+            }
         }
 
         if what.size() == 0 {
@@ -1690,6 +1722,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         var unsafe *e = self.tu.strip_parens(e0)
         if e == &null {
             return &null
+        }
+
+        // An f256 / f512 value is a run-time call even as a literal (P722).
+        if self._wide_float(e->type_).size() > 0 {
+            return e
         }
 
         if isa<IntegerLiteralExpr>(e)

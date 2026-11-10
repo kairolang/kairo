@@ -7,7 +7,7 @@ fn missing() {
     var a = f8e4m3::INFINITY    // E4M3FN has no infinity
     var b = bool::MAX
     var c = byte::MIN           // a byte is not a number
-    var d = f256::MAX           // no fixed representation yet
+    var d = f256::MAX           // fine: f256 has its limits
     var e = i32::EPSILON        // a float limit on an integer
     var f = u256::MAX           // C++ output cannot write it yet
     var g = u256::BITS          // fine
@@ -20,7 +20,7 @@ fn missing() {
 // CHECK: primitive_limits_errors.k:8:13: error [R024E]: 'bool' has no 'MAX'
 // CHECK: primitive_limits_errors.k:9:13: error [R024E]: 'byte' has no 'MIN'
 // CHECK-NEXT: note [I900N]: a byte is not a number; it has only BITS
-// CHECK: primitive_limits_errors.k:10:13: error [R024E]: 'f256' has no 'MAX'
+// CHECK-NOT: primitive_limits_errors.k:10:
 // CHECK: primitive_limits_errors.k:11:13: error [R024E]: 'i32' has no 'EPSILON'
 // CHECK-NEXT: note [I900N]: 'EPSILON' is a float limit; integers have MIN, MAX and BITS
 // CHECK: primitive_limits_errors.k:12:13: error [SC232E]: 'u256::MAX' is not supported yet

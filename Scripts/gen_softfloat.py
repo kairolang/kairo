@@ -48,6 +48,7 @@ import num::softfloat::*
 import num::softfloat_text::*
 @IMPORTS@import base::intrinsics::*
 import base::c_char::*
+import fmt::fmt_buf::FmtBuf
 import string::*
 
 /// The `@F@` type: @IEEE@ in a @STORE@ (bit @TOPBIT@ the sign).
@@ -205,9 +206,23 @@ pub class @C@ {
 
     /// |self| as text into out[0..cap) (rt/fmt.h's contract: conv 'g',
     /// 'e' or 'E', prec < 0 for the shortest round-trip digits); returns the
-    /// bytes written. The sign is the caller's (FmtBuf::put_@F@).
+    /// bytes written. The sign is the caller's (fmt_put_).
     pub fn format_into_(const self, out: unsafe *u8, cap: usize, prec: i32, conv: u8) -> i32 {
         return sf_format_bits(@C@::fmt_(), self.bits@ASW@, out, cap, prec, conv)
+    }
+
+    /// Appends self to `b` as an f-string hole, honouring the sign bit of -0.0 and NaN: what
+    /// `{x}` on an `@F@` lowers to (FStringLowering calls `x.fmt_put_(&buf, spec)`; a put on
+    /// FmtBuf would name the type, P723). Precision, width, fill and alignment come from `spec`;
+    /// the `e` base selects exponent form, `E` with the upper flag. The shortest form has at
+    /// most @RT@ significant digits; a precision gives at most 600.
+    pub fn fmt_put_(const self, b: *FmtBuf, spec: u64) {
+        var prec = FmtBuf::prec_(spec)
+        var digits: usize = (if prec >= 0 => prec as usize else => 0) + 2 * (sf_rt_digits(@C@::fmt_()) as usize) + 24
+        var slot = b->number_slot_(spec, digits)
+        var n: i32 = 0
+        unsafe { n = self.format_into_(unsafe &b->data[slot], digits, prec as i32, FmtBuf::conv_(spec)) }
+        b->number_at_(slot, n as usize, (self.bits >> @TOPBIT@) != 0, spec)
     }
 
     // --- arithmetic ---------------------------------------------------------
@@ -303,6 +318,49 @@ pub class @C@ {
 
     priv inline static fn exp_mask_() -> @STORE@ { return (((1 as @STORE@) << @E@) - 1) << @M@ }
 }
+
+// --- the same, as methods of the `@F@` type ----------------------------------
+//
+// Sema types `@F@` as a builtin, unrelated to @C@ (only C++ spells it as the
+// class), so the class's members are not members of an `@F@` value. These
+// make them so (`x.sqrt()`, `x.is_nan()`), each a pass-through on the one
+// encoding both have. The limits are the type's associated constants
+// (`@F@::MAX`, PrimitiveLimits.k), not methods.
+
+/// An `@F@` as the class.
+priv inline fn @F@_cls_(x: @F@) -> @C@ { return @C@::from_bits(__builtin_bitcast<@STORE@, @F@>(x)) }
+
+/// The class as an `@F@`.
+priv inline fn @F@_val_(c: @C@) -> @F@ { return __builtin_bitcast<@F@, @STORE@>(c.bits) }
+
+extend @F@ {
+    /// The encoding (bit @TOPBIT@ the sign).
+    pub fn to_bits(const self) -> @STORE@ { return __builtin_bitcast<@STORE@, @F@>(self) }
+    /// The square root, correctly rounded; sqrt(-0) is -0, other negatives NaN.
+    pub fn sqrt(const self) -> @F@ { return @F@_val_(@F@_cls_(self).sqrt()) }
+    /// self * b + c, rounded once.
+    pub fn fma(const self, b: @F@, c: @F@) -> @F@ { return @F@_val_(@F@_cls_(self).fma(@F@_cls_(b), @F@_cls_(c))) }
+    /// |self|: the sign bit cleared.
+    pub fn abs(const self) -> @F@ { return @F@_val_(@F@_cls_(self).abs()) }
+    /// self's magnitude with s's sign.
+    pub fn copysign(const self, s: @F@) -> @F@ { return @F@_val_(@F@_cls_(self).copysign(@F@_cls_(s))) }
+    /// Whether either is a NaN (IEEE's unordered predicate).
+    pub fn is_unordered(const self, o: @F@) -> bool { return @F@_cls_(self).is_unordered(@F@_cls_(o)) }
+    /// Whether self is a NaN.
+    pub fn is_nan(const self) -> bool { return @F@_cls_(self).is_nan() }
+    /// Whether self is an infinity.
+    pub fn is_infinite(const self) -> bool { return @F@_cls_(self).is_infinite() }
+    /// Whether self is neither infinite nor NaN.
+    pub fn is_finite(const self) -> bool { return @F@_cls_(self).is_finite() }
+    /// Whether self is +0 or -0.
+    pub fn is_zero(const self) -> bool { return @F@_cls_(self).is_zero() }
+    /// Whether self is subnormal (nonzero, below the smallest normal).
+    pub fn is_subnormal(const self) -> bool { return @F@_cls_(self).is_subnormal() }
+    /// Whether self is normal (finite, nonzero, not subnormal).
+    pub fn is_normal(const self) -> bool { return @F@_cls_(self).is_normal() }
+    /// Whether the sign bit is set (-0.0 and negative NaNs included).
+    pub fn is_sign_negative(const self) -> bool { return @F@_cls_(self).is_sign_negative() }
+}
 '''
 
 # isize / usize are ptrdiff_t / size_t: the same C++ type as i64 / u64 (or
@@ -379,13 +437,13 @@ def size_overloads(C, F, STORE):
 
 def gen(n):
     if n == 256:
-        p = dict(ALIGN=32, F='f256', C='F256', N=256, E=19, M=236, BIAS=262143, STORE='u256', TOPBIT=255, QBIT=235,
+        p = dict(ALIGN=32, RT=73, F='f256', C='F256', N=256, E=19, M=236, BIAS=262143, STORE='u256', TOPBIT=255, QBIT=235,
                  OTHER='f512', IEEE='binary256',
                  LAYOUT='Sign, 19-bit exponent (bias 262143), 236-bit fraction with a\n///     hidden leading bit: 237 bits of precision, 71 decimal digits, range\n///     about 10^+-78913. The interchange format IEEE 754-2019 3.6 defines\n///     for k = 256.',
                  IMPORTS='')
         p['FROM_OTHER'] = ''
     else:
-        p = dict(ALIGN=64, F='f512', C='F512', N=512, E=23, M=488, BIAS=4194303, STORE='u512', TOPBIT=511, QBIT=487,
+        p = dict(ALIGN=64, RT=149, F='f512', C='F512', N=512, E=23, M=488, BIAS=4194303, STORE='u512', TOPBIT=511, QBIT=487,
                  OTHER='f256', IEEE='"binary512"',
                  LAYOUT='Sign, 23-bit exponent (bias 4194303), 488-bit fraction with a\n///     hidden leading bit: 489 bits of precision, 147 decimal digits, range\n///     about 10^+-1262612. IEEE 754 defines no 512-bit format; this is its\n///     interchange-format rule (3.6, Table 3.5) carried to k = 512:\n///     precision p = k - round(4 log2(k)) + 13 = 489, so the exponent is\n///     w = k - p = round(4 * 9) - 13 = 23 bits and emax = 2^22 - 1. The\n///     rule gives 15 at k = 128 and 19 at k = 256, the standard widths.',
                  IMPORTS='import num::f256_t::*\n')

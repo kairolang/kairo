@@ -224,6 +224,33 @@ pub class PPWalker
         self._has_prelude = true
     }
 
+    /// \brief an import the file did not write: a prelude-shaped wildcard
+    ///        of \p target (an f256 / f512 class file, P723). Called after
+    ///        run(), so the TU gets it where the driver's builtin prelude
+    ///        import also lands, after every written one. Its edge orders
+    ///        Sema (the class is typed first, its N binding the lang item),
+    ///        and it binds the class's names as the builtin root's
+    ///        re-export did when every program loaded it.
+    fn add_implicit_import(self, target: u32) {
+        var rng = SourceRange::invalid()
+        if self._sm != &null {
+            var loc = self._sm->get_loc(self._fid, 0)
+            rng = SourceRange(loc, loc)
+        }
+
+        var unsafe *id = ImportDecl::create(self._ctx, rng, ImportKind::Native)
+        id->is_wildcard    = true
+        id->is_prelude     = true
+        id->resolved_fid   = target
+        id->file_seg_count = 1
+        self._tu->imports.push(id)
+
+        var edge = ImportEdge{}
+        edge.target_fid = target
+        edge.decl       = id
+        self._tu->import_edges.push(edge)
+    }
+
     // Not transferable: it owns its output, sources and tracker and is addressed by the parsers it drives; a copy would free them twice.
     @copy fn PPWalker(self, const other: Self) = delete
 

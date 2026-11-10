@@ -29,8 +29,10 @@ pub import base::c_char::*
 
 pub import num::bigint::*
 pub import num::bigfloat::*
-pub import num::f256_t::*
-pub import num::f512_t::*
+// num::f256_t / num::f512_t (and the softfloat engine under them) are NOT
+// re-exported: four large files every program would compile. The compiler
+// imports them into the files that name `f256` / `f512` (Preprocessor::
+// _add_wide_floats, P723).
 
 pub import errors::panic_result::*
 pub import errors::panic_raise::*

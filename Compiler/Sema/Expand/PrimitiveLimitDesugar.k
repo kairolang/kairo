@@ -249,10 +249,6 @@ pub class PrimitiveLimitDesugar derives ASTWriter<PrimitiveLimitDesugar> {
             return "f8e4m3 is the E4M3FN format: it has no infinity, and overflow saturates to 448"
         }
 
-        if b == BuiltinKind::F256 || b == BuiltinKind::F512 {
-            return f"{builtin_info(b)->spelling} has no fixed representation yet, so no limits"
-        }
-
         if b == BuiltinKind::Byte {
             return "a byte is not a number; it has only BITS"
         }

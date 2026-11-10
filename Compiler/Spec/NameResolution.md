@@ -135,6 +135,8 @@ Lang items are bound by fid and path. The compiler ships a root named `builtin` 
 
 `@create` / `@destroy` lang items (`Create` / `Destroy`, `alloc.k`'s `create` and `destroy`) are not re-exported by the builtin root. The dependency scanner records each file that writes the sugar and the preprocessor folds `builtin::base::alloc` into its graph; the driver gives that TU a second `is_prelude` ImportDecl, plain with no path segments, whose only effect is the import edge (so `alloc.k` is typed, and its lang items filled, first). Stage I binds no name from it.
 
+`f256` / `f512` (`F256` / `F512`, `num/f256_t.k` and `num/f512_t.k`, with the engine under them) are not re-exported either: four large files every program would otherwise compile (P723). The scanner records each file that spells the type keyword or a literal with the suffix (`DepGraph::f256_users` / `f512_users`), the preprocessor folds the class's file into its graph (`PreProcessor::_add_wide_floats`; never for a builtin file, which imports what it uses), and after the walk the file gets a prelude-shaped wildcard `ImportDecl` of it (`PPWalker::add_implicit_import`): its edge types the class first (its N binds the lang item and `BuiltinType::lang_decl`), and it binds `F256` as the root's re-export did. A macro that expands to the keyword is not seen; such a file needs the type spelled.
+
 ### Operators on builtin records
 
 Operators on builtin records (`[T]`, `{T}`, `{K: V}`, `[T;]`, `string`) resolve through the ordinary record path; see [ExprTyping.md](ExprTyping.md#expression-typing).

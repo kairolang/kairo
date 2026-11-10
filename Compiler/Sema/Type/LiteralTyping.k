@@ -1146,6 +1146,26 @@ pub class <T: type> LiteralTyping {
                 }
             }
 
+            // f256 / f512 format themselves: FmtBuf has no put that names a
+            // library float's class (it would load them into every
+            // program, P723), so the hole calls the class's fmt_put_ on the
+            // value. Its lang item is bound: the file names the type, so it
+            // imports the class's file (Preprocessor::_add_wide_floats).
+            if h.kind == FormatKind::F256 || h.kind == FormatKind::F512 {
+                var wk = if (h.kind == FormatKind::F256) => WellKnownType::F256
+                         else => WellKnownType::F512
+                h.put      = self._lang_method(wk, "fmt_put_")
+                h.on_value = true
+                if h.put == &null {
+                    self.dyn()->missing_lang_item(n, to_string(wk))
+                    ok = false
+                    continue
+                }
+
+                out.push_back(h)
+                continue
+            }
+
             h.put = self._lang_method(WellKnownType::FmtBuf, fmt_put_name(h.kind))
             if h.put == &null {
                 // FIXME(CONST-EVAL-FOLD): put_f80 is out of the builtin root until

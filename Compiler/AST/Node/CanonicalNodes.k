@@ -400,17 +400,15 @@ pub enum FloatSem derives u8 {
 ///   Exists so that conversion rank, exactness and diagnostics are COMPUTED
 ///   rather than table-matched pair by pair. See float_widens_exactly().
 ///
-///   exp/mant/bias are 0 for f256 and f512: their fraction (236, 488 bits)
-///   and bias (262143, 4194303) do not fit these fields. `exp == 0` on a row
-///   whose sem is not None means "ask the library"; every consumer must
-///   treat it as unknown rather than as zero.
+///   The fields are wide enough for every format, f512's 488-bit fraction
+///   and 4194303 bias included. `exp == 0` means "not a float".
 pub struct FloatLayout {
     var sem:   FloatSem
     var fimpl: FloatImpl
 
-    var exp:  u8  ///< exponent bits; 0 for limb formats and non-floats.
-    var mant: u8  ///< STORED mantissa bits, excluding any implicit bit.
-    var bias: i16 ///< i16, not u8: FNUZ biases arriving through FFI do not fit.
+    var exp:  u8  ///< exponent bits; 0 for non-floats.
+    var mant: u16 ///< STORED mantissa bits, excluding any implicit bit (488 for f512).
+    var bias: i32 ///< f512's is 4194303; signed, as FNUZ biases arriving through FFI may be.
 
     var has_inf:          bool ///< false for E4M3FN, whose all-ones exponent is NaN.
     var explicit_int_bit: bool ///< x87 only. Not an IEEE interchange format.
@@ -441,10 +439,9 @@ pub eval fn float_layout_none() -> FloatLayout {
 ///     `f16`  -> `bf16`   `false`   (7 mantissa bits cannot hold 10)
 ///     `f16`  -> `f32`    `true`
 ///
-///   f256 / f512 (layout fields 0) return false rather than comparing
-///   against a zeroed field. Conservative refusal is the correct failure
-///   mode here; anything that needs a real answer for them goes through the
-///   library anyway.
+///   A row with no layout (exp 0) returns false rather than comparing
+///   against a zeroed field: conservative refusal is the correct failure
+///   mode here.
 pub fn float_widens_exactly(from: *FloatLayout, to: *FloatLayout) -> bool {
     if from->sem == FloatSem::None || to->sem == FloatSem::None {
         return false
@@ -564,8 +561,9 @@ pub class BuiltinInfo {
 ///      as it does the width of the pair above. `signed int` / `signed short` are
 ///      int32_t / int16_t on every target Kairo sees, so those rows stay fixed.
 ///
-///      `F256`/`F512` carry exp/mant/bias == 0. A limb representation has no
-///      single exponent field; those columns are not meaningful for them.
+///      `F256`/`F512` carry their real IEEE layout (19/236/262143,
+///      23/488/4194303): PrimitiveLimits computes their constants from it
+///      like every other float's.
 ///
 ///      `bits` is VALUE width, never storage. F80 is 80 value bits stored in
 ///      96 or 128 depending on the triple; CanonicalTypeStore lays it out from
@@ -1010,9 +1008,9 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
             FloatLayout {
                 sem:              FloatSem::Binary256,
                 fimpl:            FloatImpl::Corelib,
-                exp:              0,
-                mant:             0,
-                bias:             0,
+                exp:              19,
+                mant:             236,
+                bias:             262143,
                 has_inf:          true,
                 explicit_int_bit: false,
             },
@@ -1030,9 +1028,9 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
             FloatLayout {
                 sem:              FloatSem::Binary512,
                 fimpl:            FloatImpl::Corelib,
-                exp:              0,
-                mant:             0,
-                bias:             0,
+                exp:              23,
+                mant:             488,
+                bias:             4194303,
                 has_inf:          true,
                 explicit_int_bit: false,
             },

@@ -24,7 +24,12 @@
 ///     The decimal ones (DIGITS, MAX_DIGITS, MIN_10_EXP, MAX_10_EXP) take
 ///     log10(2) in fixed point, 30102999566 / 10^11, which is below the true
 ///     value by under 4e-12: off by one only for an exponent past 10^11, and
-///     every format here is below 2^15.
+///     every format here is below 2^23 (f512's emax is 4194303).
+///
+///     f256 and f512 are library classes (num/f256_t.k, f512_t.k), with no
+///     C++ literal at their precision: their float-valued limits are the
+///     classes' own (`F256::max()`, ...), every one exact, built from the
+///     encoding.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -199,8 +204,7 @@ pub class PrimitiveLimits {
         }
     }
 
-    /// A float whose layout columns are filled: every float but f256 / f512,
-    /// whose fraction and bias do not fit them (CanonicalNodes.k).
+    /// A float whose layout columns are filled: every float (CanonicalNodes.k).
     static fn is_layout_float(b: BuiltinKind) -> bool {
         var *info = builtin_info(b)
         return info->is_float() && info->fp.exp != 0
@@ -501,10 +505,41 @@ pub class PrimitiveLimits {
         }
     }
 
+    /// f256 / f512's float-valued limit \p k: the class's static of that
+    /// name, MIN negating MAX (-MAX, as for every float).
+    static fn _class_limit(b: BuiltinKind, k: PrimLimit) -> string {
+        var cls = builtin_info(b)->cxx
+        match k {
+            case PrimLimit::Max {
+                return "(" + cls + "::max())"
+            } case PrimLimit::Min {
+                return "(-" + cls + "::max())"
+            } case PrimLimit::MinPositive {
+                return "(" + cls + "::min_positive())"
+            } case PrimLimit::MinSubnormal {
+                return "(" + cls + "::min_subnormal())"
+            } case PrimLimit::Epsilon {
+                return "(" + cls + "::epsilon())"
+            } case PrimLimit::Infinity {
+                return "(" + cls + "::infinity())"
+            } case PrimLimit::NegInfinity {
+                return "(" + cls + "::neg_infinity())"
+            } case PrimLimit::Nan {
+                return "(" + cls + "::nan())"
+            } default {
+                return ""
+            }
+        }
+    }
+
     /// The C++ expression for a float-valued limit (is_float_valued). Every
     /// finite one is an exact hex-float literal at \p b's own precision;
     /// bf16, which has no literal suffix, rounds nothing through float.
     pub static fn float_cxx(b: BuiltinKind, k: PrimLimit) -> string {
+        if b == BuiltinKind::F256 || b == BuiltinKind::F512 {
+            return PrimitiveLimits::_class_limit(b, k)
+        }
+
         var sfx = PrimitiveLimits::_suffix(b)
         var v   = ""
         match k {
