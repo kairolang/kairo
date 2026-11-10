@@ -715,8 +715,10 @@ pub class ClangBackend {
             words.push_back(*w)
         }
 
+        var macro_triple = self._clang_triple()
+        var macro_info   = FlagTranslator::macros_for(self._cfg.debug_macros, macro_triple)
         for var w: string in FlagTranslator::debug_driver(self._cfg.debug_info, self._cfg.dwarf_version,
-                                                      self._cfg.debug_macros, self._cfg.embed_source) {
+                                                      macro_info, self._cfg.embed_source) {
             words.push_back(w)
         }
 

@@ -1162,6 +1162,15 @@ pub class FlagTranslator {
         return cgo.dwarf_version
     }
 
+    /// \brief Whether -fdebug-macro goes to clang for \p triple. LLVM crashes emitting
+    ///        macro debug info for a Mach-O target (a null MCExpr fragment in
+    ///        DwarfDebug::endModule, P774), so a Mach-O build keeps -g without the macro
+    ///        info instead of aborting. Linux, Windows and BSD targets are unaffected.
+    pub static fn macros_for(const macros: bool, const triple: string) -> bool {
+        var tr = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
+        return macros && !tr.isOSBinFormatMachO()
+    }
+
     /// \brief the whole clang DRIVER line for one C/C++ input of language
     ///        \p lang (clang's -x name), minus the roots (the backend's
     ///        sysroot_words), the action, the input and the output.
@@ -1226,7 +1235,7 @@ pub class FlagTranslator {
         }
 
         for var a: string in FlagTranslator::debug_driver(FlagTranslator::debug_on(&cgo), FlagTranslator::dwarf_for(&cgo, triple),
-                                                      cgo.debug_macros, cgo.embed_source) {
+                                                      FlagTranslator::macros_for(cgo.debug_macros, triple), cgo.embed_source) {
             _fx_push(&o, a)
         }
 
