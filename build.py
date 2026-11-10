@@ -509,6 +509,15 @@ def run_or_die(argv: list, cwd: Path = ROOT, env=None) -> str:
     return r.stdout
 
 
+def run_streaming(argv: list, cwd: Path = ROOT, env=None) -> None:
+    """Runs argv with the terminal as its stdout/stderr, so a long step (the LLVM build)
+    shows what it is doing as it does it; run_or_die captures stdout, which hid it."""
+    sys.stdout.flush()
+    r = subprocess.run(argv, cwd=str(cwd), env=env)
+    if r.returncode != 0:
+        die(f"command failed ({r.returncode}): {' '.join(map(str, argv))}")
+
+
 def gen_registry(src: Path) -> Path:
     """gen_diag.py: Compiler/Diagnostic/Registry.k (declarations; only when the source tree
     IS the repo) and build/registry/Compiler/Diagnostic/Registry.k (declarations + bodies),
@@ -1343,7 +1352,7 @@ def main() -> int:
         # Never gen_diag.py into build/.kbld here (that object is Stage 0's, and the
         # repo's kbld build links it); only the LLVM stamp check.
         if not a.no_prebuild and not (a.print_jobs or a.print_command) and not a.target:
-            run_or_die([sys.executable, str(ROOT / "Scripts" / "build_llvm.py")])
+            run_streaming([sys.executable, str(ROOT / "Scripts" / "build_llvm.py")])
         prog.next("registry (gen_diag.py -> build/registry, Diagnostic::Registry)")
         reg_extra = llvm_include_args(llvm_src, cross_dir(a.target) / "llvm" if a.target else llvm_build)
         reg_extra.append("-fduck-generics")  # internal; the compiler tree's own build (see `common`)
