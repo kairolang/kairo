@@ -445,6 +445,14 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     )
 
     cmd->define<FlagKind::Bool>(
+        "sysroot-exact",
+        "",
+        "sysroot-exact",
+        "use --sysroot exactly as given: never substitute a bundled or cached sysroot for the target",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
         "no-sysroot-build",
         "",
         "no-sysroot-build",

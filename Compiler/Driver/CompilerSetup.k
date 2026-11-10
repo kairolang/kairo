@@ -246,6 +246,14 @@ extend CompilerInstance {
             return true
         }
 
+        // --sysroot-exact: the caller (ksys building a root, P610) names the
+        // exact headers to compile against. A bundled root for the same
+        // triple (x86_64-linux-gnu-glibc2.31 while building 2.42) would
+        // otherwise win and mix two C libraries' headers.
+        if self.invocation()->args.get_bool("sysroot-exact") && !tg->sysroot.empty() {
+            return true
+        }
+
         var want = self._sysroot_target()
         if want.empty() {
             return true
