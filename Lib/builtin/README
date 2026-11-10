@@ -35,12 +35,18 @@ sees them, so a new file is listed there or nothing outside builtin sees it.
                               (not pub imported here: std/mem.k re-exports it)
     num/bigint.k              BigInt                    big integer literals
     num/bigfloat.k            BigFloat                  big float literals
+    num/float_ext.k           extend f16 .. f80         the float methods (sqrt, fma,
+                                                        abs, copysign, to_bits, is_*);
+                                                        generated, see
+                                                        Scripts/gen_float_ext.py
+    num/f128_ext.k            extend f128               f128's (sqrt / fma: the engine)
     num/f256_t.k              F256, extend f256         f256's C++ spelling (IEEE
                                                         binary256); generated, see
                                                         Scripts/gen_softfloat.py
     num/f512_t.k              F512, extend f512         f512's C++ spelling
-                              (the four num/ files here are not pub imported:
-                              the compiler imports f256_t / f512_t into the
+                              (f128_ext, f256_t, f512_t and the two engine
+                              files are not pub imported: the compiler
+                              imports f128_ext / f256_t / f512_t into the
                               files that name the type, P723)
     num/softfloat.k           (internal)                the software IEEE engine
                                                         F256 / F512 call, any width

@@ -926,11 +926,13 @@ pub class PreProcessor {
         }
 
         // `f256` / `f512` (P723): num/f256_t.k and num/f512_t.k, which the
-        // builtin root does not re-export, for the files that name one.
+        // builtin root does not re-export, for the files that name one;
+        // `f128`: num/f128_ext.k, its methods (sqrt and fma run the engine).
         self._wide_imports.clear()
         if !self._opts.no_prelude && self._opts.prelude_path.size() == 0 {
             self._add_wide_floats(&scanner, &graph, "f256_t", graph.f256_users)
             self._add_wide_floats(&scanner, &graph, "f512_t", graph.f512_users)
+            self._add_wide_floats(&scanner, &graph, "f128_ext", graph.f128_users)
         }
 
         // The macro prelude needs the builtin root WALKED before any file

@@ -124,6 +124,22 @@ template <class T> KAIRO_RT_INL constexpr bool kairo_rt_add_overflow(T a, T b, T
 template <class T> KAIRO_RT_INL constexpr bool kairo_rt_sub_overflow(T a, T b, T *r) KAIRO_RT_NOEXCEPT { return __builtin_sub_overflow(a, b, r); }
 template <class T> KAIRO_RT_INL constexpr bool kairo_rt_mul_overflow(T a, T b, T *r) KAIRO_RT_NOEXCEPT { return __builtin_mul_overflow(a, b, r); }
 
+/* --- floats: the type-generic classification and sign builtins ---------- */
+/* For the float methods (Lib/builtin/num/float_ext.k, f128_ext.k): one
+ * template serves _Float16, __bf16, float, double, long double and
+ * __float128. Every one is a compare or a bit operation, never a libcall. */
+
+template <class T> KAIRO_RT_INL constexpr bool kairo_rt_fp_isnan(T v) KAIRO_RT_NOEXCEPT { return __builtin_isnan(v); }
+template <class T> KAIRO_RT_INL constexpr bool kairo_rt_fp_isinf(T v) KAIRO_RT_NOEXCEPT { return __builtin_isinf(v) != 0; }
+template <class T> KAIRO_RT_INL constexpr bool kairo_rt_fp_isfinite(T v) KAIRO_RT_NOEXCEPT { return __builtin_isfinite(v); }
+template <class T> KAIRO_RT_INL constexpr bool kairo_rt_fp_isnormal(T v) KAIRO_RT_NOEXCEPT { return __builtin_isnormal(v); }
+template <class T> KAIRO_RT_INL constexpr bool kairo_rt_fp_signbit(T v) KAIRO_RT_NOEXCEPT { return __builtin_signbit(v) != 0; }
+template <class T> KAIRO_RT_INL constexpr bool kairo_rt_fp_isunordered(T a, T b) KAIRO_RT_NOEXCEPT { return __builtin_isunordered(a, b); }
+/* 0 NaN, 1 infinite, 2 normal, 3 subnormal, 4 zero. */
+template <class T> KAIRO_RT_INL constexpr int kairo_rt_fp_class(T v) KAIRO_RT_NOEXCEPT { return __builtin_fpclassify(0, 1, 2, 3, 4, v); }
+template <class T> KAIRO_RT_INL constexpr T kairo_rt_fp_abs(T v) KAIRO_RT_NOEXCEPT { return __builtin_elementwise_abs(v); }
+template <class T> KAIRO_RT_INL constexpr T kairo_rt_fp_copysign(T m, T s) KAIRO_RT_NOEXCEPT { return __builtin_elementwise_copysign(m, s); }
+
 /* --- codegen and optimizer hooks ---------------------------------------- */
 
 KAIRO_RT_INL bool kairo_rt_expect(bool c, bool e) KAIRO_RT_NOEXCEPT { return __builtin_expect((long)c, (long)e) != 0; }

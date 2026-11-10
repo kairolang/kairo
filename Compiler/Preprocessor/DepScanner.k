@@ -78,6 +78,9 @@ pub class DepGraph {
     /// `@create`.
     pub var f256_users: cxx::std::set<u32>
     pub var f512_users: cxx::std::set<u32>
+    /// Files that name `f128`: num/f128_ext.k (f128's methods, whose sqrt
+    /// and fma run the same engine) is added for them the same way.
+    pub var f128_users: cxx::std::set<u32>
 
     fn add_node(self, fid: u32, const path: ModulePath) {
         if !self.all_fids.contains(fid) {
@@ -266,20 +269,24 @@ pub class DepScanner {
                 }
             }
 
-            // `f256` / `f512`: the keyword, or a literal's suffix (`1.5f256`).
-            // A hex literal whose last digits spell one (`0xf256`) is a
-            // false positive, which only costs the load. Like the sugar, a
-            // macro that expands to one is not seen.
+            // `f128` / `f256` / `f512`: the keyword, or a literal's suffix
+            // (`1.5f256`). A hex literal whose last digits spell one
+            // (`0xf256`) is a false positive, which only costs the load.
+            // Like the sugar, a macro that expands to one is not seen.
             if k == TokenKind::AtF256 {
                 graph->f256_users.insert(fid)
             } else if k == TokenKind::AtF512 {
                 graph->f512_users.insert(fid)
+            } else if k == TokenKind::AtF128 {
+                graph->f128_users.insert(fid)
             } else if k == TokenKind::LitFloat || k == TokenKind::LitInt {
                 var w = DepScanner::_wide_float_suffix(TokenText::spelling(src.peek(0), self._tcm))
                 if w == 256 {
                     graph->f256_users.insert(fid)
                 } else if w == 512 {
                     graph->f512_users.insert(fid)
+                } else if w == 128 {
+                    graph->f128_users.insert(fid)
                 }
             }
 
@@ -304,8 +311,8 @@ pub class DepScanner {
         //      assuming it owns the input stream.
     }
 
-    /// 256 or 512 when \p sp ends in `f256` / `f512` (either case of the
-    /// `f`), else 0.
+    /// 128, 256 or 512 when \p sp ends in `f128` / `f256` / `f512` (either
+    /// case of the `f`), else 0.
     priv static fn _wide_float_suffix(const sp: string) -> u32 {
         var n = sp.size()
         if n < 5 {
@@ -326,6 +333,10 @@ pub class DepScanner {
 
         if a == ('5' as u8) && b == ('1' as u8) && c == ('2' as u8) {
             return 512
+        }
+
+        if a == ('1' as u8) && b == ('2' as u8) && c == ('8' as u8) {
+            return 128
         }
 
         return 0

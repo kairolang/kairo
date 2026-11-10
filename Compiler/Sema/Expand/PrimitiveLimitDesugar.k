@@ -31,6 +31,10 @@
 ///     output cannot write yet. A name that is no limit at all (`i32::FOO`)
 ///     is left alone for ChainBinding's "no member" error, as before.
 ///
+///     A limit at the head of a longer chain (`f64::NAN.is_nan()`) is the
+///     chain's base once minted, parenthesized, with the steps after it
+///     applying to it (P754).
+///
 ///     A generic argument `Buf<u8::BITS>` parses as a type; it becomes the
 ///     TypeExpr a value argument is (`Buf<8>`), over the minted literal.
 ///
@@ -47,6 +51,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+import AST::ASTSupport::FrozenList
 import AST::Node::Base::Expr
 import AST::Node::CanonicalNodes::{
     BuiltinKind,
@@ -107,8 +112,19 @@ pub class PrimitiveLimitDesugar derives ASTWriter<PrimitiveLimitDesugar> {
 
     fn transform_chain_expr(self, n: unsafe *ChainExpr) -> unsafe *Expr {
         var unsafe *out = ASTWriter<PrimitiveLimitDesugar>::transform_chain_expr(self, n)
-        if n->base == &null || !isa<NamedIdentExpr>(n->base) || n->steps.size() != 1 {
+        if n->base == &null || !isa<NamedIdentExpr>(n->base) || n->steps.size() == 0 {
             return out
+        }
+
+        // `f64::NAN.is_nan()`, `i32::MAX.sq()`: the limit is the head of a
+        // longer chain, so only the first step is the limit and the rest
+        // apply to the literal (P754). A second `::` step (`f64::MAX::x`)
+        // is no member access of a value; it stays for ChainBinding's error.
+        if n->steps.size() > 1 {
+            var unsafe *nx = n->steps.get(1)
+            if nx == &null || nx->access_kind == ChainExpr::AccessKind::ColonColon {
+                return out
+            }
         }
 
         var unsafe *id = cast<NamedIdentExpr>(n->base)
@@ -135,14 +151,39 @@ pub class PrimitiveLimitDesugar derives ASTWriter<PrimitiveLimitDesugar> {
             return out
         }
 
-        var unsafe *e = self._mint(n->range, b, k)
-        if e == &null {
+        if n->steps.size() == 1 {
+            var unsafe *e = self._mint(n->range, b, k)
+            if e == &null {
+                id->poison()
+                n->poison()
+                return n
+            }
+
+            return e
+        }
+
+        // The literal becomes the chain's base and the limit step drops out,
+        // the shape `(f64::NAN).is_nan()` already has. Parenthesized, as a
+        // negative integer limit already is, so the steps after it apply to
+        // the whole literal. The steps stay in their arena array: the view
+        // just starts one later.
+        var        lr   = SourceRange(n->range.start, st->range.end)
+        var unsafe *lim = self._mint(lr, b, k)
+        if lim == &null {
             id->poison()
             n->poison()
             return n
         }
 
-        return e
+        if !isa<ParenExpr>(lim) {
+            lim = unsafe (ParenExpr::create(self.sc->ctx, lr, lim) as unsafe *Expr)
+        }
+
+        var rest = FrozenList<ChainExpr::Step>::empty()
+        rest.from_raw(n->steps.get(1), n->steps.size() - 1)
+        n->base  = lim
+        n->steps = rest
+        return n
     }
 
     /// `Buf<u8::BITS>`: in an argument list a primitive's `::` path parses
