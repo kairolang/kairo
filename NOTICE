@@ -43,6 +43,43 @@ mingw-w64 (C runtime, headers and import libraries for *-windows-gnu targets)
 wasi-libc (C library for wasm32-wasi)
   Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT. Source: Lib/libc/wasi
 
+FreeBSD and NetBSD libc and start files (*-unknown-freebsd, *-unknown-netbsd)
+  Copyright (c) 1992-2025 The FreeBSD Project; The NetBSD Foundation, Inc.;
+  The Regents of the University of California; and the holders named in each
+  file.
+  BSD-2-Clause and BSD-3-Clause, per file. The BSD sysroots are static-only,
+  so their libc and crt code is linked into every program built for them.
+  Binary redistributions must reproduce these notices, as for musl. The texts
+  ship in LICENSES/freebsd/ and LICENSES/netbsd/, in the release archive and
+  in every sysroot generated from them.
+
+GNU C Library start files and libc_nonshared.a (*-linux-gnu targets)
+  LGPL-2.1-or-later. Source: share/kairo/sysroot/glibc/src (taken from
+  glibc's release tags); the texts ship in the sysroot's LICENSES/glibc/
+  crt1.o, Scrt1.o, crti.o, crtn.o and libc_nonshared.a are compiled from
+  glibc sources and linked statically into glibc programs (libc itself stays
+  a shared library). Most of those files carry glibc's link exception, which
+  permits linking their compiled form into any program and distributing it
+  without restriction from the LGPL. These do not:
+    csu/init.c          crt1.o, Scrt1.o; every target and glibc release
+    csu/static-reloc.c  crt1.o; every target and glibc release
+    sysdeps/aarch64/start.S
+                        crt1.o, Scrt1.o; aarch64 and aarch64_be, glibc
+                        2.17 .. 2.33
+    sysdeps/unix/sysv/linux/aarch64/__read_tp.S
+                        libc_nonshared.a; aarch64 and aarch64_be, glibc
+                        2.17 .. 2.33 (linked only when referenced)
+    sysdeps/powerpc/powerpc32/ppc-mcount.S
+                        libc_nonshared.a; powerpc, every glibc release
+                        (linked only by -pg profiling)
+    sysdeps/generic/crti.S, crtn.S
+                        crti.o, crtn.o on riscv32, riscv64 and loongarch64;
+                        no notice in the file, so glibc's LGPL-2.1-or-later
+  Those objects are under the plain LGPL-2.1-or-later. A program that
+  statically contains them carries the LGPL's terms for that code
+  (Section 6: the recipient must be able to relink the program against a
+  modified version of the library).
+
 -------------------------------------------------------------------------------
 Components of the toolchain and its bundled sysroots
 -------------------------------------------------------------------------------
@@ -66,8 +103,8 @@ Linux kernel UAPI headers (Linux sysroots)
 
 GNU C Library headers, start-file sources and ABI lists (*-linux-gnu sysroots;
 glibc 2.17 .. 2.42, the files taken from glibc's own release tags)
-  LGPL-2.1-or-later (the start files also carry glibc's link exception);
-  glibc's COPYING.LIB and LICENSES ship in the sysroot's LICENSES/glibc/
+  LGPL-2.1-or-later (the start files' terms are given above); glibc's
+  COPYING.LIB and LICENSES ship in the sysroot's LICENSES/glibc/
 
 FreeBSD 14.4 and NetBSD 10.1 base headers and libraries (BSD sysroots)
   BSD-2-Clause and BSD-3-Clause, per file
@@ -83,3 +120,9 @@ source subset. No Zig code or data is included.
 Apple's SDK and Microsoft's MSVC / Windows SDK are never distributed with
 Kairo. Sysroots built from them on your machine (scripts/) stay subject to
 their own license terms.
+
+scripts/msvc-sysroot can build a windows-msvc sysroot on your machine. After
+you accept Microsoft's license it downloads the xwin tool (MIT OR Apache-2.0,
+https://github.com/Jake-Shadle/xwin; pinned to 0.10.0 and checked against a
+sha256), and xwin downloads Microsoft's MSVC CRT and Windows SDK packages.
+Neither xwin nor those packages is distributed with Kairo.

@@ -71,6 +71,15 @@ _allow(["sh_loop"], ["thumbv6m"], 2)
 _allow(["sh_shl128", "sh_lshr128", "sh_ashr128"], ["aarch64"], {"-Oz": 1})
 _allow(["sh_shl128", "sh_lshr128"], ["riscv64"], 1)
 _allow(["sh_ashr128"], ["riscv64"], {"-O1": -1, "-O2": -1, "-Os": -1, "-Oz": 1})
+# 128-bit on ARM32 (compiled there since the fork's __int128-on-32-bit patch,
+# .patches/0004): the same two-half expansion either way, the mask's AND
+# (ARMv6-M: movs #127 + ands) plus the copies -Oz's allocator spends
+# keeping the masked count live; free at -O1, -O2 and -Os.
+_allow(["sh_shl128"], ["thumbv7m", "armv7a", "thumbv6m"], {"-Oz": 2})
+_allow(["sh_lshr128", "sh_ashr128"], ["thumbv7m", "armv7a"], {"-Oz": 1})
+_allow(["sh_shl128", "sh_lshr128", "sh_ashr128"], ["thumbv8.1m"], {"-Oz": 1})
+_allow(["sh_lshr128"], ["thumbv6m"], {"-Oz": 2})
+_allow(["sh_ashr128"], ["thumbv6m"], {"-Oz": 3})
 
 
 def counts(clang, src, flags, level):
