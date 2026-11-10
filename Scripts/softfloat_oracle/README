@@ -1,0 +1,21 @@
+Exact oracle and dev harness for the software floats (Lib/builtin/num/softfloat*.k)
+=================================================================================
+
+wfo.py        exact IEEE-style formats (binary16..binary512, bfloat16, x87): decode,
+              round to nearest even once, add/sub/mul/div/sqrt/fma/compare,
+              conversions, int <-> float. Exact dyadic integers and
+              fractions.Fraction; no floating point anywhere.
+textor.py     decimal parse (Fraction) and format: shortest closest digits (ties to
+              the even digit, anchored at floor(log10 v) as rt/fmt_exact.c is),
+              fixed digits, rt/fmt_layout.c's 'g'/'e'/'E' layout.
+gen.py        operand generator weighted to the hard cases.
+selftest.py   checks wfo.py itself against CPython's binary64 (float, math.fma).
+run_ops.py    DRIVER nbits ebits count seed [ops]   arithmetic vectors
+run_text.py   DRIVER nbits ebits count seed         format / parse vectors
+run_conv.py   DRIVER count seed                     format-to-format conversions
+run_int.py    DRIVER count seed                     int and x87 conversions
+
+DRIVER is driver.k built: `kairo Scripts/softfloat_oracle/driver.k -O2 -o
+build/sfdrv` (add --target and a qemu wrapper script for other targets).
+Scripts/gen_softfloat_tests.py --oracle Scripts/softfloat_oracle regenerates
+Tests/Codegen/f256_ops.k and f512_ops.k.

@@ -31,7 +31,9 @@ ffi "c++" import "rt/fmt.h"
 
 import string::*
 import alloc_raw::{alloc_raw, free_raw, resize_raw, oom}
-import base::intrinsics::{ __builtin_copy }
+import base::intrinsics::{ __builtin_copy, __builtin_bitcast }
+import num::softfloat::{ SfFmt, sf_fmt }
+import num::softfloat_text::{ sf_format_bits, sf_rt_digits }
 
 /// "00" "01" ... "99": the two ASCII digits of every value below 100.
 static DIGIT_PAIRS: [u8; 200] = [48, 48, 48, 49, 48, 50, 48, 51, 48, 52, 48, 53, 48, 54, 48, 55, 48, 56, 48, 57, 49, 48, 49, 49, 49, 50, 49, 51, 49, 52, 49, 53, 49, 54, 49, 55, 49, 56, 49, 57, 50, 48, 50, 49, 50, 50, 50, 51, 50, 52, 50, 53, 50, 54, 50, 55, 50, 56, 50, 57, 51, 48, 51, 49, 51, 50, 51, 51, 51, 52, 51, 53, 51, 54, 51, 55, 51, 56, 51, 57, 52, 48, 52, 49, 52, 50, 52, 51, 52, 52, 52, 53, 52, 54, 52, 55, 52, 56, 52, 57, 53, 48, 53, 49, 53, 50, 53, 51, 53, 52, 53, 53, 53, 54, 53, 55, 53, 56, 53, 57, 54, 48, 54, 49, 54, 50, 54, 51, 54, 52, 54, 53, 54, 54, 54, 55, 54, 56, 54, 57, 55, 48, 55, 49, 55, 50, 55, 51, 55, 52, 55, 53, 55, 54, 55, 55, 55, 56, 55, 57, 56, 48, 56, 49, 56, 50, 56, 51, 56, 52, 56, 53, 56, 54, 56, 55, 56, 56, 56, 57, 57, 48, 57, 49, 57, 50, 57, 51, 57, 52, 57, 53, 57, 54, 57, 55, 57, 56, 57, 57]
@@ -420,9 +422,41 @@ pub class FmtBuf {
         }
     }
 
-    // TODO(rt): f8e4m3 / f8e5m2 / f256 / f512 wait on ::kairo::rt::* having
-    // a C++ definition. The f8 entries in rt/fmt.h take the byte; the corelib
-    // pair need an entry taking the limbs. Same shape as the puts above.
+    // TODO(rt): f8e4m3 / f8e5m2 wait on ::kairo::rt::* having a C++
+    // definition. The f8 entries in rt/fmt.h take the byte. Same shape as
+    // the puts above.
+
+    // f256 / f512 exist on every target (library classes), and their text
+    // is Kairo's, num/softfloat_text.k, not rt's: the same contract as
+    // rt/fmt.h's entries (|v|, prec < 0 for the shortest round-trip digits,
+    // conv 'g' / 'e' / 'E'), at up to 73 / 149 digits.
+
+    /// Appends an `f256` hole, honouring the sign bit of -0.0 and NaN. Precision, width, fill and
+    /// alignment come from `spec`; the `e` base selects exponent form, `E` with the upper flag.
+    /// The shortest form has at most 73 significant digits; a precision gives at most 600.
+    pub fn put_f256(self, v: f256, spec: u64) {
+        var bits = __builtin_bitcast<u256, f256>(v)
+        self.wide_float_(sf_fmt(256, 19), bits as u512, (bits >> 255) != 0, spec)
+    }
+
+    /// Appends an `f512` hole, as put_f256 does; the shortest form has at most 149 digits.
+    pub fn put_f512(self, v: f512, spec: u64) {
+        var bits = __builtin_bitcast<u512, f512>(v)
+        self.wide_float_(sf_fmt(512, 23), bits, (bits >> 511) != 0, spec)
+    }
+
+    /// An f256 / f512 encoding as text into a digit slot sized for it, then
+    /// number_ as for every float.
+    priv fn wide_float_(self, f: SfFmt, bits: u512, neg: bool, spec: u64) {
+        var prec = FmtBuf::prec_(spec)
+        var digits: usize = (if prec >= 0 => prec as usize else => 0) + 2 * (sf_rt_digits(f) as usize) + 24
+        var head = FmtBuf::width_(spec) * 4 + 8
+        self.reserve_(head + digits + digits)
+        var slot = self.len + head + digits
+        var n: i32 = 0
+        unsafe { n = sf_format_bits(f, bits, unsafe &self.data[slot], digits, prec as i32, FmtBuf::conv_(spec)) }
+        self.number_(&self.data[slot], n as usize, neg, spec)
+    }
 
     // The integer the bytes at p[off..] hold in the target's byte order, so
     // a float's sign bit is the top bit wherever it sits in memory. Any

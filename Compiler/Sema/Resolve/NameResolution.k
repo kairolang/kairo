@@ -826,6 +826,8 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         self._bind_lang(root, WellKnownType::Pow)
         self._bind_lang(root, WellKnownType::FmtBuf)
         self._bind_lang(root, WellKnownType::Byte)
+        self._bind_lang(root, WellKnownType::F256)
+        self._bind_lang(root, WellKnownType::F512)
         self._bind_lang(root, WellKnownType::UnwrapFailed)
         self._bind_lang(root, WellKnownType::NicheOf)
         self._bind_lang(root, WellKnownType::TypeIdOf)
@@ -911,6 +913,19 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         var unsafe *bt = self.sc->types->builtin(BuiltinKind::Byte)
         if bd != &null && bt != &null {
             cast<BuiltinType>(bt)->lang_decl = bd
+        }
+
+        // f256 / f512 likewise: spelled as the F256 / F512 classes.
+        var unsafe *f2d = self.sc->well_known->get(WellKnownType::F256)
+        var unsafe *f2t = self.sc->types->builtin(BuiltinKind::F256)
+        if f2d != &null && f2t != &null {
+            cast<BuiltinType>(f2t)->lang_decl = f2d
+        }
+
+        var unsafe *f5d = self.sc->well_known->get(WellKnownType::F512)
+        var unsafe *f5t = self.sc->types->builtin(BuiltinKind::F512)
+        if f5d != &null && f5t != &null {
+            cast<BuiltinType>(f5t)->lang_decl = f5d
         }
 
         // `null_t`'s constant has no Kairo declaration (`null` is a

@@ -145,6 +145,11 @@ pub enum WellKnownType derives u8 {
     CWChar,
     CChar16,
     CChar8,
+    /// `class F256` / `class F512` (num/f256_t.k, num/f512_t.k): what C++
+    /// spells `f256` / `f512` (as Byte is `byte`'s spelling). Bound so every
+    /// TU that uses the type declares the class (BuiltinType::lang_decl).
+    F256,
+    F512,
 
     COUNT, ///< keep last.
 }
@@ -251,6 +256,10 @@ pub fn to_string(k: WellKnownType) -> string {
             return "__builtin_c_char16"
         } case WellKnownType::CChar8 {
             return "__builtin_c_char8"
+        } case WellKnownType::F256 {
+            return "F256"
+        } case WellKnownType::F512 {
+            return "F512"
         } case WellKnownType::COUNT {
             return "<count>"
         }

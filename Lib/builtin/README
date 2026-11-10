@@ -35,6 +35,14 @@ sees them, so a new file is listed there or nothing outside builtin sees it.
                               (not pub imported here: std/mem.k re-exports it)
     num/bigint.k              BigInt                    big integer literals
     num/bigfloat.k            BigFloat                  big float literals
+    num/f256_t.k              F256                      f256's C++ spelling (IEEE
+                                                        binary256); generated, see
+                                                        Scripts/gen_softfloat.py
+    num/f512_t.k              F512                      f512's C++ spelling
+    num/softfloat.k           (internal)                the software IEEE engine
+                                                        F256 / F512 call, any width
+    num/softfloat_text.k      (internal)                its decimal parse and
+                                                        shortest / fixed digits
     errors/panic_result.k     Panic                     a `panic` fn's result
     errors/panic_raise.k      PanicRaise
     errors/panic_catch.k      PanicCatch

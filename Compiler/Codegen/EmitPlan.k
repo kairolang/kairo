@@ -4299,10 +4299,17 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             } case TypeKind::BuiltinType {
                 // A builtin spelled as a Kairo declaration (`byte` -> Byte): an
                 // opaque `enum class : unsigned char;` is already complete, so
-                // any strength will do.
+                // any strength will do. f256 / f512 are classes whose members
+                // C++ calls where Kairo sees a builtin operator (`a + b`), and
+                // nothing else admits those: always the complete class.
                 var unsafe *bt = cast<BuiltinType>(c)
                 if bt->lang_decl != &null {
-                    self._admit(bt->lang_decl, need)
+                    var bneed = need
+                    if bt->builtin == BuiltinKind::F256 || bt->builtin == BuiltinKind::F512 {
+                        bneed = PlanNeed::Complete
+                    }
+
+                    self._admit(bt->lang_decl, bneed)
                 }
             } default { } // generic param, opaque: nothing to declare.
         }
@@ -6148,6 +6155,22 @@ pub class LayoutSpine {
                 return false
             } case TypeKind::FixedArrayType {
                 return self.reaches(cast<FixedArrayType>(c)->element)
+            } case TypeKind::BuiltinType {
+                // A builtin spelled as a class (`f256` -> F256) is that class
+                // held by value: a field of it needs the class defined first.
+                var unsafe *ld = cast<BuiltinType>(c)->lang_decl
+                if ld == &null {
+                    return false
+                }
+
+                var unsafe *d = self._plan->layout_decl(ld)
+                if self.collect != &null {
+                    self.collect->insert(d as usize as u64)
+                } else if d == self._target {
+                    return true
+                }
+
+                return false
             } default {
                 return false
             }

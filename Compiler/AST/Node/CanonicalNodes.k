@@ -277,8 +277,7 @@ pub enum BuiltinKind derives u8 {
     /// everywhere, fast nowhere.
     ///
     /// Do not confuse with `PPC_FP128TyID`, LLVM's OTHER 128-bit float: a
-    /// double-double pair, structurally what F256 is below at half the limb
-    /// count. Kairo's `f128` is always `FP128TyID`; a PowerPC `long double`
+    /// double-double pair (two f64s, 106 bits, no single exponent). Kairo's `f128` is always `FP128TyID`; a PowerPC `long double`
     /// arriving through FFI is a different type and the FFI mapping table
     /// must say so.
     /// C++: `__float128`. `APFloat: semIEEEquad`.
@@ -288,16 +287,19 @@ pub enum BuiltinKind derives u8 {
     //
     /// LLVM HAS NO TYPE AT THESE WIDTHS. Unlike the integers above, there is
     /// nothing to legalize and nothing to call: these are the only entries in
-    /// this enum that need Kairo implementation code. corelib soft-float,
-    /// four and eight f64 limbs, Dekker arithmetic for add/mul and
-    /// Newton-Raphson for div and sqrt. Not IEEE anything, the limb
-    /// representation has no single exponent field, so builtin_float_format
-    /// reports SoftDouble4 / SoftDouble8 rather than a binaryN.
+    /// this enum that need Kairo implementation code. Each is a builtin
+    /// library class over a u256 / u512 encoding, every operation a call
+    /// into Lib/builtin/num/softfloat.k (one IEEE engine for every width,
+    /// correctly rounded). The formats are IEEE binary256 and the
+    /// interchange-format rule carried to 512 bits (f512_t.k says how).
 
-    /// `f256`. Four `f64` limbs. C++: `kairo::rt::f256`.
+    /// `f256`. IEEE binary256: 1/19/236, bias 262143.
+    /// C++: `::builtin::num::f256_t::F256`.
     F256,
 
-    /// `f512`. Eight `f64` limbs. C++: `kairo::rt::f512`.
+    /// `f512`. "binary512": 1/23/488, bias 4194303 (IEEE 754 3.6's rule at
+    /// k = 512; the standard stops at its formula). C++:
+    /// `::builtin::num::f512_t::F512`.
     F512,
 
     /// # Non-numeric scalars
@@ -372,9 +374,9 @@ pub enum FloatImpl derives u8 {
 ///   from the layout lives in FloatLayout's numeric fields instead, so that
 ///   adding a format does not mean adding a switch arm somewhere.
 ///
-///   SoftDouble4/8 are not APFloat semantics. They are limb representations
-///   with no single exponent field; the constant evaluator has no APFloat to
-///   hand for them and must route through corelib.
+///   Binary256/512 are not APFloat semantics: APFloat has no format past
+///   binary128, so the constant evaluator has nothing to hand for them and
+///   must route through the library (Lib/builtin/num/softfloat.k).
 pub enum FloatSem derives u8 {
     None = 0,
 
@@ -387,8 +389,8 @@ pub enum FloatSem derives u8 {
     X87DoubleExtended, ///< semX87DoubleExtended.
     IEEEQuad,          ///< semIEEEquad.
 
-    SoftDouble4, ///< four f64 limbs. No APFloat equivalent.
-    SoftDouble8, ///< eight f64 limbs. No APFloat equivalent.
+    Binary256, ///< IEEE binary256. No APFloat equivalent.
+    Binary512, ///< binary512 (see BuiltinKind::F512). No APFloat equivalent.
 }
 
 /// \struct FloatLayout
@@ -398,9 +400,10 @@ pub enum FloatSem derives u8 {
 ///   Exists so that conversion rank, exactness and diagnostics are COMPUTED
 ///   rather than table-matched pair by pair. See float_widens_exactly().
 ///
-///   exp/mant/bias are 0 for the SoftDouble limb formats, which have no single
-///   exponent field. `exp == 0` on a row whose sem is not None means "ask
-///   corelib"; every consumer must treat it as unknown rather than as zero.
+///   exp/mant/bias are 0 for f256 and f512: their fraction (236, 488 bits)
+///   and bias (262143, 4194303) do not fit these fields. `exp == 0` on a row
+///   whose sem is not None means "ask the library"; every consumer must
+///   treat it as unknown rather than as zero.
 pub struct FloatLayout {
     var sem:   FloatSem
     var fimpl: FloatImpl
@@ -438,9 +441,10 @@ pub eval fn float_layout_none() -> FloatLayout {
 ///     `f16`  -> `bf16`   `false`   (7 mantissa bits cannot hold 10)
 ///     `f16`  -> `f32`    `true`
 ///
-///   Limb formats return false rather than comparing against a zeroed field.
-///   Conservative refusal is the correct failure mode here; anything that
-///   needs a real answer for f256/f512 goes through corelib anyway.
+///   f256 / f512 (layout fields 0) return false rather than comparing
+///   against a zeroed field. Conservative refusal is the correct failure
+///   mode here; anything that needs a real answer for them goes through the
+///   library anyway.
 pub fn float_widens_exactly(from: *FloatLayout, to: *FloatLayout) -> bool {
     if from->sem == FloatSem::None || to->sem == FloatSem::None {
         return false
@@ -587,7 +591,9 @@ pub class BuiltinInfo {
 ///                  extension; lowered to LLVM iN, legalization emits the
 ///                  carry chains.
 ///     *libcall*    `__float128`: LLVM has the type, calls compiler-rt.
-///     *corelib*    `::kairo::rt::*`: no LLVM type, arithmetic in f32/f64.
+///     *corelib*    `::kairo::rt::*` (f8): no LLVM type, arithmetic in f32;
+///                  `::builtin::num::f256_t::F256` / `f512_t::F512`: no LLVM
+///                  type, arithmetic in Lib/builtin/num/softfloat.k.
 ///
 /// \par Non-numeric scalars
 ///      `Byte` maps to `::builtin::base::byte_t::Byte`, the Byte lang item (Lib/builtin/base/byte_t.k): a scoped
@@ -998,11 +1004,11 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
             BuiltinKind::F256,
             TokenKind::AtF256,
             "f256",
-            "::kairo::rt::f256",
+            "::builtin::num::f256_t::F256",
             256,
             BF_FLOAT,
             FloatLayout {
-                sem:              FloatSem::SoftDouble4,
+                sem:              FloatSem::Binary256,
                 fimpl:            FloatImpl::Corelib,
                 exp:              0,
                 mant:             0,
@@ -1018,11 +1024,11 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
             BuiltinKind::F512,
             TokenKind::AtF512,
             "f512",
-            "::kairo::rt::f512",
+            "::builtin::num::f512_t::F512",
             512,
             BF_FLOAT,
             FloatLayout {
-                sem:              FloatSem::SoftDouble8,
+                sem:              FloatSem::Binary512,
                 fimpl:            FloatImpl::Corelib,
                 exp:              0,
                 mant:             0,
@@ -1394,9 +1400,10 @@ pub class QualifiedType derives Type {
 ///
 pub class BuiltinType derives Type {
     pub var builtin: BuiltinKind = BuiltinKind::Void
-    /// The declaration this builtin's C++ spelling names, or null. Only
-    /// `byte` has one (the Byte lang item); EmitPlan admits it wherever the
-    /// builtin appears, so the spelling always has a declaration behind it.
+    /// The declaration this builtin's C++ spelling names, or null: `byte`
+    /// (the Byte lang item), `f256` and `f512` (F256, F512); EmitPlan
+    /// admits it wherever the builtin appears, so the spelling always has a
+    /// declaration behind it.
     pub var lang_decl: unsafe *Decl = &null
 
     /* OVERRIDE */

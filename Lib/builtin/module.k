@@ -29,6 +29,8 @@ pub import base::c_char::*
 
 pub import num::bigint::*
 pub import num::bigfloat::*
+pub import num::f256_t::*
+pub import num::f512_t::*
 
 pub import errors::panic_result::*
 pub import errors::panic_raise::*

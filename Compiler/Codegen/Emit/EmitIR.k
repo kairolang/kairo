@@ -6261,7 +6261,8 @@ pub class EmitIR {
     ///
     ///   f16 `f16`, f32 `f`, f64 none, f80 `L`, f128 `Q`
     ///   bf16 has no literal suffix: `static_cast<__bf16>(<digits>f)`.
-    ///   f8* / f256 / f512 are library classes: the double literal, as before.
+    ///   f256 / f512 are library classes: their parser (_wide_float_lit).
+    ///   f8* are library classes too: the double literal, as before.
     ///
     /// An unsuffixed f64 literal with no separator keeps its own bytes.
     priv fn _float_lit(self, n: unsafe *FloatingLiteralExpr) {
@@ -6379,10 +6380,26 @@ pub class EmitIR {
                 self._cg->sink->create_int(t.range, &digits)
                 self._cg->sink->spell(t.range, ")")
                 return
+            } case BuiltinKind::F256 {
+                self._wide_float_lit(t.range, n->type_, &digits)
+                return
+            } case BuiltinKind::F512 {
+                self._wide_float_lit(t.range, n->type_, &digits)
+                return
             } default { }
         }
 
         self._cg->sink->create_int(t.range, &digits)
+    }
+
+    /// An f256 / f512 literal: no C++ literal has the precision, so the
+    /// digits go to the class's parser, `F256::lit_("<digits>", n)`, which
+    /// rounds them once from the decimal (or hex) text, exactly as clang
+    /// rounds a `1.5Q`. A call at run time, not a constant; see P722.
+    priv fn _wide_float_lit(self, at: SourceRange, ty: unsafe *Type, digits: *string) {
+        var text = self._spell._type(ty) + "::lit_(\"" + *digits + "\", "
+        text += f"{digits->size()})"
+        self._cg->sink->spell(at, text)
     }
 
     /// ## Base initializers
@@ -7447,6 +7464,65 @@ pub class EmitIR {
         self._bind_depth = d
     }
 
+    /// f256 / f512: classes in C++ (num/f256_t.k) that declare `+ - * /`
+    /// only, Kairo deriving `+=` and the rest (operator-overloading.mdx),
+    /// so C++ has no `+=` to call.
+    priv fn _wide_float(self, t: unsafe *Type) -> bool {
+        var unsafe *c = CXXSpell::strip_ref(t)
+        if c == &null || !isa<BuiltinType>(c) {
+            return false
+        }
+
+        var b = cast<BuiltinType>(c)->builtin
+        return b == BuiltinKind::F256 || b == BuiltinKind::F512
+    }
+
+    /// `place OP= v` on an f256 / f512: `place = place OP v`, the place
+    /// evaluated once (bound, `auto&`, unless a local), then v.
+    priv fn _wide_compound(self, n: unsafe *AssignOperatorExpr, k: TokenKind) {
+        var unsafe *s  = self._cg->sink
+        var        at  = n->range
+        var        sym = "+"
+        if k == TokenKind::OpMinus {
+            sym = "-"
+        } else if k == TokenKind::OpStar {
+            sym = "*"
+        } else if k == TokenKind::OpSlash {
+            sym = "/"
+        } else if k != TokenKind::OpPlus {
+            self._ice(at, "EmitIR: an f256 / f512 compound assignment with no class operator")
+        }
+
+        if self._is_local_place(n->lhs) {
+            s->spell(at, "(")
+            self.emit(n->lhs)
+            s->spell(at, " = ")
+            self.emit(n->lhs)
+            s->spell(at, " " + sym + " (")
+            self._value(n->rhs, n->lhs->type_)
+            s->spell(at, "))")
+            return
+        }
+
+        var d = self._bind_depth
+        self._bind_depth += 1
+        var p = LowerTargets::wrap_tmp("p", d)
+        self._form_open(at)
+        s->spell(at, "auto& " + p + " = (")
+        self.emit(n->lhs)
+        s->spell(at, "); " + p + " = " + p + " " + sym + " (")
+        self._value(n->rhs, n->lhs->type_)
+        s->spell(at, ");")
+        if self._stmt_node != n {
+            s->spell(at, " ")
+            self._form_value(at)
+            s->spell(at, p + ";")
+        }
+
+        self._form_close(at)
+        self._bind_depth = d
+    }
+
     /// `place OP= v` with OP a wrap-form op (_compound_op). A local place
     /// is `(x = <x OP v>)`; any other is bound once, `auto&` so its cv
     /// stays: `({ auto& p = (place); p = <p OP v>; p; })`, the trailing
@@ -8065,6 +8141,11 @@ pub class EmitIR {
                 && self._wraps(n->lhs->type_)
                 && (cshift || self._wraps(n->rhs->type_)) {
                 self._compound_form(n, ck)
+                return
+            }
+
+            if ck != TokenKind::TkUnknown && self._wide_float(n->lhs->type_) {
+                self._wide_compound(n, ck)
                 return
             }
 

@@ -199,8 +199,8 @@ pub class PrimitiveLimits {
         }
     }
 
-    /// A float with a single exponent field: every float but the limb
-    /// formats (f256 / f512), whose layout columns are 0.
+    /// A float whose layout columns are filled: every float but f256 / f512,
+    /// whose fraction and bias do not fit them (CanonicalNodes.k).
     static fn is_layout_float(b: BuiltinKind) -> bool {
         var *info = builtin_info(b)
         return info->is_float() && info->fp.exp != 0
