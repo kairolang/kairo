@@ -595,6 +595,7 @@ pub class SysSdk {
         argv.push_back(kcc)
         argv.push_back(f"--target={ct}")
         argv.push_back(f"--sysroot={r}")
+        argv.push_back("-Xkairo")   // kcc takes kairo-only words this way
         argv.push_back("--sysroot-exact")
         argv.push_back("-std=c++20")
         argv.push_back("-c")

@@ -442,6 +442,7 @@ pub class SysGen {
         probe.push_back(kcc)
         probe.push_back("--target=" + m.triple)
         probe.push_back("--sysroot=" + root)
+        probe.push_back("-Xkairo")   // kcc takes kairo-only words this way
         probe.push_back("--sysroot-exact")
         probe.push_back("-###")
         probe.push_back(LinkText::join(vdir, "t.c"))
@@ -541,6 +542,7 @@ pub class SysGen {
                 argv.push_back(m.triple)
                 argv.push_back("--sysroot")
                 argv.push_back(root)
+                argv.push_back("--sysroot-exact")
                 argv.push_back("-o")
                 argv.push_back(bin)
             } else {
@@ -551,6 +553,7 @@ pub class SysGen {
 
                 argv.push_back("--target=" + m.triple)
                 argv.push_back("--sysroot=" + root)
+                argv.push_back("-Xkairo")   // kcc takes kairo-only words this way
                 argv.push_back("--sysroot-exact")
                 for var x: string in extra {
                     argv.push_back(x)
@@ -1404,6 +1407,7 @@ pub class SysGen {
         argv.push_back(kcc)
         argv.push_back("--target=" + triple)
         argv.push_back("--sysroot=" + root)
+        argv.push_back("-Xkairo")   // kcc takes kairo-only words this way
         argv.push_back("--sysroot-exact")
         argv.push_back("-c")
         argv.push_back(src)
