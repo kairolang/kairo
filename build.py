@@ -483,13 +483,17 @@ def platform_args(os_: str) -> list:
 
 # --- profile (build.k optimize) ---------------------------------------------
 
-def profile_args(debug: bool, sanitize_ub: bool) -> list:
+def profile_args(debug: bool, sanitize_ub: bool, os_: str = "linux") -> list:
     if debug:
         # Compiler/Spec/BuildSystem.md#compile-line. DEBUG for Kairo source (-D) and for C++ (--cxx-define).
         # KAIRO_LLVM_DUMP_UNUSED: the merged codegen PCH drops `used` from clang's
         # LLVM_DUMP_METHOD functions, so no TU IRGens them unasked (CodegenPCH.k).
         a = ["--profile", "debug", "-O0", "-g", "--debug-macros",
              "-D", "DEBUG", "--cxx-define", "DEBUG", "--cxx-define", "KAIRO_LLVM_DUMP_UNUSED"]
+        # LLVM crashes (null MCExpr fragment in DwarfDebug::endModule) emitting macro debug info
+        # for a Mach-O target, so a macOS host leaves --debug-macros out.
+        if os_ == "macos":
+            a.remove("--debug-macros")
         if sanitize_ub:
             a += ["-fsanitize-ub"]
         return a
@@ -1358,7 +1362,7 @@ def main() -> int:
     if a.target:
         common = cross_llvm_args(llvm_src, a.target) + profile_args(debug, a.sanitize_ub)
     else:
-        common = llvm_args(llvm_src, llvm_build, out_lib, os_) + platform_args(os_) + profile_args(debug, a.sanitize_ub)
+        common = llvm_args(llvm_src, llvm_build, out_lib, os_) + platform_args(os_) + profile_args(debug, a.sanitize_ub, os_)
     # --native (decided 2026-11-03): link against this machine's C library, headers and
     # libraries. The vendored LLVM was built against the host glibc (2.38 / 2.44 symbol
     # versions), above the bundled sysroot's 2.31 floor, so a sysroot link warns L001W
