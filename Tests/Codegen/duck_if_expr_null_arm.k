@@ -1,6 +1,6 @@
 // `var id = if (x != &null && isa<..>(x)) => (cast<..>(x)) else => &null;`
-// in a duck `<T: type>` mixin left the `&null` arm untyped beside a dependent
-// arm, then `id->resolved_decl` ICEd "unbound member step reached codegen".
+// in a duck `<T: type>` mixin: the `&null` arm is typed beside a dependent
+// arm, and `id->resolved_decl` does not reach codegen unbound.
 // An if-expression with a duck-rooted arm is the instance's: the local is
 // `auto`, and the `&null` arm is emitted so the conditional has a common type.
 

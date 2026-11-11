@@ -158,6 +158,20 @@ pub class TypeImport {
         return kairo::std::from_std_string<string>(s)
     }
 
+    /// `::std::map`: a template-template argument's identity (see _args).
+    /// Rooted, redundant inline namespaces dropped (the policy default), so
+    /// the name is the same however the argument was written.
+    fn _template_name(self, d: unsafe *const clang::NamedDecl) -> string {
+        var pol = clang::PrintingPolicy(self.cctx->getLangOpts())
+        pol.FullyQualifiedName     = (true as u32)
+        pol.SuppressUnwrittenScope = (true as u32)
+        var s: cxx::std::string
+        var os = llvm::raw_string_ostream(&s)
+        d->printQualifiedName(&os, pol)
+        os.flush()
+        return "::" + kairo::std::from_std_string<string>(s)
+    }
+
     /// Inline buffer, not std::string: almost every USR fits in 128 bytes,
     /// and every consumer (ForeignRegistry's StringMap) takes a StringRef,
     /// so the common case never touches the heap.
@@ -827,7 +841,33 @@ pub class TypeImport {
                 continue
             }
 
-            return false // Declaration / Template / Expression: no canonical shape yet.
+            // `basic_json<std::map, std::vector, ...>` (nlohmann's `json`): a
+            // template-template argument. Refusing it made the whole
+            // specialization opaque, and an opaque is keyed by the SPELLING
+            // it was reached through, so `nl::json`, `api::Json` (an alias of
+            // it) and a return type printed three ways were three types that
+            // did not convert, and none could be looked into (P793-P795).
+            // The argument's identity is the template it names, so it is an
+            // opaque keyed by that template's qualified name: no type is
+            // spelled that way, so it can collide with nothing. The fill
+            // finds the exact specialization through note_spec, never by
+            // exporting this argument back.
+            if a.getKind() == clang::TemplateArgument::Template {
+                var unsafe *td = a.getAsTemplate().getAsTemplateDecl()
+                if td == &null || llvm::isa<clang::TemplateTemplateParmDecl>(td) {
+                    return false
+                }
+
+                var unsafe *ctd = llvm::dyn_cast<clang::NamedDecl>(td->getCanonicalDecl())
+                if ctd == &null {
+                    return false
+                }
+
+                out.push_back(self.store->opaque(TypeImport::opaque_key(self._template_name(ctd))))
+                continue
+            }
+
+            return false // Declaration / Expression / pack of templates: no canonical shape yet.
         }
 
         return true

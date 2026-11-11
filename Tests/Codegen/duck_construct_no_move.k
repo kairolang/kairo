@@ -2,7 +2,7 @@
 // G(x)`) is wrapped in the no-panic check. The check must not move the
 // constructed value: `operator,` returned it by value from `T&&`, so a guard
 // with deleted copy AND move failed to compile (and a movable one ran its
-// destructor twice). The construction now stays a prvalue.
+// destructor twice). The construction stays a prvalue.
 
 ffi "c++" import "duck_construct_no_move.h"
 

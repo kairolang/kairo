@@ -73,6 +73,8 @@ KAIRO_RT_TRAIT1(is_abstract, __is_abstract(T))
 KAIRO_RT_TRAIT1(is_final, __is_final(T))
 KAIRO_RT_TRAIT1(has_virtual_destructor, __has_virtual_destructor(T))
 KAIRO_RT_TRAIT1(is_destructible, __is_destructible(T))
+/* False while T is still being defined: the answer is cached, so ask only where that is meant (Vector's copy constraint). */
+KAIRO_RT_TRAIT1(is_complete, requires { sizeof(T); })
 KAIRO_RT_TRAIT2(is_base_of, __is_base_of(T, U))
 KAIRO_RT_TRAIT2(is_convertible, __is_convertible(T, U))
 KAIRO_RT_TRAIT2(is_trivially_assignable, __is_trivially_assignable(T &, U))

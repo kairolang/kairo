@@ -1,8 +1,8 @@
 // A generic function declared and then defined is ONE function: its two
 // declarations name their generic parameters independently, so the
 // signatures are compared up to the parameters' names (alpha-equivalence).
-// Before, every call was SC064E "call to 'g' is ambiguous", candidates the
-// declaration and the definition. Covered: the ticket's shape (a bounded
+// No call is SC064E "call to 'g' is ambiguous" between the
+// declaration and the definition. Covered: the reported shape (a bounded
 // parameter, a caller between the two), renamed parameters, a return type
 // over the parameter, a value parameter, two type parameters, and a
 // generic member function declared in its class and defined out of line.

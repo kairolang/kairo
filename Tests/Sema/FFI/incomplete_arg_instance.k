@@ -3,7 +3,7 @@
 // `DenseMapPair<Fwd, int>` a hard libc++ error (CL001E, `pair` field of
 // incomplete type) that nothing asked for: ASTContext.h's
 // `DenseMap<GlobalDecl, StringSet<>>`. An instance with an incomplete class
-// argument is now attempted silently and left unfilled.
+// argument is attempted silently and left unfilled.
 // CHECK-NOT: error
 ffi "c++" import "incomplete_arg_instance.h"
 

@@ -4118,6 +4118,14 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
     fn _dx_string_literal(self, e: unsafe *StringLiteralExpr, is_last: bool) {
         self._head("StringLiteralExpr", is_last)
         self._inline_expr(e)
+        // The suffix is a separate token, not part of the literal's own
+        // spelling; without it `"hi"_len` dumped as a plain string though Sema
+        // makes it a literal-operator call.
+        if e->imm != &null && e->get_suffix().range.is_valid() {
+            var sfx = e->ctx->get_spelling(e->get_suffix().range)
+            self._dim(f"suffix {sfx}")
+        }
+
         self.p.newline()
 
         // If there are no interpolated holes, we are done

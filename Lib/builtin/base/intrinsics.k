@@ -247,6 +247,12 @@ pub eval fn <T, A> __builtin_is_constructible() -> bool { return kairo_rt_is_con
 pub eval fn <T> __builtin_is_default_constructible() -> bool { return kairo_rt_is_constructible0<T>() }
 /// Returns true when a `U` can be assigned to a `T`. Maps to `__is_assignable`.
 pub eval fn <T, U> __builtin_is_assignable() -> bool { return kairo_rt_is_assignable<T, U>() }
+/// Returns true when `T` is a complete type at the point of evaluation (`requires { sizeof(T); }`).
+///
+/// False for a class still being defined, e.g. a member of type `Vector<Self>`. Clang caches a
+/// constraint's answer, so a constraint that asks `!is_complete || ...` is answered `true` for the
+/// recursive case and judged for real everywhere else.
+pub eval fn <T> __builtin_is_complete() -> bool { return kairo_rt_is_complete<T>() }
 /// Returns true when a `T` can be destroyed. Maps to `__is_destructible`.
 pub eval fn <T> __builtin_is_destructible() -> bool { return kairo_rt_is_destructible<T>() }
 

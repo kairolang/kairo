@@ -1,6 +1,6 @@
 // (deferred) / : `op new` / static `op delete` on a class would be
-// its own allocator. Kairo rejects them (SC149E, 2026-11-08), so this program,
-// which used to run its create / destroy through Pooled's pair, no longer
+// its own allocator. Kairo rejects them (SC149E), so this program,
+// which would run its create / destroy through Pooled's pair, does not
 // compiles: each operator is an error at its name, and nothing else is.
 // Allocation that counts goes through @set_global_allocator instead
 // (Tests/alloc/class_allocator_counts.k).

@@ -102,7 +102,7 @@ pub class <T> Vector {
     /// Creates a vector holding a copy of every element of `items`.
     ///
     /// This is what `[a, b, c]` lowers to against a `[T]` target, and what `s as [T]` calls. O(n).
-    pub fn Vector(self, const items: [T;]) requires __builtin_is_constructible<T, const T>() {
+    pub fn Vector(self, const items: [T;]) requires (!__builtin_is_complete<T>()) || __builtin_is_constructible<T, const T>() {
         self.set_empty()
         if items.len == 0 { return }
         self.allocate(items.len)
@@ -112,7 +112,7 @@ pub class <T> Vector {
     /// Creates a vector of `n` default-constructed elements, with capacity exactly `n`. O(n).
     ///
     /// Only available when T is default-constructible.
-    pub fn Vector(self, n: usize) requires __builtin_is_default_constructible<T>() {
+    pub fn Vector(self, n: usize) requires (!__builtin_is_complete<T>()) || __builtin_is_default_constructible<T>() {
         self.set_empty()
         if n == 0 { return }
         self.allocate(n)
@@ -132,8 +132,14 @@ pub class <T> Vector {
     ///     }
     /// Nothing else changes: the destructor frees an empty vector's
     /// storage as a no-op (cap 0), and `op =` is derived per constructor.
+    ///
+    /// The constraint is lazy for a recursive element: while `T` is still being
+    /// defined (`class Json { var items: [Json] }`) clang asks it to declare
+    /// Json's implicit copy constructor, and a false answer, cached, would
+    /// delete that constructor for good. An incomplete `T` therefore passes;
+    /// a complete one (`[MoveOnly]`) is judged for real and stays uncopyable.
     @copy
-    pub fn Vector(self, const other: Self) requires __builtin_is_constructible<T, const T>() {
+    pub fn Vector(self, const other: Self) requires (!__builtin_is_complete<T>()) || __builtin_is_constructible<T, const T>() {
         self.set_empty()
         if other.len == 0 { return }
         self.allocate(other.len)
@@ -392,7 +398,7 @@ pub class <T> Vector {
     }
 
     /// Copy-constructs n elements from src after the live ones.
-    priv fn copy_from(self, src: *const T, n: usize) requires __builtin_is_constructible<T, const T>() {
+    priv fn copy_from(self, src: *const T, n: usize) requires (!__builtin_is_complete<T>()) || __builtin_is_constructible<T, const T>() {
         if __builtin_is_trivially_copyable<T>() {
             unsafe { __builtin_copy(self.slot(self.len), src as unsafe *const u8, n * sizeof T) }
             self.len += n

@@ -1,9 +1,9 @@
 // A map literal, then a store and a load by key (collections.mdx, Maps).
 //
 // ListLiteralLowering builds it as `HashMap(<the entries as a slice of
-// (K, V) tuples>)` (Lib/builtin/containers/hash_map.k); the ticket "[Lower]
-// Set and map literals have no lowering and ICE" (2026-10-26) is fixed by
-// that lowering.
+// (K, V) tuples>)` (Lib/builtin/containers/hash_map.k).
+//
+//
 
 fn main() -> i32 {
     var ages: {string: i32} = {"Alice": 30, "Bob": 25}

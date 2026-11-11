@@ -1,5 +1,5 @@
 // `var u: T::Guard;` under a duck `<T: type>` is spelled `typename T::Guard`
-// (it ICEd "unresolved type reached codegen").
+// (it is never left unresolved at codegen).
 
 class Host derives Mixin<Host> {
     pub var pos: i32 = 0;

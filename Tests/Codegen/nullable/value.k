@@ -10,8 +10,8 @@
 // live Widget only (a moved-from one has id 0). A null `Widget?` holds no
 // Widget; a present one is destroyed exactly once -- on reassignment, on
 // `= null`, at scope exit; a move-only Widget moves into a `Widget?`
-// parameter. Regression for the ticket "NullableTypeLowering is never
-// run": every `T?` here used to ICE in CXXSpell.
+// parameter. Each `T?` here is lowered, not left to
+// ICE in CXXSpell.
 
 import std::io::println
 

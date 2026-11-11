@@ -361,11 +361,22 @@ pub class EmitSink {
                     )
                 }
 
-                var lit = text.subslice(i, j + 1 - i)
+                // `operator""_len`: the suffix is part of the literal token,
+                // as the C++ lexer reads it. Split into `""` and `_len` the
+                // tokens were C++23's deprecated `operator "" _len`, and
+                // clang warned C271W at every literal-operator call.
+                var end = j + 1
+                if after_operator && end < n && self._is_ident_start(text[end]) {
+                    while end < n && self._is_ident_char(text[end]) {
+                        end += 1
+                    }
+                }
+
+                var lit = text.subslice(i, end - i)
                 self.create_str(at, &lit)
                 after_operator = false
                 any            = true
-                i              = j + 1
+                i              = end
                 continue
             }
 
