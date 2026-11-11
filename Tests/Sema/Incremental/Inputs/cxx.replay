@@ -1,0 +1,18 @@
+# Tests/Sema/Incremental/replay_cxx.k: Kairo records handed to a C++
+# template (std::vector) as stand-ins declared in the clang AST.
+step entry_body
+replace s/main.k:::Own{n: 2}:::Own{n: 3}
+step imported_body
+replace s/local.k:::return 1:::return 4
+step entry_error
+replace s/main.k:::return v[i].a + w[i].n:::return v[i].a + w[i].missing
+step entry_fixed
+replace s/main.k:::w[i].missing:::w[i].n
+step own_layout
+replace s/main.k:::    var n: i32\n}:::    var n: i32\n    var m: i64 = 0\n}
+step entry_body_again
+replace s/main.k:::Own{n: 3}:::Own{n: 5}
+step imported_layout
+replace s/local.k:::    pub var a: i32\n}:::    pub var a: i32\n    pub var b: i32 = 0\n}
+step imported_body_again
+replace s/local.k:::return 4:::return 6

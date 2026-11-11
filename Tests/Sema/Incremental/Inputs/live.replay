@@ -1,0 +1,23 @@
+# Tests/Sema/Incremental/replay_instances.k: two files (a.k, b.k) that do not
+# import each other name the same instances of g.k's generics; a.k is
+# checked first, so the once-only conformance report is its.
+step a_body
+replace s/a.k:::total(Sq{s: 2}):::total(Sq{s: 4})
+step b_body
+replace s/b.k:::total(Sq{s: 3}):::total(Sq{s: 5})
+step a_stops_naming_it
+replace s/a.k:::return total(Sq{s: 4}) + h.bad():::return h.bad()
+step b_body_again
+replace s/b.k:::total(Sq{s: 5}):::total(Sq{s: 6})
+step a_names_it_again
+replace s/a.k:::return h.bad():::return total(Sq{s: 4}) + h.bad()
+step conformance_fixed
+replace s/s.k:::    pub var s: i32\n}:::    pub var s: i32\n\n    pub fn area(self) -> i32 {\n        return self.s\n    }\n}
+step a_body_clean
+replace s/a.k:::total(Sq{s: 4}):::total(Sq{s: 7})
+step generic_body
+replace s/g.k:::        var y = 1 as i32:::        var y = 2 as i32
+step conformance_broken
+replace s/s.k:::    pub fn area(self) -> i32 {:::    pub fn area2(self) -> i32 {
+step main_body
+replace s/main.k:::return fa() + fb():::return fb() + fa()

@@ -7,7 +7,7 @@
 // subobject. `pair<u64, CS>` asks whether CS is copy-assignable; declaring
 // CS's implicit copy assignment walked into the vector's missing
 // definition. Reachable once a derived class (E) has a stand-in.
-// A by-value class field is now completed first, and a pointer names its
+// A by-value class field is completed first, and a pointer names its
 // pointee by a declaration only.
 
 ffi "c++" import "vector";

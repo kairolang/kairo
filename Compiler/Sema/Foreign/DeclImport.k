@@ -486,6 +486,25 @@ pub class DeclImport {
             dc = dc->getParent()
         }
 
+        // A hidden friend is an entity of the enclosing namespace, so the
+        // walk above never meets the specialization; it is WRITTEN in it,
+        // and its parameters are spelled with the specialization's own
+        // arguments. Two Kairo instances that are one specialization to
+        // clang (`Box<usize>` and `Box<u64>`) must each have their own, as
+        // they do of every member: sharing the first one's, the second
+        // fill re-typed it (define) and the first instance's `==` took the
+        // second's types, so whichever file compared next failed (SC063E /
+        // SC066E), by check order.
+        var unsafe *ldc = d->getLexicalDeclContext()
+        while ldc != &null {
+            var unsafe *lcd = clang::Decl::castFromDeclContext(ldc)
+            if lcd != &null && lcd->getCanonicalDecl() == spec {
+                return true
+            }
+
+            ldc = ldc->getLexicalParent()
+        }
+
         return false
     }
 

@@ -2240,6 +2240,22 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "",
     )
 
+    cmd->define<FlagKind::Bool>(
+        "incr-replay-in-place",
+        "",
+        "incr-replay-in-place",
+        "with --incr-replay: re-check an edited file and the files that import it in place where that is sound, instead of a full check per step (`refresh (K of N files)`); an edit that cannot be is still `full`, with the reason",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "incr-replay-strict-cxx",
+        "",
+        "incr-replay-strict-cxx",
+        "with --incr-replay-in-place: a full check whenever a kept C++ template instance was filled for an edited file (LiveCheck::strict_cxx)",
+        false,
+    )
+
     cmd->define<FlagKind::String>(
         "incr-replay-dump",
         "",

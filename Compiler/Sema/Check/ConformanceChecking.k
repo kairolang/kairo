@@ -1224,6 +1224,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         if e->depth > 0 {
+            self.sc->instances->note_reuse(e, if (site.start.is_valid()) => (site) else => self._cur_at)
             self._recheck(e, site)
             return
         }

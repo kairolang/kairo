@@ -3,8 +3,8 @@
 //
 // A GNU vector type imports as one opaque keyed by its canonical type,
 // so a value round-trips between C++ calls and two typedefs of the same
-// vector (`v2di` / the aligned(1) `v2di_u`) are the same type. Before, each
-// typedef spelling was its own opaque and `load(*const v2di)` was SC063E.
+// vector (`v2di` / the aligned(1) `v2di_u`) are the same type. Each
+// typedef spelling is not its own opaque, so `load(*const v2di)` is not SC063E.
 
 ffi "c++" import "vector_type.h"
 ffi "c++" import "emmintrin.h"

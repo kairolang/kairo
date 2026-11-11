@@ -323,6 +323,12 @@ pub class BasicDiagConsumer derives DiagConsumer {
         return out
     }
 
+    /// What finalize_to_stderr would write for \p diag, for a tool that
+    /// keeps the diagnostics itself (Tooling/LiveCheck.k).
+    pub fn render(self, diag: unsafe *Diagnostic) -> string {
+        return self.stderr_text(diag)
+    }
+
     /// How many diagnostics are buffered.
     pub fn count(self) -> usize {
         return self._diags.size()

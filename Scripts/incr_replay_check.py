@@ -15,7 +15,8 @@ edits step by step IN ONE PROCESS, bringing its result up to date after each
 Nothing is normalized: same directory, same paths, same flags on both sides.
 
 The script format is the compiler's (Compiler/Tooling/IncrReplay.k): `step <name>`,
-`replace <file>:::<old>:::<new>`, `write <file>:::<text>`, `remove <file>`, `\\n` for a
+`replace <file>:::<old>:::<new>`, `write <file>:::<text>`, `append <file>:::<text>`,
+`remove <file>`, `\\n` for a
 line break, `#` comments. --from-scenarios makes one from an incr_oracle.py scenario
 file instead: each scenario is two steps, its edits and then their reversal, so a
 whole scenario list runs as one session.
@@ -71,6 +72,11 @@ def parse_script(text):
             if len(f) != 2:
                 die(f"write wants <file>:::<text>: {line}")
             steps[-1][1].append(("write", f[0], unescape(f[1]), ""))
+        elif line.startswith("append "):
+            f = line[7:].split(":::")
+            if len(f) != 2:
+                die(f"append wants <file>:::<text>: {line}")
+            steps[-1][1].append(("append", f[0], unescape(f[1]), ""))
         elif line.startswith("remove "):
             steps[-1][1].append(("remove", line[7:], "", ""))
         else:
@@ -88,6 +94,8 @@ def apply(root, edits):
             p.write_text(cur.replace(a, b))
         elif op == "write":
             p.write_text(a)
+        elif op == "append":
+            p.write_text(p.read_text() + a)
         else:
             p.unlink()
 
@@ -209,6 +217,7 @@ def main():
         if not args.live_only:
             apply(root, edits)
             clean_dump = scratch / "clean.interface.json"
+            clean_dump.unlink(missing_ok=True)
             cp = subprocess.run([kairo, entry, *flags, "--error-format=basic", "--type-check-only",
                                  f"--dump-interface={clean_dump}"], cwd=root, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.PIPE, timeout=args.timeout)

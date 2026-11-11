@@ -152,11 +152,21 @@ import Resolution::ImportProbe::ImportResolver
 import Resolution::ModulePath::ModulePath
 import Sema::Check::EffectPropagation::EffectTable
 import Sema::Incremental::Plan::PlanModule
+import AST::DeclFacts::decl_is_imported
+import AST::Node::CanonicalNodes::{
+    QualifiedType,
+    RecordType,
+}
+import Sema::Incremental::Retract::{
+    RetractStats,
+    retract_instances,
+}
 import Diagnostic::FileDiagnostics::FileDiagConsumer
 import Sema::Incremental::Facts::{
     FileDeps,
     FileFacts,
     IncrFacts,
+    incr_decl_id,
     incr_json,
     incr_resolve_deps,
 }
@@ -202,6 +212,12 @@ pub class FrontendAction {
     /// --dump-interface / --dump-deps and written at the end of _sema. Only
     /// the driver thread appends (_sema_finish runs there).
     priv var _incr: cxx::std::vector<FileFacts>
+    /// Registry entries the last retract() re-armed (refresh() checks that
+    /// its Sema made each live again).
+    priv var _rearmed:     cxx::std::vector<unsafe *InstanceEntry>
+    priv var _rearmed_was: cxx::std::vector<string> ///< parallel: what each was, for the reason
+    /// More about the last refresh()'s refusal (which instance), for a log.
+    pub var refresh_detail: string = ""
     priv var _graph:        cxx::std::vector<u32> ///< every fid of the graph, an earlier input's too
     pub var  result:        TUResult
     priv var _stage:        TUStage
@@ -1258,6 +1274,7 @@ pub class FrontendAction {
         var early_release = self._ci->kairo_only_input_count() == 1
             && !self._ci->kairo_feeds_includes()
             && self._ci->headers() != &null
+            && !fe.live_check
         var set_owners = llvm::DenseMap<u64, u64>()
         if early_release {
             for var fid: u32 in self._fids {
@@ -1471,6 +1488,411 @@ pub class FrontendAction {
 
         // TODO(sema): full pipeline once N/T/checks land: Sema(ctx, gs).run().
         return true
+    }
+
+    /// \brief Sema again for \p fids alone, in an instance whose first
+    ///        check is done (Tooling/LiveCheck.k): each of them has been
+    ///        re-read, re-preprocessed and re-parsed, and every other file
+    ///        of the graph is as its own Sema left it.
+    ///
+    /// \details What _sema does, for a part of the graph: the header set
+    ///          of each file joined and indexed and its ffi imports stamped,
+    ///          the prelude import, the visibility stamp, then the files'
+    ///          import groups in import order on this thread, each to the
+    ///          end of its Sema (its own effect table and mint ranks, after
+    ///          every rank of the first check). The files' old interface
+    ///          facts are replaced.
+    ///
+    /// \pre \p fids is closed under "imports one of them": no file left out
+    ///      points into one that is in.
+    pub fn refresh(self, const fids: cxx::std::vector<u32>) -> string {
+        self.refresh_detail = ""
+        var fe        = self._ci->invocation()->frontend
+        var sema_opts = PrintOptions::diag()
+        var unsafe *hc = self._ci->headers()
+        if hc != &null {
+            hc->wait_all()
+            for var fid: u32 in fids {
+                var unsafe *hctx = self._global_scope->get_context(fid)
+                if hctx == &null {
+                    continue
+                }
+
+                var unsafe *htu = hctx->tu
+                if htu == &null || htu->header_set == &null {
+                    continue
+                }
+
+                var unsafe *view = unsafe (htu->header_set as unsafe *HeaderSet)
+                var unsafe *hs   = view
+                if view->shared != &null {
+                    hs = view->shared
+                }
+
+                self._ci->header_index()->index(hs)
+                hs->drain_diags(self._ci->diag(), self._ci->sm())
+                self._attach_ffi_edges(htu, hctx, hs, view)
+                htu->header_set = unsafe (hs as unsafe *void)
+            }
+        }
+
+        for var fid: u32 in fids {
+            self._inject_prelude_one(fid)
+            var unsafe *vctx = self._global_scope->get_context(fid)
+            if vctx != &null && vctx->tu != &null {
+                stamp_tu_visibility(vctx->tu)
+            }
+        }
+
+        // The files' old facts go; _sema_finish appends the new ones. Their
+        // declarations' interface hashes are kept by DeclId: a record whose
+        // C++ stand-in is adopted must still have the layout it was
+        // declared with.
+        var old_i = llvm::StringMap<u32>()
+        var old_v = cxx::std::vector<string>()
+        for var i: usize = 0; i < self._incr.size(); ++i {
+            var mine = false
+            for var fid: u32 in fids {
+                if self._incr[i].fid == fid {
+                    mine = true
+                }
+            }
+
+            if mine {
+                _facts_hashes(unsafe &self._incr[i], unsafe &old_i, unsafe &old_v)
+            }
+        }
+
+        var kept = cxx::std::vector<FileFacts>()
+        for var i: usize = 0; i < self._incr.size(); ++i {
+            var drop = false
+            for var fid: u32 in fids {
+                if self._incr[i].fid == fid {
+                    drop = true
+                }
+            }
+
+            if !drop {
+                kept.push_back(self._incr[i])
+            }
+        }
+
+        self._incr = kept
+
+        // Import order over the whole graph, cut down to the files asked for.
+        var order = cxx::std::vector<u32>()
+        for var f: u32 in self._import_order() {
+            for var fid: u32 in fids {
+                if f == fid {
+                    order.push_back(f)
+                }
+            }
+        }
+
+        var groups = ImportGroups()
+        groups.build(order, self._global_scope)
+        var effects:  EffectTable
+        var ngroups   = ((groups.starts.size() - 1) as u64)
+        var unsafe *reg = self._global_scope->instances()
+        var rank_base   = reg->reserve_ranks(ngroups)
+        var relive      = cxx::std::vector<unsafe *InstanceEntry>()
+        var relive_at   = cxx::std::vector<SourceRange>()
+        reg->relive_log = unsafe &relive
+        reg->relive_at  = unsafe &relive_at
+        for var g: usize = 0; g + 1 < groups.starts.size(); ++g {
+            var members = cxx::std::vector<u32>()
+            for var k: usize = (groups.starts[g]); k < (groups.starts[g + 1]); ++k {
+                members.push_back(groups.fids[k])
+            }
+
+            var slot = SemaSlot()
+            slot.rank = rank_base + (g as u64) + 1 << 32
+            slot.enter()
+            self._sema_group(unsafe &members, unsafe &effects, false, false, sema_opts)
+            SemaSlot::leave()
+        }
+
+        reg->relive_log = &null
+        reg->relive_at  = &null
+        reg->set_floor_rank(rank_base + ngroups + 1 << 32)
+
+        // An instance's once-only reports belong to its FIRST use in the
+        // order files are checked. Two ways a re-check of some files can
+        // have moved that, each a result a fresh run would not print:
+        //  - an entry the set had made live was re-armed and nothing of the
+        //    re-check made it live again: its first use is now a kept
+        //    file's, which was not re-checked;
+        //  - a file of the set used an entry a kept file made live, from a
+        //    place earlier in the order than that file.
+        for var i: usize = 0; i < self._rearmed.size(); ++i {
+            if self._rearmed[i]->depth == 0 {
+                var unsafe *re = self._rearmed[i]
+                var what = if (re->primary != &null) => (incr_decl_id(re->primary, self._ci->pp()->get_symbol_table())) else => "?"
+                self.refresh_detail = what + f" ({self._rearmed_was[i]})"
+                return "an instance the edited files used first is now used first by a kept file"
+            }
+        }
+
+        for var i: usize = 0; i < relive.size(); ++i {
+            if relive[i]->primary != &null && decl_is_imported(relive[i]->primary) {
+                continue
+            }
+
+            var mine = self._drain_place(relive_at[i])
+            var its  = self._drain_place(relive[i]->use_at)
+            if mine != usize::MAX && its != usize::MAX && mine < its {
+                return "the edited files now use an instance before the kept file that used it first"
+            }
+        }
+
+        // A C++ stand-in a re-read record adopted keeps the layout clang
+        // was given the first time: the record's interface hash, which is
+        // its layout, has to be the one it had.
+        var unsafe *freg = self._ci->foreign_registry()
+        if freg != &null && freg->adopted.size() > 0 {
+            var new_i = llvm::StringMap<u32>()
+            var new_v = cxx::std::vector<string>()
+            for var i: usize = 0; i < self._incr.size(); ++i {
+                for var fid: u32 in fids {
+                    if self._incr[i].fid == fid {
+                        _facts_hashes(unsafe &self._incr[i], unsafe &new_i, unsafe &new_v)
+                    }
+                }
+            }
+
+            for var i: usize = 0; i < freg->adopted.size(); ++i {
+                var id = incr_decl_id(freg->adopted[i], self._ci->pp()->get_symbol_table())
+                var a  = old_i.find(kairo::sref(id))
+                var b  = new_i.find(kairo::sref(id))
+                if a == old_i.end() || b == new_i.end() || old_v[a->second as usize] != new_v[b->second as usize] {
+                    return "a record handed to a C++ template changed its layout: " + id
+                }
+            }
+        }
+
+        if (!fe.dump_interface.empty()) || (!fe.dump_deps.empty()) {
+            self._dump_incremental(fe.dump_interface, fe.dump_deps)
+        }
+
+        return ""
+    }
+
+    /// \brief why \p set cannot be re-checked by refresh(), "" when it
+    ///        can. Asked on the files' CHECKED trees, before they are
+    ///        re-read.
+    ///
+    /// \details Each reason is something a file of the set wrote into
+    ///          state that outlives its tree and that nothing takes back
+    ///          out: such an edit is a full check.
+    pub fn refresh_blocker(self, const set: cxx::std::vector<u32>) -> string {
+        for var fid: u32 in set {
+            var unsafe *ctx = self._global_scope->get_context(fid)
+            if ctx == &null || ctx->tu == &null {
+                return "a file of the refresh set was never checked"
+            }
+
+            var unsafe *tu = ctx->tu
+            // The registry's specialization tables match every use in the
+            // build, and hold the declaration.
+            var exts = cxx::std::vector<unsafe *Decl>()
+            if _refresh_specs(unsafe (tu as unsafe *DeclContext), unsafe &exts) {
+                return "a file that declares a specialization: " + Path(ctx->sm->get_filename(fid)).filename()
+            }
+
+            // An out-of-line definition is spliced into the redeclaration
+            // ring of a class another file declares.
+            for var i: usize = 0; i < tu->out_of_line.size(); ++i {
+                var unsafe *d = *tu->out_of_line.get(i)
+                if d == &null || d->semantic_dc == &null {
+                    continue
+                }
+
+                var unsafe *home  = NameLookup::tu_of(d->semantic_dc)
+                var        inside = false
+                for var f: u32 in set {
+                    var unsafe *c = self._global_scope->get_context(f)
+                    if c != &null && c->tu == home {
+                        inside = true
+                    }
+                }
+
+                if !inside {
+                    return "a file that defines another file's member out of line: " + Path(ctx->sm->get_filename(fid)).filename()
+                }
+            }
+        }
+
+        return ""
+    }
+
+    /// The header set \p fid's ffi imports are checked against (the
+    /// build's shared one when its list was merged into it), or null.
+    pub fn header_set_of(self, fid: u32) -> unsafe *void {
+        var unsafe *ctx = self._global_scope->get_context(fid)
+        if ctx == &null || ctx->tu == &null || ctx->tu->header_set == &null {
+            return &null
+        }
+
+        var unsafe *view = unsafe (ctx->tu->header_set as unsafe *HeaderSet)
+        if view->shared != &null {
+            return unsafe (view->shared as unsafe *void)
+        }
+
+        return unsafe (view as unsafe *void)
+    }
+
+    /// \brief before \p set is re-read: its files are taken out of the
+    ///        build-wide stores that outlive a tree.
+    pub fn retract(self, const set: cxx::std::vector<u32>) -> RetractStats {
+        var st = retract_instances(self._global_scope, self._ci->sm(), self._ci->foreign_registry(), set)
+        self._rearmed = st.rearmed_list
+        self._rearmed_was.clear()
+        for var i: usize = 0; i < st.rearmed_was.size(); ++i {
+            self._rearmed_was.push_back(st.rearmed_was[i])
+        }
+        return st
+    }
+
+    /// The place of the file of \p at in the order files are drained (a
+    /// first check's order, kept by the per-file diagnostics); usize::MAX
+    /// when unknown.
+    priv fn _drain_place(self, at: SourceRange) -> usize {
+        var unsafe *fdc = unsafe (self._ci->invocation()->frontend.file_diags as unsafe *FileDiagConsumer)
+        if fdc == &null || !at.is_valid() {
+            return usize::MAX
+        }
+
+        var name = self._ci->sm()->get_filename(at.start)
+        for var i: usize = 0; i < fdc->order.size(); ++i {
+            if fdc->order[i] == name {
+                return i
+            }
+        }
+
+        return usize::MAX
+    }
+
+    /// \brief the files that must join \p set because a file of it
+    ///        extends a record they declare: an extension is visible in the
+    ///        extended record's own file whether that file imports it or
+    ///        not (MemberLookup's visibility rule), so that file reads the
+    ///        set and is re-checked with it. Appended to \p out, each once;
+    ///        the caller adds their importers and asks again.
+    pub fn refresh_extends(self, const set: cxx::std::vector<u32>, out: *cxx::std::vector<u32>) {
+        for var fid: u32 in set {
+            var unsafe *ctx = self._global_scope->get_context(fid)
+            if ctx == &null || ctx->tu == &null {
+                continue
+            }
+
+            var exts = cxx::std::vector<unsafe *Decl>()
+            _refresh_specs(unsafe (ctx->tu as unsafe *DeclContext), unsafe &exts)
+            for var i: usize = 0; i < exts.size(); ++i {
+                var unsafe *e = cast<Declarations::ExtensionDecl>(exts[i])
+                var unsafe *c = e->target
+                if c != &null && c->canonical != &null {
+                    c = c->canonical
+                }
+
+                if c != &null && isa<QualifiedType>(c) {
+                    c = cast<QualifiedType>(c)->inner
+                    if c != &null && c->canonical != &null {
+                        c = c->canonical
+                    }
+                }
+
+                if c == &null || !isa<RecordType>(c) || cast<RecordType>(c)->decl == &null {
+                    continue
+                }
+
+                var unsafe *home = NameLookup::ctx_of(cast<RecordType>(c)->decl)
+                if home == &null || home->tu == &null || home->tu->is_foreign {
+                    continue
+                }
+
+                var have = false
+                for var f: u32 in set {
+                    if f == home->fid {
+                        have = true
+                    }
+                }
+
+                for var k: usize = 0; k < out->size(); ++k {
+                    if (*out)[k] == home->fid {
+                        have = true
+                    }
+                }
+
+                if !have {
+                    out->push_back(home->fid)
+                }
+            }
+        }
+    }
+
+    /// The prelude import of one non-builtin file, as _sema injects it for
+    /// every file of a first check (see there for why it is a real
+    /// ImportDecl and why it is stamped rather than resolved).
+    priv fn _inject_prelude_one(self, fid: u32) {
+        var bfid = self._global_scope->builtin_fid()
+        if bfid == 0 || fid == bfid || self._ci->invocation()->pp.no_builtins {
+            return
+        }
+
+        var unsafe *pctx = self._global_scope->get_context(fid)
+        if pctx == &null || pctx->tu == &null || pctx->tu->is_foreign {
+            return
+        }
+
+        var unsafe *ptu = pctx->tu
+        var afid        = u32::MAX
+        var bsym        = self._ci->pp()->get_symbol_table()->intern(builtin_root_name())
+        var s_base      = self._ci->pp()->get_symbol_table()->intern("base")
+        var s_alloc     = self._ci->pp()->get_symbol_table()->intern("alloc")
+        for var i: usize = 0; i < self._fids.size(); ++i {
+            var unsafe *actx = self._global_scope->get_context(self._fids[i])
+            if actx == &null {
+                continue
+            }
+
+            var *asg = &actx->module_base.segments
+            if asg->size() != 3 {
+                continue
+            }
+
+            if (*asg)[0].name == bsym && (*asg)[1].name == s_base && (*asg)[2].name == s_alloc {
+                afid = self._fids[i]
+                break
+            }
+        }
+
+        var prng = SourceRange::invalid()
+        if pctx->sm != &null {
+            var ploc = pctx->sm->get_loc(fid, 0)
+            prng = SourceRange(ploc, ploc)
+        }
+
+        var unsafe *pid = Declarations::ImportDecl::create(pctx, prng, Declarations::ImportKind::Native)
+        pid->is_wildcard    = true
+        pid->is_prelude     = true
+        pid->resolved_fid   = bfid
+        pid->file_seg_count = 1
+        ptu->imports.push(pid)
+        var pedge = ImportEdge{}
+        pedge.target_fid = bfid
+        pedge.decl       = pid
+        ptu->import_edges.push(pedge)
+        if afid != u32::MAX && afid != fid && ptu->has_alloc_sugar {
+            var unsafe *aid = Declarations::ImportDecl::create(pctx, prng, Declarations::ImportKind::Native)
+            aid->is_prelude     = true
+            aid->resolved_fid   = afid
+            aid->file_seg_count = 1
+            ptu->imports.push(aid)
+            var aedge = ImportEdge{}
+            aedge.target_fid = afid
+            aedge.decl       = aid
+            ptu->import_edges.push(aedge)
+        }
     }
 
     /// Stamp every ffi ImportDecl of \p tu with what its header resolved to in
@@ -1878,7 +2300,7 @@ pub class FrontendAction {
             // A tool keeping diagnostics per file is told whose these are.
             var unsafe *fdc = unsafe (self._ci->invocation()->frontend.file_diags as unsafe *FileDiagConsumer)
             if fdc != &null {
-                fdc->current = ctx->sm->get_filename(ctx->fid)
+                fdc->enter(ctx->sm->get_filename(ctx->fid))
             }
 
             ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm)
@@ -4641,6 +5063,102 @@ fn _defines_foreign_members(tu:          unsafe *TranslationUnit,
 /// the user imports it or not (TypeResolution::_register_specs_in walks the
 /// same scopes), or an extension, which every TU's member lookup indexes
 /// the same way: such a TU's Sema must not overlap any other's.
+/// _declares_specs for a live check's refresh set: true for an explicit or
+/// partial specialization (the registry's tables match every use in the
+/// build and hold the declaration), while an extension is not a reason to
+/// refuse: it is collected into \p exts, and the file of the record it
+/// extends joins the set (FrontendAction::refresh_extends).
+fn _refresh_specs(dc: unsafe *DeclContext, exts: unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
+    if dc == &null {
+        return false
+    }
+
+    var found = false
+    for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+        var unsafe *d = *dc->dc_decls.get(i)
+        if d != &null && _decl_refresh_specs(d, exts) {
+            found = true
+        }
+    }
+
+    return found
+}
+
+fn _decl_refresh_specs(d: unsafe *Decl, exts: unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
+    if isa<Declarations::VisibilityGroupDecl>(d) {
+        var unsafe *g = cast<Declarations::VisibilityGroupDecl>(d)
+        var found     = false
+        for var i: usize = 0; i < g->members.size(); ++i {
+            if g->members[i] != &null && _decl_refresh_specs(g->members[i], exts) {
+                found = true
+            }
+        }
+
+        return found
+    }
+
+    if isa<Declarations::EvalBlockDecl>(d) {
+        var unsafe *b = cast<Declarations::EvalBlockDecl>(d)
+        var found     = false
+        for var i: usize = 0; i < b->body.size(); ++i {
+            if b->body[i] != &null && _decl_refresh_specs(b->body[i], exts) {
+                found = true
+            }
+        }
+
+        return found
+    }
+
+    if isa<Declarations::ModuleDecl>(d) {
+        return _refresh_specs(NameLookup::context_of(d), exts)
+    }
+
+    if isa<Declarations::ExtensionDecl>(d) {
+        exts->push_back(d)
+        return false
+    }
+
+    var k = decl_spec_kind(d)
+    if k == Declarations::SpecKind::Explicit || k == Declarations::SpecKind::Partial {
+        return true
+    }
+
+    var unsafe *child = NameLookup::context_of(d)
+    if child != &null && child->is_type_scope() {
+        return _refresh_specs(child, exts)
+    }
+
+    return false
+}
+
+/// DeclId -> the interface hashes under it (joined), from \p f's plan
+/// lines (`id, scope, name, I, ...`), added to \p at / \p vals.
+fn _facts_hashes(f: unsafe *FileFacts, at: unsafe *llvm::StringMap<u32>, vals: unsafe *cxx::std::vector<string>) {
+    for var k: usize = 0; k < f->plain_decls.size(); ++k {
+        var l          = f->plain_decls[k]
+        var cut        = cxx::std::vector<usize>()
+        for var c: usize = 0; c < l.size() && cut.size() < 4; ++c {
+            if l[c] == (9 as u8) {
+                cut.push_back(c)
+            }
+        }
+
+        if cut.size() < 4 {
+            continue
+        }
+
+        var id = l.subslice(0, cut[0])
+        var ih = l.subslice(cut[2] + 1, cut[3] - cut[2] - 1)
+        var it = at->find(kairo::sref(id))
+        if it == at->end() {
+            at->try_emplace(kairo::sref(id), vals->size() as u32)
+            vals->push_back(ih)
+        } else {
+            (*vals)[it->second as usize] = (*vals)[it->second as usize] + "," + ih
+        }
+    }
+}
+
 fn _declares_specs(dc: unsafe *DeclContext) -> bool {
     if dc == &null {
         return false

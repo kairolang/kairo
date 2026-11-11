@@ -180,6 +180,7 @@ import Driver::CompilerLink
 import Driver::CompilerNative
 import Driver::CompilerSetup
 import Driver::FrontendAction::FrontendAction
+import Diagnostic::Diagnostic::Diagnostic
 import Driver::ModuleRecords::ModuleRecords
 import Sema::Incremental::Plan::{
     IncrPlan,
@@ -275,6 +276,9 @@ pub class CompilerInstance {
     /// Incremental Sema, phase 2: the records this run checks and writes.
     /// The FrontendAction adds its modules, object keys and header files.
     pub var incr: ModuleRecords
+    /// Contexts a live check took out of the table when it re-checked their
+    /// files (detach_for_refresh): kept allocated, never read again.
+    pub var retired: cxx::std::vector<unsafe *void>
     prot var _obj_dir:       string                   = "" ///< where objects go; always set by _plan_outputs
     prot var _obj_tmp:       bool                     = false ///< _obj_dir is a temp dir this run owns and removes
     /// A linking run whose --emit lists more than the object: the entry
@@ -622,7 +626,7 @@ pub class CompilerInstance {
         return unsafe (self._sm as unsafe *SourceManager)
     }
 
-    fn tcm(self) -> unsafe *TokenCacheManager {
+    pub fn tcm(self) -> unsafe *TokenCacheManager {
         return unsafe (self._tcm as unsafe *TokenCacheManager)
     }
 
@@ -676,7 +680,7 @@ pub class CompilerInstance {
 
     /// \brief true if \p fid is a C++ header Sema/Foreign imported: a TU whose
     ///        decls came from clang, with no Kairo source behind it.
-    fn is_foreign_fid(self, fid: u32) -> bool {
+    pub fn is_foreign_fid(self, fid: u32) -> bool {
         var unsafe *ctx = self._g_scope->get_context(fid)
         if ctx == &null {
             return false
@@ -1261,6 +1265,11 @@ pub class CompilerInstance {
         }
 
         return self._pretty->count()
+    }
+
+    /// One diagnostic and its notes as the basic consumer prints them.
+    pub fn incr_render(self, d: unsafe *Diagnostic) -> string {
+        return self._basic->render(d)
     }
 
     pub fn incr_diag_text(self, a: usize, b: usize) -> string {

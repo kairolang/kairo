@@ -15,7 +15,7 @@ its own under <arch>/; a generic path an arch's install lacks is listed in index
 so generic + <arch> - omit is that arch's install exactly. The majority rule is Zig's
 (tools/process_headers.zig); the omit list is ours. No Zig code or data is used.
 
-Version gates (decided 2026-11-09, FORMAT.md "glibc/headers"): one header set, the newest
+Version gates (FORMAT.md "glibc/headers"): one header set, the newest
 release's, serves every release. ksys writes the target's minor into the one
 `#define __GLIBC_MINOR__` line of features.h (no compile flag: SYSROOT.toml stays as it is),
 so `__GLIBC_PREREQ` and libc++'s glibc checks see the target. Declarations newer than the
@@ -25,7 +25,7 @@ __isoc23_strtol, fcntl64, ...) would break a link that names nothing new, so tho
 gated on __GLIBC_MINOR__ here (GATES, each marked `Kairo:`): every asm label the installed
 headers can bind a declaration to, in C / _GNU_SOURCE / C23 / _FILE_OFFSET_BITS=64 /
 _TIME_BITS=64 / _FORTIFY_SOURCE=3 / C++, checked against the first release exporting it
-(build/sysgen/z4/tools/redirects.py, 2026-11-09). Not gated: names new in their own right
+(build/sysgen/z4/tools/redirects.py). Not gated: names new in their own right
 (strlcpy, preadv64v2, fts64_* with LFS), the stat family (libc_nonshared.a provides stat64 and
 the rest before 2.33), and _TIME_BITS=64 (the __*_time64 symbols, 2.34; an explicit opt-in).
 

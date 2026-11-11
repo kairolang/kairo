@@ -18,15 +18,15 @@
 /// that silently wraps instead of escalating is unrecoverable -- by the time
 /// anything downstream could object, the digits are gone.
 ///
-/// HISTORY. This file previously asserted that a 2^128 literal must FAIL TO
-/// COMPILE, which was the right test for a 64-bit-max language and the wrong
-/// one for this language. It also happened to pass for the wrong reason: the
-/// escalation was broken, so 2^128 became 0 and 2^128+1 became 1, both of them
-/// ordinary small integers that every later pass would agree were always
-/// written there. The cause was an off-by-one in the 128-bit overflow test in
-/// Compiler/Lexer/Immediate.k -- overflow was checked before the multiply and
-/// ignored the addend, so at `val == max_safe` the final digit wrapped without
-/// being noticed. Fixed; these checks are what hold it fixed.
+/// The 128-bit escalation must hold at its boundary: 2^128 and 2^128 + 1 are
+/// bigints, not 0 and 1. The overflow test in Compiler/Lexer/Immediate.k has to
+/// account for the addend before the multiply; otherwise at `val == max_safe`
+/// the final digit wraps without being noticed and the literal reads back as an
+/// ordinary small integer that every later pass accepts. A test asserting that
+/// such a literal fails to compile would be wrong for this language, which has
+/// fixed widths up to 512 bits and bigints, and would pass for the wrong reason
+/// if the escalation were broken. These checks are what hold it.
+///
 ///
 /// STAGE 0 TODAY: CANNOT COMPILE THIS FILE, and that is expected, not a
 /// failure. Stage 0 rejects any literal at or above 2^64 outright ("integer
@@ -57,7 +57,7 @@ fn main() -> i32 {
     if (max128 + 1) != 0 { return 2; }
 
     // ---- checks 3-4: THE BOUNDARY. 2^128 exactly ----------------------------
-    // This is the literal that used to become 0.
+    // This is the literal that must not become 0.
     //
     // It cannot be held in a u128, so it is checked by arithmetic that brings
     // it back into range: dividing by 2 gives exactly 2^127, which is the top
@@ -71,7 +71,7 @@ fn main() -> i32 {
     var two128_half: u128 = 340282366920938463463374607431768211456 / 2;
     if two128_half != top { return 3; }
 
-    // ---- check 4: 2^128 + 1, which used to become 1 -------------------------
+    // ---- check 4: 2^128 + 1, which must not become 1 -------------------------
     // Subtracting 2^128 - 1 leaves exactly 2. Chosen because the wrong answer
     // under the old bug was 1, and 1 - (2^128 - 1) underflows to something
     // enormous rather than to 2, so the two outcomes are far apart.

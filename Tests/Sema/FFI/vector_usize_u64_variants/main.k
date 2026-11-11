@@ -6,11 +6,11 @@
 // On LP64 `vector<usize>` and `vector<u64>` are ONE clang
 // specialization, `vector<unsigned long>`, but two Kairo instances. Their
 // members had one Kairo decl each (one USR), and each fill re-defined them
-// with its own argument mapping, so whichever instance filled LAST decided
-// the element type of both: `v[i] + n` was SC033E 'u64' and 'usize', and
-// `w.push_back(x)` SC063E against `const usize&`. The whole self-host tree
-// type-checked clean in one input order and with 102 errors reversed. Each
-// instance now has its own members over the shared specialization. This
+// with its own argument mapping, so the instance that filled LAST would decide
+// the element type of both: `v[i] + n` SC033E 'u64' and 'usize', and
+// `w.push_back(x)` SC063E against `const usize&`, depending on input
+// order. Each
+// instance has its own members over the shared specialization. This
 // file names vector<usize> first, u64_first.k the other way round; the
 // two-file runs check both input orders.
 // CHECK-NOT: error

@@ -26,6 +26,7 @@
 
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
+ffi "c++" import "llvm/ADT/StringSet.h"
 ffi "c++" import "llvm/ADT/StringRef.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
@@ -53,6 +54,8 @@ pub class ForeignRegistry {
     /// C++ (nullable_lang). Null until the driver binds it; a `T?` argument
     /// then has no phase-A spelling, as before.
     pub var well_known: unsafe *WellKnownDecls = &null
+    priv var _orphans: llvm::StringSet<llvm::MallocAllocator> ///< see forget() and adopt().
+    pub var adopted:   cxx::std::vector<unsafe *Decl>
 
     fn ForeignRegistry(self) {
         self._by_usr = llvm::StringMap<unsafe *Decl>(4096)
@@ -99,6 +102,62 @@ pub class ForeignRegistry {
     /// (NameLookup::module_scopes), so every reader that walks reopenings sees
     /// the whole namespace. Spliced under the lock: a fill can mint a
     /// namespace off the driver thread.
+    /// Every USR with its declaration, for a live check's retraction
+    /// (Sema/Incremental/Retract.k), which judges each and gives the dead
+    /// ones back to forget().
+    pub fn entries(self, usrs: unsafe *cxx::std::vector<string>, decls: unsafe *cxx::std::vector<unsafe *Decl>) {
+        var rlock = kairo::std::SharedLock(self._mu)
+        for var it = self._by_usr.begin(); it != self._by_usr.end(); ++it {
+            usrs->push_back(kairo::std::from_std_string<string>(it->getKey().str()))
+            decls->push_back(it->second)
+        }
+    }
+
+    /// Drops \p usrs, and what was noted about the shells \p shells: the
+    /// next import or stand-in under one of those USRs registers afresh.
+    pub fn forget(self,
+                  usrs:    unsafe *cxx::std::vector<string>,
+                  orphans: unsafe *cxx::std::vector<string>,
+                  shells:  unsafe *cxx::std::vector<unsafe *Decl>) {
+        var lock = kairo::std::LockGuard(self._mu)
+        for var i: usize = 0; i < usrs->size(); ++i {
+            self._by_usr.erase(kairo::sref((*usrs)[i]))
+        }
+
+        // A stand-in whose Kairo declaration is being re-read stays
+        // declared in the clang AST: the next declaration that asks for a
+        // stand-in of that name adopts it (adopt).
+        for var i: usize = 0; i < orphans->size(); ++i {
+            self._by_usr.erase(kairo::sref((*orphans)[i]))
+            self._orphans.insert(kairo::sref((*orphans)[i]))
+        }
+
+        for var i: usize = 0; i < shells->size(); ++i {
+            self._spec_of.erase((*shells)[i])
+        }
+    }
+
+    /// \brief \p usr is a stand-in this build declared for a Kairo
+    ///        declaration that a live check has since re-read: \p d, the
+    ///        declaration now asking under the same C++ name, takes it over.
+    ///        False when \p usr is no such stand-in (a header's own type).
+    ///
+    /// \details The clang record keeps the layout it was defined with.
+    ///          \c adopted lists what was taken over, so the caller can
+    ///          refuse the result when a layout moved (FrontendAction::
+    ///          refresh compares the interface hashes).
+    pub fn adopt(self, usr: llvm::StringRef, d: unsafe *Decl) -> bool {
+        var lock = kairo::std::LockGuard(self._mu)
+        if !self._orphans.contains(usr) {
+            return false
+        }
+
+        self._orphans.erase(usr)
+        self._by_usr.try_emplace(usr, d)
+        self.adopted.push_back(d)
+        return true
+    }
+
     fn link_namespace(self, qual: llvm::StringRef, m: unsafe *ModuleDecl) {
         if m == &null {
             return

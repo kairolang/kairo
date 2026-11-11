@@ -787,6 +787,69 @@ pub class DiagEngine derives DiagEngineVBase {
     /// \warning Invalidates every *Diagnostic previously handed to a consumer.
     ///          Safe because consumers copy what they need (see ToolDiag) and
     ///          none retain the pointer   do not call it mid-emit.
+    /// \brief what the engine remembers about files that are about to be
+    ///        checked again in this process (Tooling/LiveCheck.k), taken
+    ///        back: the duplicate filter and the counts become those of
+    ///        \p kept (the diagnostics of every file that is NOT re-checked),
+    ///        and a poison scope survives only where \p keep_poison says so
+    ///        (one flag per scope, in poison_scopes()'s order).
+    ///
+    /// \details Without it a re-checked file's unchanged warning is a
+    ///          duplicate of its own previous report and is dropped, an
+    ///          old error's poison scope silences offsets that now hold
+    ///          other text, and the limits count reports that are gone.
+    pub fn begin_recheck(self,
+                         kept:        *cxx::std::vector<unsafe *Diagnostic>,
+                         keep_poison: *cxx::std::vector<u8>) {
+        var lock = kairo::std::LockGuard(self._mu)
+        self._delivered.clear()
+        self._error_count       = 0
+        self._warn_count        = 0
+        self._fatal_count       = 0
+        self._error_limit_noted = false
+        self._warn_limit_noted  = false
+        for var i: usize = 0; i < kept->size(); ++i {
+            var unsafe *d = (*kept)[i]
+            if d->has_loc {
+                var key: string = f"{d->code.hash()}:{d->loc.raw()}:{d->message}"
+                self._delivered.insert(kairo::sref(key))
+            }
+
+            var sev = d->code.severity()
+            if sev == DiagSeverity::Fatal {
+                self._fatal_count += 1
+                self._error_count += 1
+            } else if sev == DiagSeverity::Error {
+                self._error_count += 1
+            } else if sev == DiagSeverity::Warning {
+                self._warn_count += 1
+            }
+        }
+
+        var j: usize = 0
+        for var i: usize = 0; i < self._poisoned.size(); ++i {
+            if i < keep_poison->size() && (*keep_poison)[i] != 0 {
+                self._poisoned[j] = self._poisoned[i]
+                j += 1
+            }
+        }
+
+        while self._poisoned.size() > j {
+            self._poisoned.pop_back()
+        }
+    }
+
+    /// The poison scopes, for begin_recheck's caller to judge by file.
+    pub fn poison_scopes(self) -> cxx::std::vector<SourceRange> {
+        var lock = kairo::std::LockGuard(self._mu)
+        var out  = cxx::std::vector<SourceRange>()
+        for var i: usize = 0; i < self._poisoned.size(); ++i {
+            out.push_back(self._poisoned[i].scope)
+        }
+
+        return out
+    }
+
     pub fn clear_retained(self) {
         var lock = kairo::std::LockGuard(self._mu)
 

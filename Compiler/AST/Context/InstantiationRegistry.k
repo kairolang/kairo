@@ -431,6 +431,12 @@ pub class InstantiationRegistry {
     /// it. collect() reads this, never the hash table: anything that
     /// iterates the registry gets the same order on every run.
     priv var _order: cxx::std::vector<unsafe *InstanceEntry>
+    /// When set (FrontendAction::refresh), every mark_live of an entry
+    /// that is already live is recorded here with the use that asked: in a
+    /// fresh run the FIRST use in the one-thread order owns the entry's
+    /// reports, and a re-check has to know when it added an earlier one.
+    pub var relive_log: unsafe *cxx::std::vector<unsafe *InstanceEntry> = &null
+    pub var relive_at:  unsafe *cxx::std::vector<SourceRange>           = &null
     /// The key of a request made outside any group's Sema (header indexing
     /// before Sema: rank 0; codegen after it: the driver raises the floor),
     /// which keeps such mints in time order around Sema's.
@@ -1533,6 +1539,75 @@ pub class InstantiationRegistry {
         e->failed = true
     }
 
+    /// \brief removes \p dead from the registry: the table, the node map,
+    ///        the worklist, and every surviving entry's links to them.
+    ///
+    /// \details For a live check that re-reads the files those entries
+    ///          name (Sema/Incremental/Retract.k). The entries and their
+    ///          nodes stay allocated in the registry's arena: an address
+    ///          handed out again could be met by a stale key.
+    pub fn drop_entries(self, dead: *cxx::std::vector<unsafe *InstanceEntry>) {
+        if dead->empty() {
+            return
+        }
+
+        var lock = kairo::std::LockGuard(self._mu)
+        var gone = llvm::DenseSet<u64>()
+        for var i: usize = 0; i < dead->size(); ++i {
+            gone.insert((*dead)[i] as usize as u64)
+            // Only its own node: a function template's entries share the
+            // template's declaration, which may map to a kept entry.
+            if (*dead)[i]->decl != &null {
+                var nit = self._by_node.find((*dead)[i]->decl as usize as u64)
+                if nit != self._by_node.end() && nit->second == (*dead)[i] {
+                    self._by_node.erase(nit)
+                }
+            }
+        }
+
+        var kept = cxx::std::vector<unsafe *InstanceEntry>()
+        for var i: usize = 0; i < self._order.size(); ++i {
+            var unsafe *e = self._order[i]
+            if gone.contains(e as usize as u64) {
+                continue
+            }
+
+            kept.push_back(e)
+            if e->via != &null && gone.contains(e->via as usize as u64) {
+                e->via = &null
+            }
+
+            if e->reached_by != &null && gone.contains(e->reached_by as usize as u64) {
+                e->reached_by = &null
+            }
+
+            var r = cxx::std::vector<unsafe *InstanceEntry>()
+            for var k: usize = 0; k < e->reached.size(); ++k {
+                if !gone.contains(e->reached[k] as usize as u64) {
+                    r.push_back(e->reached[k])
+                }
+            }
+
+            if r.size() != e->reached.size() {
+                e->reached = r
+            }
+        }
+
+        self._order = kept
+        for var it = self._table.begin(); it != self._table.end(); ++it {
+            var b = cxx::std::vector<unsafe *InstanceEntry>()
+            for var k: usize = 0; k < it->second.size(); ++k {
+                if !gone.contains(it->second[k] as usize as u64) {
+                    b.push_back(it->second[k])
+                }
+            }
+
+            if b.size() != it->second.size() {
+                it->second = b
+            }
+        }
+    }
+
     /// # Enumeration (M1 / EmitPlan)
 
     /// Every entry, in worklist (mint) order: deterministic, though not
@@ -1565,6 +1640,18 @@ pub class InstantiationRegistry {
         return self._order.size()
     }
 
+    /// A use at \p at of \p e, which is live already: nothing to do in a
+    /// run, and what a live check's re-check records (relive_log).
+    pub fn note_reuse(self, e: unsafe *InstanceEntry, at: SourceRange) {
+        if self.relive_log == &null || e == &null {
+            return
+        }
+
+        var lock = kairo::std::LockGuard(self._mu)
+        self.relive_log->push_back(e)
+        self.relive_at->push_back(at)
+    }
+
     /// Make \p e live at depth 1, used at \p at (\p via null), or one hop
     /// below live \p via, through the use \p via_at in its body. Once: the
     /// first need fixes the depth, the range and the hop. True when it was
@@ -1580,6 +1667,13 @@ pub class InstantiationRegistry {
 
         var lock = kairo::std::LockGuard(self._mu)
         if e->depth > 0 {
+            // A live check asks which already-live entries a re-check
+            // used, and from where (relive_log).
+            if self.relive_log != &null {
+                self.relive_log->push_back(e)
+                self.relive_at->push_back(if (via != &null) => (via->use_at) else => at)
+            }
+
             return false
         }
 

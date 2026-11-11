@@ -10,6 +10,7 @@
 ///     step <name>                       a new step; the edits below are its
 ///     replace <file>:::<old>:::<new>    <old> occurs exactly once in <file>
 ///     write <file>:::<text>             create or overwrite
+///     append <file>:::<text>            add at the end
 ///     remove <file>
 ///
 ///   `\n` in <old>, <new> and <text> is a line break. Paths are relative to
@@ -157,6 +158,25 @@ fn replay_apply(const line: string, touched: *cxx::std::vector<string>) -> strin
         return ""
     }
 
+    if line.starts_with("append ") {
+        var f = replay_fields(line.subslice(7, line.size() - 7))
+        if f.size() != 2 {
+            return "append wants <file>:::<text>"
+        }
+
+        var text = ""
+        if !LinkFS::read(f[0], &text) {
+            return "cannot read " + f[0]
+        }
+
+        if !LinkFS::write(f[0], text + replay_unescape(f[1])) {
+            return "cannot write " + f[0]
+        }
+
+        touched->push_back(f[0])
+        return ""
+    }
+
     if line.starts_with("remove ") {
         var p = line.subslice(7, line.size() - 7)
         LinkFS::remove(p)
@@ -173,6 +193,10 @@ fn replay_report(live: *LiveCheck, n: usize, const name: string, t0: u64) {
         f"incr-replay: step {n} {name}: {live->mode} ({live->why}), {live->files} files, {live->errors} errors, {ms} ms",
     )
 
+    if !live->detail.empty() {
+        io::println(f"incr-replay:   detail: {live->detail}")
+    }
+
     cxx::std::fflush(kairo::std_out())
     io::eprintln(f"== incr-replay step {n} {name}")
     live->flush()
@@ -184,9 +208,19 @@ pub fn incr_replay_main(argc:         i32,
                         argv:         unsafe *(unsafe *c_char),
                         const script: string,
                         const dump:   string) -> i32 {
-    var words = cxx::std::vector<string>()
+    var words    = cxx::std::vector<string>()
+    var in_place   = false
+    var strict_cxx = false
     for var i: i32 = 1; i < argc; ++i {
         var w = string(unsafe ((argv[i] as unsafe *const u8) as *const u8), cxx::std::strlen(argv[i]))
+        if w == "--incr-replay-in-place" {
+            in_place = true
+        }
+
+        if w == "--incr-replay-strict-cxx" {
+            strict_cxx = true
+        }
+
         if w.starts_with("--incr-replay") {
             continue
         }
@@ -206,6 +240,8 @@ pub fn incr_replay_main(argc:         i32,
     }
 
     var live = LiveCheck(words)
+    live.in_place   = in_place
+    live.strict_cxx = strict_cxx
     var n: usize = 0
     var t0 = replay_now_ms()
     if !dump.empty() {

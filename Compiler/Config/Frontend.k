@@ -121,6 +121,9 @@ pub class FrontendOptions {
     /// A Diagnostic::FileDiagnostics::FileDiagConsumer, or null: told which
     /// TU's sink is being drained, so it can keep diagnostics per file.
     pub var file_diags: unsafe *void = &null
+    /// A live check (Tooling/LiveCheck.k) will run Sema again in this
+    /// instance: nothing a later re-check reads is released early.
+    pub var live_check: bool = false
     /// --incr-replay=<script> / --incr-replay-dump=<dir>: check the entry,
     /// then apply the script's edits in this process (Driver/IncrReplay.k).
     pub var incr_replay:      string = ""

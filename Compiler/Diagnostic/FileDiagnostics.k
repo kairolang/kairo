@@ -32,6 +32,10 @@ pub class FileDiagConsumer derives DiagConsumer {
     pub var owners: cxx::std::vector<string> ///< parallel: the owning file's path, "" for the driver
     /// The file whose sink is being drained; "" between drains.
     pub var current: string = ""
+    /// The files in the order their sinks were first drained: the order a
+    /// run prints them in, which a later re-check of some of them keeps
+    /// (the import graph, which decides it, is the same).
+    pub var order: cxx::std::vector<string>
 
     pub fn FileDiagConsumer(self) = default
 
@@ -43,6 +47,18 @@ pub class FileDiagConsumer derives DiagConsumer {
 
         self.diags.push_back(diag)
         self.owners.push_back(self.current)
+    }
+
+    /// The driver is about to drain \p path's sink.
+    pub fn enter(self, const path: string) {
+        self.current = path
+        for var i: usize = 0; i < self.order.size(); ++i {
+            if self.order[i] == path {
+                return
+            }
+        }
+
+        self.order.push_back(path)
     }
 
     /// The diagnostics \p path owns, in delivery order.
@@ -60,6 +76,7 @@ pub class FileDiagConsumer derives DiagConsumer {
     pub fn clear(self) {
         self.diags.clear()
         self.owners.clear()
+        self.order.clear()
         self.current = ""
     }
 }

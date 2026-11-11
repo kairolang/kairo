@@ -436,6 +436,41 @@ extend CompilerInstance {
         return self._sm->invalidate(fid)
     }
 
+    /// \brief invalidate() for a live check: \p fid's context is taken out
+    ///        of the table and KEPT (\c retired), its tokens, walked mark and
+    ///        macros are dropped, and its bytes re-read. The fid stays.
+    ///
+    /// \details The caller has already done this for every file that
+    ///          imports \p fid (the refresh set), or \p fid has none: no kept
+    ///          tree may point into a file that is re-read. Not destroyed,
+    ///          because address-keyed stores would meet its addresses again
+    ///          (GlobalDisambigTable::detach).
+    pub fn detach_for_refresh(self, fid: u32) -> bool {
+        if self.is_foreign_fid(fid) {
+            return false
+        }
+
+        var unsafe *old = self._g_scope->detach(fid)
+        if old == &null {
+            return false
+        }
+
+        self.retired.push_back(unsafe (old as unsafe *void))
+        if self._pp != &null {
+            self._pp->forget(fid)
+        }
+
+        if self._tcm != &null {
+            self._tcm->release(fid)
+        }
+
+        if self._sm == &null {
+            return false
+        }
+
+        return self._sm->invalidate(fid)
+    }
+
     /// \brief fids whose TU holds a resolved import edge directly into \p fid.
     fn importers_of(self, fid: u32) -> cxx::std::vector<u32> {
         var out = cxx::std::vector<u32>()
@@ -553,6 +588,22 @@ extend CompilerInstance {
         var unsafe *parsed_tu = parser.parse()
         ctx->tu = parsed_tu
 
+        return true
+    }
+
+    /// \brief the Index half of parse_one alone: \p fid's hoisted table,
+    ///        which the full parse of every file that imports it reads. A
+    ///        caller re-parsing several files indexes all of them first.
+    pub fn index_one(self, fid: u32) -> bool {
+        var unsafe *gs = unsafe (self._g_scope as unsafe *GlobalDisambigTable)
+        var unsafe *ictx = gs->begin_index(fid)
+        if ictx == &null {
+            return false
+        }
+
+        var indexer = ASTParse(ictx, &null, gs, ASTParse::ParseMode::Index)
+        indexer.index()
+        gs->finish_index(fid)
         return true
     }
 

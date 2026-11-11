@@ -1507,7 +1507,7 @@ pub class TypeExport {
                 return clang::QualType()
             }
 
-            if self.reg->find((TypeImport::usr_of(prev)).str()) != d { // a header's own `stem::E`.
+            if !self._ours((TypeImport::usr_of(prev)).str(), d) { // a header's own `stem::E`.
                 return clang::QualType()
             }
 
@@ -1615,6 +1615,18 @@ pub class TypeExport {
         return self._namespace_for(segs)
     }
 
+    /// The clang declaration of \p usr is \p d's stand-in: registered to
+    /// it, or one a live check orphaned when it re-read \p d's file, which
+    /// \p d now adopts (ForeignRegistry::adopt).
+    priv fn _ours(self, usr: llvm::StringRef, d: unsafe *Decl) -> bool {
+        var unsafe *have = self.reg->find(usr)
+        if have == d {
+            return true
+        }
+
+        return have == &null && self.reg->adopt(usr, d)
+    }
+
     priv fn _standin_of(self, d: unsafe *Decl) -> clang::QualType {
         if decl_generic_params(d).size() > 0 {
             return clang::QualType()
@@ -1653,7 +1665,7 @@ pub class TypeExport {
             // pointer to it only needs the name; a by-value cycle is
             // TypeCycleCheck's error, not ours.
             var ours = prev->isBeingDefined()
-                || self.reg->find((TypeImport::usr_of(prev)).str()) == d
+                || self._ours((TypeImport::usr_of(prev)).str(), d)
             if !ours { // a header's own `stem::S`.
                 return clang::QualType()
             }
@@ -1907,7 +1919,7 @@ pub class TypeExport {
                 return &null
             }
 
-            if self.reg->find((TypeImport::usr_of(prev)).str()) != prim {
+            if !self._ours((TypeImport::usr_of(prev)).str(), prim) {
                 return &null
             }
 

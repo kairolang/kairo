@@ -88,8 +88,7 @@ pub class GlobalDisambigTable {
     priv var _dir: cxx::std::array<kairo::std::Atomic<unsafe *Self::DirPage>, 1024> = cxx::std::array<kairo::std::Atomic<unsafe *Self::DirPage>, 1024>()
     priv var _instances: InstantiationRegistry
 
-    /// The lang items, ONE table for the build. Per-TU storage was the bug it
-    /// replaces: every TU re-bound them by unqualified name from its own root,
+    /// The lang items, ONE table for the build. Per-TU storage cannot serve: every TU re-bound them by unqualified name from its own root,
     /// so a file that never mentioned `Vector` had no handle to it and one that
     /// declared its own shadowed the real one.
     ///
@@ -234,6 +233,30 @@ pub class GlobalDisambigTable {
         }
 
         return true
+    }
+
+    /// \brief takes \p fid's context out of the table WITHOUT destroying
+    ///        it, and returns it (null for an unknown fid).
+    ///
+    /// \details A live check that re-checks a file (Tooling/LiveCheck.k)
+    ///          cannot free the old context: the build-wide stores are keyed
+    ///          by the addresses of its declarations (a canonical record
+    ///          type, an instance's arguments), and an arena that is freed is
+    ///          handed out again, so a new declaration would land on an old
+    ///          one's address and find its entries. A context that stays
+    ///          allocated keeps those entries unreachable. The caller owns
+    ///          it from here.
+    pub fn detach(self, fid: u32) -> unsafe *ASTContext {
+        var lock = kairo::std::LockGuard(self._mu)
+        var it   = self._by_fid.find(fid as u64)
+        if it == self._by_fid.end() || it->second.ctx == &null {
+            return &null
+        }
+
+        var unsafe *ctx = it->second.ctx
+        self._publish(fid, &null, &null)
+        self._by_fid.erase(it)
+        return ctx
     }
 
     /// parse-time, step 1 of 2: claims \p fid for indexing.
