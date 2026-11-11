@@ -81,6 +81,11 @@ pub class TextSink derives EmitSink {
     priv var _fids:     [u32]
     priv var _home_fid: u32    = u32::MAX
     priv var _doc_done: [usize]      ///< Kairo lines whose doc comment is in the header
+    priv var _last_word: string = "" ///< the token _word wrote last (layout: `public :` breaks)
+    priv var _enum_at:  usize  = 0   ///< layout: the depth of the enum body being written, else 0
+    priv var _c_end:    [usize]      ///< finish_layout: the last record of each record's chunk
+    priv var _c_kind:   [u8]         ///< and the chunk's kind (_chunk_kind_)
+    priv var _skip_fwd: [bool]       ///< a forward declaration that claims no line (_lay_)
 
     /// Doc comments carried into a layout header (P876): above their
     /// declaration on the .k file's own lines, on the forward declaration in
@@ -149,6 +154,10 @@ pub class TextSink derives EmitSink {
                 self._depth -= 1
             }
 
+            if self._depth < self._enum_at {
+                self._enum_at = 0
+            }
+
             self._flush_pending()
             self._note(at)
             self._word(s, false)
@@ -164,6 +173,8 @@ pub class TextSink derives EmitSink {
             self._flush_pending()
         }
 
+        var access = (k == clang::tok::colon)
+            && ((self._last_word == "public") || (self._last_word == "private") || (self._last_word == "protected"))
         self._note(at)
         self._word(s, tight_before)
         if tight_after {
@@ -174,8 +185,32 @@ pub class TextSink derives EmitSink {
             self.brk()
         }
 
+        // Layout mode: lines a declaration's own tokens would otherwise
+        // share with text anchored on an earlier Kairo line, which takes the
+        // line's attribution (the lowest) and so the declaration's physical
+        // line. An enum's `};` is anchored at the enum, so its variants join
+        // the enum's line unless each one breaks after its comma; an access
+        // specifier is anchored at the class, so the field after it joins
+        // the class's line unless the specifier ends its line. C++ does not
+        // care where a line breaks.
+        if self.layout && (k == clang::tok::comma) && (self._enum_at != 0) && (self._depth == self._enum_at) {
+            self.brk()
+        }
+
+        if self.layout && access {
+            self.brk()
+        }
+
         if k == clang::tok::l_brace {
+            // Not an enum the compiler mints (an ADT's `__kairo_Tag`): its
+            // variants share the Kairo lines of the factories C++ calls.
+            var head    = TextSink::_trim_(self._line)
+            var is_enum = self.layout && head.starts_with("enum class ") && (!head.starts_with("enum class __kairo"))
             self._depth += 1
+            if is_enum {
+                self._enum_at = self._depth
+            }
+
             self.brk()
         }
 
@@ -363,7 +398,10 @@ pub class TextSink derives EmitSink {
     /// prototype becomes `namespace n { proto; }` on its own Kairo line when
     /// that line is at namespace scope and nothing it may need comes later
     /// (types are forward-declared in the prelude; a class whose nested name
-    /// it spells, or any other namespace-scope declaration, is a barrier).
+    /// it spells, a specialization, alias or variable whose name it spells,
+    /// or any other namespace-scope declaration, is a barrier). Text that
+    /// claims no line: forward declarations whose definition then has it,
+    /// and what declares a name the compiler mints (P882).
     pub fn finish_layout(self, const include_line: string) -> string {
         var n    = self._rec_text.size()
         var home = self._home_file_()
@@ -395,118 +433,40 @@ pub class TextSink derives EmitSink {
             }
         }
 
-        self._pl_text.clear()
-        self._pl_lock.clear()
-        self._pl_depth.clear()
-        self._pl_decl.clear()
-        self._doc_done.clear()
-        self._pl_text.push_back(include_line)
-        self._pl_lock.push_back(true)
-        self._pl_depth.push_back(0)
-        self._pl_decl.push_back(0)
-        self._pl_text.push_back("_Pragma(\"once\")")
-        self._pl_lock.push_back(false)
-        self._pl_depth.push_back(0)
-        self._pl_decl.push_back(0)
-        self._cursor  = 2
-        self._run_dep = 0
-        self._mapped  = false
-        self._line_at = 0
-        self._home    = home
-        self._home_fid = u32::MAX
-        for var f: usize = 0; f < self._fnames.size(); ++f {
-            if self._fnames[f] == home {
-                self._home_fid = self._fids[f]
-            }
+        // A forward declaration standing alone in its chunk's text names
+        // its record's Kairo line, which the definition clangd jumps to
+        // wants. First every such one claims no line; one whose line no
+        // declaration then takes (its definition is placed out of order)
+        // claims it again, as before, until that settles.
+        self._c_end  = c_end
+        self._c_kind = c_kind
+        self._home   = home
+        self._skip_fwd.clear()
+        for var q: usize = 0; q < n; ++q {
+            self._skip_fwd.push_back((c_kind[q] == 0) && (q >= first) && (self._rec_file[q] == home)
+                && (self._rec_line[q] > 1) && (!self._rec_dir[q]) && TextSink::_is_fwd_(TextSink::_trim_(self._rec_text[q])))
         }
-        var barrier: usize = 0
-        var cls_names: [string]
-        var cls_lines: [usize]
 
-        var r = first
-        while r < n {
-            if c_kind[r] == 1 {
-                r += 1
-                continue
-            }
-
-            if c_kind[r] == 2 {
-                var j    = c_end[r]
-                var open = TextSink::_trim_(self._rec_text[r])
-                for var q = r + 1; q < j; ++q {
-                    var piece = open + " " + TextSink::_trim_(self._rec_text[q]) + " }"
-                    var k: usize = 0
-                    if self._rec_file[q] == home {
-                        k = self._rec_line[q]
-                    } else if self._rec_file[r] == home {
-                        k = self._rec_line[r]
-                    }
-
-                    var hoist = (k >= 2) && (k <= self._cursor) && (!self._pl_lock[k - 1])
-                             && (self._pl_depth[k - 1] == 0) && (k > barrier)
-                    for var c: usize = 0; hoist && (c < cls_names.size()); ++c {
-                        if (cls_lines[c] >= k) && TextSink::_has_(piece, cls_names[c] + "::") {
-                            hoist = false
-                        }
-                    }
-
-                    if k > self._cursor {
-                        self._place_(k, piece, 0)
-                    } else if hoist {
-                        if self._pl_text[k - 1].empty() {
-                            self._pl_text[k - 1] = piece
-                            self._pl_decl[k - 1] = k
-                        } else {
-                            self._pl_text[k - 1] += " " + piece
-                        }
-                    } else {
-                        self._join_(piece, 0)
-                    }
-                }
-
-                r = j + 1
-                continue
-            }
-
-            var text = self._rec_text[r]
-            if self._rec_dir[r] {
-                self._fresh_(self._cursor + 1, text, self._run_dep)
-                self._pl_lock[self._cursor - 1] = true
-            } else {
-                var k: usize = 0
-                if self._rec_file[r] == home {
-                    k = self._rec_line[r]
-                }
-
-                if k > self._cursor {
-                    self._place_(k, text, self._rec_depth[r])
-                } else {
-                    self._join_(text, self._rec_depth[r])
+        self._lay_(first, include_line)
+        for var pass: usize = 0; pass < 8; ++pass {
+            var changed = false
+            for var q: usize = 0; q < n; ++q {
+                var at = self._rec_line[q]
+                // A record the compiler names (`__kairo_ext_T`, an extend
+                // block's) is never what clangd is asked about: its line
+                // stays free even then, for whatever the block declares.
+                var minted = TextSink::_has_(self._rec_text[q], " __kairo")
+                if self._skip_fwd[q] && (!minted) && ((at > self._pl_decl.size()) || (self._pl_decl[at - 1] != at)) {
+                    self._skip_fwd[q] = false
+                    changed = true
                 }
             }
 
-            // A chunk's end: what it declared bounds what may move above it.
-            if (c_end[r] == r) && (self._run_dep == 0) {
-                var j0 = r
-                while (j0 > 0) && (c_end[j0 - 1] == r) {
-                    j0 -= 1
-                }
-
-                var head: string = ""
-                if (j0 + 1) <= r {
-                    head = TextSink::_trim_(self._rec_text[j0 + 1])
-                }
-
-                var cls = TextSink::_class_name_(head)
-                if !cls.empty() {
-                    cls_names.push_back(cls)
-                    cls_lines.push_back(self._cursor)
-                } else if (!head.empty()) && (!TextSink::_has_(head, "(")) {
-                    barrier = self._cursor
-                }
+            if !changed {
+                break
             }
 
-            r += 1
+            self._lay_(first, include_line)
         }
 
         // Last, once nothing else is placed or joined: text joined after a
@@ -521,7 +481,7 @@ pub class TextSink derives EmitSink {
         for var q: usize = 0; q < n; ++q {
             if (q < first) || (c_kind[q] == 1) {
                 var at = self._rec_line[q]
-                var fwd = TextSink::_class_name_(TextSink::_trim_(self._rec_text[q]))
+                var fwd = TextSink::_class_name_(TextSink::_untemplate_(TextSink::_trim_(self._rec_text[q])))
                 if (c_kind[q] == 1) && (!fwd.empty()) && (self._rec_file[q] == home) && (at > 0)
                     && (!TextSink::_has_line_(self._doc_done, at)) {
                     var top: usize = 0
@@ -565,6 +525,215 @@ pub class TextSink derives EmitSink {
         }
 
         return prelude
+    }
+
+    /// finish_layout's placement, from nothing: every record from \p first
+    /// on, onto `_pl_text` (_skip_fwd says which forward declarations
+    /// claim no line).
+    priv fn _lay_(self, first: usize, const include_line: string) {
+        var n    = self._rec_text.size()
+        var home = self._home
+        var c_end  = self._c_end
+        var c_kind = self._c_kind
+        self._pl_text.clear()
+        self._pl_lock.clear()
+        self._pl_depth.clear()
+        self._pl_decl.clear()
+        self._doc_done.clear()
+        self._pl_text.push_back(include_line)
+        self._pl_lock.push_back(true)
+        self._pl_depth.push_back(0)
+        self._pl_decl.push_back(0)
+        self._pl_text.push_back("_Pragma(\"once\")")
+        self._pl_lock.push_back(false)
+        self._pl_depth.push_back(0)
+        self._pl_decl.push_back(0)
+        self._cursor  = 2
+        self._run_dep = 0
+        self._mapped  = false
+        self._line_at = 0
+        self._home    = home
+        self._home_fid = u32::MAX
+        for var f: usize = 0; f < self._fnames.size(); ++f {
+            if self._fnames[f] == home {
+                self._home_fid = self._fids[f]
+            }
+        }
+        var barrier: usize = 0
+        var cls_names: [string]
+        var cls_lines: [usize]
+        // A namespace-scope declaration that is not a record (an explicit
+        // specialization, an alias, a variable) bounds only the prototypes
+        // that spell its name; nb_max is the highest of their lines, which
+        // bounds a prototype whose text C++ evaluates (noexcept(), requires,
+        // decltype() other than the size_t spelling): fail closed there.
+        var nb_names: [string]
+        var nb_lines: [usize]
+        var nb_max: usize = 0
+
+        // Text the compiler names (an ADT's payload structs, tag and union)
+        // is never what clangd is asked about, but it carries its variant's
+        // Kairo line, which the factory C++ calls wants: it, and all of its
+        // body, claims no line. inv_depth: the depth inside such a body.
+        var inv_depth: usize = 0
+        var r = first
+        while r < n {
+            var starts_at: usize = 0
+            if r > 0 {
+                starts_at = self._rec_depth[r - 1]
+            }
+
+            if (inv_depth != 0) && (starts_at < inv_depth) {
+                inv_depth = 0
+            }
+
+            var minted = (inv_depth != 0)
+            if (!minted) && (!self._rec_dir[r]) && (c_kind[r] == 0) && TextSink::_invented_(TextSink::_trim_(self._rec_text[r])) {
+                minted = true
+                // An extend block's struct holds the block's own functions.
+                var ext = TextSink::_has_(self._rec_text[r], "__kairo_ext_")
+                if (!ext) && TextSink::_trim_(self._rec_text[r]).ends_with("{") && (self._rec_depth[r] > starts_at) {
+                    inv_depth = self._rec_depth[r]
+                }
+            }
+
+            if c_kind[r] == 1 {
+                r += 1
+                continue
+            }
+
+            if c_kind[r] == 2 {
+                var j    = c_end[r]
+                var open = TextSink::_trim_(self._rec_text[r])
+                for var q = r + 1; q < j; ++q {
+                    var piece = open + " " + TextSink::_trim_(self._rec_text[q]) + " }"
+                    var k: usize = 0
+                    if self._rec_file[q] == home {
+                        k = self._rec_line[q]
+                    } else if self._rec_file[r] == home {
+                        k = self._rec_line[r]
+                    }
+
+                    var hoist = (k >= 2) && (k <= self._cursor) && (!self._pl_lock[k - 1])
+                             && (self._pl_depth[k - 1] == 0) && (k > barrier)
+                    for var c: usize = 0; hoist && (c < cls_names.size()); ++c {
+                        if (cls_lines[c] >= k) && TextSink::_has_(piece, cls_names[c] + "::") {
+                            hoist = false
+                        }
+                    }
+
+                    for var c: usize = 0; hoist && (c < nb_names.size()); ++c {
+                        if (nb_lines[c] >= k) && TextSink::_has_word_(piece, nb_names[c]) {
+                            hoist = false
+                        }
+                    }
+
+                    if hoist && (nb_max >= k) && TextSink::_evaluates_(piece) {
+                        hoist = false
+                    }
+
+                    var landed = self._cursor
+
+                    if k > self._cursor {
+                        self._place_(k, piece, 0)
+                        landed = k
+                    } else if hoist {
+                        if self._pl_text[k - 1].empty() {
+                            self._pl_text[k - 1] = piece
+                            self._pl_decl[k - 1] = k
+                        } else {
+                            self._pl_text[k - 1] += " " + piece
+                        }
+
+                        landed = k
+                    } else {
+                        self._join_(piece, 0)
+                        landed = self._cursor
+                    }
+
+                    // An extern variable is a name a later prototype may spell.
+                    var t = TextSink::_trim_(self._rec_text[q])
+                    if t.starts_with("extern ") {
+                        var vn = TextSink::_var_name_(t)
+                        if !vn.empty() {
+                            nb_names.push_back(vn)
+                            nb_lines.push_back(landed)
+                            if landed > nb_max {
+                                nb_max = landed
+                            }
+                        }
+                    }
+                }
+
+                r = j + 1
+                continue
+            }
+
+            var text = self._rec_text[r]
+            if self._rec_dir[r] {
+                self._fresh_(self._cursor + 1, text, self._run_dep)
+                self._pl_lock[self._cursor - 1] = true
+            } else {
+                // A forward declaration finish_layout skips claims no line.
+                var k: usize = 0
+                if (self._rec_file[r] == home) && (!self._skip_fwd[r]) && (!minted) {
+                    k = self._rec_line[r]
+                }
+
+                if k > self._cursor {
+                    self._place_(k, text, self._rec_depth[r])
+                } else {
+                    self._join_(text, self._rec_depth[r])
+                }
+            }
+
+            // A chunk's end: what it declared bounds what may move above it.
+            if (c_end[r] == r) && (self._run_dep == 0) {
+                var j0 = r
+                while (j0 > 0) && (c_end[j0 - 1] == r) {
+                    j0 -= 1
+                }
+
+                // The chunk's declaration: after its namespace opener, or
+                // its first line when it has none (a specialization at
+                // global scope).
+                var head: string = ""
+                var h0 = TextSink::_trim_(self._rec_text[j0])
+                var opener = h0.starts_with("namespace ") && h0.ends_with("{")
+                if opener && ((j0 + 1) <= r) {
+                    head = TextSink::_trim_(self._rec_text[j0 + 1])
+                } else if (!opener) && (!self._rec_dir[j0]) {
+                    head = h0
+                }
+
+                var spec = head.starts_with("template<>") || head.starts_with("template <>")
+                var cls = TextSink::_class_name_(TextSink::_untemplate_(head))
+                if spec {
+                    var sn = TextSink::_spec_name_(head)
+                    if sn.empty() {
+                        barrier = self._cursor
+                    } else {
+                        nb_names.push_back(sn)
+                        nb_lines.push_back(self._cursor)
+                        nb_max = self._cursor
+                    }
+                } else if !cls.empty() {
+                    cls_names.push_back(cls)
+                    cls_lines.push_back(self._cursor)
+                } else if (!head.empty()) && (!TextSink::_has_(head, "(")) {
+                    var vn = TextSink::_var_name_(head)
+                    if !vn.empty() {
+                        nb_names.push_back(vn)
+                        nb_lines.push_back(self._cursor)
+                        nb_max = self._cursor
+                    } else if opener || (j0 < r) {
+                        barrier = self._cursor
+                    }
+                }
+            }
+
+            r += 1
+        }
     }
 
     /// The Kairo file most lines are attributed to: the module's own.
@@ -629,7 +798,9 @@ pub class TextSink derives EmitSink {
                 fwd = false
             }
 
-            if (!decl_end) || (!TextSink::_has_(t, "(")) || t.starts_with("using ") || t.starts_with("static_assert") {
+            var ext_var = t.starts_with("extern ") && (!t.starts_with("extern template")) && (!t.starts_with("extern \""))
+            if (!decl_end) || ((!TextSink::_has_(t, "(")) && (!ext_var)) || t.starts_with("using ")
+                || t.starts_with("static_assert") || t.starts_with("extern template") {
                 proto = false
             }
         }
@@ -901,6 +1072,203 @@ pub class TextSink derives EmitSink {
         return t.subslice(at, e - at)
     }
 
+    /// A line that declares a name the compiler mints (`struct __kairo_V_t {`,
+    /// `__kairo_Tag __kairo_tag;`, an anonymous `union {`), by the name it
+    /// declares: before its first `(` for a function, else as _var_name_.
+    priv static fn _invented_(const t: string) -> bool {
+        var u = TextSink::_untemplate_(t)
+        if u.starts_with("union {") || u.starts_with("struct {") {
+            return true
+        }
+
+        var at: usize = 0
+        if u.starts_with("struct ") {
+            at = 7
+        } else if u.starts_with("class ") || u.starts_with("union ") {
+            at = 6
+        } else if u.starts_with("enum class ") {
+            at = 11
+        } else if u.starts_with("enum ") {
+            at = 5
+        }
+
+        if at != 0 {
+            return u.subslice(at, u.size() - at).starts_with("__kairo")
+        }
+
+        if u.starts_with("__kairo") {
+            return true
+        }
+
+        // `T x = __kairo_init_x();` declares x: an `=` before the first `(`
+        // is a variable's.
+        var p: usize = 0
+        while (p < u.size()) && (u[p] != 40) && (u[p] != 61) {
+            p += 1
+        }
+
+        if (p < u.size()) && (u[p] == 40) {
+            var e = p
+            while (e > 0) && (u[e - 1] == 32) {
+                e -= 1
+            }
+
+            var b = e
+            while (b > 0) && TextSink::_ident_char_(u[b - 1]) {
+                b -= 1
+            }
+
+            return u.subslice(b, e - b).starts_with("__kairo")
+        }
+
+        return TextSink::_var_name_(u).starts_with("__kairo")
+    }
+
+    /// A forward declaration (`struct S;`, `enum class E : int;`,
+    /// `template<class T> struct B;`): a tag, no body, no initializer.
+    priv static fn _is_fwd_(const t: string) -> bool {
+        var u = TextSink::_untemplate_(t)
+        var tag = u.starts_with("struct ") || u.starts_with("class ") || u.starts_with("union ") || u.starts_with("enum ")
+        return tag && t.ends_with(";") && (!TextSink::_has_(t, "(")) && (!TextSink::_has_(t, "{")) && (!TextSink::_has_(t, "="))
+    }
+
+    /// \p t without a leading `template<...> ` head (balanced), else \p t;
+    /// an explicit specialization's `template<>` is kept.
+    priv static fn _untemplate_(const t: string) -> string {
+        if (!t.starts_with("template<")) || t.starts_with("template<>") {
+            return t
+        }
+
+        var d: usize = 0
+        for var i: usize = 8; i < t.size(); ++i {
+            if t[i] == 60 {
+                d += 1
+            } else if t[i] == 62 {
+                d -= 1
+                if d == 0 {
+                    return TextSink::_trim_(t.subslice(i + 1, t.size() - i - 1))
+                }
+            }
+        }
+
+        return t
+    }
+
+    /// The template an explicit specialization head specializes
+    /// (`template<> struct __kairo_niche<E> {` is `__kairo_niche`), or "".
+    priv static fn _spec_name_(const t: string) -> string {
+        var u = t
+        if u.starts_with("template<>") {
+            u = TextSink::_trim_(u.subslice(10, u.size() - 10))
+        } else if u.starts_with("template <>") {
+            u = TextSink::_trim_(u.subslice(11, u.size() - 11))
+        }
+
+        var at: usize = 0
+        if u.starts_with("struct ") {
+            at = 7
+        } else if u.starts_with("class ") {
+            at = 6
+        } else if u.starts_with("union ") {
+            at = 6
+        } else {
+            return ""
+        }
+
+        var e = at
+        while (e < u.size()) && TextSink::_ident_char_(u[e]) {
+            e += 1
+        }
+
+        if (e == at) || (e >= u.size()) || (u[e] != 60) {
+            return ""
+        }
+
+        return u.subslice(at, e - at)
+    }
+
+    /// The name a namespace-scope variable or alias line declares
+    /// (`using A = B;`, `inline constexpr T N = v;`, `extern T const N;`):
+    /// the identifier before its first `=`, `{`, `[` or `;`; else "".
+    priv static fn _var_name_(const t: string) -> string {
+        if t.starts_with("using ") {
+            var e: usize = 6
+            while (e < t.size()) && TextSink::_ident_char_(t[e]) {
+                e += 1
+            }
+
+            return t.subslice(6, e - 6)
+        }
+
+        var stop: usize = 0
+        while (stop < t.size()) && (t[stop] != 61) && (t[stop] != 123) && (t[stop] != 91) && (t[stop] != 59) {
+            stop += 1
+        }
+
+        var e = stop
+        while (e > 0) && (t[e - 1] == 32) {
+            e -= 1
+        }
+
+        var b = e
+        while (b > 0) && TextSink::_ident_char_(t[b - 1]) {
+            b -= 1
+        }
+
+        if (b == e) || ((t[b] >= 48) && (t[b] <= 57)) {
+            return ""
+        }
+
+        return t.subslice(b, e - b)
+    }
+
+    /// A prototype whose text C++ evaluates where it is declared: a
+    /// noexcept(), a requires clause, a decltype() other than the size_t
+    /// spelling. It may need any earlier declaration, so it moves above none.
+    priv static fn _evaluates_(const piece: string) -> bool {
+        if TextSink::_has_(piece, "noexcept(") || TextSink::_has_(piece, "requires") {
+            return true
+        }
+
+        var n: usize = 0
+        var z: usize = 0
+        for var i: usize = 0; (i + 9) <= piece.size(); ++i {
+            if piece.subslice(i, 9) == "decltype(" {
+                n += 1
+                if piece.subslice(i, piece.size() - i).starts_with("decltype(sizeof(0))") {
+                    z += 1
+                }
+            }
+        }
+
+        return n != z
+    }
+
+    /// \p name in \p s as a whole identifier.
+    priv static fn _has_word_(const s: string, const name: string) -> bool {
+        if name.empty() || (name.size() > s.size()) {
+            return false
+        }
+
+        for var i: usize = 0; (i + name.size()) <= s.size(); ++i {
+            if s.subslice(i, name.size()) != name {
+                continue
+            }
+
+            var before = (i > 0) && TextSink::_ident_char_(s[i - 1])
+            var after  = ((i + name.size()) < s.size()) && TextSink::_ident_char_(s[i + name.size()])
+            if (!before) && (!after) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    priv static fn _ident_char_(c: u8) -> bool {
+        return ((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90)) || ((c >= 48) && (c <= 57)) || (c == 95)
+    }
+
     priv static fn _trim_(const s: string) -> string {
         var a: usize = 0
         while (a < s.size()) && (s[a] == 32) {
@@ -962,6 +1330,7 @@ pub class TextSink derives EmitSink {
 
         self._glue_next   = false
         self._after_op_kw = false
+        self._last_word   = s
         self._put(s)
     }
 }

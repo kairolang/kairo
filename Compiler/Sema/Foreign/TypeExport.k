@@ -75,9 +75,11 @@
 
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "clang/AST/ASTContext.h"
+ffi "c++" import "clang/AST/Attr.h"
 ffi "c++" import "clang/AST/Decl.h"
 ffi "c++" import "clang/AST/DeclCXX.h"
 ffi "c++" import "clang/AST/DeclTemplate.h"
+ffi "c++" import "clang/AST/Expr.h"
 ffi "c++" import "clang/AST/TemplateBase.h"
 ffi "c++" import "clang/AST/TemplateName.h"
 ffi "c++" import "clang/AST/Type.h"
@@ -2160,6 +2162,380 @@ pub class TypeExport {
         return clang::QualType::getFromOpaquePtr(
             (self.cctx->getCanonicalTagType(spec)).getAsOpaquePtr(),
         )
+    }
+
+    /// # layout twins
+    ///
+    /// A layout twin is a record built only so clang can lay it out: the
+    /// size and alignment of the class EmitIR writes for a Kairo record with
+    /// a base or a virtual method, which only clang knows (kals' hover,
+    /// EnumLayoutQuery::foreign; EnumLayoutQuery::_twin_record decides what
+    /// goes in). It is NOT the stand-in above and never stands for one: it is
+    /// never added to a scope, never registered, never found by name, so no
+    /// fill, conversion or trait probe can reach it, and nothing a later
+    /// edit changes can make one stale -- each query builds its own. It
+    /// carries what the Itanium layout and clang's POD bit read and nothing
+    /// else: bases in order and their virtual-ness, a real virtual method
+    /// when the class declares one (clang picks the primary base and places
+    /// the vtable pointer), every non-static field with its alignment
+    /// attribute, a default member initializer and the access where the
+    /// emitted field has them, a user-provided special member, `packed` /
+    /// `aligned` on the record. The POD bit matters because a non-POD base
+    /// lends its tail padding to the derived class's fields (Itanium "POD
+    /// for the purpose of layout", clang's mustSkipTailPadding) and a packed
+    /// record does not pack a non-POD class member. PRE for all of them:
+    /// sema_lock() held; nothing here calls clang::Sema but twin_foreign.
+
+    /// A new, empty record mid-definition, in no scope.
+    pub fn twin_begin(self, is_union: bool) -> unsafe *clang::CXXRecordDecl {
+        var loc = clang::SourceLocation()
+        var tk  = if (is_union) => (clang::TagTypeKind::Union) else => clang::TagTypeKind::Struct
+        var unsafe *tu = unsafe (self.cctx->getTranslationUnitDecl() as unsafe *clang::DeclContext)
+        var unsafe *rd = clang::CXXRecordDecl::Create(
+            *self.cctx,
+            tk,
+            tu,
+            loc,
+            loc,
+            self._ident("__kairo_layout_twin"),
+            &null,
+        )
+
+        rd->setImplicit(true)
+        rd->startDefinition()
+        return rd
+    }
+
+    /// \p rd's bases, in order; \p virt[i] is `derives virtual`. Each must be
+    /// a complete, valid record. Built without Sema (no CheckBaseSpecifier):
+    /// nothing here is the user's to be told about, and setBases is what
+    /// derives the class's own bits from them.
+    pub fn twin_bases(self,
+                      rd:         unsafe *clang::CXXRecordDecl,
+                      const qs:   cxx::std::vector<clang::QualType>,
+                      const virt: cxx::std::vector<u8>) -> bool {
+        if qs.size() == 0 {
+            return true
+        }
+
+        var store: llvm::SmallVector<clang::CXXBaseSpecifier, 4>
+        for var i: usize = 0; i < qs.size(); ++i {
+            var unsafe *brd = qs[i]->getAsCXXRecordDecl()
+            if brd == &null || !TypeExport::twin_usable(qs[i]) {
+                return false
+            }
+
+            store.push_back(
+                clang::CXXBaseSpecifier(
+                    clang::SourceRange(),
+                    virt[i] != 0,
+                    true,
+                    clang::AS_public,
+                    self.cctx->getTrivialTypeSourceInfo(qs[i], clang::SourceLocation()),
+                    clang::SourceLocation(),
+                ),
+            )
+        }
+
+        var ptrs: llvm::SmallVector<unsafe *clang::CXXBaseSpecifier, 4>
+        for var i: usize = 0; i < store.size(); ++i {
+            ptrs.push_back(unsafe &store[i])
+        }
+
+        rd->setBases(ptrs.data(), ptrs.size() as u32)
+        return true
+    }
+
+    /// Field \p i of \p rd, of type \p ft: \p nsdmi when the emitted field
+    /// has a default member initializer (only its presence is mirrored; no
+    /// expression is attached), \p is_pub its access, \p align its
+    /// `@align(N)` (0: none). Access is set before addDecl, which is where
+    /// clang reads it.
+    pub fn twin_field(self,
+                      rd:     unsafe *clang::CXXRecordDecl,
+                      ft:     clang::QualType,
+                      nsdmi:  bool,
+                      is_pub: bool,
+                      align:  u64,
+                      i:      usize) {
+        var loc = clang::SourceLocation()
+        var ist = if (nsdmi) => (clang::ICIS_ListInit) else => clang::ICIS_NoInit
+        var unsafe *cf = clang::FieldDecl::Create(
+            *self.cctx,
+            rd,
+            loc,
+            loc,
+            self._ident(LowerTargets::export_field(i)),
+            ft,
+            self.cctx->getTrivialTypeSourceInfo(ft, loc),
+            &null,
+            false,
+            ist,
+        )
+
+        var acc = clang::AS_public
+        if !is_pub {
+            acc = clang::AS_private
+        }
+
+        cf->setAccess(acc)
+        if align > 1 {
+            cf->addAttr(self._twin_aligned(align))
+        }
+
+        rd->addDecl(cf)
+    }
+
+    /// A virtual method of \p rd's own: what makes it polymorphic, exactly as
+    /// the emitted class's first virtual does. No body and no override
+    /// links; a second one in a derived twin overrides nothing and changes
+    /// no layout (the vtable pointer is the primary base's).
+    pub fn twin_virtual(self, rd: unsafe *clang::CXXRecordDecl) {
+        var loc = clang::SourceLocation()
+        var ft  = self._twin_fn_type()
+        var unsafe *m = clang::CXXMethodDecl::Create(
+            &*self.cctx,
+            rd,
+            loc,
+            clang::DeclarationNameInfo(clang::DeclarationName(self._ident("__kairo_layout_vf")), loc),
+            ft,
+            self.cctx->getTrivialTypeSourceInfo(ft, loc),
+            clang::SC_None,
+            false,
+            false,
+            clang::ConstexprSpecKind::Unspecified,
+            loc,
+        )
+
+        m->setVirtualAsWritten(true)
+        m->setAccess(clang::AS_public)
+        rd->addDecl(m)
+    }
+
+    /// A user-provided destructor: the emitted class has a user-provided
+    /// special member (a constructor with a body, `op finally`, a derived
+    /// `op =`), which makes it non-POD. Which one does not matter to layout;
+    /// only the POD bit does, and clang clears it for any of them.
+    pub fn twin_user_dtor(self, rd: unsafe *clang::CXXRecordDecl) {
+        var loc = clang::SourceLocation()
+        var ft  = self._twin_fn_type()
+        var nm  = self.cctx->DeclarationNames.getCXXDestructorName(self.cctx->getCanonicalTagType(rd))
+        var unsafe *dd = clang::CXXDestructorDecl::Create(
+            &*self.cctx,
+            rd,
+            loc,
+            clang::DeclarationNameInfo(nm, loc),
+            ft,
+            self.cctx->getTrivialTypeSourceInfo(ft, loc),
+            false,
+            false,
+            false,
+            clang::ConstexprSpecKind::Unspecified,
+        )
+
+        dd->setAccess(clang::AS_public)
+        rd->addDecl(dd)
+    }
+
+    /// Complete \p rd, with the record's `@packed` / `@align(N)` as the
+    /// GNU attributes AttrFacts::record_attr writes.
+    pub fn twin_end(self, rd: unsafe *clang::CXXRecordDecl, packed: bool, align: u64) -> clang::QualType {
+        if packed {
+            rd->addAttr(clang::PackedAttr::CreateImplicit(&*self.cctx))
+        }
+
+        if align > 1 {
+            rd->addAttr(self._twin_aligned(align))
+        }
+
+        rd->completeDefinition()
+        if rd->isInvalidDecl() {
+            return clang::QualType()
+        }
+
+        return clang::QualType::getFromOpaquePtr((self.cctx->getCanonicalTagType(rd)).getAsOpaquePtr())
+    }
+
+    /// A non-POD record of \p size bytes aligned to \p align: an ADT or a
+    /// `T?` as a field. Both are emitted with user-provided constructors, so
+    /// non-POD is their bit too; their size is the compiler's own
+    /// (EnumLayoutQuery::size_of). Only as a FIELD: a base reads its data
+    /// size, which a blob does not have.
+    pub fn twin_blob(self, size: u64, align: u64) -> clang::QualType {
+        if size == 0 || align == 0 || size % align != 0 {
+            return clang::QualType()
+        }
+
+        var unsafe *rd = self.twin_begin(false)
+        var elem = clang::QualType::getFromOpaquePtr((self.cctx->CharTy).getAsOpaquePtr())
+        var arr  = self.cctx->getConstantArrayType(
+            elem,
+            llvm::APInt(64, size),
+            &null,
+            clang::ArraySizeModifier::Normal,
+            0,
+        )
+
+        self.twin_field(rd, arr, true, true, 0, 0)
+        return self.twin_end(rd, false, align)
+    }
+
+    /// A scalar field's type: a builtin, or anything pointer-shaped --
+    /// a pointer or a `fn(...)` is `void *` (every data and function
+    /// pointer has one size here), a C++ reference `char &` (a reference
+    /// member, which clang also counts against POD). Null otherwise.
+    pub fn twin_scalar(self, t: unsafe *Type) -> clang::QualType {
+        var unsafe *c = canon_unqual(t)
+        if c == &null {
+            return clang::QualType()
+        }
+
+        if isa<BuiltinType>(c) {
+            return self._builtin(cast<BuiltinType>(c))
+        }
+
+        if isa<PointerType>(c) || isa<FunctionPointerType>(c) {
+            return clang::QualType::getFromOpaquePtr((self.cctx->VoidPtrTy).getAsOpaquePtr())
+        }
+
+        var ch = clang::QualType::getFromOpaquePtr((self.cctx->CharTy).getAsOpaquePtr())
+        if isa<CXXLValueRefType>(c) {
+            return self.cctx->getLValueReferenceType(ch)
+        }
+
+        if isa<CXXRValueRefType>(c) {
+            return self.cctx->getRValueReferenceType(ch)
+        }
+
+        return clang::QualType()
+    }
+
+    /// An imported record, enum or union as it is in this set: its own decl
+    /// here, a plain one re-found by name, or a filled instance's
+    /// specialization in this set -- never a new template-id (a hover must
+    /// not specialize anything the compile did not). Completed as any use
+    /// would (an instance's definition is instantiated on demand); null
+    /// when it is not complete and valid here.
+    pub fn twin_foreign(self, t: unsafe *Type) -> clang::QualType {
+        var unsafe *c = canon_unqual(t)
+        if c == &null || !isa<RecordType>(c) {
+            return clang::QualType()
+        }
+
+        var unsafe *d = cast<RecordType>(c)->decl
+        if d == &null || decl_clang(d) == &null {
+            return clang::QualType()
+        }
+
+        if decl_is_instance(d) && decl_origin_set(d) != self.set {
+            return clang::QualType()
+        }
+
+        var q = self._record(cast<RecordType>(c))
+        if q.isNull() {
+            return q
+        }
+
+        if q->isRecordType() && self.sema != &null {
+            if !self.sema->isCompleteType(clang::SourceLocation(), q) {
+                return clang::QualType()
+            }
+        }
+
+        if !TypeExport::twin_usable(q) {
+            return clang::QualType()
+        }
+
+        return q
+    }
+
+    /// A constant array of \p n twins of \p el.
+    pub fn twin_array(self, el: clang::QualType, n: u64) -> clang::QualType {
+        return self.cctx->getConstantArrayType(
+            el,
+            llvm::APInt(64, n),
+            &null,
+            clang::ArraySizeModifier::Normal,
+            0,
+        )
+    }
+
+    /// \p q is a record clang can lay out: defined, complete, valid, not
+    /// dependent. A scalar or an enum always is.
+    pub static fn twin_usable(q: clang::QualType) -> bool {
+        if q.isNull() {
+            return false
+        }
+
+        var unsafe *rd = q->getAsCXXRecordDecl()
+        if rd == &null {
+            return !q->isIncompleteType()
+        }
+
+        var unsafe *def = rd->getDefinition()
+        return def != &null
+            && def->isCompleteDefinition()
+            && !def->isInvalidDecl()
+            && !def->isDependentContext()
+    }
+
+    /// \p q is a record clang calls POD (C++03, which the Itanium layout
+    /// reads); false for anything else.
+    pub static fn twin_pod(q: clang::QualType) -> bool {
+        if q.isNull() {
+            return false
+        }
+
+        var unsafe *rd = q->getAsCXXRecordDecl()
+        if rd == &null || rd->getDefinition() == &null {
+            return false
+        }
+
+        return rd->getDefinition()->isPOD()
+    }
+
+    /// sizeof / alignof of \p q in this set's ASTContext.
+    pub fn twin_measure(self, q: clang::QualType, size: unsafe *u64, align: unsafe *u64) -> bool {
+        if !TypeExport::twin_usable(q) {
+            return false
+        }
+
+        *size  = (self.cctx->getTypeSizeInChars(q).getQuantity() as u64)
+        *align = (self.cctx->getTypeAlignInChars(q).getQuantity() as u64)
+        return *align != 0
+    }
+
+    /// Silence this set's diagnostics while a twin is built and measured
+    /// (nothing it could say is the user's); returns the previous setting,
+    /// which the caller restores.
+    pub fn twin_quiet(self, on: bool) -> bool {
+        var *de = &self.cctx->getDiagnostics()
+        var was = de->getSuppressAllDiagnostics()
+        de->setSuppressAllDiagnostics(on)
+        return was
+    }
+
+    priv fn _twin_fn_type(self) -> clang::QualType {
+        var ps: llvm::SmallVector<clang::QualType, 1>
+        var vt = clang::QualType::getFromOpaquePtr((self.cctx->VoidTy).getAsOpaquePtr())
+        return self.cctx->getFunctionType(
+            vt,
+            llvm::ArrayRef<clang::QualType>(ps),
+            clang::FunctionProtoType::ExtProtoInfo(),
+        )
+    }
+
+    /// GNU `aligned(N)`, as AttrFacts writes it, on a record or a field.
+    priv fn _twin_aligned(self, n: u64) -> unsafe *clang::AlignedAttr {
+        var it = clang::QualType::getFromOpaquePtr((self.cctx->IntTy).getAsOpaquePtr())
+        var unsafe *lit = clang::IntegerLiteral::Create(
+            *self.cctx,
+            llvm::APInt(32, n),
+            it,
+            clang::SourceLocation(),
+        )
+
+        return clang::AlignedAttr::CreateImplicit(&*self.cctx, true, unsafe (lit as unsafe *void))
     }
 
     priv fn _ident(self, const s: string) -> unsafe *clang::IdentifierInfo {

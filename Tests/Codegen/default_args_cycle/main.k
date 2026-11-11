@@ -4,10 +4,10 @@
 //
 // Defaults across an import cycle: a calls b's defaulted function and b
 // calls a's. The two TUs lower in lockstep, so one TU mints the thunk for
-// a default written in the other before that TU is lowered. The thunk was
-// then never placed and CallLowering ICE'd ("a default thunk was minted but
+// a default written in the other before that TU is lowered. The thunk is
+// placed, not left for CallLowering to ICE on ("a default thunk was minted but
 // the declaration that wrote the default was never visited"; the self-host
-// whole-tree check). The declaring TU now places it.
+// whole-tree check). The declaring TU places it.
 
 import a::*
 import b::*

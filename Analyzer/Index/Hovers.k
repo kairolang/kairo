@@ -896,12 +896,15 @@ extend IndexWalker {
     /// Kairo generic instance. It answers a plain enum, an ADT (its tag,
     /// prefix or niche layout), a struct or class with no base, no generic
     /// parameter and no virtual method, with `@packed` / `@align` applied,
-    /// and any C++ record clang laid out. Not a generic pattern: its
+    /// and any C++ record clang laid out. A Kairo class with a base (Kairo
+    /// or C++, virtual or not) or a virtual method, a `@packed` record of
+    /// record fields, and a union as a field are clang's own answer too:
+    /// the C++ the compiler emits for them has a layout only clang decides
+    /// (tail padding reuse, the vtable pointer, what a packed record packs),
+    /// so the query has clang lay out a twin of the emitted class
+    /// (EnumLayoutQuery::_twin_record). Not a generic pattern: its
     /// instances are laid out per argument (a use that names one gets that
-    /// one's, hover_typed_). Not a Kairo class with a base or a virtual
-    /// method: the C++ the compiler emits for it has a layout only clang
-    /// decides (tail padding reuse, the vtable pointer), and no compiler
-    /// query predicts it. Anything else is nothing rather than a guess. An
+    /// one's, hover_typed_). Anything else is nothing rather than a guess. An
     /// ADT has its layout only once EnumLayoutLowering has built it, so
     /// this runs from fill_layouts_, after the TU's lowerings and mono.
     fn layout_(self, d: unsafe *Decl) -> string {

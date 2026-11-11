@@ -1496,6 +1496,9 @@ enum class HCol : unsigned short { R, G };
 union HU { int i; double d; };
 struct HVirt { virtual ~HVirt() {} int x; };
 typedef HBox<long> HBoxL;
+struct HCB { long a; char b; };
+struct HL { long a; };
+struct HC { char c; };
 '''
 
 FOREIGN = '''import std::io
@@ -1506,6 +1509,22 @@ class <T> Pair { pub var a: T; pub var b: u8 }
 class KP { pub var p: Pair<i64>; pub var h: HBox<i32> }
 class KB { pub var a: i64; pub var b: u8 }
 class KD derives KB { pub var c: u8 }
+class DC derives HCB { var c: u8 }
+class DCV derives HVirt { var c: u8 }
+class P2 { pub var p: HL; pub var q: HC }
+class DP2 derives P2 { var c: u8 }
+class P3 { pub var p: HL; pub var q: HC; fn P3(self) { } }
+class DP3 derives P3 { var c: u8 }
+class P4 { pub var p: HL; pub var q: HC; fn P4(self) = default }
+class DP4 derives P4 { var c: u8 }
+class P5 { var p: HL; var q: HC; fn P5(self) = default }
+class DP5 derives P5 { var c: u8 }
+class P7 { pub var p: HL; pub var q: HC; fn op finally (self) { } }
+class DP7 derives P7 { var c: u8 }
+@packed
+struct PK2 { var a: u8; var s: P2 }
+@packed
+struct PK3 { var a: u8; var s: P3 }
 
 fn main() -> i32 {
     var hb: HBoxL = HBoxL()
@@ -1519,12 +1538,23 @@ fn main() -> i32 {
     io::println(f"Pairi64 {sizeof Pair<i64>} {alignof Pair<i64>}")
     io::println(f"KP {sizeof KP} {alignof KP}")
     io::println(f"KD {sizeof KD} {alignof KD}")
+    io::println(f"DC {sizeof DC} {alignof DC}")
+    io::println(f"DCV {sizeof DCV} {alignof DCV}")
+    io::println(f"DP2 {sizeof DP2} {alignof DP2}")
+    io::println(f"DP3 {sizeof DP3} {alignof DP3}")
+    io::println(f"DP4 {sizeof DP4} {alignof DP4}")
+    io::println(f"DP5 {sizeof DP5} {alignof DP5}")
+    io::println(f"DP7 {sizeof DP7} {alignof DP7}")
+    io::println(f"PK2 {sizeof PK2} {alignof PK2}")
+    io::println(f"PK3 {sizeof PK3} {alignof PK3}")
     return 0
 }
 '''
 
 FOREIGN_TRUTH = {"HPad": (24, 8), "HBoxi32": (8, 4), "HCol": (2, 2), "HU": (8, 8), "HVirt": (16, 8),
-                 "HBoxL": (16, 8), "KW": (32, 8), "Pairi64": (16, 8), "KP": (24, 8), "KD": (16, 8)}
+                 "HBoxL": (16, 8), "KW": (32, 8), "Pairi64": (16, 8), "KP": (24, 8), "KD": (16, 8),
+                 "DC": (24, 8), "DCV": (16, 8), "DP2": (24, 8), "DP3": (16, 8), "DP4": (24, 8),
+                 "DP5": (16, 8), "DP7": (16, 8), "PK2": (17, 1), "PK3": (24, 8)}
 
 
 def foreign_hovers(exe, root):
@@ -1545,7 +1575,19 @@ def foreign_hovers(exe, root):
              ("HBoxL", "sizeof HBoxL", 7, "a C++ typedef of an instance", ""),
              ("KW", "class KW", 6, "a Kairo class with a C++ field", ""),
              ("Pairi64", "sizeof Pair<i64>", 7, "a Kairo generic instance named at a use", " (`Pair<i64>`)"),
-             ("KP", "class KP", 6, "a Kairo class of instance fields", "")]
+             ("KP", "class KP", 6, "a Kairo class of instance fields", ""),
+             # A base's POD bit, as clang reads the emitted class: each pair
+             # flips one input (a constructor with a body, `= default`, a
+             # private field, op finally), and a POD base keeps its tail.
+             ("DC", "class DC", 6, "a class with a C++ POD base (no tail reuse)", ""),
+             ("DCV", "class DCV", 6, "a class with a C++ base with a vtable", ""),
+             ("DP2", "class DP2", 6, "a base that is POD as emitted (C++ fields, no constructor)", ""),
+             ("DP3", "class DP3", 6, "the same base with a constructor (non-POD: tail reused)", ""),
+             ("DP4", "class DP4", 6, "the same base with only `= default` (still POD)", ""),
+             ("DP5", "class DP5", 6, "the same base with private fields (non-POD)", ""),
+             ("DP7", "class DP7", 6, "the same base with op finally (non-POD)", ""),
+             ("PK2", "struct PK2", 7, "a @packed struct packs a POD member", ""),
+             ("PK3", "struct PK3", 7, "a @packed struct does not pack a non-POD member", "")]
     for name, needle, off, what, suffix in cases:
         h = hv(needle, off)
         want = "size %d bytes, align %d%s" % (truth[name] + (suffix,))
@@ -1553,7 +1595,173 @@ def foreign_hovers(exe, root):
     h = hv("class <T> Pair", 10)
     check("hover layout: the generic pattern itself shows no size", "size " not in h, h)
     h = hv("class KD", 6)
-    check("hover layout: a Kairo class with a base shows no size (clang alone lays it out)", "size " not in h, h)
+    want = "size %d bytes, align %d" % truth["KD"]
+    check("hover layout: a Kairo class with a base reuses the base's tail padding (%s)" % want, want in h, h)
+    c.stop()
+
+
+# Classes with bases and virtual methods on hover (P871): clang lays out a
+# twin of the class the compiler emits (EnumLayoutQuery::_twin_record), so
+# tail padding a non-POD base lends, the vtable pointer, virtual bases, empty
+# bases and what a packed record packs are clang's numbers. No ffi import:
+# the twin is built in a set reached through the imports. BASES_TRUTH is
+# what the program printed built by the release kairo (x86_64-linux-musl);
+# KALS_SMOKE_KAIRO recompiles it as for LAYOUTS.
+BASES = """import std::io
+
+class B1 { var a: i64; var b: u8 }
+class D1 derives B1 { var c: u8 }
+class E0 { }
+class DE derives E0 { var x: i32 }
+class DEE derives E0 { pub var e: E0; pub var x: u8 }
+class V { var x: i32; virtual fn f(self) -> i32 { return 1 } }
+class DV derives V { var y: i64; override fn f(self) -> i32 { return 2 } }
+class B2 { var a: i64 }
+class M2 derives B1, B2 { var m: u8 }
+class NV { var q: u8 }
+class MV derives NV, V { var r: u8 }
+class OV derives NV { var r: u8; virtual fn g(self) -> i32 { return 3 } }
+class <T> GB { var t: T; var c: u8 }
+class DG derives GB<i64> { var d: u8 }
+class Abs { var a: i32; virtual fn f(self) -> i32 }
+class Conc derives Abs { var b: i32; override fn f(self) -> i32 { return 1 } }
+interface PI { fn pk(self) -> i32 }
+class ImP impl PI { pub var n: i32 = 0; fn ImP(self) { } fn pk(self) -> i32 { return 1 } }
+@packed
+class PD derives B1 { var c: u8; var d: i32 }
+@packed
+class PB { var a: i64; var b: u8 }
+class DPB derives PB { var c: u8 }
+@align(16)
+class AD derives B1 { var c: u8 }
+class VA derives virtual NV { var s: i64 }
+class VB derives virtual NV { var t: i64 }
+class VD derives VA, VB { }
+struct N1 { var d: D1; var b: u8 }
+enum EA { One { d: D1 }, Two }
+struct S1 { var a: i64; var b: u8 }
+@packed
+struct PS { var a: u8; var s: S1 }
+union UU { var a: i64; var b: u8 }
+struct HU { var e: UU }
+class SB { var s: string; var n: i32 }
+class DSB derives SB { var k: u8 }
+class Fin { var a: i64; var b: u8; fn Fin(self) { } fn op finally (self) { } }
+class DFin derives Fin { var c: u8 }
+class VF { var a: i32; virtual fn op finally (self) { } }
+class DVF derives VF { var b: i32 }
+enum T8 { A { v: i64 }, B }
+enum T1 { A { v: u8 }, B }
+class HT { pub var a: T8; pub var b: T1 }
+class DHT derives HT { var c: u8 }
+enum NP8 { Some_ { p: unsafe *i32 }, None_ }
+enum NB { Some_ { b: bool }, None_ }
+class HNI { pub var a: NP8; pub var b: NB }
+class DHNI derives HNI { var c: u8 }
+class HNU { pub var a: i64?; pub var b: u8? }
+class DHNU derives HNU { var c: u8 }
+@packed
+struct PT { var a: u8; var e: T8 }
+@packed
+struct PU { var a: u8; var e: (unsafe *i64)? }
+@align(16)
+class AB { var a: i64; var b: u8 }
+class DAB derives AB { var c: u8 }
+
+fn main() -> i32 {
+    io::println(f"D1 {sizeof D1} {alignof D1}")
+    io::println(f"DE {sizeof DE} {alignof DE}")
+    io::println(f"DEE {sizeof DEE} {alignof DEE}")
+    io::println(f"V {sizeof V} {alignof V}")
+    io::println(f"DV {sizeof DV} {alignof DV}")
+    io::println(f"M2 {sizeof M2} {alignof M2}")
+    io::println(f"MV {sizeof MV} {alignof MV}")
+    io::println(f"OV {sizeof OV} {alignof OV}")
+    io::println(f"DG {sizeof DG} {alignof DG}")
+    io::println(f"Abs {sizeof Abs} {alignof Abs}")
+    io::println(f"Conc {sizeof Conc} {alignof Conc}")
+    io::println(f"ImP {sizeof ImP} {alignof ImP}")
+    io::println(f"PD {sizeof PD} {alignof PD}")
+    io::println(f"DPB {sizeof DPB} {alignof DPB}")
+    io::println(f"AD {sizeof AD} {alignof AD}")
+    io::println(f"VD {sizeof VD} {alignof VD}")
+    io::println(f"N1 {sizeof N1} {alignof N1}")
+    io::println(f"EA {sizeof EA} {alignof EA}")
+    io::println(f"PS {sizeof PS} {alignof PS}")
+    io::println(f"HU {sizeof HU} {alignof HU}")
+    io::println(f"DSB {sizeof DSB} {alignof DSB}")
+    io::println(f"DFin {sizeof DFin} {alignof DFin}")
+    io::println(f"DVF {sizeof DVF} {alignof DVF}")
+    io::println(f"DHT {sizeof DHT} {alignof DHT}")
+    io::println(f"DHNI {sizeof DHNI} {alignof DHNI}")
+    io::println(f"DHNU {sizeof DHNU} {alignof DHNU}")
+    io::println(f"PT {sizeof PT} {alignof PT}")
+    io::println(f"PU {sizeof PU} {alignof PU}")
+    io::println(f"DAB {sizeof DAB} {alignof DAB}")
+    return 0
+}
+"""
+
+BASES_TRUTH = {"D1": (16, 8), "DE": (4, 4), "DEE": (3, 1), "V": (16, 8), "DV": (24, 8), "M2": (32, 8),
+               "MV": (16, 8), "OV": (16, 8), "DG": (16, 8), "Abs": (16, 8), "Conc": (16, 8), "ImP": (4, 4),
+               "PD": (16, 8), "DPB": (10, 1), "AD": (16, 16), "VD": (40, 8), "N1": (24, 8), "EA": (24, 8),
+               "PS": (24, 8), "HU": (8, 8), "DSB": (40, 8), "DFin": (16, 8), "DVF": (16, 8),
+               "DHT": (24, 8), "DHNI": (16, 8), "DHNU": (24, 8), "PT": (24, 8), "PU": (16, 8),
+               "DAB": (16, 16)}
+
+
+def base_hovers(exe, root):
+    X = "src/bases.k"
+    open(os.path.join(root, X), "w").write(BASES)
+    truth = layout_truth(root, BASES, BASES_TRUTH)
+    c = Client(exe, root)
+    c.start()
+    c.open(X, BASES)
+    c.settle()
+    hv = lambda text, needle, off: (c.request("textDocument/hover", c.at(X, *pos(text, needle, off))) or {}).get("contents", {}).get("value", "")
+    cases = [("D1", "class D1", 6, "a derived class in a non-POD base's tail padding"),
+             ("DE", "class DE", 6, "an empty base"),
+             ("DEE", "class DEE", 6, "an empty base and a member of its type (no two at one address)"),
+             ("V", "class V ", 6, "a class with a virtual method"),
+             ("DV", "class DV", 6, "a derived virtual with an added field"),
+             ("M2", "class M2", 6, "two bases"),
+             ("MV", "class MV", 6, "a dynamic second base (the primary base)"),
+             ("OV", "class OV", 6, "a first virtual over a non-dynamic base"),
+             ("DG", "class DG", 6, "a base that is a generic instance"),
+             ("Abs", "class Abs", 6, "an abstract class"),
+             ("Conc", "class Conc", 6, "a class implementing an abstract one"),
+             ("ImP", "class ImP", 6, "a class implementing an interface"),
+             ("PD", "class PD", 6, "a @packed derived class (a base is never packed)"),
+             ("DPB", "class DPB", 6, "a class deriving a @packed base"),
+             ("AD", "class AD", 6, "an @align(16) derived class"),
+             ("VD", "class VD", 6, "a virtual-base diamond"),
+             ("N1", "struct N1", 7, "a field of a derived class's type"),
+             ("EA", "enum EA", 5, "a derived class in an ADT payload"),
+             ("PS", "struct PS", 7, "a @packed struct with a non-POD member (clang does not pack it)"),
+             ("HU", "struct HU", 7, "a union as a field"),
+             ("DSB", "class DSB", 6, "a base holding a string"),
+             ("DFin", "class DFin", 6, "a base with a constructor and op finally"),
+             ("DVF", "class DVF", 6, "a base with a virtual op finally"),
+             # An ADT or a `T?` member is non-POD (each is emitted with
+             # constructors): a base made only of them lends its tail, and a
+             # packed record keeps it aligned. Tagged, niche, `T?` both ways.
+             ("DHT", "class DHT", 6, "a base of tagged ADT members (non-POD: tail reused)"),
+             ("DHNI", "class DHNI", 6, "a base of niche ADT members (non-POD: tail reused)"),
+             ("DHNU", "class DHNU", 6, "a base of `T?` members (non-POD: tail reused)"),
+             ("PT", "struct PT", 7, "a @packed struct does not pack an ADT member"),
+             ("PU", "struct PU", 7, "a @packed struct does not pack a `T?` member"),
+             ("DAB", "class DAB", 6, "a class deriving an @align(16) base")]
+    for name, needle, off, what in cases:
+        h = hv(BASES, needle, off)
+        want = "size %d bytes, align %d" % truth[name]
+        check("hover layout: %s is the compiled size (%s)" % (what, want), want in h, h)
+    # An edit of the base reaches the derived class's hover: the twin is
+    # built per query, never kept.
+    grown = BASES.replace("class B1 { var a: i64; var b: u8 }", "class B1 { var a: i64; var b: u8; var w: u64 }")
+    c.change(X, 2, grown)
+    c.settle()
+    h = hv(grown, "class D1", 6)
+    check("hover layout: after the base grows, the derived class's layout follows", "size 32 bytes, align 8" in h, h)
     c.stop()
 
 
@@ -1580,7 +1788,8 @@ def hovers(exe, root):
         want = "size %d bytes, align %d" % truth[name]
         check("hover layout: %s is the compiled size (%s)" % (what, want), want in h, h)
     h = hv("class Der", 6)
-    check("hover layout: a class with a base shows no size (C++ lays it out)", "size " not in h, h)
+    want = "size %d bytes, align %d" % truth["Der"]
+    check("hover layout: a class with a base is clang's layout of the emitted class (%s)" % want, want in h, h)
     h = hv("struct <T> Gen", 11)
     check("hover layout: a generic pattern shows no size (each instance has its own)", "struct <T> Gen" in h and "size " not in h, h)
     h = hv("class Box", 6)
@@ -2049,6 +2258,86 @@ def bridge_docs(exe, base):
     d.stop()
 
 
+# P882: an enum's variants each on their own .k line (the enum's `};` is
+# anchored at the enum, which used to pull them all onto its line), and a
+# function above the types it names moved up past the enum's niche
+# specialization (which used to bar every prototype above it).
+BR_LAY_K = """// layout probe: enum variants, functions on either side of the types.
+
+/// Picks a colour.
+pub fn pick(c: Color) -> i32 { return 1 }
+
+/// A colour.
+pub enum Color {
+    /// The red one.
+    Red,
+    /// The green one.
+    Green,
+}
+
+pub class Holder {
+    pub var c: i32
+    pub fn Holder(self) = default
+}
+
+/// After the class.
+pub fn after(h: Holder) -> i32 { return 3 }
+"""
+BR_LAY_USE = """#include "lay.k"
+int main() { lay::Color k = lay::Color::Green; lay::Holder h; return lay::pick(k) + lay::after(h); }
+"""
+
+
+def bridge_layout(exe, base):
+    """P882: clangd's definition of an enum variant, of a function declared
+    above the enum it names and of one declared after a class is its own
+    .k line; hover on a variant shows the variant's doc."""
+    root = os.path.realpath(os.path.join(base, "bridge_layout"))
+    os.makedirs(root)
+    for n, t in (("lay.k", BR_LAY_K), ("use.cc", BR_LAY_USE)):
+        open(os.path.join(root, n), "w").write(t)
+    cache = os.path.join(root, ".kairo", "clangd")
+    read = lambda p: open(p).read() if os.path.exists(p) else ""
+    c = Client(exe, root)
+    c.start()
+    ok = wait_for(lambda: "lay.k" in read(os.path.join(cache, "overlay.yaml")), 120, c)
+    c.pump(1)
+    c.stop()
+    check("bridge layout: the header is mapped", ok, os.listdir(cache) if os.path.isdir(cache) else root)
+    H, kl = read(os.path.join(cache, "lay.hh")).split("\n"), BR_LAY_K.split("\n")
+    line_of = lambda s: next(i for i, x in enumerate(kl) if x.strip().startswith(s))
+    check("bridge layout: each variant on its .k line, its doc above it",
+          len(H) > 10 and H[line_of("Red")].strip().startswith("Red") and H[line_of("Green")].strip().startswith("Green")
+          and H[line_of("/// The green one.")].strip() == "/// The green one.", H[5:12])
+    cdx = shutil.which("clangd")
+    if not cdx:
+        print("note: no clangd on PATH; the clangd checks of bridge layout were skipped")
+        return
+    d = Client(cdx, root)
+    d.start()
+    d.notify("textDocument/didOpen", {"textDocument": {"uri": d.uri("use.cc"), "languageId": "cpp", "version": 1, "text": BR_LAY_USE}})
+    wait_for(lambda: d.diagnostics("use.cc") is not None, 120, d)
+    check("bridge layout: clangd reports nothing in use.cc", d.diagnostics("use.cc") == [], d.diagnostics("use.cc"))
+    for needle, decl in (("Green;", "Green,"), ("pick(", "pub fn pick"), ("after(", "pub fn after")):
+        l, ch = pos(BR_LAY_USE, needle)
+        r = d.request("textDocument/definition", d.at("use.cc", l, ch), timeout=60)
+        r = r if isinstance(r, list) else ([r] if r else [])
+        got = (r[0].get("uri", r[0].get("targetUri")), (r[0].get("range") or r[0].get("targetSelectionRange"))["start"]["line"]) if r else None
+        want = line_of(decl)
+        check("bridge layout: clangd's definition of %s is lay.k line %d" % (needle.rstrip("(;"), want + 1),
+              got == ("file://" + os.path.join(root, "lay.k"), want), got)
+    l, ch = pos(BR_LAY_USE, "Green;")
+    got, end = "", time.time() + 60
+    while time.time() < end:
+        r = d.request("textDocument/hover", d.at("use.cc", l, ch), timeout=60)
+        got = ((r or {}).get("contents") or {}).get("value", "")
+        if "The green one." in got:
+            break
+        d.pump(0.5)
+    check("bridge layout: clangd's hover on a variant shows its doc", "The green one." in got, got[:300])
+    d.stop()
+
+
 def overlay_entries(text):
     """{.k path: header} of an overlay.yaml kals wrote."""
     import re
@@ -2364,6 +2653,7 @@ def main():
         bridge(exe, base)
         bridge_real(exe, base)
         bridge_docs(exe, base)
+        bridge_layout(exe, base)
         bridge_shared(exe, base)
         bridge_order(exe, base)
         bridge_through(exe, base)
@@ -2378,6 +2668,7 @@ def main():
         import_names(exe, real)
         hovers(exe, real)
         foreign_hovers(exe, real)
+        base_hovers(exe, real)
         print("%.1fs" % (time.time() - t0))
     finally:
         shutil.rmtree(base, ignore_errors=True)

@@ -132,6 +132,8 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/KThread.hh" // sema_mint_rank
 ffi "c++" import "vector"
+ffi "c++" import "clang/AST/DeclCXX.h" // the layout twins' QualType (foreign mode)
+ffi "c++" import "clang/AST/Type.h"
 
 import AST::ASTSupport::{
     FrozenList,
@@ -140,6 +142,7 @@ import AST::ASTSupport::{
 import AST::AttrFacts::AttrFacts
 import AST::Context::DeclContext::DeclContext
 import AST::Context::InstantiationRegistry::InstanceEntry
+import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
     adt_expansion_at,    adt_pack_param,   adt_pack_variant, adt_variant_at,       adt_variant_pos,
     decl_generic_params, decl_is_imported, decl_is_instance, decl_pattern, decl_requires_clause,
@@ -156,6 +159,7 @@ import AST::EnumNiche::{
     enum_niche_kind,
 }
 import AST::Kind::DeclKind::to_string
+import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::{
     LowerTargets,
     WellKnownType,
@@ -205,7 +209,20 @@ import AST::Visitor::ASTWriter::{
     ASTWriter,
     ListBuilder,
 }
+import AST::VisibilityFacts::{
+    default_visibility_of,
+    tu_module_dir,
+}
+import Codegen::Emit::CXXSpell::{
+    CXXSpell,
+    VIS_INTERNAL,
+    VIS_NONE,
+    VIS_PRIV,
+    VIS_PROT,
+    VIS_PUB,
+}
 import Diagnostic::Registry::DiagID
+import Interop::Clang::HeaderSet::HeaderSet
 import Location::SourceRange::SourceRange
 import Sema::Check::ClassLifecycle::{
     LifecycleCategory,
@@ -214,11 +231,13 @@ import Sema::Check::ClassLifecycle::{
     lifecycle_open,
 }
 import Sema::Lower::LowerSynth::LowerSynth
+import Sema::Foreign::TypeExport::TypeExport
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
     SemaContext,
     SemaPhase,
 }
+import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::PanicSets::PanicSets
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
@@ -236,6 +255,18 @@ pub enum AdtShape derives u8 {
     Tagged = 0,
     Niche,
     Opaque,
+}
+
+/// One layout-twin query's memo (EnumLayoutQuery::_twin_record): each
+/// canonical record type's twin and its POD-uncertainty, so a type named
+/// twice in one class (a base and a field) is one clang record, as it is
+/// one class in the emitted C++. Never kept past the query.
+pub class TwinMemo {
+    pub var keys: cxx::std::vector<unsafe *Type>
+    pub var qs:   cxx::std::vector<clang::QualType>
+    pub var unc:  cxx::std::vector<u8>
+
+    fn TwinMemo(self) = default
 }
 
 /// "No answer": a niche count that depends on what only C++ instantiates.
@@ -810,6 +841,14 @@ pub class EnumLayoutQuery {
             return true
         }
 
+        // A class with a base or a virtual method, or a record the plain
+        // rule would get wrong: only clang lays out what EmitIR writes for
+        // it, so clang is asked, about a layout twin (_twin_size). No
+        // answer is no answer, never the plain rule's.
+        if self.foreign && self._needs_twin(c) {
+            return self._twin_size(c, size, align)
+        }
+
         if self.foreign && decl_is_instance(cast<RecordType>(c)->decl)
             && !decl_is_imported(cast<RecordType>(c)->decl)
             && dyn_cast<Declarations::EnumDecl>(self.tu.pattern_of(cast<RecordType>(c)->decl)) == &null {
@@ -1181,6 +1220,736 @@ pub class EnumLayoutQuery {
         }
 
         return (n + a - 1) / a * a
+    }
+
+    /// # layout twins (foreign mode only)
+    ///
+    /// The class EmitIR writes for a Kairo record with a base or a virtual
+    /// method has a layout only clang computes -- the Itanium rules for
+    /// bases, the vtable pointer's place, and above all tail padding: a
+    /// derived class's fields go into a NON-POD base's tail padding, and
+    /// whether the emitted base is POD is clang's verdict on what the
+    /// emitter wrote (a default member initializer, a constructor, a
+    /// private field each make it non-POD). So a twin of the emitted class
+    /// is built in a header set's ASTContext (TypeExport, "layout twins")
+    /// with every input those rules read, mirrored from
+    /// InterfaceEmitter::_record_def, and clang lays it out. A twin is
+    /// built per query and never reused (TypeExport's twin_begin). What
+    /// cannot be mirrored exactly is refused, never guessed.
+
+    /// \p c is a Kairo record (or an instance of a generic one) only a twin
+    /// answers: a class with a base or a virtual method of its own, a
+    /// pattern with a layout attribute behind an instance, or a `@packed`
+    /// record with a field of record type (clang does not pack a non-POD
+    /// class member, which _plain_record_size would).
+    priv fn _needs_twin(self, c: unsafe *Type) -> bool {
+        var unsafe *d = cast<RecordType>(c)->decl
+        if d == &null || decl_is_imported(d) {
+            return false
+        }
+
+        var unsafe *pat = NameLookup::representative(decl_pattern(d))
+        if pat == &null || decl_is_imported(pat) || isa<Declarations::EnumDecl>(pat) {
+            return false
+        }
+
+        // A union: size_of has no rule for one (kals' own union rule covers
+        // a union's hover, not a field of union type); clang lays it out.
+        if isa<Declarations::UnionDecl>(pat) {
+            return true
+        }
+
+        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(pat)
+        if cd != &null && cd->derives_list.size() > 0 {
+            return true
+        }
+
+        if self._twin_own_virtual(pat) {
+            return true
+        }
+
+        if decl_is_instance(d) && pat != d && self._any_attr(pat) {
+            return true
+        }
+
+        if !AttrFacts::is_packed(pat) {
+            return false
+        }
+
+        var fields = self._twin_fields_of(pat)
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *f = fields[i]
+            if f == &null || f->is_static() || f->type_ == &null || f->type_->canonical == &null {
+                continue
+            }
+
+            var unsafe *ft = canon_unqual(f->type_->canonical)
+            while ft != &null && isa<FixedArrayType>(ft) {
+                ft = canon_unqual(cast<FixedArrayType>(ft)->element)
+            }
+
+            if ft != &null && (isa<RecordType>(ft) || isa<NullableType>(ft)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// The header sets a twin may be built in, best first: the asking TU's
+    /// own (it names what the record's C++ parts need), the record's TU's,
+    /// then the nearest one through the asking TU's imports -- a file with
+    /// no `ffi` import still has a clang AST in reach (the builtins' sets),
+    /// and a twin of Kairo-only parts needs nothing more than the target.
+    priv fn _twin_sets(self, d: unsafe *Decl) -> cxx::std::vector<unsafe *HeaderSet> {
+        var out = cxx::std::vector<unsafe *HeaderSet>()
+        var unsafe *mine = self.sc->tu
+        if mine != &null && mine->header_set != &null {
+            out.push_back(unsafe (mine->header_set as unsafe *HeaderSet))
+        }
+
+        var unsafe *dtu = CXXSpell::tu_of(d)
+        if dtu != &null && dtu->header_set != &null {
+            var unsafe *hs = unsafe (dtu->header_set as unsafe *HeaderSet)
+            if out.size() == 0 || out[0] != hs {
+                out.push_back(hs)
+            }
+        }
+
+        if out.size() > 0 || mine == &null || self.sc->g == &null {
+            return out
+        }
+
+        // Breadth first over the import edges, nearest TU first; bounded.
+        var queue = cxx::std::vector<unsafe *TranslationUnit>()
+        var seen  = cxx::std::vector<u32>()
+        queue.push_back(mine)
+        seen.push_back(mine->fid)
+        var at: usize = 0
+        while at < queue.size() && at < 512 {
+            var unsafe *tu = queue[at]
+            at += 1
+            if tu->header_set != &null {
+                out.push_back(unsafe (tu->header_set as unsafe *HeaderSet))
+                return out
+            }
+
+            for var i: usize = 0; i < tu->import_edges.size(); ++i {
+                var fid = tu->import_edges.get(i)->target_fid
+                var dup = false
+                for var j: usize = 0; j < seen.size(); ++j {
+                    if seen[j] == fid {
+                        dup = true
+                        break
+                    }
+                }
+
+                if dup {
+                    continue
+                }
+
+                seen.push_back(fid)
+                var unsafe *ctx = self.sc->g->get_context(fid)
+                if ctx != &null && ctx->tu != &null {
+                    queue.push_back(ctx->tu)
+                }
+            }
+        }
+
+        return out
+    }
+
+    /// size_of for a record _needs_twin names: its twin's clang layout, in
+    /// the first set that can spell every part of it.
+    priv fn _twin_size(self, c: unsafe *Type, size: unsafe *u64, align: unsafe *u64) -> bool {
+        var sets = self._twin_sets(cast<RecordType>(c)->decl)
+        for var i: usize = 0; i < sets.size() && i < 3; ++i {
+            var unsafe *hs = sets[i]
+            if hs == &null || !hs->alive() {
+                continue
+            }
+
+            var unsafe *cctx = hs->ast()
+            if cctx == &null {
+                continue
+            }
+
+            // The set's AST is shared with every TU's parallel Sema: the
+            // twin is built under its lock, as a fill is (ForeignInstantiate).
+            var slock = kairo::std::LockGuard(*hs->sema_lock())
+            var tx    = TypeExport(cctx, hs->sema(), unsafe (hs as unsafe *void))
+            var was   = tx.twin_quiet(true)
+            var memo  = TwinMemo()
+            var unc   = false
+            var q     = self._twin_type(unsafe &tx, c, unsafe &memo, 0, unsafe &unc)
+            var ok    = (!q.isNull()) && tx.twin_measure(q, size, align)
+            tx.twin_quiet(was)
+            if ok {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// The twin of a field's or base's type \p t: a scalar as itself, a
+    /// Kairo record as its own twin, an ADT or `T?` as a non-POD blob of the
+    /// compiler's size, an imported type as clang has it. \p unc is set
+    /// when the result is a record whose POD bit is not certain (see
+    /// _twin_record); null on anything else.
+    priv fn _twin_type(self,
+                       tx:    unsafe *TypeExport,
+                       t:     unsafe *Type,
+                       memo:  unsafe *TwinMemo,
+                       depth: u32,
+                       unc:   unsafe *bool) -> clang::QualType {
+        *unc = false
+        if t == &null || depth > 64 {
+            return clang::QualType()
+        }
+
+        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        if c == &null {
+            return clang::QualType()
+        }
+
+        // Pointer-shaped whatever it points at (`unsafe *T` in an instance's
+        // field still names the parameter): a pointer's layout is its own.
+        if isa<PointerType>(c) || isa<FunctionPointerType>(c) {
+            return tx->twin_scalar(c)
+        }
+
+        if c->is_dependent() || c->is_instantiation_dependent() {
+            return clang::QualType()
+        }
+
+        if isa<NullableType>(c) {
+            return self._twin_blob(tx, c)
+        }
+
+        if isa<BuiltinType>(c) && cast<BuiltinType>(c)->lang_decl != &null {
+            // `string` and the other lang items: the record they are.
+            var unsafe *ld = NameLookup::representative(cast<BuiltinType>(c)->lang_decl)
+            if ld == &null || self.sc->types == &null {
+                return clang::QualType()
+            }
+
+            return self._twin_type(tx, self.sc->types->record(ld, &null), memo, depth + 1, unc)
+        }
+
+        if !isa<RecordType>(c) && !isa<FixedArrayType>(c) {
+            return tx->twin_scalar(c)
+        }
+
+        if isa<FixedArrayType>(c) {
+            var unsafe *fa = cast<FixedArrayType>(c)
+            if fa->is_incomplete || fa->extent_param != &null || fa->size_bits == 0 {
+                return clang::QualType()
+            }
+
+            var el = self._twin_type(tx, fa->element, memo, depth + 1, unc)
+            if el.isNull() {
+                return el
+            }
+
+            return tx->twin_array(el, (fa->size_bits as u64))
+        }
+
+        var unsafe *d = cast<RecordType>(c)->decl
+        if d == &null {
+            return clang::QualType()
+        }
+
+        var unsafe *pat = NameLookup::representative(decl_pattern(d))
+        if decl_is_imported(d) || (pat != &null && decl_is_imported(pat)) {
+            return tx->twin_foreign(c)
+        }
+
+        var unsafe *en = dyn_cast<Declarations::EnumDecl>(pat)
+        if en != &null {
+            if !en->is_adt {
+                return tx->twin_scalar(self.sc->builtin(enum_niche_kind(en)))
+            }
+
+            return self._twin_blob(tx, c)
+        }
+
+        return self._twin_record(tx, c, memo, depth, unc)
+    }
+
+    /// A non-POD blob of \p c's size and alignment (an ADT, a `T?`).
+    priv fn _twin_blob(self, tx: unsafe *TypeExport, c: unsafe *Type) -> clang::QualType {
+        var s: u64 = 0
+        var a: u64 = 0
+        if !self.size_of(c, unsafe &s, unsafe &a) {
+            return clang::QualType()
+        }
+
+        return tx->twin_blob(s, a)
+    }
+
+    /// The twin of Kairo struct, class or union type \p c (an instance:
+    /// its pattern's members at its arguments), as InterfaceEmitter::
+    /// _record_def writes the class:
+    ///
+    ///   - its bases in `derives` order, each `virtual` as written (every
+    ///     base is public: InterfaceEmitter::_base_access);
+    ///   - a virtual method when it declares one (abi virtual / override, or
+    ///     `= virtual`): clang places the vtable pointer and picks the
+    ///     primary base, as for the emitted class;
+    ///   - every non-static field in order, with its `@align`, a default
+    ///     member initializer exactly where the emitter writes one
+    ///     (_twin_nsdmi), at the access it is written at (_twin_public);
+    ///     an anonymous union as a member of its union's twin;
+    ///   - a user-provided special member when the class has one (a
+    ///     constructor or `op finally` with a body, a derived `op =` with
+    ///     one): only its effect on the POD bit is mirrored;
+    ///   - `@packed` / `@align` on the record.
+    ///
+    /// \p unc: the POD bit clang gives the twin may differ from the emitted
+    /// class's -- some input was not certain (a compiler-made field's
+    /// access, a constrained `op =`) and the twin came out POD, the
+    /// side that input could flip. It only matters where the POD bit is
+    /// read: this record as a base, or as a member of a packed record. The
+    /// record's own size never depends on its own POD bit.
+    priv fn _twin_record(self,
+                         tx:    unsafe *TypeExport,
+                         c:     unsafe *Type,
+                         memo:  unsafe *TwinMemo,
+                         depth: u32,
+                         unc:   unsafe *bool) -> clang::QualType {
+        for var i: usize = 0; i < memo->keys.size(); ++i {
+            if memo->keys[i] == c {
+                *unc = memo->unc[i] != 0
+                return memo->qs[i]
+            }
+        }
+
+        var unsafe *d   = cast<RecordType>(c)->decl
+        var unsafe *pat = NameLookup::representative(decl_pattern(d))
+        if pat == &null {
+            return clang::QualType()
+        }
+
+        var inst = decl_is_instance(d) && pat != NameLookup::representative(d)
+        if (!inst) && decl_generic_params(pat).size() > 0 {
+            return clang::QualType()
+        }
+
+        var args = self.tu.record_args(c)
+        var unsafe *sd = dyn_cast<Declarations::StructDecl>(pat)
+        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(pat)
+        var unsafe *ud = dyn_cast<Declarations::UnionDecl>(pat)
+        if sd != &null && (sd->adt_of != &null || sd->tuple_arity > 0 || sd->is_adt_payload) {
+            return clang::QualType()
+        }
+
+        if sd == &null && cd == &null && ud == &null {
+            return clang::QualType()
+        }
+
+        var packed    = AttrFacts::is_packed(pat)
+        var any_unc   = false
+        var unsafe *rd = tx->twin_begin(ud != &null)
+
+        if cd != &null && cd->derives_list.size() > 0 {
+            var bq   = cxx::std::vector<clang::QualType>()
+            var virt = cxx::std::vector<u8>()
+            for var i: usize = 0; i < cd->derives_list.size(); ++i {
+                var unsafe *e = cd->derives_list.get(i)
+                if e == &null || e->base == &null {
+                    return clang::QualType()
+                }
+
+                var unsafe *bt = e->base
+                if inst {
+                    bt = self._type_at(pat, args, e->base)
+                }
+
+                var bunc = false
+                var bqt  = self._twin_type(tx, bt, memo, depth + 1, unsafe &bunc)
+                // A base lays out by its data size, which only a record
+                // has, and by its POD bit, which must be certain.
+                if bqt.isNull() || bqt->getAsCXXRecordDecl() == &null || bunc {
+                    return clang::QualType()
+                }
+
+                bq.push_back(bqt)
+                virt.push_back(if (e->is_virtual) => (1 as u8) else => (0 as u8))
+            }
+
+            if !tx->twin_bases(rd, bq, virt) {
+                return clang::QualType()
+            }
+        }
+
+        if self._twin_own_virtual(pat) {
+            tx->twin_virtual(rd)
+        }
+
+        var fields  = self._twin_fields_of(pat)
+        var payload = sd != &null && sd->is_adt_payload
+        var first   = true
+        var n: usize = 0
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *f = fields[i]
+            if f == &null || f->is_static() {
+                continue
+            }
+
+            var ft  = clang::QualType()
+            var fu  = false
+            var nsd = false
+            if f->is_anonymous_union {
+                ft = self._twin_anon_union(tx, pat, args, inst, f, memo, depth, unsafe &fu)
+            } else {
+                var unsafe *t = f->type_
+                if inst {
+                    t = self._type_at(pat, args, f->type_)
+                }
+
+                ft  = self._twin_type(tx, t, memo, depth + 1, unsafe &fu)
+                nsd = self._twin_nsdmi(f, ud != &null, first, payload)
+                first = false
+            }
+
+            if ft.isNull() {
+                return clang::QualType()
+            }
+
+            // A packed record packs a member of POD class type and not one
+            // of non-POD type: the member's bit must be certain.
+            if fu && packed {
+                return clang::QualType()
+            }
+
+            if fu {
+                any_unc = true
+            }
+
+            var pub_ = self._twin_public(f, pat, cd)
+            if pub_ < 0 {
+                any_unc = true
+            }
+
+            tx->twin_field(rd, ft, nsd, pub_ != 0, AttrFacts::align_of(f), n)
+            n += 1
+        }
+
+        var sm = self._twin_user_special(pat)
+        if sm < 0 {
+            any_unc = true
+        }
+
+        if sm > 0 {
+            tx->twin_user_dtor(rd)
+        }
+
+        var q = tx->twin_end(rd, packed, AttrFacts::align_of(pat))
+        if q.isNull() {
+            return q
+        }
+
+        *unc = any_unc && TypeExport::twin_pod(q)
+        memo->keys.push_back(c)
+        memo->qs.push_back(q)
+        memo->unc.push_back(if (*unc) => (1 as u8) else => (0 as u8))
+        return q
+    }
+
+    /// The anonymous union field \p f of \p pat (`union { ... }` in the
+    /// emitted class, _anon_union_field): a union of its members, none
+    /// with an initializer, each public.
+    priv fn _twin_anon_union(self,
+                             tx:         unsafe *TypeExport,
+                             pat:        unsafe *Decl,
+                             const args: FrozenList<unsafe *Type>,
+                             inst:       bool,
+                             f:          unsafe *Declarations::FieldDecl,
+                             memo:       unsafe *TwinMemo,
+                             depth:      u32,
+                             unc:        unsafe *bool) -> clang::QualType {
+        *unc = false
+        if f->type_ == &null || f->type_->canonical == &null {
+            return clang::QualType()
+        }
+
+        var unsafe *uc = canon_unqual(f->type_->canonical)
+        if uc == &null || !isa<RecordType>(uc) {
+            return clang::QualType()
+        }
+
+        var unsafe *u = dyn_cast<Declarations::UnionDecl>(
+            NameLookup::representative(cast<RecordType>(uc)->decl),
+        )
+
+        if u == &null {
+            return clang::QualType()
+        }
+
+        var unsafe *rd = tx->twin_begin(true)
+        var n: usize = 0
+        for var i: usize = 0; i < u->fields.size(); ++i {
+            var unsafe *m = u->fields[i]
+            if m == &null || m->is_static() {
+                continue
+            }
+
+            var unsafe *t = m->type_
+            if inst {
+                t = self._type_at(pat, args, m->type_)
+            }
+
+            var mu = false
+            var mt = self._twin_type(tx, t, memo, depth + 1, unsafe &mu)
+            if mt.isNull() || mu {
+                return clang::QualType()
+            }
+
+            tx->twin_field(rd, mt, false, true, 0, n)
+            n += 1
+        }
+
+        return tx->twin_end(rd, false, 0)
+    }
+
+    /// The emitted field has a default member initializer: a folded one
+    /// (InterfaceEmitter::_field_default), else `{}` -- a union's first
+    /// member, or a field _twin_zero_by_default names. Never in an ADT's
+    /// payload struct.
+    priv fn _twin_nsdmi(self, f: unsafe *Declarations::FieldDecl, is_union: bool, first: bool, payload: bool) -> bool {
+        if f->init_fold != Declarations::FieldFold::None {
+            return true
+        }
+
+        if payload {
+            return false
+        }
+
+        if is_union {
+            return first
+        }
+
+        return self._twin_zero_by_default(f)
+    }
+
+    /// InterfaceEmitter::_zero_by_default, the rule that writes `{}` on a
+    /// field with no initializer: a number, a pointer, a plain enum, a
+    /// union, a type parameter, an array of those; never a const field, a
+    /// struct or class, an ADT or an imported type. Kept identical.
+    priv fn _twin_zero_by_default(self, f: unsafe *Declarations::FieldDecl) -> bool {
+        if f->is_const() || f->init != &null || f->type_ == &null {
+            return false
+        }
+
+        var unsafe *c = if (f->type_->canonical != &null) => (f->type_->canonical) else => f->type_
+        c = canon_unqual(c)
+        while c != &null && isa<FixedArrayType>(c) {
+            c = canon_unqual(cast<FixedArrayType>(c)->element)
+        }
+
+        if c == &null {
+            return false
+        }
+
+        match c->kind {
+            case TypeKind::BuiltinType {
+                return true
+            } case TypeKind::PointerType {
+                return true
+            } case TypeKind::FunctionPointerType {
+                return true
+            } case TypeKind::GenericParamType {
+                return true
+            } case TypeKind::SubstGenericParamType {
+                return true
+            } case TypeKind::AssocType {
+                return true
+            } case TypeKind::RecordType {
+                0
+            } default {
+                return false
+            }
+        }
+
+        var unsafe *rd = cast<RecordType>(c)->decl
+        if rd != &null && decl_is_instance(rd) {
+            rd = decl_pattern(rd)
+        }
+
+        rd = NameLookup::representative(rd)
+        if rd == &null {
+            return false
+        }
+
+        if isa<Declarations::UnionDecl>(rd) {
+            return true
+        }
+
+        if !isa<Declarations::EnumDecl>(rd) {
+            return false
+        }
+
+        return !cast<Declarations::EnumDecl>(rd)->is_adt
+    }
+
+    /// The emitted field is public: 1, 0, or -1 when that is not certain
+    /// here (a compiler-made field keeps whatever access it was made with). A struct's or union's fields always are, and a class's
+    /// when it writes no constructor (CXXSpell::cxx_vis, an aggregate);
+    /// otherwise its Kairo visibility as InterfaceEmitter::_cxx_vis and
+    /// _access spell it: `pub` and `internal` public, `priv` private, an
+    /// unmarked variable private unless its default is protected, `prot`
+    /// public in a module and protected outside one.
+    priv fn _twin_public(self,
+                         f:   unsafe *Declarations::FieldDecl,
+                         pat: unsafe *Decl,
+                         cd:  unsafe *Declarations::ClassDecl) -> i8 {
+        if cd == &null {
+            return 1
+        }
+
+        var has_ctor = false
+        for var i: usize = 0; i < cd->methods.size(); ++i {
+            var unsafe *m = cd->methods[i]
+            if m != &null && self._twin_is_ctor(m, pat) {
+                has_ctor = true
+                break
+            }
+        }
+
+        if !has_ctor {
+            return 1
+        }
+
+        var unsafe *fdl = unsafe (f as unsafe *Decl)
+        if fdl->is_implicit {
+            return -1
+        }
+
+        var v = (fdl->visibility as u8)
+        var unsafe *r = NameLookup::representative(fdl)
+        if v == VIS_NONE() && r != &null && r != fdl {
+            v = (r->visibility as u8)
+        }
+
+        if v == VIS_PUB() || v == VIS_INTERNAL() {
+            return 1
+        }
+
+        if v == VIS_PRIV() {
+            return 0
+        }
+
+        if v == VIS_PROT() {
+            return if (tu_module_dir(CXXSpell::tu_of(fdl)).empty()) => (0) else => 1
+        }
+
+        if v == VIS_NONE() {
+            return if (default_visibility_of(fdl) == VisibilityKind::Protected) => (1) else => 0
+        }
+
+        return -1
+    }
+
+    /// \p m is a constructor of \p owner: a method named after it.
+    priv fn _twin_is_ctor(self, m: unsafe *Declarations::FunctionDecl, owner: unsafe *Decl) -> bool {
+        if m->is_operator || !m->is_method() {
+            return false
+        }
+
+        return sema_dump_decl_name(self.sc->ctx, unsafe (m as unsafe *Decl))
+            == sema_dump_decl_name(self.sc->ctx, owner)
+    }
+
+    /// The emitted class has a user-provided special member: 1, 0, or -1
+    /// when that depends on the instance (a constrained `op =`). A
+    /// constructor or `op finally` is user-provided unless `= default` or
+    /// `= delete` (clang keeps a defaulted one POD, areDefaultedSMFStillPOD);
+    /// the derived `op =` is when it has a body (AssignForm::Body). The
+    /// defaulted transfers _defaulted_transfers writes are not.
+    priv fn _twin_user_special(self, pat: unsafe *Decl) -> i8 {
+        var methods = create_empty_frozen_list<unsafe *Declarations::FunctionDecl>()
+        var form    = Declarations::AssignForm::Implicit
+        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(pat)
+        var unsafe *sd = dyn_cast<Declarations::StructDecl>(pat)
+        var unsafe *ud = dyn_cast<Declarations::UnionDecl>(pat)
+        if cd != &null {
+            methods = cd->methods
+            form    = cd->assign_form
+        } else if sd != &null {
+            methods = sd->methods
+            form    = sd->assign_form
+        } else if ud != &null {
+            methods = ud->methods
+        }
+
+        for var i: usize = 0; i < methods.size(); ++i {
+            var unsafe *m = methods[i]
+            if m == &null {
+                continue
+            }
+
+            var dtor = m->is_operator
+                && m->op_token.size() > 0
+                && m->op_token[0].kind == TokenKind::KwFinally
+            if (!dtor) && !self._twin_is_ctor(m, pat) {
+                continue
+            }
+
+            if m->body_kind != Declarations::FnBodyKind::Default
+                && m->body_kind != Declarations::FnBodyKind::Delete {
+                return 1
+            }
+        }
+
+        if form == Declarations::AssignForm::Body {
+            return 1
+        }
+
+        if form == Declarations::AssignForm::Constrained {
+            return -1
+        }
+
+        return 0
+    }
+
+    /// \p d declares a virtual method itself (TypeExport::_own_virtual).
+    priv fn _twin_own_virtual(self, d: unsafe *Decl) -> bool {
+        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(d)
+        if cd == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < cd->methods.size(); ++i {
+            var unsafe *m = cd->methods[i]
+            if m == &null {
+                continue
+            }
+
+            if m->abi == Declarations::AbiKind::Virtual
+                || m->abi == Declarations::AbiKind::Override
+                || m->body_kind == Declarations::FnBodyKind::Virtual {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    priv fn _twin_fields_of(self, d: unsafe *Decl) -> FrozenList<unsafe *Declarations::FieldDecl> {
+        if isa<Declarations::ClassDecl>(d) {
+            return cast<Declarations::ClassDecl>(d)->fields
+        }
+
+        if isa<Declarations::StructDecl>(d) {
+            return cast<Declarations::StructDecl>(d)->fields
+        }
+
+        if isa<Declarations::UnionDecl>(d) {
+            return cast<Declarations::UnionDecl>(d)->fields
+        }
+
+        return create_empty_frozen_list<unsafe *Declarations::FieldDecl>()
     }
 
     /// Every generic ADT instance the registry holds gets the shape and size
