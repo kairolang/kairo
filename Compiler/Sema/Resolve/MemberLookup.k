@@ -160,8 +160,11 @@ pub class MemberLookup {
     /// record decl (canonical link) -> extensions targeting it.
     // extensions_of_* hand out a pointer INTO these maps' values. Safe under
     // DenseMap only because index_extensions() fills both once, behind
-    // _indexed, before any lookup: a lazy or mid-lookup insert would rehash
-    // and dangle every pointer a caller is holding.
+    // _indexed, before the first pointer leaves: a mid-lookup insert would
+    // rehash and dangle every pointer a caller is holding. They build it
+    // themselves on first use, so a lookup can never answer from an index
+    // nobody built (Conversion and FnPurityCheck once did, and missed every
+    // extension operator).
     priv var _ext_by_decl: llvm::DenseMap<u64, cxx::std::vector<unsafe *Declarations::ExtensionDecl>>
     /// canonical non-record type -> extensions targeting it.
     priv var _ext_by_type: llvm::DenseMap<u64, cxx::std::vector<unsafe *Declarations::ExtensionDecl>>
@@ -201,7 +204,7 @@ pub class MemberLookup {
         }
 
         self._indexed = true
-        if self.sc->g == &null {
+        if self.sc == &null || self.sc->g == &null {
             return
         }
 
@@ -322,6 +325,7 @@ pub class MemberLookup {
 
     fn extensions_of_decl(self,
                           d: unsafe *Decl) -> unsafe *cxx::std::vector<unsafe *Declarations::ExtensionDecl> {
+        self.index_extensions()
         var it = self._ext_by_decl.find(d as usize as u64)
         if it == self._ext_by_decl.end() {
             return &null
@@ -332,6 +336,7 @@ pub class MemberLookup {
 
     fn extensions_of_type(self,
                           c: unsafe *Type) -> unsafe *cxx::std::vector<unsafe *Declarations::ExtensionDecl> {
+        self.index_extensions()
         var it = self._ext_by_type.find(c as usize as u64)
         if it == self._ext_by_type.end() {
             return &null

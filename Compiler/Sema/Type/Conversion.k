@@ -222,9 +222,9 @@ pub fn literal_fits_int(lo:       u64,
 pub class Conversion {
     pub var sc: unsafe *SemaContext
     pub var tu: TypeUtil
-    /// For the user rung's `op as` lookup only. Its extension index is
-    /// never built: `op as` is member-only (OperatorSignatureCheck), so the
-    /// record's own table and its bases are the whole search.
+    /// For the user rung's `op as` lookup only. `op as` is member-only
+    /// (OperatorSignatureCheck rejects and poisons one in an extension), so
+    /// the extension index the first lookup builds contributes no candidate.
     priv var _ml: MemberLookup
 
     fn Conversion(self) {

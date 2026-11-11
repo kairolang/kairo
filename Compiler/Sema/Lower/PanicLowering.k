@@ -105,6 +105,7 @@ import AST::ASTSupport::{
 import AST::Context::InstantiationRegistry::{
     ConformanceRow,
     InstanceEntry,
+    InstanceLatch,
 }
 import AST::DeclFacts::{
     decl_extension_of,
@@ -2390,7 +2391,7 @@ pub class PanicInstances {
         self.sc->instances->collect(&all)
         for var i: usize = 0; i < all.size(); ++i {
             var unsafe *e = all[i]
-            if e == &null || e->depth == 0 || e->panic_done || e->primary == &null {
+            if e == &null || e->depth == 0 || e->primary == &null {
                 continue
             }
 
@@ -2401,11 +2402,12 @@ pub class PanicInstances {
                 }
             }
 
-            if dep {
+            // Claimed after the dependence test, as PanicEffectChecking: a
+            // dependent entry computes nothing here.
+            if dep || !self.sc->instances->claim(e, InstanceLatch::PanicDone) {
                 continue
             }
 
-            e->panic_done = true
             var unsafe *prim = e->primary
             if isa<FunctionDecl>(prim) {
                 var unsafe *f = cast<FunctionDecl>(prim)

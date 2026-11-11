@@ -232,6 +232,19 @@ pub struct PartialPredValue {
     pub var v:     i64  = 0
 }
 
+/// \enum InstanceLatch
+/// \brief An InstanceEntry's one-shot facts: each goes true once per build,
+///        for the first claimant only (InstantiationRegistry::claim). The
+///        T fronts on the pool and the driver's Conformance meet the same
+///        build-wide entry, so a plain check-then-set let two of them both
+///        report SC157E / SC158E, or both compute its panic facts.
+pub enum InstanceLatch derives u8 {
+    Ambiguity = 0, ///< ambiguity_reported: SC157E at a naming site.
+    Undecided,     ///< undecided_reported: SC158E at a naming site.
+    PanicChecked,  ///< panic_checked: PanicEffectChecking asked its `try` arms.
+    PanicDone,     ///< panic_done: PanicLowering computed its panic facts.
+}
+
 /// \class InstanceEntry
 /// \brief One concrete instance of a generic type. Both halves of "an
 ///        instantiation" hang here: the CHECKING-side decl (what RecordType
@@ -243,7 +256,6 @@ pub class InstanceEntry {
     pub var decl:        unsafe *Decl                   = &null ///< THE instance: explicit spec (representative) or implicit node.
     pub var is_explicit: bool                           = false ///< `decl` is user-written.
     pub var home_fid:    u32                            = 0 ///< TU that first named it; EmitPlan's home.
-    pub var emitted:     bool                           = false ///< explicit instantiation directive written.
     /// One per `P impl I` bound of the primary, in bound order, then the
     /// rows of each bound interface's `derives` closure: every witness
     /// specialization this instance's body can name (Compiler/Spec/Witnesses.md#emission).
@@ -1528,6 +1540,54 @@ pub class InstantiationRegistry {
         }
 
         e->rows_done = true
+    }
+
+    /// \brief Take \p l for \p e: true to the first caller only, which then
+    ///        does the work the latch guards (reports, computes). The only
+    ///        writer of the four latches, bar Retract's live-check re-arm,
+    ///        which runs with the pool quiescent.
+    ///
+    /// \details A shared probe first: after the first TU every caller finds
+    ///          the latch set, and the panic sweeps ask once per entry per
+    ///          TU, so they should not queue on the exclusive lock.
+    pub fn claim(self, e: unsafe *InstanceEntry, l: InstanceLatch) -> bool {
+        if e == &null {
+            return false
+        }
+
+        if self._latched(e, l) {
+            return false
+        }
+
+        var lock = kairo::std::LockGuard(self._mu)
+        var unsafe *bit = self._latch(e, l)
+        if *bit {
+            return false
+        }
+
+        *bit = true
+        return true
+    }
+
+    priv fn _latched(self, e: unsafe *InstanceEntry, l: InstanceLatch) -> bool {
+        var rlock = kairo::std::SharedLock(self._mu)
+        return *self._latch(e, l)
+    }
+
+    priv fn _latch(self, e: unsafe *InstanceEntry, l: InstanceLatch) -> unsafe *bool {
+        match l {
+            case InstanceLatch::Ambiguity {
+                return unsafe &e->ambiguity_reported
+            } case InstanceLatch::Undecided {
+                return unsafe &e->undecided_reported
+            } case InstanceLatch::PanicChecked {
+                return unsafe &e->panic_checked
+            } case InstanceLatch::PanicDone {
+                return unsafe &e->panic_done
+            }
+        }
+
+        return unsafe &e->panic_done
     }
 
     pub fn mark_failed(self, e: unsafe *InstanceEntry) {

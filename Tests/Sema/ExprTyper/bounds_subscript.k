@@ -2,8 +2,8 @@
 //
 // `t[i]` on a bounded `T` is the bound's `op []` requirement, as `t + u` is
 // the bound's `op +`: MemberTyping reads OperatorTyping's bound interfaces.
-// It used to look `op []` up on the bare parameter, which has no members, so
-// every subscript through a bound was SC103E "'T' has no subscript
+// It does not look `op []` up on the bare parameter, which has no members, so
+// a subscript through a bound is not SC103E "'T' has no subscript
 // operator" -- a generic requirement and a plain one alike. A bound without
 // `op []`, and an unbounded T, still have none; the requirement's parameter
 // and result types are checked as any call's are.

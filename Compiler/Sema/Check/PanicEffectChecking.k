@@ -88,6 +88,7 @@ import AST::ASTSupport::{
 import AST::Context::InstantiationRegistry::{
     ConformanceRow,
     InstanceEntry,
+    InstanceLatch,
 }
 import AST::DeclFacts::{
     decl_extension_of,
@@ -301,7 +302,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         self.sc->instances->collect(&all)
         for var i: usize = 0; i < all.size(); ++i {
             var unsafe *e = all[i]
-            if e == &null || e->depth == 0 || e->panic_checked || e->primary == &null {
+            if e == &null || e->depth == 0 || e->primary == &null {
                 continue
             }
 
@@ -312,11 +313,12 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                 }
             }
 
-            if dep {
+            // Claimed after the dependence test: a dependent entry is never
+            // checked, and must stay unclaimed for no one.
+            if dep || !self.sc->instances->claim(e, InstanceLatch::PanicChecked) {
                 continue
             }
 
-            e->panic_checked = true
             self._structural_rows(e)
             var unsafe *prim = e->primary
             if isa<Declarations::FunctionDecl>(prim) {

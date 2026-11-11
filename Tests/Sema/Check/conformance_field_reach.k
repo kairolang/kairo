@@ -7,7 +7,7 @@
 // instantiating it instantiates `Box<Metric>` too. The discovery fixpoint
 // walks a record instance's fields as well as its methods, and the reached
 // instance, which has no range of its own, is reported at the use of the
-// instance that reached it. It used to pass unreported, leaving clang's
+// instance that reached it. It is not left unreported for clang's
 // concept to reject the C++.
 
 pub interface Named {

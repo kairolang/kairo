@@ -69,9 +69,8 @@ pub class SourceLineTable {
 
     //                                  ^ owned     ^ owned if not null
     //                                if not null
-    priv var _file_count: kairo::std::Atomic<u64>  = kairo::std::Atomic<u64>(0)
-    priv var _active:     kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(false)
-    priv var _builds:     kairo::std::Atomic<u64>  = kairo::std::Atomic<u64>(0)
+    priv var _file_count: kairo::std::Atomic<u64> = kairo::std::Atomic<u64>(0)
+    priv var _builds:     kairo::std::Atomic<u64> = kairo::std::Atomic<u64>(0)
 
     ///
     /// \class FileEntry
@@ -713,7 +712,7 @@ pub class SourceLineTable {
     ///
     fn op as (self) -> string {
         var out = f"SourceLineTable(\n"
-        out += f"  _file_count: {self._file_count}\n" + f"  _active: {self._active}\n"
+        out += f"  _file_count: {self._file_count}\n"
 
         var unsafe *tbl = self._file_table.load(kairo::std::MemoryOrder::acquire)
         if tbl == &null {

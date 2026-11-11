@@ -599,6 +599,11 @@ pub class DiagBuilder {
 
         self._emitted = true
         self._engine->emit(self._diag)
+        // The engine owns it now, and may already have destroyed it (a
+        // duplicate, a poisoned range, the error limit). Null makes a later
+        // attach (`b.emit(); b.note(...)`) the no-op every attach already is
+        // for a dropped builder, instead of a write into freed memory.
+        self._diag = &null
     }
 
     /// ## Destructor

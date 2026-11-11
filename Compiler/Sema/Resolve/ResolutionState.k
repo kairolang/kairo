@@ -53,6 +53,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/DenseMap.h"
+ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Node::Base::{
@@ -135,12 +136,23 @@ pub class ResolutionState {
         return it->second as ResolveState
     }
 
-    fn set_decl_state(self, d: unsafe *Decl, s: ResolveState) {
+    /// Private: every move of a decl's state is one of the transitions
+    /// below (begin / finish / settle / fail), so Errored stays permanent and
+    /// the stack stays paired with InProgress.
+    priv fn _set_decl_state(self, d: unsafe *Decl, s: ResolveState) {
         if d == &null {
             return
         }
 
         self._decls[self._key(unsafe (d as unsafe *void))] = (s as u8)
+    }
+
+    /// \brief The only way into Errored outside finish_decl: a demand that
+    ///        diagnosed \p d without owning its frame (re-entry, a cap, a
+    ///        cycle closed by someone further up). The frame, if any, stays
+    ///        its owner's to pop.
+    fn fail_decl(self, d: unsafe *Decl) {
+        self._set_decl_state(d, ResolveState::Errored)
     }
 
     /// \brief Claim \p d for resolution, pushing a frame.
@@ -165,7 +177,7 @@ pub class ResolutionState {
             return false
         }
 
-        self.set_decl_state(d, ResolveState::InProgress)
+        self._set_decl_state(d, ResolveState::InProgress)
         var f = ResolveFrame()
         f.decl = d
         f.at   = at
@@ -177,15 +189,43 @@ pub class ResolutionState {
     ///        a decl whose resolution was diagnosed is never re-attempted and
     ///        never re-reported, so a bad alias used fifty times yields one
     ///        error, not fifty.
+    ///
+    ///        Only the frame begin_decl pushed for \p d is popped: a caller
+    ///        that finished a decl it never began would otherwise pop its
+    ///        CALLER's frame, and every depth and cycle question after that
+    ///        is asked of the wrong stack.
     fn finish_decl(self, d: unsafe *Decl, ok: bool) {
         if d == &null {
             return
         }
 
-        self.set_decl_state(d, if (ok) => (ResolveState::Resolved) else => ResolveState::Errored)
-        if !self.stack.empty() {
+        eval if defined!(DEBUG) {
+            if self.stack.empty() || self.stack.back().decl != d {
+                kairo::std::ice_fail(r"ResolutionState: finish_decl without its begin_decl frame on top")
+            }
+        }
+
+        self.settle_decl(d, ok)
+        if (!self.stack.empty()) && self.stack.back().decl == d {
             self.stack.pop_back()
         }
+    }
+
+    /// \brief Record \p d's outcome without touching the stack: for a decl
+    ///        resolved with no frame of its own, because begin_decl refused
+    ///        it at the depth cap. Leaving it Unresolved instead would let a
+    ///        later demand resolve, and report, it a second time.
+    ///
+    ///        Never lowers Errored: a cycle closed below \p d's frame
+    ///        (SC043E on re-entry, every alias of an R035E loop) fails it
+    ///        while the outer resolution is still running, and that outer
+    ///        resolution's own `ok` must not resurrect it.
+    fn settle_decl(self, d: unsafe *Decl, ok: bool) {
+        if d == &null || self.decl_state(d) == ResolveState::Errored {
+            return
+        }
+
+        self._set_decl_state(d, if (ok) => (ResolveState::Resolved) else => ResolveState::Errored)
     }
 
     /// \brief Index of \p d in the active stack, or usize(-1) if absent.

@@ -66,7 +66,6 @@ pub class TokenSource {
     priv var _frames:      cxx::std::vector<Self::SpliceFrame>
     priv var _next_serial: u64                                 = 0
     priv var _eof_seen:    bool                                = false ///< lexer has emitted its TkEof
-    priv var _ring_eof:    bool                                = false ///< TkEof sitting in the ring / consumed
 
     priv var _diag:            unsafe *DiagEngine = &null ///< null = no budget enforced (DAG scan pass)
     priv var _max_token_count: i32                = 0 ///< 0 = unlimited; --cmax-token-count
@@ -412,26 +411,17 @@ pub class TokenSource {
         if self._ring.size() > 0 {
             var t = self._ring[0]
             self._ring.erase(self._ring.cbegin()) // small ring; fine
-            if t.kind == TokenKind::TkEof {
-                self._ring_eof = true
-            }
-
             return t
         }
 
         if !self._pull_into_ring() {
             var e = Token()
-            e.kind         = TokenKind::TkEof
-            self._ring_eof = true
+            e.kind = TokenKind::TkEof
             return e
         }
 
         var t = self._ring[0]
         self._ring.erase(self._ring.cbegin())
-        if t.kind == TokenKind::TkEof {
-            self._ring_eof = true
-        }
-
         return t
     }
 

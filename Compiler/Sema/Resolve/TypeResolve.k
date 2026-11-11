@@ -63,7 +63,10 @@ import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
 }
-import AST::Context::InstantiationRegistry::InstanceEntry
+import AST::Context::InstantiationRegistry::{
+    InstanceEntry,
+    InstanceLatch,
+}
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
     decl_generic_params,
@@ -4196,11 +4199,17 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 inst = e->decl
             }
 
-            if e != &null && e->ambiguous_a != &null && !e->ambiguity_reported {
+            // The null tests first: this runs at every generic mention, and
+            // only a rare entry has a selection to report.
+            if e != &null
+                && e->ambiguous_a != &null
+                && self.sc->instances->claim(e, InstanceLatch::Ambiguity) {
                 self._ambiguous_partials(e, seg->range)
             }
 
-            if e != &null && e->undecided != &null && !e->undecided_reported {
+            if e != &null
+                && e->undecided != &null
+                && self.sc->instances->claim(e, InstanceLatch::Undecided) {
                 self._undecided_partial(e, seg->range)
             }
         }
@@ -4444,7 +4453,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             )->first(td->range)->fix(
                 f"flatten the alias chain, or raise the limit with --cmax-type-alias-depth={wider}",
             )->emit()
-            self.sc->rstate.set_decl_state(td, ResolveState::Errored)
+            self.sc->rstate.fail_decl(td)
             return &null
         }
 
@@ -4461,13 +4470,13 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             ).first(at)->fix(
                 "raise the limit with --cmax-scope-depth, or reduce the nesting around this alias",
             )->emit()
-            self.sc->rstate.set_decl_state(td, ResolveState::Errored)
+            self.sc->rstate.fail_decl(td)
             return &null
         }
 
         if td->aliased == &null {
             // Index-mode node or parse recovery; parser diagnosed.
-            self.sc->rstate.set_decl_state(td, ResolveState::Errored)
+            self.sc->rstate.fail_decl(td)
             return &null
         }
 
@@ -4759,13 +4768,13 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                     f"'{lnm}' is declared here and refers to the next alias in the cycle",
                 )->first(fr.decl->range)
                 fr.decl->poison()
-                self.sc->rstate.set_decl_state(fr.decl, ResolveState::Errored)
+                self.sc->rstate.fail_decl(fr.decl)
             }
         }
 
         b.emit()
         td->poison()
-        self.sc->rstate.set_decl_state(td, ResolveState::Errored)
+        self.sc->rstate.fail_decl(td)
     }
 
     /// # Scope cursor management (mirrors NameResolution)
@@ -6033,9 +6042,8 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// A partial matched \p e's arguments by pattern, but its clause could
     /// not be decided there (InstanceEntry::undecided): not selected, and
     /// reported once, at the first written mention, so C++ never picks a
-    /// body Kairo did not type against.
+    /// body Kairo did not type against. The caller holds the claim.
     priv fn _undecided_partial(self, e: unsafe *InstanceEntry, at: SourceRange) {
-        e->undecided_reported = true
         var nm = self._decl_name_str(e->primary)
         var b = self.sc->diag->report(
             DiagID::SC158E,
@@ -6056,9 +6064,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// Two partial specializations match \p e's args and neither is more
     /// specialized than the other: C++ rejects the instance, so Kairo does,
     /// at the first written mention of it (one report per instance; later
-    /// mentions and unwritten ones -- a substitution -- stay quiet).
+    /// mentions and unwritten ones -- a substitution -- stay quiet). The
+    /// caller holds the claim.
     priv fn _ambiguous_partials(self, e: unsafe *InstanceEntry, at: SourceRange) {
-        e->ambiguity_reported = true
         var nm = self._decl_name_str(e->primary)
         var b = self.sc->diag->report(
             DiagID::SC157E,

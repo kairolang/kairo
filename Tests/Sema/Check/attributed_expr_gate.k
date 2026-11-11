@@ -1,6 +1,6 @@
 // An expression attribute parses (Parser/Expr/attributed_expr.k) but has
 // no meaning yet, so Sema reports each one as SC116E "not yet supported",
-// naming the attribute, instead of reaching codegen (where it would ICE).
+// naming the attribute, instead of reaching codegen (where it would fail).
 // The operand is not typed as a plain expression: under `@create`,
 // `i32(10)` constructs an i32, where a plain `i32(10)` is SC037E, so that
 // error must not appear; nor does a call taking one as an argument report
@@ -30,7 +30,7 @@ fn g() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
 // DIAG: attributed_expr_gate.k:25:31: error [R020E]: use of undeclared identifier 'not_declared'
 
-// `@create T(args)` is no longer gated: it is a call of alloc.k's create
+// `@create T(args)` is not gated: it is a call of alloc.k's create
 // (AllocSugarDesugar), bound with no import, so its lines report
 // nothing -- no SC037E for `i32(10)`, no overload mismatch at `take` --
 // and the gate runs over the rest of the file.

@@ -320,11 +320,12 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 f"cannot infer the return type of '{self.dyn()->tu.decl_name((unsafe (f as unsafe *Decl)))}': its body refers to itself; annotate the return type",
             ).first(f->range)->emit()
             f->poison()
-            self.dyn()->sc->rstate.set_decl_state(f, ResolveState::Errored)
+            self.dyn()->sc->rstate.fail_decl(f)
             return &null
         }
 
         if !self.dyn()->sc->rstate.begin_decl(f, f->range) {
+            self._inference_capped(unsafe (f as unsafe *Decl))
             return &null
         }
 
@@ -342,6 +343,25 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
         self.dyn()->sc->rstate.finish_decl(f, ok || !f->body_expr->is_poisoned())
         return t
+    }
+
+    /// The demand to infer \p d met a full resolution stack (begin_decl's
+    /// only refusal once Unresolved is tested). Returning null quietly here
+    /// left every declaration that waited on \p d untyped with no error at
+    /// all, and the program accepted. Failed, so the chain above it stays
+    /// quiet behind this one report.
+    priv fn _inference_capped(self, d: unsafe *Decl) {
+        var nm  = self.dyn()->tu.decl_name(d)
+        var cap = self.dyn()->sc->rstate.max_depth()
+        self.dyn()->sc->diag->report(
+            DiagID::SC001E,
+            d->range.start,
+            f"inferring the type of '{nm}' exceeded the nested scope limit ({cap})",
+        ).first(d->range)->fix(
+            f"write the type of '{nm}' out, or raise the limit with --cmax-scope-depth",
+        )->emit()
+        d->poison()
+        self.dyn()->sc->rstate.fail_decl(d)
     }
 
     /// A variable's canonical, inferring a file-scope `var x = e` on demand
@@ -379,7 +399,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 f"cannot infer the type of '{self.dyn()->tu.decl_name((unsafe (v as unsafe *Decl)))}': its initializer refers to itself",
             ).first(v->range)->emit()
             v->poison()
-            self.dyn()->sc->rstate.set_decl_state(v, ResolveState::Errored)
+            self.dyn()->sc->rstate.fail_decl(v)
             return &null
         }
 
@@ -388,6 +408,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         if !self.dyn()->sc->rstate.begin_decl(v, v->range) {
+            self._inference_capped(unsafe (v as unsafe *Decl))
             return &null
         }
 
@@ -1300,6 +1321,16 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         b.emit()
     }
 
+    /// End \p n's resolution the way it began: with its own frame, or (at the
+    /// depth cap) as a bare outcome.
+    priv fn _release_local(self, n: unsafe *VariableDecl, framed: bool, ok: bool) {
+        if framed {
+            self.dyn()->sc->rstate.finish_decl(n, ok)
+        } else {
+            self.dyn()->sc->rstate.settle_decl(n, ok)
+        }
+    }
+
     fn traverse_variable_decl(self, n: unsafe *VariableDecl) -> unsafe *VariableDecl {
         if n == &null {
             return n
@@ -1345,9 +1376,12 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return n
         }
 
-        self.dyn()->sc->rstate.begin_decl(n, n->range)
+        // Refused only at the depth cap (Unresolved is tested above): the
+        // walk types the declaration anyway, it needs no frame to, but then
+        // it owns none to pop.
+        var framed = self.dyn()->sc->rstate.begin_decl(n, n->range)
         if !self._shorthand_has_source(n) {
-            self.dyn()->sc->rstate.finish_decl(n, false)
+            self._release_local(n, framed, false)
             return n
         }
 
@@ -1377,7 +1411,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             ok = false
         }
 
-        self.dyn()->sc->rstate.finish_decl(n, ok)
+        self._release_local(n, framed, ok)
         if ok { // the value SETS the state (Compiler/Spec/Nullables.md#definitions-and-conditions).
             self.dyn()->flow.define(n)
         }

@@ -63,6 +63,7 @@ import AST::Context::DeclContext::DeclContext
 import AST::Context::InstantiationRegistry::{
     ConformanceRow,
     InstanceEntry,
+    InstanceLatch,
     PartialPredValue,
 }
 import AST::Context::SymbolTable::DeclName
@@ -1666,8 +1667,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return
         }
 
-        if e->ambiguous_a != &null && !e->ambiguity_reported {
-            e->ambiguity_reported = true
+        if e->ambiguous_a != &null && self.sc->instances->claim(e, InstanceLatch::Ambiguity) {
             var b = self.sc->diag->report(
                 DiagID::SC157E,
                 e->use_at.start,
@@ -1691,8 +1691,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             b.emit()
         }
 
-        if e->undecided != &null && !e->undecided_reported {
-            e->undecided_reported = true
+        if e->undecided != &null && self.sc->instances->claim(e, InstanceLatch::Undecided) {
             var b = self.sc->diag->report(
                 DiagID::SC158E,
                 e->use_at.start,

@@ -1515,8 +1515,9 @@ pub class AssocType derives Type {
     /// the three, filled by Substitution::bound_ifaces (the one place that
     /// computes it) once the requirement's clause is resolved, so that
     /// codegen can read the bound a member type is spelled through.
-    /// `bounds_state`: 0 not computed, 1 being computed (a bound naming its
-    /// own associated type), 2 done.
+    /// `bounds_state`: 0 not computed, 2 done (published under a release
+    /// fence). There is no 1: "being computed" is per TU and lives in
+    /// SemaContext::assoc_busy, not on this shared node.
     pub var bounds:       FrozenList<unsafe *Type>
     pub var bounds_state: u8                       = 0
 

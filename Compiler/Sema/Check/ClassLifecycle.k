@@ -294,7 +294,6 @@ pub fn lifecycle_not(a: LifecycleTri) -> LifecycleTri {
 /// One writer for all of it: the fact computation in ClassLifecycle
 /// (_compute, _compute_enum, facts_of_type, folded through _absorb).
 pub class LifecycleFacts {
-    pub var computed:           bool         = false
     pub var in_progress:        bool         = false
     pub var copyable:           LifecycleTri = LifecycleTri::Yes
     pub var movable:            LifecycleTri = LifecycleTri::Yes
@@ -657,7 +656,6 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
     /// type that depends on a generic parameter, which is Unknown throughout.
     fn facts_of_type(self, t_in: unsafe *Type) -> LifecycleFacts {
         var out = LifecycleFacts()
-        out.computed = true
         // No type is no answer (file header, Asked too early): Yes here would
         // make a question asked before T a silent "trivially everything".
         if t_in == &null {
@@ -782,7 +780,6 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
     /// of them are the instance's to decide.
     priv fn _unknown_facts(self) -> LifecycleFacts {
         var out = LifecycleFacts()
-        out.computed           = true
         out.copyable           = LifecycleTri::Unknown
         out.movable            = LifecycleTri::Unknown
         out.trivially_copyable = LifecycleTri::Unknown
@@ -1146,7 +1143,6 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             }
         }
 
-        f->computed    = true
         f->in_progress = false
     }
 
@@ -1202,7 +1198,6 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             f->why_not_assignable = "it can be neither copied nor moved"
         }
 
-        f->computed    = true
         f->in_progress = false
     }
 
