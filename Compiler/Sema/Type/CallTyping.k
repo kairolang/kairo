@@ -63,8 +63,12 @@ import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
     decl_extension_of,
     decl_generic_params,
+    decl_instantiated_from,
+    decl_is_imported,
+    decl_is_instance,
     param_type_pack_param,
 }
+import AST::LangItems::WellKnownType
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -938,6 +942,115 @@ pub class <T: type> CallTyping {
                 return
             }
         }
+    }
+
+    /// `create<T>(args)` (and `@create T(args)`, its sugar): alloc.k hands
+    /// the pack to `T(args...)` inside its generic body, which only C++
+    /// instantiates, so the constructor the arguments reach was never
+    /// resolved in Kairo and a raw pointer reached a safe `*T` parameter
+    /// unseen (P536). The arguments are resolved against T's constructors
+    /// as a direct `T(args)` resolves them, diagnostics included; nothing is
+    /// recorded on the call, whose own arguments stay the forwarder's.
+    ///
+    /// Left alone: a dependent or C++ T (clang resolves that constructor
+    /// with the rules it is written in), a T with no declared constructor
+    /// (implicit construction), and one argument of type T itself, the
+    /// transfer constructor an implicit `@copy` / `@move` may be, and no
+    /// argument at all: default construction passes nothing that could
+    /// convert wrongly, and `create<T>()` of a class declaring only a
+    /// transfer constructor is accepted today (Tests/Sema/Check/
+    /// class_allocator_errors.k) where a direct `T()` is not.
+    priv fn _check_created_ctor(self, n: *CallExpr, f: unsafe *FunctionDecl, r: *OvlResult) -> bool {
+        var sc = self.dyn()->sc
+        if f == &null || sc->well_known == &null || f->generic_params.size() == 0 || n->args.size() == 0 {
+            return true
+        }
+
+        var unsafe *lang = sc->well_known->get(WellKnownType::Create)
+        if lang == &null {
+            return true
+        }
+
+        var unsafe *fd   = NameLookup::representative(unsafe (f as unsafe *Decl))
+        var unsafe *want = NameLookup::representative(lang)
+        if fd != want {
+            return true
+        }
+
+        var unsafe *rec = r->ded.lookup(f, 0)
+        if rec == &null || rec->is_dependent() {
+            return true
+        }
+
+        rec = canon_unqual(rec)
+        var unsafe *d = self.dyn()->tu.record_decl(rec)
+        if d == &null || decl_is_imported(d) {
+            return true
+        }
+
+        if decl_is_instance(d) && decl_is_imported(decl_instantiated_from(d)) {
+            return true
+        }
+
+        if n->args.size() == 1 && n->args[0] != &null {
+            var unsafe *a0 = n->args[0]->type_
+            if a0 != &null && self.dyn()->tu.as_value(a0) == rec {
+                return true
+            }
+        }
+
+        var unsafe *body = sc->record_body(rec)
+        if body == &null {
+            body = self.dyn()->tu.pattern_of(d)
+        }
+
+        var dc    = NameLookup::context_of(body)
+        var cands = cxx::std::vector<unsafe *Decl>()
+        if dc != &null {
+            var cell = sc->lookup.in_context(dc, DeclName::ctor())
+            if cell.found() {
+                for var i: usize = 0; i < cell.cell->size(); ++i {
+                    cands.push_back(cell.cell->get(i))
+                }
+            }
+        }
+
+        if cands.size() == 0 {
+            return true
+        }
+
+        var args = cxx::std::vector<ArgInfo>()
+        if !self.build_args(n->args, &args) {
+            return true
+        }
+
+        if !self._narrow_args(unsafe &cands, unsafe &args, true, rec) {
+            return false
+        }
+
+        // The forwarder's `<T>` is still the explicit list resolution
+        // reads; a constructor takes none, so it is set aside for this
+        // resolution and put back for the rest of the forwarder's call.
+        var outer_ex = self.dyn()->ovl.explicit_args
+        self.dyn()->ovl.explicit_args.clear()
+        var outer_cs = self.dyn()->ovl.call_syntax
+        self.dyn()->ovl.call_syntax = true
+        var cr = self.dyn()->ovl.resolve(
+            &cands,
+            &args,
+            true,
+            n->range,
+            self.dyn()->tu.decl_name(d),
+            rec,
+        )
+
+        self.dyn()->ovl.call_syntax   = outer_cs
+        self.dyn()->ovl.explicit_args = outer_ex
+        if cr.outcome == OvlOutcome::Dependent || cr.outcome == OvlOutcome::Deferred {
+            return true
+        }
+
+        return cr.outcome == OvlOutcome::Selected
     }
 
     /// `print_all(args...)`: a pack forwarded whole has no type of its own
@@ -1850,6 +1963,11 @@ pub class <T: type> CallTyping {
         self._warn_unmarked(&args, &r)
         self._write_arg_map(n, r.decl, args, &r)
         self._check_forwarded_bounds(n, r.decl, &r)
+        if !self._check_created_ctor(n, r.decl, &r) {
+            self.dyn()->poison_only(n)
+            return &null
+        }
+
         var rt = self.call_result_type(r.decl, &r)
         n->instance = r.instance
         if r.instance == &null && r.dep_args.size() > 0 {

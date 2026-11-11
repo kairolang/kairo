@@ -1293,6 +1293,19 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return
         }
 
+        // An `ffi "c" { ... }` block is a group like a visibility one: its
+        // members are top-level declarations stamped with the linkage.
+        if isa<Declarations::FFIBlockDecl>(x) {
+            var unsafe *g = cast<Declarations::FFIBlockDecl>(x)
+            for var i: usize = 0; i < g->body.size(); ++i {
+                if g->body[i] != &null {
+                    self._ff_decl(g->body[i], d, mine, ns, out)
+                }
+            }
+
+            return
+        }
+
         if isa<Declarations::ExtensionDecl>(x) {
             var unsafe *e = cast<Declarations::ExtensionDecl>(x)
             if e->methods.size() == 0 || e->target == &null || e->target->canonical == &null {
@@ -1555,6 +1568,15 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return
         }
 
+        if isa<Declarations::FFIBlockDecl>(cand) {
+            var unsafe *g = cast<Declarations::FFIBlockDecl>(cand)
+            for var i: usize = 0; i < g->body.size(); ++i {
+                self._ff_ifaces_in(g->body[i], d, out)
+            }
+
+            return
+        }
+
         if isa<Declarations::ModuleDecl>(cand) {
             var unsafe *dc = unsafe (cast<Declarations::ModuleDecl>(cand) as unsafe *DeclContext)
             for var i: usize = 0; i < dc->dc_decls.size(); ++i {
@@ -1779,6 +1801,15 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return
         }
 
+        if isa<Declarations::FFIBlockDecl>(d) {
+            var unsafe *g = cast<Declarations::FFIBlockDecl>(d)
+            for var i: usize = 0; i < g->body.size(); ++i {
+                self._collect_own_decl(g->body[i])
+            }
+
+            return
+        }
+
         if isa<Declarations::ExtensionDecl>(d) {
             var unsafe *x = cast<Declarations::ExtensionDecl>(d)
             // A header reaches the scope through any visible member, and then
@@ -1824,7 +1855,35 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             self._witness_declared(d)
         } else {
             self._admit(d, PlanNeed::Fwd)
+            if self._mode != PlanMode::Preamble && isa<Declarations::FunctionDecl>(d) {
+                self._own_sig_complete(cast<Declarations::FunctionDecl>(d))
+            }
         }
+    }
+
+    /// A header or include is read by C++ code that CALLS the file's `pub`
+    /// functions, and a call whose return or by-value parameter is an
+    /// incomplete class is ill-formed: `lib::name()` returning `string` was
+    /// "incomplete return type '::builtin::string::string'" (P303), as was a
+    /// record of another Kairo module. So an own function's signature is
+    /// held as a complete class's member signature is (_expand_member_sig:
+    /// by value Complete, a pointer still Fwd). An object build's preamble
+    /// only declares, and keeps _expand_fn's Fwd.
+    fn _own_sig_complete(self, n: unsafe *Declarations::FunctionDecl) {
+        for var i: usize = 0; i < n->params.size(); ++i {
+            var unsafe *p = *n->params.get(i)
+            if p == &null || p->is_self {
+                continue
+            }
+
+            self._admit_type(
+                (if (p->is_pack && p->pack_type != &null) => (p->pack_type) else => p->type_),
+                PlanNeed::Complete,
+            )
+        }
+
+        self._admit_type(n->return_type, PlanNeed::Complete)
+        self._admit_type(n->panic_result, PlanNeed::Complete)
     }
 
     /// File-scope `var`/`const`/`static`/`eval`. They parse as DeclStmts in
@@ -2000,6 +2059,15 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             var unsafe *g = cast<Declarations::VisibilityGroupDecl>(cand)
             for var i: usize = 0; i < g->members.size(); ++i {
                 self._fill_scope(k, g->members[i])
+            }
+
+            return
+        }
+
+        if isa<Declarations::FFIBlockDecl>(cand) {
+            var unsafe *g = cast<Declarations::FFIBlockDecl>(cand)
+            for var i: usize = 0; i < g->body.size(); ++i {
+                self._fill_scope(k, g->body[i])
             }
 
             return
@@ -4603,6 +4671,15 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             var unsafe *g = cast<Declarations::VisibilityGroupDecl>(cand)
             for var i: usize = 0; i < g->members.size(); ++i {
                 self._collect_ext_in(g->members[i], target)
+            }
+
+            return
+        }
+
+        if isa<Declarations::FFIBlockDecl>(cand) {
+            var unsafe *g = cast<Declarations::FFIBlockDecl>(cand)
+            for var i: usize = 0; i < g->body.size(); ++i {
+                self._collect_ext_in(g->body[i], target)
             }
 
             return

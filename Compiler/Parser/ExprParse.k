@@ -4292,6 +4292,81 @@ pub class <T: type> ExprParse {
     enum BraceArm derives u8 {
         Value,      ///< an arm value: `{ v }` becomes `=> v`.
         TryOperand, ///< a `try` operand: `{ v }` becomes `v`.
+        ArrowBlock, ///< `=> { stmts }`: the arrow is already consumed; wrap in `({ ... })`.
+    }
+
+    /// \brief true when the `{` that follows the current `=>` opens statements
+    ///        rather than a set or map literal. Consumes nothing.
+    /// \details a literal separates its elements with `,` and never has a `;`
+    ///          at its own depth, so a `;`, a statement-only opener, or a line
+    ///          that ends without `,` in front of another element can only be a
+    ///          block. Without this the arm parses as a set literal and the user
+    ///          is told about a missing `}` instead of the arm rule.
+    priv fn _arrow_brace_is_block(self) -> bool {
+        var i = self.dyn()->c_idx + 1 // past the `=>`
+        var n = self.dyn()->span.size()
+        while i < n {
+            var k0 = self.dyn()->resolve_kind_deep(self.dyn()->span.get(i))
+            if k0 != TokenKind::TkNewLine && k0 != TokenKind::AtComment {
+                break
+            }
+
+            ++i
+        }
+
+        if i >= n || self.dyn()->resolve_kind_deep(self.dyn()->span.get(i)) != TokenKind::OpLBrace {
+            return false
+        }
+
+        ++i
+        var depth: i32    = 1
+        var first         = true
+        var prev          = TokenKind::OpLBrace
+        var nl_after_elem = false
+        while i < n {
+            var k = self.dyn()->resolve_kind_deep(self.dyn()->span.get(i))
+            ++i
+            if k == TokenKind::AtComment {
+                continue
+            }
+
+            if k == TokenKind::TkNewLine {
+                if depth == 1 && prev != TokenKind::OpComma && prev != TokenKind::OpLBrace {
+                    nl_after_elem = true
+                }
+
+                continue
+            }
+
+            if depth == 1 {
+                if first && self._starts_statement_only(k) {
+                    return true
+                }
+
+                if k == TokenKind::OpSemicolon {
+                    return true
+                }
+
+                if nl_after_elem && k != TokenKind::OpRBrace {
+                    return true
+                }
+            }
+
+            first         = false
+            nl_after_elem = false
+            if k == TokenKind::OpLBrace || k == TokenKind::OpLParen || k == TokenKind::OpLSquare {
+                ++depth
+            } else if k == TokenKind::OpRBrace || k == TokenKind::OpRParen || k == TokenKind::OpRSquare {
+                --depth
+                if depth == 0 {
+                    return false
+                }
+            }
+
+            prev = k
+        }
+
+        return false
     }
 
     /// \brief the kind of the next token that is not a newline, `skip` real
@@ -4512,15 +4587,25 @@ pub class <T: type> ExprParse {
             rbrace = self._skip_to_matching_brace()
         }
 
+        var arm_msg = "value arms are written '=> expr'; '{ }' arms are statement-only"
+        if kind == Self::BraceArm::ArrowBlock {
+            arm_msg = "an arm is a single expression, not a block; use a statement expression '({ ... })'"
+        }
+
         var b = self.dyn()->diag->report(
             DiagID::S073E,
             lbrace.start,
-            "value arms are written '=> expr'; '{ }' arms are statement-only",
+            arm_msg,
         )
 
         b.first(lbrace)
 
-        if value != &null {
+        if kind == Self::BraceArm::ArrowBlock {
+            // value is null here: the caller only routes blocks with statements,
+            // so the single-expression rewrite below never applies.
+            b.insert(lbrace.start, "(", "wrap the block in '(' ... ')'")
+            b.insert(rbrace.end, ")", "close the statement expression")
+        } else if value != &null {
             var same_open = self._line_of(lbrace.start) == self._line_of(value->range.start)
 
             // `{` and the space after it become `=> `. A value on the next
@@ -5216,6 +5301,9 @@ pub class <T: type> ExprParse {
                 || after == TokenKind::KwBreak
                 || after == TokenKind::KwContinue {
                 body = self._parse_jump_arm(stop)
+            } else if after == TokenKind::OpLBrace && self._arrow_brace_is_block() {
+                self.dyn()->advance(T::SkipNL::After) // consume `=>`
+                body = self._recover_braced_branch(Self::BraceArm::ArrowBlock)
             } else {
                 body = self._parse_arm_value(stop, true)
             }

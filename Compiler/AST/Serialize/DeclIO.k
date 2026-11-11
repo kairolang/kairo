@@ -405,6 +405,7 @@ fn io_function_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::FunctionDec
         ar->sema_zero(n->move_reuse_site.size() as u64, "FunctionDecl::move_reuse_site")
         ar->sema_zero(n->move_reuse_read.size() as u64, "FunctionDecl::move_reuse_read")
         ar->sema_false(n->cxx_ref_return, "FunctionDecl::cxx_ref_return")
+        ar->sema_false(n->overrides_virtual, "FunctionDecl::overrides_virtual")
         ar->sema_false(n->is_generator, "FunctionDecl::is_generator")
         ar->sema_false(n->has_yield, "FunctionDecl::has_yield")
         ar->sema_false(n->no_unwind, "FunctionDecl::no_unwind")

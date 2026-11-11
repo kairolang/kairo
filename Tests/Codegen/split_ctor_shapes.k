@@ -1,7 +1,7 @@
 // Run-time constructors split for const fields (CODEGEN.md §6), beside the
 // shapes that once crashed or were refused around them: a class with a
 // static field and an `@inout` method next to its split constructor (the
-// null _ci_fn crash in EmitIR::_slot_type, 2026-10-24), a const field whose
+// null _ci_fn case in EmitIR::_slot_type), a const field whose
 // type has a const field itself (its one write constructs it, so it is no
 // SC071E assignment), a generic class's, and fields the constructor leaves
 // alone, which read 0.

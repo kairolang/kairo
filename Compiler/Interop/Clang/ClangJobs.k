@@ -115,7 +115,14 @@ pub class ClangJobs {
         return self._drive(&words, false)
     }
 
-    priv fn _drive(self, @inout words: cxx::std::vector<string>, execute: bool) -> bool {
+    /// \brief a driver query (-dumpversion, -print-resource-dir, ...): clang
+    ///        prints its answer while the Compilation is built, and plans no
+    ///        job, which run() and plan() would report as an error.
+    pub fn query(self, @inout words: cxx::std::vector<string>) -> bool {
+        return self._drive(&words, false, true)
+    }
+
+    priv fn _drive(self, @inout words: cxx::std::vector<string>, execute: bool, query: bool = false) -> bool {
         self.error = ""
         self._be->startup()
         if !self._be->ready() {
@@ -131,9 +138,12 @@ pub class ClangJobs {
 
         var unsafe *diags = self._be->arg_diags()
         var        title  = "kairo"
+        // A local: the Driver keeps this StringRef, and a temporary from
+        // triple() dangled (a query prints paths built from it, as garbage).
+        var        triple = self._be->triple()
         var drv = clang::driver::Driver(
             kairo::sref(self._clang_exe),
-            kairo::sref(self._be->triple()),
+            kairo::sref(triple),
             &*diags,
             kairo::std::to_std_string(title),
             self._be->vfs(),
@@ -156,6 +166,10 @@ pub class ClangJobs {
         }
 
         var *jobs = &comp->getJobs().getJobs()
+        if query {
+            return true
+        }
+
         if jobs->size() == 0 {
             self.error = "clang planned nothing to run for this input"
             return false

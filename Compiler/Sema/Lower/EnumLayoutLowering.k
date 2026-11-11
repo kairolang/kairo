@@ -2357,12 +2357,58 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         tag->spec_args      = create_empty_frozen_list<unsafe *Type>()
         var unsafe *tdc = unsafe (tag as unsafe *DeclContext)
         var        vs   = self.list_builder<unsafe *Declarations::EnumVariantDecl>()
+        // The tag enum is nested in the record, which C++ writes inside
+        // `template <class T>`: an enumerator named like a type parameter
+        // shadows it, which is ill-formed (P539). Such a one gets `_`
+        // appended, repeated while the name is still a parameter's or a
+        // variant's; the tag is positional (InterfaceEmitter::_tag_leaf
+        // reads the enumerator by position), so the Kairo variant keeps its
+        // name and nothing else sees the change.
+        var taken = cxx::std::vector<string>()
+        for var i: usize = 0; i < en->generic_params.size(); ++i {
+            taken.push_back(self.tu.decl_name(unsafe (en->generic_params[i] as unsafe *Decl)))
+        }
+
+        var nparams = taken.size()
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            taken.push_back(self.tu.decl_name(unsafe (en->variants[i] as unsafe *Decl)))
+        }
+
         for var i: usize = 0; i < en->variants.size(); ++i {
             var unsafe *v = en->variants[i]
+            var        nm = v->name
+            var        vn = self.tu.decl_name(unsafe (v as unsafe *Decl))
+            var        clash = false
+            for var k: usize = 0; k < nparams; ++k {
+                if taken[k] == vn {
+                    clash = true
+                }
+            }
+
+            if clash {
+                var fresh = vn + "_"
+                var again = true
+                while again {
+                    again = false
+                    for var k: usize = 0; k < taken.size(); ++k {
+                        if taken[k] == fresh {
+                            again = true
+                        }
+                    }
+
+                    if again {
+                        fresh = fresh + "_"
+                    }
+                }
+
+                taken.push_back(fresh)
+                nm = self.synth.ident(v->name.range, fresh)
+            }
+
             var unsafe *tv = Declarations::EnumVariantDecl::create(
                 self.ctx,
                 v->range,
-                v->name,
+                nm,
                 i as u32,
             )
 

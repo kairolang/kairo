@@ -740,6 +740,7 @@ pub class CompilerInstance {
             || self.invocation()->args.get_bool("print-clang-args")
             || self.invocation()->args.get_bool("print-jobs")
             || self.invocation()->args.get_bool("print-from-clang")
+            || self.invocation()->args.get_bool("print-clang-query")
             || self.invocation()->args.get_bool("print-target-info")
             || self.invocation()->args.get_bool("print-cfg")
             || self.invocation()->args.get_bool("print-runtimes-revision")

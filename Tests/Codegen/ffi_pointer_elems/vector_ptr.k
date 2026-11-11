@@ -6,7 +6,7 @@
 // The element is `Node*` to C++, and a `Node*` read out of a header is
 // `unsafe *Node` by default; inside an instance whose ARGUMENT wrote the
 // pointer, the argument's flavour wins (TypeImport::note_pointer_arg).
-// `ptrs[0]->id` steps through `reference` (`Node*&`), which EmitIR now
+// `ptrs[0]->id` steps through `reference` (`Node*&`), which EmitIR
 // treats as the pointer it refers to.
 
 ffi "c++" import "vector"

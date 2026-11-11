@@ -3,9 +3,9 @@
 // RUN: %t.exe; test $? -eq 7
 //
 // `res[i] = ns::DR{...}` where `res` is a std::array whose element type
-// is only known per instantiation left the right side untyped (the assign
-// returned early on the unknown left type), so a C++ aggregate's named
-// initializer reached EmitIR and ICEd.
+// is only known per instantiation types the right side (the assign
+// does not return early on the unknown left type), so a C++ aggregate's named
+// initializer reaches EmitIR typed.
 
 ffi "c++" import "Inputs/o4_agg.h"
 ffi "c++" import "array"

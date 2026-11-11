@@ -138,7 +138,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AdtCtorForm,   ClassDecl,  EnumDecl,     ExtensionDecl,       FieldDecl,
+    AdtCtorForm,   ClassDecl,  EnumDecl,     ExtensionDecl,       FFIBlockDecl,  FieldDecl,
     FieldFold,     FnBodyKind, FunctionDecl, GenericParamDecl,    GenericParamKindBound,
     InterfaceDecl, ModuleDecl, ParamDecl,    StorageClass,        StructDecl,
     TypeAliasDecl, UnionDecl,  VariableDecl, VisibilityGroupDecl,
@@ -675,7 +675,10 @@ pub class EmitIR {
             var rec = d->kind == DeclKind::ClassDecl
                 || d->kind == DeclKind::StructDecl
                 || d->kind == DeclKind::UnionDecl
-            if d->kind != DeclKind::ModuleDecl && d->kind != DeclKind::VisibilityGroupDecl && !rec {
+            if d->kind != DeclKind::ModuleDecl
+                && d->kind != DeclKind::VisibilityGroupDecl
+                && d->kind != DeclKind::FFIBlockDecl
+                && !rec {
                 return
             }
 
@@ -714,6 +717,16 @@ pub class EmitIR {
                 var unsafe *g = cast<VisibilityGroupDecl>(d)
                 for var i: usize = 0; i < g->members.size(); ++i {
                     self.emit(g->members[i])
+                }
+            } case DeclKind::FFIBlockDecl {
+                // `ffi "c" { ... }` groups top-level declarations, each stamped
+                // with the block's linkage (imports.mdx): emitted as if each
+                // had been written with its own `ffi "c"`.
+                var unsafe *fb = cast<FFIBlockDecl>(d)
+                for var i: usize = 0; i < fb->body.size(); ++i {
+                    if fb->body[i] != &null {
+                        self.emit(fb->body[i])
+                    }
                 }
             } case DeclKind::ExtensionDecl {
                 var unsafe *x = cast<ExtensionDecl>(d)

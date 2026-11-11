@@ -212,8 +212,19 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
                 continue
             }
 
-            if m->abi != AbiKind::Override && m->abi != AbiKind::Virtual {
-                continue
+            // A plain or `virtual` method that matches a base virtual
+            // overrides it too: recorded for codegen's `override`.
+            if m->abi != AbiKind::Override {
+                if m->abi != AbiKind::Static
+                    && m->is_method()
+                    && cd->derives_list.size() > 0
+                    && panic_overridden(unsafe &self._tu, cd, m) != &null {
+                    m->overrides_virtual = true
+                }
+
+                if m->abi != AbiKind::Virtual {
+                    continue
+                }
             }
 
             var unsafe *base = panic_overridden(unsafe &self._tu, cd, m)

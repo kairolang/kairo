@@ -378,11 +378,16 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         var unsafe *head        = f->first_decl()
         var unsafe *cur         = head
         var        guard: usize = 0
+        var        links        = cxx::std::vector<unsafe *ParamDecl>()
         while cur != &null && guard < 64 {
             if idx < cur->params.size() {
                 var unsafe *q = cur->params[idx]
                 if q != &null {
                     q->inferred_const = true
+                    // A link that already spells `const` needs no edit.
+                    if q != p && (!q->is_const) {
+                        links.push_back(q)
+                    }
                 }
             }
 
@@ -408,6 +413,21 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
 
         b.first(p->name.range)
         b.insert(p->name.range.start, "const ", f"make '{nm}' const")
+        // The other links spell the same parameter (an out-of-line
+        // definition's in-class declaration): `const` at the definition
+        // alone is a signature the declaration does not match, which C++
+        // rejects as an out-of-line definition of nothing (P446).
+        for var i: usize = 0; i < links.size(); ++i {
+            var unsafe *q  = links[i]
+            var        at = q->name.range.start
+            if at == p->name.range.start {
+                continue
+            }
+
+            b.insert(at, "const ", f"make '{nm}' const at its declaration too")
+            b.note(at, f"'{nm}' is also declared here")
+        }
+
         b.emit()
     }
 

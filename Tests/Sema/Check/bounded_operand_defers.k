@@ -2,9 +2,9 @@
 //
 // An operator on a bounded `T` binds through the bound only when it is the
 // left operand's own: `in` is the RIGHT operand's (`xs.op in(x)`), and `??`
-// is no user operator at all. Those still defer on a dependent operand, as
-// before bounds were consulted; `x in xs` was briefly an SC066E ("'in'
-// needs an 'op in' on '[T]'"). What the bounds do NOT declare is no longer
+// is no user operator at all. Those still defer on a dependent operand, even
+// though bounds are consulted: `x in xs` is not SC066E ("'in'
+// needs an 'op in' on '[T]'"). What the bounds do NOT declare is not
 // deferred: an `==` none of them declares is R025E, and
 // `===` on two pointers is SC034E whatever they point to, as it is on any
 // pair that cannot be null.

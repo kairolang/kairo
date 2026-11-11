@@ -2685,7 +2685,12 @@ pub class <T: type> OperatorTyping {
             return &null
         }
 
-        if k != TokenKind::OpAmp && self._is_dependent(ot) && ug == &null {
+        // `*p` with p a pointer to a dependent T is a T whatever T turns out to
+        // be, as `&x` is a `*T`: deferring it left `var m = *p` in a generic
+        // body with no type, and codegen reported it (I011W). A dependent
+        // operand that is not yet known to be a pointer still defers.
+        var deref_known = k == TokenKind::OpStar && self.dyn()->tu.pointee(ot) != &null
+        if k != TokenKind::OpAmp && (!deref_known) && self._is_dependent(ot) && ug == &null {
             self.dyn()->mark_unknown(n)
             return &null
         }

@@ -2350,7 +2350,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     }
 
     /// Apply binding shorthands and write the binder's type.
-    priv fn _bind_one(self, b: unsafe *Statements::Binding, t: unsafe *Type) {
+    priv fn _bind_one(self, b: unsafe *Statements::Binding, t: unsafe *Type, const_elem: bool = false) {
         if b == &null || b->is_discard || b->decl == &null {
             return
         }
@@ -2380,6 +2380,13 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
         var unsafe *shaped = canon_unqual(t)
         if b->shorthand.has(Statements::BindingShorthand::Pointer) {
+            // An element reached through a `const T&` (a std::set's iterator)
+            // is not writable: the binder points at a `const T`, or C++
+            // refuses the `const T*` into a `T*` (P474).
+            if const_elem {
+                shaped = self.dyn()->sc->types->qualified(shaped, QUAL_CONST)
+            }
+
             shaped = self.dyn()->sc->types->pointer(
                 shaped,
                 b->shorthand.has(Statements::BindingShorthand::Unsafe),
@@ -2393,9 +2400,13 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         vd->type_ = shaped
     }
 
-    priv fn _bind_list(self, list: *FrozenList<Statements::Binding>, t: unsafe *Type, at: *Expr) {
+    priv fn _bind_list(self,
+                       list:       *FrozenList<Statements::Binding>,
+                       t:          unsafe *Type,
+                       at:         *Expr,
+                       const_elem: bool = false) {
         if list->size() == 1 {
-            self._bind_one(list->get(0), t)
+            self._bind_one(list->get(0), t, const_elem)
             return
         }
 
@@ -2444,7 +2455,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         self._by_value_abstract(n, elem)
-        self._bind_list(&n->bindings, elem, n->iterable)
+        self._bind_list(&n->bindings, elem, n->iterable, self._cxx_yields_const(n))
         // No condition refines it; it may run zero times, so after it is
         // the head's state joined with each `break`.
         self.dyn()->flow.loop_enter(n->body, &null)
@@ -2456,6 +2467,33 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var brk = self.dyn()->flow.loop_leave()
         self.dyn()->flow.env = self.dyn()->flow.join(&head, &brk)
         return n
+    }
+
+    /// A C++ range whose `*it` is a reference to const (std::set, a
+    /// const_iterator): what `for *x` may point at is read-only. The
+    /// element type itself is kept unqualified (canonicals carry no quals),
+    /// so the constness is read off the loop's own `*it` here.
+    priv fn _cxx_yields_const(self, n: unsafe *Statements::RangedForStmt) -> bool {
+        if n->iter_kind != Statements::IterKind::Cxx || n->cxx_deref == &null {
+            return false
+        }
+
+        var unsafe *d = n->cxx_deref->type_
+        if d == &null {
+            return false
+        }
+
+        if isa<CXXLValueRefType>(d) {
+            d = cast<CXXLValueRefType>(d)->referee
+        } else if isa<CXXRValueRefType>(d) {
+            d = cast<CXXRValueRefType>(d)->referee
+        } else {
+            // A prvalue element is copied into a loop temporary; that copy
+            // is the binder's to point at, mutable.
+            return false
+        }
+
+        return self.dyn()->tu.has_const(d)
     }
 
     /// `for h in *arr` over a C++ range whose element is an abstract class

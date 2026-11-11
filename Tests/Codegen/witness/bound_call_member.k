@@ -6,8 +6,8 @@
 //
 // Overload resolution binds the requirement's interface parameters from the
 // bound (V := i32), so the call types as Wrap<i32> and `.w` binds as on any
-// Wrap<i32>. It used to type as unknown and ICE in EmitIR ("unbound member
-// step reached codegen"); witness/composed_dependent_leaf.k still spells the
+// Wrap<i32>. It does not type as unknown and ICE in EmitIR ("unbound member
+// step reached codegen"); witness/composed_dependent_leaf.k spells the
 // typed-temporary form that worked around it.
 
 pub struct <W> Wrap { pub var w: W }

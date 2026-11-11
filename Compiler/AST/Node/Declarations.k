@@ -592,6 +592,13 @@ pub class FunctionDecl
     /// call takes the reference's address back (OperatorFacts::returns_place).
     /// Writers: RedeclMerge (out-of-line), CallConvCheck (override).
     pub var cxx_ref_return: bool         = false
+    /// Overrides a base's virtual without being written `override`: a
+    /// derived method of the same parameters overrides it (classes-
+    /// inheritance.mdx). Codegen spells `override` on it, as on a written
+    /// one, so clang never warns that one member of a class is marked
+    /// `override` and another is not (C505W, which the user cannot act on).
+    /// Writer: CallConvCheck.
+    pub var overrides_virtual: bool = false
     pub var transfer:       TransferKind = TransferKind::NotTransfer ///< @copy/@move on a transfer ctor.
     /// Written `-> yield T`: a C++ coroutine. Writer: X (StmtTyping::
     /// traverse_function_decl), before the body is typed. The WRITTEN

@@ -22,7 +22,10 @@
 ///       `kcc -c x.cc; kcc -c y.k; kcc x.o y.o` works as with clang.
 ///   kcc answers `--help` and `--version` itself; clang's own would describe
 ///   a different compiler. `-###` prints the jobs without running them:
-///   each cc1 line, then the link (kairo's --print-jobs).
+///   each cc1 line, then the link (kairo's --print-jobs). The probes
+///   `-dumpversion`, `-print-resource-dir` and `--print-libgcc-file-name`
+///   are answered by clang's driver for kairo's target (--print-clang-query),
+///   so a build system can configure with kcc as its compiler.
 ///
 ///   Startup is Driver/Runtime.k's init_runtime, shared with Kairo.k.
 ///
@@ -211,6 +214,12 @@ pub fn _kcc_words(argc:       i32,
         if *w == "--version" {
             out.push_back("--version")
             continue
+        }
+
+        // Probes (CMake and friends ask the compiler for these): answered by
+        // clang's driver itself, with no input (--print-clang-query).
+        if *w == "-dumpversion" || *w == "--print-libgcc-file-name" || *w == "-print-resource-dir" {
+            out.push_back("--print-clang-query")
         }
 
         // The jobs, not run: each cc1 line and the link (--print-jobs).

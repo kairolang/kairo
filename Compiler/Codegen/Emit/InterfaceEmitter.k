@@ -4078,14 +4078,12 @@ pub class InterfaceEmitter {
                             continue
                         }
 
-                        s += nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", " + f"{adt_niche_pattern_of(en, (k as u32))}" + ") ? " + tt + "::" + self._spell->leaf(
-                            unsafe (en->variants[k] as unsafe *Decl),
-                        ) + " : "
+                        s += nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", " + f"{adt_niche_pattern_of(en, (k as u32))}" + ") ? " + tt + "::" + self._tag_leaf(en, en->variants[k]) + " : "
                     }
 
                     self._cg->sink->spell(
                         mat,
-                        s + tt + "::" + self._spell->leaf(unsafe (pv as unsafe *Decl)) + "; }",
+                        s + tt + "::" + self._tag_leaf(en, pv) + "; }",
                     )
                 } default { // destroy and construct_from: no tag to switch on.
                     0
@@ -4417,6 +4415,39 @@ pub class InterfaceEmitter {
         }
     }
 
+    /// \p v's enumerator in the record's `__kairo_Tag`, by leaf: the tag
+    /// enum's own variant at \p v's position, never \p v's name. They differ
+    /// when the variant is named like a type parameter (P539: `T` inside
+    /// `template <class T>` shadows it), which EnumLayoutLowering::_tag_enum
+    /// renames; the tag is positional, so only the spelling moves.
+    priv fn _tag_leaf(self,
+                      en: unsafe *Declarations::EnumDecl,
+                      v:  unsafe *Declarations::EnumVariantDecl) -> string {
+        var unsafe *lay = en->adt_layout
+        if lay != &null && isa<Declarations::StructDecl>(lay) {
+            var unsafe *dc = unsafe (cast<Declarations::StructDecl>(lay) as unsafe *DeclContext)
+            for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+                var unsafe *nd = *dc->dc_decls.get(i)
+                if nd == &null || !isa<Declarations::EnumDecl>(nd) {
+                    continue
+                }
+
+                var unsafe *tag = cast<Declarations::EnumDecl>(nd)
+                if self._spell->leaf(nd) != LowerTargets::adt_tag_type() {
+                    continue
+                }
+
+                for var k: usize = 0; k < en->variants.size() && k < tag->variants.size(); ++k {
+                    if en->variants[k] == v {
+                        return self._spell->leaf(unsafe (tag->variants[k] as unsafe *Decl))
+                    }
+                }
+            }
+        }
+
+        return self._spell->leaf(unsafe (v as unsafe *Decl))
+    }
+
     /// The payload struct holding \p v, by leaf, read off its union member.
     priv fn _payload_leaf(self, v: unsafe *Declarations::EnumVariantDecl) -> string {
         var unsafe *t              = v->adt_member->type_
@@ -4484,7 +4515,7 @@ pub class InterfaceEmitter {
                 if en->adt_tag_member != &null {
                     // The common prefix: the tag goes in with the payload, or
                     // alone into the tag-only member.
-                    var tv = tt + "::" + self._spell->leaf(unsafe (v as unsafe *Decl))
+                    var tv = tt + "::" + self._tag_leaf(en, v)
                     if v->adt_member == &null {
                         return nm + "(" + vt + ")" + nx + " : " + self._spell->leaf(
                             en->adt_tag_member,
@@ -4501,9 +4532,7 @@ pub class InterfaceEmitter {
                     return self._field_ctor(en, v, nm, vt, "", nx, false, tv + ", ")
                 }
 
-                var init = tag + "(" + tt + "::" + self._spell->leaf(
-                    unsafe (v as unsafe *Decl),
-                ) + ")" + site_init
+                var init = tag + "(" + tt + "::" + self._tag_leaf(en, v) + ")" + site_init
                 if v->adt_member == &null {
                     return nm + "(" + vt + ")" + nx + " : " + init + " {}"
                 }
@@ -4590,9 +4619,7 @@ pub class InterfaceEmitter {
                     }
 
                     var mem = self._spell->leaf(v->adt_member)
-                    s += " case " + tt + "::" + self._spell->leaf(
-                        unsafe (v as unsafe *Decl),
-                    ) + ": " + mem + ".~" + self._payload_leaf(v) + "(); break;"
+                    s += " case " + tt + "::" + self._tag_leaf(en, v) + ": " + mem + ".~" + self._payload_leaf(v) + "(); break;"
                 }
 
                 return s + " default: " + self._pack_default(en, ds, "") + "break; } }"
@@ -4607,9 +4634,7 @@ pub class InterfaceEmitter {
                     }
 
                     var mem = self._spell->leaf(v->adt_member)
-                    s += " case " + tt + "::" + self._spell->leaf(
-                        unsafe (v as unsafe *Decl),
-                    ) + ": new (&" + mem + ") " + self._payload_leaf(
+                    s += " case " + tt + "::" + self._tag_leaf(en, v) + ": new (&" + mem + ") " + self._payload_leaf(
                         v,
                     ) + "(static_cast<O&&>(o)." + mem + "); break;"
                 }
@@ -5230,12 +5255,10 @@ pub class InterfaceEmitter {
         var unsafe *field    = some->payload[0]
         var        fld       = self._spell->leaf(unsafe (field as unsafe *Decl))
         var        t         = self._spell->decl(field->type_, "", &null, d)
-        var        null_tag  = tt + "::" + self._spell->leaf(unsafe (none as unsafe *Decl))
+        var        null_tag  = tt + "::" + self._tag_leaf(en, none)
         var        is_null   = tag + " == " + null_tag
         var        null_init = " : " + tag + "(" + null_tag + ") {}"
-        var present_init = tag + "(" + tt + "::" + self._spell->leaf(
-            unsafe (some as unsafe *Decl),
-        ) + "), " + mem
+        var present_init = tag + "(" + tt + "::" + self._tag_leaf(en, some) + "), " + mem
         var val = LowerTargets::nullable_value()
         var nx  = self._adt_noexcept()
         match m->adt_role {
@@ -6022,7 +6045,7 @@ pub class InterfaceEmitter {
         // A generic record's member `requires`, so the record's
         // explicit instantiation leaves the member out where it fails.
         s += self._spell->member_requires(m, owner)
-        if m->abi == Declarations::AbiKind::Override {
+        if m->abi == Declarations::AbiKind::Override || m->overrides_virtual {
             s += " override"
         }
 

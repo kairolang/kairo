@@ -49,6 +49,9 @@
 ///       - an `eval for` directly in a module or class body
 ///         (EvalBlockDecl::stmt): it parses, but nothing unrolls it there.
 ///         (An `eval if` there is folded away by EvalIfFolding.)
+///       - a requirement called through the interface itself (`p->m()`
+///         with `p: *Iface`, virtual interface dispatch): ExtensionLowering
+///         renders requirement calls through a dependent Self only.
 ///       - a generic closure, `fn <T>(x: T) -> T { ... }`. X types neither
 ///         its parameters (no canonical for `T`) nor a call of it, so there
 ///         is no signature for EmitIR to spell; a C++ generic lambda is the
@@ -62,6 +65,9 @@
 ///         names no outer parameter -- generic in its own right or not --
 ///         is emitted, in a generic function as anywhere else.
 ///       - an `extend` in a body: nothing emits one there.
+///       - a `spawn e` or `thread e` expression: no async lowering exists, and
+///         EmitIR ICEs on both. (A `thread` variable is thread-local storage,
+///         a declaration, and is compiled.)
 ///
 ///     Reads the same guard IterLowering does: a poisoned or untyped
 ///     iterable is already diagnosed or dependent, and is not reported.
@@ -95,15 +101,22 @@ import AST::Node::Casting::{
     dyn_cast,
     isa,
 }
+import AST::Node::CanonicalNodes::RecordType
 import AST::Node::Declarations::{
-    ClassDecl,  EnumDecl,  EvalBlockDecl, ExtensionDecl, FieldDecl, FunctionDecl, GenericParamDecl,
-    StructDecl, UnionDecl,
+    ClassDecl,     EnumDecl,  EvalBlockDecl, ExtensionDecl, FieldDecl, FunctionDecl, GenericParamDecl,
+    InterfaceDecl, StructDecl, UnionDecl,
 }
 import AST::Node::Expressions::{
     AttributedExpr,
+    CallExpr,
     ClosureExpr,
+    SpawnExpr,
+    ThreadExpr,
 }
-import AST::Node::PrimaryExpressions::NamedIdentExpr
+import AST::Node::PrimaryExpressions::{
+    ChainExpr,
+    NamedIdentExpr,
+}
 import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     ConditionalStmt, DeclStmt,          DestructureKind,    DestructuringDeclStmt, EvalBlockStmt,
@@ -285,6 +298,70 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
         return true
     }
 
+    /// `p->m(x)` with `p: *Iface`: a requirement called through the
+    /// interface itself, which is runtime dispatch through a virtual
+    /// interface's witness table (interfaces.mdx, "Virtual Interfaces").
+    /// ExtensionLowering renders a requirement call only through a
+    /// dependent Self (a bounded parameter or an associated type) and ICEs
+    /// on this one (P558); nothing builds the table yet. Reported at the
+    /// member step; a `::` call keeps its own path.
+    fn visit_call_expr(self, n: *CallExpr) -> bool {
+        var tu = TypeUtil(self.sc)
+        var unsafe *ch = dyn_cast<ChainExpr>(tu.strip_parens(n->callee))
+        if ch == &null || ch->steps.size() == 0 {
+            return true
+        }
+
+        var unsafe *st = ch->steps.get(ch->steps.size() - 1)
+        if st->access_kind == ChainExpr::AccessKind::ColonColon {
+            return true
+        }
+
+        var unsafe *f = dyn_cast<FunctionDecl>(st->resolved_decl)
+        if f == &null || f->semantic_dc == &null {
+            return true
+        }
+
+        var unsafe *home = (f->semantic_dc)->owner_decl()
+        if home == &null || !isa<InterfaceDecl>(NameLookup::representative(home)) {
+            return true
+        }
+
+        var rt: unsafe *Type = &null
+        if ch->steps.size() == 1 {
+            if ch->base != &null {
+                rt = ch->base->type_
+            }
+        } else {
+            rt = ch->steps.get(ch->steps.size() - 2)->resolved_type
+        }
+
+        if rt == &null {
+            return true
+        }
+
+        rt = canon_unqual(rt)
+        if st->access_kind == ChainExpr::AccessKind::Arrow {
+            rt = tu.pointee(rt)
+            if rt == &null {
+                return true
+            }
+
+            rt = canon_unqual(rt)
+        }
+
+        if !isa<RecordType>(rt) {
+            return true
+        }
+
+        var unsafe *rd = cast<RecordType>(rt)->decl
+        if rd != &null && isa<InterfaceDecl>(NameLookup::representative(rd)) {
+            self._gate(st->range, "a call through an interface pointer (virtual interface dispatch)")
+        }
+
+        return true
+    }
+
     fn visit_closure_expr(self, n: *ClosureExpr) -> bool {
         if n->generic_params.size() > 0 {
             self._gate(SourceRange::from_bounds(n->range.start, 2 as u32), "a generic closure")
@@ -341,6 +418,17 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
             "an 'eval' block in a function body",
         )
 
+        return true
+    }
+
+    /// Reported at the keyword; the operand is still typed and checked.
+    fn visit_spawn_expr(self, n: *SpawnExpr) -> bool {
+        self._gate(SourceRange::from_bounds(n->range.start, 5 as u32), "a 'spawn' expression")
+        return true
+    }
+
+    fn visit_thread_expr(self, n: *ThreadExpr) -> bool {
+        self._gate(SourceRange::from_bounds(n->range.start, 6 as u32), "a 'thread' expression")
         return true
     }
 

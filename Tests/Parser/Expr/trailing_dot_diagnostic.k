@@ -2,9 +2,9 @@
 // A `.` with no target names the SEPARATOR. It must not claim a whitespace rule:
 // there is no whitespace and no index, just a missing member name.
 //
-// `fn d()` is the case that used to lie. The separator's SkipNL::After advance
+// `fn d()` is the case that could lie. The separator's SkipNL::After advance
 // looks past the line break, lands on the `2` of the NEXT statement, finds it
-// non-adjacent, and used to report "no whitespace allowed ..." about two tokens
+// non-adjacent, and would report "no whitespace allowed ..." about two tokens
 // on different lines. Each case needs its own function: a trailing `.` at the
 // end of a multi-line body legitimately continues the chain onto the next line,
 // which merges the cases and hides the bug.

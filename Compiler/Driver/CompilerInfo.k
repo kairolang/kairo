@@ -486,6 +486,10 @@ extend CompilerInstance {
             return self.print_from_clang()
         }
 
+        if self.invocation()->args.get_bool("print-clang-query") {
+            return self.print_clang_query()
+        }
+
         if self.invocation()->args.get_bool("print-runtimes-revision") {
             io::println(
                 f"{string(unsafe ((kairo::runtimes_revision_string() as unsafe *const u8) as *const u8))}",
@@ -582,6 +586,44 @@ extend CompilerInstance {
         var parsed = cmd->parse_words(&check)
         self.flush_errors()
         return if (parsed.ok) => (0) else => 1
+    }
+
+    //  --print-clang-query
+
+    /// \brief kcc's answer to the probes build systems send their C compiler
+    ///        (-dumpversion, -print-resource-dir, --print-libgcc-file-name):
+    ///        clang's own driver answers, against kairo's target and resource
+    ///        directory, so the output is what clang prints for this toolchain.
+    /// \details no input is needed (and none is given, so the "no input
+    ///          files" error the parser queued is left undrained on purpose:
+    ///          a probe's stdout is its whole interface).
+    fn print_clang_query(self) -> i32 {
+        var unsafe *be = kairo::std::create<ClangBackend>(self._sm, self._backend_config())
+        finally {
+            kairo::std::destroy(be)
+        }
+
+        var w = cxx::std::vector<string>()
+        if !self.invocation()->target.resource_dir.empty() {
+            w.push_back("-resource-dir=" + self.invocation()->target.resource_dir)
+        }
+
+        for *s in *self.invocation()->args.get_list("cxx-flags") {
+            w.push_back(*s)
+        }
+
+        var exe  = Path::join_str(Path::parent_of(env::exe_path()), "clang")
+        var jobs = ClangJobs(be, exe)
+        if !jobs.query(&w) {
+            if !jobs.error.empty() {
+                self._diag->report(DiagID::U011E, jobs.error).emit()
+            }
+
+            self.flush_errors()
+            return 1
+        }
+
+        return 0
     }
 
     /// \p with_link: --print-jobs, which also prints the planned link.

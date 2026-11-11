@@ -3052,7 +3052,17 @@ pub class CXXSpell {
     }
 
     /// `::ns::I_c`: the concept an interface bound renders as.
+    /// An imported C++ concept is its own C++ name (`::Addable`): the bound
+    /// IS that concept, and the `I_c` stand-in is written only beside the
+    /// Kairo file's own pieces, under the header's module namespace, which
+    /// a kcc header layout of the file does not contain (P481: "no member
+    /// named 'my_code' in the global namespace").
     fn concept_name(self, iface: unsafe *Decl) -> string {
+        var unsafe *r = CXXSpell::rep(iface)
+        if DeclFacts::decl_is_imported(r) {
+            return DeclFacts::decl_cxx_spelling(r)
+        }
+
         return self._iface_qual(iface) + LowerTargets::concept_suffix()
     }
 

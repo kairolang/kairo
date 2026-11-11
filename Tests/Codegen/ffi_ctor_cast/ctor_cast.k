@@ -2,8 +2,8 @@
 // Constructor) where T is an instance of an imported class template:
 // `Tag() as WT<i32>`. OperatorLowering mints the constructor call, and
 // CallLowering / EmitIR recognised a constructor by its name matching its
-// owner's; an instance's owner is the instance, so `self` was counted as
-// an argument and the call ICEd "short of arguments". The minted call now
+// owner's; an instance's owner is the instance, so `self` is not counted as
+// an argument (no "short of arguments" ICE). The minted call
 // carries ctor_decl, as a constructor call X typed does.
 
 ffi "c++" import "ctor_cast.h"

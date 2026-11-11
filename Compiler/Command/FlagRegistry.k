@@ -332,6 +332,14 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     )
 
     cmd->define<FlagKind::Bool>(
+        "print-clang-query",
+        "",
+        "print-clang-query",
+        "answer the clang driver query words in --cxx-flags (-dumpversion, -print-resource-dir, --print-libgcc-file-name) as clang does and exit (kcc)",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
         "print-ld-args",
         "",
         "print-ld-args",
