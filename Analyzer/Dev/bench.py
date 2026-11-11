@@ -14,7 +14,16 @@ is the time the edits took; the same request alone is subtracted.
 
 `rows` writes a file with 20,000 name uses, waits for its index, and times
 hovers at its last line (the end a linear scan reaches last).
+
+    python3 Analyzer/Dev/bench.py syntax path/to/kals  # keystroke -> syntax diagnostics
+
+`syntax` times keystroke-to-syntax-diagnostics through the server (section
+11, the syntax row): a 3,000-line file and a one-line file, 200 edits each
+that alternately break and repair the last line, each timed from the
+didChange to the publishDiagnostics that reflects it. The Sema run is held
+off (debounceMs 5000); the syntax debounce is the default.
 """
+import queue, statistics
 import os, random, shutil, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -91,7 +100,63 @@ def rows(exe):
         shutil.rmtree(base, ignore_errors=True)
 
 
+def syntax_latency(exe, lines, n=200):
+    base = tempfile.mkdtemp(prefix="kals-bench-")
+    try:
+        body = []
+        for k in range(lines - 1):
+            body.append("pub fn g%d(a: i32) -> i32 { return a + %d }" % (k, k))
+        tail = "pub fn tail() -> i32 { return 0 }"
+        body.append(tail)
+        text = "\n".join(body) + "\n"
+        open(os.path.join(base, "s.k"), "w").write(text)
+        c = Client(exe, base)
+        c.start({"debounceMs": 5000})
+        c.open("s.k", text)
+        uri, last = c.uri("s.k"), len(body) - 1
+        col = tail.index("(") + 1
+
+        def wait_diag(broken, limit=10):
+            end = time.time() + limit
+            while time.time() < end:
+                try:
+                    m = c.q.get(timeout=limit)
+                except queue.Empty:
+                    break
+                if m is None:
+                    raise RuntimeError("server exited")
+                if m.get("method") == "textDocument/publishDiagnostics" and m["params"]["uri"] == uri:
+                    if any(d.get("code", "").startswith("S") and not d["code"].startswith("SC") for d in m["params"]["diagnostics"]) == broken:
+                        return True
+            return False
+
+        wait_diag(False, 30)
+        times, lost = [], 0
+        for k in range(n):
+            broken = k % 2 == 0
+            rng = {"start": {"line": last, "character": col}, "end": {"line": last, "character": col if broken else col + 1}}
+            t = time.time()
+            c.notify("textDocument/didChange", {"textDocument": {"uri": uri, "version": k + 2},
+                                                "contentChanges": [{"range": rng, "text": "(" if broken else ""}]})
+            if wait_diag(broken):
+                times.append((time.time() - t) * 1000)
+            else:
+                lost += 1
+        c.stop()
+        times.sort()
+        p95 = times[int(len(times) * 0.95) - 1] if times else 0
+        print(f"syntax diagnostics, {lines}-line file, {len(times)} edits: median {statistics.median(times):.1f} ms, "
+              f"p95 {p95:.1f} ms, range {times[0]:.1f}..{times[-1]:.1f} ms, missing {lost}")
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def syntax(exe):
+    syntax_latency(exe, 3000)
+    syntax_latency(exe, 1)
+
+
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or sys.argv[1] not in ("edits", "rows"):
+    if len(sys.argv) < 3 or sys.argv[1] not in ("edits", "rows", "syntax"):
         sys.exit(__doc__)
-    {"edits": edits, "rows": rows}[sys.argv[1]](os.path.abspath(sys.argv[2]))
+    {"edits": edits, "rows": rows, "syntax": syntax}[sys.argv[1]](os.path.abspath(sys.argv[2]))

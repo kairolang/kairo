@@ -25,6 +25,12 @@ import std::io
 pub class Transport {
     pub var closed: bool = false ///< stdin reached EOF or failed: the editor is gone
 
+    /// -1: stdin and stdout. Otherwise a child's pipes (the persistent
+    /// syntax worker, Server/SyntaxWorker.k): `fd_in` is read without
+    /// blocking, `fd_out` written.
+    pub var fd_in:  i32 = -1
+    pub var fd_out: i32 = -1
+
     priv var buf_:  string = ""
     priv var head_: usize  = 0  ///< bytes of buf_ already consumed
 
@@ -40,6 +46,10 @@ pub class Transport {
 
         if self.closed {
             return false
+        }
+
+        if self.fd_in >= 0 {
+            return self.pump_()
         }
 
         var ready: i32 = unsafe kals_stdin_wait(ms)
@@ -65,6 +75,33 @@ pub class Transport {
         return self.frame_len_() != usize::MAX
     }
 
+    /// A child's pipe: everything it holds now, without blocking (the caller
+    /// polled it already, kals_poll2). An answer is often larger than one
+    /// read; a pipe that is merely empty is not EOF.
+    priv fn pump_(self) -> bool {
+        var chunk: [u8; 65536]
+        while true {
+            var got: i64 = unsafe kals_fd_read(self.fd_in, unsafe &chunk[0], 65536)
+            if got == -2 {
+                break
+            }
+
+            if got <= 0 {
+                self.closed = true
+                break
+            }
+
+            if self.head_ > 0 {
+                self.buf_  = self.buf_.subslice(self.head_, self.buf_.size() - self.head_)
+                self.head_ = 0
+            }
+
+            self.buf_ += string(unsafe (&chunk[0] as *const u8), got as usize)
+        }
+
+        return self.frame_len_() != usize::MAX
+    }
+
     /// The next message body. Call only after wait() returned true.
     fn take(self) -> string {
         var n = self.frame_len_()
@@ -83,7 +120,13 @@ pub class Transport {
         msg += body
         var off: usize = 0
         while off < msg.size() {
-            var w: i64 = unsafe kals_stdout_write(unsafe &msg.raw()[off], (msg.size() - off) as u64)
+            var w: i64 = 0
+            if self.fd_out >= 0 {
+                w = unsafe kals_fd_write(self.fd_out, unsafe &msg.raw()[off], (msg.size() - off) as u64)
+            } else {
+                w = unsafe kals_stdout_write(unsafe &msg.raw()[off], (msg.size() - off) as u64)
+            }
+
             if w <= 0 {
                 self.closed = true
                 return

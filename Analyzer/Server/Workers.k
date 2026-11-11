@@ -66,6 +66,7 @@ import Server::SignatureHelp::*
 import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
+import Server::SyntaxWorker::*
 
 extend Server {
     fn scratch(self, const suffix: string) -> string {
@@ -130,8 +131,16 @@ extend Server {
         argv.push_back(out)
         argv.push_back("--cwd")
         argv.push_back(self.entries[ei].dir)
-        argv.push_back("--root")
-        argv.push_back(self.project.dir)
+        // `--root` indexes every file under the project, and the worker
+        // drops those rows again when the graph is wide (WIDE_INDEX_LIMIT):
+        // on the kals graph (418 files) walking them was 2.2 s of CPU in a
+        // 10 s run. A graph last seen wide is run without it; a run that
+        // finds it narrow again is rerun with it (finish_index).
+        self.entries[ei].rooted = !(self.entries[ei].ran && (self.entries[ei].files.size() > WIDE_INDEX_LIMIT))
+        if self.entries[ei].rooted {
+            argv.push_back("--root")
+            argv.push_back(self.project.dir)
+        }
 
         for var i: usize = 0; i < self.docs.docs.size(); ++i {
             var path = self.docs.docs[i].path
@@ -229,6 +238,7 @@ extend Server {
         j.started_ms = now_ms()
 
         var wargv = self.worker_argv(ei, j.out, "", "")
+        j.rooted = self.entries[ei].rooted
         self.entries[ei].dirty = false
         self.trace(f"index start entry={self.entries[ei].entry} rev={j.rev}")
 
@@ -381,9 +391,15 @@ extend Server {
         self.entries[ei].slow = took > SLOW_RUN_MS
         self.trace(f"index done entry={self.entries[ei].entry} rc={rc} rev={j->rev}")
 
+        // What installing a snapshot costs (section 11, scenario 2): traced
+        // per run as `install`.
+        var t0 = now_us()
         var text: string = ""
         var doc = JsonDoc()
-        var ok  = LinkFS::read(j->out, &text) && doc.parse(text) && doc.get_bool(doc.root, "ok")
+        var read_ok = LinkFS::read(j->out, &text)
+        var t1 = now_us()
+        var ok  = read_ok && doc.parse(text) && doc.get_bool(doc.root, "ok")
+        var t2 = now_us()
         if !ok {
             // A crash (no output) or a refused command line. The last good
             // snapshot stays; say why once, where the user can find it.
@@ -412,15 +428,24 @@ extend Server {
             self.say(MSG_LOG, f"analysed {self.entries[ei].entry}: {nf} files, {nd} diagnostics, {took} ms")
         }
 
+        if (!j->rooted) && doc.get_bool(doc.root, "wide") {
+            self.entries[ei].dirty = true // narrow again: the files under the root were not walked
+        }
+
         self.entries[ei].snap     = doc
         self.entries[ei].has_snap = true
         self.entries[ei].snap_rev = j->rev
+        var t3 = now_us()
+        var t4 = t3
         if doc.count(doc.get(doc.root, "files")) > 0 {
             self.entries[ei].idx     = doc
             self.entries[ei].has_idx = true
             self.entries[ei].idx_rev = j->rev
+            t4 = now_us()
             self.index_cache(ei)
         }
+
+        var t5 = now_us()
 
         // The graph may have grown or shrunk with this edit.
         self.entries[ei].files.clear()
@@ -445,7 +470,11 @@ extend Server {
             }
         }
 
+        var t6 = now_us()
         self.publish(ei)
+        var t7 = now_us()
+        var tm = doc.get(doc.root, "timing")
+        self.trace(f"install bytes={text.size()} read_us={t1 - t0} parse_us={t2 - t1} snap_copy_us={t3 - t2} idx_copy_us={t4 - t3} cache_us={t5 - t4} publish_us={t7 - t6} total_us={t7 - t0} worker=" + doc.dump(tm))
         self.analysed_(ei, j, rc)
 
         // A buffer this run turned out NOT to hold still needs an entry: try

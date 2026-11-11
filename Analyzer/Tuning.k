@@ -18,9 +18,27 @@
 /// Overridden by initializationOptions.debounceMs.
 pub const DEBOUNCE_MS: i64 = 150
 
-/// Quiet time before a buffer's syntax-only pass. Lower: syntax errors show
-/// sooner, at one compiler process per pause. initializationOptions.syntaxDebounceMs.
+/// Quiet time before a buffer's syntax-only pass ON THE FALLBACK PATH (a
+/// process per pass, when the persistent syntax worker cannot run: no pipes
+/// on the platform, or it keeps dying). The persistent worker has no
+/// debounce: a pass starts on every change. initializationOptions.syntaxDebounceMs.
 pub const SYNTAX_DEBOUNCE_MS: i64 = 100
+
+/// The persistent syntax worker is restarted, between requests, after this
+/// many passes or above this resident size: something a CompilerInstance
+/// allocates outlives it (about 0.4 MB a pass, P829), and a restart costs
+/// one process start (about 50 ms, overlapped with typing) per few hundred
+/// keystrokes. Higher: fewer restarts, more memory.
+pub const SYNTAX_SERVER_MAX_PASSES: u64 = 400
+pub const SYNTAX_SERVER_MAX_RSS_MB: i64 = 400
+
+/// A syntax pass that has not answered in this long is taken as hung: the
+/// worker is restarted and that pass runs as a process.
+pub const SYNTAX_SERVER_TIMEOUT_MS: i64 = 5000
+
+/// Deaths or timeouts of the syntax worker after which the server stops
+/// restarting it and uses a process per pass for the rest of the session.
+pub const SYNTAX_SERVER_MAX_RESTARTS: u64 = 8
 
 /// The largest debounce an editor may ask for: a typo in the option must not
 /// switch analysis off.

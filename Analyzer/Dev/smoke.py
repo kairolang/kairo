@@ -1123,6 +1123,57 @@ def syntax_server(exe, base):
     check("syntax server: exits at EOF", p.wait(timeout=10) == 0)
 
 
+def persistent_syntax(exe, base):
+    """The server's use of the persistent syntax worker (section 11, 2a):
+    syntax diagnostics arrive with no debounce through it; a killed worker
+    still yields that edit's diagnostics (the per-process fallback) and is
+    restarted; 300 edits sent at once leave the final revision's
+    diagnostics and nothing stale after them. Both debounces are 5 s, so
+    only the persistent path can answer inside the 3 s waits here."""
+    root = os.path.join(base, "psyn")
+    os.makedirs(root)
+    F = "p.k"
+    good = "pub fn ok() -> i32 { return 0 }\n"
+    open(os.path.join(root, F), "w").write(good)
+    c = Client(exe, root)
+    c.start({"syntaxDebounceMs": 5000, "debounceMs": 5000})
+    c.open(F, good)
+    u = c.uri(F)
+
+    def syn_lines():
+        d = c.diagnostics(F)
+        return None if d is None else sorted({x["range"]["start"]["line"] for x in d if x["code"].startswith("S") and not x["code"].startswith("SC")})
+
+    def worker():
+        out = subprocess.run(["pgrep", "-P", str(c.p.pid), "-f", "syntax-server"], capture_output=True, text=True).stdout.split()
+        return int(out[0]) if out else None
+
+    def broken_at(k, n=12):
+        return "".join(("pub fn bad%d( {\n" % i) if i == k else ("pub fn g%d() -> i32 { return %d }\n" % (i, i)) for i in range(n))
+
+    t = time.time()
+    c.change(F, 2, broken_at(3))
+    got = wait_for(lambda: (syn_lines() or [None])[0] == 3, 3, c)
+    check("persistent syntax: diagnostics with no debounce (5 s fallback debounce not waited)", got and (time.time() - t) < 3, syn_lines())
+    w = worker()
+    check("persistent syntax: one syntax-server child is running", w is not None, w)
+    if w:
+        os.kill(w, 9)
+        time.sleep(0.2)
+        c.change(F, 3, broken_at(7))
+        check("persistent syntax: a killed worker still yields this edit's diagnostics", wait_for(lambda: (syn_lines() or [None])[0] == 7, 3, c), syn_lines())
+        check("persistent syntax: the worker is restarted", wait_for(lambda: worker() not in (None, w), 3, c), worker())
+        check("persistent syntax: the restart is logged", any(n["method"] == "window/logMessage" and "syntax worker" in n["params"]["message"] for n in c.notes))
+    for k in range(300):
+        c.change(F, 10 + k, broken_at(k % 12 if k < 299 else 11, 12))
+    final_ok = wait_for(lambda: syn_lines() == [11], 3, c)
+    c.pump(1.0)
+    pubs = [n for n in c.notes if n["method"] == "textDocument/publishDiagnostics" and n["params"]["uri"] == u]
+    last = pubs[-1]["params"]["diagnostics"] if pubs else []
+    check("persistent syntax: 300 rapid edits end on the final revision's diagnostics", final_ok and sorted({x["range"]["start"]["line"] for x in last if x["code"].startswith("S")}) == [11], last[:2])
+    c.stop()
+
+
 def main():
     exe = find_kals()
     print("kals:", exe)
@@ -1145,6 +1196,7 @@ def main():
         styles(exe, real)
         bridge(exe, base)
         syntax_server(exe, base)
+        persistent_syntax(exe, base)
         waiting(exe, real)
         print("%.1fs" % (time.time() - t0))
     finally:

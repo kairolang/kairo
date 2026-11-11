@@ -224,33 +224,43 @@ extend Server {
             return // a crash costs the fast path only; the Sema run still comes
         }
 
-        if self.docs.docs[di].syn_landed && (j->rev < self.docs.docs[di].syn_at) {
+        self.land_syntax(di, j->rev, &doc, true)
+    }
+
+    /// Takes a syntax pass's answer \p doc (as syntax_main writes it) for
+    /// buffer \p di at server revision \p rev, and publishes it when \p
+    /// publish. Either path: a process per pass, or the persistent worker.
+    fn land_syntax(self, di: usize, rev: u64, doc: *JsonDoc, publish: bool) {
+        if self.docs.docs[di].syn_landed && (rev < self.docs.docs[di].syn_at) {
             return
         }
 
         var *dd = &self.docs.docs[di]
         dd->syn_landed = true
-        dd->syn_at     = j->rev
-        dd->syn_parsed = doc.get_bool(doc.root, "parsed")
+        dd->syn_at     = rev
+        dd->syn_parsed = doc->get_bool(doc->root, "parsed")
         dd->syn_diags  = ""
-        var x = doc.first(doc.get(doc.root, "diagnostics"))
+        var x = doc->first(doc->get(doc->root, "diagnostics"))
         while x != JSON_NONE() {
             if !dd->syn_diags.empty() {
                 dd->syn_diags += ","
             }
 
-            dd->syn_diags += doc.dump(doc.get(x, "diag"))
-            x = doc.next(x)
+            dd->syn_diags += doc->dump(doc->get(x, "diag"))
+            x = doc->next(x)
         }
 
         dd->syn_tokens.clear()
-        var t = doc.first(doc.get(doc.root, "tokens"))
+        var t = doc->first(doc->get(doc->root, "tokens"))
         while t != JSON_NONE() {
-            dd->syn_tokens.push_back(doc.as_int(t))
-            t = doc.next(t)
+            dd->syn_tokens.push_back(doc->as_int(t))
+            t = doc->next(t)
         }
 
-        self.publish_syntax(di)
+        if publish {
+            self.publish_syntax(di)
+        }
+
         self.retry_parked(false)
     }
 

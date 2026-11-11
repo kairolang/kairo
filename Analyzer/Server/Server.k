@@ -84,6 +84,7 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Server::SyntaxWorker::*
 
 pub fn server_main(const self_path: string) -> i32 {
     var unsafe *s = kairo::std::create<Server>()
@@ -145,10 +146,14 @@ pub class Server {
 
     /// The two debounces, in milliseconds since the last change to any
     /// buffer: a syntax-only pass of each edited buffer after syntax_ms
-    /// (`initializationOptions.syntaxDebounceMs`), the Sema run after
-    /// debounce_ms (`debounceMs`). The syntax pass parses one file and so
+    /// (`initializationOptions.syntaxDebounceMs`; the fallback path only:
+    /// the persistent syntax worker is fed on every change), the Sema run
+    /// after debounce_ms (`debounceMs`). The syntax pass parses one file and so
     /// lands well before the run does; its errors and lexical tokens are what
     /// the editor shows meanwhile.
+    pub var syn:     SyntaxChild    ///< the persistent syntax worker (SyntaxWorker.k)
+    pub var syn_seq: i64 = 0        ///< ids of its requests
+
     pub var debounce_ms:    i64 = DEBOUNCE_MS
     pub var syntax_ms:      i64 = SYNTAX_DEBOUNCE_MS
     pub var last_change_ms: i64 = 0
@@ -490,10 +495,14 @@ pub class Server {
 
     fn run(self) -> i32 {
         while !self.quit {
-            var got = self.t.wait(self.wait_ms())
+            var got = self.wait_any(self.wait_ms())
             if got {
                 self.handle(self.t.take())
-                continue // drain the queue before starting anything
+                // The persistent syntax pass starts on the change itself, no
+                // debounce; the worker being busy is the only thing it waits
+                // for (one request in flight).
+                self.syntax_kick()
+                continue // drain the queue before starting anything else
             }
 
             if self.t.closed {
@@ -518,9 +527,13 @@ pub class Server {
 
             self.report_progress()
 
-            // The syntax-only pass of each edited buffer, on its own (shorter)
+            self.syntax_watch()
+            self.syntax_kick()
+
+            // The fallback path (no persistent worker): the syntax-only pass
+            // of each edited buffer as a process, on its own (shorter)
             // debounce, one at a time per buffer.
-            if (now - self.last_change_ms) >= self.syntax_ms {
+            if self.syn.failed && ((now - self.last_change_ms) >= self.syntax_ms) {
                 // At most two at once: each is a compiler process (about
                 // 190 MB in a debug build), and a change that touches many
                 // buffers (a rename) must not start one per buffer.
@@ -574,6 +587,7 @@ pub class Server {
             }
         }
 
+        self.syntax_stop()
         if !self.tmp.empty() {
             Path::remove_tree(self.tmp)
         }

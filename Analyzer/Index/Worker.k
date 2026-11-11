@@ -79,6 +79,12 @@ import Tooling::ParseAPI::{
 }
 import Tooling::SemaObserver::SemaObserver
 
+fn worker_us() -> i64 {
+    var t = cxx::std::chrono::steady_clock::now()
+    var d = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(t.time_since_epoch())
+    return d.count() as i64
+}
+
 /// \class IndexObserver
 /// \brief runs the indexer over each wanted TU as Sema finishes checking it.
 pub class IndexObserver derives SemaObserver {
@@ -103,6 +109,11 @@ pub class IndexObserver derives SemaObserver {
     /// into it (the server reads it for its progress report).
     pub var progress: string = ""
     pub var checked:  usize  = 0
+
+    /// Phase timers (section 11, scenario 3): microseconds in the walker and
+    /// in rendering its rows, summed over TUs (threads add up).
+    pub var walk_us:  i64 = 0
+    pub var write_us: i64 = 0
 
     priv var mu_: kairo::std::Mutex
 
@@ -142,13 +153,18 @@ pub class IndexObserver derives SemaObserver {
             return
         }
 
+        var t0 = worker_us()
         var walker = IndexWalker(sc)
         walker.run(fid)
+        var t1 = worker_us()
 
         var w = JsonWriter()
         walker.write(&w)
+        var t2 = worker_us()
 
         var lock = kairo::std::LockGuard(self.mu_)
+        self.walk_us  += t1 - t0
+        self.write_us += t2 - t1
         if named {
             if self.count > 0 {
                 self.out += ","
@@ -788,11 +804,13 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         ci->sm()->load_overlay(Path(real[k]), bytes, held[held.size() - 1].size())
     }
 
+    var t_run = worker_us()
     var opts = ParseOptions{}
     opts.stop_at       = TUStage::Sema
     opts.capture_diags = false
     opts.as_module     = as_module
     var unit = parse_file(ci, Path(inputs[0]), opts)
+    var t_parsed = worker_us()
 
     ci->diag()->restore_consumers(saved)
 
@@ -835,6 +853,16 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     }
 
     w.end_array()
+    // Phase timers: the whole compile (Sema with the walker inside it), the
+    // walker's and the row writer's share of it, and the snapshot assembly.
+    w.key("timing")
+    w.begin_object()
+    w.field_int("run_us", t_parsed - t_run)
+    w.field_int("walk_us", observer->walk_us)
+    w.field_int("write_us", observer->write_us)
+    w.field_int("assemble_us", worker_us() - t_parsed)
+    w.field_uint("unit_fids", unit.fids.size())
+    w.end_object()
     w.end_object()
 
     if !LinkFS::write(out_path, w.out) {

@@ -559,6 +559,7 @@ pub class Document {
     /// The server's revision counter when this buffer last changed: a
     /// snapshot computed at or after it has this buffer's exact positions.
     pub var changed_at: u64 = 0
+    pub var changed_ms: i64 = 0  ///< wall time of that change (now_ms): the publish coalescing
 
     pub var tmp_path: string = ""
     pub var tmp_rev:  u64    = 0

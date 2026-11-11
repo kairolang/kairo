@@ -95,6 +95,33 @@ pub fn now_ms() -> i64 {
     return d.count() as i64
 }
 
+/// Microseconds on the same clock: the install timers (trace `install`).
+pub fn now_us() -> i64 {
+    var t = cxx::std::chrono::steady_clock::now()
+    var d = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(t.time_since_epoch())
+    return d.count() as i64
+}
+
+/// The persistent syntax worker (`kals --worker --syntax-server`, section
+/// 11 item 2a): one process, fed buffers over its stdin, answering on its
+/// stdout. One request in flight at a time: a second write while it is
+/// still answering the first could fill both pipes and deadlock the two.
+pub class SyntaxChild {
+    pub var pid:      i64  = -1     ///< -1: not running
+    pub var t:        Transport     ///< over its pipes (fd_in, fd_out)
+    pub var passes:   u64  = 0      ///< answers since it started: it is recycled (Tuning.k)
+    pub var restarts: u64  = 0      ///< deaths and timeouts: past the cap, the per-process path only
+    pub var failed:   bool = false  ///< no pipes on this platform, or it keeps dying
+
+    pub var busy:    bool   = false ///< a request is in flight
+    pub var id:      i64    = 0     ///< its id
+    pub var path:    string = ""    ///< its buffer
+    pub var rev:     u64    = 0     ///< the server revision it saw
+    pub var sent_ms: i64    = 0
+
+    fn SyntaxChild(self) = default
+}
+
 /// A worker process in flight.
 pub class Job {
     pub var kind:   u32    = 0
@@ -111,6 +138,7 @@ pub class Job {
     pub var edit:   string = ""     ///< JOB_COMPLETE: the range an accepted item replaces, as JSON
     pub var cancelled: bool = false ///< JOB_COMPLETE: already answered "cancelled"; drop the result
     pub var started_ms: i64 = 0
+    pub var rooted: bool = true    ///< JOB_INDEX: run with `--root` (worker_argv)
 
     /// JOB_INDEX: the work-done progress token shown for this run (empty:
     /// none), the file the worker counts checked files into, and the last
@@ -148,6 +176,7 @@ pub class Entry {
     pub var has_idx: bool = false
     pub var idx_rev: u64  = 0   ///< revision `idx` was computed at
     pub var ran:      bool = false  ///< a run finished, with or without a snapshot
+    pub var rooted:   bool = true   ///< the last worker_argv passed `--root`
 
     pub var dirty:      bool = true
     pub var running:    bool = false
@@ -356,6 +385,7 @@ extend Server {
         var di = self.docs.index_of_path(path)
         if di != usize::MAX {
             self.docs.docs[di].changed_at = self.rev
+            self.docs.docs[di].changed_ms = self.last_change_ms
         }
 
         for var i: usize = 0; i < self.entries.size(); ++i {
@@ -396,8 +426,10 @@ extend Server {
             }
         }
 
+        // Only the fallback path has a deadline: the persistent worker is
+        // fed on the turn of the change itself (syntax_kick).
         var left = self.syntax_ms - since
-        if syn_due && (left > 0) && (left < best) {
+        if syn_due && self.syn.failed && (left > 0) && (left < best) {
             best = left
         }
 
