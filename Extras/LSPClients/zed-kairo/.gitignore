@@ -1,3 +1,0 @@
-# Zed clones the grammar repo and builds kairo.wasm here when it installs the
-# extension (dev install: zed: install dev extension). Generated; never commit.
-grammars/

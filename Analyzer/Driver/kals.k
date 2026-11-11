@@ -155,7 +155,101 @@
 ///   window/logMessage
 ///     out: { type, message }
 
-fn main() -> i32 {
-    std::print("Kairo Language Server!");
-    return 0;
+ffi "c++" import "Native/GlobalRecycler.hh"
+ffi "c++" import "Native/KLocale.hh" // init_process_locale
+ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Types.hh"
+ffi "c++" import "cstring"
+ffi "c++" import "llvm/Support/InitLLVM.h"
+ffi "c++" import "llvm/Support/TargetSelect.h"
+ffi "c++" import "locale"
+ffi "c++" import "sstream"
+
+import Index::Worker::worker_main
+import Server::server_main
+import std::c_char
+import std::env
+import std::io
+
+/// The same process setup `kairo` and `kfmt` do: the worker IS the compiler,
+/// and clang needs its targets registered before the first header is read.
+fn init_runtime(argc: i32, argv: unsafe *(unsafe *c_char)) -> unsafe *llvm::InitLLVM {
+    var unsafe *init_llvm = kairo::std::create<llvm::InitLLVM>(argc, argv)
+    llvm::InitializeAllTargetInfos()
+    llvm::InitializeAllTargets()
+    llvm::InitializeAllTargetMCs()
+    llvm::InitializeAllAsmParsers()
+    llvm::InitializeAllAsmPrinters()
+
+    kairo::init_process_locale()
+
+    cxx::std::use_facet<cxx::std::num_put<c_char>>(cxx::std::locale())
+    cxx::std::use_facet<cxx::std::num_get<c_char>>(cxx::std::locale())
+
+    { // Force narrow char locale facets used by stringstream/to_string
+        var oss: cxx::std::ostringstream
+        // i32 and f32, as in Compiler/Driver/Runtime.k: usize and f64 each
+        // match two operator<< on targets where the C++ types coincide.
+        oss << (1 as i32) << (1.0 as f32)
+        oss.str()
+    }
+
+    return init_llvm
+}
+
+fn usage() {
+    io::eprintln("Usage: kals [--stdio]            run the language server on stdin/stdout")
+    io::eprintln("       kals --version")
+    io::eprintln("       kals --worker <out.json> [--root <dir>] [--overlay <real> <tmp>]... -- <kairo args>")
+}
+
+pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
+    var args: [string]
+    for var i: i32 = 1; i < argc; ++i {
+        args.push_back(string(
+            unsafe ((argv[i] as unsafe *const u8) as *const u8),
+            cxx::std::strlen(argv[i]),
+        ))
+    }
+
+    if (args.size() > 0) && ((args[0] == "--help") || (args[0] == "-h")) {
+        usage()
+        return 0
+    }
+
+    if (args.size() > 0) && (args[0] == "--version") {
+        io::println("kals (Kairo language server)")
+        return 0
+    }
+
+    // Workers are this same binary; argv[0] may be a bare name found on
+    // PATH, which a child process cannot be started from.
+    var self_path = env::exe_path()
+    if self_path.empty() {
+        self_path = string(
+            unsafe ((argv[0] as unsafe *const u8) as *const u8),
+            cxx::std::strlen(argv[0]),
+        )
+    }
+
+    if (args.size() > 0) && (args[0] == "--worker") {
+        kairo::Logger::init(kairo::Logger::Level::Warn)
+        var unsafe *llvm_init = init_runtime(argc, argv)
+        finally {
+            kairo::Logger::shutdown()
+            kairo::GlobalRecycler::shutdown_allocator_runtime()
+            kairo::std::destroy(llvm_init)
+        }
+
+        var rest: [string]
+        for var i: usize = 1; i < args.size(); ++i {
+            rest.push_back(args[i])
+        }
+
+        return worker_main(&rest)
+    }
+
+    // The server itself never touches the compiler: it frames messages,
+    // keeps buffers, and starts workers.
+    return server_main(self_path)
 }

@@ -40,7 +40,7 @@ counterpart this script says so instead of guessing (see STAGE1_GAPS):
 
 Portable: Linux, macOS, Windows. No shell; subprocess with argument lists only.
 """
-import argparse, datetime, hashlib, os, platform, re, shlex, shutil, subprocess, sys, threading, time
+import argparse, datetime, hashlib, json, os, platform, re, shlex, shutil, subprocess, sys, threading, time
 from pathlib import Path
 
 try:  # a pty for the compiler's stderr (POSIX); elsewhere its events are re-drawn
@@ -211,7 +211,7 @@ def write_meta(gen_dir: Path, name: str, os_: str, epoch=None, ver: str = None) 
 # name -> (entry, version string target, version suffix, extra include roots).
 # Every tool gets the same Stage 1 roots: Compiler and Linker. KaTAR and kfmt
 # add their own root. Tools whose sources are outside the self-host scope
-# (Extras/BuildTool, PackageManager, Analyzer) are listed so the table matches build.k,
+# (Extras/BuildTool, PackageManager) are listed so the table matches build.k,
 # but refused until their trees are migrated.
 STAGE1_ROOTS = ["Compiler", "Linker"]
 TARGETS = {
@@ -223,14 +223,49 @@ TARGETS = {
     "kfmt":                ("Extras/Formatter/Driver/kfmt.k",         "kairo",  DEV, ["Extras/Formatter"]),
     "ksys":                ("Linker/Sysroot/Driver/ksys.k",           "ksys",   DEV, []),
     "clang-diag-identity": ("Compiler/Tooling/GenClangDiagIdentity.k", "kairo", DEV, []),
+    # kals formats through kfmt's own Formatter, so it takes that root too.
+    "kals":                ("Analyzer/Driver/kals.k",                 "kairo",  DEV, ["Analyzer", "Extras/Formatter"]),
 }
 NOT_MIGRATED = {
     "kbld": "Extras/BuildTool",
-    "kals": "Analyzer", "kpkg": "Extras/PackageManager",
+    "kpkg": "Extras/PackageManager",
 }
 # build.k stages the tree after these (post_build). kld, kfmt and ksys ship in the staged tree
 # beside kairo and kcc, so a build of it alone stages too.
 STAGED = {"kairo", "kcc", "kld", "kfmt", "ksys"}
+
+
+# --- kairo_compile.json (the language server's project file) ------------------
+
+def write_compile_json(src: Path, common: list) -> Path:
+    """kairo_compile.json at the source root: one entry per target, each with the roots
+    and the Kairo flags its build passes (Compiler/Spec/LanguageServer.md has the format).
+    kals type-checks an entry with exactly these, so what the editor reports is what the
+    build would. Paths under the source root are written relative to it, so the file
+    does not change with where the checkout lives; `directory` is "." (the file's own).
+    Outputs, the object cache and the thread count are the build's business and are
+    left out: an analysis writes nothing."""
+    def rel(arg: str) -> str:
+        try:
+            return Path(arg).resolve().relative_to(src).as_posix() if Path(arg).is_absolute() else arg
+        except ValueError:
+            return arg
+    entries = []
+    for t in sorted(TARGETS):
+        entry, _vname, _vsuffix, extra_roots = TARGETS[t]
+        args = []
+        for r in STAGE1_ROOTS + extra_roots:
+            args += ["-I", r]
+        args += ["--cxx-define", "KAIRO_VERSION_EXTERN=1", *[rel(c) for c in common]]
+        entries.append({"entry": entry, "args": args, "directory": "."})
+    doc = {"version": 1, "entries": entries,
+           # A file no target reaches yet (a new tool, a scratch file under the roots).
+           "default_args": [x for r in STAGE1_ROOTS for x in ("-I", r)]}
+    path = src / "kairo_compile.json"
+    text = json.dumps(doc, indent=2) + "\n"
+    if not path.exists() or path.read_text() != text:
+        path.write_text(text)
+    return path
 
 
 # --- LLVM linkage (build.k llvm_static_components / clang_static_components) -
@@ -1257,6 +1292,9 @@ def main() -> int:
                          "CPU or newer, so never for a tree you ship")
     ap.add_argument("--sanitize-ub", action="store_true", help="debug: pass -fsanitize-ub (accepted but unimplemented today, U005W)")
     ap.add_argument("--print-jobs", action="store_true", help="print the planned clang jobs and link, build nothing")
+    ap.add_argument("--emit-compile-json", action="store_true",
+                    help="write kairo_compile.json (the project file kals, the language server, reads) for every "
+                         "target, with the flags this build would compile it with, and exit; nothing is built")
     ap.add_argument("--print-command", action="store_true",
                     help="print each tool's exact kairo command line (shell-quoted, after any pre-build steps it "
                          "depends on) and stop before compiling it")
@@ -1290,7 +1328,7 @@ def main() -> int:
         return 0
 
     os_, triple = host_os(), host_triple()
-    if not (a.single or a.out or a.print_jobs or a.src) and REPO_SELFHOSTED:
+    if not (a.single or a.out or a.print_jobs or a.src or a.emit_compile_json) and REPO_SELFHOSTED:
         return pipeline(a, triple)
     debug = a.debug
     mode_name = "debug" if debug else "release"
@@ -1412,6 +1450,10 @@ def main() -> int:
         common += reproducible_args(os_, epoch, src, out)
         native_common += reproducible_args(os_, epoch, src, None)
         prog.log(f"reproducible: epoch {epoch}")
+    if a.emit_compile_json:
+        path = write_compile_json(src, common)
+        say(f"wrote {path} ({len(TARGETS)} entries)")
+        return 0
     for t in sorted(a.targets):
         entry, vname, vsuffix, extra_roots = TARGETS[t]
         roots = []

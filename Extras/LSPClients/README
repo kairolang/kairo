@@ -1,0 +1,12 @@
+The editor clients (Visual Studio Code, Zed, Neovim) and the tree-sitter
+grammar live in their own repository:
+
+    https://github.com/kairolang/kairo-lsp
+
+    vscode/             the VS Code extension
+    zed/                the Zed extension
+    nvim/               the Neovim plugin
+    tree-sitter-kairo/  the grammar Zed and Neovim highlight with
+
+Each is a thin client of kals, the language server in Analyzer/ here, and
+finds it on PATH.

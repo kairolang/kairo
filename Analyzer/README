@@ -1,1 +1,27 @@
-Kals right now only contains stub files, no real code until the compiler, is mature enough to start implementing the LSP serer.
+kals: the Kairo language server.
+
+    python3 build.py --debug kals        # build/<triple>/debug/bin/kals
+    python3 Analyzer/Dev/smoke.py        # end-to-end check over stdio
+
+Design, file formats and the compiler hooks: Compiler/Spec/LanguageServer.md.
+
+Where the code is
+-----------------
+Driver/kals.k                    main: `kals` is the server, `kals --worker` one analysis
+Server.k                         the loop: messages, buffers, workers, every request
+JsonRpc.k, kals_io.h             Content-Length framing over stdin/stdout
+Json.k                           JSON reader (flat document) and writer
+DocumentStore.k                  open buffers, incremental edits, UTF-16 positions
+TextScan.k                       brackets and comment runs: folding, selection, signature help
+Workspace/CompileCommandsLoader.k  kairo_compile.json
+Index/Worker.k                   the worker: overlays, the compile, diagnostics as LSP JSON
+Index/Indexer.k                  the walk over a checked file: tokens, refs, hovers,
+                                 outline, inlay hints, completion items
+Dev/                             lsp_client.py (a scripted client), smoke.py (the test)
+
+The other files (Providers/, Completion/, Walkers/, ...) are the original
+12-line stubs, one per LSP feature. They are not wired in: every feature is
+answered from one snapshot, so the logic lives in Server.k and Index/. They
+are kept as the map of what is left (implementation, hierarchies, code lenses).
+
+The editor clients (VS Code, Zed, Neovim) are in the kairo-lsp repository.
