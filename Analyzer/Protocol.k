@@ -67,6 +67,12 @@ pub const M_PUBLISH_DIAGNOSTICS: string = "textDocument/publishDiagnostics"
 pub const M_SEMANTIC_TOKENS_REFRESH: string = "workspace/semanticTokens/refresh"
 pub const M_INLAY_HINT_REFRESH: string = "workspace/inlayHint/refresh"
 pub const M_WORK_DONE_PROGRESS_CREATE: string = "window/workDoneProgress/create"
+pub const M_REGISTER_CAPABILITY: string = "client/registerCapability"
+
+/// What the server asks every client to watch: the C and C++ sources (the
+/// clangd bridge reads their `#include "x.k"` lines) and the compilation
+/// database that lists them. Kairo files are the client's own configuration.
+pub const WATCH_REGISTRATION: string = "{\"registrations\":[{\"id\":\"kals-watch-cxx\",\"method\":\"workspace/didChangeWatchedFiles\",\"registerOptions\":{\"watchers\":[{\"globPattern\":\"**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}\"},{\"globPattern\":\"**/compile_commands.json\"}]}}]}"
 pub const M_SHOW_MESSAGE: string = "window/showMessage"
 pub const M_LOG_MESSAGE: string = "window/logMessage"
 

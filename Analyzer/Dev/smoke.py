@@ -742,6 +742,93 @@ def waiting(exe, root):
     check("waiting: clean shutdown", c.stop() == 0)
 
 
+def reruns(exe, root):
+    """What starts a run of an entry, and what does not (P856). A run is a
+    whole compile of the entry's graph, so: saving a buffer, or opening or
+    closing one whose text is what the last run read from the disk, starts
+    none; and a change made during a slow run kills it, so the new text is
+    analysed once, not after the stale run has been waited out."""
+    c = Client(exe, root, env={"KALS_DEBUG_INDEX_DELAY_MS": "2500"})
+    c.start()
+    text = c.open("src/main.k")
+    c.settle()
+
+    def runs():
+        return sum(1 for n in c.notes if n["method"] == "$/kals/analysed")
+
+    n = runs()
+    c.notify("textDocument/didSave", {"textDocument": {"uri": c.uri("src/main.k")}})
+    c.pump(4)
+    check("reruns: saving a buffer starts no run", runs() == n, runs() - n)
+    c.open("src/shapes.k")
+    c.pump(4)
+    check("reruns: opening a file as it is on disk starts no run", runs() == n, runs() - n)
+    h = c.request("textDocument/hover", c.at("src/shapes.k", *pos(SHAPES, "Shape")), timeout=20)
+    check("reruns: and the file opened that way is answered for", bool(h), h)
+    c.notify("textDocument/didClose", {"textDocument": {"uri": c.uri("src/shapes.k")}})
+    c.pump(4)
+    check("reruns: closing an unedited buffer starts no run", runs() == n, runs() - n)
+
+    c.change("src/main.k", 2, text + "\n// one\n")
+    c.pump(1.2)   # past the debounce: the run of "one" is in its delay
+    c.change("src/main.k", 3, text + "\n// one two\n")
+    ok = c.settle()
+    c.pump(1)
+    check("reruns: a change during a slow run replaces it (one result, not two)", ok and runs() == n + 1, runs() - n)
+    c.change("src/main.k", 4, text)
+    c.settle()
+    check("reruns: clean shutdown", c.stop() == 0)
+
+
+FIXIT = '''class Box {
+    pub var v: i32
+    pub fn Box(self) = default
+    @copy
+    pub fn Box(self, other: Self) {
+        self.v = other.v
+    }
+    pub fn Box(self, v: i32) {
+        self.v = v
+    }
+
+    pub fn op + (self, other: Self) -> Self {
+        return Box(self.v + other.v)
+    }
+}
+
+fn main() -> i32 {
+    var b = Box(1) + Box(2)
+    return b.v
+}
+'''
+
+
+def fixits(exe, root):
+    """An insertion fix-it inserts (P860): its edit is zero-width, where the
+    diagnostic's own range is widened to be drawn. Widened, "make 'other'
+    const" replaced the `o`: `const ther`."""
+    F = "fixit.k"
+    open(os.path.join(root, F), "w").write(FIXIT)
+    c = Client(exe, root)
+    c.start()
+    c.open(F, FIXIT)
+    c.settle()
+    ds = [d for d in c.diagnostics(F) or [] if d.get("code") == "SC224W"]
+    check("fixits: the never-mutated parameter is reported", len(ds) >= 1, c.diagnostics(F))
+    out = None
+    if ds:
+        acts = c.request("textDocument/codeAction", {"textDocument": {"uri": c.uri(F)}, "range": ds[-1]["range"], "context": {"diagnostics": ds[-1:]}})
+        for a in acts or []:
+            for es in (a.get("edit", {}).get("changes", {}) or {}).values():
+                for e in es:
+                    if e["newText"].startswith("const"):
+                        out = apply_edits(FIXIT, [e])
+    check("fixits: applying an insertion keeps the character after it", out is not None and "const other: Self) -> Self" in out and "ther: Self) -> Self" in out and "const ther" not in out, out)
+    c.notify("textDocument/didClose", {"textDocument": {"uri": c.uri(F)}})
+    os.remove(os.path.join(root, F))
+    check("fixits: clean shutdown", c.stop() == 0)
+
+
 def syntax(exe, root):
     """The syntax-only pass: errors before the run, never overwritten by an
     older run, replaced by the run's when the text parses again. Every run
@@ -781,15 +868,17 @@ def syntax(exe, root):
                 break
         c.pump(0.05)
     check("syntax pass: errors for an unparseable buffer arrive before the run", early is True, [n["method"] for n in c.notes[mark:]])
-    # The run of the valid text (older) lands now: it must not overwrite them.
+    # The run of the valid text (older) is slow, so the broken edit killed it
+    # (reruns, P856); a fast one would land here. Either way the next result
+    # must not overwrite the syntax errors.
     end = time.time() + 30
-    older = None
-    while time.time() < end and older is None:
+    landed = None
+    while time.time() < end and landed is None:
         for n in c.notes[mark:]:
-            if n["method"] == "$/kals/analysed" and n["params"]["revision"] < n["params"]["current"]:
-                older = n
+            if n["method"] == "$/kals/analysed":
+                landed = n
         c.pump(0.05)
-    check("syntax pass: an older run does not overwrite the newer syntax errors", older is not None and syntax_errors(), (older, c.diagnostics(M)))
+    check("syntax pass: an older run does not overwrite the newer syntax errors", landed is not None and syntax_errors(), (landed, c.diagnostics(M)))
     r = c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": c.uri(M)}}, raw=True)
     lx = decode(r["data"], broken) if isinstance(r, dict) and "data" in r else []
     check("syntax pass: lexical tokens while it does not parse", lx and {"fn", "var", "return"} <= {w for _, _, w, _, _ in lx}, r)
@@ -1024,7 +1113,7 @@ def bridge(exe, base):
           ("'name': '%s'" % ak) in o and ("'external-contents': '%s'" % hdr) in o
           and "'use-external-names': false" in o and "'use-external-name': false" in o, o)
     cd = read(os.path.join(root, ".clangd"))
-    check("bridge: a .clangd fragment adds -ivfsoverlay", cd.startswith("# Written by kals") and ("-ivfsoverlay, " + ov) in cd, cd)
+    check("bridge: a .clangd fragment adds -ivfsoverlay", cd.startswith("# Written by kals") and ("-ivfsoverlay, '%s'" % ov) in cd, cd)
     mt = os.path.getmtime(ov)
     # An edit of the buffer, not saved: the header follows it.
     c.open("a.k", BR_A)
@@ -1074,6 +1163,161 @@ def bridge(exe, base):
     line = (r[0].get("range") or r[0].get("targetSelectionRange"))["start"]["line"] if r else -1
     check("bridge: clangd's line for a::add is its a.k line (5)", line == 5, line)
     d.stop()
+
+
+# P859: a .k realistic enough that its header's prelude pulls in the runtime
+# (rt/*.h), a std module's C header and a standard C++ header: the case the
+# tiny a.k above never reached.
+BR_REAL_K = """import std::io::{
+    println,
+}
+
+ffi "c++" import "vector"
+
+pub struct Pt { var x: i32; var y: i32 }
+
+pub class Box {
+    pub var v: i32
+    pub fn Box(self) = default
+    pub fn Box(self, v: i32) {
+        self.v = v
+    }
+}
+
+pub fn is_zero(x: i32) -> bool { return x == 0 }
+
+fn hidden(x: i32) -> bool { return false }
+
+fn main() -> i32 {
+    var vec = cxx::std::vector<Box>()
+    vec.push_back(Box(10))
+    println(f"{is_zero(vec[0].v)}")
+    return 0
+}
+"""
+BR_REAL_MAIN = """#include "test.k"
+#include <vector>
+
+int main() {
+    std::vector<test::Box> v;
+    v.push_back(test::Box(3));
+    return test::is_zero(v[0].v) ? 0 : 1;
+}
+"""
+BR_REAL_BAD = """#include "test.k"
+
+int f() { return test::is_zero(0) + test::hidden(1); }
+"""
+BR_REAL_C = "int plain(void) { return 0; }\n"
+
+
+def clangd_add_words(text):
+    """The `Add:` words of each fragment of a .clangd, as (path regexes or
+    None, words): enough YAML for what kals writes."""
+    import re
+    out = []
+    for frag in text.split("\n---\n"):
+        pm = re.search(r"PathMatch: \[(.*)\]", frag)
+        ad = re.search(r"Add: \[(.*)\]", frag)
+        word = lambda m: m.group(1).replace("''", "'") if m.group(1) is not None else m.group(2)
+        split = lambda t: [word(m) for m in re.finditer(r"'((?:[^']|'')*)'|([^,\s]+)", t)]
+        if ad:
+            out.append((split(pm.group(1)) if pm else None, split(ad.group(1))))
+    return out
+
+
+def bridge_real(exe, base):
+    """The clangd bridge on a real file (P859): the header's prelude needs
+    kcc's roots (the runtime's rt/*.h, the sysroot's libc++), which the
+    .clangd gives the sources that include a .k and nothing else; bundled
+    clang with exactly those words and, when present, clangd itself report
+    what kcc does and jump into the .k file. Then the hint for a .clangd a
+    person wrote (P857): said once, and not at all when it has the flags."""
+    root = os.path.realpath(os.path.join(base, "bridge_real"))
+    os.makedirs(root)
+    files = {"test.k": BR_REAL_K, "main.cc": BR_REAL_MAIN, "bad.cc": BR_REAL_BAD, "plain.c": BR_REAL_C}
+    for n, t in files.items():
+        open(os.path.join(root, n), "w").write(t)
+    cache = os.path.join(root, ".kairo", "clangd")
+    hdr, cdf, tk = os.path.join(cache, "test.hh"), os.path.join(root, ".clangd"), os.path.join(root, "test.k")
+    read = lambda p: open(p).read() if os.path.exists(p) else ""
+    c = Client(exe, root)
+    c.start()
+    ok = wait_for(lambda: "PathMatch" in read(cdf) and "bad" in read(cdf), 120, c)
+    c.pump(1)
+    check("bridge real: .clangd scopes kcc's flags to the sources that include a .k", ok, read(cdf))
+    check("bridge real: the prelude needs the runtime root (rt/ includes)", '"rt/' in read(hdr + ".prelude"), read(hdr + ".prelude")[:300])
+    frags = clangd_add_words(read(cdf))
+    glob_w = [w for pm, ws in frags if pm is None for w in ws]
+    scoped = [(pm, ws) for pm, ws in frags if pm is not None]
+    pms = scoped[0][0] if scoped else []
+    kw = scoped[0][1] if scoped else []
+    check("bridge real: PathMatch names main.cc and bad.cc, not plain.c",
+          sorted(pms) == ["bad\\.cc", "main\\.cc"], pms)
+    check("bridge real: kcc's words carry a libc++ root, the runtime root and -std, no action or input",
+          any(w.endswith("/c++/v1") for w in kw) and "-I" in kw and any(w.startswith("-std=") for w in kw)
+          and not any(w in ("-c", "-o", "-fsyntax-only", "-x") for w in kw), kw)
+    c.stop()
+    cl = bundled_clang(exe)
+    if cl:
+        run = lambda f: subprocess.run([cl, "-fsyntax-only"] + glob_w + kw + [os.path.join(root, f)], capture_output=True, text=True, cwd=root)
+        r = run("main.cc")
+        check("bridge real: bundled clang accepts main.cc with the .clangd words", r.returncode == 0, r.stderr[-1500:])
+        r = run("bad.cc")
+        check("bridge real: bundled clang reports only test::hidden (not pub) in bad.cc",
+              r.returncode != 0 and r.stderr.count("error:") == 1 and "hidden" in r.stderr, r.stderr[-1500:])
+    cdx = shutil.which("clangd")
+    if cdx:
+        d = Client(cdx, root)
+        d.start()
+        for n in ("main.cc", "bad.cc", "plain.c"):
+            d.notify("textDocument/didOpen", {"textDocument": {"uri": d.uri(n), "languageId": "c" if n.endswith(".c") else "cpp", "version": 1, "text": files[n]}})
+        ok = wait_for(lambda: all(d.diagnostics(n) is not None for n in ("main.cc", "bad.cc", "plain.c")), 120, d)
+        dm, db, dc = d.diagnostics("main.cc"), d.diagnostics("bad.cc"), d.diagnostics("plain.c")
+        # Every diagnostic, not only errors: a warning from the generated
+        # header or its prelude would be one kcc never gives.
+        check("bridge real: clangd reports nothing in main.cc", ok and dm == [], dm)
+        check("bridge real: clangd reports exactly test::hidden in bad.cc",
+              db is not None and len(db) == 1 and "hidden" in db[0]["message"], db)
+        check("bridge real: clangd reports nothing in plain.c (kcc's -std is scoped away)", dc == [], dc)
+        kl = BR_REAL_K.split("\n")
+        for needle, decl in (("is_zero(", "pub fn is_zero"), ("Box>", "pub class Box")):
+            l, ch = pos(BR_REAL_MAIN, needle, 0)
+            r = d.request("textDocument/definition", d.at("main.cc", l, ch), timeout=90)
+            r = r if isinstance(r, list) else ([r] if r else [])
+            want = next(i for i, x in enumerate(kl) if x.startswith(decl))
+            got = (r[0].get("uri", r[0].get("targetUri")), (r[0].get("range") or r[0].get("targetSelectionRange"))["start"]["line"]) if r else None
+            check("bridge real: clangd's definition of test::%s is test.k line %d" % (needle.rstrip("(>"), want + 1),
+                  got == ("file://" + tk, want), got)
+        d.stop()
+    else:
+        print("note: no clangd on PATH; the clangd checks of bridge real were skipped")
+
+    # A .clangd a person wrote: never touched; the lines to add are said
+    # once however many bridge passes run, and not at all when present.
+    def hints_with(user_text, label, want):
+        open(cdf, "w").write(user_text)
+        c = Client(exe, root)
+        c.start()
+        c.open("test.k", BR_REAL_K)
+        wait_for(lambda: False, 6, c)
+        for v in (2, 3):
+            c.change("test.k", v, BR_REAL_K + "\npub fn extra%d() -> i32 { return %d }\n" % (v, v))
+            wait_for(lambda: ("extra%d" % v) in read(hdr), 60, c)
+            c.pump(1)
+        hs = [n for n in c.notes if n["method"] in ("window/logMessage", "window/showMessage")
+              and "for clangd to resolve them" in n["params"]["message"]]
+        c.stop()
+        check("bridge real: " + label, len(hs) == want and read(cdf) == user_text, [h["params"]["message"][:300] for h in hs])
+        return hs
+
+    ov = os.path.join(cache, "overlay.yaml")
+    hs = hints_with("CompileFlags:\n  Add: [-ivfsoverlay, %s]\n" % ov,
+                    "an overlay-only .clangd a person wrote gets the missing lines once, over several passes", 1)
+    if hs:
+        msg = hs[0]["params"]["message"]
+        frag = msg[msg.index(":\n") + 2:]
+        hints_with("# mine\n" + frag, "a .clangd a person wrote that has every flag gets no hint", 0)
 
 
 def syntax_server(exe, base):
@@ -1195,9 +1439,12 @@ def main():
         interfaces(exe, real)
         styles(exe, real)
         bridge(exe, base)
+        bridge_real(exe, base)
         syntax_server(exe, base)
         persistent_syntax(exe, base)
         waiting(exe, real)
+        reruns(exe, real)
+        fixits(exe, real)
         print("%.1fs" % (time.time() - t0))
     finally:
         shutil.rmtree(base, ignore_errors=True)

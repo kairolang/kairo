@@ -336,6 +336,22 @@ extend CompilerInstance {
         return w
     }
 
+    /// \brief the driver words a C++ input of this invocation compiles with
+    ///        (_native_words for a `.cc`), for kals' clangd bridge: clangd
+    ///        must parse a C++ file that includes a `.k` with kcc's roots
+    ///        (the sysroot's libc++, the runtime root, the -std), or the
+    ///        generated header's prelude meets another standard library
+    ///        (libstdc++ declares `__make_unsigned`, which turns off clang's
+    ///        builtin of that name that rt/intrinsics.h uses). Empty without
+    ///        a backend.
+    pub fn cxx_driver_words(self) -> cxx::std::vector<string> {
+        if self._backend == &null {
+            return cxx::std::vector<string>()
+        }
+
+        return self._native_words_for(self._backend, classify_input("input.cc", ""))
+    }
+
     priv fn _native_jobs(self) -> unsafe *ClangJobs {
         if self._jobs == &null {
             var exe = Path::join_str(Path::parent_of(env::exe_path()), "clang")

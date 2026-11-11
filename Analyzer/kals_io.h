@@ -286,6 +286,23 @@ static inline int kals_child_alive(long long pid) {
 #endif
 }
 
+/* Kills process \p pid without reaping it: the caller's own wait collects it
+   (an index worker, reaped by the loop). */
+static inline void kals_kill(long long pid) {
+    if (pid <= 0) {
+        return;
+    }
+#ifdef _WIN32
+    HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
+    if (h != NULL) {
+        (void)TerminateProcess(h, 1);
+        CloseHandle(h);
+    }
+#else
+    (void)kill((pid_t)pid, SIGKILL);
+#endif
+}
+
 /* Closes the child's pipes, kills it and reaps it. */
 static inline void kals_child_stop(long long pid, int to_child, int from_child) {
 #ifndef _WIN32

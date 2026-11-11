@@ -381,6 +381,16 @@ extend Server {
             return // the project was reloaded under this run
         }
 
+        // Killed by a later change (touch): no result, no crash report, and
+        // `slow` keeps what the last whole run measured. touch left the
+        // entry dirty, so the loop starts it again after the debounce.
+        if j->stale {
+            self.entries[ei].running = false
+            self.entries[ei].dirty   = true
+            self.trace(f"index dropped entry={self.entries[ei].entry} rev={j->rev}")
+            return
+        }
+
         self.entries[ei].running  = false
         self.entries[ei].ran      = true
         self.entries[ei].done_rev = j->rev

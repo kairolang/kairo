@@ -18,6 +18,13 @@
 /// Overridden by initializationOptions.debounceMs.
 pub const DEBOUNCE_MS: i64 = 150
 
+/// The same, for an entry whose runs are slow (SLOW_RUN_MS): a run of a wide
+/// graph is seconds of every core, and one started in a 150 ms gap between
+/// two words is killed by the next keystroke (see Server::touch). Higher:
+/// fewer runs thrown away; lower: results sooner after the last keystroke.
+/// Never below the editor's own debounceMs.
+pub const SLOW_ENTRY_DEBOUNCE_MS: i64 = 400
+
 /// Quiet time before a buffer's syntax-only pass ON THE FALLBACK PATH (a
 /// process per pass, when the persistent syntax worker cannot run: no pipes
 /// on the platform, or it keeps dying). The persistent worker has no

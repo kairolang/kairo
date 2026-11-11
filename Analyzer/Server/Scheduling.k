@@ -17,6 +17,7 @@ ffi "c++" import "llvm/ADT/StringRef.h"
 ffi "c++" import "llvm/Support/Program.h"
 ffi "c++" import "optional"
 ffi "c++" import "string"
+ffi "c" import "kals_io.h"
 ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "chrono"
 
@@ -139,6 +140,10 @@ pub class Job {
     pub var cancelled: bool = false ///< JOB_COMPLETE: already answered "cancelled"; drop the result
     pub var started_ms: i64 = 0
     pub var rooted: bool = true    ///< JOB_INDEX: run with `--root` (worker_argv)
+
+    /// JOB_INDEX: killed because its entry changed under it (touch). Its
+    /// result is dropped, and its exit is not a crash to report.
+    pub var stale: bool = false
 
     /// JOB_INDEX: the work-done progress token shown for this run (empty:
     /// none), the file the worker counts checked files into, and the last
@@ -378,6 +383,31 @@ extend Server {
         return self.entries.size() - 1
     }
 
+    /// The entry that already answers for buffer \p di as it is: its last
+    /// run is current, indexed the file, and read from the disk the very
+    /// text the buffer holds. usize::MAX when a run is needed (an edited
+    /// buffer, a file the last run did not index, an entry not yet run).
+    fn unchanged_on_disk_(self, di: usize) -> usize {
+        var path = self.docs.docs[di].path
+        var ei = self.entry_of(path)
+        if (ei == usize::MAX) || (!self.entries[ei].fresh()) || (!self.entries[ei].has_idx)
+            || (self.entries[ei].idx_rev == 0) || (self.entries[ei].idx_rev < self.entries[ei].done_rev) {
+            return usize::MAX
+        }
+
+        if self.file_node(ei, path) == JSON_NONE() {
+            return usize::MAX
+        }
+
+        self.docs.docs[di].sync() // `text` is materialised lazily
+        var disk: string = ""
+        if (!LinkFS::read(path, &disk)) || (disk != self.docs.docs[di].text) {
+            return usize::MAX
+        }
+
+        return ei
+    }
+
     /// Marks every entry that reads \p path as needing a run.
     fn touch(self, const path: string) {
         self.rev += 1
@@ -395,8 +425,39 @@ extend Server {
             }
         }
 
+        // A slow run of the text before this change can only produce answers
+        // the editor refuses (ContentModified), and the entry cannot start
+        // again until it ends: without this an edit made during a run waits
+        // out the rest of it and then a whole second one. Only a run known
+        // to be slow, and never an entry's first: a fast one is done before
+        // the kill would matter, and a first index has nothing older to show.
+        for var q: usize = 0; q < self.jobs.size(); ++q {
+            if (self.jobs[q].kind != JOB_INDEX()) || self.jobs[q].stale {
+                continue
+            }
+
+            var je = self.jobs[q].entry
+            if (je < self.entries.size()) && self.entries[je].ran && self.entries[je].slow
+                && self.entries[je].holds(path) {
+                self.jobs[q].stale = true
+                self.trace(f"index kill entry={self.entries[je].entry} rev={self.jobs[q].rev}")
+                unsafe kals_kill(self.jobs[q].pi.Pid as i64)
+            }
+        }
+
         if is_cxx_source(path) {
             self.br_rescan = true
+            self.br_changed.push_back(path)
+            var told = false
+            for var q: usize = 0; q < self.br_told.size(); ++q {
+                if self.br_told[q] == path {
+                    told = true
+                }
+            }
+
+            if !told {
+                self.br_told.push_back(path)
+            }
         }
 
         for var b: usize = 0; b < self.br_files.size(); ++b {
@@ -446,7 +507,22 @@ extend Server {
             best = left
         }
 
+        left = self.debounce_of(true) - since
+        if run_due && (left > 0) && (left < best) {
+            best = left
+        }
+
         return best as i32
+    }
+
+    /// The quiet time before a run of an entry: longer when its runs are
+    /// slow (Tuning.k), never shorter than what the editor asked for.
+    fn debounce_of(const self, slow: bool) -> i64 {
+        if slow && (self.debounce_ms < SLOW_ENTRY_DEBOUNCE_MS) {
+            return SLOW_ENTRY_DEBOUNCE_MS
+        }
+
+        return self.debounce_ms
     }
 
     fn park(self, const msg: string) {

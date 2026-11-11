@@ -130,6 +130,10 @@ extend Server {
 
         self.highlight_panics = d->get_bool(opts, "highlightPanics")
         self.progress_ok = d->get_bool(d->get(d->get(params, "capabilities"), "window"), "workDoneProgress")
+        self.watch_ok = d->get_bool(
+            d->get(d->get(d->get(params, "capabilities"), "workspace"), "didChangeWatchedFiles"),
+            "dynamicRegistration",
+        )
 
         var mw = d->get_int(opts, "maxWorkers")
         if d->is_number(d->get(opts, "maxWorkers")) && (mw >= 1) && (mw <= MAX_WORKERS_OPTION) {

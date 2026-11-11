@@ -142,7 +142,14 @@ pub class Server {
     pub var br_dirty:   [bool]
     pub var br_running: [bool]
     pub var br_rescan:  bool   = false  ///< a C/C++ source changed: find the includes again
+    pub var br_told:    [string]        ///< C/C++ sources the editor reported (watched files)
+    pub var br_changed: [string]        ///< sources to read again on the next scan
+    pub var br_src:     [string]        ///< the last scan's sources, in order
+    pub var br_src_inc: [string]        ///< and the `.k` includes of each, '\n'-terminated
+    pub var watch_ok:   bool   = false  ///< the client takes a dynamic didChangeWatchedFiles registration
     pub var br_mapped:  string = ""     ///< the mapping overlay.yaml was last written with
+    pub var br_cxx:     [string]        ///< kcc's driver words for a C++ input, from the last header job
+    pub var br_said:    string = ""     ///< the .clangd lines last suggested to the user (said once)
 
     /// The two debounces, in milliseconds since the last change to any
     /// buffer: a syntax-only pass of each edited buffer after syntax_ms
@@ -240,6 +247,13 @@ pub class Server {
             self.say(MSG_INFO, "kals started in " + self.root)
             self.load_project()
             self.br_rescan = true
+            // The clangd bridge needs to hear of C/C++ sources too, and a
+            // client watches only what its own configuration lists (Kairo
+            // files): ask for them here, so every client sends them.
+            if self.watch_ok {
+                self.request_with(M_REGISTER_CAPABILITY, WATCH_REGISTRATION)
+            }
+
             if self.project.path.empty() {
                 self.say(MSG_INFO, "no kairo_compile.json found: each file is checked on its own")
             } else {
@@ -268,7 +282,18 @@ pub class Server {
             var td = d.get(params, "textDocument")
             var i  = self.docs.open(d.get_str(td, "uri"), d.get_int(td, "version"), d.get_str(td, "text"))
             self.docs.docs[i].path = Path::real_path_of(self.docs.docs[i].path)
-            self.touch(self.docs.docs[i].path)
+            // A buffer opened with the text its entry's last run read from
+            // the disk, and indexed by that run, changes nothing the
+            // compiler sees: the index answers for it as it is. Only the
+            // buffer's own syntax pass is due.
+            var oei = self.unchanged_on_disk_(i)
+            if oei != usize::MAX {
+                self.docs.docs[i].changed_at = self.entries[oei].idx_rev
+                self.docs.docs[i].changed_ms = now_ms()
+            } else {
+                self.touch(self.docs.docs[i].path)
+            }
+
             self.ensure_entry(self.docs.docs[i].path)
             return
         }
@@ -293,9 +318,13 @@ pub class Server {
                     self.garbage.push_back(self.docs.docs[i].tmp_path)
                 }
 
+                // The disk text is the truth again: a change only when the
+                // buffer was closed with edits it never saved.
+                var saved = self.unchanged_on_disk_(i) != usize::MAX
                 self.docs.close(uri)
-                // The disk text is the truth again.
-                self.touch(path)
+                if !saved {
+                    self.touch(path)
+                }
             }
 
             return
@@ -306,7 +335,10 @@ pub class Server {
             if Path::filename_of(path) == project_file_name() {
                 self.rev += 1
                 self.load_project()
-            } else {
+            } else if (self.docs.index_of_path(path) == usize::MAX) || is_cxx_source(path) {
+                // An open buffer overrides the disk (it is the worker's
+                // overlay), so saving it changes nothing the compiler sees:
+                // its text was analysed when it was typed.
                 self.touch(path)
             }
 
@@ -320,6 +352,8 @@ pub class Server {
                 var path = self.path_of(d.get_str(c, "uri"))
                 if Path::filename_of(path) == project_file_name() {
                     reload = true
+                } else if Path::filename_of(path) == "compile_commands.json" {
+                    self.br_rescan = true // the bridge's list of sources
                 } else if self.docs.index_of_path(path) == usize::MAX {
                     // An open buffer overrides the disk, so a disk change to
                     // it changes nothing the compiler sees.
@@ -554,6 +588,7 @@ pub class Server {
             if (now - self.last_change_ms) >= self.debounce_ms {
                 for var i: usize = 0; i < self.entries.size(); ++i {
                     if self.entries[i].dirty && (!self.entries[i].running) && (!self.entries[i].entry.empty())
+                        && ((now - self.last_change_ms) >= self.debounce_of(self.entries[i].slow))
                         && self.can_start(i) {
                         self.start_index(i)
                     }

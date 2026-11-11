@@ -1966,10 +1966,6 @@ pub class Lexer {
             break
         }
 
-        if (!self.is_eof()) && self.peek_char32().chr != '"' {
-            self.reject_prefixed_continuation()
-        }
-
         if self.is_eof() || self.peek_char32().chr != '"' {
             self._cursor = saved
             return
@@ -1981,41 +1977,6 @@ pub class Lexer {
         } else {
             self._cursor = saved
         }
-    }
-
-    /// \brief `"a" f"b{x}"`: a prefixed literal right after a string (P486).
-    ///
-    /// \details Only an unprefixed continuation chains (above), so the
-    ///          prefixed one lexed as a second token and was silently a new
-    ///          statement (SC268W) or a parse error inside a call. Reported
-    ///          here, where it is still known to be a literal following a
-    ///          literal, with the `+` that joins them. The cursor sits on the
-    ///          continuation and is left there; the caller restores it.
-    priv fn reject_prefixed_continuation(self) {
-        var n: isize = 0
-        while n < 2 {
-            var c = self.peek_char32(n).chr
-            if c != 'f' && c != 'F' && c != 'r' && c != 'R' {
-                break
-            }
-
-            n += 1
-        }
-
-        if n == 0 || self.peek_char32(n).chr != '"' {
-            return
-        }
-
-        var at = self.get_source_location()
-        var r  = SourceRange::from_bounds(at, self.get_source_location(self._cursor + (n as usize)))
-        var b  = self._diag->report(
-            DiagCode(DiagID::S001E),
-            at,
-            "a prefixed string literal does not join the literal before it; only an unprefixed \"...\" continues a string",
-        )
-        b.first(r, "this literal starts a new expression")
-        b.insert(at, "+ ", "concatenate the two strings")
-        b.emit()
     }
 
     priv inline fn init_text_ctx(self, start: SourceLocation, prefix: Token) -> Self::TextCtx {

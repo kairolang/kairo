@@ -232,7 +232,11 @@ pub class DiagCollector derives DiagConsumer {
     }
 
     /// Writes an LSP range for \p r and returns its file's index.
-    priv fn range_(self, w: *JsonWriter, r: SourceRange) -> usize {
+    ///
+    /// \p widen: a zero-width range becomes the character it points at, for
+    /// a range that is DRAWN. Never for an edit: widened, an insertion
+    /// replaced the character after it (`const ther` for `const other`, P860).
+    priv fn range_(self, w: *JsonWriter, r: SourceRange, widen: bool) -> usize {
         var a  = self.sm_->resolve(r.start)
         var fi = self.file_(a.fid as u32)
         var so = a.offset as usize
@@ -251,7 +255,7 @@ pub class DiagCollector derives DiagConsumer {
 
         // A zero-width range draws nothing in most editors: widen it to the
         // character it points at, staying on the line.
-        if eo == so {
+        if widen && (eo == so) {
             var line = self.files_[fi].lines.line_of(so)
             if so < self.files_[fi].lines.line_end(self.files_[fi].text, line) {
                 eo = so + 1
@@ -306,7 +310,7 @@ pub class DiagCollector derives DiagConsumer {
             w->begin_array()
             w->begin_object()
             var rw = JsonWriter()
-            var fi = self.range_(&rw, d->fixits[i].range)
+            var fi = self.range_(&rw, d->fixits[i].range, false)
             w->field("path", self.files_[fi].path)
             w->field_raw("range", rw.out)
             w->field("newText", d->fixits[i].replacement)
@@ -362,7 +366,7 @@ pub class DiagCollector derives DiagConsumer {
         dw.begin_object()
         if diag->has_loc && diag->loc.is_valid() {
             var rw = JsonWriter()
-            var fi = self.range_(&rw, self.span_(diag))
+            var fi = self.range_(&rw, self.span_(diag), true)
             path = self.files_[fi].path
             dw.field_raw("range", rw.out)
         } else {
@@ -391,7 +395,7 @@ pub class DiagCollector derives DiagConsumer {
             if c->has_loc && c->loc.is_valid() {
                 related.begin_object()
                 var rw = JsonWriter()
-                var fi = self.range_(&rw, self.span_(c))
+                var fi = self.range_(&rw, self.span_(c), true)
                 related.key("location")
                 related.begin_object()
                 related.field("uri", path_to_uri(self.files_[fi].path))
@@ -843,6 +847,16 @@ pub fn worker_main(@inout args: [string]) -> i32 {
 
         w.field("header", rel + ".hh")
         w.field_int("errors", collector->errors as i64)
+        // What kcc gives a C++ file that includes this module: the bridge
+        // hands it to clangd, which otherwise parses the header's prelude
+        // against the host's standard library and none of kcc's roots.
+        w.key("cxx_flags")
+        w.begin_array()
+        for var a: string in ci->cxx_driver_words() {
+            w.str(a)
+        }
+
+        w.end_array()
     }
 
     w.field_raw("diagnostics", "[" + collector->out + "]")
