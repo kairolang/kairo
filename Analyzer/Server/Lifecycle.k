@@ -128,6 +128,7 @@ extend Server {
             self.syntax_ms = sms
         }
 
+        self.highlight_panics = d->get_bool(opts, "highlightPanics")
         self.progress_ok = d->get_bool(d->get(d->get(params, "capabilities"), "window"), "workDoneProgress")
 
         var mw = d->get_int(opts, "maxWorkers")

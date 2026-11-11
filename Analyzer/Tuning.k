@@ -63,6 +63,13 @@ pub const WIDE_INDEX_LIMIT: usize = 96
 pub const TRACE_CAP_BYTES:  usize = 262144
 pub const TRACE_KEEP_BYTES: usize = 131072
 
+/// The longest the loop waits for a message when nothing is due: the
+/// latency of noticing a finished worker, against idle wake-ups.
+pub const IDLE_WAIT_MS: i64 = 40
+
+/// Signature help lists at most this many overloads.
+pub const MAX_SIGNATURES: usize = 8
+
 /// workspace/symbol answers at most this many: an empty query must not send
 /// every symbol of a large tree.
 pub const WORKSPACE_SYMBOL_CAP: usize = 512

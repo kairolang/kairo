@@ -343,7 +343,7 @@ extend Server {
 
         argv.push_back("--emit-headers")
         argv.push_back(self.bridge_dir_())
-        argv.push_back("--emit-headers-line-directives")
+        argv.push_back("--emit-headers-layout")
         argv.push_back(self.br_files[b])
 
         self.br_dirty[b] = false

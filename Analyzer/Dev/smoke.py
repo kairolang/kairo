@@ -154,7 +154,7 @@ TYPES = ["namespace", "type", "class", "enum", "interface", "struct", "typeParam
          "selfKeyword", "builtinType", "typeAlias", "union"]
 MODS = ["declaration", "definition", "readonly", "static", "deprecated", "abstract", "async", "modification",
         "documentation", "defaultLibrary", "overloaded", "dispatched", "unsafe", "ffi", "constant", "constructor",
-        "extension"]
+        "extension", "mutates", "mutable", "panics"]
 
 KEYWORDS = {"fn", "var", "return", "import", "const", "if", "as", "pub", "class", "else", "while", "for", "macro"}
 
@@ -863,6 +863,61 @@ def apply_edits(text, edits):
     return text
 
 
+STYLES = """@deprecated("use fresh()")
+fn stale() -> i32 { return 1 }
+
+fn fresh() -> i32 { return 2 }
+
+fn bump(@inout x: i32) { x = x + 1 }
+
+fn poke(p: *i32) -> i32 { return *p }
+
+fn risky(v: i32) panic -> i32 {
+    if v < 0 {
+        panic "negative"
+    }
+    return v
+}
+
+fn wrap() panic -> i32 { return risky(1) }
+
+fn main() -> i32 {
+    var n: i32 = 0
+    const k: i32 = 2
+    bump(&n)
+    var a = poke(&n)
+    var u: unsafe *i32 = unsafe &n
+    return stale() + fresh() + n + k + a
+}
+"""
+
+
+def styles(exe, root):
+    """The style table's modifiers (section 5, P828): what the server sends."""
+    X = "src/styles.k"
+    open(os.path.join(root, X), "w").write(STYLES)
+    for want in (True, False):
+        c = Client(exe, root)
+        c.start(options={"highlightPanics": want})
+        c.open(X, STYLES)
+        c.settle()
+        by = {(l, col): (w, ty, m) for l, col, w, ty, m in tokens(c, X, STYLES)}
+        tok = lambda needle, off=0, nth=0: by.get(pos(STYLES, needle, off, nth), ("", "", set()))
+        if want:
+            check("styles: deprecated use is struck through", "deprecated" in tok("stale() +")[2], tok("stale() +"))
+            check("styles: a plain call is not deprecated", "deprecated" not in tok("fresh() +")[2], tok("fresh() +"))
+            check("styles: @inout marker mutates", "mutates" in tok("&n)")[2], tok("&n)"))
+            check("styles: address of a mutable to a pointer parameter mutates", "mutates" in tok("&n)", 0, 1)[2], tok("&n)", 0, 1))
+            check("styles: var binding is mutable", "mutable" in tok("n: i32")[2], tok("n: i32"))
+            check("styles: const binding is not mutable", "mutable" not in tok("k: i32")[2], tok("k: i32"))
+            check("styles: the unsafe keyword is unsafe", "unsafe" in tok("unsafe &n")[2], tok("unsafe &n"))
+            check("styles: the operator unsafe permits is unsafe", "unsafe" in tok("unsafe &n", 7)[2], tok("unsafe &n", 7))
+            check("styles: a call to a panic function panics (asked for)", "panics" in tok("risky(1)")[2], tok("risky(1)"))
+        else:
+            check("styles: panics not sent unless asked", "panics" not in tok("risky(1)")[2], tok("risky(1)"))
+        c.stop()
+
+
 def interfaces(exe, root):
     """Generate interface for 'Name': the edit, applied, still type-checks."""
     c = Client(exe, root)
@@ -958,8 +1013,12 @@ def bridge(exe, base):
     h = read(hdr)
     lines = h.split("\n")
     at = next((i for i, l in enumerate(lines) if "add(signed int a" in l), -1)
-    check("bridge: the header puts #line naming a.k:2 before add", at > 0 and lines[at - 1] == '#line 2 "%s"' % ak, lines[max(0, at - 2):at + 1])
-    check("bridge: invented text sits under #line naming the header", ('#line 2 "%s"' % hdr) in h and lines[1] == "#pragma once", lines[:3])
+    # P830: clangd reports physical lines, so each declaration sits on the
+    # physical line it has in a.k (add: line 2), and what the emitter invents
+    # is in a.hh.prelude, included from line 1.
+    check("bridge: add is on the header's physical line 2, its line in a.k", at == 1, lines[:3])
+    check("bridge: invented text is in the prelude, included from line 1",
+          lines[0] == '#include "%s.prelude"' % hdr and "#pragma once" in read(hdr + ".prelude"), lines[:2])
     o = read(ov)
     check("bridge: overlay maps a.k to its header, external names off at the top and per entry",
           ("'name': '%s'" % ak) in o and ("'external-contents': '%s'" % hdr) in o
@@ -974,7 +1033,7 @@ def bridge(exe, base):
     ok = wait_for(lambda: "twice(signed int v)" in read(hdr), 60, c)
     h2 = read(hdr).split("\n")
     at2 = next((i for i, l in enumerate(h2) if "add(signed int a" in l), -1)
-    check("bridge: an unsaved edit regenerates the header, lines follow", ok and at2 > 0 and h2[at2 - 1] == '#line 6 "%s"' % ak, h2[max(0, at2 - 2):at2 + 1])
+    check("bridge: an unsaved edit regenerates the header, add moves to physical line 6", ok and at2 == 5, h2[:8])
     check("bridge: overlay not rewritten when the set of files did not change", os.path.getmtime(ov) == mt)
     # A buffer that does not parse keeps the last good header.
     good = read(hdr)
@@ -996,7 +1055,11 @@ def bridge(exe, base):
     check("bridge: clean shutdown", c.stop() == 0)
     cdx = shutil.which("clangd")
     if not cdx:
-        print("note: clangd is not on PATH; the jump from C++ was checked through clang's diagnostics only")
+        # Without clangd, what its jump reads: the physical line of add in the
+        # header (0-based 5) is its line in the saved a.k.
+        h3 = read(hdr).split("\n")
+        at3 = next((i for i, l in enumerate(h3) if "add(signed int a" in l), -1)
+        check("bridge: (no clangd) add's physical header line is its a.k line", at3 == 5, h3[:8])
         return
     d = Client(cdx, root)
     d.start()
@@ -1006,10 +1069,10 @@ def bridge(exe, base):
     r = r if isinstance(r, list) else ([r] if r else [])
     check("bridge: clangd's definition of a::add is in a.k, not the header",
           bool(r) and r[0].get("uri", r[0].get("targetUri")) == "file://" + ak, r)
-    # KNOWN (LanguageServer.md section 15): clangd reports the spelling line,
-    # the header's own, and ignores #line; clang's diagnostics above honour it.
+    # clangd reports the header's physical line and ignores #line (P830):
+    # the layout puts add on its a.k line (6, 0-based 5).
     line = (r[0].get("range") or r[0].get("targetSelectionRange"))["start"]["line"] if r else -1
-    print(("ok   " if line == 5 else "KNOWN") + " bridge: clangd's line for a::add is %d (a.k line 6 is 5)" % line)
+    check("bridge: clangd's line for a::add is its a.k line (5)", line == 5, line)
     d.stop()
 
 
@@ -1079,6 +1142,7 @@ def main():
         edits(exe, real)
         macros(exe, real)
         interfaces(exe, real)
+        styles(exe, real)
         bridge(exe, base)
         syntax_server(exe, base)
         waiting(exe, real)

@@ -124,6 +124,7 @@ pub class Server {
     pub var shutdown_seen:   bool = false
     pub var refresh_tokens:  bool = false  ///< client honours semanticTokens/refresh
     pub var refresh_inlays:  bool = false
+    pub var highlight_panics: bool = false ///< initializationOptions.highlightPanics: send `panics`
 
     /// Scratch files a finished worker may still have open; removed once no
     /// worker is running.

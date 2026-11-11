@@ -187,9 +187,18 @@ pub fn TM_CONSTRUCTOR() -> u32 { return 1 << 15 }
 /// The callee is declared in an `extend` block, not in the type itself.
 pub fn TM_EXTENSION()   -> u32 { return 1 << 16 }
 
+/// The `&` of `f(&x)` when the call may mutate `x`: an `@inout` marker, or
+/// the address of a mutable passed to a pointer parameter (style table, P828).
+pub fn TM_MUTATES()     -> u32 { return 1 << 17 }
+/// A `var` binding and its uses, against `const` / immutable ones.
+pub fn TM_MUTABLE()     -> u32 { return 1 << 18 }
+/// A call to a function declared `panic`. Sent only when the client asked
+/// (initializationOptions.highlightPanics); the server masks it otherwise.
+pub fn TM_PANICS()      -> u32 { return 1 << 19 }
+
 pub fn token_modifier_names() -> string {
     return "[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\"," +
         "\"modification\",\"documentation\",\"defaultLibrary\",\"overloaded\",\"dispatched\",\"unsafe\"," +
-        "\"ffi\",\"constant\",\"constructor\",\"extension\"]"
+        "\"ffi\",\"constant\",\"constructor\",\"extension\",\"mutates\",\"mutable\",\"panics\"]"
 }
 

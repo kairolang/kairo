@@ -387,7 +387,7 @@ extend Server {
         // the loop would spin at 1 ms turns for the whole of that run. A
         // deadline already passed is started on this turn, so it is not one
         // either.
-        var best: i64 = 40
+        var best: i64 = IDLE_WAIT_MS
         var since = now_ms() - self.last_change_ms
         var syn_due = false
         for var k: usize = 0; k < self.docs.docs.size(); ++k {

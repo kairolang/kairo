@@ -132,10 +132,19 @@ extend Server {
 
             e->cf_hi.push_back(e->cr_row.size())
             e->ct_lo.push_back(e->ct_data.size())
+            // `panics` is in every snapshot; it is sent only to a client
+            // that asked (initializationOptions.highlightPanics).
             var t = s->first(s->get(f, "tokens"))
+            var at: usize = 0
             while t != JSON_NONE() {
-                e->ct_data.push_back(s->as_int(t))
+                var v = s->as_int(t)
+                if (!self.highlight_panics) && ((at % SEMTOK_STRIDE) == SEMTOK_MODS) {
+                    v = v & (~(TM_PANICS() as i64))
+                }
+
+                e->ct_data.push_back(v)
                 t = s->next(t)
+                at += 1
             }
 
             e->ct_hi.push_back(e->ct_data.size())

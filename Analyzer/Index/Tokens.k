@@ -144,6 +144,11 @@ pub fn lexical_kind(t: Token, text: *const string, off: u32, len: u32, mods: *u3
         return TT_SELF()
     }
 
+    if t.kind == TokenKind::KwUnsafe {
+        *mods = TM_UNSAFE()
+        return TT_KEYWORD()
+    }
+
     if is_keyword(t.kind) || (t.kind == TokenKind::LitNull) {
         return TT_KEYWORD()
     }

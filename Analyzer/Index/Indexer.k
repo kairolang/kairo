@@ -49,9 +49,11 @@ import AST::Context::SymbolTable::{
     SymbolTable,
 }
 import AST::Context::TranslationUnit::TranslationUnit
+import AST::AttrFacts::AttrFacts
 import AST::DeclFacts::{
     decl_extension_of,
     decl_is_ffi,
+    decl_pattern,
     decl_name_tok,
     decl_requires_clause,
 }
@@ -77,6 +79,7 @@ import AST::Node::PrimaryExpressions::{
 import AST::Node::Program::TopLevelKind
 import AST::Node::Types
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import AST::LangItems::LangAttrs
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
 import Json::JsonWriter
@@ -332,6 +335,8 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
                 m = m | TM_READONLY() | TM_CONSTANT()
             } else if v->const_binding {
                 m = m | TM_READONLY()
+            } else {
+                m = m | TM_MUTABLE()
             }
 
             if v->storage == Declarations::StorageClass::Static {
@@ -369,7 +374,24 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             m = m | TM_FFI()
         }
 
+        if self.deprecated_(d) {
+            m = m | TM_DEPRECATED()
+        }
+
         return m
+    }
+
+    /// \p d carries `@deprecated`, read as AttributeCheck::_deprecation
+    /// reads it from the decl and its pattern (an instance). Its third link,
+    /// NameLookup::representative, is `prot` to the compiler module.
+    fn deprecated_(self, d: unsafe *Decl) -> bool {
+        var nm = LangAttrs::deprecated()
+        if AttrFacts::find(d, nm) != &null {
+            return true
+        }
+
+        var unsafe *p = decl_pattern(d)
+        return (p != &null) && (p != d) && (AttrFacts::find(p, nm) != &null)
     }
 
     /// LSP SymbolKind for the outline.
@@ -663,6 +685,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         }
 
         self.param_hints_(c, callee)
+        self.mark_mutates_(c, callee)
 
         return true
     }
@@ -679,6 +702,16 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
 
     pub fn visit_unary_operator_expr(self, n: *Expressions::UnaryOperatorExpr) -> bool {
         self.user_op_(n->op_token, n->resolved_op)
+        return true
+    }
+
+    /// `unsafe &x`, `unsafe *p`: the operator the block permits is bold too.
+    pub fn visit_unsafe_expr(self, n: *Expressions::UnsafeExpr) -> bool {
+        var unsafe *e = n->operand
+        if (e != &null) && isa<Expressions::UnaryOperatorExpr>(e) {
+            self.op_mod_(cast<Expressions::UnaryOperatorExpr>(e)->op_token, TM_UNSAFE())
+        }
+
         return true
     }
 

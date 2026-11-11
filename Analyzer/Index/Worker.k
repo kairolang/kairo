@@ -60,6 +60,7 @@ import Driver::TUStage::TUStage
 import Index::Snapshot::FileText
 import Index::Indexer::IndexWalker
 import Index::Tokens::lexical_tokens
+import Protocol::*
 import Tuning::WIDE_INDEX_LIMIT
 import Json::{
     JsonDoc,
@@ -314,13 +315,13 @@ pub class DiagCollector derives DiagConsumer {
         var sev = diag->code.severity()
         var lsp: usize = 0
         if (sev == DiagSeverity::Error) || (sev == DiagSeverity::Fatal) {
-            lsp = 1
+            lsp = DS_ERROR
         } else if sev == DiagSeverity::Warning {
-            lsp = 2
+            lsp = DS_WARNING
         } else if sev == DiagSeverity::Remark {
-            lsp = 3
+            lsp = DS_INFORMATION
         } else if sev == DiagSeverity::Note {
-            lsp = 4
+            lsp = DS_HINT
         } else {
             return
         }

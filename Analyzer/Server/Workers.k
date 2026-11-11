@@ -200,7 +200,7 @@ extend Server {
             return false
         }
 
-        if (!self.entries[ei].ran) || (self.entries[ei].files.size() > 96) {
+        if (!self.entries[ei].ran) || (self.entries[ei].files.size() > WIDE_INDEX_LIMIT) {
             return false
         }
 
@@ -210,7 +210,7 @@ extend Server {
             }
 
             var o = self.jobs[i].entry
-            if (o >= self.entries.size()) || (!self.entries[o].ran) || (self.entries[o].files.size() > 96) {
+            if (o >= self.entries.size()) || (!self.entries[o].ran) || (self.entries[o].files.size() > WIDE_INDEX_LIMIT) {
                 return false
             }
         }

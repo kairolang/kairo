@@ -176,7 +176,7 @@ extend Server {
             var ei = self.entry_of(self.docs.docs[i].path)
             if ei != usize::MAX {
                 var needle = "fn " + name + "("
-                for var fidx: usize = 0; (fidx < self.entries[ei].files.size()) && (labels.size() < 8); ++fidx {
+                for var fidx: usize = 0; (fidx < self.entries[ei].files.size()) && (labels.size() < MAX_SIGNATURES); ++fidx {
                     var src: string = ""
                     var di = self.docs.index_of_path(self.entries[ei].files[fidx])
                     if di != usize::MAX {
@@ -186,7 +186,7 @@ extend Server {
                     }
 
                     var from: usize = 0
-                    while labels.size() < 8 {
+                    while labels.size() < MAX_SIGNATURES {
                         var hit = find_from(src, needle, from)
                         if hit == usize::MAX {
                             break

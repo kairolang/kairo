@@ -31,9 +31,11 @@ import AST::Context::SymbolTable::{
     SymbolTable,
 }
 import AST::Context::TranslationUnit::TranslationUnit
+import AST::AttrFacts::AttrFacts
 import AST::DeclFacts::{
     decl_extension_of,
     decl_is_ffi,
+    decl_pattern,
     decl_name_tok,
     decl_requires_clause,
 }
@@ -59,6 +61,7 @@ import AST::Node::PrimaryExpressions::{
 import AST::Node::Program::TopLevelKind
 import AST::Node::Types
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import AST::LangItems::LangAttrs
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
 import Json::JsonWriter
@@ -401,6 +404,20 @@ extend IndexWalker {
             m = m | TM_EXTENSION()
         }
 
+        // Style rule 2: an extension or C/C++ call is italic, never also
+        // underlined; overloading says little there.
+        if ((m & TM_EXTENSION()) != 0) || decl_is_ffi(d) {
+            m = m & (~TM_OVERLOADED())
+        }
+
+        if f->is_unsafe() {
+            m = m | TM_UNSAFE()
+        }
+
+        if f->is_panic() {
+            m = m | TM_PANICS()
+        }
+
         if m == 0 {
             return
         }
@@ -417,6 +434,65 @@ extend IndexWalker {
         }
 
         self.extra_mods_[off] = m
+    }
+
+    /// Adds \p m to the token at \p tok_in, an operator the lexical pass
+    /// leaves unclassified: it becomes an `operator` token carrying \p m.
+    fn op_mod_(self, tok_in: Token, m: u32) {
+        var tok = self.ast_()->unwrap_token(tok_in)
+        var off = self.own_off_(tok.range.start)
+        if off == u32::MAX {
+            return
+        }
+
+        var cur = self.extra_mods_.get(off)
+        if cur != null {
+            self.extra_mods_[off] = *cur | m
+            return
+        }
+
+        self.extra_mods_[off] = m
+        self.tok_(off, tok.range.size() as u32, TT_OPERATOR(), 0)
+    }
+
+    /// `mutates` on the `&` of each argument through which call \p c may
+    /// write: an `@inout` marker, or `&x` of a mutable `x` bound to a
+    /// pointer parameter (the pointee\x27s constness is not read).
+    fn mark_mutates_(self, c: unsafe *Expressions::CallExpr, d: unsafe *Decl) {
+        if (d == &null) || (!isa<Declarations::FunctionDecl>(d)) {
+            return
+        }
+
+        var unsafe *f = cast<Declarations::FunctionDecl>(d)
+        var skip: usize = 0
+        if (f->params.size() > 0) && f->params[0]->is_self {
+            skip = 1
+        }
+
+        for var i: usize = 0; i < c->args.size(); ++i {
+            var unsafe *arg = c->args[i]
+            if (arg == &null) || (!isa<Expressions::UnaryOperatorExpr>(arg)) {
+                continue
+            }
+
+            var unsafe *u = cast<Expressions::UnaryOperatorExpr>(arg)
+            if (u->op_token.kind as u32) != (TokenKind::OpAmp as u32) {
+                continue
+            }
+
+            var hit = u->is_mode_marker
+            var pi = i + skip
+            if (!hit) && (pi < f->params.size()) && (u->operand != &null) && isa<NamedIdentExpr>(u->operand) {
+                var unsafe *pt = f->params[pi]->type_
+                var unsafe *v  = cast<NamedIdentExpr>(u->operand)->resolved_decl
+                hit = (pt != &null) && isa<Types::PointerType>(pt) && (v != &null)
+                   && ((self.mods_of_(v) & TM_MUTABLE()) != 0)
+            }
+
+            if hit {
+                self.op_mod_(u->op_token, TM_MUTATES())
+            }
+        }
     }
 
     /// A user-defined operator at \p tok: an operator token that reads as a

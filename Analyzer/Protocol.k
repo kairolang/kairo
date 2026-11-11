@@ -88,6 +88,12 @@ pub const MSG_WARNING: i64 = 2
 pub const MSG_INFO:    i64 = 3
 pub const MSG_LOG:     i64 = 4
 
+// --- DiagnosticSeverity ------------------------------------------------------
+pub const DS_ERROR:       usize = 1
+pub const DS_WARNING:     usize = 2
+pub const DS_INFORMATION: usize = 3
+pub const DS_HINT:        usize = 4
+
 // --- SymbolKind ------------------------------------------------------------
 pub const SK_CLASS:     i64 = 5
 pub const SK_METHOD:    i64 = 6
@@ -107,3 +113,5 @@ pub const CIK_FOLDER:   i64 = 19
 /// Integers per token in the LSP encoding: deltaLine, deltaStart, length,
 /// tokenType, tokenModifiers.
 pub const SEMTOK_STRIDE: usize = 5
+/// The tokenModifiers bit set's position within a token's five.
+pub const SEMTOK_MODS:   usize = 4
