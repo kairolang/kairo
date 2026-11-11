@@ -1894,6 +1894,19 @@ def main():
     exe = find_kals()
     print("kals:", exe)
     base = tempfile.mkdtemp(prefix="kals-smoke-")
+    # kals adopts the nearest kairo_compile.json above a workspace (as clangd
+    # does compile_commands.json) and keeps its cache beside it. A temp root
+    # under such a project would have the tests write into that project's
+    # .kairo/ (P868): refuse to run there.
+    up = os.path.dirname(os.path.realpath(base))
+    while True:
+        if os.path.exists(os.path.join(up, "kairo_compile.json")):
+            shutil.rmtree(base, ignore_errors=True)
+            print("TMPDIR is inside a Kairo project (%s): point TMPDIR outside it" % up)
+            return 2
+        if os.path.dirname(up) == up:
+            break
+        up = os.path.dirname(up)
     try:
         real = os.path.join(base, "proj")
         project(real)

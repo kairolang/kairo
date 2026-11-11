@@ -48,3 +48,6 @@ EOF
 /tmp/
 .selfhosted
 /kairo_compile.json
+
+# kals: generated clangd headers and overlay (Analyzer/Server/ClangdBridge.k).
+.kairo/
