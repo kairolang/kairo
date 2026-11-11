@@ -173,7 +173,7 @@ def parse(name: str, b: Path, src: Path, scratch: Path, builtins: Path) -> dict:
                              "flags": flags([t for t in p0[1:] if t != s])})
         elif p0[0].endswith("/clang") and "-shared" in p0:
             # The link runs as the wasm-ld command clang would run (`-###`): a kcc link step
-            # injects the Kairo runtime (P591), so the generator links with its own lld.
+            # injects the Kairo runtime, so the generator links with its own lld.
             o = p0[p0.index("-o") + 1]
             objs = [t for t in p0 if t.endswith(".obj")]
             r = subprocess.run(p0 + ["-###"], cwd=b, capture_output=True, text=True)

@@ -1393,7 +1393,7 @@ def main() -> int:
     elif selfhost:
         # Never gen_diag.py into build/.kbld here (that object is Stage 0's, and the
         # repo's kbld build links it); only the LLVM stamp check.
-        if not a.no_prebuild and not (a.print_jobs or a.print_command) and not a.target:
+        if not a.no_prebuild and not (a.print_jobs or a.print_command or a.emit_compile_json) and not a.target:
             run_streaming([sys.executable, str(ROOT / "Scripts" / "build_llvm.py")])
         prog.next("registry (gen_diag.py -> build/registry, Diagnostic::Registry)")
         reg_extra = llvm_include_args(llvm_src, cross_dir(a.target) / "llvm" if a.target else llvm_build)

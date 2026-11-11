@@ -133,16 +133,25 @@ MODE      = getenv("KBLD_MODE", "release")
 JOBS      = cpu_count()
 # The backends every LLVM we build carries: this host build and every cross host
 # (Scripts/cross_llvm.py imports both values; build.py derives its static link list from
-# the configured Targets.def). Widened 2026-11-09 to every target a kcc user might name:
+# the configured Targets.def). Covers every target a kcc user might name:
 # the toolchain is one compiler for every target, so a missing backend is a refused
 # --target, not a smaller download. Xtensa is still experimental in the fork (LLVM 22).
 TARGETS   = getenv("LLVM_TARGETS", "X86;AArch64;ARM;RISCV;WebAssembly;PowerPC;SystemZ;Mips;"
                                    "LoongArch;Sparc;AVR;MSP430;BPF;NVPTX;AMDGPU;SPIRV")
 EXPERIMENTAL_TARGETS = getenv("LLVM_EXPERIMENTAL_TARGETS", "Xtensa")
 
-LLVM_SRC   = ROOT / "Lib" / "llvm-runtimes"
-LLVM_BUILD = BUILD_DIR / "llvm"
+# Resolved through symlinks: a worktree borrows the main checkout's fork and build
+# tree by symlink, and cmake bakes these two paths into CMakeCache.txt, build.ninja and
+# every compile command. Spelled through the worktree they were a "different" configure
+# that re-pointed the shared tree and restarted the whole build.
+LLVM_SRC   = Path(os.path.realpath(ROOT / "Lib" / "llvm-runtimes"))
+LLVM_BUILD = Path(os.path.realpath(BUILD_DIR / "llvm"))
+# True when build/llvm belongs to another checkout. A borrower may use it and stage
+# from it, never configure or build it: its owner does that.
+BORROWED   = (BUILD_DIR / "llvm").is_symlink()
 STAMP      = LLVM_BUILD / ".kbld-configure.sha256"
+# The fork commit the tree was last brought up to date with (clean checkouts only).
+SRC_STAMP  = LLVM_BUILD / ".kbld-source.id"
 
 if HOST == "Linux":
     TRIPLE = getenv("KBLD_TRIPLE", f"{ARCH}-linux-gnu")
@@ -219,7 +228,9 @@ TOOL_HINTS = {
 # "Not an int attribute (Producer: 'LLVM23.1.3' Reader: 'LLVM 22.1.0')".
 # Seeded once from build/llvm; refresh by deleting build/llvm-host. A first build
 # with no build/llvm uses the host clang, and only if its major is the fork's.
-HOST_TC = BUILD_DIR / "llvm-host"
+# Beside the build tree it was seeded from, so a checkout that borrows build/llvm by
+# symlink names the shared copy (same configure, no second 280 MB seed).
+HOST_TC = LLVM_BUILD.parent / "llvm-host"
 
 
 def fork_major() -> str:
@@ -656,6 +667,39 @@ def stage() -> None:
 # main
 # ---------------------------------------------------------------------------
 
+def source_id() -> str | None:
+    """The fork's commit when its checkout is clean, else None (unknown: let ninja
+    decide). This is what makes "nothing changed" checkable without running ninja."""
+    try:
+        git = ["git", "-C", str(LLVM_SRC)]
+        head = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True)
+        dirty = subprocess.run([*git, "status", "--porcelain", "--untracked-files=no"],
+                               capture_output=True, text=True)
+    except OSError:
+        return None
+    if head.returncode != 0 or dirty.returncode != 0 or dirty.stdout.strip():
+        return None
+    return head.stdout.strip() or None
+
+
+def cache_source_dir() -> str | None:
+    """The source directory the existing build tree was configured from."""
+    cache = LLVM_BUILD / "CMakeCache.txt"
+    if not cache.is_file():
+        return None
+    for line in cache.read_text(errors="replace").splitlines():
+        if line.startswith("CMAKE_HOME_DIRECTORY:INTERNAL="):
+            return line.split("=", 1)[1]
+    return None
+
+
+def refuse_borrowed(why: str) -> None:
+    if BORROWED:
+        die(f"build/llvm is a symlink to another checkout's LLVM build ({LLVM_BUILD}) and {why}.\n"
+            "a borrowed build is never configured or rebuilt from here; run\n"
+            "Scripts/build_llvm.py in the checkout that owns it, or pass --no-prebuild.")
+
+
 def banner() -> None:
     log()
     log("============================================================")
@@ -741,7 +785,7 @@ def main() -> None:
     # the same to the clang driver the staged tree ships. Name them to ninja on
     # every run, not only when missing: they compile InitializeAllTargets() in
     # from Targets.def, so a "built once" check left them registering the old
-    # backend list after a target was added (2026-11-09, P660). ninja makes an
+    # backend list after a target was added. ninja makes an
     # up-to-date tool a no-op.
     def build_test_tools():
         want = ["clang", *TEST_TOOLS]
@@ -750,15 +794,36 @@ def main() -> None:
 
     stamp = STAMP.read_text().strip() if STAMP.is_file() else None
     built = MARKER.is_file()
+    src_id = source_id()
+    src_stamp = SRC_STAMP.read_text().strip() if SRC_STAMP.is_file() else None
+
+    # A tree configured from some other spelling of the source (a worktree's symlink)
+    # has that path in every compile command: running ninja on it rebuilds everything.
+    # Treat it as a changed configure so the paths are put back first.
+    cached_src = cache_source_dir()
+    if built and stamp == digest and cached_src and cached_src != str(LLVM_SRC / "llvm"):
+        log(f"build tree was configured from {cached_src}; reconfiguring from {LLVM_SRC / 'llvm'}.")
+        stamp = "stale-source-path"
 
     if built and stamp == digest:
-        # The stamp covers the configure args only, not the fork's sources: when the
-        # submodule moved (a4f9e83 -> 8f7e268, 2026-10-08) this path skipped ninja and
-        # build/llvm stayed a commit behind for a month. ninja itself knows what
-        # changed; on an up-to-date tree it is a no-op in about a second.
+        # The normal build path: same configure, same fork commit, tools present.
+        # Nothing can be out of date, so ninja is not even started.
+        exe = ".exe" if HOST == "Windows" else ""
+        have_tools = all((LLVM_BUILD / "bin" / (t + exe)).is_file() for t in ("clang", *TEST_TOOLS))
+        if src_id is not None and src_id == src_stamp and have_tools:
+            log(f"llvm up to date (configure and fork commit {src_id[:12]} unchanged); using the cached build.")
+            stage()
+            return
+        refuse_borrowed("the fork's sources changed or were never recorded for it"
+                        if have_tools else "it lacks clang or the test tools")
+        # The stamp covers the configure args only, not the fork's sources: a moved
+        # submodule must still reach ninja. ninja itself knows what changed; on an
+        # up-to-date tree it is a no-op in about a second.
         log("configure unchanged; incremental build of the fork's sources...")
         run([tools["ninja"], "-C", str(LLVM_BUILD), f"-j{JOBS}"], env, None)
         build_test_tools()
+        if src_id is not None:
+            SRC_STAMP.write_text(src_id + "\n")
         stage()
         return
     if built and stamp is None:
@@ -773,6 +838,7 @@ def main() -> None:
         stage()
         return
 
+    refuse_borrowed("its configure differs from this checkout's")
     if HOST == "Linux":  # only when we're about to configure, never on the skip path
         linux_preflight(env)
 
@@ -802,6 +868,8 @@ def main() -> None:
     build_test_tools()
 
     STAMP.write_text(digest + "\n")
+    if src_id is not None:
+        SRC_STAMP.write_text(src_id + "\n")
     stage()
     log("done.")
 
