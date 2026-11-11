@@ -333,3 +333,14 @@ Not done: copy fallback and case-insensitive casefold never ran on a filesystem 
 
 Not done: the darwin and msvc paths are unit-tested off-host only (`ksys ensure --input`, Tests/CLI/Sysroot/sdk_stage.k); the xcrun, vswhere and PowerShell branches need a real Mac / Windows. `ksys probe` / `build` for darwin and msvc still go through `plan()` and the user provider's refusal.
 
+
+
+## 23. State after the glibc-own change (2026-11-10): start files without LGPL-only sources
+
+glibc's own sources for crt1.o / Scrt1.o / crti.o / crtn.o / libc_nonshared.a are LGPL-2.1-or-later with a link exception, except a few that have none (NOTICE lists them). A distributed glibc program statically contains those objects, so Kairo ships its own files for exactly those paths and every start-code source in a glibc root is either glibc's with the exception or Kairo's (Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception).
+
+- **Mechanism.** `Scripts/glibc-own/` holds the files; `ship_sysroot_inputs.py` (`glibc_own_overlay`, run at the end of the glibc step, or alone with `--only glibc-own` on an existing share) copies each over `glibc/src/<era>/<path>`, so the compile tables (`glibc/crt/*`) and `Providers/Glibc.k` are untouched: the tables name the same relative paths. `glibc/src` is therefore a mixed input: its `registry.toml [licenses]` entry is `LGPL-2.1-or-later AND Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception`, and `licenses/glibc/` also carries Kairo's `LICENSE` and the exception text.
+- **Replaced.** `csu/init.c` (`_IO_stdin_used`), `csu/static-reloc.c` (empty hidden `_dl_relocate_static_pie`) in all three eras; `sysdeps/aarch64/start.S` and `.../linux/aarch64/__read_tp.S` in eras 2.32 / 2.33 (start.S adapted from the 2.42 file, which has the exception, keeping its header); `sysdeps/generic/crti.S`, `crtn.S` (empty, riscv and loongarch). On every arch except aarch64 2.17..2.32 the built objects are byte-identical to glibc's (compared for x86_64, i686, armv7, aarch64 2.33/2.42, powerpc, riscv64, loongarch64); aarch64 era 2.32 `_start` gains `bti c` in `__wrap_main`, a CFI section and its symbol size (the 2.33 glibc shape).
+- **Dropped.** powerpc (32-bit) `sysdeps/powerpc/powerpc32/ppc-mcount.S`: no replacement `_mcount` is written (it could not be run here); the object leaves the powerpc tables and libc_nonshared.a, so `-pg` fails to link there with an undefined `_mcount` (P791).
+- **Audit.** `Scripts/audit_glibc_exception.py` walks every `[compile.*]` source and the `.c`/`.S` files they include; it does not audit headers (sysdep.h can expand into code).
+- **Registry.** `glibc/src` and `glibc/crt` hashes change, so a share built before this change no longer matches the packaged archives: a repackage is needed (user approval).

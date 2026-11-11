@@ -1,0 +1,19 @@
+Kairo's own replacements for the few glibc start-file sources that lack glibc's link
+exception (NOTICE, "GNU C Library start files").  Everything here is Kairo-licensed
+(Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception), except start.S, which is adapted from a
+glibc file that carries the exception and keeps that file's header.
+
+Scripts/ship_sysroot_inputs.py (glibc_own_overlay) copies each file over glibc's
+build/sysroot-share/glibc/src/<era>/<path> after glibc_crt_recipe.py has produced the share, so the
+compile tables (glibc/crt/*) are unchanged: they name the same relative paths.  Scripts/
+audit_glibc_exception.py checks that every compiled source has the exception or Kairo's SPDX id.
+
+   file                 replaces (glibc/src/<era>/...)                       eras
+   init.c               csu/init.c                                           2.32 2.33 2.42
+   static-reloc.c       csu/static-reloc.c                                   2.32 2.33 2.42
+   aarch64-start.S      sysdeps/aarch64/start.S                              2.32 2.33
+   aarch64-read_tp.S    sysdeps/unix/sysv/linux/aarch64/__read_tp.S          2.32 2.33
+   generic-crti.S       sysdeps/generic/crti.S                               2.32 2.33 2.42
+   generic-crtn.S       sysdeps/generic/crtn.S                               2.32 2.33 2.42
+   (none)               sysdeps/powerpc/powerpc32/ppc-mcount.S: dropped      2.32 2.33 2.42
+                        from the powerpc tables (no -pg on powerpc32)

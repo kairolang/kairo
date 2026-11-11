@@ -113,6 +113,12 @@ LICENSES = {   # input key prefix -> SPDX (sources.toml in kairo-sysroots)
     "wasi-libc": "Apache-2.0 WITH LLVM-exception AND MIT AND CC0-1.0",   # wasi-libc sources + tables
 }
 
+# glibc/src is glibc's files (LGPL, each with its link exception) plus Kairo's own replacements
+# for the few that lack it (Scripts/glibc-own/, glibc_own_overlay): the one input with a mixed
+# licence. Exact keys win over the prefix map above.
+KAIRO_RUNTIME_SPDX = "Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception"
+LICENSE_KEYS = {"glibc/src": f"LGPL-2.1-or-later AND {KAIRO_RUNTIME_SPDX}"}
+
 
 def log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
@@ -1529,6 +1535,76 @@ def uapi_kernel_arches(c: Ctx, out: Path) -> list:
     return extra
 
 
+GLIBC_OWN = ROOT / "Scripts" / "glibc-own"
+# Sources glibc ships without its link exception (NOTICE), replaced by Kairo's own files:
+# (file in Scripts/glibc-own, path under glibc/src/<era>/, eras). The tables name the same
+# relative paths, so nothing else changes.
+GLIBC_OWN_FILES = [
+    ("init.c", "csu/init.c", ("2.32", "2.33", "2.42")),
+    ("static-reloc.c", "csu/static-reloc.c", ("2.32", "2.33", "2.42")),
+    ("aarch64-start.S", "sysdeps/aarch64/start.S", ("2.32", "2.33")),     # 2.42's carries the exception
+    ("aarch64-read_tp.S", "sysdeps/unix/sysv/linux/aarch64/__read_tp.S", ("2.32", "2.33")),
+    ("generic-crti.S", "sysdeps/generic/crti.S", ("2.32", "2.33", "2.42")),
+    ("generic-crtn.S", "sysdeps/generic/crtn.S", ("2.32", "2.33", "2.42")),
+]
+# Sources dropped instead: (path under glibc/src/<era>/, the object the tables build from it,
+# eras). powerpc32's _mcount (-pg profiling only) has no replacement; the object leaves the
+# powerpc tables and libc_nonshared.a, so `-pg` does not link there.
+GLIBC_OWN_DROP = [("sysdeps/powerpc/powerpc32/ppc-mcount.S", "gmon/ppc-mcount.oS", ("2.32", "2.33", "2.42"))]
+
+
+GLIBC_OWN_LICENSES = [(ROOT / "LICENSE", "Kairo-Apache-2.0.txt"),
+                      (ROOT / "LICENSES" / "AdditionRef-Kairo-Runtime-exception.txt",
+                       "AdditionRef-Kairo-Runtime-exception.txt")]
+
+
+def drop_table_object(text: str, obj: str) -> str:
+    """The table with the compile that makes `obj` and every mention of it removed."""
+    parts = re.split(r"(?m)^(?=\[(?:compile|link)\.)", text)
+    keep = [x for x in parts if not (x.startswith("[compile.") and f'out  = "{obj}"' in x)]
+    text = "".join(keep)
+    text = re.sub(rf'(?m)^ +"\{{out\}}/{re.escape(obj)}",\n', "", text)
+    return text.replace(f', "{obj}"', "").replace(f'"{obj}", ', "")
+
+
+def glibc_own_overlay(share: Path) -> list[str]:
+    """Put Kairo's own start-file sources (Scripts/glibc-own/) over glibc's in <share>/glibc/src
+    and drop what has no replacement from the tables; idempotent. Returns provenance lines."""
+    g = share / "glibc"
+    for own, rel, eras in GLIBC_OWN_FILES:
+        for era in eras:
+            dst = g / "src" / era / rel
+            if not dst.is_file():
+                die(f"glibc-own: {dst} is not in the share (the recipe no longer reads it?)")
+            shutil.copyfile(GLIBC_OWN / own, dst)
+    for rel, obj, eras in GLIBC_OWN_DROP:
+        for era in eras:
+            (g / "src" / era / rel).unlink(missing_ok=True)
+            for t in sorted((g / "crt" / era).glob("*.toml")):
+                old = t.read_text()
+                if f'"{obj}"' in old:
+                    t.write_text(drop_table_object(old, obj))
+                    if rel in old and f"{{src}}/{rel}" in t.read_text():
+                        die(f"glibc-own: {t} still names {rel}")
+    d = share / "licenses" / "glibc"
+    if d.is_dir():      # build_licenses adds them too; this keeps an --only glibc-own run complete
+        for src_, name in GLIBC_OWN_LICENSES:
+            shutil.copyfile(src_, d / name)
+    return [f"Scripts/glibc-own/ over glibc/src/<era>/: "
+            + ", ".join(f"{rel} ({'/'.join(eras)})" for _, rel, eras in GLIBC_OWN_FILES)
+            + " are Kairo's own files or adapted from a glibc file that has the link exception "
+            "(audit: Scripts/audit_glibc_exception.py); "
+            + ", ".join(f"{rel} dropped from the tables ({'/'.join(eras)}; no -pg on powerpc32)"
+                        for rel, _, eras in GLIBC_OWN_DROP)]
+
+
+def build_glibc_own(c: Ctx) -> None:
+    """Re-apply glibc_own_overlay to an existing share (--only glibc-own): no glibc rebuild."""
+    old = tomllib.loads((c.share / "provenance.toml").read_text()).get("glibc/src", {}).get("how", [])
+    old = [h.replace("), unchanged", "), then overridden where the next line says") for h in old]
+    c.prov["glibc/src"] = [h for h in old if not h.startswith("Scripts/glibc-own/")] + glibc_own_overlay(c.share)
+
+
 def build_glibc(c: Ctx) -> None:
     """glibc/abilists, glibc/headers, glibc/src + glibc/crt from glibc git and Linux source
     (Scripts/glibc_abilists.py, glibc_headers.py, glibc_crt_recipe.py; their work dirs under
@@ -1556,6 +1632,7 @@ def build_glibc(c: Ctx) -> None:
     for d in ("src", "crt"):
         fresh(g / d)
         copy_tree(work / "crt-out" / d, g / d)
+    own_note = glibc_own_overlay(c.share)
     newest = tags[-1]
     head = subprocess.run(["git", "-C", str(c.glibc_git), "rev-parse", f"glibc-{newest}^{{commit}}"],
                           capture_output=True, text=True).stdout.strip()[:12]
@@ -1570,7 +1647,7 @@ def build_glibc(c: Ctx) -> None:
         "gnu/stubs*.h written by glibc_headers.py; generic/ + <arch>/ + [omit] by majority vote",
         "version gates: features.h __GLIBC_MINOR__ set per target by ksys; glibc_headers.GATES"]
     c.prov["glibc/src"] = [f"glibc-2.32, glibc-2.33, glibc-{newest} source files the crt compiles read "
-                           "(their -MD dependency lists), unchanged"]
+                           "(their -MD dependency lists), then overridden where the next line says", own_note[0]]
     c.prov["glibc/crt"] = ["per era and arch: the compiles and -r links glibc's own make ran for csu/"
                            "{crt1,Scrt1,crti,crtn}.o and every subdir's static-only-routines "
                            "(libc_nonshared.a), clang as CC; gen/ = the configure/make outputs they include"]
@@ -1844,7 +1921,8 @@ def build_licenses(c: Ctx) -> None:
         "musl": [ROOT / "Lib/libc/musl/COPYRIGHT"],
         "linux-uapi": [lt / "GPL-2.0-only.txt", lt / "Linux-syscall-note.txt"],
         "glibc": [lt / "LGPL-2.1-or-later.txt", (glibc_src / "COPYING.LIB", "COPYING.LIB"),
-                  (glibc_src / "LICENSES", "LICENSES"), (glibc_src / "COPYING", "COPYING")],
+                  (glibc_src / "LICENSES", "LICENSES"), (glibc_src / "COPYING", "COPYING"),
+                  *GLIBC_OWN_LICENSES],
         "mingw": [m / "COPYING", m / "DISCLAIMER", m / "DISCLAIMER.PD"],
         "freebsd": [lt / "FreeBSD-COPYRIGHT.txt"],
         "netbsd": [lt / "NetBSD-COPYRIGHT.txt"],
@@ -1978,7 +2056,7 @@ def write_registry(c: Ctx, rt_hash: str) -> None:
              f"schema = {SCHEMA}", "", "[inputs]"]
     lines += [f'{chr(34) + k + chr(34):<{w}} = "{hashes[k]}"' for k in keys]
     lines += ["", "[licenses]"]
-    lines += [f'{chr(34) + k + chr(34):<{w}} = "{LICENSES[k.split("/")[0]]}"' for k in keys]
+    lines += [f'{chr(34) + k + chr(34):<{w}} = "{LICENSE_KEYS.get(k) or LICENSES[k.split("/")[0]]}"' for k in keys]
     (c.share / "registry.toml").write_text("\n".join(lines) + "\n")
 
 
@@ -2297,7 +2375,9 @@ def main() -> int:
                          "(UAPI_KERNEL: headers_install out of tree, O= under the scratch dir)")
     ap.add_argument("--glibc-git", type=Path, default=ROOT / "build" / "sysgen" / "glibc",
                     help="glibc step: glibc git clone with the release tags (abilists, headers, crt sources)")
-    ap.add_argument("--only", nargs="+", choices=STEPS, help="rebuild only these inputs (registry is always rewritten)")
+    ap.add_argument("--only", nargs="+", choices=STEPS + ["glibc-own"],
+                    help="rebuild only these inputs (registry is always rewritten); glibc-own re-applies "
+                         "Scripts/glibc-own/ to the glibc inputs already in <out>, without rebuilding glibc")
     ap.add_argument("--report", action="store_true", help="size report + parity check into <scratch>/")
     ap.add_argument("--legacy-links", action="store_true",
                     help="schema 1: keep the BSD symlinks on disk and hash following them (the reader "
@@ -2318,7 +2398,7 @@ def main() -> int:
     c.share.mkdir(parents=True, exist_ok=True)
     c.scratch.mkdir(parents=True, exist_ok=True)
     steps = a.only or STEPS
-    fn = {"data": build_data, "musl": build_musl, "uapi": build_uapi, "glibc": build_glibc,
+    fn = {"data": build_data, "musl": build_musl, "uapi": build_uapi, "glibc": build_glibc, "glibc-own": build_glibc_own,
           "mingw": build_mingw, "bsd": build_bsd, "wasi": build_wasi, "runtimes-recipe": build_runtimes_recipe,
           "runtimes-template": build_runtimes_template,
           "mingw-crt": build_mingw_crt, "wasi-libc": build_wasi_libc, "licenses": build_licenses}

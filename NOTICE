@@ -58,27 +58,32 @@ GNU C Library start files and libc_nonshared.a (*-linux-gnu targets)
   glibc's release tags); the texts ship in the sysroot's LICENSES/glibc/
   crt1.o, Scrt1.o, crti.o, crtn.o and libc_nonshared.a are compiled from
   glibc sources and linked statically into glibc programs (libc itself stays
-  a shared library). Most of those files carry glibc's link exception, which
-  permits linking their compiled form into any program and distributing it
-  without restriction from the LGPL. These do not:
+  a shared library). Every start-code source compiled into them is either
+  glibc's, carrying glibc's link exception (which permits linking the
+  compiled form into any program and distributing it without restriction
+  from the LGPL), or Kairo's own replacement under Kairo's license
+  (Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception), kept in
+  Scripts/glibc-own/ and shipped in place of the glibc file of the same path.
+  The files glibc ships without its exception are replaced:
     csu/init.c          crt1.o, Scrt1.o; every target and glibc release
     csu/static-reloc.c  crt1.o; every target and glibc release
     sysdeps/aarch64/start.S
                         crt1.o, Scrt1.o; aarch64 and aarch64_be, glibc
-                        2.17 .. 2.33
+                        2.17 .. 2.33 (adapted from glibc 2.42's copy, which
+                        has the exception, and keeps its header)
     sysdeps/unix/sysv/linux/aarch64/__read_tp.S
                         libc_nonshared.a; aarch64 and aarch64_be, glibc
-                        2.17 .. 2.33 (linked only when referenced)
-    sysdeps/powerpc/powerpc32/ppc-mcount.S
-                        libc_nonshared.a; powerpc, every glibc release
-                        (linked only by -pg profiling)
+                        2.17 .. 2.33
     sysdeps/generic/crti.S, crtn.S
-                        crti.o, crtn.o on riscv32, riscv64 and loongarch64;
-                        no notice in the file, so glibc's LGPL-2.1-or-later
-  Those objects are under the plain LGPL-2.1-or-later. A program that
-  statically contains them carries the LGPL's terms for that code
-  (Section 6: the recipient must be able to relink the program against a
-  modified version of the library).
+                        crti.o, crtn.o on riscv32, riscv64 and loongarch64
+    sysdeps/powerpc/powerpc32/ppc-mcount.S
+                        dropped, not replaced: libc_nonshared.a on powerpc
+                        (32-bit) has no _mcount, so -pg profiling does not
+                        link there
+  Scripts/audit_glibc_exception.py checks every .c and .S source the shipped
+  compile tables name (headers such as sysdep.h are read by those compiles
+  but are not audited). glibc's COPYING.LIB and LICENSES, Kairo's license and
+  the exception text ship in the sysroot's LICENSES/glibc/.
 
 -------------------------------------------------------------------------------
 Components of the toolchain and its bundled sysroots
