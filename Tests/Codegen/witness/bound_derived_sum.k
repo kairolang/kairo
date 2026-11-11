@@ -1,5 +1,5 @@
 // `a + b` derived from an `op +=` a bound grants: copy `a`, `+=` `b`
-// through the witness, yield the copy. Was an ICE in OperatorLowering
+// through the witness, yield the copy. It is not an ICE in OperatorLowering
 // ("derived `+` on an untyped node"): the operator resolved, but the node
 // carries its operand's dependence and the typer read that as "deferred"
 // and left the node untyped. Found by the `derives`-bound operator batch

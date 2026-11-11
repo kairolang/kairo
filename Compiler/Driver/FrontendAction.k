@@ -1435,7 +1435,8 @@ pub class FrontendAction {
                         self._global_scope->instances(),
                     )
 
-                    h.line_directives = fe.emit_header_lines
+                    h.line_directives = fe.emit_header_lines || fe.emit_header_layout
+                    h.layout          = fe.emit_header_layout
                     if h.write(fe.emit_headers) {
                         kairo::Logger::info(
                             kairo::Logger::Stage::Driver,

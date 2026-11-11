@@ -2237,6 +2237,19 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     )
     cmd->mark_hidden("emit-headers-line-directives")
 
+    // The same, with each declaration on the PHYSICAL line it has in the .k
+    // file and the invented text in a `.prelude` beside the header: clangd
+    // reports physical lines, so this is what its jumps need. A separate
+    // flag so the plain line-directive layout above keeps its output.
+    cmd->define<FlagKind::Bool>(
+        "emit-headers-layout",
+        "",
+        "emit-headers-layout",
+        "with --emit-headers: lay each header out on its Kairo lines, with #line directives (for the language server)",
+        false,
+    )
+    cmd->mark_hidden("emit-headers-layout")
+
     cmd->define<FlagKind::Bool>(
         "print-symbols",
         "",

@@ -53,6 +53,17 @@ pub class EmitCXXHeader {
     pub var line_directives: bool   = false
     pub var header_name:     string = ""
 
+    /// --emit-headers-layout (kals' clangd bridge; implies line_directives):
+    /// each declaration on the PHYSICAL line it has in the .k file, since
+    /// clangd reports physical lines (TextSink::finish_layout). What the
+    /// emitter invents goes to \ref prelude, written beside the header as
+    /// `<header>.prelude` and included from its second line by absolute
+    /// path (clangd may present the header under the .k file's name, so a
+    /// relative include would resolve against the wrong directory).
+    pub var layout:  bool   = false
+    pub var prelude: string = ""
+    priv var _prelude_path: string = ""
+
     pub fn EmitCXXHeader(self,
                          ctx:       unsafe *ASTContext,
                          psym:      unsafe *PreprocessorSymbolTable,
@@ -86,6 +97,7 @@ pub class EmitCXXHeader {
         var ts   = TextSink(self._ctx->sm, self._ctx->tcm)
         ts.line_mode = self.line_directives
         ts.self_path = self.header_name
+        ts.layout    = self.layout && self.line_directives
         var cg   = CodegenContext(self._ctx, unsafe &ts, self._psym, self._instances)
         var plan = EmitPlan(unsafe &cg, PlanMode::Header)
         plan.run()
@@ -103,6 +115,11 @@ pub class EmitCXXHeader {
         if ts.line_mode {
             ts.brk() // the last line is still buffered
         }
+
+        if ts.layout {
+            self.prelude = ts.finish_layout("#include \"" + self._prelude_path + "\"")
+        }
+
         return ts.out
     }
 
@@ -150,9 +167,21 @@ pub class EmitCXXHeader {
             self.header_name = p
         }
 
+        if self.layout && self.line_directives {
+            Path::make_parent_dirs(p)
+            self._prelude_path = Path::join_str(Path::real_path_of(Path::parent_of(p)), Path::filename_of(p) + ".prelude")
+        }
+
         var text = self.render()
         if text.size() == 0 {
             return false
+        }
+
+        if self.layout && self.line_directives {
+            var oldp: string = ""
+            if (!LinkFS::read(self._prelude_path, &oldp)) || (oldp != self.prelude) {
+                Path::write_file(self._prelude_path, self.prelude)
+            }
         }
 
         // The bridge's headers are watched by clangd: an unchanged one is

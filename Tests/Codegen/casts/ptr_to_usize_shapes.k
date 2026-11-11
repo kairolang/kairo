@@ -2,7 +2,7 @@
 // Pointer to integer): a safe pointer, a `*const`, a pointer to a record and
 // to one of its fields, a raw pointer, and an address taken in place. Each is
 // a reinterpret_cast in C++: static_cast from a pointer to an integer is
-// ill-formed, and was what every one of these used to emit.
+// ill-formed, and not what any of these emits.
 //
 // The values are checked against each other, never against a constant: an
 // address differs from run to run, the distance between two fields does not.

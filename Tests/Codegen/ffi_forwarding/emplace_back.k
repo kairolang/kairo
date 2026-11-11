@@ -2,7 +2,7 @@
 // args)` -- with zero, one and several arguments, lvalues and rvalues,
 // Kairo records and builtins (GH#88). The parameter is a pack expansion
 // with no Kairo shape; it imported opaque, so no argument converted to it
-// and every call was SC063E. It now imports as a pack parameter whose
+// and every call was SC063E. It imports as a pack parameter whose
 // element is the pattern `Args&&`, one argument each.
 
 ffi "c++" import "vector"
