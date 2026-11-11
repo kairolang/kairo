@@ -68,6 +68,7 @@ import AST::Node::Declarations::{
     EnumDecl,
     FunctionDecl,
     GenericParamDecl,
+    ImportDecl,
     SpecKind,
     StructDecl,
 }
@@ -400,6 +401,14 @@ pub class SemaContext {
     /// and RedeclMerge (sibling branches never conflict) and the late fold.
     pub var eval_branches: EvalBranchTable
 
+    /// The files whose `extend` blocks this TU sees (RESOLUTION.md, the
+    /// extension-visibility rule): its own, and every fid its import edges
+    /// reach, transitively. One set per TU, built on first need by
+    /// sees_extension_file; member lookup, operator lookup and conformance
+    /// all ask it, so the three cannot disagree. Membership only.
+    pub var ext_visible:       llvm::DenseSet<u64>
+    pub var ext_visible_built: bool = false
+
     /// Every `typeof e` written in a type position, in the order T met
     /// them. T cannot resolve one (no expression has a type yet); a
     /// variable's whole declared type is resolved by StmtTyping::
@@ -520,6 +529,77 @@ pub class SemaContext {
     /// Passes call this first thing in run(). Firing it means the driver
     /// schedule and the pass's precondition disagree a bug in Sema.k,
     /// never in the pass.
+    /// An `extend` block in file \p fid is visible to this TU: the TU's own
+    /// file, a builtin file (seen by every TU, like its names), or a file
+    /// this TU's imports reach. Without the filter a TU saw every extension
+    /// whose file happened to be resolved before it looked, so one program
+    /// type-checked or not by check order (P821). Rule (c), an extension
+    /// beside its target type, is the caller's: only it knows the target.
+    fn sees_extension_file(self, fid: u32) -> bool {
+        if self.ctx != &null && fid == self.ctx->fid {
+            return true
+        }
+
+        if self.g != &null && self.g->is_builtin_fid(fid) {
+            return true
+        }
+
+        if !self.ext_visible_built {
+            self._build_ext_visible()
+        }
+
+        return self.ext_visible.contains(fid as u64)
+    }
+
+    priv fn _build_ext_visible(self) {
+        self.ext_visible_built = true
+        var unsafe *root = self.tu
+        if root == &null || self.ctx == &null {
+            return
+        }
+
+        self.ext_visible.insert(self.ctx->fid as u64)
+        var work = cxx::std::vector<unsafe *TranslationUnit>()
+        work.push_back(root)
+        while work.size() > 0 {
+            var unsafe *t = work[work.size() - 1]
+            work.pop_back()
+            for var i: usize = 0; i < t->import_edges.size(); ++i {
+                var unsafe *ed = t->import_edges.get(i)
+                if ed == &null {
+                    continue
+                }
+
+                var f = ed->target_fid
+                // ffi or unresolved: no Kairo extension behind it. A native
+                // edge to fid 0 is the first input, imported back by a module.
+                var unsafe *eid    = dyn_cast<ImportDecl>(ed->decl)
+                var        native0 = f == 0 && eid != &null && eid->file_seg_count > 0
+                if f == 0 && !native0 || f == u32::MAX {
+                    continue
+                }
+
+                if !self.ext_visible.insert(f as u64).second {
+                    continue
+                }
+
+                if self.g == &null {
+                    continue
+                }
+
+                var unsafe *c = self.g->get_context(f)
+                if c == &null {
+                    continue
+                }
+
+                var unsafe *ot = c->tu
+                if ot != &null {
+                    work.push_back(ot)
+                }
+            }
+        }
+    }
+
     fn require_phase(self, min: SemaPhase) {
         eval if defined!(DEBUG) {
             if !((self.phase as u8) >= (min as u8)) {

@@ -124,7 +124,10 @@ import Sema::Check::ClassLifecycle::{
     LifecycleTri,
     lifecycle_of,
 }
-import Sema::Resolve::MemberLookup::MemberLookup
+import Sema::Resolve::MemberLookup::{
+    MemberLookup,
+    extension_visible,
+}
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
     SemaContext,
@@ -2352,16 +2355,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// The member _implementation skipped last because this TU cannot see
     /// it, though it matched: why a detached row is not ok.
     priv var _hidden: unsafe *Decl = &null
-    /// This TU's fid, the builtin subtree's, and every fid its imports
-    /// reach, transitively: what its checks may use an extension from.
-    /// Built on first need.
-    /// Fids this TU (transitively) imports, `as u64` (clear of the reserved
-    /// keys). A set, not the vector it was: _build_visible probed it once per
-    /// import edge of every TU it reached, and _sees once per candidate, each
-    /// a linear scan -- quadratic in the closure, 2.5% of a whole-tree
-    /// type-check on its own. Membership only; never iterated.
-    priv var _visible:       llvm::DenseSet<u64>
-    priv var _visible_built: bool                = false
+    // The transitive import set lives on SemaContext (sees_extension_file):
+    // member and operator lookup filter by the same set.
 
     /// Table row \p row is usable in this TU: each implementing decl that is
     /// an extension member is in this TU's transitive import set (an own
@@ -2396,15 +2391,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return true
         }
 
-        if self.sc->g != &null && self.sc->g->is_builtin_fid(fid) {
-            return true
-        }
-
-        if !self._visible_built {
-            self._build_visible()
-        }
-
-        return self._visible.contains(fid as u64)
+        return extension_visible(self.sc, decl_extension_of(d), fid)
     }
 
     /// Whether \p w, the member found to implement a requirement of
@@ -2575,55 +2562,6 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         return false
-    }
-
-    priv fn _build_visible(self) {
-        self._visible_built = true
-        var unsafe *root = self.sc->tu
-        if root == &null {
-            return
-        }
-
-        self._visible.insert(self.sc->ctx->fid as u64)
-        var work = cxx::std::vector<unsafe *TranslationUnit>()
-        work.push_back(root)
-        while work.size() > 0 {
-            var unsafe *t = work[work.size() - 1]
-            work.pop_back()
-            for var i: usize = 0; i < t->import_edges.size(); ++i {
-                var unsafe *ed = t->import_edges.get(i)
-                if ed == &null {
-                    continue
-                }
-
-                var f = ed->target_fid
-                // ffi or unresolved: no Kairo extension behind it. A native
-                // edge to fid 0 is the first input, imported back by a module.
-                var unsafe *eid    = dyn_cast<Declarations::ImportDecl>(ed->decl)
-                var        native0 = f == 0 && eid != &null && eid->file_seg_count > 0
-                if f == 0 && !native0 || f == u32::MAX {
-                    continue
-                }
-
-                if !self._visible.insert(f as u64).second {
-                    continue
-                }
-
-                if self.sc->g == &null {
-                    continue
-                }
-
-                var unsafe *c = self.sc->g->get_context(f)
-                if c == &null {
-                    continue
-                }
-
-                var unsafe *ot = c->tu
-                if ot != &null {
-                    work.push_back(ot)
-                }
-            }
-        }
     }
 
     /// The GENERIC declared row that covers concrete \p row of instance \p x:

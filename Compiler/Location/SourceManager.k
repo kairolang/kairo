@@ -281,7 +281,7 @@ pub class SourceManager {
             return
         }
 
-        var unsafe *file = unsafe (@create SourceFile(path, buf, self._total_b) as unsafe *SourceFile)
+        var unsafe *file = unsafe (@create SourceFile(path, buf, self._total_b as usize) as unsafe *SourceFile)
 
         /// FIXME: an overflow can occur here. (shouldn't ever happen)
         self._total_b += ((file->size_bytes) as u64)

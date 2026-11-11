@@ -50,6 +50,7 @@ import Sema::Check::EvalUsageChecking::EvalUsageChecking
 import Sema::Check::FeatureGateCheck::FeatureGateCheck
 import Sema::Check::FlagGates::FlagGates
 import Sema::Check::FnPurityCheck::FnPurityCheck
+import Sema::Check::ForCopyLint::ForCopyLint
 import Sema::Check::InitCheck::InitCheck
 import Sema::Check::InterfaceComposition::InterfaceComposition
 import Sema::Check::MoveCheck::MoveCheck
@@ -738,6 +739,14 @@ pub class Sema {
         {
             var _p = TimeRegion("ShorthandLint")
             ShorthandLint(unsafe &self.sc).run()
+        }
+
+        // A write to a by-value `for` binder that nothing reads afterwards:
+        // it was meant for the element (SC275W). REQUIRES ExprTyper: reads
+        // resolved uses, binder types and the iterable's IterKind.
+        {
+            var _p = TimeRegion("ForCopyLint")
+            ForCopyLint(unsafe &self.sc).run()
         }
 
         // Exhaustiveness and dead arms; writes MatchStmt / MatchExpr facts.

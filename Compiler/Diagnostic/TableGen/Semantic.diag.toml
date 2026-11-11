@@ -5551,3 +5551,38 @@ group = "const-self"
     replace `@inout` with `const` (the fix-it does), then drop the `&`
     at each call: `total(&v)` becomes `total(v)`.
     """
+
+[SC275]
+brief = "write to a by-value 'for' loop variable is lost"
+group = "lint"
+
+    [SC275.W]
+    explain = """
+    # write to a by-value 'for' loop variable is lost
+
+    `for x in v` binds each element as a VALUE: `x` is a copy, made fresh
+    for every iteration. Writing it (`x = ...`, `x.f = ...`, `x += ...`,
+    passing `&x` to an `@inout` parameter) changes the copy only, and
+    when nothing in the loop body reads `x` after the write, the write
+    has no effect at all: it can only have been meant for the element.
+
+    ```kairo
+    for p in points {
+        p.x = 0              // warned: points is not changed
+    }
+    ```
+
+    Not warned: a body that reads the variable after writing it (the copy
+    is being used as a scratch value), a `for *x` loop, an element that is
+    itself a pointer, and a range over integers.
+
+    ## how to fix
+
+    bind a pointer to the element: `for *p in points` (the fix-it inserts
+    the `*`). Uses of `p` then go through the pointer, and the write
+    reaches the collection. If the copy is what you meant, read it or
+    drop the write.
+    """
+
+    [SC275.N]
+    explain = "Points at the loop variable that holds the copy."

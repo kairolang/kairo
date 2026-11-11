@@ -100,6 +100,7 @@ import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
+import Support::FileIO::Path::Path
 import Sema::Resolve::GenericArgs::GenericArgs
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
@@ -987,11 +988,8 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             }
 
             if cands.empty() {
-                self._err_contained(
-                    DiagID::R025E,
-                    at,
-                    f"no member named '{spelled}' in '{self._decl_name_str(a.decl)}'",
-                )
+                var dn = self._decl_name_str(a.decl)
+                self._err_member_miss(at, f"no member named '{spelled}' in '{dn}'", a.ty, name, spelled, dn)
 
                 st->name->poison()
                 self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
@@ -1102,7 +1100,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         self.ml.lookup(ty, name, unsafe &cands)
         if cands.empty() {
             var tn = self._type_name_str(ty)
-            self._err_contained(DiagID::R025E, at, f"no member named '{spelled}' in '{tn}'")
+            self._err_member_miss(at, f"no member named '{spelled}' in '{tn}'", ty, name, spelled, tn)
             st->name->poison()
             self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
             var r = Anchor()
@@ -1948,6 +1946,82 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     priv fn _err_contained(self, id: DiagID, at: SourceRange, const msg: string) {
         self.sc->contained_errors += 1
         self._err(id, at, msg)
+    }
+
+    /// R025E for a member lookup miss on \p ty. When an `extend` of the type
+    /// in a file this TU does not import declares the name, the miss is the
+    /// extension-visibility rule (MemberLookup::extension_visible), so say
+    /// which file and offer the import.
+    priv fn _err_member_miss(self,
+                             at:          SourceRange,
+                             const msg:   string,
+                             ty:          unsafe *Type,
+                             name:        DeclName,
+                             const spelled: string,
+                             const tn:    string) {
+        self.sc->contained_errors += 1
+        self.n_errored            += 1
+        var b = self.sc->diag->report(DiagID::R025E, at.start, msg)
+        b.first(at)
+        var e: unsafe *Declarations::ExtensionDecl = &null
+        if ty != &null {
+            e = self.ml.hidden_extension(ty, name)
+        }
+
+        var unsafe *sm = self.sc->ctx->sm
+        if e != &null && sm != &null {
+            var epath = Path(sm->get_filename(e->range.start))
+            var file  = epath.filename()
+            b.note(
+                e->range.start,
+                f"an extension of '{tn}' in '{file}' declares '{spelled}'; import it to use it",
+            )
+            var mp = self._import_spelling(Path(sm->get_filename(at.start)), epath)
+            var unsafe *tu = self.sc->tu
+            if mp.size() > 0 && tu != &null && tu->imports.size() > 0 {
+                // After the line the last import ends on: an ImportDecl's
+                // range may stop at its keyword.
+                var unsafe *last = *tu->imports.get(tu->imports.size() - 1)
+                if last != &null && last->range.start.is_valid() {
+                    var at_end = last->range.start
+                    if last->range.end.is_valid() && sm->same_file(at_end, last->range.end) &&
+                        sm->get_offset(last->range.end) > sm->get_offset(at_end) {
+                        at_end = last->range.end
+                    }
+
+                    var col  = sm->get_line_col(at_end).column
+                    var off  = sm->get_offset(at_end) + 1 - col
+                    var eol  = sm->get_loc(sm->get_fid(at_end), off + sm->get_full_line(at_end).size())
+                    b.insert(eol, f"\nimport self::{mp}", f"import 'self::{mp}'")
+                }
+            }
+        }
+
+        b.emit()
+    }
+
+    /// The `a::b::c` that imports file \p to from \p from's directory, or
+    /// "" when it is not under it (then no fix-it: a search-root spelling
+    /// would be a guess).
+    priv fn _import_spelling(self, const from: Path, const to: Path) -> string {
+        var here = Path(from.parent_path())
+        var rel  = to.relative_to(here)
+        var o: string = ""
+        var n  = rel.size()
+        if n > 2 && rel[n - 2] == ('.' as u8) && rel[n - 1] == ('k' as u8) {
+            n = n - 2
+        }
+
+        for var i: usize = 0; i < n; ++i {
+            var c = rel[i]
+            if c == ('/' as u8) || c == ('\\' as u8) {
+                o += "::"
+            } else {
+                o.push_back(c)
+            }
+        }
+
+        return o
     }
 
     priv fn _name_imm(self, tok: Token) -> u32 {

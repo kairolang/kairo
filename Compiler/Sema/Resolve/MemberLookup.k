@@ -103,6 +103,57 @@ import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Token::TokenKind::TokenKind
 
+/// The extension-visibility rule (RESOLUTION.md): TU \p sc sees `extend`
+/// block \p e, written in file \p efid, when that file is its own, a
+/// builtin file, one its imports reach transitively (all three
+/// SemaContext::sees_extension_file), or the file that declares the
+/// extended record: an extension written beside its type travels with it.
+pub fn extension_visible(sc: unsafe *SemaContext, e: unsafe *Declarations::ExtensionDecl, efid: u32) -> bool {
+    if sc == &null || sc->sees_extension_file(efid) {
+        return true
+    }
+
+    if e == &null || e->target == &null || e->target->canonical == &null {
+        return false
+    }
+
+    var unsafe *c = canon_unqual(e->target->canonical)
+    if !isa<RecordType>(c) {
+        return false
+    }
+
+    var unsafe *rd = cast<RecordType>(c)->decl
+    if rd != &null && decl_is_instance(rd) && decl_instantiated_from(rd) != &null {
+        rd = decl_instantiated_from(rd)
+    }
+
+    var unsafe *rc = NameLookup::ctx_of(rd)
+    return rc != &null && rc->fid == efid
+}
+
+/// `a::b::Point<T>` -> `Point`: the last path segment of a written type,
+/// generic arguments dropped. Spelling only; for a note, never for lookup.
+pub fn type_spelling_leaf(const s: string) -> string {
+    var o: string = ""
+    for var i: usize = 0; i < s.size(); ++i {
+        var c = s[i]
+        if c == ('<' as u8) {
+            break
+        }
+
+        if c == (':' as u8) {
+            o = ""
+            continue
+        }
+
+        if c != (' ' as u8) {
+            o.push_back(c)
+        }
+    }
+
+    return o
+}
+
 pub class MemberLookup {
     pub var sc: unsafe *SemaContext
 
@@ -114,6 +165,15 @@ pub class MemberLookup {
     priv var _ext_by_decl: llvm::DenseMap<u64, cxx::std::vector<unsafe *Declarations::ExtensionDecl>>
     /// canonical non-record type -> extensions targeting it.
     priv var _ext_by_type: llvm::DenseMap<u64, cxx::std::vector<unsafe *Declarations::ExtensionDecl>>
+    /// The same two indexes for the extensions this TU does NOT see
+    /// (extension_visible): never answered by a lookup, only read by
+    /// hidden_extension for the "import it to use it" note.
+    priv var _hidden_by_decl: llvm::DenseMap<u64, cxx::std::vector<unsafe *Declarations::ExtensionDecl>>
+    priv var _hidden_by_type: llvm::DenseMap<u64, cxx::std::vector<unsafe *Declarations::ExtensionDecl>>
+    /// Unseen extensions whose target T has not resolved yet (their file is
+    /// checked after this one): matched by the target's spelled leaf, so
+    /// the note does not depend on check order either.
+    priv var _hidden_unresolved: cxx::std::vector<unsafe *Declarations::ExtensionDecl>
     priv var _indexed: bool = false
     /// This TU's spelling of the name the current lookup() is walking. See
     /// in_scope: a foreign scope's table cannot be probed with our imm.
@@ -171,11 +231,11 @@ pub class MemberLookup {
                 continue
             }
 
-            self._index_dc(tu)
+            self._index_dc(tu, fids[i])
         }
     }
 
-    priv fn _index_dc(self, dc: unsafe *DeclContext) {
+    priv fn _index_dc(self, dc: unsafe *DeclContext, fid: u32) {
         if dc == &null {
             return
         }
@@ -186,27 +246,45 @@ pub class MemberLookup {
                 continue
             }
 
-            self._index_decl(d)
+            self._index_decl(d, fid)
         }
     }
 
-    priv fn _index_decl(self, d: unsafe *Decl) {
+    priv fn _index_decl(self, d: unsafe *Decl, fid: u32) {
         if isa<Declarations::ExtensionDecl>(d) {
             var unsafe *e = cast<Declarations::ExtensionDecl>(d)
-            if e->target == &null || e->target->canonical == &null { // errored, or a TU whose T has not run.
+            if e->target == &null {
+                return
+            }
+
+            if e->target->canonical == &null { // errored, or a TU whose T has not run.
+                if self.sc != &null && !self.sc->sees_extension_file(fid) {
+                    self._hidden_unresolved.push_back(e)
+                }
+
                 return
             }
 
             var unsafe *c = canon_unqual(e->target->canonical)
+            // The filter is here, once, so every reader of the index (member
+            // and operator lookup, conformance, Substitution's associated
+            // types) follows the same visibility rule.
+            var seen = self.sc == &null || extension_visible(self.sc, e, fid)
             if isa<RecordType>(c) {
                 // Keyed by DECL: `extend <T> Vec<T>` contributes to every
                 // Vec<X> at name level. RecordType::decl for a dependent
                 // target is the primary (#12), which is the key we want.
                 var key = (cast<RecordType>(c)->decl as usize as u64)
-                self._ext_by_decl[key].push_back(e)
-            } else {
+                if seen {
+                    self._ext_by_decl[key].push_back(e)
+                } else {
+                    self._hidden_by_decl[key].push_back(e)
+                }
+            } else if seen {
                 // `extend i32 { }`, `extend [u8] { }`: one exact canonical.
                 self._ext_by_type[c as usize as u64].push_back(e)
+            } else {
+                self._hidden_by_type[c as usize as u64].push_back(e)
             }
 
             return
@@ -214,14 +292,14 @@ pub class MemberLookup {
 
         // Extensions may sit inside modules and visibility groups.
         if isa<Declarations::ModuleDecl>(d) {
-            self._index_dc(unsafe (cast<Declarations::ModuleDecl>(d) as unsafe *DeclContext))
+            self._index_dc(unsafe (cast<Declarations::ModuleDecl>(d) as unsafe *DeclContext), fid)
             return
         }
 
         if isa<Declarations::VisibilityGroupDecl>(d) {
             var unsafe *g = cast<Declarations::VisibilityGroupDecl>(d)
             for var i: usize = 0; i < g->members.size(); ++i {
-                self._index_decl(g->members[i])
+                self._index_decl(g->members[i], fid)
             }
 
             return
@@ -230,7 +308,7 @@ pub class MemberLookup {
         if isa<Declarations::EvalBlockDecl>(d) {
             var unsafe *b = cast<Declarations::EvalBlockDecl>(d)
             for var i: usize = 0; i < b->body.size(); ++i {
-                self._index_decl(b->body[i])
+                self._index_decl(b->body[i], fid)
             }
 
             return
@@ -255,6 +333,69 @@ pub class MemberLookup {
         }
 
         return unsafe &it->second
+    }
+
+    /// An extension of \p c this TU does not see that declares \p name, or
+    /// null: the lookup's miss is then "import it", not "no such member".
+    fn hidden_extension(self, c_in: unsafe *Type, name: DeclName) -> unsafe *Declarations::ExtensionDecl {
+        self.index_extensions()
+        var unsafe *c = canon_unqual(c_in)
+        if c == &null {
+            return &null
+        }
+
+        var key = c as usize as u64
+        var hit = self._hidden_by_type.find(key)
+        var end = self._hidden_by_type.end()
+        if isa<RecordType>(c) {
+            var unsafe *d = cast<RecordType>(c)->decl
+            if d != &null && decl_is_instance(d) && decl_instantiated_from(d) != &null {
+                d = decl_instantiated_from(d)
+            }
+
+            key = d as usize as u64
+            hit = self._hidden_by_decl.find(key)
+            end = self._hidden_by_decl.end()
+        }
+
+        var spelled = self._spell(name)
+        if hit != end {
+            for var i: usize = 0; i < hit->second.size(); ++i {
+                var unsafe *e = hit->second[i]
+                if self.in_scope(unsafe (e as unsafe *DeclContext), name, spelled) != &null {
+                    return e
+                }
+            }
+        }
+
+        if !isa<RecordType>(c) || self._hidden_unresolved.size() == 0 {
+            return &null
+        }
+
+        var unsafe *rd = cast<RecordType>(c)->decl
+        var unsafe *rc = NameLookup::ctx_of(rd)
+        if rc == &null {
+            return &null
+        }
+
+        var leaf = rc->get_spelling(decl_name_tok(rd))
+        for var i: usize = 0; i < self._hidden_unresolved.size(); ++i {
+            var unsafe *e  = self._hidden_unresolved[i]
+            var unsafe *ec = NameLookup::ctx_of(unsafe (e as unsafe *Decl))
+            if ec == &null || e->target == &null {
+                continue
+            }
+
+            if type_spelling_leaf(ec->get_spelling(e->target->range)) != leaf {
+                continue
+            }
+
+            if self.in_scope(unsafe (e as unsafe *DeclContext), name, spelled) != &null {
+                return e
+            }
+        }
+
+        return &null
     }
 
     /// # The lookup
