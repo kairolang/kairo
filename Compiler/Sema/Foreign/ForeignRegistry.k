@@ -13,7 +13,7 @@
 ///   private and every accessor takes `_mu` itself (shared to read), so a
 ///   reader needs no `_fill_locked` around it: note_spec under a fill and
 ///   spec_of / find from any Sema thread are ordered by `_mu` alone. A leaf
-///   lock: nothing below takes another (audited for P807).
+///   lock: nothing below takes another.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -105,31 +105,41 @@ pub class ForeignRegistry {
     /// Every USR with its declaration, for a live check's retraction
     /// (Sema/Incremental/Retract.k), which judges each and gives the dead
     /// ones back to forget().
-    pub fn entries(self, usrs: unsafe *cxx::std::vector<string>, decls: unsafe *cxx::std::vector<unsafe *Decl>) {
+    ///
+    /// \note The USRs are VIEWS of the table's keys (a graph that uses C++
+    ///       containers has hundreds of thousands, and copying them was
+    ///       most of a retraction): valid until the table changes, which
+    ///       forget() does.
+    pub fn entries(self, usrs: unsafe *cxx::std::vector<llvm::StringRef>, decls: unsafe *cxx::std::vector<unsafe *Decl>) {
         var rlock = kairo::std::SharedLock(self._mu)
+        usrs->reserve(self._by_usr.size() as usize)
+        decls->reserve(self._by_usr.size() as usize)
         for var it = self._by_usr.begin(); it != self._by_usr.end(); ++it {
-            usrs->push_back(kairo::std::from_std_string<string>(it->getKey().str()))
+            usrs->push_back(it->getKey())
             decls->push_back(it->second)
         }
     }
 
     /// Drops \p usrs, and what was noted about the shells \p shells: the
     /// next import or stand-in under one of those USRs registers afresh.
+    ///
+    /// \note \p usrs and \p orphans may be entries()'s views: each is read
+    ///       before its own key is erased, never after.
     pub fn forget(self,
-                  usrs:    unsafe *cxx::std::vector<string>,
-                  orphans: unsafe *cxx::std::vector<string>,
+                  usrs:    unsafe *cxx::std::vector<llvm::StringRef>,
+                  orphans: unsafe *cxx::std::vector<llvm::StringRef>,
                   shells:  unsafe *cxx::std::vector<unsafe *Decl>) {
         var lock = kairo::std::LockGuard(self._mu)
-        for var i: usize = 0; i < usrs->size(); ++i {
-            self._by_usr.erase(kairo::sref((*usrs)[i]))
-        }
-
         // A stand-in whose Kairo declaration is being re-read stays
         // declared in the clang AST: the next declaration that asks for a
         // stand-in of that name adopts it (adopt).
         for var i: usize = 0; i < orphans->size(); ++i {
-            self._by_usr.erase(kairo::sref((*orphans)[i]))
-            self._orphans.insert(kairo::sref((*orphans)[i]))
+            self._orphans.insert((*orphans)[i])
+            self._by_usr.erase((*orphans)[i])
+        }
+
+        for var i: usize = 0; i < usrs->size(); ++i {
+            self._by_usr.erase((*usrs)[i])
         }
 
         for var i: usize = 0; i < shells->size(); ++i {

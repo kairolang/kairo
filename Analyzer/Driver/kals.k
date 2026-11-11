@@ -165,6 +165,7 @@ ffi "c++" import "llvm/Support/TargetSelect.h"
 ffi "c++" import "locale"
 ffi "c++" import "sstream"
 
+import Index::LiveWorker::index_server_main
 import Index::Worker::worker_main
 import Server::Server::server_main
 import std::c_char
@@ -244,6 +245,10 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         var rest: [string]
         for var i: usize = 1; i < args.size(); ++i {
             rest.push_back(args[i])
+        }
+
+        if (rest.size() > 0) && (rest[0] == "--index-server") {
+            return index_server_main(&rest)
         }
 
         return worker_main(&rest)

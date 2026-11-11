@@ -67,6 +67,7 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::SyntaxWorker::*
+import Server::LiveIndex::*
 
 extend Server {
     fn scratch(self, const suffix: string) -> string {
@@ -200,7 +201,8 @@ extend Server {
     /// beside it only when BOTH graphs are known to be small: a worker is a
     /// whole compile, and two of a large tree is tens of GB.
     fn can_start(const self, ei: usize) -> bool {
-        var n = self.running(JOB_INDEX())
+        // A live worker answering a request is a run of its graph.
+        var n = self.running(JOB_INDEX()) + self.live_busy_others(ei)
         if n == 0 {
             return true
         }
@@ -348,7 +350,7 @@ extend Server {
             }
         }
 
-        if self.jobs.empty() && (!self.garbage.empty()) {
+        if self.jobs.empty() && (self.live_inflight() == 0) && (!self.garbage.empty()) {
             // Only now: a running worker reads its overlays when it starts,
             // and a file removed under it would turn into an empty buffer.
             var keep: [string]
@@ -383,6 +385,15 @@ extend Server {
         aw.field_uint("revision", j->rev as usize)
         aw.field_uint("current", self.entries[ei].change_rev as usize)
         aw.field_int("exitCode", rc as i64)
+        // A live worker's answer says what it did; a process's has no more
+        // to say than that it ran.
+        if j->live {
+            aw.field("mode", j->l_mode)
+            aw.field("why", j->l_why)
+            aw.field_uint("rechecked", j->l_rechecked)
+            aw.field_uint("pending", j->l_pending)
+        }
+
         aw.end_object()
         self.notify(M_KALS_ANALYSED, aw.out)
     }

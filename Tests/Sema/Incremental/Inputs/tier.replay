@@ -1,0 +1,36 @@
+# Tests/Sema/Incremental/replay_two_tier.k, over Inputs/plan in s/: the
+# edited file first, its importers afterwards (--incr-replay-two-tier).
+# `drain <n>` lets n queued files be re-checked before the step's next edit.
+step leaf_body
+replace s/util.k:::return y * 3:::return 3 * y
+# geo.k breaks main.k, which is only re-checked when its turn comes.
+step signature_breaks_importer
+replace s/geo.k:::sum(p: Point) -> i32:::sum(p: Point, k: i32) -> i32
+step signature_fixed
+replace s/geo.k:::k: i32) -> i32:::k: i32 = 0) -> i32
+# A second edit before the first one's importers are done: its first tier
+# runs at once and the two queues are joined.
+step preempt_half_drained
+replace s/util.k:::return 3 * y:::return y * 3
+drain 1
+replace s/counter.k:::priv var n: i32 = 0:::priv var n: i64 = 0
+# Two files in turn, nothing drained in between.
+step alternating
+replace s/gen.k:::    return v:::    var w = v; return w
+replace s/hidden.k:::priv fn hidden():::// moved down\npriv fn hidden()
+replace s/gen.k:::    var w = v; return w:::    var w2 = v; return w2
+replace s/hidden.k:::// moved down\npriv fn hidden():::priv fn hidden()
+# use_util.k is queued by the edit of util.k and edited before its turn.
+step edit_a_queued_file
+replace s/util.k:::return y * 3:::return y * 4
+replace s/use_util.k:::util::triple(2):::util::triple(3)
+# The entry is queued by every edit: editing it re-checks what it imports
+# that is still queued, first.
+step edit_the_entry_while_everything_is_queued
+replace s/util.k:::return y * 4:::return y * 5
+replace s/geo.k:::k: i32 = 0) -> i32:::k: i32) -> i32
+replace s/main.k:::fn main():::// the entry\nfn main()
+step fix_again
+replace s/geo.k:::k: i32) -> i32:::k: i32 = 0) -> i32
+step counter_back
+replace s/counter.k:::priv var n: i64 = 0:::priv var n: i32 = 0

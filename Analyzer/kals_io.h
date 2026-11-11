@@ -236,6 +236,42 @@ static inline int kals_poll2(int fd, int ms) {
 #endif
 }
 
+/* kals_poll2 for several children: waits up to \p ms for input on stdin or
+ * on any of the \p n descriptors in \p fds (at most 30). Bit 1: stdin; bit
+ * (2 << i): fds[i] has bytes, EOF or an error. 0 on timeout, -1 on error. */
+static inline int kals_pollv(const int *fds, int n, int ms) {
+#ifdef _WIN32
+    (void)fds;
+    (void)n;
+    int r = kals_stdin_wait(ms);
+    return r < 0 ? -1 : r;
+#else
+    struct pollfd p[31];
+    if (n > 30) {
+        n = 30;
+    }
+    p[0].fd      = 0;
+    p[0].events  = POLLIN;
+    p[0].revents = 0;
+    for (int i = 0; i < n; ++i) {
+        p[i + 1].fd      = fds[i];
+        p[i + 1].events  = POLLIN;
+        p[i + 1].revents = 0;
+    }
+    int r = poll(p, (nfds_t)(n + 1), ms);
+    if (r < 0) {
+        return -1;
+    }
+    int bits = 0;
+    for (int i = 0; i <= n; ++i) {
+        if (p[i].revents != 0) {
+            bits |= 1 << i;
+        }
+    }
+    return bits;
+#endif
+}
+
 /* A non-blocking read of \p fd: bytes read, 0 at EOF, -2 when nothing is
  * there yet, -1 on error. */
 static inline long long kals_fd_read(int fd, unsigned char *buf, unsigned long long cap) {

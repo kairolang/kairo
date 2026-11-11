@@ -28,8 +28,8 @@
 #include <thread>
 #include <vector>
 
-// Unconditional: the feature macro the old guard tested is only defined once
-// a standard header has been seen, which lib-helix's prelude happened to do.
+// Unconditional: the feature macro a guard would test is only defined once
+// a standard header has been seen, which lib-helix's prelude happens to do.
 #include <source_location>
 
 #if defined(_WIN32)

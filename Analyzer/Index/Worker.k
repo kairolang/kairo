@@ -121,6 +121,14 @@ pub class IndexObserver derives SemaObserver {
     /// Files checked without the function bodies their syntax errors are in.
     pub var partial: [string]
 
+    /// The live index worker (LiveWorker.k): each walked file's object is
+    /// KEPT, by path, and replaced when the file is walked again, instead
+    /// of joined into `out` / `rest`. The process outlives a check, and a
+    /// re-check walks only the files it re-checked.
+    pub var keep:     bool = false
+    pub var k_paths:  [string]
+    pub var k_blocks: [string]
+
     priv var mu_: kairo::std::Mutex
 
     /// Walked at on_checked, written at on_lowered (or by flush).
@@ -182,6 +190,7 @@ pub class IndexObserver derives SemaObserver {
         var unsafe *walker = kairo::std::create<IndexWalker>(sc)
         walker->run(fid)
         walker->named_ = named
+        walker->path_  = path
         var t1 = worker_us()
 
         // Held until on_lowered: a type's size is the compiler's layout
@@ -231,11 +240,25 @@ pub class IndexObserver derives SemaObserver {
         var w = JsonWriter()
         walker->write(&w)
         var named = walker->named_
+        var wpath = walker->path_
         kairo::std::destroy(walker)
         var t2 = worker_us()
 
         var lock = kairo::std::LockGuard(self.mu_)
         self.write_us += t2 - t1
+        if self.keep {
+            for var i: usize = 0; i < self.k_paths.size(); ++i {
+                if self.k_paths[i] == wpath {
+                    self.k_blocks[i] = w.out
+                    return
+                }
+            }
+
+            self.k_paths.push_back(wpath)
+            self.k_blocks.push_back(w.out)
+            return
+        }
+
         if named {
             if self.count > 0 {
                 self.out += ","

@@ -160,6 +160,7 @@ import AST::Node::CanonicalNodes::{
 import Sema::Incremental::Retract::{
     RetractStats,
     retract_instances,
+    verify_retired,
 }
 import Diagnostic::FileDiagnostics::FileDiagConsumer
 import Sema::Incremental::Facts::{
@@ -218,6 +219,25 @@ pub class FrontendAction {
     priv var _rearmed_was: cxx::std::vector<string> ///< parallel: what each was, for the reason
     /// More about the last refresh()'s refusal (which instance), for a log.
     pub var refresh_detail: string = ""
+
+    /// A live check that re-checks an edit's files in SLICES
+    /// (LiveCheck::two_tier): retract() is called once for the whole
+    /// refresh set and refresh() once per slice, with other edits'
+    /// retractions and slices in between. What one refresh() of the whole
+    /// set decides at its end is then decided across the calls:
+    ///  - an entry a retraction re-armed must be used again by a file of
+    ///    THAT retraction's set (\c _rearm_set, \c _rearm_ok), judged when
+    ///    every slice is done (tier_finish);
+    ///  - an adopted stand-in's record is compared with the layout it had
+    ///    before the first retraction since the last tier_finish
+    ///    (\c _tt_old_i), whichever slice re-reads it.
+    pub var tiered: bool = false
+    priv var _tt_sets:   cxx::std::vector<cxx::std::vector<u32>>
+    priv var _rearm_set: cxx::std::vector<u64> ///< parallel to _rearmed: its retraction's set
+    priv var _rearm_ok:  cxx::std::vector<u8>  ///< parallel: used again by that set, or dropped
+    priv var _tt_old_i:  llvm::StringMap<u32>
+    priv var _tt_old_v:  cxx::std::vector<string>
+    priv var _tt_old_f:  llvm::DenseSet<u64>   ///< files whose old hashes are in _tt_old_i
     priv var _graph:        cxx::std::vector<u32> ///< every fid of the graph, an earlier input's too
     pub var  result:        TUResult
     priv var _stage:        TUStage
@@ -1633,12 +1653,38 @@ pub class FrontendAction {
         //    file's, which was not re-checked;
         //  - a file of the set used an entry a kept file made live, from a
         //    place earlier in the order than that file.
-        for var i: usize = 0; i < self._rearmed.size(); ++i {
-            if self._rearmed[i]->depth == 0 {
+        if self.tiered {
+            // Judged at tier_finish: a later slice may be the one that
+            // uses it. Noted here, while this slice's uses are known: made
+            // live from a file of its retraction's set, or used (already
+            // live) from one.
+            for var i: usize = 0; i < self._rearmed.size(); ++i {
+                if self._rearm_ok[i] != 0 {
+                    continue
+                }
+
                 var unsafe *re = self._rearmed[i]
-                var what = if (re->primary != &null) => (incr_decl_id(re->primary, self._ci->pp()->get_symbol_table())) else => "?"
-                self.refresh_detail = what + f" ({self._rearmed_was[i]})"
-                return "an instance the edited files used first is now used first by a kept file"
+                var *rset      = &self._tt_sets[self._rearm_set[i] as usize]
+                if re->depth != 0 && re->use_at.is_valid() && _fid_in(rset, self._ci->sm()->resolve(re->use_at.start).fid as u32) {
+                    self._rearm_ok[i] = (1 as u8)
+                    continue
+                }
+
+                for var k: usize = 0; k < relive.size(); ++k {
+                    if relive[k] == re && relive_at[k].is_valid() && _fid_in(rset, self._ci->sm()->resolve(relive_at[k].start).fid as u32) {
+                        self._rearm_ok[i] = (1 as u8)
+                        break
+                    }
+                }
+            }
+        } else {
+            for var i: usize = 0; i < self._rearmed.size(); ++i {
+                if self._rearmed[i]->depth == 0 {
+                    var unsafe *re = self._rearmed[i]
+                    var what = if (re->primary != &null) => (incr_decl_id(re->primary, self._ci->pp()->get_symbol_table())) else => "?"
+                    self.refresh_detail = what + f" ({self._rearmed_was[i]})"
+                    return "an instance the edited files used first is now used first by a kept file"
+                }
             }
         }
 
@@ -1662,6 +1708,16 @@ pub class FrontendAction {
             var new_i = llvm::StringMap<u32>()
             var new_v = cxx::std::vector<string>()
             for var i: usize = 0; i < self._incr.size(); ++i {
+                // In slices, the record may have been re-read by an earlier
+                // one: every file a retraction named, as it stands.
+                if self.tiered {
+                    if self._tt_old_f.contains(self._incr[i].fid as u64) {
+                        _facts_hashes(unsafe &self._incr[i], unsafe &new_i, unsafe &new_v)
+                    }
+
+                    continue
+                }
+
                 for var fid: u32 in fids {
                     if self._incr[i].fid == fid {
                         _facts_hashes(unsafe &self._incr[i], unsafe &new_i, unsafe &new_v)
@@ -1671,19 +1727,98 @@ pub class FrontendAction {
 
             for var i: usize = 0; i < freg->adopted.size(); ++i {
                 var id = incr_decl_id(freg->adopted[i], self._ci->pp()->get_symbol_table())
-                var a  = old_i.find(kairo::sref(id))
                 var b  = new_i.find(kairo::sref(id))
+                if self.tiered {
+                    var ta = self._tt_old_i.find(kairo::sref(id))
+                    if ta == self._tt_old_i.end() || b == new_i.end() || self._tt_old_v[ta->second as usize] != new_v[b->second as usize] {
+                        return "a record handed to a C++ template changed its layout: " + id
+                    }
+
+                    continue
+                }
+
+                var a = old_i.find(kairo::sref(id))
                 if a == old_i.end() || b == new_i.end() || old_v[a->second as usize] != new_v[b->second as usize] {
                     return "a record handed to a C++ template changed its layout: " + id
                 }
             }
         }
 
+        if (!self.tiered) && ((!fe.dump_interface.empty()) || (!fe.dump_deps.empty())) {
+            self._dump_incremental(fe.dump_interface, fe.dump_deps)
+        }
+
+        return ""
+    }
+
+    /// \brief every slice of a tiered re-check is done: what refresh()
+    ///        decides at its end when it is handed the whole set. "" when
+    ///        the result stands; otherwise why it takes a full check.
+    pub fn tier_finish(self) -> string {
+        var why = ""
+        for var i: usize = 0; i < self._rearmed.size() && why.empty(); ++i {
+            if self._rearm_ok[i] == 0 {
+                var unsafe *re = self._rearmed[i]
+                var what = if (re->primary != &null) => (incr_decl_id(re->primary, self._ci->pp()->get_symbol_table())) else => "?"
+                self.refresh_detail = what + f" ({self._rearmed_was[i]})"
+                why = "an instance the edited files used first is now used first by a kept file"
+            }
+        }
+
+        self._rearmed.clear()
+        self._rearmed_was.clear()
+        self._rearm_set.clear()
+        self._rearm_ok.clear()
+        self._tt_sets.clear()
+        self._tt_old_i.clear()
+        self._tt_old_v.clear()
+        self._tt_old_f.clear()
+        if !why.empty() {
+            return why
+        }
+
+        var fe = self._ci->invocation()->frontend
         if (!fe.dump_interface.empty()) || (!fe.dump_deps.empty()) {
             self._dump_incremental(fe.dump_interface, fe.dump_deps)
         }
 
         return ""
+    }
+
+    /// \p fids group by group, as the sema loop runs them: each import
+    /// cycle's members together, each group after every group it imports
+    /// (ImportGroups over order_of). order_of alone breaks a cycle at one
+    /// file, which then stands BEFORE files outside the cycle that it
+    /// imports; in this order the first file's group imports nothing else
+    /// of the list.
+    pub fn group_order_of(self, const fids: cxx::std::vector<u32>) -> cxx::std::vector<u32> {
+        var groups = ImportGroups()
+        groups.build(self.order_of(fids), self._global_scope)
+        return groups.fids
+    }
+
+    /// KAIRO_LIVE_DEBUG: the stores retract() purges hold nothing of a
+    /// replaced tree (Sema/Incremental/Retract.k, verify_retired). How
+    /// many they do hold.
+    pub fn verify_retired(self) -> usize {
+        return verify_retired(self._global_scope, self._ci->foreign_registry(), self._ci->retired)
+    }
+
+    /// \p fids in the order their Sema runs (import order over the graph).
+    pub fn order_of(self, const fids: cxx::std::vector<u32>) -> cxx::std::vector<u32> {
+        var want = llvm::DenseSet<u64>()
+        for var f: u32 in fids {
+            want.insert(f as u64)
+        }
+
+        var out = cxx::std::vector<u32>()
+        for var f: u32 in self._import_order() {
+            if want.contains(f as u64) {
+                out.push_back(f)
+            }
+        }
+
+        return out
     }
 
     /// \brief why \p set cannot be re-checked by refresh(), "" when it
@@ -1753,12 +1888,56 @@ pub class FrontendAction {
     /// \brief before \p set is re-read: its files are taken out of the
     ///        build-wide stores that outlive a tree.
     pub fn retract(self, const set: cxx::std::vector<u32>) -> RetractStats {
-        var st = retract_instances(self._global_scope, self._ci->sm(), self._ci->foreign_registry(), set)
-        self._rearmed = st.rearmed_list
-        self._rearmed_was.clear()
-        for var i: usize = 0; i < st.rearmed_was.size(); ++i {
-            self._rearmed_was.push_back(st.rearmed_was[i])
+        // The layouts the set's records have, while its facts are the old
+        // ones: a slice compares against them whenever it runs.
+        if self.tiered {
+            for var i: usize = 0; i < self._incr.size(); ++i {
+                var mine = false
+                for var f: u32 in set {
+                    if self._incr[i].fid == f {
+                        mine = true
+                    }
+                }
+
+                if mine && !self._tt_old_f.contains(self._incr[i].fid as u64) {
+                    self._tt_old_f.insert(self._incr[i].fid as u64)
+                    _facts_hashes(unsafe &self._incr[i], unsafe &self._tt_old_i, unsafe &self._tt_old_v)
+                }
+            }
         }
+
+        var st = retract_instances(self._global_scope, self._ci->sm(), self._ci->foreign_registry(), set)
+        if !self.tiered {
+            self._rearmed = st.rearmed_list
+            self._rearmed_was.clear()
+            for var i: usize = 0; i < st.rearmed_was.size(); ++i {
+                self._rearmed_was.push_back(st.rearmed_was[i])
+            }
+
+            return st
+        }
+
+        // An entry an earlier retraction re-armed and this one dropped has
+        // nothing left to report.
+        var gone = llvm::DenseSet<u64>()
+        for var i: usize = 0; i < st.dropped_list.size(); ++i {
+            gone.insert(st.dropped_list[i] as usize as u64)
+        }
+
+        for var i: usize = 0; i < self._rearmed.size(); ++i {
+            if gone.contains(self._rearmed[i] as usize as u64) {
+                self._rearm_ok[i] = (1 as u8)
+            }
+        }
+
+        self._tt_sets.push_back(set)
+        for var i: usize = 0; i < st.rearmed_list.size(); ++i {
+            self._rearmed.push_back(st.rearmed_list[i])
+            self._rearmed_was.push_back(st.rearmed_was[i])
+            self._rearm_set.push_back((self._tt_sets.size() - 1) as u64)
+            self._rearm_ok.push_back(0 as u8)
+        }
+
         return st
     }
 
@@ -5142,6 +5321,16 @@ fn _decl_refresh_specs(d: unsafe *Decl, exts: unsafe *cxx::std::vector<unsafe *D
 
 /// DeclId -> the interface hashes under it (joined), from \p f's plan
 /// lines (`id, scope, name, I, ...`), added to \p at / \p vals.
+fn _fid_in(set: *cxx::std::vector<u32>, fid: u32) -> bool {
+    for var i: usize = 0; i < set->size(); ++i {
+        if (*set)[i] == fid {
+            return true
+        }
+    }
+
+    return false
+}
+
 fn _facts_hashes(f: unsafe *FileFacts, at: unsafe *llvm::StringMap<u32>, vals: unsafe *cxx::std::vector<string>) {
     for var k: usize = 0; k < f->plain_decls.size(); ++k {
         var l          = f->plain_decls[k]

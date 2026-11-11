@@ -2613,6 +2613,256 @@ def persistent_syntax(exe, base):
     c.stop()
 
 
+LIVE_BASE = """/// The base value.
+pub fn base_val(x: i32) -> i32 {
+    return x + 1
+}
+
+pub class Cell {
+    pub var v: i32 = 0
+}
+"""
+
+LIVE_MID = """import base::{
+    Cell,
+    base_val,
+}
+
+/// One step up.
+pub fn mid_val(x: i32) -> i32 {
+    var c = Cell { v: x }
+    return base_val(c.v)
+}
+"""
+
+LIVE_SIDE = """/// Beside the chain.
+pub fn side_val() -> i32 {
+    return 7
+}
+"""
+
+LIVE_MAIN = """import mid::mid_val
+import side::side_val
+
+fn main() -> i32 {
+    var a = mid_val(1)
+    var b = side_val()
+    return a + b
+}
+"""
+
+
+def live_project(base, wide=0):
+    """main.k -> mid.k -> base.k, main.k -> side.k; with `wide`, that many
+    more leaf files imported by main.k (a graph over WIDE_INDEX_LIMIT)."""
+    os.makedirs(os.path.join(base, "src"))
+    main = LIVE_MAIN
+    for i in range(wide):
+        open(os.path.join(base, "src", "w%d.k" % i), "w").write("/// Leaf %d.\npub fn w%d() -> i32 {\n    return %d\n}\n" % (i, i, i))
+        main = "import w%d::w%d\n" % (i, i) + main
+    for name, text in (("base.k", LIVE_BASE), ("mid.k", LIVE_MID), ("side.k", LIVE_SIDE), ("main.k", main)):
+        open(os.path.join(base, "src", name), "w").write(text)
+    open(os.path.join(base, "kairo_compile.json"), "w").write(
+        '{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["-I", "src"] } ] }\n')
+    return main
+
+
+def last_analysed(c):
+    for n in reversed(c.notes):
+        if n["method"] == "$/kals/analysed":
+            return n["params"]
+    return {}
+
+
+def snapshot_of(c, rel):
+    """The installed snapshot, in a form two servers' can be compared in:
+    each file's rows by path, the diagnostics as a sorted list."""
+    r = c.request("$/kals/snapshot", {"textDocument": {"uri": c.uri(rel)}})
+    if not isinstance(r, dict):
+        return None
+    return {"files": {f["path"]: f for f in r["files"]},
+            "diagnostics": sorted(json.dumps(d, sort_keys=True) for d in r["diagnostics"]),
+            "deps": sorted(r["deps"])}
+
+
+def live_edits(c, main):
+    """One editing session; each step's (name, analysed params)."""
+    steps = []
+
+    def step(name, rel, version, text):
+        start = len(c.notes)
+        c.change(rel, version, text)
+        ok = c.settle()
+        # `first`: the answer for the edited file (a live worker's first
+        # tier); the entry itself is the last one, with nothing pending.
+        every = [n["params"] for n in c.notes[start:] if n["method"] == "$/kals/analysed"]
+        steps.append((name, dict(last_analysed(c), settled=ok, first=every[0] if every else {}, answers=len(every))))
+
+    c.open("src/main.k", main)
+    ok = c.settle()
+    steps.append(("first", dict(last_analysed(c), settled=ok)))
+    step("entry body", "src/main.k", 2, main.replace("mid_val(1)", "mid_val(2)"))
+    main2 = main.replace("mid_val(1)", "mid_val(2)")
+    c.open("src/side.k", LIVE_SIDE)
+    step("leaf body", "src/side.k", 2, LIVE_SIDE.replace("return 7", "return 8"))
+    c.open("src/base.k", LIVE_BASE)
+    broken = LIVE_BASE.replace("base_val(x: i32)", "base_val(x: i32, y: i32)")
+    step("signature breaks an importer", "src/base.k", 2, broken)
+    steps.append(("mid diagnostics", c.diagnostics("src/mid.k")))
+    step("signature fixed", "src/base.k", 3, LIVE_BASE.replace("return x + 1", "return x + 2"))
+    steps.append(("mid diagnostics fixed", c.diagnostics("src/mid.k")))
+    step("does not parse", "src/main.k", 3, main2.replace("var b = side_val()", "var b = side_val( + ;"))
+    steps.append(("main diagnostics broken", c.diagnostics("src/main.k")))
+    step("parses again", "src/main.k", 4, main2.replace("var b = side_val()", "var b = side_val() + 1"))
+    c.notify("textDocument/didClose", {"textDocument": {"uri": c.uri("src/side.k")}})
+    step("after a close", "src/main.k", 5, main2.replace("var b = side_val()", "var b = side_val() + 2"))
+    return steps
+
+
+def live(exe, base):
+    """The live index worker (initializationOptions.liveCheck): an edit is
+    re-checked in place by a process that stays up, the edited file and the
+    files that import it, and what it installs is what a process per run
+    installs for the same text."""
+    root = os.path.join(base, "live")
+    main = live_project(root)
+    c = Client(exe, root)
+    c.start({"liveCheck": True, "debounceMs": 50})
+    steps = dict(live_edits(c, main))
+    a = steps["first"]
+    check("live: the first check is a whole one", a.get("settled") and a.get("mode") == "full" and a.get("rechecked") == a.get("rechecked", 0) >= 4, a)
+    a = steps["entry body"]
+    check("live: an edit of the entry re-checks one file, in place", a.get("mode") == "refresh" and a.get("rechecked") == 1 and a.get("pending") == 0, a)
+    a = steps["leaf body"]
+    f = a.get("first", {})
+    check("live: an edit of a leaf re-checks the leaf first, alone, with its importer pending",
+          f.get("mode") == "refresh" and f.get("rechecked") == 1 and f.get("pending") == 1, a)
+    check("live: and then its importer, in the background", a.get("mode") == "refresh" and a.get("pending") == 0 and a.get("answers", 0) >= 2, a)
+    a = steps["signature breaks an importer"]
+    f = a.get("first", {})
+    check("live: a signature edit re-checks the file first, with every importer pending, however far",
+          f.get("mode") == "refresh" and f.get("rechecked") == 1 and f.get("pending") == 2, a)
+    check("live: and the importers after it", a.get("mode") == "refresh" and a.get("pending") == 0, a)
+    d = steps["mid diagnostics"]
+    check("live: the importer it breaks gets its error, though no buffer is open for it",
+          d and any(x["severity"] == 1 for x in d), d)
+    d = steps["mid diagnostics fixed"]
+    check("live: and the error goes when the signature is fixed", d == [], d)
+    a = steps["does not parse"]
+    check("live: a buffer that does not parse is analysed by a process (no mode)", a.get("settled") and "mode" not in a, a)
+    d = steps["main diagnostics broken"]
+    check("live: and its errors are shown", d and any(x["severity"] == 1 for x in d), d)
+    a = steps["parses again"]
+    check("live: once it parses the live worker takes over again, in place", a.get("mode") == "refresh" and a.get("rechecked") == 1, a)
+    a = steps["after a close"]
+    check("live: an edit after a buffer closed is still in place", a.get("mode") == "refresh", a)
+    h = c.request("textDocument/hover", c.at("src/main.k", *pos(main, "mid_val(", 0, 0)))
+    check("live: hover answers from the installed rows", h and "fn mid_val" in h["contents"]["value"], h)
+    got = snapshot_of(c, "src/main.k")
+    check("live: clean shutdown", c.stop() == 0)
+
+    # The same session against a process per run: what is installed at the
+    # end is the same, rows and diagnostics.
+    shutil.rmtree(root)
+    main = live_project(root)
+    p = Client(exe, root, env={"KALS_LIVE_CHECK": "0"})
+    p.start({"debounceMs": 50})
+    psteps = dict(live_edits(p, main))
+    check("live: (the comparison run is a process per run)", all("mode" not in v for v in psteps.values() if isinstance(v, dict)), psteps)
+    want = snapshot_of(p, "src/main.k")
+    check("live: clean shutdown of the comparison run", p.stop() == 0)
+    same = bool(got) and bool(want) and got["deps"] == want["deps"] and got["diagnostics"] == want["diagnostics"] \
+        and sorted(got["files"]) == sorted(want["files"]) and all(got["files"][k] == want["files"][k] for k in want["files"])
+    detail = ""
+    if not same and got and want:
+        detail = {"deps": got["deps"] == want["deps"], "diagnostics": (got["diagnostics"], want["diagnostics"]),
+                  "files": (sorted(got["files"]), sorted(want["files"])),
+                  "differ": [k for k in want["files"] if got["files"].get(k) != want["files"][k]]}
+    check("live: the final snapshot equals a process-per-run server's (rows, diagnostics, files)", same, detail)
+
+    # Pre-emption. Each background slice is held back 1.5 s, so the second
+    # edit lands while base.k's importers are still queued: its own file is
+    # re-checked at once, ahead of them, and the queue is drained after.
+    shutil.rmtree(root)
+    main = live_project(root)
+    c = Client(exe, root, env={"KALS_DEBUG_LIVE_SLICE_DELAY_MS": "1500"})
+    c.start({"liveCheck": True, "debounceMs": 50})
+    c.open("src/main.k", main)
+    c.open("src/base.k", LIVE_BASE)
+    c.open("src/side.k", LIVE_SIDE)
+    c.settle()
+    start = len(c.notes)
+    c.change("src/base.k", 2, LIVE_BASE.replace("base_val(x: i32)", "base_val(x: i32, y: i32)"))
+    end = time.time() + 30
+    got = lambda: [n["params"] for n in c.notes[start:] if n["method"] == "$/kals/analysed"]
+    while time.time() < end and not got():
+        c.pump(0.02)
+    first = (got() or [{}])[0]
+    check("live, pre-emption: the edited file is answered with its importers pending", first.get("rechecked") == 1 and first.get("pending") == 2, first)
+    check("live, pre-emption: an importer's old diagnostics stay until its turn", not c.diagnostics("src/mid.k"), c.diagnostics("src/mid.k"))
+    pr = c.request("textDocument/prepareRename", c.at("src/main.k", *pos(main, "mid_val(", 0, 0)))
+    check("live, pre-emption: rename waits while files are pending", pr is None, pr)
+    mark = len(c.notes)
+    c.change("src/side.k", 2, LIVE_SIDE.replace("return 7", "return 9"))
+    ok = c.settle()
+    after = [n["params"] for n in c.notes[mark:] if n["method"] == "$/kals/analysed"]
+    mine = [a for a in after if a["revision"] >= a["current"]]
+    check("live, pre-emption: the second edit's file is re-checked before the queued importers",
+          ok and mine and mine[0].get("rechecked") == 1 and mine[0].get("pending", 0) >= 2, after)
+    check("live, pre-emption: and the queue is drained afterwards", after and after[-1].get("pending") == 0 and after[-1].get("mode") == "refresh", after)
+    d = c.diagnostics("src/mid.k")
+    check("live, pre-emption: the broken importer has its error once its turn came", d and any(x["severity"] == 1 for x in d), d)
+    # A buffer stops parsing while files are queued: that revision is a
+    # process's, and the slices still coming (of the text before it) must
+    # not be installed over its result.
+    c.change("src/base.k", 3, LIVE_BASE.replace("base_val(x: i32)", "base_val(x: i32, z: i32)"))
+    start = len(c.notes)
+    end = time.time() + 30
+    while time.time() < end and not got():
+        c.pump(0.02)
+    c.change("src/main.k", 2, main.replace("var b = side_val()", "var b = side_val( + ;"))
+    ok = c.settle()
+    c.pump(5)   # the held-back slices arrive after the process run
+    d = c.diagnostics("src/main.k")
+    check("live, pre-emption: a process run during a drain keeps its result (the parse error stays)",
+          ok and d and any(x["severity"] == 1 for x in d), d)
+    h = c.request("textDocument/hover", c.at("src/side.k", *pos(LIVE_SIDE, "side_val")), timeout=20)
+    check("live, pre-emption: and the entry still answers", h and "fn side_val" in h["contents"]["value"], h)
+    c.change("src/main.k", 3, main)
+    c.settle()
+    c.change("src/base.k", 4, LIVE_BASE)
+    c.settle()
+    check("live, pre-emption: and loses it when the signature is fixed", c.diagnostics("src/mid.k") == [], c.diagnostics("src/mid.k"))
+    check("live, pre-emption: with nothing left of the parse error", not c.diagnostics("src/main.k"), c.diagnostics("src/main.k"))
+    pr = c.request("textDocument/prepareRename", c.at("src/main.k", *pos(main, "mid_val(", 0, 0)))
+    check("live, pre-emption: rename answers again once nothing is pending", bool(pr), pr)
+    check("live, pre-emption: clean shutdown", c.stop() == 0)
+
+    # A graph over the wide limit: only open buffers are in the snapshot,
+    # but the worker walked every file under the root, so opening one is
+    # answered with nothing re-checked.
+    wroot = os.path.join(base, "livewide")
+    wmain = live_project(wroot, wide=100)
+    c = Client(exe, wroot)
+    c.start({"liveCheck": True, "debounceMs": 50})
+    c.open("src/main.k", wmain)
+    c.settle()
+    a = last_analysed(c)
+    check("live, wide graph: the first check", a.get("mode") == "full" and a.get("rechecked", 0) > 100, a)
+    wtext = open(os.path.join(wroot, "src", "w5.k")).read()
+    c.open("src/w5.k", wtext)
+    h = c.request("textDocument/hover", c.at("src/w5.k", *pos(wtext, "w5")), timeout=60)
+    a = last_analysed(c)
+    check("live, wide graph: a file opened later is answered for", h and "fn w5" in h["contents"]["value"], h)
+    check("live, wide graph: and nothing was re-checked to do it", a.get("mode") == "refresh" and a.get("rechecked") == 0, a)
+    c.change("src/w5.k", 2, wtext.replace("return 5", "return 55"))
+    c.settle()
+    a = last_analysed(c)
+    check("live, wide graph: an edit of a leaf re-checks it and its importer, not a hundred files",
+          a.get("mode") == "refresh" and a.get("rechecked") == 1 and a.get("pending") == 0, a)
+    check("live, wide graph: clean shutdown", c.stop() == 0)
+
+
 def main():
     exe = find_kals()
     print("kals:", exe)
@@ -2669,6 +2919,7 @@ def main():
         hovers(exe, real)
         foreign_hovers(exe, real)
         base_hovers(exe, real)
+        live(exe, base)
         print("%.1fs" % (time.time() - t0))
     finally:
         shutil.rmtree(base, ignore_errors=True)

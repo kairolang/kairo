@@ -85,6 +85,7 @@ import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
 import Server::SyntaxWorker::*
+import Server::LiveIndex::*
 
 pub fn server_main(const self_path: string) -> i32 {
     var unsafe *s = kairo::std::create<Server>()
@@ -165,6 +166,13 @@ pub class Server {
     /// the editor shows meanwhile.
     pub var syn:     SyntaxChild    ///< the persistent syntax worker (SyntaxWorker.k)
     pub var syn_seq: i64 = 0        ///< ids of its requests
+
+    /// initializationOptions.liveCheck (or KALS_LIVE_CHECK=1): an entry's
+    /// graph is kept checked in a process that stays up and an edit is
+    /// re-checked in place (LiveIndex.k). Off, every run is a process.
+    pub var live_on:  bool = false
+    pub var lives:    [LiveChild]
+    pub var live_seq: i64  = 0
 
     pub var debounce_ms:    i64 = DEBOUNCE_MS
     pub var syntax_ms:      i64 = SYNTAX_DEBOUNCE_MS
@@ -530,6 +538,28 @@ pub class Server {
             return
         }
 
+        if method == M_KALS_SNAPSHOT {
+            var sei = self.entry_of(self.path_of(d.get_str(d.get(params, "textDocument"), "uri")))
+            if (sei == usize::MAX) || (!self.entries[sei].has_snap) {
+                self.respond(id, "null")
+                return
+            }
+
+            var w = JsonWriter()
+            w.begin_object()
+            if self.entries[sei].has_idx {
+                w.field_raw("files", self.entries[sei].idx.dump(self.entries[sei].idx.get(self.entries[sei].idx.root, "files")))
+            } else {
+                w.field_raw("files", "[]")
+            }
+
+            w.field_raw("diagnostics", self.entries[sei].snap.dump(self.entries[sei].snap.get(self.entries[sei].snap.root, "diagnostics")))
+            w.field_raw("deps", self.entries[sei].snap.dump(self.entries[sei].snap.get(self.entries[sei].snap.root, "deps")))
+            w.end_object()
+            self.respond(id, w.out)
+            return
+        }
+
         if method.starts_with(M_DOLLAR_PREFIX) || (!has_id) {
             return // progress, and notifications we do not use
         }
@@ -571,6 +601,7 @@ pub class Server {
 
             self.report_progress()
 
+            self.live_watch()
             self.syntax_watch()
             self.syntax_kick()
 
@@ -597,9 +628,20 @@ pub class Server {
             // file listing several entries must not start them all at once.
             if (now - self.last_change_ms) >= self.debounce_ms {
                 for var i: usize = 0; i < self.entries.size(); ++i {
-                    if self.entries[i].dirty && (!self.entries[i].running) && (!self.entries[i].entry.empty())
-                        && ((now - self.last_change_ms) >= self.debounce_of(self.entries[i].slow))
-                        && self.can_start(i) {
+                    if (!self.entries[i].dirty) || self.entries[i].entry.empty()
+                        || ((now - self.last_change_ms) < self.debounce_of(self.entries[i].slow)) {
+                        continue
+                    }
+
+                    // The live worker takes a request while it answers an
+                    // older one (it joins them); a process per run does not.
+                    if self.live_takes(i) {
+                        if self.live_send(i) {
+                            continue
+                        }
+                    }
+
+                    if (!self.entries[i].running) && self.can_start(i) {
                         self.start_index(i)
                     }
                 }
@@ -640,6 +682,7 @@ pub class Server {
         }
 
         self.syntax_stop()
+        self.live_stop_all()
         if !self.tmp.empty() {
             Path::remove_tree(self.tmp)
         }

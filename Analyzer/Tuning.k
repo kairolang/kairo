@@ -122,3 +122,63 @@ pub const BRIDGE_RECENT_SOURCES: usize = 16
 /// change. A source past either bound gets the overlay but not kcc's flags.
 pub const BRIDGE_INCLUDE_DEPTH:     u32   = 8
 pub const BRIDGE_INCLUDE_MAX_READS: usize = 4000
+
+/// --- the live index worker (initializationOptions.liveCheck) -------------
+
+/// Entries that may hold a live index worker at once. Each is a whole
+/// checked graph kept resident (about 4 GB for a 400-file graph), where a
+/// per-run worker gives its memory back when it exits. An entry past the
+/// cap is analysed by a process per run, as with the option off. Higher:
+/// more entries answer an edit in place; lower: less resident memory.
+pub const LIVE_MAX_CHILDREN: usize = 2
+
+/// A live worker is restarted, between requests, once its resident size
+/// passes its size after the first check by this factor plus this slack: a
+/// re-check keeps the replaced files' old trees (Compiler/Spec/
+/// IncrementalSema.md, "What grows"), so it grows with every edit. A
+/// restart costs one whole check of the graph, in the background of the
+/// next edit. Higher: fewer restarts, more memory. Relative, not absolute:
+/// a large graph is large from its first check on.
+pub const LIVE_RSS_FACTOR_PCT: i64 = 175
+pub const LIVE_RSS_SLACK_MB:   i64 = 256
+
+/// A live request not answered in this long is a hung worker: it is
+/// killed, and that revision is analysed by a process. Above the longest
+/// first check of a large graph by a debug build.
+pub const LIVE_TIMEOUT_MS: i64 = 300000
+
+/// Deaths or timeouts of an entry's live worker after which the entry is
+/// analysed by a process per run for the rest of the session.
+pub const LIVE_MAX_RESTARTS: u64 = 4
+
+/// How long a live request waits for the syntax pass's verdict on a changed
+/// buffer. A buffer that does not parse cannot be re-checked in place (the
+/// live worker would fall back to a whole check and grow by one), so that
+/// revision goes to a process per run instead and the live worker keeps the
+/// last text that parsed. Past this the request is sent without a verdict.
+pub const LIVE_SYNTAX_WAIT_MS: i64 = 500
+
+/// Files the live worker re-checks in the background between two looks at
+/// its requests (a file is about 25 ms in a release build). An edit that
+/// arrives during a slice waits for the slice to end before its own file
+/// is re-checked. Higher: fewer snapshots installed while importers are
+/// re-checked; lower: an edit pre-empts sooner.
+pub const LIVE_SLICE_FILES: usize = 4
+
+/// Below LIVE_RSS_FACTOR_PCT a live worker that has grown this much is
+/// restarted too, but only once the editor has been quiet for
+/// LIVE_IDLE_RECYCLE_MS: the restart's whole check then runs while nobody
+/// is typing, and the next edit finds a worker that is already warm. Lower
+/// percentage: less memory held, a restart at more pauses.
+pub const LIVE_RSS_IDLE_PCT:    i64 = 130
+pub const LIVE_IDLE_RECYCLE_MS: i64 = 4000
+
+/// Whether the live worker re-checks the editor's open buffers (and what
+/// they import) before the rest of the queue. Off: the queue is drained in
+/// the order Sema runs files. A file re-checked ahead of that order can use
+/// a generic instance before the file that a fresh run would have use it
+/// first, which the live check catches and answers with a WHOLE check
+/// (seconds, and the worker grows by one check): measured once in three
+/// out-of-order steps on the compiler's graph. On: an open importer deep in
+/// the graph gets its results sooner, at that risk.
+pub const LIVE_PREFER_OPEN: bool = false

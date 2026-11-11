@@ -153,6 +153,10 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     /// not only found under the root.
     pub var named_: bool = false
 
+    /// The worker's: the file's path, for a walk whose rows are kept by
+    /// file (IndexObserver::keep).
+    pub var path_: string = ""
+
     /// byte offset of a callee name -> modifiers its call site adds. Filled
     /// by the call and operator visits, merged when tokens are written; the
     /// name itself is classified by the identifier visit, which may run

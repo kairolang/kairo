@@ -1,0 +1,30 @@
+# Not a lit test: the two-tier script for this repository's own graph (entry
+# Analyzer/Driver/kals.k), run by hand with a release compiler:
+#   python3 Scripts/incr_replay_check.py --kairo <release kairo> --root . --entry Analyzer/Driver/kals.k \
+#     --flags-file <the entry's args from kairo_compile.json, one a line> --flag=--incr-replay-in-place \
+#     --two-tier --overlay --restore --script <this file> --scratch <dir>
+step tuning
+append Analyzer/Tuning.k:::\n// t1\n
+step textutil
+append Analyzer/Server/TextUtil.k:::\n// t1\n
+step shellquote_body
+replace Compiler/Support/ShellQuote.k:::out = out + one:::out += one
+step sourcemanager
+append Compiler/Location/SourceManager.k:::\n// t1\n
+step preempt_core_then_leaf
+append Compiler/Location/SourceManager.k:::\n// t2\n
+drain 40
+append Analyzer/Tuning.k:::\n// t2\n
+step alternate
+append Analyzer/Server/TextUtil.k:::\n// t2\n
+append Analyzer/Json.k:::\n// t1\n
+append Analyzer/Server/TextUtil.k:::\n// t3\n
+step queued_file_edited
+append Compiler/Support/ShellQuote.k:::\n// t1\n
+append Compiler/Driver/CompilerInstance.k:::\n// t1\n
+step break_importer
+replace Analyzer/Tuning.k:::pub const DEBOUNCE_MS: i64 = 150:::pub const DEBOUNCE_MS: string = "x"
+step fix_importer
+replace Analyzer/Tuning.k:::pub const DEBOUNCE_MS: string = "x":::pub const DEBOUNCE_MS: i64 = 150
+step entry
+append Analyzer/Driver/kals.k:::\n// t1\n

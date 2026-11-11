@@ -29,6 +29,10 @@ pub const M_PROGRESS: string = "$/progress"
 pub const M_DOLLAR_PREFIX: string = "$/"
 pub const M_KALS_TEXT: string = "$/kals/text"
 pub const M_KALS_ANALYSED: string = "$/kals/analysed"
+/// Debug: the installed snapshot of a buffer's entry (the rows of every
+/// indexed file, the diagnostics, the files of the graph), for a test that
+/// compares what two ways of analysing the same text installed.
+pub const M_KALS_SNAPSHOT: string = "$/kals/snapshot"
 pub const M_TEXT_DOCUMENT_PREFIX: string = "textDocument/"
 pub const M_HOVER: string = "textDocument/hover"
 pub const M_DEFINITION: string = "textDocument/definition"

@@ -96,7 +96,11 @@ class Client:
         end = time.time() + timeout
         while time.time() < end:
             for n in self.notes[start:]:
-                if n["method"] == "$/kals/analysed" and n["params"]["revision"] >= n["params"]["current"]:
+                # `pending` (a live worker's answer): files still to be
+                # re-checked in the background; the text is analysed when
+                # none is.
+                if n["method"] == "$/kals/analysed" and n["params"]["revision"] >= n["params"]["current"] \
+                        and n["params"].get("pending", 0) == 0:
                     return True
             self.pump(0.1)
         return False

@@ -99,6 +99,9 @@ pub class VirtualFileManager {
     ///       plumbing through Path; the path key is correct for every case the
     ///       compiler hits today because callers canonicalize first.
     priv var _by_path:       llvm::StringMap<u32> ///< absolute path -> fid; probed with the path's bytes, never iterated
+    priv var _staged:        llvm::StringMap<u32> ///< absolute path -> slot of a staged buffer (stage_overlay)
+    priv var _staged_data:   cxx::std::vector<kairo::std::ConstPtr<u8>>
+    priv var _staged_size:   cxx::std::vector<u64>
     priv var _diag:          *DiagEngine
     priv var _global_offset: usize                = 0
     priv var _next_fid:      u32                  = 0
@@ -249,6 +252,9 @@ pub class VirtualFileManager {
         self._segments      = cxx::std::move(other._segments)
         self._page_table    = cxx::std::move(other._page_table)
         self._by_path       = cxx::std::move(other._by_path)
+        self._staged        = cxx::std::move(other._staged)
+        self._staged_data   = cxx::std::move(other._staged_data)
+        self._staged_size   = cxx::std::move(other._staged_size)
         self._diag          = other._diag
         self._global_offset = other._global_offset
         self._next_fid      = other._next_fid
@@ -292,6 +298,39 @@ pub class VirtualFileManager {
         var hit = self._by_path.find(kairo::sref(abs_full))
         if hit != self._by_path.end() {
             return hit->second
+        }
+
+        // A buffer staged for this path (stage_overlay) is what the path
+        // holds: a segment like a mapped file's in every way but its bytes,
+        // made HERE so the file gets the fid its place in the load order
+        // gives it, as the disk's would.
+        var ov = self._staged.find(kairo::sref(abs_full))
+        if ov != self._staged.end() {
+            var k     = ov->second as usize
+            var osize = self._staged_size[k] as usize
+            var ores  = self._reserve_for(osize + 1)
+            var oal   = self._global_offset + 0xFFF & ~(0xFFF as usize)
+            if osize > (U32_MAX as usize) || oal + ores + 1 > (U32_MAX as usize) {
+                self._diag->report(
+                    DiagID::I102F,
+                    f"cannot load '{abs_full}' ({osize}B): total source size would exceed the 4GB address space limit",
+                ).emit()
+                return u32::MAX
+            }
+
+            var ofid = self._next_fid
+            self._next_fid += 1
+            var unsafe *oseg = kairo::std::create<Self::Segment>(ofid, abs, 0, osize)
+            oseg->reserved = ores
+            self._align_global_offset()
+            oseg->global_base = self._global_offset
+            self._global_offset += ores
+            var odata: kairo::std::ConstPtr<u8> = self._staged_data[k]
+            oseg->buffer.attach_raw(unsafe (odata as unsafe *u8), osize)
+            self._segments.push_back(oseg)
+            self._map_pages((self._segments.size() - 1) as u32, oseg->global_base, ores)
+            self._by_path[kairo::sref(abs_full)] = ofid
+            return ofid
         }
 
         var unsafe *parent = kairo::std::create<MappedFileBuffer>()
@@ -352,6 +391,21 @@ pub class VirtualFileManager {
 
         self._by_path[kairo::sref(abs_full)] = seg_fid
         return seg_fid
+    }
+
+    /// \brief the bytes register_file gives \p path when it is first
+    ///        loaded, instead of mapping the disk: an unsaved buffer that
+    ///        does not change the order files get their ids in (bind_path
+    ///        over register_virtual mints the id at once, ahead of every
+    ///        file loaded after it).
+    ///
+    /// \note \p data is NOT copied. Import resolution still probes the
+    ///       disk for existence.
+    pub fn stage_overlay(self, const path: Path, data: kairo::std::ConstPtr<u8>, size: usize) {
+        var abs_full = Path(path.full_path()).full_path()
+        self._staged[kairo::sref(abs_full)] = (self._staged_data.size() as u32)
+        self._staged_data.push_back(data)
+        self._staged_size.push_back(size as u64)
     }
 
     /// Address space to hold for a file of \p total bytes.
@@ -816,6 +870,80 @@ pub class VirtualFileManager {
         )
 
         return true
+    }
+
+    /// \brief \p fid's bytes become a caller-owned buffer, keeping its
+    ///        identity: invalidate() for a file whose new text is an
+    ///        editor's buffer and not the disk's (Tooling/LiveCheck.k).
+    ///
+    /// \details A mapped segment gives up its mapping and becomes a virtual
+    ///          one; a virtual one changes its view. Either way the segment
+    ///          gets (or keeps) a RESERVED range with slack, as a mapped file
+    ///          has: a virtual segment is registered with exactly its size,
+    ///          and replacing its bytes at every keystroke would otherwise
+    ///          take a fresh range each time and drain the 4GB space.
+    ///
+    /// \note \p data is NOT copied: it must outlive every use of \p fid,
+    ///       or the next replace_bytes / invalidate of it.
+    ///
+    /// \return false if \p fid is unknown or the address space is full (the
+    ///         old bytes are then kept).
+    pub fn replace_bytes(self, fid: u32, data: kairo::std::ConstPtr<u8>, size: usize) -> bool {
+        if (fid as usize) >= self._segments.size() {
+            return false
+        }
+
+        var unsafe *seg = self._segments[fid]
+        if seg == &null {
+            return false
+        }
+
+        // What the segment holds of the global space today: its
+        // reservation, or (a virtual segment never re-mapped) its size and
+        // the END position.
+        var held = seg->reserved
+        if held == 0 {
+            held = seg->size + 1
+        }
+
+        if seg->reserved == 0 || size + 1 > seg->reserved {
+            var reserved = self._reserve_for(size + 1)
+            var aligned  = self._global_offset + 0xFFF & ~(0xFFF as usize)
+            if size > (U32_MAX as usize) || aligned + reserved + 1 > (U32_MAX as usize) {
+                return false
+            }
+
+            self._unmap_pages(seg->global_base, held)
+            self._align_global_offset()
+            seg->global_base = self._global_offset
+            self._global_offset += reserved
+            seg->reserved = reserved
+            self._map_pages(fid, seg->global_base, reserved)
+        }
+
+        if seg->buffer.is_valid() && seg->parent != &null {
+            seg->buffer.close()
+        }
+
+        if seg->parent != &null {
+            kairo::std::destroy(seg->parent)
+            seg->parent = &null
+        }
+
+        seg->size = size
+        seg->buffer.attach_raw(unsafe (data as unsafe *u8), size)
+        seg->generation += 1
+        return true
+    }
+
+    /// Is \p fid a caller-owned buffer (register_virtual, replace_bytes)
+    /// rather than a mapping of its path?
+    pub fn is_virtual(self, fid: u32) -> bool {
+        if (fid as usize) >= self._segments.size() || self._segments[fid] == &null {
+            return false
+        }
+
+        return self._segments[fid]->parent == &null
     }
 
     /// \brief drops \p fid entirely: mapping, address range, and identity.

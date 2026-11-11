@@ -2256,6 +2256,30 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         false,
     )
 
+    cmd->define<FlagKind::Bool>(
+        "incr-replay-overlay",
+        "",
+        "incr-replay-overlay",
+        "with --incr-replay: an edit of an existing file is handed to the live check as a buffer (LiveCheck::set_overlay) and the disk keeps the old text, as a tool with unsaved buffers does",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "incr-replay-observe",
+        "",
+        "incr-replay-observe",
+        "with --incr-replay: install a Sema observer and print the files each step calls it for (`checked <file>`, `lowered <file>`): every file on a full check, the re-checked ones on a refresh",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "incr-replay-two-tier",
+        "",
+        "incr-replay-two-tier",
+        "with --incr-replay-in-place: re-check the edited file first and the files that import it afterwards, in slices (LiveCheck::two_tier); the step's result is printed once they are all done",
+        false,
+    )
+
     cmd->define<FlagKind::String>(
         "incr-replay-dump",
         "",

@@ -355,6 +355,17 @@ pub class SourceManager {
         return fid
     }
 
+    /// \brief load_overlay without the load: \p real_path gets these bytes
+    ///        when the graph first loads it, with the file id its place in
+    ///        the load order gives it (VirtualFileManager::stage_overlay).
+    pub fn stage_overlay(self,
+                         const real_path: Path,
+                         data:            kairo::std::ConstPtr<u8>,
+                         size:            usize) {
+        var lock = kairo::std::LockGuard(self._load_mu)
+        self._vfile_mgr->stage_overlay(real_path, data, size)
+    }
+
     ///
     /// \brief drops one fid's loaded file: the SourceFile and its buffer view.
     ///
@@ -425,6 +436,45 @@ pub class SourceManager {
         self._materialize(file_id, path)
         self._line_table.invalidate(file_id, self._bytes_of(file_id))
         return true
+    }
+
+    /// \brief invalidate() with the new bytes handed over instead of read
+    ///        from the disk: an editor's buffer replacing what \p file_id
+    ///        held, whichever of the disk or an earlier buffer that was.
+    ///
+    /// \note \p data is NOT copied (load_virtual's contract).
+    ///
+    /// \warning As invalidate(): every SourceLocation into the file, and any
+    ///          token or AST built from it, is stale.
+    pub fn replace_bytes(self, file_id: FileID, data: kairo::std::ConstPtr<u8>, size: usize) -> bool {
+        var lock = kairo::std::LockGuard(self._load_mu)
+        self._line_table.drain_builds()
+
+        var path = Path()
+        if (file_id as usize) < self._files.size() && self._files[file_id] != &null {
+            path = self._files[file_id]->path
+        } else {
+            path = Path(self._vfile_mgr->get_info(file_id).path.full_path())
+        }
+
+        if !self._vfile_mgr->replace_bytes(file_id, data, size) {
+            return false
+        }
+
+        if (file_id as usize) < self._files.size() && self._files[file_id] != &null {
+            @destroy unsafe (self._files[file_id] as *SourceFile)
+            self._files[file_id] = &null
+        }
+
+        self._materialize(file_id, path)
+        self._line_table.invalidate(file_id, self._bytes_of(file_id))
+        return true
+    }
+
+    /// Is \p file_id's text a caller-owned buffer and not a mapping of its
+    /// path? invalidate() refuses such a file.
+    pub fn is_virtual(self, file_id: FileID) -> bool {
+        return self._vfile_mgr->is_virtual(file_id)
     }
 
     ///

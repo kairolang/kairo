@@ -31,9 +31,12 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/DenseSet.h"
+ffi "c++" import "llvm/ADT/DenseMap.h"
+ffi "c++" import "llvm/ADT/StringRef.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 ffi "c++" import "cstdlib"
+ffi "c++" import "chrono"
 
 import AST::Context::ASTContext::ASTContext
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
@@ -134,6 +137,9 @@ pub class RetractStats {
     /// has lost its first use to a kept file.
     pub var rearmed_list: cxx::std::vector<unsafe *InstanceEntry>
     pub var rearmed_was:  cxx::std::vector<string> ///< parallel: depth, and whether it was reached
+    /// The dropped entries (they stay allocated: a list of re-armed ones
+    /// from an earlier retraction may hold one).
+    pub var dropped_list: cxx::std::vector<unsafe *InstanceEntry>
 
     pub fn RetractStats(self) = default
 }
@@ -155,6 +161,8 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
         }
     }
 
+    var tdbg = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
+    var tm0  = cxx::std::chrono::steady_clock::now()
     var unsafe *reg = gs->instances()
     var all = cxx::std::vector<unsafe *InstanceEntry>()
     reg->collect(&all)
@@ -294,23 +302,38 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
         }
     }
 
-    st.dropped = drop.size()
+    st.dropped      = drop.size()
+    st.dropped_list = drop
     reg->drop_entries(&drop)
+    var tm1 = cxx::std::chrono::steady_clock::now()
 
     // The foreign registry: a USR that stands for a declaration of the set
     // (the C++ stand-in of a Kairo record) or for something imported into a
     // dropped shell would hand the next fill the old declaration.
     if freg != &null {
-        var usrs  = cxx::std::vector<string>()
+        var usrs  = cxx::std::vector<llvm::StringRef>()
         var decls = cxx::std::vector<unsafe *Decl>()
         freg->entries(unsafe &usrs, unsafe &decls)
         var dbg     = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
-        var gone    = cxx::std::vector<string>()
-        var orphans = cxx::std::vector<string>()
+        var gone    = cxx::std::vector<llvm::StringRef>()
+        var orphans = cxx::std::vector<llvm::StringRef>()
+        // The verdict of every declaration a walk passed: the registry
+        // holds a USR for each member of each imported class (hundreds of
+        // thousands on a graph that uses C++ containers), and they share
+        // their owners.
+        var memo = llvm::DenseMap<u64, u8>()
         for var i: usize = 0; i < usrs.size(); ++i {
             var unsafe *cur = decls[i]
             var is_dead     = false
+            var path        = cxx::std::vector<u64>()
             for var hop: usize = 0; hop < 16 && cur != &null && !is_dead; ++hop {
+                var seen = memo.find(cur as usize as u64)
+                if seen != memo.end() {
+                    is_dead = seen->second == (1 as u8)
+                    break
+                }
+
+                path.push_back(cur as usize as u64)
                 if dead_nodes.contains(cur as usize as u64) {
                     is_dead = true
                     break
@@ -334,6 +357,10 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
                 cur = up->dc_owner
             }
 
+            for var k: usize = 0; k < path.size(); ++k {
+                memo[path[k]] = if (is_dead) => (1 as u8) else => (2 as u8)
+            }
+
             if is_dead {
                 // The stand-in of a declaration of the set itself, against
                 // something imported into a dropped shell.
@@ -341,7 +368,8 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
                 if own != &null && ctxs.contains(own as usize as u64) && !dead_nodes.contains(decls[i] as usize as u64) {
                     orphans.push_back(usrs[i])
                     if dbg {
-                        io::eprintln(f"[retract] orphan {usrs[i]}")
+                        var us = kairo::std::from_std_string<string>(usrs[i].str())
+                        io::eprintln(f"[retract] orphan {us}")
                     }
                 } else {
                     gone.push_back(usrs[i])
@@ -349,7 +377,8 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
                         var unsafe *oc = NameLookup::ctx_of(decls[i])
                         var where_ = if (oc != &null && oc->sm != &null) => (oc->sm->get_filename(oc->fid)) else => "?"
                         var dn = if (dead_nodes.contains(decls[i] as usize as u64)) => (" dead-node") else => ""
-                        io::eprintln(f"[retract] gone {usrs[i]} kind={(decls[i]->kind as u8) as u32} ctx={where_}{dn}")
+                        var us = kairo::std::from_std_string<string>(usrs[i].str())
+                        io::eprintln(f"[retract] gone {us} kind={(decls[i]->kind as u8) as u32} ctx={where_}{dn}")
                     }
                 }
             }
@@ -364,8 +393,116 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
 
         st.foreign = gone.size() + orphans.size()
         freg->adopted.clear()
+        var tm2 = cxx::std::chrono::steady_clock::now()
         freg->forget(unsafe &gone, unsafe &orphans, unsafe &shells)
+        if tdbg {
+            var a = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(tm1 - tm0).count() as i64
+            var b = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(tm2 - tm1).count() as i64
+            var c = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(cxx::std::chrono::steady_clock::now() - tm2).count() as i64
+            io::eprintln(f"[retract] {all.size()} entries {a} us, {usrs.size()} usrs {b} us, forget {gone.size()}+{orphans.size()}+{shells.size()} {c} us")
+        }
     }
 
     return st
+}
+
+
+/// \brief the self-check of a live check (KAIRO_LIVE_DEBUG): once a
+///        re-check is done, nothing the purged stores still hold may name a
+///        declaration of a REPLACED tree (\p retired: the contexts
+///        detach_for_refresh kept). Walks the instantiation registry (each
+///        entry's primary, pattern, explicit declaration, and the records
+///        in its arguments) and the foreign registry (each USR's
+///        declaration and its owners), prints what it finds and returns how
+///        many.
+///
+/// \details What this does NOT walk: the canonical type table, the
+///          conformance rows, tuple records, nullable layouts and
+///          default-argument thunks. A hit here is a retraction that
+///          missed something; no hit says nothing about those.
+pub fn verify_retired(gs:            unsafe *GlobalDisambigTable,
+                      freg:          unsafe *ForeignRegistry,
+                      const retired: cxx::std::vector<unsafe *void>) -> usize {
+    var dead = llvm::DenseSet<u64>()
+    for var i: usize = 0; i < retired.size(); ++i {
+        if retired[i] != &null {
+            dead.insert(retired[i] as usize as u64)
+        }
+    }
+
+    var bad: usize = 0
+    if dead.empty() {
+        return 0
+    }
+
+    var all = cxx::std::vector<unsafe *InstanceEntry>()
+    gs->instances()->collect(&all)
+    for var i: usize = 0; i < all.size(); ++i {
+        var unsafe *e = all[i]
+        var own       = cxx::std::vector<unsafe *Decl>()
+        own.push_back(e->primary)
+        own.push_back(e->pattern)
+        if e->is_explicit {
+            own.push_back(e->decl)
+        }
+
+        for var k: usize = 0; k < e->args.size(); ++k {
+            retract_records(e->args[k], 0, unsafe &own)
+        }
+
+        for var k: usize = 0; k < e->pattern_args.size(); ++k {
+            retract_records(e->pattern_args[k], 0, unsafe &own)
+        }
+
+        for var k: usize = 0; k < own.size(); ++k {
+            if own[k] == &null {
+                continue
+            }
+
+            var unsafe *dc = NameLookup::ctx_of(own[k])
+            if dc != &null && dead.contains(dc as usize as u64) {
+                bad += 1
+                if bad <= 20 {
+                    var where_ = if (dc->sm != &null) => (dc->sm->get_filename(dc->fid)) else => "?"
+                    io::eprintln(f"[live] self-check: a kept instance (depth {e->depth}) names a declaration of a replaced tree of {where_}")
+                }
+
+                break
+            }
+        }
+    }
+
+    if freg != &null {
+        var usrs  = cxx::std::vector<llvm::StringRef>()
+        var decls = cxx::std::vector<unsafe *Decl>()
+        freg->entries(unsafe &usrs, unsafe &decls)
+        for var i: usize = 0; i < usrs.size(); ++i {
+            var unsafe *cur = decls[i]
+            for var hop: usize = 0; hop < 16 && cur != &null; ++hop {
+                var unsafe *dc = NameLookup::ctx_of(cur)
+                if dc != &null && dead.contains(dc as usize as u64) {
+                    bad += 1
+                    if bad <= 20 {
+                        var us = kairo::std::from_std_string<string>(usrs[i].str())
+                        io::eprintln(f"[live] self-check: the foreign registry holds {us} for a declaration of a replaced tree")
+                    }
+
+                    break
+                }
+
+                var unsafe *up = cur->semantic_dc
+                if up == &null {
+                    up = cur->lexical_dc
+                }
+
+                if up == &null {
+                    break
+                }
+
+                cur = up->dc_owner
+            }
+        }
+    }
+
+    return bad
 }

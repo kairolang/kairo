@@ -133,6 +133,20 @@ extend Server {
             }
         }
 
+        // Files of this entry are still to be re-checked after an edit
+        // (a live worker's second tier): their rows are from before it. A
+        // rename's edits come from every file's rows, so it waits; what is
+        // asked about one position is answered from what there is, and the
+        // editor is told to ask again when the rest lands.
+        if (ei != usize::MAX) && (self.entries[ei].live_pending > 0) {
+            if (method == M_RENAME) || (method == M_PREPARE_RENAME) {
+                self.respond(id, "null")
+                return true
+            }
+
+            self.entries[ei].owe_refresh = true
+        }
+
         var f = JSON_NONE()
         if ei != usize::MAX {
             f = self.file_node(ei, path)

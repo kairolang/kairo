@@ -40,6 +40,9 @@ from pathlib import Path
 
 STEP = re.compile(r"^incr-replay: step (\d+) (.*?): (\S+) \((.*)\), (\d+) files, (\d+) errors, (\d+) ms$")
 MARK = re.compile(r"^== incr-replay step (\d+) (.*)$")
+FG = re.compile(r"^== incr-replay fg (\d+) (.*)$")
+FGLINE = re.compile(r"^incr-replay:   fg (.*?): (\S+) \((.*)\), (\d+) ms$")
+PRIMARY = re.compile(r":\d+:\d+: (error|warning|remark|fatal)\b")
 
 
 def die(msg):
@@ -79,6 +82,8 @@ def parse_script(text):
             steps[-1][1].append(("append", f[0], unescape(f[1]), ""))
         elif line.startswith("remove "):
             steps[-1][1].append(("remove", line[7:], "", ""))
+        elif line.startswith("drain "):
+            continue  # the live side's: how far the queue gets before the next edit
         else:
             die(f"unknown command: {line}")
     return steps
@@ -142,6 +147,16 @@ def main():
     ap.add_argument("--rss", action="store_true")
     ap.add_argument("--live-only", action="store_true",
                     help="run the live session alone (for timing): no clean runs, nothing compared")
+    ap.add_argument("--overlay", action="store_true",
+                    help="the live side gets each edit of an existing file as a buffer (--incr-replay-overlay); "
+                         "the disk keeps the old text until the clean side applies the edit")
+    ap.add_argument("--two-tier", action="store_true",
+                    help="the live side re-checks each edited file at once and the files that import it "
+                         "afterwards (--incr-replay-two-tier). Per step the drained result is compared as "
+                         "always, and the LAST edit's first tier is compared too: the diagnostics located in "
+                         "the edited file equal those of the fresh run")
+    ap.add_argument("--restore", action="store_true",
+                    help="put every file the script touches back as it was when done (for a root that is not a copy)")
     ap.add_argument("--expect-mode", action="append", default=[], help="NAME=MODE")
     ap.add_argument("--timeout", type=int, default=3600)
     args = ap.parse_args()
@@ -178,29 +193,48 @@ def main():
     cmd = [kairo, entry, *flags, "--error-format=basic", f"--incr-replay={script_path}"]
     if not args.live_only:
         cmd.append(f"--incr-replay-dump={dumps}")
+    if args.overlay:
+        cmd.append("--incr-replay-overlay")
+    if args.two_tier:
+        cmd.append("--incr-replay-two-tier")
     err_path = scratch / "live.stderr"
     live = []
     with open(err_path, "wb") as se:
         p = subprocess.Popen(cmd, cwd=root, stdout=subprocess.PIPE, stderr=se, text=True)
+        fg_lines = []
         for line in p.stdout:
             m = STEP.match(line.rstrip("\n"))
             if m:
                 live.append({"n": int(m.group(1)), "name": m.group(2), "mode": m.group(3), "why": m.group(4),
-                             "files": int(m.group(5)), "ms": int(m.group(7)), "rss": rss_kb(p.pid)})
+                             "files": int(m.group(5)), "ms": int(m.group(7)), "rss": rss_kb(p.pid),
+                             "fg": fg_lines})
+                fg_lines = []
+                continue
+            m = FGLINE.match(line.rstrip("\n"))
+            if m:
+                fg_lines.append({"file": m.group(1), "mode": m.group(2), "why": m.group(3), "ms": int(m.group(4))})
         rc = p.wait(timeout=args.timeout)
     if rc != 0:
         die(f"the live run exited {rc}\n" + err_path.read_text(errors="replace")[-2000:])
     if len(live) != len(steps):
         die(f"the live run reported {len(live)} steps, the script has {len(steps)}")
 
-    blocks, cur = {}, None
+    # A step's block is what follows its mark; a first tier's (`fg`) comes
+    # before the mark of the step it belongs to, and is kept apart.
+    blocks, fgs, cur = {}, {}, None
     for line in err_path.read_text(errors="replace").splitlines(keepends=True):
         m = MARK.match(line.rstrip("\n"))
+        f = FG.match(line.rstrip("\n"))
         if m:
-            cur = int(m.group(1))
-            blocks[cur] = ""
+            cur = ("step", int(m.group(1)))
+            blocks[cur[1]] = ""
+        elif f:
+            cur = ("fg", int(f.group(1)))
+            fgs.setdefault(cur[1], []).append([f.group(2), ""])
+        elif cur is not None and cur[0] == "step":
+            blocks[cur[1]] += line
         elif cur is not None:
-            blocks[cur] += line
+            fgs[cur[1]][-1][1] += line
 
     failed = False
     if not args.live_only:
@@ -233,10 +267,28 @@ def main():
             b = live_dump.read_bytes() if live_dump.exists() else b""
             if a != b:
                 what.append("interface")
+            # The last edit's first tier: what it reported for the edited file
+            # is what the fresh run reports there (primary lines located in
+            # the file; an importer's note that points into it is not its).
+            if args.two_tier and fgs.get(i):
+                rel, text = fgs[i][-1]
+                at = str((root / rel).resolve()) + ":"
+                mine = lambda t: sorted(l for l in t.splitlines() if l.startswith(at) and PRIMARY.search(l[len(at) - 1:]))
+                if mine(text) != mine(cp.stderr.decode(errors="replace")):
+                    what.append("first tier")
+                    (scratch / f"step{i}.fg.stderr").write_text(text)
+                    (scratch / f"step{i}.clean.stderr").write_bytes(cp.stderr)
             verdict = "ok" if not what else "DIFFERS (" + ", ".join(what) + ")"
             failed = failed or bool(what)
         rss = f"  rss {s['rss'] // 1024} MB" if args.rss else ""
-        print(f"step {i} {name}: {s['mode']} ({s['why']})  {s['ms']} ms{rss}  {verdict}")
+        fg = "".join(f"  fg {Path(x['file']).name} {x['mode']} {x['ms']} ms ({x['why']});" for x in s.get("fg", []))
+        print(f"step {i} {name}: {s['mode']} ({s['why']})  {s['ms']} ms{fg}{rss}  {verdict}")
+    if args.restore:
+        for f, data in saved.items():
+            if data is None:
+                (root / f).unlink(missing_ok=True)
+            else:
+                (root / f).write_bytes(data)
     for em in args.expect_mode:
         n, _, want = em.partition("=")
         got = [s["mode"] for s in live if s["name"] == n]

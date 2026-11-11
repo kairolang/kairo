@@ -67,6 +67,7 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Server::LiveIndex::*
 
 pub fn JOB_INDEX() -> u32 {
     return 0
@@ -123,6 +124,52 @@ pub class SyntaxChild {
     fn SyntaxChild(self) = default
 }
 
+/// A request sent to a live index worker and not answered yet.
+pub class LiveSent {
+    pub var id:  i64    = 0
+    pub var rev: u64    = 0     ///< the server revision it saw
+    pub var out: string = ""    ///< where its snapshot is written
+    pub var ms:  i64    = 0     ///< now_ms() when it was sent
+
+    /// The buffers it was sent, as Job::text_paths / texts.
+    pub var text_paths: [string]
+    pub var texts:      [string]
+
+    /// As Job's: the work-done progress token shown for it (empty: none),
+    /// the file the worker counts checked files into, the last count.
+    pub var progress:  string = ""
+    pub var prog_file: string = ""
+    pub var prog_n:    i64    = -1
+
+    /// Its first tier is installed and the files that import the edited
+    /// ones are being re-checked: more answers come under this id.
+    pub var draining: bool = false
+
+    fn LiveSent(self) = default
+}
+
+/// A live index worker (`kals --worker --index-server`, LiveIndex.k): one
+/// process holding one entry's checked graph.
+pub class LiveChild {
+    pub var entry:    string = ""    ///< the entry file it holds
+    pub var pid:      i64    = -1    ///< -1: not running
+    pub var t:        Transport      ///< over its pipes
+    pub var steps:    u64    = 0     ///< answers since it started
+    pub var restarts: u64    = 0     ///< deaths and timeouts
+    pub var failed:   bool   = false ///< no pipes here, or it keeps dying: a process per run
+    pub var base_rss: i64    = -1    ///< resident MB after its first check
+    pub var rss:      i64    = -1    ///< resident MB after its last answer
+    pub var last_ms:  i64    = 0     ///< now_ms() of its last answer
+
+    /// The next run of the entry is a process: the worker died on, or
+    /// could not take, the text as it stands.
+    pub var skip_once: bool = false
+
+    pub var sent: [LiveSent]         ///< in flight, oldest first
+
+    fn LiveChild(self) = default
+}
+
 /// A worker process in flight.
 pub class Job {
     pub var kind:   u32    = 0
@@ -158,6 +205,16 @@ pub class Job {
     /// text it read (Document::idx_text).
     pub var text_paths: [string]
     pub var texts:      [string]
+
+    /// JOB_INDEX: the answer of a live index worker, installed through
+    /// finish_index like a run's output: what the worker did (`full`: the
+    /// whole graph; `refresh`: the files below), how many files it
+    /// re-checked, and how many are still to come.
+    pub var live:        bool   = false
+    pub var l_mode:      string = ""
+    pub var l_why:       string = ""
+    pub var l_rechecked: usize  = 0
+    pub var l_pending:   usize  = 0
 
     fn Job(self) = default
 }
@@ -212,6 +269,16 @@ pub class Entry {
     /// is a binary search and not a walk that re-reads every row: per file
     /// (by its node in `idx`) a slice of the ref rows, sorted by position as
     /// the worker wrote them, and a slice of the token integers.
+    /// Files changed on disk that the entry's live index worker has not
+    /// been told of (touch adds, a live request takes them).
+    pub var live_changed: [string]
+
+    /// Files the live worker has still to re-check after an edit (they
+    /// import an edited file). Their rows and diagnostics are the ones from
+    /// before the edit until then: positions in their own text are exact,
+    /// what they say about the edited file may not be.
+    pub var live_pending: usize = 0
+
     pub var cf_node: [u32]
     pub var cf_lo:   [usize]
     pub var cf_hi:   [usize]
@@ -429,6 +496,20 @@ extend Server {
             if self.entries[i].holds(path) {
                 self.entries[i].dirty      = true
                 self.entries[i].change_rev = self.rev
+                // A buffer's text the live worker compares itself; only
+                // a change on DISK has to be named to it.
+                if self.live_on && (di == usize::MAX) {
+                    var have = false
+                    for var q: usize = 0; q < self.entries[i].live_changed.size(); ++q {
+                        if self.entries[i].live_changed[q] == path {
+                            have = true
+                        }
+                    }
+
+                    if !have {
+                        self.entries[i].live_changed.push_back(path)
+                    }
+                }
             }
         }
 

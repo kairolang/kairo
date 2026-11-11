@@ -1,0 +1,27 @@
+# Not a lit test: as self_tier_kals.replay, for entry Compiler/Driver/Kairo.k.
+step entry
+append Compiler/Driver/Kairo.k:::\n// t1\n
+step shellquote_body
+replace Compiler/Support/ShellQuote.k:::out = out + one:::out += one
+step baseinit
+append Compiler/Sema/Check/BaseInitCheck.k:::\n// t1\n
+step astprinter
+append Compiler/AST/Printer/ASTPrinter.k:::\n// t1\n
+step operatorfacts
+append Compiler/AST/OperatorFacts.k:::\n// t1\n
+step clanglocmap
+append Compiler/Interop/Clang/ClangLocMap.k:::\n// t1\n
+step exprkind_preempted_by_leaf
+append Compiler/AST/Kind/ExprKind.k:::\n// t1\n
+drain 60
+append Compiler/Support/ShellQuote.k:::\n// t1\n
+step sourcemanager_then_importer_edited
+append Compiler/Location/SourceManager.k:::\n// t1\n
+drain 25
+append Compiler/Driver/FrontendAction.k:::\n// t1\n
+drain 10
+append Compiler/Location/SourceManager.k:::\n// t2\n
+step leaf_error
+replace Compiler/Support/ShellQuote.k:::out += one:::out += one + 1
+step leaf_fixed
+replace Compiler/Support/ShellQuote.k:::out += one + 1:::out += one

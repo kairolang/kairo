@@ -21,6 +21,7 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/KLog.hh"
 ffi "c++" import "vector"
 
+import AST::Context::ASTContext::ASTContext
 import API::Text::LinkText
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
 import Driver::CompilerInstance::CompilerInstance
@@ -445,7 +446,14 @@ extend CompilerInstance {
     ///          tree may point into a file that is re-read. Not destroyed,
     ///          because address-keyed stores would meet its addresses again
     ///          (GlobalDisambigTable::detach).
-    pub fn detach_for_refresh(self, fid: u32) -> bool {
+    ///
+    /// \param bytes  with \p given, the file's new text: a tool's buffer
+    ///               (kept alive by the caller, not copied; null when it
+    ///               is empty).
+    /// \param reread when \p bytes is null: re-read the disk (a mapped
+    ///               file); false keeps the bytes the file has (a buffer
+    ///               whose text did not change).
+    pub fn detach_for_refresh(self, fid: u32, bytes: kairo::std::ConstPtr<u8>, size: usize, reread: bool, given: bool) -> bool {
         if self.is_foreign_fid(fid) {
             return false
         }
@@ -468,7 +476,30 @@ extend CompilerInstance {
             return false
         }
 
+        if given {
+            return self._sm->replace_bytes(fid, bytes, size)
+        }
+
+        if !reread {
+            return true
+        }
+
         return self._sm->invalidate(fid)
+    }
+
+    /// The bytes of the AST arenas of the contexts detach_for_refresh
+    /// kept: what a live check has replaced and cannot free yet (the trees;
+    /// their tokens and buffers went when they were detached).
+    pub fn retired_bytes(self) -> usize {
+        var total: usize = 0
+        for var i: usize = 0; i < self.retired.size(); ++i {
+            var unsafe *c = unsafe (self.retired[i] as unsafe *ASTContext)
+            if c != &null {
+                total += c->ast_alloc.profile().bytes_allocated
+            }
+        }
+
+        return total
     }
 
     /// \brief fids whose TU holds a resolved import edge directly into \p fid.

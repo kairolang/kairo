@@ -41,6 +41,7 @@ import Server::Output::*
 import Server::Scheduling::*
 import Server::Server::*
 import Server::Workers::*
+import Server::LiveIndex::*
 
 extend Server {
     /// The loop's wait: true when an editor message is buffered (take() it).
@@ -48,7 +49,26 @@ extend Server {
     /// same poll, so its answer is taken the moment it is written, not on the
     /// next idle tick (IDLE_WAIT_MS).
     fn wait_any(self, ms: i32) -> bool {
-        if (self.syn.pid < 0) || (!self.syn.busy) {
+        // The pipes worth waking for: the syntax worker's while a pass is
+        // in flight, and each live index worker's while it owes an answer.
+        var fds: [i32; 30]
+        var n: i32 = 0
+        var syn = (self.syn.pid >= 0) && self.syn.busy
+        if syn {
+            fds[0] = self.syn.t.fd_in
+            n = 1
+        }
+
+        var live = false
+        for var k: usize = 0; (k < self.lives.size()) && (n < 30); ++k {
+            if (self.lives[k].pid >= 0) && (!self.lives[k].sent.empty()) {
+                fds[n as usize] = self.lives[k].t.fd_in
+                n += 1
+                live = true
+            }
+        }
+
+        if n == 0 {
             return self.t.wait(ms)
         }
 
@@ -56,12 +76,18 @@ extend Server {
             return true
         }
 
-        var bits: i32 = unsafe kals_poll2(self.syn.t.fd_in, ms)
+        var bits: i32 = unsafe kals_pollv(unsafe &fds[0], n, ms)
         if bits >= 2 {
-            self.syntax_read()
+            if syn {
+                self.syntax_read()
+            }
+
+            if live {
+                self.live_read()
+            }
         }
 
-        if (bits == 1) || (bits == 3) {
+        if (bits > 0) && ((bits & 1) != 0) {
             return self.t.wait(0)
         }
 

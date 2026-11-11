@@ -49,6 +49,9 @@
 #endif
 #include <atomic>
 #include <cstdio>
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 
 // LLVM_VERSION_MAJOR (kairo::llvm_version_major below); the compiler always
 // builds against LLVM, but the guard keeps this header usable without it.
@@ -89,6 +92,42 @@ inline unsigned long long phys_footprint_kib() {
     }
 
     return (unsigned long long)info.phys_footprint / 1024ull;
+#else
+    return 0ull;
+#endif
+}
+
+/// Bytes the C allocator has handed out and not got back, in KiB (glibc:
+/// mallinfo2's in-use arena bytes plus its mmapped blocks), or 0 where the
+/// allocator does not say. Against the resident size it tells memory that
+/// something still HOLDS from memory the allocator merely has not returned
+/// to the system (a live check's debug line, KAIRO_LIVE_DEBUG).
+inline unsigned long long heap_in_use_kib() {
+#if defined(__GLIBC__) && defined(__GLIBC_PREREQ)
+#if __GLIBC_PREREQ(2, 33)
+    struct mallinfo2 mi = mallinfo2();
+    return (unsigned long long)(mi.uordblks + mi.hblkhd) / 1024ull;
+#else
+    return 0ull;
+#endif
+#else
+    return 0ull;
+#endif
+}
+
+/// The resident size of this process in KiB (Linux: /proc/self/statm), or
+/// 0 where that is not read.
+inline unsigned long long resident_kib() {
+#if defined(__linux__)
+    FILE *f = fopen("/proc/self/statm", "r");
+    if (f == nullptr) {
+        return 0ull;
+    }
+
+    unsigned long long size = 0, res = 0;
+    int                got  = fscanf(f, "%llu %llu", &size, &res);
+    fclose(f);
+    return got == 2 ? res * (unsigned long long)sysconf(_SC_PAGESIZE) / 1024ull : 0ull;
 #else
     return 0ull;
 #endif

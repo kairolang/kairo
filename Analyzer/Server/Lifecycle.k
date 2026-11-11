@@ -13,6 +13,7 @@
 
 
 ffi "c++" import "Native/Types.hh"
+ffi "c++" import "cstdlib"
 ffi "c++" import "llvm/ADT/StringRef.h"
 ffi "c++" import "llvm/Support/Program.h"
 ffi "c++" import "optional"
@@ -66,6 +67,7 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Server::LiveIndex::*
 
 extend Server {
     /// (Re)reads the project file and rebuilds the entry list from it.
@@ -82,6 +84,7 @@ extend Server {
         }
 
         self.entries.clear()
+        self.live_stop_all()
         for var i: usize = 0; i < self.project.entries.size(); ++i {
             var e = Entry()
             e.entry      = self.project.entries[i].entry
@@ -129,6 +132,14 @@ extend Server {
         }
 
         self.highlight_panics = d->get_bool(opts, "highlightPanics")
+        // The environment turns it on for a whole session whatever the
+        // editor sends (a test suite run in live mode).
+        self.live_on = d->get_bool(opts, "liveCheck")
+        var unsafe *lenv = cxx::std::getenv(r"KALS_LIVE_CHECK")
+        if (lenv != &null) && ((lenv[0] as u8) == (49 as u8)) {
+            self.live_on = true
+        }
+
         self.progress_ok = d->get_bool(d->get(d->get(params, "capabilities"), "window"), "workDoneProgress")
         self.watch_ok = d->get_bool(
             d->get(d->get(d->get(params, "capabilities"), "workspace"), "didChangeWatchedFiles"),

@@ -111,12 +111,12 @@ class TimeReport {
 
         /// Slowest single entry, tracked PER KIND.
         ///
-        /// One shared max was a bug with teeth. A fanned-out region's wall
+        /// A shared max would be wrong. A fanned-out region's wall
         /// entry is the whole dispatch-and-wait, which is by construction
-        /// longer than any one worker slice, so a shared max always reported
-        /// the dispatcher's own duration and looked exactly like "one
-        /// pathological file owns the phase". It read as a finding. It was the
-        /// instrument measuring itself.
+        /// longer than any one worker slice, so a shared max always reports
+        /// the dispatcher's own duration and looks exactly like "one
+        /// pathological file owns the phase" while the instrument is
+        /// measuring itself.
         libcxx::atomic<uint64_t> wall_max{0};
         libcxx::atomic<uint64_t> work_max{0};
 

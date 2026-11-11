@@ -12,6 +12,9 @@
 ///     write <file>:::<text>             create or overwrite
 ///     append <file>:::<text>            add at the end
 ///     remove <file>
+///     drain <n>                         with --incr-replay-two-tier: n of
+///                                       the queued files are re-checked
+///                                       before the step's next edit
 ///
 ///   `\n` in <old>, <new> and <text> is a line break. Paths are relative to
 ///   the working directory. Step 0 is the first check, before any edit.
@@ -41,7 +44,9 @@ ffi "c++" import "cstring"
 
 import API::FS::*
 import Support::FileIO::Path::Path
+import Sema::SemaContext::SemaContext
 import Tooling::LiveCheck::LiveCheck
+import Tooling::SemaObserver::SemaObserver
 import std::c_char
 import std::io
 
@@ -108,8 +113,75 @@ fn replay_now_ms() -> u64 {
     ).count() as u64)
 }
 
+/// --incr-replay-observe: the observer a tool installs
+/// (LiveCheck::observer), printing the files each step calls it for, in
+/// call order: `incr-replay:   checked <file>` and `lowered <file>`.
+class ReplayObserver derives SemaObserver {
+    pub fn ReplayObserver(self) = default
+
+    priv fn say_(self, const what: string, sc: unsafe *SemaContext) {
+        if sc == &null || sc->ctx == &null {
+            return
+        }
+
+        var name = Path(sc->ctx->sm->get_filename(sc->ctx->fid)).filename()
+        io::println(f"incr-replay:   {what} {name}")
+    }
+
+    /* OVERRIDE */
+    pub fn on_checked(self, sc: unsafe *SemaContext) {
+        self.say_("checked", sc)
+    }
+
+    /* OVERRIDE */
+    pub fn on_lowered(self, sc: unsafe *SemaContext) {
+        self.say_("lowered", sc)
+    }
+}
+
+/// The buffers of an overlay session (--incr-replay-overlay): the text of
+/// each file an edit has touched, which the disk does not have.
+class ReplayBuffers {
+    pub var on:    bool = false
+    pub var paths: cxx::std::vector<string>
+    pub var texts: cxx::std::vector<string>
+
+    pub fn ReplayBuffers(self) = default
+
+    pub fn read(self, const path: string, @inout out: string) -> bool {
+        for var i: usize = 0; i < self.paths.size(); ++i {
+            if self.paths[i] == path {
+                out = self.texts[i]
+                return true
+            }
+        }
+
+        return LinkFS::read(path, &out)
+    }
+
+    /// The edit's result: to the disk, or with \c on to the buffer (the
+    /// caller hands it to the live check).
+    pub fn write(self, const path: string, const text: string) -> bool {
+        // A header is read by clang, which has no buffer of ours.
+        if (!self.on) || (!path.ends_with(".k")) || !LinkFS::exists(path) {
+            return LinkFS::write(path, text)
+        }
+
+        for var i: usize = 0; i < self.paths.size(); ++i {
+            if self.paths[i] == path {
+                self.texts[i] = text
+                return true
+            }
+        }
+
+        self.paths.push_back(path)
+        self.texts.push_back(text)
+        return true
+    }
+}
+
 /// One edit command; "" when applied, else why not. \p touched gets the file.
-fn replay_apply(const line: string, touched: *cxx::std::vector<string>) -> string {
+fn replay_apply(const line: string, touched: *cxx::std::vector<string>, bufs: *ReplayBuffers) -> string {
     if line.starts_with("replace ") {
         var f = replay_fields(line.subslice(8, line.size() - 8))
         if f.size() != 3 {
@@ -117,7 +189,7 @@ fn replay_apply(const line: string, touched: *cxx::std::vector<string>) -> strin
         }
 
         var text = ""
-        if !LinkFS::read(f[0], &text) {
+        if !bufs->read(f[0], &text) {
             return "cannot read " + f[0]
         }
 
@@ -136,7 +208,7 @@ fn replay_apply(const line: string, touched: *cxx::std::vector<string>) -> strin
             text.size() - at - old_.size(),
         )
 
-        if !LinkFS::write(f[0], next) {
+        if !bufs->write(f[0], next) {
             return "cannot write " + f[0]
         }
 
@@ -150,7 +222,7 @@ fn replay_apply(const line: string, touched: *cxx::std::vector<string>) -> strin
             return "write wants <file>:::<text>"
         }
 
-        if !LinkFS::write(f[0], replay_unescape(f[1])) {
+        if !bufs->write(f[0], replay_unescape(f[1])) {
             return "cannot write " + f[0]
         }
 
@@ -165,11 +237,11 @@ fn replay_apply(const line: string, touched: *cxx::std::vector<string>) -> strin
         }
 
         var text = ""
-        if !LinkFS::read(f[0], &text) {
+        if !bufs->read(f[0], &text) {
             return "cannot read " + f[0]
         }
 
-        if !LinkFS::write(f[0], text + replay_unescape(f[1])) {
+        if !bufs->write(f[0], text + replay_unescape(f[1])) {
             return "cannot write " + f[0]
         }
 
@@ -185,6 +257,46 @@ fn replay_apply(const line: string, touched: *cxx::std::vector<string>) -> strin
     }
 
     return "unknown command: " + line
+}
+
+/// --incr-replay-two-tier: the first tier of an edit of \p file, at once.
+/// On stdout what it did; on stderr `== incr-replay fg <n> <file>` and the
+/// diagnostics \p file owns now, which Scripts/incr_replay_check.py
+/// compares with that file's part of the step's fresh run.
+fn replay_fg(live: *LiveCheck, bufs: *ReplayBuffers, const file: string, n: usize) {
+    var full = Path(file).full_path()
+    if bufs->on {
+        for var bi: usize = 0; bi < bufs->paths.size(); ++bi {
+            if bufs->paths[bi] == file {
+                live->set_overlay(full, bufs->texts[bi])
+            }
+        }
+    }
+
+    var t0 = replay_now_ms()
+    live->replace_file(full)
+    var ms = replay_now_ms() - t0
+    io::println(f"incr-replay:   fg {file}: {live->mode} ({live->why}), {ms} ms")
+    if !live->detail.empty() {
+        io::println(f"incr-replay:   detail: {live->detail}")
+    }
+
+    cxx::std::fflush(kairo::std_out())
+    io::eprintln(f"== incr-replay fg {n} {file}")
+    var unsafe *fd = live->file_diags()
+    if fd != &null && live->ci() != &null {
+        for var i: usize = 0; i < fd->diags.size(); ++i {
+            // Its own, and what was reported for it before Sema (the
+            // preprocessor's, the parser's: no file owns those).
+            var owner: string = fd->owners[i]
+            var early = owner.empty() && fd->diags[i]->has_loc && live->ci()->sm()->get_filename(fd->diags[i]->loc) == full
+            if owner == full || early {
+                io::eprint(f"{live->ci()->incr_render(fd->diags[i])}")
+            }
+        }
+    }
+
+    cxx::std::fflush(kairo::std_err())
 }
 
 fn replay_report(live: *LiveCheck, n: usize, const name: string, t0: u64) {
@@ -211,10 +323,31 @@ pub fn incr_replay_main(argc:         i32,
     var words    = cxx::std::vector<string>()
     var in_place   = false
     var strict_cxx = false
+    var bufs       = ReplayBuffers()
+    var observe    = false
+    var two        = false
     for var i: i32 = 1; i < argc; ++i {
         var w = string(unsafe ((argv[i] as unsafe *const u8) as *const u8), cxx::std::strlen(argv[i]))
         if w == "--incr-replay-in-place" {
             in_place = true
+        }
+
+        // Edits of existing files reach the live check as overlays and the
+        // disk keeps the old text: what a tool with unsaved buffers does.
+        if w == "--incr-replay-overlay" {
+            bufs.on = true
+        }
+
+        // The edited file first, the files that import it afterwards
+        // (LiveCheck::two_tier): each edit command is re-checked as it is
+        // read, `drain <n>` re-checks n queued files, and the step's
+        // result is printed once the queue is empty.
+        if w == "--incr-replay-two-tier" {
+            two = true
+        }
+
+        if w == "--incr-replay-observe" {
+            observe = true
         }
 
         if w == "--incr-replay-strict-cxx" {
@@ -240,7 +373,18 @@ pub fn incr_replay_main(argc:         i32,
     }
 
     var live = LiveCheck(words)
+    var unsafe *watch = kairo::std::create<ReplayObserver>()
+    finally {
+        kairo::std::destroy(watch)
+    }
+
+    if observe {
+        live.observer = unsafe (watch as unsafe *void)
+    }
+
     live.in_place   = in_place
+    live.two_tier   = two && in_place
+    two             = live.two_tier
     live.strict_cxx = strict_cxx
     var n: usize = 0
     var t0 = replay_now_ms()
@@ -268,11 +412,15 @@ pub fn incr_replay_main(argc:         i32,
         at = e + 1
         var is_step = line.starts_with("step ")
         if (is_step || last) && open_ {
-            if last && (!line.empty()) && (!is_step) && line[0] != ('#' as u8) {
-                var why = replay_apply(line, &touched)
+            if last && (!line.empty()) && (!is_step) && line[0] != ('#' as u8) && !line.starts_with("drain ") {
+                var why = replay_apply(line, &touched, &bufs)
                 if !why.empty() {
                     io::eprintln(f"error [U001E]: --incr-replay step '{name}': {why}")
                     return 1
+                }
+
+                if two {
+                    replay_fg(&live, &bufs, touched.back(), n + 1)
                 }
             }
 
@@ -285,7 +433,38 @@ pub fn incr_replay_main(argc:         i32,
             // One call brings the result up to date today (every edit is a
             // full check); a step that touched nothing still re-checks.
             var first = if (touched.empty()) => ("") else => Path(touched[0]).full_path()
-            live.replace_file(first)
+            if two {
+                // Each edit had its first tier when it was read; what is
+                // still queued is re-checked now.
+                if touched.empty() {
+                    live.replace_file(first)
+                }
+
+                var none = cxx::std::vector<string>()
+                while live.drain(1000000, none) {
+                    0
+                }
+            } else if bufs.on {
+                // Every buffer the step changed, then one step per file:
+                // a refresh re-reads only the files of its set.
+                for var ti: usize = 0; ti < touched.size(); ++ti {
+                    for var bi: usize = 0; bi < bufs.paths.size(); ++bi {
+                        if bufs.paths[bi] == touched[ti] {
+                            live.set_overlay(Path(touched[ti]).full_path(), bufs.texts[bi])
+                        }
+                    }
+                }
+
+                for var ti: usize = 0; ti < touched.size(); ++ti {
+                    live.replace_file(Path(touched[ti]).full_path())
+                }
+
+                if touched.empty() {
+                    live.replace_file(first)
+                }
+            } else {
+                live.replace_file(first)
+            }
             replay_report(&live, n, name, t0)
             touched.clear()
             open_ = false
@@ -294,6 +473,12 @@ pub fn incr_replay_main(argc:         i32,
         if is_step {
             name  = line.subslice(5, line.size() - 5)
             open_ = true
+            // In two tiers an edit is re-checked as it is read, and one
+            // that takes a full check writes the step's dump then.
+            if two && !dump.empty() {
+                live.dump_interface = f"{dump}/step{n + 1}.interface.json"
+            }
+
             continue
         }
 
@@ -306,10 +491,34 @@ pub fn incr_replay_main(argc:         i32,
             return 1
         }
 
-        var why = replay_apply(line, &touched)
+        // `drain <n>`: n queued files are re-checked before the step's next
+        // edit (which then pre-empts the rest). Nothing, without two tiers.
+        if line.starts_with("drain ") {
+            if two {
+                var k: usize = 0
+                for var c: usize = 6; c < line.size(); ++c {
+                    if line[c] >= (48 as u8) && line[c] <= (57 as u8) {
+                        k = k * 10 + ((line[c] - (48 as u8)) as usize)
+                    }
+                }
+
+                var none = cxx::std::vector<string>()
+                live.drain(k, none)
+                io::println(f"incr-replay:   drain {k}: {live.mode} ({live.why})")
+                cxx::std::fflush(kairo::std_out())
+            }
+
+            continue
+        }
+
+        var why = replay_apply(line, &touched, &bufs)
         if !why.empty() {
             io::eprintln(f"error [U001E]: --incr-replay step '{name}': {why}")
             return 1
+        }
+
+        if two {
+            replay_fg(&live, &bufs, touched.back(), n + 1)
         }
     }
 
