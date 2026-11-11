@@ -86,6 +86,13 @@ pub class FrontendOptions {
     pub var print_symbols:       bool   = false
     pub var print_ast:           string = ""
     pub var print_sema:          bool   = false
+    /// A Tooling::SemaObserver, or null. Called with each TU's SemaContext at
+    /// SemaPhase::Checked, where --print-sema dumps: names and types are
+    /// resolved and no lowering has rewritten the tree yet. Typed `void` here
+    /// because Config/ sits below Sema/ and cannot name SemaContext; the one
+    /// reader (FrontendAction::_sema_finish) casts it back. Never set from the
+    /// command line: a tool (kals) sets it on the invocation it builds.
+    pub var sema_observer: unsafe *void = &null
     pub var print_lowered:       bool   = false ///< --print-lowered: the same dump, after the Lower/ passes have rewritten the tree
     pub var print_cg:            bool   = false
     pub var print_ir:            bool   = false

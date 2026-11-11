@@ -95,11 +95,11 @@ pub enum ParseFidelity derives u8 {
 
 /// \class ParseOptions
 pub struct ParseOptions {
-    var fidelity: ParseFidelity = ParseFidelity::Semantic
+    pub var fidelity: ParseFidelity = ParseFidelity::Semantic
 
     /// Last stage to run. Parsing is what tools want; the compiler passes
     /// Codegen. Mapped onto FrontendOptions' stop-at flags.
-    var stop_at: TUStage = TUStage::Parsing
+    pub var stop_at: TUStage = TUStage::Parsing
 
     /// Detach the engine's consumers for the duration of the parse and collect
     /// diagnostics into ParsedUnit::diags instead of printing them.
@@ -108,7 +108,7 @@ pub struct ParseOptions {
     /// to the engine and never touches the context sink, so sink-level capture
     /// would miss every unresolved-import and macro error. See
     /// Tooling/ToolDiagnostics.k.
-    var capture_diags: bool = true
+    pub var capture_diags: bool = true
 }
 
 /// \class ParsedUnit

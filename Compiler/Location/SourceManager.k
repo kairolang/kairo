@@ -338,6 +338,23 @@ pub class SourceManager {
         return fid
     }
 
+    /// \brief load_virtual under a REAL path: later loads of \p real_path
+    ///        return this buffer instead of the file on disk.
+    ///
+    /// \details What a language server needs for an unsaved buffer. See
+    ///          VirtualFileManager::bind_path for what is and is not replaced.
+    ///
+    /// \note \p data is NOT copied (load_virtual's contract): it must outlive
+    ///       every use of the returned fid.
+    pub fn load_overlay(self,
+                        const real_path: Path,
+                        data:            kairo::std::ConstPtr<u8>,
+                        size:            usize) -> FileID {
+        var fid = self.load_virtual(real_path, data, size)
+        self._vfile_mgr->bind_path(real_path, fid)
+        return fid
+    }
+
     ///
     /// \brief drops one fid's loaded file: the SourceFile and its buffer view.
     ///

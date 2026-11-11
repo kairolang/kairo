@@ -327,7 +327,7 @@ pub class NameLookup {
     /// text ("$FALLBACK-MISSING-INTERN$ ...") rather than the name. Anything
     /// that renders a decl -- a diagnostic, a dump -- has to ask the decl
     /// where its names live first.
-    static fn ctx_of(d: unsafe *Decl) -> unsafe *ASTContext {
+    pub static fn ctx_of(d: unsafe *Decl) -> unsafe *ASTContext {
         if d == &null {
             return &null
         }

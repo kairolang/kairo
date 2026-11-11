@@ -696,6 +696,23 @@ pub class VirtualFileManager {
         return hit->second
     }
 
+    /// \brief makes \p path resolve to \p fid from now on.
+    ///
+    /// \details The unsaved-buffer overlay: a tool registers an editor's
+    ///          bytes with register_virtual() under the file's REAL path, then
+    ///          binds the path here, so a later register_file() / load_file()
+    ///          of that path (the entry, or an import of it) gets the buffer
+    ///          instead of mapping the disk. Import resolution still probes
+    ///          the disk for existence, so the file must exist there; only its
+    ///          contents are replaced.
+    ///
+    /// \pre Called before anything loads \p path. A path already mapped keeps
+    ///      its old fid in every structure that recorded it.
+    pub fn bind_path(self, const path: Path, fid: u32) {
+        var abs_full = Path(path.full_path()).full_path()
+        self._by_path[kairo::sref(abs_full)] = fid
+    }
+
     /// Registered files. Distinct paths mapped, not passes run.
     pub fn file_count(self) -> usize { // StringMap counts in unsigned
         return self._by_path.size() as usize

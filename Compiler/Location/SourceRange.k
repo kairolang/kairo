@@ -49,9 +49,9 @@ pub class SourceRange {
     ///
     /// \brief constructs a range directly from its two bounds.
     ///
-    /// \details Every factory below used to default-construct - zeroing both
-    ///          endpoints - and then immediately overwrite them. That showed up
-    ///          as SourceRange::SourceRange() at 13.7% of main-thread self time
+    /// \details Every factory builds the endpoints directly: default-constructing
+    ///          (zeroing both) and then overwriting them showed up as
+    ///          SourceRange::SourceRange() at 13.7% of main-thread self time
     ///          on the 1 GiB lex benchmark, because the lexer builds a range
     ///          for every single token and the constructor was not inlining.
     pub fn SourceRange(self, start: SourceLocation, stop: SourceLocation) {

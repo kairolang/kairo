@@ -1,5 +1,5 @@
 // macOS and MSVC roots from the user's SDK plus the shipped overlay
-// (Linker/Sysroot/Sdk.k, P743): what scripts/darwin-sysroot.sh and
+// (Linker/Sysroot/Sdk.k): what scripts/darwin-sysroot.sh and
 // scripts/msvc-sysroot do on their fast path, in-process, into the sysroot
 // cache. The driver runs it on first use on the SDK's own host; ksys ensure
 // --input runs it anywhere (the scripts' SDK= / XWIN=).

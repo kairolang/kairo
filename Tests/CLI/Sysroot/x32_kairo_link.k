@@ -1,4 +1,4 @@
-// x32 links the Kairo library (P702): on x86_64-linux-muslx32 every `thread`
+// x32 links the Kairo library: on x86_64-linux-muslx32 every `thread`
 // global the library touches is spelled local-exec, where it was initial-exec
 // (CXXSpell::tls_model). lld relaxes an initial-exec access only in its REX.W
 // movq / addq form, and x32's is a REX-less movl, so the static link stopped at

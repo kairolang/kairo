@@ -12,7 +12,7 @@ Output: build/cross-llvm/<triple>/
     deps/prefix/        zlib, zstd (static) and mimalloc (override object), built first
     llvm/               the LLVM build tree (static .a, ThinLTO bitcode)
 
-Shipping profile (decided 2026-11-06: max optimization, generic CPU, mimalloc):
+Shipping profile (max optimization, generic CPU, mimalloc):
     -O3, ThinLTO, -march=<floor> (x86-64-v2 by default: every x86-64 CPU since ~2009),
     --gc-sections + --icf=safe, static, mimalloc replacing the libc allocator in every
     executable (musl's own malloc is the slow part of a static musl compiler).
@@ -20,7 +20,7 @@ Shipping profile (decided 2026-11-06: max optimization, generic CPU, mimalloc):
 Host tools: tablegen comes from the native build (build/llvm/bin), so no native sub-build
 runs. Archives use llvm-ar from PATH (any LLVM >= ours reads our bitcode).
 
-Every compile, C, C++ and assembly, goes through kcc (decided 2026-11-06: LLVM is always
+Every compile, C, C++ and assembly, goes through kcc (LLVM is always
 built by kcc; kcc assembles in-process). The default kcc is the one beside the
 compiler build.py uses (build/<host>/release/bin, else PATH): build.py --release never
 rewrites that tree until its replacement has fully built (N-1 holds the backup).
@@ -60,7 +60,7 @@ def find_kcc() -> Path:
 
 # triple -> (CMAKE_SYSTEM_NAME, CMAKE_SYSTEM_PROCESSOR, CPU floor flags, unused)
 #
-# The floors are what a shipped binary may assume (decided 2026-11-06: generic, max
+# The floors are what a shipped binary may assume (generic, max
 # optimized): x86-64-v2 (every x86-64 since ~2009), pentium4 for 32-bit x86 (SSE2),
 # armv8-a, rv64gc, the sysroot's own armv7 hard-float default, apple-m1 for Apple
 # silicon (every arm64 Mac).

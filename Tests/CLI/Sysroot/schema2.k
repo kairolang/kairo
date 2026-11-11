@@ -1,4 +1,4 @@
-// Registry schema 2 (build/sysroot-share/FORMAT.md, "schema 2"; P612): a share
+// Registry schema 2 (build/sysroot-share/FORMAT.md, "schema 2"): a share
 // input holds no symlinks, so a zip extracted on Windows hashes as a Linux untar
 // does. tree_sha256 walks without following links and a link inside an input is
 // refused with its path; links.tsv rows come back as the same symlinks when an

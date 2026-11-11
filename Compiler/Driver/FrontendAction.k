@@ -146,6 +146,7 @@ import Sema::Resolve::NameLookup::NameLookup
 import Sema::Sema::Sema
 import Sema::SemaContext::SemaPhase
 import Sema::SemaDump::SemaDump
+import Tooling::SemaObserver::SemaObserver
 import Support::FileIO::Path::Path
 import Support::TimeReport::{
     TimeRegion,
@@ -1676,6 +1677,15 @@ pub class FrontendAction {
 
             if print_sema {
                 SemaDump(unsafe &sem->sc, sema_opts).run()
+            }
+
+            // The same pin, for a tool: kals indexes the tree here, before a
+            // lowering replaces the operator and literal nodes a user wrote.
+            // Whatever the TU reached, including one that stopped early: an
+            // editor wants the half-resolved tree of a broken file too.
+            var unsafe *observer = self._ci->invocation()->frontend.sema_observer
+            if observer != &null {
+                unsafe { (observer as unsafe *SemaObserver)->on_checked(unsafe &sem->sc) }
             }
 
             // Two continuations instead of one run(), only so the timing tree can

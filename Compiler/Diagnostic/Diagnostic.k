@@ -25,7 +25,7 @@ import Location::SourceRange::SourceRange
 /// characters; all other consumers fall back to ASCII.
 pub struct DiagLabel {
     /// Underline style applied to \c range in rendered output.
-    enum Style derives u8 {
+    pub enum Style derives u8 {
         Primary,       ///< Primary caret span.              ^^^
         Secondary,     ///< Secondary span.                  +++
         Highlight,     ///< Highlighted region.              ---

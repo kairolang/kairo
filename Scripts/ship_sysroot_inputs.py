@@ -24,14 +24,14 @@ is fetched. Sources, in the order kairo-sysroots' curate/ scripts consumed them:
                   abilists and compares them with the curated (Ubuntu focal) DSOs.
   mingw/          headers from the curated windows-gnu roots (identical on every arch, so
                   shipped once); crt/<a>/ = the curated lib/ files mingw-crt/ does not build
-                  (winpthreads, libssp, ...: P623). Without mingw-crt/ tables: def/<a>/
+                  (winpthreads, libssp, ...). Without mingw-crt/ tables: def/<a>/
                   preprocessed from Lib/libc/mingw's mingw-w64-crt (in git, outside the sparse
                   checkout), kept only where llvm-dlltool regenerates the curated import
                   library exactly, and crt/<a>/ = every other archive and object of lib/
   freebsd/, netbsd/  build/sysgen/bsd-trim/<name> when bsd-trim/DONE exists, else the curated
                   root; minus libcxx/, compiler-rt/ and usr/include/c++ (built from runtimes)
   wasi/33/        the curated wasm32-wasi root minus compiler-rt/ and minus what wasi-libc/
-                  builds (P624): libc++ (eh/, noeh/) and the LTO libc
+                  builds: libc++ (eh/, noeh/) and the LTO libc
   runtimes-recipe/  Scripts/runtimes_recipe.py: per-runtime compile tables (sources, flags,
                   archive layout) + generated headers, from a CMake configure of each family
                   recipe; the generator's no-CMake runtimes stage (Scripts/build_runtimes_direct.py)
@@ -138,7 +138,7 @@ def file_sha256(p: Path) -> str:
     return h.hexdigest()
 
 
-# Registry schema. 2 (P612): an input holds no symlinks at all (links.tsv / casefold.tsv
+# Registry schema 2: an input holds no symlinks at all (links.tsv / casefold.tsv
 # record what ksys recreates), and tree_sha256 never follows a link: a link is an error. On a
 # link-free tree both rules give the same hash, which is what makes a Windows unzip and a
 # Linux untar of the same archive verify identically. --legacy-links writes schema 1.
@@ -242,7 +242,7 @@ def sweep_links(root: Path, dropped: list) -> None:
 
 
 def seal_input(root: Path) -> list[str]:
-    """P612: make one input dir portable to a case-insensitive, link-less filesystem (a Windows
+    """Make one input dir portable to a case-insensitive, link-less filesystem (a Windows
     unzip). Every symlink becomes a row of <root>/links.tsv and is removed; every name that
     collides with another in the same dir under case folding (Linux netfilter's xt_MARK.h /
     xt_mark.h) except the bytewise-greatest of its group is stored as <name>.kcase and listed
@@ -1388,7 +1388,7 @@ class Ctx:
         self.crt_tree = a.crt_tree.resolve()
         self.template_recipes = [Path(x).resolve() for x in a.template_recipes]
         self.linux_src = a.linux_src.resolve()
-        self.seal_notes = {}    # input key -> P612 notes (links.tsv / casefold.tsv)
+        self.seal_notes = {}    # input key -> seal notes (links.tsv / casefold.tsv)
         self.prov = {}          # input key -> list of provenance lines
         self.dropped_links = {}
         self.mingw_defs = {}    # arch -> {lib name: def name}
@@ -1762,8 +1762,8 @@ def build_mingw(c: Ctx) -> None:
 
     built = mingw_crt_installed(c)
     if built:
-        # P622: mingw-crt/ builds every crt file and import library mingw-w64-crt has, so mingw/
-        # carries no def/ and crt/<arch> only what mingw-w64-crt does not build (P623).
+        # mingw-crt/ builds every crt file and import library mingw-w64-crt has, so mingw/
+        # carries no def/ and crt/<arch> only what mingw-w64-crt does not build.
         stats = []
         for a in MINGW_ARCHES:
             (out / "crt" / a).mkdir(parents=True)
@@ -1895,8 +1895,8 @@ def build_bsd(c: Ctx) -> None:
 def build_wasi(c: Ctx) -> None:
     src = c.curated / "wasm32-wasi"
     out = fresh(c.share / "wasi") / WASI_VERSION
-    # P624: what wasi-libc/ builds (the libc headers and libraries) is not shipped twice. This
-    # skip only ever matched a top-level noeh/, so the noeh/ trees under wasm32-wasi/ ship (P671).
+    # What wasi-libc/ builds (the libc headers and libraries) is not shipped twice. This
+    # skip only ever matched a top-level noeh/, so the noeh/ trees under wasm32-wasi/ ship.
     built = wasi_libc_built(c)
     for d in ("include", "lib"):
         copy_tree(src / d, out / d, lambda r, d=d: r == "noeh" or f"{d}/{r}" in built)
@@ -1907,7 +1907,7 @@ def build_wasi(c: Ctx) -> None:
             die(f"wasi: no {m}")
     c.prov[f"wasi/{WASI_VERSION}"] = [
         "curated wasm32-wasi root (wasi-sdk 33 sysroot): include/ and lib/ minus compiler-rt/"
-        + (f", minus the {len(built)} libc headers and libraries wasi-libc/ builds (P624): libc++ "
+        + (f", minus the {len(built)} libc headers and libraries wasi-libc/ builds: libc++ "
            "(eh/, noeh/) and the LTO libc (lib/wasm32-wasi/llvm-lto/, not built from source: P626)" if built else "")]
 
 
@@ -1940,7 +1940,7 @@ def build_licenses(c: Ctx) -> None:
             s, n = (s if isinstance(s, tuple) else (s, s.name))
             shutil.copyfile(s, d / n)
     # Not in the sparse checkout. Each is a DIR holding <name>.txt: `git show HEAD:<dir>` printed a
-    # tree listing, which is what licenses/mingw/ carried until P620.
+    # tree listing.
     import mingw_crt_recipe
     for comp, rev in (("mingw", "HEAD"), ("mingw-crt", mingw_crt_recipe.PIN)):
         for n in ("COPYING.MinGW-w64-runtime", "COPYING.MinGW-w64"):

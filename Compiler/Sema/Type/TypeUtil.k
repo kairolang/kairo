@@ -93,7 +93,7 @@ pub class TypeUtil {
         self.sc = &null
     }
 
-    fn TypeUtil(self, sc: unsafe *SemaContext) {
+    pub fn TypeUtil(self, sc: unsafe *SemaContext) {
         self.sc = sc
     }
 
@@ -1831,7 +1831,7 @@ pub class TypeUtil {
         return "?"
     }
 
-    fn str(self, t: unsafe *Type) -> string {
+    pub fn str(self, t: unsafe *Type) -> string {
         if t == &null {
             return "<unknown>"
         }

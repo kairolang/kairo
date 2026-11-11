@@ -8,7 +8,7 @@
 // runtimes_template.py props_of).
 //
 // The root itself is not built here: its validation stops at the Kairo
-// library (P700), and a build is minutes per arch.
+// library, and a build is minutes per arch.
 
 fn main() -> i32 {
     return 0
