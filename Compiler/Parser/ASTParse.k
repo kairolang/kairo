@@ -480,6 +480,24 @@ pub class ASTParse
         return self.tu
     }
 
+    /// \brief restores, on a tree that was NOT parsed here, everything
+    ///        parse() derives from the finished tree: the scope links into
+    ///        the hoisted table, the per-scope symbol tables with the
+    ///        lexical / semantic context stamps and the out-of-line list,
+    ///        and the file's own module declaration.
+    ///
+    /// \details The serialized AST (Compiler/Spec/Serialization.md) stores the
+    ///          tree and none of these: they are functions of it, and one
+    ///          implementation of them, this one, is what keeps a reloaded
+    ///          tree's tables identical to a parsed one's. `ctx->tu` must be
+    ///          the reloaded TU (this parser adopted it in its constructor)
+    ///          and `ctx->hoisted` the file's index.
+    pub fn rebuild_derived(self) {
+        self._wire_scopes()
+        self._build_symbols()
+        self._synthesize_module_self()
+    }
+
     /// \brief Create the synthetic per-file ModuleDecl (A2: shares the TU's
     ///        symbol table) so a plain `import bar` binds a REAL *Decl and
     ///        `bar::foo` resolves through one uniform module path.

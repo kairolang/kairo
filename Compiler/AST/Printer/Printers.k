@@ -128,14 +128,19 @@ pub class ASTPrinter {
     }
 
     pub static fn print(tu: unsafe *TranslationUnit, opts: PrintOptions) {
+        io::println(f"{ASTPrinter::render(tu, opts)}")
+        cxx::std::fflush(kairo::std_out())
+    }
+
+    /// What print() writes, as a string: the form a comparison of two trees
+    /// reads (--verify-ast-roundtrip).
+    pub static fn render(tu: unsafe *TranslationUnit, opts: PrintOptions) -> string {
         if tu == &null {
-            io::println("<null TranslationUnit>")
-            return
+            return "<null TranslationUnit>"
         }
 
         if tu->ctx == &null {
-            io::println("<TranslationUnit with no ASTContext>")
-            return
+            return "<TranslationUnit with no ASTContext>"
         }
 
         var d     = AstDumper(tu->ctx, opts)
@@ -157,8 +162,7 @@ pub class ASTPrinter {
                 d.p.newline()
             }
 
-            io::println(f"{d.p.out}")
-            return
+            return d.p.out
         }
 
         var unsafe *prog = tu->program
@@ -201,7 +205,6 @@ pub class ASTPrinter {
             d.p.newline()
         }
 
-        io::println(f"{d.p.out}")
-        cxx::std::fflush(kairo::std_out())
+        return d.p.out
     }
 }

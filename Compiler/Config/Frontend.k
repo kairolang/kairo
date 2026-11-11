@@ -11,6 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "cstdlib"
 ffi "c++" import "vector"
 
 import Command::ParsedArgs::ParsedArgs
@@ -84,6 +85,13 @@ pub class FrontendOptions {
     pub var print_cxx:           bool   = false ///< --print-cxx: the TU's C++ preamble (interface only) as text
     pub var emit_headers:        string = "" ///< --emit-headers <dir>: write each module's C++ interop header
     pub var print_symbols:       bool   = false
+    /// The serialized-AST test flags (Compiler/Spec/Serialization.md):
+    /// --emit-ast-bin=<path>, --ast-roundtrip (or KAIRO_AST_ROUNDTRIP=1 in
+    /// the environment, so an unmodified test suite can run under it) and
+    /// --verify-ast-roundtrip.
+    pub var emit_ast_bin:         string = ""
+    pub var ast_roundtrip:        bool   = false
+    pub var verify_ast_roundtrip: bool   = false
     pub var print_ast:           string = ""
     pub var print_sema:          bool   = false
     /// A Tooling::SemaObserver, or null. Called with each TU's SemaContext at
@@ -202,6 +210,15 @@ pub class FrontendOptions {
         o.print_cxx           = args.get_bool("print-cxx")
         o.emit_headers        = args.get_string("emit-headers")
         o.print_symbols       = args.get_bool("print-symbols")
+        o.emit_ast_bin         = args.get_string("emit-ast-bin")
+        o.verify_ast_roundtrip = args.get_bool("verify-ast-roundtrip")
+        o.ast_roundtrip        = args.get_bool("ast-roundtrip")
+        if !o.ast_roundtrip {
+            var unsafe *env_rt = cxx::std::getenv(r"KAIRO_AST_ROUNDTRIP")
+            if env_rt != &null && (env_rt[0] as u8) == 49 { // "1"
+                o.ast_roundtrip = true
+            }
+        }
         o.print_ast           = FrontendOptions::_mode_or(&args, "print-ast", "tree")
         o.print_sema          = args.get_bool("print-sema")
         o.print_lowered       = args.get_bool("print-lowered")

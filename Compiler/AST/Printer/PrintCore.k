@@ -78,7 +78,7 @@ pub class PrintOptions {
         return o
     }
 
-    static fn dump_plain() -> PrintOptions {
+    pub static fn dump_plain() -> PrintOptions {
         var o = PrintOptions{}
         o.style = PrintStyle::Debug
         o.color = false

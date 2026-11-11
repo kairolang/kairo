@@ -100,6 +100,14 @@ import AST::Printer::Printers::{
     DeclPrinter,
     TypePrinter,
 }
+import AST::Serialize::RoundTrip::{
+    ASTRoundTrip,
+    RoundTripStats,
+}
+import AST::Serialize::Serializer::{
+    ASTBinWriter,
+    write_ast_file,
+}
 import AST::VisibilityFacts::stamp_tu_visibility
 import Codegen::Backend::CodegenAction::EmitKind
 import Codegen::Backend::CodegenBackend::{
@@ -138,6 +146,7 @@ import Interop::Clang::HeaderSetCache::HeaderSetCache
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Parser::ASTParse::ASTParse
+import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Resolution::ImportProbe::ImportResolver
 import Resolution::ModulePath::ModulePath
 import Sema::Check::EffectPropagation::EffectTable
@@ -684,6 +693,12 @@ pub class FrontendAction {
             progress_end(PROGRESS_PARSE)
         }
 
+        // Before any dump: under --ast-roundtrip the tree the dumps and Sema
+        // see is the reloaded one.
+        if !self._ast_serialize(&parse_fids) {
+            return false
+        }
+
         /// # print-ast / mem stats: unchanged
 
         var ast_mode = self._ci->invocation()->frontend.print_ast
@@ -758,6 +773,78 @@ pub class FrontendAction {
         }
 
         self._dump_mem_stats()
+        return true
+    }
+
+    /// The serialized-AST test flags (Compiler/Spec/Serialization.md), run
+    /// once every file is parsed and before anything reads a tree:
+    /// --emit-ast-bin writes the entry file's AST, --verify-ast-roundtrip
+    /// reloads each file's AST beside the parsed one and compares them, and
+    /// --ast-roundtrip (or KAIRO_AST_ROUNDTRIP=1) replaces each parsed tree
+    /// with its reloaded one, so the rest of the pipeline runs on what the
+    /// reader built.
+    ///
+    /// On this thread, one file at a time: a reader appends to its file's
+    /// immediate table and, for a macro another file defines, to that
+    /// file's, and nothing else is running to race it here.
+    priv fn _ast_serialize(self, @inout fids: cxx::std::vector<u32>) -> bool {
+        var fe = self._ci->invocation()->frontend
+        if fe.emit_ast_bin.empty() && (!fe.ast_roundtrip) && (!fe.verify_ast_roundtrip) {
+            return true
+        }
+
+        // Created only here, so a run without these flags reports the same
+        // --time-passes rows it always did.
+        var _t = TimeRegion("ASTSerialize")
+
+        var psym: unsafe *PreprocessorSymbolTable = &null
+        if self._ci->pp() != &null {
+            psym = self._ci->pp()->get_symbol_table()
+        }
+
+        var unsafe *gs = self._global_scope
+        var stats      = RoundTripStats{}
+
+        for var fid: u32 in fids {
+            var unsafe *ctx = gs->get_context(fid)
+            if ctx == &null || ctx->tu == &null {
+                continue
+            }
+
+            var name = self._ci->sm()->get_filename(fid)
+
+            if (!fe.emit_ast_bin.empty()) && fid == self._file_id {
+                var w = ASTBinWriter()
+                if !w.write(ctx->tu, psym, gs) {
+                    var why = w.error()
+                    return self._fatal(DiagID::I002F, f"cannot serialize the AST of {name}: {why}")
+                }
+
+                if !write_ast_file(fe.emit_ast_bin, w.out) {
+                    return self._fatal(DiagID::I002F, f"cannot write {fe.emit_ast_bin}")
+                }
+            }
+
+            var err: string
+            if fe.verify_ast_roundtrip {
+                if !ASTRoundTrip::verify(ctx->tu, psym, gs, &stats, &err) {
+                    return self._fatal(DiagID::I002F, f"AST round trip of {name} failed: {err}")
+                }
+            }
+
+            if fe.ast_roundtrip {
+                if !ASTRoundTrip::replace(ctx, psym, gs, &stats, &err) {
+                    return self._fatal(DiagID::I002F, f"AST round trip of {name} failed: {err}")
+                }
+            }
+        }
+
+        if fe.print_stats && stats.files > 0 {
+            io::println(
+                f"[stats] ast-serialize: {stats.files} files, {stats.bytes} bytes for {stats.source} source bytes, {stats.nodes} nodes, {stats.tokens} tokens, {stats.payloads} payloads, {stats.strings} strings",
+            )
+        }
+
         return true
     }
 

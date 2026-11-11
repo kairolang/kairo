@@ -57,6 +57,10 @@ Compiler/
 │   │               TemplateParams, FFILinkage)
 │   ├── Visitor/    CRTP RecursiveASTVisitor, ASTWriter (structural rewrites)
 │   ├── Matcher/    AST matching, position queries
+│   ├── Serialize/  one file's parsed AST as bytes and back (its own module;
+│   │               Compiler/Spec/Serialization.md): ASTArchive, one io_
+│   │               function per node class, ASTBinWriter / ASTBinReader,
+│   │               the round-trip verification behind --verify-ast-roundtrip
 │   └── Printer/    tree/flat AST dump (ASTPrinter.k AstDumper; Printers.k the
 │                   TypePrinter / ExprPrinter / ... / ASTPrinter entry points)
 │                   Top level: shared fact tables (DeclFacts, AttrFacts,

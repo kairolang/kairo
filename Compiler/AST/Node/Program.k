@@ -54,7 +54,7 @@ pub class TopLevelItem {
         return TopLevelItem(TopLevelKind::Stmt, unsafe (stmt as unsafe *void))
     }
 
-    static fn from_expr(expr: *Expr) -> TopLevelItem {
+    pub static fn from_expr(expr: *Expr) -> TopLevelItem {
         return TopLevelItem(TopLevelKind::Expr, unsafe (expr as unsafe *void))
     }
 

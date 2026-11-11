@@ -2216,6 +2216,30 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         false,
     )
 
+    cmd->define<FlagKind::String>(
+        "emit-ast-bin",
+        "",
+        "emit-ast-bin",
+        "write the entry file's parsed AST, serialized, to this path (Compiler/Spec/Serialization.md)",
+        "",
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "ast-roundtrip",
+        "",
+        "ast-roundtrip",
+        "serialize and reload every parsed file's AST and continue with the reloaded tree (also KAIRO_AST_ROUNDTRIP=1)",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "verify-ast-roundtrip",
+        "",
+        "verify-ast-roundtrip",
+        "serialize and reload every parsed file's AST and report any difference from the parsed tree",
+        false,
+    )
+
     cmd->define<FlagKind::Bool>(
         "preserve-comments",
         "",
