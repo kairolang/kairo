@@ -181,6 +181,13 @@ import Driver::CompilerNative
 import Driver::CompilerSetup
 import Driver::FrontendAction::FrontendAction
 import Driver::ModuleRecords::ModuleRecords
+import Sema::Incremental::Plan::{
+    IncrPlan,
+    PlanModule,
+    incr_plan,
+    incr_plan_same_graph,
+    incr_plan_verify,
+}
 import Driver::TUResult::TUResult
 import Driver::TUStage::TUStage
 import Driver::InputKinds::{
@@ -643,7 +650,7 @@ pub class CompilerInstance {
         return self._backend
     }
 
-    fn headers(self) -> unsafe *HeaderSetCache {
+    pub fn headers(self) -> unsafe *HeaderSetCache {
         return self._headers
     }
 
@@ -785,7 +792,7 @@ pub class CompilerInstance {
         self_->_diag->flush_consumers_for_ice()
     }
 
-    fn flush_errors(self) {
+    pub fn flush_errors(self) {
         if self.invocation()->diag.format == "basic" || self.invocation()->diag.format == "json" {
             self._basic->finalize_to_stderr()
         } else {
@@ -1154,7 +1161,7 @@ pub class CompilerInstance {
         }
 
         for var w: string in self.incr_words {
-            if w.starts_with("--print-incr-status") {
+            if w.starts_with("--print-incr-status") || w == "--print-incr-plan" {
                 continue
             }
 
@@ -1245,9 +1252,132 @@ pub class CompilerInstance {
         return tr
     }
 
+    /// \brief a TU's share of the diagnostics, for its record: the console
+    ///        consumer's count, and the text of a range of it.
+    pub fn incr_diag_count(self) -> usize {
+        var format = self.invocation()->diag.format
+        if format == "basic" || format == "json" {
+            return self._basic->count()
+        }
+
+        return self._pretty->count()
+    }
+
+    pub fn incr_diag_text(self, a: usize, b: usize) -> string {
+        var format = self.invocation()->diag.format
+        if format == "basic" || format == "json" {
+            return self._basic->render_range(a, b)
+        }
+
+        return self._pretty->render_range(a, b)
+    }
+
+    /// \brief the re-check set for this run's changes, from the rows the
+    ///        previous run stored (Sema/Incremental/Plan.k): printed under
+    ///        --print-incr-plan and, under --incr-verify, proven against
+    ///        this (full) run: every module the plan leaves out must have
+    ///        the interface and the diagnostics of its record.
+    ///
+    /// \return false when that proof failed (U001E): the records are then
+    ///         left as they were.
+    priv fn _incr_plan(self) -> bool {
+        var show = self.invocation()->frontend.print_incr_plan
+        if !(show || self.incr.verify) {
+            return true
+        }
+
+        var _t   = TimeRegion("IncrPlan")
+        var *now = &self.incr.mod_plan
+        if now->empty() {
+            if show {
+                io::println("incremental: plan: none (the run stopped before Sema)")
+            }
+
+            return true
+        }
+
+        var all = self.incr.plan_all
+        var old = cxx::std::vector<PlanModule>()
+        if all.empty() && !self.incr.plan_base {
+            all = "no record"
+        }
+
+        if all.empty() && !self.incr.load_plan(&old) {
+            all = "no plan records"
+        }
+
+        if all.empty() && !incr_plan_same_graph(&old, now) {
+            all = "the set of modules changed"
+        }
+
+        // R0: the modules whose text changed. A changed file that is no
+        // module of this run's graph is a graph change.
+        var edited = cxx::std::vector<string>()
+        for var ci: usize = 0; all.empty() && ci < self.incr.changed.size(); ++ci {
+            var found = false
+            for var mi: usize = 0; mi < now->size(); ++mi {
+                if (*now)[mi].path == self.incr.changed[ci] {
+                    edited.push_back((*now)[mi].name)
+                    found = true
+                }
+            }
+
+            if !found {
+                all = "changed: " + self.incr.changed[ci] + " is no module of the graph"
+            }
+        }
+
+        if !all.empty() {
+            if show {
+                io::println(f"incremental: plan: re-check all {now->size()} modules ({all})")
+            }
+
+            return true
+        }
+
+        var plan = IncrPlan()
+        incr_plan(&old, now, &edited, &self.incr.changed, &plan)
+        if show {
+            io::println(f"incremental: plan: re-check {plan.mods.size()} of {now->size()} modules")
+            var lines = cxx::std::vector<string>()
+            for var i: usize = 0; i < plan.mods.size(); ++i {
+                lines.push_back(plan.mods[i] + ": " + plan.why[i])
+            }
+
+            llvm::sort(lines.begin(), lines.end())
+            for var l: string in lines {
+                io::println(f"incremental: plan:   {l}")
+            }
+        }
+
+        if !self.incr.verify {
+            return true
+        }
+
+        var first = ""
+        var holes = incr_plan_verify(&old, now, &plan, &first)
+        if holes == 0 {
+            if show {
+                io::println(f"incremental: plan: verified, {now->size() - plan.mods.size()} modules as recorded")
+            }
+
+            return true
+        }
+
+        if show {
+            io::println(f"incremental: plan: verify FAILED: {first} ({holes} in all)")
+        }
+
+        self._diag->report(
+            DiagID::U001E,
+            f"--incr-verify: the dependency rows leave a module out of the re-check set that a full run changes: {first}; the rows are incomplete",
+        ).emit()
+        return false
+    }
+
     /// \brief after the loop of a run that did not skip: under
     ///        --incr-verify compares it with the records it would have
-    ///        replayed; then, when it finished with no error, writes them.
+    ///        replayed; then writes them, marked when it had an error.
     priv fn _incr_end(self, result: *BatchResult, hit: bool) {
         if !self.incr.on || hit {
             return
@@ -1314,10 +1444,23 @@ pub class CompilerInstance {
             }
         }
 
-        if self._diag->error_count() > 0 || result->aborted || !done {
+        // Before the records are replaced: the plan reads the old ones.
+        if !self._incr_plan() {
             return
         }
 
+        // A run that stopped before Sema has nothing to record, and the
+        // records of the last run that got there stay.
+        var errs = self._diag->error_count() > 0 || !done
+        if result->aborted || self.incr.mod_names.empty() {
+            return
+        }
+
+        if errs {
+            objs.clear()
+        }
+
+        self.incr.errors = errs
         var _t = TimeRegion("IncrRecords")
         for var fid: usize = 0; fid < self._sm->file_count(); ++fid {
             var name = self._sm->get_filename(fid as u32)

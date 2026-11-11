@@ -92,6 +92,9 @@ pub class FrontendOptions {
     pub var incr_verify:       bool = false
     pub var print_incr_status: bool = false
     pub var incr_paranoid:     bool = false
+    /// --print-incr-plan: the re-check set the stored rows give for this
+    /// run's changes (Sema/Incremental/Plan.k).
+    pub var print_incr_plan: bool = false
     pub var print_emit_plan:     bool   = false
     pub var print_panic_sets:    bool   = false
     pub var print_cxx:           bool   = false ///< --print-cxx: the TU's C++ preamble (interface only) as text
@@ -115,6 +118,13 @@ pub class FrontendOptions {
     /// reader (FrontendAction::_sema_finish) casts it back. Never set from the
     /// command line: a tool (kals) sets it on the invocation it builds.
     pub var sema_observer: unsafe *void = &null
+    /// A Diagnostic::FileDiagnostics::FileDiagConsumer, or null: told which
+    /// TU's sink is being drained, so it can keep diagnostics per file.
+    pub var file_diags: unsafe *void = &null
+    /// --incr-replay=<script> / --incr-replay-dump=<dir>: check the entry,
+    /// then apply the script's edits in this process (Driver/IncrReplay.k).
+    pub var incr_replay:      string = ""
+    pub var incr_replay_dump: string = ""
     pub var print_lowered:       bool   = false ///< --print-lowered: the same dump, after the Lower/ passes have rewritten the tree
     pub var print_cg:            bool   = false
     pub var print_ir:            bool   = false
@@ -225,6 +235,9 @@ pub class FrontendOptions {
         o.incr_verify         = args.get_bool("incr-verify")
         o.print_incr_status   = args.get_bool("print-incr-status")
         o.incr_paranoid       = args.get_bool("incr-paranoid")
+        o.print_incr_plan     = args.get_bool("print-incr-plan")
+        o.incr_replay         = args.get_string("incr-replay")
+        o.incr_replay_dump    = args.get_string("incr-replay-dump")
         o.print_emit_plan     = args.get_bool("print-emit-plan")
         o.print_panic_sets    = args.get_bool("print-panic-sets")
         o.print_cxx           = args.get_bool("print-cxx")

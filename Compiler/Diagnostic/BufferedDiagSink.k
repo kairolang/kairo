@@ -241,6 +241,53 @@ pub class BufferedDiagSink derives DiagEngineVBase {
     /// each one's note children (e.g. "previous declaration is here", which
     /// legitimately points *backwards*) travel with their parent untouched.
 
+    /// \brief the files the buffered diagnostics name a position in: each
+    ///        one's location, labels and fix-its, and its notes'. Incremental
+    ///        Sema records them (Sema/Incremental/Plan.k, R8): a rendered
+    ///        note into another file is stale once that file's text moves.
+    ///        Before drain_into, which gives the diagnostics away.
+    pub fn named_fids(self, sm: unsafe *SourceManager, out: unsafe *cxx::std::vector<u32>) {
+        for var i: usize = 0; i < self._diags.size(); ++i {
+            BufferedDiagSink::_named_in(self._diags[i], sm, out)
+            for var k: usize = 0; k < self._diags[i]->children.size(); ++k {
+                BufferedDiagSink::_named_in(self._diags[i]->children[k], sm, out)
+            }
+        }
+    }
+
+    priv static fn _named_at(loc: SourceLocation, sm: unsafe *SourceManager, out: unsafe *cxx::std::vector<u32>) {
+        if !loc.is_valid() {
+            return
+        }
+
+        var fid = (sm->resolve(loc).fid as u32)
+        for var i: usize = 0; i < out->size(); ++i {
+            if (*out)[i] == fid {
+                return
+            }
+        }
+
+        out->push_back(fid)
+    }
+
+    priv static fn _named_in(d: unsafe *Diagnostic, sm: unsafe *SourceManager, out: unsafe *cxx::std::vector<u32>) {
+        if d == &null {
+            return
+        }
+
+        if d->has_loc {
+            BufferedDiagSink::_named_at(d->loc, sm, out)
+        }
+
+        for var i: usize = 0; i < d->labels.size(); ++i {
+            BufferedDiagSink::_named_at(d->labels[i].range.start, sm, out)
+        }
+
+        for var i: usize = 0; i < d->fixits.size(); ++i {
+            BufferedDiagSink::_named_at(d->fixits[i].range.start, sm, out)
+        }
+    }
+
     pub fn drain_into(self, engine: unsafe *DiagEngine, sm: unsafe *SourceManager) {
         self._sort_by_source_order(sm)
         for var i: usize = 0; i < self._diags.size(); ++i {

@@ -1,0 +1,30 @@
+# The edits of Tests/Sema/Incremental/plan.k, as one live session over a
+# copy of Inputs/plan in s/ (Tests/Sema/Incremental/replay.k).
+step body
+replace s/util.k:::return y * 3:::return 3 * y
+step signature
+replace s/geo.k:::sum(p: Point) -> i32:::sum(p: Point, k: i32 = 0) -> i32
+step private_field
+replace s/counter.k:::priv var n: i32 = 0:::priv var n: i64 = 0
+step generic_body
+replace s/gen.k:::    return v:::    var w = v; return w
+step decl_added
+replace s/geo.k:::// SLOT:::pub fn area(p: Point) -> i32 = p.x * p.y
+step decl_removed
+replace s/geo.k:::pub fn area(p: Point) -> i32 = p.x * p.y:::// SLOT
+step line_shift
+replace s/hidden.k:::priv fn hidden():::// moved down\npriv fn hidden()
+step header
+replace s/hdr.h:::return 2;:::return 1 + 1;
+step file_added
+write s/extra.k:::pub fn extra() -> i32 = 1\n
+step error_introduced
+replace s/geo.k:::k: i32 = 0) -> i32:::k: i32) -> i32
+step reader_edited_while_broken
+replace s/use_util.k:::util::triple(2):::util::triple(3)
+step error_fixed
+replace s/geo.k:::k: i32) -> i32:::k: i32 = 0) -> i32
+step private_made_public
+replace s/hidden.k:::priv fn hidden():::pub fn hidden()
+step file_removed
+remove s/extra.k

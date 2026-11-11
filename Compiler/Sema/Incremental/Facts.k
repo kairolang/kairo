@@ -456,6 +456,16 @@ pub class FileFacts {
     /// Declaration rows of the dependency log found by reading the checked
     /// tree: `<part>\t<DeclId>`, sorted, unique.
     pub var rows: cxx::std::vector<string>
+    /// `decls` and `scopes` again, as the tab-separated lines a plan record
+    /// stores and the invalidation rules read (Sema/Incremental/Plan.k):
+    /// `id, scope, name, I, body, ext, refs` and `scope, ext, names`, sorted.
+    pub var plain_decls:  cxx::std::vector<string>
+    pub var plain_scopes: cxx::std::vector<string>
+    /// The TU's own diagnostics as the run rendered them, in delivery
+    /// order, and the files they name a position in besides this one. The
+    /// driver fills both when it drains the TU's sink.
+    pub var diag:       string = ""
+    pub var diag_files: cxx::std::vector<string>
 }
 
 /// \class IncrFacts
@@ -520,6 +530,8 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
 
         llvm::sort(out->decls.begin(), out->decls.end())
         llvm::sort(out->scopes.begin(), out->scopes.end())
+        llvm::sort(out->plain_decls.begin(), out->plain_decls.end())
+        llvm::sort(out->plain_scopes.begin(), out->plain_scopes.end())
         llvm::sort(self._lines.begin(), self._lines.end())
         var mac: string = ""
         for var i: usize = 0; i < tu->macros.size(); ++i {
@@ -762,6 +774,16 @@ llvm::sort(out->rows.begin(), out->rows.end())
         }
 
         self._out->scopes.push_back(s + "]}")
+        var pn = ""
+        for var i: usize = 0; i < names.size(); ++i {
+            if i > 0 {
+                pn += "\x1f"
+            }
+
+            pn += names[i]
+        }
+
+        self._out->plain_scopes.push_back(scope + "\t" + ext + "\t" + pn)
     }
 
     /// Extensions are in no table (an `extend` has no name), so they are
@@ -1046,6 +1068,7 @@ llvm::sort(out->rows.begin(), out->rows.end())
         row += ", \"refs\": ["
         var last:  string = ""
         var first         = true
+        var prefs: string = ""
         for var i: usize = 0; i < self._refs.size(); ++i {
             if self._refs[i] == last || self._refs[i] == id {
                 continue
@@ -1054,13 +1077,18 @@ llvm::sort(out->rows.begin(), out->rows.end())
             last = self._refs[i]
             if !first {
                 row += ", "
+                prefs += "\x1f"
             }
 
             first = false
             row += incr_json(last)
+            prefs += last
         }
 
         self._out->decls.push_back(row + "]}")
+        self._out->plain_decls.push_back(
+            id + "\t" + scope + "\t" + name + "\t" + ih + "\t" + body + "\t" + ext + "\t" + prefs,
+        )
         self._lines.push_back(id + "\t" + ih + "\t" + body)
     }
 
@@ -1188,6 +1216,8 @@ pub class FileDeps {
     /// `{"module", "scope", "name"}` objects: a lookup that consulted that
     /// scope of that file, found or not.
     pub var names: cxx::std::vector<string>
+    /// `names` again as `<module>\t<scope>\t<name>`, for a plan record.
+    pub var plain_names: cxx::std::vector<string>
     /// Overlay probes: `<module of the overlay's file>\t<name>`. The overlay
     /// of a file stands for the file scope of every file in its `surface`.
     pub var overlay: cxx::std::vector<string>
@@ -1302,6 +1332,10 @@ pub fn incr_resolve_deps(tu:        unsafe *TranslationUnit,
         out->names.push_back(
             _incr_name_row(incr_module(src->ctx, psym), incr_scope_id(dc, psym), incr_key_name(src->ctx, name)),
         )
+
+        out->plain_names.push_back(
+            incr_module(src->ctx, psym) + "\t" + incr_scope_id(dc, psym) + "\t" + incr_key_name(src->ctx, name),
+        )
     }
 
     for var i: usize = 0; i < log->spelled_tables.size(); ++i {
@@ -1314,6 +1348,10 @@ pub fn incr_resolve_deps(tu:        unsafe *TranslationUnit,
 
         out->names.push_back(
             _incr_name_row(incr_module(src->ctx, psym), incr_scope_id(dc, psym), log->spelled_names[i]),
+        )
+
+        out->plain_names.push_back(
+            incr_module(src->ctx, psym) + "\t" + incr_scope_id(dc, psym) + "\t" + log->spelled_names[i],
         )
     }
 
@@ -1358,6 +1396,10 @@ pub fn incr_resolve_deps(tu:        unsafe *TranslationUnit,
             out->names.push_back(
                 _incr_name_row(incr_module(dctx, psym), incr_scope_id(sdc, psym), incr_decl_key_name(dctx, d)),
             )
+
+            out->plain_names.push_back(
+                incr_module(dctx, psym) + "\t" + incr_scope_id(sdc, psym) + "\t" + incr_decl_key_name(dctx, d),
+            )
         }
     }
 
@@ -1372,6 +1414,7 @@ pub fn incr_resolve_deps(tu:        unsafe *TranslationUnit,
     }
 
     _incr_unique(&out->names)
+    _incr_unique(&out->plain_names)
     _incr_unique(&out->overlay)
     _incr_unique(&out->rows)
 }

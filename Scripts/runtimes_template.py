@@ -217,7 +217,7 @@ class Target:
 # Each is (applies to target?, edit the target's tables in place, why). They run on the
 # input tables before anything is derived, so the template carries the corrected rule and
 # `derived` targets are checked against the corrected tables. They only touch targets
-# with no curated root (P609); the 18 shipped tables are used as they are.
+# with no curated root; the 18 shipped tables are used as they are.
 
 def _armv6_hf(t) -> None:
     # compiler-rt's CMake defines COMPILER_RT_ARMHF_TARGET only for the arches it lists

@@ -2232,6 +2232,30 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         false,
     )
 
+    cmd->define<FlagKind::String>(
+        "incr-replay",
+        "",
+        "incr-replay",
+        "type-check the entry, then apply the edits of this script one step at a time in the same process, printing each step's diagnostics (`step <name>`, `replace <file>:::<old>:::<new>`, `write <file>:::<text>`, `remove <file>`; Compiler/Spec/IncrementalSema.md#phase-4). Scripts/incr_replay_check.py compares every step with a clean run",
+        "",
+    )
+
+    cmd->define<FlagKind::String>(
+        "incr-replay-dump",
+        "",
+        "incr-replay-dump",
+        "with --incr-replay: write each step's --dump-interface to <dir>/step<N>.interface.json",
+        "",
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "print-incr-plan",
+        "",
+        "print-incr-plan",
+        "with --incremental-sema: after a run that missed, print which modules the stored dependency rows say had to be re-checked and the rule naming each (`incremental: plan: ...`); with --incr-verify the run fails if a module left out differs from its record (Compiler/Spec/IncrementalSema.md#phase-3)",
+        false,
+    )
+
     cmd->define<FlagKind::Bool>(
         "incr-paranoid",
         "",

@@ -54,6 +54,7 @@ import Driver::CompilerInstance::CompilerInstance
 import Driver::Progress::progress_configure
 import Driver::Runtime::init_runtime
 import Support::FileIO::Path::Path
+import Tooling::IncrReplay::incr_replay_main
 import Support::TimeReport::{
     TimeRegion,
     time_enable,
@@ -210,6 +211,18 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     if !ci->apply_input_options() {
         ci->flush_errors()
         return 1
+    }
+
+    // --incr-replay: the entry is checked by a live session of its own
+    // (Tooling/IncrReplay.k), which makes its instances from the command
+    // line; this one only parsed the flags.
+    if !ci->invocation()->frontend.incr_replay.empty() {
+        return incr_replay_main(
+            argc,
+            argv,
+            ci->invocation()->frontend.incr_replay,
+            ci->invocation()->frontend.incr_replay_dump,
+        )
     }
 
     var fe_time    = ci->invocation()->frontend

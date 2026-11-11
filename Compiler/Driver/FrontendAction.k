@@ -151,6 +151,8 @@ import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Resolution::ImportProbe::ImportResolver
 import Resolution::ModulePath::ModulePath
 import Sema::Check::EffectPropagation::EffectTable
+import Sema::Incremental::Plan::PlanModule
+import Diagnostic::FileDiagnostics::FileDiagConsumer
 import Sema::Incremental::Facts::{
     FileDeps,
     FileFacts,
@@ -1799,11 +1801,13 @@ pub class FrontendAction {
             // The same pin, for incremental Sema's facts: an interface is
             // what the CHECKED tree says, and the lowerings below rewrite it
             // (Compiler/Spec/IncrementalSema.md).
+            var has_facts = false
             if sem->sc.opts.log_deps && sem->sc.tu != &null {
                 var _ti   = TimeRegion("IncrFacts")
                 var facts = FileFacts{}
                 IncrFacts(unsafe &sem->sc, self._ci->pp()->get_symbol_table()).run(unsafe &facts)
                 self._incr.push_back(facts)
+                has_facts = true
             }
 
             // The same pin, for a tool: kals indexes the tree here, before a
@@ -1843,7 +1847,42 @@ pub class FrontendAction {
                 ctx->sema_errored = true
             }
 
+            // Incremental Sema keeps a TU's diagnostics with its record
+            // (Compiler/Spec/IncrementalSema.md, change 4 as far as a record
+            // needs it): the text this drain delivers, and the other files
+            // it names a position in. Only for a recording run; the lowerings
+            // and mono above have reported what they will by now.
+            var rec_diag = has_facts && self._ci->incr.on
+            var d0: usize = 0
+            if rec_diag {
+                var named = cxx::std::vector<u32>()
+                ctx->diag_sink.named_fids(ctx->sm, unsafe &named)
+                var *ff = &self._incr[self._incr.size() - 1]
+                for var ni: usize = 0; ni < named.size(); ++ni {
+                    if named[ni] != ctx->fid {
+                        ff->diag_files.push_back(ctx->sm->get_filename(named[ni]))
+                    }
+                }
+
+                llvm::sort(ff->diag_files.begin(), ff->diag_files.end())
+                d0 = self._ci->incr_diag_count()
+            }
+
+            // A tool keeping diagnostics per file is told whose these are.
+            var unsafe *fdc = unsafe (self._ci->invocation()->frontend.file_diags as unsafe *FileDiagConsumer)
+            if fdc != &null {
+                fdc->current = ctx->sm->get_filename(ctx->fid)
+            }
+
             ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm)
+            if fdc != &null {
+                fdc->current = ""
+            }
+
+            if rec_diag {
+                self._incr[self._incr.size() - 1].diag = self._ci->incr_diag_text(d0, self._ci->incr_diag_count())
+            }
+
             // Kept past `sem`: the batch rejects two scripts in one link.
             if sem->sc.script_at.is_valid() {
                 self.result.script_at = sem->sc.script_at
@@ -3842,6 +3881,29 @@ pub class FrontendAction {
                 }
 
                 var name = if (f->mod_path.empty()) => (f->path) else => f->mod_path
+                // The same facts as lines the invalidation rules read
+                // (Sema/Incremental/Plan.k), with the TU's diagnostics.
+                var pm = PlanModule()
+                pm.name       = name
+                pm.path       = f->path
+                pm.hash       = f->hash
+                pm.macros     = f->macros
+                pm.decls      = f->plain_decls
+                pm.scopes     = f->plain_scopes
+                pm.surface    = deps.surface
+                pm.names      = deps.plain_names
+                pm.overlay    = deps.overlay
+                pm.diag       = f->diag
+                pm.diag_files = f->diag_files
+                var plast: string = ""
+                for var k: usize = 0; k < rows.size(); ++k {
+                    if rows[k] != plast {
+                        plast = rows[k]
+                        pm.rows.push_back(plast)
+                    }
+                }
+
+                self._ci->incr.mod_plan.push_back(pm)
                 self._ci->incr.mod_names.push_back(name)
                 self._ci->incr.mod_hash.push_back(f->hash)
                 self._ci->incr.mod_json.push_back(

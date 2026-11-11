@@ -40,13 +40,14 @@ ffi "c++" import "chrono"
 import API::FS::*
 import Driver::ObjectCache::ObjectCache
 import Driver::ObjectCache::CACHE_SCHEMA
+import Sema::Incremental::Plan::PlanModule
 import Support::FileIO::Path::Path
 import std::env
 
 /// Bumped by any change to the manifest or record format, or to what the
 /// hit decision compares.
 pub
-const INCR_SEMA_SCHEMA: u32 = 1
+const INCR_SEMA_SCHEMA: u32 = 2
 
 /// The environment variables a run can read that steer which files it finds
 /// or how it renders (sysroot, SDK, include search, colour). Others are not
@@ -91,6 +92,18 @@ pub class ModuleRecords {
     pub var old_pthread: bool   = false
     pub var old_objects: cxx::std::vector<string>
     pub var old_mods:    cxx::std::vector<string> ///< "<module>\t<O keys>\t<I(m)>", sorted
+    /// What a miss leaves for the re-check plan (Sema/Incremental/Plan.k).
+    /// \c plan_base: the only inputs that moved are Kairo sources of the
+    /// recorded graph (\c changed, their paths), so the stored rows can say
+    /// which modules they reach. Otherwise \c plan_all says why every
+    /// module is re-checked: the fallbacks, one per kind of input the rows
+    /// cannot see (Compiler/Spec/IncrementalSema.md#phase-3).
+    pub var plan_base: bool   = false
+    pub var plan_all:  string = ""
+    pub var changed:   cxx::std::vector<string>
+    /// The recorded run reported an error: its records are a baseline for
+    /// the plan and never a hit (an error is not replayed).
+    pub var old_errors: bool = false
     /// The console consumer's buffer size and the engine's warning count
     /// when the loop started: what the loop added is what a record holds.
     pub var diag0:  usize = 0
@@ -101,6 +114,8 @@ pub class ModuleRecords {
     pub var mod_names: cxx::std::vector<string> ///< module path per record
     pub var mod_hash:  cxx::std::vector<string> ///< I(m), parallel
     pub var mod_json:  cxx::std::vector<string> ///< the record body, parallel
+    pub var mod_plan:  cxx::std::vector<PlanModule> ///< the plan record, parallel
+    pub var errors:    bool = false ///< this run reported an error
     pub var keys:      cxx::std::vector<string> ///< "<module>\t<O(m)>" per codegen job
     pub var hdr_files: cxx::std::vector<string> ///< every header-set file path
     pub var src_files: cxx::std::vector<string> ///< every SourceManager file path
@@ -149,7 +164,7 @@ pub class ModuleRecords {
         for var i: usize = 1; i < words.size(); ++i {
             var w = words[i]
             if w == "--incremental-sema" || w == "--incr-verify" || w == "--print-incr-status"
-                || w == "--incr-paranoid" || w == "--time-passes" {
+                || w == "--incr-paranoid" || w == "--time-passes" || w == "--print-incr-plan" {
                 continue
             }
 
@@ -186,7 +201,10 @@ pub class ModuleRecords {
     /// \brief true when the manifest says this run's inputs are the ones
     ///        the previous run read; \c status names the first difference.
     pub fn check(self) -> bool {
-        self.hit = false
+        self.hit       = false
+        self.plan_base = false
+        self.plan_all  = "no record"
+        self.changed.clear()
         var text = ""
         if !LinkFS::read(self._manifest, &text) {
             self.status = "miss: no record"
@@ -249,23 +267,49 @@ pub class ModuleRecords {
                         self.status = "miss: " + part + " changed"
                     }
 
+                    self.plan_all = self.status.subslice(6, self.status.size() - 6)
                     return false
                 }
             }
 
-            self.status = "miss: flags changed"
+            self.status   = "miss: flags changed"
+            self.plan_all = "flags changed"
             return false
         }
 
+        // The status is the FIRST difference, as it always was. A changed
+        // Kairo source does not end the scan: the plan wants every one of
+        // them, and to know that nothing else moved. Anything else does (an
+        // added or removed file, a header, the compiler, a directory): the
+        // dependency rows say nothing about it, so there is no plan to make.
         self.old_objects.clear()
         self.old_mods.clear()
+        self.old_errors = false
+        self.plan_all   = ""
         var nmods: usize = 0
+        var missed       = false
         for var i: usize = 0; i < self._lines.size(); ++i {
             var l = self._lines[i]
             if l.starts_with("file ") || l.starts_with("exe ") || l.starts_with("obj ") {
                 var why = self._check_file(i)
                 if !why.empty() {
-                    self.status = "miss: " + why
+                    if !missed {
+                        self.status = "miss: " + why
+                        missed      = true
+                    }
+
+                    var p = ModuleRecords::_field_rest(l, 4)
+                    if l.starts_with("file ") && why.starts_with("changed: ") && p.ends_with(".k") {
+                        self.changed.push_back(p)
+                        continue
+                    }
+
+                    // The link's input, which no module's check reads.
+                    if l.starts_with("obj ") {
+                        continue
+                    }
+
+                    self.plan_all = why
                     return false
                 }
 
@@ -276,7 +320,11 @@ pub class ModuleRecords {
                 var h = ModuleRecords::_field(l, 1)
                 var d = ModuleRecords::_field_rest(l, 2)
                 if ModuleRecords::_listing(d) != h {
-                    self.status = "miss: graph changed: " + d
+                    if !missed {
+                        self.status = "miss: graph changed: " + d
+                    }
+
+                    self.plan_all = "graph changed: " + d
                     return false
                 }
             } else if l.starts_with("mod ") {
@@ -286,13 +334,50 @@ pub class ModuleRecords {
                 self.old_warns = (ModuleRecords::_num(l.subslice(6, l.size() - 6)) as u32)
             } else if l.starts_with("pthread ") {
                 self.old_pthread = l == "pthread 1"
+            } else if l == "errors 1" {
+                self.old_errors = true
             }
+        }
+
+        self.plan_base = true
+        if missed {
+            return false
+        }
+
+        if self.old_errors {
+            self.status = "miss: the recorded run had errors"
+            return false
         }
 
         self.old_diag = tail
         self.hit      = true
         self.status   = f"hit, {nmods} modules"
         return true
+    }
+
+    /// \brief the plan record of every module the manifest names, as the
+    ///        recorded run wrote them; false when one is missing or damaged
+    ///        (then there is no plan: every module is re-checked). Read
+    ///        before write() replaces them.
+    pub fn load_plan(self, out: *cxx::std::vector<PlanModule>) -> bool {
+        out->clear()
+        for var l: string in self.old_mods {
+            var tab  = ModuleRecords::_find(l, "\t")
+            var name = if (tab == usize::MAX) => (l) else => l.subslice(0, tab)
+            var text = ""
+            if !LinkFS::read(self._plan_path(name), &text) {
+                return false
+            }
+
+            var pm = PlanModule()
+            if (!pm.parse(text)) || pm.name != name {
+                return false
+            }
+
+            out->push_back(pm)
+        }
+
+        return !out->empty()
     }
 
     /// \brief a hit whose check rehashed a touched file writes the new
@@ -310,10 +395,12 @@ pub class ModuleRecords {
         self._publish(self._manifest, body + f"diag {self.old_diag.size()}\n" + self.old_diag + "\nend\n")
     }
 
-    /// \brief the records of a run that finished with no error: one per
-    ///        module first, then the manifest, each through a private name
-    ///        and a rename, so a crash leaves either the old set or the new
-    ///        one and never a manifest naming records that are not there.
+    /// \brief the records of a run whose Sema ran: one per module first,
+    ///        then the manifest, each through a private name and a rename,
+    ///        so a crash leaves either the old set or the new one and never
+    ///        a manifest naming records that are not there. A run with an
+    ///        error writes them too, marked (`errors 1`): a baseline for the
+    ///        next run's plan, never a hit.
     pub fn write(self) -> bool {
         if !LinkFS::make_dirs(self.dir) {
             return false
@@ -391,6 +478,13 @@ pub class ModuleRecords {
                 return false
             }
 
+            // The same facts as the lines the plan reads, and the module's
+            // own diagnostics (Sema/Incremental/Plan.k).
+            if i < self.mod_plan.size()
+                && !self._publish(self._plan_path(name), self.mod_plan[i].render()) {
+                return false
+            }
+
             mods.push_back("mod " + name + "\t" + ks + "\t" + self.mod_hash[i])
         }
 
@@ -399,10 +493,22 @@ pub class ModuleRecords {
             m += l + "\n"
         }
 
+        if self.errors {
+            m += "errors 1\n"
+        }
+
         m += "pthread " + (if (self.pthread) => ("1") else => "0") + "\n"
         m += f"warns {self.warns}\n"
         m += f"diag {self.diag.size()}\n" + self.diag + "\nend\n"
         return self._publish(self._manifest, m)
+    }
+
+    /// A plan record belongs to ONE manifest: another input, or the same
+    /// input with another output, sharing the cache directory checks the
+    /// same modules and must not replace the rows this manifest's next
+    /// plan is evaluated over (it would diff against a run it never saw).
+    priv fn _plan_path(self, const name: string) -> string {
+        return self.dir + "/" + ObjectCache::hash(name + "\n" + self._manifest) + ".plan"
     }
 
     /// \brief the modules this run recorded, sorted: what verify compares

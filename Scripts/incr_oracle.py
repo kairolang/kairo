@@ -52,6 +52,14 @@ The scenario file: {"entry": "main.k", "flags": [...], "scenarios": [{"name": ..
 false}]}. `expect`, when given, is the exact set of re-checked files (edited ones
 included); a different prediction fails the run, which is how a test pins precision.
 
+--compiler-plan also asks the COMPILER for the re-check set: the same rules, ported
+(Compiler/Sema/Incremental/Plan.k), evaluated over the records an --incremental-sema
+run of the unedited project stored. Per scenario the edited project is run once more
+with --incr-verify --print-incr-plan against a copy of those records; the modules it
+prints must be exactly the ones predicted here (its own rule R8, stale positions in
+recorded diagnostics, is left out of the comparison), and its verification (every
+module it leaves out has the interface and diagnostics of its record) must pass.
+
 Edits are applied IN PLACE under --root and restored afterwards, also on failure:
 point --root at a copy when the tree matters. An edit must keep the line count
 unless the scenario says "line_shift": true (see `normalize`): a declaration's
@@ -62,6 +70,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -214,7 +223,61 @@ def diff(a, b):
             "name_bodies": name_bodies, "macros": macros}
 
 
-def run_scenario(args, sc, before, ia, flags, entry, scratch):
+PLAN_ROW = re.compile(r"^incremental: plan:   (.*?): (R\d.*)$")
+
+
+def plan_cmd(args, entry, flags, cache):
+    return [str(args.kairo), entry, *flags, "--type-check-only", "--error-format=basic", "--cache-dir", str(cache),
+            "--incremental-sema", "--incr-paranoid"]
+
+
+def record_plan_base(args, root, entry, flags, scratch):
+    """The records of the unedited project, which every scenario's plan starts from."""
+    # One cache path for every run: the command line is part of the key, and
+    # --cache-dir is on it. The base is kept as a copy beside it.
+    cache, base = scratch / "plan-cache", scratch / "plan-base"
+    for d in (cache, base):
+        if d.exists():
+            shutil.rmtree(d)
+    p = subprocess.run(plan_cmd(args, entry, flags, cache), cwd=root, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=args.timeout)
+    if p.returncode < 0 or p.returncode > 1:
+        die(f"plan base: compiler exited {p.returncode}")
+    if not list(cache.glob("kairo-cache-v*/mod/run-*.txt")):
+        die("plan base: the --incremental-sema run wrote no records")
+    shutil.copytree(cache, base)
+    return base
+
+
+def compiler_plan(args, root, entry, flags, scratch, base):
+    """The compiler's re-check set for the project as it now stands, against a copy
+    of the base records: ({module: reason}, problem or None)."""
+    cache = scratch / "plan-cache"
+    if cache.exists():
+        shutil.rmtree(cache)
+    shutil.copytree(base, cache)
+    p = subprocess.run(plan_cmd(args, entry, flags, cache) + ["--incr-verify", "--print-incr-plan"], cwd=root,
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=args.timeout)
+    shutil.rmtree(cache)
+    if p.returncode < 0 or p.returncode > 1:
+        return {}, f"compiler exited {p.returncode}"
+    rows, problem, seen = {}, None, False
+    for line in p.stdout.decode(errors="replace").splitlines():
+        m = PLAN_ROW.match(line)
+        if m:
+            rows[m.group(1)] = m.group(2)
+        elif line.startswith("incremental: plan: re-check all"):
+            problem = line[len("incremental: plan: "):]
+        elif line.startswith("incremental: plan: verify FAILED"):
+            problem = line[len("incremental: plan: "):]
+        elif line.startswith("incremental: plan: re-check "):
+            seen = True
+    if problem is None and not seen:
+        problem = "the compiler printed no plan"
+    return rows, problem
+
+
+def run_scenario(args, sc, before, ia, flags, entry, scratch, plan_base=None):
     root = Path(args.root)
     name = sc["name"]
     saved = {}
@@ -231,6 +294,9 @@ def run_scenario(args, sc, before, ia, flags, entry, scratch):
                     f"or set \"line_shift\": true")
             p.write_text(cur.replace(e["old"], e["new"]))
         after = Run(args.kairo, root, entry, flags, scratch, "after", args.timeout)
+        cplan, cproblem = ({}, None)
+        if plan_base is not None:
+            cplan, cproblem = compiler_plan(args, root, entry, flags, scratch, plan_base)
     finally:
         for f, text in saved.items():
             (root / f).write_text(text)
@@ -383,6 +449,14 @@ def run_scenario(args, sc, before, ia, flags, entry, scratch):
     }
     if "expect" in sc and sorted(sc["expect"]) != res["predicted"]:
         res["expect_mismatch"] = sorted(sc["expect"])
+    if plan_base is not None:
+        theirs = {m for m, r in cplan.items() if not r.startswith("R8")}
+        res["compiler_plan"] = dict(sorted(cplan.items()))
+        if cproblem:
+            res["plan_problem"] = cproblem
+        elif theirs != set(why):
+            res["plan_problem"] = (f"only the compiler: {sorted(theirs - set(why))}; "
+                                   f"only the oracle: {sorted(set(why) - theirs)}")
     if args.keep and holes:
         keep = scratch / f"hole-{name}"
         keep.mkdir(exist_ok=True)
@@ -407,6 +481,9 @@ def main():
     ap.add_argument("--report", help="write the results as JSON here")
     ap.add_argument("--scratch", help="where dumps go (default: a temporary directory)")
     ap.add_argument("--keep", action="store_true", help="keep the before/after sections of every hole under --scratch")
+    ap.add_argument("--compiler-plan", action="store_true",
+                    help="also compare the compiler's own re-check set (--print-incr-plan) with the prediction, "
+                         "and require its --incr-verify to pass")
     ap.add_argument("--timeout", type=int, default=1800, help="seconds one compile may take")
     args = ap.parse_args()
 
@@ -446,10 +523,11 @@ def main():
 
     before = Run(args.kairo, Path(args.root), entry, flags, scratch, "before", args.timeout)
     ia = Interface(before.iface)
+    plan_base = record_plan_base(args, Path(args.root), entry, flags, scratch) if args.compiler_plan else None
     results, failed = [], False
     print(f"{'scenario':34} {'predicted':>9} {'changed':>8} {'over':>5}  verdict")
     for sc in scenarios:
-        r = run_scenario(args, sc, before, ia, flags, entry, scratch)
+        r = run_scenario(args, sc, before, ia, flags, entry, scratch, plan_base)
         results.append(r)
         verdict = "ok"
         if r["holes"]:
@@ -458,7 +536,15 @@ def main():
         elif "expect_mismatch" in r:
             verdict = "UNEXPECTED PREDICTION"
             failed = True
+        if plan_base is not None:
+            if "plan_problem" in r:
+                verdict += "  PLAN DIFFERS"
+                failed = True
+            else:
+                verdict += "  plan-agrees"
         print(f"{r['name']:34} {len(r['predicted']):>9} {len(r['actual']):>8} {len(r['over']):>5}  {verdict}")
+        if "plan_problem" in r:
+            print(f"    PLAN: {r['plan_problem']}")
         for k, what in r["holes"]:
             print(f"    HOLE: {k} was predicted unaffected by '{r['name']}' but its {what} changed")
         if "expect_mismatch" in r:
