@@ -107,7 +107,11 @@ import AST::Node::Statements::{
     ExpressionStmt,
     ReturnStmt,
 }
-import AST::Node::Types::PointerType
+import AST::Node::Types::{
+    CXXLValueRefType,
+    CXXRValueRefType,
+    PointerType,
+}
 import AST::OperatorFacts::OperatorFacts
 import AST::Visitor::ASTWriter::{
     ASTWriter,
@@ -435,6 +439,28 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         }
 
         if n->resolved_op == &null {
+            // An identity cast on a record value (`s as S`, SC031W) names no
+            // ctor and no `op as`; EmitIR refuses a record operand it was not
+            // handed a conversion for (I003E). The cast is a no-op that
+            // yields the value, so the operand stands in for it.
+            if out != &null && isa<TypeCastExpr>(out) {
+                var unsafe *oc = cast<TypeCastExpr>(out)
+                // A cast to a C++ reference is not an identity: lowering writes
+                // `static_cast<T &&>(x)` to MOVE out of a nullable or a coalesce
+                // temporary, and folding it copies a move-only value (CL001E).
+                var is_ref = (oc->type_ != &null &&
+                              (isa<CXXRValueRefType>(oc->type_) || isa<CXXLValueRefType>(oc->type_))) ||
+                             (oc->target != &null &&
+                              (isa<CXXRValueRefType>(oc->target) || isa<CXXLValueRefType>(oc->target)))
+                if (!is_ref) && oc->operand != &null && oc->operand->type_ != &null && oc->type_ != &null {
+                    var tu  = TypeUtil(self.sc)
+                    var unsafe *st = canon_unqual(oc->operand->type_)
+                    if st == canon_unqual(oc->type_) && tu.record_decl(st) != &null && !isa<PointerType>(st) {
+                        return oc->operand
+                    }
+                }
+            }
+
             return out
         }
 

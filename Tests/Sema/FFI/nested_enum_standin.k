@@ -7,11 +7,11 @@
 // (`Label::Style`), and of anything holding such a container
 // (`vector<unsafe *Diag>`, Diag holding a `vector<Label>`). Filling the
 // instance needs a C++ stand-in for the element; a member enum's stand-in
-// was refused (only a member RECORD was nested in its owner's), so the
-// owner's stand-in failed on that field, the instance stayed unfilled, and
-// its members came from the pattern with a dependent `size_type`: SC063E on
+// is nested in its owner's like a member RECORD's; otherwise the
+// owner's stand-in fails on that field, the instance stays unfilled, and
+// its members come from the pattern with a dependent `size_type`: SC063E on
 // `reserve(4)` / `v[i]`, SC066E on `v.size() > 0` -- Diagnostic.k's
-// `children` / `labels` shape, across the whole self-host tree.
+// `children` / `labels` shape.
 
 ffi "c++" import "vector";
 

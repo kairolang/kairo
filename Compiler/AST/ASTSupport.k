@@ -33,7 +33,7 @@ import Memory::ArenaList::ArenaList
 /// \brief Non-owning, immutable view over a contiguous arena-allocated array.
 ///
 /// Created by freezing an ArenaList<T> into the node arena via
-/// ArenaList::freeze(). Once frozen, the array is fixedno push, no pop.
+/// ArenaList::freeze(). Once frozen, the array is fixed: no push, no pop.
 ///
 /// Lifetime: valid as long as the arena it was allocated from is alive.
 /// The ASTContext's node_arena outlives all FrozenList instances.
@@ -87,6 +87,19 @@ pub class <T: type> FrozenList {
 
         self.count = count
         self.items = ctx->alloc_array<T>(count)
+        cxx::std::memcpy(self.items, data, sizeof(T) * count)
+    }
+
+    /// from_buf into pp_alloc, for the lists of a PP-stage node.
+    pub fn from_buf_pp(self, data: unsafe *T, count: usize, ctx: unsafe *ASTContext) {
+        if count == 0 {
+            self.count = 0
+            self.items = &null
+            return
+        }
+
+        self.count = count
+        self.items = ctx->alloc_pp_array<T>(count)
         cxx::std::memcpy(self.items, data, sizeof(T) * count)
     }
 

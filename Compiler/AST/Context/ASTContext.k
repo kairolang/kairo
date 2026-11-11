@@ -195,6 +195,18 @@ pub class ASTContext {
         return unsafe (mem as unsafe *T)
     }
 
+    /// An array that lives with the PP-stage nodes (ImportDecl, MacroDecl):
+    /// release_from(Parsing) resets ast_alloc but keeps pp_alloc, so a list a
+    /// pp_alloc node points at must not sit in ast_alloc (P805).
+    pub fn <T> alloc_pp_array(self, n: usize) -> unsafe *T {
+        if n == 0 {
+            return &null
+        }
+
+        var mem: unsafe *void = self.pp_alloc.alloc(sizeof(T) * n, alignof(T))
+        return unsafe (mem as unsafe *T)
+    }
+
     fn <T> alloc_array_zeroed(self, n: usize) -> unsafe *T {
         if n == 0 {
             return &null

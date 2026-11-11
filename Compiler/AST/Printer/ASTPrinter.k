@@ -4068,28 +4068,52 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self.p.leave()
     }
 
+    /// A left-leaning chain (`1 + 1 + 1 + ...`) is printed with the left
+    /// spine walked in a loop: its depth is the term count, and a few
+    /// thousand terms overflowed the stack when each level was a call (P804).
+    /// The rows come out in the order the recursion printed them: every
+    /// node's head on the way down, then each right operand and `leave` on
+    /// the way back.
     fn _dx_binop(self, e: unsafe *Expressions::BinaryOperatorExpr, is_last: bool) {
-        self._head("BinaryOperatorExpr", is_last)
-        self.p.put(" ")
-        self.p.paint(Color::Operator, self.tok(e->op_token))
-        if e->op_rewrite == Expressions::OpRewrite::Not {
-            self._dim("rewrite !(==)")
+        var spine = cxx::std::vector<unsafe *Expressions::BinaryOperatorExpr>()
+        var unsafe *cur = e
+        var last  = is_last
+        while true {
+            self._head("BinaryOperatorExpr", last)
+            self.p.put(" ")
+            self.p.paint(Color::Operator, self.tok(cur->op_token))
+            if cur->op_rewrite == Expressions::OpRewrite::Not {
+                self._dim("rewrite !(==)")
+            }
+
+            if cur->op_rewrite == Expressions::OpRewrite::Cmp {
+                self._dim("rewrite <=> vs 0")
+            }
+
+            if cur->tag_eq {
+                self._dim("tag_eq")
+            }
+
+            self._instance(cur->op_instance)
+            self.p.newline()
+            self.p.enter(last)
+            spine.push_back(cur)
+            if cur->lhs != &null && (!cur->lhs->is_error()) && isa<Expressions::BinaryOperatorExpr>(cur->lhs) {
+                cur  = cast<Expressions::BinaryOperatorExpr>(cur->lhs)
+                last = false
+                continue
+            }
+
+            self._child_expr(cur->lhs, false)
+            break
         }
 
-        if e->op_rewrite == Expressions::OpRewrite::Cmp {
-            self._dim("rewrite <=> vs 0")
+        var i = spine.size()
+        while i > 0 {
+            i -= 1
+            self._child_expr(spine[i]->rhs, true)
+            self.p.leave()
         }
-
-        if e->tag_eq {
-            self._dim("tag_eq")
-        }
-
-        self._instance(e->op_instance)
-        self.p.newline()
-        self.p.enter(is_last)
-        self._child_expr(e->lhs, false)
-        self._child_expr(e->rhs, true)
-        self.p.leave()
     }
 
     fn _dx_constraint(self, e: unsafe *Expressions::ConstraintExpr, is_last: bool) {

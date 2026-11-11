@@ -3640,7 +3640,7 @@ pub class FrontendAction {
         o += "]}\n"
         if !Path::write_file(out_path, o) {
             self._ci->diag()->report(
-                DiagID::U022E,
+                DiagID::U023E,
                 f"cannot write import-use dump '{out_path}'",
             ).emit()
         }
@@ -3806,11 +3806,11 @@ pub class FrontendAction {
         io_ += "\n]}\n"
         do_ += "\n]}\n"
         if (!iface_path.empty()) && !Path::write_file(iface_path, io_) {
-            self._ci->diag()->report(DiagID::U001E, f"cannot write interface dump '{iface_path}'").emit()
+            self._ci->diag()->report(DiagID::U023E, f"cannot write interface dump '{iface_path}'").emit()
         }
 
         if (!deps_path.empty()) && !Path::write_file(deps_path, do_) {
-            self._ci->diag()->report(DiagID::U001E, f"cannot write dependency dump '{deps_path}'").emit()
+            self._ci->diag()->report(DiagID::U023E, f"cannot write dependency dump '{deps_path}'").emit()
         }
     }
 

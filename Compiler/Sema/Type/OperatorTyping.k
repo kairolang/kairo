@@ -911,8 +911,40 @@ pub class <T: type> OperatorTyping {
         return t
     }
 
+    /// A left-leaning chain of one-line arithmetic or bitwise operators
+    /// (`1 + 1 + 1 + ...`) recurses once per term through the left operand,
+    /// and a few thousand terms overflow the stack (P804). Such an operator
+    /// types its left operand first and hands it \p expected unchanged, so the
+    /// chain is typed bottom-up here instead, in the order the recursion would
+    /// have: each node's own typing then finds its left operand done.
+    priv fn _prewarm_left_spine(self, n: unsafe *BinaryOperatorExpr, expected: unsafe *Type) {
+        var spine = cxx::std::vector<unsafe *Expr>()
+        var unsafe *cur = n->lhs
+        while cur != &null && isa<BinaryOperatorExpr>(cur) && !self.dyn()->is_memoized(cur) {
+            var ck = cast<BinaryOperatorExpr>(cur)->op_token.kind
+            if !(self._is_arith(ck) || self._is_bitwise(ck)) {
+                break
+            }
+
+            spine.push_back(cur)
+            cur = cast<BinaryOperatorExpr>(cur)->lhs
+        }
+
+        // The innermost node's own left operand is no chain: its typing is
+        // the ordinary (shallow) recursion.
+        var i = spine.size()
+        while i > 0 {
+            i -= 1
+            self.dyn()->type_of(spine[i], expected)
+        }
+    }
+
     fn type_binary(self, n: unsafe *BinaryOperatorExpr, expected: unsafe *Type) -> unsafe *Type {
         var k = n->op_token.kind
+
+        if self._is_arith(k) || self._is_bitwise(k) {
+            self._prewarm_left_spine(n, expected)
+        }
 
         // `^^` types its operands independently, like a shift: the base takes
         // the expected type, the exponent is its own integer.

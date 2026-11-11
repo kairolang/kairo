@@ -200,7 +200,25 @@ pub class <T: type> ControlTyping {
             }
         }
 
-        self.dyn()->fail(e, DiagID::SC084E, f"{what} must be 'bool', not '{self.dyn()->tu.str(t)}'")
+        // A C++ class with `operator bool`: C++ converts it in a condition,
+        // Kairo does not (control-flow: the condition must be bool), but the
+        // cast reaches it, explicit or not -- say so, with the edit (P813).
+        var ts = self.dyn()->tu.str(t)
+        if (!e->is_poisoned())
+            && self.dyn()->conv.cxx_conversion_op(
+                self.dyn()->tu.as_value(t),
+                self.dyn()->tu.builtin(BuiltinKind::Bool),
+                true,
+            ) != &null {
+            var b = self.dyn()->sc->diag->report(DiagID::SC084E, e->range.start, f"{what} must be 'bool', not '{ts}'")
+            b.first(e->range)
+            b.insert(e->range.end, " as bool", "convert through the C++ class operator bool")
+            b.emit()
+            e->poison()
+            return false
+        }
+
+        self.dyn()->fail(e, DiagID::SC084E, f"{what} must be 'bool', not '{ts}'")
         return false
     }
 

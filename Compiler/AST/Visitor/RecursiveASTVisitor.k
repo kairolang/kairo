@@ -4623,8 +4623,7 @@ pub class <D: type> RecursiveASTVisitor {
 ///          silently surviving to runtime.
 ///
 ///          Overrides nothing on purpose: it must exercise the base defaults,
-///          not replace them. Do not delete losing it reopens the
-///          compile-clean-but-wrong gap that the dispatch_decln bug slipped
-///          through.
+///          not replace them. Do not delete: it checks that the
+///          base defaults are exercised.
 ///
 pub class RAVProbe derives RecursiveASTVisitor<RAVProbe> { }

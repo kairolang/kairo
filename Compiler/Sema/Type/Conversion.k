@@ -830,6 +830,54 @@ pub class Conversion {
         return &null
     }
 
+    /// A non-explicit C++ conversion function of the imported record \p from
+    /// whose result, cv and reference dropped, is the record \p to, or null.
+    /// What C++ applies implicitly at a call ([class.conv.fct]); Kairo applies
+    /// it only at a C++ callee under an explicit -fimplicit-conv (P813), and
+    /// `as` reaches it through the `op as` rung regardless.
+    /// \p any_explicit admits an `explicit` one too: what `as` reaches, for a
+    /// diagnostic that suggests the cast.
+    fn cxx_conversion_op(self,
+                         from:         unsafe *Type,
+                         to:           unsafe *Type,
+                         any_explicit: bool = false) -> unsafe *FunctionDecl {
+        var unsafe *fu = canon_unqual(from)
+        var unsafe *tq = canon_unqual(to)
+        if fu == &null || tq == &null || (!isa<RecordType>(fu)) {
+            return &null
+        }
+
+        var cands = cxx::std::vector<unsafe *Decl>()
+        self._ml.lookup(fu, DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown), unsafe &cands)
+        for var i: usize = 0; i < cands.size(); ++i {
+            var unsafe *f = dyn_cast<FunctionDecl>(cands[i])
+            if f == &null || f->is_poisoned() || (!f->is_imported()) || (f->ffi_explicit && (!any_explicit)) {
+                continue
+            }
+
+            if f->return_type == &null || f->return_type->canonical == &null {
+                continue
+            }
+
+            if canon_has_const(from) && (!f->is_const()) {
+                continue
+            }
+
+            var unsafe *rt = canon_unqual(f->return_type->canonical)
+            if isa<CXXLValueRefType>(rt) {
+                rt = canon_unqual(cast<CXXLValueRefType>(rt)->referee)
+            } else if isa<CXXRValueRefType>(rt) {
+                rt = canon_unqual(cast<CXXRValueRefType>(rt)->referee)
+            }
+
+            if rt == tq {
+                return f
+            }
+        }
+
+        return &null
+    }
+
     /// \p pattern, a type written inside the generic record \p owner, IS
     /// \p concrete once \p owner's parameters read as \p args: `Vector<T>`'s
     /// `-> [T;]` against `[i32;]` through `Vector<i32>`. A structural

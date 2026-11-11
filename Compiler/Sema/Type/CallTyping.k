@@ -505,6 +505,24 @@ pub class <T: type> CallTyping {
             // argument this way; this is the same rule applied to the winner.
             pt = r->ded.through_receiver(f, r->receiver, pt)
 
+            // A C++ callee takes this argument through one implicit
+            // user-defined conversion (-fimplicit-conv, P813): C++ performs
+            // it, so the argument is emitted as written -- a string literal
+            // as its bytes, the `const char[N]` C++ converts from.
+            if self._listed(&r->user_convs, i) {
+                var sl = self.dyn()->tu.c_string_literal(a->expr)
+                if sl != &null {
+                    var cc = self.dyn()->sc->types->qualified(
+                        self.dyn()->sc->builtin(BuiltinKind::CChar),
+                        QUAL_CONST,
+                    )
+
+                    sl->c_string = self.dyn()->sc->types->pointer(cc, true)
+                }
+
+                continue
+            }
+
             // A C++ `T&` is `@inout x: T` (cxx_lref_inout), judged against T.
             var inout = p->mode == ParamMode::Inout
             if pi != usize::MAX

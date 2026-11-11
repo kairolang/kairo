@@ -1,4 +1,4 @@
-// --target is canonicalised once, before anything reads it (P745). A glibc
+// --target is canonicalised once, before anything reads it. A glibc
 // version, Zig's `.2.28` or ours `-glibc2.28`, names the sysroot only: clang
 // gets the plain triple, the env macro is the plain environment, and the
 // root is the one for that version, never the bundled 2.31 found by spelling.

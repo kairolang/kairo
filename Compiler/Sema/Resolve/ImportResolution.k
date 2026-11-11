@@ -1296,8 +1296,15 @@ pub class ImportResolution {
     }
 
     /// True when every entity in an ambiguous entry's collision came from
-    /// a header.
+    /// a header, or from the builtin prelude beside at least one header
+    /// entity. The prelude is part of every TU, so a header that merely
+    /// declares a builtin's name (zlib's `typedef unsigned char Byte`) is no
+    /// import the user wrote wrong: reported eagerly, it killed the whole
+    /// header over a name nothing used (P817). Docs (c-cpp-calling, R016E)
+    /// put a foreign collision at the use, so it goes there.
     priv fn _collision_is_ffi_only(self, entry: unsafe *OverlayEntry) -> bool {
+        var any_ffi = false
+        var any_prelude = false
         for var i: usize = 0; i < entry->targets.size(); ++i {
             var t = entry->targets[i]
             if t.kind != OverlayTargetKind::Type {
@@ -1308,12 +1315,20 @@ pub class ImportResolution {
                 continue
             }
 
-            if !decl_is_ffi(t.decl) {
+            if decl_is_ffi(t.decl) {
+                any_ffi = true
+                continue
+            }
+
+            var unsafe *o = dyn_cast<ImportDecl>(t.origin)
+            if o == &null || (!o->is_prelude) {
                 return false
             }
+
+            any_prelude = true
         }
 
-        return true
+        return any_ffi || (!any_prelude)
     }
 
     /// A module handle bound by an injected prelude import, as opposed to one

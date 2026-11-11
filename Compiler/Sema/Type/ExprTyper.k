@@ -494,6 +494,12 @@ pub class ExprTyper
     /// # the entry
 
     /// The core. Idempotent per node; children walked by the mixins.
+    /// \p e has been typed (or is being). OperatorTyping asks before walking a
+    /// left-leaning operator chain bottom-up (P804).
+    fn is_memoized(self, e: unsafe *Expr) -> bool {
+        return self._memo.find((e as usize as u64)) != self._memo.end()
+    }
+
     fn type_of(self, e: unsafe *Expr, expected: unsafe *Type) -> unsafe *Type {
         if e == &null {
             return &null

@@ -8,7 +8,7 @@
 ///     `candidate_cell`) but not the REASONING: which lexical frame answered,
 ///     whether the DC chain or the import overlay did, and above all what a
 ///     binding HID. Shadowing leaves no trace on the tree at all   the outer
-///     decl is simply never consulted   so a reader staring at a surprising
+///     decl is never consulted   so a reader staring at a surprising
 ///     `resolved_decl` has no way to see the decl that lost.
 ///
 ///     N is the only component that knows: the lexical stack lives inside the

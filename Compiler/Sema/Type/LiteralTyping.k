@@ -71,6 +71,7 @@ import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
     FixedArrayType,
+    FunctionPointerType,
 }
 import AST::OperatorFacts::OperatorFacts
 import Diagnostic::Registry::DiagID
@@ -834,6 +835,15 @@ pub class <T: type> LiteralTyping {
             // forwarding reference, or the parameter itself): `&null` is the
             // nullptr that type holds.
             if self.dyn()->tu.is_nullptr_t(expected) {
+                return expected
+            }
+
+            // A raw function pointer (`unsafe fn(A) -> R`, every imported C
+            // callback type) is a pointer that may hold the null address
+            // (`run(&null, 3)` for a C `run(cb_t, int)`); `pointee` of a
+            // function pointer is empty, so it is asked for by shape.
+            var unsafe *fpt = canon_unqual(expected)
+            if fpt != &null && isa<FunctionPointerType>(fpt) && cast<FunctionPointerType>(fpt)->is_raw {
                 return expected
             }
 

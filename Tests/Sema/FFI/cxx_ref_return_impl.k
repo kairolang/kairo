@@ -2,8 +2,8 @@
 // `-> *T` / `-> *const T` (an imported reference return is a pointer in
 // Kairo, functions-parameter-modes.mdx): the C++ declaration keeps the
 // reference, `return &x` returns x, and a Kairo call of the override takes
-// the reference's address back. It used to emit `int * pick() override`,
-// which clang rejects (CXX-REF, decided 2026-11-08). The same `-> *T` defines
+// the reference's address back. It does not emit `int * pick() override`,
+// which clang rejects. The same `-> *T` defines
 // an imported member declared `int& slot();` out of line without R037E
 // (the definition is type-checked here only: an out-of-line definition of
 // an imported member is not emitted yet).

@@ -1,5 +1,5 @@
 // --emit accepts exactly obj, asm, llvm-ir and llvm-bc. Every other value,
-// including the names the help used to advertise (tokens, ast, ...), is one
+// including names such as tokens and ast, is one
 // error naming that same set, so the help and the diagnostic cannot disagree.
 
 fn main() -> i32 { return 0 }

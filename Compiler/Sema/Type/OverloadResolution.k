@@ -72,6 +72,7 @@
 ffi "c++" import "vector"
 
 import AST::Context::DeclContext::DeclContextKind
+import AST::Context::SymbolTable::DeclName
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::DeclFacts::{
     decl_extension_of,
@@ -103,9 +104,14 @@ import AST::Node::Declarations::{
     SpecKind,
     TransferKind,
 }
+import AST::Node::Expressions::{
+    AssignOperatorExpr,
+    BinaryOperatorExpr,
+    RangeExpr,
+}
 import AST::Node::Types::{
-    CXXLValueRefType, CXXRValueRefType, FixedArrayType, GenericParamType, NullableType,
-    OpaqueFFIType,    PointerType,      TypeExpr,
+    CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
+    NullableType,     OpaqueFFIType,    PointerType,        TypeExpr,
 }
 import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
@@ -299,6 +305,10 @@ pub class Candidate {
     /// a byte pointer, or `.c_str()` on a string that is no literal.
     pub var fix_text: string         = ""
     pub var fix_at:   SourceLocation
+    /// fix_text closes a parenthesis opened at `fix_open` (an argument
+    /// that binds looser than the `as` appended to it).
+    pub var fix_paren: bool = false
+    pub var fix_open:  SourceLocation
     /// Which placement rule rejected this candidate, or SC001E (never emitted from here; a pure "no specific rule" sentinel) for anything
     /// else. `_report_no_viable` promotes it to the real diagnostic when there
     /// is exactly ONE candidate; with an overload set the specific rule is a
@@ -342,6 +352,14 @@ pub class Candidate {
     /// two are parallel: arg index, the parameter it landed on.
     pub var inout_unmarked: cxx::std::vector<usize>
     pub var inout_params:   cxx::std::vector<unsafe *ParamDecl>
+    /// Arguments a C++ callee takes through ONE implicit user-defined
+    /// conversion (-fimplicit-conv, P813): ranked below every standard
+    /// conversion (rank 2), emitted as written for C++ to convert.
+    pub var user_convs: cxx::std::vector<usize>
+    /// Without the flag: the record a C++ user-defined conversion would
+    /// have reached ("" none), and how, for the note on the argument.
+    pub var uconv_to:  string = ""
+    pub var uconv_via: string = ""
     pub var ded:            Deduction
     /// An imported template's return type as clang's specialization has it,
     /// when Kairo's import of the declared one is opaque; else null.
@@ -381,6 +399,7 @@ pub class OvlResult {
     /// Copied off the winner; see Candidate.
     pub var inout_unmarked: cxx::std::vector<usize>
     pub var inout_params:   cxx::std::vector<unsafe *ParamDecl>
+    pub var user_convs:     cxx::std::vector<usize>
     /// The instance a GENERIC winner was registered as (call_result_type),
     /// null for a non-generic one or a dependent call.
     pub var instance: unsafe *InstanceEntry = &null
@@ -760,6 +779,7 @@ pub class OverloadResolution {
         out.ded            = w->ded
         out.inout_unmarked = w->inout_unmarked
         out.inout_params   = w->inout_params
+        out.user_convs     = w->user_convs
         out.cxx_ret        = w->cxx_ret
         return out
     }
@@ -1295,6 +1315,33 @@ pub class OverloadResolution {
         }
 
         return if (self.tu.kind_of(t) == BuiltinKind::F64) => (1) else => 2
+    }
+
+    /// Candidate::flits' code for an int literal ranked Exact against an
+    /// imported \p pt: 1 C's `int` (i32 spelled `int`, not LLP64's `long`
+    /// alias), 2 any other type (a conversion to C++). Dependent: not judged.
+    priv fn _ilit_code(self, pt: unsafe *Type, alias: bool) -> u8 {
+        if pt == &null || pt->is_dependent() {
+            return 0
+        }
+
+        var unsafe *t = pt
+        if isa<CXXLValueRefType>(t) {
+            t = cast<CXXLValueRefType>(t)->referee
+        } else if isa<CXXRValueRefType>(t) {
+            t = cast<CXXRValueRefType>(t)->referee
+        }
+
+        t = canon_unqual(self.tu.strip_nullable(canon_unqual(t)))
+        if t == &null || t->is_dependent() {
+            return 0
+        }
+
+        if (!alias) && self.tu.kind_of(t) == BuiltinKind::I32 {
+            return 1
+        }
+
+        return 2
     }
 
     /// `Base::Base(self, other)` in a derived `@copy`/`@move` constructor:
@@ -2650,6 +2697,30 @@ pub class OverloadResolution {
                 }
             }
 
+            // C++ takes an argument through one implicit user-defined
+            // conversion ([over.best.ics]); Kairo does only at a C++ callee
+            // and only under an explicit -fimplicit-conv (P813, owner's
+            // rule: crossing into C++ follows C++). Below every standard
+            // conversion, as C++ ranks it. Without the flag the reason says
+            // which conversion C++ would have used.
+            var uto: unsafe *Type = &null
+            var        uvia = ""
+            if r == ImplicitRank::None && mode != ParamMode::Inout {
+                uto = self._cxx_conv_target(f, a, pt)
+                if uto != &null {
+                    uvia = self._cxx_conv_via(a, uto)
+                }
+            }
+
+            if uvia != "" && self.sc->opts.implicit_conv == 1 {
+                c->user_convs.push_back(i)
+                if c->rank < 2 {
+                    c->rank = 2
+                }
+
+                continue
+            }
+
             if r == ImplicitRank::None {
                 var pn  = self.tu.param_name(p)
                 var got = if (a->ty != &null) => (self.tu.str(a->ty)) else => "<literal>"
@@ -2678,6 +2749,19 @@ pub class OverloadResolution {
 
                 c->viable = false
                 c->reason = f"cannot convert argument of type '{got}' to parameter '{pn}' of type '{self.tu.str(shown)}'"
+                if uvia != "" {
+                    var tn = self.tu.str(uto)
+                    c->uconv_to  = tn
+                    c->uconv_via = uvia
+                    c->fix_at    = a->range.end
+                    c->fix_open  = a->range.start
+                    c->fix_text  = f" as {tn}"
+                    if self._needs_parens_for_as(a->expr) {
+                        c->fix_text  = ")" + c->fix_text
+                        c->fix_paren = true
+                        c->fix_open  = a->range.start
+                    }
+                }
                 // A C string parameter takes C chars only: bytes (`*u8`,
                 // a string's `data`) or i8s become them by reinterpreting
                 // the pointer, which is the edit, inside `unsafe`.
@@ -2769,6 +2853,18 @@ pub class OverloadResolution {
 
             if r == ImplicitRank::Exact && a->lit == LitKind::Float {
                 c->flits[i] = self._flit_code(pt)
+            }
+
+            // An imported overload set is ranked as C++ ranks it (docs:
+            // c-cpp.mdx, Overloading), and to C++ an unsuffixed `7` is an
+            // int: the identity to `int`, a conversion to everything else.
+            // Kairo's literal takes any integer or float it fits (§5), so
+            // without this `f(int)` / `f(unsigned)` / `f(double)` all rank
+            // Exact and `f(7)` was ambiguous (P816). Same code space and
+            // tiebreak as a float literal. Kairo's own overloads keep the
+            // documented closed list of tiebreaks: none orders an int literal.
+            if r == ImplicitRank::Exact && a->lit == LitKind::Int && f->is_imported() {
+                c->flits[i] = self._ilit_code(pt, p->cxx_int_alias)
             }
 
             if mode == ParamMode::Inout && !a->marked {
@@ -3027,7 +3123,7 @@ pub class OverloadResolution {
         }
 
         if pt->is_dependent() {
-            var u = c->ded.unify(pt, a->ty, true)
+            var u = c->ded.unify(pt, self._foreign_deduce_arg(c, a, pt), true)
             if u == ImplicitRank::None {
                 return u
             }
@@ -3144,6 +3240,13 @@ pub class OverloadResolution {
                 // instead of tying it.
                 if self.tu.is_nullptr_t(target) {
                     return ImplicitRank::Exact
+                }
+
+                // A raw function pointer holds the null address too (a C
+                // callback parameter takes `&null`).
+                var unsafe *fpt = canon_unqual(target)
+                if fpt != &null && isa<FunctionPointerType>(fpt) && cast<FunctionPointerType>(fpt)->is_raw {
+                    return ImplicitRank::Converted
                 }
 
                 return if (self.tu.pointee(target) != &null) => (ImplicitRank::Converted)
@@ -3444,6 +3547,151 @@ pub class OverloadResolution {
         return self.tu.is_c_string_param(pt)
     }
 
+    /// The type a by-value parameter of an imported template deduces from
+    /// \p a. To C++ a string literal is `const char[N]`, which a by-value
+    /// `T` deduces as `const char *` ([temp.deduct.call]/2): deduced from
+    /// the Kairo `string` instead, `template<class T> f(T)` was instantiated
+    /// on builtin::string, which no C++ template expects (P815). CallTyping
+    /// then sees the substituted `const char *` slot and passes the bytes,
+    /// as for a written C string parameter. A reference parameter is left
+    /// alone: C++ deduces the ARRAY there, which Kairo cannot spell.
+    priv fn _foreign_deduce_arg(self,
+                                c:  unsafe *Candidate,
+                                a:  *ArgInfo,
+                                pt: unsafe *Type) -> unsafe *Type {
+        if c->f == &null || (!c->f->is_imported()) || a->marked {
+            return a->ty
+        }
+
+        var unsafe *u = canon_unqual(pt)
+        if u == &null || isa<CXXLValueRefType>(u) || isa<CXXRValueRefType>(u) {
+            return a->ty
+        }
+
+        if self.tu.c_string_literal(a->expr) == &null {
+            return a->ty
+        }
+
+        var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+        return self.sc->types->pointer(cc, true)
+    }
+
+    /// The imported record a C++ user-defined conversion would build for
+    /// parameter \p pt of the imported callee \p f, or null: \p pt by
+    /// value, `const T&` or `T&&` (a temporary binds neither `T&` nor a
+    /// Kairo `@inout`), T a C++ class.
+    priv fn _cxx_conv_target(self, f: unsafe *FunctionDecl, a: *ArgInfo, pt: unsafe *Type) -> unsafe *Type {
+        if f == &null || (!f->is_imported()) || a->marked || pt == &null || pt->is_dependent() {
+            return &null
+        }
+
+        var unsafe *t = pt
+        if isa<CXXLValueRefType>(t) {
+            t = cast<CXXLValueRefType>(t)->referee
+            if !canon_has_const(t) {
+                return &null
+            }
+        } else if isa<CXXRValueRefType>(t) {
+            t = cast<CXXRValueRefType>(t)->referee
+        }
+
+        t = canon_unqual(t)
+        if t == &null || (!isa<RecordType>(t)) {
+            return &null
+        }
+
+        var unsafe *d = self.tu.record_decl(t)
+        if d == &null || (!decl_is_imported(d)) {
+            return &null
+        }
+
+        return t
+    }
+
+    /// How C++ would reach the record \p to from \p a with ONE
+    /// user-defined conversion -- `'View(const char *)'` or `'operator B'`
+    /// -- or "" when it would not. A standard conversion may precede a
+    /// converting constructor ([over.ics.user]), never a second user one,
+    /// so the constructor's parameter is judged on the builtin lattice; a
+    /// string literal is C++'s `const char[N]`, which a C string parameter
+    /// takes.
+    priv fn _cxx_conv_via(self, a: *ArgInfo, to: unsafe *Type) -> string {
+        var unsafe *from = if (a->ty != &null) => (self.tu.as_value(a->ty)) else => &null
+        var        lit   = self.tu.c_string_literal(a->expr) != &null
+        if from != &null && (!lit) {
+            var unsafe *cop = self.conv->cxx_conversion_op(from, to)
+            if cop != &null {
+                return f"'operator {self.tu.str(to)}\x27"
+            }
+        }
+
+        if from == &null && (!lit) {
+            return ""
+        }
+
+        var unsafe *body = self.sc->body_of(self.tu.record_decl(to))
+        var unsafe *dc   = NameLookup::context_of(body)
+        if dc == &null {
+            return ""
+        }
+
+        var cell = self.sc->lookup.in_context(dc, DeclName::ctor())
+        if !cell.found() {
+            return ""
+        }
+
+        for var i: usize = 0; i < cell.cell->size(); ++i {
+            var unsafe *k = dyn_cast<FunctionDecl>(cell.cell->get(i))
+            if k == &null || k->is_poisoned() || k->ffi_explicit || k->transfer != TransferKind::NotTransfer {
+                continue
+            }
+
+            var nreal: usize               = 0
+            var only:  unsafe *ParamDecl   = &null
+            for var j: usize = 0; j < k->params.size(); ++j {
+                if k->params[j] != &null && (!k->params[j]->is_self) {
+                    nreal += 1
+                    only = k->params[j]
+                }
+            }
+
+            if nreal != 1 || only->type_ == &null || only->type_->canonical == &null {
+                continue
+            }
+
+            var unsafe *qt = only->type_->canonical
+            var        ok  = false
+            if lit {
+                ok = self.tu.is_c_string_param(qt)
+            } else {
+                var unsafe *qv = qt
+                if isa<CXXLValueRefType>(qv) {
+                    qv = cast<CXXLValueRefType>(qv)->referee
+                } else if isa<CXXRValueRefType>(qv) {
+                    qv = cast<CXXRValueRefType>(qv)->referee
+                }
+
+                ok = self.conv->implicit_builtin(canon_unqual(from), canon_unqual(qv)) != ImplicitRank::None
+            }
+
+            if ok {
+                return f"'{self.tu.str(to)}({self.tu.str(qt)})\x27"
+            }
+        }
+
+        return ""
+    }
+
+    /// \p e binds looser than a postfix `as`, so a cast appended to it
+    /// needs parentheses around it.
+    priv fn _needs_parens_for_as(self, e: unsafe *Expr) -> bool {
+        if e == &null {
+            return false
+        }
+
+        return isa<BinaryOperatorExpr>(e) || isa<AssignOperatorExpr>(e) || isa<RangeExpr>(e)
+    }
+
     priv fn _c_string_reinterpret(self, from: unsafe *Type, to: unsafe *Type) -> bool {
         if from == &null || to == &null {
             return false
@@ -3488,8 +3736,37 @@ pub class OverloadResolution {
         )
 
         b.first(at)
+        // C++ would have converted an argument implicitly (P813). One target
+        // record: the note names how, and `as` is the edit. Several (each
+        // overload reachable by its own conversion): the note lists them and
+        // no edit is offered, since which one is meant is the user's call.
+        var utargets = cxx::std::vector<string>()
+        var ufirst: usize = usize::MAX
+        for var i: usize = 0; i < cs->size(); ++i {
+            var *c = &(*cs)[i]
+            if c->uconv_to == "" {
+                continue
+            }
+
+            var dup = false
+            for var j: usize = 0; j < utargets.size(); ++j {
+                if utargets[j] == c->uconv_to {
+                    dup = true
+                    break
+                }
+            }
+
+            if !dup {
+                utargets.push_back(c->uconv_to)
+            }
+
+            if ufirst == usize::MAX {
+                ufirst = i
+            }
+        }
+
         var shown: usize = 0
-        var fixed        = false
+        var fixed        = utargets.size() > 1
         for var i: usize = 0; i < cs->size() && shown < 6; ++i {
             var *c = &(*cs)[i]
             b.note(c->f->range.start, f"candidate not viable: {c->reason}")->first(c->f->range)
@@ -3497,11 +3774,42 @@ pub class OverloadResolution {
             if !fixed && c->fix_text != "" {
                 var why = if (c->fix_text == ".c_str()") => ("pass the string's NUL-terminated bytes")
                           else => "reinterpret the pointer inside an 'unsafe' block"
+                if c->uconv_to != "" {
+                    why = "convert explicitly"
+                }
+
+                if c->fix_paren {
+                    b.insert(c->fix_open, "(", why)
+                }
+
                 b.insert(c->fix_at, c->fix_text, why)
                 fixed = true
             }
 
             shown += 1
+        }
+
+        if utargets.size() == 1 {
+            var to  = utargets[0]
+            var via = (*cs)[ufirst].uconv_via
+            b.note(
+                (*cs)[ufirst].fix_open,
+                f"C++ would convert the argument to '{to}' implicitly through {via}; Kairo applies no C++ implicit conversion unless -fimplicit-conv is given: write 'as {to}', or pass -fimplicit-conv",
+            )
+        } else if utargets.size() > 1 {
+            var list = ""
+            for var j: usize = 0; j < utargets.size(); ++j {
+                if j > 0 {
+                    list += ", "
+                }
+
+                list += "\x27" + utargets[j] + "\x27"
+            }
+
+            b.note(
+                at.start,
+                f"C++ would convert the argument implicitly to one of {list}; Kairo applies no C++ implicit conversion unless -fimplicit-conv is given: write the cast to the one you mean, or pass -fimplicit-conv",
+            )
         }
 
         if cs->size() > shown {

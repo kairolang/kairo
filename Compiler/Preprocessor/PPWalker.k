@@ -840,7 +840,7 @@ pub class PPWalker
             segs.push_back(spec->segments[i])
         }
 
-        id->path_segments.from_buf(segs.data(), (segs.size() as usize), self._ctx)
+        id->path_segments.from_buf_pp(segs.data(), (segs.size() as usize), self._ctx)
         id->last_seg_is_macro = spec->last_seg_is_macro
         id->is_wildcard       = spec->is_wildcard
 
@@ -854,7 +854,7 @@ pub class PPWalker
                     sub.push_back(s->sub_path[j])
                 }
 
-                item.sub_path.from_buf(sub.data(), (sub.size() as usize), self._ctx)
+                item.sub_path.from_buf_pp(sub.data(), (sub.size() as usize), self._ctx)
                 item.alias       = s->alias
                 item.has_alias   = s->has_alias
                 item.is_wildcard = s->is_wildcard
@@ -863,7 +863,7 @@ pub class PPWalker
                 items.push_back(item)
             }
 
-            id->items.from_buf(items.data(), (items.size() as usize), self._ctx)
+            id->items.from_buf_pp(items.data(), (items.size() as usize), self._ctx)
             id->has_items = true
         }
 
@@ -1063,7 +1063,7 @@ pub class PPWalker
 
         // node into TU
         var unsafe *decl = MacroDecl::create(self._ctx, kw.range | lbrace, hdr.name)
-        decl->params_spec.from_buf(specs.data(), (specs.size() as usize), self._ctx)
+        decl->params_spec.from_buf_pp(specs.data(), (specs.size() as usize), self._ctx)
         decl->accepts_params = hdr.accepts_params
         decl->is_variadic    = is_variadic
 
