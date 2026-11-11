@@ -119,6 +119,9 @@ pub class DeclContext {
 
     pub fn set_symbols(self, t: unsafe *SymbolTable) {
         self.dc_symbols = t
+        if t != &null {
+            t->dep_scope = unsafe ((&self) as unsafe *void)
+        }
     }
 
     pub fn symbols(self) -> unsafe *SymbolTable {

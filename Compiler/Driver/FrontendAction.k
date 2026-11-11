@@ -62,6 +62,7 @@ ffi "c++" import "cstdlib"
 import AST::ASTSupport::FrozenList
 import AST::Context::ASTContext::ASTContext
 import AST::Context::DeclContext::DeclContext
+import AST::Context::DepLog::DepLogScope
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
 import AST::Context::ImportOverlay::{
     ImportOverlay,
@@ -150,6 +151,13 @@ import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Resolution::ImportProbe::ImportResolver
 import Resolution::ModulePath::ModulePath
 import Sema::Check::EffectPropagation::EffectTable
+import Sema::Incremental::Facts::{
+    FileDeps,
+    FileFacts,
+    IncrFacts,
+    incr_json,
+    incr_resolve_deps,
+}
 import Sema::Resolve::ImportResolution::ImportResolution
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::Sema::Sema
@@ -188,6 +196,10 @@ pub class FrontendAction {
     priv var _global_scope: unsafe *GlobalDisambigTable ///< non-owning borrow from CompilerInstance
     priv var _file_id:      u32
     priv var _fids:         cxx::std::vector<u32> ///< the graph's fids this action claimed (claim_fid)
+    /// Each Kairo TU's interface facts, taken at Checked under
+    /// --dump-interface / --dump-deps and written at the end of _sema. Only
+    /// the driver thread appends (_sema_finish runs there).
+    priv var _incr: cxx::std::vector<FileFacts>
     priv var _graph:        cxx::std::vector<u32> ///< every fid of the graph, an earlier input's too
     pub var  result:        TUResult
     priv var _stage:        TUStage
@@ -1326,6 +1338,10 @@ pub class FrontendAction {
             self._dump_import_uses(fe.dump_import_uses)
         }
 
+        if (!fe.dump_interface.empty()) || (!fe.dump_deps.empty()) {
+            self._dump_incremental(fe.dump_interface, fe.dump_deps)
+        }
+
         if fe.print_panic_sets {
             self._dump_panic_sets()
         }
@@ -1764,6 +1780,16 @@ pub class FrontendAction {
 
             if print_sema {
                 SemaDump(unsafe &sem->sc, sema_opts).run()
+            }
+
+            // The same pin, for incremental Sema's facts: an interface is
+            // what the CHECKED tree says, and the lowerings below rewrite it
+            // (Compiler/Spec/IncrementalSema.md).
+            if sem->sc.opts.log_deps && sem->sc.tu != &null {
+                var _ti   = TimeRegion("IncrFacts")
+                var facts = FileFacts{}
+                IncrFacts(unsafe &sem->sc, self._ci->pp()->get_symbol_table()).run(unsafe &facts)
+                self._incr.push_back(facts)
             }
 
             // The same pin, for a tool: kals indexes the tree here, before a
@@ -3620,6 +3646,174 @@ pub class FrontendAction {
         }
     }
 
+    /// --dump-interface / --dump-deps (Compiler/Spec/IncrementalSema.md has
+    /// both formats and Scripts/incr_oracle.py reads them). Files are sorted
+    /// by module path and every list inside one is sorted, so two runs, two
+    /// checkouts and two import orders write the same bytes; the only
+    /// absolute path is the top-level `root` (the working directory), and a
+    /// file's `path` is relative to it, or empty for a file outside it (the
+    /// bundled library), which its module path still names.
+    priv fn _dump_incremental(self, const iface_path: string, const deps_path: string) {
+        var _t          = TimeRegion("IncrDump")
+        var unsafe *psym = self._ci->pp()->get_symbol_table()
+        var root         = Path::cwd().path_data
+        var prefix       = root + "/"
+
+        // Sorted by (module, path): the order of every file list below.
+        var order = cxx::std::vector<string>()
+        for var i: usize = 0; i < self._incr.size(); ++i {
+            order.push_back(self._incr[i].mod_path + "\t" + self._incr[i].path + "\t" + f"{i}")
+        }
+
+        llvm::sort(order.begin(), order.end())
+        var idx = cxx::std::vector<usize>()
+        for var i: usize = 0; i < order.size(); ++i {
+            var s        = order[i]
+            var n: usize = 0
+            var at       = s.size()
+            while at > 0 && s[at - 1] != (9 as u8) {
+                at -= 1
+            }
+
+            for var k: usize = at; k < s.size(); ++k {
+                n = n * 10 + ((s[k] - ('0' as u8)) as usize)
+            }
+
+            idx.push_back(n)
+        }
+
+        var overlays = llvm::DenseMap<u64, unsafe *TranslationUnit>()
+        for var fid: u32 in self._fids {
+            var unsafe *c = self._global_scope->get_context(fid)
+            if c != &null && c->tu != &null && c->tu->import_overlay != &null {
+                overlays[c->tu->import_overlay as usize as u64] = c->tu
+            }
+        }
+
+        var head = "{\"version\": 1, \"root\": " + incr_json(root) + ", \"files\": ["
+        var io_: string = head
+        var do_: string = head
+        for var i: usize = 0; i < idx.size(); ++i {
+            var *f  = &self._incr[idx[i]]
+            var rel: string = ""
+            if f->path.size() > prefix.size() && f->path.subslice(0, prefix.size()) == prefix {
+                rel = f->path.subslice(prefix.size(), f->path.size() - prefix.size())
+            }
+
+            var who = "\n{\"module\": " + incr_json(f->mod_path) + ", \"path\": " + incr_json(rel)
+            if i > 0 {
+                io_ += ","
+                do_ += ","
+            }
+
+            io_ += who + ", \"phase\": " + incr_json(f->phase) + ", \"hash\": " + incr_json(f->hash) + ", \"macros\": " + incr_json(f->macros) + ", \"decls\": ["
+            for var k: usize = 0; k < f->decls.size(); ++k {
+                io_ += (if (k > 0) => (",\n  ") else => "\n  ") + f->decls[k]
+            }
+
+            io_ += "], \"scopes\": ["
+            for var k: usize = 0; k < f->scopes.size(); ++k {
+                io_ += (if (k > 0) => (",\n  ") else => "\n  ") + f->scopes[k]
+            }
+
+            io_ += "]}"
+
+            if deps_path.empty() {
+                continue
+            }
+
+            var        deps = FileDeps{}
+            var unsafe *c   = self._global_scope->get_context(f->fid)
+            if c != &null {
+                incr_resolve_deps(c->tu, self._global_scope, psym, unsafe &overlays, unsafe &deps)
+            }
+
+            do_ += who + ", \"surface\": ["
+            for var k: usize = 0; k < deps.surface.size(); ++k {
+                do_ += (if (k > 0) => (", ") else => "") + incr_json(deps.surface[k])
+            }
+
+            do_ += "], \"names\": ["
+            for var k: usize = 0; k < deps.names.size(); ++k {
+                do_ += (if (k > 0) => (",\n  ") else => "\n  ") + deps.names[k]
+            }
+
+            // Overlay rows are `<module>\t<name>`, sorted: one object per
+            // module, its names in order.
+            do_ += "], \"overlay\": ["
+            var cur:  string = ""
+            var open_        = false
+            for var k: usize = 0; k < deps.overlay.size(); ++k {
+                var row      = deps.overlay[k]
+                var cut: usize = 0
+                while cut < row.size() && row[cut] != (9 as u8) {
+                    cut += 1
+                }
+
+                var of_  = row.subslice(0, cut)
+                var name = if (cut < row.size()) => (row.subslice(cut + 1, row.size() - cut - 1)) else => ""
+                if (!open_) || of_ != cur {
+                    if open_ {
+                        do_ += "]},"
+                    }
+
+                    do_ += "\n  {\"of\": " + incr_json(of_) + ", \"names\": ["
+                    cur   = of_
+                    open_ = true
+                } else {
+                    do_ += ", "
+                }
+
+                do_ += incr_json(name)
+            }
+
+            if open_ {
+                do_ += "]}"
+            }
+
+            // Declaration rows: the checked tree's, then the hooks'.
+            var rows = f->rows
+            for var k: usize = 0; k < deps.rows.size(); ++k {
+                rows.push_back(deps.rows[k])
+            }
+
+            llvm::sort(rows.begin(), rows.end())
+            do_ += "], \"decls\": ["
+            var prev:  string = ""
+            var first_        = true
+            for var k: usize = 0; k < rows.size(); ++k {
+                if rows[k] == prev {
+                    continue
+                }
+
+                prev = rows[k]
+                var cut: usize = 0
+                while cut < prev.size() && prev[cut] != (9 as u8) {
+                    cut += 1
+                }
+
+                var part = prev.subslice(0, cut)
+                var id   = if (cut < prev.size()) => (prev.subslice(cut + 1, prev.size() - cut - 1)) else => ""
+                do_ += (if (first_) => ("\n  ") else => ",\n  ") + "{\"id\": " + incr_json(id) + ", \"part\": " + incr_json(
+                    part,
+                ) + "}"
+                first_ = false
+            }
+
+            do_ += "]}"
+        }
+
+        io_ += "\n]}\n"
+        do_ += "\n]}\n"
+        if (!iface_path.empty()) && !Path::write_file(iface_path, io_) {
+            self._ci->diag()->report(DiagID::U001E, f"cannot write interface dump '{iface_path}'").emit()
+        }
+
+        if (!deps_path.empty()) && !Path::write_file(deps_path, do_) {
+            self._ci->diag()->report(DiagID::U001E, f"cannot write dependency dump '{deps_path}'").emit()
+        }
+    }
+
     priv fn _dump_symbols(self,
                           tu:   unsafe *TranslationUnit,
                           ctx:  unsafe *ASTContext,
@@ -4043,6 +4237,9 @@ fn sema_lockstep(sems: unsafe *cxx::std::vector<unsafe *Sema>, front: bool) -> b
                         continue
                     }
 
+                    // The one stage the driver runs on a TU's behalf outside
+                    // Sema::run_to, so the one place it names the reader.
+                    var _deps = DepLogScope((*sems)[i]->sc.tu->dep_log)
                     if ImportResolution(&(*sems)[i]->sc).refold_reexports() {
                         grew = true
                     }

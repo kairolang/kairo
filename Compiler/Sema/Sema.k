@@ -34,6 +34,7 @@ ffi "c++" import "cstdlib"
 ffi "c++" import "Native/KShims.hh" // purity_inferred_*
 
 import AST::Context::ASTContext::ASTContext
+import AST::Context::DepLog::DepLogScope
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
 import Sema::Check::AttributeCheck::AttributeCheck
 import Sema::Check::BaseInitCheck::BaseInitCheck
@@ -231,6 +232,10 @@ pub class Sema {
         if self.sc.tu == &null {
             return false
         }
+
+        // Every read a pass makes from here on is this TU's
+        // (AST/Context/DepLog.k); null, and a no-op, without the dump flags.
+        var _deps = DepLogScope(self.sc.tu->dep_log)
 
         if !self._gate(SemaPhase::Parsed, target) {
             return self._done()
@@ -576,6 +581,7 @@ pub class Sema {
 
         self._types_pre_done = true
         self.sc.require_phase(SemaPhase::NamesResolved)
+        var _deps = DepLogScope(self.sc.tu->dep_log)
         {
             var _p = TimeRegion("TypeResolve")
             TypeResolution(unsafe &self.sc).run()

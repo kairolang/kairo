@@ -1,0 +1,667 @@
+{
+ "entry": "main.k",
+ "flags": [],
+ "scenarios": [
+  {
+   "name": "body_plain",
+   "edits": [
+    {
+     "file": "mathlib.k",
+     "old": "return a + b",
+     "new": "return b + a"
+    }
+   ],
+   "expect": [
+    "mathlib.k"
+   ]
+  },
+  {
+   "name": "signature",
+   "edits": [
+    {
+     "file": "mathlib.k",
+     "old": "pub fn scale(v: i32, by: i32)",
+     "new": "pub fn scale(v: i32, by: i64)"
+    }
+   ],
+   "expect": [
+    "inferred.k",
+    "mathlib.k",
+    "use_alias_import.k",
+    "use_scale.k"
+   ]
+  },
+  {
+   "name": "overload_picked",
+   "edits": [
+    {
+     "file": "over.k",
+     "old": "// SLOT-pick",
+     "new": "pub fn pick(v: i32) -> i32 { return 2 }"
+    }
+   ],
+   "expect": [
+    "over.k",
+    "use_pick.k"
+   ]
+  },
+  {
+   "name": "overload_unpicked",
+   "edits": [
+    {
+     "file": "over.k",
+     "old": "// SLOT-other",
+     "new": "pub fn other(v: bool) -> i32 { return 2 }"
+    }
+   ],
+   "expect": [
+    "over.k",
+    "use_other.k"
+   ]
+  },
+  {
+   "name": "remove_decl",
+   "edits": [
+    {
+     "file": "gone.k",
+     "old": "pub fn doomed() -> i32 { return 1 }",
+     "new": "// doomed is gone"
+    }
+   ],
+   "expect": [
+    "gone.k",
+    "use_doomed.k"
+   ]
+  },
+  {
+   "name": "field_type",
+   "edits": [
+    {
+     "file": "shapes.k",
+     "old": "pub var x: i32",
+     "new": "pub var x: i64"
+    }
+   ],
+   "expect": [
+    "ext.k",
+    "outer.k",
+    "shapes.k",
+    "use_ext.k",
+    "use_ext_miss.k",
+    "use_outer.k",
+    "use_outer_size.k",
+    "use_point_init.k",
+    "use_point_size.k",
+    "use_point_x.k"
+   ]
+  },
+  {
+   "name": "field_added",
+   "edits": [
+    {
+     "file": "shapes.k",
+     "old": "// SLOT-field",
+     "new": "pub var z: i32"
+    }
+   ],
+   "expect": [
+    "ext.k",
+    "outer.k",
+    "shapes.k",
+    "use_ext.k",
+    "use_ext_miss.k",
+    "use_outer.k",
+    "use_outer_size.k",
+    "use_point_init.k",
+    "use_point_size.k",
+    "use_point_x.k"
+   ]
+  },
+  {
+   "name": "fields_reordered",
+   "edits": [
+    {
+     "file": "shapes.k",
+     "old": "    pub var x: i32\n    pub var y: i32",
+     "new": "    pub var y: i32\n    pub var x: i32"
+    }
+   ],
+   "expect": [
+    "ext.k",
+    "outer.k",
+    "shapes.k",
+    "use_ext.k",
+    "use_ext_miss.k",
+    "use_outer.k",
+    "use_outer_size.k",
+    "use_point_init.k",
+    "use_point_size.k",
+    "use_point_x.k"
+   ]
+  },
+  {
+   "name": "private_method",
+   "edits": [
+    {
+     "file": "shapes.k",
+     "old": "priv fn step(self, by: i32)",
+     "new": "priv fn step(self, by: i64)"
+    }
+   ],
+   "expect": [
+    "shapes.k"
+   ]
+  },
+  {
+   "name": "private_field",
+   "edits": [
+    {
+     "file": "shapes.k",
+     "old": "priv var n: i32 = 0",
+     "new": "priv var n: i32 = 1"
+    }
+   ],
+   "expect": [
+    "shapes.k",
+    "use_counter.k"
+   ]
+  },
+  {
+   "name": "generic_body",
+   "edits": [
+    {
+     "file": "gen.k",
+     "old": "return v",
+     "new": "return (v)"
+    }
+   ],
+   "expect": [
+    "gen.k",
+    "gen2.k",
+    "use_quad.k",
+    "use_quad2.k",
+    "use_twice.k"
+   ]
+  },
+  {
+   "name": "eval_const_value",
+   "edits": [
+    {
+     "file": "consts.k",
+     "old": "LIMIT: i32 = 4",
+     "new": "LIMIT: i32 = 5"
+    }
+   ],
+   "expect": [
+    "consts.k",
+    "use_evalfn.k",
+    "use_limit.k"
+   ]
+  },
+  {
+   "name": "eval_fn_body",
+   "edits": [
+    {
+     "file": "consts.k",
+     "old": "return x * 2",
+     "new": "return x * 3"
+    }
+   ],
+   "expect": [
+    "consts.k",
+    "use_evalfn.k"
+   ]
+  },
+  {
+   "name": "enum_discriminant",
+   "edits": [
+    {
+     "file": "color.k",
+     "old": "Blue,",
+     "new": "Blue = 7,"
+    }
+   ],
+   "expect": [
+    "color.k",
+    "use_color.k"
+   ]
+  },
+  {
+   "name": "enum_variant_renamed",
+   "edits": [
+    {
+     "file": "color.k",
+     "old": "Green,",
+     "new": "Lime,"
+    }
+   ],
+   "expect": [
+    "color.k",
+    "use_color.k"
+   ]
+  },
+  {
+   "name": "type_alias",
+   "edits": [
+    {
+     "file": "alias.k",
+     "old": "pub type Id = i32",
+     "new": "pub type Id = i64"
+    }
+   ],
+   "expect": [
+    "alias.k",
+    "mid.k",
+    "use_id.k",
+    "use_mid.k"
+   ]
+  },
+  {
+   "name": "reexport_chain",
+   "edits": [
+    {
+     "file": "deep_c.k",
+     "old": "pub fn deep() -> i32 { return 1 }",
+     "new": "pub fn deep() -> i64 { return 1 }"
+    }
+   ],
+   "expect": [
+    "deep_c.k",
+    "use_deep.k"
+   ]
+  },
+  {
+   "name": "reexport_cut",
+   "edits": [
+    {
+     "file": "deep_b.k",
+     "old": "pub import deep_c::*",
+     "new": "import deep_c::*"
+    }
+   ],
+   "expect": [
+    "deep_b.k",
+    "main.k",
+    "use_deep.k"
+   ]
+  },
+  {
+   "name": "extension_method_added",
+   "edits": [
+    {
+     "file": "ext.k",
+     "old": "// SLOT-ext",
+     "new": "pub fn diff(self) -> i32 = self.x - self.y"
+    }
+   ],
+   "expect": [
+    "ext.k",
+    "use_ext_miss.k"
+   ]
+  },
+  {
+   "name": "extension_block_added",
+   "edits": [
+    {
+     "file": "ext2.k",
+     "old": "// SLOT-ext2 a\n// SLOT-ext2 b\n// SLOT-ext2 c",
+     "new": "extend Point {\n    pub fn diff(self) -> i32 = self.x - self.y\n}"
+    }
+   ],
+   "expect": [
+    "ext2.k",
+    "use_ext_miss.k"
+   ]
+  },
+  {
+   "name": "out_of_line_body",
+   "edits": [
+    {
+     "file": "widget_impl.k",
+     "old": "return 3",
+     "new": "return 4"
+    }
+   ],
+   "expect": [
+    "widget_impl.k"
+   ]
+  },
+  {
+   "name": "out_of_line_decl_signature",
+   "edits": [
+    {
+     "file": "widget.k",
+     "old": "pub fn size(self) -> i32",
+     "new": "pub fn size(self) -> i64"
+    }
+   ],
+   "expect": [
+    "use_widget.k",
+    "widget.k",
+    "widget_impl.k"
+   ]
+  },
+  {
+   "name": "default_argument",
+   "edits": [
+    {
+     "file": "mathlib.k",
+     "old": "by: i32 = 1",
+     "new": "by: i32 = 2"
+    }
+   ],
+   "expect": [
+    "mathlib.k",
+    "use_pad.k"
+   ]
+  },
+  {
+   "name": "cycle_body",
+   "edits": [
+    {
+     "file": "cyc_b.k",
+     "old": "return 40",
+     "new": "return 41"
+    }
+   ],
+   "expect": [
+    "cyc_b.k"
+   ]
+  },
+  {
+   "name": "cycle_signature",
+   "edits": [
+    {
+     "file": "cyc_b.k",
+     "old": "pub fn fc() -> i32",
+     "new": "pub fn fc() -> i64"
+    }
+   ],
+   "expect": [
+    "cyc_b.k"
+   ]
+  },
+  {
+   "name": "cycle_signature_used",
+   "edits": [
+    {
+     "file": "cyc_a.k",
+     "old": "pub fn fa(n: i32) -> i32",
+     "new": "pub fn fa(n: i64) -> i32"
+    }
+   ],
+   "expect": [
+    "cyc_a.k",
+    "cyc_b.k"
+   ]
+  },
+  {
+   "name": "inferred_return",
+   "edits": [
+    {
+     "file": "mathlib.k",
+     "old": "pub fn scale(v: i32, by: i32) -> i32",
+     "new": "pub fn scale(v: i32, by: i32) -> i64"
+    }
+   ],
+   "expect": [
+    "inferred.k",
+    "mathlib.k",
+    "use_alias_import.k",
+    "use_inferred.k",
+    "use_scale.k"
+   ]
+  },
+  {
+   "name": "generic_body_transitive",
+   "edits": [
+    {
+     "file": "gen.k",
+     "old": "return v",
+     "new": "return (v)"
+    }
+   ],
+   "expect": [
+    "gen.k",
+    "gen2.k",
+    "use_quad.k",
+    "use_quad2.k",
+    "use_twice.k"
+   ]
+  },
+  {
+   "name": "generic_signature_transitive",
+   "edits": [
+    {
+     "file": "gen.k",
+     "old": "pub fn <T> twice(v: T) -> T",
+     "new": "pub fn <T> twice(v: T, w: T) -> T"
+    }
+   ],
+   "expect": [
+    "gen.k",
+    "gen2.k",
+    "use_quad.k",
+    "use_quad2.k",
+    "use_twice.k"
+   ]
+  },
+  {
+   "name": "interface_requirement_added",
+   "edits": [
+    {
+     "file": "iface.k",
+     "old": "// SLOT-req",
+     "new": "fn other(const self) -> i32"
+    }
+   ],
+   "expect": [
+    "iface.k",
+    "tag.k",
+    "use_named.k"
+   ]
+  },
+  {
+   "name": "base_method_signature",
+   "edits": [
+    {
+     "file": "base.k",
+     "old": "pub fn hello(self) -> i32",
+     "new": "pub fn hello(self) -> i64"
+    }
+   ],
+   "expect": [
+    "base.k",
+    "use_derived.k"
+   ]
+  },
+  {
+   "name": "base_method_added",
+   "edits": [
+    {
+     "file": "base.k",
+     "old": "// SLOT-base",
+     "new": "pub fn bye(self) -> i32 { return 1 }"
+    }
+   ],
+   "expect": [
+    "base.k"
+   ]
+  },
+  {
+   "name": "base_field_type",
+   "edits": [
+    {
+     "file": "base.k",
+     "old": "pub var b: i32 = 0",
+     "new": "pub var b: i64 = 0"
+    }
+   ],
+   "expect": [
+    "base.k",
+    "derived.k",
+    "use_derived.k"
+   ]
+  },
+  {
+   "name": "operator_added",
+   "edits": [
+    {
+     "file": "vec.k",
+     "old": "// SLOT-op",
+     "new": "pub fn op - (a: V2, b: V2) -> V2 { return a }"
+    }
+   ],
+   "expect": [
+    "use_vec_minus.k",
+    "vec.k"
+   ]
+  },
+  {
+   "name": "operator_signature",
+   "edits": [
+    {
+     "file": "vec.k",
+     "old": "pub fn op + (a: V2, b: V2) -> V2",
+     "new": "pub fn op + (a: V2, b: V2) -> i32"
+    }
+   ],
+   "expect": [
+    "use_vec.k",
+    "vec.k"
+   ]
+  },
+  {
+   "name": "constructor_signature",
+   "edits": [
+    {
+     "file": "meters.k",
+     "old": "pub fn Meters(self, v: i64)",
+     "new": "pub fn Meters(self, v: bool)"
+    }
+   ],
+   "expect": [
+    "meters.k",
+    "use_meters.k"
+   ]
+  },
+  {
+   "name": "import_collision",
+   "edits": [
+    {
+     "file": "col_b.k",
+     "old": "// SLOT-dup",
+     "new": "pub struct Dup { pub var c: i32 }"
+    }
+   ],
+   "expect": [
+    "col_b.k",
+    "use_col.k"
+   ]
+  },
+  {
+   "name": "module_member_signature",
+   "edits": [
+    {
+     "file": "mods.k",
+     "old": "pub fn helper(v: i32) -> i32",
+     "new": "pub fn helper(v: bool) -> i32"
+    }
+   ],
+   "expect": [
+    "mods.k",
+    "use_mods.k"
+   ]
+  },
+  {
+   "name": "module_member_added",
+   "edits": [
+    {
+     "file": "mods.k",
+     "old": "// SLOT-util",
+     "new": "pub fn helper(v: bool) -> i32 { return 2 }"
+    }
+   ],
+   "expect": [
+    "mods.k",
+    "use_mods.k"
+   ]
+  },
+  {
+   "name": "aliased_import_signature",
+   "edits": [
+    {
+     "file": "mathlib.k",
+     "old": "pub fn scale(v: i32, by: i32) -> i32",
+     "new": "pub fn scale(v: bool, by: i32) -> i32"
+    }
+   ],
+   "expect": [
+    "inferred.k",
+    "mathlib.k",
+    "use_alias_import.k",
+    "use_inferred.k",
+    "use_scale.k"
+   ]
+  },
+  {
+   "name": "private_made_public",
+   "edits": [
+    {
+     "file": "hidden.k",
+     "old": "priv fn hidden()",
+     "new": "pub fn hidden()"
+    }
+   ],
+   "expect": [
+    "hidden.k",
+    "use_hidden.k"
+   ]
+  },
+  {
+   "name": "macro_body",
+   "edits": [
+    {
+     "file": "macros.k",
+     "old": "{ x + 1 }",
+     "new": "{ x + mbase() }"
+    }
+   ],
+   "expect": [
+    "macros.k",
+    "use_macro.k"
+   ]
+  },
+  {
+   "name": "generic_inferred_transitive",
+   "edits": [
+    {
+     "file": "inf_gen.k",
+     "old": "= 0",
+     "new": "= true"
+    }
+   ],
+   "expect": [
+    "inf_gen.k",
+    "inf_gen2.k",
+    "use_outer_a.k",
+    "use_outer_b.k"
+   ]
+  },
+  {
+   "name": "const_transitive",
+   "edits": [
+    {
+     "file": "width.k",
+     "old": "WIDTH: i32 = 3",
+     "new": "WIDTH: i32 = 5"
+    }
+   ],
+   "expect": [
+    "const_mid.k",
+    "use_w2.k",
+    "width.k"
+   ]
+  }
+ ]
+}

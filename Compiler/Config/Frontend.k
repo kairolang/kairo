@@ -80,6 +80,11 @@ pub class FrontendOptions {
     pub var print_macros:        bool   = false
     pub var print_imports:       bool   = false
     pub var dump_import_uses:    string = "" ///< --dump-import-uses=<path.json>: Scripts/import_lint.py's input
+    /// --dump-interface=<path.json> / --dump-deps=<path.json>: incremental
+    /// Sema's phase 1 facts (Compiler/Spec/IncrementalSema.md). Either one
+    /// turns dependency logging on for the run.
+    pub var dump_interface: string = ""
+    pub var dump_deps:      string = ""
     pub var print_emit_plan:     bool   = false
     pub var print_panic_sets:    bool   = false
     pub var print_cxx:           bool   = false ///< --print-cxx: the TU's C++ preamble (interface only) as text
@@ -205,6 +210,8 @@ pub class FrontendOptions {
         o.print_macros        = args.get_bool("print-macros")
         o.print_imports       = args.get_bool("print-imports")
         o.dump_import_uses    = args.get_string("dump-import-uses")
+        o.dump_interface      = args.get_string("dump-interface")
+        o.dump_deps           = args.get_string("dump-deps")
         o.print_emit_plan     = args.get_bool("print-emit-plan")
         o.print_panic_sets    = args.get_bool("print-panic-sets")
         o.print_cxx           = args.get_bool("print-cxx")

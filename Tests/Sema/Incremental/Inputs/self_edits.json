@@ -1,0 +1,66 @@
+{
+ "entry": "Compiler/Driver/Kairo.k",
+ "flags": [],
+ "scenarios": [
+  {
+   "name": "self_body",
+   "edits": [
+    {
+     "file": "Compiler/Support/ShellQuote.k",
+     "old": "out = out + one",
+     "new": "out += one"
+    }
+   ]
+  },
+  {
+   "name": "self_signature_default",
+   "edits": [
+    {
+     "file": "Compiler/Token/IdentifierToken.k",
+     "old": "sym_table: unsafe *PreprocessorSymbolTable) -> string",
+     "new": "sym_table: unsafe *PreprocessorSymbolTable, verbose: bool = false) -> string"
+    }
+   ]
+  },
+  {
+   "name": "self_overload_added",
+   "edits": [
+    {
+     "file": "Compiler/Support/ShellQuote.k",
+     "old": "/// it, otherwise in single quotes, each quote inside spelled '\\''.",
+     "new": "pub fn shell_quote(n: i32) -> string { return \"0\" }"
+    }
+   ]
+  },
+  {
+   "name": "self_const_value",
+   "edits": [
+    {
+     "file": "Compiler/Support/Limits.k",
+     "old": "const U16_MIN: u16 = 0",
+     "new": "const U16_MIN: u16 = (0)"
+    }
+   ]
+  },
+  {
+   "name": "self_field_added",
+   "edits": [
+    {
+     "file": "Compiler/Support/Timer.k",
+     "old": "    /// \\brief constructs and starts a new timer.",
+     "new": "    priv var _spare: u32 = 0"
+    }
+   ]
+  },
+  {
+   "name": "self_enum_discriminant",
+   "edits": [
+    {
+     "file": "Compiler/Support/FileIO/FileSystem.k",
+     "old": "Read,    ///<",
+     "new": "Read = 0, ///<"
+    }
+   ]
+  }
+ ]
+}

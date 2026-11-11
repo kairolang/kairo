@@ -23,6 +23,10 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
+import AST::Context::DepLog::{
+    DepLog,
+    dep_log_current,
+}
 import AST::Node::Base::Decl
 import Lexer::Immediate::ImmediateTable
 import Token::TokenKind::{
@@ -296,6 +300,14 @@ pub class SymbolTable {
     /// lookup (follow decl->dc_symbols per segment) are built on top of
     /// this by NameResolution.
     pub fn lookup(self, name: DeclName) -> unsafe *OverloadCell {
+        // THE chokepoint of name-level dependency logging: every lookup of
+        // every pass, hit or miss, ends in this probe, so logging here needs
+        // no cooperation from the forty-odd callers (AST/Context/DepLog.k).
+        var unsafe *deps = dep_log_current()
+        if deps != &null {
+            deps->probe(self._dep_root(), (unsafe ((&self) as unsafe *void)) as usize as u64, name.as_key())
+        }
+
         var unsafe *it = self._cells.find(name.as_key())
         if it == self._cells.end() {
             return &null
@@ -307,6 +319,21 @@ pub class SymbolTable {
     fn lookup_ident(self, imm: u32) -> unsafe *OverloadCell {
         return self.lookup(DeclName::ident(imm))
     }
+
+    /// The TU this table's names belong to, as DepLog compares it.
+    priv fn _dep_root(self) -> u64 {
+        if self._ctx == &null {
+            return 0
+        }
+
+        return (self._ctx->tu as usize as u64)
+    }
+
+    /// The scope this table was last installed on (DeclContext::set_symbols),
+    /// for the dependency dump to name the scope a logged probe was made in.
+    /// A file's table is shared with its implicit module, which is the same
+    /// scope by another handle; the dump treats both as the file scope.
+    pub var dep_scope: unsafe *void = &null
 
     /// \brief Cross-TU boundary lookup (ImportResolution ONLY).
     ///
@@ -342,6 +369,14 @@ pub class SymbolTable {
         var src_imm = src_imms->find_ident(spelling)
         if src_imm != ((-1) as i32 as u32) {
             return tbl->lookup_ident(src_imm)
+        }
+
+        // Never interned there: no key for lookup() to log, and still a
+        // dependency on the name staying absent. (The `#name` retry below is
+        // logged by lookup() when it has a key; this row is the plain name.)
+        var unsafe *deps = dep_log_current()
+        if deps != &null {
+            deps->probe_spelled(tbl->_dep_root(), tbl as usize as u64, spelling)
         }
 
         // `#name` is the escape for a foreign name that is a Kairo keyword:

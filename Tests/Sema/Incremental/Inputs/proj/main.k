@@ -1,0 +1,56 @@
+import const_mid::*
+import cyc_a::*
+import deep_a::*
+import derived::*
+import ext::*
+import ext2::*
+import gen2::*
+import inf_gen2::*
+import inferred::*
+import mid::*
+import outer::*
+import tag::*
+import use_add::*
+import use_alias_import::*
+import use_col::*
+import use_color::*
+import use_counter::*
+import use_deep::*
+import use_derived::*
+import use_doomed::*
+import use_evalfn::*
+import use_ext::*
+import use_ext_miss::*
+import use_hidden::*
+import use_id::*
+import use_inferred::*
+import use_kept::*
+import use_limit::*
+import use_macro::*
+import use_meters::*
+import use_mid::*
+import use_mods::*
+import use_named::*
+import use_other::*
+import use_outer::*
+import use_outer_a::*
+import use_outer_b::*
+import use_outer_size::*
+import use_pad::*
+import use_pick::*
+import use_point_init::*
+import use_point_size::*
+import use_point_x::*
+import use_quad::*
+import use_quad2::*
+import use_scale::*
+import use_twice::*
+import use_vec::*
+import use_vec_minus::*
+import use_w2::*
+import use_widget::*
+import widget_impl::*
+
+fn main() -> i32 {
+    return use_add() + use_scale()
+}

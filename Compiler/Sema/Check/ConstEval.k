@@ -51,6 +51,7 @@
 ffi "c++" import "vector"
 
 import AST::Context::DeclContext::DeclContext
+import AST::Context::DepLog::dep_log_current
 import AST::Context::SymbolTable::DeclName
 import AST::Node::Base::{
     Decl,
@@ -892,6 +893,14 @@ pub class ConstEval {
     priv fn _ref(self, at: unsafe *Expr, d: unsafe *Decl, depth: u32) -> IntConst {
         if d == &null {
             return self._fail(at, "this name does not evaluate at compile time")
+        }
+
+        // Folding through a name reads its initializer (or its
+        // discriminant): the reader's result moves when that text does, even
+        // where the declared type stays (AST/Context/DepLog.k).
+        var unsafe *deps = dep_log_current()
+        if deps != &null {
+            deps->body(d as usize as u64)
         }
 
         var unsafe *vd = dyn_cast<VariableDecl>(d)

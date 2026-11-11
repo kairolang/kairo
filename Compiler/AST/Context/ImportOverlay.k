@@ -28,6 +28,10 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 ffi "c++" import "memory"
 
+import AST::Context::DepLog::{
+    DepLog,
+    dep_log_current,
+}
 import AST::Context::SymbolTable::OverloadCell
 import AST::Node::Base::Decl
 import AST::Node::Declarations::ImportDecl
@@ -259,6 +263,7 @@ pub class ImportOverlay {
     /// was never imported. Returns the entry's `merged` view so the caller
     /// stays cell-shaped; ambiguity was already diagnosed in I.
     pub fn lookup_ident(self, key: u32) -> unsafe *OverloadCell {
+        self._dep_note(key)
         var unsafe *it = self._entries.find(key as u64)
         if it == self._entries.end() {
             return &null
@@ -267,9 +272,21 @@ pub class ImportOverlay {
         return unsafe &it->second->merged
     }
 
+    /// A read of this overlay by key, hit or miss, goes into the dependency
+    /// log of whichever TU is asking (AST/Context/DepLog.k): the overlay
+    /// stands for the file scopes of its sources, and a name they do not
+    /// declare today is as much a dependency as one they do.
+    priv fn _dep_note(self, key: u32) {
+        var unsafe *deps = dep_log_current()
+        if deps != &null {
+            deps->overlay_probe((unsafe ((&self) as unsafe *void)) as usize as u64, key as u64)
+        }
+    }
+
     /// The full entry (targets + visibility facts) for a key, or null. N reads
     /// this for access diagnostics; dumps read it for --print-imports.
     pub fn entry(self, key: u32) -> unsafe *OverlayEntry {
+        self._dep_note(key)
         var unsafe *it = self._entries.find(key as u64)
         if it == self._entries.end() {
             return &null

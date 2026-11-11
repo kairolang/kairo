@@ -2184,6 +2184,22 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "",
     )
 
+    cmd->define<FlagKind::String>(
+        "dump-interface",
+        "",
+        "dump-interface",
+        "after sema, write each file's interface hashes (per declaration: DeclId, interface hash, body hash; per scope: its names) as JSON to this path (Compiler/Spec/IncrementalSema.md)",
+        "",
+    )
+
+    cmd->define<FlagKind::String>(
+        "dump-deps",
+        "",
+        "dump-deps",
+        "after sema, write each file's dependency log (the names, declarations and bodies of other files its check read) as JSON to this path (Compiler/Spec/IncrementalSema.md)",
+        "",
+    )
+
     cmd->define<FlagKind::Bool>(
         "print-emit-plan",
         "",

@@ -4,8 +4,8 @@
 ///   keywords.
 ///
 ///   WHY C++: llvm::sys::fs::directory_entry::type() cannot be called from
-///   Kairo, `type` is a keyword. It used to be an inline C++ member call;
-///   Stage 1 does not emit inline foreign code.
+///   Kairo, `type` is a keyword. Stage 1 does not emit inline foreign code,
+///   so the call lives here.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.

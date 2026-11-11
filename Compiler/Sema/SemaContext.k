@@ -33,6 +33,7 @@ ffi "c++" import "vector"
 import AST::Context::ASTContext::ASTContext
 import AST::Context::CanonicalTypes::CanonicalTypeStore
 import AST::Context::DeclContext::DeclContext
+import AST::Context::DepLog::DepLog
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
 import AST::Context::InstantiationRegistry::InstantiationRegistry
 import AST::Context::TranslationUnit::TranslationUnit
@@ -179,6 +180,7 @@ pub class SemaOptions {
     pub var infer_purity:    bool = true ///< -finfer-purity (on; -fno-infer-purity turns it off): FnPurityCheck::infer runs before ParamPassInference.
     pub var print_stats:     bool = false ///< --print-stats: Sema also reports its per-stage arena growth.
     pub var log_import_uses: bool = false ///< --dump-import-uses: I gives each overlay an ImportUseLog.
+    pub var log_deps:        bool = false ///< --dump-deps / --dump-interface: the TU gets a DepLog.
     /// -fduck-generics: `<T: type>` is the C++-checked regime rather than an
     /// error (FlagGates; Compiler/Spec/Generics.md#duck-regime). OFF by default
     /// (decided 2026-11-08): internal, build.py turns it on for the compiler's
@@ -240,6 +242,7 @@ pub class SemaOptions {
         self.infer_purity    = ci->lang.infer_purity != 0
         self.print_stats     = ci->frontend.print_stats
         self.log_import_uses = !ci->frontend.dump_import_uses.empty()
+        self.log_deps        = (!ci->frontend.dump_deps.empty()) || (!ci->frontend.dump_interface.empty())
         self.duck_generics   = ci->lang.duck_generics == 1 // unset = off (see above)
         // FlagTranslator's test of a hosted target, on the resolved triple.
         var hosted = !(ci->lang.freestanding || ci->codegen.kernel_mode)
@@ -462,6 +465,11 @@ pub class SemaContext {
         self.phase = SemaPhase::Parsed
         self.opts.load(ctx->ci)
         self.lookup.init(self.tu)
+        // Before any pass: I is the first reader of other files.
+        if self.opts.log_deps && self.tu != &null && self.tu->dep_log == &null {
+            self.tu->dep_log        = ctx->alloc_init_pp_cleanup<DepLog>()
+            self.tu->dep_log->owner = (self.tu as usize as u64)
+        }
 
         // The store is build-wide and idempotently initialized, so every TU
         // may ask; the first caller wins and the rest are a locked bool read.

@@ -77,6 +77,7 @@ ffi "c++" import "memory"
 ffi "c++" import "cstring"
 
 import AST::Context::ASTContext::ASTContext
+import AST::Context::DepLog::dep_log_current
 import AST::Context::CanonicalTypes::{
     canon_hash_ptr,
     canon_hash_u64,
@@ -478,6 +479,14 @@ pub class InstantiationRegistry {
                         ctx:     unsafe *ASTContext) -> unsafe *InstanceEntry {
         if primary == &null || args_in == &null || ctx == &null {
             return &null
+        }
+
+        // Every REQUEST reads the pattern's body, not only the one that
+        // mints: an instance is checked once, by its first namer, and a later
+        // namer in another file depends on that body all the same.
+        var unsafe *deps = dep_log_current()
+        if deps != &null {
+            deps->body(primary as usize as u64)
         }
 
         var        dd    = cxx::std::vector<unsafe *Type>()

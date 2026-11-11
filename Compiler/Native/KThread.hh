@@ -88,6 +88,17 @@ inline usize *thread_pool_local_qid() {
     return &local_qid;
 }
 
+/// The dependency log of the translation unit whose Sema the calling thread
+/// is running, or null: no log (the flags that ask for one are off), or no
+/// Sema on this thread. AST/Context/DepLog.k owns the pointee; a symbol
+/// table has no way to know who is asking, so the asker is per-thread state
+/// that Sema's entry points set (DepLogScope) and the lookup chokepoints
+/// read. Off costs each lookup this one load and a null test.
+inline void **sema_dep_log() {
+    thread_local void *log = nullptr;
+    return &log;
+}
+
 /// The calling thread's place in the serial Sema order, for
 /// InstantiationRegistry: the rank of the import group whose Sema this
 /// thread is running (its place in the build's group order, narrowed to the

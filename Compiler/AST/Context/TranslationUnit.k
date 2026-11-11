@@ -17,6 +17,7 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
+import AST::Context::DepLog::DepLog
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
@@ -244,6 +245,9 @@ pub class TranslationUnit derives DeclContext {
     pub var global_scope:   *GlobalDisambigTable
     pub var out_of_line:    ArenaList<unsafe *Decl>
     pub var import_overlay: unsafe *ImportOverlay   ///< built by phase I; null until then.
+    /// What this TU's Sema read of other files, or null: only under
+    /// --dump-deps / --dump-interface (SemaContext allocates it).
+    pub var dep_log: unsafe *DepLog = &null
 
     /// The synthetic `cxx` module, built by phase I for a TU with any ffi
     /// import, or null. It owns one binding -- `std` -> every top-level `std`

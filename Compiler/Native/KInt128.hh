@@ -5,8 +5,8 @@
 ///
 ///   WHY C++: the fast paths are MSVC's _umul128 / _addcarry_u64 intrinsics
 ///   and the GCC/Clang `unsigned __int128` type, neither of which has a
-///   Kairo spelling. They used to be inline C++ bodies inside
-///   Immediate.k; Stage 1 does not emit inline foreign code. The portable
+///   Kairo spelling. Stage 1 does not emit inline foreign code, so they live
+///   here and Immediate.k calls them. The portable
 ///   32-bit-limb fallback has no such need and stays in Kairo.
 ///
 ///   Each function is defined only under the condition Immediate.k tests
