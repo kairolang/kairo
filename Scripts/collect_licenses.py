@@ -86,14 +86,14 @@ def T(name: str) -> Path:
 
 
 TABLE: list[Component] = [
-    Component("kairo", "Kairo (kairo, kcc, kld, kfmt, ksys, builtin, std, rt, scripts)", KAIRO_LICENSE, "",
-              "bin/kairo, bin/kcc, bin/kld, bin/kfmt, bin/ksys, lib/builtin, lib/std, lib/rt, "
+    Component("kairo", "Kairo (kairo, kcc, kld, kfmt, ksys, kals, builtin, std, rt, scripts)", KAIRO_LICENSE, "",
+              "bin/kairo, bin/kcc, bin/kld, bin/kfmt, bin/ksys, bin/kals, lib/builtin, lib/std, lib/rt, "
               "scripts/darwin-sysroot.sh, scripts/msvc-sysroot.{sh,ps1}; share/kairo/sysroot's own files "
               "(registry.toml, families/, quirks.toml, shims/, validate/; its inputs are listed per component)",
               [("LICENSE", [C("LICENSE")])],
               # share/kairo/sysroot is claimed whole here; installed() then reads its
               # registry.toml [licenses] and pulls in the component of every input dir.
-              claims=["bin/kairo*", "bin/kcc*", "bin/kld*", "bin/kfmt*", "bin/ksys*",
+              claims=["bin/kairo*", "bin/kcc*", "bin/kld*", "bin/kfmt*", "bin/ksys*", "bin/kals*",
                       "lib/builtin", "lib/std", "lib/rt", "scripts/darwin-sysroot.sh",
                       "scripts/msvc-sysroot.sh", "scripts/msvc-sysroot.ps1", "share/kairo/sysroot"]),
     Component("llvm", "LLVM, clang, lld, compiler-rt, libc++, libc++abi, libunwind (Kairo fork)",

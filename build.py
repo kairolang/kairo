@@ -230,9 +230,9 @@ NOT_MIGRATED = {
     "kbld": "Extras/BuildTool",
     "kpkg": "Extras/PackageManager",
 }
-# build.k stages the tree after these (post_build). kld, kfmt and ksys ship in the staged tree
-# beside kairo and kcc, so a build of it alone stages too.
-STAGED = {"kairo", "kcc", "kld", "kfmt", "ksys"}
+# build.k stages the tree after these (post_build). kld, kfmt, ksys and kals ship in the
+# staged tree beside kairo and kcc, so a build of it alone stages too.
+STAGED = {"kairo", "kcc", "kld", "kfmt", "ksys", "kals"}
 
 
 # --- kairo_compile.json (the language server's project file) ------------------
@@ -1089,7 +1089,7 @@ def reproducible_args(os_: str, epoch: int, src: Path, out: Path) -> list:
 #
 # Any --out / --src / --print-jobs, or --single builds exactly one tree, as before.
 
-TOOLCHAIN = ["kairo", "kcc", "kld", "kfmt", "ksys"]   # grows as NOT_MIGRATED tools (kbld, kals, kpkg) migrate
+TOOLCHAIN = ["kairo", "kcc", "kld", "kfmt", "ksys", "kals"]   # grows as NOT_MIGRATED tools (kbld, kpkg) migrate
 
 
 class PipelineError(Exception):

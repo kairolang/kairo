@@ -13,7 +13,7 @@ The archive is an ALLOWLIST of build/<triple>/release, not a copy of it (that tr
 clang, lld and the dev tools, which dev builds want on disk; kairo and kcc run clang and
 lld in-process, and a user never needs the binaries):
 
-  bin/      kairo kcc kld kfmt ksys llvm-symbolizer llvm-ar + alias links llvm-ranlib llvm-lib
+  bin/      kairo kcc kld kfmt ksys kals llvm-symbolizer llvm-ar + alias links llvm-ranlib llvm-lib
   lib/      clang/<ver> (resource dir), builtin, std, rt        (copies, never symlinks)
   sysroot/  the host's own prebuilt roots (HOST_ROOTS below), and a manifest.json naming
             just those; every other target is built by ksys on first use, from:
@@ -76,7 +76,7 @@ import build_sdk_overlays  # noqa: E402
 # link time (mingw import libs ship prebuilt in the sysroots); only the unimplemented
 # sysroot generator (SysRoot.md 4.6) would.
 SHIP_BIN = {
-    "kairo": [], "kcc": [], "kld": [], "kfmt": [], "ksys": [],
+    "kairo": [], "kcc": [], "kld": [], "kfmt": [], "ksys": [], "kals": [],
     "llvm-symbolizer": [],
     "llvm-ar": ["llvm-ranlib", "llvm-lib"],
 }
@@ -242,7 +242,7 @@ RUNTIMES_TREES = ["compiler-rt/cmake", "compiler-rt/include", "compiler-rt/lib/b
                   # the closure of libc/shared/*.h's includes lives in these dirs.
                   "libc/shared", "libc/hdr", "libc/include/llvm-libc-macros",
                   "libc/include/llvm-libc-types", "libc/src/__support",
-                  # aarch64 builtins: emupac.cpp includes <siphash/SipHash.h> (P603)
+                  # aarch64 builtins: emupac.cpp includes <siphash/SipHash.h>
                   "third-party/siphash"]
 RUNTIMES_PRUNED = ["libunwind", "libcxxabi", "libcxx", "runtimes"]   # minus RUNTIMES_DROP
 RUNTIMES_DROP = {"test", "tests", "docs", "benchmarks", "utils", "__pycache__"}

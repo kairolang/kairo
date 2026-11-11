@@ -216,7 +216,7 @@ def cmake_cmd(t: Target, stage: str, kit: Path, src: Path, hdr: Path, bld: Path,
         en += [x for x in ("libunwind", "libcxxabi", "libcxx") if x in t.runtimes]
         cmd += ["-S", str(src / "runtimes"), f"-DLLVM_ENABLE_RUNTIMES={';'.join(en)}",
                 f"-DLLVM_DEFAULT_TARGET_TRIPLE={t.cc_triple}",
-                # share/kairo/runtimes ships no docs/ dirs; the recipes do not say so (P600)
+                # share/kairo/runtimes ships no docs/ dirs; the recipes do not say so
                 "-DLLVM_INCLUDE_DOCS=OFF", "-DLIBCXX_INCLUDE_DOCS=OFF", "-DLIBUNWIND_INCLUDE_DOCS=OFF"]
         defs = list(r.get("cmake_defs", []))
         cf, xf, af = r.get("c_flags", []), r.get("cxx_flags", []), r.get("asm_flags", [])
@@ -225,7 +225,7 @@ def cmake_cmd(t: Target, stage: str, kit: Path, src: Path, hdr: Path, bld: Path,
             defs += b.get("cmake_defs", [])
             qstage.append("builtins")
         elif "compiler-rt" in en:
-            # crt only (musl): without this compiler-rt adds a multilib i386 crt (P601)
+            # crt only (musl): without this compiler-rt adds a multilib i386 crt
             defs.append("COMPILER_RT_DEFAULT_TARGET_ONLY=ON")
     for qs in qstage:
         defs = defs + t.q("cmake_defs", qs, "cmake_stages")
@@ -235,7 +235,7 @@ def cmake_cmd(t: Target, stage: str, kit: Path, src: Path, hdr: Path, bld: Path,
     # The scripts the quirks encode put -fforce-enable-int128 on C only in a runtimes
     # configure (build-bsd-runtimes.sh CMAKE_C_FLAGS; glibc: none, compiler-rt adds it to
     # the builtins itself). On C++ it would change libc++'s ABI on 32-bit targets
-    # (_LIBCPP_HAS_INT128) and breaks charconv's LLVM-libc UInt128 on i686 (P605).
+    # (_LIBCPP_HAS_INT128) and breaks charconv's LLVM-libc UInt128 on i686.
     xadd = list(cadd) if stage == "builtins" else []
     for qs in qstage:
         xadd += t.q("cflags_add_cxx", qs, "cflags_stages")
@@ -243,7 +243,7 @@ def cmake_cmd(t: Target, stage: str, kit: Path, src: Path, hdr: Path, bld: Path,
             xadd += ["-include", str(share / f)]
     if t.arch.startswith("armv"):
         # check_assembler_flag errors out under CMake 4.4.4 ("This should not have happened");
-        # 4.4.2, which built the curated roots, read both as FALSE. Pin that answer (P602).
+        # 4.4.2, which built the curated roots, read both as FALSE. Pin that answer.
         defs = defs + ["COMPILER_RT_HAS_MIMPLICIT_IT=FALSE", "COMPILER_RT_HAS_WA_MIMPLICIT_IT=FALSE"]
     cmd += [f"-D{sub(d)}" for d in defs]
     cmd += [f"-DCMAKE_C_FLAGS={' '.join(sub(x) for x in cf + cadd)}",
