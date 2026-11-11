@@ -115,7 +115,7 @@ extend Server {
         }
 
         var name   = text->subslice(b, e - b)
-        var prefix = "```kairo\nfn " + name + "("
+        var prefix = "fn " + name + "("
 
         var labels: [string]
         var docs:   [string]
@@ -130,16 +130,34 @@ extend Server {
                 var h = o->first(o->get(of, "hovers"))
                 while h != JSON_NONE() {
                     var md = o->str(h)
-                    if md.starts_with(prefix) {
-                        // The signature is the code block's one line.
-                        var ls: usize = 9
-                        var le = ls
-                        while (le < md.size()) && (md[le] != 10) {
-                            le += 1
+                    // The signature is the code block's one line, after its
+                    // head (attributes, visibility, modifiers): from `fn`.
+                    var ls: usize = 9
+                    var le = ls
+                    while (le < md.size()) && (md[le] != 10) {
+                        le += 1
+                    }
+
+                    var at = usize::MAX
+                    if md.starts_with("```kairo\n") {
+                        at = find_from(md.subslice(ls, le - ls), prefix, 0)
+                    }
+
+                    // `fn` as a word: not the tail of a longer one.
+                    if (at != usize::MAX) && (at > 0) && (md[ls + at - 1] != 32) {
+                        at = usize::MAX
+                    }
+
+                    if at != usize::MAX {
+                        var label = md.subslice(ls + at, le - ls - at)
+                        var cut = find_from(label, "  //", 0)
+                        if cut != usize::MAX {
+                            label = label.subslice(0, cut)
                         }
 
-                        var label = md.subslice(ls, le - ls)
-                        var cut = find_from(label, "  //", 0)
+                        // `= default` / `= delete` / `= virtual` are the
+                        // body, not the call's shape.
+                        cut = find_from(label, " = ", 0)
                         if cut != usize::MAX {
                             label = label.subslice(0, cut)
                         }

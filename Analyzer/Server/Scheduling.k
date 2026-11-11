@@ -152,6 +152,13 @@ pub class Job {
     pub var prog_file: string = ""
     pub var prog_n:    i64    = -1
 
+    /// JOB_INDEX: each overlaid buffer's path and the text it was handed
+    /// as, captured when the run starts. The buffer has usually moved on by
+    /// the time the run lands, and an index is only ever mapped onto the
+    /// text it read (Document::idx_text).
+    pub var text_paths: [string]
+    pub var texts:      [string]
+
     fn Job(self) = default
 }
 

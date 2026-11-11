@@ -117,6 +117,9 @@ pub class IndexObserver derives SemaObserver {
 
     priv var mu_: kairo::std::Mutex
 
+    /// Walked at on_checked, written at on_lowered (or by flush).
+    priv var held_: [unsafe *IndexWalker]
+
     pub fn IndexObserver(self) = default
 
     priv fn count_(self) {
@@ -154,16 +157,62 @@ pub class IndexObserver derives SemaObserver {
         }
 
         var t0 = worker_us()
-        var walker = IndexWalker(sc)
-        walker.run(fid)
+        var unsafe *walker = kairo::std::create<IndexWalker>(sc)
+        walker->run(fid)
+        walker->named_ = named
         var t1 = worker_us()
 
+        // Held until on_lowered: a type's size is the compiler's layout
+        // query, and an ADT has no layout before EnumLayoutLowering builds
+        // it (Hovers.k, fill_layouts_).
+        var lock = kairo::std::LockGuard(self.mu_)
+        self.walk_us += t1 - t0
+        self.held_.push_back(walker)
+    }
+
+    /* OVERRIDE */
+    pub fn on_lowered(self, sc: unsafe *SemaContext) {
+        var walker: unsafe *IndexWalker = &null
+        {
+            var lock = kairo::std::LockGuard(self.mu_)
+            for var i: usize = 0; i < self.held_.size(); ++i {
+                if self.held_[i]->sc == sc {
+                    walker = self.held_[i]
+                    self.held_[i] = self.held_[self.held_.size() - 1]
+                    self.held_.pop_back()
+                    break
+                }
+            }
+        }
+
+        if walker == &null {
+            return
+        }
+
+        walker->fill_layouts_()
+        self.finish_(walker)
+    }
+
+    /// Whatever on_lowered never got back (a run that stopped between the
+    /// two calls): written without the layout lines, after the compile.
+    pub fn flush(self) {
+        while !self.held_.empty() {
+            var unsafe *walker = self.held_[self.held_.size() - 1]
+            self.held_.pop_back()
+            walker->sc = &null
+            self.finish_(walker)
+        }
+    }
+
+    priv fn finish_(self, walker: unsafe *IndexWalker) {
+        var t1 = worker_us()
         var w = JsonWriter()
-        walker.write(&w)
+        walker->write(&w)
+        var named = walker->named_
+        kairo::std::destroy(walker)
         var t2 = worker_us()
 
         var lock = kairo::std::LockGuard(self.mu_)
-        self.walk_us  += t1 - t0
         self.write_us += t2 - t1
         if named {
             if self.count > 0 {
@@ -814,6 +863,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     opts.capture_diags = false
     opts.as_module     = as_module
     var unit = parse_file(ci, Path(inputs[0]), opts)
+    observer->flush()
     var t_parsed = worker_us()
 
     ci->diag()->restore_consumers(saved)

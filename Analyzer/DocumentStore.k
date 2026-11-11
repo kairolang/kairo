@@ -564,7 +564,28 @@ pub class Document {
     pub var tmp_path: string = ""
     pub var tmp_rev:  u64    = 0
 
+    /// The text this buffer's file was last INDEXED from: the overlay a run
+    /// read (Job::texts), or the disk text a buffer opened unchanged. The
+    /// index outlives edits that stop the file parsing, and a request at a
+    /// position on a line that is the same in both texts is answered from
+    /// it (Server::line_shift; LanguageServer.md section 9). Valid only for
+    /// the index of `idx_entry` computed at `idx_rev`: an empty entry means
+    /// no such text is known, and the requests answer as on any stale index.
+    pub var idx_text:  string = ""
+    pub var idx_lines: LineMap
+    pub var idx_rev:   u64    = 0
+    pub var idx_entry: string = ""
+
     fn Document(self) = default
+
+    /// Records \p text as what entry \p entry's index of revision \p rev
+    /// read for this buffer.
+    fn set_indexed(self, const text: string, rev: u64, const entry: string) {
+        self.idx_text  = text
+        self.idx_lines.build(text)
+        self.idx_rev   = rev
+        self.idx_entry = entry
+    }
 
     fn set_text(self, const text: string) {
         self.buf.assign(text)

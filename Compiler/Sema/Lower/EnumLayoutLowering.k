@@ -142,7 +142,7 @@ import AST::Context::DeclContext::DeclContext
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::DeclFacts::{
     adt_expansion_at,    adt_pack_param,   adt_pack_variant, adt_variant_at,       adt_variant_pos,
-    decl_generic_params, decl_is_imported, decl_is_instance, decl_requires_clause,
+    decl_generic_params, decl_is_imported, decl_is_instance, decl_pattern, decl_requires_clause,
 }
 import AST::EnumNiche::{
     adt_declared_tag_kind,
@@ -162,6 +162,7 @@ import AST::LangItems::{
     to_string,
 }
 import AST::Mixin::Annotation::VisibilityKind
+import AST::Mixin::FFILinkage::ForeignLayout
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -275,11 +276,23 @@ pub class EnumLayoutQuery {
     priv var tu:    TypeUtil
     priv var synth: LowerSynth
 
+    /// Off for the compiler, on for a tool (kals' hover): size_of also
+    /// answers from what clang already decided and mono already filled --
+    /// an imported record's ForeignLayout (DeclImport::_layout, clang's
+    /// getASTRecordLayout, on a filled template instance's shell too), an
+    /// imported enum's integer type, and a filled Kairo generic instance
+    /// laid out by the same rule as its pattern. Off, nothing changes for
+    /// the compiler's readers: a declaration-scope `eval if` still refuses
+    /// a C++ layout, and no ADT instance's static_assert depends on one.
+    /// Read only after the TU's lowerings and mono (on_lowered), on the
+    /// driver thread, as CopyMoveLowering reads the triviality bits.
+    pub var foreign: bool = false
+
     fn EnumLayoutQuery(self) {
         self.sc = &null
     }
 
-    fn EnumLayoutQuery(self, sc: unsafe *SemaContext) {
+    pub fn EnumLayoutQuery(self, sc: unsafe *SemaContext) {
         self.sc    = sc
         self.tu    = TypeUtil(sc)
         self.synth = LowerSynth(sc)
@@ -314,6 +327,15 @@ pub class EnumLayoutQuery {
                      en:         unsafe *Declarations::EnumDecl,
                      const args: FrozenList<unsafe *Type>,
                      ft:         unsafe *Type) -> unsafe *Type {
+        return self._type_at(unsafe (en as unsafe *Decl), args, ft)
+    }
+
+    /// field_type_at for any generic record \p owner: its parameters read
+    /// as \p args, a pointer as itself, a type naming none as itself.
+    priv fn _type_at(self,
+                     owner_d:    unsafe *Decl,
+                     const args: FrozenList<unsafe *Type>,
+                     ft:         unsafe *Type) -> unsafe *Type {
         if ft == &null || ft->canonical == &null {
             return &null
         }
@@ -335,7 +357,7 @@ pub class EnumLayoutQuery {
                 owner = NameLookup::representative(owner)
             }
 
-            if owner != NameLookup::representative(unsafe (en as unsafe *Decl))
+            if owner != NameLookup::representative(owner_d)
                 || (gp->param_index as usize) >= args.size() {
                 return &null
             }
@@ -727,8 +749,9 @@ pub class EnumLayoutQuery {
     /// The size and alignment in bytes of a value of type \p t, for the
     /// types whose layout is plain arithmetic: builtins, pointers, plain
     /// enums, and ADTs made of them. False for anything else; nothing then
-    /// pins a size.
-    fn size_of(self, t: unsafe *Type, size: unsafe *u64, align: unsafe *u64) -> bool {
+    /// pins a size. Public for kals, whose hover shows this size (and
+    /// nothing where it says false).
+    pub fn size_of(self, t: unsafe *Type, size: unsafe *u64, align: unsafe *u64) -> bool {
         if t == &null || t->canonical == &null {
             return false
         }
@@ -783,6 +806,16 @@ pub class EnumLayoutQuery {
             return false
         }
 
+        if self.foreign && self._foreign_size(cast<RecordType>(c)->decl, size, align) {
+            return true
+        }
+
+        if self.foreign && decl_is_instance(cast<RecordType>(c)->decl)
+            && !decl_is_imported(cast<RecordType>(c)->decl)
+            && dyn_cast<Declarations::EnumDecl>(self.tu.pattern_of(cast<RecordType>(c)->decl)) == &null {
+            return self._instance_size(c, size, align)
+        }
+
         var unsafe *en = dyn_cast<Declarations::EnumDecl>(
             self.tu.pattern_of(cast<RecordType>(c)->decl),
         )
@@ -793,6 +826,12 @@ pub class EnumLayoutQuery {
 
         if !en->is_adt {
             if decl_is_imported(en) {
+                // A C++ enum is the integer type clang gave it
+                // (DeclImport: getIntegerType), fixed or deduced.
+                if self.foreign && en->underlying != &null {
+                    return self.size_of(en->underlying, size, align)
+                }
+
                 return false
             }
 
@@ -1002,6 +1041,138 @@ pub class EnumLayoutQuery {
         *size  = if (any) => (self._round(off, al)) else => self._round(1, al)
         *align = al
         return true
+    }
+
+    /// Foreign mode: \p d_in is an imported record (or a filled instance
+    /// shell of an imported template) whose clang layout DeclImport kept.
+    priv fn _foreign_size(self, d_in: unsafe *Decl, size: unsafe *u64, align: unsafe *u64) -> bool {
+        var unsafe *d = d_in
+        if d == &null || !decl_is_imported(d) {
+            d = NameLookup::representative(d_in)
+            if d == &null || !decl_is_imported(d) {
+                return false
+            }
+        }
+
+        var lay: unsafe *ForeignLayout = &null
+        if isa<Declarations::ClassDecl>(d) {
+            lay = unsafe &cast<Declarations::ClassDecl>(d)->layout
+        } else if isa<Declarations::StructDecl>(d) {
+            lay = unsafe &cast<Declarations::StructDecl>(d)->layout
+        } else if isa<Declarations::UnionDecl>(d) {
+            lay = unsafe &cast<Declarations::UnionDecl>(d)->layout
+        }
+
+        if lay == &null || !lay->known || lay->align_bytes == 0 {
+            return false
+        }
+
+        *size  = lay->size_bytes
+        *align = lay->align_bytes
+        return true
+    }
+
+    /// Foreign mode: a Kairo generic instance (`Pair<i64>`). Sema never
+    /// fills a Kairo instance's shell (C++ instantiates the template the
+    /// compiler emits), so it is its pattern laid out by the
+    /// _plain_record_size rule, each field's type at the instance's
+    /// arguments (_type_at, the substitution ADT instances use). Refused
+    /// past what that rule covers: a base, a virtual method, an attribute
+    /// on the pattern or a field (they may be layout ones), a field type
+    /// built from a parameter other than a pointer.
+    priv fn _instance_size(self, c: unsafe *Type, size: unsafe *u64, align: unsafe *u64) -> bool {
+        var unsafe *d   = cast<RecordType>(c)->decl
+        var unsafe *pat = NameLookup::representative(decl_pattern(d))
+        if pat == &null || pat == d || decl_is_imported(pat) || self._any_attr(pat) {
+            return false
+        }
+
+        var fields:  unsafe *FrozenList<unsafe *Declarations::FieldDecl>    = &null
+        var methods: unsafe *FrozenList<unsafe *Declarations::FunctionDecl> = &null
+        var unsafe *sd = dyn_cast<Declarations::StructDecl>(pat)
+        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(pat)
+        if sd != &null {
+            if sd->adt_of != &null || sd->tuple_arity > 0 {
+                return false
+            }
+
+            fields  = unsafe &sd->fields
+            methods = unsafe &sd->methods
+        } else if cd != &null {
+            if cd->derives_list.size() > 0 {
+                return false
+            }
+
+            fields  = unsafe &cd->fields
+            methods = unsafe &cd->methods
+        } else {
+            return false
+        }
+
+        for var i: usize = 0; i < methods->size(); ++i {
+            var unsafe *m = (*methods)[i]
+            if m != &null
+                && (m->abi == Declarations::AbiKind::Virtual
+                    || m->abi == Declarations::AbiKind::Override
+                    || m->body_kind == Declarations::FnBodyKind::Virtual) {
+                return false
+            }
+        }
+
+        var args     = self.tu.record_args(c)
+        var off: u64 = 0
+        var al:  u64 = 1
+        var any      = false
+        for var i: usize = 0; i < fields->size(); ++i {
+            var unsafe *f = (*fields)[i]
+            if f == &null || f->is_static() {
+                continue
+            }
+
+            var unsafe *ft = self._type_at(pat, args, f->type_)
+            var fs: u64 = 0
+            var fa: u64 = 0
+            if ft == &null || !self.size_of(ft, unsafe &fs, unsafe &fa) {
+                return false
+            }
+
+            off = self._round(off, fa) + fs
+            if fa > al {
+                al = fa
+            }
+
+            any = true
+        }
+
+        *size  = if (any) => (self._round(off, al)) else => 1
+        *align = al
+        return true
+    }
+
+    /// \p d, or one of its fields, carries an attribute (a layout one or
+    /// not: the instance path does not tell them apart).
+    priv fn _any_attr(self, d: unsafe *Decl) -> bool {
+        if d->has_attribute() {
+            return true
+        }
+
+        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(d)
+        var unsafe *sd = dyn_cast<Declarations::StructDecl>(d)
+        if cd != &null {
+            for var i: usize = 0; i < cd->fields.size(); ++i {
+                if cd->fields[i] != &null && unsafe (cd->fields[i] as unsafe *Decl)->has_attribute() {
+                    return true
+                }
+            }
+        } else if sd != &null {
+            for var i: usize = 0; i < sd->fields.size(); ++i {
+                if sd->fields[i] != &null && unsafe (sd->fields[i] as unsafe *Decl)->has_attribute() {
+                    return true
+                }
+            }
+        }
+
+        return false
     }
 
     priv fn _round(self, n: u64, a: u64) -> u64 {

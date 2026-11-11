@@ -259,12 +259,19 @@ extend Server {
 
     /// Types one edge from the declaration at (path, line, ch): what it
     /// derives (\p up) or what derives it. As hierarchy items, or as plain
-    /// Locations for "go to implementation".
-    fn related_types(self, const path: string, line: i64, ch: i64, up: bool, w: *JsonWriter, items: bool) {
+    /// Locations for "go to implementation". (path, line) is in \p sh's
+    /// index's lines when \p sh is active, and every result is placed on the
+    /// buffer's lines through it (Lookup.k, LineShift).
+    fn related_types(self, const path: string, line: i64, ch: i64, up: bool, w: *JsonWriter, items: bool, sh: *const LineShift) {
         var seen: [string]
         for var ei: usize = 0; ei < self.entries.size(); ++ei {
             if !self.entries[ei].has_idx {
                 continue
+            }
+
+            var ql = self.shift_across(sh, ei, path, line)
+            if ql < 0 {
+                continue // this index has a different text of the queried line
             }
 
             var *o = &self.entries[ei].idx
@@ -286,7 +293,7 @@ extend Server {
                     var rn: i64 = 0
                     var name: string = ""
                     var kind: i64 = SK_CLASS
-                    if up && (fpath == path) && (dl == line) && (dc == ch) {
+                    if up && (fpath == path) && (dl == ql) && (dc == ch) {
                         hit  = true
                         rp   = bpath
                         rl   = bl
@@ -294,7 +301,7 @@ extend Server {
                         rn   = o->as_int(self.nth(o, b, BASE_BASE_LEN))
                         name = o->str(self.nth(o, b, BASE_BASE_NAME))
                         kind = o->as_int(self.nth(o, b, BASE_BASE_KIND))
-                    } else if (!up) && (bpath == path) && (bl == line) && (bc == ch) {
+                    } else if (!up) && (bpath == path) && (bl == ql) && (bc == ch) {
                         hit  = true
                         rp   = fpath
                         rl   = dl
@@ -305,6 +312,10 @@ extend Server {
                     }
 
                     if hit {
+                        rl = self.shift_out(sh, ei, rp, rl)
+                    }
+
+                    if hit && (rl >= 0) {
                         var key = f"{rp}:{rl}:{rc}"
                         var dup = false
                         for var q: usize = 0; q < seen.size(); ++q {

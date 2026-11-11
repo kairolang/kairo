@@ -137,6 +137,22 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     /// once however many times it is used.
     var hover_of_: {u64: u32}
 
+    /// Hovers that end their code block with a type's layout line, filled
+    /// once the TU is lowered (fill_layouts_): the hover's index, where the
+    /// line goes, and the type.
+    var layout_hover_: [u32]
+    var layout_at_:    [usize]
+    var layout_decl_:  [unsafe *Decl]
+    /// Parallel: the type a use named (`Pair<i64>`, `vector<i32>`, an
+    /// alias's target) for a hover of that use, else null and the type is
+    /// layout_decl_'s own; and how the line names it ("" for the decl's).
+    var layout_type_:  [unsafe *Type]
+    var layout_name_:  [string]
+
+    /// The worker's: this file was named by the editor (an open buffer),
+    /// not only found under the root.
+    pub var named_: bool = false
+
     /// byte offset of a callee name -> modifiers its call site adds. Filled
     /// by the call and operator visits, merged when tokens are written; the
     /// name itself is classified by the identifier visit, which may run
@@ -525,6 +541,20 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         self.toks.push_back(t)
     }
 
+    /// Is \p d (of token kind \p kd) a type declared in the builtin library?
+    fn builtin_type_(self, d: unsafe *Decl, kd: u32) -> bool {
+        if !((kd == TT_CLASS()) || (kd == TT_STRUCT()) || (kd == TT_ENUM()) || (kd == TT_INTERFACE())
+            || (kd == TT_UNION()) || (kd == TT_TYPE_ALIAS()) || (kd == TT_TYPE())) {
+            return false
+        }
+
+        if (d == &null) || (!d->range.start.is_valid()) || (self.sc == &null) || (self.sc->g == &null) {
+            return false
+        }
+
+        return self.sc->g->is_builtin_fid(self.sm->resolve(d->range.start).fid as u32)
+    }
+
     /// Records a use of \p d at \p tok: a token, and an edge to the declaration.
     fn use_(self, tok_in: Token, d: unsafe *Decl, extra: u32) {
         if d == &null {
@@ -538,7 +568,18 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         }
 
         var len = tok.range.size() as u32
-        self.tok_(off, len, self.kind_of_(d), self.mods_of_(d) | extra)
+        var kd  = self.kind_of_(d)
+        var md  = self.mods_of_(d) | extra
+        // A type of the builtin library (`string`, `vector`) reads as part
+        // of the language, like a primitive: the keyword colour, marked
+        // defaultLibrary. Only the token: the reference row below keeps the
+        // declaration's real kind (symbols, hierarchies).
+        if self.builtin_type_(d, kd) {
+            kd = TT_KEYWORD()
+            md = md | TM_DEFAULT_LIB()
+        }
+
+        self.tok_(off, len, kd, md)
 
         var r = RefRow{}
         r.off = off
@@ -649,7 +690,17 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             }
 
             if sg->resolved_decl != &null {
+                var before = self.refs.size()
                 self.use_(sg->name->name, sg->resolved_decl, 0)
+                // The last segment names the whole type: when that is an
+                // instance (`Pair<i64>`, `vector<i32>`) or an alias's
+                // target, its hover carries that type's layout.
+                if (i + 1 == c->segments.size()) && (self.refs.size() == before + 1) {
+                    var typed = self.hover_typed_(sg->resolved_decl, c->canonical)
+                    if typed != u32::MAX {
+                        self.refs[before].hover = typed
+                    }
+                }
             }
         }
 

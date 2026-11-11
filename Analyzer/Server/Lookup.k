@@ -67,6 +67,74 @@ import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
 
+/// \class LineShift
+/// \brief one buffer's lines against the text its (older) index was computed
+///        from (Document::idx_text): LanguageServer.md section 9.
+///
+/// \details The lines both texts start with (`pre`) are the same lines in
+///          both; so are the lines both end with (`suf`), moved by the
+///          difference in length. A line in neither is in the changed middle
+///          and has no counterpart. Each mapped line is byte for byte the
+///          same in the two texts, so a column on it needs no conversion.
+///          Inactive: no shift is needed (the index is of this text) or none
+///          is known; every line then maps to itself.
+pub class LineShift {
+    pub var active: bool   = false
+    pub var path:   string = ""          ///< the buffer
+    pub var entry:  usize  = usize::MAX  ///< the entry whose index the old text is
+    pub var changed_at: u64 = 0          ///< the buffer's last change: an index at least this new is of its current text
+    pub var pre:   i64 = 0
+    pub var suf:   i64 = 0
+    pub var old_n: i64 = 0
+    pub var new_n: i64 = 0
+
+    fn LineShift(self) = default
+
+    /// Buffer line \p line as a line of the indexed text; -1: none.
+    fn to_old(const self, line: i64) -> i64 {
+        if !self.active {
+            return line
+        }
+
+        if (line >= 0) && (line < self.pre) {
+            return line
+        }
+
+        if (line >= (self.new_n - self.suf)) && (line < self.new_n) {
+            return line - self.new_n + self.old_n
+        }
+
+        return -1
+    }
+
+    /// Indexed-text lines \p a to \p b are all on one side of the changed
+    /// middle, so the span between them is the same text in the buffer.
+    fn kept(const self, a: i64, b: i64) -> bool {
+        if !self.active {
+            return true
+        }
+
+        return ((a >= 0) && (b < self.pre)) || ((a >= (self.old_n - self.suf)) && (b < self.old_n))
+    }
+
+    /// Indexed-text line \p line as a line of the buffer; -1: none.
+    fn to_new(const self, line: i64) -> i64 {
+        if !self.active {
+            return line
+        }
+
+        if (line >= 0) && (line < self.pre) {
+            return line
+        }
+
+        if (line >= (self.old_n - self.suf)) && (line < self.old_n) {
+            return line - self.old_n + self.new_n
+        }
+
+        return -1
+    }
+}
+
 extend Server {
     /// Node of \p path's object in entry \p ei's snapshot, or JSON_NONE.
     fn file_node(self, ei: usize, const path: string) -> u32 {
@@ -209,6 +277,98 @@ extend Server {
         return JSON_NONE()
     }
 
+    /// The shift for a request on buffer \p di answered from entry \p ei's
+    /// index, which is older than the buffer. Inactive when the text that
+    /// index read for the buffer is not known (the buffer was not overlaid
+    /// for that run, or another entry's run recorded it since).
+    fn line_shift(self, ei: usize, di: usize) -> LineShift {
+        var sh = LineShift()
+        if self.docs.docs[di].idx_entry.empty() || (self.docs.docs[di].idx_entry != self.entries[ei].entry)
+            || (self.docs.docs[di].idx_rev != self.entries[ei].idx_rev) {
+            return sh
+        }
+
+        self.docs.docs[di].sync()
+        var *doc = &self.docs.docs[di]
+        var on = doc->idx_lines.line_count()
+        var nn = doc->lines.line_count()
+        var pre: usize = 0
+        while (pre < on) && (pre < nn) && self.same_line_(di, pre, pre) {
+            pre += 1
+        }
+
+        // Never past the prefix: `a` then `a` with one more `a` inserted
+        // would otherwise count its lines twice.
+        var suf: usize = 0
+        while ((pre + suf) < on) && ((pre + suf) < nn) && self.same_line_(di, on - 1 - suf, nn - 1 - suf) {
+            suf += 1
+        }
+
+        sh.active     = true
+        sh.path       = doc->path
+        sh.entry      = ei
+        sh.changed_at = doc->changed_at
+        sh.pre        = pre as i64
+        sh.suf        = suf as i64
+        sh.old_n      = on as i64
+        sh.new_n      = nn as i64
+        return sh
+    }
+
+    /// Line \p a of buffer \p di's indexed text and line \p b of its text are
+    /// the same bytes (line terminators aside).
+    priv fn same_line_(self, di: usize, a: usize, b: usize) -> bool {
+        var *doc = &self.docs.docs[di]
+        var a0 = doc->idx_lines.starts[a]
+        var ae  = doc->idx_lines.line_end(doc->idx_text, a)
+        var bs  = doc->lines.starts[b]
+        var be  = doc->lines.line_end(doc->text, b)
+        if (ae - a0) != (be - bs) {
+            return false
+        }
+
+        for var k: usize = 0; k < (ae - a0); ++k {
+            if doc->idx_text[a0 + k] != doc->text[bs + k] {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// Line \p line of \p path as entry \p e's index has it, placed on the
+    /// buffer's lines: -1 when it cannot be (the changed middle, or another
+    /// entry's index of an older text of the buffer).
+    fn shift_out(const self, sh: *const LineShift, e: usize, const path: string, line: i64) -> i64 {
+        if (!sh->active) || (path != sh->path) {
+            return line
+        }
+
+        if e == sh->entry {
+            return sh->to_new(line)
+        }
+
+        if self.entries[e].idx_rev >= sh->changed_at {
+            return line
+        }
+
+        return -1
+    }
+
+    /// Line \p line of \p path as \p sh's entry's index has it, as entry \p e's
+    /// index has it: -1 when \p e's index has no counterpart of the line.
+    fn shift_across(const self, sh: *const LineShift, e: usize, const path: string, line: i64) -> i64 {
+        if (!sh->active) || (path != sh->path) || (e == sh->entry) {
+            return line
+        }
+
+        if self.entries[e].idx_rev >= sh->changed_at {
+            return sh->to_new(line)
+        }
+
+        return -1
+    }
+
     fn write_range(self, w: *JsonWriter, line: i64, ch: i64, len: i64) {
         w->begin_object()
         w->key("start")
@@ -227,7 +387,9 @@ extend Server {
     /// Every use of the declaration ref row \p row names, across every
     /// snapshot, as (uri, line, ch, len) written through \p emit_kind:
     /// 0 = Location objects, 1 = DocumentHighlight (same file only),
-    /// 2 = TextEdit grouped by uri (rename).
+    /// 2 = TextEdit grouped by uri (rename). \p s's positions are \p sh's
+    /// index's, and every use is placed on the buffers' lines through it;
+    /// one with no place there is left out.
     fn uses(self,
             s:              *const JsonDoc,
             f:              u32,
@@ -236,7 +398,8 @@ extend Server {
             mode:           u32,
             const only:     string,
             const new_name: string,
-            with_decl:      bool) {
+            with_decl:      bool,
+            sh:             *const LineShift) {
         var def_file = s->as_int(self.nth(s, row, REF_DEF_FILE))
         if def_file < 0 {
             return
@@ -255,6 +418,11 @@ extend Server {
                 continue
             }
 
+            var dl = self.shift_across(sh, ei, def_path, def_line)
+            if dl < 0 {
+                continue // this index has another text of the declaration's line
+            }
+
             var *o = &self.entries[ei].idx
             var of = o->first(o->get(o->root, "files"))
             while of != JSON_NONE() {
@@ -270,15 +438,15 @@ extend Server {
                 while r != JSON_NONE() {
                     var fi = o->as_int(self.nth(o, r, REF_DEF_FILE))
                     var same = (fi >= 0)
-                        && (o->as_int(self.nth(o, r, REF_DEF_LINE)) == def_line)
+                        && (o->as_int(self.nth(o, r, REF_DEF_LINE)) == dl)
                         && (o->as_int(self.nth(o, r, REF_DEF_CHAR)) == def_ch)
                         && (o->str(self.nth(o, o->get(of, "files"), fi)) == def_path)
                     if same && (with_decl || (o->as_int(self.nth(o, r, REF_IS_DECL)) == 0)) {
-                        var line = o->as_int(self.nth(o, r, REF_LINE))
+                        var line = self.shift_out(sh, ei, path, o->as_int(self.nth(o, r, REF_LINE)))
                         var ch   = o->as_int(self.nth(o, r, REF_CHAR))
                         var len  = o->as_int(self.nth(o, r, REF_LEN))
                         var key  = f"{path}:{line}:{ch}"
-                        var dup  = false
+                        var dup  = line < 0 // no place on the buffer's lines
                         for var k: usize = 0; k < seen.size(); ++k {
                             if seen[k] == key {
                                 dup = true

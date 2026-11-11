@@ -239,6 +239,18 @@ extend Server {
 
         var wargv = self.worker_argv(ei, j.out, "", "")
         j.rooted = self.entries[ei].rooted
+
+        // The texts this run reads, as worker_argv chose them (it synced
+        // every buffer): the same test, so a buffer it did not overlay, read
+        // from the disk if at all, is never recorded as indexed.
+        for var b: usize = 0; b < self.docs.docs.size(); ++b {
+            if self.entries[ei].ran && (!self.entries[ei].holds(self.docs.docs[b].path)) {
+                continue
+            }
+
+            j.text_paths.push_back(self.docs.docs[b].path)
+            j.texts.push_back(self.docs.docs[b].text)
+        }
         self.entries[ei].dirty = false
         self.trace(f"index start entry={self.entries[ei].entry} rev={j.rev}")
 
@@ -453,6 +465,15 @@ extend Server {
             self.entries[ei].idx_rev = j->rev
             t4 = now_us()
             self.index_cache(ei)
+
+            // Only a buffer this index has rows for: one the graph never
+            // loaded keeps whatever another entry recorded.
+            for var q: usize = 0; q < j->texts.size(); ++q {
+                var tdi = self.docs.index_of_path(j->text_paths[q])
+                if (tdi != usize::MAX) && (self.file_node(ei, j->text_paths[q]) != JSON_NONE()) {
+                    self.docs.docs[tdi].set_indexed(j->texts[q], j->rev, self.entries[ei].entry)
+                }
+            }
         }
 
         var t5 = now_us()

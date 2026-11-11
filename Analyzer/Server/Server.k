@@ -290,6 +290,9 @@ pub class Server {
             if oei != usize::MAX {
                 self.docs.docs[i].changed_at = self.entries[oei].idx_rev
                 self.docs.docs[i].changed_ms = now_ms()
+                // That run read the disk, which is this text (unchanged_on_disk_
+                // compared them): the index's text for the buffer's later edits.
+                self.docs.docs[i].set_indexed(self.docs.docs[i].text, self.entries[oei].idx_rev, self.entries[oei].entry)
             } else {
                 self.touch(self.docs.docs[i].path)
             }
@@ -407,6 +410,7 @@ pub class Server {
             var sel  = d.get(d.get(item, "selectionRange"), "start")
             var w = JsonWriter()
             w.begin_array()
+            var nosh = LineShift() // an item from an answer already placed
             self.related_types(
                 self.path_of(d.get_str(item, "uri")),
                 d.get_int(sel, "line"),
@@ -414,6 +418,7 @@ pub class Server {
                 method == M_SUPERTYPES,
                 &w,
                 true,
+                &nosh,
             )
 
             w.end_array()

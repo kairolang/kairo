@@ -159,11 +159,18 @@ pub fn lexical_kind(t: Token, text: *const string, off: u32, len: u32, mods: *u3
 
     if (len > 0) && ((off as usize) < text->size()) {
         // A word that is neither identifier nor keyword is a primitive type
-        // name (`i32`, `bool`, `usize`).
+        // name (`i32`, `bool`, `usize`) or `Self`. A primitive is a keyword
+        // of the language and takes the STANDARD keyword type, so every
+        // client colours it as one without a rule of its own. `Self` keeps
+        // its own type (and with it the colour it shares with `self`).
         var c = (*text)[off as usize]
         if ((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90)) || (c == 95) {
             *mods = TM_DEFAULT_LIB()
-            return TT_BUILTIN()
+            if (len == 4) && (text->subslice(off as usize, 4) == "Self") {
+                return TT_BUILTIN()
+            }
+
+            return TT_KEYWORD()
         }
     }
 

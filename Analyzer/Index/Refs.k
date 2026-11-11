@@ -322,7 +322,48 @@ extend IndexWalker {
         self.globals_.push_back(d)
     }
 
+    /// The declaration an import binds under \p bound, recorded as a use at
+    /// \p shown (and at the alias, when the two differ). False when the
+    /// overlay binds nothing there, or a module.
+    fn import_name_(self, bound: Token, shown: Token) -> bool {
+        if (self.sc == &null) || (self.sc->tu == &null) || (self.sc->tu->import_overlay == &null) {
+            return false
+        }
+
+        var unsafe *cell = self.sc->tu->import_overlay->lookup_ident(self.ast_()->get_ident_imm(bound))
+        if (cell == &null) || (cell->size() == 0) {
+            return false
+        }
+
+        var unsafe *d = cell->get(0)
+        if (d == &null) || isa<Declarations::ModuleDecl>(d) || isa<Declarations::ImportDecl>(d) {
+            return false
+        }
+
+        self.use_(shown, d, 0)
+        if bound.range.start.raw() != shown.range.start.raw() {
+            self.use_(bound, d, 0)
+        }
+
+        return true
+    }
+
     /// `import a::b::c`: each segment is a namespace token.
+    /// A header string's spelling without its `"..."` or `<...>`.
+    fn unquote_(self, const lit: string) -> string {
+        if lit.size() < 2 {
+            return lit
+        }
+
+        var a = lit[0]
+        var z = lit[lit.size() - 1]
+        if ((a == 34) && (z == 34)) || ((a == 60) && (z == 62)) {
+            return lit.subslice(1, lit.size() - 2)
+        }
+
+        return lit
+    }
+
     fn import_(self, d: unsafe *Decl) {
         if (d == &null) || (!isa<Declarations::ImportDecl>(d)) {
             return
@@ -333,13 +374,68 @@ extend IndexWalker {
             return
         }
 
-        for var i: usize = 0; i < im->path_segments.size(); ++i {
+        // The last segment of `import std::io::println` names a declaration,
+        // not a module, when the overlay binds it to one: then it is a use of
+        // that declaration (its colour, and a jump), like a listed item.
+        var n_seg = im->path_segments.size()
+        for var i: usize = 0; i < n_seg; ++i {
             var t = im->path_segments[i]
+            if ((i + 1) == n_seg) && (!im->has_items) && (!im->is_wildcard) && (!im->last_seg_is_macro)
+                && self.import_name_(if (im->has_alias) => (im->alias) else => t, t) {
+                continue
+            }
+
             self.tok_(self.own_off_(t.range.start), t.range.size() as u32, TT_NAMESPACE(), 0)
         }
 
-        // The path is a link to the file it resolved to. An ffi import names
-        // a header clang found; where is not recorded on the import.
+        // `import a::b::{X, sub::Y as Z}`: the leading words of an item are
+        // modules; its last is the declaration the file gets, bound under
+        // the alias when there is one.
+        for var i: usize = 0; i < im->items.size(); ++i {
+            var it = im->items[i]
+            if it.is_wildcard || it.is_macro || (it.sub_path.size() == 0) {
+                continue
+            }
+
+            var last = it.sub_path[it.sub_path.size() - 1]
+            for var k: usize = 0; (k + 1) < it.sub_path.size(); ++k {
+                var t = it.sub_path[k]
+                self.tok_(self.own_off_(t.range.start), t.range.size() as u32, TT_NAMESPACE(), 0)
+            }
+
+            if !self.import_name_(if (it.has_alias) => (it.alias) else => last, last) {
+                // A module brought in by name (`io::{fs}`).
+                self.tok_(self.own_off_(last.range.start), last.range.size() as u32, TT_NAMESPACE(), 0)
+            }
+        }
+
+
+        // An ffi import's header string is a link to the header clang
+        // resolved, as clangd links an `#include`. The driver stamps the
+        // header's own fid as resolved_fid (FrontendAction::_attach_ffi_edges:
+        // the first of its include closure that has a fid), or 0 when clang
+        // never found it. Should the header itself have no fid, the first
+        // of the closure is one of ITS includes: the path must end in the
+        // spelling, or the link would open the wrong file.
+        if im->has_ffi_linkage() {
+            if (im->resolved_fid != 0) && (im->resolved_fid != u32::MAX) {
+                var hoff   = self.own_off_(im->header.range.start)
+                var hlen   = im->header.range.size() as u32
+                var hdr    = self.unquote_(self.ast_()->get_spelling(im->header))
+                var target = self.sm->get_filename(im->resolved_fid)
+                if (hoff != u32::MAX) && (hlen > 0) && (!hdr.empty()) && target.ends_with("/" + hdr) {
+                    var row = LinkRow{}
+                    row.off    = hoff
+                    row.len    = hlen
+                    row.target = target
+                    self.links.push_back(row)
+                }
+            }
+
+            return
+        }
+
+        // The path is a link to the file it resolved to.
         if (im->import_kind == Declarations::ImportKind::Native) && (im->path_segments.size() > 0)
             && (im->resolved_fid != 0) && (im->resolved_fid != u32::MAX) {
             var first = im->path_segments[0].range.start

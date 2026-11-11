@@ -172,8 +172,30 @@ extend Server {
         // places until the next answer (the flicker). The protocol's answer
         // is ContentModified: the editor keeps what it has, which it has
         // been moving with the text itself, and asks again.
+        //
+        // Except at a position on a line the edits did not touch. Typing
+        // one broken line keeps the last good index for as long as it stays
+        // broken, and blanking every hover and jump in the file for that
+        // long is the cost of not knowing where the old lines went. The
+        // text that index read is known (Document::idx_text): a request on
+        // a line both texts share is answered from it, its position moved
+        // to that text and every same-file position in the answer moved
+        // back (LineShift). Only what is asked for by hand at a position,
+        // and only what stays right on the shared lines: rename and the
+        // hierarchy items do not (a rename's edits would miss the uses in
+        // the changed middle, and an item is asked about again later).
         var di = self.docs.index_of_path(path)
-        if (di != usize::MAX) && (self.entries[ei].idx_rev < self.docs.docs[di].changed_at) {
+        var sh = LineShift()
+        var stale = (di != usize::MAX) && (self.entries[ei].idx_rev < self.docs.docs[di].changed_at)
+        if stale && ((method == M_HOVER) || (method == M_DEFINITION) || (method == M_DECLARATION)
+            || (method == M_TYPE_DEFINITION) || (method == M_IMPLEMENTATION)
+            || (method == M_REFERENCES) || (method == M_DOCUMENT_HIGHLIGHT)) {
+            sh = self.line_shift(ei, di)
+            var spos = d.get(params, "position")
+            stale = (!sh.active) || (sh.to_old(d.get_int(spos, "line")) < 0)
+        }
+
+        if stale {
             if (method == M_HOVER) || (method == M_DEFINITION)
                 || (method == M_DECLARATION) || (method == M_TYPE_DEFINITION)
                 || (method == M_PREPARE_RENAME) || (method == M_RENAME)
@@ -192,7 +214,7 @@ extend Server {
 
         var *s   = &self.entries[ei].idx
         var pos  = d.get(params, "position")
-        var line = d.get_int(pos, "line")
+        var line = sh.to_old(d.get_int(pos, "line")) // inactive: the line itself
         var ch   = d.get_int(pos, "character")
 
         if (method == M_SEMANTIC_TOKENS_FULL) || (method == M_SEMANTIC_TOKENS_DELTA)
@@ -246,6 +268,17 @@ extend Server {
             // On a macro invocation the question is what it turns into; the
             // names inside it are the expansion's, at the invocation's place.
             var mrow = self.macro_at(s, f, line, ch)
+            var ml0 = s->as_int(self.nth(s, mrow, MACRO_LINE))
+            var me0 = s->as_int(self.nth(s, mrow, MACRO_END_LINE))
+            var ml  = sh.to_new(ml0)
+            var me  = sh.to_new(me0)
+            if (mrow != JSON_NONE()) && (!sh.kept(ml0, me0)) {
+                // An invocation the edits cut through: what it expands to now
+                // is not known.
+                self.respond(id, "null")
+                return true
+            }
+
             if mrow != JSON_NONE() {
                 var mw = JsonWriter()
                 mw.begin_object()
@@ -259,12 +292,12 @@ extend Server {
                 mw.begin_object()
                 mw.key("start")
                 mw.begin_object()
-                mw.field_int("line", s->as_int(self.nth(s, mrow, MACRO_LINE)))
+                mw.field_int("line", ml)
                 mw.field_int("character", s->as_int(self.nth(s, mrow, MACRO_CHAR)))
                 mw.end_object()
                 mw.key("end")
                 mw.begin_object()
-                mw.field_int("line", s->as_int(self.nth(s, mrow, MACRO_END_LINE)))
+                mw.field_int("line", me)
                 mw.field_int("character", s->as_int(self.nth(s, mrow, MACRO_END_CHAR)))
                 mw.end_object()
                 mw.end_object()
@@ -287,7 +320,7 @@ extend Server {
             w.field("value", s->str(self.nth(s, s->get(f, "hovers"), h)))
             w.end_object()
             w.key("range")
-            self.write_range(&w, s->as_int(self.nth(s, row, REF_LINE)), s->as_int(self.nth(s, row, REF_CHAR)), s->as_int(self.nth(s, row, REF_LEN)))
+            self.write_range(&w, self.shift_out(&sh, ei, path, s->as_int(self.nth(s, row, REF_LINE))), s->as_int(self.nth(s, row, REF_CHAR)), s->as_int(self.nth(s, row, REF_LEN)))
             w.end_object()
             self.respond(id, w.out)
             return true
@@ -339,6 +372,7 @@ extend Server {
                 false,
                 &w,
                 false,
+                &sh,
             )
 
             w.end_array()
@@ -385,11 +419,18 @@ extend Server {
                 return true
             }
 
+            var tpath = s->str(self.nth(s, s->get(f, "files"), ti))
+            var tl = self.shift_out(&sh, ei, tpath, s->as_int(self.nth(s, row, REF_TYPE_LINE)))
+            if tl < 0 {
+                self.respond(id, "null") // declared in the changed middle
+                return true
+            }
+
             var w = JsonWriter()
             w.begin_object()
-            w.field("uri", self.uri_of(s->str(self.nth(s, s->get(f, "files"), ti))))
+            w.field("uri", self.uri_of(tpath))
             w.key("range")
-            self.write_range(&w, s->as_int(self.nth(s, row, REF_TYPE_LINE)), s->as_int(self.nth(s, row, REF_TYPE_CHAR)), s->as_int(self.nth(s, row, REF_TYPE_LEN)))
+            self.write_range(&w, tl, s->as_int(self.nth(s, row, REF_TYPE_CHAR)), s->as_int(self.nth(s, row, REF_TYPE_LEN)))
             w.end_object()
             self.respond(id, w.out)
             return true
@@ -398,15 +439,43 @@ extend Server {
         if (method == M_DEFINITION) || (method == M_DECLARATION) {
             var fi = s->as_int(self.nth(s, row, REF_DEF_FILE))
             if (row == JSON_NONE()) || (fi < 0) {
+                // No name here, but perhaps a link: an import's module path
+                // or an ffi header string. Its definition is the file it
+                // names, at its start, as clangd answers on an `#include`.
+                var l = s->first(s->get(f, "links"))
+                while l != JSON_NONE() {
+                    var lc = s->as_int(self.nth(s, l, LINK_CHAR))
+                    if (s->as_int(self.nth(s, l, LINK_LINE)) == line) && (lc <= ch)
+                        && (ch <= (lc + s->as_int(self.nth(s, l, LINK_LEN)))) {
+                        var lw = JsonWriter()
+                        lw.begin_object()
+                        lw.field("uri", self.uri_of(s->str(self.nth(s, l, LINK_TARGET))))
+                        lw.key("range")
+                        self.write_range(&lw, 0, 0, 0)
+                        lw.end_object()
+                        self.respond(id, lw.out)
+                        return true
+                    }
+
+                    l = s->next(l)
+                }
+
                 self.respond(id, "null")
+                return true
+            }
+
+            var dpath = s->str(self.nth(s, s->get(f, "files"), fi))
+            var dl = self.shift_out(&sh, ei, dpath, s->as_int(self.nth(s, row, REF_DEF_LINE)))
+            if dl < 0 {
+                self.respond(id, "null") // declared in the changed middle
                 return true
             }
 
             var w = JsonWriter()
             w.begin_object()
-            w.field("uri", self.uri_of(s->str(self.nth(s, s->get(f, "files"), fi))))
+            w.field("uri", self.uri_of(dpath))
             w.key("range")
-            self.write_range(&w, s->as_int(self.nth(s, row, REF_DEF_LINE)), s->as_int(self.nth(s, row, REF_DEF_CHAR)), s->as_int(self.nth(s, row, REF_DEF_LEN)))
+            self.write_range(&w, dl, s->as_int(self.nth(s, row, REF_DEF_CHAR)), s->as_int(self.nth(s, row, REF_DEF_LEN)))
             w.end_object()
             self.respond(id, w.out)
             return true
@@ -416,7 +485,7 @@ extend Server {
             var w = JsonWriter()
             w.begin_array()
             if row != JSON_NONE() {
-                self.uses(s, f, row, &w, 1, path, "", true)
+                self.uses(s, f, row, &w, 1, path, "", true, &sh)
             }
 
             w.end_array()
@@ -429,7 +498,7 @@ extend Server {
             var w = JsonWriter()
             w.begin_array()
             if row != JSON_NONE() {
-                self.uses(s, f, row, &w, 0, "", "", with_decl)
+                self.uses(s, f, row, &w, 0, "", "", with_decl, &sh)
             }
 
             w.end_array()
@@ -447,7 +516,7 @@ extend Server {
             w.begin_object()
             w.key("changes")
             w.begin_object()
-            self.uses(s, f, row, &w, 2, "", d.get_str(params, "newName"), true)
+            self.uses(s, f, row, &w, 2, "", d.get_str(params, "newName"), true, &sh)
             w.end_object()
             w.end_object()
             self.respond(id, w.out)

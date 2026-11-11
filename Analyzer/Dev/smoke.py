@@ -8,7 +8,7 @@ when every check passes; prints the failing check otherwise. It lives here and
 not under Tests/ because that tree is frozen; it is the server's regression
 test until a lit wrapper is approved.
 """
-import glob, json, os, shutil, subprocess, sys, tempfile, time
+import glob, json, os, shutil, subprocess, sys, tempfile, time, urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lsp_client import Client
@@ -416,13 +416,15 @@ def features(exe, root, label):
     r = c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": c.uri(M)}}, raw=True)
     lx = decode(r["data"], broken) if isinstance(r, dict) and "data" in r else []
     check(label + "syntax error: tokens are the current text's lexical ones (keywords at their places, no names)",
-          lx and all(w in KEYWORDS for _, _, w, ty, _ in lx if ty == "keyword") and {"fn", "var", "return"} <= {w for _, _, w, _, _ in lx}
+          lx and all((w in KEYWORDS) or ("defaultLibrary" in ms) for _, _, w, ty, ms in lx if ty == "keyword") and {"fn", "var", "return"} <= {w for _, _, w, _, _ in lx}
           and not any(ty in ("function", "variable", "method", "class") for _, _, _, ty, _ in lx), r)
     check(label + "syntax error: reported", any(x["severity"] == 1 for x in c.diagnostics(M) or []), c.diagnostics(M))
     ih2 = c.request("textDocument/inlayHint", {"textDocument": {"uri": c.uri(M)}, "range": {}}, raw=True)
     check(label + "syntax error: stale inlay hints are not sent", isinstance(ih2, dict) and "__error__" in ih2, ih2)
-    h = c.request("textDocument/hover", c.at(M, *pos(src, "describe(n)")))
-    check(label + "syntax error: hover gives nothing rather than a stale answer", h is None, h)
+    h = c.request("textDocument/hover", c.at(M, *pos(broken, "tier(n")))
+    check(label + "syntax error: hover on the broken line gives nothing rather than a stale answer", h is None, h)
+    h = c.request("textDocument/hover", c.at(M, *pos(broken, "describe(n)")))
+    check(label + "syntax error: hover on an untouched line still answers", h and "fn describe(v: i32)" in h["contents"]["value"], h)
     c.change(M, 5, src)
     t = tokens(c, M, src)
     check(label + "syntax error: tokens return once it parses again", len(t) > 20, len(t))
@@ -513,6 +515,117 @@ def features(exe, root, label):
     check(label + "log: the client is told what the server is doing", any(n["method"] == "window/logMessage" and "kals started" in n["params"]["message"] for n in c.notes), [n["method"] for n in c.notes][:6])
 
     check(label + "clean shutdown", c.stop() == 0, c.stderr[-5:])
+
+
+def stale_index(exe, root):
+    """P870: one syntax error must not blank hover and jump in the whole
+    file. While it stays broken the last good index answers on the lines the
+    edit did not touch, above it as they were and below it moved by the
+    lines the edit added; on the broken line, and for a target in it, there
+    is no answer; once it parses again every answer is exact."""
+    c = Client(exe, root)
+    c.start()
+    M = "src/main.k"
+    src = c.open(M)
+    c.settle()
+    line = lambda text, needle, nth=0: pos(text, needle, 0, nth)[0]
+    hov = lambda text, needle, off=0, nth=0: c.request("textDocument/hover", c.at(M, *pos(text, needle, off, nth)))
+    dfn = lambda text, needle, off=0, nth=0: c.request("textDocument/definition", c.at(M, *pos(text, needle, off, nth)))
+
+    # One line becomes two broken ones: everything below moves down by one.
+    broken = src.replace("    var c = a + b\n", "    var c = a + + ;\n    var junk = ) ;\n")
+    assert broken.count("\n") == src.count("\n") + 1
+    c.change(M, 2, broken)
+    c.settle()
+    check("stale index: the buffer does not parse", any(x["severity"] == 1 for x in c.diagnostics(M) or []), c.diagnostics(M))
+
+    h = hov(broken, "LIMIT {", 0)
+    check("stale index: hover above the edit answers, on its line",
+          h and "LIMIT" in h["contents"]["value"] and h["range"]["start"]["line"] == line(broken, "if v > LIMIT"), h)
+    d = dfn(broken, "LIMIT {", 0)
+    check("stale index: definition above the edit answers", d and d["range"]["start"]["line"] == line(broken, "const LIMIT"), d)
+
+    h = hov(broken, "clamp(c")
+    check("stale index: hover below the edit answers, on the moved line",
+          h and "fn clamp" in h["contents"]["value"] and h["range"]["start"]["line"] == line(broken, "clamp(c") == line(src, "clamp(c") + 1, h)
+    d = dfn(broken, "clamp(c")
+    check("stale index: definition below the edit, of a target above it", d and d["range"]["start"]["line"] == line(broken, "fn clamp"), d)
+    d = dfn(broken, "describe(n)", 9)
+    check("stale index: definition below the edit, of a target below it, at the target's current line",
+          d and d["range"]["start"]["line"] == line(broken, "var n") == line(src, "var n") + 1, d)
+    d = dfn(broken, "c.norm1", 0)
+    check("stale index: no definition for a target on the broken line", d is None, d)
+
+    h = hov(broken, "var c", 4)
+    check("stale index: hover on the broken line gives nothing", h is None, h)
+    d = dfn(broken, "a + +", 0)
+    check("stale index: definition on the broken line gives nothing", d is None, d)
+
+    bl = broken.split("\n")
+    hl = c.request("textDocument/documentHighlight", c.at(M, *pos(broken, "describe(n)", 9)))
+    check("stale index: highlights below the edit, every one on the current text",
+          isinstance(hl, list) and len(hl) == 3 and all(bl[x["range"]["start"]["line"]][x["range"]["start"]["character"]:x["range"]["end"]["character"]] == "n" for x in hl), hl)
+    refs = c.request("textDocument/references", dict(c.at(M, *pos(broken, "describe(n)", 9)), context={"includeDeclaration": True}))
+    check("stale index: references below the edit, on the current text",
+          isinstance(refs, list) and len(refs) == 3 and all(bl[x["range"]["start"]["line"]][x["range"]["start"]["character"]:x["range"]["end"]["character"]] == "n" for x in refs), refs)
+    pr = c.request("textDocument/prepareRename", c.at(M, *pos(broken, "clamp(c")))
+    check("stale index: rename still refuses (its edits would miss the changed lines)", pr is None, pr)
+
+    # Fixed: exact again, at the original lines.
+    c.change(M, 3, src)
+    c.settle()
+    d = dfn(src, "describe(n)", 9)
+    check("stale index: fixed, definitions are exact again", d and d["range"]["start"]["line"] == line(src, "var n"), d)
+    d = dfn(src, "c.norm1", 0)
+    check("stale index: fixed, the once-broken target answers again", d and d["range"]["start"]["line"] == line(src, "var c"), d)
+    h = hov(src, "var c", 4)
+    check("stale index: fixed, hover on the once-broken line answers", h and "var c: Point" in h["contents"]["value"], h)
+    check("stale index: clean shutdown", c.stop() == 0)
+
+
+FFI_H = """#pragma once
+int p874_twice(int v);
+"""
+
+FFI_K = """ffi "c" import "p874.h"
+ffi "c++" import "cstdio"
+
+fn main() -> i32 {
+    return 0
+}
+"""
+
+
+def import_links(exe, root):
+    """P874: an ffi header string links to the header clang resolved, and
+    go-to-definition on it opens that file, like clangd on an `#include`;
+    definition on an import's module path opens the module it names."""
+    H, F, M = "src/p874.h", "src/p874.k", "src/main.k"
+    open(os.path.join(root, H), "w").write(FFI_H)
+    open(os.path.join(root, F), "w").write(FFI_K)
+    c = Client(exe, root)
+    c.start()
+    try:
+        c.open(F, FFI_K)
+        c.settle()
+        links = c.request("textDocument/documentLink", {"textDocument": {"uri": c.uri(F)}}) or []
+        by_line = {x["range"]["start"]["line"]: x for x in links}
+        mine = by_line.get(0, {})
+        check("import links: an ffi header string links to the header beside it",
+              mine.get("target", "").endswith("/src/p874.h") and mine["range"]["start"]["character"] == FFI_K.index('"p874.h"'), links)
+        std = by_line.get(1, {})
+        check("import links: a system header string links to the header clang found",
+              std.get("target", "").endswith("/cstdio") and os.path.isfile(urllib.parse.unquote(std["target"][len("file://"):])), links)
+        d = c.request("textDocument/definition", c.at(F, 0, FFI_K.index("p874.h")))
+        check("import links: definition on an ffi header string opens the header", d and d["uri"].endswith("/src/p874.h") and d["range"]["start"] == {"line": 0, "character": 0}, d)
+        src = c.open(M)
+        c.settle()
+        d = c.request("textDocument/definition", c.at(M, *pos(src, "shapes::{", 2)))
+        check("import links: definition on an import's module path opens the module", d and d["uri"].endswith("/src/shapes.k") and d["range"]["start"] == {"line": 0, "character": 0}, d)
+        check("import links: clean shutdown", c.stop() == 0)
+    finally:
+        os.remove(os.path.join(root, H))
+        os.remove(os.path.join(root, F))
 
 
 def crash(exe, root):
@@ -829,6 +942,185 @@ def fixits(exe, root):
     check("fixits: clean shutdown", c.stop() == 0)
 
 
+HEADS = '''interface Plus {
+    fn op + (self, Self) -> Self
+}
+
+interface Minus {
+    fn op - (self, Self) -> Self
+}
+
+interface Arith derives Minus + Plus { }
+
+class Root {
+    pub var b: i32
+    pub fn Root(self) = default
+}
+
+pub class Leaf derives Root impl Plus {
+    pub var v: i32
+    pub fn Leaf(self) = default
+    pub fn op + (self, const other: Self) -> Self {
+        var r = Leaf()
+        r.v = self.v + other.v
+        return r
+    }
+}
+
+struct <T> Duo {
+    var a: T
+    var b: T
+}
+
+enum <T> Maybe { Some { v: T }, None }
+
+fn main() -> i32 {
+    var x = Leaf()
+    var p = Duo<i32>{ a: 1, b: 2 }
+    return x.v + p.a
+}
+'''
+
+
+def heads(exe, root):
+    """A type's hover head is the head as written: generic parameters,
+    `derives` and `impl` lists. And the name read back out of that line
+    (hierarchies) is still the type's own."""
+    F = "heads.k"
+    open(os.path.join(root, F), "w").write(HEADS)
+    c = Client(exe, root)
+    c.start()
+    c.open(F, HEADS)
+    c.settle()
+
+    def head(needle, name):
+        line, ch = pos(HEADS, needle)
+        h = c.request("textDocument/hover", c.at(F, line, ch + HEADS.split("\n")[line][ch:].index(name) + 1), timeout=20)
+        v = (h or {}).get("contents", {}).get("value", "")
+        return ([x for x in v.split("\n") if x and not x.startswith("```")] or [""])[0]
+
+    for needle, name, want in [
+        ("interface Arith", "Arith", "interface Arith derives Minus + Plus {"),
+        ("class Leaf", "Leaf", "pub class Leaf derives Root impl Plus {"),
+        ("struct <T> Duo", "Duo", "struct <T> Duo {"),
+        ("enum <T> Maybe", "Maybe", "enum <T> Maybe {"),
+        ("class Root", "Root", "class Root {"),
+    ]:
+        got = head(needle, name)
+        check("heads: " + want, got == want, got)
+    line, ch = pos(HEADS, "class Leaf")
+    th = c.request("textDocument/prepareTypeHierarchy", c.at(F, line, ch + 7), timeout=20)
+    check("heads: the hierarchy item of a class with bases is named for the class", bool(th) and th[0]["name"] == "Leaf", th)
+    c.notify("textDocument/didClose", {"textDocument": {"uri": c.uri(F)}})
+    os.remove(os.path.join(root, F))
+    check("heads: clean shutdown", c.stop() == 0)
+
+
+PRIMS = '''class Cell {
+    pub var v: i32
+    pub var name: string
+    pub fn Cell(self) = default
+    pub fn same(self, const other: Self) -> bool {
+        return self.v == other.v
+    }
+}
+
+fn main() -> i32 {
+    var c = Cell()
+    return c.v
+}
+'''
+
+
+def prims(exe, root):
+    """Primitives and the builtin library's types take the standard keyword
+    token type (every client colours it without a rule of its own); `self`
+    and `Self` keep theirs."""
+    F = "prims.k"
+    open(os.path.join(root, F), "w").write(PRIMS)
+    c = Client(exe, root)
+    c.start()
+    c.open(F, PRIMS)
+    c.settle()
+    ty = {}
+    for _, _, w, t, ms in tokens(c, F, PRIMS):
+        ty.setdefault(w, set()).add((t, "defaultLibrary" in ms))
+    check("prims: i32 and bool are keyword + defaultLibrary", ty.get("i32") == {("keyword", True)} and ty.get("bool") == {("keyword", True)}, ty)
+    check("prims: string (builtin library) is keyword + defaultLibrary", ty.get("string") == {("keyword", True)}, ty.get("string"))
+    check("prims: self and Self keep their own types", {t for t, _ in ty.get("self", set())} == {"selfKeyword"} and {t for t, _ in ty.get("Self", set())} == {"builtinType"}, (ty.get("self"), ty.get("Self")))
+    check("prims: a user class is still a class", {t for t, _ in ty.get("Cell", set())} <= {"class", "method", "function"} and ("class" in {t for t, _ in ty.get("Cell", set())}), ty.get("Cell"))
+    c.notify("textDocument/didClose", {"textDocument": {"uri": c.uri(F)}})
+    os.remove(os.path.join(root, F))
+    check("prims: clean shutdown", c.stop() == 0)
+
+
+REFS_H = '''struct RefThing { int v; };
+inline void by_ref(int& a, const RefThing& b, RefThing&& c, int d) {}
+inline int& ret_ref(int& a) { return a; }
+'''
+
+REFS = '''ffi "c++" import "refs_smoke.h"
+
+fn main() -> i32 {
+    var a: i32 = 1
+    var t = RefThing()
+    by_ref(&a, t, RefThing(), 2)
+    var r = ret_ref(&a)
+    return a
+}
+'''
+
+
+def cxx_refs(exe, root):
+    """A C++ signature in a hover is written the way Kairo passes it:
+    `T&` is `@inout x: T`, `T&&` is `@move x: T`, `const T&` is `const x: T`.
+    A reference RETURN keeps its `&`: no Kairo spelling yet (P872)."""
+    F = "refs_smoke.k"
+    open(os.path.join(root, "refs_smoke.h"), "w").write(REFS_H)
+    open(os.path.join(root, F), "w").write(REFS)
+    c = Client(exe, root)
+    c.start()
+    c.open(F, REFS)
+    c.settle()
+
+    def head(name):
+        line, ch = pos(REFS, name + "(")
+        h = c.request("textDocument/hover", c.at(F, line, ch + 1), timeout=20)
+        v = (h or {}).get("contents", {}).get("value", "")
+        return ([x for x in v.split("\n") if x and not x.startswith("```")] or [""])[0]
+
+    got = head("by_ref")
+    check("cxx refs: T& / const T& / T&& parameters read as @inout / const / @move",
+          got == "fn by_ref(@inout a: i32, const b: RefThing, @move c: RefThing, d: i32)", got)
+    got = head("ret_ref")
+    check("cxx refs: a reference return keeps its &", got == "fn ret_ref(@inout a: i32) -> i32&", got)
+    c.notify("textDocument/didClose", {"textDocument": {"uri": c.uri(F)}})
+    os.remove(os.path.join(root, F))
+    os.remove(os.path.join(root, "refs_smoke.h"))
+    check("cxx refs: clean shutdown", c.stop() == 0)
+
+
+def import_names(exe, root):
+    """A name in an import list is a use of what it brings in: coloured as
+    that declaration, and a jump to it."""
+    M = "src/main.k"
+    c = Client(exe, root)
+    c.start()
+    src = c.open(M)
+    c.settle()
+    lines = src.split("\n")
+    head = {}   # word -> token type, on the import lines only
+    for l, _, w, t, _ in tokens(c, M, src):
+        if l < lines.index("}"):
+            head[w] = t
+    check("imports: listed names take their declaration's kind",
+          head.get("Point") == "class" and head.get("Color") == "enum" and head.get("tier") == "function" and head.get("shapes") == "namespace", head)
+    line, ch = pos(src, "    Point,")
+    d = c.request("textDocument/definition", c.at(M, line, ch + 5))
+    check("imports: a listed name jumps to its declaration", bool(d) and (d[0] if isinstance(d, list) else d)["uri"].endswith("shapes.k"), d)
+    check("imports: clean shutdown", c.stop() == 0)
+
+
 def syntax(exe, root):
     """The syntax-only pass: errors before the run, never overwritten by an
     older run, replaced by the run's when the text parses again. Every run
@@ -979,6 +1271,186 @@ fn main() -> i32 {
     return stale() + fresh() + n + k + a
 }
 """
+
+
+# Hover layouts and heads (P864, P865). The file is also a program: its main
+# prints each type's sizeof / alignof. LAYOUT_TRUTH is what it printed when
+# compiled with the release kairo (x86_64-linux-musl); with KALS_SMOKE_KAIRO
+# set to a kairo binary, hovers() compiles and runs it and checks against that
+# output instead. The hover must show exactly these numbers, or none at all.
+LAYOUTS = '''import std::io
+
+enum Color { Red, Green }
+enum E8d derives u8 { A, B }
+enum E16 derives u16 { A, B }
+enum Op { Add { v: i32 }, Nop }
+enum Sh { Circle { r: f64 }, Rect { w: f64, h: f64 } }
+enum NP { Some_ { p: unsafe *i32 }, None_ }
+union U { var v1: i32; var x2: f32; var x3: u32 }
+union UW { var d: f64; var c: u8 }
+@packed
+pub struct Pk { var a: u8; var b: i32 }
+struct FA { var a: u8; @align(8) var b: u8 }
+class Box {
+    pub var v: i32
+    pub fn Box(self) = default
+    @copy
+    pub fn Box(self, other: Self) {
+        self.v = other.v
+    }
+    pub fn bump(self, @inout x: i32) { x = self.v }
+    @deprecated("use bump")
+    pub fn old(self) { }
+}
+class Der derives Box { var w: i64 }
+struct <T> Gen { var t: T }
+
+fn main() -> i32 {
+    io::println(f"Color {sizeof Color} {alignof Color}")
+    io::println(f"E8d {sizeof E8d} {alignof E8d}")
+    io::println(f"E16 {sizeof E16} {alignof E16}")
+    io::println(f"Op {sizeof Op} {alignof Op}")
+    io::println(f"Sh {sizeof Sh} {alignof Sh}")
+    io::println(f"NP {sizeof NP} {alignof NP}")
+    io::println(f"U {sizeof U} {alignof U}")
+    io::println(f"UW {sizeof UW} {alignof UW}")
+    io::println(f"Pk {sizeof Pk} {alignof Pk}")
+    io::println(f"FA {sizeof FA} {alignof FA}")
+    io::println(f"Box {sizeof Box} {alignof Box}")
+    io::println(f"Der {sizeof Der} {alignof Der}")
+    return 0
+}
+'''
+
+LAYOUT_TRUTH = {"Color": (4, 4), "E8d": (1, 1), "E16": (2, 2), "Op": (8, 4), "Sh": (24, 8), "NP": (8, 8),
+                "U": (4, 4), "UW": (8, 8), "Pk": (5, 1), "FA": (16, 8), "Box": (4, 4), "Der": (16, 8)}
+
+
+def layout_truth(root, text=None, truth=None, args=()):
+    kairo = os.environ.get("KALS_SMOKE_KAIRO")
+    if not kairo:
+        return truth or LAYOUT_TRUTH
+    src, exe = os.path.join(root, "layouts_prog.k"), os.path.join(root, "layouts_prog")
+    open(src, "w").write(text or LAYOUTS)
+    subprocess.run([kairo, src, "-o", exe, *args], check=True, capture_output=True, timeout=600)
+    out = subprocess.run([exe], check=True, capture_output=True, text=True).stdout
+    for f in (src, exe):
+        os.remove(f)
+    return {n: (int(a), int(b)) for n, a, b in (l.split() for l in out.splitlines() if l.strip())}
+
+
+# C++ layouts and generic instances on hover (P871): clang's numbers for an
+# imported record, enum and template instance, a Kairo record holding them,
+# a Kairo generic instance named at a use, a C++ alias. Its own header, so
+# the numbers are x86_64 ABI facts, not a standard library's. FOREIGN_TRUTH
+# is what the program printed built by the debug kairo (x86_64-linux-gnu);
+# KALS_SMOKE_KAIRO recompiles it as for LAYOUTS.
+FOREIGN_HH = '''#pragma once
+struct HPad { char a; double b; short c; };
+template <class T> struct HBox { T v; char tag; };
+enum class HCol : unsigned short { R, G };
+union HU { int i; double d; };
+struct HVirt { virtual ~HVirt() {} int x; };
+typedef HBox<long> HBoxL;
+'''
+
+FOREIGN = '''import std::io
+ffi "c++" import "foreign.hh"
+
+class KW { pub var p: HPad; pub var b: u8 }
+class <T> Pair { pub var a: T; pub var b: u8 }
+class KP { pub var p: Pair<i64>; pub var h: HBox<i32> }
+class KB { pub var a: i64; pub var b: u8 }
+class KD derives KB { pub var c: u8 }
+
+fn main() -> i32 {
+    var hb: HBoxL = HBoxL()
+    io::println(f"HPad {sizeof HPad} {alignof HPad}")
+    io::println(f"HBoxi32 {sizeof HBox<i32>} {alignof HBox<i32>}")
+    io::println(f"HCol {sizeof HCol} {alignof HCol}")
+    io::println(f"HU {sizeof HU} {alignof HU}")
+    io::println(f"HVirt {sizeof HVirt} {alignof HVirt}")
+    io::println(f"HBoxL {sizeof HBoxL} {alignof HBoxL}")
+    io::println(f"KW {sizeof KW} {alignof KW}")
+    io::println(f"Pairi64 {sizeof Pair<i64>} {alignof Pair<i64>}")
+    io::println(f"KP {sizeof KP} {alignof KP}")
+    io::println(f"KD {sizeof KD} {alignof KD}")
+    return 0
+}
+'''
+
+FOREIGN_TRUTH = {"HPad": (24, 8), "HBoxi32": (8, 4), "HCol": (2, 2), "HU": (8, 8), "HVirt": (16, 8),
+                 "HBoxL": (16, 8), "KW": (32, 8), "Pairi64": (16, 8), "KP": (24, 8), "KD": (16, 8)}
+
+
+def foreign_hovers(exe, root):
+    X = "src/foreign.k"
+    open(os.path.join(root, "src", "foreign.hh"), "w").write(FOREIGN_HH)
+    open(os.path.join(root, X), "w").write(FOREIGN)
+    truth = layout_truth(root, FOREIGN, FOREIGN_TRUTH, ("-I", os.path.join(root, "src")))
+    c = Client(exe, root)
+    c.start()
+    c.open(X, FOREIGN)
+    c.settle()
+    hv = lambda needle, off: (c.request("textDocument/hover", c.at(X, *pos(FOREIGN, needle, off))) or {}).get("contents", {}).get("value", "")
+    cases = [("HPad", "sizeof HPad", 7, "an imported C++ struct", ""),
+             ("HBoxi32", "sizeof HBox<i32>", 7, "a C++ template instance named at a use", " (`HBox<i32>`)"),
+             ("HCol", "sizeof HCol", 7, "an imported C++ enum class", ""),
+             ("HU", "sizeof HU", 7, "an imported C++ union", ""),
+             ("HVirt", "sizeof HVirt", 7, "an imported C++ class with a vtable", ""),
+             ("HBoxL", "sizeof HBoxL", 7, "a C++ typedef of an instance", ""),
+             ("KW", "class KW", 6, "a Kairo class with a C++ field", ""),
+             ("Pairi64", "sizeof Pair<i64>", 7, "a Kairo generic instance named at a use", " (`Pair<i64>`)"),
+             ("KP", "class KP", 6, "a Kairo class of instance fields", "")]
+    for name, needle, off, what, suffix in cases:
+        h = hv(needle, off)
+        want = "size %d bytes, align %d%s" % (truth[name] + (suffix,))
+        check("hover layout: %s is the compiled size (%s)" % (what, want), want in h, h)
+    h = hv("class <T> Pair", 10)
+    check("hover layout: the generic pattern itself shows no size", "size " not in h, h)
+    h = hv("class KD", 6)
+    check("hover layout: a Kairo class with a base shows no size (clang alone lays it out)", "size " not in h, h)
+    c.stop()
+
+
+def hovers(exe, root):
+    """A type's size is the compiler's layout query (P865); attributes,
+    visibility and written modes come through on the declaration and on
+    every member (P864)."""
+    X = "src/layouts.k"
+    open(os.path.join(root, X), "w").write(LAYOUTS)
+    truth = layout_truth(root)
+    c = Client(exe, root)
+    c.start()
+    c.open(X, LAYOUTS)
+    c.settle()
+    hv = lambda needle, off: (c.request("textDocument/hover", c.at(X, *pos(LAYOUTS, needle, off))) or {}).get("contents", {}).get("value", "")
+    cases = [("Color", "enum Color", 5, "a plain enum"), ("E8d", "enum E8d", 5, "a derives u8 enum"),
+             ("E16", "enum E16", 5, "a derives u16 enum"), ("Op", "enum Op", 5, "an ADT with a payload-free variant"),
+             ("Sh", "enum Sh", 5, "an ADT whose every variant has a payload"),
+             ("NP", "enum NP", 5, "a niche-filled ADT"), ("U", "union U {", 6, "a union"),
+             ("UW", "union UW", 6, "a union of mixed widths"), ("Pk", "struct Pk", 7, "a @packed struct"),
+             ("FA", "struct FA", 7, "a struct with a member @align"), ("Box", "class Box", 6, "a plain class")]
+    for name, needle, off, what in cases:
+        h = hv(needle, off)
+        want = "size %d bytes, align %d" % truth[name]
+        check("hover layout: %s is the compiled size (%s)" % (what, want), want in h, h)
+    h = hv("class Der", 6)
+    check("hover layout: a class with a base shows no size (C++ lays it out)", "size " not in h, h)
+    h = hv("struct <T> Gen", 11)
+    check("hover layout: a generic pattern shows no size (each instance has its own)", "struct <T> Gen" in h and "size " not in h, h)
+    h = hv("class Box", 6)
+    check("hover head: a member's attribute, as written", "    @copy pub fn Box(self, other: Self)\n" in h, h)
+    check("hover head: an attribute's arguments, as written", '    @deprecated("use bump") pub fn old(self)\n' in h, h)
+    check("hover head: a written @inout, and = default", "    pub fn bump(self, @inout x: i32)\n" in h and "    pub fn Box(self) = default\n" in h, h)
+    check("hover head: no mode the source did not write", "@inout other" not in h, h)
+    h = hv("pub fn Box(self, other", 7)
+    check("hover head: the hovered declaration's own attribute", h.startswith("```kairo\n@copy pub fn Box(self, other: Self)\n"), h)
+    h = hv("struct Pk", 7)
+    check("hover head: a type's attribute and visibility", h.startswith("```kairo\n@packed pub struct Pk {"), h)
+    h = hv("struct FA", 7)
+    check("hover head: a field's attribute", "    @align(8) var b: u8\n" in h, h)
+    c.stop()
 
 
 def styles(exe, root):
@@ -1433,6 +1905,8 @@ def main():
         os.symlink(real, link)
         features(exe, link, "symlink: ")
         crash(exe, real)
+        stale_index(exe, real)
+        import_links(exe, real)
         syntax(exe, real)
         edits(exe, real)
         macros(exe, real)
@@ -1445,6 +1919,12 @@ def main():
         waiting(exe, real)
         reruns(exe, real)
         fixits(exe, real)
+        heads(exe, real)
+        prims(exe, real)
+        cxx_refs(exe, real)
+        import_names(exe, real)
+        hovers(exe, real)
+        foreign_hovers(exe, real)
         print("%.1fs" % (time.time() - t0))
     finally:
         shutil.rmtree(base, ignore_errors=True)

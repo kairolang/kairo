@@ -1834,6 +1834,13 @@ pub class FrontendAction {
                 }
             }
 
+            // The tool's second look, once the lowerings have written what
+            // a layout query reads (kals: an ADT's size on hover). Always,
+            // so a tool that held something back at on_checked gets it back.
+            if observer != &null {
+                unsafe { (observer as unsafe *SemaObserver)->on_lowered(unsafe &sem->sc) }
+            }
+
             // Test hook (Tests/CLI/Driver/ice_flushes_diagnostics.k): an ICE at
             // the worst point for the diagnostics -- Sema done on a TU that
             // reported errors, its sink not yet drained -- so the test proves

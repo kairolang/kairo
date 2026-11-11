@@ -43,4 +43,16 @@ pub class SemaObserver {
     pub virtual fn on_checked(self, sc: unsafe *SemaContext) {
         0
     }
+
+    /// The same TU once the rest of the schedule has run on it (lowering
+    /// and mono), on the same thread and right after on_checked. Called for
+    /// every TU on_checked saw, including one that never reached lowering
+    /// (`sc->phase` says how far it got). For the facts only a lowering
+    /// writes -- an ADT's layout record (EnumLayoutLowering), a `T?`'s
+    /// lowered type -- which a layout query needs and the checked tree does
+    /// not have yet. The tree is the lowered one: read declarations an
+    /// earlier call recorded, never walk it as the user's text.
+    pub virtual fn on_lowered(self, sc: unsafe *SemaContext) {
+        0
+    }
 }

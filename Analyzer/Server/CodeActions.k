@@ -355,10 +355,54 @@ extend Server {
         }
 
         var line = md.subslice(ls, le - ls)
+        // The head comes first: attributes, whose arguments have their own
+        // `(` (`@align(8) struct P`), so they are stepped over whole.
+        while line.starts_with("@") {
+            var k: usize = 1
+            while (k < line.size()) && (line[k] != 32) && (line[k] != 40) {
+                k += 1
+            }
+
+            if (k < line.size()) && (line[k] == 40) {
+                var depth: usize = 0
+                while k < line.size() {
+                    if line[k] == 40 {
+                        depth += 1
+                    } else if line[k] == 41 {
+                        depth -= 1
+                        if depth == 0 {
+                            k += 1
+                            break
+                        }
+                    }
+
+                    k += 1
+                }
+            }
+
+            while (k < line.size()) && (line[k] == 32) {
+                k += 1
+            }
+
+            line = line.subslice(k, line.size() - k)
+        }
+
         // A type's hover opens its body on the same line: `class Box {`.
         var brace = find_from(line, " {", 0)
         if brace != usize::MAX {
             line = line.subslice(0, brace)
+        }
+
+        // A type's head names its bases after its own name
+        // (`class Box derives Base impl Add`): the name is before them.
+        var bases = find_from(line, " derives ", 0)
+        var impls = find_from(line, " impl ", 0)
+        if impls < bases {
+            bases = impls
+        }
+
+        if (bases != usize::MAX) && (!line.starts_with("fn ")) && (find_from(line, " fn ", 0) == usize::MAX) {
+            line = line.subslice(0, bases)
         }
 
         // the word before `(`, or the last word of the line
