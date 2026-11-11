@@ -35,10 +35,12 @@ ffi "c++" import "llvm/Support/Program.h"
 ffi "c++" import "optional"
 ffi "c++" import "string"
 ffi "c++" import "llvm/ADT/SmallVector.h"
+ffi "c++" import "chrono"
 
 import API::FS::LinkFS
 import DocumentStore::{
     DocumentStore,
+    fnv1a,
     path_to_uri,
     uri_to_path,
 }
@@ -73,15 +75,35 @@ pub fn JOB_COMPLETE() -> u32 {
     return 1
 }
 
-/// How many loop turns a request may wait for a fresh snapshot. A turn is at
-/// most the transport's wait (40 ms), so this is about three seconds.
-/// Loop turns after which a run counts as slow: about one second.
-pub fn SLOW_TURNS() -> u64 {
-    return 25
+/// A syntax-only pass over one buffer (`kals --worker ... --syntax-only`):
+/// its parse errors and lexical tokens, long before the Sema run lands.
+pub fn JOB_SYNTAX() -> u32 {
+    return 2
 }
 
-pub fn PARK_LIMIT() -> u32 {
-    return 75
+/// Milliseconds on a monotonic clock: debounce deadlines and run lengths.
+pub fn now_ms() -> i64 {
+    var t = cxx::std::chrono::steady_clock::now()
+    var d = cxx::std::chrono::duration_cast<cxx::std::chrono::milliseconds>(t.time_since_epoch())
+    return d.count() as i64
+}
+
+/// True for an LSP Diagnostic code the parser (not Sema) reports: `S<n>`,
+/// and not the semantic category `SC<n>`.
+pub fn is_syntax_code(const code: string) -> bool {
+    return (code.size() > 1) && (code[0] == 83) && (code[1] != 67)
+}
+
+/// How long a request may wait for a fresh snapshot before it is answered
+/// from what there is, in milliseconds; and how long a request waits for an
+/// entry's FIRST index before that is taken as not coming. Wall time, not
+/// loop turns: a turn is as short as the next debounce deadline.
+pub fn PARK_LIMIT_MS() -> i64 {
+    return 3000
+}
+
+pub fn FIRST_INDEX_LIMIT_MS() -> i64 {
+    return 120000
 }
 
 /// A worker process in flight.
@@ -99,6 +121,14 @@ pub class Job {
     pub var marked: string = ""     ///< JOB_COMPLETE: the marked copy of the buffer
     pub var edit:   string = ""     ///< JOB_COMPLETE: the range an accepted item replaces, as JSON
     pub var cancelled: bool = false ///< JOB_COMPLETE: already answered "cancelled"; drop the result
+    pub var started_ms: i64 = 0
+
+    /// JOB_INDEX: the work-done progress token shown for this run (empty:
+    /// none), the file the worker counts checked files into, and the last
+    /// count reported.
+    pub var progress:  string = ""
+    pub var prog_file: string = ""
+    pub var prog_n:    i64    = -1
 
     fn Job(self) = default
 }
@@ -118,6 +148,7 @@ pub class Entry {
     /// The last run's output: what the diagnostics are read from.
     pub var snap:     JsonDoc
     pub var has_snap: bool = false
+    pub var snap_rev: u64  = 0   ///< revision `snap` was computed at
 
     /// The last run's output THAT INDEXED FILES. A buffer that stops parsing
     /// (every half-typed line) gets diagnostics and no index; replacing the
@@ -147,6 +178,21 @@ pub class Entry {
     /// A stale answer went out while a run was in flight.
     pub var owe_refresh: bool = false
 
+    /// `idx` decoded once when it is installed (index_cache), so a request
+    /// is a binary search and not a walk that re-reads every row: per file
+    /// (by its node in `idx`) a slice of the ref rows, sorted by position as
+    /// the worker wrote them, and a slice of the token integers.
+    pub var cf_node: [u32]
+    pub var cf_lo:   [usize]
+    pub var cf_hi:   [usize]
+    pub var cr_row:  [u32]
+    pub var cr_line: [i64]
+    pub var cr_ch:   [i64]
+    pub var cr_len:  [i64]
+    pub var ct_lo:   [usize]
+    pub var ct_hi:   [usize]
+    pub var ct_data: [i64]
+
     fn Entry(self) = default
 
     fn holds(const self, const path: string) -> bool {
@@ -172,6 +218,7 @@ pub class Entry {
 pub class Parked {
     pub var msg:   string = ""
     pub var turns: u32    = 0
+    pub var since: i64    = 0   ///< now_ms() when it was parked
 
     fn Parked(self) = default
 }
@@ -204,17 +251,18 @@ pub class Server {
     /// worker is running.
     pub var garbage: [string]
 
-    /// The newest completion request that arrived while another was being
-    /// computed, and its id. At most one completion worker runs; a request
-    /// that is overtaken is answered empty, because the editor has already
-    /// moved on from it.
-    /// Loop turns with no message since the last change, and how many must
-    /// pass before an analysis starts. A turn is the transport's 40 ms wait,
-    /// so the default of 2 starts a run about 80 ms after the last
-    /// keystroke: long enough that a burst of typing is one run, short
-    /// enough not to be felt. `initializationOptions.debounceMs` changes it.
-    pub var idle_turns:     u32 = 0
-    pub var debounce_turns: u32 = 2
+    /// The two debounces, in milliseconds since the last change to any
+    /// buffer: a syntax-only pass of each edited buffer after syntax_ms
+    /// (`initializationOptions.syntaxDebounceMs`), the Sema run after
+    /// debounce_ms (`debounceMs`). The syntax pass parses one file and so
+    /// lands well before the run does; its errors and lexical tokens are what
+    /// the editor shows meanwhile.
+    pub var debounce_ms:    i64 = 150
+    pub var syntax_ms:      i64 = 100
+    pub var last_change_ms: i64 = 0
+
+    /// The client takes `window/workDoneProgress/create` (section 14).
+    pub var progress_ok: bool = false
 
     /// Index workers allowed at once. Two for small graphs; a large graph
     /// always runs alone (see can_start).
@@ -337,6 +385,47 @@ pub class Server {
         m += method
         m += "\"}"
         self.t.send(m)
+    }
+
+    /// The same, with \p params (JSON).
+    fn request_with(self, const method: string, const params: string) {
+        self.seq += 1
+        var m: string = "{\"jsonrpc\":\"2.0\",\"id\":\"kals-"
+        m += f"{self.seq}"
+        m += "\",\"method\":\""
+        m += method
+        m += "\",\"params\":"
+        m += params
+        m += "}"
+        self.trace(f"-> request {method}")
+        self.t.send(m)
+    }
+
+    /// One `$/progress` notification for \p token: \p kind is begin, report
+    /// or end; \p pct < 0 leaves the percentage out (indeterminate).
+    fn progress(self, const token: string, const kind: string, const message: string, pct: i64) {
+        var w = JsonWriter()
+        w.begin_object()
+        w.field("token", token)
+        w.key("value")
+        w.begin_object()
+        w.field("kind", kind)
+        if kind == "begin" {
+            w.field("title", "Indexing Kairo")
+            w.field_bool("cancellable", false)
+        }
+
+        if !message.empty() {
+            w.field("message", message)
+        }
+
+        if (pct >= 0) && (kind != "end") {
+            w.field_int("percentage", pct)
+        }
+
+        w.end_object()
+        w.end_object()
+        self.notify("$/progress", w.out)
     }
 
     fn show(self, level: i64, const text: string) {
@@ -562,7 +651,7 @@ pub class Server {
     /// Marks every entry that reads \p path as needing a run.
     fn touch(self, const path: string) {
         self.rev += 1
-        self.idle_turns = 0
+        self.last_change_ms = now_ms()
         var di = self.docs.index_of_path(path)
         if di != usize::MAX {
             self.docs.docs[di].changed_at = self.rev
@@ -633,6 +722,7 @@ pub class Server {
                    const out:         string,
                    const marked_path: string,
                    const marked_tmp:  string) -> [string] {
+        self.docs.sync_all()
         var argv: [string]
         argv.push_back(self.exe)
         argv.push_back("--worker")
@@ -735,12 +825,30 @@ pub class Server {
         j.log   = self.scratch(".log")
         j.rev   = self.rev
         j.began = self.turn
+        j.started_ms = now_ms()
 
-        var argv = self.worker_argv(ei, j.out, "", "")
+        var wargv = self.worker_argv(ei, j.out, "", "")
         self.entries[ei].dirty = false
         self.trace(f"index start entry={self.entries[ei].entry} rev={j.rev}")
-        if !self.entries[ei].ran {
-            self.say(4, "analysing " + self.entries[ei].entry)
+
+        // A first analysis, or one already known to be slow, is long enough
+        // that an editor showing nothing looks frozen: show progress. The
+        // worker counts the files it has checked into a small file the loop
+        // reads (section 14).
+        var argv: [string]
+        for var q: usize = 0; q < 3; ++q {
+            argv.push_back(wargv[q])
+        }
+
+        var want = (!self.entries[ei].ran) || self.entries[ei].slow
+        if want {
+            j.prog_file = self.scratch(".prog")
+            argv.push_back("--progress")
+            argv.push_back(j.prog_file)
+        }
+
+        for var q: usize = 3; q < wargv.size(); ++q {
+            argv.push_back(wargv[q])
         }
 
         if !self.launch(&argv, j.log, &j.pi) {
@@ -748,6 +856,25 @@ pub class Server {
             self.entries[ei].ran      = true
             self.entries[ei].done_rev = j.rev
             return
+        }
+
+        // Only for a run that started: a begin is always followed by an end.
+        if want && self.progress_ok {
+            self.seq += 1
+            j.progress = f"kals-index-{self.seq}"
+            var cw = JsonWriter()
+            cw.begin_object()
+            cw.field("token", j.progress)
+            cw.end_object()
+            self.request_with("window/workDoneProgress/create", cw.out)
+            var m = self.entries[ei].files.size() as i64
+            if m > 0 {
+                self.progress(j.progress, "begin", f"0/{m}", 0)
+            } else {
+                self.progress(j.progress, "begin", Path::filename_of(self.entries[ei].entry), -1)
+            }
+        } else if want {
+            self.say(4, "indexing " + self.entries[ei].entry)
         }
 
         self.entries[ei].running = true
@@ -776,6 +903,15 @@ pub class Server {
             self.jobs.pop_back()
             if j.kind == JOB_INDEX() {
                 self.finish_index(&j, done.ReturnCode)
+                if !j.progress.empty() {
+                    self.progress(j.progress, "end", "", -1)
+                }
+
+                if !j.prog_file.empty() {
+                    self.garbage.push_back(j.prog_file)
+                }
+            } else if j.kind == JOB_SYNTAX() {
+                self.finish_syntax(&j, done.ReturnCode)
             } else {
                 self.finish_complete(&j, done.ReturnCode)
             }
@@ -810,6 +946,22 @@ pub class Server {
         }
     }
 
+    /// One notification per finished run, with the revision it saw and the
+    /// revision now: a status display, or a test, can tell "caught up" (the
+    /// two are equal) from "another run is due". `$/` marks it as one a
+    /// client may ignore. Sent AFTER the run's diagnostics, so a client that
+    /// waits for it has them.
+    fn analysed_(self, ei: usize, j: *Job, rc: i32) {
+        var aw = JsonWriter()
+        aw.begin_object()
+        aw.field("entry", self.entries[ei].entry)
+        aw.field_uint("revision", j->rev as usize)
+        aw.field_uint("current", self.entries[ei].change_rev as usize)
+        aw.field_int("exitCode", rc as i64)
+        aw.end_object()
+        self.notify("$/kals/analysed", aw.out)
+    }
+
     fn finish_index(self, j: *Job, rc: i32) {
         var ei = j->entry
         if ei >= self.entries.size() {
@@ -820,21 +972,10 @@ pub class Server {
         self.entries[ei].ran      = true
         self.entries[ei].done_rev = j->rev
 
-        // One notification per finished run, with the revision it saw and
-        // the revision now: a status display, or a test, can tell "caught
-        // up" (the two are equal) from "another run is due". `$/` marks it
-        // as one a client may ignore.
-        var aw = JsonWriter()
-        aw.begin_object()
-        aw.field("entry", self.entries[ei].entry)
-        aw.field_uint("revision", j->rev as usize)
-        aw.field_uint("current", self.entries[ei].change_rev as usize)
-        aw.field_int("exitCode", rc as i64)
-        aw.end_object()
-        self.notify("$/kals/analysed", aw.out)
         // Re-judged every run: an entry that got fast again (a release
         // build of the server, a smaller graph) goes back to exact answers.
-        self.entries[ei].slow = (self.turn - j->began) > SLOW_TURNS()
+        var took = now_ms() - j->started_ms
+        self.entries[ei].slow = took > 1000
         self.trace(f"index done entry={self.entries[ei].entry} rc={rc} rev={j->rev}")
 
         var text: string = ""
@@ -855,25 +996,27 @@ pub class Server {
             }
 
             self.say(2, why)
+            self.analysed_(ei, j, rc)
             self.retry_parked(false)
             return
         }
 
         // The first result for an entry, and any run slow enough to be felt,
         // is worth a line; a run per keystroke on a small project is not.
-        var turns = self.turn - j->began
-        if (!self.entries[ei].has_snap) || (turns > SLOW_TURNS()) {
+        if (!self.entries[ei].has_snap) || (took > 1000) {
             var nd = doc.count(doc.get(doc.root, "diagnostics"))
             var nf = doc.count(doc.get(doc.root, "deps"))
-            self.say(4, f"analysed {self.entries[ei].entry}: {nf} files, {nd} diagnostics, about {turns * 40} ms")
+            self.say(4, f"analysed {self.entries[ei].entry}: {nf} files, {nd} diagnostics, {took} ms")
         }
 
         self.entries[ei].snap     = doc
         self.entries[ei].has_snap = true
+        self.entries[ei].snap_rev = j->rev
         if doc.count(doc.get(doc.root, "files")) > 0 {
             self.entries[ei].idx     = doc
             self.entries[ei].has_idx = true
             self.entries[ei].idx_rev = j->rev
+            self.index_cache(ei)
         }
 
         // The graph may have grown or shrunk with this edit.
@@ -900,6 +1043,7 @@ pub class Server {
         }
 
         self.publish(ei)
+        self.analysed_(ei, j, rc)
 
         // A buffer this run turned out NOT to hold still needs an entry: try
         // the next candidate (or check it on its own).
@@ -968,29 +1112,39 @@ pub class Server {
             d = s->next(d)
         }
 
+        // An open buffer whose syntax pass is newer than this run keeps
+        // that pass's errors (compose_diags), even where the run reported
+        // nothing for it.
+        for var k: usize = 0; k < self.docs.docs.size(); ++k {
+            var dp = self.docs.docs[k].path
+            if self.docs.docs[k].syn_landed && (self.docs.docs[k].syn_at > self.entries[ei].snap_rev)
+                && self.entries[ei].holds(dp) {
+                var seen = false
+                for var q: usize = 0; q < paths.size(); ++q {
+                    if paths[q] == dp {
+                        seen = true
+                    }
+                }
+
+                if !seen {
+                    paths.push_back(dp)
+                }
+            }
+        }
+
         var now: [string]
         for var i: usize = 0; i < paths.size(); ++i {
             var uri = self.uri_of(paths[i])
+            var n: usize = 0
+            var arr = self.compose_diags(ei, paths[i], &n)
+            if n == 0 {
+                continue
+            }
+
             var w = JsonWriter()
             w.begin_object()
             w.field("uri", uri)
-            w.key("diagnostics")
-            w.begin_array()
-            d = s->first(diags)
-            while d != JSON_NONE() {
-                var p = s->get_str(d, "path")
-                if p.empty() {
-                    p = self.entries[ei].entry
-                }
-
-                if p == paths[i] {
-                    w.raw(s->dump(s->get(d, "diag")))
-                }
-
-                d = s->next(d)
-            }
-
-            w.end_array()
+            w.field_raw("diagnostics", arr)
             w.end_object()
             self.notify("textDocument/publishDiagnostics", w.out)
             now.push_back(uri)
@@ -1050,8 +1204,92 @@ pub class Server {
         return c
     }
 
-    /// The ref row of file node \p f covering (line, ch), or JSON_NONE.
-    fn ref_at(const self, s: *const JsonDoc, f: u32, line: i64, ch: i64) -> u32 {
+    /// Decodes entry \p ei's `idx` into the cf_/cr_/ct_ tables. Once per
+    /// installed index: what every request after it reads.
+    fn index_cache(self, ei: usize) {
+        var *e = &self.entries[ei]
+        e->cf_node.clear()
+        e->cf_lo.clear()
+        e->cf_hi.clear()
+        e->cr_row.clear()
+        e->cr_line.clear()
+        e->cr_ch.clear()
+        e->cr_len.clear()
+        e->ct_lo.clear()
+        e->ct_hi.clear()
+        e->ct_data.clear()
+        var *s = &e->idx
+        var f = s->first(s->get(s->root, "files"))
+        while f != JSON_NONE() {
+            e->cf_node.push_back(f)
+            e->cf_lo.push_back(e->cr_row.size())
+            var r = s->first(s->get(f, "refs"))
+            while r != JSON_NONE() {
+                var a = s->first(r)
+                var b = s->next(a)
+                var c = s->next(b)
+                e->cr_row.push_back(r)
+                e->cr_line.push_back(s->as_int(a))
+                e->cr_ch.push_back(s->as_int(b))
+                e->cr_len.push_back(s->as_int(c))
+                r = s->next(r)
+            }
+
+            e->cf_hi.push_back(e->cr_row.size())
+            e->ct_lo.push_back(e->ct_data.size())
+            var t = s->first(s->get(f, "tokens"))
+            while t != JSON_NONE() {
+                e->ct_data.push_back(s->as_int(t))
+                t = s->next(t)
+            }
+
+            e->ct_hi.push_back(e->ct_data.size())
+            f = s->next(f)
+        }
+    }
+
+    /// Slot of file node \p f in entry \p ei's cache, or usize::MAX.
+    fn cache_slot(const self, ei: usize, f: u32) -> usize {
+        for var k: usize = 0; k < self.entries[ei].cf_node.size(); ++k {
+            if self.entries[ei].cf_node[k] == f {
+                return k
+            }
+        }
+
+        return usize::MAX
+    }
+
+    /// The ref row of file node \p f covering (line, ch), or JSON_NONE. The
+    /// rows are sorted by position: a binary search for the line, then the
+    /// few rows on it.
+    fn ref_at(const self, ei: usize, f: u32, line: i64, ch: i64) -> u32 {
+        var k = self.cache_slot(ei, f)
+        if k != usize::MAX {
+            var e: *const Entry = &self.entries[ei]
+            var lo = e->cf_lo[k]
+            var hi = e->cf_hi[k]
+            while lo < hi {
+                var mid = (lo + hi) / 2
+                if e->cr_line[mid] < line {
+                    lo = mid + 1
+                } else {
+                    hi = mid
+                }
+            }
+
+            var q = lo
+            while (q < e->cf_hi[k]) && (e->cr_line[q] == line) && (e->cr_ch[q] <= ch) {
+                if ch <= (e->cr_ch[q] + e->cr_len[q]) {
+                    return e->cr_row[q]
+                }
+
+                q += 1
+            }
+
+            return JSON_NONE()
+        }
+
+        var s: *const JsonDoc = &self.entries[ei].idx
         var r = s->first(s->get(f, "refs"))
         while r != JSON_NONE() {
             var a = s->first(r)
@@ -1185,11 +1423,271 @@ pub class Server {
         }
     }
 
+    // --- the syntax-only pass ---------------------------------------------
+
+    /// How long the loop may wait for a message: the transport's 40 ms, or
+    /// less when a debounce deadline falls sooner, so a pass starts on time
+    /// rather than on the next 40 ms boundary.
+    fn wait_ms(const self) -> i32 {
+        // Only what the loop would START when the wait ends: an entry that
+        // can_start refuses (another run holds the slot) is no deadline, or
+        // the loop would spin at 1 ms turns for the whole of that run. A
+        // deadline already passed is started on this turn, so it is not one
+        // either.
+        var best: i64 = 40
+        var since = now_ms() - self.last_change_ms
+        var syn_due = false
+        for var k: usize = 0; k < self.docs.docs.size(); ++k {
+            if (!self.docs.docs[k].syn_running) && (self.docs.docs[k].changed_at > self.docs.docs[k].syn_started) {
+                syn_due = true
+            }
+        }
+
+        var left = self.syntax_ms - since
+        if syn_due && (left > 0) && (left < best) {
+            best = left
+        }
+
+        var run_due = false
+        for var k: usize = 0; k < self.entries.size(); ++k {
+            if self.entries[k].dirty && (!self.entries[k].running) && (!self.entries[k].entry.empty())
+                && self.can_start(k) {
+                run_due = true
+            }
+        }
+
+        left = self.debounce_ms - since
+        if run_due && (left > 0) && (left < best) {
+            best = left
+        }
+
+        return best as i32
+    }
+
+    /// Reads each progress-reporting worker's count of checked files and
+    /// reports it when it moved: `N/M`, M being the files the entry's last
+    /// run read (unknown on a very first run: a count without a percentage).
+    fn report_progress(self) {
+        for var q: usize = 0; q < self.jobs.size(); ++q {
+            if (self.jobs[q].kind != JOB_INDEX()) || self.jobs[q].progress.empty() {
+                continue
+            }
+
+            var text: string = ""
+            if !LinkFS::read(self.jobs[q].prog_file, &text) {
+                continue
+            }
+
+            var n: i64 = 0
+            for var c: usize = 0; c < text.size(); ++c {
+                if (text[c] >= 48) && (text[c] <= 57) {
+                    n = (n * 10) + ((text[c] - 48) as i64)
+                }
+            }
+
+            if n == self.jobs[q].prog_n {
+                continue
+            }
+
+            self.jobs[q].prog_n = n
+            var m: i64 = 0
+            if self.jobs[q].entry < self.entries.size() {
+                m = self.entries[self.jobs[q].entry].files.size() as i64
+            }
+
+            if m > 0 {
+                var shown = if n > m => m else => n
+                var pct = (shown * 100) / m
+                if pct > 99 {
+                    pct = 99
+                }
+
+                self.progress(self.jobs[q].progress, "report", f"{shown}/{m}", pct)
+            } else {
+                self.progress(self.jobs[q].progress, "report", f"{n} files", -1)
+            }
+        }
+    }
+
+    /// Starts the syntax-only pass of buffer \p di: its current text, parsed
+    /// alone (no imports, no Sema).
+    fn start_syntax(self, di: usize) {
+        self.docs.docs[di].sync()
+        if (self.docs.docs[di].tmp_rev != self.docs.docs[di].revision) || self.docs.docs[di].tmp_path.empty() {
+            if !self.docs.docs[di].tmp_path.empty() {
+                self.garbage.push_back(self.docs.docs[di].tmp_path)
+            }
+
+            self.docs.docs[di].tmp_path = self.scratch(".k")
+            self.docs.docs[di].tmp_rev  = self.docs.docs[di].revision
+            LinkFS::write(self.docs.docs[di].tmp_path, self.docs.docs[di].text)
+        }
+
+        var j = Job()
+        j.kind       = JOB_SYNTAX()
+        j.path       = self.docs.docs[di].path
+        j.out        = self.scratch(".json")
+        j.log        = self.scratch(".log")
+        j.rev        = self.rev
+        j.began      = self.turn
+        j.started_ms = now_ms()
+
+        var argv: [string]
+        argv.push_back(self.exe)
+        argv.push_back("--worker")
+        argv.push_back(j.out)
+        argv.push_back("--syntax-only")
+        argv.push_back(j.path)
+        argv.push_back("--overlay")
+        argv.push_back(j.path)
+        argv.push_back(self.docs.docs[di].tmp_path)
+        argv.push_back("--")
+        argv.push_back(j.path)
+
+        self.docs.docs[di].syn_started = self.docs.docs[di].changed_at
+        if !self.launch(&argv, j.log, &j.pi) {
+            return
+        }
+
+        self.docs.docs[di].syn_running = true
+        self.trace(f"syntax start rev={j.rev} " + j.path)
+        self.jobs.push_back(j)
+    }
+
+    fn finish_syntax(self, j: *Job, rc: i32) {
+        var di = self.docs.index_of_path(j->path)
+        if di == usize::MAX {
+            return // closed meanwhile
+        }
+
+        self.docs.docs[di].syn_running = false
+        var took = now_ms() - j->started_ms
+        self.trace(f"syntax done rc={rc} rev={j->rev} {took} ms " + j->path)
+
+        var text: string = ""
+        var doc = JsonDoc()
+        if !(LinkFS::read(j->out, &text) && doc.parse(text) && doc.get_bool(doc.root, "ok")) {
+            return // a crash costs the fast path only; the Sema run still comes
+        }
+
+        if self.docs.docs[di].syn_landed && (j->rev < self.docs.docs[di].syn_at) {
+            return
+        }
+
+        var *dd = &self.docs.docs[di]
+        dd->syn_landed = true
+        dd->syn_at     = j->rev
+        dd->syn_parsed = doc.get_bool(doc.root, "parsed")
+        dd->syn_diags  = ""
+        var x = doc.first(doc.get(doc.root, "diagnostics"))
+        while x != JSON_NONE() {
+            if !dd->syn_diags.empty() {
+                dd->syn_diags += ","
+            }
+
+            dd->syn_diags += doc.dump(doc.get(x, "diag"))
+            x = doc.next(x)
+        }
+
+        dd->syn_tokens.clear()
+        var t = doc.first(doc.get(doc.root, "tokens"))
+        while t != JSON_NONE() {
+            dd->syn_tokens.push_back(doc.as_int(t))
+            t = doc.next(t)
+        }
+
+        self.publish_syntax(di)
+        self.retry_parked(false)
+    }
+
+    /// The diagnostics to show for \p path, as a JSON array, and their
+    /// number in \p n. The newest result wins per buffer: when the buffer's
+    /// syntax pass saw a later text than entry \p ei's last run, its errors
+    /// replace that run's syntax errors (which are at old positions, or
+    /// fixed) and the run's other diagnostics stay until the next run. Sema
+    /// results for every OTHER file are the run's alone.
+    fn compose_diags(self, ei: usize, const path: string, n: *usize) -> string {
+        var out: string = "["
+        *n = 0
+        var di = self.docs.index_of_path(path)
+        var have_snap = (ei != usize::MAX) && self.entries[ei].has_snap
+        var syn_newer = (di != usize::MAX) && self.docs.docs[di].syn_landed
+            && ((!have_snap) || (self.docs.docs[di].syn_at > self.entries[ei].snap_rev))
+        if syn_newer && (!self.docs.docs[di].syn_diags.empty()) {
+            out += self.docs.docs[di].syn_diags
+            *n = 1
+        }
+
+        if have_snap {
+            var *s = &self.entries[ei].snap
+            var d = s->first(s->get(s->root, "diagnostics"))
+            while d != JSON_NONE() {
+                var p = s->get_str(d, "path")
+                if p.empty() {
+                    p = self.entries[ei].entry
+                }
+
+                var dg = s->get(d, "diag")
+                if (p == path) && ((!syn_newer) || (!is_syntax_code(s->get_str(dg, "code")))) {
+                    if *n > 0 {
+                        out += ","
+                    }
+
+                    out += s->dump(dg)
+                    *n += 1
+                }
+
+                d = s->next(d)
+            }
+        }
+
+        out += "]"
+        return out
+    }
+
+    /// Publishes buffer \p di's diagnostics after its syntax pass, unless
+    /// the entry's last run is at least as new (it has published already).
+    fn publish_syntax(self, di: usize) {
+        var path = self.docs.docs[di].path
+        var ei = self.entry_of(path)
+        if (ei != usize::MAX) && self.entries[ei].has_snap && (self.entries[ei].snap_rev >= self.docs.docs[di].syn_at) {
+            return
+        }
+
+        var n: usize = 0
+        var arr = self.compose_diags(ei, path, &n)
+        var w = JsonWriter()
+        w.begin_object()
+        w.field("uri", self.docs.docs[di].uri)
+        w.field_raw("diagnostics", arr)
+        w.end_object()
+        self.notify("textDocument/publishDiagnostics", w.out)
+
+        if ei == usize::MAX {
+            return
+        }
+
+        var uri = self.docs.docs[di].uri
+        var kept: [string]
+        for var k: usize = 0; k < self.entries[ei].published.size(); ++k {
+            if self.entries[ei].published[k] != uri {
+                kept.push_back(self.entries[ei].published[k])
+            }
+        }
+
+        if n > 0 {
+            kept.push_back(uri)
+        }
+
+        self.entries[ei].published = kept
+    }
+
     // --- parking ---------------------------------------------------------
 
     fn park(self, const msg: string) {
         var p = Parked()
-        p.msg = msg
+        p.msg   = msg
+        p.since = now_ms()
         self.parked.push_back(p)
     }
 
@@ -1199,9 +1697,10 @@ pub class Server {
         var old = self.parked
         self.parked.clear()
         for var i: usize = 0; i < old.size(); ++i {
-            var stale = force && (old[i].turns >= PARK_LIMIT())
+            var waited = now_ms() - old[i].since
+            var stale  = force && (waited >= PARK_LIMIT_MS())
             // A first index that has not come after two minutes is not coming.
-            if !self.feature(old[i].msg, stale, old[i].turns >= 3000) {
+            if !self.feature(old[i].msg, stale, waited >= FIRST_INDEX_LIMIT_MS()) {
                 var p = old[i]
                 p.turns += 1
                 self.parked.push_back(p)
@@ -1484,6 +1983,28 @@ pub class Server {
             return
         }
 
+        if method == "$/kals/text" {
+            // Debug: what the server holds for a buffer, for a test to
+            // compare with its own copy after a run of incremental edits.
+            var i = self.docs.index_of(d.get_str(d.get(params, "textDocument"), "uri"))
+            if i == usize::MAX {
+                self.respond(id, "null")
+                return
+            }
+
+            self.docs.docs[i].sync()
+            var h = fnv1a(self.docs.docs[i].text)
+            var w = JsonWriter()
+            w.begin_object()
+            w.field("hash", f"{h}")
+            w.field_uint("size", self.docs.docs[i].text.size())
+            w.field_uint("lines", self.docs.docs[i].buf.line_count())
+            w.field_int("version", self.docs.docs[i].version)
+            w.end_object()
+            self.respond(id, w.out)
+            return
+        }
+
         if method.starts_with("$/") || (!has_id) {
             return // progress, and notifications we do not use
         }
@@ -1516,11 +2037,15 @@ pub class Server {
         var opts = d->get(params, "initializationOptions")
         var dms  = d->get_int(opts, "debounceMs")
         if d->is_number(d->get(opts, "debounceMs")) && (dms >= 0) && (dms <= 5000) {
-            self.debounce_turns = ((dms + 39) / 40) as u32
-            if self.debounce_turns == 0 {
-                self.debounce_turns = 1
-            }
+            self.debounce_ms = dms
         }
+
+        var sms = d->get_int(opts, "syntaxDebounceMs")
+        if d->is_number(d->get(opts, "syntaxDebounceMs")) && (sms >= 0) && (sms <= 5000) {
+            self.syntax_ms = sms
+        }
+
+        self.progress_ok = d->get_bool(d->get(d->get(params, "capabilities"), "window"), "workDoneProgress")
 
         var mw = d->get_int(opts, "maxWorkers")
         if d->is_number(d->get(opts, "maxWorkers")) && (mw >= 1) && (mw <= 8) {
@@ -1575,7 +2100,7 @@ pub class Server {
         // The object form, not `true`: both are valid, and a client that
         // only looks for the options object then still sees the capability.
         w.field_raw("inlayHintProvider", "{\"resolveProvider\":false}")
-        w.field_raw("codeActionProvider", "{\"codeActionKinds\":[\"quickfix\"]}")
+        w.field_raw("codeActionProvider", "{\"codeActionKinds\":[\"quickfix\",\"refactor.inline\"]}")
         w.field_raw("completionProvider", "{\"triggerCharacters\":[\".\",\":\",\">\"],\"resolveProvider\":true}")
         w.field_raw("documentOnTypeFormattingProvider", "{\"firstTriggerCharacter\":\"}\"}")
         w.end_object()
@@ -1604,6 +2129,26 @@ pub class Server {
         var id     = d.dump(idn)
         var params = d.get(d.root, "params")
         var path   = self.path_of(d.get_str(d.get(params, "textDocument"), "uri"))
+
+        // A buffer that does not parse has no index for its current text,
+        // and may not get one until it parses again. Its syntax pass lexed
+        // exactly this text: keywords, comments, strings and numbers at
+        // their current positions are a correct answer, where the old index
+        // would be off by the edits (and ContentModified would leave the
+        // editor's colours drifting for as long as the code is broken).
+        if method.starts_with("textDocument/semanticTokens/") {
+            var ldi = self.docs.index_of_path(path)
+            if (ldi != usize::MAX) && self.docs.docs[ldi].syn_landed && (!self.docs.docs[ldi].syn_parsed)
+                && (self.docs.docs[ldi].syn_at >= self.docs.docs[ldi].changed_at) {
+                var lei = self.entry_of(path)
+                var idx_fresh = (lei != usize::MAX) && self.entries[lei].has_idx
+                    && (self.entries[lei].idx_rev >= self.docs.docs[ldi].changed_at)
+                if !idx_fresh {
+                    self.send_tokens(&d, params, id, method, &self.docs.docs[ldi].syn_tokens)
+                    return true
+                }
+            }
+        }
 
         var ei = self.ensure_entry(path)
         if (ei == usize::MAX) || (!self.entries[ei].fresh()) {
@@ -1634,7 +2179,14 @@ pub class Server {
         }
 
         if (method == "textDocument/codeAction") && (ei != usize::MAX) && self.entries[ei].has_snap {
-            self.code_action(&d, params, id, &self.entries[ei].snap, path)
+            // Macro actions carry positions: only from an index of this text.
+            var mf = JSON_NONE()
+            var mdi = self.docs.index_of_path(path)
+            if (f != JSON_NONE()) && ((mdi == usize::MAX) || (self.entries[ei].idx_rev >= self.docs.docs[mdi].changed_at)) {
+                mf = f
+            }
+
+            self.code_action(&d, params, id, &self.entries[ei].snap, path, ei, mf)
             return true
         }
 
@@ -1674,7 +2226,7 @@ pub class Server {
                 // Asked for by hand at a position: no answer beats a wrong one.
                 self.respond(id, "null")
             } else if (method == "textDocument/codeAction") {
-                self.code_action(&d, params, id, &self.entries[ei].snap, path)
+                self.code_action(&d, params, id, &self.entries[ei].snap, path, ei, JSON_NONE())
             } else {
                 self.respond_error(id, -32801, "content modified")
             }
@@ -1687,138 +2239,18 @@ pub class Server {
         var line = d.get_int(pos, "line")
         var ch   = d.get_int(pos, "character")
 
-        if (method == "textDocument/semanticTokens/full") || (method == "textDocument/semanticTokens/full/delta") {
-            var uri = d.get_str(d.get(params, "textDocument"), "uri")
+        if (method == "textDocument/semanticTokens/full") || (method == "textDocument/semanticTokens/full/delta")
+            || (method == "textDocument/semanticTokens/range") {
             var now: [i64]
-            var t = s->first(s->get(f, "tokens"))
-            while t != JSON_NONE() {
-                now.push_back(s->as_int(t))
-                t = s->next(t)
-            }
-
-            var slot = self.tok_uri.size()
-            for var q: usize = 0; q < self.tok_uri.size(); ++q {
-                if self.tok_uri[q] == uri {
-                    slot = q
+            var k = self.cache_slot(ei, f)
+            if k != usize::MAX {
+                now.reserve(self.entries[ei].ct_hi[k] - self.entries[ei].ct_lo[k])
+                for var q = self.entries[ei].ct_lo[k]; q < self.entries[ei].ct_hi[k]; ++q {
+                    now.push_back(self.entries[ei].ct_data[q])
                 }
             }
 
-            if slot == self.tok_uri.size() {
-                self.tok_uri.push_back(uri)
-                self.tok_id.push_back(0)
-                var none: [i64]
-                self.tok_data.push_back(none)
-            }
-
-            self.tok_seq += 1
-            var rid  = self.tok_seq
-            var prev = d.get_str(params, "previousResultId")
-            var have = f"{self.tok_id[slot]}"
-            var w = JsonWriter()
-            w.begin_object()
-            w.field("resultId", f"{rid}")
-            if (method == "textDocument/semanticTokens/full/delta") && (prev == have) && (self.tok_id[slot] != 0) {
-                // One edit: what lies between the longest common prefix and
-                // suffix of the two integer arrays. Cut on token boundaries
-                // (multiples of five) so a relative position is never split.
-                var *old = &self.tok_data[slot]
-                var a: usize = 0
-                while (a < old->size()) && (a < now.size()) && ((*old)[a] == now[a]) {
-                    a += 1
-                }
-
-                a = (a / 5) * 5
-                var oe = old->size()
-                var ne = now.size()
-                while (oe > a) && (ne > a) && ((*old)[oe - 1] == now[ne - 1]) {
-                    oe -= 1
-                    ne -= 1
-                }
-
-                while ((oe % 5) != 0) && (oe < old->size()) {
-                    oe += 1
-                    ne += 1
-                }
-
-                w.key("edits")
-                w.begin_array()
-                if (oe > a) || (ne > a) {
-                    w.begin_object()
-                    w.field_uint("start", a)
-                    w.field_uint("deleteCount", oe - a)
-                    w.key("data")
-                    w.begin_array()
-                    for var q: usize = a; q < ne; ++q {
-                        w.integer(now[q])
-                    }
-
-                    w.end_array()
-                    w.end_object()
-                }
-
-                w.end_array()
-            } else {
-                w.field_raw("data", s->dump(s->get(f, "tokens")))
-            }
-
-            w.end_object()
-            self.tok_id[slot]   = rid
-            self.tok_data[slot] = now
-            self.respond(id, w.out)
-            return true
-        }
-
-        if method == "textDocument/semanticTokens/range" {
-            // The same tokens, cut to the lines asked for and re-based: the
-            // encoding is relative, so the first one kept restarts it.
-            var rr = d.get(params, "range")
-            var lo = d.get_int(d.get(rr, "start"), "line")
-            var hi = d.get_int(d.get(rr, "end"), "line")
-            var w = JsonWriter()
-            w.begin_object()
-            w.key("data")
-            w.begin_array()
-            var tl: i64 = 0
-            var tc: i64 = 0
-            var pl: i64 = 0
-            var pc: i64 = 0
-            var t = s->first(s->get(f, "tokens"))
-            while t != JSON_NONE() {
-                var dl = s->as_int(t)
-                t = s->next(t)
-                var dc = s->as_int(t)
-                t = s->next(t)
-                var ln = s->as_int(t)
-                t = s->next(t)
-                var ty = s->as_int(t)
-                t = s->next(t)
-                var md = s->as_int(t)
-                t = s->next(t)
-                if dl != 0 {
-                    tl += dl
-                    tc = dc
-                } else {
-                    tc += dc
-                }
-
-                if tl > hi {
-                    break
-                }
-
-                if tl >= lo {
-                    w.integer(tl - pl)
-                    w.integer(if tl == pl => (tc - pc) else => tc)
-                    w.integer(ln)
-                    w.integer(ty)
-                    w.integer(md)
-                    pl = tl
-                    pc = tc
-                }
-            }
-
-            w.end_array()
-            w.end_object()
-            self.respond(id, w.out)
+            self.send_tokens(&d, params, id, method, &now)
             return true
         }
 
@@ -1848,13 +2280,43 @@ pub class Server {
         if method == "textDocument/codeAction" {
             // Fix-its belong to the CURRENT diagnostics, not to the last
             // run that happened to index.
-            self.code_action(&d, params, id, &self.entries[ei].snap, path)
+            self.code_action(&d, params, id, &self.entries[ei].snap, path, ei, f)
             return true
         }
 
-        var row = self.ref_at(s, f, line, ch)
+        var row = self.ref_at(ei, f, line, ch)
 
         if method == "textDocument/hover" {
+            // On a macro invocation the question is what it turns into; the
+            // names inside it are the expansion's, at the invocation's place.
+            var mrow = self.macro_at(s, f, line, ch)
+            if mrow != JSON_NONE() {
+                var mw = JsonWriter()
+                mw.begin_object()
+                mw.key("contents")
+                mw.begin_object()
+                mw.field("kind", "markdown")
+                var mtext = s->str(self.nth(s, mrow, 3))
+                mw.field("value", "**Expands to**\n\n```kairo\n" + mtext + "\n```")
+                mw.end_object()
+                mw.key("range")
+                mw.begin_object()
+                mw.key("start")
+                mw.begin_object()
+                mw.field_int("line", s->as_int(self.nth(s, mrow, 0)))
+                mw.field_int("character", s->as_int(self.nth(s, mrow, 1)))
+                mw.end_object()
+                mw.key("end")
+                mw.begin_object()
+                mw.field_int("line", s->as_int(self.nth(s, mrow, 4)))
+                mw.field_int("character", s->as_int(self.nth(s, mrow, 5)))
+                mw.end_object()
+                mw.end_object()
+                mw.end_object()
+                self.respond(id, mw.out)
+                return true
+            }
+
             var h = s->as_int(self.nth(s, row, 7))
             if (row == JSON_NONE()) || (h < 0) {
                 self.respond(id, "null")
@@ -2039,6 +2501,136 @@ pub class Server {
         return true
     }
 
+    /// Answers a semanticTokens request (full, delta or range) from \p now,
+    /// the five-integer encoding of the whole file: the index's (decoded once
+    /// per snapshot), or the lexical tokens of a buffer that does not parse.
+    fn send_tokens(self, d: *const JsonDoc, params: u32, const id: string, const method: string, now: *const [i64]) {
+        if method == "textDocument/semanticTokens/range" {
+            // Cut to the lines asked for and re-based: the encoding is
+            // relative, so the first one kept restarts it.
+            var rr = d->get(params, "range")
+            var lo = d->get_int(d->get(rr, "start"), "line")
+            var hi = d->get_int(d->get(rr, "end"), "line")
+            var w = JsonWriter()
+            w.begin_object()
+            w.key("data")
+            w.begin_array()
+            var tl: i64 = 0
+            var tc: i64 = 0
+            var pl: i64 = 0
+            var pc: i64 = 0
+            var t: usize = 0
+            while (t + 5) <= now->size() {
+                var dl = (*now)[t]
+                var dc = (*now)[t + 1]
+                if dl != 0 {
+                    tl += dl
+                    tc = dc
+                } else {
+                    tc += dc
+                }
+
+                if tl > hi {
+                    break
+                }
+
+                if tl >= lo {
+                    w.integer(tl - pl)
+                    w.integer(if tl == pl => (tc - pc) else => tc)
+                    w.integer((*now)[t + 2])
+                    w.integer((*now)[t + 3])
+                    w.integer((*now)[t + 4])
+                    pl = tl
+                    pc = tc
+                }
+
+                t += 5
+            }
+
+            w.end_array()
+            w.end_object()
+            self.respond(id, w.out)
+            return
+        }
+
+        var uri = d->get_str(d->get(params, "textDocument"), "uri")
+        var slot = self.tok_uri.size()
+        for var q: usize = 0; q < self.tok_uri.size(); ++q {
+            if self.tok_uri[q] == uri {
+                slot = q
+            }
+        }
+
+        if slot == self.tok_uri.size() {
+            self.tok_uri.push_back(uri)
+            self.tok_id.push_back(0)
+            var none: [i64]
+            self.tok_data.push_back(none)
+        }
+
+        self.tok_seq += 1
+        var rid  = self.tok_seq
+        var prev = d->get_str(params, "previousResultId")
+        var have = f"{self.tok_id[slot]}"
+        var w = JsonWriter()
+        w.begin_object()
+        w.field("resultId", f"{rid}")
+        if (method == "textDocument/semanticTokens/full/delta") && (prev == have) && (self.tok_id[slot] != 0) {
+            // One edit: what lies between the longest common prefix and
+            // suffix of the two integer arrays. Cut on token boundaries
+            // (multiples of five) so a relative position is never split.
+            var *old = &self.tok_data[slot]
+            var a: usize = 0
+            while (a < old->size()) && (a < now->size()) && ((*old)[a] == (*now)[a]) {
+                a += 1
+            }
+
+            a = (a / 5) * 5
+            var oe = old->size()
+            var ne = now->size()
+            while (oe > a) && (ne > a) && ((*old)[oe - 1] == (*now)[ne - 1]) {
+                oe -= 1
+                ne -= 1
+            }
+
+            while ((oe % 5) != 0) && (oe < old->size()) {
+                oe += 1
+                ne += 1
+            }
+
+            w.key("edits")
+            w.begin_array()
+            if (oe > a) || (ne > a) {
+                w.begin_object()
+                w.field_uint("start", a)
+                w.field_uint("deleteCount", oe - a)
+                w.key("data")
+                w.begin_array()
+                for var q: usize = a; q < ne; ++q {
+                    w.integer((*now)[q])
+                }
+
+                w.end_array()
+                w.end_object()
+            }
+
+            w.end_array()
+        } else {
+            w.key("data")
+            w.begin_array()
+            for var q: usize = 0; q < now->size(); ++q {
+                w.integer((*now)[q])
+            }
+
+            w.end_array()
+        }
+
+        w.end_object()
+        self.tok_id[slot]   = rid
+        self.tok_data[slot] = *now
+        self.respond(id, w.out)
+    }
+
     /// Writes symbol \p c with the symbols its range contains as children.
     /// Returns the next symbol that is NOT inside it. The snapshot lists
     /// symbols flat in source order, a parent before its members.
@@ -2079,7 +2671,14 @@ pub class Server {
 
     /// Quick fixes: the compiler's fix-its for the diagnostics the requested
     /// range touches, each as an edit the editor applies.
-    fn code_action(self, d: *const JsonDoc, params: u32, const id: string, s: *const JsonDoc, const path: string) {
+    fn code_action(self,
+                   d:          *const JsonDoc,
+                   params:     u32,
+                   const id:   string,
+                   s:          *const JsonDoc,
+                   const path: string,
+                   ei:         usize,
+                   mf:         u32) {
         var rr = d->get(params, "range")
         var rs = d->get_int(d->get(rr, "start"), "line")
         var re = d->get_int(d->get(rr, "end"), "line")
@@ -2129,8 +2728,101 @@ pub class Server {
             x = s->next(x)
         }
 
+        // On a macro invocation: show what it expands to beside the editor
+        // (a command the kairo-lsp clients implement), or replace it with
+        // that text (an edit: works in any client).
+        if (mf != JSON_NONE()) && (ei < self.entries.size()) && self.entries[ei].has_idx {
+            var *xs = &self.entries[ei].idx
+            var cs = d->get_int(d->get(rr, "start"), "character")
+            var ce = d->get_int(d->get(rr, "end"), "character")
+            var uri = self.uri_of(path)
+            var m = xs->first(xs->get(mf, "macros"))
+            while m != JSON_NONE() {
+                var ml = xs->as_int(self.nth(xs, m, 0))
+                var mc = xs->as_int(self.nth(xs, m, 1))
+                var el = xs->as_int(self.nth(xs, m, 4))
+                var ec = xs->as_int(self.nth(xs, m, 5))
+                // the request range [rs:cs, re:ce] touches [ml:mc, el:ec]
+                var before = (re < ml) || ((re == ml) && (ce < mc))
+                var after  = (rs > el) || ((rs == el) && (cs > ec))
+                if (!before) && (!after) {
+                    var text = xs->str(self.nth(xs, m, 3))
+                    var rw = JsonWriter()
+                    rw.begin_object()
+                    rw.key("start")
+                    rw.begin_object()
+                    rw.field_int("line", ml)
+                    rw.field_int("character", mc)
+                    rw.end_object()
+                    rw.key("end")
+                    rw.begin_object()
+                    rw.field_int("line", el)
+                    rw.field_int("character", ec)
+                    rw.end_object()
+                    rw.end_object()
+
+                    w.begin_object()
+                    w.field("title", "View expanded macro")
+                    w.field("kind", "quickfix")
+                    w.key("command")
+                    w.begin_object()
+                    w.field("title", "View expanded macro")
+                    w.field("command", "kairo.showMacroExpansion")
+                    w.key("arguments")
+                    w.begin_array()
+                    w.str(uri)
+                    w.raw(rw.out)
+                    w.str(text)
+                    w.end_array()
+                    w.end_object()
+                    w.end_object()
+
+                    w.begin_object()
+                    w.field("title", "Expand macro here")
+                    w.field("kind", "refactor.inline")
+                    w.key("edit")
+                    w.begin_object()
+                    w.key("changes")
+                    w.begin_object()
+                    w.key(uri)
+                    w.begin_array()
+                    w.begin_object()
+                    w.field_raw("range", rw.out)
+                    w.field("newText", text)
+                    w.end_object()
+                    w.end_array()
+                    w.end_object()
+                    w.end_object()
+                    w.end_object()
+                }
+
+                m = xs->next(m)
+            }
+        }
+
         w.end_array()
         self.respond(id, w.out)
+    }
+
+    /// The macro row of file node \p f (in \p s) whose invocation holds
+    /// (line, ch), or JSON_NONE.
+    fn macro_at(const self, s: *const JsonDoc, f: u32, line: i64, ch: i64) -> u32 {
+        var m = s->first(s->get(f, "macros"))
+        while m != JSON_NONE() {
+            var ml = s->as_int(self.nth(s, m, 0))
+            var mc = s->as_int(self.nth(s, m, 1))
+            var el = s->as_int(self.nth(s, m, 4))
+            var ec = s->as_int(self.nth(s, m, 5))
+            var after_start = (line > ml) || ((line == ml) && (ch >= mc))
+            var before_end  = (line < el) || ((line == el) && (ch <= ec))
+            if after_start && before_end {
+                return m
+            }
+
+            m = s->next(m)
+        }
+
+        return JSON_NONE()
     }
 
     // --- hierarchies ------------------------------------------------------
@@ -2532,6 +3224,9 @@ pub class Server {
     }
 
     fn folding(self, d: *const JsonDoc, params: u32, const id: string) {
+        // Scans the whole text: materialise the edited buffers (O(document),
+        // once per request, never per keystroke).
+        self.docs.sync_all()
         var i = self.docs.index_of(d->get_str(d->get(params, "textDocument"), "uri"))
         if i == usize::MAX {
             self.respond(id, "[]")
@@ -2574,6 +3269,9 @@ pub class Server {
     }
 
     fn selection(self, d: *const JsonDoc, params: u32, const id: string) {
+        // Scans the whole text: materialise the edited buffers (O(document),
+        // once per request, never per keystroke).
+        self.docs.sync_all()
         var i = self.docs.index_of(d->get_str(d->get(params, "textDocument"), "uri"))
         if i == usize::MAX {
             self.respond(id, "[]")
@@ -2681,6 +3379,9 @@ pub class Server {
     /// the snapshots have hover text for. Every `fn name(` found is offered,
     /// which is exactly the overload set a reader wants to see.
     fn signature_help(self, d: *const JsonDoc, params: u32, const id: string) {
+        // Scans the whole text: materialise the edited buffers (O(document),
+        // once per request, never per keystroke).
+        self.docs.sync_all()
         var i = self.docs.index_of(d->get_str(d->get(params, "textDocument"), "uri"))
         if i == usize::MAX {
             self.respond(id, "null")
@@ -2930,6 +3631,9 @@ pub class Server {
     /// A `}` was typed: put it in the column of the line that opened its
     /// block. The one on-type edit that is unambiguous from the text alone.
     fn on_type(self, d: *const JsonDoc, params: u32, const id: string) {
+        // Scans the whole text: materialise the edited buffers (O(document),
+        // once per request, never per keystroke).
+        self.docs.sync_all()
         var i = self.docs.index_of(d->get_str(d->get(params, "textDocument"), "uri"))
         if (i == usize::MAX) || (d->get_str(params, "ch") != "}") {
             self.respond(id, "[]")
@@ -3059,6 +3763,9 @@ pub class Server {
     /// Formatting is kfmt's, run as the same binary a terminal would run, so
     /// the editor and `kfmt --write` can never disagree.
     fn formatting(self, d: *const JsonDoc, params: u32, const id: string) {
+        // Scans the whole text: materialise the edited buffers (O(document),
+        // once per request, never per keystroke).
+        self.docs.sync_all()
         var i = self.docs.index_of(d->get_str(d->get(params, "textDocument"), "uri"))
         if i == usize::MAX {
             self.respond(id, "null")
@@ -3179,6 +3886,9 @@ pub class Server {
     /// Completion runs its own worker on a copy of the buffer with a marker
     /// identifier where the cursor is (Indexer.k: completion_marker).
     fn completion(self, d: *const JsonDoc, params: u32, const id: string) {
+        // Scans the whole text: materialise the edited buffers (O(document),
+        // once per request, never per keystroke).
+        self.docs.sync_all()
         var i = self.docs.index_of(d->get_str(d->get(params, "textDocument"), "uri"))
         if i == usize::MAX {
             self.respond(id, "[]")
@@ -3588,7 +4298,7 @@ pub class Server {
 
     fn run(self) -> i32 {
         while !self.quit {
-            var got = self.t.wait(40)
+            var got = self.t.wait(self.wait_ms())
             if got {
                 self.handle(self.t.take())
                 continue // drain the queue before starting anything
@@ -3604,12 +4314,29 @@ pub class Server {
 
             // A run that has outlasted a request's patience marks its entry
             // slow; what is parked on it is answered now, from what there is.
+            var now = now_ms()
             for var q: usize = 0; q < self.jobs.size(); ++q {
                 var je = self.jobs[q].entry
                 if (self.jobs[q].kind == JOB_INDEX()) && (je < self.entries.size()) && (!self.entries[je].slow)
-                    && ((self.turn - self.jobs[q].began) > SLOW_TURNS()) {
+                    && ((now - self.jobs[q].started_ms) > 1000) {
                     self.entries[je].slow = true
                     self.retry_parked(false)
+                }
+            }
+
+            self.report_progress()
+
+            // The syntax-only pass of each edited buffer, on its own (shorter)
+            // debounce, one at a time per buffer.
+            if (now - self.last_change_ms) >= self.syntax_ms {
+                // At most two at once: each is a compiler process (about
+                // 190 MB in a debug build), and a change that touches many
+                // buffers (a rename) must not start one per buffer.
+                for var k: usize = 0; k < self.docs.docs.size(); ++k {
+                    if (!self.docs.docs[k].syn_running) && (self.docs.docs[k].changed_at > self.docs.docs[k].syn_started)
+                        && (self.running(JOB_SYNTAX()) < 2) {
+                        self.start_syntax(k)
+                    }
                 }
             }
 
@@ -3617,10 +4344,9 @@ pub class Server {
             // One run per entry at a time; a change that arrives during a
             // run leaves the entry dirty and it runs again when this one ends.
             //
-            // Debounced (idle_turns), and bounded (can_start): a project
+            // Debounced (debounce_ms), and bounded (can_start): a project
             // file listing several entries must not start them all at once.
-            self.idle_turns += 1
-            if self.idle_turns >= self.debounce_turns {
+            if (now - self.last_change_ms) >= self.debounce_ms {
                 for var i: usize = 0; i < self.entries.size(); ++i {
                     if self.entries[i].dirty && (!self.entries[i].running) && (!self.entries[i].entry.empty())
                         && self.can_start(i) {

@@ -91,6 +91,7 @@ import Sema::SemaContext::{
 import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
+import Token::TokenText::TokenText
 import Token::TokenKind::{
     TokenKind,
     is_keyword,
@@ -253,6 +254,248 @@ pub class FileText {
 /// spelling and reads the scope around it.
 pub fn completion_marker() -> string {
     return "kalsCompletionMarker"
+}
+
+/// UTF-16 length of bytes [off, off+len) of \p text.
+pub fn utf16_len(text: *const string, off: usize, len: usize) -> usize {
+    var units: usize = 0
+    var i   = off
+    var end = off + len
+    if end > text->size() {
+        end = text->size()
+    }
+
+    while i < end {
+        var c = (*text)[i]
+        if c >= 0xF0 {
+            i     += 4
+            units += 2
+        } else if c >= 0xE0 {
+            i     += 3
+            units += 1
+        } else if c >= 0xC0 {
+            i     += 2
+            units += 1
+        } else {
+            i     += 1
+            units += 1
+        }
+    }
+
+    return units
+}
+
+/// The token type the raw lex alone decides for \p t at [off, off+len) of
+/// \p text: keywords, literals, comments, primitive type names. TT_NONE for
+/// an identifier, which only the walk can classify.
+pub fn lexical_kind(t: Token, text: *const string, off: u32, len: u32, mods: *u32) -> u32 {
+    *mods = 0
+    if t.kind == TokenKind::AtComment {
+        if t.imm == 1 {
+            *mods = TM_DOCUMENTATION()
+        }
+
+        return TT_COMMENT()
+    }
+
+    if (t.kind == TokenKind::LitString) || (t.kind == TokenKind::LitChar) {
+        return TT_STRING()
+    }
+
+    if (t.kind == TokenKind::LitInt) || (t.kind == TokenKind::LitFloat) {
+        return TT_NUMBER()
+    }
+
+    if t.kind == TokenKind::KwSelf {
+        return TT_SELF()
+    }
+
+    if is_keyword(t.kind) || (t.kind == TokenKind::LitNull) {
+        return TT_KEYWORD()
+    }
+
+    if t.kind == TokenKind::LitIdentifier {
+        return TT_NONE() // left to the walk, or to the editor's grammar
+    }
+
+    if (len > 0) && ((off as usize) < text->size()) {
+        // A word that is neither identifier nor keyword is a primitive type
+        // name (`i32`, `bool`, `usize`).
+        var c = (*text)[off as usize]
+        if ((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90)) || (c == 95) {
+            *mods = TM_DEFAULT_LIB()
+            return TT_BUILTIN()
+        }
+    }
+
+    return TT_NONE()
+}
+
+/// Writes \p all (sorted, in bytes of \p f) as the `tokens` array: LSP's
+/// relative five-integer encoding, one token per line of a multi-line one.
+pub fn encode_tokens(all: *const [SemTok], f: *const FileText, w: *JsonWriter) {
+    w->key("tokens")
+    w->begin_array()
+    var prev_line: usize = 0
+    var prev_char: usize = 0
+    var last_end:  usize = 0
+    for var i: usize = 0; i < all->size(); ++i {
+        var off = (*all)[i].off as usize
+        var end = off + ((*all)[i].len as usize)
+        if (off < last_end) || (end > f->text.size()) {
+            continue // overlapping or out of range: the encoding cannot express it
+        }
+
+        last_end = end
+
+        // A token may not span lines; a block comment or a multi-line
+        // string becomes one token per line.
+        var seg = off
+        while seg < end {
+            var line     = f->lines.line_of(seg)
+            var line_end = f->lines.line_end(f->text, line)
+            var stop     = end
+            if stop > line_end {
+                stop = line_end
+            }
+
+            if stop > seg {
+                var ch = f->lines.character(f->text, seg, false)
+                var dl = line - prev_line
+                var dc = ch
+                if dl == 0 {
+                    dc = ch - prev_char
+                }
+
+                w->uint(dl)
+                w->uint(dc)
+                w->uint(utf16_len(&f->text, seg, stop - seg))
+                w->uint((*all)[i].kind as usize)
+                w->uint((*all)[i].mods as usize)
+                prev_line = line
+                prev_char = ch
+            }
+
+            if (line + 1) >= f->lines.line_count() {
+                break
+            }
+
+            seg = f->lines.starts[line + 1]
+        }
+    }
+
+    w->end_array()
+}
+
+/// The `tokens` of file \p fid from the raw lex alone, for a buffer that
+/// does not parse (the syntax-only worker): no identifier is classified,
+/// and an f-string is one string.
+pub fn lexical_tokens(sm: unsafe *SourceManager, fid: u32, f: *const FileText, w: *JsonWriter) {
+    var all: [SemTok]
+    var unsafe *diag = kairo::std::create<DiagEngine>()
+    var unsafe *imm  = kairo::std::create<ImmediateTable>()
+    imm->initialize(sm)
+    var unsafe *lx = kairo::std::create<Lexer>(sm, &null, diag, imm)
+    finally {
+        kairo::std::destroy(lx)
+        kairo::std::destroy(imm)
+        diag->clear_retained()
+        kairo::std::destroy(diag)
+    }
+
+    if lx->open(fid) {
+        var t = Token()
+        while lx->next(&t) {
+            if t.kind == TokenKind::TkEof {
+                break
+            }
+
+            var r = sm->resolve(t.range.start)
+            if (!t.range.start.is_valid()) || ((r.fid as u32) != fid) {
+                continue
+            }
+
+            var off = r.offset as u32
+            var len = t.range.size() as u32
+            var mods: u32 = 0
+            var kind = lexical_kind(t, &f->text, off, len, &mods)
+            if kind == TT_NONE() {
+                continue
+            }
+
+            var st = SemTok{}
+            st.off  = off
+            st.len  = len
+            st.kind = kind
+            st.mods = mods
+            all.push_back(st)
+        }
+
+        lx->close()
+    }
+
+    encode_tokens(&all, f, w)
+}
+
+/// Sorts \p keys ascending (a bottom-up merge sort: the tree has no sort).
+pub fn sort_u64(keys: *[u64]) {
+    var n = keys->size()
+    if n < 2 {
+        return
+    }
+
+    var tmp: [u64]
+    tmp.resize(n)
+    var width: usize = 1
+    while width < n {
+        var lo: usize = 0
+        while lo < n {
+            var mid = lo + width
+            if mid > n {
+                mid = n
+            }
+
+            var hi = lo + (width * 2)
+            if hi > n {
+                hi = n
+            }
+
+            var a = lo
+            var b = mid
+            var k = lo
+            while (a < mid) && (b < hi) {
+                if (*keys)[a] <= (*keys)[b] {
+                    tmp[k] = (*keys)[a]
+                    a += 1
+                } else {
+                    tmp[k] = (*keys)[b]
+                    b += 1
+                }
+
+                k += 1
+            }
+
+            while a < mid {
+                tmp[k] = (*keys)[a]
+                a += 1
+                k += 1
+            }
+
+            while b < hi {
+                tmp[k] = (*keys)[b]
+                b += 1
+                k += 1
+            }
+
+            lo = hi
+        }
+
+        for var q: usize = 0; q < n; ++q {
+            (*keys)[q] = tmp[q]
+        }
+
+        width = width * 2
+    }
 }
 
 /// \class IndexWalker
@@ -2462,30 +2705,8 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
                 continue
             }
 
-            var kind = TT_NONE()
             var mods: u32 = 0
-            if t.kind == TokenKind::AtComment {
-                kind = TT_COMMENT()
-                if t.imm == 1 {
-                    mods = TM_DOCUMENTATION()
-                }
-            } else if (t.kind == TokenKind::LitString) || (t.kind == TokenKind::LitChar) {
-                kind = TT_STRING()
-            } else if (t.kind == TokenKind::LitInt) || (t.kind == TokenKind::LitFloat) {
-                kind = TT_NUMBER()
-            } else if t.kind == TokenKind::KwSelf {
-                kind = TT_SELF()
-            } else if is_keyword(t.kind) || (t.kind == TokenKind::LitNull) {
-                kind = TT_KEYWORD()
-            } else if t.kind == TokenKind::LitIdentifier {
-                kind = TT_NONE() // an identifier the walk did not resolve: leave it to the grammar
-            } else if (len > 0) && self.is_word_(off) {
-                // A word that is neither identifier nor keyword is a
-                // primitive type name (`i32`, `bool`, `usize`).
-                kind = TT_BUILTIN()
-                mods = TM_DEFAULT_LIB()
-            }
-
+            var kind = lexical_kind(t, &self.files[0].text, off, len, &mods)
             if kind == TT_NONE() {
                 continue
             }
@@ -2681,6 +2902,177 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         w->end_object()
     }
 
+    /// Spacing for a spelled-back expansion: none inside `a.b`, `a::b`,
+    /// `f(x)`, `v[i]`, before `,` and `;`; one space elsewhere. The lexer
+    /// keeps no inter-token whitespace, so this is a reading aid, as
+    /// `--dump-preprocessed` is (which puts one space everywhere).
+    priv fn glue_(self, const prev: string, const cur: string) -> bool {
+        if prev.empty() {
+            return true
+        }
+
+        if (cur == ")") || (cur == "]") || (cur == ",") || (cur == ";") || (cur == ".") || (cur == "::")
+            || (cur == "?.") {
+            return true
+        }
+
+        if (prev == "(") || (prev == "[") || (prev == ".") || (prev == "::") || (prev == "?.") {
+            return true
+        }
+
+        if (cur == "(") || (cur == "[") {
+            // a call or an index: after a name or a closing bracket
+            var c = prev[prev.size() - 1]
+            return ((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90)) || ((c >= 48) && (c <= 57))
+                || (c == 95) || (c == 41) || (c == 93) || (c == 33)
+        }
+
+        return false
+    }
+
+    /// `macros`: one row per macro invocation in this file, the outermost
+    /// only (a nested invocation's tokens are part of its parent's), as
+    /// `[line, char, len, expansion, endLine, endChar]`. A token the
+    /// preprocessor produced is TkMacroExpand and carries an invocation's
+    /// range in this file: the outermost one's, or, for what an invocation
+    /// in its ARGUMENTS produced, that inner invocation's, which lies inside
+    /// it. So a run of such tokens whose ranges overlap is one invocation,
+    /// spanning their union. The text is spelled through TokenText, as
+    /// `--dump-preprocessed` spells it, with the body's own line breaks.
+    priv fn macros_(self, w: *JsonWriter) {
+        w->key("macros")
+        w->begin_array()
+        if (self.ctx == &null) || (self.ctx->tcm == &null) {
+            w->end_array()
+            return
+        }
+
+        var unsafe *tcm = self.ctx->tcm
+        var unsafe *tb  = tcm->get_tokens(self.fid)
+        if tb == &null {
+            w->end_array()
+            return
+        }
+
+        var *ft = &self.files[0]
+        var i: usize = 0
+        var n = tb->size()
+        while i < n {
+            var tok = *tb->get(i)
+            if (tok.kind as u32) != (TokenKind::TkMacroExpand as u32) {
+                i += 1
+                continue
+            }
+
+            var off = self.own_off_(tok.range.start)
+            var len = tok.range.size() as usize
+            if (off == u32::MAX) || (((off as usize) + len) > ft->text.size()) {
+                i += 1
+                continue
+            }
+
+            var text:  string = ""
+            var prev:  string = ""
+            var depth: usize  = 0
+            var fresh_line = true
+            var gs = off as usize        // the group's range so far, in bytes
+            var ge = gs + len
+            var j = i
+            while j < n {
+                var t = *tb->get(j)
+                if (t.kind as u32) != (TokenKind::TkMacroExpand as u32) {
+                    break
+                }
+
+                var to = self.own_off_(t.range.start)
+                if to == u32::MAX {
+                    break
+                }
+
+                var ts = to as usize
+                var te = ts + (t.range.size() as usize)
+                if (te < gs) || (ts > ge) || ((j > i) && ((te == gs) || (ts == ge))) {
+                    break // a separate invocation (touching is not overlapping)
+                }
+
+                if ts < gs {
+                    gs = ts
+                }
+
+                if te > ge {
+                    ge = te
+                }
+
+                j += 1
+                var u = self.ctx->unwrap_token(t)
+                if (u.kind == TokenKind::TkWhitespace) || (u.kind == TokenKind::TkEof)
+                    || (u.kind == TokenKind::TkFileStart) || (u.kind == TokenKind::TkFileEnd) {
+                    continue
+                }
+
+                if u.kind == TokenKind::TkNewLine {
+                    if !text.empty() {
+                        fresh_line = true
+                    }
+
+                    continue
+                }
+
+                var sp = *TokenText::resolve(t, tcm).get_text()
+                if (sp == "}") && (depth > 0) {
+                    depth -= 1
+                }
+
+                if fresh_line && (!text.empty()) {
+                    text += "\n"
+                    for var d: usize = 0; d < depth; ++d {
+                        text += "    "
+                    }
+
+                    prev = ""
+                } else if !self.glue_(prev, sp) {
+                    text += " "
+                }
+
+                fresh_line = false
+                text += sp
+                prev = sp
+                if sp == "{" {
+                    depth += 1
+                }
+            }
+
+            i = j
+            if text.empty() {
+                continue
+            }
+
+            if ge > ft->text.size() {
+                ge = ft->text.size()
+            }
+
+            var so   = gs
+            var eo   = ge
+            var line = ft->lines.line_of(so)
+            var el   = ft->lines.line_of(eo)
+            var row_len = utf16_len(&ft->text, so, eo - so)
+            if el != line {
+                row_len = utf16_len(&ft->text, so, ft->lines.line_end(ft->text, line) - so)
+            }
+
+            w->begin_array()
+            w->uint(line)
+            w->uint(ft->lines.character(ft->text, so, false))
+            w->uint(row_len)
+            w->str(text)
+            w->uint(el)
+            w->uint(ft->lines.character(ft->text, eo, false))
+            w->end_array()
+        }
+
+        w->end_array()
+    }
+
     /// Writes this file's index as one JSON object into \p w.
     pub fn write(self, w: *JsonWriter) {
         w->begin_object()
@@ -2690,64 +3082,24 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         var all: [SemTok]
         self.lexical_(&all)
 
-        w->key("tokens")
-        w->begin_array()
-        var prev_line: usize = 0
-        var prev_char: usize = 0
-        var last_end:  usize = 0
-        for var i: usize = 0; i < all.size(); ++i {
-            var off = all[i].off as usize
-            var end = off + (all[i].len as usize)
-            if (off < last_end) || (end > self.files[0].text.size()) {
-                continue // overlapping or out of range: the encoding cannot express it
-            }
-
-            last_end = end
-
-            // A token may not span lines; a block comment or a multi-line
-            // string becomes one token per line.
-            var seg = off
-            while seg < end {
-                var line     = self.files[0].lines.line_of(seg)
-                var line_end = self.files[0].lines.line_end(self.files[0].text, line)
-                var stop     = end
-                if stop > line_end {
-                    stop = line_end
-                }
-
-                if stop > seg {
-                    var ch = self.files[0].lines.character(self.files[0].text, seg, false)
-                    var dl = line - prev_line
-                    var dc = ch
-                    if dl == 0 {
-                        dc = ch - prev_char
-                    }
-
-                    w->uint(dl)
-                    w->uint(dc)
-                    w->uint(self.len16_(0, seg, stop - seg))
-                    w->uint(all[i].kind as usize)
-                    w->uint(all[i].mods as usize)
-                    prev_line = line
-                    prev_char = ch
-                }
-
-                if (line + 1) >= self.files[0].lines.line_count() {
-                    break
-                }
-
-                seg = self.files[0].lines.starts[line + 1]
-            }
-        }
-
-        w->end_array()
+        encode_tokens(&all, &self.files[0], w)
 
         // --- refs: [line, char, len, declFile, declLine, declChar, declLen, hover, isDecl,
         //            typeFile, typeLine, typeChar, typeLen, kind]
+        // Sorted by position (stable: offset, then walk order), so the server
+        // finds the row under the cursor by binary search.
+        var order: [u64]
+        order.reserve(self.refs.size())
+        for var i: usize = 0; i < self.refs.size(); ++i {
+            order.push_back(((self.refs[i].off as u64) << 32) | (i as u64))
+        }
+
+        sort_u64(&order)
+
         w->key("refs")
         w->begin_array()
-        for var i: usize = 0; i < self.refs.size(); ++i {
-            var r = self.refs[i]
+        for var oi: usize = 0; oi < order.size(); ++oi {
+            var r = self.refs[(order[oi] & 0xFFFFFFFF) as usize]
             w->begin_array()
             var line = self.files[0].lines.line_of(r.off as usize)
             w->uint(line)
@@ -2833,6 +3185,8 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         }
 
         w->end_array()
+
+        self.macros_(w)
 
         w->key("files")
         w->begin_array()

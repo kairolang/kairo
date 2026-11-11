@@ -215,14 +215,336 @@ pub class LineMap {
     }
 }
 
+/// \class GapText
+/// \brief a buffer's bytes and line starts, editable in time proportional to
+///        the edit.
+///
+/// \details A didChange used to rebuild the whole string and its line table:
+///          on a 1 MB file that is a megabyte copied and scanned per
+///          keystroke. Here both the bytes and the line starts are gap
+///          buffers. Edits cluster where the cursor is, so moving a gap is
+///          short; an edit costs its own size, the lines it adds or removes,
+///          and the distance from the previous edit.
+///
+///          Bytes: [0, gs) and [ge, buf.size()) hold the text, the gap
+///          between them is free.
+///
+///          Line starts: entries [0, lgs) are ABSOLUTE offsets of lines that
+///          start at or before the last edit; entries [lge, ls.size()) are
+///          stored as `size - start`, the distance from the END of the text.
+///          An edit only shifts what lies after it, and a distance from the
+///          end does not change when text before it grows or shrinks, so no
+///          entry past the edit is touched. Moving the gap converts the
+///          entries it crosses.
+pub class GapText {
+    priv var buf: [u8]
+    priv var gs:  usize = 0
+    priv var ge:  usize = 0
+    priv var ls:  [usize]
+    priv var lgs: usize = 0
+    priv var lge: usize = 0
+
+    pub var size: usize = 0
+
+    fn GapText(self) = default
+
+    fn assign(self, const text: string) {
+        self.size = text.size()
+        var cap = text.size() + 4096
+        self.buf.clear()
+        self.buf.resize(cap)
+        for var i: usize = 0; i < text.size(); ++i {
+            self.buf[i] = text[i]
+        }
+
+        self.gs = text.size()
+        self.ge = cap
+
+        var n: usize = 1
+        for var i: usize = 0; i < text.size(); ++i {
+            if text[i] == 10 {
+                n += 1
+            }
+        }
+
+        self.ls.clear()
+        self.ls.resize(n + 256)
+        self.ls[0] = 0
+        var k: usize = 1
+        for var i: usize = 0; i < text.size(); ++i {
+            if text[i] == 10 {
+                self.ls[k] = i + 1
+                k += 1
+            }
+        }
+
+        self.lgs = n
+        self.lge = self.ls.size()
+    }
+
+    inline fn at(const self, i: usize) -> u8 {
+        if i < self.gs {
+            return self.buf[i]
+        }
+
+        return self.buf[i + (self.ge - self.gs)]
+    }
+
+    inline fn line_count(const self) -> usize {
+        return self.lgs + (self.ls.size() - self.lge)
+    }
+
+    inline fn start(const self, line: usize) -> usize {
+        if line < self.lgs {
+            return self.ls[line]
+        }
+
+        return self.size - self.ls[self.lge + (line - self.lgs)]
+    }
+
+    /// Offset one past the last byte of \p line, its terminator excluded.
+    fn line_end(const self, line: usize) -> usize {
+        if (line + 1) >= self.line_count() {
+            return self.size
+        }
+
+        var end = self.start(line + 1) - 1
+        if (end > self.start(line)) && (self.at(end - 1) == 13) {
+            end -= 1
+        }
+
+        return end
+    }
+
+    /// 0-based line holding byte \p off.
+    fn line_of(const self, off: usize) -> usize {
+        var lo: usize = 0
+        var hi = self.line_count()
+        while (lo + 1) < hi {
+            var mid = (lo + hi) / 2
+            if self.start(mid) <= off {
+                lo = mid
+            } else {
+                hi = mid
+            }
+        }
+
+        return lo
+    }
+
+    /// Byte offset of (line, character), clamped like LineMap::offset.
+    fn offset(const self, line: usize, character: usize, utf8: bool) -> usize {
+        if line >= self.line_count() {
+            return self.size
+        }
+
+        var i   = self.start(line)
+        var end = self.line_end(line)
+        if utf8 {
+            if (i + character) > end {
+                return end
+            }
+
+            return i + character
+        }
+
+        var units: usize = 0
+        while (i < end) && (units < character) {
+            var c = self.at(i)
+            var n: usize = 1
+            var u: usize = 1
+            if c >= 0xF0 {
+                n = 4
+                u = 2 // outside the BMP: a surrogate pair
+            } else if c >= 0xE0 {
+                n = 3
+            } else if c >= 0xC0 {
+                n = 2
+            }
+
+            i     += n
+            units += u
+        }
+
+        if i > end {
+            return end
+        }
+
+        return i
+    }
+
+    /// The text as one string: what a worker or a text scanner reads. O(size),
+    /// so it is asked for once per use, never per keystroke.
+    fn str(const self) -> string {
+        var out = string()
+        out.reserve(self.size)
+        for var i: usize = 0; i < self.gs; ++i {
+            out.push_back(self.buf[i])
+        }
+
+        for var i: usize = self.ge; i < self.buf.size(); ++i {
+            out.push_back(self.buf[i])
+        }
+
+        return out
+    }
+
+    /// Moves the byte gap to \p pos.
+    priv fn move_gap_(self, pos: usize) {
+        if pos < self.gs {
+            var n = self.gs - pos
+            __builtin_move_mem(unsafe &self.buf[self.ge - n], unsafe &self.buf[pos], n)
+            self.gs = pos
+            self.ge -= n
+        } else if pos > self.gs {
+            var n = pos - self.gs
+            __builtin_move_mem(unsafe &self.buf[self.gs], unsafe &self.buf[self.ge], n)
+            self.gs += n
+            self.ge += n
+        }
+    }
+
+    /// Makes room for \p need more bytes in the gap.
+    priv fn grow_(self, need: usize) {
+        if (self.ge - self.gs) >= need {
+            return
+        }
+
+        var tail    = self.buf.size() - self.ge
+        var new_cap = (self.buf.size() * 2) + need + 4096
+        var nb: [u8]
+        nb.resize(new_cap)
+        if self.gs > 0 {
+            __builtin_copy(unsafe &nb[0], unsafe &self.buf[0], self.gs)
+        }
+
+        if tail > 0 {
+            __builtin_copy(unsafe &nb[new_cap - tail], unsafe &self.buf[self.ge], tail)
+        }
+
+        self.buf = nb
+        self.ge  = new_cap - tail
+    }
+
+    /// Moves the line gap so that [0, lgs) are exactly the lines that start
+    /// at or before \p line's start (lines 0..=line).
+    priv fn move_line_gap_(self, line: usize) {
+        var want = line + 1
+        while self.lgs > want {
+            // Line lgs-1 crosses to the right: store its distance from the end.
+            self.lgs -= 1
+            self.lge -= 1
+            self.ls[self.lge] = self.size - self.ls[self.lgs]
+        }
+
+        while self.lgs < want {
+            self.ls[self.lgs] = self.size - self.ls[self.lge]
+            self.lgs += 1
+            self.lge += 1
+        }
+    }
+
+    priv fn grow_lines_(self, need: usize) {
+        if (self.lge - self.lgs) >= need {
+            return
+        }
+
+        var tail    = self.ls.size() - self.lge
+        var new_cap = (self.ls.size() * 2) + need + 256
+        var nl: [usize]
+        nl.resize(new_cap)
+        for var i: usize = 0; i < self.lgs; ++i {
+            nl[i] = self.ls[i]
+        }
+
+        for var i: usize = 0; i < tail; ++i {
+            nl[new_cap - tail + i] = self.ls[self.lge + i]
+        }
+
+        self.ls  = nl
+        self.lge = new_cap - tail
+    }
+
+    /// Replaces bytes [s, e) with \p insert.
+    fn replace(self, start: usize, end: usize, const insert: string) {
+        var s = start
+        var e = end
+        if s > self.size {
+            s = self.size
+        }
+
+        if e > self.size {
+            e = self.size
+        }
+
+        if e < s {
+            e = s
+        }
+
+        // Lines: the ones starting inside (s, e] go, one per newline the
+        // insert carries comes in. Everything after e keeps its entry.
+        var sl = self.line_of(s)
+        var el = self.line_of(e)
+        self.move_line_gap_(sl)
+        self.lge += el - sl
+
+        // Bytes.
+        self.move_gap_(s)
+        self.ge += e - s
+        self.grow_(insert.size())
+        for var i: usize = 0; i < insert.size(); ++i {
+            self.buf[self.gs + i] = insert[i]
+        }
+
+        self.gs   += insert.size()
+        self.size  = self.size - (e - s) + insert.size()
+
+        var nl: usize = 0
+        for var i: usize = 0; i < insert.size(); ++i {
+            if insert[i] == 10 {
+                nl += 1
+            }
+        }
+
+        if nl > 0 {
+            self.grow_lines_(nl)
+            for var i: usize = 0; i < insert.size(); ++i {
+                if insert[i] == 10 {
+                    self.ls[self.lgs] = s + i + 1
+                    self.lgs += 1
+                }
+            }
+        }
+    }
+}
+
 /// \class Document
 /// \brief one open buffer: the editor's text, which wins over the disk.
+///
+/// \details The text lives in `buf` (GapText). `text` and `lines` are a
+///          materialised copy for the code that scans whole strings (the
+///          text scanners, formatting, a worker's overlay file); sync() makes
+///          them current, and only those requests call it, so a keystroke
+///          never pays for the whole document.
 pub class Document {
     pub var uri:     string  = ""
     pub var path:    string  = ""
     pub var version: i64     = 0
+    pub var buf:     GapText
     pub var text:    string  = ""
     pub var lines:   LineMap
+    pub var text_rev: u64    = u64::MAX  ///< revision `text` was materialised at
+
+    /// The last syntax-only pass (Server.k): the server revision it saw,
+    /// whether the text parsed, its diagnostics (LSP Diagnostic objects,
+    /// comma-joined) and its lexical tokens.
+    pub var syn_landed:  bool   = false
+    pub var syn_at:      u64    = 0
+    pub var syn_started: u64    = 0      ///< server revision the newest pass was started for
+    pub var syn_running: bool   = false
+    pub var syn_parsed:  bool   = true
+    pub var syn_diags:   string = ""
+    pub var syn_tokens:  [i64]
 
     /// Bumped on every content change. A snapshot records the revision it
     /// was computed from; equal revisions mean its positions are exact.
@@ -244,32 +566,39 @@ pub class Document {
     fn Document(self) = default
 
     fn set_text(self, const text: string) {
-        self.text = text
-        self.lines.build(self.text)
+        self.buf.assign(text)
         self.revision += 1
     }
 
     /// Replaces [start, end) (byte offsets) with \p insert.
     fn splice(self, start: usize, end: usize, const insert: string) {
-        var s = start
-        var e = end
-        if s > self.text.size() {
-            s = self.text.size()
-        }
-
-        if e > self.text.size() {
-            e = self.text.size()
-        }
-
-        if e < s {
-            e = s
-        }
-
-        var out = self.text.subslice(0, s)
-        out += insert
-        out += self.text.subslice(e, self.text.size() - e)
-        self.set_text(out)
+        self.buf.replace(start, end, insert)
+        self.revision += 1
     }
+
+    /// Makes `text` and `lines` the current text. O(document) when it
+    /// changed since the last call, nothing otherwise.
+    fn sync(self) {
+        if self.text_rev == self.revision {
+            return
+        }
+
+        self.text = self.buf.str()
+        self.lines.build(self.text)
+        self.text_rev = self.revision
+    }
+}
+
+/// FNV-1a over \p text: the `$/kals/text` debug answer, which a test compares
+/// with its own copy of the buffer.
+pub fn fnv1a(const text: string) -> u64 {
+    var h: u64 = 14695981039346656037
+    for var i: usize = 0; i < text.size(); ++i {
+        h = h ^ (text[i] as u64)
+        h = h * 1099511628211
+    }
+
+    return h
 }
 
 /// \class DocumentStore
@@ -305,6 +634,14 @@ pub class DocumentStore {
         }
 
         return usize::MAX
+    }
+
+    /// Materialises every buffer that changed: for the requests that scan
+    /// whole texts (Document::sync).
+    fn sync_all(self) {
+        for var i: usize = 0; i < self.docs.size(); ++i {
+            self.docs[i].sync()
+        }
     }
 
     fn open(self, const uri: string, version: i64, const text: string) -> usize {
@@ -344,15 +681,13 @@ pub class DocumentStore {
             if msg->is_object(range) {
                 var s = msg->get(range, "start")
                 var e = msg->get(range, "end")
-                var so = self.docs[i].lines.offset(
-                    self.docs[i].text,
+                var so = self.docs[i].buf.offset(
                     msg->get_int(s, "line") as usize,
                     msg->get_int(s, "character") as usize,
                     self.utf8,
                 )
 
-                var eo = self.docs[i].lines.offset(
-                    self.docs[i].text,
+                var eo = self.docs[i].buf.offset(
                     msg->get_int(e, "line") as usize,
                     msg->get_int(e, "character") as usize,
                     self.utf8,

@@ -38,6 +38,10 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "string"
 ffi "c++" import "vector"
+ffi "c++" import "chrono"
+ffi "c++" import "cstdlib"
+ffi "c++" import "cstring"
+ffi "c++" import "thread"
 
 import API::FS::LinkFS
 import Diagnostic::Consumer::DiagConsumer
@@ -56,11 +60,13 @@ import Driver::TUStage::TUStage
 import Index::Indexer::{
     FileText,
     IndexWalker,
+    lexical_tokens,
 }
 import Json::JsonWriter
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Resolution::ModulePath::ModulePath
 import Sema::SemaContext::SemaContext
 import Support::FileIO::Path::Path
 import Tooling::ParseAPI::{
@@ -89,9 +95,24 @@ pub class IndexObserver derives SemaObserver {
     pub var rest:       string = ""
     pub var rest_count: usize  = 0
 
+    /// `--progress <file>`: every TU Sema finishes checking is counted
+    /// into it (the server reads it for its progress report).
+    pub var progress: string = ""
+    pub var checked:  usize  = 0
+
     priv var mu_: kairo::std::Mutex
 
     pub fn IndexObserver(self) = default
+
+    priv fn count_(self) {
+        if self.progress.empty() {
+            return
+        }
+
+        var lock = kairo::std::LockGuard(self.mu_)
+        self.checked += 1
+        LinkFS::write(self.progress, f"{self.checked}\n")
+    }
 
     priv fn is_named_(self, const path: string) -> bool {
         for var i: usize = 0; i < self.named.size(); ++i {
@@ -105,6 +126,7 @@ pub class IndexObserver derives SemaObserver {
 
     /* OVERRIDE */
     pub fn on_checked(self, sc: unsafe *SemaContext) {
+        self.count_()
         if (sc == &null) || (sc->ctx == &null) || (sc->tu == &null) {
             return
         }
@@ -158,6 +180,13 @@ pub fn WIDE_INDEX_LIMIT() -> usize {
 pub class DiagCollector derives DiagConsumer {
     pub var out:   string = ""
     pub var count: usize  = 0
+
+    /// The syntax-only pass: keep only what the parser reports (`S<n>`,
+    /// not `SC<n>`) and fatals; anything else a one-file parse says (an
+    /// import it did not resolve) is not about the text. `errors` counts
+    /// the kept errors: none means the buffer parses.
+    pub var syntax_only: bool  = false
+    pub var errors:      usize = 0
 
     priv var sm_:    unsafe *SourceManager
     priv var files_: [FileText]
@@ -301,6 +330,18 @@ pub class DiagCollector derives DiagConsumer {
             return
         }
 
+        if self.syntax_only {
+            var code = diag->code as string
+            var syn = (code.size() > 1) && (code[0] == 83) && (code[1] != 67)
+            if (!syn) && (sev != DiagSeverity::Fatal) {
+                return
+            }
+
+            if lsp == 1 {
+                self.errors += 1
+            }
+        }
+
         var w = JsonWriter()
         w.begin_object()
 
@@ -400,6 +441,94 @@ fn worker_fail(const out_path: string, const why: string) -> i32 {
     return 1
 }
 
+/// `kals --worker <out> --syntax-only <file> ...`: \p file parsed on its own,
+/// with its buffer overlaid. No import is resolved and nothing is checked,
+/// so this costs one file's lex, preprocess and parse; its answer is the
+/// parser's diagnostics, whether the text parses, and the lexical tokens
+/// (keywords, literals, comments) for an editor to draw while it does not.
+///
+///   { "ok": true, "parsed": bool, "diagnostics": [ as above ], "tokens": [ ... ] }
+fn syntax_main(const out_path: string,
+               const file:     string,
+               real:           *const [string],
+               tmps:           *const [string],
+               @inout words:   cxx::std::vector<string>) -> i32 {
+    var unsafe *ci = kairo::std::create<CompilerInstance>(words)
+    finally {
+        kairo::std::destroy(ci)
+    }
+
+    var unsafe *collector = kairo::std::create<DiagCollector>(ci->sm())
+    finally {
+        kairo::std::destroy(collector)
+    }
+
+    collector->syntax_only = true
+    if !ci->args_ok() {
+        return worker_fail(out_path, "the syntax pass was refused its command line")
+    }
+
+    ci->initialize(Path::cwd())
+    var saved = ci->diag()->take_consumers()
+    ci->diag()->add_consumer(collector)
+
+    var held: [string]
+    held.reserve(real->size())
+    for var k: usize = 0; k < real->size(); ++k {
+        var text: string = ""
+        if !LinkFS::read((*tmps)[k], &text) {
+            continue
+        }
+
+        held.push_back(text)
+        var unsafe *bytes = unsafe ((held[held.size() - 1].raw() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
+        ci->sm()->load_overlay(Path((*real)[k]), bytes, held[held.size() - 1].size())
+    }
+
+    var fid = ci->sm()->load_file(Path(file))
+    if fid == u32::MAX {
+        ci->diag()->restore_consumers(saved)
+        return worker_fail(out_path, "cannot read " + file)
+    }
+
+    // kfmt's single-file path: preprocess this file alone, parse it, and
+    // hand the parser's buffered diagnostics to the engine.
+    if ci->pp()->preprocess_one(fid, ModulePath()) {
+        var unsafe *ctx = ci->global_scope()->get_context(fid)
+        if ctx != &null {
+            ci->parse_one(fid)
+            ctx->diag_sink.drain_into(ci->diag(), ctx->sm)
+        }
+    }
+
+    ci->diag()->restore_consumers(saved)
+
+    var ft = FileText()
+    ft.fid  = fid
+    ft.path = file
+    var size = ci->sm()->get_file_size(fid)
+    if size > 0 {
+        var view = ci->sm()->get_view(ci->sm()->get_range(fid, 0, size))
+        ft.text = string(unsafe ((view.data() as unsafe *const u8) as *const u8), view.size())
+    }
+
+    ft.lines.build(ft.text)
+
+    var w = JsonWriter()
+    w.begin_object()
+    w.field_bool("ok", true)
+    w.field_bool("parsed", collector->errors == 0)
+    w.field_raw("diagnostics", "[" + collector->out + "]")
+    lexical_tokens(ci->sm(), fid, &ft, &w)
+    w.end_object()
+
+    if !LinkFS::write(out_path, w.out) {
+        return 1
+    }
+
+    return 0
+}
+
 /// \brief the worker's whole run. \p args is argv past `--worker`.
 pub fn worker_main(@inout args: [string]) -> i32 {
     if args.size() < 1 {
@@ -408,6 +537,8 @@ pub fn worker_main(@inout args: [string]) -> i32 {
 
     var out_path = args[0]
     var root: string = ""
+    var syntax_file: string = ""
+    var progress: string = ""
     var real: [string]
     var tmps: [string]
     // The one C++ container in the Analyzer: CompilerInstance's word
@@ -436,6 +567,18 @@ pub fn worker_main(@inout args: [string]) -> i32 {
             continue
         }
 
+        if (a == "--syntax-only") && ((i + 1) < args.size()) {
+            syntax_file = args[i + 1]
+            i += 2
+            continue
+        }
+
+        if (a == "--progress") && ((i + 1) < args.size()) {
+            progress = args[i + 1]
+            i += 2
+            continue
+        }
+
         if (a == "--overlay") && ((i + 2) < args.size()) {
             real.push_back(args[i + 1])
             tmps.push_back(args[i + 2])
@@ -453,6 +596,24 @@ pub fn worker_main(@inout args: [string]) -> i32 {
 
     // An editor never wants an object file out of a keystroke.
     words.push_back("--type-check-only")
+
+    if !syntax_file.empty() {
+        // One file has nothing to share out: a thread pool of every core
+        // costs more to start and stop (and to schedule on a busy machine)
+        // than the parse it would run.
+        words.push_back("--threads=1")
+        return syntax_main(out_path, syntax_file, &real, &tmps, &words)
+    }
+
+    // A test knob: a run that takes at least this long, so a test can order
+    // a syntax pass before the run of an older text (smoke.py).
+    var unsafe *delay = cxx::std::getenv(r"KALS_DEBUG_INDEX_DELAY_MS")
+    if delay != &null {
+        var ms = cxx::std::atoi(delay)
+        if ms > 0 {
+            cxx::std::this_thread::sleep_for(cxx::std::chrono::milliseconds(ms))
+        }
+    }
 
     var unsafe *ci = kairo::std::create<CompilerInstance>(words)
     finally {
@@ -475,8 +636,9 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         return worker_fail(out_path, "the compile command names no entry file")
     }
 
-    observer->root  = root
-    observer->named = real
+    observer->root     = root
+    observer->named    = real
+    observer->progress = progress
 
     ci->invocation()->frontend.sema_observer = unsafe (observer as unsafe *void)
 

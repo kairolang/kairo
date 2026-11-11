@@ -104,9 +104,12 @@ class Client:
     def uri(self, rel):
         return "file://" + os.path.join(self.root, rel)
 
-    def start(self):
+    def start(self, options=None, progress=False):
+        caps = {"workspace": {"semanticTokens": {"refreshSupport": True}}}
+        if progress:
+            caps["window"] = {"workDoneProgress": True}
         r = self.request("initialize", {"processId": os.getpid(), "rootUri": "file://" + self.root,
-                                        "capabilities": {"workspace": {"semanticTokens": {"refreshSupport": True}}}})
+                                        "capabilities": caps, "initializationOptions": options or {}})
         self.notify("initialized", {})
         return r
 

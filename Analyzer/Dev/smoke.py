@@ -147,6 +147,8 @@ MODS = ["declaration", "definition", "readonly", "static", "deprecated", "abstra
         "documentation", "defaultLibrary", "overloaded", "dispatched", "unsafe", "ffi", "constant", "constructor",
         "extension"]
 
+KEYWORDS = {"fn", "var", "return", "import", "const", "if", "as", "pub", "class", "else", "while", "for", "macro"}
+
 failures = []
 
 
@@ -388,7 +390,10 @@ def features(exe, root, label):
     c.change(M, 4, broken)
     c.settle()
     r = c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": c.uri(M)}}, raw=True)
-    check(label + "syntax error: stale tokens are not sent (ContentModified, the editor keeps its own)", isinstance(r, dict) and r.get("__error__", {}).get("code") == -32801, r)
+    lx = decode(r["data"], broken) if isinstance(r, dict) and "data" in r else []
+    check(label + "syntax error: tokens are the current text's lexical ones (keywords at their places, no names)",
+          lx and all(w in KEYWORDS for _, _, w, ty, _ in lx if ty == "keyword") and {"fn", "var", "return"} <= {w for _, _, w, _, _ in lx}
+          and not any(ty in ("function", "variable", "method", "class") for _, _, _, ty, _ in lx), r)
     check(label + "syntax error: reported", any(x["severity"] == 1 for x in c.diagnostics(M) or []), c.diagnostics(M))
     ih2 = c.request("textDocument/inlayHint", {"textDocument": {"uri": c.uri(M)}, "range": {}}, raw=True)
     check(label + "syntax error: stale inlay hints are not sent", isinstance(ih2, dict) and "__error__" in ih2, ih2)
@@ -510,6 +515,269 @@ def crash(exe, root):
     check("crash: clean shutdown", c.stop() == 0)
 
 
+def fnv1a(text):
+    h = 14695981039346656037
+    for b in text.encode():
+        h = ((h ^ b) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return str(h)
+
+
+def lsp_index(text, line, ch):
+    """(line, UTF-16 character) -> index into the str, clamped as the server
+    clamps: to the line's content, a CR before the LF excluded."""
+    lines = text.split("\n")
+    if line >= len(lines):
+        return len(text)
+    start = sum(len(l) + 1 for l in lines[:line])
+    content = lines[line][:-1] if lines[line].endswith("\r") and line + 1 < len(lines) else lines[line]
+    units, i = 0, 0
+    while i < len(content) and units < ch:
+        units += 2 if ord(content[i]) > 0xFFFF else 1
+        i += 1
+    return start + i
+
+
+def lsp_pos(text, index):
+    """index into the str -> (line, UTF-16 character)."""
+    before = text[:index]
+    line = before.count("\n")
+    col = before[before.rfind("\n") + 1:]
+    return line, sum(2 if ord(ch) > 0xFFFF else 1 for ch in col)
+
+
+def edits(exe, root):
+    """Incremental didChange: the server's text must equal a reference copy
+    after every kind of edit, compared by hash through `$/kals/text`."""
+    import random
+    c = Client(exe, root)
+    c.start()
+    E = "src/edit.k"
+    text = "fn f() -> i32 {\n    return 1\n}\n"
+    open(os.path.join(root, E), "w").write(text)
+    c.open(E, text)
+    ver = [1]
+
+    def apply(changes):
+        nonlocal text
+        cc = []
+        for (sl, sc, el, ec, new) in changes:
+            a, b = lsp_index(text, sl, sc), lsp_index(text, el, ec)
+            text = text[:a] + new + text[b:]
+            cc.append({"range": {"start": {"line": sl, "character": sc}, "end": {"line": el, "character": ec}}, "text": new})
+        ver[0] += 1
+        c.notify("textDocument/didChange", {"textDocument": {"uri": c.uri(E), "version": ver[0]}, "contentChanges": cc})
+
+    def same(name):
+        r = c.request("$/kals/text", {"textDocument": {"uri": c.uri(E)}})
+        check("edits: " + name, r and r["hash"] == fnv1a(text) and r["size"] == len(text.encode()) and r["lines"] == text.count("\n") + 1, (r, len(text.encode()), text[:80]))
+
+    apply([(1, 4, 1, 4, "var x = 2\n    ")]); same("insert")
+    apply([(1, 4, 2, 4, "")]); same("delete")
+    apply([(0, 3, 2, 1, "g() -> i32 {\n    a\n    b\n}")]); same("multi-line replace")
+    apply([(0, 0, 0, 0, "// head\n")]); same("edit at the start")
+    n = text.count("\n")
+    apply([(n, 0, n, 0, "// tail")]); same("edit at the end")
+    apply([(0, 0, 0, 0, "// crlf\r\nfn h() {\r\n}\r\n")]); same("CRLF lines")
+    apply([(1, 6, 1, 6, "é中😀")]); same("non-ASCII inserted")
+    l, ch = lsp_pos(text, text.index("😀") + 1)
+    apply([(l, ch, l, ch, "Z")]); same("a UTF-16 column after a surrogate pair")
+    alphabet = ["a", "b", " ", "\n", "é", "中", "😀", "\r\n", "{", "}", "xyz"]
+    rnd = random.Random(1234)
+    for k in range(1000):
+        a = rnd.randrange(0, len(text) + 1)
+        b = min(len(text), a + rnd.choice([0, 0, 1, 2, 5, 20]))
+        # never split a CRLF: the server's line table keeps the CR with its line
+        if 0 < a < len(text) and text[a - 1] == "\r" and text[a] == "\n":
+            a -= 1
+        if 0 < b < len(text) and text[b - 1] == "\r" and text[b] == "\n":
+            b += 1
+        new = "".join(rnd.choice(alphabet) for _ in range(rnd.randrange(0, 4)))
+        sl, sc = lsp_pos(text, a)
+        el, ec = lsp_pos(text, b)
+        apply([(sl, sc, el, ec, new)])
+        if k % 250 == 249:
+            same(f"random edits ({k + 1})")
+    # Past the initial gap (4 KB of bytes, 256 line slots): both grow, and
+    # edits far apart move the gaps a long way.
+    big = "".join(f"line {i} é中😀\r\n" if i % 3 == 0 else f"    var v{i} = {i}\n" for i in range(600))
+    l, ch = lsp_pos(text, len(text) // 2)
+    apply([(l, ch, l, ch, big)]); same("a 13 KB, 600-line insert grows both gaps")
+    for k in range(300):
+        a = rnd.randrange(0, len(text) + 1)
+        b = min(len(text), a + rnd.choice([0, 1, 30, 400]))
+        if 0 < a < len(text) and text[a - 1] == "\r" and text[a] == "\n":
+            a -= 1
+        if 0 < b < len(text) and text[b - 1] == "\r" and text[b] == "\n":
+            b += 1
+        new = rnd.choice(["", "x", "\n", big[:rnd.randrange(0, 3000)]])
+        sl, sc = lsp_pos(text, a)
+        el, ec = lsp_pos(text, b)
+        apply([(sl, sc, el, ec, new)])
+    same("300 edits far apart on a large buffer")
+    n = text.count("\n")
+    apply([(0, 0, n, 0, "")]); same("deleting nearly all of it")
+    # several changes in one notification, applied in order
+    apply([(0, 0, 0, 0, "A\n"), (0, 1, 0, 1, "B"), (1, 0, 1, 0, "C")]); same("several changes in one message")
+    fr = c.request("textDocument/foldingRange", {"textDocument": {"uri": c.uri(E)}})
+    check("edits: a text request reads the edited text", isinstance(fr, list), fr)
+    c.notify("textDocument/didClose", {"textDocument": {"uri": c.uri(E)}})
+    os.remove(os.path.join(root, E))
+    check("edits: clean shutdown", c.stop() == 0)
+
+
+MLIB = """pub macro seven!() { 7 }
+pub macro hello!() { "hi" }
+"""
+
+MACROS = """import self::mlib
+
+macro double!(x) {
+    x + x
+}
+
+macro twice!(s) {
+    var a1 = s
+    var a2 = s
+}
+
+macro quad!(y) {
+    double!(y) * 2
+}
+
+fn main() -> i32 {
+    var a = double!(5)
+    twice!(a)
+    var s = mlib::hello!()
+    var q = quad!(mlib::seven!())
+    return a
+}
+"""
+
+
+def macros(exe, root):
+    c = Client(exe, root)
+    c.start()
+    X = "src/macros.k"
+    open(os.path.join(root, "src", "mlib.k"), "w").write(MLIB)
+    open(os.path.join(root, X), "w").write(MACROS)
+    c.open(X, MACROS)
+    h = c.request("textDocument/hover", c.at(X, *pos(MACROS, "double!(5)", 2)))
+    v = (h or {}).get("contents", {}).get("value", "")
+    check("macro: hover shows the expansion", "Expands to" in v and "```kairo\n5 + 5\n```" in v, h)
+    h2 = c.request("textDocument/hover", c.at(X, *pos(MACROS, "twice!(a)", 1)))
+    v2 = (h2 or {}).get("contents", {}).get("value", "")
+    check("macro: a multi-line expansion keeps its lines", "var a1 = a\nvar a2 = a" in v2, h2)
+    h3 = c.request("textDocument/hover", c.at(X, *pos(MACROS, "mlib::hello!()", 8)))
+    check("macro: an imported macro's string literal", '```kairo\n"hi"\n```' in ((h3 or {}).get("contents", {}).get("value", "")), h3)
+    h4 = c.request("textDocument/hover", c.at(X, *pos(MACROS, "quad!(mlib", 1)))
+    check("macro: a nested invocation shows the whole expansion, imported literal included",
+          "```kairo\n7 + 7 * 2\n```" in ((h4 or {}).get("contents", {}).get("value", "")), h4)
+    l, ch = pos(MACROS, "double!(5)")
+    rng = {"start": {"line": l, "character": ch + 1}, "end": {"line": l, "character": ch + 1}}
+    acts = c.request("textDocument/codeAction", {"textDocument": {"uri": c.uri(X)}, "range": rng, "context": {"diagnostics": []}}) or []
+    view = next((a for a in acts if a["title"] == "View expanded macro"), None)
+    here = next((a for a in acts if a["title"] == "Expand macro here"), None)
+    check("macro: 'View expanded macro' runs kairo.showMacroExpansion with [uri, range, text]",
+          view and view["command"]["command"] == "kairo.showMacroExpansion" and view["command"]["arguments"][0] == c.uri(X)
+          and view["command"]["arguments"][1]["start"] == {"line": l, "character": ch}
+          and view["command"]["arguments"][1]["end"] == {"line": l, "character": ch + len("double!(5)")}
+          and view["command"]["arguments"][2] == "5 + 5", acts)
+    check("macro: 'Expand macro here' is an edit", here and list(here["edit"]["changes"].values())[0][0]["newText"] == "5 + 5", acts)
+    if here:
+        e = list(here["edit"]["changes"].values())[0][0]
+        a, b = lsp_index(MACROS, e["range"]["start"]["line"], e["range"]["start"]["character"]), lsp_index(MACROS, e["range"]["end"]["line"], e["range"]["end"]["character"])
+        expanded = MACROS[:a] + e["newText"] + MACROS[b:]
+        c.change(X, 2, expanded)
+        c.settle()
+        d = c.diagnostics(X)
+        check("macro: the expanded text parses and checks", "var a = 5 + 5" in expanded and not [x for x in d or [] if x["severity"] == 1], d)
+    c.notify("textDocument/didClose", {"textDocument": {"uri": c.uri(X)}})
+    os.remove(os.path.join(root, X))
+    os.remove(os.path.join(root, "src", "mlib.k"))
+    check("macro: clean shutdown", c.stop() == 0)
+
+
+def waiting(exe, root):
+    """A request on a file whose own entry cannot start yet (another entry's
+    first run holds the slot, so can_start refuses it) waits for that entry's
+    first index. The loop must not spin on the refused entry's passed
+    deadline: when it did, its turns were 1 ms and a wait counted in turns
+    gave up after about 3 s instead of two minutes."""
+    c = Client(exe, root, env={"KALS_DEBUG_INDEX_DELAY_MS": "2500"})
+    c.start()
+    c.open("src/main.k")
+    W = "alone.k"   # under no root of the project's entry: its own entry at once
+    text = "/// Alone.\nfn alone() -> i32 { return 1 }\n"
+    open(os.path.join(root, W), "w").write(text)
+    c.open(W, text)
+    t = time.time()
+    h = c.request("textDocument/hover", c.at(W, 1, 4), timeout=60)
+    check("waiting: a request parked behind another entry's run gets its answer", h and "fn alone" in h["contents"]["value"], (h, time.time() - t))
+    c.notify("textDocument/didClose", {"textDocument": {"uri": c.uri(W)}})
+    os.remove(os.path.join(root, W))
+    check("waiting: clean shutdown", c.stop() == 0)
+
+
+def syntax(exe, root):
+    """The syntax-only pass: errors before the run, never overwritten by an
+    older run, replaced by the run's when the text parses again. Every run
+    is held back 1.5 s (KALS_DEBUG_INDEX_DELAY_MS) so the order is certain.
+    Also: progress for the first analysis when the client takes it."""
+    c = Client(exe, root, env={"KALS_DEBUG_INDEX_DELAY_MS": "1500"})
+    c.start({"syntaxDebounceMs": 50, "debounceMs": 100}, progress=True)
+    M = "src/main.k"
+    src = c.open(M)
+    c.settle()
+    begins = [n for n in c.notes if n["method"] == "$/progress" and n["params"]["value"]["kind"] == "begin"]
+    ends = [n for n in c.notes if n["method"] == "$/progress" and n["params"]["value"]["kind"] == "end"]
+    created = [n for n in c.notes if n["method"] == "window/workDoneProgress/create"]
+    check("progress: the first analysis shows begin and end", begins and ends and created
+          and begins[0]["params"]["value"]["title"] == "Indexing Kairo"
+          and begins[0]["params"]["token"] == ends[0]["params"]["token"] == created[0]["params"]["token"], [n["method"] for n in c.notes][:12])
+
+    def syntax_errors():
+        return [x for x in c.diagnostics(M) or [] if x["code"].startswith("S") and not x["code"].startswith("SC")]
+
+    # A valid edit starts a run (held 1.5 s); a broken one lands meanwhile.
+    valid = src.replace("var t = tier(n)", "var t = tier(n + 1)")
+    c.change(M, 2, valid)
+    c.pump(0.5)
+    broken = valid.replace("var t = tier(n + 1)", "var t = tier(n + 1")
+    mark = len(c.notes)
+    c.change(M, 3, broken)
+    end = time.time() + 20
+    early = None
+    while time.time() < end and early is None:
+        for n in c.notes[mark:]:
+            if n["method"] == "$/kals/analysed":
+                early = False
+                break
+            if n["method"] == "textDocument/publishDiagnostics" and n["params"]["uri"] == c.uri(M) and any(x["code"].startswith("S") for x in n["params"]["diagnostics"]):
+                early = True
+                break
+        c.pump(0.05)
+    check("syntax pass: errors for an unparseable buffer arrive before the run", early is True, [n["method"] for n in c.notes[mark:]])
+    # The run of the valid text (older) lands now: it must not overwrite them.
+    end = time.time() + 30
+    older = None
+    while time.time() < end and older is None:
+        for n in c.notes[mark:]:
+            if n["method"] == "$/kals/analysed" and n["params"]["revision"] < n["params"]["current"]:
+                older = n
+        c.pump(0.05)
+    check("syntax pass: an older run does not overwrite the newer syntax errors", older is not None and syntax_errors(), (older, c.diagnostics(M)))
+    r = c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": c.uri(M)}}, raw=True)
+    lx = decode(r["data"], broken) if isinstance(r, dict) and "data" in r else []
+    check("syntax pass: lexical tokens while it does not parse", lx and {"fn", "var", "return"} <= {w for _, _, w, _, _ in lx}, r)
+    # It parses again, with a semantic warning: the run's diagnostics replace the syntax ones.
+    fixed = src.replace("var n = clamp(c.norm1())", "var n = clamp(c.norm1() as i32)")
+    c.change(M, 4, fixed)
+    c.settle()
+    ds = c.diagnostics(M) or []
+    check("syntax pass: replaced by the run's diagnostics once it parses", [x["code"] for x in ds] == ["SC031W"], ds)
+    check("syntax pass: clean shutdown", c.stop() == 0)
+
+
 def main():
     exe = find_kals()
     print("kals:", exe)
@@ -525,6 +793,10 @@ def main():
         os.symlink(real, link)
         features(exe, link, "symlink: ")
         crash(exe, real)
+        syntax(exe, real)
+        edits(exe, real)
+        macros(exe, real)
+        waiting(exe, real)
         print("%.1fs" % (time.time() - t0))
     finally:
         shutil.rmtree(base, ignore_errors=True)

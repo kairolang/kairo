@@ -17,7 +17,8 @@ Workspace/CompileCommandsLoader.k  kairo_compile.json
 Index/Worker.k                   the worker: overlays, the compile, diagnostics as LSP JSON
 Index/Indexer.k                  the walk over a checked file: tokens, refs, hovers,
                                  outline, inlay hints, completion items
-Dev/                             lsp_client.py (a scripted client), smoke.py (the test)
+Dev/                             lsp_client.py (a scripted client), smoke.py (the test),
+                                 bench.py (the cost rules: edits, row lookups)
 
 The other files (Providers/, Completion/, Walkers/, ...) are the original
 12-line stubs, one per LSP feature. They are not wired in: every feature is
