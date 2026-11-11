@@ -1469,9 +1469,14 @@ pub class FrontendAction {
                     h.line_directives = fe.emit_header_lines || fe.emit_header_layout
                     h.layout          = fe.emit_header_layout
                     if h.write(fe.emit_headers) {
+                        var docs: string = ""
+                        if h.layout {
+                            docs = f" (doc comments: {h.docs_placed} in place, {h.docs_prelude} on a forward declaration, {h.docs_dropped} dropped)"
+                        }
+
                         kairo::Logger::info(
                             kairo::Logger::Stage::Driver,
-                            f"emitted header {h.path_under(fe.emit_headers)}",
+                            f"emitted header {h.path_under(fe.emit_headers)}" + docs,
                         )
                     } else if h.render().size() > 0 {
                         // write() is false both for a TU with no header (the entry

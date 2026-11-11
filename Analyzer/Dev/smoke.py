@@ -1792,6 +1792,296 @@ def bridge_real(exe, base):
         hints_with("# mine\n" + frag, "a .clangd a person wrote that has every flag gets no hint", 0)
 
 
+# P876: doc comments reach the generated header. box.k's class doc opens the
+# file (lines 1-4), where the header's prelude include and pragma sit, so it
+# goes on the forward declaration in the prelude; the method's and the
+# function's fit on their own lines. pair.k's class doc sits lower and fits.
+BR_DOC_BOX = """/// # This is a comment
+///
+/// - Params:
+/// idk
+pub class Box {
+    pub var v: i32
+    pub fn Box(self) = default
+    /// Adds two boxes.
+    pub fn op + (self, const other: Self) -> Self { var r = Box(); r.v = self.v + other.v; return r }
+}
+/// True when x is zero.
+pub fn is_zero(x: i32) -> bool { return x == 0 }
+"""
+BR_DOC_PAIR = """// The class doc below has room above the class in the header.
+
+/// A pair of ints, documented in place.
+///
+/// Second paragraph.
+pub struct Pair { pub var a: i32; pub var b: i32 }
+"""
+# An enum and a union with a documented field. An enum's variants share the
+# enum's header line, so their docs are not carried (a limit, not checked).
+BR_DOC_KINDS = """// kinds: an enum and a union.
+
+/// A colour.
+pub enum Color {
+    Red,
+    Green,
+}
+
+/// Raw bits.
+pub union Bits {
+    /// As an int.
+    pub var i: i32
+    pub var f: f32
+}
+"""
+BR_DOC_USE = """#include "box.k"
+#include "pair.k"
+#include "kinds.k"
+int main() { box::Box a; a.v = 1; box::Box c = a + a; pair::Pair p; p.a = 0; kinds::Color k = kinds::Color::Red; kinds::Bits u; u.i = 0;
+             return box::is_zero(c.v) ? p.a + u.i + (int)k : 1; }
+"""
+
+
+def bridge_docs(exe, base):
+    """P876: a `///` doc above an exported declaration is above it in the
+    overlay header, on its .k lines (never shifting a declaration), or on
+    the class's forward declaration in the prelude when those lines are
+    taken; clangd's hover from C++ shows it."""
+    root = os.path.realpath(os.path.join(base, "bridge_docs"))
+    os.makedirs(root)
+    files = {"box.k": BR_DOC_BOX, "pair.k": BR_DOC_PAIR, "kinds.k": BR_DOC_KINDS, "use.cc": BR_DOC_USE}
+    for n, t in files.items():
+        open(os.path.join(root, n), "w").write(t)
+    cache = os.path.join(root, ".kairo", "clangd")
+    read = lambda p: open(p).read() if os.path.exists(p) else ""
+    bh, ph = os.path.join(cache, "box.hh"), os.path.join(cache, "pair.hh")
+    c = Client(exe, root)
+    c.start()
+    ok = wait_for(lambda: all(n in read(os.path.join(cache, "overlay.yaml")) for n in ("pair.k", "box.k", "kinds.k")), 120, c)
+    c.pump(1)
+    c.stop()
+    check("bridge docs: both headers mapped", ok, os.listdir(cache) if os.path.isdir(cache) else root)
+    B, P = read(bh).split("\n"), read(ph).split("\n")
+    bl, pl = BR_DOC_BOX.split("\n"), BR_DOC_PAIR.split("\n")
+    # Each doc line on its own .k line, the declaration right below it.
+    check("bridge docs: the method's doc is on its box.k line, above the method",
+          len(B) > 8 and B[7].strip() == "/// Adds two boxes." and "operator+" in B[8], B[6:10])
+    check("bridge docs: the function's doc is on its box.k line, above it, the namespace opener above that",
+          len(B) > 11 and B[10].strip() == "/// True when x is zero." and "is_zero(" in B[11]
+          and B[11].lstrip().startswith("__attribute__") and B[9].strip().endswith("namespace box {"), B[8:12])
+    check("bridge docs: the class doc that cannot fit (lines 1-4) is on its forward declaration in the prelude",
+          "/// # This is a comment\n    ///\n    /// - Params:\n    /// idk\n    class Box;" in read(bh + ".prelude")
+          and "This is a comment" not in read(bh), read(bh + ".prelude")[-200:])
+    check("bridge docs: pair's class doc is on lines 3-5 of the header, the struct on line 6",
+          len(P) > 5 and [x.strip() for x in P[2:5]] == [x for x in pl[2:5]] and "struct Pair" in P[5]
+          and "#line" not in "".join(P[2:5]), P[:7])
+    cdx = shutil.which("clangd")
+    if not cdx:
+        print("note: no clangd on PATH; the hover checks of bridge docs were skipped")
+        return
+    d = Client(cdx, root)
+    d.start()
+    d.notify("textDocument/didOpen", {"textDocument": {"uri": d.uri("use.cc"), "languageId": "cpp", "version": 1, "text": BR_DOC_USE}})
+    wait_for(lambda: d.diagnostics("use.cc") is not None, 120, d)
+    check("bridge docs: clangd reports nothing in use.cc", d.diagnostics("use.cc") == [], d.diagnostics("use.cc"))
+    for needle, off, want in (("Box a", 0, "# This is a comment"), ("Box a", 0, "- Params:"), ("+ a", 0, "Adds two boxes."),
+                              ("is_zero", 0, "True when x is zero."), ("Pair p", 0, "A pair of ints, documented in place."),
+                              ("Color k", 0, "A colour."), ("Bits u", 0, "Raw bits."), ("i = 0", 0, "As an int.")):
+        l, ch = pos(BR_DOC_USE, needle, off)
+        got = ""
+        # The header's preamble may still be building: ask again, bounded.
+        end = time.time() + 60
+        while time.time() < end:
+            r = d.request("textDocument/hover", d.at("use.cc", l, ch), timeout=60)
+            got = ((r or {}).get("contents") or {}).get("value", "")
+            if want in got:
+                break
+            d.pump(0.5)
+        check("bridge docs: clangd's hover on %s shows %r" % (needle.split(" ")[0], want), want in got, got[:300])
+    l, ch = pos(BR_DOC_USE, "is_zero")
+    r = d.request("textDocument/definition", d.at("use.cc", l, ch), timeout=60)
+    r = r if isinstance(r, list) else ([r] if r else [])
+    line = (r[0].get("range") or r[0].get("targetSelectionRange"))["start"]["line"] if r else -1
+    check("bridge docs: clangd's definition of is_zero is still box.k line 12", line == 11, r)
+    d.stop()
+
+
+def overlay_entries(text):
+    """{.k path: header} of an overlay.yaml kals wrote."""
+    import re
+    q = lambda s: s.replace("''", "'")
+    return {q(m.group(1)): q(m.group(2)) for m in re.finditer(r"'name': '((?:[^']|'')*)', 'external-contents': '((?:[^']|'')*)'", text)}
+
+
+def bridge_shared(exe, base):
+    """P863: overlay.yaml is shared by every kals on a root (two editors).
+    A rewrite keeps the entries another process (or an earlier session)
+    wrote while their .k and header exist, drops the ones that are gone,
+    puts back its own when another process's write lost them, and two
+    processes settle on one file instead of taking turns."""
+    root = os.path.realpath(os.path.join(base, "bridge_shared"))
+    cache = os.path.join(root, ".kairo", "clangd")
+    os.makedirs(cache)
+    for n in ("sa", "sb", "other"):
+        open(os.path.join(root, n + ".k"), "w").write("pub fn %s_f(x: i32) -> i32 { return x }\n" % n)
+    open(os.path.join(root, "x.cc"), "w").write('#include "sa.k"\nint x() { return sa::sa_f(1); }\n')
+    open(os.path.join(root, "y.cc"), "w").write('#include "sb.k"\nint y() { return sb::sb_f(1); }\n')
+    ov = os.path.join(cache, "overlay.yaml")
+    read = lambda p: open(p).read() if os.path.exists(p) else ""
+    k = lambda n: os.path.join(root, n + ".k")
+    # What another kals (or an earlier session) left: other.k, whose header
+    # exists, and gone.k, whose header does not.
+    open(os.path.join(cache, "other.hh"), "w").write("#pragma once\nnamespace other { int other_f(int x); }\n")
+    open(k("gone"), "w").write("pub fn g() {}\n")
+    prior = ("{\n  'version': 0,\n  'case-sensitive': 'true',\n  'use-external-names': false,\n  'roots': [\n"
+             "    { 'type': 'file', 'name': '%s', 'external-contents': '%s', 'use-external-name': false },\n"
+             "    { 'type': 'file', 'name': '%s', 'external-contents': '%s', 'use-external-name': false }\n  ]\n}\n"
+             % (k("other"), os.path.join(cache, "other.hh"), k("gone"), os.path.join(cache, "gone.hh")))
+    open(ov, "w").write(prior)
+    c = Client(exe, root)
+    c.start()
+    ents = lambda: overlay_entries(read(ov))
+    ok = wait_for(lambda: k("sa") in ents() and k("sb") in ents(), 120, c)
+    check("bridge shared: both own headers mapped", ok, ents())
+    check("bridge shared: another process's entry with a header is kept", ents().get(k("other")) == os.path.join(cache, "other.hh"), ents())
+    check("bridge shared: an entry whose header is gone is dropped", k("gone") not in ents(), ents())
+    check("bridge shared: entries sorted by .k path", list(ents()) == sorted(ents()), list(ents()))
+    # Another process's write that lost this one's entries (it read the file
+    # before this one's rename): merged back on the next look (2 s).
+    open(ov, "w").write(prior)
+    ok = wait_for(lambda: k("sa") in ents() and k("sb") in ents() and k("other") in ents(), 10, c)
+    check("bridge shared: entries another process's write lost are merged back while idle", ok, ents())
+    # A second kals on the same root: both run their jobs and write.
+    d = Client(exe, root)
+    d.start()
+    d.open("sa.k")
+    wait_for(lambda: False, 1, d)
+    for i in range(3):
+        d.change("sa.k", 2 + i, "pub fn sa_f(x: i32) -> i32 { return x }\npub fn sa_g%d() -> i32 { return %d }\n" % (i, i))
+        wait_for(lambda: ("sa_g%d" % i) in read(os.path.join(cache, "sa.hh")), 60, d)
+        c.pump(0.5)
+    end = time.time() + 6
+    while time.time() < end:
+        c.pump(0.2)
+        d.pump(0.2)
+    m0, e0 = os.path.getmtime(ov), ents()
+    end = time.time() + 6
+    while time.time() < end:
+        c.pump(0.2)
+        d.pump(0.2)
+    check("bridge shared: two kals on one root end with every entry", set(e0) == {k("sa"), k("sb"), k("other")}, e0)
+    check("bridge shared: and settle (no rewrite for 6 s, no turn-taking)", os.path.getmtime(ov) == m0 and ents() == e0)
+    check("bridge shared: no temporary overlay left behind", not [f for f in os.listdir(cache) if f.endswith(".tmp")], os.listdir(cache))
+    d.stop()
+    c.stop()
+
+
+def bridge_order(exe, base):
+    """P863: header jobs run one at a time; the .k open in the editor goes
+    first, then those included by the C/C++ source reported changed most
+    recently, then scan order."""
+    root = os.path.realpath(os.path.join(base, "bridge_order"))
+    os.makedirs(root)
+    names = ["o%d" % i for i in range(1, 7)]
+    for n in names:
+        open(os.path.join(root, n + ".k"), "w").write("pub fn %s_f(x: i32) -> i32 { return x }\n" % n)
+    open(os.path.join(root, "a.cc"), "w").write("".join('#include "%s.k"\n' % n for n in names[:5]) + "int a() { return 0; }\n")
+    open(os.path.join(root, "b.cc"), "w").write('#include "o6.k"\nint b() { return 0; }\n')
+    cache = os.path.join(root, ".kairo", "clangd")
+    c = Client(exe, root)
+    c.start()
+    c.open("o4.k")
+    c.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": c.uri("b.cc"), "type": 2}]})
+    seen = []
+    end = time.time() + 180
+    while time.time() < end and len(seen) < len(names):
+        for n in names:
+            if n not in seen and os.path.exists(os.path.join(cache, n + ".hh")):
+                seen.append(n)
+        c.pump(0.1)
+    c.stop()
+    check("bridge order: the open .k first, then the one the changed source includes, then scan order",
+          seen == ["o4", "o6", "o1", "o2", "o3", "o5"], seen)
+
+
+def bridge_through(exe, base):
+    """P861: a source that reaches a .k only through a header it includes
+    gets kcc's words (it failed with 'rt/crash.h' file not found); a C
+    source gets kcc's C set, not the C++ one (`-std=c++..` is an error for
+    C); and sources whose .k files belong to entries with different flags
+    each get their entry's set."""
+    root = os.path.realpath(os.path.join(base, "bridge_through"))
+    os.makedirs(root)
+    files = {
+        "c.k": "pub class Cell {\n    pub var v: i32\n    pub fn Cell(self) = default\n}\npub fn cf(x: i32) -> i32 { return x + 1 }\n",
+        "b.h": '#pragma once\n#include "c.k"\ninline int bh() { return c::cf(1); }\n',
+        "a.cc": '#include "b.h"\nint main() { c::Cell k; k.v = 2; return c::cf(k.v) + bh(); }\n',
+        "e.h": '#pragma once\n#ifdef __cplusplus\n#include "c.k"\n#endif\nint eh(void);\n',
+        "d.c": '#include "e.h"\nint eh(void) { return 0; }\n',
+        "m1.k": "pub fn one() -> i32 { return 1 }\n",
+        "m2.k": "pub fn two() -> i32 { return 2 }\n",
+        "x1.cc": '#include "m1.k"\nint x1() { return m1::one(); }\n',
+        "x2.cc": '#include "m2.k"\nint x2() { return m2::two(); }\n',
+    }
+    for n, t in files.items():
+        open(os.path.join(root, n), "w").write(t)
+    open(os.path.join(root, "kairo_compile.json"), "w").write(json.dumps({"version": 1, "entries": [
+        {"entry": "m1.k", "args": ["--cxx-flags=-DM1_ONLY"]}, {"entry": "m2.k", "args": ["--cxx-flags=-DM2_ONLY"]}],
+        "default_args": []}))
+    cdf = os.path.join(root, ".clangd")
+    read = lambda p: open(p).read() if os.path.exists(p) else ""
+    frags = lambda: [(pm, ws) for pm, ws in clangd_add_words(read(cdf)) if pm is not None]
+    words_of = lambda rx: next((ws for pm, ws in frags() if rx in pm), None)
+    has = lambda rx, w: any(w in x for x in (words_of(rx) or []))
+    c = Client(exe, root)
+    c.start()
+    ok = wait_for(lambda: all(words_of(rx) for rx in ("a\\.cc", "d\\.c", "x1\\.cc", "x2\\.cc")), 180, c)
+    # A source's own .k's job may come after another's (whose set it takes
+    # meanwhile): wait for each entry's own words.
+    wait_for(lambda: has("x1\\.cc", "M1_ONLY") and has("x2\\.cc", "M2_ONLY"), 120, c)
+    c.pump(1)
+    c.stop()
+    check("bridge through: a.cc (through b.h) and d.c (through e.h) are listed", ok, read(cdf))
+    wa, wd, w1, w2 = (words_of(rx) or [] for rx in ("a\\.cc", "d\\.c", "x1\\.cc", "x2\\.cc"))
+    std = lambda ws: [w for w in ws if w.startswith("-std=")]
+    check("bridge through: a.cc gets the C++ set (a c++ -std, the runtime root)",
+          any("c++" in w for w in std(wa)) and "-I" in wa, wa)
+    check("bridge through: d.c gets the C set (no c++ -std, no libc++ root)",
+          bool(wd) and not any("c++" in w for w in std(wd)) and not any(w.endswith("/c++/v1") for w in wd), wd)
+    check("bridge through: each entry's sources get that entry's flags",
+          any("M1_ONLY" in w for w in w1) and not any("M2_ONLY" in w for w in w1)
+          and any("M2_ONLY" in w for w in w2) and not any("M1_ONLY" in w for w in w2), (w1, w2))
+    # A restart: every job is due again, and until each runs the sources
+    # must keep kcc's words (the .clangd never loses an includer).
+    listed = lambda: {rx for pm, ws in frags() for rx in pm}
+    before = listed()
+    c = Client(exe, root)
+    c.start()
+    lost = set()
+    end = time.time() + 25
+    while time.time() < end:
+        lost |= before - listed()
+        c.pump(0.1)
+    c.stop()
+    check("bridge through: a restart never drops an includer from the .clangd", not lost and listed() == before, (lost, listed()))
+    cdx = shutil.which("clangd")
+    if not cdx:
+        print("note: no clangd on PATH; the clangd checks of bridge through were skipped")
+        return
+    d = Client(cdx, root)
+    d.start()
+    for n in ("a.cc", "d.c"):
+        d.notify("textDocument/didOpen", {"textDocument": {"uri": d.uri(n), "languageId": "c" if n.endswith(".c") else "cpp", "version": 1, "text": files[n]}})
+    ok = wait_for(lambda: all(d.diagnostics(n) is not None for n in ("a.cc", "d.c")), 120, d)
+    check("bridge through: clangd reports nothing in a.cc (reaches c.k through b.h)", ok and d.diagnostics("a.cc") == [], d.diagnostics("a.cc"))
+    check("bridge through: clangd reports nothing in d.c (C set)", d.diagnostics("d.c") == [], d.diagnostics("d.c"))
+    l, ch = pos(files["a.cc"], "cf(")
+    r = d.request("textDocument/definition", d.at("a.cc", l, ch), timeout=60)
+    r = r if isinstance(r, list) else ([r] if r else [])
+    got = (r[0].get("uri", r[0].get("targetUri")), (r[0].get("range") or r[0].get("targetSelectionRange"))["start"]["line"]) if r else None
+    check("bridge through: clangd's definition of c::cf from a.cc is c.k line 5", got == ("file://" + os.path.join(root, "c.k"), 4), got)
+    d.stop()
+
+
 def syntax_server(exe, base):
     """The persistent syntax worker (section 11, 2a), without the server:
     answers equal the per-process pass, a newer buffer of a file supersedes
@@ -1927,6 +2217,10 @@ def main():
         styles(exe, real)
         bridge(exe, base)
         bridge_real(exe, base)
+        bridge_docs(exe, base)
+        bridge_shared(exe, base)
+        bridge_order(exe, base)
+        bridge_through(exe, base)
         syntax_server(exe, base)
         persistent_syntax(exe, base)
         waiting(exe, real)

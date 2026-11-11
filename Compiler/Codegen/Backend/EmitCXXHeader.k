@@ -62,6 +62,13 @@ pub class EmitCXXHeader {
     /// relative include would resolve against the wrong directory).
     pub var layout:  bool   = false
     pub var prelude: string = ""
+
+    /// Layout only: what became of the module's doc comments (P876,
+    /// TextSink::docs_placed): on their own lines, on a forward declaration
+    /// in the prelude, or dropped for want of room.
+    pub var docs_placed:  usize = 0
+    pub var docs_prelude: usize = 0
+    pub var docs_dropped: usize = 0
     priv var _prelude_path: string = ""
 
     pub fn EmitCXXHeader(self,
@@ -118,6 +125,9 @@ pub class EmitCXXHeader {
 
         if ts.layout {
             self.prelude = ts.finish_layout("#include \"" + self._prelude_path + "\"")
+            self.docs_placed  = ts.docs_placed
+            self.docs_prelude = ts.docs_prelude
+            self.docs_dropped = ts.docs_dropped
         }
 
         return ts.out

@@ -103,3 +103,22 @@ pub const WORKSPACE_SYMBOL_CAP: usize = 512
 /// files: a workspace holding a vendored tree must not stall the first turn.
 pub const SOURCE_WALK_DEPTH:     u32   = 8
 pub const SOURCE_WALK_MAX_FILES: usize = 4000
+
+/// How often kals looks at overlay.yaml's mtime for a write by another kals
+/// on the same root (a second editor), and merges its own entries back into
+/// it: how long such a race can hide a header from clangd, against a stat
+/// per interval.
+pub const BRIDGE_OVERLAY_CHECK_MS: i64 = 2000
+
+/// The C/C++ sources most recently reported changed whose included .k files
+/// get their headers first (after the open ones): longer remembers more of
+/// what the user has been editing, at a scan-time cost per source.
+pub const BRIDGE_RECENT_SOURCES: usize = 16
+
+/// The clangd bridge follows a source's quoted includes this many headers
+/// deep, and reads at most this many headers per scan, to find the sources
+/// that reach a .k through a header (P861): deeper and more cover more
+/// indirect includers, at a read per header on every scan after a C/C++
+/// change. A source past either bound gets the overlay but not kcc's flags.
+pub const BRIDGE_INCLUDE_DEPTH:     u32   = 8
+pub const BRIDGE_INCLUDE_MAX_READS: usize = 4000

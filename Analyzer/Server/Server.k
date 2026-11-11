@@ -147,8 +147,13 @@ pub class Server {
     pub var br_src:     [string]        ///< the last scan's sources, in order
     pub var br_src_inc: [string]        ///< and the `.k` includes of each, '\n'-terminated
     pub var watch_ok:   bool   = false  ///< the client takes a dynamic didChangeWatchedFiles registration
-    pub var br_mapped:  string = ""     ///< the mapping overlay.yaml was last written with
-    pub var br_cxx:     [string]        ///< kcc's driver words for a C++ input, from the last header job
+    pub var br_ov_mtime: u64   = 0      ///< overlay.yaml's mtime when this process last wrote or read it
+    pub var br_ov_check_ms: i64 = 0     ///< when overlay.yaml was last looked at for another process's write
+    pub var br_rank:    [usize]         ///< per row: how recently a source including it was reported (0: never)
+    pub var br_recent:  [string]        ///< C/C++ sources reported changed, most recent last (BRIDGE_RECENT_SOURCES)
+    pub var br_cxx_w:   [string]        ///< per row: kcc's driver words for a C++ source including it ('\n'-terminated)
+    pub var br_c_w:     [string]        ///< per row: the same for a C source (P861)
+    pub var br_src_seen: [string]       ///< per source: the headers its last scan read, '\n'-terminated
     pub var br_said:    string = ""     ///< the .clangd lines last suggested to the user (said once)
 
     /// The two debounces, in milliseconds since the last change to any
@@ -606,12 +611,19 @@ pub class Server {
                 }
 
                 if self.running(JOB_HEADER()) == 0 {
-                    for var b: usize = 0; b < self.br_files.size(); ++b {
-                        if self.br_dirty[b] && (!self.br_running[b]) {
-                            self.start_header_(b)
-                            break
-                        }
+                    var b = self.bridge_next_()
+                    if b != usize::MAX {
+                        self.start_header_(b)
                     }
+                }
+            }
+
+            // Another kals on this root (a second editor) rewrites
+            // overlay.yaml from what it knows: merge this one's entries back.
+            if (!self.br_files.empty()) && ((now - self.br_ov_check_ms) >= BRIDGE_OVERLAY_CHECK_MS) {
+                self.br_ov_check_ms = now
+                if LinkFS::mtime(Path::join_str(self.bridge_dir_(), "overlay.yaml")) != self.br_ov_mtime {
+                    self.bridge_overlay_()
                 }
             }
 

@@ -352,6 +352,19 @@ extend CompilerInstance {
         return self._native_words_for(self._backend, classify_input("input.cc", ""))
     }
 
+    /// \brief cxx_driver_words for a C input (`.c`): the C set kcc compiles
+    ///        a `.c` with (C roots, C `-std`), for a C source kals' bridge
+    ///        lists because it reaches a `.k` through a header (P861); the
+    ///        C++ set's `-std=c++..` is an error for C. Empty without a
+    ///        backend.
+    pub fn c_driver_words(self) -> cxx::std::vector<string> {
+        if self._backend == &null {
+            return cxx::std::vector<string>()
+        }
+
+        return self._native_words_for(self._backend, classify_input("input.c", ""))
+    }
+
     priv fn _native_jobs(self) -> unsafe *ClangJobs {
         if self._jobs == &null {
             var exe = Path::join_str(Path::parent_of(env::exe_path()), "clang")

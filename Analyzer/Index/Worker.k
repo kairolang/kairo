@@ -907,6 +907,14 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         }
 
         w.end_array()
+        // And for a C source that reaches the module through a header (P861).
+        w.key("c_flags")
+        w.begin_array()
+        for var a: string in ci->c_driver_words() {
+            w.str(a)
+        }
+
+        w.end_array()
     }
 
     w.field_raw("diagnostics", "[" + collector->out + "]")

@@ -75,6 +75,19 @@ pub class TextSink derives EmitSink {
     priv var _run_dep:  usize  = 0
     priv var _mapped:   bool   = false
     priv var _home:     string = ""
+    priv var _pl_decl:  [usize]      ///< the Kairo line placed on this physical one (its own), else 0
+    priv var _line_at:  usize  = 0   ///< the physical line of the one `#line` _place_ wrote, else 0
+    priv var _fnames:   [string]     ///< the Kairo files lines are attributed to, and their ids
+    priv var _fids:     [u32]
+    priv var _home_fid: u32    = u32::MAX
+    priv var _doc_done: [usize]      ///< Kairo lines whose doc comment is in the header
+
+    /// Doc comments carried into a layout header (P876): above their
+    /// declaration on the .k file's own lines, on the forward declaration in
+    /// the prelude when those lines are taken (classes only), or dropped.
+    pub var docs_placed:  usize = 0
+    pub var docs_prelude: usize = 0
+    pub var docs_dropped: usize = 0
 
     pub fn TextSink(self, sm: unsafe *SourceManager, tcm: unsafe *TokenCacheManager) {
         self._sm  = sm
@@ -278,6 +291,10 @@ pub class TextSink derives EmitSink {
         }
 
         if self._line_file.empty() {
+            if self.layout {
+                self._remember_fid_(name, fl.file_id as u32)
+            }
+
             self._line_file = name
             self._line_no   = fl.line
         } else if (self._line_file == name) && (fl.line < self._line_no) {
@@ -378,27 +395,30 @@ pub class TextSink derives EmitSink {
             }
         }
 
-        var prelude: string = ""
-        for var q: usize = 0; q < n; ++q {
-            if (q < first) || (c_kind[q] == 1) {
-                prelude += self._rec_text[q]
-                prelude += "\n"
-            }
-        }
-
         self._pl_text.clear()
         self._pl_lock.clear()
         self._pl_depth.clear()
+        self._pl_decl.clear()
+        self._doc_done.clear()
         self._pl_text.push_back(include_line)
         self._pl_lock.push_back(true)
         self._pl_depth.push_back(0)
+        self._pl_decl.push_back(0)
         self._pl_text.push_back("_Pragma(\"once\")")
         self._pl_lock.push_back(false)
         self._pl_depth.push_back(0)
+        self._pl_decl.push_back(0)
         self._cursor  = 2
         self._run_dep = 0
         self._mapped  = false
+        self._line_at = 0
         self._home    = home
+        self._home_fid = u32::MAX
+        for var f: usize = 0; f < self._fnames.size(); ++f {
+            if self._fnames[f] == home {
+                self._home_fid = self._fids[f]
+            }
+        }
         var barrier: usize = 0
         var cls_names: [string]
         var cls_lines: [usize]
@@ -435,6 +455,7 @@ pub class TextSink derives EmitSink {
                     } else if hoist {
                         if self._pl_text[k - 1].empty() {
                             self._pl_text[k - 1] = piece
+                            self._pl_decl[k - 1] = k
                         } else {
                             self._pl_text[k - 1] += " " + piece
                         }
@@ -486,6 +507,55 @@ pub class TextSink derives EmitSink {
             }
 
             r += 1
+        }
+
+        // Last, once nothing else is placed or joined: text joined after a
+        // `///` line would be commented out.
+        self._docs_()
+
+        // A class whose doc found no room above it in the header keeps it on
+        // its forward declaration here: clangd shows the doc of any
+        // redeclaration, and the prelude has no line numbers to keep.
+        var prelude: string = ""
+        var missed:  [usize]
+        for var q: usize = 0; q < n; ++q {
+            if (q < first) || (c_kind[q] == 1) {
+                var at = self._rec_line[q]
+                var fwd = TextSink::_class_name_(TextSink::_trim_(self._rec_text[q]))
+                if (c_kind[q] == 1) && (!fwd.empty()) && (self._rec_file[q] == home) && (at > 0)
+                    && (!TextSink::_has_line_(self._doc_done, at)) {
+                    var top: usize = 0
+                    var doc = self._doc_above_(at, &top)
+                    if !doc.empty() {
+                        var pad = self._rec_text[q].subslice(0, self._rec_text[q].size() - TextSink::_trim_(self._rec_text[q]).size())
+                        for var d: usize = 0; d < doc.size(); ++d {
+                            prelude += pad + TextSink::_trim_ws_(doc[d])
+                            prelude += "\n"
+                        }
+
+                        self._doc_done.push_back(at)
+                        self.docs_prelude += 1
+                    }
+                }
+
+                prelude += self._rec_text[q]
+                prelude += "\n"
+            }
+        }
+
+        // What is left: a declaration with a doc that is in neither place.
+        for var q: usize = 0; q < n; ++q {
+            var at = self._rec_line[q]
+            if (self._rec_file[q] != home) || (at == 0) || self._rec_dir[q] || TextSink::_has_line_(self._doc_done, at)
+                || TextSink::_has_line_(missed, at) {
+                continue
+            }
+
+            var top: usize = 0
+            if !self._doc_above_(at, &top).empty() {
+                missed.push_back(at)
+                self.docs_dropped += 1
+            }
         }
 
         self.out = ""
@@ -581,10 +651,12 @@ pub class TextSink derives EmitSink {
         if (!self._mapped) && (k >= (self._cursor + 2)) {
             self._fresh_(k - 1, f"#line {k} \"" + self._home + "\"", self._run_dep)
             self._pl_lock[k - 2] = true
-            self._mapped = true
+            self._mapped  = true
+            self._line_at = k - 1
         }
 
         self._fresh_(k, text, depth_after)
+        self._pl_decl[k - 1] = k
     }
 
     /// Text on line \p k, the lines between padded with nothing.
@@ -593,13 +665,201 @@ pub class TextSink derives EmitSink {
             self._pl_text.push_back("")
             self._pl_lock.push_back(false)
             self._pl_depth.push_back(self._run_dep)
+            self._pl_decl.push_back(0)
         }
 
         self._pl_text.push_back(text)
         self._pl_lock.push_back(false)
         self._pl_depth.push_back(depth_after)
+        self._pl_decl.push_back(0)
         self._cursor  = k
         self._run_dep = depth_after
+    }
+
+    priv fn _remember_fid_(self, const name: string, fid: u32) {
+        for var f: usize = 0; f < self._fnames.size(); ++f {
+            if self._fnames[f] == name {
+                return
+            }
+        }
+
+        self._fnames.push_back(name)
+        self._fids.push_back(fid)
+    }
+
+    priv static fn _has_line_(const set: [usize], k: usize) -> bool {
+        for var i: usize = 0; i < set.size(); ++i {
+            if set[i] == k {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// The `///` block directly above line \p k of the home .k file, top
+    /// line first, as written (\p top: its first line). The block kals'
+    /// hover shows (Hovers.k doc_): attribute lines between it and the
+    /// declaration are passed over, a bare `//` ends it, and a block opening
+    /// with a `/// ---` rule is the file's license banner, not a doc.
+    priv fn _doc_above_(self, k: usize, top: *usize) -> [string] {
+        var rev: [string]
+        var none: [string]
+        if (self._home_fid == u32::MAX) || (self._sm == &null) {
+            return none
+        }
+
+        var j = k
+        while j > 1 {
+            var s = TextSink::_trim_ws_(self._sm->get_line_text(self._home_fid, (j - 1) as u32))
+            if s.starts_with("///") {
+                rev.push_back(self._sm->get_line_text(self._home_fid, (j - 1) as u32))
+                j -= 1
+                continue
+            }
+
+            if s.starts_with("@") && rev.empty() {
+                j -= 1
+                continue
+            }
+
+            break
+        }
+
+        if rev.empty() || TextSink::_trim_ws_(rev[rev.size() - 1]).starts_with("/// ---") {
+            return none
+        }
+
+        var out: [string]
+        for var i: usize = rev.size(); i > 0; --i {
+            out.push_back(TextSink::_doc_line_(rev[i - 1]))
+        }
+
+        *top = j
+        return out
+    }
+
+    /// A doc line as C++ text: as written, but never ending in `\`, which
+    /// would splice the next line (the declaration) into the comment.
+    priv static fn _doc_line_(const s: string) -> string {
+        var e = s.size()
+        while (e > 0) && ((s[e - 1] == 32) || (s[e - 1] == 9) || (s[e - 1] == 13) || (s[e - 1] == 92)) {
+            e -= 1
+        }
+
+        return s.subslice(0, e)
+    }
+
+    /// The leading `namespace n {` openers of a header line ("" if none).
+    priv static fn _openers_(const t: string) -> string {
+        var p: usize = 0
+        while (p < t.size()) && (t[p] == 32) {
+            p += 1
+        }
+
+        var end: usize = 0
+        while t.subslice(p, t.size() - p).starts_with("namespace ") {
+            var q = p + 10
+            while (q < t.size()) && (t[q] != 123) && (t[q] != 59) && (t[q] != 40) && (t[q] != 125) {
+                q += 1
+            }
+
+            if (q >= t.size()) || (t[q] != 123) {
+                break
+            }
+
+            p = q + 1
+            end = p
+            while (p < t.size()) && (t[p] == 32) {
+                p += 1
+            }
+        }
+
+        return t.subslice(0, end)
+    }
+
+    /// Puts each placed declaration's doc comment on the lines it has in
+    /// the .k file, directly above the declaration (P876). Only where every
+    /// one of those lines is empty in the header: nothing is ever moved to
+    /// make room. clangd attaches a comment to the next declaration only
+    /// across whitespace (no `;{}#`), so a declaration line that opens with
+    /// its namespace (`namespace n { class C {`) has the opener moved to the
+    /// line above the comment, across nothing but those empty lines; and the
+    /// one `#line` _place_ wrote, if it is among them, moves above it too
+    /// (or goes: under the overlay the header is named by its .k path
+    /// already, so it only restates that).
+    priv fn _docs_(self) {
+        if self._home_fid == u32::MAX {
+            return
+        }
+
+        for var k: usize = 2; k <= self._pl_text.size(); ++k {
+            if self._pl_decl[k - 1] != k {
+                continue
+            }
+
+            var top: usize = 0
+            var doc = self._doc_above_(k, &top)
+            if doc.empty() || (top < 2) {
+                continue
+            }
+
+            var fits    = true
+            var has_dir = false
+            for var j = top; j < k; ++j {
+                if j == self._line_at {
+                    has_dir = true
+                } else if self._pl_lock[j - 1] || (!TextSink::_trim_(self._pl_text[j - 1]).empty()) {
+                    fits = false
+                }
+            }
+
+            var open = TextSink::_openers_(self._pl_text[k - 1])
+            var above = top - 1 // the opener's line, and the `#line`'s
+            if (!open.empty()) && ((above < 1) || self._pl_lock[above - 1] || (above == self._line_at)) {
+                fits = false
+            }
+
+            if !fits {
+                continue
+            }
+
+            if has_dir {
+                var to = above
+                if !open.empty() {
+                    to = above - 1
+                }
+
+                var old = self._line_at
+                self._pl_text[old - 1] = ""
+                self._pl_lock[old - 1] = false
+                self._line_at = 0
+                if (to >= 3) && (!self._pl_lock[to - 1])
+                    && TextSink::_trim_(self._pl_text[to - 1]).empty() {
+                    self._pl_text[to - 1] = f"#line {to + 1} \"" + self._home + "\""
+                    self._pl_lock[to - 1] = true
+                    self._line_at = to
+                }
+            }
+
+            if !open.empty() {
+                var rest = self._pl_text[k - 1].subslice(open.size(), self._pl_text[k - 1].size() - open.size())
+                self._pl_text[k - 1] = TextSink::_trim_(rest)
+                if TextSink::_trim_(self._pl_text[above - 1]).empty() {
+                    self._pl_text[above - 1] = TextSink::_trim_(open)
+                } else {
+                    self._pl_text[above - 1] += " " + TextSink::_trim_(open)
+                }
+            }
+
+            for var d: usize = 0; d < doc.size(); ++d {
+                self._pl_text[top + d - 1] = doc[d]
+                self._pl_lock[top + d - 1] = true
+            }
+
+            self._doc_done.push_back(k)
+            self.docs_placed += 1
+        }
     }
 
     /// Text continuing the current physical line (a fresh one after a directive).
@@ -644,6 +904,16 @@ pub class TextSink derives EmitSink {
     priv static fn _trim_(const s: string) -> string {
         var a: usize = 0
         while (a < s.size()) && (s[a] == 32) {
+            a += 1
+        }
+
+        return s.subslice(a, s.size() - a)
+    }
+
+    /// \p s without its leading spaces and tabs.
+    priv static fn _trim_ws_(const s: string) -> string {
+        var a: usize = 0
+        while (a < s.size()) && ((s[a] == 32) || (s[a] == 9)) {
             a += 1
         }
 

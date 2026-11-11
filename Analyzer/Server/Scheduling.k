@@ -465,6 +465,27 @@ extend Server {
             if !told {
                 self.br_told.push_back(path)
             }
+
+            // Most recent last, bounded: its .k files' headers go first.
+            var others: [string]
+            for var q: usize = 0; q < self.br_recent.size(); ++q {
+                if self.br_recent[q] != path {
+                    others.push_back(self.br_recent[q])
+                }
+            }
+
+            var recent: [string]
+            var from: usize = 0
+            if (others.size() + 1) > BRIDGE_RECENT_SOURCES {
+                from = others.size() + 1 - BRIDGE_RECENT_SOURCES
+            }
+
+            for var q = from; q < others.size(); ++q {
+                recent.push_back(others[q])
+            }
+
+            recent.push_back(path)
+            self.br_recent = recent
         }
 
         for var b: usize = 0; b < self.br_files.size(); ++b {

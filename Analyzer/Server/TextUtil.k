@@ -104,6 +104,21 @@ pub fn is_cxx_source(const path: string) -> bool {
 /// The quoted `#include "x.k"` names of a C or C++ text, as written.
 pub fn k_includes(const text: string) -> [string] {
     var out: [string]
+    var all = quoted_includes(text)
+    for var i: usize = 0; i < all.size(); ++i {
+        if all[i].ends_with(".k") {
+            out.push_back(all[i])
+        }
+    }
+
+    return out
+}
+
+/// Every quoted `#include "x"` name of a C or C++ text, as written, in
+/// order (the bridge follows headers to the `.k` files they include, P861).
+/// Textual: a conditional block (`#ifdef __cplusplus`) is not evaluated.
+pub fn quoted_includes(const text: string) -> [string] {
+    var out: [string]
     var i: usize = 0
     var n = text.size()
     while i < n {
@@ -136,7 +151,7 @@ pub fn k_includes(const text: string) -> [string] {
                     }
 
                     var name = text.subslice(p + 1, q - p - 1)
-                    if (q < le) && name.ends_with(".k") {
+                    if (q < le) && (!name.empty()) {
                         out.push_back(name)
                     }
                 }
