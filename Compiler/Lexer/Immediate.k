@@ -1087,8 +1087,8 @@ pub class ImmediateTable {
     /// \details A table is written by its owner (the file's lexer, then its
     ///          parser and Sema interning synthesized names) while other
     ///          threads probe it: a parse worker's generic-name fallback reads
-    ///          an imported file's table (a probe crashed on a bucket
-    ///          vector the owner was regrowing), and with parallel Sema
+    ///          an imported file's table (a probe races a bucket
+    ///          vector the owner is regrowing), and with parallel Sema
     ///          a TU reads the tables of everything it imports. Writers
     ///          take it exclusively; find_ident shares it. Uncontended it is
     ///          one atomic per intern, and only cross-file probes contend.
@@ -1322,6 +1322,10 @@ pub class ImmediateTable {
         return idx
     }
 
+    // Unlocked on purpose: \p idx was handed out under `_ident_mu`
+    // (or before the table was shared), ArenaList appends in place and keeps
+    // every old descriptor table in its arena, so a concurrent push can grow
+    // the list but never move or free slot \p idx. Same for get<T>.
     pub fn get_ident(self, idx: u32) -> string {
         var unsafe *d = self.ident_descs->get(idx as usize)
         return string(

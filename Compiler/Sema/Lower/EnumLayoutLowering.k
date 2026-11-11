@@ -130,6 +130,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh"
+ffi "c++" import "Native/KThread.hh" // sema_mint_rank
 ffi "c++" import "vector"
 
 import AST::ASTSupport::{
@@ -1021,8 +1022,21 @@ pub class EnumLayoutQuery {
             return
         }
 
+        // Only entries keyed at or before this group's rank (P850): a later
+        // group's front may be minting and TYPING the records an entry it
+        // minted names (size_of walks their fields) on another thread right
+        // now. Its own sweep, after its front, sees them whole, and nothing
+        // before it reads adt_shape (InterfaceEmitter, after all of Sema).
+        // A one-thread run holds nothing past the group: same output. The
+        // whole of this group's rank (high 32 bits; the low ones are the
+        // schedule step, sema_sub): every member of it is on this thread.
+        var cap: u64 = *kairo::sema_mint_rank()
+        if cap != u64::MAX {
+            cap = cap | 0xFFFFFFFF
+        }
+
         var all = cxx::std::vector<unsafe *InstanceEntry>()
-        self.sc->instances->collect(&all)
+        self.sc->instances->collect_upto(cap, &all)
         for var i: usize = 0; i < all.size(); ++i {
             var unsafe *e  = all[i]
             var unsafe *en = dyn_cast<Declarations::EnumDecl>(e->primary)

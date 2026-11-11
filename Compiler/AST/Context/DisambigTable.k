@@ -55,9 +55,7 @@ pub enum DisambigKind derives u8 {
 /// specialization form. Explicit/Partial specializations do NOT set it
 /// genericness of a name is owned by the primary declaration. The zero
 /// value (false) is the safe default: an entry never accidentally reads
-/// as generic. (Replaces the old num_params sentinel, whose two competing
-/// contracts 0-means-not-generic vs -1-means-not-generic made every
-/// zero-count path read as generic.)
+/// as generic.
 pub class DisambigEntry {
     struct DeclEntry { // 128 bits
         pub var origin: SourceRange

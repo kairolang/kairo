@@ -9,7 +9,11 @@
 ///   so a set indexed second finds what the first one made.
 ///
 ///   Locked: index() is driver-thread only today, but M2 will resolve
-///   clang decls back to Kairo decls from wherever it runs.
+///   clang decls back to Kairo decls from wherever it runs. Every map is
+///   private and every accessor takes `_mu` itself (shared to read), so a
+///   reader needs no `_fill_locked` around it: note_spec under a fill and
+///   spec_of / find from any Sema thread are ordered by `_mu` alone. A leaf
+///   lock: nothing below takes another (audited for P807).
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.

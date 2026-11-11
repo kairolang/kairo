@@ -803,6 +803,8 @@ pub class <T: type> CallTyping {
         // A non-template C++ function declared `auto` (`auto* as_array()`
         // on toml++'s node_view<node>) imports its placeholder, an opaque
         // nothing can use: clang deduces it here, at the first call (P827).
+        // `rt` is the Kairo-side imported type, never clang's: reading it
+        // needs no set lock; deduced_return reads clang's under it (P853).
         if r->cxx_ret == &null && f->is_imported() && has_opaque_ffi(rt)
             && self.dyn()->sc->foreign != &null {
             var unsafe *dr = self.dyn()->sc->foreign->deduced_return(f)

@@ -542,6 +542,9 @@ pub class ImportResolution {
             return &null
         }
 
+        // Not a race (P850): src_tu is an import, whose group finished all of
+        // its Sema before this group's front was queued (_sema_parallel's
+        // maxdep), or this group's own cycle member, run on this thread.
         self._flush_merged() // the source may be the overlay being built.
         var key = src_imms->find_ident(name) // probe only; never intern.
         if key == u32::MAX {

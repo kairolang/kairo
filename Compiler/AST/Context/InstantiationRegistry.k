@@ -1545,6 +1545,21 @@ pub class InstantiationRegistry {
         }
     }
 
+    /// collect(), stopping at the first entry keyed after \p rank: the
+    /// entries a one-thread run holds when the group of \p rank asks
+    /// (`_order` is sorted by key). Past it are only later groups' mints,
+    /// whose fronts may be running beside the caller. u64::MAX is collect().
+    pub fn collect_upto(self, rank: u64, @inout out: cxx::std::vector<unsafe *InstanceEntry>) {
+        var rlock = kairo::std::SharedLock(self._mu)
+        for var i: usize = 0; i < self._order.size(); ++i {
+            if self._order[i]->ord_rank > rank {
+                break
+            }
+
+            out.push_back(self._order[i])
+        }
+    }
+
     fn size(self) -> usize {
         var rlock = kairo::std::SharedLock(self._mu)
         return self._order.size()

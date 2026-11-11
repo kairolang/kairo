@@ -235,6 +235,11 @@ pub class MemberLookup {
         }
     }
 
+    // Not a race (P850): index_extensions reaches only TUs with
+    // no_extensions false, i.e. serial (barrier) groups, which run alone
+    // after every front in flight, and finished ones; a front's TU is
+    // skipped above. This is the extension index only: a header TU's
+    // tables can still grow under a fill on another thread (`_mu` only).
     priv fn _index_dc(self, dc: unsafe *DeclContext, fid: u32) {
         if dc == &null {
             return

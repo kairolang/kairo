@@ -221,6 +221,13 @@ pub class HeaderSet {
     /// nest: importing one instance's members resolves a type path into
     /// another instance of the same set, and the outer fill still holds this.
     priv var _sema_mu: kairo::std::RecursiveMutex
+    /// Serializes _revive and release_unused, the only writers of `_ci`,
+    /// `revivable`, `files` and `includes` once Sema is parallel (P852).
+    /// A leaf: build() re-enters no accessor of this set and takes no Sema
+    /// lock, so a revive cannot publish `_live` early or deadlock.
+    priv var _revive_mu: kairo::std::RecursiveMutex
+    /// `_ci` is a finished, usable instance; see _ready().
+    priv var _live: kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(false)
 
     /// closure_of / kfid_of_path indexes, built on their first call (driver
     /// thread, after index(): `files` and `includes` are final by then).
@@ -250,11 +257,11 @@ pub class HeaderSet {
     pub fn ast(self) -> unsafe *clang::ASTContext {
         // Any use after indexing (a fill or a deduction retry through this
         // set, TypeExport stand-ins) may leave pointers into this AST: pin it.
-        if self.indexed {
-            self.contributed = true
+        if self.indexed && (!self.contributed.load(kairo::std::MemoryOrder::relaxed)) {
+            self.contributed.store(true, kairo::std::MemoryOrder::relaxed) // atomic: parallel Sema threads pin, the driver's release_unused reads (P852).
         }
 
-        if self._ci == &null && !self._revive() {
+        if (!self._ready()) {
             HeaderSet::_note_late(self.released)
             return &null
         }
@@ -269,11 +276,11 @@ pub class HeaderSet {
     pub fn sema(self) -> unsafe *clang::Sema {
         // Any use after indexing (a fill or a deduction retry through this
         // set, TypeExport stand-ins) may leave pointers into this AST: pin it.
-        if self.indexed {
-            self.contributed = true
+        if self.indexed && (!self.contributed.load(kairo::std::MemoryOrder::relaxed)) {
+            self.contributed.store(true, kairo::std::MemoryOrder::relaxed) // atomic: parallel Sema threads pin, the driver's release_unused reads (P852).
         }
 
-        if self._ci == &null && !self._revive() {
+        if (!self._ready()) {
             HeaderSet::_note_late(self.released)
             return &null
         }
@@ -288,11 +295,11 @@ pub class HeaderSet {
     pub fn csm(self) -> unsafe *clang::SourceManager {
         // Any use after indexing (a fill or a deduction retry through this
         // set, TypeExport stand-ins) may leave pointers into this AST: pin it.
-        if self.indexed {
-            self.contributed = true
+        if self.indexed && (!self.contributed.load(kairo::std::MemoryOrder::relaxed)) {
+            self.contributed.store(true, kairo::std::MemoryOrder::relaxed) // atomic: parallel Sema threads pin, the driver's release_unused reads (P852).
         }
 
-        if self._ci == &null && !self._revive() {
+        if (!self._ready()) {
             HeaderSet::_note_late(self.released)
             return &null
         }
@@ -301,11 +308,19 @@ pub class HeaderSet {
     }
 
     pub fn alive(self) -> bool {
-        if self._ci == &null {
-            self._revive()
+        return self._ready()
+    }
+
+    /// `_ci` is usable on this thread: `_live` (acquire) is stored only once
+    /// a build has FINISHED, under `_revive_mu`, so a reader never sees the
+    /// half-built instance a concurrent revive assigns to `_ci` mid-build.
+    /// One atomic load once live; the lock only on the first ask (P852).
+    priv fn _ready(self) -> bool {
+        if self._live.load(kairo::std::MemoryOrder::acquire) {
+            return true
         }
 
-        return self._ci != &null
+        return self._revive()
     }
 
     /// Set by HeaderIndex::index: this set minted a header TU or declared a
@@ -315,7 +330,7 @@ pub class HeaderSet {
     /// This set is a VIEW (one TU list) whose headers were parsed as
     /// part of the build's one shared set; null for a set parsed itself.
     pub var  shared:       unsafe *HeaderSet     = &null
-    pub var  contributed:  bool                  = true
+    pub var  contributed:  kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(true)
     pub var  revivable:    bool                  = false
     priv var _be_saved:    unsafe *ClangBackend  = &null
     priv var _macros:      llvm::StringMap<bool> ///< release_unused's macro snapshot (names defined).
@@ -324,7 +339,13 @@ pub class HeaderSet {
     /// macro_defined() can answer: a live instance, or a released one's
     /// snapshot. EvalIfFolding asks this instead of alive(), which revives.
     pub fn macros_known(self) -> bool {
-        return self._ci != &null || self._macros_kept || self.revivable
+        if self._live.load(kairo::std::MemoryOrder::acquire) || self._macros_kept {
+            return true
+        }
+
+        // `revivable` flips under `_revive_mu` (_revive); read it there too.
+        var rlock = kairo::std::LockGuard(self._revive_mu)
+        return self._ci != &null || self.revivable
     }
 
     /// --print-stats: the live instance's ASTContext bytes (AST + side tables),
@@ -365,7 +386,10 @@ pub class HeaderSet {
     /// Frees this set's clang instance after HeaderIndex took nothing from
     /// it; the include graph, file list and fid map stay. Driver thread.
     pub fn release_unused(self) {
-        if self.contributed || !self.ok || self._ci == &null {
+        // Driver thread, while other groups' Sema runs: the same lock as
+        // _revive, so a release and a revive of one set never interleave.
+        var rlock = kairo::std::LockGuard(self._revive_mu)
+        if self.contributed.load(kairo::std::MemoryOrder::relaxed) || !self.ok || self._ci == &null {
             return
         }
 
@@ -395,7 +419,16 @@ pub class HeaderSet {
     /// reported, so the re-parse's are suppressed, and the recorded file
     /// list and include graph are kept as they were. Once per set.
     priv fn _revive(self) -> bool {
+        // Parallel Sema threads reach here at once (alive() before a fill's
+        // `_mu`, deduced_return, cxx_converts): one revives, the others wait
+        // and find `_ci` set. A leaf lock: build() takes no sema_lock() nor
+        // ForeignInstantiate's `_mu`, so taking it under either cannot
+        // deadlock (P852).
+        var rlock = kairo::std::LockGuard(self._revive_mu)
         if self._ci != &null {
+            // The first build ran before this set was shared (joined pool
+            // task); publish it for the lock-free fast path.
+            self._live.store(true, kairo::std::MemoryOrder::release)
             return true
         }
 
@@ -416,6 +449,8 @@ pub class HeaderSet {
         self.files    = keep_files
         self.includes = keep_inc
         self.ok       = keep_ok
+        // Published only now, with the instance whole (see _ready).
+        self._live.store(self._ci != &null, kairo::std::MemoryOrder::release)
         kairo::header_set_revivals().fetch_add(1)
         kairo::Logger::info(
             kairo::Logger::Stage::Driver,
@@ -445,11 +480,11 @@ pub class HeaderSet {
     /// source file, so the preprocessor still holds every definition.
     /// Kairo's `defined!` (Compiler/Spec/Eval.md#defined).
     pub fn macro_defined(self, const name: string) -> bool {
-        if self._ci == &null && self._macros_kept {
+        if (!self._live.load(kairo::std::MemoryOrder::acquire)) && self._macros_kept {
             return self._macros.find(kairo::sref(name)) != self._macros.end()
         }
 
-        if self._ci == &null && !self._revive() {
+        if (!self._ready()) {
             return false
         }
 
@@ -469,7 +504,7 @@ pub class HeaderSet {
     /// instance directly: ast() would pin the set (contributed), which
     /// release_unused must still be free to drop.
     pub fn declares_global(self, const name: string) -> bool {
-        if self._ci == &null && !self._revive() {
+        if (!self._ready()) {
             return false
         }
 
@@ -1025,6 +1060,7 @@ pub class HeaderSet {
     /// # release (driver thread)
 
     fn release(self) {
+        self._live.store(false, kairo::std::MemoryOrder::release)
         if self._ci != &null {
             self.released = true
         }

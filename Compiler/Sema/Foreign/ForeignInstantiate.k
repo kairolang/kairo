@@ -1122,16 +1122,28 @@ pub class ForeignInstantiate {
         }
 
         var unsafe *fd = llvm::dyn_cast<clang::FunctionDecl>(cd)
-        if fd == &null || fd->getDescribedFunctionTemplate() != &null || fd->isDependentContext() {
-            return &null
-        }
-
-        if fd->getReturnType()->getContainedDeducedType() == &null {
-            return &null
-        }
-
         var unsafe *hs = unsafe (decl_origin_set(f) as unsafe *HeaderSet)
-        if hs == &null || (!hs->alive()) || hs->ast() == &null || hs->sema() == &null {
+        if fd == &null || hs == &null {
+            return &null
+        }
+
+        // The cheap no first, under the set lock alone (decl_purity's order,
+        // and no `_mu`, so a call of a non-`auto` function costs one
+        // uncontended lock): DeduceReturnType below, on another thread,
+        // rewrites fd's type with setType, so even this read races it
+        // unlocked (P853). A non-null clang_decl means the set is live.
+        {
+            var pre = kairo::std::LockGuard(*hs->sema_lock())
+            if fd->getDescribedFunctionTemplate() != &null || fd->isDependentContext() {
+                return &null
+            }
+
+            if fd->getReturnType()->getContainedDeducedType() == &null {
+                return &null
+            }
+        }
+
+        if (!hs->alive()) || hs->ast() == &null || hs->sema() == &null {
             return &null
         }
 
