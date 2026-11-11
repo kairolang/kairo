@@ -68,6 +68,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
+    ClassDecl,
     EnumDecl,
     EnumVariantDecl,
     FieldDecl,
@@ -2442,6 +2443,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             elem         = n->iter_elem
         }
 
+        self._by_value_abstract(n, elem)
         self._bind_list(&n->bindings, elem, n->iterable)
         // No condition refines it; it may run zero times, so after it is
         // the head's state joined with each `break`.
@@ -2454,6 +2456,47 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var brk = self.dyn()->flow.loop_leave()
         self.dyn()->flow.env = self.dyn()->flow.join(&head, &brk)
         return n
+    }
+
+    /// `for h in *arr` over a C++ range whose element is an abstract class
+    /// (toml::array yields toml::node): `h` binds a COPY, which C++ cannot
+    /// make, and the failure would surface as clang's "variable type is an
+    /// abstract class" in emitted code (P833). Said here, at the binding,
+    /// with the `for *h` that iterates by pointer.
+    priv fn _by_value_abstract(self, n: unsafe *Statements::RangedForStmt, elem: unsafe *Type) {
+        if elem == &null || n->iter_kind != Statements::IterKind::Cxx || n->bindings.size() != 1 {
+            return
+        }
+
+        var unsafe *b = n->bindings.get(0)
+        if b == &null || b->is_discard || b->name == &null || b->type_ != &null {
+            return
+        }
+
+        if b->shorthand.has(Statements::BindingShorthand::Pointer) {
+            return
+        }
+
+        var unsafe *cd = dyn_cast<ClassDecl>(self.dyn()->tu.record_decl(canon_unqual(elem)))
+        if cd == &null || (!cd->is_abstract) {
+            return
+        }
+
+        var bn = self.dyn()->sc->ctx->get_spelling(b->name->name)
+        var tn = self.dyn()->tu.str(elem)
+        var d  = self.dyn()->sc->diag->report(
+            DiagID::SC001E,
+            b->range.start,
+            f"cannot bind '{bn}' by value: '{tn}' is abstract; iterate by pointer",
+        )
+
+        d.first(b->range)
+        d.note(cd->name.range.start, f"'{tn}' is declared abstract here")
+        d.insert(b->range.start, "*", "bind a pointer to each element")
+        d.emit()
+        if b->decl != &null {
+            b->decl->poison()
+        }
     }
 
     /// \p e names a type pack parameter (`xs` of `...xs: T`), or null.

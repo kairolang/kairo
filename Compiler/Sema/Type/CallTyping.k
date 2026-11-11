@@ -76,6 +76,7 @@ import AST::Node::CanonicalNodes::{
     QUAL_CONST,
     RecordType,
     canon_has_const,
+    canon_quals,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -97,6 +98,7 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Types::{
     CXXLValueRefType,
+    CXXRValueRefType,
     ChainType,
     FunctionPointerType,
     GenericParamType,
@@ -361,6 +363,40 @@ pub class <T: type> CallTyping {
         }
     }
 
+    /// Parameter \p p is a forwarding reference a string literal deduces as
+    /// a C string at: `T&&` (or a pack's `T&&...`) unsubstituted, or \p pt
+    /// already substituted to `const char*&&`. The CallTyping side of
+    /// OverloadResolution::_forwards_cstr, which judged the call so.
+    priv fn _forwards_cstr_slot(self, p: unsafe *ParamDecl, pt: unsafe *Type) -> bool {
+        if p == &null || p->type_ == &null {
+            return false
+        }
+
+        var unsafe *u = canon_unqual(p->type_->canonical)
+        if u != &null && isa<PackExpansionType>(u) {
+            u = canon_unqual(cast<PackExpansionType>(u)->pattern)
+        }
+
+        if u != &null && isa<CXXLValueRefType>(u) {
+            var unsafe *lr = cast<CXXLValueRefType>(u)->referee
+            return lr != &null && isa<GenericParamType>(canon_unqual(lr)) && canon_quals(lr) == QUAL_CONST
+        }
+
+        if u != &null && isa<CXXRValueRefType>(u) {
+            var unsafe *rr = cast<CXXRValueRefType>(u)->referee
+            if rr != &null && isa<GenericParamType>(canon_unqual(rr)) && canon_quals(rr) == 0 {
+                return true
+            }
+        }
+
+        var unsafe *s = if (pt != &null) => (canon_unqual(pt)) else => &null
+        if s != &null && isa<CXXRValueRefType>(s) {
+            return self.dyn()->tu.is_c_string_param(canon_unqual(cast<CXXRValueRefType>(s)->referee))
+        }
+
+        return false
+    }
+
     /// \p i is in \p xs.
     priv fn _listed(self, xs: *cxx::std::vector<usize>, i: usize) -> bool {
         for var k: usize = 0; k < xs->size(); ++k {
@@ -551,6 +587,25 @@ pub class <T: type> CallTyping {
             }
 
             self.dyn()->flow.pass_pointer(a->expr, pt)
+            // A literal at an imported template's `T&&` (`fmt::print(fmt,
+            // T&&... args)`, toml++'s `value_or(T&&)`): resolution deduced T
+            // as a C string (OverloadResolution::_forwards_cstr), so the
+            // literal goes as its bytes. Typed as a Kairo string it would be
+            // a builtin::string temporary, which clang then deduces instead
+            // and no C++ template knows how to format or store.
+            if f->is_imported() && (!a->marked) && self._forwards_cstr_slot(p, pt) {
+                var sl = self.dyn()->tu.c_string_literal(a->expr)
+                if sl != &null {
+                    var cc = self.dyn()->sc->types->qualified(
+                        self.dyn()->sc->builtin(BuiltinKind::CChar),
+                        QUAL_CONST,
+                    )
+
+                    sl->c_string = self.dyn()->sc->types->pointer(cc, true)
+                    continue
+                }
+            }
+
             if a->lit != LitKind::None {
                 // `&null` at a parameter C++ deduces (`Args&&...`) is the
                 // nullptr_t it deduced it as.
@@ -724,6 +779,17 @@ pub class <T: type> CallTyping {
         // clang's specialization has the real one (_clang_substitute).
         if r->cxx_ret != &null && has_opaque_ffi(rt) {
             rt = r->cxx_ret
+        }
+
+        // A non-template C++ function declared `auto` (`auto* as_array()`
+        // on toml++'s node_view<node>) imports its placeholder, an opaque
+        // nothing can use: clang deduces it here, at the first call (P827).
+        if r->cxx_ret == &null && f->is_imported() && has_opaque_ffi(rt)
+            && self.dyn()->sc->foreign != &null {
+            var unsafe *dr = self.dyn()->sc->foreign->deduced_return(f)
+            if dr != &null {
+                rt = dr
+            }
         }
 
         // An interface member's `Self` is the receiver, so `-> Self` through a

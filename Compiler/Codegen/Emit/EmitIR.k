@@ -3241,6 +3241,24 @@ pub class EmitIR {
             return false
         }
 
+        // A C++ type Kairo cannot read (`fmt::format_string<T...>`, opaque
+        // until clang substitutes the callee's pack) reached from a C string
+        // or a C++ object: Sema let it through only because clang said C++
+        // converts it implicitly (P825), so C++ performs the conversion and
+        // the value goes as written (P832). A cast would spell the
+        // parameter's UNSUBSTITUTED type -- `static_cast<fs<T ...>>` names a
+        // T that does not exist at the call -- and would also move fmt's
+        // consteval format check off the literal it inspects.
+        if canon_unqual(w)->kind == TypeKind::OpaqueFFIType {
+            var unsafe *hu = canon_unqual(have)
+            if hu != &null
+                && (hu->kind == TypeKind::RecordType
+                    || hu->kind == TypeKind::PointerType
+                    || hu->kind == TypeKind::OpaqueFFIType) {
+                return false
+            }
+        }
+
         return canon_unqual(have) != canon_unqual(w)
     }
 

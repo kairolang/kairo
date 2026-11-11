@@ -1,9 +1,9 @@
 // An imported function template whose return type is a placeholder
 // (`decltype(auto)` / `auto`: llvm::dyn_cast, cast, isa) returns what clang
-// deduces from the specialization's body. Kairo took the declared
+// deduces from the specialization's body. Kairo does not take the declared
 // placeholder, which imports as nothing: `var t = llvm::dyn_cast<T>(p)`
-// typed `<ffi type>`, every `t->m()` was R027E and every `t != &null`
-// SC076E (the self-host's Sema/Foreign/DeclImport.k, 59 sites).
+// would type `<ffi type>`, every `t->m()` be R027E and every `t != &null`
+// SC076E.
 
 ffi "c++" import "deduced_return_template.h"
 

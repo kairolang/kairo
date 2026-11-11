@@ -56,6 +56,7 @@ ffi "c++" import "clang/AST/Expr.h"
 ffi "c++" import "clang/Basic/DiagnosticSema.h"
 ffi "c++" import "clang/Basic/PartialDiagnostic.h"
 ffi "c++" import "clang/Sema/Sema.h"
+ffi "c++" import "clang/Sema/Overload.h" // ImplicitConversionSequence (cxx_converts)
 ffi "c++" import "clang/Sema/TemplateDeduction.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "llvm/ADT/SmallString.h"
@@ -672,7 +673,8 @@ pub class ForeignInstantiate {
                    want_ret:      bool,
                    @inout ret:    unsafe *Type,
                    fid:           i64 = -1,
-                   alt_set:       unsafe *void = &null) -> i8 {
+                   alt_set:       unsafe *void = &null,
+                   conv_at:       unsafe *cxx::std::vector<usize> = &null) -> i8 {
         var unsafe *cd = unsafe (decl_clang(f) as unsafe *clang::Decl)
         if cd == &null {
             return -1
@@ -722,6 +724,7 @@ pub class ForeignInstantiate {
             &ret,
             fid,
             &opaque,
+            conv_at,
         )
 
         // The function's set is the FIRST to import its header, not the
@@ -766,6 +769,7 @@ pub class ForeignInstantiate {
             &aret,
             fid,
             &aopaque,
+            conv_at,
         )
 
         if r == -1 {
@@ -796,7 +800,8 @@ pub class ForeignInstantiate {
                        want_ret:             bool,
                        @inout ret:           unsafe *Type,
                        fid:                  i64,
-                       @inout opaque:        bool) -> i8 {
+                       @inout opaque:        bool,
+                       conv_at:              unsafe *cxx::std::vector<usize>) -> i8 {
         var unsafe *cctx  = hs->ast()
         var unsafe *csema = hs->sema()
         var        slock  = kairo::std::LockGuard(*hs->sema_lock())
@@ -959,6 +964,41 @@ pub class ForeignInstantiate {
             }
         }
 
+        // \p conv_at: arguments Kairo passed on unchecked because their
+        // parameter is opaque until substituted (`format_string<T...>`).
+        // The specialization's own parameter is now concrete; C++ takes the
+        // argument iff an implicit conversion sequence exists, which clang
+        // builds -- a consteval constructor is only checked at the emitted
+        // call, where the literal is a literal (P825).
+        if r == clang::TemplateDeductionResult::Success && spec != &null && conv_at != &null {
+            for var ci: usize = 0; ci < conv_at->size(); ++ci {
+                var k = (*conv_at)[ci]
+                if k >= exprs.size() || k >= (spec->getNumParams() as usize) {
+                    continue
+                }
+
+                var pq = spec->getParamDecl(k as u32)->getType()
+                var cw = qdiags->getSuppressAllDiagnostics()
+                qdiags->setSuppressAllDiagnostics(true)
+                var ctrap = clang::DiagnosticErrorTrap(&*qdiags)
+                var ics = csema->TryImplicitConversion(
+                    exprs[k],
+                    pq,
+                    false,
+                    clang::Sema::AllowedExplicit::None,
+                    true,
+                    false,
+                    false,
+                )
+
+                qdiags->setSuppressAllDiagnostics(cw)
+                if ics.isBad() || ctrap.hasErrorOccurred() {
+                    (why) = f"argument {k + 1} does not convert to the parameter C++ substituted"
+                    return 0
+                }
+            }
+        }
+
         if r == clang::TemplateDeductionResult::Success {
             if want_ret && spec != &null && !tx.used_opaque {
                 // `decltype(auto)` / `auto` (llvm::dyn_cast, cast, isa): the
@@ -1034,6 +1074,148 @@ pub class ForeignInstantiate {
         }
 
         return verdict
+    }
+
+    /// The return type clang deduces for the imported non-template \p f
+    /// declared `auto` / `auto*` / `decltype(auto)`, imported; null when it
+    /// is not such a function or clang cannot deduce it. Asked at a call,
+    /// never at import: deducing instantiates the body, and a header full of
+    /// unused `auto` members (toml++'s node_view) must cost nothing (P827).
+    /// A template's specialization is deduce_call's (want_ret). The set's
+    /// diagnostics are quiet: a body that does not compile for this
+    /// instance is an error only where C++ would call it, and then the
+    /// emitted call reports it.
+    fn deduced_return(self, f: unsafe *Decl) -> unsafe *Type {
+        var unsafe *cd = unsafe (decl_clang(f) as unsafe *clang::Decl)
+        if cd == &null {
+            return &null
+        }
+
+        var unsafe *fd = llvm::dyn_cast<clang::FunctionDecl>(cd)
+        if fd == &null || fd->getDescribedFunctionTemplate() != &null || fd->isDependentContext() {
+            return &null
+        }
+
+        if fd->getReturnType()->getContainedDeducedType() == &null {
+            return &null
+        }
+
+        var unsafe *hs = unsafe (decl_origin_set(f) as unsafe *HeaderSet)
+        if hs == &null || (!hs->alive()) || hs->ast() == &null || hs->sema() == &null {
+            return &null
+        }
+
+        var        lock  = kairo::std::LockGuard(self._mu)
+        var unsafe *csema = hs->sema()
+        var        slock = kairo::std::LockGuard(*hs->sema_lock())
+        var *diags = &csema->getDiagnostics()
+        var was    = diags->getSuppressAllDiagnostics()
+        diags->setSuppressAllDiagnostics(true)
+        var trap = clang::DiagnosticErrorTrap(&*diags)
+        var bad  = csema->DeduceReturnType(fd, fd->getLocation(), false)
+        diags->setSuppressAllDiagnostics(was)
+        if bad || trap.hasErrorOccurred() {
+            return &null
+        }
+
+        var rq = fd->getReturnType()
+        if rq->isUndeducedType() {
+            return &null
+        }
+
+        var unsafe *t = self._hindex->target_for_fid(decl_origin_fid(f))
+        if t == &null {
+            return &null
+        }
+
+        var ti = self._hindex->type_importer_for(hs, t->ctx, t->fid)
+        return ti._import(rq)
+    }
+
+    /// C++ takes a \p from of category \p cat to the class \p to through ONE
+    /// user-defined conversion ([over.best.ics]), as clang judges it at a
+    /// call to the imported \p f. Asked of clang rather than re-derived:
+    /// the real converting constructors are templates (`fmt::basic_string_
+    /// view(const S&)`), take a defaulted trailing parameter (`basic_string(
+    /// const CharT*, const Alloc& = Alloc())`), are consteval (`fstring`), or
+    /// are not declared until the specialization is complete and clang
+    /// declares them (P825); a hand search saw none of those. Only a
+    /// user-defined sequence answers true: a standard conversion is Kairo's
+    /// own lattice to judge. Diagnostics are suppressed and any hard error
+    /// is a no: the probe is a question, never the program's error.
+    fn cxx_converts(self,
+                    f:    unsafe *Decl,
+                    from: unsafe *Type,
+                    cat:  Expr::ValueCategory,
+                    to:   unsafe *Type) -> bool {
+        var unsafe *cd = unsafe (decl_clang(f) as unsafe *clang::Decl)
+        var unsafe *hs = unsafe (decl_origin_set(f) as unsafe *HeaderSet)
+        if cd == &null || hs == &null || (!hs->alive()) || from == &null || to == &null {
+            return false
+        }
+
+        if hs->ast() == &null || hs->sema() == &null {
+            return false
+        }
+
+        var        lock  = kairo::std::LockGuard(self._mu)
+        var unsafe *cctx  = hs->ast()
+        var unsafe *csema = hs->sema()
+        var        slock = kairo::std::LockGuard(*hs->sema_lock())
+        var tx = TypeExport(cctx, csema, unsafe (hs as unsafe *void))
+        tx.reg       = self._reg
+        tx.psym      = self.psym
+        tx.instances = self._instances
+        var fq = tx.to_clang(from)
+        var tq = tx.to_clang(to)
+        if fq.isNull() || tq.isNull() || tx.used_opaque {
+            return false
+        }
+
+        var loc = cd->getLocation()
+        var vk  = clang::VK_PRValue
+        if cat == Expr::ValueCategory::LValue {
+            vk = clang::VK_LValue
+        }
+
+        if cat == Expr::ValueCategory::XValue {
+            vk = clang::VK_XValue
+        }
+
+        var unsafe *mem = cctx->Allocate(
+            sizeof(clang::OpaqueValueExpr),
+            alignof(clang::OpaqueValueExpr) as u32,
+        )
+
+        var unsafe *e = cxx::std::construct_at(
+            unsafe (mem as unsafe *clang::OpaqueValueExpr),
+            loc,
+            fq.getNonReferenceType(),
+            vk,
+            clang::OK_Ordinary,
+            unsafe (&null as unsafe *clang::Expr),
+        )
+
+        var *diags = &csema->getDiagnostics()
+        var was    = diags->getSuppressAllDiagnostics()
+        diags->setSuppressAllDiagnostics(true)
+        var trap = clang::DiagnosticErrorTrap(&*diags)
+        var ics = csema->TryImplicitConversion(
+            unsafe (e as unsafe *clang::Expr),
+            tq,
+            false,
+            clang::Sema::AllowedExplicit::None,
+            true,
+            false,
+            false,
+        )
+
+        diags->setSuppressAllDiagnostics(was)
+        if trap.hasErrorOccurred() {
+            return false
+        }
+
+        return ics.isUserDefined()
     }
 
     /// Nested records of the specialization. Implicit instantiation of

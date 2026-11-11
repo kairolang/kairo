@@ -356,6 +356,11 @@ pub class Candidate {
     /// conversion (-fimplicit-conv, P813): ranked below every standard
     /// conversion (rank 2), emitted as written for C++ to convert.
     pub var user_convs: cxx::std::vector<usize>
+    /// The subset of user_convs whose parameter Kairo cannot read before
+    /// clang substitutes it (`fmt::format_string<T...>`: an alias over the
+    /// pack, a non-deduced context): clang checks the conversion against
+    /// the specialization's own parameter (_clang_substitute).
+    pub var clang_convs: cxx::std::vector<usize>
     /// Without the flag: the record a C++ user-defined conversion would
     /// have reached ("" none), and how, for the note on the argument.
     pub var uconv_to:  string = ""
@@ -1906,8 +1911,9 @@ pub class OverloadResolution {
             }
         }
 
-        var tys  = cxx::std::vector<unsafe *Type>()
-        var cats = cxx::std::vector<Expr::ValueCategory>()
+        var tys     = cxx::std::vector<unsafe *Type>()
+        var cats    = cxx::std::vector<Expr::ValueCategory>()
+        var conv_at = cxx::std::vector<usize>()
         for var j: usize = 0; j < order.size(); ++j {
             var *a              = &(*args)[order[j]]
             var t: unsafe *Type = &null
@@ -1917,7 +1923,24 @@ pub class OverloadResolution {
                 return
             }
 
-            if a->lit != LitKind::None {
+            var to_clang = false
+            for var q: usize = 0; q < c->clang_convs.size(); ++q {
+                if c->clang_convs[q] == order[j] {
+                    to_clang = true
+                }
+            }
+
+            if to_clang {
+                conv_at.push_back(j)
+            }
+
+            if self.tu.c_string_literal(a->expr) != &null
+                && (to_clang || self._forwards_cstr(c->f, a, c->targets[order[j]])) {
+                // What EmitIR writes: the literal's bytes, which C++ reads
+                // as `const char[N]` decayed (CallTyping, user_convs).
+                var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+                t = self.sc->types->pointer(cc, true)
+            } else if a->lit != LitKind::None {
                 // A literal takes the type it was ranked at: its default
                 // where a deduced parameter reads it, which is what C++
                 // deduces from the literal EmitIR writes.
@@ -1991,6 +2014,7 @@ pub class OverloadResolution {
             &ret,
             fid,
             alt,
+            unsafe &conv_at,
         )
 
         // An opaque in clang's answer is taken only when it is not the
@@ -2708,8 +2732,32 @@ pub class OverloadResolution {
             if r == ImplicitRank::None && mode != ParamMode::Inout {
                 uto = self._cxx_conv_target(f, a, pt)
                 if uto != &null {
-                    uvia = self._cxx_conv_via(a, uto)
+                    uvia = self._cxx_conv_via(f, a, uto)
                 }
+            }
+
+            // `fmt::format(fmt: format_string<T...>, args: T&&...)`: the
+            // parameter is a C++ alias over the pack, opaque to Kairo, and
+            // T... comes from the OTHER arguments. Which class the literal
+            // must become is known only once clang has substituted T..., so
+            // the conversion is clang's to check at deduction (P825).
+            if r == ImplicitRank::None
+                && uvia == ""
+                && mode != ParamMode::Inout
+                && self.sc->opts.implicit_conv == 1
+                && c->generic
+                && f->is_imported()
+                && (!a->marked)
+                && has_opaque_ffi(pt)
+                && (self.tu.c_string_literal(a->expr) != &null
+                    || (a->ty != &null && self._is_cxx_record(canon_unqual(self.tu.as_value(a->ty))))) {
+                c->user_convs.push_back(i)
+                c->clang_convs.push_back(i)
+                if c->rank < 2 {
+                    c->rank = 2
+                }
+
+                continue
             }
 
             if uvia != "" && self.sc->opts.implicit_conv == 1 {
@@ -3071,7 +3119,12 @@ pub class OverloadResolution {
                 }
 
                 var et: unsafe *Type = &null
-                if a->lit != LitKind::None {
+                if self._forwards_cstr(c->f, a, pt) {
+                    // `args: T&&...` of a C++ template: a literal element is
+                    // a C string, as for a single forwarding reference.
+                    var unsafe *pc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+                    et = self.sc->types->pointer(pc, true)
+                } else if a->lit != LitKind::None {
                     et = self._literal_default(a, pg)
                 } else if a->ty != &null {
                     et = self.tu.as_value(a->ty)
@@ -3100,6 +3153,11 @@ pub class OverloadResolution {
             if pt->is_dependent() {
                 // `fn <T> f(x: T)` with `f(10)`: T := the literal's default.
                 var unsafe *def = self._literal_default(a, pt)
+                if self._forwards_cstr(c->f, a, pt) {
+                    var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+                    def = self.sc->types->pointer(cc, true)
+                }
+
                 if def == &null {
                     return ImplicitRank::None
                 }
@@ -3547,6 +3605,43 @@ pub class OverloadResolution {
         return self.tu.is_c_string_param(pt)
     }
 
+    /// \p a is a string literal at an imported template's forwarding
+    /// reference \p pt (`T&&`, toml++'s `value_or(T&& default)`): T is a C
+    /// string, never builtin::string, which no C++ template expects (the
+    /// P815 rule for `T`, P827). C++ itself deduces `const char(&)[N]`,
+    /// which Kairo cannot spell; the decayed pointer is what every such
+    /// template also takes. Also true for \p pt already substituted to
+    /// `const char*&&`.
+    priv fn _forwards_cstr(self, f: unsafe *FunctionDecl, a: *ArgInfo, pt: unsafe *Type) -> bool {
+        if f == &null || (!f->is_imported()) || a->marked || pt == &null {
+            return false
+        }
+
+        if self.tu.c_string_literal(a->expr) == &null {
+            return false
+        }
+
+        var unsafe *u = canon_unqual(pt)
+        // spdlog's `debug(const T& msg)`: C++ deduces T as the array, and the
+        // decayed pointer is as good to every such template; a Kairo string
+        // there would be a builtin::string no formatter knows.
+        if u != &null && isa<CXXLValueRefType>(u) {
+            var unsafe *lr = cast<CXXLValueRefType>(u)->referee
+            return lr != &null && isa<GenericParamType>(canon_unqual(lr)) && canon_quals(lr) == QUAL_CONST
+        }
+
+        if u == &null || (!isa<CXXRValueRefType>(u)) {
+            return false
+        }
+
+        var unsafe *rr = cast<CXXRValueRefType>(u)->referee
+        if isa<GenericParamType>(rr) && canon_quals(rr) == 0 {
+            return true
+        }
+
+        return self.tu.is_c_string_param(canon_unqual(rr))
+    }
+
     /// The type a by-value parameter of an imported template deduces from
     /// \p a. To C++ a string literal is `const char[N]`, which a by-value
     /// `T` deduces as `const char *` ([temp.deduct.call]/2): deduced from
@@ -3561,6 +3656,11 @@ pub class OverloadResolution {
                                 pt: unsafe *Type) -> unsafe *Type {
         if c->f == &null || (!c->f->is_imported()) || a->marked {
             return a->ty
+        }
+
+        if self._forwards_cstr(c->f, a, pt) {
+            var unsafe *fc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+            return self.sc->types->pointer(fc, true)
         }
 
         var unsafe *u = canon_unqual(pt)
@@ -3600,12 +3700,23 @@ pub class OverloadResolution {
             return &null
         }
 
-        var unsafe *d = self.tu.record_decl(t)
-        if d == &null || (!decl_is_imported(d)) {
+        if !self._is_cxx_record(t) {
             return &null
         }
 
         return t
+    }
+
+    /// \p t names a C++ class: imported, or an instance of an imported
+    /// template (`std::string` is a registry shell of basic_string, which
+    /// is not itself marked imported).
+    priv fn _is_cxx_record(self, t: unsafe *Type) -> bool {
+        var unsafe *d = self.tu.record_decl(t)
+        if d == &null {
+            return false
+        }
+
+        return decl_is_imported(d) || decl_is_imported(self.tu.pattern_of(d))
     }
 
     /// How C++ would reach the record \p to from \p a with ONE
@@ -3615,7 +3726,7 @@ pub class OverloadResolution {
     /// so the constructor's parameter is judged on the builtin lattice; a
     /// string literal is C++'s `const char[N]`, which a C string parameter
     /// takes.
-    priv fn _cxx_conv_via(self, a: *ArgInfo, to: unsafe *Type) -> string {
+    priv fn _cxx_conv_via(self, f: unsafe *FunctionDecl, a: *ArgInfo, to: unsafe *Type) -> string {
         var unsafe *from = if (a->ty != &null) => (self.tu.as_value(a->ty)) else => &null
         var        lit   = self.tu.c_string_literal(a->expr) != &null
         if from != &null && (!lit) {
@@ -3629,6 +3740,54 @@ pub class OverloadResolution {
             return ""
         }
 
+        var hand = self._cxx_ctor_by_hand(a, from, lit, to)
+        if hand != "" {
+            return hand
+        }
+
+        // What the hand search cannot see -- a constructor template, a
+        // defaulted trailing parameter, a consteval or lazily declared
+        // constructor (P825) -- clang answers. Only for what C++ itself
+        // sees at the boundary: a string literal (`const char[N]`, decayed)
+        // or a C++ class value. A Kairo `string` VALUE stays out: the docs
+        // give it `.c_str()`, so no implicit route into C++ (c-cpp.mdx).
+        if self.sc->foreign == &null {
+            return ""
+        }
+
+        var src: unsafe *Type = &null
+        var cat               = a->cat
+        if lit {
+            var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+            src = self.sc->types->pointer(cc, true)
+            cat = Expr::ValueCategory::RValue
+        } else {
+            var unsafe *fu = canon_unqual(from)
+            if fu == &null || (!isa<RecordType>(fu)) {
+                return ""
+            }
+
+            if !self._is_cxx_record(fu) {
+                return ""
+            }
+
+            src = from
+            if a->is_const && cat != Expr::ValueCategory::RValue {
+                src = self.sc->types->qualified(canon_unqual(from), QUAL_CONST)
+            }
+        }
+
+        if self.sc->foreign->cxx_converts(f, src, cat, to) {
+            return f"'{self.tu.str(to)}({self.tu.str(src)})\x27"
+        }
+
+        return ""
+    }
+
+    /// _cxx_conv_via's own search: a non-template constructor of exactly one
+    /// parameter, judged on the builtin lattice. Kept ahead of clang: it
+    /// needs no header set, so it also answers where none is reachable.
+    priv fn _cxx_ctor_by_hand(self, a: *ArgInfo, from: unsafe *Type, lit: bool, to: unsafe *Type) -> string {
         var unsafe *body = self.sc->body_of(self.tu.record_decl(to))
         var unsafe *dc   = NameLookup::context_of(body)
         if dc == &null {

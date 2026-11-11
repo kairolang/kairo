@@ -19,7 +19,7 @@ fn use_prvalue() {
 // PARITY CASE. The .cpp beside this file is the ORACLE: the assertion is that
 // kairo and clang reach the same verdict. See Tests/parity_check.py.
 //
-// Was XFAIL until value categories reached overload resolution: `T()` is a
+// Value categories reach overload resolution: `T()` is a
 // prvalue, both overloads bind it at Exact, and the reference tiebreak
 // (OverloadResolution::_ref_better) prefers `T&&`.
 //
