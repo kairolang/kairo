@@ -90,6 +90,21 @@ pub fn unused_so_far(first: i32, second: string) -> i32 {
 }
 
 pub fn <T> wide(v: T) -> i32 requires sizeof(T) > 4 { return 1 }
+
+pub struct Pair {
+    pub var a: i32
+    pub var b: i64
+}
+
+extend Base {
+    pub fn doubled(const self) -> i32 {
+        return self.id * 2
+    }
+}
+
+pub fn use_ext(const b: Base) -> i32 {
+    return b.doubled()
+}
 '''
 
 MAIN = '''import std::io
@@ -129,7 +144,8 @@ TYPES = ["namespace", "type", "class", "enum", "interface", "struct", "typeParam
          "property", "enumMember", "function", "method", "macro", "keyword", "comment", "string", "number", "operator",
          "selfKeyword", "builtinType", "typeAlias", "union"]
 MODS = ["declaration", "definition", "readonly", "static", "deprecated", "abstract", "async", "modification",
-        "documentation", "defaultLibrary", "overloaded", "dispatched", "unsafe", "ffi", "constant", "constructor"]
+        "documentation", "defaultLibrary", "overloaded", "dispatched", "unsafe", "ffi", "constant", "constructor",
+        "extension"]
 
 failures = []
 
@@ -165,7 +181,7 @@ def decode(data, text):
             l, c = l + data[i], data[i + 1]
         else:
             c += data[i + 1]
-        out.append((l, c, lines[l][c:c + data[i + 2]], TYPES[data[i + 3]], {MODS[b] for b in range(16) if data[i + 4] >> b & 1}))
+        out.append((l, c, lines[l][c:c + data[i + 2]], TYPES[data[i + 3]], {MODS[b] for b in range(len(MODS)) if data[i + 4] >> b & 1}))
     return out
 
 
@@ -299,6 +315,15 @@ def features(exe, root, label):
     check(label + "rename: a class renames its constructors", lines_hit == want, (lines_hit, want))
     rn3 = c.request("textDocument/rename", dict(c.at(S2, *pos(SHAPES, "fn Crate(self, v", 3)), newName="Bin"))
     check(label + "rename: from a constructor renames the class", sorted(e["range"]["start"]["line"] for v in (rn3 or {}).get("changes", {}).values() for e in v) == want, rn3)
+    hv = c.request("textDocument/hover", c.at(S2, *pos(SHAPES, "interface Math", 10)))["contents"]["value"]
+    check(label + "hover: an interface shows every requirement, Self as written", "fn op +(self, Self) -> Self" in hv and "fn op -(self, Self) -> Self" in hv and "inherited" in hv, hv)
+    hv = c.request("textDocument/hover", c.at(S2, *pos(SHAPES, "class Base", 6)))["contents"]["value"]
+    check(label + "hover: a class lists fields, methods and extension methods", "var id: i32" in hv and "fn label(const self) -> i32" in hv and "fn doubled(const self) -> i32  // extend" in hv, hv)
+    check(label + "hover: size and alignment of a plain class", "size 4 bytes, align 4" in hv, hv)
+    hv = c.request("textDocument/hover", c.at(S2, *pos(SHAPES, "struct Pair", 7)))["contents"]["value"]
+    check(label + "hover: struct layout with padding", "size 16 bytes, align 8" in hv, hv)
+    st = {(x[2], frozenset(x[4])) for x in tokens(c, S2, SHAPES) if x[0] == pos(SHAPES, "b.doubled()")[0]}
+    check(label + "tokens: an extension method call is marked", any(w == "doubled" and "extension" in m for w, m in st), st)
     im = c.request("textDocument/implementation", c.at(S2, *pos(SHAPES, "fn label", 3)))
     check(label + "implementation: a single method", im and [x["range"]["start"]["line"] for x in im] == [pos(SHAPES, "fn label", 0, 1)[0]], im)
     c.notify("textDocument/didClose", {"textDocument": {"uri": c.uri(S2)}})
@@ -339,7 +364,7 @@ def features(exe, root, label):
     # --- diagnostics from the unsaved buffer, and the fix-it as a code action
     edited = src.replace("var n = clamp(c.norm1())", "var n = clamp(c.norm1() as i32)")
     c.change(M, 2, edited)
-    tokens(c, M, edited)
+    c.settle()
     ds = c.diagnostics(M) or []
     check(label + "diagnostics: from the unsaved buffer", [x["code"] for x in ds] == ["SC031W"], ds)
     if ds:
@@ -351,22 +376,27 @@ def features(exe, root, label):
     S = "src/shapes.k"
     c.change(M, 3, src)
     c.open(S, SHAPES.replace("pub fn norm1(const self) -> i32", "pub fn norm9(const self) -> i32"))
-    tokens(c, M, src)
+    c.settle()
     ds = c.diagnostics(M) or []
     check(label + "overlay: importer sees the imported buffer", any(x["code"] == "R025E" for x in ds), ds)
     c.change(S, 2, SHAPES)
-    tokens(c, M, src)
+    c.settle()
     check(label + "overlay: and recovers", not c.diagnostics(M), c.diagnostics(M))
 
     # --- a buffer that stops parsing keeps its last good index
     broken = src.replace("var t = tier(n)", "var t = tier(n")
     c.change(M, 4, broken)
-    t = tokens(c, M, broken)
-    check(label + "syntax error: tokens are kept", len(t) > 20, len(t))
+    c.settle()
+    r = c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": c.uri(M)}}, raw=True)
+    check(label + "syntax error: stale tokens are not sent (ContentModified, the editor keeps its own)", isinstance(r, dict) and r.get("__error__", {}).get("code") == -32801, r)
     check(label + "syntax error: reported", any(x["severity"] == 1 for x in c.diagnostics(M) or []), c.diagnostics(M))
+    ih2 = c.request("textDocument/inlayHint", {"textDocument": {"uri": c.uri(M)}, "range": {}}, raw=True)
+    check(label + "syntax error: stale inlay hints are not sent", isinstance(ih2, dict) and "__error__" in ih2, ih2)
     h = c.request("textDocument/hover", c.at(M, *pos(src, "describe(n)")))
-    check(label + "syntax error: hover still answers", h and "fn describe" in h["contents"]["value"], h)
+    check(label + "syntax error: hover gives nothing rather than a stale answer", h is None, h)
     c.change(M, 5, src)
+    t = tokens(c, M, src)
+    check(label + "syntax error: tokens return once it parses again", len(t) > 20, len(t))
 
     # --- completion
     l, _ = pos(src, "return 0", 0, 0)
@@ -426,6 +456,33 @@ def features(exe, root, label):
     rf = c.request("textDocument/rangeFormatting", {"textDocument": {"uri": c.uri(M)}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 2, "character": 0}}, "options": {"tabSize": 4, "insertSpaces": True}})
     check(label + "range formatting: nothing outside the range", rf == [] or all(e["range"]["end"]["line"] <= 3 for e in rf), rf)
 
+    # --- cancellation: a parked request is answered "cancelled"
+    # A file nothing has analysed yet: its first request always waits, so
+    # the cancel reaches a request that is still parked.
+    open(os.path.join(root, "src", "scratch.k"), "w").write("fn lonely() -> i32 { return 1 }\n")
+    c.open("src/scratch.k")
+    c.id += 1
+    cid = c.id
+    c.send({"jsonrpc": "2.0", "id": cid, "method": "textDocument/hover", "params": c.at("src/scratch.k", 0, 4)})
+    c.notify("$/cancelRequest", {"id": cid})
+    got = None
+    end = time.time() + 20
+    while time.time() < end and got is None:
+        try:
+            m = c.q.get(timeout=0.1)
+        except Exception:
+            continue
+        if m and m.get("id") == cid:
+            got = m
+        elif m and "method" in m:
+            c.notes.append(m)
+    check(label + "cancellation: a waiting request is cancelled, not computed", got is not None and got.get("error", {}).get("code") == -32800, got)
+    c.notify("textDocument/didClose", {"textDocument": {"uri": c.uri("src/scratch.k")}})
+    os.remove(os.path.join(root, "src", "scratch.k"))
+    c.change(M, 91, src)
+    tokens(c, M, src)
+    check(label + "log: the client is told what the server is doing", any(n["method"] == "window/logMessage" and "kals started" in n["params"]["message"] for n in c.notes), [n["method"] for n in c.notes][:6])
+
     check(label + "clean shutdown", c.stop() == 0, c.stderr[-5:])
 
 
@@ -438,8 +495,8 @@ def crash(exe, root):
     good = tokens(c, M, src)
     bad = src.replace("var col = Color::Green", 'var col: i32 = "no"')   # an error makes the hook fire
     c.change(M, 2, bad)
-    t = tokens(c, M, bad)
-    check("crash: the server answers from the last good index", len(good) > 20 and len(t) == len(good), (len(good), len(t)))
+    r = c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": c.uri(M)}}, raw=True, timeout=90)
+    check("crash: the server stays up and does not send stale tokens", len(good) > 20 and isinstance(r, dict) and r.get("__error__", {}).get("code") == -32801, (len(good), str(r)[:200]))
     # A crashing compiler symbolizes its own stack before it exits, which
     # takes seconds; the request above was answered (stale) before that.
     end = time.time() + 60
@@ -447,6 +504,7 @@ def crash(exe, root):
         c.pump(0.2)
     check("crash: it is reported", any(n["method"] == "window/logMessage" for n in c.notes), [n["method"] for n in c.notes])
     c.change(M, 3, src)
+    c.settle()
     h = c.request("textDocument/hover", c.at(M, *pos(src, "describe(n)")))
     check("crash: and recovers on the next good run", h and "fn describe" in h["contents"]["value"], h)
     check("crash: clean shutdown", c.stop() == 0)

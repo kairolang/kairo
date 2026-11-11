@@ -48,6 +48,7 @@ import AST::Context::SymbolTable::{
 }
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
+    decl_extension_of,
     decl_is_ffi,
     decl_name_tok,
     decl_requires_clause,
@@ -151,11 +152,13 @@ pub fn TM_UNSAFE()      -> u32 { return 1 << 12 }
 pub fn TM_FFI()         -> u32 { return 1 << 13 }
 pub fn TM_CONSTANT()    -> u32 { return 1 << 14 }
 pub fn TM_CONSTRUCTOR() -> u32 { return 1 << 15 }
+/// The callee is declared in an `extend` block, not in the type itself.
+pub fn TM_EXTENSION()   -> u32 { return 1 << 16 }
 
 pub fn token_modifier_names() -> string {
     return "[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\"," +
         "\"modification\",\"documentation\",\"defaultLibrary\",\"overloaded\",\"dispatched\",\"unsafe\"," +
-        "\"ffi\",\"constant\",\"constructor\"]"
+        "\"ffi\",\"constant\",\"constructor\",\"extension\"]"
 }
 
 /// One classified span, in bytes of the indexed file.
@@ -635,6 +638,13 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             return ""
         }
 
+        // `Self` as written: the printer resolves it to whatever it stands
+        // for, and an interface's `fn op +(self, Self) -> Self` must not read
+        // as if it named the interface.
+        if isa<Types::SelfType>(t) {
+            return "Self"
+        }
+
         var s = self.tu_.str(t)
         if s.starts_with("<") {
             // "<unknown>", "<error>": nothing a reader can use.
@@ -881,6 +891,273 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         return out
     }
 
+    /// For a type: its body as a reader wants it on hover. An interface lists
+    /// every requirement, the inherited ones too (the inlay hint that shows
+    /// them is one line and editors cut it short). A class, struct or union
+    /// lists its fields and methods, then the methods `extend` blocks add.
+    /// Empty for anything that is not a type.
+    priv fn members_(self, d: unsafe *Decl) -> string {
+        var lines: [string]
+        if isa<Declarations::InterfaceDecl>(d) {
+            var unsafe *it = cast<Declarations::InterfaceDecl>(d)
+            for var i: usize = 0; i < it->methods.size(); ++i {
+                lines.push_back("    " + self.signature_(unsafe (it->methods[i] as unsafe *Decl)))
+            }
+
+            var inherited: [string]
+            self.inherited_methods_(d, 0, &inherited)
+            for var i: usize = 0; i < inherited.size(); ++i {
+                var line = "    " + inherited[i]
+                var dup = false
+                for var k: usize = 0; k < lines.size(); ++k {
+                    if lines[k] == line {
+                        dup = true
+                    }
+                }
+
+                if !dup {
+                    lines.push_back(line + "  // inherited")
+                }
+            }
+        } else if isa<Declarations::ClassDecl>(d) || isa<Declarations::StructDecl>(d) || isa<Declarations::UnionDecl>(d) {
+            var fields: [unsafe *Decl]
+            var meths:  [unsafe *Decl]
+            if isa<Declarations::ClassDecl>(d) {
+                var unsafe *c = cast<Declarations::ClassDecl>(d)
+                for var i: usize = 0; i < c->fields.size(); ++i {
+                    fields.push_back(unsafe (c->fields[i] as unsafe *Decl))
+                }
+            } else if isa<Declarations::StructDecl>(d) {
+                var unsafe *c = cast<Declarations::StructDecl>(d)
+                for var i: usize = 0; i < c->fields.size(); ++i {
+                    fields.push_back(unsafe (c->fields[i] as unsafe *Decl))
+                }
+            } else {
+                var unsafe *c = cast<Declarations::UnionDecl>(d)
+                for var i: usize = 0; i < c->fields.size(); ++i {
+                    fields.push_back(unsafe (c->fields[i] as unsafe *Decl))
+                }
+            }
+
+            self.methods_of_(d, &meths)
+            if isa<Declarations::UnionDecl>(d) {
+                var unsafe *c = cast<Declarations::UnionDecl>(d)
+                for var i: usize = 0; i < c->methods.size(); ++i {
+                    meths.push_back(unsafe (c->methods[i] as unsafe *Decl))
+                }
+            }
+
+            for var i: usize = 0; (i < fields.size()) && (lines.size() < 40); ++i {
+                if !fields[i]->is_implicit {
+                    lines.push_back("    " + self.signature_(fields[i]))
+                }
+            }
+
+            for var i: usize = 0; (i < meths.size()) && (lines.size() < 40); ++i {
+                if !meths[i]->is_implicit {
+                    lines.push_back("    " + self.signature_(meths[i]))
+                }
+            }
+
+            // What `extend` blocks add, from every file of the build: an
+            // extension is found by the type it targets, not by an import.
+            var fids = self.sc->g->all_fids()
+            for var fi: usize = 0; (fi < fids.size()) && (lines.size() < 60); ++fi {
+                var unsafe *octx = self.sc->g->get_context(fids[fi])
+                if (octx == &null) || (octx->tu == &null) {
+                    continue
+                }
+
+                var *decls = &octx->tu->dc_decls
+                for var k: usize = 0; k < decls->size(); ++k {
+                    var unsafe *e = *decls->get(k)
+                    if (e == &null) || (!isa<Declarations::ExtensionDecl>(e)) {
+                        continue
+                    }
+
+                    var unsafe *ext = cast<Declarations::ExtensionDecl>(e)
+                    if self.decl_of_type_(ext->target) != d {
+                        continue
+                    }
+
+                    for var m: usize = 0; (m < ext->methods.size()) && (lines.size() < 60); ++m {
+                        lines.push_back("    " + self.signature_(unsafe (ext->methods[m] as unsafe *Decl)) + "  // extend")
+                    }
+                }
+            }
+        } else {
+            return ""
+        }
+
+        if lines.empty() {
+            return " { }"
+        }
+
+        var out: string = " {"
+        for var i: usize = 0; i < lines.size(); ++i {
+            out += "\n"
+            out += lines[i]
+        }
+
+        out += "\n}"
+        return out
+    }
+
+    /// Size and alignment in bytes of a field of type \p t, when they follow
+    /// from arithmetic alone: a builtin, a pointer, a plain enum, or a record
+    /// made of those. False for anything whose layout the C++ side decides.
+    priv fn field_layout_(self, t_in: unsafe *Type, size: *u64, align: *u64, depth: u32) -> bool {
+        if (t_in == &null) || (depth > 6) {
+            return false
+        }
+
+        var unsafe *t = t_in
+        if t->canonical != &null {
+            t = t->canonical
+        }
+
+        t = canon_unqual(t)
+        if t == &null {
+            return false
+        }
+
+        if isa<RecordType>(t) {
+            return self.record_layout_(cast<RecordType>(t)->decl, size, align, depth + 1)
+        }
+
+        if isa<Types::NullableType>(t) {
+            return false // carries a presence flag whose placement lowering decides
+        }
+
+        if (t->size_bits == 0) || (t->align_bits == 0) || ((t->size_bits % 8) != 0) {
+            return false
+        }
+
+        (*size)  = (t->size_bits / 8) as u64
+        (*align) = (t->align_bits / 8) as u64
+        return true
+    }
+
+    /// A struct's or plain class's layout by the C rule: each field at the
+    /// next multiple of its alignment, the whole rounded up to the largest.
+    /// Refuses anything the rule does not cover (bases, virtual methods,
+    /// generics, layout attributes, ADT enums), so a number shown is right.
+    priv fn record_layout_(self, d: unsafe *Decl, size: *u64, align: *u64, depth: u32) -> bool {
+        if (d == &null) || (depth > 6) || decl_is_ffi(d) {
+            return false
+        }
+
+        var fields: [unsafe *Decl]
+        var is_union = false
+        if isa<Declarations::ClassDecl>(d) {
+            var unsafe *c = cast<Declarations::ClassDecl>(d)
+            if (c->derives_list.size() > 0) || (c->generic_params.size() > 0) || c->is_abstract {
+                return false
+            }
+
+            for var i: usize = 0; i < c->methods.size(); ++i {
+                if (c->methods[i]->abi == Declarations::AbiKind::Virtual)
+                    || (c->methods[i]->body_kind == Declarations::FnBodyKind::Virtual) {
+                    return false // a virtual method adds a vtable pointer
+                }
+            }
+
+            for var i: usize = 0; i < c->fields.size(); ++i {
+                fields.push_back(unsafe (c->fields[i] as unsafe *Decl))
+            }
+        } else if isa<Declarations::StructDecl>(d) {
+            var unsafe *c = cast<Declarations::StructDecl>(d)
+            if c->generic_params.size() > 0 {
+                return false
+            }
+
+            for var i: usize = 0; i < c->fields.size(); ++i {
+                fields.push_back(unsafe (c->fields[i] as unsafe *Decl))
+            }
+        } else if isa<Declarations::UnionDecl>(d) {
+            var unsafe *c = cast<Declarations::UnionDecl>(d)
+            is_union = true
+            for var i: usize = 0; i < c->fields.size(); ++i {
+                fields.push_back(unsafe (c->fields[i] as unsafe *Decl))
+            }
+        } else if isa<Declarations::EnumDecl>(d) {
+            var unsafe *e = cast<Declarations::EnumDecl>(d)
+            if e->is_adt {
+                return false
+            }
+
+            if e->underlying == &null {
+                (*size)  = 4
+                (*align) = 4
+                return true
+            }
+
+            return self.field_layout_(e->underlying, size, align, depth + 1)
+        } else {
+            return false
+        }
+
+        if d->annotations.size() > 0 {
+            return false // @packed / @align and friends change the rule
+        }
+
+        var off: u64 = 0
+        var max: u64 = 1
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *f = cast<Declarations::FieldDecl>(fields[i])
+            if f->is_static() || f->is_bitfield {
+                if f->is_bitfield {
+                    return false
+                }
+
+                continue
+            }
+
+            var fs: u64 = 0
+            var fa: u64 = 0
+            if !self.field_layout_(f->type_, &fs, &fa, depth + 1) {
+                return false
+            }
+
+            if fa > max {
+                max = fa
+            }
+
+            if is_union {
+                if fs > off {
+                    off = fs
+                }
+            } else {
+                off = ((off + fa - 1) / fa) * fa
+                off += fs
+            }
+        }
+
+        if off == 0 {
+            off = 1 // an empty record still has an address
+        }
+
+        (*size)  = ((off + max - 1) / max) * max
+        (*align) = max
+        return true
+    }
+
+    /// "size N, align M" for a type declaration, or "" when not known.
+    priv fn layout_(self, d: unsafe *Decl) -> string {
+        if !(isa<Declarations::ClassDecl>(d) || isa<Declarations::StructDecl>(d) || isa<Declarations::UnionDecl>(d)
+            || isa<Declarations::EnumDecl>(d)) {
+            return ""
+        }
+
+        var size:  u64 = 0
+        var align: u64 = 0
+        if !self.record_layout_(d, &size, &align, 0) {
+            return ""
+        }
+
+        return f"size {size} bytes, align {align}"
+    }
+
     /// Index of \p d's hover text in `hovers`, building it on first use.
     priv fn hover_(self, d: unsafe *Decl) -> u32 {
         var key = (d as usize) as u64
@@ -892,7 +1169,14 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         var sig = self.signature_(d)
         var md: string = "```kairo\n"
         md += sig
+        md += self.members_(d)
         md += "\n```"
+
+        var lay = self.layout_(d)
+        if !lay.empty() {
+            md += "\n\n"
+            md += lay
+        }
 
         // Where it lives, when that is a type or a module: `Foo::bar` reads
         // differently from a free `bar`.
@@ -1261,6 +1545,10 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             m = m | TM_OVERLOADED()
         }
 
+        if decl_extension_of(d) != &null {
+            m = m | TM_EXTENSION()
+        }
+
         if m == 0 {
             return
         }
@@ -1293,6 +1581,12 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
 
         var len = tok.range.size() as u32
         var m   = TM_OVERLOADED()
+        if decl_extension_of(d) != &null {
+            // An operator an `extend` block supplies reads as an extension
+            // call (italic in the clients), not as the type's own overload.
+            m = TM_EXTENSION()
+        }
+
         if isa<Declarations::FunctionDecl>(d) && (cast<Declarations::FunctionDecl>(d)->where_lead != &null) {
             m = m | TM_DISPATCHED()
         }

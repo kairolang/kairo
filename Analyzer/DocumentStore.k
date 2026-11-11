@@ -234,6 +234,10 @@ pub class Document {
 
     /// Where this buffer's text was last written for a worker, and which
     /// revision that was. Empty until the first analysis needs it.
+    /// The server's revision counter when this buffer last changed: a
+    /// snapshot computed at or after it has this buffer's exact positions.
+    pub var changed_at: u64 = 0
+
     pub var tmp_path: string = ""
     pub var tmp_rev:  u64    = 0
 

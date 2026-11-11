@@ -98,6 +98,7 @@ pub class Job {
     pub var member: bool   = false  ///< JOB_COMPLETE: after `.`, `->` or `::`
     pub var marked: string = ""     ///< JOB_COMPLETE: the marked copy of the buffer
     pub var edit:   string = ""     ///< JOB_COMPLETE: the range an accepted item replaces, as JSON
+    pub var cancelled: bool = false ///< JOB_COMPLETE: already answered "cancelled"; drop the result
 
     fn Job(self) = default
 }
@@ -125,6 +126,7 @@ pub class Entry {
     /// produces another.
     pub var idx:     JsonDoc
     pub var has_idx: bool = false
+    pub var idx_rev: u64  = 0   ///< revision `idx` was computed at
     pub var ran:      bool = false  ///< a run finished, with or without a snapshot
 
     pub var dirty:      bool = true
@@ -191,6 +193,7 @@ pub class Server {
     pub var rev:  u64 = 1      ///< bumped on every change to any buffer or file
     pub var seq:  u64 = 0      ///< names scratch files and outgoing requests
 
+    pub var ready:           bool = false  ///< `initialized` arrived: notifications may be sent
     pub var quit:            bool = false
     pub var exit_code:       i32  = 1
     pub var shutdown_seen:   bool = false
@@ -242,9 +245,25 @@ pub class Server {
 
     // --- wire ------------------------------------------------------------
 
-    fn log(self, const s: string) {
+    /// A line for the person using the editor: it goes to the client's log
+    /// for this server (`window/logMessage`, the "Kairo" output channel in
+    /// VS Code, the language server log in Zed), to stderr, and to the
+    /// trace. \p level is LSP's MessageType: 1 error, 2 warning, 3 info, 4 log.
+    fn say(self, level: i64, const s: string) {
         io::eprintln("kals: " + s)
         self.trace("log " + s)
+        if self.ready {
+            var w = JsonWriter()
+            w.begin_object()
+            w.field_int("type", level)
+            w.field("message", s)
+            w.end_object()
+            self.notify("window/logMessage", w.out)
+        }
+    }
+
+    fn log(self, const s: string) {
+        self.say(2, s)
     }
 
     /// One line per message in and out, kept in memory and written to
@@ -544,6 +563,11 @@ pub class Server {
     fn touch(self, const path: string) {
         self.rev += 1
         self.idle_turns = 0
+        var di = self.docs.index_of_path(path)
+        if di != usize::MAX {
+            self.docs.docs[di].changed_at = self.rev
+        }
+
         for var i: usize = 0; i < self.entries.size(); ++i {
             if self.entries[i].holds(path) {
                 self.entries[i].dirty      = true
@@ -715,6 +739,10 @@ pub class Server {
         var argv = self.worker_argv(ei, j.out, "", "")
         self.entries[ei].dirty = false
         self.trace(f"index start entry={self.entries[ei].entry} rev={j.rev}")
+        if !self.entries[ei].ran {
+            self.say(4, "analysing " + self.entries[ei].entry)
+        }
+
         if !self.launch(&argv, j.log, &j.pi) {
             self.log("cannot start a worker (" + self.exe + ")")
             self.entries[ei].ran      = true
@@ -791,6 +819,19 @@ pub class Server {
         self.entries[ei].running  = false
         self.entries[ei].ran      = true
         self.entries[ei].done_rev = j->rev
+
+        // One notification per finished run, with the revision it saw and
+        // the revision now: a status display, or a test, can tell "caught
+        // up" (the two are equal) from "another run is due". `$/` marks it
+        // as one a client may ignore.
+        var aw = JsonWriter()
+        aw.begin_object()
+        aw.field("entry", self.entries[ei].entry)
+        aw.field_uint("revision", j->rev as usize)
+        aw.field_uint("current", self.entries[ei].change_rev as usize)
+        aw.field_int("exitCode", rc as i64)
+        aw.end_object()
+        self.notify("$/kals/analysed", aw.out)
         // Re-judged every run: an entry that got fast again (a release
         // build of the server, a smaller graph) goes back to exact answers.
         self.entries[ei].slow = (self.turn - j->began) > SLOW_TURNS()
@@ -813,15 +854,18 @@ pub class Server {
                 why = f"the analysis of {self.entries[ei].entry} stopped (exit {rc}); showing the last good results\n" + tail
             }
 
-            self.log(why)
-            var w = JsonWriter()
-            w.begin_object()
-            w.field_int("type", 2)
-            w.field("message", "kals: " + why)
-            w.end_object()
-            self.notify("window/logMessage", w.out)
+            self.say(2, why)
             self.retry_parked(false)
             return
+        }
+
+        // The first result for an entry, and any run slow enough to be felt,
+        // is worth a line; a run per keystroke on a small project is not.
+        var turns = self.turn - j->began
+        if (!self.entries[ei].has_snap) || (turns > SLOW_TURNS()) {
+            var nd = doc.count(doc.get(doc.root, "diagnostics"))
+            var nf = doc.count(doc.get(doc.root, "deps"))
+            self.say(4, f"analysed {self.entries[ei].entry}: {nf} files, {nd} diagnostics, about {turns * 40} ms")
         }
 
         self.entries[ei].snap     = doc
@@ -829,6 +873,7 @@ pub class Server {
         if doc.count(doc.get(doc.root, "files")) > 0 {
             self.entries[ei].idx     = doc
             self.entries[ei].has_idx = true
+            self.entries[ei].idx_rev = j->rev
         }
 
         // The graph may have grown or shrunk with this edit.
@@ -1155,7 +1200,8 @@ pub class Server {
         self.parked.clear()
         for var i: usize = 0; i < old.size(); ++i {
             var stale = force && (old[i].turns >= PARK_LIMIT())
-            if !self.feature(old[i].msg, stale) {
+            // A first index that has not come after two minutes is not coming.
+            if !self.feature(old[i].msg, stale, old[i].turns >= 3000) {
                 var p = old[i]
                 p.turns += 1
                 self.parked.push_back(p)
@@ -1211,7 +1257,15 @@ pub class Server {
         }
 
         if method == "initialized" {
+            self.ready = true
+            self.say(3, "kals started in " + self.root)
             self.load_project()
+            if self.project.path.empty() {
+                self.say(3, "no kairo_compile.json found: each file is checked on its own")
+            } else {
+                self.say(3, f"project {self.project.path}: {self.project.entries.size()} entry point(s)")
+            }
+
             return
         }
 
@@ -1390,15 +1444,48 @@ pub class Server {
         }
 
         if method.starts_with("textDocument/") {
-            if !self.feature(msg, false) {
+            if !self.feature(msg, false, false) {
                 self.park(msg)
             }
 
             return
         }
 
+        if method == "$/cancelRequest" {
+            // The editor has moved on: a request still waiting for a snapshot
+            // is answered "cancelled" now rather than computed later, and a
+            // completion still running is disowned (its worker finishes and
+            // is ignored; a process cannot be recalled mid-compile).
+            var want = d.dump(d.get(params, "id"))
+            var kept: [Parked]
+            for var q: usize = 0; q < self.parked.size(); ++q {
+                var pd = JsonDoc()
+                if pd.parse(self.parked[q].msg) && (pd.dump(pd.get(pd.root, "id")) == want) {
+                    self.respond_error(want, -32800, "cancelled")
+                } else {
+                    kept.push_back(self.parked[q])
+                }
+            }
+
+            self.parked = kept
+            for var q: usize = 0; q < self.jobs.size(); ++q {
+                if (self.jobs[q].kind == JOB_COMPLETE()) && (self.jobs[q].id == want) && (!self.jobs[q].cancelled) {
+                    self.jobs[q].cancelled = true
+                    self.respond_error(want, -32800, "cancelled")
+                }
+            }
+
+            if (!self.comp_wait_id.empty()) && (self.comp_wait_id == want) {
+                self.respond_error(want, -32800, "cancelled")
+                self.comp_wait    = ""
+                self.comp_wait_id = ""
+            }
+
+            return
+        }
+
         if method.starts_with("$/") || (!has_id) {
-            return // cancellation, progress, and notifications we do not use
+            return // progress, and notifications we do not use
         }
 
         self.respond_error(id, -32601, "method not found: " + method)
@@ -1502,7 +1589,7 @@ pub class Server {
 
     /// The features answered from a snapshot. False: not answerable yet (the
     /// entry is stale or unknown) and \p stale_ok is off, so park it.
-    fn feature(self, const msg: string, stale_ok: bool) -> bool {
+    fn feature(self, const msg: string, stale_ok: bool, give_up: bool) -> bool {
         var d = JsonDoc()
         if !d.parse(msg) {
             return true
@@ -1520,7 +1607,18 @@ pub class Server {
 
         var ei = self.ensure_entry(path)
         if (ei == usize::MAX) || (!self.entries[ei].fresh()) {
-            var slow = (ei != usize::MAX) && self.entries[ei].slow
+            // "Answer from the last snapshot" needs a last snapshot. Until
+            // an entry's FIRST index exists there is nothing to answer from,
+            // and an empty answer would tell the editor the file has no
+            // tokens, no hints and no symbols: wait for it, however slow
+            // (wait_first below bounds that).
+            var first = (ei != usize::MAX) && (!self.entries[ei].has_idx)
+                && (self.entries[ei].running || self.entries[ei].dirty)
+            var slow = (ei != usize::MAX) && self.entries[ei].slow && self.entries[ei].has_idx
+            if first && (!give_up) {
+                return false
+            }
+
             if (!stale_ok) && (!slow) {
                 return false
             }
@@ -1554,6 +1652,31 @@ pub class Server {
                 self.respond(id, "null")
             } else {
                 self.respond(id, "[]")
+            }
+
+            return true
+        }
+
+        // The index may be older than the buffer: the run for this text has
+        // not landed, or the text does not parse and the last good index was
+        // kept. Its positions are then off by the edits since. Sending them
+        // makes the editor draw hints, lenses and colours in the wrong
+        // places until the next answer (the flicker). The protocol's answer
+        // is ContentModified: the editor keeps what it has, which it has
+        // been moving with the text itself, and asks again.
+        var di = self.docs.index_of_path(path)
+        if (di != usize::MAX) && (self.entries[ei].idx_rev < self.docs.docs[di].changed_at) {
+            if (method == "textDocument/hover") || (method == "textDocument/definition")
+                || (method == "textDocument/declaration") || (method == "textDocument/typeDefinition")
+                || (method == "textDocument/prepareRename") || (method == "textDocument/rename")
+                || (method == "textDocument/implementation") || (method == "textDocument/prepareCallHierarchy")
+                || (method == "textDocument/prepareTypeHierarchy") {
+                // Asked for by hand at a position: no answer beats a wrong one.
+                self.respond(id, "null")
+            } else if (method == "textDocument/codeAction") {
+                self.code_action(&d, params, id, &self.entries[ei].snap, path)
+            } else {
+                self.respond_error(id, -32801, "content modified")
             }
 
             return true
@@ -2025,6 +2148,12 @@ pub class Server {
         }
 
         var line = md.subslice(ls, le - ls)
+        // A type's hover opens its body on the same line: `class Box {`.
+        var brace = find_from(line, " {", 0)
+        if brace != usize::MAX {
+            line = line.subslice(0, brace)
+        }
+
         // the word before `(`, or the last word of the line
         var stop = find_from(line, "(", 0)
         if (stop == usize::MAX) || line.starts_with("(") {
@@ -2969,6 +3098,7 @@ pub class Server {
                 why = why.subslice(src.size(), why.size() - src.size())
             }
 
+            self.say(2, "kfmt did not format " + self.docs.docs[i].path + why)
             self.respond_error(id, -32803, "kfmt did not format this file" + why)
             return
         }
@@ -3382,6 +3512,10 @@ pub class Server {
     }
 
     fn finish_complete(self, j: *Job, rc: i32) {
+        if j->cancelled {
+            return
+        }
+
         var text: string = ""
         var doc = JsonDoc()
         var w = JsonWriter()

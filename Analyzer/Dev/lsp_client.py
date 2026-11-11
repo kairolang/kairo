@@ -38,7 +38,20 @@ class Client:
     def notify(self, method, params):
         self.send({"jsonrpc": "2.0", "method": method, "params": params})
 
-    def request(self, method, params, timeout=30):
+    def request(self, method, params, timeout=30, raw=False):
+        """Sends a request and returns its result. A ContentModified answer
+        (-32801: "what I have is older than your buffer, ask again") is
+        retried, as an editor does, unless raw is set."""
+        if raw:
+            return self._request(method, params, timeout)
+        end = time.time() + timeout
+        while True:
+            r = self._request(method, params, timeout)
+            if not (isinstance(r, dict) and r.get("__error__", {}).get("code") == -32801) or time.time() > end:
+                return r
+            self.pump(0.2)
+
+    def _request(self, method, params, timeout=30):
         self.id += 1
         me = self.id
         self.send({"jsonrpc": "2.0", "id": me, "method": method, "params": params})
@@ -74,6 +87,19 @@ class Client:
                 if "id" in m:
                     self.send({"jsonrpc": "2.0", "id": m["id"], "result": None})
                 self.notes.append(m)
+
+    def settle(self, timeout=120):
+        """Waits until the server has analysed the current text: a
+        `$/kals/analysed` whose revision is the entry's current one, arriving
+        after this call. Use after a change, before reading diagnostics."""
+        start = len(self.notes)
+        end = time.time() + timeout
+        while time.time() < end:
+            for n in self.notes[start:]:
+                if n["method"] == "$/kals/analysed" and n["params"]["revision"] >= n["params"]["current"]:
+                    return True
+            self.pump(0.1)
+        return False
 
     def uri(self, rel):
         return "file://" + os.path.join(self.root, rel)
