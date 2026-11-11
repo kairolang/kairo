@@ -73,6 +73,8 @@ import std::io
 /// \endcode
 /// A fix that carries only a message prints nothing extra.
 pub class BasicDiagConsumer derives DiagConsumer {
+    /// Pre-rendered text written before the buffer (ModuleRecords' replay).
+    pub var replay: string = ""
     priv var _diags:     cxx::std::vector<unsafe *Diagnostic>
     priv var _sm:        unsafe *SourceManager
     priv var _abs_paths: bool                                 = false ///< --diag-absolute-paths
@@ -131,6 +133,13 @@ pub class BasicDiagConsumer derives DiagConsumer {
         // The pinned progress line goes first and stays off until the last
         // diagnostic is out: diagnostic text never shares its row.
         kairo::ProgressMeter::hold()
+        // A run incremental Sema skipped replays the frontend's diagnostics
+        // as the run that recorded them rendered them, ahead of whatever
+        // this run reported itself (Driver/ModuleRecords.k).
+        if !self.replay.empty() {
+            io::eprint(f"{self.replay}")
+        }
+
         for var i: usize = 0; i < self._diags.size(); ++i {
             self.emit_diag(self._diags[i])
         }
@@ -301,11 +310,31 @@ pub class BasicDiagConsumer derives DiagConsumer {
     }
 
     priv fn emit_diag(self, diag: unsafe *Diagnostic) {
-        io::eprint(f"{self.render_one(diag) + self.render_fixits(diag)}")
+        io::eprint(f"{self.stderr_text(diag)}")
+    }
+
+    /// Exactly what finalize_to_stderr writes for \p diag and its notes.
+    priv fn stderr_text(self, diag: unsafe *Diagnostic) -> string {
+        var out = self.render_one(diag) + self.render_fixits(diag)
         for var i: usize = 0; i < diag->children.size(); ++i {
-            io::eprint(
-                f"{self.render_one(diag->children[i]) + self.render_fixits(diag->children[i])}",
-            )
+            out += self.render_one(diag->children[i]) + self.render_fixits(diag->children[i])
         }
+
+        return out
+    }
+
+    /// How many diagnostics are buffered.
+    pub fn count(self) -> usize {
+        return self._diags.size()
+    }
+
+    /// The stderr text of buffered diagnostics [\p a, \p b).
+    pub fn render_range(self, a: usize, b: usize) -> string {
+        var out = ""
+        for var i: usize = a; i < b && i < self._diags.size(); ++i {
+            out += self.stderr_text(self._diags[i])
+        }
+
+        return out
     }
 }

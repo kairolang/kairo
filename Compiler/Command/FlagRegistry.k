@@ -2209,6 +2209,38 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     )
 
     cmd->define<FlagKind::Bool>(
+        "incremental-sema",
+        "",
+        "incremental-sema",
+        "with --cache-dir: keep a record per module and a run manifest; a run whose every input is unchanged skips parse, Sema and codegen and links the recorded objects (also KAIRO_INCR_SEMA=1; Compiler/Spec/IncrementalSema.md#phase-2)",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "incr-verify",
+        "",
+        "incr-verify",
+        "with --incremental-sema: on a would-be hit, run the whole pipeline anyway and fail if its diagnostics, object keys or interface hashes differ from the records",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "print-incr-status",
+        "",
+        "print-incr-status",
+        "with --incremental-sema: print the run's verdict to stdout (`incremental: hit, N modules` or `incremental: miss: <first reason>`)",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "incr-paranoid",
+        "",
+        "incr-paranoid",
+        "with --incremental-sema: hash every recorded input instead of trusting an unchanged size and mtime",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
         "print-emit-plan",
         "",
         "print-emit-plan",

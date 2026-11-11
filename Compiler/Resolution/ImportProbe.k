@@ -47,13 +47,10 @@
 //      denied root giving the preprocessor enough signal to emit a useful
 //      diagnostic rather than a silent "module not found".
 
-// FIXME(async-indexing): currently the resolver builds the index synchronously
-//      on the calling thread. this was forced by libcxx::filesystem, which
-//      touched locale state on first use and threw on worker threads; the walk
-//      is on llvm::sys::fs now, so that constraint is gone and async indexing
-//      can be revisited. rn in kairo/ the
-//      walk phase alone takes up seconds of time, since kairo/ has all of llvm
-//      and all of libc source in its search paths its awfully slow to index.
+// FIXME(async-indexing): the resolver scans directories synchronously on the
+//      calling thread, on first need (DirEntry::ensure_scanned). The scan uses
+//      llvm::sys::fs, so nothing forces that any more and scanning on worker
+//      threads can be revisited.
 
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/KLog.hh"
@@ -857,13 +854,12 @@ pub class ImportResolver {
     //    `import self::baz`    the importing file's directory,
     //    `import module::baz`  its module root -- both resolve_module_in.
     //
-    //  The plain form used to try the importing file's directory FIRST and
-    //  error when a root answered too. Sibling-first is Python 2's implicit
-    //  relative import, which Python removed because adding `root/baz.k`
-    //  silently changed what `import baz` meant three directories away; the
-    //  collision error kept that from being silent but still let a new root
-    //  file break a build far from it. Spelling the place in the import
-    //  removes the question instead.
+    //  The plain form never tries the importing file's directory first.
+    //  Sibling-first is Python 2's implicit relative import, which Python
+    //  removed because adding `root/baz.k` silently changed what `import baz`
+    //  meant three directories away; a collision error would keep that from
+    //  being silent but still let a new root file break a build far from it.
+    //  Spelling the place in the import removes the question instead.
     //
     //  Module IDENTITY never comes from the spelling - see canonical_module_path.
 
@@ -1541,6 +1537,20 @@ pub class ImportResolver {
     /// \details "The importing file's own root": what its unqualified imports
     ///          resolve against first, and the root whose name prefixes its
     ///          own module path (Compiler/Spec/Imports.md#path-resolution).
+    /// \brief every search root's directory, in priority order: where
+    ///        incremental Sema (Driver/ModuleRecords.k) watches for a module
+    ///        file that would change a resolution with no source edited.
+    pub fn root_dirs(self) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
+        for var r: unsafe *SearchRoot in self._roots {
+            if r != &null {
+                out.push_back(r->base_path.full_path())
+            }
+        }
+
+        return out
+    }
+
     pub fn root_for_dir(self, const dir: Path) -> unsafe *SearchRoot {
         var lock                         = kairo::std::LockGuard(self._mu)
         var best:     unsafe *SearchRoot = &null
@@ -1737,7 +1747,7 @@ pub class ImportResolver {
             }
 
             // A directory and a file whose names differ only by case
-            // (`Output/` beside `output.k`, P532) are two entries on every
+            // (`Output/` beside `output.k`) are two entries on every
             // filesystem, a case-insensitive one included, and two C++
             // namespaces: the pair is the directory-and-its-file shape
             // above, cased apart. Only two of one kind are one entry on

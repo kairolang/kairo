@@ -1338,8 +1338,20 @@ pub class FrontendAction {
             self._dump_import_uses(fe.dump_import_uses)
         }
 
-        if (!fe.dump_interface.empty()) || (!fe.dump_deps.empty()) {
+        if (!fe.dump_interface.empty()) || (!fe.dump_deps.empty()) || self._ci->incr.on {
             self._dump_incremental(fe.dump_interface, fe.dump_deps)
+        }
+
+        // Incremental Sema's input list: every file of every header set, so
+        // a header edit is a miss though no Kairo file changed. From the
+        // sets, not the SourceManager: a header clang read but no Kairo
+        // declaration names has no fid there (kfid 0).
+        if self._ci->incr.on {
+            for var hs: unsafe *HeaderSet in self._graph_header_sets() {
+                for var i: usize = 0; i < hs->files.size(); ++i {
+                    self._ci->incr.hdr_files.push_back(hs->files[i].path)
+                }
+            }
         }
 
         if fe.print_panic_sets {
@@ -2804,6 +2816,10 @@ pub class FrontendAction {
 
                 var modname = jkeys[ji]
                 var why     = ""
+                if self._ci->incr.on {
+                    self._ci->incr.keys.push_back(modname + "\t" + j->key)
+                }
+
                 // --force-recompile: no lookup, every TU compiles, and the
                 // store is refreshed with what it writes.
                 if !fe.force_recompile && ocache.fetch(j->key, j->outs[0], &why) {
@@ -3692,6 +3708,7 @@ pub class FrontendAction {
             }
         }
 
+        var rec  = self._ci->incr.on
         var head = "{\"version\": 1, \"root\": " + incr_json(root) + ", \"files\": ["
         var io_: string = head
         var do_: string = head
@@ -3708,6 +3725,9 @@ pub class FrontendAction {
                 do_ += ","
             }
 
+            var io_at = io_.size()
+            var do_at = do_.size()
+
             io_ += who + ", \"phase\": " + incr_json(f->phase) + ", \"hash\": " + incr_json(f->hash) + ", \"macros\": " + incr_json(f->macros) + ", \"decls\": ["
             for var k: usize = 0; k < f->decls.size(); ++k {
                 io_ += (if (k > 0) => (",\n  ") else => "\n  ") + f->decls[k]
@@ -3720,7 +3740,7 @@ pub class FrontendAction {
 
             io_ += "]}"
 
-            if deps_path.empty() {
+            if deps_path.empty() && !rec {
                 continue
             }
 
@@ -3803,6 +3823,31 @@ pub class FrontendAction {
             }
 
             do_ += "]}"
+            // Incremental Sema's per-module record (Driver/ModuleRecords.k):
+            // the same two entries the dumps print, plus the files it imports.
+            if rec {
+                var imps = ""
+                if c != &null && c->tu != &null {
+                    for var k: usize = 0; k < c->tu->import_edges.size(); ++k {
+                        var unsafe *e = c->tu->import_edges.get(k)
+                        // Kairo modules only: a header's ffi closure is
+                        // thousands of files per TU, and the manifest
+                        // already hashes every header of the run.
+                        if e == &null || e->target_fid == u32::MAX || self._ci->is_foreign_fid(e->target_fid) {
+                            continue
+                        }
+
+                        imps += (if (imps.empty()) => ("") else => ", ") + incr_json(self._ci->sm()->get_filename(e->target_fid))
+                    }
+                }
+
+                var name = if (f->mod_path.empty()) => (f->path) else => f->mod_path
+                self._ci->incr.mod_names.push_back(name)
+                self._ci->incr.mod_hash.push_back(f->hash)
+                self._ci->incr.mod_json.push_back(
+                    "\"imports\": [" + imps + "],\n\"interface\": " + io_.subslice(io_at + 1, io_.size() - io_at - 1) + ",\n\"deps\": " + do_.subslice(do_at + 1, do_.size() - do_at - 1) + "\n",
+                )
+            }
         }
 
         io_ += "\n]}\n"

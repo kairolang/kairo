@@ -756,6 +756,14 @@ pub class DiagEngine derives DiagEngineVBase {
 
     /// ## Counters
 
+    /// \brief counts \p warns warnings that were rendered by an earlier
+    ///        run and are replayed as text (Driver/ModuleRecords.k), so the
+    ///        totals and the exit status are the recorded run's.
+    pub fn add_replayed(self, warns: u32) {
+        var lock = kairo::std::LockGuard(self._mu)
+        self._warn_count += warns
+    }
+
     pub fn has_errors(self) -> bool {
         return self._error_count > 0
     }

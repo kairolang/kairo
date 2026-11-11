@@ -104,6 +104,8 @@ pub struct DiagGroup {
 ///
 /// Overlapping caret spans use the color of the highest severity diagnostic.
 pub class PrettyDiagConsumer derives DiagConsumer {
+    /// Pre-rendered text written before the buffer (ModuleRecords' replay).
+    pub var replay: string = ""
     priv var _diags:        cxx::std::vector<unsafe *Diagnostic>
     priv var _sm:           unsafe *SourceManager
     priv var _show_context: bool                                 = true ///< --diag-show-context: false hides the source snippet
@@ -196,12 +198,39 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         // stdout is block-buffered when piped and stderr is not: without
         // this a diagnostic lands in the middle of a dump line under 2>&1.
         cxx::std::fflush(kairo::std_out())
-        var out = self.render_all(color)
+        var out = self.replay + self.render_all(color)
         // See BasicConsumer::finalize_to_stderr: clear the pinned line first.
         kairo::ProgressMeter::hold()
         io::eprint("")
         io::eprint(f"{out}")
         kairo::ProgressMeter::release()
+    }
+
+    /// How many diagnostics are buffered.
+    pub fn count(self) -> usize {
+        return self._diags.size()
+    }
+
+    /// The colour finalize_to_stderr would use.
+    pub fn stderr_color(self) -> bool {
+        return self.detect_color_stderr()
+    }
+
+    /// The stderr text of buffered diagnostics [\p a, \p b), rendered as
+    /// a set of their own: coalescing never crosses the range's ends, so a
+    /// replay is exact only when nothing outside it shares a line with it
+    /// (Compiler/Spec/IncrementalSema.md#phase-2).
+    pub fn render_range(self, a: usize, b: usize) -> string {
+        var all  = self._diags
+        var part = cxx::std::vector<unsafe *Diagnostic>()
+        for var i: usize = a; i < b && i < all.size(); ++i {
+            part.push_back(all[i])
+        }
+
+        self._diags = part
+        var out = self.render_all(self.detect_color_stderr())
+        self._diags = all
+        return out
     }
 
     fn finalize_to_stdout(self) {

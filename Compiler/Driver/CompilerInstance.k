@@ -138,6 +138,7 @@ ffi "c++" import "clang/Frontend/FrontendActions.h"
 ffi "c++" import "Native/KTimeReport.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/KShims.hh"
+ffi "c++" import "Native/KObjCache.hh"
 ffi "c++" import "Native/KLog.hh"
 ffi "c++" import "Native/GlobalRecycler.hh"
 ffi "c++" import "vector"
@@ -179,6 +180,9 @@ import Driver::CompilerLink
 import Driver::CompilerNative
 import Driver::CompilerSetup
 import Driver::FrontendAction::FrontendAction
+import Driver::ModuleRecords::ModuleRecords
+import Driver::TUResult::TUResult
+import Driver::TUStage::TUStage
 import Driver::InputKinds::{
     InputClass,
     InputKind,
@@ -198,6 +202,7 @@ import Interop::Clang::HeaderSetCache::HeaderSetCache
 import Location::SourceManager::SourceManager
 import Preprocessor::Preprocessor::PreProcessor
 import Resolution::ImportProbe::ImportResolver
+import std::io
 import Resolution::ModulePath::ModulePath
 import Sema::Foreign::BuiltinImport::BuiltinImport
 import Sema::Foreign::ForeignInstantiate::ForeignInstantiate
@@ -256,6 +261,13 @@ pub class CompilerInstance {
     /// reported by initialize() (_report_root_warnings).
     prot var _root_warnings: cxx::std::vector<string>
     prot var _link_out:      string                   = "" ///< executable/library path; "" = this run does not link
+    /// The command line as given (argv, or kcc's words): incremental
+    /// Sema keys the whole of it (Driver/ModuleRecords.k). Empty for an
+    /// instance built from an invocation, which then never records.
+    pub var incr_words: cxx::std::vector<string>
+    /// Incremental Sema, phase 2: the records this run checks and writes.
+    /// The FrontendAction adds its modules, object keys and header files.
+    pub var incr: ModuleRecords
     prot var _obj_dir:       string                   = "" ///< where objects go; always set by _plan_outputs
     prot var _obj_tmp:       bool                     = false ///< _obj_dir is a temp dir this run owns and removes
     /// A linking run whose --emit lists more than the object: the entry
@@ -334,6 +346,9 @@ pub class CompilerInstance {
         // parsing here as well would double-report every flag error.
         self._cmd = kairo::std::create<Command>(argc, argv, self._diag)
         register_kairo_flags(self._cmd)
+        for var i: i32 = 0; i < argc; ++i {
+            self.incr_words.push_back(string(unsafe ((argv[i] as unsafe *const u8) as *const u8)))
+        }
 
         var inv = CompilerInvocation::from_args(
             argc,
@@ -353,6 +368,12 @@ pub class CompilerInstance {
         self._boot_diagnostics()
         self._cmd = kairo::std::create<Command>(0, &null, self._diag)
         register_kairo_flags(self._cmd)
+        // A leading placeholder: setup() skips word 0, argv's program name.
+        self.incr_words.push_back("kcc")
+        for var w: string in words {
+            self.incr_words.push_back(w)
+        }
+
         var parsed = self._cmd->parse_words(&words)
         var inv    = CompilerInvocation()
         if parsed.ok {
@@ -1077,6 +1098,251 @@ pub class CompilerInstance {
     /// Builds an \c ImportResolver from the search paths in the invocation,
     /// then runs a \c FrontendAction for each input file. A fatal diagnostic
     /// in any file sets \c BatchResult::aborted and skips remaining files.
+    /// \brief why this run cannot be recorded or replayed, "" when it can.
+    ///
+    /// \details A record stands for one Kairo input whose only outputs are
+    ///          the objects the link takes (or none, under
+    ///          --type-check-only): anything else the frontend writes or
+    ///          prints (a dump, an .s beside the link, the `kairo: wrote`
+    ///          lines) would be missing from a replay.
+    priv fn _incr_ineligible(self, order: *cxx::std::vector<InputKind>) -> string {
+        var *fe = &self.invocation()->frontend
+        if self.incr_words.empty() {
+            return "no command line"
+        }
+
+        if self.invocation()->linker.cache_dir.empty() {
+            return "no --cache-dir"
+        }
+
+        var nk: usize = 0
+        // C and C++ inputs compile after the loop, through their own
+        // cache, and read nothing the loop wrote, unless one includes a
+        // Kairo file (kairo_feeds_includes, below).
+        for *k in (*order) {
+            if k->cls == InputClass::Source || k->cls == InputClass::Header {
+                continue
+            }
+
+            if k->cls != InputClass::LinkInput {
+                nk += 1
+                if k->discovered {
+                    return "an input found through an include"
+                }
+            }
+        }
+
+        if nk != 1 {
+            return "not exactly one Kairo input"
+        }
+
+        if self.kairo_feeds_includes() {
+            return "a C++ input includes a Kairo file"
+        }
+
+        if self._obj_tmp {
+            return "objects go to a temporary directory"
+        }
+
+        if self.emits_beside_link() || fe->emit_asm || fe->emit_llvm_ir || fe->emit_llvm_bc
+            || fe->print_cg || fe->print_ir || fe->force_recompile {
+            return "an output other than objects"
+        }
+
+        if fe->stops_at_preprocess() || fe->stops_at_parse() {
+            return "the run stops before Sema"
+        }
+
+        for var w: string in self.incr_words {
+            if w.starts_with("--print-incr-status") {
+                continue
+            }
+
+            if w.starts_with("--print-") || w.starts_with("--dump-") || w.starts_with("-###") {
+                return "a print or dump flag"
+            }
+        }
+
+        return ""
+    }
+
+    /// \brief sets the records up for this run and decides: true when the
+    ///        frontend is skipped (a hit, without --incr-verify).
+    priv fn _incr_begin(self, order: *cxx::std::vector<InputKind>) -> bool {
+        var *fe = &self.invocation()->frontend
+        if LinkFS::env("KAIRO_INCR_SEMA") == "1" {
+            fe->incremental_sema = true
+        }
+
+        if !fe->incremental_sema {
+            return false
+        }
+
+        self.incr.verify       = fe->incr_verify
+        self.incr.paranoid     = fe->incr_paranoid
+        self.incr.print_status = fe->print_incr_status
+        var format = self.invocation()->diag.format
+        var basic  = format == "basic" || format == "json"
+        var color  = false
+        if !basic {
+            color = self._pretty->stderr_color()
+        }
+
+        var input = ""
+        for *k in (*order) {
+            if k->cls != InputClass::LinkInput && k->cls != InputClass::Source && k->cls != InputClass::Header {
+                input = Path(k->path).full_path()
+            }
+        }
+
+        var why = self._incr_ineligible(order)
+        if why.empty()
+            && !self.incr.setup(self.invocation()->linker.cache_dir, self.incr_words, input, self._link_out, format, color) {
+            why = "no --cache-dir"
+        }
+
+        if !why.empty() {
+            self.incr.on = false
+            if self.incr.print_status {
+                io::println(f"incremental: miss: not eligible ({why})")
+            }
+
+            return false
+        }
+
+        // Only what the loop delivers is recorded: a diagnostic reported
+        // before it (a flag warning, the library build) is reported live on
+        // a hit run too.
+        self.incr.diag0  = if (basic) => (self._basic->count()) else => self._pretty->count()
+        self.incr.warns0 = self._diag->warn_count()
+        var hit = self.incr.check()
+        if self.incr.print_status && !(hit && self.incr.verify) {
+            io::println(f"incremental: {self.incr.status}")
+        }
+
+        return hit && !self.incr.verify
+    }
+
+    /// \brief the recorded run's result for the input \p path: its
+    ///        objects, its diagnostics (as text, ahead of this run's own)
+    ///        and its warning count.
+    priv fn _incr_replay(self, const path: string) -> TUResult {
+        var tr = TUResult()
+        tr.path        = Path(path).full_path()
+        tr.stage       = TUStage::Done
+        tr.objects     = self.incr.old_objects
+        tr.ffi_pthread = self.incr.old_pthread
+        tr.warn_count  = self.incr.old_warns
+        var format = self.invocation()->diag.format
+        if format == "basic" || format == "json" {
+            self._basic->replay = self.incr.old_diag
+        } else {
+            self._pretty->replay = self.incr.old_diag
+        }
+
+        self._diag->add_replayed(self.incr.old_warns)
+        self.incr.refresh()
+        return tr
+    }
+
+    /// \brief after the loop of a run that did not skip: under
+    ///        --incr-verify compares it with the records it would have
+    ///        replayed; then, when it finished with no error, writes them.
+    priv fn _incr_end(self, result: *BatchResult, hit: bool) {
+        if !self.incr.on || hit {
+            return
+        }
+
+        var format = self.invocation()->diag.format
+        var basic  = format == "basic" || format == "json"
+        var n1     = if (basic) => (self._basic->count()) else => self._pretty->count()
+        var text   = if (basic) => (self._basic->render_range(self.incr.diag0, n1)) else => self._pretty->render_range(self.incr.diag0, n1)
+        var warns  = self._diag->warn_count() - self.incr.warns0
+        var objs   = cxx::std::vector<string>()
+        var pth    = false
+        var done   = true
+        for *tr in result->tu_results {
+            for *o in tr->objects {
+                objs.push_back(*o)
+            }
+
+            if tr->ffi_pthread {
+                pth = true
+            }
+
+            if tr->stage != TUStage::Done {
+                done = false
+            }
+        }
+
+        if self.incr.verify && self.incr.hit {
+            var diff = ""
+            if text != self.incr.old_diag {
+                diff = "the diagnostics"
+            } else if warns != self.incr.old_warns {
+                diff = "the warning count"
+            } else if !ModuleRecords::same_list(&objs, &self.incr.old_objects) {
+                diff = "the object list"
+            } else {
+                var now = self.incr.new_mods()
+                if now.size() != self.incr.old_mods.size() {
+                    diff = "the module list"
+                } else {
+                    for var i: usize = 0; i < now.size(); ++i {
+                        if now[i] != self.incr.old_mods[i] {
+                            diff = "module " + now[i] + " (recorded " + self.incr.old_mods[i] + ")"
+                            break
+                        }
+                    }
+                }
+            }
+
+            if !diff.empty() {
+                if self.incr.print_status {
+                    io::println(f"incremental: hit, verify FAILED: {diff}")
+                }
+
+                self._diag->report(
+                    DiagID::U001E,
+                    f"--incr-verify: the records claim a hit, but a full run differs in {diff}; the record is unsound",
+                ).emit()
+                return
+            }
+
+            if self.incr.print_status {
+                io::println(f"incremental: {self.incr.status}, verified")
+            }
+        }
+
+        if self._diag->error_count() > 0 || result->aborted || !done {
+            return
+        }
+
+        var _t = TimeRegion("IncrRecords")
+        for var fid: usize = 0; fid < self._sm->file_count(); ++fid {
+            var name = self._sm->get_filename(fid as u32)
+            if name.empty() || name == "<invalid>" || name[0] == ('<' as u8) {
+                continue
+            }
+
+            var h    = ""
+            var buf? = self._sm->get_buffer(fid as u32)
+            if buf != null && buf.is_valid() {
+                h = kairo::std::from_std_string<string>(kairo::objcache_hash128_bytes(buf.data(), buf.size()))
+            }
+
+            self.incr.src_files.push_back(name)
+            self.incr.src_hash.push_back(h)
+        }
+
+        self.incr.roots   = self._imp->root_dirs()
+        self.incr.objects = objs
+        self.incr.pthread = pth
+        self.incr.diag    = text
+        self.incr.warns   = warns
+        self.incr.write()
+    }
+
     /// Results are collected into the returned \c BatchResult.
     fn execute(self) -> BatchResult {
         eval if defined!(DEBUG) {
@@ -1154,7 +1420,13 @@ pub class CompilerInstance {
         // link).
         var prev_errors: u32 = 0
         var prev_fatals: u32 = 0
-        for var k: InputKind in self._kairo_order() {
+        var order            = self._kairo_order()
+        // Incremental Sema, phase 2 (Driver/ModuleRecords.k): on a hit the
+        // one Kairo input's action is replaced by the recorded result; every
+        // stage around the loop (the library, natives, the runtime, the link)
+        // runs as it always does.
+        var incr_hit = self._incr_begin(&order)
+        for var k: InputKind in order {
             var path_str = k.path
             if k.cls == InputClass::LinkInput {
                 self._link_inputs.push_back(path_str)
@@ -1167,6 +1439,10 @@ pub class CompilerInstance {
             }
 
             kairo_inputs += 1
+            if incr_hit {
+                result.tu_results.push_back(self._incr_replay(path_str))
+                continue
+            }
 
             var unsafe *action = kairo::std::create<FrontendAction>(
                 Path(path_str),
@@ -1193,6 +1469,8 @@ pub class CompilerInstance {
 
             result.tu_results.push_back(action->result)
         }
+
+        self._incr_end(&result, incr_hit)
 
         // Each input may be a script (Compiler/Spec/ScriptMode.md#which-file-is-a-script), and each script is a
         // `main`: two in one link are two programs, which the linker would

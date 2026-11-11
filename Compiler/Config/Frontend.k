@@ -85,6 +85,13 @@ pub class FrontendOptions {
     /// turns dependency logging on for the run.
     pub var dump_interface: string = ""
     pub var dump_deps:      string = ""
+    /// --incremental-sema / --incr-verify / --print-incr-status /
+    /// --incr-paranoid: incremental Sema phase 2 (Driver/ModuleRecords.k).
+    /// The first also turns dependency logging on: the records hold I(m).
+    pub var incremental_sema:  bool = false
+    pub var incr_verify:       bool = false
+    pub var print_incr_status: bool = false
+    pub var incr_paranoid:     bool = false
     pub var print_emit_plan:     bool   = false
     pub var print_panic_sets:    bool   = false
     pub var print_cxx:           bool   = false ///< --print-cxx: the TU's C++ preamble (interface only) as text
@@ -214,6 +221,10 @@ pub class FrontendOptions {
         o.dump_import_uses    = args.get_string("dump-import-uses")
         o.dump_interface      = args.get_string("dump-interface")
         o.dump_deps           = args.get_string("dump-deps")
+        o.incremental_sema    = args.get_bool("incremental-sema")
+        o.incr_verify         = args.get_bool("incr-verify")
+        o.print_incr_status   = args.get_bool("print-incr-status")
+        o.incr_paranoid       = args.get_bool("incr-paranoid")
         o.print_emit_plan     = args.get_bool("print-emit-plan")
         o.print_panic_sets    = args.get_bool("print-panic-sets")
         o.print_cxx           = args.get_bool("print-cxx")

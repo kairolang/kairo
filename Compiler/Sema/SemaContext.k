@@ -243,7 +243,7 @@ pub class SemaOptions {
         self.infer_purity    = ci->lang.infer_purity != 0
         self.print_stats     = ci->frontend.print_stats
         self.log_import_uses = !ci->frontend.dump_import_uses.empty()
-        self.log_deps        = (!ci->frontend.dump_deps.empty()) || (!ci->frontend.dump_interface.empty())
+        self.log_deps        = (!ci->frontend.dump_deps.empty()) || (!ci->frontend.dump_interface.empty()) || ci->frontend.incremental_sema
         self.duck_generics   = ci->lang.duck_generics == 1 // unset = off (see above)
         // FlagTranslator's test of a hosted target, on the resolved triple.
         var hosted = !(ci->lang.freestanding || ci->codegen.kernel_mode)
