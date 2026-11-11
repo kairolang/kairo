@@ -2270,6 +2270,25 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return
         }
 
+        // `f8` is a reserved primitive keyword (the lexer has a token for it)
+        // but names no format: an 8-bit float is ambiguous between E4M3 and
+        // E5M2, and the docs define only `f8e4m3` / `f8e5m2`. It maps to no
+        // BuiltinKind, and as a keyword it is in no lookup table either, so
+        // without this it fell through with an unresolved type that reached
+        // EmitIR as an ICE (P584).
+        if tok.kind == TokenKind::AtF8 {
+            var b = self.sc->diag->report(
+                DiagID::R021E,
+                seg0->name->range.start,
+                "unknown type name 'f8'",
+            )
+            b.first(seg0->name->range)
+            b.fix(seg0->name->range, "f8e4m3", "an 8-bit float names its format: 'f8e4m3' or 'f8e5m2'")
+            b.emit()
+            ct->poison()
+            return
+        }
+
         // `Self` / `self` in type position: the enclosing type. Bare, it IS the
         // record (with its own params as args, dependent if generic). With
         // `::` after it, it is a HEAD like any other type decl: `Self::Inner`

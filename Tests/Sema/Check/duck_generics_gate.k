@@ -1,5 +1,5 @@
 // `<T: type>` is the transitional C++-checked regime. It is off
-// by default (internal flag, decided 2026-11-08); without -fduck-generics every
+// by default (internal flag); without -fduck-generics every
 // `: type` in a program file is an error, labelled at the bound. When the body uses no member of the
 // parameter the fix-it deletes `: type` (an unbounded `T` accepts the same
 // body); when it does, deleting it would only trade this error for R051E,
@@ -35,5 +35,5 @@ fn main() -> i32 { return 0 }
 // RUN: { %kairo %s --type-check-only -fduck-generics 2>&1 || true; } | %FileCheck %s --check-prefix=ON --allow-empty
 // ON-NOT: {{error|warning}}
 
-// No flag is the regime off: the default since 2026-11-08.
+// No flag is the regime off: the default.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=OFF

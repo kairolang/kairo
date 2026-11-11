@@ -7,7 +7,7 @@
 // call only because passing it by value moves it. A plain C++ `T&` parameter
 // borrows instead (`@inout`), so the variable binds as the lvalue it is, and
 // a derived class binds the base subobject: `ci->ExecuteAction(act)` with
-// `act: clang::EmitObjAction` was SC063E "cannot convert argument of type
+// `act: clang::EmitObjAction` is not SC063E "cannot convert argument of type
 // 'EmitObjAction' to parameter 'Act' of type 'FrontendAction&'".
 
 // DIAG-NOT: error

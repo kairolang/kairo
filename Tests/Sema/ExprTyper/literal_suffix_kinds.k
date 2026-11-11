@@ -1,8 +1,8 @@
 // Which type each literal suffix names (primitives.mdx, Integers and
 // Floating-Point). The lexer only knows `iN` / `uN` / `fN` widths; every
-// other suffix used to fall through to a default without a word: `1usize`
-// and `1f32` were i8 (the value's minimum width) and `1.5bf16` an f64.
-// They are read from the suffix's text now: usize / isize are the target's
+// other suffix is read from its text, not defaulted without a word: `1usize`
+// and `1f32` are not i8 (the value's minimum width), nor `1.5bf16` an f64.
+// So: usize / isize are the target's
 // pointer width, a float suffix on an integer body is that float, `bf16` is
 // bf16, and a suffix that names no type is SC074E.
 

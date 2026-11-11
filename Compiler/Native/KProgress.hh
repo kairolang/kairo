@@ -56,9 +56,9 @@ class ProgressMeter {
     enum Phase : int { Parse = 0, Sema = 1, Codegen = 2, PhaseCount = 3 };
 
     /// Resolves \p flag (auto|always|never|lines; "" is auto). False for any
-    /// other spelling, with the meter left off. \p quiet_auto is kept for the
-    /// caller's signature; `auto` no longer looks at it (progress is on
-    /// whenever stderr is a terminal, --verbose included).
+    /// other spelling, with the meter left off. \p quiet_auto is ignored (kept
+    /// for the caller's signature); `auto` means progress is on whenever
+    /// stderr is a terminal, --verbose included.
     static bool configure(const char *flag, bool quiet_auto) {
         (void)quiet_auto;
         State &s = st();

@@ -1699,6 +1699,7 @@ pub class ImportResolver {
         // Sorted, so a collision is reported with the same pair ordering on
         // every run (children is an unordered_map).
         var names = cxx::std::vector<string>()
+        var dirs  = llvm::StringMap<bool>() // name -> a directory claims it
         for var it = dir->children.begin(); it != dir->children.end(); ++it {
             var unsafe *child = it->second
             if child == &null {
@@ -1714,6 +1715,9 @@ pub class ImportResolver {
             }
 
             names.push_back(child->name)
+            if child->is_dir {
+                dirs[kairo::sref(child->name)] = true
+            }
         }
 
         cxx::std::sort(names.begin(), names.end())
@@ -1729,6 +1733,18 @@ pub class ImportResolver {
 
             var other = ins.first->second
             if other == raw { // a dir and its own module.k, etc.
+                continue
+            }
+
+            // A directory and a file whose names differ only by case
+            // (`Output/` beside `output.k`, P532) are two entries on every
+            // filesystem, a case-insensitive one included, and two C++
+            // namespaces: the pair is the directory-and-its-file shape
+            // above, cased apart. Only two of one kind are one entry on
+            // macOS/Windows, which is what P002E says.
+            var other_dir = dirs.contains(kairo::sref(other))
+            var raw_dir   = dirs.contains(kairo::sref(raw))
+            if other_dir != raw_dir && self._lower(other) == self._lower(raw) {
                 continue
             }
 

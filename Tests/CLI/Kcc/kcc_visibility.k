@@ -1,5 +1,5 @@
 // What a C++ file sees of an included `.k` follows Kairo's visibility
-// (decided 2026-11-08): `pub` always, `prot` only from a C++ file of the
+// as follows: `pub` always, `prot` only from a C++ file of the
 // declaring file's module (under the same nearest module.k), `priv` never.
 // An unmarked declaration under a module.k is `prot`.
 //

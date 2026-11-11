@@ -130,7 +130,8 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType, BuiltinKind, BuiltinType, RecordType, builtin_info, canon_quals, canon_unqual,
+    AssocType, BuiltinKind, BuiltinType, RecordType, builtin_info, canon_has_const, canon_quals,
+    canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -2344,9 +2345,27 @@ pub class EmitIR {
             return
         }
 
+        // YieldPromise::yield_value takes a `T&` (`@inout`: the reader sees
+        // the generator's own value) or a `T&&` (`@move`: a prvalue, which
+        // lives to the end of the full `co_yield` expression and so across
+        // the suspension). A CONST lvalue binds neither, so it is copied to
+        // a frame local first: the local lives until the block closes, after
+        // the generator resumes, and is what the reader sees (P324).
+        var unsafe *elem = self._yield_elem(self._cur_fn)
+        var unsafe *vt   = n->value->type_
+        if n->value->value_category == Expr::ValueCategory::LValue
+            && vt != &null
+            && canon_has_const(vt)
+            && (!self._needs_cast(n->value, elem, &null)) {
+            self._cg->sink->spell(n->range, "{ auto __kairo_yv = (")
+            self._value(n->value, elem)
+            self._cg->sink->spell(n->range, "); co_yield(__kairo_yv); }")
+            return
+        }
+
         self._cg->sink->spell(n->range, "co_yield")
         self._cg->sink->spell(n->range, "(")
-        self._value(n->value, self._yield_elem(self._cur_fn))
+        self._value(n->value, elem)
         self._cg->sink->spell(n->range, ")")
         self._cg->sink->synth_at_end(n->range, clang::tok::semi)
     }
@@ -3850,6 +3869,15 @@ pub class EmitIR {
             return
         }
 
+        // `|*count|` naming a global (P847): ExprTyper::_capture_view types
+        // the name as the `*T` pointer, but ClosureCaptures captures no
+        // global (it is named in place), so the body would dereference the
+        // global's own value. The pointer the body reads is its address.
+        if self._ptr_view_of_global(d) {
+            self._cg->sink->spell(n->range, "(&" + self._spell.qual_name(d) + ")")
+            return
+        }
+
         // `f<A>` with no instance to spell (the call or value is dependent)
         // keeps the arguments it was written with: they are A
         // itself, and clang substitutes them per instance. Dropped, a
@@ -3903,6 +3931,25 @@ pub class EmitIR {
 
     /// Params, body locals, binders, generic params, and statement-scope
     /// decls: everything with no symbol-table home.
+    /// The closure being emitted names the global \p d in a pointer capture
+    /// (`|*count|`, `|const *count|`): its name there is `&d`. `|*|` alone
+    /// leaves a global as itself (ExprTyper::_capture_view).
+    priv fn _ptr_view_of_global(self, d: unsafe *Decl) -> bool {
+        var unsafe *c = self._closure
+        if c == &null || (!isa<VariableDecl>(d)) {
+            return false
+        }
+
+        for var k: usize = 0; k < c->captures.size(); ++k {
+            var unsafe *cap = c->captures.get(k)
+            if cap->by_ptr && cap->name != &null && cap->name->resolved_decl == d {
+                return true
+            }
+        }
+
+        return false
+    }
+
     priv fn _is_local(self, d: unsafe *Decl) -> bool {
         if isa<ParamDecl>(d) || isa<GenericParamDecl>(d) {
             return true

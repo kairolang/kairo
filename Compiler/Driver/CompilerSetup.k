@@ -620,6 +620,19 @@ extend CompilerInstance {
             bcfg.driver_words.push_back(a)
         }
 
+        // The AVR driver warns "no target microcontroller specified" for a
+        // line without -mmcu, and picks no CPU: the probe is such a line
+        // unless the --cxx-flags -mmcu reaches it too (P661). Given it,
+        // the probe's -target-cpu is the MCU the C inputs compile for.
+        var mmcu_next = false
+        for s in *self.invocation()->args.get_list("cxx-flags") {
+            if mmcu_next || s.starts_with("-mmcu=") || s == "-mmcu" {
+                bcfg.driver_words.push_back(s)
+            }
+
+            mmcu_next = s == "-mmcu"
+        }
+
         // (bcfg.c_std stays c17: native_invocation builds only Lib/rt, Kairo's
         // own runtime; --c-std is for the user's C inputs.)
         // Every flag word below is spelled by FlagTranslator, the one home
@@ -1555,6 +1568,32 @@ extend CompilerInstance {
             ).emit()
             self.invocation()->ok = false
             return
+        }
+
+        // `--mcpu native` is the host's CPU, as clang's -mcpu=native is. cc1's
+        // -target-cpu (what --mcpu forwards to, FlagTranslator::target) has no
+        // `native`: the clang DRIVER resolves it, so kairo must too, here,
+        // before the validity check and before anything forwards the name.
+        // Resolved only for a host build: with --target the host's CPU names
+        // nothing about the target, and guessing would silently build for a
+        // machine nobody asked for (P423).
+        if self._inv.target.mcpu == "native" {
+            if !self._inv.target.triple.empty() {
+                self._diag->report(
+                    DiagID::P006E,
+                    f"'--mcpu native' names the host CPU and cannot be used with --target '{self._inv.target.triple}'",
+                ).emit()
+                self._diag->report(DiagID::P006N,
+                    f"name the CPU explicitly; run with --print-cpus --target={t->effective_triple} to list valid values").emit()
+                self.invocation()->ok = false
+                return
+            }
+
+            var host = llvm::sys::getHostCPUName()
+            self.invocation()->target.mcpu = string(
+                unsafe ((host.data() as unsafe *const u8) as *const u8),
+                host.size(),
+            )
         }
 
         if !self._inv.target.mcpu.empty() {

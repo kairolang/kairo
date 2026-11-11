@@ -8,8 +8,8 @@
 // but leaves the opaque referee alone, so the call typed as `<ffi type>&&`
 // and `self.f = cxx::std::move(other.f)` failed with SC028E "cannot convert
 // '<ffi type>&&' to 'SF<64>'". A return type that merely CONTAINS an opaque
-// type now takes clang's substituted one, as a wholly opaque one already
-// did. Found in the migrated Threading/Task.k (self-host phase 5.2).
+// type takes clang's substituted one, as a wholly opaque one already
+// did.
 
 // DIAG-NOT: error
 

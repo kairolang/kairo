@@ -22,6 +22,17 @@ ffi "c++" import "vector";
 ffi "c++" import "filesystem";
 ffi "c++" import "system_error";
 
+// The f-string formatter knows Kairo strings, not a foreign std::string or a
+// C string: given one it prints the type and address. Every name and
+// path reaches a message through these.
+fn text(const s: cxx::std::string) -> string {
+    return string(unsafe ((s.data() as unsafe *const u8) as *const u8), s.size());
+}
+
+fn ctext(p: unsafe *c_char) -> string {
+    return string(unsafe ((p as unsafe *const u8) as *const u8));
+}
+
 // An archive is untrusted input and the names in it are joined onto the
 // destination, so a name that is absolute, climbs with '..', or carries a
 // Windows root would write wherever the archive author chooses. Names are
@@ -137,7 +148,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
     var f = cxx::std::ifstream(archive_path, cxx::std::ios::binary | cxx::std::ios::ate);
     if !f.is_open() {
-        io::println(f"Error: cannot open '{archive_path}'");
+        io::println(f"Error: cannot open '{ctext(archive_path)}'");
         return 1;
     }
 
@@ -204,13 +215,13 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     for entry in table {
         var why = unsafe_name_reason(entry.filename);
         if why.size() != 0 {
-            io::println(f"Error: refusing unsafe entry '{entry.filename}': {why}");
+            io::println(f"Error: refusing unsafe entry '{text(entry.filename)}': {text(why)}");
             return 1;
         }
         // A forged table can point past the data section; resize() below
         // would then allocate whatever length the archive claims.
         if entry.offset > file_size || entry.length > file_size - entry.offset {
-            io::println(f"Error: entry '{entry.filename}' lies outside the archive");
+            io::println(f"Error: entry '{text(entry.filename)}' lies outside the archive");
             return 1;
         }
     }
@@ -223,7 +234,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
         var escape = escape_reason(output_dir, dest);
         if escape.size() != 0 {
-            io::println(f"Error: refusing unsafe entry '{entry.filename}': {escape}");
+            io::println(f"Error: refusing unsafe entry '{text(entry.filename)}': {text(escape)}");
             return 1;
         }
         cxx::std::filesystem::create_directories(dest.parent_path());
@@ -231,7 +242,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         // raced into place must still resolve under the root.
         escape = escape_reason(output_dir, dest);
         if escape.size() != 0 {
-            io::println(f"Error: refusing unsafe entry '{entry.filename}': {escape}");
+            io::println(f"Error: refusing unsafe entry '{text(entry.filename)}': {text(escape)}");
             return 1;
         }
 
@@ -240,21 +251,21 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
         f.seekg(cxx::std::streampos(entry.offset as i64));
         if !f.read(contents.data(), entry.length as isize) {
-            io::println(f"Error: failed to read data for '{entry.filename}'");
+            io::println(f"Error: failed to read data for '{text(entry.filename)}'");
             return 1;
         }
 
         var out = cxx::std::ofstream(dest, cxx::std::ios::binary);
         if !out.is_open() {
-            io::println(f"Error: cannot create '{dest.string()}'");
+            io::println(f"Error: cannot create '{text(dest.string())}'");
             return 1;
         }
         out.write(contents.data(), entry.length as isize);
         out.flush();
 
-        io::println(f"  extracted: {entry.filename} ({entry.length} bytes) ");
+        io::println(f"  extracted: {text(entry.filename)} ({entry.length} bytes) ");
     }
 
-    io::println(f"{entry_count} files written to {output_root}.");
+    io::println(f"{entry_count} files written to {ctext(output_root)}.");
     return 0;
 }

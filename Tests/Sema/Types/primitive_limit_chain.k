@@ -1,4 +1,4 @@
-// P754: a primitive limit at the head of a longer chain. Only the first
+// A primitive limit at the head of a longer chain. Only the first
 // step is the limit; the steps after it apply to the minted literal, as they
 // do to `(f64::NAN).is_nan()`. Integer limits too, the negative ones
 // parenthesized so `i32::MIN.neg_()` is the call on -2147483648.

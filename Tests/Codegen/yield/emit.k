@@ -1,7 +1,7 @@
 // The generator's body as C++: `yield` is `co_yield`, a bare `return` is
 // `co_return`, and a generator with no `yield` still gets a coroutine keyword.
 //
-// Print only: it cannot link until the shim tickets land (noexcept, the
+// Print only: it cannot link until the shims exist (noexcept, the
 // `::std` placement, the coroutine_traits specialization). A yield whose
 // operand converts to the element would also stop in clang until
 // YieldPromise gains its `yield_value(@move v: T)` overload; every operand
@@ -25,7 +25,7 @@ fn none() -> yield i32 { }
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: error
 
-// stderr is dropped: clang's "2 errors generated." (the yield_value ticket
+// stderr is dropped: clang's "2 errors generated." (the yield_value error
 // above) is unbuffered and lands wherever the IR print happens to be,
 // mid-line in a function head included.
 // RUN: { %kairo %s --print-ir 2>/dev/null || true; } | %FileCheck %s --check-prefix=CXX

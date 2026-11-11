@@ -148,6 +148,7 @@ import Sema::Check::ClassLifecycle::{
     LifecycleTri,
     lifecycle_of,
 }
+import Sema::Foreign::ForeignInstantiate::ForeignInstantiate
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::SemaContext::{
     SemaContext,
@@ -1489,11 +1490,16 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// table, the table's entry), so a `strlen` or an `abs` keeps the promise
     /// and a `sqrt` (errno) does not, exactly as under our -fmath-errno. A
     /// decl whose header set was released (clang_decl nulled) says 0.
+    ///
+    /// Never kairo::clang_decl_purity directly: this check runs on a pool
+    /// thread while another may be filling an instance in the same clang
+    /// AST, and the redeclaration walk must hold the set's sema_lock()
+    /// (P807). ForeignInstantiate::decl_purity takes it.
     priv fn _foreign_purity(self, f: unsafe *FunctionDecl) -> u8 {
         var unsafe *c    = f->canonical_decl()
-        var        p: u8 = kairo::clang_decl_purity(f->clang_decl)
+        var        p: u8 = self._clang_purity(f)
         if p == 0 && c != &null && c != f {
-            p = kairo::clang_decl_purity(c->clang_decl)
+            p = self._clang_purity(c)
         }
 
         if p == 0 && f->ffi_builtin_id != 0 {
@@ -1501,6 +1507,15 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         return p
+    }
+
+    /// One decl's clang purity, read under its set's lock.
+    priv fn _clang_purity(self, f: unsafe *FunctionDecl) -> u8 {
+        if f->clang_decl == &null {
+            return 0
+        }
+
+        return ForeignInstantiate::decl_purity(f)
     }
 
     /// The compiler intrinsics (Lib/builtin/base/intrinsics.k) that keep

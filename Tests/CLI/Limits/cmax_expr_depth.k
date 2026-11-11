@@ -1,5 +1,5 @@
-// --cmax-expr-depth caps expression recursion in the parser (it used to read
-// the scope cap instead, leaving this flag dead). Nine nested parentheses
+// --cmax-expr-depth caps expression recursion in the parser (it does not read
+// the scope cap instead, which would leave this flag dead). Nine nested parentheses
 // exceed a cap of 3 and report once; a cap of 100 accepts the same program.
 // The scope cap stays at its default so only the expression counter can fire.
 

@@ -2,7 +2,7 @@
 // names a member of System, so nothing but the instance's bound admits it,
 // and C++ checks Allocator_c<System> -- whose witness members are
 // `requires`-guarded on `&System::alloc` -- against a forward declaration
-// unless the plan admits the conformer complete. It used to fail with
+// unless the plan admits the conformer complete, which fails with
 // CL001E "System does not satisfy Allocator_c"; a user-defined allocator in
 // the same spot always worked, because its own definition is in the TU.
 import builtin::base::alloc::*

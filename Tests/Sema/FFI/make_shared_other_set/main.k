@@ -4,7 +4,7 @@
 // `enable_if_t<is_bounded_array<T>::value, int> = 0` on a defaulted
 // parameter. The template is first.k's set's (<memory>), which never saw
 // `ms::Item`, so the explicit argument had no spelling there, clang was
-// never asked, and both overloads tied (SC064E). The argument is now a
+// never asked, and both overloads tied (SC064E). The argument is a
 // layout-only blob for that one question, and a removal over it is soft.
 // CHECK-NOT: error
 

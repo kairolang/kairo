@@ -1,9 +1,9 @@
 // A type where a value is required. A name that denotes a type (`P`,
 // `ns::Q`, a generic parameter `T`) or `typeof x` types to nothing by
 // design -- the callee or member base that reads it takes it from the side
-// table -- so every value consumer saw an unknown and let it through: the
-// variable or argument reached codegen untyped, an operator ICEd. Each is
-// SC094E now (typeof as a value is still the TypeInfo U001E), with
+// table -- so a value consumer must not take it as an unknown and let it through (the
+// variable or argument would reach codegen untyped). Each is
+// SC094E (typeof as a value is still the TypeInfo U001E), with
 // `()` offered for a record's name.
 struct P { var x: i32 }
 module ns { pub struct Q { var y: i32 } }

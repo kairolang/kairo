@@ -79,13 +79,11 @@ pub class SearchRoot {
         self.root->ext_cfg = ext_cfg
     }
 
-    /// \deprecated Do not use this function.
+    /// \deprecated Does nothing: the tree is scanned lazily.
     fn build_index(self, pool: *ThreadPool? = &null) {
         // Lazy: nothing to walk. Root is stamped at construction; children are
         // materialised on demand via DirEntry::probe_* / ensure_scanned.
         // `pool` retained only for signature compatibility.
-
-        // DEPRECATED NO-OP: This function is no longer used
     }
 
     // Move-only: the destructor destroys `root`, so a copy would destroy it

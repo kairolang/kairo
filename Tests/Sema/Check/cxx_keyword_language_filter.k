@@ -1,7 +1,7 @@
 // SC004E rejects a name only if C++ would: `out`, `inout` and
 // `groupshared` are keywords to clang only in HLSL, `kernel` only in OpenCL,
-// and `int out;` is valid C++. The keyword set used to take every kind clang
-// has a keyword spelling for, in any language, so these were errors. A real
+// and `int out;` is valid C++. The keyword set does not take every kind clang
+// has a keyword spelling for, in any language, so these are not errors. A real
 // C++ keyword (`signed`) still is, and the message names it.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: SC004E

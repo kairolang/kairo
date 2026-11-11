@@ -5,11 +5,11 @@
 //
 // An argument typed by an imported `T&` result (`v[i]` on a `vector<*N>`)
 // is an lvalue of T: an expression has no reference type in C++, so a
-// by-value or pointer parameter deduces from the referee. Deduction used to
+// by-value or pointer parameter deduces from the referee. Deduction does not
 // try `unsafe *N&` against `unsafe *T` and reject the candidate (SC063E
 // "cannot convert argument of type 'unsafe *N&' to parameter 'p' of type
-// 'unsafe *T'"), which broke `kairo::std::destroy(self.children[i])` in the
-// migrated Diagnostic/Diagnostic.k (self-host phase 5.2).
+// 'unsafe *T'"), which would break `kairo::std::destroy(self.children[i])`
+// on a vector of pointers.
 
 // DIAG-NOT: error
 

@@ -41,6 +41,17 @@ pub class <T> YieldPromise {
         return Suspend {}
     }
 
+    /// Handles `yield e` of a temporary (`yield i * i`, `yield (a, b)`, a value converted to `T`):
+    /// records its address and suspends.
+    ///
+    /// \param v  Taken `@move` (`T&&`): the temporary lives to the end of the full `co_yield`
+    ///           expression, which spans the suspension, so the reader sees it until the next
+    ///           resume. `@inout` alone cannot bind a temporary (P317, P324).
+    pub inline fn yield_value(self, @move v: T) -> Suspend {
+        self.cur = &v
+        return Suspend {}
+    }
+
     /// Handles falling off the end of the generator body.
     pub inline fn return_void(self) { }
     /// Traps (`__builtin_trap`): generators do not propagate exceptions.

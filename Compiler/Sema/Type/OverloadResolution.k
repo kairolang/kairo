@@ -120,6 +120,7 @@ import Diagnostic::Registry::DiagID
 import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
+import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Sema::Type::ArgumentDeduction::Deduction
@@ -3773,10 +3774,12 @@ pub class OverloadResolution {
 
         var src: unsafe *Type = &null
         var cat               = a->cat
+        var lit_n: u64        = 0
         if lit {
             var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
-            src = self.sc->types->pointer(cc, true)
-            cat = Expr::ValueCategory::RValue
+            src   = self.sc->types->pointer(cc, true)
+            cat   = Expr::ValueCategory::RValue
+            lit_n = LowerSynth(self.sc).c_literal_extent(self.tu.c_string_literal(a->expr))
         } else {
             var unsafe *fu = canon_unqual(from)
             if fu == &null || (!isa<RecordType>(fu)) {
@@ -3793,7 +3796,7 @@ pub class OverloadResolution {
             }
         }
 
-        if self.sc->foreign->cxx_converts(f, src, cat, to) {
+        if self.sc->foreign->cxx_converts(f, src, cat, to, lit_n) {
             return f"'{self.tu.str(to)}({self.tu.str(src)})\x27"
         }
 

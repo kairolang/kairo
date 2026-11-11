@@ -63,6 +63,7 @@ ffi "c++" import "llvm/ADT/SmallString.h"
 ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
 ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/KClangPurity.hh" // decl_purity
 ffi "c++" import "Native/KThread.hh" // sema_mint_rank
 ffi "c++" import "atomic"
 ffi "c++" import "vector"
@@ -1076,6 +1077,35 @@ pub class ForeignInstantiate {
         return verdict
     }
 
+    /// What clang says of the imported function \p f's side effects (see
+    /// Native/KClangPurity.hh): 0 none, 1 const, 2 pure.
+    ///
+    /// Invariant: Sema threads never read clang's AST outside the owning
+    /// set's sema_lock(). The answer walks the redeclaration chain, and a
+    /// chain is not immutable data: a fill on another pool thread runs
+    /// clang::Sema in the same ASTContext (instantiating members, adding
+    /// redeclarations, completing lazy chain links), so an unlocked walk
+    /// read a half-written link and called through null (P807). Only the
+    /// set lock, not `_mu`: nothing here allocates on the Kairo side, and
+    /// taking the set lock alone keeps the `_mu`-then-set order intact.
+    static fn decl_purity(f: unsafe *Decl) -> u8 {
+        var unsafe *cd = decl_clang(f)
+        if cd == &null {
+            return 0
+        }
+
+        var unsafe *hs = unsafe (decl_origin_set(f) as unsafe *HeaderSet)
+        if hs == &null {
+            return kairo::clang_decl_purity(cd)
+        }
+
+        // Not alive(): that may revive a released set, a rebuild this read
+        // must never trigger. A released set nulls its decls' clang_decl,
+        // so a non-null one is live; the mutex itself always is.
+        var slock = kairo::std::LockGuard(*hs->sema_lock())
+        return kairo::clang_decl_purity(cd)
+    }
+
     /// The return type clang deduces for the imported non-template \p f
     /// declared `auto` / `auto*` / `decltype(auto)`, imported; null when it
     /// is not such a function or clang cannot deduce it. Asked at a call,
@@ -1143,11 +1173,18 @@ pub class ForeignInstantiate {
     /// user-defined sequence answers true: a standard conversion is Kairo's
     /// own lattice to judge. Diagnostics are suppressed and any hard error
     /// is a no: the probe is a question, never the program's error.
+    ///
+    /// \p lit_n nonzero: the source is a string literal, asked as what C++
+    /// sees -- an lvalue `const char[lit_n]` -- not its decayed `const char*`
+    /// (\p from is then ignored). A constructor template on `const char
+    /// (&)[N]` (fmt's `format_string`) deduces N only from the array; the
+    /// pointer-taking constructors still see it through the decay (P835).
     fn cxx_converts(self,
-                    f:    unsafe *Decl,
-                    from: unsafe *Type,
-                    cat:  Expr::ValueCategory,
-                    to:   unsafe *Type) -> bool {
+                    f:     unsafe *Decl,
+                    from:  unsafe *Type,
+                    cat:   Expr::ValueCategory,
+                    to:    unsafe *Type,
+                    lit_n: u64 = 0) -> bool {
         var unsafe *cd = unsafe (decl_clang(f) as unsafe *clang::Decl)
         var unsafe *hs = unsafe (decl_origin_set(f) as unsafe *HeaderSet)
         if cd == &null || hs == &null || (!hs->alive()) || from == &null || to == &null {
@@ -1166,7 +1203,19 @@ pub class ForeignInstantiate {
         tx.reg       = self._reg
         tx.psym      = self.psym
         tx.instances = self._instances
-        var fq = tx.to_clang(from)
+        var fq = clang::QualType()
+        if lit_n != 0 {
+            fq = cctx->getConstantArrayType(
+                cctx->CharTy.withConst(),
+                llvm::APInt(64, lit_n),
+                &null,
+                clang::ArraySizeModifier::Normal,
+                0,
+            )
+        } else {
+            fq = tx.to_clang(from)
+        }
+
         var tq = tx.to_clang(to)
         if fq.isNull() || tq.isNull() || tx.used_opaque {
             return false
@@ -1174,7 +1223,7 @@ pub class ForeignInstantiate {
 
         var loc = cd->getLocation()
         var vk  = clang::VK_PRValue
-        if cat == Expr::ValueCategory::LValue {
+        if cat == Expr::ValueCategory::LValue || lit_n != 0 {
             vk = clang::VK_LValue
         }
 

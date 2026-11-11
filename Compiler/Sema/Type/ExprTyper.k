@@ -84,7 +84,10 @@ ffi "c++" import "vector"
 ffi "c++" import "memory"
 
 import AST::ASTSupport::FrozenList
-import AST::DeclFacts::decl_builtin_id
+import AST::DeclFacts::{
+    decl_builtin_id,
+    decl_is_imported,
+}
 import AST::Kind::DeclKind::{
     DeclKind,
     to_string,
@@ -140,6 +143,7 @@ import Sema::Check::EffectPropagation::{
     canonical_set,
     panic_home,
 }
+import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::ChainBinding::ChainBinding
 import Sema::Resolve::GenericArgs::GenericArgs
 import Sema::Resolve::MemberLookup::MemberLookup
@@ -1340,13 +1344,26 @@ pub class ExprTyper
             return true
         }
 
+        var t: unsafe *Type = &null
         var it = self._typeexp.find(e as usize as u64)
-        if it == self._typeexp.end() {
-            return false
+        if it != self._typeexp.end() {
+            t = it->second
+        } else {
+            // A bare primitive (`x == u32`, P381): N leaves it unbound on
+            // purpose (denoted_type), so it never reaches the side table and
+            // every value consumer saw "unknown" and passed it on silently.
+            var unsafe *id = dyn_cast<NamedIdentExpr>(x)
+            if id == &null || (!is_annotation(id->name.kind)) {
+                return false
+            }
+
+            t = self.tu.builtin(builtin_for_token(id->name.kind))
+            if t == &null {
+                return false
+            }
         }
 
-        var unsafe *t   = it->second
-        var        text = self.sc->ctx->get_spelling(e->range)
+        var text = self.sc->ctx->get_spelling(e->range)
         var b = self.sc->diag->report(
             DiagID::SC094E,
             e->range.start,
@@ -1845,8 +1862,61 @@ pub class ExprTyper
             return false
         }
 
+        // C++ initialises a class from a value through ONE user-defined
+        // conversion ([dcl.init]/17.6.3, [over.best.ics]); Kairo applies it
+        // only under an explicit -fimplicit-conv, exactly as at a call
+        // argument (P813), and initialisation, assignment and return reach
+        // the same C++ boundary (P834). Without the flag the error says which
+        // conversion C++ would have used and the fix-it writes the cast.
+        var via = self._cxx_user_conv(e, from, to)
+        if via != "" {
+            if self.sc->opts.implicit_conv == 1 {
+                // C++ performs the conversion, so the value goes as written:
+                // a literal as its bytes, the `const char[N]` C++ converts
+                // from (as CallTyping does for a user_convs argument). Typed
+                // as a Kairo string it would be a builtin::string, which no
+                // C++ constructor takes.
+                var sl = self.tu.c_string_literal(e)
+                if sl != &null {
+                    var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+                    sl->c_string = self.sc->types->pointer(cc, true)
+                }
+
+                return true
+            }
+
+            var tn = self.tu.str(to)
+            var b  = self.sc->diag->report(
+                DiagID::SC028E,
+                e->range.start,
+                f"cannot convert '{self.tu.str(from)}' to '{tn}'",
+            )
+
+            b.first(e->range)
+            var ue = self.tu.strip_parens(e)
+            if isa<Expressions::BinaryOperatorExpr>(ue)
+                || isa<Expressions::AssignOperatorExpr>(ue)
+                || isa<Expressions::RangeExpr>(ue) {
+                b.insert(e->range.start, "(", "convert explicitly")
+                b.insert(e->range.end, f") as {tn}", "convert explicitly")
+            } else {
+                b.insert(e->range.end, f" as {tn}", "convert explicitly")
+            }
+
+            b.note(
+                e->range.start,
+                f"C++ would convert the value to '{tn}' implicitly through {via}; Kairo applies no C++ implicit conversion unless -fimplicit-conv is given: write 'as {tn}', or pass -fimplicit-conv",
+            )
+
+            b.emit()
+            e->poison()
+            return false
+        }
+
         var hint = ""
-        var fk   = self.tu.kind_of(from)
+        // A C++ `u64&` reads as its referee (P376): kind_of sees a reference,
+        // not a builtin, and the lossy-conversion hint was never chosen.
+        var fk   = self.tu.kind_of(self.tu.as_value(from))
         var tk   = self.tu.kind_of(to)
         if fk != BuiltinKind::COUNT && tk != BuiltinKind::COUNT {
             match self.conv.classify(fk, tk) {
@@ -1898,6 +1968,69 @@ pub class ExprTyper
         ).first(e->range)->emit()
         e->poison()
         return false
+    }
+
+    /// How C++ would initialise the C++ class \p to from \p e (of type
+    /// \p from) with ONE user-defined conversion -- `'View(const char *)'`
+    /// or `'operator C'` -- or "" when it would not, or when either side is
+    /// not C++'s to judge. Only what C++ itself sees at the boundary: a
+    /// string literal (`const char[N]`, decayed) or a C++ class value; a
+    /// Kairo `string` VALUE has `.c_str()` and no implicit route into C++
+    /// (c-cpp.mdx). OverloadResolution::_cxx_conv_via is the call-argument
+    /// twin; clang answers here, under the class's own header set.
+    priv fn _cxx_user_conv(self, e: unsafe *Expr, from: unsafe *Type, to: unsafe *Type) -> string {
+        var unsafe *tu = canon_unqual(to)
+        if tu == &null || (!isa<RecordType>(tu)) || (!self._is_cxx_class(tu)) {
+            return ""
+        }
+
+        var        lit = self.tu.c_string_literal(e) != &null
+        var unsafe *fv = self.tu.as_value(from)
+        var unsafe *fu = if (fv != &null) => (canon_unqual(fv)) else => &null
+        if (!lit) && (fu == &null || (!isa<RecordType>(fu)) || (!self._is_cxx_class(fu))) {
+            return ""
+        }
+
+        if !lit {
+            if self.conv.cxx_conversion_op(fv, tu) != &null {
+                return f"'operator {self.tu.str(to)}\x27"
+            }
+        }
+
+        if self.sc->foreign == &null {
+            return ""
+        }
+
+        var src: unsafe *Type = fv
+        var cat               = e->value_category
+        var lit_n: u64        = 0
+        if lit {
+            var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+            src   = self.sc->types->pointer(cc, true)
+            cat   = Expr::ValueCategory::RValue
+            lit_n = LowerSynth(self.sc).c_literal_extent(self.tu.c_string_literal(e))
+        }
+
+        var unsafe *d = self.tu.record_decl(tu)
+        if self.sc->foreign->cxx_converts(d, src, cat, tu, lit_n) {
+            return f"'{self.tu.str(to)}({self.tu.str(src)})\x27"
+        }
+
+        var unsafe *pd = self.tu.pattern_of(d)
+        if pd != &null && pd != d && self.sc->foreign->cxx_converts(pd, src, cat, tu, lit_n) {
+            return f"'{self.tu.str(to)}({self.tu.str(src)})\x27"
+        }
+
+        return ""
+    }
+
+    priv fn _is_cxx_class(self, t: unsafe *Type) -> bool {
+        var unsafe *d = self.tu.record_decl(t)
+        if d == &null {
+            return false
+        }
+
+        return decl_is_imported(d) || decl_is_imported(self.tu.pattern_of(d))
     }
 
     /// The first pointee level (outermost first) of \p from carrying a

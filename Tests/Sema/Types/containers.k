@@ -14,7 +14,7 @@ fn containers(v: [i32], s: {i32}, m: {string: i32}, sl: [i32;], const a: [i32; 3
 
 // An extension on the sugar reaches the Vector primary: after the migration
 // `extend <T> [T]` targets record(Vector, [T]) like any generic extension on
-// a record, so the shape index MemberLookup used to need is gone.
+// a record, so MemberLookup needs no shape index.
 extend <T> [T] {
     fn first(const self) -> T
 }

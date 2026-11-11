@@ -4,8 +4,8 @@
 // RUN: %t.exe; test $? -eq 14
 //
 // A C++ inline namespace may be named explicitly: `ns::v1::F` is the same
-// entity as `ns::F` (libc++'s `std::__1::`). Its members were bound only
-// in the parent's table, so the explicit step was R025E "no member named
+// entity as `ns::F` (libc++'s `std::__1::`). Its members are bound in the
+// inline namespace's table too, so the explicit step is not R025E "no member named
 // 'F' in module 'v1'". inline_namespace_explicit_errors.k: a name the
 // inline namespace does not declare is still not found through it.
 

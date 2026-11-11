@@ -1319,8 +1319,75 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 d.bind_from_record(rt)
             }
 
+            // A member whose `requires` is false here is dropped from this
+            // instance by C++ (its trailing clause, CXXSpell::member_requires),
+            // so its body never runs as this instance: a reuse in it is no
+            // use after move (P309, vector.k's resize(n, value) on [Mv]).
+            if self._requires_false_at(ms[k], unsafe &d) {
+                continue
+            }
+
             self._reuse_in(e, h, &d, &null)
         }
+    }
+
+    /// True when one of \p f's `requires` value predicates is known false
+    /// under \p d; an undecidable one does not count.
+    priv fn _requires_false_at(self, f: unsafe *Declarations::FunctionDecl, d: unsafe *Deduction) -> bool {
+        if f->requires_clause == &null || f->generic_params.size() > 0 {
+            return false
+        }
+
+        var vps = cxx::std::vector<unsafe *Expr>()
+        self._value_preds(f->requires_clause, unsafe &vps)
+        for var i: usize = 0; i < vps.size(); ++i {
+            var v = self._vp(vps[i], d, 0)
+            if v.known && v.v == 0 {
+                return true
+            }
+
+            if self._transfer_pred_false(vps[i], d) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// `__builtin_is_constructible<X, const X>()` (or `<X, X>`) known false
+    /// under \p d: X cannot be copied (or neither copied nor moved). The
+    /// copy/move form is what a container member's `requires` spells, and
+    /// the one the move check has to agree with C++ on.
+    priv fn _transfer_pred_false(self, p: unsafe *Expr, d: unsafe *Deduction) -> bool {
+        var unsafe *c = dyn_cast<CallExpr>(self.tu.strip_parens(p))
+        if c == &null || c->args.size() != 0 {
+            return false
+        }
+
+        var unsafe *callee = self._callee_of(c)
+        if callee == &null || self.tu.decl_name(callee) != "__builtin_is_constructible" {
+            return false
+        }
+
+        var unsafe *ni = dyn_cast<NamedIdentExpr>(self.tu.strip_parens(c->callee))
+        if ni == &null || ni->generic_args.size() != 2 {
+            return false
+        }
+
+        var unsafe *a0 = ni->generic_args.get(0)->ty
+        var unsafe *a1 = ni->generic_args.get(1)->ty
+        var unsafe *t0 = self._subst(a0, d)
+        var unsafe *t1 = self._subst(a1, d)
+        if t0 == &null || t1 == &null || canon_unqual(t0) != canon_unqual(t1) {
+            return false
+        }
+
+        var f = lifecycle_of(self.sc)->facts_of_type_concrete(canon_unqual(t0), "ConformanceChecking")
+        if f.copyable != LifecycleTri::No {
+            return false
+        }
+
+        return a1->is_const() || f.movable == LifecycleTri::No
     }
 
     priv fn _reuse_home(self,

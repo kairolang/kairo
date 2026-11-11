@@ -1,9 +1,8 @@
 // Yielding a literal from a generator (functions-generators.mdx: `yield e`
 // produces the next value; `e` must convert to `T`).
 //
-// XFAIL: *
-// Ticket "[Codegen] Yielding a literal from a generator fails in clang"
-//. Today it type-checks and clang
+// Yielding a literal from a generator fails in clang.
+// Today it type-checks and clang
 // rejects the emitted C++: CL001E "non-const lvalue reference to type 'int'
 // cannot bind to a temporary of type 'int'" -- the yield passes its operand
 // to the runtime by non-const reference (Lib/builtin/coro/generator.k).

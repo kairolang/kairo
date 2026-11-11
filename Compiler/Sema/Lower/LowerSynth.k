@@ -505,6 +505,46 @@ pub class LowerSynth {
 
     /// # text
 
+    /// The extent C++ gives string literal \p sl as `const char[N]`: its
+    /// decoded bytes, every chained part, plus the terminator (P835). 0 when
+    /// an escape does not decode, which the caller reads as "no literal".
+    /// Typing needs it before StringLowering has built the bytes, so it
+    /// decodes the chain as StringLowering::_collect does.
+    fn c_literal_extent(self, sl: unsafe *StringLiteralExpr) -> u64 {
+        if sl == &null {
+            return 0
+        }
+
+        // The writing file's table: a literal from an imported macro's body
+        // chains through that file's table, not ours.
+        var unsafe *tbl = self.sc->imm_table()
+        if sl->ctx != &null {
+            tbl = sl->ctx->get_payload_table(sl->token)
+        }
+
+        var        out = cxx::std::vector<u8>()
+        var unsafe *seg = sl->imm
+        var        raw  = sl->is_raw()
+        while seg != &null {
+            if seg->has_owned_text() {
+                for var i: usize = 0; i < (seg->owned_len as usize); ++i {
+                    out.push_back(seg->owned_ptr[i])
+                }
+            } else if !self.decode_text(seg->body, raw, unsafe &out) {
+                return 0
+            }
+
+            if seg->next == u32::MAX || tbl == &null {
+                break
+            }
+
+            seg = tbl->get<Immediate::StringData>(seg->next)
+            raw = seg->prefix_kind.has(Immediate::TextPrefixKind::Raw)
+        }
+
+        return (out.size() as u64) + 1
+    }
+
     /// The bytes of \p range decoded: every escape the lexer accepts, into
     /// UTF-8. \p raw copies verbatim. False for an escape the lexer accepted
     /// and this does not know; the caller ICEs, since the two must agree.

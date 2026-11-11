@@ -1,8 +1,8 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck --allow-empty %s
 //
 // `typeof T` over a type operand (a generic parameter, a class) has no
-// value type but denotes one; the node used to reach finish() in no terminal
-// state, an internal error, on `eval if typeof T == X`.
+// value type but denotes one; the node must not reach finish() in no terminal
+// state (an internal error) on `eval if typeof T == X`.
 //
 // CHECK-NOT: Internal Compiler Error
 // CHECK-NOT: typer bug

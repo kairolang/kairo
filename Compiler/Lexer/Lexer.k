@@ -1966,6 +1966,10 @@ pub class Lexer {
             break
         }
 
+        if (!self.is_eof()) && self.peek_char32().chr != '"' {
+            self.reject_prefixed_continuation()
+        }
+
         if self.is_eof() || self.peek_char32().chr != '"' {
             self._cursor = saved
             return
@@ -1977,6 +1981,41 @@ pub class Lexer {
         } else {
             self._cursor = saved
         }
+    }
+
+    /// \brief `"a" f"b{x}"`: a prefixed literal right after a string (P486).
+    ///
+    /// \details Only an unprefixed continuation chains (above), so the
+    ///          prefixed one lexed as a second token and was silently a new
+    ///          statement (SC268W) or a parse error inside a call. Reported
+    ///          here, where it is still known to be a literal following a
+    ///          literal, with the `+` that joins them. The cursor sits on the
+    ///          continuation and is left there; the caller restores it.
+    priv fn reject_prefixed_continuation(self) {
+        var n: isize = 0
+        while n < 2 {
+            var c = self.peek_char32(n).chr
+            if c != 'f' && c != 'F' && c != 'r' && c != 'R' {
+                break
+            }
+
+            n += 1
+        }
+
+        if n == 0 || self.peek_char32(n).chr != '"' {
+            return
+        }
+
+        var at = self.get_source_location()
+        var r  = SourceRange::from_bounds(at, self.get_source_location(self._cursor + (n as usize)))
+        var b  = self._diag->report(
+            DiagCode(DiagID::S001E),
+            at,
+            "a prefixed string literal does not join the literal before it; only an unprefixed \"...\" continues a string",
+        )
+        b.first(r, "this literal starts a new expression")
+        b.insert(at, "+ ", "concatenate the two strings")
+        b.emit()
     }
 
     priv inline fn init_text_ctx(self, start: SourceLocation, prefix: Token) -> Self::TextCtx {
@@ -6659,7 +6698,7 @@ pub fn Test() -> i32 {
 
             wide += f" +/// \\brief resolves declaration reference {i} against the scope chain\n"
             " +/// \\param candidate_reference unresolved identifier expression to look up\n"
-            " +/// \\returns the resolved declaration, or null when lookup fails outright\n"
+            " +/// \\returns the resolved declaration, or null when lookup fails outright\n" +
             f"inline priv fn resolve_declaration_reference_{i}(\n" + "    self,\n" + "    @inout resolution_context: NameResolutionContext,\n" + "    candidate_reference: obs::<UnresolvedIdentifierExpr>\n" + ") -> own::<ResolvedDeclaration> {\n" + "    var enclosing_lexical_scope = resolution_context.scope_chain().innermost();\n" + "\n" + "    if enclosing_lexical_scope == &null {\n" + "        self.diagnostic_engine->report(DiagCode(DiagID::R001E),\n" + "            candidate_reference->range.start,\n" + "            f\"unresolved identifier {candidate_reference} in this scope\")\n" + "            .first(candidate_reference->range).emit();\n" + "        return &null;\n" + "    }\n" + "\n" + "    var depth = enclosing_lexical_scope->depth() + 1;\n" + "    if (depth > 0) && (depth < 64) && !candidate_reference->is_synthetic {\n" + "        resolution_context.record(candidate_reference, depth * 2 - 1);\n" + "    }\n" + "\n" + "    switch candidate_reference->lookup_kind {\n" + "        case LookupKind::Ordinary {\n" + "            return enclosing_lexical_scope->lookup_ordinary::<ResolvedDeclaration>(\n" + "                candidate_reference->qualified_name);\n" + "        } case LookupKind::Qualified {\n" + "            return enclosing_lexical_scope->lookup_qualified::<ResolvedDeclaration>(\n" + "                candidate_reference->qualified_name);\n" + "        } default {\n" + "            return &null;\n" + "        }\n" + "    }\n" + "}\n" + "\n"
         }
 

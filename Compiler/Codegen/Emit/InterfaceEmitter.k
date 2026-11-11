@@ -5717,6 +5717,20 @@ pub class InterfaceEmitter {
         t += " else { " + LowerTargets::clang_trap() + "(); } }"
         t += " template <class F> static void __drop(void* o) noexcept { delete static_cast<F*>(o); }"
         t += " template <class F> static constexpr __ops __ops_of{&__call<F>, &__copy<F>, &__drop<F>};"
+        // A C++ function that may throw, held in __o (P244): __rcall is a
+        // noexcept frame around a call C++ knows may throw, so clang gives
+        // it the terminate landing pad. Held as the noexcept __ptr instead,
+        // the call had none, and a throw unwound the Kairo frames above
+        // with no cleanups (UB) -- or, with no LSDA there, reached a C++
+        // catch past them.
+        if nx.size() > 0 {
+            t += " using __xptr = R (*)(A...);"
+            t += " static R __rcall(void* o, A&&... a) noexcept { return reinterpret_cast<__xptr>(o)(static_cast<A&&>(a)...); }"
+            t += " static void* __rcopy(const void* o) noexcept { return const_cast<void*>(o); }"
+            t += " static void __rdrop(void*) noexcept {}"
+            t += " static constexpr __ops __raw_ops{&__rcall, &__rcopy, &__rdrop};"
+        }
+
         t += " __ptr __f = nullptr;"
         t += " void* __o = nullptr;"
         t += " const __ops* __t = nullptr;"
@@ -5730,13 +5744,13 @@ pub class InterfaceEmitter {
         t += " constexpr " + fv + "() noexcept {}"
         t += " constexpr " + fv + "(__ptr f) noexcept : __f(f) {}"
         // A C++ function that is not noexcept (a host's `int f(int)`, kcc's
-        // #include "x.k" callers) still becomes a `fn` value: it is held as
-        // the noexcept pointer. Nothing it throws could be caught on the
-        // Kairo side anyway, whose frames are noexcept; the throw ends in
-        // terminate either way. A template, so the exact-match constructor
-        // above wins for every Kairo function.
+        // #include "x.k" callers) still becomes a `fn` value, called through
+        // the __rcall thunk: a throw out of it ends in terminate at the `fn`
+        // value's own noexcept frame, as at any Kairo frame (c-cpp-
+        // exceptions.mdx). A template, so the exact-match constructor above
+        // wins for every Kairo function and their calls stay direct.
         if nx.size() > 0 {
-            t += " template <class = void> " + fv + "(R (*f)(A...)) noexcept : __f(reinterpret_cast<__ptr>(f)) {}"
+            t += " template <class = void> " + fv + "(R (*f)(A...)) noexcept : __o(reinterpret_cast<void*>(f)), __t(&__raw_ops) {}"
         }
 
         t += " template <class F> static " + fv + " " + LowerTargets::fn_value_own() + "(F* o) noexcept { " + fv + " r; r.__o = o; r.__t = &__ops_of<F>; return r; }"
@@ -5753,7 +5767,10 @@ pub class InterfaceEmitter {
         // (EmitIR::_call) follows it rather than the wrapper's call, so the
         // wrapper's own return path is gone too.
         t += " " + LowerTargets::attr_always_inline() + "R operator()(A... a) const" + nx + " { if (__o) { return __t->call(__o, static_cast<A&&>(a)...); } return __f(static_cast<A&&>(a)...); }"
-        t += " operator __ptr() const noexcept { if (__o) { " + LowerTargets::clang_trap() + "(); } return __f; }"
+        // A held C++ function converts back to itself: whatever calls it
+        // through the C pointer type is C++, not a noexcept Kairo frame.
+        var raw_back = (if (nx.size() > 0) => (" if (__t == &__raw_ops) { return reinterpret_cast<__ptr>(__o); }") else => "")
+        t += " operator __ptr() const noexcept { if (__o) {" + raw_back + " " + LowerTargets::clang_trap() + "(); } return __f; }"
         t += " };"
         self._cg->sink->spell(at, t)
         self._cg->sink->brk()

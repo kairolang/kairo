@@ -1,6 +1,6 @@
 // A generator CALL is iterable as it is: `for v in step(10, 14)` drives the
 // Yield<i32> the call returns, with no `op in` in between, and so does a
-// variable holding one, in place (Yield is move-only). Both used to be
+// variable holding one, in place (Yield is move-only). Neither is
 // SC095E "'Yield<i32>' is not iterable".
 // 10 + 11 + 12 + 13 = 46, then 1 + 2 + 3 = 6 from the variable: exit 52.
 

@@ -29,6 +29,10 @@ namespace kairo {
 /// already reflect OUR invocation: clang adds ConstAttr to a library builtin
 /// such as `abs` itself, and withholds it from `sqrt` under -fmath-errno
 /// (the builtin table calls that one const only "ignoring errno").
+///
+/// The caller holds the owning HeaderSet's sema_lock(): the redecls() walk
+/// reads chains another Sema thread's fill can be extending. Go
+/// through ForeignInstantiate::decl_purity, which takes it.
 inline unsigned char clang_decl_purity(const void *decl) noexcept {
     if (decl == nullptr) { return 0; }
     const auto *d = static_cast<const clang::Decl *>(decl);

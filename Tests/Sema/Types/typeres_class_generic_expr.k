@@ -11,7 +11,7 @@
 //   exactly as `traverse_function_decl` does. Struct, union, interface,
 //   enum, extension, alias too."
 //
-// Fixed: every type-shaped scope now pushes a locals frame for its own
+// Every type-shaped scope pushes a locals frame for its own
 // generic params, so the class's `<T>` is frame 0 and a method's params
 // nest inside it as frame 1.
 //
@@ -28,7 +28,7 @@
 // The parameter is declared `<T: type>` because what the step DOES is a
 // separate question from whether `T` is found, and only the second one is
 // this file's subject. A bare `<T>` promises nothing, so `T::SIZE` on it is
-// now an error at the template (ChainBinding's opaque regime, see
+// an error at the template (ChainBinding's opaque regime, see
 // Sema/ExprTyper/bounds_opaque.k); `: type` is the opt-in to C++ duck typing,
 // where the step defers to instantiation. Either way `T` itself binds, which
 // is the [BROKEN] item this file guards.

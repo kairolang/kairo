@@ -22,7 +22,7 @@ struct <T> Plain<Box<T>> {
 }
 
 // A pack nested in a record argument of the pattern is the same: the
-// registry refused to match it just as it refused a top-level one.
+// registry matches it just as it matches a top-level one.
 struct <...T> Tup { }
 struct <R> Nest { }
 struct <...T> Nest<Tup<T...>> {
