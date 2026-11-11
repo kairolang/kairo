@@ -136,6 +136,71 @@ pub class LineShift {
 }
 
 extend Server {
+    /// Whether run output \p doc, which indexed files, replaces entry \p ei's
+    /// last good index. A run over a graph with syntax errors indexes only
+    /// what they leave sound: a file is `unchecked` (no rows) or `partial`
+    /// (no rows inside the bodies its errors are in) (LanguageServer.md
+    /// section 9). With no index yet, that is all there is. Over an index
+    /// that has COMPLETE rows for such a file, it would erase answers the
+    /// old one still gives on the lines the edits did not touch (mapped
+    /// through LineShift): the old index stays, as it does for a run that
+    /// indexed nothing at all, until the file parses again.
+    fn index_installs(self, ei: usize, doc: *const JsonDoc) -> bool {
+        if !self.entries[ei].has_idx {
+            return true
+        }
+
+        var *old = &self.entries[ei].idx
+        return self.keeps_old_(ei, doc, old, "unchecked") && self.keeps_old_(ei, doc, old, "partial")
+    }
+
+    /// No path of \p doc's list \p key has complete rows in entry \p ei's
+    /// index \p old (rows there, and \p old not naming it either).
+    priv fn keeps_old_(self, ei: usize, doc: *const JsonDoc, old: *const JsonDoc, const key: string) -> bool {
+        var u = doc->first(doc->get(doc->root, key))
+        while u != JSON_NONE() {
+            var path = doc->str(u)
+            if (self.file_node(ei, path) != JSON_NONE())
+                && (!self.in_list_(old, "unchecked", path)) && (!self.in_list_(old, "partial", path)) {
+                return false
+            }
+
+            u = doc->next(u)
+        }
+
+        return true
+    }
+
+    /// Some entry's index has a file without all its rows (`unchecked` or
+    /// `partial`, section 9): what is asked of every use is not known.
+    fn any_incomplete_index(self) -> bool {
+        for var ei: usize = 0; ei < self.entries.size(); ++ei {
+            if !self.entries[ei].has_idx {
+                continue
+            }
+
+            var *s = &self.entries[ei].idx
+            if (s->count(s->get(s->root, "unchecked")) > 0) || (s->count(s->get(s->root, "partial")) > 0) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    priv fn in_list_(self, s: *const JsonDoc, const key: string, const path: string) -> bool {
+        var u = s->first(s->get(s->root, key))
+        while u != JSON_NONE() {
+            if s->str(u) == path {
+                return true
+            }
+
+            u = s->next(u)
+        }
+
+        return false
+    }
+
     /// Node of \p path's object in entry \p ei's snapshot, or JSON_NONE.
     fn file_node(self, ei: usize, const path: string) -> u32 {
         if (ei >= self.entries.size()) || (!self.entries[ei].has_idx) {

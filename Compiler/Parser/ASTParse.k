@@ -207,6 +207,11 @@ pub class ASTParse
     }
 
     pub var mode: Self::ParseMode = Self::ParseMode::Full ///< see ParseMode.
+    /// --check-past-syntax-errors: function block bodies are watched for
+    /// errors kept inside their braces (DeclParse::_parse_fn_body). Off, and
+    /// nothing recorded, in every other run.
+    pub var recover_bodies:     bool = false
+    pub var recover_body_depth: u32  = 0
     /// The last closure signature's `|...|` / `||`, as written (invalid when
     /// it had none): DeclParse::_parse_closure_sig sets it and
     /// ExprParse::_parse_closure_expr moves it onto the node, before the body
@@ -345,6 +350,8 @@ pub class ASTParse
         self.span = ctx->get_tokens()
 
         self.mode = mode
+        self.recover_bodies = mode == Self::ParseMode::Full && ctx->ci != &null
+            && ctx->ci->frontend.check_past_syntax
         if mode == Self::ParseMode::Index && ctx->hoisted == &null {
             // the index pass owns table allocation; must precede TU creation
             // below since the TU constructor captures ctx->hoisted.
@@ -3856,6 +3863,34 @@ pub class ASTParse
         if self.nl_depth > 0 {
             self._skip_nl_fwd()
         }
+    }
+
+    /// \brief whether the token just consumed is the one the TEXT pairs with
+    ///        the opener at \p open: brackets of every kind counted together
+    ///        from it, the first that brings the count back to zero. A parse
+    ///        that stopped at an inner closer, ran past the right one, or
+    ///        never closed (S057E) did not, and what follows it was not
+    ///        parsed as it would have been without the error.
+    pub fn closes_lexically(self, open: usize) -> bool {
+        if self._prev == &null || open >= self.span.size() {
+            return false
+        }
+
+        var depth: i64 = 0
+        for var i: usize = open; i < self.span.size(); ++i {
+            var unsafe *t = self.span.get(i)
+            var        k  = self.resolve_kind_shallow(t)
+            if k == TokenKind::OpLBrace || k == TokenKind::OpLParen || k == TokenKind::OpLSquare {
+                depth += 1
+            } else if k == TokenKind::OpRBrace || k == TokenKind::OpRParen || k == TokenKind::OpRSquare {
+                depth -= 1
+                if depth == 0 {
+                    return k == TokenKind::OpRBrace && t == self._prev
+                }
+            }
+        }
+
+        return false
     }
 
     /// \brief resolved kind of the next non-newline token, without moving.

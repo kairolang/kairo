@@ -240,6 +240,13 @@ pub class TranslationUnit derives DeclContext {
     pub var error_count: u32                     = 0
     pub var warn_count:  u32                     = 0
     pub var body_ranges: ArenaList<BodyRange>
+    /// --check-past-syntax-errors only: each function whose block body had
+    /// syntax errors the parser kept inside its braces (the body ends at the
+    /// brace the text pairs with its opener), outermost bodies only, and how
+    /// many errors those bodies held. When that is every error of the file,
+    /// the file is checked without the bodies (Driver/CompilerRecovery.k).
+    pub var recovered_bodies: ArenaList<unsafe *Decl>
+    pub var recovered_errors: u32 = 0
 
     pub var scope:          *DisambigTable
     pub var global_scope:   *GlobalDisambigTable
@@ -376,6 +383,7 @@ pub class TranslationUnit derives DeclContext {
         self.macros.set_allocator(unsafe &ctx->pp_alloc, 16)
         self.tu_attrs.set_allocator(unsafe &ctx->pp_alloc, 4)
         self.body_ranges.set_allocator(unsafe &ctx->pp_alloc, 64)
+        self.recovered_bodies.set_allocator(unsafe &ctx->pp_alloc, 4)
         self.out_of_line.set_allocator(unsafe &ctx->pp_alloc, 8)
         self.import_overlay = &null
         self.import_edges.set_allocator(unsafe &ctx->pp_alloc, 16)

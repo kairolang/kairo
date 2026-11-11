@@ -580,6 +580,12 @@ pub class FunctionDecl
     pub var body_kind:       FnBodyKind               = FnBodyKind::None
     pub var body_block:      unsafe *CompoundStmt     = &null ///< when body_kind == Block.
     pub var body_expr:       unsafe *Expr             = &null ///< when body_kind == Expr.
+    /// --check-past-syntax-errors only (Driver/CompilerRecovery.k): the
+    /// block body had syntax errors and was dropped before Sema, so the
+    /// function is its signature alone. Nothing may be inferred from the
+    /// body it no longer has (its panics, purity, constant value): a
+    /// question that needs the body has no answer, and nothing is reported.
+    pub var body_recovered:  bool                     = false
     pub var is_operator:     bool                     = false ///< `fn op <x>`.
     pub var op_token:        FrozenList<Token> ///< the operator token(s) when is_operator; empty otherwise (see `name`).
     pub var is_variadic:     bool                     = false ///< trailing `...name: T` pack param.
@@ -1837,13 +1843,10 @@ pub class ModuleDecl
     /// FULL module path of this module (e.g. `foo::bar`), not just the leaf
     /// `name`. For a synthetic per-file module this is the file's module_base.
     ///
-    /// NOT YET READ by mangling/codegen, which key off `name` (the leaf) today.
-    /// That is a KNOWN limitation: two files sharing a leaf (foo/bar.k and
-    /// baz/bar.k both named `bar`) would emit two `namespace bar` blocks that
-    /// C++ MERGES  distinct modules would fuse. When that case is hit, switch
-    /// mangling/codegen to reconstruct the qualified name from `module_path`
-    /// (or the DC parent chain); this field is stored now precisely so that fix
-    /// is a one-consumer bolt-on, not an AST reshape.
+    /// Not read by mangling/codegen, which key off `name` (the leaf): two
+    /// files sharing a leaf (foo/bar.k and baz/bar.k both named `bar`) would
+    /// emit two `namespace bar` blocks that C++ merges. Consumers that need
+    /// the qualified name read this field or the DC parent chain.
     pub var module_path: ModulePath
 
     pub static fn create(ctx:    unsafe *ASTContext,

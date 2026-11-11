@@ -327,7 +327,11 @@ pub class FrontendAction {
             return
         }
 
-        if self._ci->diag()->error_count() > self.errors_at_start {
+        // --check-past-syntax-errors (kals): the files the errors leave sound
+        // go on to Sema, and the check after it fails the action as this one
+        // would have. Never for an action that stops at the parse anyway.
+        if self._ci->diag()->error_count() > self.errors_at_start
+            && (fe.stops_at_parse() || !self._ci->admit_past_syntax_errors(self._global_scope, self._fids, self.errors_at_start)) {
             self._stage = TUStage::Failed
             return
         }

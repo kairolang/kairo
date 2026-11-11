@@ -459,7 +459,7 @@ extend Server {
         self.entries[ei].snap_rev = j->rev
         var t3 = now_us()
         var t4 = t3
-        if doc.count(doc.get(doc.root, "files")) > 0 {
+        if (doc.count(doc.get(doc.root, "files")) > 0) && self.index_installs(ei, &doc) {
             self.entries[ei].idx     = doc
             self.entries[ei].has_idx = true
             self.entries[ei].idx_rev = j->rev

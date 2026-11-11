@@ -3047,9 +3047,25 @@ pub class <T: type> DeclParse {
 
         // block body
         if self.dyn()->check(TokenKind::OpLBrace) {
+            // --check-past-syntax-errors: errors the body kept inside its own
+            // braces leave the rest of the file parsed as it would have been;
+            // the driver may drop the body and check the signature
+            // (Driver/CompilerRecovery.k). Outermost bodies only: a nested
+            // function or closure is part of the body around it.
+            var open   = self.dyn()->c_idx
+            var errs0  = self.dyn()->diag->error_count()
+            var watch  = self.dyn()->recover_bodies && self.dyn()->recover_body_depth == 0
+            self.dyn()->recover_body_depth += 1
             var block = self.dyn()->parse_compound()
+            self.dyn()->recover_body_depth -= 1
             fd->body_kind  = Declarations::FnBodyKind::Block
             fd->body_block = block
+            var errs = self.dyn()->diag->error_count() - errs0
+            if watch && errs > 0 && self.dyn()->closes_lexically(open) {
+                self.dyn()->tu->recovered_bodies.push(unsafe (fd as unsafe *Decl))
+                self.dyn()->tu->recovered_errors += errs
+            }
+
             return
         }
 

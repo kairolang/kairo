@@ -178,6 +178,7 @@ import Driver::CompilerGraph
 import Driver::CompilerInfo
 import Driver::CompilerLink
 import Driver::CompilerNative
+import Driver::CompilerRecovery
 import Driver::CompilerSetup
 import Driver::FrontendAction::FrontendAction
 import Diagnostic::Diagnostic::Diagnostic

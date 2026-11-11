@@ -234,6 +234,13 @@ pub class Sema {
             return false
         }
 
+        // --check-past-syntax-errors: a file with syntax errors, or one that
+        // imports such a file, is not checked at all (Driver/CompilerRecovery.k).
+        // A hard stop, so no driver path carries it on past this.
+        if self.sc.ctx != &null && self.sc.ctx->syntax_skipped {
+            return self._stop()
+        }
+
         // Every read a pass makes from here on is this TU's
         // (AST/Context/DepLog.k); null, and a no-op, without the dump flags.
         var _deps = DepLogScope(self.sc.tu->dep_log)

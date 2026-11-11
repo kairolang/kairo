@@ -583,6 +583,150 @@ def stale_index(exe, root):
     check("stale index: clean shutdown", c.stop() == 0)
 
 
+BROKEN_UTIL = """pub fn helper(v: i32) -> i32 {
+    return v + 1
+}
+"""
+
+BROKEN_OTHER = """import util::helper
+
+pub fn other(v: i32) -> i32 {
+    return helper(v) * 2
+}
+"""
+
+BROKEN_FILE = """import util::helper
+
+pub fn above(v: i32) -> i32 {
+    return helper(v)
+}
+
+pub fn poisoned(v: i32) -> i32 {
+    var w = v + ;
+    return w
+}
+
+pub fn below(v: i32) -> i32 {
+    return above(v) + 1
+}
+"""
+
+BROKEN_MAIN = """import broken::{
+    above,
+    below,
+}
+import other::other
+
+fn main() -> i32 {
+    return above(1) + below(2) + other(3)
+}
+"""
+
+
+def broken_from_start(exe, base):
+    """P870 case B: a graph with a file that was broken before the server
+    ever indexed it. Its errors are all inside one function body that kept
+    them (the body ends at its own `}`), so the file is checked without that
+    body: hover, definition and full semantic tokens answer on the healthy
+    declarations above and below it, nothing answers inside it, and the
+    files that import it (and the rest of the graph) answer as usual."""
+    root = os.path.join(base, "broken")
+    os.makedirs(os.path.join(root, "src"))
+    for name, text in (("util", BROKEN_UTIL), ("other", BROKEN_OTHER), ("broken", BROKEN_FILE), ("main", BROKEN_MAIN)):
+        open(os.path.join(root, "src", name + ".k"), "w").write(text)
+    open(os.path.join(root, "kairo_compile.json"), "w").write(
+        '{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["-I", "src"] } ] }\n')
+    c = Client(exe, root)
+    c.start()
+    B, O, M = "src/broken.k", "src/other.k", "src/main.k"
+    broken = c.open(B)
+    other = c.open(O)
+    main = c.open(M)
+    c.settle()
+    hov = lambda rel, text, needle, off=0: c.request("textDocument/hover", c.at(rel, *pos(text, needle, off)))
+    dfn = lambda rel, text, needle, off=0: c.request("textDocument/definition", c.at(rel, *pos(text, needle, off)))
+    check("broken from the start: the syntax error is reported", any(x["severity"] == 1 for x in c.diagnostics(B) or []), c.diagnostics(B))
+
+    h = hov(O, other, "helper(v)")
+    check("broken from the start: a sibling of the broken file answers hover", h and "fn helper" in h["contents"]["value"], h)
+    d = dfn(O, other, "helper(v)")
+    check("broken from the start: a sibling jumps into the broken file's import",
+          d and d["uri"].endswith("/util.k") and d["range"]["start"]["line"] == 0, d)
+    t = {(l, col): ty for l, col, w, ty, m in tokens(c, O, other)}
+    check("broken from the start: the sibling's semantic tokens are the full ones",
+          t.get(pos(other, "helper(v)")) == "function" and t.get(pos(other, "v) * 2")) == "parameter", t)
+
+    h = hov(B, broken, "helper(v)")
+    check("broken from the start: hover answers above the error, in the broken file", h and "fn helper" in h["contents"]["value"], h)
+    d = dfn(B, broken, "above(v)")
+    check("broken from the start: definition answers below the error, in the broken file",
+          d and d["uri"].endswith("/broken.k") and d["range"]["start"]["line"] == pos(broken, "fn above")[0], d)
+    h = hov(B, broken, "w = v", 0)
+    check("broken from the start: nothing answers inside the broken body", h is None, h)
+    h = hov(B, broken, "return w", 7)
+    check("broken from the start: nor on a use inside it", h is None, h)
+    t = {(l, col): ty for l, col, w, ty, m in tokens(c, B, broken)}
+    check("broken from the start: the broken file's healthy parts have the full semantic tokens",
+          t.get(pos(broken, "helper(v)")) == "function" and t.get(pos(broken, "above(v)")) == "function"
+          and t.get(pos(broken, "fn poisoned")) == "keyword", t)
+
+    h = hov(M, main, "other(3)")
+    check("broken from the start: an importer of the broken file answers hover", h and "fn other" in h["contents"]["value"], h)
+    d = dfn(M, main, "below(2)")
+    check("broken from the start: an importer jumps into the broken file",
+          d and d["uri"].endswith("/broken.k") and d["range"]["start"]["line"] == pos(broken, "fn below")[0], d)
+
+    pr = c.request("textDocument/prepareRename", c.at(O, *pos(other, "helper(v)")))
+    check("broken from the start: rename refuses while the index lacks the broken body's uses", pr is None, pr)
+
+    # Fixed, then broken again in the same body: the complete index of the
+    # fixed text stays (a partial one would erase the body's answers), and
+    # the untouched line of the body answers from it (case A).
+    fixed = broken.replace("var w = v + ;", "var w = v + 1")
+    c.change(B, 2, fixed)
+    c.settle()
+    h = hov(B, fixed, "return w", 7)
+    check("broken from the start: fixed, the body answers", h and "w: i32" in h["contents"]["value"], h)
+    c.change(B, 3, broken)
+    c.settle()
+    h = hov(B, broken, "return w", 7)
+    check("broken from the start: broken again, the last complete index still answers in the body",
+          h and "w: i32" in h["contents"]["value"], h)
+    check("broken from the start: clean shutdown", c.stop() == 0)
+
+
+def broken_unchecked(exe, base):
+    """P870 case B, a file whose error is NOT kept inside a body (the `(`
+    left open runs the body past its own `}`): it and its importers are
+    unchecked and answer nothing, the broken buffer keeps its syntax pass's
+    colours, the rest of the graph answers, and rename refuses."""
+    root = os.path.join(base, "unchecked")
+    os.makedirs(os.path.join(root, "src"))
+    bad = BROKEN_FILE.replace("var w = v + ;", "var w = (v + ;")
+    for name, text in (("util", BROKEN_UTIL), ("other", BROKEN_OTHER), ("broken", bad), ("main", BROKEN_MAIN)):
+        open(os.path.join(root, "src", name + ".k"), "w").write(text)
+    open(os.path.join(root, "kairo_compile.json"), "w").write(
+        '{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["-I", "src"] } ] }\n')
+    c = Client(exe, root)
+    c.start()
+    B, O, M = "src/broken.k", "src/other.k", "src/main.k"
+    broken = c.open(B)
+    other = c.open(O)
+    main = c.open(M)
+    c.settle()
+    h = c.request("textDocument/hover", c.at(O, *pos(other, "helper(v)")))
+    check("unchecked: a sibling of the broken file answers hover", h and "fn helper" in h["contents"]["value"], h)
+    h = c.request("textDocument/hover", c.at(B, *pos(broken, "helper(v)")))
+    check("unchecked: the broken file answers nothing", h is None, h)
+    lex = {ty for l, col, w, ty, m in tokens(c, B, broken)}
+    check("unchecked: the broken file keeps its syntax pass's colours", "keyword" in lex, lex)
+    h = c.request("textDocument/hover", c.at(M, *pos(main, "other(3)")))
+    check("unchecked: an importer of the broken file answers nothing", h is None, h)
+    pr = c.request("textDocument/prepareRename", c.at(O, *pos(other, "helper(v)")))
+    check("unchecked: rename refuses", pr is None, pr)
+    check("unchecked: clean shutdown", c.stop() == 0)
+
+
 FFI_H = """#pragma once
 int p874_twice(int v);
 """
@@ -2209,6 +2353,8 @@ def main():
         features(exe, link, "symlink: ")
         crash(exe, real)
         stale_index(exe, real)
+        broken_from_start(exe, base)
+        broken_unchecked(exe, base)
         import_links(exe, real)
         syntax(exe, real)
         edits(exe, real)

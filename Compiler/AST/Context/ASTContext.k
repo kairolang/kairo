@@ -76,7 +76,11 @@ pub class ASTContext {
     /// TU's poisoned or never-lowered decls and hit an emitter ICE guard;
     /// FrontendAction::_codegen refuses a graph holding one.
     pub var sema_errored: bool                       = false
-    pub var sm:           unsafe *SourceManager      = &null
+    /// --check-past-syntax-errors: this file has syntax errors, or imports
+    /// (transitively) one that has, so Sema leaves it unchecked and a tool
+    /// gets nothing for it (Driver/SyntaxRecovery.k). Never set otherwise.
+    pub var syntax_skipped: bool                     = false
+    pub var sm:          unsafe *SourceManager      = &null
     pub var tcm:          unsafe *TokenCacheManager  = &null // we can get the imm table from the tcm
     pub var diags:        unsafe *DiagEngine         = &null
     pub var resolver:     unsafe *ImportResolver     = &null

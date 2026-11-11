@@ -115,6 +115,12 @@ pub class IndexObserver derives SemaObserver {
     pub var walk_us:  i64 = 0
     pub var write_us: i64 = 0
 
+    /// Files Sema left unchecked for a syntax error (theirs or an
+    /// import's): no rows, so the server knows the index does not cover them.
+    pub var unchecked: [string]
+    /// Files checked without the function bodies their syntax errors are in.
+    pub var partial: [string]
+
     priv var mu_: kairo::std::Mutex
 
     /// Walked at on_checked, written at on_lowered (or by flush).
@@ -154,6 +160,22 @@ pub class IndexObserver derives SemaObserver {
         var named = self.is_named_(path)
         if (!named) && (self.root.empty() || (!path.starts_with(self.root))) {
             return
+        }
+
+        // Left unchecked for a syntax error in it or in an import
+        // (--check-past-syntax-errors): its tree has no resolution to walk,
+        // and rows from it would be guesses. The snapshot names it.
+        if sc->ctx->syntax_skipped {
+            var lock = kairo::std::LockGuard(self.mu_)
+            self.unchecked.push_back(path)
+            return
+        }
+
+        // Checked with the bodies its syntax errors were in dropped: rows
+        // for everything else, none inside those bodies.
+        if sc->tu->recovered_bodies.size() > 0 {
+            var lock = kairo::std::LockGuard(self.mu_)
+            self.partial.push_back(path)
         }
 
         var t0 = worker_us()
@@ -791,6 +813,12 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     // An editor never wants an object file out of a keystroke.
     words.push_back("--type-check-only")
 
+    // The index run checks what syntax errors leave sound
+    // (LanguageServer.md section 9); the syntax pass stops at the parse.
+    if syntax_file.empty() {
+        words.push_back("--check-past-syntax-errors")
+    }
+
     if !syntax_file.empty() {
         // One file has nothing to share out: a thread pool of every core
         // costs more to start and stop (and to schedule on a busy machine)
@@ -882,6 +910,20 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     }
 
     w.field_raw("files", "[" + files + "]")
+    w.key("unchecked")
+    w.begin_array()
+    for var k: usize = 0; k < observer->unchecked.size(); ++k {
+        w.str(observer->unchecked[k])
+    }
+
+    w.end_array()
+    w.key("partial")
+    w.begin_array()
+    for var k: usize = 0; k < observer->partial.size(); ++k {
+        w.str(observer->partial[k])
+    }
+
+    w.end_array()
     w.field_bool("wide", wide)
     if as_module {
         // Where EmitCXXHeader put the entry's header under --emit-headers:

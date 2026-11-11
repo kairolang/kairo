@@ -2330,6 +2330,18 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     )
     cmd->mark_hidden("emit-headers-layout")
 
+    // The language server's index run: syntax errors do not stop the graph
+    // before Sema; the files they cannot spoil are checked anyway, and the
+    // action fails as it would have (Driver/SyntaxRecovery.k).
+    cmd->define<FlagKind::Bool>(
+        "check-past-syntax-errors",
+        "",
+        "check-past-syntax-errors",
+        "type-check the files syntax errors leave sound, for a tool's index; the diagnostics and the failure are unchanged",
+        false,
+    )
+    cmd->mark_hidden("check-past-syntax-errors")
+
     cmd->define<FlagKind::Bool>(
         "print-symbols",
         "",

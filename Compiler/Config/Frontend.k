@@ -225,6 +225,12 @@ pub class FrontendOptions {
     /// A live check (Tooling/LiveCheck.k) will run Sema again in this
     /// instance: nothing a later re-check reads is released early.
     pub var live_check: bool = false
+    /// --check-past-syntax-errors (kals only, Compiler/Spec/LanguageServer.md
+    /// section 9): a graph whose files have syntax errors still goes on to
+    /// Sema, over whatever part of it that is sound to check
+    /// (Driver/SyntaxRecovery.k), so a tool can index it. The action fails
+    /// as it would have, with the same diagnostics: nothing after Sema runs.
+    pub var check_past_syntax: bool = false
     /// --incr-replay=<script> / --incr-replay-dump=<dir>: check the entry,
     /// then apply the script's edits in this process (Driver/IncrReplay.k).
     pub var incr_replay:      string = ""
@@ -348,6 +354,7 @@ pub class FrontendOptions {
         o.emit_headers        = args.get_string("emit-headers")
         o.emit_header_lines   = args.get_bool("emit-headers-line-directives")
         o.emit_header_layout  = args.get_bool("emit-headers-layout")
+        o.check_past_syntax   = args.get_bool("check-past-syntax-errors")
         o.print_symbols       = args.get_bool("print-symbols")
         o.emit_ast_bin         = args.get_string("emit-ast-bin")
         o.verify_ast_roundtrip = args.get_bool("verify-ast-roundtrip")

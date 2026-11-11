@@ -97,8 +97,12 @@ extend Server {
             if (ldi != usize::MAX) && self.docs.docs[ldi].syn_landed && (!self.docs.docs[ldi].syn_parsed)
                 && (self.docs.docs[ldi].syn_at >= self.docs.docs[ldi].changed_at) {
                 var lei = self.entry_of(path)
+                // Fresh FOR THIS FILE: an index of a graph with syntax errors
+                // is current but may have no rows for the broken file
+                // (`unchecked`, section 9), and that file still wants colour.
                 var idx_fresh = (lei != usize::MAX) && self.entries[lei].has_idx
                     && (self.entries[lei].idx_rev >= self.docs.docs[ldi].changed_at)
+                    && (self.file_node(lei, path) != JSON_NONE())
                 if !idx_fresh {
                     self.send_tokens(&d, params, id, method, &self.docs.docs[ldi].syn_tokens)
                     return true
@@ -401,7 +405,10 @@ extend Server {
         if method == M_PREPARE_RENAME {
             // Only a name the index resolved can be renamed: every one of
             // its uses is then known, and nothing else is.
-            if (row == JSON_NONE()) || (s->as_int(self.nth(s, row, REF_DEF_FILE)) < 0) {
+            // Nor while an index holds a file a syntax error left without
+            // rows (section 9): the uses there are unknown, and a rename
+            // would miss them without saying so.
+            if (row == JSON_NONE()) || (s->as_int(self.nth(s, row, REF_DEF_FILE)) < 0) || self.any_incomplete_index() {
                 self.respond(id, "null")
                 return true
             }
@@ -507,7 +514,7 @@ extend Server {
         }
 
         if method == M_RENAME {
-            if row == JSON_NONE() {
+            if (row == JSON_NONE()) || self.any_incomplete_index() {
                 self.respond(id, "null")
                 return true
             }
