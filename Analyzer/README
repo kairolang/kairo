@@ -8,21 +8,41 @@ Design, file formats and the compiler hooks: Compiler/Spec/LanguageServer.md.
 Where the code is
 -----------------
 Driver/kals.k                    main: `kals` is the server, `kals --worker` one analysis
-Server.k                         the loop: messages, buffers, workers, every request
+Protocol.k                       wire constants: methods, error codes, kinds, LSP enums
+Tuning.k                         every tunable (debounces, limits, caps), with its trade-off
 JsonRpc.k, kals_io.h             Content-Length framing over stdin/stdout
 Json.k                           JSON reader (flat document) and writer
 DocumentStore.k                  open buffers, incremental edits, UTF-16 positions
 TextScan.k                       brackets and comment runs: folding, selection, signature help
 Workspace/CompileCommandsLoader.k  kairo_compile.json
-Index/Worker.k                   the worker: overlays, the compile, diagnostics as LSP JSON
-Index/Indexer.k                  the walk over a checked file: tokens, refs, hovers,
-                                 outline, inlay hints, completion items
+
+Server/  one class, Server, split over `extend Server` files
+  Server.k                       state, the loop, the message router, server_main
+  Output.k                       respond, notify, request, log, trace, progress
+  Lifecycle.k                    project file, initialize, capabilities
+  Scheduling.k                   Job / Entry / Parked, which entry holds a file, parking
+  Workers.k                      worker argv, launch, reap, installing a snapshot
+  Diagnostics.k                  publishing; the per-keystroke syntax pass
+  Lookup.k                       reading snapshot rows: ref_at, nth, uses
+  Features.k                     hover, definition, references, highlights, links, inlays, rename
+  Tokens.k                       semantic tokens: full, delta, range
+  Structure.k                    document symbols, folding, selection, workspace symbols
+  CodeActions.k                  quick fixes, macro expansion, generate interface
+  Navigation.k                   call / type hierarchy, code lens
+  SignatureHelp.k, Formatting.k, Completion.k
+  ClangdBridge.k                 generated headers and clangd's overlay for C/C++ sources
+  TextUtil.k                     text helpers (search, case, top-level names, keywords)
+
+Index/   the worker side
+  Worker.k                       the worker: overlays, the compile, diagnostics as LSP JSON
+  Indexer.k                      IndexWalker: state, classification, the visits
+  Legend.k                       token types and modifiers (positions, bits, names)
+  Snapshot.k                     row types and their column constants (REF_*, BASE_*, ...)
+  Writer.k                       writes the snapshot in Snapshot.k's column order
+  Tokens.k, Refs.k, Hovers.k, CompletionItems.k, Bases.k, Inlays.k, Macros.k
+                                 the walker's parts, as `extend IndexWalker`
+
 Dev/                             lsp_client.py (a scripted client), smoke.py (the test),
                                  bench.py (the cost rules: edits, row lookups)
-
-The other files (Providers/, Completion/, Walkers/, ...) are the original
-12-line stubs, one per LSP feature. They are not wired in: every feature is
-answered from one snapshot, so the logic lives in Server.k and Index/. They
-are kept as the map of what is left (implementation, hierarchies, code lenses).
 
 The editor clients (VS Code, Zed, Neovim) are in the kairo-lsp repository.

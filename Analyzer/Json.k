@@ -96,24 +96,12 @@ pub class JsonDoc {
         return self.nodes[n as usize].kind
     }
 
-    fn is_null(const self, n: u32) -> bool {
-        return self.kind(n) == JsonKind::Null
-    }
-
-    fn is_string(const self, n: u32) -> bool {
-        return self.kind(n) == JsonKind::String
-    }
-
     fn is_number(const self, n: u32) -> bool {
         return self.kind(n) == JsonKind::Number
     }
 
     fn is_object(const self, n: u32) -> bool {
         return self.kind(n) == JsonKind::Object
-    }
-
-    fn is_array(const self, n: u32) -> bool {
-        return self.kind(n) == JsonKind::Array
     }
 
     /// Member \p key of object \p n, or JSON_NONE.

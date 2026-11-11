@@ -166,7 +166,7 @@ ffi "c++" import "locale"
 ffi "c++" import "sstream"
 
 import Index::Worker::worker_main
-import Server::server_main
+import Server::Server::server_main
 import std::c_char
 import std::env
 import std::io

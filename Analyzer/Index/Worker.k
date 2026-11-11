@@ -57,11 +57,10 @@ import DocumentStore::{
 }
 import Driver::CompilerInstance::CompilerInstance
 import Driver::TUStage::TUStage
-import Index::Indexer::{
-    FileText,
-    IndexWalker,
-    lexical_tokens,
-}
+import Index::Snapshot::FileText
+import Index::Indexer::IndexWalker
+import Index::Tokens::lexical_tokens
+import Tuning::WIDE_INDEX_LIMIT
 import Json::{
     JsonDoc,
     JsonWriter,
@@ -165,14 +164,6 @@ pub class IndexObserver derives SemaObserver {
             self.rest_count += 1
         }
     }
-}
-
-/// Above this many files in the import graph, only the editor's open buffers
-/// are indexed. References and rename then cover the open files only: the
-/// alternative is a snapshot of every file of a large tree on every pause in
-/// typing, most of it never asked about.
-pub fn WIDE_INDEX_LIMIT() -> usize {
-    return 96
 }
 
 /// \class DiagCollector
@@ -808,7 +799,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     w.begin_object()
     w.field_bool("ok", true)
     var files = observer->out
-    var wide  = unit.fids.size() <= WIDE_INDEX_LIMIT()
+    var wide  = unit.fids.size() <= WIDE_INDEX_LIMIT
     if wide && (observer->rest_count > 0) {
         if observer->count > 0 {
             files += ","
