@@ -92,10 +92,7 @@ import AST::Visitor::ASTWriter::{
     ASTWriter,
     ListBuilder,
 }
-import Lexer::Immediate::{
-    Immediate,
-    ImmediateTable,
-}
+import Lexer::Immediate::Immediate
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Sema::Lower::LowerSynth::LowerSynth
@@ -365,7 +362,7 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
             stmts.push(ExpressionStmt::create(self.ctx, e->range, put))
         }
 
-        self._text_after(n, unsafe &text)
+        self._text_after(n, unsafe &text, true)
         self._flush_text(n, buf, unsafe &text, &stmts)
 
         // 4. The value.
@@ -475,16 +472,36 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
         )
     }
 
-    /// Raw offset of hole \p i's `{`.
-    priv fn _open(self, n: unsafe *StringLiteralExpr, i: usize) -> u32 {
-        var r = (*(n->imm->exprs.begin() + i)).1
+    /// # holes across a chain
+    ///
+    ///   Adjacent literals join whatever their prefixes (P486), so a hole can
+    ///   sit in any segment of the chain: `"a" f"b{x}" r"\c" f"{y}"`. Each
+    ///   segment's text is decoded under its own prefix (its Raw bit), and
+    ///   the segments with no hole are text whole.
+
+    /// Hole \p i's segment; \p k becomes its index within that segment.
+    priv fn _seg(self, n: unsafe *StringLiteralExpr, i: usize, @inout k: usize) -> unsafe *Immediate::StringData {
+        k = n->hole_index(i)
+        var unsafe *seg = n->hole_segment(i)
+        if seg == &null {
+            kairo::std::ice_fail(
+                "FStringLowering: a part with no hole in the chain; the parser must push one per hole",
+            )
+        }
+
+        return seg
+    }
+
+    /// Raw offset of hole \p k's `{` in \p seg.
+    priv fn _open(self, seg: unsafe *Immediate::StringData, k: usize) -> u32 {
+        var r = (*(seg->exprs.begin() + k)).1
         return r.start.raw() - 1
     }
 
-    /// Raw offset of hole \p i's `}`: past the spec, the doc text, or the
-    /// expression, whichever the hole has.
-    priv fn _close(self, n: unsafe *StringLiteralExpr, i: usize) -> u32 {
-        var *hs = &n->imm->holes[i]
+    /// Raw offset of hole \p k's `}` in \p seg: past the spec, the doc text,
+    /// or the expression, whichever the hole has.
+    priv fn _close(self, seg: unsafe *Immediate::StringData, k: usize) -> u32 {
+        var *hs = &seg->holes[k]
         if hs->spec.is_valid() {
             return hs->spec.end.raw()
         }
@@ -493,7 +510,7 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
             return hs->doc.end.raw()
         }
 
-        return (*(n->imm->exprs.begin() + i)).1.end.raw()
+        return (*(seg->exprs.begin() + k)).1.end.raw()
     }
 
     priv fn _range(self, a: u32, b: u32) -> SourceRange {
@@ -505,67 +522,99 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
     }
 
     /// The literal bytes before hole \p i, decoded, then the hole's own
-    /// `{x=}` text, verbatim.
+    /// `{x=}` text, verbatim. When the hole opens a segment, the bytes before
+    /// it are the rest of the previous hole's segment and every segment
+    /// between, whole.
     priv fn _text_before(self,
                          n:   unsafe *StringLiteralExpr,
                          i:   usize,
                          out: unsafe *cxx::std::vector<u8>) {
-        var from = if (i == 0) => (n->imm->body.start.raw()) else => self._close(n, i - 1) + 1
-        self._decode(n, self._range(from, self._open(n, i)), out)
-        self.synth.copy_text(n->imm->holes[i].doc, &*out)
-    }
-
-    /// The bytes after the last hole, then every chained part.
-    priv fn _text_after(self, n: unsafe *StringLiteralExpr, out: unsafe *cxx::std::vector<u8>) {
-        var last = n->parts.size() - 1
-        self._decode(n, self._range(self._close(n, last) + 1, n->imm->body.end.raw()), out)
-
-        var unsafe *tbl = self._chain_table(n)
-        var        idx  = n->imm->next
-        while idx != u32::MAX {
-            var unsafe *seg = tbl->get<Immediate::StringData>(idx)
-            var        raw  = seg->prefix_kind.has(Immediate::TextPrefixKind::Raw)
-            if seg->has_owned_text() {
-                for var k: usize = 0; k < (seg->owned_len as usize); ++k {
-                    out->push_back(seg->owned_ptr[k])
-                }
-            } else {
-                if !self.synth.decode_text(seg->body, raw, out) {
-                    kairo::std::ice_fail(
-                        "FStringLowering: escape the lexer accepted but the decoder does not know; keep Lexer::is_valid_escape and LowerSynth::decode_text in step",
-                    )
-                }
+        var        k: usize = 0
+        var unsafe *seg     = self._seg(n, i, &k)
+        var        from     = seg->body.start.raw()
+        if k > 0 {
+            from = self._close(seg, k - 1) + 1
+        } else {
+            var unsafe *s = n->imm
+            if i > 0 {
+                var pk: usize = 0
+                s = self._seg(n, i - 1, &pk)
+                self._decode(n, s, self._range(self._close(s, pk) + 1, s->body.end.raw()), out)
+                s = n->next_segment(s)
             }
 
-            idx = seg->next
+            while s != &null && s != seg {
+                self._decode_whole(n, s, out)
+                s = n->next_segment(s)
+            }
         }
 
-        n->imm->next = u32::MAX
+        self._decode(n, seg, self._range(from, self._open(seg, k)), out)
+        self.synth.copy_text(seg->holes[k].doc, &*out)
     }
 
-    /// The table that holds n->imm and its chained parts: the file that
-    /// wrote the literal (an imported macro's body is not this file).
-    priv fn _chain_table(self, n: unsafe *StringLiteralExpr) -> unsafe *ImmediateTable {
-        if n->ctx != &null {
-            return n->ctx->get_payload_table(n->token)
+    /// The bytes after the last hole, then every segment after its own. With
+    /// \p consume the chain is spent (one FmtBuf now holds it all).
+    priv fn _text_after(self,
+                        n:       unsafe *StringLiteralExpr,
+                        out:     unsafe *cxx::std::vector<u8>,
+                        consume: bool) {
+        var        k: usize = 0
+        var unsafe *seg     = self._seg(n, n->parts.size() - 1, &k)
+        self._decode(n, seg, self._range(self._close(seg, k) + 1, seg->body.end.raw()), out)
+
+        var unsafe *s = n->next_segment(seg)
+        while s != &null {
+            self._decode_whole(n, s, out)
+            s = n->next_segment(s)
         }
 
-        return self.sc->imm_table()
+        if consume {
+            n->imm->next = u32::MAX
+        }
+    }
+
+    /// \p seg's Raw bit: the node's for the first segment (its kind is the
+    /// head's), the segment's own prefix for every other.
+    priv fn _raw(self, n: unsafe *StringLiteralExpr, seg: unsafe *Immediate::StringData) -> bool {
+        if seg == n->imm {
+            return n->is_raw()
+        }
+
+        return seg->prefix_kind.has(Immediate::TextPrefixKind::Raw)
     }
 
     priv fn _decode(self,
                     n:   unsafe *StringLiteralExpr,
+                    seg: unsafe *Immediate::StringData,
                     r:   SourceRange,
                     out: unsafe *cxx::std::vector<u8>) {
-        if !self.synth.decode_text(r, n->is_raw(), out) {
+        if !self.synth.decode_text(r, self._raw(n, seg), out) {
             kairo::std::ice_fail(
                 "FStringLowering: escape the lexer accepted but the decoder does not know; keep Lexer::is_valid_escape and LowerSynth::decode_text in step",
             )
         }
     }
 
-    /// Every literal byte of the f-string, for the bound. The text itself is
-    /// re-derived per segment in step 3; the bytes here are counted only.
+    /// A segment with no hole, all of it: owned text as is, else its body.
+    priv fn _decode_whole(self,
+                          n:   unsafe *StringLiteralExpr,
+                          seg: unsafe *Immediate::StringData,
+                          out: unsafe *cxx::std::vector<u8>) {
+        if seg->has_owned_text() {
+            for var i: usize = 0; i < (seg->owned_len as usize); ++i {
+                out->push_back(seg->owned_ptr[i])
+            }
+
+            return
+        }
+
+        self._decode(n, seg, seg->body, out)
+    }
+
+    /// Every literal byte of the f-string, for the bound: exactly the text
+    /// step 3 emits. The text itself is re-derived there; the bytes here are
+    /// counted only, and the chain is not spent.
     priv fn _collect_text(self,
                           n:       unsafe *StringLiteralExpr,
                           scratch: unsafe *cxx::std::vector<u8>,
@@ -574,17 +623,7 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
             self._text_before(n, i, scratch)
         }
 
-        // _text_after consumes the chain; count it without consuming here.
-        var last = n->parts.size() - 1
-        self._decode(n, self._range(self._close(n, last) + 1, n->imm->body.end.raw()), scratch)
-        var unsafe *tbl = self._chain_table(n)
-        var        idx  = n->imm->next
-        while idx != u32::MAX {
-            var unsafe *seg = tbl->get<Immediate::StringData>(idx)
-            *bound += seg->body.end.raw() - seg->body.start.raw() // an over-estimate: escapes shrink.
-            idx = seg->next
-        }
-
+        self._text_after(n, scratch, false)
         *bound += (scratch->size() as u64)
         scratch->clear()
     }

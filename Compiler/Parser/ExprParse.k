@@ -3686,14 +3686,31 @@ pub class <T: type> ExprParse {
         // map prefix_kind flags -> StringKind flags, bit by bit: the two
         // enums number Raw and Format differently. Both are sets, so raw|format
         // (rf) is representable.
+        //
+        // Raw is the head's (each chained segment's own Raw is read off its
+        // prefix_kind by every decoder). Format is the CHAIN's: adjacent
+        // literals join whatever their prefixes (P486), so `"a" f"b{x}"` is
+        // one f-string whose holes are every segment's, in order; a chain
+        // with no format segment stays a plain compile-time literal.
         var skind = FlagSet<StringLiteralExpr::StringKind, u8>()
+        var holes: usize = 0
         if sdata != &null {
-            if sdata->prefix_kind.has(Immediate::TextPrefixKind::Format) {
-                skind.set(StringLiteralExpr::StringKind::Format)
-            }
-
             if sdata->prefix_kind.has(Immediate::TextPrefixKind::Raw) {
                 skind.set(StringLiteralExpr::StringKind::Raw)
+            }
+
+            var unsafe *seg = sdata
+            while seg != &null {
+                if seg->prefix_kind.has(Immediate::TextPrefixKind::Format) {
+                    skind.set(StringLiteralExpr::StringKind::Format)
+                }
+
+                holes += seg->exprs.size()
+                if seg->next == u32::MAX {
+                    break
+                }
+
+                seg = imm_tbl->get<Immediate::StringData>(seg->next)
             }
         }
 
@@ -3703,7 +3720,7 @@ pub class <T: type> ExprParse {
         // Parse holes off the DATA, not the kind: rf is both raw and format, and a
         // format string with zero holes needs no loop. exprs.size() > 0 is the
         // unambiguous "has holes" signal the lexer already computed.
-        if sdata == &null || sdata->exprs.size() == 0 {
+        if sdata == &null || holes == 0 {
             return node
         }
 
@@ -3712,9 +3729,14 @@ pub class <T: type> ExprParse {
         // are that file's raw tokens, whose imms index its tables, not ours.
         var foreign = imm_tbl != self.dyn()->ctx->get_imm_table()
 
-        for var i: usize = 0; i < sdata->exprs.size(); ++i {
-            var hole_buf   = sdata->exprs[i].0
-            var hole_range = sdata->exprs[i].1
+        // Every hole of every segment, in source order: parts is parallel to
+        // StringLiteralExpr::hole_segment / hole_index, which walk the chain
+        // the same way.
+        for var h: usize = 0; h < holes; ++h {
+            var unsafe *hs = node->hole_segment(h)
+            var        i  = node->hole_index(h)
+            var hole_buf   = hs->exprs[i].0
+            var hole_range = hs->exprs[i].1
 
             if hole_buf == &null {
                 parts.push_back(self._error_expr(hole_range))

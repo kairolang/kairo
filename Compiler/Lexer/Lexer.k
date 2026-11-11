@@ -1941,9 +1941,13 @@ pub class Lexer {
     ///          a single pass: each call chains the one segment after it, and
     ///          that segment chains the next.
     ///
-    /// \note    Only `"` chains. A char literal is a single codepoint, and a
-    ///          prefixed continuation (`"a" r"b"`) is deliberately left alone
-    ///          because the segments would disagree about escape handling.
+    /// \note    Only `"` chains: a char literal is a single codepoint. A
+    ///          continuation may carry any string prefix (`"a" r"b"`,
+    ///          `f"a{x}" f"b{y}"`, P486); each segment is lexed under its own
+    ///          prefix, so its escapes and holes are its own, and the
+    ///          consumers read every segment's prefix_kind. Before P486 only
+    ///          an unprefixed continuation chained, and a prefixed one was a
+    ///          second token: a new statement whose value was discarded.
     ///
     /// \warning the cursor is restored when no adjacent literal follows. The
     ///          newline after a lone string is a statement terminator and must
@@ -1966,17 +1970,56 @@ pub class Lexer {
             break
         }
 
-        if self.is_eof() || self.peek_char32().chr != '"' {
+        if self.is_eof() {
             self._cursor = saved
             return
         }
 
-        var seg = self.lex_text(self.get_source_location())
+        // A prefixed continuation goes through lex_name, which owns what a
+        // prefix is: the lookahead only admits the spellings it accepts, so
+        // `"a" f "b"` (a space after the `f`) and `"a" ff"b"` stay apart.
+        var seg = Token()
+        if self.peek_char32().chr == '"' {
+            seg = self.lex_text(self.get_source_location())
+        } else if self.string_prefix_len() != 0 {
+            seg = self.lex_name(self.get_source_location())
+        } else {
+            self._cursor = saved
+            return
+        }
+
         if seg.kind == TokenKind::LitString {
             *ctx.imm.get_next() = seg.imm
         } else {
             self._cursor = saved
         }
+
+        self._last_kind = LastTokenKind::Text
+    }
+
+    /// \brief the length of the string prefix at the cursor (`f`, `r`, `fr`,
+    ///        `rf`, either case) when a `"` follows it directly, else 0.
+    ///
+    /// \details mirrors the prefix table in lex_name, which is what actually
+    ///          lexes the literal; this only decides, without consuming, that
+    ///          the name at the cursor is a prefix and not a word. A `'` after
+    ///          it is a char literal, which never chains, so it is 0 here.
+    priv inline fn string_prefix_len(self) -> isize {
+        var c0 = self.peek_char32().chr
+        var c1 = self.peek_char32(1).chr
+        var f0 = c0 == 'f' || c0 == 'F'
+        var r0 = c0 == 'r' || c0 == 'R'
+        if (f0 || r0) && c1 == '"' {
+            return 1
+        }
+
+        var f1 = c1 == 'f' || c1 == 'F'
+        var r1 = c1 == 'r' || c1 == 'R'
+        if ((f0 && r1) || (r0 && f1)) && self.peek_char32(2).chr == '"' {
+            return 2
+        }
+
+        return 0
     }
 
     priv inline fn init_text_ctx(self, start: SourceLocation, prefix: Token) -> Self::TextCtx {
@@ -2333,6 +2376,13 @@ pub class Lexer {
     }
 
     priv inline fn lex_text_suffix(self, @inout ctx: Self::TextCtx) {
+        // `"a"f"b"`: a prefix glued to the closing quote starts the next
+        // segment of the chain, not a suffix. lex_name would lex that whole
+        // literal as the "suffix" (and its imm would be orphaned).
+        if ctx.delim == 0x22 && self.string_prefix_len() != 0 {
+            return
+        }
+
         if self.is_valid_name(self.peek_char32()) != 0 {
             var suffix = self.lex_name(self.get_source_location())
             if suffix.kind != TokenKind::TkUnknown {

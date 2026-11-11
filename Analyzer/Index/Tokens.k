@@ -62,7 +62,10 @@ import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
 import Json::JsonWriter
-import Lexer::Immediate::ImmediateTable
+import Lexer::Immediate::{
+    Immediate,
+    ImmediateTable,
+}
 import Lexer::Lexer::Lexer
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
@@ -405,6 +408,7 @@ extend IndexWalker {
             // literal whole would bury them under a string colour; instead
             // the text is a string, and each interpolation is code.
             if (t.kind == TokenKind::LitString) && self.interpolated_(off, len, &by_off, out) {
+                self.chained_(imm, t, off + len, &by_off, out)
                 continue
             }
 
@@ -420,6 +424,9 @@ extend IndexWalker {
             st.kind = kind
             st.mods = mods
             out->push_back(st)
+            if t.kind == TokenKind::LitString {
+                self.chained_(imm, t, off + len, &by_off, out)
+            }
         }
 
         lx->close()
@@ -535,6 +542,64 @@ extend IndexWalker {
 
         self.piece_(seg, end, TT_STRING(), out)
         return true
+    }
+
+    /// The segments chained after string token \p t (`"a" f"b{x}"`, P486):
+    /// the lexer makes no token of them, so each is found from its
+    /// StringData and emitted like a literal of its own, holes split out.
+    /// \p from is where the token ends; each segment starts at the first
+    /// byte past the blanks after the one before it.
+    fn chained_(self,
+                imm:    unsafe *ImmediateTable,
+                t:      Token,
+                from:   u32,
+                by_off: *{u32: u32},
+                out:    *[SemTok]) {
+        var *text = &self.files[0].text
+        var unsafe *seg = imm->get<Immediate::StringData>(t.imm)
+        var        at   = from as usize
+        while (seg != &null) && (seg->next != u32::MAX) {
+            seg = imm->get<Immediate::StringData>(seg->next)
+            if seg == &null {
+                return
+            }
+
+            while (at < text->size())
+                && (((*text)[at] == 32) || ((*text)[at] == 9) || ((*text)[at] == 10) || ((*text)[at] == 13)) {
+                at += 1
+            }
+
+            var bs = self.own_off_(seg->body.start)
+            var be = self.own_off_(seg->body.end)
+            if (bs == u32::MAX) || (be == u32::MAX) || ((bs as usize) < at) {
+                return
+            }
+
+            // The opening quotes run from the prefix's end (or the segment's
+            // start) to the body; the closing run is as long.
+            var qs = at as u32
+            if !seg->prefix_kind.empty() {
+                var pe = self.own_off_(seg->prefix.range.end)
+                if pe != u32::MAX {
+                    qs = pe
+                }
+            }
+
+            var end = be + (bs - qs)
+            if seg->suffix.range.is_valid() {
+                var se = self.own_off_(seg->suffix.range.end)
+                if se != u32::MAX {
+                    end = se
+                }
+            }
+
+            var len = end - (at as u32)
+            if !self.interpolated_(at as u32, len, by_off, out) {
+                self.piece_(at, end as usize, TT_STRING(), out)
+            }
+
+            at = end as usize
+        }
     }
 
     fn piece_(self, from: usize, to: usize, kind: u32, out: *[SemTok]) {

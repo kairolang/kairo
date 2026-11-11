@@ -1102,6 +1102,86 @@ pub class StringLiteralExpr derives Expr {
     fn is_plain(self) -> bool {
         return self.string_kind.empty()
     }
+
+    /// # the chain
+    ///
+    ///   `"a" f"b{x}" r"c"` is one literal of three segments (P486): imm is
+    ///   the first, and each links the next through StringData::next in the
+    ///   table of the file that WROTE the literal (get_payload_table). Every
+    ///   segment keeps its own prefix_kind, body and holes; parts holds the
+    ///   holes of all of them, in order, and hole_segment maps a part back.
+
+    /// The segment after \p seg, or null at the end of the chain.
+    pub fn next_segment(self, seg: unsafe *Immediate::StringData) -> unsafe *Immediate::StringData {
+        if seg == &null || seg->next == u32::MAX || self.ctx == &null {
+            return &null
+        }
+
+        var unsafe *tbl = self.ctx->get_payload_table(self.token)
+        if tbl == &null {
+            return &null
+        }
+
+        return tbl->get<Immediate::StringData>(seg->next)
+    }
+
+    /// The segment holding hole \p i of the whole chain; null past the last
+    /// hole. hole_index gives the hole's index within it.
+    pub fn hole_segment(self, i: usize) -> unsafe *Immediate::StringData {
+        var        k   = i
+        var unsafe *seg = self.imm
+        while seg != &null {
+            var n = seg->exprs.size()
+            if k < n {
+                return seg
+            }
+
+            k = k - n
+            seg = self.next_segment(seg)
+        }
+
+        return &null
+    }
+
+    /// Hole \p i's index within its segment (hole_segment).
+    pub fn hole_index(self, i: usize) -> usize {
+        var        k   = i
+        var unsafe *seg = self.imm
+        while seg != &null {
+            var n = seg->exprs.size()
+            if k < n {
+                return k
+            }
+
+            k = k - n
+            seg = self.next_segment(seg)
+        }
+
+        return k
+    }
+
+    /// Every segment's holes, counted: parallel to parts once parsed.
+    pub fn hole_count(self) -> usize {
+        var        n: usize = 0
+        var unsafe *seg     = self.imm
+        while seg != &null {
+            n += seg->exprs.size()
+            seg = self.next_segment(seg)
+        }
+
+        return n
+    }
+
+    /// Hole \p i's spec and `=` facts, whichever segment it is in.
+    pub fn hole_spec(self, i: usize) -> Immediate::HoleSpec {
+        var unsafe *seg = self.hole_segment(i)
+        var        k   = self.hole_index(i)
+        if seg == &null {
+            return Immediate::HoleSpec { spec: SourceRange::invalid(), doc: SourceRange::invalid() }
+        }
+
+        return seg->holes[k]
+    }
 }
 
 /// StringLiteralExpr::StringKind's variants are its FlagSet's bits

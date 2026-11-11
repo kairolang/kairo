@@ -3,8 +3,8 @@
 // `substring`.
 //
 // XFAIL: *
-// Ticket "[Lib] `string.split` and the other std string methods the docs use
-// are missing". Today: R025E "no
+// `string.split` and the other std string methods the docs use
+// are missing. Today: R025E "no
 // member named 'split' in 'string'" (Lib/builtin string has no methods). When
 // it XPASSes, delete the XFAIL -- the run below is already the real
 // assertion.

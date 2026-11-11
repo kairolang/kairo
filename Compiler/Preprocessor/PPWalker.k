@@ -1828,34 +1828,49 @@ pub class PPWalker
     ///   other tokens get theirs.
 
     /// \p tok's StringData when it is an f-string with holes, read from the
-    /// table of the file that lexed it; null otherwise.
-    priv fn _fstring_data(self, tok: Token) -> unsafe *Immediate::StringData {
+    /// table of the file that lexed it (\p tbl becomes that table); null
+    /// otherwise. Adjacent literals join whatever their prefixes (P486), so
+    /// the holes can sit in any segment of the chain: `"a" f"{x}"` is one.
+    priv fn _fstring_data(self, tok: Token, @inout tbl: unsafe *ImmediateTable) -> unsafe *Immediate::StringData {
         if tok.kind != TokenKind::LitString {
             return &null
         }
 
-        var unsafe *tbl = self._tcm->get_imm_table_for_token(tok)
+        tbl = self._tcm->get_imm_table_for_token(tok)
         if tbl == &null {
             return &null
         }
 
-        var unsafe *d = tbl->get<Immediate::StringData>(tok.imm)
-        if d == &null || d->exprs.size() == 0 {
+        var unsafe *d   = tbl->get<Immediate::StringData>(tok.imm)
+        var unsafe *seg = d
+        while seg != &null {
+            if seg->exprs.size() > 0 && seg->prefix_kind.has(Immediate::TextPrefixKind::Format) {
+                return d
+            }
+
+            seg = self._fstring_next(tbl, seg)
+        }
+
+        return &null
+    }
+
+    /// The segment chained after \p seg in \p tbl, or null.
+    priv fn _fstring_next(self,
+                          tbl: unsafe *ImmediateTable,
+                          seg: unsafe *Immediate::StringData) -> unsafe *Immediate::StringData {
+        if seg->next == u32::MAX {
             return &null
         }
 
-        if !d->prefix_kind.has(Immediate::TextPrefixKind::Format) {
-            return &null
-        }
-
-        return d
+        return tbl->get<Immediate::StringData>(seg->next)
     }
 
     /// A fresh slot in this file's table with \p d's text and hole specs and
     /// no hole buffers yet: the caller pushes one per hole. Fresh, never the
     /// lexed slot written over: a body's literal is shared by every
-    /// expansion, and the lexed slot frees its own buffers.
-    priv fn _fstring_slot(self, d: unsafe *Immediate::StringData, same_tbl: bool) -> u32 {
+    /// expansion, and the lexed slot frees its own buffers. Its `next` is
+    /// unset; the caller links the copy of the chain.
+    priv fn _fstring_slot(self, d: unsafe *Immediate::StringData) -> u32 {
         var        idx = self._imm->create<Immediate::StringData>()
         var unsafe *nd = self._imm->get<Immediate::StringData>(idx)
         nd->body        = d->body
@@ -1864,13 +1879,37 @@ pub class PPWalker
         nd->prefix_kind = d->prefix_kind
         nd->owned_ptr   = d->owned_ptr
         nd->owned_len   = d->owned_len
-        // `next` indexes the table \p d lives in.
-        nd->next = if (same_tbl) => (d->next) else => u32::MAX
+        nd->next        = u32::MAX
         for var i: usize = 0; i < d->holes.size(); ++i {
             nd->holes.push_back(d->holes[i])
         }
 
         return idx
+    }
+
+    /// Every segment of \p d's chain copied into this file's table and
+    /// linked, in order; returns the first copy. The caller fills each
+    /// copy's hole buffers (segs[i] is the source of copies[i]). The whole
+    /// chain is copied, holes or not: a copy's `next` must index THIS table,
+    /// and the source chain may live in another file's.
+    priv fn _fstring_chain(self,
+                           d:      unsafe *Immediate::StringData,
+                           tbl:    unsafe *ImmediateTable,
+                           segs:   unsafe *cxx::std::vector<unsafe *Immediate::StringData>,
+                           copies: unsafe *cxx::std::vector<u32>) -> u32 {
+        var unsafe *seg = d
+        while seg != &null {
+            var idx = self._fstring_slot(seg)
+            if copies->size() > 0 {
+                self._imm->get<Immediate::StringData>((*copies)[copies->size() - 1])->next = idx
+            }
+
+            segs->push_back(seg)
+            copies->push_back(idx)
+            seg = self._fstring_next(tbl, seg)
+        }
+
+        return (*copies)[0]
     }
 
     /// \p tok from a macro body: an f-string with holes comes back as a copy
@@ -1887,47 +1926,53 @@ pub class PPWalker
                            variadic_name:   SymbolID,
                            element:         unsafe *(TokenBuffer<512>),
                            anchor:          SourceRange) -> Token {
-        var unsafe *d = self._fstring_data(tok)
+        var tbl: unsafe *ImmediateTable = &null
+        var unsafe *d = self._fstring_data(tok, &tbl)
         if d == &null {
             return tok
         }
 
-        var        same_tbl = self._tcm->get_imm_table_for_token(tok) == self._imm
-        var        idx      = self._fstring_slot(d, same_tbl)
-        var unsafe *nd      = self._imm->get<Immediate::StringData>(idx)
-        for var h: usize = 0; h < d->exprs.size(); ++h {
-            var unsafe *src = d->exprs[h].0
-            var        rng  = d->exprs[h].1
-            var unsafe *nb  = kairo::std::create<TokenBuffer<16>>()
-            if src != &null {
-                for var k: usize = 0; k < src->size(); ++k {
-                    var unsafe *ht = src->get(k)
-                    if ht->kind == TokenKind::LitIdentifier {
-                        var nm = self._sym->intern(TokenText::spelling(*ht, self._tcm))
-                        if element != &null && nm == variadic_name {
-                            for var j: usize = 0; j < element->size(); ++j {
-                                nb->append(*element->get(j))
+        var        same_tbl = tbl == self._imm
+        var        segs     = cxx::std::vector<unsafe *Immediate::StringData>()
+        var        copies   = cxx::std::vector<u32>()
+        var        idx      = self._fstring_chain(d, tbl, unsafe &segs, unsafe &copies)
+        for var s: usize = 0; s < segs.size(); ++s {
+            var unsafe *sd = segs[s]
+            var unsafe *nd = self._imm->get<Immediate::StringData>(copies[s])
+            for var h: usize = 0; h < sd->exprs.size(); ++h {
+                var unsafe *src = sd->exprs[h].0
+                var        rng  = sd->exprs[h].1
+                var unsafe *nb  = kairo::std::create<TokenBuffer<16>>()
+                if src != &null {
+                    for var k: usize = 0; k < src->size(); ++k {
+                        var unsafe *ht = src->get(k)
+                        if ht->kind == TokenKind::LitIdentifier {
+                            var nm = self._sym->intern(TokenText::spelling(*ht, self._tcm))
+                            if element != &null && nm == variadic_name {
+                                for var j: usize = 0; j < element->size(); ++j {
+                                    nb->append(*element->get(j))
+                                }
+
+                                continue
                             }
 
-                            continue
-                        }
+                            var bit = bindings.find(nm as u64)
+                            if bit != bindings.end() {
+                                var unsafe *bound = bit->second
+                                for var j: usize = 0; j < bound->size(); ++j {
+                                    nb->append(*bound->get(j))
+                                }
 
-                        var bit = bindings.find(nm as u64)
-                        if bit != bindings.end() {
-                            var unsafe *bound = bit->second
-                            for var j: usize = 0; j < bound->size(); ++j {
-                                nb->append(*bound->get(j))
+                                continue
                             }
-
-                            continue
                         }
+
+                        nb->append(*ht)
                     }
-
-                    nb->append(*ht)
                 }
-            }
 
-            nd->exprs.push_back((nb, rng))
+                nd->exprs.push_back((nb, rng))
+            }
         }
 
         var out = tok
@@ -1949,20 +1994,22 @@ pub class PPWalker
     /// lexed that no body rewrote (an argument from a macro of that file)
     /// is left to the parser (ASTContext::wrap_foreign_token).
     priv fn _expand_fstring(self, t: Token, chain: unsafe *cxx::std::vector<InvokeHop>) -> Token {
-        var unsafe *d = self._fstring_data(t)
+        var tbl: unsafe *ImmediateTable = &null
+        var unsafe *d = self._fstring_data(t, &tbl)
         if d == &null {
             return t
         }
 
-        if self._tcm->get_imm_table_for_token(t) != self._imm {
+        if tbl != self._imm {
             return t
         }
 
         var from_body = chain != &null && chain->size() > 0
         var any       = from_body
-        if !any {
-            for var h: usize = 0; h < d->exprs.size() && !any; ++h {
-                var unsafe *src = d->exprs[h].0
+        var unsafe *scan = d
+        while scan != &null && !any {
+            for var h: usize = 0; h < scan->exprs.size() && !any; ++h {
+                var unsafe *src = scan->exprs[h].0
                 if src == &null {
                     continue
                 }
@@ -1975,40 +2022,47 @@ pub class PPWalker
                     }
                 }
             }
+
+            scan = self._fstring_next(tbl, scan)
         }
 
         if !any {
             return t
         }
 
-        var        empty = cxx::std::vector<InvokeHop>()
-        var unsafe *pc   = if (chain != &null) => (chain) else => unsafe &empty
-        var        idx   = self._fstring_slot(d, true)
-        var unsafe *nd   = self._imm->get<Immediate::StringData>(idx)
-        for var h: usize = 0; h < d->exprs.size(); ++h {
-            var unsafe *src = d->exprs[h].0
-            var        rng  = d->exprs[h].1
-            var unsafe *nb  = kairo::std::create<TokenBuffer<16>>()
-            if src != &null {
-                // An EOF in the run would end _expand_buffer's walk with its
-                // frame still pushed; the hole's parse needs none.
-                var unsafe *run = kairo::std::create<TokenBuffer<512>>()
-                for var k: usize = 0; k < src->size(); ++k {
-                    if src->get(k)->kind != TokenKind::TkEof {
-                        run->append(*src->get(k))
+        var        empty  = cxx::std::vector<InvokeHop>()
+        var unsafe *pc    = if (chain != &null) => (chain) else => unsafe &empty
+        var        segs   = cxx::std::vector<unsafe *Immediate::StringData>()
+        var        copies = cxx::std::vector<u32>()
+        var        idx    = self._fstring_chain(d, tbl, unsafe &segs, unsafe &copies)
+        for var s: usize = 0; s < segs.size(); ++s {
+            var unsafe *sd = segs[s]
+            for var h: usize = 0; h < sd->exprs.size(); ++h {
+                var unsafe *src = sd->exprs[h].0
+                var        rng  = sd->exprs[h].1
+                var unsafe *nb  = kairo::std::create<TokenBuffer<16>>()
+                if src != &null {
+                    // An EOF in the run would end _expand_buffer's walk with its
+                    // frame still pushed; the hole's parse needs none.
+                    var unsafe *run = kairo::std::create<TokenBuffer<512>>()
+                    for var k: usize = 0; k < src->size(); ++k {
+                        if src->get(k)->kind != TokenKind::TkEof {
+                            run->append(*src->get(k))
+                        }
                     }
+
+                    var unsafe *ex = self._expand_buffer(run, pc)
+                    for var k: usize = 0; k < ex->size(); ++k {
+                        nb->append(*ex->get(k))
+                    }
+
+                    self._splices.push_back(run) // owned for the run, as a splice frame's tokens.
+                    kairo::std::destroy(ex)
                 }
 
-                var unsafe *ex = self._expand_buffer(run, pc)
-                for var k: usize = 0; k < ex->size(); ++k {
-                    nb->append(*ex->get(k))
-                }
-
-                self._splices.push_back(run) // owned for the run, as a splice frame's tokens.
-                kairo::std::destroy(ex)
+                // re-read: the walk above may have grown this table.
+                self._imm->get<Immediate::StringData>(copies[s])->exprs.push_back((nb, rng))
             }
-
-            nd->exprs.push_back((nb, rng))
         }
 
         var out = t

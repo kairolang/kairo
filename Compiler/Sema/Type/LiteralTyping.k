@@ -1118,8 +1118,9 @@ pub class <T: type> LiteralTyping {
     }
 
     priv fn _type_format_literal(self, n: *StringLiteralExpr, s: *Type) -> bool {
-        var unsafe *holes = n->get_holes()
-        if holes->size() != n->parts.size() {
+        // Every chained segment's holes (P486): `"a" f"{x}"` keeps its hole
+        // facts on the second segment, not on imm.
+        if n->hole_count() != n->parts.size() {
             kairo::std::ice_fail(
                 "LiteralTyping: lexer hole facts not parallel to the parser's parts",
             )
@@ -1146,8 +1147,9 @@ pub class <T: type> LiteralTyping {
         var ok  = true
         var out = cxx::std::vector<FormatHole>()
         for var i: usize = 0; i < n->parts.size(); ++i {
-            var unsafe *e = n->parts[i]
+            var unsafe *e  = n->parts[i]
             var        t  = self.dyn()->type_of(e, &null)
+            var        hs = n->hole_spec(i)
             if e->is_poisoned() {
                 ok = false
                 continue
@@ -1156,7 +1158,7 @@ pub class <T: type> LiteralTyping {
             if t == &null {
                 // Untyped and not poisoned: a member result through a `: type`
                 // parameter. Only the instance knows what it is.
-                if !self._defer_hole(n, e, (*holes)[i].spec, (*holes)[i].doc, &out) {
+                if !self._defer_hole(n, e, hs.spec, hs.doc, &out) {
                     ok = false
                 }
 
@@ -1176,7 +1178,7 @@ pub class <T: type> LiteralTyping {
             h.conv     = &null
             h.cast_to  = &null
             h.by_addr  = false
-            h.doc      = (*holes)[i].doc
+            h.doc      = hs.doc
             h.deferred = false
 
             var repr: unsafe *Decl = &null
@@ -1187,14 +1189,14 @@ pub class <T: type> LiteralTyping {
             }
 
             if h.deferred {
-                if !self._defer_hole(n, e, (*holes)[i].spec, (*holes)[i].doc, &out) {
+                if !self._defer_hole(n, e, hs.spec, hs.doc, &out) {
                     ok = false
                 }
 
                 continue
             }
 
-            if !self._parse_spec(n, (*holes)[i].spec, h.kind, t, &h.spec) {
+            if !self._parse_spec(n, hs.spec, h.kind, t, &h.spec) {
                 ok = false
                 continue
             }
