@@ -35,7 +35,8 @@ set "x\" <# "
 # default windows-gnu target is bundled). Kairo may not ship those SDKs, so the archive carries
 # only our half, prebuilt (share/kairo/sdk-overlays/); the step runs only when that overlay
 # is in the archive, and never the full CMake build. It never fails the install: a missing
-# SDK or a failure prints the command to run later.
+# SDK or a failure prints the command to run later. Every other target's sysroot is built on
+# demand by ksys, the first time --target names it, and cached.
 
 VERSION_DEFAULT=0.2.1
 BUILD_CMD='python3 build.py --release kairo kcc kld kfmt'
@@ -228,6 +229,7 @@ main() {
     esac
     setup_sysroot "$DEST" || true
     "$BIN/kairo" --version 2>/dev/null || true
+    say "cross-compiling: pass --target <triple>; the first use of a target builds its sysroot (about 10 to 30 s, then cached). See: ksys --help"
 }
 
 main
@@ -280,9 +282,10 @@ function Install-MsvcSysroot([string]$dest, [string]$triple) {
     else {
         $what = if ($haveVc) { 'a Windows 10/11 SDK' } elseif ($haveSdk) { "Visual Studio's C++ tools" } else { "Visual Studio's C++ tools and a Windows SDK" }
         Write-Host ("kairo-install: no MSVC sysroot yet: $what not found. It is optional (the default " +
-            "$arch-windows-gnu target is bundled). For --target $arch-windows-msvc, install the Visual Studio " +
-            "Build Tools with the 'Desktop development with C++' workload (winget install " +
-            "Microsoft.VisualStudio.2022.BuildTools, or https://aka.ms/vs/17/release/vs_BuildTools.exe), then run: $cmd")
+            "$arch-windows-gnu target is bundled). For --target $arch-windows-msvc, either run: $cmd -- it " +
+            "downloads the MSVC runtime and Windows SDK from Microsoft after you accept Microsoft's license, " +
+            "and needs no Visual Studio -- or install the Visual Studio Build Tools with the 'Desktop " +
+            "development with C++' workload (winget install Microsoft.VisualStudio.2022.BuildTools) and run it again")
         return
     }
     Write-Host "kairo-install: setting up the MSVC sysroot ($arch) from $from"
