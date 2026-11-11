@@ -97,6 +97,25 @@ pub class ImportResolution {
     /// header of every ffi import's closure, and the list grows by one
     /// `namespace std` reopening per header: quadratic in the closure.
     priv var _cxx_std_seen: llvm::DenseSet<u64>
+    /// Header fids _collect_cxx_std already read this run. Every ffi import's
+    /// closure repeats most headers, and a second read of one adds nothing:
+    /// its `std` openings are all in _cxx_std_seen and its probe is logged.
+    priv var _cxx_std_fids: llvm::DenseSet<u64>
+    /// This TU's overlay key for a source table's identifier, by
+    /// (src fid << 32 | src imm): every ffi import re-folds most of the same
+    /// headers, and re-interning each name was a hash, a byte compare and
+    /// the table's lock per row. Filled at the first _add of a row, so
+    /// nothing is interned that the fold would not have interned.
+    priv var _key_memo: llvm::DenseMap<u64, u32>
+    /// The _key_memo slot of the row _fold_all_cells is folding; u64::MAX
+    /// outside one (every other _add interns its spelling as before).
+    priv var _cur_src: u64 = u64::MAX
+    /// Overlay entries whose merged cell is stale. _add rebuilt it on every
+    /// target added (linear in the entry, so quadratic per name); nothing
+    /// reads it before the overlay is frozen, or through _reexported_cell,
+    /// and both flush first (_flush_merged).
+    priv var _merge_set:  llvm::DenseSet<u64>
+    priv var _merge_list: cxx::std::vector<unsafe *OverlayEntry>
 
     pub fn ImportResolution(self, sc: *SemaContext) {
         self.sc = sc
@@ -122,6 +141,7 @@ pub class ImportResolution {
         // one name for the whole TU, not one per import.
         var cxx_std = cxx::std::vector<unsafe *Decl>()
         self._cxx_std_seen.clear()
+        self._cxx_std_fids.clear()
         var ffi_orig: unsafe *ImportDecl = &null
 
         for var i: usize = 0; i < tu->imports.size(); ++i {
@@ -150,6 +170,7 @@ pub class ImportResolution {
             self._bind_ffi_forwards(tu)
         }
 
+        self._flush_merged()
         overlay->freeze()
         return true
     }
@@ -201,6 +222,7 @@ pub class ImportResolution {
         }
 
         self._dedup = false
+        self._flush_merged()
         overlay->freeze()
         return overlay->target_count() > before
     }
@@ -520,6 +542,7 @@ pub class ImportResolution {
             return &null
         }
 
+        self._flush_merged() // the source may be the overlay being built.
         var key = src_imms->find_ident(name) // probe only; never intern.
         if key == u32::MAX {
             return &null
@@ -648,13 +671,23 @@ pub class ImportResolution {
             // A hidden C/C++ tag's internal key (`struct timezone`,
             // DeclImport::_bind_named): no source spells it, so it has no
             // business in an importer's overlay.
-            if kairo::std::to_std_string(spelling).find(
-                (' ' as u8) as c_char,
-            ) != cxx::std::string::npos {
+            // Scanned in place: a std::string copy per row was the cost.
+            var unsafe *sp     = unsafe (spelling.raw() as kairo::std::ConstPtr<u8>)
+            var        spaced = false
+            for var k: usize = 0; k < spelling.size(); ++k {
+                if sp[k] == (' ' as u8) {
+                    spaced = true
+                    break
+                }
+            }
+
+            if spaced {
                 continue
             }
 
+            self._cur_src = ((fid as u64) << 32) | (e.name.payload as u64)
             self._fold_cell(id, overlay, spelling, e.cell, fid)
+            self._cur_src = u64::MAX
         }
     }
 
@@ -955,6 +988,10 @@ pub class ImportResolution {
                              src_tu:     unsafe *TranslationUnit,
                              fid:        u32,
                              @inout out: cxx::std::vector<unsafe *Decl>) {
+        if !self._cxx_std_fids.insert(fid as u64).second {
+            return
+        }
+
         var unsafe *syms = src_tu->symbols()
         if syms == &null {
             return
@@ -1091,7 +1128,19 @@ pub class ImportResolution {
     /// non-function collision exactly once (R016; a header-only collision
     /// is marked lazy instead, Compiler/Spec/Interop.md#ffi-imports).
     priv fn _add(self, overlay: unsafe *ImportOverlay, const visible: string, t: OverlayTarget) {
-        var        key    = self.sc->imm_table()->intern_ident_copy(visible)
+        var key: u32 = 0
+        if self._cur_src == u64::MAX {
+            key = self.sc->imm_table()->intern_ident_copy(visible)
+        } else {
+            var it = self._key_memo.find(self._cur_src)
+            if it != self._key_memo.end() {
+                key = it->second
+            } else {
+                key = self.sc->imm_table()->intern_ident_copy(visible)
+                self._key_memo[self._cur_src] = key
+            }
+        }
+
         var unsafe *entry = overlay->entry_for(key)
         // A fixpoint round re-folds what an earlier round already folded.
         if self._dedup {
@@ -1144,7 +1193,7 @@ pub class ImportResolution {
         // include a single non-function target's decl. (On ambiguity the merged
         // cell still holds something so lookup never crashes; the error below
         // is the authoritative signal.)
-        self._rebuild_merged(entry)
+        self._mark_merged(entry)
 
         if !entry->is_ambiguous() {
             entry->lazy = false
@@ -1256,6 +1305,24 @@ pub class ImportResolution {
                 continue
             }
 
+            // Every Type target of one decl gets one answer: the pairs below
+            // skip targets of that same decl, so each sees the same others.
+            // An entry reached through N header closures holds N of them;
+            // copy the first one's flag instead of redoing its row.
+            var copied = false
+            for var k: usize = 0; k < i; ++k {
+                var *tk = &entry->targets[k]
+                if tk->kind == OverlayTargetKind::Type && tk->decl == d {
+                    ti->hidden = tk->hidden
+                    copied     = true
+                    break
+                }
+            }
+
+            if copied {
+                continue
+            }
+
             for var j: usize = 0; j < n; ++j {
                 if i == j {
                     continue
@@ -1347,22 +1414,49 @@ pub class ImportResolution {
     }
 
     priv fn _drop_prelude_handles(self, entry: unsafe *OverlayEntry) {
-        var keep = cxx::std::vector<OverlayTarget>()
-        var any  = false
+        // Look before copying: almost no entry holds a prelude handle, and
+        // copying every target into a fresh vector per _add was the cost.
+        var any = false
         for var i: usize = 0; i < entry->targets.size(); ++i {
-            if self._is_prelude_handle(entry->targets[i]) {
+            var *t = &entry->targets[i]
+            if t->kind == OverlayTargetKind::ModuleHandle && self._is_prelude_handle(*t) {
                 any = true
-                continue
+                break
             }
-
-            keep.push_back(entry->targets[i])
         }
 
         if !any {
             return
         }
 
+        var keep = cxx::std::vector<OverlayTarget>()
+        for var i: usize = 0; i < entry->targets.size(); ++i {
+            if self._is_prelude_handle(entry->targets[i]) {
+                continue
+            }
+
+            keep.push_back(entry->targets[i])
+        }
+
         entry->targets = keep
+    }
+
+    priv fn _mark_merged(self, entry: unsafe *OverlayEntry) {
+        if self._merge_set.insert(entry as usize as u64).second {
+            self._merge_list.push_back(entry)
+        }
+    }
+
+    /// Rebuild every entry _mark_merged collected. The cells it reads are
+    /// the source tables', which nothing appends to while I runs, so the
+    /// result is the one a rebuild after each add left behind.
+    priv fn _flush_merged(self) {
+        for var i: usize = 0; i < self._merge_list.size(); ++i {
+            self._rebuild_merged(self._merge_list[i])
+        }
+
+        self._merge_list.clear()
+        self._merge_set.clear()
     }
 
     priv fn _rebuild_merged(self, entry: unsafe *OverlayEntry) {

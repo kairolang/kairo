@@ -1395,6 +1395,18 @@ pub class ImmediateTable {
     /// \note hashing matches the lexer's incremental hash (compute_hash), so
     ///       a synthesized `foo` and a lexed `foo` intern to the same slot.
     pub fn intern_ident_copy(self, const s: string) -> u32 {
+        // Already interned (most calls: the import fold re-keys every name
+        // it reaches): answer from the probe, skipping the copy into
+        // synth_names and the write lock. Same index either way.
+        {
+            var unsafe *pr = unsafe (s.raw() as kairo::std::ConstPtr<u8>)
+            var        pl  = s.size()
+            var        hit = self.find_ident(pr, pl, (compute_hash(pr, pl) as u32))
+            if hit != (-1) as i32 as u32 {
+                return hit
+            }
+        }
+
         var stored: unsafe *string = &null
         {
             // Released before intern_ident, which takes it again.

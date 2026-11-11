@@ -388,12 +388,11 @@ pub class NameLookup {
     /// The canonical link of `d`'s redecl chain, or null when `d` is not a
     /// redeclarable kind.
     ///
-    /// FunctionDecl is INCLUDED as of RedeclMerge: its chains are linked
-    /// after T, on canonical signatures, so its canonical is no longer
-    /// necessarily itself. Before R existed this arm was deliberately
-    /// absent and collapsing on it would have been a lie; a caller running
-    /// BEFORE R (N(b), which runs before T) still sees each function as its
-    /// own canonical, because that is what the chain says at that point.
+    /// FunctionDecl is included: its chains are linked after T, on canonical
+    /// signatures, so its canonical is not necessarily itself. A caller
+    /// running BEFORE R (N(b), which runs before T) still sees each function
+    /// as its own canonical, because that is what the chain says at that
+    /// point.
     static fn chain_canonical(d: unsafe *Decl) -> unsafe *Decl {
         if d == &null {
             return &null
@@ -458,6 +457,25 @@ pub class NameLookup {
         }
 
         if !isa<ModuleDecl>(d) {
+            return
+        }
+
+        // The ring's links are distinct ModuleDecls, so their scopes are
+        // distinct too: with nothing in out to dedupe against, append them
+        // in ring order as they come. The links copy and the pointer set
+        // below were the cost for a namespace reopened by every header.
+        if out.size() == 0 {
+            var head = cast<ModuleDecl>(d)->first_decl()
+            var cur  = head
+            while true {
+                var dc: unsafe *DeclContext = cur
+                out.push_back(dc)
+                cur = cur->next_in_chain()
+                if cur == head {
+                    break
+                }
+            }
+
             return
         }
 

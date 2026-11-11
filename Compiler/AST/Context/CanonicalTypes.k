@@ -162,6 +162,12 @@ pub class CanonicalTypeStore {
     /// nothing to find, and the walk is skipped (has_unlowered_nullables).
     priv var _unlowered_nullables: usize = 0
 
+    /// Every interned `T?` that may still lack a record, in intern order;
+    /// nullables() drops the lowered ones as it goes. It lets nullables()
+    /// visit only the buckets holding one instead of the whole table (the
+    /// count above stays nonzero while any later TU's `T?` waits).
+    priv var _pending_nullables: cxx::std::vector<unsafe *NullableType>
+
     /// Pointer width in bits, for usize/isize. Set by init(); 64 until then.
     priv var _ptr_bits: usize = 64
 
@@ -1331,6 +1337,7 @@ pub class CanonicalTypeStore {
                 Self::_seen(n)
                 ty = unsafe (n as unsafe *Type)
                 self._unlowered_nullables += 1
+                self._pending_nullables.push_back(n)
             } case TypeKind::VectorType {
                 var unsafe *n = self._alloc<VectorType>()
                 n->element = child
@@ -1696,12 +1703,42 @@ pub class CanonicalTypeStore {
     /// Every canonical `T?` interned so far, by any TU. A snapshot: the
     /// caller lowers each after the lock is released, since minting the
     /// record re-enters this table.
+    /// The lowered ones may be left out: the caller skips them. The rest come
+    /// in table iteration order, as a whole-table walk would give them: the
+    /// buckets holding a pending `T?`, ordered by address (DenseMap iterates
+    /// its bucket array in address order), each read front to back. That
+    /// visits a few buckets instead of every canonical per TU.
     pub fn nullables(self) -> cxx::std::vector<unsafe *NullableType> {
         var out  = cxx::std::vector<unsafe *NullableType>()
         var lock = kairo::std::LockGuard(self._mu)
-        for var it = self._table.begin(); it != self._table.end(); ++it {
-            for var i: usize = 0; i < it->second.size(); ++i {
-                var unsafe *c = it->second[i]
+        var keep    = cxx::std::vector<unsafe *NullableType>()
+        var buckets = cxx::std::vector<usize>()
+        for var i: usize = 0; i < self._pending_nullables.size(); ++i {
+            var unsafe *n = self._pending_nullables[i]
+            if n->lowered != &null {
+                continue
+            }
+
+            keep.push_back(n)
+            var h = canon_hash_u64(0, (TypeKind::NullableType as u8))
+            h = canon_hash_ptr(h, unsafe (n->inner as unsafe *void))
+            h = canon_hash_u64(h, 0)
+            var unsafe *b = self._bucket(h)
+            if b != &null {
+                buckets.push_back(unsafe (b as unsafe *void) as usize)
+            }
+        }
+
+        self._pending_nullables = keep
+        cxx::std::sort(buckets.begin(), buckets.end())
+        for var i: usize = 0; i < buckets.size(); ++i {
+            if i > 0 && buckets[i] == buckets[i - 1] {
+                continue
+            }
+
+            var unsafe *b = unsafe (buckets[i] as unsafe *cxx::std::vector<unsafe *Type>)
+            for var j: usize = 0; j < b->size(); ++j {
+                var unsafe *c = (*b)[j]
                 if c->kind == TypeKind::NullableType {
                     out.push_back(cast<NullableType>(c))
                 }
