@@ -8,7 +8,7 @@ when every check passes; prints the failing check otherwise. It lives here and
 not under Tests/ because that tree is frozen; it is the server's regression
 test until a lit wrapper is approved.
 """
-import glob, os, shutil, sys, tempfile, time
+import glob, json, os, shutil, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lsp_client import Client
@@ -104,6 +104,15 @@ extend Base {
 
 pub fn use_ext(const b: Base) -> i32 {
     return b.doubled()
+}
+
+pub enum Level { Low = 1, Mid, High = 10 }
+
+pub enum Shape { Circle { r: f64 }, Rect { w: f64, h: f64 }, Empty }
+
+pub union Bits {
+    var as_u32: u32
+    var as_f32: f32
 }
 '''
 
@@ -324,6 +333,21 @@ def features(exe, root, label):
     check(label + "hover: size and alignment of a plain class", "size 4 bytes, align 4" in hv, hv)
     hv = c.request("textDocument/hover", c.at(S2, *pos(SHAPES, "struct Pair", 7)))["contents"]["value"]
     check(label + "hover: struct layout with padding", "size 16 bytes, align 8" in hv, hv)
+    hv = c.request("textDocument/hover", c.at(S2, *pos(SHAPES, "enum Level", 5)))["contents"]["value"]
+    check(label + "hover: a plain enum shows its underlying type, every variant with its value, and its layout",
+          "enum Level derives u32" in hv and "Low = 1" in hv and "Mid = 2" in hv and "High = 10" in hv and "size 4 bytes, align 4" in hv, hv)
+    hv = c.request("textDocument/hover", c.at(S2, *pos(SHAPES, "enum Color", 5)))["contents"]["value"]
+    check(label + "hover: a derives u8 enum is one byte", "enum Color derives u8" in hv and "Blue = 2" in hv and "size 1 bytes, align 1" in hv, hv)
+    hv = c.request("textDocument/hover", c.at(S2, *pos(SHAPES, "enum Shape", 5)))["contents"]["value"]
+    check(label + "hover: an ADT enum lists each variant with its payload",
+          "Circle { r: f64 }" in hv and "Rect { w: f64, h: f64 }" in hv and "Empty" in hv, hv)
+    hv = c.request("textDocument/hover", c.at(S2, *pos(SHAPES, "union Bits", 6)))["contents"]["value"]
+    check(label + "hover: a union lists its members and its layout",
+          "var as_u32: u32" in hv and "var as_f32: f32" in hv and "size 4 bytes, align 4" in hv, hv)
+    hv = c.request("textDocument/hover", c.at(S2, *pos(SHAPES, "Mid,")))["contents"]["value"]
+    check(label + "hover: a variant shows its enum and value", "(variant) Level::Mid = 2" in hv, hv)
+    hv = c.request("textDocument/hover", c.at(S2, *pos(SHAPES, "Rect {")))["contents"]["value"]
+    check(label + "hover: an ADT variant shows its payload", "(variant) Shape::Rect { w: f64, h: f64 }" in hv, hv)
     st = {(x[2], frozenset(x[4])) for x in tokens(c, S2, SHAPES) if x[0] == pos(SHAPES, "b.doubled()")[0]}
     check(label + "tokens: an extension method call is marked", any(w == "doubled" and "extension" in m for w, m in st), st)
     im = c.request("textDocument/implementation", c.at(S2, *pos(SHAPES, "fn label", 3)))
@@ -778,6 +802,264 @@ def syntax(exe, root):
     check("syntax pass: clean shutdown", c.stop() == 0)
 
 
+IFACE = """import std::io
+
+/// A counter.
+pub class Counter {
+    pub var n: i32 = 0
+
+    pub fn Counter(self) = default
+
+    pub fn op finally(self) { }
+
+    /// Adds one.
+    pub fn bump(self) {
+        self.n += 1
+    }
+
+    pub fn <T> add(self, v: T) -> i32 requires sizeof(T) > 4 {
+        return 1
+    }
+
+    pub fn get(const self) -> i32 {
+        return self.n
+    }
+
+    pub fn risky(self, x: i32) panic -> i32 {
+        return x
+    }
+
+    pub static fn zero() -> i32 {
+        return 0
+    }
+
+    fn hidden(self) -> i32 {
+        return 0
+    }
+}
+
+extend Counter {
+    pub fn twice(const self) -> i32 {
+        return self.n * 2
+    }
+}
+
+pub interface IOther {
+    fn ping(const self) -> i32
+}
+
+pub class Other {
+    pub fn ping(const self) -> i32 { return 1 }
+}
+"""
+
+
+def apply_edits(text, edits):
+    spans = sorted(((lsp_index(text, e["range"]["start"]["line"], e["range"]["start"]["character"]),
+                     lsp_index(text, e["range"]["end"]["line"], e["range"]["end"]["character"]), e["newText"]) for e in edits),
+                   reverse=True)
+    for a, b, new in spans:
+        text = text[:a] + new + text[b:]
+    return text
+
+
+def interfaces(exe, root):
+    """Generate interface for 'Name': the edit, applied, still type-checks."""
+    c = Client(exe, root)
+    c.start()
+    X = "src/iface.k"
+    open(os.path.join(root, X), "w").write(IFACE)
+    c.open(X, IFACE)
+    c.settle()
+    l, ch = pos(IFACE, "class Counter", 7)
+    rng = {"start": {"line": l, "character": ch}, "end": {"line": l, "character": ch}}
+    acts = c.request("textDocument/codeAction", {"textDocument": {"uri": c.uri(X)}, "range": rng, "context": {"diagnostics": []}}) or []
+    gen = next((a for a in acts if a["title"] == "Generate interface for 'Counter'"), None)
+    check("interface: offered on a class name, as refactor.extract", gen and gen["kind"] == "refactor.extract", acts)
+    l2, ch2 = pos(IFACE, "pub var n", 9)
+    acts2 = c.request("textDocument/codeAction", {"textDocument": {"uri": c.uri(X)}, "range": {"start": {"line": l2, "character": ch2}, "end": {"line": l2, "character": ch2}}, "context": {"diagnostics": []}}) or []
+    check("interface: not offered off a type name", not any(a["title"].startswith("Generate interface") for a in acts2), acts2)
+    if gen:
+        edits = list(gen["edit"]["changes"].values())[0]
+        new = apply_edits(IFACE, edits)
+        body = new[new.find("pub interface ICounter"):]
+        body = body[:body.find("}") + 1]
+        check("interface: public instance methods with their docs and exact signatures",
+              "    /// Adds one.\n    fn bump(self)\n" in body and "fn <T> add(self, v: T) -> i32 requires sizeof(T) > 4" in body
+              and "fn get(const self) -> i32" in body, body)
+        check("interface: no constructor, destructor, static, private or extension method",
+              all(w not in body for w in ("Counter(self)", "finally", "zero", "hidden", "twice")), body)
+        check("interface: a bare-panic method is left out with a note", "// risky:" in body and "fn risky" not in body, body)
+        check("interface: above the class and its doc, and the class gains impl",
+              "}\n\n/// A counter.\npub class Counter impl ICounter {" in new, new[:400])
+        c.change(X, 2, new)
+        c.settle()
+        ds = [x for x in (c.diagnostics(X) or []) if x.get("severity") == 1]
+        check("interface: the edited file still type-checks", not ds, ds)
+        l3, ch3 = pos(new, "class Other", 7)
+        acts3 = c.request("textDocument/codeAction", {"textDocument": {"uri": c.uri(X)}, "range": {"start": {"line": l3, "character": ch3}, "end": {"line": l3, "character": ch3}}, "context": {"diagnostics": []}}) or []
+        g3 = next((a for a in acts3 if a["title"].startswith("Generate interface")), None)
+        txt = "".join(e["newText"] for e in list(g3["edit"]["changes"].values())[0]) if g3 else ""
+        check("interface: IName taken, so NameInterface", "pub interface OtherInterface {" in txt and "impl OtherInterface" in txt, acts3)
+    check("interface: clean shutdown", c.stop() == 0)
+
+
+BR_A = """/// Adds.
+pub fn add(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+pub struct Point {
+    pub var x: i32
+    pub var y: i32
+}
+"""
+
+BR_B = """#include "a.k"
+
+int use() { return a::add(1, 2); }
+"""
+
+
+def bundled_clang(exe):
+    c = os.path.join(os.path.dirname(exe), "clang++")
+    return c if os.path.exists(c) else shutil.which("clang++")
+
+
+def wait_for(pred, seconds, c=None):
+    end = time.time() + seconds
+    while time.time() < end:
+        if pred():
+            return True
+        if c:
+            c.pump(0.2)
+        else:
+            time.sleep(0.2)
+    return pred()
+
+
+def bridge(exe, base):
+    """The clangd bridge (section 15): a.k, b.cc including it, and
+    compile_commands.json; the header and the overlay, an edit through
+    didChange, the bundled clang through the overlay, and clangd if present."""
+    root = os.path.realpath(os.path.join(base, "bridge"))
+    os.makedirs(root)
+    open(os.path.join(root, "a.k"), "w").write(BR_A)
+    open(os.path.join(root, "b.cc"), "w").write(BR_B)
+    json.dump([{"directory": root, "file": "b.cc", "command": "clang++ -std=c++20 -c b.cc"}],
+              open(os.path.join(root, "compile_commands.json"), "w"))
+    cache = os.path.join(root, ".kairo", "clangd")
+    ov, hdr, ak = os.path.join(cache, "overlay.yaml"), os.path.join(cache, "a.hh"), os.path.join(root, "a.k")
+    read = lambda p: open(p).read() if os.path.exists(p) else ""
+    c = Client(exe, root)
+    c.start()
+    ok = wait_for(lambda: os.path.exists(ov) and os.path.exists(hdr), 90, c)
+    check("bridge: header and overlay written for the .k file b.cc includes", ok, os.listdir(root))
+    h = read(hdr)
+    lines = h.split("\n")
+    at = next((i for i, l in enumerate(lines) if "add(signed int a" in l), -1)
+    check("bridge: the header puts #line naming a.k:2 before add", at > 0 and lines[at - 1] == '#line 2 "%s"' % ak, lines[max(0, at - 2):at + 1])
+    check("bridge: invented text sits under #line naming the header", ('#line 2 "%s"' % hdr) in h and lines[1] == "#pragma once", lines[:3])
+    o = read(ov)
+    check("bridge: overlay maps a.k to its header, external names off at the top and per entry",
+          ("'name': '%s'" % ak) in o and ("'external-contents': '%s'" % hdr) in o
+          and "'use-external-names': false" in o and "'use-external-name': false" in o, o)
+    cd = read(os.path.join(root, ".clangd"))
+    check("bridge: a .clangd fragment adds -ivfsoverlay", cd.startswith("# Written by kals") and ("-ivfsoverlay, " + ov) in cd, cd)
+    mt = os.path.getmtime(ov)
+    # An edit of the buffer, not saved: the header follows it.
+    c.open("a.k", BR_A)
+    edited = "pub fn twice(v: i32) -> i32 {\n    return v * 2\n}\n\n" + BR_A
+    c.change("a.k", 2, edited)
+    ok = wait_for(lambda: "twice(signed int v)" in read(hdr), 60, c)
+    h2 = read(hdr).split("\n")
+    at2 = next((i for i, l in enumerate(h2) if "add(signed int a" in l), -1)
+    check("bridge: an unsaved edit regenerates the header, lines follow", ok and at2 > 0 and h2[at2 - 1] == '#line 6 "%s"' % ak, h2[max(0, at2 - 2):at2 + 1])
+    check("bridge: overlay not rewritten when the set of files did not change", os.path.getmtime(ov) == mt)
+    # A buffer that does not parse keeps the last good header.
+    good = read(hdr)
+    c.change("a.k", 3, edited + "\npub fn broken( {\n")
+    c.pump(3)
+    check("bridge: a .k that does not parse keeps its last good header", read(hdr) == good)
+    c.change("a.k", 4, edited)
+    open(ak, "w").write(edited)
+    c.pump(2)
+    cl = bundled_clang(exe)
+    if cl:
+        r = subprocess.run([cl, "-std=c++20", "-fsyntax-only", "-ivfsoverlay", ov, "-I" + cache, os.path.join(root, "b.cc")], capture_output=True, text=True)
+        check("bridge: clang resolves #include \"a.k\" through the overlay", r.returncode == 0, r.stderr[-800:])
+        bad = os.path.join(root, "bad.cc")
+        open(bad, "w").write('#include "a.k"\nint f() { return a::add("x", 2); }\n')
+        r = subprocess.run([cl, "-std=c++20", "-fsyntax-only", "-ivfsoverlay", ov, "-I" + cache, bad], capture_output=True, text=True)
+        check("bridge: clang names a.k:6 for add (#line + external names off)", ("%s:6:" % ak) in r.stderr, r.stderr[-800:])
+        os.remove(bad)
+    check("bridge: clean shutdown", c.stop() == 0)
+    cdx = shutil.which("clangd")
+    if not cdx:
+        print("note: clangd is not on PATH; the jump from C++ was checked through clang's diagnostics only")
+        return
+    d = Client(cdx, root)
+    d.start()
+    d.notify("textDocument/didOpen", {"textDocument": {"uri": d.uri("b.cc"), "languageId": "cpp", "version": 1, "text": BR_B}})
+    l, ch = pos(BR_B, "add(", 1)
+    r = d.request("textDocument/definition", d.at("b.cc", l, ch), timeout=90)
+    r = r if isinstance(r, list) else ([r] if r else [])
+    check("bridge: clangd's definition of a::add is in a.k, not the header",
+          bool(r) and r[0].get("uri", r[0].get("targetUri")) == "file://" + ak, r)
+    # KNOWN (LanguageServer.md section 15): clangd reports the spelling line,
+    # the header's own, and ignores #line; clang's diagnostics above honour it.
+    line = (r[0].get("range") or r[0].get("targetSelectionRange"))["start"]["line"] if r else -1
+    print(("ok   " if line == 5 else "KNOWN") + " bridge: clangd's line for a::add is %d (a.k line 6 is 5)" % line)
+    d.stop()
+
+
+def syntax_server(exe, base):
+    """The persistent syntax worker (section 11, 2a), without the server:
+    answers equal the per-process pass, a newer buffer of a file supersedes
+    a queued older one, and it exits at EOF."""
+    f = os.path.join(base, "syn.k")
+    open(f, "w").write(SHAPES)
+    p = subprocess.Popen([exe, "--worker", "--syntax-server", "--"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+
+    def send(obj):
+        b = json.dumps(obj).encode()
+        p.stdin.write(b"Content-Length: %d\r\n\r\n" % len(b) + b)
+        p.stdin.flush()
+
+    def recv():
+        n = None
+        while True:
+            l = p.stdout.readline()
+            if l in (b"\r\n", b""):
+                break
+            if l.lower().startswith(b"content-length"):
+                n = int(l.split(b":")[1])
+        return json.loads(p.stdout.read(n))
+
+    def one(text):
+        tmp, out = os.path.join(base, "syn.tmp.k"), os.path.join(base, "syn.json")
+        open(tmp, "w").write(text)
+        subprocess.run([exe, "--worker", out, "--syntax-only", f, "--overlay", f, tmp, "--", f])
+        return json.load(open(out))
+
+    broken = SHAPES + "\npub fn broken( {\n"
+    for i, text in enumerate([SHAPES, broken, SHAPES]):
+        send({"id": i, "file": f, "text": text})
+        a = recv()
+        b = one(text)
+        check("syntax server: pass %d equals the per-process pass" % i, a.pop("id") == i and a == b, (a, b))
+    # One write, so both are buffered before either is parsed.
+    frames = b"".join(b"Content-Length: %d\r\n\r\n" % len(b) + b for b in
+                      (json.dumps(o).encode() for o in ({"id": 10, "file": f, "text": broken}, {"id": 11, "file": f, "text": SHAPES})))
+    p.stdin.write(frames)
+    p.stdin.flush()
+    got = [recv(), recv()]
+    check("syntax server: a newer buffer supersedes a queued one", got[0] == {"id": 10, "superseded": True}
+          and got[1]["id"] == 11 and got[1]["parsed"], got)
+    p.stdin.close()
+    check("syntax server: exits at EOF", p.wait(timeout=10) == 0)
+
+
 def main():
     exe = find_kals()
     print("kals:", exe)
@@ -796,6 +1078,9 @@ def main():
         syntax(exe, real)
         edits(exe, real)
         macros(exe, real)
+        interfaces(exe, real)
+        bridge(exe, base)
+        syntax_server(exe, base)
         waiting(exe, real)
         print("%.1fs" % (time.time() - t0))
     finally:

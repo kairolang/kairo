@@ -1031,6 +1031,40 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             return s
         }
 
+        // A variant names the enum it belongs to and carries its value or
+        // payload: hovering `Green` alone does not say which enum or which
+        // number it is.
+        if isa<Declarations::EnumVariantDecl>(d) {
+            var s: string = "(variant) "
+            if (d->semantic_dc != &null) && (d->semantic_dc->dc_owner != &null)
+                && isa<Declarations::EnumDecl>(d->semantic_dc->dc_owner) {
+                s += sema_dump_decl_name(ctx, d->semantic_dc->dc_owner)
+                s += "::"
+            }
+
+            return s + self.variant_line_(cast<Declarations::EnumVariantDecl>(d), ctx)
+        }
+
+        // An enum's underlying type is part of what it is (its size, what
+        // `as` gives); a plain enum without `derives` is u32 by the rule in
+        // enums-plain.
+        if isa<Declarations::EnumDecl>(d) {
+            var unsafe *e = cast<Declarations::EnumDecl>(d)
+            var s: string = "enum "
+            s += name
+            if e->underlying != &null {
+                var t = self.type_str_(e->underlying, ctx)
+                if !t.empty() {
+                    s += " derives "
+                    s += t
+                }
+            } else if !e->is_adt {
+                s += " derives u32 /* default */"
+            }
+
+            return s
+        }
+
         var kw: string = ""
         if isa<Declarations::ClassDecl>(d) {
             kw = "class "
@@ -1228,6 +1262,16 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
                     }
                 }
             }
+        } else if isa<Declarations::EnumDecl>(d) {
+            var unsafe *e = cast<Declarations::EnumDecl>(d)
+            var unsafe *ctx = NameLookup::ctx_of(d)
+            if ctx == &null {
+                ctx = self.ctx
+            }
+
+            for var i: usize = 0; (i < e->variants.size()) && (lines.size() < 60); ++i {
+                lines.push_back("    " + self.variant_line_(e->variants[i], ctx))
+            }
         } else {
             return ""
         }
@@ -1244,6 +1288,44 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
 
         out += "\n}"
         return out
+    }
+
+    /// One variant as it reads in its enum: `Name { a: T, b: U }` for a
+    /// payload, `Name = 3` for a plain variant whose value Sema computed
+    /// (implicit values too: the reader wants the number, not the rule).
+    priv fn variant_line_(self, v: unsafe *Declarations::EnumVariantDecl, ctx: unsafe *ASTContext) -> string {
+        var s: string = sema_dump_decl_name(ctx, unsafe (v as unsafe *Decl))
+        if v->payload.size() > 0 {
+            s += " { "
+            for var k: usize = 0; k < v->payload.size(); ++k {
+                var unsafe *f = v->payload[k]
+                if k > 0 {
+                    s += ", "
+                }
+
+                s += sema_dump_decl_name(ctx, unsafe (f as unsafe *Decl))
+                var t = self.type_str_(f->type_, ctx)
+                if !t.empty() {
+                    s += ": "
+                    s += t
+                }
+            }
+
+            s += " }"
+            return s
+        }
+
+        if v->value.ok {
+            s += " = "
+            if v->value.neg {
+                s += "-"
+            }
+
+            var mag = v->value.mag
+            s += f"{mag}"
+        }
+
+        return s
     }
 
     /// Size and alignment in bytes of a field of type \p t, when they follow

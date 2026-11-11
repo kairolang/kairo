@@ -62,7 +62,11 @@ import Index::Indexer::{
     IndexWalker,
     lexical_tokens,
 }
-import Json::JsonWriter
+import Json::{
+    JsonDoc,
+    JsonWriter,
+}
+import JsonRpc::Transport
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
@@ -453,6 +457,35 @@ fn syntax_main(const out_path: string,
                real:           *const [string],
                tmps:           *const [string],
                @inout words:   cxx::std::vector<string>) -> i32 {
+    var held: [string]
+    held.reserve(real->size())
+    var named: [string]
+    for var k: usize = 0; k < real->size(); ++k {
+        var text: string = ""
+        if !LinkFS::read((*tmps)[k], &text) {
+            continue
+        }
+
+        held.push_back(text)
+        named.push_back((*real)[k])
+    }
+
+    var out = syntax_answer(file, &named, &held, &words)
+    if !LinkFS::write(out_path, out) {
+        return 1
+    }
+
+    return 0
+}
+
+/// One syntax pass, as the JSON `syntax_main` writes: \p file parsed with
+/// each of \p real overlaid by the text beside it in \p texts. A fresh
+/// CompilerInstance per pass, so a long-lived caller (the syntax server)
+/// carries nothing from one buffer to the next.
+fn syntax_answer(const file:   string,
+                 real:         *const [string],
+                 texts:        *const [string],
+                 @inout words: cxx::std::vector<string>) -> string {
     var unsafe *ci = kairo::std::create<CompilerInstance>(words)
     finally {
         kairo::std::destroy(ci)
@@ -465,30 +498,23 @@ fn syntax_main(const out_path: string,
 
     collector->syntax_only = true
     if !ci->args_ok() {
-        return worker_fail(out_path, "the syntax pass was refused its command line")
+        return fail_json("the syntax pass was refused its command line")
     }
 
     ci->initialize(Path::cwd())
     var saved = ci->diag()->take_consumers()
     ci->diag()->add_consumer(collector)
 
-    var held: [string]
-    held.reserve(real->size())
+    // The bytes must outlive the pass: the source manager keeps a view.
     for var k: usize = 0; k < real->size(); ++k {
-        var text: string = ""
-        if !LinkFS::read((*tmps)[k], &text) {
-            continue
-        }
-
-        held.push_back(text)
-        var unsafe *bytes = unsafe ((held[held.size() - 1].raw() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
-        ci->sm()->load_overlay(Path((*real)[k]), bytes, held[held.size() - 1].size())
+        var unsafe *bytes = unsafe (((*texts)[k].raw() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
+        ci->sm()->load_overlay(Path((*real)[k]), bytes, (*texts)[k].size())
     }
 
     var fid = ci->sm()->load_file(Path(file))
     if fid == u32::MAX {
         ci->diag()->restore_consumers(saved)
-        return worker_fail(out_path, "cannot read " + file)
+        return fail_json("cannot read " + file)
     }
 
     // kfmt's single-file path: preprocess this file alone, parse it, and
@@ -521,9 +547,91 @@ fn syntax_main(const out_path: string,
     w.field_raw("diagnostics", "[" + collector->out + "]")
     lexical_tokens(ci->sm(), fid, &ft, &w)
     w.end_object()
+    return w.out
+}
 
-    if !LinkFS::write(out_path, w.out) {
-        return 1
+fn fail_json(const why: string) -> string {
+    var w = JsonWriter()
+    w.begin_object()
+    w.field_bool("ok", false)
+    w.field("error", why)
+    w.end_object()
+    return w.out
+}
+
+/// `kals --worker --syntax-server -- [kairo args]`: the syntax pass of
+/// section 11 item 2a without a process per keystroke. Requests and answers
+/// are LSP-framed JSON (Content-Length) on stdin and stdout, the same
+/// Transport the server speaks to the editor:
+///
+///   in:  { "id": n, "file": path, "text": buffer }
+///   out: { "id": n, "ok", "parsed", "diagnostics", "tokens" } as syntax_main
+///
+/// Requests queued behind the one being parsed are coalesced per file: only
+/// the newest buffer of a file is parsed, the older ones are answered
+/// `{ "id": n, "superseded": true }` at once. Exits at EOF.
+fn syntax_server_main(@inout base: cxx::std::vector<string>) -> i32 {
+    var t = Transport()
+    while !t.closed {
+        if !t.wait(1000) {
+            continue
+        }
+
+        // Everything already buffered, so a newer buffer of the same file
+        // supersedes an older one before either is parsed.
+        var ids:   [i64]
+        var files: [string]
+        var texts: [string]
+        while t.wait(0) {
+            var d = JsonDoc()
+            if !d.parse(t.take()) {
+                continue
+            }
+
+            var f = d.get_str(d.root, "file")
+            for var k: usize = 0; k < files.size(); ++k {
+                if (files[k] == f) && (ids[k] >= 0) {
+                    var sw = JsonWriter()
+                    sw.begin_object()
+                    sw.field_int("id", ids[k])
+                    sw.field_bool("superseded", true)
+                    sw.end_object()
+                    t.send(sw.out)
+                    ids[k] = -1
+                }
+            }
+
+            ids.push_back(d.get_int(d.root, "id"))
+            files.push_back(f)
+            texts.push_back(d.get_str(d.root, "text"))
+        }
+
+        for var k: usize = 0; k < files.size(); ++k {
+            if ids[k] < 0 {
+                continue
+            }
+
+            var words: cxx::std::vector<string>
+            for var i: usize = 0; i < base.size(); ++i {
+                words.push_back(base[i])
+            }
+
+            words.push_back(files[k])
+            words.push_back("--type-check-only")
+            words.push_back("--threads=1")
+            var real: [string]
+            real.push_back(files[k])
+            var txt: [string]
+            txt.push_back(texts[k])
+            var body = syntax_answer(files[k], &real, &txt, &words)
+            var idn = ids[k]
+            // `{"id":N,` spliced before the answer's own members.
+            var msg: string = "{\"id\":"
+            msg += f"{idn}"
+            msg += ","
+            msg += body.subslice(1, body.size() - 1)
+            t.send(msg)
+        }
     }
 
     return 0
@@ -535,10 +643,26 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         return 2
     }
 
+    if args[0] == "--syntax-server" {
+        var base: cxx::std::vector<string>
+        var i: usize = 1
+        if (i < args.size()) && (args[i] == "--") {
+            i += 1
+        }
+
+        while i < args.size() {
+            base.push_back(args[i])
+            i += 1
+        }
+
+        return syntax_server_main(&base)
+    }
+
     var out_path = args[0]
     var root: string = ""
     var syntax_file: string = ""
     var progress: string = ""
+    var as_module = false
     var real: [string]
     var tmps: [string]
     // The one C++ container in the Analyzer: CompilerInstance's word
@@ -570,6 +694,15 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         if (a == "--syntax-only") && ((i + 1) < args.size()) {
             syntax_file = args[i + 1]
             i += 2
+            continue
+        }
+
+        // The clangd bridge's header job (LanguageServer.md section 15): the
+        // file is checked as the module the driver names it, so
+        // --emit-headers writes its header, and the snapshot says where.
+        if a == "--as-module" {
+            as_module = true
+            i += 1
             continue
         }
 
@@ -666,6 +799,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     var opts = ParseOptions{}
     opts.stop_at       = TUStage::Sema
     opts.capture_diags = false
+    opts.as_module     = as_module
     var unit = parse_file(ci, Path(inputs[0]), opts)
 
     ci->diag()->restore_consumers(saved)
@@ -685,6 +819,22 @@ pub fn worker_main(@inout args: [string]) -> i32 {
 
     w.field_raw("files", "[" + files + "]")
     w.field_bool("wide", wide)
+    if as_module {
+        // Where EmitCXXHeader put the entry's header under --emit-headers:
+        // `<module path>.hh` (CXXSpell::header_path).
+        var rel: string = ""
+        for var seg: string in ci->imp()->input_module_path(Path(inputs[0])) {
+            if !rel.empty() {
+                rel += "/"
+            }
+
+            rel += seg
+        }
+
+        w.field("header", rel + ".hh")
+        w.field_int("errors", collector->errors as i64)
+    }
+
     w.field_raw("diagnostics", "[" + collector->out + "]")
     w.key("deps")
     w.begin_array()

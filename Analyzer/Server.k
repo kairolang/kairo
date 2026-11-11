@@ -57,8 +57,10 @@ import Json::{
 import JsonRpc::Transport
 import Support::FileIO::Path::Path
 import TextScan::{
+    InterfacePlan,
     Span,
     call_at,
+    interface_for,
     spans,
 }
 import Workspace::CompileCommandsLoader::{
@@ -79,6 +81,13 @@ pub fn JOB_COMPLETE() -> u32 {
 /// its parse errors and lexical tokens, long before the Sema run lands.
 pub fn JOB_SYNTAX() -> u32 {
     return 2
+}
+
+/// The clangd bridge's header job (LanguageServer.md section 15): one `.k`
+/// file a C or C++ source includes, checked as a module, its interop header
+/// written with `#line` directives into `<project>/.kairo/clangd/`.
+pub fn JOB_HEADER() -> u32 {
+    return 3
 }
 
 /// Milliseconds on a monotonic clock: debounce deadlines and run lengths.
@@ -250,6 +259,19 @@ pub class Server {
     /// Scratch files a finished worker may still have open; removed once no
     /// worker is running.
     pub var garbage: [string]
+
+    /// The clangd bridge (section 15), one row per `.k` file a C or C++
+    /// source of the project includes: its header once a job wrote one, the
+    /// files its last check read ("\n"-joined: an edit to any of them, a
+    /// module it re-exports from included, regenerates it), and whether it
+    /// is due.
+    pub var br_files:   [string]
+    pub var br_hdr:     [string]
+    pub var br_deps:    [string]
+    pub var br_dirty:   [bool]
+    pub var br_running: [bool]
+    pub var br_rescan:  bool   = false  ///< a C/C++ source changed: find the includes again
+    pub var br_mapped:  string = ""     ///< the mapping overlay.yaml was last written with
 
     /// The two debounces, in milliseconds since the last change to any
     /// buffer: a syntax-only pass of each edited buffer after syntax_ms
@@ -663,6 +685,346 @@ pub class Server {
                 self.entries[i].change_rev = self.rev
             }
         }
+
+        if is_cxx_source(path) {
+            self.br_rescan = true
+        }
+
+        for var b: usize = 0; b < self.br_files.size(); ++b {
+            if (self.br_files[b] == path) || (find_from(self.br_deps[b], path + "\n", 0) != usize::MAX) {
+                self.br_dirty[b] = true
+            }
+        }
+    }
+
+    // --- the clangd bridge (section 15) ------------------------------------
+
+    fn bridge_root_(const self) -> string {
+        if !self.project.dir.empty() {
+            return self.project.dir
+        }
+
+        return self.root
+    }
+
+    fn bridge_dir_(const self) -> string {
+        return Path::join_str(Path::join_str(self.bridge_root_(), ".kairo"), "clangd")
+    }
+
+    /// The text of \p path: its open buffer, else the disk.
+    fn text_of_(self, const path: string) -> string {
+        var di = self.docs.index_of_path(path)
+        if di != usize::MAX {
+            self.docs.sync_all()
+            return self.docs.docs[di].text
+        }
+
+        var text: string = ""
+        LinkFS::read(path, &text)
+        return text
+    }
+
+    /// The C and C++ sources of the project: the `file`s of its
+    /// compile_commands.json (the root's, or build/'s), else every C/C++
+    /// file under the root (build trees and dot-directories skipped).
+    fn bridge_sources_(self) -> [string] {
+        var out: [string]
+        var r = self.bridge_root_()
+        var cands: [string]
+        cands.push_back(Path::join_str(r, "compile_commands.json"))
+        cands.push_back(Path::join_str(Path::join_str(r, "build"), "compile_commands.json"))
+        for var c: usize = 0; c < cands.size(); ++c {
+            var text: string = ""
+            var doc = JsonDoc()
+            if (!LinkFS::read(cands[c], &text)) || (!doc.parse(text)) {
+                continue
+            }
+
+            var x = doc.first(doc.root)
+            while x != JSON_NONE() {
+                var f = doc.get_str(x, "file")
+                if (!f.empty()) && (f[0] != 47) {
+                    f = Path::join_str(doc.get_str(x, "directory"), f)
+                }
+
+                if is_cxx_source(f) {
+                    out.push_back(f)
+                }
+
+                x = doc.next(x)
+            }
+
+            return out
+        }
+
+        self.walk_sources_(r, 0, &out)
+        return out
+    }
+
+    fn walk_sources_(self, const dir: string, depth: u32, out: *[string]) {
+        if (depth > 8) || (out->size() > 4000) {
+            return
+        }
+
+        for var name: string in LinkFS::list_dir(dir) {
+            if name.empty() || (name[0] == 46) || (name == "build") || (name == "node_modules") {
+                continue
+            }
+
+            var p = Path::join_str(dir, name)
+            if LinkFS::is_dir(p) {
+                self.walk_sources_(p, depth + 1, out)
+            } else if is_cxx_source(p) {
+                out->push_back(p)
+            }
+        }
+    }
+
+    /// Finds every `#include "x.k"` of the project's C/C++ sources again, and
+    /// rewrites the overlay when the set of files changed.
+    fn bridge_scan_(self) {
+        self.br_rescan = false
+        var srcs = self.bridge_sources_()
+        var found: [string]
+        for var i: usize = 0; i < srcs.size(); ++i {
+            var text = self.text_of_(srcs[i])
+            var incs = k_includes(text)
+            for var k: usize = 0; k < incs.size(); ++k {
+                var p = incs[k]
+                if p[0] != 47 {
+                    var beside = Path::join_str(Path::parent_of(srcs[i]), p)
+                    if LinkFS::is_file(beside) {
+                        p = beside
+                    } else {
+                        p = Path::join_str(self.bridge_root_(), p)
+                    }
+                }
+
+                if !LinkFS::is_file(p) {
+                    continue
+                }
+
+                p = Path::real_path_of(p)
+                var dup = false
+                for var q: usize = 0; q < found.size(); ++q {
+                    if found[q] == p {
+                        dup = true
+                    }
+                }
+
+                if !dup {
+                    found.push_back(p)
+                }
+            }
+        }
+
+        // Keep what is known about a file that stays; a new one is due now.
+        var files:   [string]
+        var hdr:     [string]
+        var deps:    [string]
+        var dirty:   [bool]
+        var running: [bool]
+        for var q: usize = 0; q < found.size(); ++q {
+            var old = usize::MAX
+            for var b: usize = 0; b < self.br_files.size(); ++b {
+                if self.br_files[b] == found[q] {
+                    old = b
+                }
+            }
+
+            files.push_back(found[q])
+            if old != usize::MAX {
+                hdr.push_back(self.br_hdr[old])
+                deps.push_back(self.br_deps[old])
+                dirty.push_back(self.br_dirty[old])
+                running.push_back(self.br_running[old])
+            } else {
+                hdr.push_back("")
+                deps.push_back("")
+                dirty.push_back(true)
+                running.push_back(false)
+            }
+        }
+
+        self.br_files   = files
+        self.br_hdr     = hdr
+        self.br_deps    = deps
+        self.br_dirty   = dirty
+        self.br_running = running
+        self.trace(f"bridge: {found.size()} included .k file(s) in {srcs.size()} C/C++ source(s)")
+        self.bridge_overlay_()
+    }
+
+    /// overlay.yaml, a clang VFS overlay mapping each included `.k` path to
+    /// its header, written only when that mapping changed (clangd re-reads
+    /// a header it already has by itself). `use-external-names: false`, at
+    /// the top and on each entry, so clang names the file by its `.k` path.
+    fn bridge_overlay_(self) {
+        var map: string = ""
+        for var b: usize = 0; b < self.br_files.size(); ++b {
+            if !self.br_hdr[b].empty() {
+                map += self.br_files[b] + "\t" + self.br_hdr[b] + "\n"
+            }
+        }
+
+        if map == self.br_mapped {
+            return
+        }
+
+        self.br_mapped = map
+        var y: string = "{\n  \x27version\x27: 0,\n  \x27case-sensitive\x27: \x27true\x27,\n  \x27use-external-names\x27: false,\n  \x27roots\x27: [\n"
+        var first = true
+        for var b: usize = 0; b < self.br_files.size(); ++b {
+            if self.br_hdr[b].empty() {
+                continue
+            }
+
+            if !first {
+                y += ",\n"
+            }
+
+            first = false
+            y += "    { \x27type\x27: \x27file\x27, \x27name\x27: \x27" + self.br_files[b] + "\x27, "
+            y += "\x27external-contents\x27: \x27" + self.br_hdr[b] + "\x27, \x27use-external-name\x27: false }"
+        }
+
+        y += "\n  ]\n}\n"
+        var dir = self.bridge_dir_()
+        LinkFS::make_dirs(dir)
+        var ov = Path::join_str(dir, "overlay.yaml")
+        LinkFS::write(ov, y)
+        self.trace("bridge: wrote " + ov)
+        self.bridge_clangd_(ov)
+    }
+
+    /// A `.clangd` fragment that adds the overlay: written when there is none
+    /// or kals wrote the one there (its first line); a `.clangd` a person
+    /// wrote is never touched, and the lines to add are logged instead.
+    fn bridge_clangd_(self, const ov: string) {
+        var marker = "# Written by kals, the Kairo language server: clangd reads Kairo headers through it. Remove this line to keep your own edits."
+        var add = "  Add: [-ivfsoverlay, " + ov + ", -I" + self.bridge_dir_() + "]"
+        var path = Path::join_str(self.bridge_root_(), ".clangd")
+        var old: string = ""
+        if LinkFS::read(path, &old) && (!old.starts_with(marker)) {
+            self.say(3, "the C/C++ files include Kairo files; for clangd to resolve them, add to " + path + ":\nCompileFlags:\n" + add)
+            return
+        }
+
+        LinkFS::write(path, marker + "\nCompileFlags:\n" + add + "\n")
+    }
+
+    fn start_header_(self, b: usize) {
+        self.docs.sync_all()
+        var j = Job()
+        j.kind  = JOB_HEADER()
+        j.entry = b
+        j.path  = self.br_files[b]
+        j.out   = self.scratch(".json")
+        j.log   = self.scratch(".log")
+        j.rev   = self.rev
+        j.started_ms = now_ms()
+
+        var argv: [string]
+        argv.push_back(self.exe)
+        argv.push_back("--worker")
+        argv.push_back(j.out)
+        // The flags of the entry whose graph holds the file (its -I roots
+        // name its imports), else the project's default_args.
+        var held = usize::MAX
+        for var e: usize = 0; e < self.entries.size(); ++e {
+            if self.entries[e].holds(self.br_files[b]) && (held == usize::MAX) {
+                held = e
+            }
+        }
+
+        argv.push_back("--cwd")
+        if held != usize::MAX {
+            argv.push_back(self.entries[held].dir)
+        } else {
+            argv.push_back(self.bridge_root_())
+        }
+
+        argv.push_back("--as-module")
+        for var i: usize = 0; i < self.docs.docs.size(); ++i {
+            if (self.docs.docs[i].tmp_rev != self.docs.docs[i].revision) || self.docs.docs[i].tmp_path.empty() {
+                if !self.docs.docs[i].tmp_path.empty() {
+                    self.garbage.push_back(self.docs.docs[i].tmp_path)
+                }
+
+                self.docs.docs[i].tmp_path = self.scratch(".k")
+                self.docs.docs[i].tmp_rev  = self.docs.docs[i].revision
+                LinkFS::write(self.docs.docs[i].tmp_path, self.docs.docs[i].text)
+            }
+
+            argv.push_back("--overlay")
+            argv.push_back(self.docs.docs[i].path)
+            argv.push_back(self.docs.docs[i].tmp_path)
+        }
+
+        argv.push_back("--")
+        if held != usize::MAX {
+            for var i: usize = 0; i < self.entries[held].args.size(); ++i {
+                argv.push_back(self.entries[held].args[i])
+            }
+        } else {
+            for var i: usize = 0; i < self.project.default_args.size(); ++i {
+                argv.push_back(self.project.default_args[i])
+            }
+        }
+
+        argv.push_back("--emit-headers")
+        argv.push_back(self.bridge_dir_())
+        argv.push_back("--emit-headers-line-directives")
+        argv.push_back(self.br_files[b])
+
+        self.br_dirty[b] = false
+        if !self.launch(&argv, j.log, &j.pi) {
+            self.log("cannot start the header worker (" + self.exe + ")")
+            return
+        }
+
+        self.br_running[b] = true
+        self.trace("bridge: header start " + j.path)
+        self.jobs.push_back(j)
+    }
+
+    fn finish_header_(self, j: *Job, rc: i32) {
+        var b = usize::MAX
+        for var q: usize = 0; q < self.br_files.size(); ++q {
+            if self.br_files[q] == j->path {
+                b = q
+            }
+        }
+
+        if b == usize::MAX {
+            return // no longer included
+        }
+
+        self.br_running[b] = false
+        var text: string = ""
+        var doc = JsonDoc()
+        if !(LinkFS::read(j->out, &text) && doc.parse(text) && doc.get_bool(doc.root, "ok")) {
+            self.trace(f"bridge: header job failed rc={rc} " + j->path)
+            return // the last good header stays
+        }
+
+        var deps: string = ""
+        var x = doc.first(doc.get(doc.root, "deps"))
+        while x != JSON_NONE() {
+            deps += doc.str(x)
+            deps += "\n"
+            x = doc.next(x)
+        }
+
+        self.br_deps[b] = deps
+        var h = Path::join_str(self.bridge_dir_(), doc.get_str(doc.root, "header"))
+        if LinkFS::is_file(h) {
+            self.br_hdr[b] = h
+        }
+
+        var errs = doc.get_int(doc.root, "errors")
+        self.trace(f"bridge: header done rc={rc} errors={errs} " + h)
+        self.bridge_overlay_()
     }
 
     // --- workers ---------------------------------------------------------
@@ -912,6 +1274,8 @@ pub class Server {
                 }
             } else if j.kind == JOB_SYNTAX() {
                 self.finish_syntax(&j, done.ReturnCode)
+            } else if j.kind == JOB_HEADER() {
+                self.finish_header_(&j, done.ReturnCode)
             } else {
                 self.finish_complete(&j, done.ReturnCode)
             }
@@ -1759,6 +2123,7 @@ pub class Server {
             self.ready = true
             self.say(3, "kals started in " + self.root)
             self.load_project()
+            self.br_rescan = true
             if self.project.path.empty() {
                 self.say(3, "no kairo_compile.json found: each file is checked on its own")
             } else {
@@ -2100,7 +2465,7 @@ pub class Server {
         // The object form, not `true`: both are valid, and a client that
         // only looks for the options object then still sees the capability.
         w.field_raw("inlayHintProvider", "{\"resolveProvider\":false}")
-        w.field_raw("codeActionProvider", "{\"codeActionKinds\":[\"quickfix\",\"refactor.inline\"]}")
+        w.field_raw("codeActionProvider", "{\"codeActionKinds\":[\"quickfix\",\"refactor.inline\",\"refactor.extract\"]}")
         w.field_raw("completionProvider", "{\"triggerCharacters\":[\".\",\":\",\">\"],\"resolveProvider\":true}")
         w.field_raw("documentOnTypeFormattingProvider", "{\"firstTriggerCharacter\":\"}\"}")
         w.end_object()
@@ -2800,8 +3165,124 @@ pub class Server {
             }
         }
 
+        self.interface_action_(d, params, s, path, &w)
         w.end_array()
         self.respond(id, w.out)
+    }
+
+    /// An empty LSP range at (line, ch): where an insert goes.
+    fn point_range_(const self, line: i64, ch: i64) -> string {
+        var rw = JsonWriter()
+        rw.begin_object()
+        rw.key("start")
+        rw.begin_object()
+        rw.field_int("line", line)
+        rw.field_int("character", ch)
+        rw.end_object()
+        rw.key("end")
+        rw.begin_object()
+        rw.field_int("line", line)
+        rw.field_int("character", ch)
+        rw.end_object()
+        rw.end_object()
+        return rw.out
+    }
+
+    /// True when a file of snapshot \p s declares something called \p name.
+    fn snapshot_declares_(const self, s: *const JsonDoc, const name: string) -> bool {
+        var f = s->first(s->get(s->root, "files"))
+        while f != JSON_NONE() {
+            var y = s->first(s->get(f, "symbols"))
+            while y != JSON_NONE() {
+                if s->get_str(y, "name") == name {
+                    return true
+                }
+
+                y = s->next(y)
+            }
+
+            f = s->next(f)
+        }
+
+        return false
+    }
+
+    /// "Generate interface for 'Name'" (`refactor.extract`) with the cursor on
+    /// a class or struct name where it is declared: the interface above the
+    /// type, and `impl` in the type's header (classes-interfaces spells
+    /// conformance `class Name impl I`), as one edit. The plan comes from the
+    /// buffer's text (TextScan::interface_for); the snapshot only says whether
+    /// `IName` is taken, in which case it is `NameInterface`.
+    fn interface_action_(self, d: *const JsonDoc, params: u32, s: *const JsonDoc, const path: string, w: *JsonWriter) {
+        self.docs.sync_all()
+        var di = self.docs.index_of_path(path)
+        if di == usize::MAX {
+            return
+        }
+
+        var *text = &self.docs.docs[di].text
+        var st = d->get(d->get(params, "range"), "start")
+        var at = self.docs.docs[di].lines.offset(*text, d->get_int(st, "line") as usize, d->get_int(st, "character") as usize, false)
+        var plan = interface_for(*text, at, "")
+        if !plan.ok {
+            return
+        }
+
+        var iname = "I" + plan.name
+        var taken = self.snapshot_declares_(s, iname)
+        if !taken {
+            var spaced = "interface " + iname
+            var k = text->rfind(spaced)
+            while (k != usize::MAX) && (!taken) {
+                var e = k + spaced.size()
+                if (e >= text->size()) || ((*text)[e] == 32) || ((*text)[e] == 123) || ((*text)[e] == 60) || ((*text)[e] == 10) {
+                    taken = true
+                }
+
+                if k == 0 {
+                    break
+                }
+
+                k = text->subslice(0, k).rfind(spaced)
+            }
+        }
+
+        if taken {
+            iname = plan.name + "Interface"
+            plan = interface_for(*text, at, iname)
+            if !plan.ok {
+                return
+            }
+        }
+
+        var il = self.docs.docs[di].lines.line_of(plan.insert_at) as i64
+        var hl = self.docs.docs[di].lines.line_of(plan.impl_at) as i64
+        var hc = self.docs.docs[di].lines.character(*text, plan.impl_at, false) as i64
+        var uri = self.uri_of(path)
+
+        w->begin_object()
+        w->field("title", "Generate interface for \x27" + plan.name + "\x27")
+        w->field("kind", "refactor.extract")
+        w->key("edit")
+        w->begin_object()
+        w->key("changes")
+        w->begin_object()
+        w->key(uri)
+        w->begin_array()
+        // Header first: both are inserts, at different lines, so their order
+        // in the array does not move either one.
+        w->begin_object()
+        w->field_raw("range", self.point_range_(hl, hc))
+        w->field("newText", plan.impl_text)
+        w->end_object()
+        w->begin_object()
+        w->field_raw("range", self.point_range_(il, 0))
+        w->field("newText", plan.text)
+        w->end_object()
+        w->end_array()
+        w->end_object()
+        w->end_object()
+        w->end_object()
     }
 
     /// The macro row of file node \p f (in \p s) whose invocation holds
@@ -4353,6 +4834,21 @@ pub class Server {
                         self.start_index(i)
                     }
                 }
+
+                // The clangd bridge: on the same debounce as a run, one
+                // header job at a time.
+                if self.br_rescan {
+                    self.bridge_scan_()
+                }
+
+                if self.running(JOB_HEADER()) == 0 {
+                    for var b: usize = 0; b < self.br_files.size(); ++b {
+                        if self.br_dirty[b] && (!self.br_running[b]) {
+                            self.start_header_(b)
+                            break
+                        }
+                    }
+                }
             }
 
             if (!self.comp_wait.empty()) && (self.running(JOB_COMPLETE()) == 0) {
@@ -4394,6 +4890,67 @@ pub fn find_from(const hay: string, const needle: string, from: usize) -> usize 
     }
 
     return usize::MAX
+}
+
+/// A C or C++ source or header, by its extension.
+pub fn is_cxx_source(const path: string) -> bool {
+    var dot = path.rfind(46 as u8)
+    var sl  = path.rfind(47 as u8)
+    if (dot == usize::MAX) || ((sl != usize::MAX) && (dot < sl)) {
+        return false
+    }
+
+    var ext = lower(path.subslice(dot + 1, path.size() - dot - 1))
+    return (ext == "c") || (ext == "cc") || (ext == "cpp") || (ext == "cxx") || (ext == "c++") || (ext == "h")
+        || (ext == "hh") || (ext == "hpp") || (ext == "hxx") || (ext == "ipp") || (ext == "m") || (ext == "mm")
+}
+
+/// The quoted `#include "x.k"` names of a C or C++ text, as written.
+pub fn k_includes(const text: string) -> [string] {
+    var out: [string]
+    var i: usize = 0
+    var n = text.size()
+    while i < n {
+        var p = i
+        while (p < n) && ((text[p] == 32) || (text[p] == 9)) {
+            p += 1
+        }
+
+        var le = p
+        while (le < n) && (text[le] != 10) {
+            le += 1
+        }
+
+        if (p < le) && (text[p] == 35) {
+            p += 1
+            while (p < le) && ((text[p] == 32) || (text[p] == 9)) {
+                p += 1
+            }
+
+            if ((p + 7) <= le) && (text.subslice(p, 7) == "include") {
+                p += 7
+                while (p < le) && ((text[p] == 32) || (text[p] == 9)) {
+                    p += 1
+                }
+
+                if (p < le) && (text[p] == 34) {
+                    var q = p + 1
+                    while (q < le) && (text[q] != 34) {
+                        q += 1
+                    }
+
+                    var name = text.subslice(p + 1, q - p - 1)
+                    if (q < le) && name.ends_with(".k") {
+                        out.push_back(name)
+                    }
+                }
+            }
+        }
+
+        i = le + 1
+    }
+
+    return out
 }
 
 /// ASCII lower-casing: symbol search ignores case.

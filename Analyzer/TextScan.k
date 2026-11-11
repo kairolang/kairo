@@ -234,3 +234,525 @@ pub fn call_at(const text: string, at: usize) -> CallSite {
 
     return site
 }
+
+
+/// "Generate interface for 'Name'": what to insert, found from the text
+/// alone, so it is offered on a buffer whose last run is stale too. Offsets
+/// are into the text the plan was made from.
+pub struct InterfacePlan {
+    pub var ok:        bool   = false
+    pub var name:      string = ""  ///< the class or struct
+    pub var insert_at: usize  = 0   ///< start of the line the interface goes above
+    pub var text:      string = ""  ///< the interface, ending in a blank line
+    pub var impl_at:   usize  = 0   ///< where the `impl` clause goes in the header
+    pub var impl_text: string = ""
+    pub var methods:   usize  = 0
+}
+
+fn is_ident_byte(c: u8) -> bool {
+    return ((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90)) || ((c >= 48) && (c <= 57)) || (c == 95)
+}
+
+fn is_blank_byte(c: u8) -> bool {
+    return (c == 32) || (c == 9) || (c == 13)
+}
+
+/// The word of code bytes starting at \p p, or "".
+fn word_at(const text: string, const cls: [u8], p: usize) -> string {
+    var e = p
+    while (e < text.size()) && (cls[e] == 0) && is_ident_byte(text[e]) {
+        e += 1
+    }
+
+    return text.subslice(p, e - p)
+}
+
+/// Whitespace runs that hold a line break become one space: a signature
+/// written over several lines is one line in the interface.
+fn one_line(const s: string) -> string {
+    var out: string = ""
+    var i: usize = 0
+    while i < s.size() {
+        var c = s[i]
+        if (c == 10) || is_blank_byte(c) {
+            var nl = false
+            var j = i
+            while (j < s.size()) && ((s[j] == 10) || is_blank_byte(s[j])) {
+                if s[j] == 10 {
+                    nl = true
+                }
+
+                j += 1
+            }
+
+            if nl {
+                out += " "
+            } else {
+                out += s.subslice(i, j - i)
+            }
+
+            i = j
+            continue
+        }
+
+        out.push_back(c)
+        i += 1
+    }
+
+    var e = out.size()
+    while (e > 0) && (out[e - 1] == 32) {
+        e -= 1
+    }
+
+    return out.subslice(0, e)
+}
+
+/// The plan for the class or struct whose declared name holds \p at, with
+/// the interface called \p iname ("" for `I<Name>`). `ok` is false when
+/// \p at is not on such a name, or the type has no public instance method
+/// (an interface must have a requirement).
+///
+/// Taken from the class body: every `pub` method that is not `static`, a
+/// constructor (`fn Name`) or the destructor (`fn op finally`), its
+/// signature as written up to the body, with the `///` lines above it. A
+/// method declared with a bare `panic` is left out with a comment: an
+/// interface requirement must name its set (interfaces-requirements).
+/// Extension methods live outside the body, so they are never taken.
+pub fn interface_for(const text: string, at: usize, const iname_in: string) -> InterfacePlan {
+    var plan = InterfacePlan{}
+    var cls = classify(text)
+    var n = text.size()
+    if (at > n) || (n == 0) {
+        return plan
+    }
+
+    var a = at
+    while (a > 0) && (cls[a - 1] == 0) && is_ident_byte(text[a - 1]) {
+        a -= 1
+    }
+
+    var b = at
+    while (b < n) && (cls[b] == 0) && is_ident_byte(text[b]) {
+        b += 1
+    }
+
+    if a == b {
+        return plan
+    }
+
+    var name = text.subslice(a, b - a)
+
+    // Back over `<...>` generic parameters to the keyword.
+    var p = a
+    while (p > 0) && is_blank_byte(text[p - 1]) {
+        p -= 1
+    }
+
+    var generics: string = ""
+    if (p > 0) && (text[p - 1] == 62) {
+        var depth: usize = 0
+        var q = p
+        var found = false
+        while q > 0 {
+            q -= 1
+            if text[q] == 62 {
+                depth += 1
+            } else if text[q] == 60 {
+                depth -= 1
+                if depth == 0 {
+                    found = true
+                    break
+                }
+            } else if (text[q] == 10) || (text[q] == 123) || (text[q] == 125) {
+                break
+            }
+        }
+
+        if !found {
+            return plan
+        }
+
+        generics = text.subslice(q, p - q)
+        p = q
+        while (p > 0) && is_blank_byte(text[p - 1]) {
+            p -= 1
+        }
+    }
+
+    var kw_end = p
+    while (p > 0) && is_ident_byte(text[p - 1]) {
+        p -= 1
+    }
+
+    var kw = text.subslice(p, kw_end - p)
+    if (kw != "class") && (kw != "struct") {
+        return plan
+    }
+
+    var kw_at = p
+
+    // The body: the first `{` after the name, and its match.
+    var open = b
+    while (open < n) && (!((cls[open] == 0) && (text[open] == 123))) {
+        open += 1
+    }
+
+    if open >= n {
+        return plan
+    }
+
+    var close = open + 1
+    var bd: usize = 1
+    while close < n {
+        if cls[close] == 0 {
+            if text[close] == 123 {
+                bd += 1
+            } else if text[close] == 125 {
+                bd -= 1
+                if bd == 0 {
+                    break
+                }
+            }
+        }
+
+        close += 1
+    }
+
+    if close >= n {
+        return plan
+    }
+
+    var iname = iname_in
+    if iname.empty() {
+        iname = "I" + name
+    }
+
+    // The interface's type arguments in the `impl` clause: each generic
+    // parameter's own name, without its bounds.
+    var args: string = ""
+    if !generics.empty() {
+        args = "<"
+        var i: usize = 1
+        var first = true
+        while i < (generics.size() - 1) {
+            while (i < generics.size()) && (!is_ident_byte(generics[i])) {
+                i += 1
+            }
+
+            var s = i
+            while (i < generics.size()) && is_ident_byte(generics[i]) {
+                i += 1
+            }
+
+            if i > s {
+                if !first {
+                    args += ", "
+                }
+
+                args += generics.subslice(s, i - s)
+                first = false
+            }
+
+            // Skip the bound to the next top-level comma.
+            var depth: usize = 0
+            while i < (generics.size() - 1) {
+                var c = generics[i]
+                if c == 60 {
+                    depth += 1
+                } else if (c == 62) && (depth > 0) {
+                    depth -= 1
+                } else if (c == 44) && (depth == 0) {
+                    i += 1
+                    break
+                }
+
+                i += 1
+            }
+        }
+
+        args += ">"
+    }
+
+    // The header's end, where ` impl IName` (or `, IName` after an
+    // existing clause) goes.
+    var he = open
+    while (he > b) && (is_blank_byte(text[he - 1]) || (text[he - 1] == 10)) {
+        he -= 1
+    }
+
+    var has_impl = false
+    for var i: usize = b; i < he; ++i {
+        if (cls[i] == 0) && ((i == 0) || (!is_ident_byte(text[i - 1]))) && (word_at(text, cls, i) == "impl") {
+            has_impl = true
+        }
+    }
+
+    plan.impl_at = he
+    if has_impl {
+        plan.impl_text = ", " + iname + args
+    } else {
+        plan.impl_text = " impl " + iname + args
+    }
+
+    // The line the interface goes above: the class line, or the top of the
+    // `///` and attribute lines over it, so its documentation stays its own.
+    var ls = kw_at
+    while (ls > 0) && (text[ls - 1] != 10) {
+        ls -= 1
+    }
+
+    var indent: string = ""
+    var ip = ls
+    while (ip < kw_at) && is_blank_byte(text[ip]) {
+        indent.push_back(text[ip])
+        ip += 1
+    }
+
+    while ls > 0 {
+        var prev = ls - 1
+        while (prev > 0) && (text[prev - 1] != 10) {
+            prev -= 1
+        }
+
+        var fp = prev
+        while (fp < ls) && is_blank_byte(text[fp]) {
+            fp += 1
+        }
+
+        var doc  = ((fp + 2) < ls) && (text[fp] == 47) && (text[fp + 1] == 47) && (text[fp + 2] == 47)
+        var attr = (fp < ls) && (text[fp] == 64)
+        if (!doc) && (!attr) {
+            break
+        }
+
+        ls = prev
+    }
+
+    plan.insert_at = ls
+
+    // The members, one line at a time at the body's own depth.
+    var lines: [string]
+    var docs:  [string]
+    var depth: usize = 0
+    var i = open + 1
+    var at_line_start = false
+    while i < close {
+        var c = text[i]
+        if at_line_start && (depth == 0) {
+            var q = i
+            while (q < close) && is_blank_byte(text[q]) {
+                q += 1
+            }
+
+            var le = q
+            while (le < close) && (text[le] != 10) {
+                le += 1
+            }
+
+            if (q < le) && (cls[q] == 1) {
+                if ((q + 2) < le) && (text[q + 2] == 47) && (text[q + 1] == 47) {
+                    var e = le
+                    while (e > q) && is_blank_byte(text[e - 1]) {
+                        e -= 1
+                    }
+
+                    docs.push_back(text.subslice(q, e - q))
+                } else {
+                    docs.clear()
+                }
+            } else if (q < le) && (cls[q] == 0) {
+                // Modifiers up to `fn`.
+                var w = q
+                var is_pub = false
+                var is_static = false
+                var fn_at = usize::MAX
+                var attr_only = text[q] == 64
+                while w < le {
+                    while (w < le) && is_blank_byte(text[w]) {
+                        w += 1
+                    }
+
+                    if (w < le) && (text[w] == 64) {
+                        w += 1
+                        while (w < le) && is_ident_byte(text[w]) {
+                            w += 1
+                        }
+
+                        continue
+                    }
+
+                    var word = word_at(text, cls, w)
+                    if word.empty() {
+                        break
+                    }
+
+                    attr_only = false
+                    if word == "fn" {
+                        fn_at = w
+                        break
+                    }
+
+                    if word == "pub" {
+                        is_pub = true
+                    } else if word == "static" {
+                        is_static = true
+                    }
+
+                    w += word.size()
+                }
+
+                if attr_only {
+                    i = q // an attribute line: the docs above still belong to what follows
+                } else {
+                    if (fn_at != usize::MAX) && is_pub && (!is_static) {
+                        // The signature: up to the body's `{` or `= default`.
+                        var e = fn_at
+                        var pd: usize = 0
+                        while e < close {
+                            if cls[e] == 0 {
+                                var ch = text[e]
+                                if (ch == 40) || (ch == 91) {
+                                    pd += 1
+                                } else if ((ch == 41) || (ch == 93)) && (pd > 0) {
+                                    pd -= 1
+                                } else if (pd == 0) && (ch == 123) {
+                                    break
+                                } else if (pd == 0) && (ch == 61) && ((e + 1) < close) && (text[e + 1] != 61)
+                                    && (text[e - 1] != 61) && (text[e - 1] != 33) && (text[e - 1] != 60)
+                                    && (text[e - 1] != 62) {
+                                    break
+                                }
+                            }
+
+                            e += 1
+                        }
+
+                        var sig = one_line(text.subslice(fn_at, e - fn_at))
+
+                        // The method's name: after `fn` and its generics.
+                        var np = fn_at + 2
+                        while (np < e) && is_blank_byte(text[np]) {
+                            np += 1
+                        }
+
+                        if (np < e) && (text[np] == 60) {
+                            var gd: usize = 0
+                            while np < e {
+                                if text[np] == 60 {
+                                    gd += 1
+                                } else if text[np] == 62 {
+                                    gd -= 1
+                                    if gd == 0 {
+                                        np += 1
+                                        break
+                                    }
+                                }
+
+                                np += 1
+                            }
+
+                            while (np < e) && is_blank_byte(text[np]) {
+                                np += 1
+                            }
+                        }
+
+                        var mname = word_at(text, cls, np)
+                        var skip = mname == name
+                        if mname == "op" {
+                            var opp = np + 2
+                            while (opp < e) && is_blank_byte(text[opp]) {
+                                opp += 1
+                            }
+
+                            if word_at(text, cls, opp) == "finally" {
+                                skip = true
+                            }
+                        }
+
+                        // A bare `panic`: the set is inferred from a body an
+                        // interface does not have.
+                        var bare_panic = false
+                        var sp: usize = 0
+                        while (sp + 5) <= sig.size() {
+                            if (sig.subslice(sp, 5) == "panic") && ((sp == 0) || (!is_ident_byte(sig[sp - 1])))
+                                && (((sp + 5) == sig.size()) || (!is_ident_byte(sig[sp + 5]))) {
+                                var t = sp + 5
+                                while (t < sig.size()) && (sig[t] == 32) {
+                                    t += 1
+                                }
+
+                                if (t >= sig.size()) || (sig[t] != 40) {
+                                    bare_panic = true
+                                }
+                            }
+
+                            sp += 1
+                        }
+
+                        if (!skip) && bare_panic {
+                            lines.push_back("// " + mname + ": declared with a bare `panic`; a requirement needs its set, `panic(E)`")
+                        } else if !skip {
+                            for var k: usize = 0; k < docs.size(); ++k {
+                                lines.push_back(docs[k])
+                            }
+
+                            lines.push_back(sig)
+                            plan.methods += 1
+                        }
+                    }
+
+                    docs.clear()
+                }
+            } else if q >= le {
+                docs.clear()
+            }
+
+            at_line_start = false
+            if i < q {
+                i = q
+                continue
+            }
+        }
+
+        if cls[i] == 0 {
+            if c == 123 {
+                depth += 1
+            } else if (c == 125) && (depth > 0) {
+                depth -= 1
+            }
+        }
+
+        if c == 10 {
+            at_line_start = true
+        }
+
+        i += 1
+    }
+
+    if plan.methods == 0 {
+        return plan
+    }
+
+    var out = indent + "pub interface "
+    if !generics.empty() {
+        out += generics
+        out += " "
+    }
+
+    out += iname
+    out += " {\n"
+    for var k: usize = 0; k < lines.size(); ++k {
+        out += indent
+        out += "    "
+        out += lines[k]
+        out += "\n"
+    }
+
+    out += indent
+    out += "}\n\n"
+
+    plan.ok   = true
+    plan.name = name
+    plan.text = out
+    return plan
+}
