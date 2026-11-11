@@ -31,6 +31,7 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import AST::Context::DeclContext::DeclContext
 import AST::Context::SymbolTable::DeclName
 import AST::Kind::ExprKind::to_string
 import AST::LangItems::{
@@ -136,6 +137,7 @@ pub class <T: type> LiteralTyping {
             a->lit_lo  = n->get_value_lo()
             a->lit_hi  = n->get_value_hi()
             a->lit_big = n->is_big()
+            a->lit_bits = n->big_bits()
             a->lit_neg = neg
             return true
         }
@@ -182,6 +184,7 @@ pub class <T: type> LiteralTyping {
         a->lit_lo  = (v as u64)
         a->lit_hi  = 0
         a->lit_big = false
+        a->lit_bits = 0
         return true
     }
 
@@ -351,6 +354,7 @@ pub class <T: type> LiteralTyping {
             sh.lit_lo   = el.lit_lo
             sh.lit_hi   = el.lit_hi
             sh.lit_big  = el.lit_big
+            sh.lit_bits = el.lit_bits
             sh.lit_neg  = el.lit_neg
             sh.lit_name = el.lit_name
             sh.ty       = el.ty
@@ -424,6 +428,7 @@ pub class <T: type> LiteralTyping {
                 negative,
                 k,
                 pb,
+                n->big_bits(),
             ) {
                 self.dyn()->fail(
                     n,
@@ -449,11 +454,12 @@ pub class <T: type> LiteralTyping {
                     negative,
                     tk,
                     pb,
+                    n->big_bits(),
                 ) {
                     self.dyn()->fail(
                         n,
                         DiagID::SC075E,
-                        f"literal '{n->get_spelling()}' does not fit in '{builtin_info(tk)->spelling}'",
+                        f"literal '{n->get_source_text()}' does not fit in '{builtin_info(tk)->spelling}'",
                     )
 
                     return &null
@@ -476,6 +482,7 @@ pub class <T: type> LiteralTyping {
                     negative,
                     tk,
                     pb,
+                    n->big_bits(),
                 ) {
                     return target
                 }
@@ -483,7 +490,7 @@ pub class <T: type> LiteralTyping {
                 self.dyn()->fail(
                     n,
                     DiagID::SC075E,
-                    f"literal '{n->get_spelling()}' is not a Unicode scalar value, so it does not fit in 'char': only 0 through 0xD7FF and 0xE000 through 0x10FFFF do",
+                    f"literal '{n->get_source_text()}' is not a Unicode scalar value, so it does not fit in 'char': only 0 through 0xD7FF and 0xE000 through 0x10FFFF do",
                 )
 
                 return &null
@@ -497,6 +504,7 @@ pub class <T: type> LiteralTyping {
                     negative,
                     tk,
                     pb,
+                    n->big_bits(),
                 ) {
                     return target
                 }
@@ -504,7 +512,7 @@ pub class <T: type> LiteralTyping {
                 self.dyn()->fail(
                     n,
                     DiagID::SC075E,
-                    f"literal '{n->get_spelling()}' does not fit in 'c_char' on every target: only 0 through 127 do, whether C's char is signed or not",
+                    f"literal '{n->get_source_text()}' does not fit in 'c_char' on every target: only 0 through 127 do, whether C's char is signed or not",
                 )
 
                 return &null
@@ -518,6 +526,7 @@ pub class <T: type> LiteralTyping {
                     negative,
                     tk,
                     pb,
+                    n->big_bits(),
                 ) {
                     return target
                 }
@@ -525,7 +534,7 @@ pub class <T: type> LiteralTyping {
                 self.dyn()->fail(
                     n,
                     DiagID::SC075E,
-                    f"literal '{n->get_spelling()}' does not fit in 'c_wchar' on every target: only 0 through 0xFFFF do, as wchar_t is 16 bits on Windows",
+                    f"literal '{n->get_source_text()}' does not fit in 'c_wchar' on every target: only 0 through 0xFFFF do, as wchar_t is 16 bits on Windows",
                 )
 
                 return &null
@@ -539,6 +548,7 @@ pub class <T: type> LiteralTyping {
                     negative,
                     tk,
                     pb,
+                    n->big_bits(),
                 ) {
                     return target
                 }
@@ -546,7 +556,7 @@ pub class <T: type> LiteralTyping {
                 self.dyn()->fail(
                     n,
                     DiagID::SC075E,
-                    f"literal '{n->get_spelling()}' does not fit in '{builtin_info(tk)->spelling}'",
+                    f"literal '{n->get_source_text()}' does not fit in '{builtin_info(tk)->spelling}'",
                 )
 
                 return &null
@@ -566,6 +576,7 @@ pub class <T: type> LiteralTyping {
                 negative,
                 order[i],
                 pb,
+                n->big_bits(),
             ) {
                 return self.dyn()->tu.builtin(order[i])
             }
@@ -725,6 +736,13 @@ pub class <T: type> LiteralTyping {
             return &null
         }
 
+        // A suffix is never ignored: it names a literal operator or it is an
+        // error (P798). Before this the lexer kept it and the type was
+        // `string` regardless, so `"hi"_len` silently called nothing.
+        if n->imm != &null && n->get_suffix().range.is_valid() {
+            return self._type_string_udl(n)
+        }
+
         if !n->is_format() {
             return s
         }
@@ -740,6 +758,48 @@ pub class <T: type> LiteralTyping {
         }
 
         return s
+    }
+
+    /// `"..."_x`: the imported C++ `operator""_x(const char *, size_t)`, found
+    /// the way C++ finds it for a literal at file scope (unqualified, so the
+    /// global namespace and what the file imported). The literal is typed as
+    /// the operator's return type and StringLowering makes it the call. Kairo
+    /// has no spelling for declaring one, so an unknown suffix is SC074E.
+    priv fn _type_string_udl(self, n: unsafe *StringLiteralExpr) -> unsafe *Type {
+        var sfx = n->ctx->get_spelling(n->get_suffix().range)
+        if n->is_format() {
+            self.dyn()->fail(
+                n,
+                DiagID::SC074E,
+                f"a format string cannot take the literal suffix '{sfx}'",
+            )
+
+            return &null
+        }
+
+        var imm = self.dyn()->sc->imm_table()->intern_ident_copy("operator\"\"" + sfx)
+        var r   = self.dyn()->sc->lookup.unqualified(
+            unsafe (self.dyn()->sc->tu as unsafe *DeclContext),
+            DeclName::ident(imm),
+        )
+
+        if r.found() {
+            for var i: usize = 0; i < r.cell->size(); ++i {
+                var f = dyn_cast<FunctionDecl>(r.cell->get(i))
+                if f != &null && f->params.size() == 2 && f->return_type != &null {
+                    n->udl_op = r.cell->get(i)
+                    return f->return_type->canonical
+                }
+            }
+        }
+
+        self.dyn()->fail(
+            n,
+            DiagID::SC074E,
+            f"unknown literal suffix '{sfx}': no literal operator with it is declared; import a C++ `operator\"\"{sfx}(const char *, size_t)`",
+        )
+
+        return &null
     }
 
     fn type_char_literal(self,

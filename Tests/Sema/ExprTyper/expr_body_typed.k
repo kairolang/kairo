@@ -2,9 +2,9 @@
 //
 // An expression body under a written return type is typed against it, the
 // same as the `return e` it abbreviates. The demand path that infers an
-// unwritten return type used to answer for these as well, and it returned
-// the written type without ever looking at the body: `-> u32 = true` was
-// accepted, and an initializer body reached codegen untyped.
+// unwritten return type does not answer for these (it would return
+// the written type without ever looking at the body: `-> u32 = true` would be
+// accepted, and an initializer body reach codegen untyped).
 //
 // Every position a function can sit in: free, extension (static and
 // instance), class method, generic. A recursive call in a declared body

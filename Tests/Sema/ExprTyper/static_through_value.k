@@ -1,8 +1,8 @@
 // A static requirement (an interface `fn` with no `self`) or a static
 // extension member called through a VALUE is SC001E, with a note at the
 // declaration and the fix-it that calls it through the receiver's type as
-// the body spells it (`y.make(2)` -> `T::make(2)`). Before the check these
-// passed X and ICEd in ExtensionLowering ("a static requirement called
+// the body spells it (`y.make(2)` -> `T::make(2)`). Without the check these
+// pass X and fail in ExtensionLowering ("a static requirement called
 // through a value; X should have rejected it"), even under
 // --type-check-only.
 // Not rejected: the `::` form, an instance requirement through a value,

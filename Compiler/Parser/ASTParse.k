@@ -49,6 +49,7 @@ import AST::LangItems::{
     LowerTargets,
 }
 import AST::Mixin::Annotation::{
+    AnnotationEntry,
     AnnotationKind,
     VisibilityKind,
 }
@@ -3002,6 +3003,8 @@ pub class ASTParse
                                        file_scope: bool = false) {
         out->clear()
 
+        self._collect_leading_comments(out)
+
         var prev_flag = self._no_comment_skip
         self._no_comment_skip = true
 
@@ -3018,7 +3021,13 @@ pub class ASTParse
                 self.advance()
                 if self._current != &null
                     && self.resolve_kind_shallow(self._current) == TokenKind::TkNewLine {
-                    self.advance_raw() // stay bound regardless of blank-line gap
+                    // a blank line detaches everything above it (a license
+                    // banner), exactly as _collect_leading_comments does.
+                    if self._current->imm >= 2 {
+                        self._drop_comment_entries(out)
+                    }
+
+                    self.advance_raw()
                 }
 
                 continue
@@ -3128,8 +3137,82 @@ pub class ASTParse
         }
     }
 
+    /// \brief removes the comment entries gathered so far, keeping attributes.
+    priv fn _drop_comment_entries(self, out: unsafe *Self::PendingAnnotations) {
+        var kept = cxx::std::vector<AnnotationEntry>()
+        for var i: usize = 0; i < out->entries.size(); ++i {
+            if out->entries[i].kind == AnnotationKind::Attribute {
+                kept.push_back(out->entries[i])
+            }
+        }
+
+        out->entries = kept
+    }
+
+    /// \brief a comment that opens its own line is not a trailing comment.
+    priv fn _comment_opens_line(self) -> bool {
+        if self.c_idx == 0 {
+            return true
+        }
+
+        return self.resolve_kind_shallow(self.span.get(self.c_idx - 1)) == TokenKind::TkNewLine
+    }
+
+    /// \brief the comments directly above the cursor become its leading
+    ///        annotations: the contiguous run of own-line comments that follows
+    ///        the previous code token, minus anything a blank line cuts off.
+    ///
+    /// \details read straight off the token span instead of being remembered
+    ///          while stepping: _advance steps over every comment it lands on,
+    ///          so a pending list could not tell a doc block from a comment
+    ///          buried in the middle of an expression, and the old stash handed
+    ///          such comments to whichever declaration was parsed next. A
+    ///          comment that shares its line with the previous code token is
+    ///          that token's trailing comment (_attach_trailing), never ours.
+    priv fn _collect_leading_comments(self, out: unsafe *Self::PendingAnnotations) {
+        if self._current == &null || self.c_idx == 0 {
+            return
+        }
+
+        var j = self.c_idx
+        while j > 0 {
+            var k = self.resolve_kind_shallow(self.span.get(j - 1))
+            if k != TokenKind::TkNewLine && k != TokenKind::AtComment {
+                break
+            }
+
+            --j
+        }
+
+        for var t: usize = j; t < self.c_idx; ++t {
+            var unsafe *tok = self.span.get(t)
+            var        k    = self.resolve_kind_shallow(tok)
+            if k == TokenKind::TkNewLine {
+                if tok->imm >= 2 {
+                    self._drop_comment_entries(out)
+                }
+
+                continue
+            }
+
+            if t > 0 {
+                var pk = self.resolve_kind_shallow(self.span.get(t - 1))
+                if pk != TokenKind::TkNewLine && pk != TokenKind::AtComment {
+                    continue
+                }
+            }
+
+            out->add(self._comment_kind_from_imm(tok->imm), u32::MAX, tok->range)
+        }
+    }
+
     pub fn _stash_comment(self, tok: unsafe *Token) {
         if tok == &null {
+            return
+        }
+
+        // an own-line comment belongs to what follows (_collect_leading_comments).
+        if self._comment_opens_line() {
             return
         }
 
@@ -3787,7 +3870,11 @@ pub class ASTParse
         while i < self.span.size() {
             var unsafe *t = self.span.get(i)
             var        k  = self.resolve_kind_shallow(t)
-            if k != TokenKind::TkNewLine {
+            // --preserve-comments leaves AtComment tokens in the stream; a
+            // comment line between `a` and a leading `||`/`.` must not hide the
+            // continuation token, or the same file parses differently with the
+            // flag on.
+            if k != TokenKind::TkNewLine && k != TokenKind::AtComment {
                 return k
             }
 

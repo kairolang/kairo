@@ -156,7 +156,7 @@ fn loop_shorthand(n: i32) -> i32 {
 // DIAG-NEXT: pointer_shorthand.k:68:5: note [I900N]: 'x' may be changed here, through a pointer to it
 // DIAG-NOT: {{error|warning}}
 // Both loops read the same: a loop-local is not classified by the pre-scan
-// (ticketed), with or without the stars.
+// , with or without the stars.
 // DIAG: pointer_shorthand.k:79:19: error [SC265E]: 'q' may be null here
 // DIAG-NOT: {{error|warning}}
 // DIAG: pointer_shorthand.k:93:19: error [SC265E]: 'q' may be null here

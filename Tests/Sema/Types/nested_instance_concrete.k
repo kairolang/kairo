@@ -1,8 +1,8 @@
 // A member type named through a CONCRETE instance in type position is
 // resolved there, not left dependent (GH#73). `Foo<i32>::Inner` in a
-// function with no generic context of its own used to break out of
-// TypeResolve's chain walk as Dependent: the node was flagged dependent and
-// every conversion of `x` was deferred. It is now the instance's Inner, so
+// function with no generic context of its own does not break out of
+// TypeResolve's chain walk as Dependent (which would flag the node dependent and
+// defer every conversion of `x`). It is the instance's Inner, so
 // the conversions below are checked and name it, and the TU's type table has
 // no dependent node at all (Foo's body never mentions T).
 

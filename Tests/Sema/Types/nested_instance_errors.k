@@ -1,5 +1,5 @@
 // A type nested in a generic class named through an instance (GH#91): the
-// instance's argument list is checked like any other (it used to be
+// instance's argument list is checked like any other (it is not
 // dropped unread), and the member type must exist. These stop the TU
 // before bodies are typed; the conversions are
 // Tests/Sema/ExprTyper/nested_instance_mismatch.k.

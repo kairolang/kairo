@@ -57,6 +57,7 @@ import AST::Node::CanonicalNodes::{
     canon_unqual,
 }
 import AST::Node::Casting::cast
+import AST::Node::Declarations::FunctionDecl
 import AST::Node::Expressions::CastMode
 import AST::Node::PrimaryExpressions::StringLiteralExpr
 import AST::Visitor::ASTWriter::ASTWriter
@@ -99,6 +100,14 @@ pub class StringLowering derives ASTWriter<StringLowering> {
 
         if n->is_poisoned() || n->imm == &null {
             return out
+        }
+
+        if n->udl_op != &null && n->type_ != &null {
+            // Typed as the operator's result, not `string`: the early return
+            // below would leave a literal in codegen.
+            var bytes = cxx::std::vector<u8>()
+            self._collect(n, unsafe &bytes)
+            return self._udl_call(n, unsafe &bytes)
         }
 
         if n->type_ == &null || !self.tu.is_string(n->type_) { // a minted byte literal.
@@ -160,6 +169,30 @@ pub class StringLowering derives ASTWriter<StringLowering> {
             &args,
             n->type_,
         )
+    }
+
+    /// `operator""_x(<bytes>, <len>)`: C++'s own explicit spelling of what
+    /// `"..."_x` means, so the emitter needs nothing new. The first parameter
+    /// is the C string (`const char *`), cast as a C string argument is.
+    priv fn _udl_call(self, n: unsafe *StringLiteralExpr, bytes: unsafe *cxx::std::vector<u8>) -> unsafe *Expr {
+        var unsafe *f   = cast<FunctionDecl>(n->udl_op)
+        var unsafe *u8t = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST)
+        var unsafe *pu8 = self.sc->types->pointer(u8t)
+        var unsafe *pt  = f->params[0]->type_->canonical
+        var unsafe *arg = self.synth.cast_to(
+            n->range,
+            self.synth.bytes_literal(n->range, bytes, pu8),
+            pt,
+            CastMode::Unsafe,
+        )
+        if self.tu.is_builtin(canon_unqual(self.tu.pointee(pt)), BuiltinKind::CChar) {
+            arg = self.synth.bytes_literal(n->range, bytes, pt)
+        }
+
+        var args = self.list_builder<unsafe *Expr>()
+        args.push(arg)
+        args.push(self.synth.int_literal(n->range, bytes->size() as u64, BuiltinKind::USize))
+        return self.synth.free_call(n->range, n->udl_op, unsafe &args, n->type_)
     }
 
     /// The literal's decoded bytes: its own body, then every chained part.

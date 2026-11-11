@@ -212,6 +212,7 @@ pub class ListShape {
     pub var lit_lo:   u64          = 0
     pub var lit_hi:   u64          = 0
     pub var lit_big:  bool         = false
+    pub var lit_bits: u32          = 0 ///< Big_bits of a literal wider than 128 bits.
     pub var lit_neg:  bool         = false
     pub var lit_name: string       = "" ///< LitKind::Variant: the name after the dot.
     pub var ty:       unsafe *Type = &null ///< set when the element is not an untyped literal.
@@ -234,6 +235,7 @@ pub class ArgInfo {
     pub var lit_lo:     u64          = 0
     pub var lit_hi:     u64          = 0
     pub var lit_big:    bool         = false
+    pub var lit_bits:   u32          = 0 ///< Big_bits of a literal wider than 128 bits.
     pub var lit_neg:    bool         = false
     /// LitKind::Variant only: the name written after the dot. Written by
     /// ControlTyping::dotted_variant_shape.
@@ -3126,6 +3128,7 @@ pub class OverloadResolution {
                            a->lit_neg,
                            k,
                            pb,
+                           a->lit_bits,
                        )) => (ImplicitRank::Exact)
                        else => ImplicitRank::None
             } case LitKind::Float {
@@ -3270,6 +3273,7 @@ pub class OverloadResolution {
             sub.lit_lo   = el->lit_lo
             sub.lit_hi   = el->lit_hi
             sub.lit_big  = el->lit_big
+            sub.lit_bits = el->lit_bits
             sub.lit_neg  = el->lit_neg
             sub.lit_name = el->lit_name
             return self._rank_literal(&sub, elem)
@@ -3295,6 +3299,7 @@ pub class OverloadResolution {
                     a->lit_neg,
                     BuiltinKind::I32,
                     pb,
+                    a->lit_bits,
                 ) {
                     return self.tu.builtin(BuiltinKind::I32)
                 }
@@ -3306,6 +3311,7 @@ pub class OverloadResolution {
                     a->lit_neg,
                     BuiltinKind::I64,
                     pb,
+                    a->lit_bits,
                 ) {
                     return self.tu.builtin(BuiltinKind::I64)
                 }
@@ -3317,6 +3323,7 @@ pub class OverloadResolution {
                     a->lit_neg,
                     BuiltinKind::U64,
                     pb,
+                    a->lit_bits,
                 ) {
                     return self.tu.builtin(BuiltinKind::U64)
                 }
@@ -3328,6 +3335,7 @@ pub class OverloadResolution {
                     a->lit_neg,
                     BuiltinKind::I128,
                     pb,
+                    a->lit_bits,
                 ) {
                     return self.tu.builtin(BuiltinKind::I128)
                 }
@@ -3374,6 +3382,8 @@ pub class OverloadResolution {
                 sub.lit_lo   = el->lit_lo
                 sub.lit_hi   = el->lit_hi
                 sub.lit_big  = el->lit_big
+                sub.lit_bits = el->lit_bits
+            sub.lit_bits = el->lit_bits
                 sub.lit_neg  = el->lit_neg
                 sub.lit_name = el->lit_name
                 t            = self._literal_default(&sub, ept)

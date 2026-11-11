@@ -1,5 +1,5 @@
 // char (a 32-bit Unicode scalar) converts implicitly to and from an integer
-// only when the TARGET is equal or wider. Decided 2026-11-04.
+// only when the TARGET is equal or wider.
 //   implicit:  char -> u32 u64 u128 i64 i128;  u8 u16 u32 -> char
 //   explicit:  char -> u8 u16 i8 i16 i32 usize isize;  i8 i16 i32 i64 i128
 //              u64 u128 usize isize -> char
@@ -86,7 +86,7 @@ fn lits() {
 // E: char_integer_implicit.k:56:{{.*}}error [SC028E]: cannot convert 'u128' to 'char'{{.*}}'as'
 // E: char_integer_implicit.k:57:{{.*}}error [SC028E]: cannot convert 'usize' to 'char'{{.*}}'as'
 // E: char_integer_implicit.k:58:{{.*}}error [SC063E]
-// E: char_integer_implicit.k:66:{{.*}}error [SC075E]: literal '55296'
-// E: char_integer_implicit.k:67:{{.*}}error [SC075E]: literal '57343'
-// E: char_integer_implicit.k:68:{{.*}}error [SC075E]: literal '1114112'
+// E: char_integer_implicit.k:66:{{.*}}error [SC075E]: literal '0xD800'
+// E: char_integer_implicit.k:67:{{.*}}error [SC075E]: literal '0xDFFF'
+// E: char_integer_implicit.k:68:{{.*}}error [SC075E]: literal '0x110000'
 // E: char_integer_implicit.k:69:{{.*}}error [SC075E]: literal '1'

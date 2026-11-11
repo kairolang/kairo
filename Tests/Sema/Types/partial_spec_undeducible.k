@@ -6,8 +6,8 @@
 // specialization that silently never applies.
 //
 // XFAIL: *
-// Ticket "[Sema] A partial specialization whose pattern never names one of
-// its parameters is silently inert" (2026-10-25).
+// Waits on reporting a partial specialization whose pattern never names one of
+// its parameters, which is silently inert.
 // Today it is accepted without a word and every instance takes
 // the primary (InstantiationRegistry::_matches never selects it). Passes
 // once TypeResolve::_register_type_spec reports it. The code is not decided;

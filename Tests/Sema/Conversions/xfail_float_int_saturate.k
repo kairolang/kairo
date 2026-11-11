@@ -8,8 +8,8 @@
 // not a spec quote: if the spec picks otherwise, change its two checks.
 //
 // XFAIL: *
-// Ticket "[Codegen] float -> int `as` is a bare static_cast: out of range is
-// undefined behaviour, not saturation" (2026-10-28). EmitIR's _cast spells
+// Waits on float -> int `as` saturating: it is a bare static_cast, so out of range is
+// undefined behaviour. EmitIR's _cast spells
 // every numeric `as` as static_cast<T>(x), which is UB in C++ past the
 // range. On x86_64 at -O0 cvttsd2si answers the "integer indefinite"
 // 0x80000000...: 1e18 as i32 is i32 MIN, -1.0 as u8 is 255, NaN is MIN.

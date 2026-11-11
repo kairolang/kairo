@@ -107,7 +107,8 @@ pub fn literal_fits_int(lo:       u64,
                         big:      bool,
                         negative: bool,
                         bk:       BuiltinKind,
-                        ptr_bits: usize) -> bool {
+                        ptr_bits: usize,
+                        big_bits: u32 = 0) -> bool {
     // C's `char` is no integer, but takes a literal where both of its
     // possible signednesses agree: 0..=127.
     if bk == BuiltinKind::CChar {
@@ -144,7 +145,30 @@ pub fn literal_fits_int(lo:       u64,
     }
 
     if big {
-        return false
+        // Wider than 128 bits: lo/hi hold only the low half, so the verdict
+        // comes from the magnitude's width. A literal whose width is unknown
+        // (big_bits == 0) fits nothing, as before.
+        var wide = builtin_info(bk)->bits
+        if big_bits == 0 || wide <= 128 {
+            return false
+        }
+
+        if negative && !builtin_info(bk)->is_signed() {
+            return false
+        }
+
+        var width = (big_bits & 0x7FFFFFFF) as usize
+        var pow2  = (big_bits & 0x80000000) != 0
+        if !builtin_info(bk)->is_signed() {
+            return width <= wide
+        }
+
+        // signed: |v| < 2^(wide-1), or exactly 2^(wide-1) when negative.
+        if width < wide {
+            return true
+        }
+
+        return negative && width == wide && pow2
     }
 
     var bits = builtin_info(bk)->bits

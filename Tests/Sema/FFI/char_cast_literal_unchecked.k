@@ -1,5 +1,5 @@
 // An explicit `as char` from an integer literal that fits u32 is
-// unchecked (decided 2026-11-04): `0xFFFFFFFF as char` is the sentinel, not a
+// unchecked: `0xFFFFFFFF as char` is the sentinel, not a
 // trap. The scalar-value range test is for the IMPLICIT literal adaptation:
 // `var c: char = 0xFFFFFFFF` is still SC075E.
 
@@ -17,5 +17,5 @@ fn main() {
 // --- lit wiring -----------------------------------------------------------
 
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: :14:{{.*}}error [SC075E]: literal '4294967295' is not a Unicode scalar value
+// CHECK: :14:{{.*}}error [SC075E]: literal '0xFFFFFFFF' is not a Unicode scalar value
 // CHECK-NOT: error [

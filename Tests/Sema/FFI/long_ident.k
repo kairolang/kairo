@@ -2,7 +2,7 @@
 // ASTContext::make_token, whose hash panicked at 256 chars or more ("String
 // too long for hashing") -- C++ headers (libc++, MinGW) carry identifiers
 // that long, so importing one killed the compiler. The lexer hashed a Kairo
-// identifier of any length; the two now agree.
+// identifier of any length; the two agree.
 
 ffi "c++" import "long_ident.h"
 

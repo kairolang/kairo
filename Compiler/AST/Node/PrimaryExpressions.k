@@ -436,6 +436,15 @@ pub class IntegerLiteralExpr derives Expr {
         return self.ctx->get_spelling(self.token)
     }
 
+    /// \brief the literal's text for a diagnostic, as written. get_spelling
+    ///        formats the stored 64-bit value: for a literal wider than 64
+    ///        bits that is its low word only (a 2^200 literal read '0'), and
+    ///        for `0x100` it is the decimal '256', which names a number the
+    ///        user never typed (P809).
+    pub fn get_source_text(self) -> string {
+        return self.ctx->get_spelling(self.token.range)
+    }
+
     pub fn is_pinned(self) -> bool {
         return self.pinned_kind != 255
     }
@@ -578,6 +587,22 @@ pub class IntegerLiteralExpr derives Expr {
         }
 
         return (self.imm->flags & 0b00000100) != 0
+    }
+
+    /// \brief the magnitude of a literal wider than 128 bits, for the range
+    ///        check: its bit width, with bit 31 set when it is a power of two.
+    ///        0 when the literal is not big (lo/hi are then the whole value).
+    pub fn big_bits(self) -> u32 {
+        if !self.is_big() || self.imm->big == &null {
+            return 0
+        }
+
+        var w = self.imm->big->bit_width() as u32
+        if self.imm->big->is_pow2() {
+            w |= 0x80000000
+        }
+
+        return w
     }
 
     pub fn has_suffix(self) -> bool {
@@ -895,6 +920,10 @@ pub class StringLiteralExpr derives Expr {
     /// StringLowering then passes the static bytes themselves, and no
     /// `string` is made. The node stays typed `string` until then.
     pub var c_string: unsafe *Type = &null
+    /// The imported C++ `operator""_x` a suffixed literal (`"hi"_x`) calls:
+    /// written by LiteralTyping, read by StringLowering, which makes the
+    /// literal that call. Null for a plain literal.
+    pub var udl_op: unsafe *Decl = &null
 
     pub static fn create(ctx:         unsafe *ASTContext,
                          range:       SourceRange,
@@ -914,6 +943,7 @@ pub class StringLiteralExpr derives Expr {
         node->fmt_holes   = create_empty_frozen_list<FormatHole>() // read only when is_format; an unset list must still be readable.
         node->const_eval  = false
         node->c_string    = &null
+        node->udl_op      = &null
         node->init_annotations(unsafe &ctx->ast_alloc)
         return node
     }
@@ -933,6 +963,7 @@ pub class StringLiteralExpr derives Expr {
         node->fmt_holes     = create_empty_frozen_list<FormatHole>() // read only when is_format; an unset list must still be readable.
         node->const_eval    = false
         node->c_string      = &null
+        node->udl_op        = &null
         node->init_annotations(unsafe &ctx->ast_alloc)
         return node
     }
@@ -979,7 +1010,7 @@ pub class StringLiteralExpr derives Expr {
         return self.imm->prefix
     }
 
-    fn get_suffix(self) -> Token {
+    pub fn get_suffix(self) -> Token {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
                 kairo::std::ice_fail(r"StringLiteralExpr::get_suffix: imm pointer is null")

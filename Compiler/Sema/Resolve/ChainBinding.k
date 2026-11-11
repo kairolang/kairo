@@ -57,6 +57,7 @@ import AST::Context::SymbolTable::{
     OverloadCell,
 }
 import AST::DeclFacts::{
+    decl_cxx_spelling,
     decl_generic_params,
     decl_pattern,
     ffi_hide_tags,
@@ -951,7 +952,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 if cands.empty() {
                     var mn = if (a.decl == &null) => ("the global scope")
                              else => f"module '{self._decl_name_str(a.decl)}'"
-                    self._err(DiagID::R025E, at, f"no member named '{spelled}' in {mn}")
+                    self._err_contained(DiagID::R025E, at, f"no member named '{spelled}' in {mn}")
                     st->name->poison()
                     self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
                     var r = Anchor()
@@ -986,7 +987,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             }
 
             if cands.empty() {
-                self._err(
+                self._err_contained(
                     DiagID::R025E,
                     at,
                     f"no member named '{spelled}' in '{self._decl_name_str(a.decl)}'",
@@ -1101,7 +1102,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         self.ml.lookup(ty, name, unsafe &cands)
         if cands.empty() {
             var tn = self._type_name_str(ty)
-            self._err(DiagID::R025E, at, f"no member named '{spelled}' in '{tn}'")
+            self._err_contained(DiagID::R025E, at, f"no member named '{spelled}' in '{tn}'")
             st->name->poison()
             self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
             var r = Anchor()
@@ -1821,7 +1822,11 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         if cands.empty() {
-            self._err(DiagID::R025E, at, f"no member named '{spelled}' in the bounds of '{pname}'")
+            self._err_contained(
+                DiagID::R025E,
+                at,
+                f"no member named '{spelled}' in the bounds of '{pname}'",
+            )
             st->name->poison()
             self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
             var r = Anchor()
@@ -1933,6 +1938,16 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     priv fn _err(self, id: DiagID, at: SourceRange, const msg: string) {
         self.sc->diag->report(id, at.start, msg).first(at)->emit()
         self.n_errored += 1
+    }
+
+    /// _err for a miss whose step name the caller then poisons: every use of
+    /// it is silent downstream, so the damage is fenced off and the stage gate
+    /// (Sema::_hard_stop) must not stop the TU. Stopping hid every later,
+    /// independent miss -- `make().dump()` after a `t.dump()` -- because
+    /// call-result steps only bind in the expression typer (P808).
+    priv fn _err_contained(self, id: DiagID, at: SourceRange, const msg: string) {
+        self.sc->contained_errors += 1
+        self._err(id, at, msg)
     }
 
     priv fn _name_imm(self, tok: Token) -> u32 {
@@ -2077,6 +2092,15 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         if isa<RecordType>(t) {
+            // A clang-backed record is named the way the C++ header spells it
+            // (`basic<int>`, `ns::Foo`); its bare Kairo name drops the template
+            // arguments and the namespace, which is what the user needs to
+            // tell two receivers apart.
+            var cxx = decl_cxx_spelling(cast<RecordType>(t)->decl)
+            if cxx.length() > 0 {
+                return if cxx.starts_with("::") => cxx.subslice(2, cxx.length() - 2) else => cxx
+            }
+
             return self._decl_name_str(cast<RecordType>(t)->decl)
         }
 
@@ -2132,6 +2156,8 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             return "a function pointer"
         }
 
-        return "this type"
+        // No spelling of its own here: the Sema printer names every type, and
+        // "this type" hides exactly what the user needs to see.
+        return TypeUtil(self.sc).str(t)
     }
 }

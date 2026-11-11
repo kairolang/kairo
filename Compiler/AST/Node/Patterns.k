@@ -287,8 +287,8 @@ pub class UnresolvedConstructorPattern derives Pattern {
 
 ///  AlternationPattern :  p | p | p   (NOT the top-level case comma; this is
 ///  the `|` or-pattern. The match parser builds the comma list into MatchCase
-///  patterns; this node is for `|` inside a single pattern position once we
-///  add it. Reserved now so sema and the printer have the kind.)
+///  patterns; this node is for `|` inside a single pattern position.
+///  Reserved so sema and the printer have the kind.)
 pub class AlternationPattern derives Pattern {
     pub var alternatives: FrozenList<unsafe *Pattern>
 
@@ -321,7 +321,7 @@ pub class AlternationPattern derives Pattern {
 }
 
 ///  RangePattern :  lo..hi | lo..=hi   bounds are *Expr (sema enforces const).
-///  Either bound may be null for open ranges (..hi, lo..) if we allow them in
+///  Either bound may be null for open ranges (..hi, lo..) in
 ///  pattern position; parser fills what's present.
 pub class RangePattern derives Pattern {
     pub var lo:           unsafe *Expr = &null

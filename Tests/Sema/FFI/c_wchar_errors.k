@@ -32,8 +32,8 @@ fn main() -> i32 {
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:16:22: error [SC075E]: literal '65536' does not fit in 'c_wchar' on every target: only 0 through 0xFFFF do, as wchar_t is 16 bits on Windows
-// DIAG: {{.*}}:17:23: error [SC075E]: literal '65536' does not fit in 'c_char16'
+// DIAG: {{.*}}:16:22: error [SC075E]: literal '0x10000' does not fit in 'c_wchar' on every target: only 0 through 0xFFFF do, as wchar_t is 16 bits on Windows
+// DIAG: {{.*}}:17:23: error [SC075E]: literal '0x10000' does not fit in 'c_char16'
 // DIAG: {{.*}}:18:22: error [SC075E]: literal '256' does not fit in 'c_char8'
 // DIAG: {{.*}}:20:13: error [SC067E]: arithmetic requires numeric operands, not 'c_wchar' and 'c_wchar'
 // DIAG: {{.*}}:21:18: error [SC028E]: cannot convert 'c_wchar' to 'u32'; the conversion may lose value and needs an explicit 'as'

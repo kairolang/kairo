@@ -1187,7 +1187,14 @@ pub class Lexer {
             return self.create_unrecognized_token(start)
         }
 
-        hash.mix(first.chr as u8)
+        // the interner hashes the spelling's UTF-8 BYTES (find_ident,
+        // intern_ident_copy), so the lexer must mix bytes too: mixing the
+        // code point truncated to u8 gave a non-ASCII name a different hash
+        // here than at every lookup, and `lib::naïve` never resolved.
+        for var b: usize = 0; b < (first.len as usize); ++b {
+            hash.mix(p[b])
+        }
+
         length += (first.len as usize)
         p += first.len
         step = (first.len as usize)
@@ -1216,7 +1223,10 @@ pub class Lexer {
                 }
             }
 
-            hash.mix(d.chr as u8)
+            for var b: usize = 0; b < (d.len as usize); ++b {
+                hash.mix(p[b])
+            }
+
             p += d.len
             step = (d.len as usize)
             length += (d.len as usize)

@@ -17,5 +17,5 @@ fn main() -> i32 {
 // CHECK-NOT: byte_literal_conversion.k:5:{{.*}}error
 // CHECK-NOT: byte_literal_conversion.k:6:{{.*}}error
 // CHECK-NOT: byte_literal_conversion.k:7:{{.*}}error
-// CHECK: byte_literal_conversion.k:8:{{.*}}error {{.*}}SC075E{{.*}}'256'
+// CHECK: byte_literal_conversion.k:8:{{.*}}error {{.*}}SC075E{{.*}}'0x100'
 // CHECK: byte_literal_conversion.k:9:{{.*}}error {{.*}}SC075E{{.*}}'byte'

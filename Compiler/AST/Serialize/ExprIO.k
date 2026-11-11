@@ -313,6 +313,7 @@ fn io_string_literal_expr(ar: unsafe *ASTArchive, n: unsafe *StringLiteralExpr) 
         ar->sema_zero(n->fmt_holes.size() as u64, "StringLiteralExpr::fmt_holes")
         ar->sema_false(n->const_eval, "StringLiteralExpr::const_eval")
         ar->sema_null<Type>(n->c_string, "StringLiteralExpr::c_string")
+        ar->sema_null<Decl>(n->udl_op, "StringLiteralExpr::udl_op")
         if has && !ar->reading {
             ar->sema_is(
                 n->imm == ar->ctx->get_payload_table(n->token)->get<Immediate::StringData>(

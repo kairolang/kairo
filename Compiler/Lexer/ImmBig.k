@@ -242,7 +242,7 @@ pub class ImmBigInt {
     }
 
     /// \brief returns the minimum number of bits needed to represent this value
-    fn bit_width(self) -> usize {
+    pub fn bit_width(self) -> usize {
         if self.limbs.empty() {
             return 0
         }
@@ -258,6 +258,16 @@ pub class ImmBigInt {
 
         var top_bits: usize = 64 - (cxx::std::countl_zero(self.limbs[top_idx]) as usize)
         return top_idx * 64 + top_bits
+    }
+
+    /// \brief true when exactly one bit is set (the magnitude is a power of two).
+    pub fn is_pow2(self) -> bool {
+        var ones: usize = 0
+        for var i: usize = 0; i < self.limbs.size(); ++i {
+            ones += (cxx::std::popcount(self.limbs[i]) as usize)
+        }
+
+        return ones == 1
     }
 
     /// \brief extracts lower 64 bits

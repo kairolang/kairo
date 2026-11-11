@@ -16,5 +16,5 @@ fn use() -> u64 {
     return a.only_i32() + b.only_i32()
 }
 
-// DIAG:     instance_only.k:16:29: error [R025E]: no member named 'only_i32' in 'cont'
+// DIAG:     instance_only.k:16:29: error [R025E]: no member named 'only_i32' in 'cont<float, ::alloc>'
 // DIAG-NOT: error

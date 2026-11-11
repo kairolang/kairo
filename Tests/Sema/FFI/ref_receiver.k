@@ -17,7 +17,7 @@ fn field_through_ref() -> i32 { return lref_box().v }
 
 fn missing() { lref_box().nope() }
 
-// DIAG:     ref_receiver.k:18:{{[0-9]+}}: error [R025E]: no member named 'nope' in 'box'
+// DIAG:     ref_receiver.k:18:{{[0-9]+}}: error [R025E]: no member named 'nope' in 'box<int>'
 // DIAG-NOT: error
 
 // SEMA-DAG: member .size @ 12:{{[0-9]+}} -> {{.*}}[member of box]

@@ -830,39 +830,15 @@ pub class SourceManager {
     /// \warning This is a very expensive operation. Use only for debugging.
     ///
     pub fn get_text(self, range: SourceRange) -> string {
-        var        mbuf         = self.get_view(range)
-        var unsafe *cstr        = mbuf.data()
-        var        str:  string
-        var unsafe *p           = cstr
-        var unsafe *end         = cstr + mbuf.size()
-
-        str.reserve(mbuf.size())
-
-        while p <= end {
-            var res       = UTF8View::decode_utf8(p, (end - p) as usize)
-            var codepoint = res.chr
-            var len       = res.len
-
-            if len == 0 {
-                break
-            }
-
-            eval if sizeof(u8) == 4 {
-                str.push_back(codepoint as u8)
-            } else {
-                if (codepoint as u32) < 0x10000 {
-                    str.push_back(codepoint as u8)
-                } else {
-                    var hi = (codepoint as u32) - 0x10000
-                    str.push_back((0xD800 + (hi >> 10)) as u8)
-                    str.push_back((0xDC00 + (hi & 0x3FF)) as u8)
-                }
-            }
-
-            p += len
+        // a Kairo string is UTF-8 bytes, so the range is copied verbatim.
+        // decoding to code points and pushing them back as u8 (the old wide
+        // string path) turned every non-ASCII character into one invalid byte
+        // and shifted every offset after it.
+        var mbuf = self.get_view(range)
+        if mbuf.size() == 0 {
+            return string()
         }
-
-        return str
+        return string(unsafe ((mbuf.data() as unsafe *const u8) as *const u8), mbuf.size() as usize)
     }
 
     ///
