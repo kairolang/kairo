@@ -1,4 +1,4 @@
-// A wasm32-wasi build is warning-free. Two sources of noise used to fire on
+// A wasm32-wasi build is warning-free. Two sources of noise are kept out of
 // every compile:
 //  - `#pragma float_control` around each ffi header region: clang ignores
 //    it on a target without strict-FP support and says so (C459W, once per

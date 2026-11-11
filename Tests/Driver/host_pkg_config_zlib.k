@@ -1,10 +1,6 @@
 // zlib.h from the host in the default build, linked with --pkg-config zlib.
-// XFAIL: *
-// Waiting on the R016E ticket for C typedefs that share a builtin prelude
-// name: zconf.h's `typedef unsigned char Byte` makes `pub import
-// base::byte_t::*` in Lib/builtin/module.k ambiguous, before any use of
-// either. The header is found and the link is right; the type check fails.
-// When that lands, drop the expected failure; the RUN lines are the real assertions.
+// zconf.h's `typedef unsigned char Byte` shares a builtin prelude name; that is
+// an error only where the bare name is used, never at the import.
 
 ffi "c" import "zlib.h"
 

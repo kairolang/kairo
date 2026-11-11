@@ -7,7 +7,8 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: default-glibc, pkg-zlib
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=FLOOR
-// FLOOR-NOT: file not found
+// The default build finds the host header and the import is clean: a plain
+// exit-status check, stronger than "no 'file not found' in the output".
+// RUN: %kairo %s --type-check-only
 // RUN: { %kairo %s --target=x86_64-linux-gnu --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=HERM
 // HERM: error [CL001E]: 'zlib.h' file not found
