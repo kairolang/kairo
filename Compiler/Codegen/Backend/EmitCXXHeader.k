@@ -119,6 +119,7 @@ pub class EmitCXXHeader {
         // do -- they are part of the interface. Out of line, so the class
         // definitions stay byte-identical to every TU's (Pipeline.md invariant 24).
         ir.emit_visible(unsafe &plan)
+        cg.advance_phase(CodegenPhase::Emitted)
         if ts.line_mode {
             ts.brk() // the last line is still buffered
         }

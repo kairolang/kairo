@@ -137,7 +137,10 @@ import AST::VisibilityFacts::{
     is_operator_fn,
     tu_module_dir,
 }
-import Codegen::CodegenContext::CodegenContext
+import Codegen::CodegenContext::{
+    CodegenContext,
+    CodegenPhase,
+}
 import Codegen::CodegenICE::codegen_ice
 import Codegen::Emit::CXXSpell::{
     CXXSpell,
@@ -153,7 +156,41 @@ import Codegen::EmitPlan::{
     EmitPlan, ExtScope, FileFriends, PlanEntry, PlanMode, PlanNeed, PlanTier, plan_under_duck,
 }
 import Location::SourceRange::SourceRange
+import Support::FlagSet::{
+    FlagBit,
+    FlagSet,
+}
 import Token::TokenKind::TokenKind
+
+/// A helper block a C++ TU holds at most once (run() writes each): a
+/// definition, so a second copy is a redefinition, and an include's token
+/// stream has no `#ifndef` to guard it with. One set, not a bool apiece:
+/// the host TU's copy (Backend/IncludeEmitter.k) is handed to each emitter
+/// and taken back whole, so a block added here cannot be missed by the
+/// copy or by the reset at TU end (P473 missed fmt_dyn in the copy, P553
+/// cxx_alloc and nopanic in the reset).
+pub enum HelperBlock derives u16 {
+    Helpers      = 1 << 0,  ///< The lowering helpers (__kairo_tmp, ...).
+    CtorSlots    = 1 << 1,  ///< _ctor_slot_helpers.
+    FnValue      = 1 << 2,  ///< _fn_value_helper (`::__kairo_fn`).
+    FmtDyn       = 1 << 3,  ///< _fmt_dyn_helper.
+    EvalHelpers  = 1 << 4,  ///< `eval for` / eval generators.
+    NicheHelpers = 1 << 5,  ///< _niche_helpers.
+    PackUnion    = 1 << 6,  ///< _pack_union.
+    PanicHelpers = 1 << 7,  ///< _panic_helpers.
+    SiteType     = 1 << 8,  ///< _site_type.
+    PanicApi     = 1 << 9,  ///< _panic_api.
+    RawSlot      = 1 << 10, ///< _raw_slot_helpers.
+    Nopanic      = 1 << 11, ///< _nopanic_helpers.
+    CxxAlloc     = 1 << 12, ///< _cxx_alloc_helpers.
+}
+
+/// HelperBlock's variants are its FlagSet's bits (Support/FlagSet.k).
+extend HelperBlock impl FlagBit<u16> {
+    inline fn bit(const self) -> u16 {
+        return self as u16
+    }
+}
 
 pub class InterfaceEmitter {
     priv var _cg:    unsafe *CodegenContext
@@ -166,21 +203,9 @@ pub class InterfaceEmitter {
     /// The host C++ TU already holds the lowering helpers / the const-field
     /// constructor helpers: an earlier `#include "*.k"` in it wrote them
     /// (Backend/IncludeEmitter.k). They are definitions, and a token stream
-    /// has no `#ifndef` to guard them with, so they are left out. run() sets
-    /// each once it writes them, for the next include to read.
-    pub var have_helpers:       bool = false
-    pub var have_ctor_slots:    bool = false
-    pub var have_fn_value:      bool = false
-    pub var have_fmt_dyn:       bool = false
-    pub var have_eval_helpers:  bool = false
-    pub var have_niche_helpers: bool = false
-    pub var have_pack_union:    bool = false
-    pub var have_panic_helpers: bool = false
-    pub var have_site_type:     bool = false
-    pub var have_panic_api:     bool = false
-    pub var have_raw_slot:      bool = false
-    pub var have_nopanic:       bool = false
-    pub var have_cxx_alloc:     bool = false
+    /// has no `#ifndef` to guard them with, so they are left out. run() marks
+    /// each once it writes it, for the next include to read.
+    pub var written: FlagSet<HelperBlock, u16>
     /// The host C++ TU compiles with exceptions (a kcc include: its
     /// LangOptions), so it gets the throwing half of the C++ view
     /// (_panic_api). A header decides with `#if __cpp_exceptions`; an
@@ -275,6 +300,7 @@ pub class InterfaceEmitter {
     /// # Entry point
 
     pub fn run(self) {
+        self._cg->require_phase(CodegenPhase::Planned)
         var header = self._plan->mode() == PlanMode::Header
         if header {
             self._header_prologue()
@@ -293,8 +319,8 @@ pub class InterfaceEmitter {
         // (EmitPlan::visible_bodies), so it needs these as much as a
         // preamble. Guarded there: one C++ TU may include several Kairo
         // headers, and __kairo_tmp is a DEFINITION. An include's token
-        // stream cannot be guarded; have_helpers stands in for the macro.
-        if !self.have_helpers {
+        // stream cannot be guarded; HelperBlock::Helpers stands in for the macro.
+        if !self.written.has(HelperBlock::Helpers) {
             self._cg->sink->unanchored(true)
             if header {
                 self._cg->sink->directive(
@@ -369,23 +395,23 @@ pub class InterfaceEmitter {
             }
 
             self._cg->sink->unanchored(false)
-            self.have_helpers = true
+            self.written.set(HelperBlock::Helpers)
         }
 
         // A constructor that initializes a field in place (_ctor_slot_helpers).
         // Only when one is planned, so no other TU's text changes; guarded
         // apart from the helpers above, which an earlier header may have
         // defined without these.
-        if !self.have_ctor_slots && self._needs_ctor_slots() {
+        if !self.written.has(HelperBlock::CtorSlots) && self._needs_ctor_slots() {
             self._cg->sink->unanchored(true)
             self._ctor_slot_helpers(header)
             self._cg->sink->unanchored(false)
-            self.have_ctor_slots = true
+            self.written.set(HelperBlock::CtorSlots)
         }
 
         // A deferred f-string hole's put (EmitPlan::needs_fmt_dyn), guarded
         // on its own for the same reason.
-        if !self.have_fmt_dyn && self._plan->needs_fmt_dyn {
+        if !self.written.has(HelperBlock::FmtDyn) && self._plan->needs_fmt_dyn {
             self._cg->sink->unanchored(true)
             if header {
                 self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::fmt_dyn_guard())
@@ -402,21 +428,21 @@ pub class InterfaceEmitter {
             }
 
             self._cg->sink->unanchored(false)
-            self.have_fmt_dyn = true
+            self.written.set(HelperBlock::FmtDyn)
         }
 
         // A Kairo `fn` value (EmitPlan::needs_fn_value), guarded on its own
         // for the same reason.
-        if !self.have_fn_value && self._plan->needs_fn_value {
+        if !self.written.has(HelperBlock::FnValue) && self._plan->needs_fn_value {
             self._cg->sink->unanchored(true)
             self._fn_value_helper(header)
             self._cg->sink->unanchored(false)
-            self.have_fn_value = true
+            self.written.set(HelperBlock::FnValue)
         }
 
         // `eval for` and eval generators (Compiler/Spec/Eval.md#eval-for), only where one is:
         // every other TU's text is unchanged.
-        if !self.have_eval_helpers && self._needs_eval_helpers() {
+        if !self.written.has(HelperBlock::EvalHelpers) && self._needs_eval_helpers() {
             self._cg->sink->unanchored(true)
             if header {
                 self._cg->sink->directive(
@@ -480,7 +506,7 @@ pub class InterfaceEmitter {
             }
 
             self._cg->sink->unanchored(false)
-            self.have_eval_helpers = true
+            self.written.set(HelperBlock::EvalHelpers)
         }
 
         // Each long compile-time string (Compiler/Spec/Eval.md#value-nodes): ahead of every type
@@ -491,25 +517,25 @@ pub class InterfaceEmitter {
         // The niche trait (_niche_helpers), wherever an enum is defined: a
         // plain enum's specialization of it follows the enum, and an ADT's
         // record answers it.
-        if !self.have_niche_helpers && self._needs_niche_helpers() {
+        if !self.written.has(HelperBlock::NicheHelpers) && self._needs_niche_helpers() {
             self._cg->sink->unanchored(true)
             self._niche_helpers(header)
             self._cg->sink->unanchored(false)
-            self.have_niche_helpers = true
+            self.written.set(HelperBlock::NicheHelpers)
         }
 
         // What a record's C++ operator new / delete call (_cxx_alloc_ops),
         // ahead of the first record C++-facing text defines.
-        if !self.have_cxx_alloc && self._needs_cxx_alloc() {
+        if !self.written.has(HelperBlock::CxxAlloc) && self._needs_cxx_alloc() {
             self._cg->sink->unanchored(true)
             self._cxx_alloc_helpers(header)
             self._cg->sink->unanchored(false)
-            self.have_cxx_alloc = true
+            self.written.set(HelperBlock::CxxAlloc)
         }
 
         // A pack-expanded variant's payload union (_pack_union), wherever an
         // ADT with one is defined.
-        if !self.have_pack_union && self._needs_pack_union() {
+        if !self.written.has(HelperBlock::PackUnion) && self._needs_pack_union() {
             self._cg->sink->unanchored(true)
             if header {
                 self._cg->sink->directive(
@@ -531,12 +557,12 @@ pub class InterfaceEmitter {
             }
 
             self._cg->sink->unanchored(false)
-            self.have_pack_union = true
+            self.written.set(HelperBlock::PackUnion)
         }
 
         // The Panic lang item's layout helpers (_panic_helpers), wherever an
         // ADT with its knobs is defined.
-        if !self.have_panic_helpers && self._panic_enum_defined() != &null {
+        if !self.written.has(HelperBlock::PanicHelpers) && self._panic_enum_defined() != &null {
             self._cg->sink->unanchored(true)
             if header {
                 self._cg->sink->directive(
@@ -558,19 +584,19 @@ pub class InterfaceEmitter {
             }
 
             self._cg->sink->unanchored(false)
-            self.have_panic_helpers = true
+            self.written.set(HelperBlock::PanicHelpers)
         }
 
         // A `try`'s raw slot with no Panic lang item defined here (a C++
         // exception arm's value, EmitPlan::needs_raw_slot).
-        if !self.have_raw_slot && self._plan->needs_raw_slot {
+        if !self.written.has(HelperBlock::RawSlot) && self._plan->needs_raw_slot {
             self._cg->sink->unanchored(true)
             self._raw_slot_helpers(header)
             self._cg->sink->unanchored(false)
         }
 
         // The duck-call wrapper's tag (EmitPlan::needs_nopanic).
-        if !self.have_nopanic && self._plan->needs_nopanic {
+        if !self.written.has(HelperBlock::Nopanic) && self._plan->needs_nopanic {
             self._cg->sink->unanchored(true)
             self._nopanic_helpers()
             self._cg->sink->unanchored(false)
@@ -579,7 +605,7 @@ pub class InterfaceEmitter {
         // The record type of the TU's panic site table (EmitIR::_panic_sites,
         // Compiler/Spec/Panic.md#site-ids), when it has sites. The C++ view reads the table too
         // (_panic_api writes it then).
-        if !self.have_site_type && self._cg->tu->panic_sites.size() > 0 {
+        if !self.written.has(HelperBlock::SiteType) && self._cg->tu->panic_sites.size() > 0 {
             self._cg->sink->unanchored(true)
             self._site_type(header)
             self._cg->sink->unanchored(false)
@@ -674,11 +700,11 @@ pub class InterfaceEmitter {
 
         // The C++ view of a panic result (_panic_api), after the forward
         // declarations: its templates name the Panic lang item.
-        if !self.have_panic_api && self._panic_enum_defined() != &null {
+        if !self.written.has(HelperBlock::PanicApi) && self._panic_enum_defined() != &null {
             self._cg->sink->unanchored(true)
             self._panic_api(self._panic_enum_defined(), header)
             self._cg->sink->unanchored(false)
-            self.have_panic_api = true
+            self.written.set(HelperBlock::PanicApi)
         }
 
         // Each type-id-tagged instance's element ids (_type_id_specs), at
@@ -932,6 +958,7 @@ pub class InterfaceEmitter {
     /// body: an explicit instantiation only instantiates members defined
     /// before it.
     fn emit_home_instantiations(self) {
+        self._cg->require_phase(CodegenPhase::Planned)
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
             var *e = &self._plan->entries[i]
             if e->tier != PlanTier::Instantiations || !e->is_home {
@@ -2943,11 +2970,11 @@ pub class InterfaceEmitter {
     priv fn _raw_slot_helpers(self, header: bool) {
         // Written with the Panic helpers or alone (a C++ arm's slot), once
         // per C++ TU: its own guard in a header, either way.
-        if self.have_raw_slot {
+        if self.written.has(HelperBlock::RawSlot) {
             return
         }
 
-        self.have_raw_slot = true
+        self.written.set(HelperBlock::RawSlot)
         var at = self._tu_at()
         if header {
             self._cg->sink->directive(at, "#ifndef " + LowerTargets::raw_slot_guard())
@@ -3086,7 +3113,7 @@ pub class InterfaceEmitter {
     /// `struct __kairo_panic_site`, the record of the panic site table, once
     /// per C++ TU (a header guards it).
     priv fn _site_type(self, header: bool) {
-        if self.have_site_type {
+        if self.written.has(HelperBlock::SiteType) {
             return
         }
 
@@ -3108,7 +3135,7 @@ pub class InterfaceEmitter {
             self._cg->sink->directive(self._tu_at(), "#endif")
         }
 
-        self.have_site_type = true
+        self.written.set(HelperBlock::SiteType)
     }
 
     /// The C++ view of a panic result (Compiler/Spec/Panic.md#the-c-view): what a C++ caller of
@@ -3345,11 +3372,11 @@ pub class InterfaceEmitter {
     /// per C++ TU (a header: under its own guard): a duck body needs it whether or not
     /// its TU defines Panic.
     priv fn _nopanic_helpers(self) {
-        if self.have_nopanic {
+        if self.written.has(HelperBlock::Nopanic) {
             return
         }
 
-        self.have_nopanic = true
+        self.written.set(HelperBlock::Nopanic)
         var at     = self._tu_at()
         var tg     = LowerTargets::nopanic_tag()
         var ip     = LowerTargets::nopanic_trait()

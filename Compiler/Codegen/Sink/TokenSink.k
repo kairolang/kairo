@@ -40,6 +40,7 @@ ffi "c++" import "clang/Basic/SourceLocation.h"
 ffi "c++" import "clang/Basic/TokenKinds.h"
 ffi "c++" import "clang/Lex/Preprocessor.h"
 ffi "c++" import "clang/Lex/Token.h"
+ffi "c++" import "llvm/Support/MemoryBuffer.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/TokenArray.hh"
 ffi "c++" import "string"
@@ -61,6 +62,20 @@ import Token::TokenKind::{
     is_keyword,
     is_operator,
     is_punctuator,
+}
+
+/// Where a stream is between its fill and clang. Literals go to the arena
+/// while Filling; the arena becomes a clang buffer once (Sealed), the
+/// pending tokens are pointed into it once (Patched), and the stream is
+/// handed to the preprocessor once (Drained). A stream with no arena goes
+/// from Filling to Drained. eof() is no stage: the interface PCH ends its
+/// stream after the last include's sink was sealed and patched
+/// (InterfacePCH::inject), and an eof token takes nothing from the arena.
+pub enum SinkStage derives u8 {
+    Filling = 0,
+    Sealed,
+    Patched,
+    Drained,
 }
 
 /// One divergent-literal token awaiting its real ExpansionLoc. Recorded at
@@ -142,7 +157,7 @@ pub class TokenSink derives EmitSink {
     /// back (_steal). Keyed as _used is.
     priv var _held:      llvm::DenseMap<u64, u64>
     priv var _held_list: cxx::std::vector<HeldByte>
-    priv var _sealed:    bool                       = false
+    priv var _stage:     SinkStage                  = SinkStage::Filling
     /// The last punctuator, while it is still the last token: one past its
     /// index (0 for none), its anchor, and the byte it claimed (invalid when
     /// it went to the arena). _pair reads them to place the second half of
@@ -426,6 +441,12 @@ pub class TokenSink derives EmitSink {
 
     /// End of stream. Zero length, anchored on the file's last byte.
     fn eof(self) -> bool {
+        eval if defined!(DEBUG) {
+            if self._stage == SinkStage::Drained {
+                kairo::std::ice_fail("TokenSink: eof after the stream was drained")
+            }
+        }
+
         var last = self._kbase + self._ksize
         if last > self._kbase {
             last = last - 1
@@ -501,18 +522,17 @@ pub class TokenSink derives EmitSink {
     ///
     ///          A walker is a TENANT of the bytes it lands on, past its own
     ///          anchor: a later token anchored on one of them takes it back
-    ///          (_stray_at, then _steal), and the walker walks on. First come
-    ///          made a token's byte depend on how much C++ was emitted before
-    ///          it, not on its node: a few functions' signatures and
-    ///          `namespace` wrappers, each anchored on a short name, ran
-    ///          through the next functions' bytes, and a later body's `.`
-    ///          found its own byte held by a parameter type from three lines
-    ///          up -- clang's "member reference base type" landed on the
-    ///          closing brace below it. A hoisted generic body, emitted
-    ///          ahead of source order, only made the run longer. Now a token
+    ///          (_stray_at, then _steal), and the walker walks on. A token
     ///          whose anchor holds a free-or-stray byte gets it however late
-    ///          it is emitted; only tokens anchored on the same bytes still
-    ///          go first come.
+    ///          it is emitted, so its byte depends on its node, not on how
+    ///          much C++ was emitted before it; only tokens anchored on the
+    ///          same bytes go first come. Under pure first come, a few
+    ///          functions' signatures and `namespace` wrappers, each anchored
+    ///          on a short name, would run through the next functions'
+    ///          bytes, and a later body's `.` would find its own byte held by
+    ///          a parameter type from three lines up -- clang's "member
+    ///          reference base type" would land on the closing brace below
+    ///          it.
     priv fn _claim(self, loc: SourceLocation, len: u32, exact: bool = false) -> SourceLocation {
         return self._claim_for(loc, len, exact, self._tokens.size())
     }
@@ -1079,7 +1099,7 @@ pub class TokenSink derives EmitSink {
     }
 
     priv fn _intern(self, @inout s: string) -> u32 {
-        if self._sealed {
+        if self._stage != SinkStage::Filling {
             kairo::std::ice_fail("TokenSink: intern after arena registration")
         }
 
@@ -1129,16 +1149,52 @@ pub class TokenSink derives EmitSink {
     }
 
     fn seal_arena(self) -> llvm::StringRef {
-        self._sealed = true
+        eval if defined!(DEBUG) {
+            if self._stage != SinkStage::Filling {
+                kairo::std::ice_fail("TokenSink: seal_arena twice, or after drain")
+            }
+        }
+
+        self._stage = SinkStage::Sealed
         return llvm::StringRef(self._arena_text.data(), self._arena_text.size())
+    }
+
+    /// The arena as a clang buffer and every pending token patched into it:
+    /// what a stream needs before clang reads it, for each of its drivers
+    /// (KairoInject, IncludeEmitter). A stream with no literals needs none.
+    fn finish(self) {
+        if !self.has_arena() {
+            return
+        }
+
+        var view = self.seal_arena()
+        var buf = llvm::MemoryBuffer::getMemBufferCopy(
+            view,
+            llvm::Twine(kairo::sref(r"<kairo-literals>")),
+        )
+
+        var afid = self._csm->createFileID(cxx::std::move(buf), clang::SrcMgr::C_User)
+        self.patch_pending(afid)
     }
 
     /// Spelling loc in the arena, expansion range on the original .kro bytes.
     /// An entry with entry_len 0 takes no expansion of its own: it is the
     /// rest of the one the entry before it opened (see _pair).
     fn patch_pending(self, afid: clang::FileID) {
-        if !self._sealed && !self._pending.empty() {
+        if self._stage == SinkStage::Filling && !self._pending.empty() {
             kairo::std::ice_fail("TokenSink: patch_pending before seal_arena")
+        }
+
+        // A second patch would open every pending token's expansion again,
+        // over a stream clang may already hold.
+        eval if defined!(DEBUG) {
+            if self._stage == SinkStage::Patched || self._stage == SinkStage::Drained {
+                kairo::std::ice_fail("TokenSink: patch_pending twice, or after drain")
+            }
+        }
+
+        if self._stage == SinkStage::Sealed {
+            self._stage = SinkStage::Patched
         }
 
         var entry          = clang::SourceLocation()
@@ -1182,9 +1238,19 @@ pub class TokenSink derives EmitSink {
     /// Copy into a clang-owned array and enter it. The copy is REQUIRED:
     /// EnterTokenStream takes ownership and deletes the array.
     fn drain_into_pp(self) {
-        if !self._pending.empty() && !self._sealed {
+        // Patched, not merely sealed: a sealed stream's pending tokens still
+        // carry no location.
+        if !self._pending.empty() && self._stage != SinkStage::Patched {
             kairo::std::ice_fail("TokenSink: drain with unpatched pending tokens")
         }
+
+        eval if defined!(DEBUG) {
+            if self._stage == SinkStage::Drained {
+                kairo::std::ice_fail("TokenSink: drained twice")
+            }
+        }
+
+        self._stage = SinkStage::Drained
 
         var n = self._tokens.size()
         if n <= 0 {

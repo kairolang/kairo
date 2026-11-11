@@ -32,7 +32,8 @@ import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 
 pub enum CodegenPhase derives u8 {
     Ready = 0, ///< Context wired, nothing emitted.
-    Planned,   ///< EmitPlan built.
+    Planned,   ///< EmitPlan built. A borrowed plan's context (PlanLease)
+               ///< stays here: it fills again, once per stream.
     Emitted,   ///< Token stream fully emitted; eof appended.
 }
 
@@ -123,7 +124,7 @@ pub class CodegenContext {
         }
     }
 
-    fn require_phase(self, min: CodegenPhase) {
+    pub fn require_phase(self, min: CodegenPhase) {
         eval if defined!(DEBUG) {
             if !((self.phase as u8) >= (min as u8)) {
                 kairo::std::ice_fail(

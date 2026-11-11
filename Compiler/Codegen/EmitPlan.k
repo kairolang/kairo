@@ -61,6 +61,7 @@ ffi "c++" import "llvm/ADT/StringMap.h"
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
+import AST::Context::ASTContext::ASTContext
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
@@ -125,7 +126,10 @@ import AST::VisibilityFacts::{
     tu_module_dir,
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
-import Codegen::CodegenContext::CodegenContext
+import Codegen::CodegenContext::{
+    CodegenContext,
+    CodegenPhase,
+}
 import Codegen::CodegenICE::codegen_ice
 import Codegen::Emit::CXXSpell::{
     CXXSpell,
@@ -144,6 +148,7 @@ import Codegen::PlanVisitors::{
     GlobalInitReach,
     HoistedLocals,
 }
+import Codegen::Sink::EmitSink::EmitSink
 import Location::SourceRange::SourceRange
 import std::io
 
@@ -307,6 +312,22 @@ var _G_PRELUDE: u32                                     = 0
 /// An instance not in it keeps InstanceEntry::home_fid.
 var _HOMES: llvm::DenseMap<u64, u32> = llvm::DenseMap<u64, u32>()
 
+/// Where a codegen is in setting the facts above: set_file_ranks, then
+/// set_graph, then assign_homes (whose homing plans run on Graphed), then
+/// reset_graph_facts. All four are the driver thread's, between pool
+/// waits, so every plan of the codegen reads them settled. A plan outside
+/// that window (a header, --print-cxx, an emptiness probe) runs on Unset
+/// and gets fid order and Sema's homes, by design; one between the ranks
+/// and the graph would rank by a file table with no import walk to match.
+pub enum GraphPhase derives u8 {
+    Unset = 0,
+    Ranked,
+    Graphed,
+    Homed,
+}
+
+var _G_PHASE: GraphPhase = GraphPhase::Unset
+
 pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     priv var _cg:    unsafe *CodegenContext
     priv var _spell: CXXSpell
@@ -390,6 +411,12 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
     /// Nothing of this TU's own to define. Written once, at the end of run().
     priv var _empty: bool = true
+    /// run() was called: before it, _empty's true is no verdict.
+    priv var _ran: bool = false
+    /// This is _find_escaping's own plan, made while it fills the TU's
+    /// cxx_escaping: it never fills it itself. The TU's flag says Done only
+    /// once the set is whole.
+    priv var _escaping_probe: bool = false
 
     /// The early items (Compiler/Spec/Eval.md#value-nodes): every compile-time body (eval fn,
     /// eval or constexpr method, eval field thunk) and eval binding that a
@@ -468,6 +495,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     ///          Driver thread, before any plan of the codegen runs.
     pub static fn set_file_ranks(const keys: cxx::std::vector<string>,
                                  const fids: cxx::std::vector<u32>) {
+        EmitPlan::_graph_step(GraphPhase::Unset, GraphPhase::Ranked)
         var ix = cxx::std::vector<usize>()
         for var i: usize = 0; i < keys.size(); ++i {
             ix.push_back(i)
@@ -509,6 +537,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     pub static fn set_graph(const mods:  cxx::std::vector<u32>,
                             const edges: cxx::std::vector<cxx::std::vector<u32>>,
                             prelude:     u32) {
+        EmitPlan::_graph_step(GraphPhase::Ranked, GraphPhase::Graphed)
         _G_EDGES.clear()
         _G_IS_MOD.clear()
         for var i: usize = 0; i < mods.size(); ++i {
@@ -577,6 +606,14 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     ///          only this TU's own imports, transitively: the same in every
     ///          graph that holds the TU (Compiler/Spec/Incremental.md#shared-across-graphs).
     fn _rank_of(self, fid: u32) -> u64 {
+        eval if defined!(DEBUG) {
+            if _G_PHASE == GraphPhase::Ranked {
+                kairo::std::ice_fail(
+                    r"EmitPlan: a plan ranked files between set_file_ranks and set_graph (driver schedule bug)",
+                )
+            }
+        }
+
         if !self._ranked {
             self._rank_walk()
         }
@@ -647,8 +684,23 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         return ie->home_fid
     }
 
+    /// One step of GraphPhase, which only runs forward from \p from: a
+    /// fact set out of order is read by plans that assume the ones before it.
+    static fn _graph_step(from: GraphPhase, to: GraphPhase) {
+        eval if defined!(DEBUG) {
+            if _G_PHASE != from {
+                kairo::std::ice_fail(
+                    r"EmitPlan: graph facts set out of order (set_file_ranks, set_graph, assign_homes, reset_graph_facts)",
+                )
+            }
+        }
+
+        _G_PHASE = to
+    }
+
     /// Forgets set_file_ranks and assign_homes: the next codegen sets its own.
     pub static fn reset_graph_facts() {
+        _G_PHASE = GraphPhase::Unset
         _FILE_RANK.clear()
         _HOMES.clear()
         _G_EDGES.clear()
@@ -684,6 +736,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     ///          set_graph called.
     pub static fn assign_homes(const plans: cxx::std::vector<unsafe *EmitPlan>,
                                const keys:  cxx::std::vector<string>) {
+        EmitPlan::_graph_step(GraphPhase::Graphed, GraphPhase::Homed)
         _HOMES.clear()
         // fid -> index into plans.
         var at = llvm::DenseMap<u64, usize>()
@@ -863,6 +916,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// # Entry point
 
     pub fn run(self) {
+        self._ran = true
         var unsafe *tu = self._cg->tu
         if tu == &null {
             return
@@ -877,7 +931,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             kairo::std::ice_fail("EmitPlan: no InstantiationRegistry on the CodegenContext")
         }
 
-        if !tu->cxx_escaping_done && CXXSpell::is_entry_tu(tu) {
+        if !self._escaping_probe && !tu->cxx_escaping_done && CXXSpell::is_entry_tu(tu) {
             self._find_escaping(tu)
         }
 
@@ -941,16 +995,35 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         }
     }
 
+    /// Before a plan runs on a codegen worker (CodegenJob): the shared state
+    /// run() would otherwise fill in place is filled. A miss is a driver that
+    /// skipped prepare_shared, and run() would write the entry TU's
+    /// cxx_escaping beside other workers reading it (CXXSpell::is_anon).
+    pub fn require_shared(self) {
+        eval if defined!(DEBUG) {
+            var unsafe *tu = self._cg->tu
+            if tu != &null
+                && tu->program != &null
+                && CXXSpell::is_entry_tu(tu)
+                && !tu->cxx_escaping_done {
+                kairo::std::ice_fail(
+                    r"EmitPlan: a codegen worker would fill TranslationUnit::cxx_escaping (prepare_shared skipped)",
+                )
+            }
+        }
+    }
+
     /// TranslationUnit::cxx_escaping for pathless TU \p tu: a Header plan of the
     /// file roots at its pub decls and walks its inline and template bodies to
     /// a fixed point, admitting every hidden decl one names -- exactly the set.
-    /// Marked done first, so the nested plan does not recurse; nothing in
-    /// planning reads is_anon.
+    /// The nested plan is a probe (_escaping_probe), so it does not recurse,
+    /// and the TU is marked done once the set is whole; nothing in planning
+    /// reads is_anon.
     fn _find_escaping(self, tu: unsafe *TranslationUnit) {
-        tu->cxx_escaping_done = true
         var hcg   = CodegenContext(self._cg->ctx, &null, self._cg->psym, self._cg->instances)
         var hplan = EmitPlan(unsafe &hcg, PlanMode::Header)
-        hplan.legacy_roots = true
+        hplan.legacy_roots    = true
+        hplan._escaping_probe = true
         hplan.run()
         for var i: usize = 0; i < hplan.entries.size(); ++i {
             var *e = &hplan.entries[i]
@@ -974,6 +1047,8 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 tu->cxx_escaping.push_back(e->decl)
             }
         }
+
+        tu->cxx_escaping_done = true
     }
 
     /// \p d is no root of a Header or Include plan: C++ outside the module may
@@ -1019,8 +1094,15 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// instantiation homed here. A property of the PLAN, not of the file's
     /// bytes -- a file of comments or of `pub import` lines is as empty as a
     /// zero-byte one. An empty TU gets no C++, no clang run, no object and no
-    /// header. True before run(), and for a TU with no program.
+    /// header. True for a TU with no program; asked before run(), it is no
+    /// verdict (a debug build ICEs).
     pub fn is_empty(self) -> bool {
+        eval if defined!(DEBUG) {
+            if !self._ran {
+                kairo::std::ice_fail(r"EmitPlan::is_empty before run(): not run is not empty")
+            }
+        }
+
         return self._empty
     }
 
@@ -6068,6 +6150,67 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         }
 
         return sm->get_offset(d->range.start)
+    }
+}
+
+/// \class PlanLease
+/// \brief A plan run ahead (CodegenJob::make_plan), bound to one stream's
+///        sink for one fill and given back as it was found.
+///
+/// \details A fill prunes the plan's entries by what its host already holds
+///          (the interface PCH's keys, an earlier include's), and the same
+///          plan fills again: the interface PCH's stream, then each kind of
+///          the TU's compile, then the compile again without the PCH when
+///          clang had something to say (CodegenJob::run). Left pruned, a
+///          later fill emits a stream missing every declaration the pruning
+///          dropped. op finally restores, so no return between the bind and
+///          the end of the fill can skip it.
+///
+///          The context stays Planned (CodegenPhase): it fills again. Each
+///          plan is one TU's and its fills run one after another (the
+///          interface PCH's stream before the fan-out, then its own job's),
+///          so the lease is never contended; holding a bound plan's sink is
+///          what the debug check below catches.
+///
+///          A null plan leases nothing: the fill planned on its own context,
+///          which dies with it.
+pub class PlanLease {
+    priv var _plan:  unsafe *EmitPlan = &null
+    priv var _saved: cxx::std::vector<PlanEntry>
+
+    fn PlanLease(self, plan: unsafe *EmitPlan, sink: unsafe *EmitSink, ctx: unsafe *ASTContext) {
+        self._plan = plan
+        if plan == &null {
+            return
+        }
+
+        var unsafe *cg = plan->cg()
+        eval if defined!(DEBUG) {
+            if cg->sink != &null {
+                kairo::std::ice_fail(
+                    r"PlanLease: plan already bound to a sink (a lease outlived its fill, or two fills share one plan)",
+                )
+            }
+        }
+
+        cg->require_phase(CodegenPhase::Planned)
+        cg->sink      = sink
+        sink->ice_ctx = ctx
+        self._saved   = plan->entries
+    }
+
+    // Not transferable: op finally restores the plan, and a copy would
+    // restore it twice, the second time over a later lease's binding.
+    @copy fn PlanLease(self, const other: Self) = delete
+
+    fn op finally(self) {
+        if self._plan == &null {
+            return
+        }
+
+        self._plan->entries = self._saved
+        // The sink is this stream's, gone before the plan fills again.
+        self._plan->cg()->sink = &null
     }
 }
 

@@ -80,6 +80,7 @@
 
 // LLVM_VERSION_MAJOR, for the ABI note (EmitIR::_abi_note).
 ffi "c++" import "llvm/Config/llvm-config.h"
+ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/KShims.hh"
@@ -175,7 +176,10 @@ import AST::PrimitiveLimits::{
     PrimLimit,
     PrimitiveLimits,
 }
-import Codegen::CodegenContext::CodegenContext
+import Codegen::CodegenContext::{
+    CodegenContext,
+    CodegenPhase,
+}
 import Codegen::CodegenICE::codegen_ice
 import Codegen::Emit::CXXSpell::CXXSpell
 import Codegen::EmitPlan::{
@@ -194,6 +198,24 @@ import Location::SourceRange::SourceRange
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 import Token::TokenText::TokenText
+
+/// Which of emit_tu's passes is running (Compiler/Spec/Eval.md#eval-fn):
+/// the eval pass writes only compile-time bodies, eval free functions first
+/// and records' compile-time methods second, and the runtime pass the rest.
+pub enum EmitPass derives u8 {
+    Runtime = 0,
+    EvalFree,
+    EvalRecords,
+}
+
+/// What this emitter already wrote of a decl, ahead of where the program
+/// walk reaches it. Bits, not one state: an eval binding InterfaceEmitter
+/// defined early can be one emit_tu hoists too.
+pub enum BodyMark derives u8 {
+    Done     = 1 << 0, ///< a compile-time body: the eval pass or an early item wrote it
+    EarlyVar = 1 << 1, ///< an eval binding InterfaceEmitter defined (early)
+    Hoisted  = 1 << 2, ///< an eval binding emit_tu defines ahead of the walk
+}
 
 pub class EmitIR {
     /// The bodies and eval bindings the interface PCH this TU loads already
@@ -220,12 +242,9 @@ pub class EmitIR {
     /// returns from the lambda, with the closure's type. `_cur_fn` stays
     /// the enclosing function, which still decides what `self` is.
     priv var _closure: unsafe *ClosureExpr = &null
-    /// emit_tu's first pass: only compile-time bodies are emitted (eval free
-    /// functions, then records' eval and constexpr methods), and the second
-    /// pass skips them (Compiler/Spec/Eval.md#eval-fn, _eval_done).
-    priv var _eval_pass: bool = false
-    /// The eval pass's second round: records' compile-time methods.
-    priv var _eval_records: bool = false
+    /// emit_tu's pass (EmitPass); the runtime pass skips what the eval pass
+    /// wrote (BodyMark::Done).
+    priv var _pass: EmitPass = EmitPass::Runtime
     /// `eval for` copies the current statement is inside (Compiler/Spec/Eval.md#eval-for), and
     /// the runtime loops opened inside the innermost copy: a `break` /
     /// `continue` with none is the eval for's own (the copy's `return`).
@@ -250,13 +269,13 @@ pub class EmitIR {
     priv var _pe_gp:   cxx::std::vector<unsafe *Type>
     priv var _pe_name: cxx::std::vector<string>
     /// Eval generator iterables in the function, for unique names.
-    priv var _ef_gens:   usize                                  = 0
-    priv var _eval_done: cxx::std::vector<unsafe *FunctionDecl>
-    /// The eval bindings emit_tu defined ahead of the program walk.
-    priv var _hoisted_vars: cxx::std::vector<unsafe *VariableDecl>
-    /// The eval bindings InterfaceEmitter had defined as early items
-    /// (EmitPlan::early, Compiler/Spec/Eval.md#value-nodes); their bodies are in _eval_done.
-    priv var _early_vars: cxx::std::vector<unsafe *VariableDecl>
+    priv var _ef_gens: usize = 0
+    /// BodyMark bits by decl address (never a reserved key): the compile-time
+    /// bodies already written, the eval bindings InterfaceEmitter defined as
+    /// early items (EmitPlan::early, Compiler/Spec/Eval.md#value-nodes), and
+    /// the ones emit_tu defines ahead of the program walk. A map, not lists
+    /// scanned per decl: an eval-heavy TU asked once per body.
+    priv var _marks: llvm::DenseMap<u64, u8>
     /// The namespace-scope variable whose initializer is being emitted.
     priv var _cur_global: unsafe *VariableDecl = &null
     /// The calling conventions this TU defines or calls a function with
@@ -275,6 +294,7 @@ pub class EmitIR {
     /// Every body this TU defines: its own decls in source order, then every
     /// foreign template and `inline` body visible here.
     fn emit_tu(self, plan: unsafe *EmitPlan) {
+        self._cg->require_phase(CodegenPhase::Planned)
         var unsafe *tu = self._cg->tu
         if tu == &null {
             kairo::std::ice_fail("EmitIR: no TU")
@@ -300,9 +320,8 @@ pub class EmitIR {
         // Free functions first, then records' compile-time methods: an eval
         // field's definition follows its thunk's body and is evaluated right
         // there, so what the thunk calls must already be defined.
-        self._eval_pass = true
         for var round: u32 = 0; round < 2; ++round {
-            self._eval_records = round == 1
+            self._pass = if (round == 1) => (EmitPass::EvalRecords) else => EmitPass::EvalFree
             for var i: usize = 0; i < items->size(); ++i {
                 var item = *items->get(i)
                 if item.kind == TopLevelKind::Decl {
@@ -311,14 +330,17 @@ pub class EmitIR {
             }
         }
 
-        self._eval_records = false
-        self._eval_pass    = false
+        self._pass = EmitPass::Runtime
         // Then every eval binding's definition, foreign (Compiler/Spec/Eval.md#eval-bindings) and
         // own, dependencies first: each reads those bodies, and one may read
         // another declared below it or in another file. The own ones are
         // skipped where the program walk below reaches them.
-        self._hoisted_vars = plan->include_eval_vars()
-        self._eval_vars(self._hoisted_vars)
+        var hoisted = plan->include_eval_vars()
+        for var i: usize = 0; i < hoisted.size(); ++i {
+            self._mark(unsafe (hoisted[i] as unsafe *Decl), BodyMark::Hoisted)
+        }
+
+        self._eval_vars(hoisted)
 
         for var i: usize = 0; i < items->size(); ++i {
             var item = *items->get(i)
@@ -554,30 +576,35 @@ pub class EmitIR {
     /// (dependencies first), each in its namespace (Compiler/Spec/Eval.md#eval-bindings).
     priv fn _eval_vars(self, const list: cxx::std::vector<unsafe *VariableDecl>) {
         for var i: usize = 0; i < list.size(); ++i {
-            var early = false
-            for var k: usize = 0; k < self._early_vars.size(); ++k {
-                if self._early_vars[k] == list[i] {
-                    early = true
-                    break
-                }
-            }
-
-            if !early {
+            if !self._marked(unsafe (list[i] as unsafe *Decl), BodyMark::EarlyVar) {
                 self._global_var(list[i])
             }
         }
     }
 
+    /// Whether \p d carries mark \p m (_marks).
+    priv fn _marked(self, d: unsafe *Decl, m: BodyMark) -> bool {
+        var it = self._marks.find(d as usize as u64)
+        if it == self._marks.end() {
+            return false
+        }
+
+        return (it->second & (m as u8)) != 0
+    }
+
+    priv fn _mark(self, d: unsafe *Decl, m: BodyMark) {
+        var unsafe *slot = unsafe &self._marks[d as usize as u64]
+        (*slot) = (*slot) | (m as u8)
+    }
+
     /// Whether compile-time body \p f is already written (the eval pass, or
     /// an early item).
     priv fn _done(self, f: unsafe *FunctionDecl) -> bool {
-        for var i: usize = 0; i < self._eval_done.size(); ++i {
-            if self._eval_done[i] == f {
-                return true
-            }
-        }
+        return self._marked(unsafe (f as unsafe *Decl), BodyMark::Done)
+    }
 
-        return false
+    priv fn _mark_done(self, f: unsafe *FunctionDecl) {
+        self._mark(unsafe (f as unsafe *Decl), BodyMark::Done)
     }
 
     /// One early item (EmitPlan::early, Compiler/Spec/Eval.md#value-nodes), defined where
@@ -592,7 +619,7 @@ pub class EmitIR {
                 return
             }
 
-            self._eval_done.push_back(f)
+            self._mark_done(f)
             self._visible_body(f)
             return
         }
@@ -602,13 +629,11 @@ pub class EmitIR {
             return
         }
 
-        for var k: usize = 0; k < self._early_vars.size(); ++k {
-            if self._early_vars[k] == v {
-                return
-            }
+        if self._marked(d, BodyMark::EarlyVar) {
+            return
         }
 
-        self._early_vars.push_back(v)
+        self._mark(d, BodyMark::EarlyVar)
         self._global_var(v)
     }
 
@@ -630,6 +655,7 @@ pub class EmitIR {
     fn emit_bodies(self,
                    const list: cxx::std::vector<unsafe *FunctionDecl>,
                    vars:       cxx::std::vector<unsafe *VariableDecl>) {
+        self._cg->require_phase(CodegenPhase::Planned)
         for var i: usize = 0; i < list.size(); ++i {
             if self._compile_time(list[i]) && !self._done(list[i]) {
                 self._visible_body(list[i])
@@ -662,13 +688,13 @@ pub class EmitIR {
         // The eval pass reaches free functions and records' compile-time
         // methods (_record_bodies), through modules and visibility groups
         // (emit_tu): the eval bindings defined after it call them.
-        if self._eval_pass {
+        if self._pass != EmitPass::Runtime {
             if d->kind == DeclKind::FunctionDecl {
                 if cast<FunctionDecl>(d)->is_eval()
-                    && !self._eval_records
+                    && self._pass != EmitPass::EvalRecords
                     && !self._done(cast<FunctionDecl>(d)) {
                     self._free_fn(cast<FunctionDecl>(d), &null)
-                    self._eval_done.push_back(cast<FunctionDecl>(d))
+                    self._mark_done(cast<FunctionDecl>(d))
                 }
 
                 return
@@ -684,15 +710,13 @@ pub class EmitIR {
                 return
             }
 
-            if rec && !self._eval_records {
+            if rec && self._pass != EmitPass::EvalRecords {
                 return
             }
-        } else if d->kind == DeclKind::FunctionDecl && cast<FunctionDecl>(d)->is_eval() {
-            for var i: usize = 0; i < self._eval_done.size(); ++i {
-                if self._eval_done[i] == cast<FunctionDecl>(d) {
-                    return
-                }
-            }
+        } else if d->kind == DeclKind::FunctionDecl
+            && cast<FunctionDecl>(d)->is_eval()
+            && self._done(cast<FunctionDecl>(d)) {
+            return
         }
 
         match d->kind {
@@ -739,14 +763,11 @@ pub class EmitIR {
                     }
                 }
             } case DeclKind::VariableDecl {
-                var unsafe *gv = cast<VariableDecl>(d)
-                for var i: usize = 0; i < self._hoisted_vars.size(); ++i {
-                    if self._hoisted_vars[i] == gv { // emit_tu wrote it, in dependency order.
-                        return
-                    }
+                if self._marked(d, BodyMark::Hoisted) { // emit_tu wrote it, in dependency order.
+                    return
                 }
 
-                self._global_var(gv)
+                self._global_var(cast<VariableDecl>(d))
             } default {
                 self._ice(d->range, f"EmitIR: decl kind {to_string(d->kind)} has no body to emit")
             }
@@ -773,24 +794,16 @@ pub class EmitIR {
 
             // The eval pass writes the compile-time ones; the second pass
             // the rest (emit).
-            var done = false
-            for var k: usize = 0; k < self._eval_done.size(); ++k {
-                if self._eval_done[k] == m {
-                    done = true
-                    break
-                }
-            }
-
-            if done {
+            if self._done(m) {
                 continue
             }
 
-            if self._eval_pass {
+            if self._pass != EmitPass::Runtime {
                 if !self._compile_time(m) {
                     continue
                 }
 
-                self._eval_done.push_back(m)
+                self._mark_done(m)
             }
 
             self._method(m, d)

@@ -77,6 +77,7 @@ import Codegen::Emit::InterfaceEmitter::InterfaceEmitter
 import Codegen::EmitPlan::{
     EmitPlan,
     PlanEntry,
+    PlanLease,
     PlanMode,
     PlanTier,
 }
@@ -195,9 +196,8 @@ pub class CodegenBackend derives TokenFiller {
 
     /// M2 filler: emitter dispatch over the TU's top-level items.
     ///
-    /// This replaces M1's hand-written stream. The regression test is that
-    /// for m1_hello.k the two are BYTE-IDENTICAL   run --print-cg against
-    /// both and diff.
+    /// For m1_hello.k the output is BYTE-IDENTICAL to the hand-written
+    /// stream's: run --print-cg against both and diff.
     override fn fill(self, sink: unsafe *TokenSink) -> bool {
         // Runs inside ExecuteAction (BeginSourceFileAction), so this lands
         // under the driver's Clang region beside what clang itself spends.
@@ -220,17 +220,15 @@ pub class CodegenBackend derives TokenFiller {
         var        plan_own = EmitPlan(unsafe &cg_own, PlanMode::Preamble)
         var unsafe *cg      = unsafe &cg_own
         var unsafe *plan    = unsafe &plan_own
+        var        lease    = PlanLease(self._pre, sink, self._ctx)
         if self._pre != &null {
-            cg            = self._pre->cg()
-            cg->sink      = sink
-            sink->ice_ctx = self._ctx
-            plan          = self._pre
+            cg   = self._pre->cg()
+            plan = self._pre
         } else {
+            plan_own.require_shared()
             plan_own.run()
             cg_own.advance_phase(CodegenPhase::Planned)
         }
-
-        var planned = plan->entries
 
         // Under the interface PCH the plan is pruned by its keys, as a kcc
         // include prunes what an earlier one wrote: the PCH's stream ran this
@@ -309,10 +307,7 @@ pub class CodegenBackend derives TokenFiller {
 
         sink->eof()
         var n_entries = plan->entries.size()
-        if self._pre != &null {
-            plan->entries = planned
-            cg->sink      = &null
-        } else {
+        if self._pre == &null {
             cg->advance_phase(CodegenPhase::Emitted)
         }
 
@@ -401,7 +396,7 @@ pub class CodegenBackend derives TokenFiller {
         //  - no IR verifier: it re-walks every function before and after
         //    the optimizer, checking clang's codegen, not Kairo's;
         //  - the TU's clang AST is freed once IR generation is done, so the
-        //    optimizer and machine code of 24 TUs at once no longer run on
+        //    optimizer and machine code of 24 TUs at once do not run on
         //    top of 24 live ASTs (clang keeps the mangled-name source
         //    locations its backend diagnostics need, CodeGenAction.cpp);
         //  - local IR value names dropped, for an object only: no symbol is
@@ -640,6 +635,12 @@ pub class CodegenJob {
     /// Whether this TU compiles under an interface PCH when it compiles:
     /// what clang loads differs, so the key says which.
     pub var iface_on: bool = false
+    /// Whether the compile that wrote `written` did load the interface PCH.
+    /// iface_on is decided before the PCH is built: when its build fails the
+    /// driver leaves `iface` null, and a TU clang had something to say about
+    /// compiles again without it (run). Either way the object is not the one
+    /// a key made with iface_on describes, and is not stored under it.
+    pub var iface_used: bool = false
     /// How many of ctx->diag_sink's diagnostics predate hash_stream: a
     /// TU that compiles drops what the hash's fill reported, since its own
     /// fill reports the same again.
@@ -679,6 +680,7 @@ pub class CodegenJob {
         time_bill_since("TUSetup", t_setup)
 
         self._run_kinds(&cg, a, be)
+        self.iface_used = self.iface != &null && self.iface->ok
         // Clang said something about this TU under the interface PCH: it is
         // said again from the whole stream, so a diagnostic names the bytes
         // and the order it always did. The PCH moves where a declaration's
@@ -690,6 +692,7 @@ pub class CodegenJob {
             self.written.clear()
             cg.set_interface_pch(&null)
             self._run_kinds(&cg, a, be)
+            self.iface_used = false
         }
 
         kairo::std::destroy(a)
@@ -721,6 +724,7 @@ pub class CodegenJob {
         var hs   = HashSink(self.ctx->sm, self.ctx->tcm, with_locs)
         var cg   = CodegenContext(self.ctx, unsafe &hs, r->psym, r->instances)
         var plan = EmitPlan(unsafe &cg, PlanMode::Preamble)
+        plan.require_shared()
         plan.run()
         cg.advance_phase(CodegenPhase::Planned)
         var ir = EmitIR(unsafe &cg)
@@ -740,6 +744,7 @@ pub class CodegenJob {
     pub fn make_plan(self, r: *CodegenRun) {
         self.pcg  = kairo::std::create<CodegenContext>(self.ctx, &null, r->psym, r->instances)
         self.plan = kairo::std::create<EmitPlan>(self.pcg, PlanMode::Preamble)
+        self.plan->require_shared()
         self.plan->run()
         self.pcg->advance_phase(CodegenPhase::Planned)
     }

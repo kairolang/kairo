@@ -13,8 +13,9 @@
 ///                                              anything minted earlier.
 ///            3. construct TokenSink against the LIVE Preprocessor
 ///            4. filler->fill(sink)          tokens emitted (phase 1)
-///            5. patch_pending               divergent tokens get real
-///                                             ExpansionLocs
+///            5. sink->finish                the literal arena becomes a
+///                                             buffer; divergent tokens get
+///                                             real ExpansionLocs
 ///            6. drain_into_pp               EnterTokenStream
 ///
 ///          Clang's parser then consumes the injected stream instead of
@@ -176,17 +177,7 @@ pub class KairoInject {
             pp->setPredefines(pre)
         }
 
-        if self.sink->has_arena() {
-            var view = self.sink->seal_arena()
-            var buf = llvm::MemoryBuffer::getMemBufferCopy(
-                view,
-                llvm::Twine(kairo::sref(r"<kairo-literals>")),
-            )
-
-            var afid = csm->createFileID(cxx::std::move(buf), clang::SrcMgr::C_User)
-            self.sink->patch_pending(afid)
-        }
-
+        self.sink->finish()
         self.sink->drain_into_pp()
         kairo::ktime_clang_mark_fill_end()
         return true

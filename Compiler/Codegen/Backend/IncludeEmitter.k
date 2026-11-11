@@ -47,10 +47,14 @@ import Codegen::CodegenContext::{
 }
 import Codegen::Emit::CXXSpell::CXXSpell
 import Codegen::Emit::EmitIR::EmitIR
-import Codegen::Emit::InterfaceEmitter::InterfaceEmitter
+import Codegen::Emit::InterfaceEmitter::{
+    HelperBlock,
+    InterfaceEmitter,
+}
 import Codegen::EmitPlan::{
     EmitPlan,
     PlanEntry,
+    PlanLease,
     PlanMode,
     PlanTier,
 }
@@ -59,6 +63,7 @@ import Interop::Clang::ClangLocMap::ClangLocMap
 import Interop::Clang::HeaderSet::HeaderSet
 import Location::SourceManager::FileID
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
+import Support::FlagSet::FlagSet
 
 /// \class IncludedDecls
 /// \brief What the earlier `#include "*.k"` lines of one C++ TU already
@@ -75,19 +80,7 @@ import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 ///        scopes are the exception, built per plan; they are keyed by their
 ///        spelled name, which Pipeline.md invariant 24 makes the same text everywhere.
 pub class IncludedDecls {
-    pub var helpers:       bool                  = false ///< InterfaceEmitter::have_helpers
-    pub var ctor_slots:    bool                  = false ///< InterfaceEmitter::have_ctor_slots
-    pub var fn_value:      bool                  = false ///< InterfaceEmitter::have_fn_value
-    pub var fmt_dyn:       bool                  = false ///< InterfaceEmitter::have_fmt_dyn
-    pub var eval_helpers:  bool                  = false ///< InterfaceEmitter::have_eval_helpers
-    pub var niche_helpers: bool                  = false ///< InterfaceEmitter::have_niche_helpers
-    pub var pack_union:    bool                  = false ///< InterfaceEmitter::have_pack_union
-    pub var panic_helpers: bool                  = false ///< InterfaceEmitter::have_panic_helpers
-    pub var site_type:     bool                  = false ///< InterfaceEmitter::have_site_type
-    pub var panic_api:     bool                  = false ///< InterfaceEmitter::have_panic_api
-    pub var raw_slot:      bool                  = false ///< InterfaceEmitter::have_raw_slot
-    pub var nopanic:       bool                  = false ///< InterfaceEmitter::have_nopanic
-    pub var cxx_alloc:     bool                  = false ///< InterfaceEmitter::have_cxx_alloc
+    pub var written:       FlagSet<HelperBlock, u16>     ///< InterfaceEmitter::written
     pub var tid_seen:      cxx::std::vector<u64>         ///< InterfaceEmitter::tid_seen
     pub var estr_seen:     cxx::std::vector<u64>         ///< InterfaceEmitter::estr_seen
     /// A decl or instance with its tier in the low bits (nodes are 8-aligned):
@@ -107,23 +100,8 @@ pub class IncludedDecls {
     fn IncludedDecls(self) { }
 
     pub fn clear(self) {
-        // Every flag: the next host TU has none of what this one was given.
-        self.helpers       = false
-        self.ctor_slots    = false
-        self.fn_value      = false
-        self.fmt_dyn       = false
-        self.eval_helpers  = false
-        self.niche_helpers = false
-        self.pack_union    = false
-        self.panic_helpers = false
-        self.site_type     = false
-        self.panic_api     = false
-        self.raw_slot      = false
-        // Easy to miss when a flag is added: left set, the next host TU's
-        // streams skip the block while its records still call into it
-        // (the second .cc of a build lost `__kairo_cxx_got`).
-        self.nopanic   = false
-        self.cxx_alloc = false
+        // The next host TU has none of what this one was given.
+        self.written = FlagSet<HelperBlock, u16>()
         self.tid_seen.clear()
         self.estr_seen.clear()
         self._keys.clear()
@@ -208,19 +186,7 @@ pub class IncludedDecls {
     /// next stream: the helper blocks, the type-id specializations and the
     /// long compile-time strings it must not write again.
     fn give(self, ie: unsafe *InterfaceEmitter) {
-        ie->have_helpers       = self.helpers
-        ie->have_ctor_slots    = self.ctor_slots
-        ie->have_fn_value      = self.fn_value
-        ie->have_fmt_dyn       = self.fmt_dyn
-        ie->have_eval_helpers  = self.eval_helpers
-        ie->have_niche_helpers = self.niche_helpers
-        ie->have_pack_union    = self.pack_union
-        ie->have_panic_helpers = self.panic_helpers
-        ie->have_site_type     = self.site_type
-        ie->have_panic_api     = self.panic_api
-        ie->have_raw_slot      = self.raw_slot
-        ie->have_nopanic       = self.nopanic
-        ie->have_cxx_alloc     = self.cxx_alloc
+        ie->written = self.written
         for var k: usize = 0; k < self.tid_seen.size(); ++k {
             ie->tid_seen.push_back(self.tid_seen[k])
         }
@@ -232,19 +198,7 @@ pub class IncludedDecls {
 
     /// The other direction: what \p ie wrote is the host TU's now.
     fn take(self, ie: unsafe *InterfaceEmitter) {
-        self.helpers       = ie->have_helpers
-        self.ctor_slots    = ie->have_ctor_slots
-        self.fn_value      = ie->have_fn_value
-        self.fmt_dyn       = ie->have_fmt_dyn
-        self.eval_helpers  = ie->have_eval_helpers
-        self.niche_helpers = ie->have_niche_helpers
-        self.pack_union    = ie->have_pack_union
-        self.panic_helpers = ie->have_panic_helpers
-        self.site_type     = ie->have_site_type
-        self.panic_api     = ie->have_panic_api
-        self.raw_slot      = ie->have_raw_slot
-        self.nopanic       = ie->have_nopanic
-        self.cxx_alloc     = ie->have_cxx_alloc
+        self.written = ie->written
         self.tid_seen.clear()
         for var k: usize = 0; k < ie->tid_seen.size(); ++k {
             self.tid_seen.push_back(ie->tid_seen[k])
@@ -439,13 +393,12 @@ pub class IncludeEmitter {
             if (program) => (PlanMode::Preamble) else => PlanMode::Include,
         )
 
-        var unsafe *cgp  = unsafe &cg_own
-        var unsafe *plan = unsafe &plan_own
+        var unsafe *cgp   = unsafe &cg_own
+        var unsafe *plan  = unsafe &plan_own
+        var        lease = PlanLease(pre, sink, ctx)
         if pre != &null {
-            cgp           = pre->cg()
-            cgp->sink     = sink
-            sink->ice_ctx = ctx
-            plan          = pre
+            cgp  = pre->cg()
+            plan = pre
         } else {
             // A C++ TU of this file's module sees its `prot` declarations
             // too (AST/VisibilityFacts.k); any other sees its `pub` ones.
@@ -456,8 +409,6 @@ pub class IncludeEmitter {
             plan_own.run()
             cg_own.advance_phase(CodegenPhase::Planned)
         }
-
-        var planned = plan->entries
 
         // Pruned before the emitter runs, which reads the entries to decide
         // what else to write (<new>, the const-field helpers): a record an
@@ -570,21 +521,11 @@ pub class IncludeEmitter {
             }
         }
 
-        if pre != &null {
-            pre->entries = planned
-            cgp->sink    = &null   // the sink is the PCH build's, gone before the TU compiles.
+        if pre == &null {
+            cg_own.advance_phase(CodegenPhase::Emitted)
         }
 
-        if sink->has_arena() {
-            var view = sink->seal_arena()
-            var buf = llvm::MemoryBuffer::getMemBufferCopy(
-                view,
-                llvm::Twine(kairo::sref(r"<kairo-literals>")),
-            )
-
-            var afid = csm->createFileID(cxx::std::move(buf), clang::SrcMgr::C_User)
-            sink->patch_pending(afid)
-        }
+        sink->finish()
 
         for var i: usize = 0; i < sink->token_count(); ++i {
             out->push_back(*sink->get_token(i))
