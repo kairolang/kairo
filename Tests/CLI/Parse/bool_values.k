@@ -1,5 +1,5 @@
 // An explicit value on a Bool flag must be one of true/false/1/0/yes/no/on/off
-// (any case). Anything else used to be read as true, so `--strip=bogus` was
+// (any case). Anything else is not read as true, so `--strip=bogus` is not
 // accepted. Feature flags take no value at all: `-fX=bogus` is U003E.
 
 fn main() -> i32 { return 0 }

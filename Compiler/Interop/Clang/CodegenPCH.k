@@ -82,8 +82,8 @@ pub class CodegenPCHAction derives clang::ASTFrontendAction {
 /// (measured). A PCH of all of them loads in about 1.5 ms.
 ///
 /// Built from the same text phase B's textual wrappers replay, so it parses
-/// what the TUs used to; a failed build leaves `ok` false and the TUs fall
-/// back to that path.
+/// what the TUs' textual wrappers parse; a failed build leaves `ok` false and
+/// the TUs fall back to the wrappers.
 ///
 pub class CodegenPCH {
     pub var pch:  cxx::std::shared_ptr<clang::PCHBuffer>

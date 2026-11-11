@@ -37,6 +37,107 @@ pub enum FrontendActionKind derives u8 {
     TypeCheckOnly, ///< stop after semantic analysis        (--type-check-only)
 }
 
+/// The --emit set, split once and read by both the frontend (what codegen
+/// writes) and the linker options (whether the run links).
+///
+/// \details One parser because two disagreed (P889): the linker's counted
+///          non-empty comma runs, so `obj,` was one item that was not "obj"
+///          and stopped the link, while `asm,asm` was two items and linked.
+///          A kind is a KIND: an empty item names none and a repeat names the
+///          same one again.
+pub class EmitKinds {
+    pub var emit_obj:     bool = false
+    pub var emit_asm:     bool = false
+    pub var emit_llvm_ir: bool = false
+    pub var emit_llvm_bc: bool = false
+    /// Items that are no kind at all, in the order given; the driver reports
+    /// them (CompilerLink's _plan_outputs).
+    pub var unknown: cxx::std::vector<string>
+
+    /// Splits \p raw (the --emit value) on commas. \p dash_s is -S: alone
+    /// (\p emit_given false) it replaces the default obj, beside an explicit
+    /// --emit it adds asm.
+    pub static fn parse(const raw: string, dash_s: bool, emit_given: bool) -> EmitKinds {
+        var k     = EmitKinds()
+        var items = cxx::std::vector<string>()
+        var cur   = ""
+        for var i: usize = 0; i < raw.size(); ++i {
+            if raw[i] == (',' as u8) {
+                items.push_back(cur)
+                cur = ""
+                continue
+            }
+
+            cur.push_back(raw[i])
+        }
+
+        items.push_back(cur)
+        for *it in items {
+            if it->size() == 0 {
+                continue
+            }
+
+            if *it == "obj" {
+                k.emit_obj = true
+            } else if *it == "asm" {
+                k.emit_asm = true
+            } else if *it == "llvm-ir" {
+                k.emit_llvm_ir = true
+            } else if *it == "llvm-bc" {
+                k.emit_llvm_bc = true
+            } else {
+                k.unknown.push_back(*it)
+            }
+        }
+
+        if dash_s {
+            k.emit_asm = true
+            if !emit_given {
+                k.emit_obj = false
+            }
+        }
+
+        return k
+    }
+
+    /// Distinct kinds named.
+    pub fn count(self) -> usize {
+        var n: usize = 0
+        if self.emit_obj {
+            n += 1
+        }
+
+        if self.emit_asm {
+            n += 1
+        }
+
+        if self.emit_llvm_ir {
+            n += 1
+        }
+
+        if self.emit_llvm_bc {
+            n += 1
+        }
+
+        return n
+    }
+
+    /// Whether this set asks for a link. obj alone does: objects are what a
+    /// link is made of. One other kind does not: the run stops at it and -o
+    /// (\p has_output) names it. Several kinds link only under -o, which
+    /// cannot name any one of them and so is the executable, the kinds
+    /// written beside it (CompilerLink's _plan_outputs). No kind (`--emit=`)
+    /// links nothing; codegen reports that it has nothing to write.
+    pub fn links(self, has_output: bool) -> bool {
+        var n = self.count()
+        if n == 1 {
+            return self.emit_obj
+        }
+
+        return n > 1 && has_output
+    }
+}
+
 pub class FrontendOptions {
     // output
     pub var output: string = ""
@@ -324,47 +425,16 @@ pub class FrontendOptions {
         return o
     }
 
-    /// Split --emit on commas into the emit_* set. -S is `--emit asm`: alone
-    /// it replaces the default obj, beside an explicit --emit it adds asm.
+    /// --emit into the emit_* set (EmitKinds::parse, which the linker
+    /// options read too).
     priv static fn _parse_emit(o: *FrontendOptions, @inout args: ParsedArgs) {
-        o->emit_obj = false
-        var raw   = args.get_string("emit")
-        var items = cxx::std::vector<string>()
-        var cur   = ""
-        for var i: usize = 0; i < raw.size(); ++i {
-            if raw[i] == (',' as u8) {
-                items.push_back(cur)
-                cur = ""
-                continue
-            }
-
-            cur.push_back(raw[i])
-        }
-
-        items.push_back(cur)
-        for *it in items {
-            if it->size() == 0 {
-                continue
-            }
-
-            if *it == "obj" {
-                o->emit_obj = true
-            } else if *it == "asm" {
-                o->emit_asm = true
-            } else if *it == "llvm-ir" {
-                o->emit_llvm_ir = true
-            } else if *it == "llvm-bc" {
-                o->emit_llvm_bc = true
-            } else {
-                o->emit_unknown.push_back(*it)
-            }
-        }
-
-        if args.get_bool("emit-asm") {
-            o->emit_asm = true
-            if !args.is_set("emit") {
-                o->emit_obj = false
-            }
+        var k = EmitKinds::parse(args.get_string("emit"), args.get_bool("emit-asm"), args.is_set("emit"))
+        o->emit_obj     = k.emit_obj
+        o->emit_asm     = k.emit_asm
+        o->emit_llvm_ir = k.emit_llvm_ir
+        o->emit_llvm_bc = k.emit_llvm_bc
+        for *it in k.unknown {
+            o->emit_unknown.push_back(*it)
         }
     }
 }

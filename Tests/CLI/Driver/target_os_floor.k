@@ -1,5 +1,5 @@
 // A macOS --target with no OS version gets the deployment floor its roots
-// are built for (P746): clang's own default is Mac OS X 10.4, which has no
+// are built for: clang's own default is Mac OS X 10.4, which has no
 // thread-local storage, so every Kairo program failed CL001E in
 // Lib/builtin's allocator. 11.0 on arm64 / arm64e, 10.15 on x86_64; a
 // spelled version (or a host's darwin25.6.0) is kept. The other families'

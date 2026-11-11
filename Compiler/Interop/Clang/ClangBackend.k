@@ -1052,10 +1052,12 @@ pub class ClangBackend {
     ///          which this backend never goes through, so without this every
     ///          --mllvm (and the flags lowered to one) would be accepted and
     ///          dropped. Once per process: the options are global state.
-    priv fn _apply_llvm_args(self) {
+    ///
+    /// \return false when LLVM rejected a word; LLVM has printed why.
+    priv fn _apply_llvm_args(self) -> bool {
         var n = self._cinv.get()->getFrontendOpts().LLVMArgs.size()
         if n == 0 {
-            return
+            return true
         }
 
         var av: cxx::std::vector<kairo::std::ConstPtr<c_char>>
@@ -1079,8 +1081,10 @@ pub class ClangBackend {
                 "ClangBackend: an --mllvm word was not accepted by LLVM",
             )
 
-            self._failed = true
+            return false
         }
+
+        return true
     }
 
     priv fn _startup_locked(self) {
@@ -1134,7 +1138,14 @@ pub class ClangBackend {
             return
         }
 
-        self._apply_llvm_args()
+        // A rejected word fails the startup HERE, like every other failure in
+        // this function: carrying on built the instance and the oracle and set
+        // _started, so the backend was failed and started at once and csm()
+        // answered for a backend ready() refused.
+        if !self._apply_llvm_args() {
+            self._failed = true
+            return
+        }
 
         // -include names travel via the predefines buffer.
         for *inc in self._cfg.includes {

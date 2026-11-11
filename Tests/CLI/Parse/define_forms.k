@@ -1,6 +1,6 @@
 // -DNAME=VALUE defines NAME as VALUE, exactly like --define=NAME=VALUE. The
-// single-dash path used to split `-DFOO=7` into `-D` + "FOO" and then let the
-// `=7` overwrite the name, so the define pushed was "7" and FOO never existed.
+// single-dash path must not split `-DFOO=7` into `-D` + "FOO" and then let the
+// `=7` overwrite the name, which pushes the define "7" and no FOO.
 // A bare -DNAME defines NAME as 1. Pinned through --dump-preprocessed, where
 // the expanded value is visible as text.
 

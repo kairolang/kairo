@@ -84,6 +84,14 @@ pub enum DiagAction {
     Warn,
 }
 
+/// Whether a delivery cap (--cmax-errors, --cmax-warnings) has been hit in
+/// this run. Reached is entered once, by the report that first finds the cap
+/// full, and that report is the one that prints the "too many ..." notice.
+pub enum LimitState derives u8 {
+    Open,
+    Reached,
+}
+
 /// Dense index of \p cat, 1-based so a valid policy key is never 0.
 pub fn diag_category_index(cat: DiagCategory) -> u32 {
     match cat {
@@ -219,8 +227,12 @@ pub fn diag_policy_key_from_string(const code: string) -> u32 {
 /// \c clear_all_poison().
 ///
 /// \par Error limit
-/// Once \c _error_count reaches \c _error_limit (default 50), further errors
-/// and fatals are silently suppressed and counted in \c _suppressed_count.
+/// Once \c _error_limit errors (default 50) have been DELIVERED, further errors
+/// and fatals are not shown and are counted in \c _suppressed_count. They are
+/// still counted in \c _error_count / \c _fatal_count: the limit caps what the
+/// user reads, while the stage gates (each input's "did this TU error"
+/// delta, a preprocess fatal aborting the batch) read the counters, and a
+/// frozen counter let a later input sail past every gate.
 ///
 /// \par Consumer registration
 /// Consumers are registered with \c add_consumer() and unregistered with
@@ -274,6 +286,7 @@ pub class DiagEngine derives DiagEngineVBase {
     priv var _debug_count:           u32                                  = 0
     priv var _fatal_count:           u32                                  = 0
     priv var _suppressed_count:      u32                                  = 0
+    priv var _errors_delivered:      u32                                  = 0 ///< Errors and fatals that reached the consumers; what _error_limit caps.
     priv var _error_limit:           u32                                  = 50 ///< Max errors before suppression kicks in.
     priv var _suppress_depth:        u32                                  = 0
     priv var _warnings_as_errors:    bool                                 = false
@@ -288,11 +301,11 @@ pub class DiagEngine derives DiagEngineVBase {
     /// more than once (the import scan, then the walk), and each lex
     /// reported its warnings again: one octal escape printed S025W 3 times.
     priv var _delivered: llvm::StringSet<llvm::MallocAllocator> ///< membership only; owns the key bytes
-    /// The "too many ..." line is printed once per run. Keyed on its own flag,
+    /// The "too many ..." line is printed once per run. Keyed on its own state,
     /// not on _suppressed_count: a prior -A/-w suppression bumps that counter
     /// and used to swallow the limit notice entirely.
-    priv var _error_limit_noted: bool = false
-    priv var _warn_limit_noted:  bool = false
+    priv var _error_limit_state: LimitState = LimitState::Open
+    priv var _warn_limit_state:  LimitState = LimitState::Open
 
     /// ## Constructors
 
@@ -464,7 +477,8 @@ pub class DiagEngine derives DiagEngineVBase {
     /// Suppression order:
     ///   1. Poison scope errors and warnings inside a poisoned range are dropped.
     ///   2. \c -Werror  warnings are promoted to errors before limit checking.
-    ///   3. Error limit errors and fatals beyond \c _error_limit are dropped.
+    ///   3. Error limit errors and fatals beyond \c _error_limit are counted,
+    ///      then dropped.
     fn emit(self, diag: unsafe *Diagnostic) {
         // Whole body, not just the push_back: every early-return path below
         // also mutates _suppressed_count and _all_diags. See _mu.
@@ -567,8 +581,8 @@ pub class DiagEngine derives DiagEngineVBase {
 
         if sev == DiagSeverity::Warning && self._warning_limit != 0 {
             if self._warn_count >= self._warning_limit {
-                if !self._warn_limit_noted {
-                    self._warn_limit_noted = true
+                if self._warn_limit_state == LimitState::Open {
+                    self._warn_limit_state = LimitState::Reached
                     var unsafe *wlimit_diag = kairo::std::create<Diagnostic>(
                         DiagCode(DiagID::U024W),
                         f"too many warnings emitted, further warnings will be suppressed",
@@ -586,12 +600,20 @@ pub class DiagEngine derives DiagEngineVBase {
             }
         }
 
+        // Counted BEFORE the limit: every error_count()/fatal_count() reader
+        // is a gate (a TU's own delta, the batch abort on a fatal), and an
+        // error the user is not shown is still an error in that TU.
         // 0 = unlimited (--cmax-errors=0). Without the guard every error was
         // "over" a limit of 0 and was dropped, so a broken program exited 0.
         if sev == DiagSeverity::Error || sev == DiagSeverity::Fatal {
-            if self._error_limit != 0 && self._error_count >= self._error_limit {
-                if !self._error_limit_noted {
-                    self._error_limit_noted = true
+            self._error_count += 1
+            if sev == DiagSeverity::Fatal {
+                self._fatal_count += 1
+            }
+
+            if self._error_limit != 0 && self._errors_delivered >= self._error_limit {
+                if self._error_limit_state == LimitState::Open {
+                    self._error_limit_state = LimitState::Reached
                     var unsafe *limit_diag = kairo::std::create<Diagnostic>(
                         DiagCode(DiagID::I957E),
                         f"too many errors emitted, further errors will be suppressed",
@@ -604,9 +626,11 @@ pub class DiagEngine derives DiagEngineVBase {
                 }
 
                 self._suppressed_count += 1
-                kairo::std::destroy(diag) // over the error limit: nobody sees it
+                kairo::std::destroy(diag) // over the error limit: counted, nobody sees it
                 return
             }
+
+            self._errors_delivered += 1
         }
 
         match sev {
@@ -622,12 +646,7 @@ pub class DiagEngine derives DiagEngineVBase {
                 self._debug_count += 1
             } case DiagSeverity::Warning {
                 self._warn_count += 1
-            } case DiagSeverity::Error {
-                self._error_count += 1
-            } case DiagSeverity::Fatal {
-                self._fatal_count += 1
-                self._error_count += 1
-            } default { }
+            } default { } // Error and Fatal: counted at the limit check above
         }
 
         // --cmax-notes / --cmax-suggestion-count: trim before delivery so every
@@ -806,8 +825,9 @@ pub class DiagEngine derives DiagEngineVBase {
         self._error_count       = 0
         self._warn_count        = 0
         self._fatal_count       = 0
-        self._error_limit_noted = false
-        self._warn_limit_noted  = false
+        self._errors_delivered  = 0
+        self._error_limit_state = LimitState::Open
+        self._warn_limit_state  = LimitState::Open
         for var i: usize = 0; i < kept->size(); ++i {
             var unsafe *d = (*kept)[i]
             if d->has_loc {
@@ -815,12 +835,16 @@ pub class DiagEngine derives DiagEngineVBase {
                 self._delivered.insert(kairo::sref(key))
             }
 
+            // Every kept diagnostic was delivered once, so it counts against
+            // the cap as well as in the totals.
             var sev = d->code.severity()
             if sev == DiagSeverity::Fatal {
-                self._fatal_count += 1
-                self._error_count += 1
+                self._fatal_count      += 1
+                self._error_count      += 1
+                self._errors_delivered += 1
             } else if sev == DiagSeverity::Error {
-                self._error_count += 1
+                self._error_count      += 1
+                self._errors_delivered += 1
             } else if sev == DiagSeverity::Warning {
                 self._warn_count += 1
             }
@@ -870,8 +894,9 @@ pub class DiagEngine derives DiagEngineVBase {
         self._debug_count       = 0
         self._fatal_count       = 0
         self._suppressed_count  = 0
-        self._error_limit_noted = false
-        self._warn_limit_noted  = false
+        self._errors_delivered  = 0
+        self._error_limit_state = LimitState::Open
+        self._warn_limit_state  = LimitState::Open
     }
 
     pub fn has_fatal(self) -> bool {
@@ -918,10 +943,13 @@ pub class DiagEngine derives DiagEngineVBase {
 
     /// Returns a human-readable summary of emitted diagnostic counts,
     /// e.g. \c "3 error(s), 1 warning(s), 2 suppressed".
+    ///
+    /// Errors are the DELIVERED ones: the ones over the limit are already in
+    /// "suppressed", and error_count() would list them twice.
     fn summary(self) -> string {
         var out: string
-        if self._error_count > 0 {
-            out += f"{self._error_count} error(s)"
+        if self._errors_delivered > 0 {
+            out += f"{self._errors_delivered} error(s)"
         }
 
         if self._warn_count > 0 {

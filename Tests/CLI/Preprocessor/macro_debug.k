@@ -1,5 +1,5 @@
 // --macro-debug prints each macro expansion to stderr on its own; -v is no
-// longer needed (it used to go through the verbose logger and was silent
+// longer needed (it does not go through the verbose logger, which is silent
 // without it). This test still passes -v and matches only the message tail.
 
 macro two!() { 2 }

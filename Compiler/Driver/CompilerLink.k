@@ -266,7 +266,7 @@ extend CompilerInstance {
         }
 
         self._link_out = if (!out.empty()) => (out) else => "a.out"
-        // `--emit obj,asm -o app` (Linker.k's compile_only): the link needs
+        // `--emit obj,asm -o app` (EmitKinds::links): the link needs
         // objects whether or not obj was listed, and the listed kinds are
         // outputs. Under --cache-dir they are kept there with everything
         // else; otherwise the object dir may be a temp one, and the entry

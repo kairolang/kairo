@@ -14,6 +14,7 @@
 ffi "c++" import "vector"
 
 import Command::ParsedArgs::ParsedArgs
+import Config::Frontend::EmitKinds
 
 ///
 /// \class LinkerOptions
@@ -39,7 +40,7 @@ pub class LinkerOptions {
     pub var entry:           string                   = "main" ///< ELF entry only when there is no crt
     pub var cache_dir:       string                   = "" ///< --cache-dir: where objects go
     pub var save_temps:      bool                     = false ///< keep the object dir after linking
-    pub var compile_only:    bool                     = false ///< -c, -S, or any --emit but the default obj
+    pub var compile_only:    bool                     = false ///< -c, -S, or an --emit set that does not link (EmitKinds::links)
     pub var emit_scope:      string                   = "graph" ///< --emit-scope: graph | inputs
     pub var kairo_lib:       bool                     = false ///< --kairo-lib: link the cached builtin/std/runtime
     pub var print_ld_args:   bool                     = false ///< print the link line instead of linking
@@ -158,34 +159,14 @@ pub class LinkerOptions {
         o.entry           = args.get_string("entry")
         o.cache_dir       = args.get_string("cache-dir")
         o.save_temps      = args.get_bool("save-temps")
-        // `--emit obj,asm -o app` still links app: with more than one kind
-        // listed, -o cannot be any one of them, so it is the executable and
-        // the kinds are written beside it (CompilerInstance::_plan_outputs).
-        // One kind other than obj is what -o names, and the run stops there.
-        var emit          = args.get_string("emit")
-        var n_emit: usize = 0
-        var run:    usize = 0
-        for var i: usize = 0; i < emit.size(); ++i {
-            if emit[i] == (',' as u8) {
-                if run > 0 {
-                    n_emit += 1
-                }
-
-                run = 0
-                continue
-            }
-
-            run += 1
-        }
-
-        if run > 0 {
-            n_emit += 1
-        }
-
-        var emit_links = n_emit > 1 && !args.get_string("output").empty()
+        // Whether --emit links is the frontend's own parse of it (EmitKinds),
+        // so the two cannot read one spelling two ways. -S stops at assembly
+        // even beside an explicit --emit (`--emit=obj -S`), as -c stops at
+        // objects.
+        var emit = EmitKinds::parse(args.get_string("emit"), args.get_bool("emit-asm"), args.is_set("emit"))
         o.compile_only = args.get_bool("compile-only")
             || args.get_bool("emit-asm")
-            || emit != "obj" && !emit_links
+            || !emit.links(!args.get_string("output").empty())
         o.emit_scope    = args.get_string("emit-scope")
         o.kairo_lib     = args.get_bool("kairo-lib")
         o.print_ld_args = args.get_bool("print-ld-args")
