@@ -89,6 +89,7 @@ pub class FrontendOptions {
     pub var print_panic_sets:    bool   = false
     pub var print_cxx:           bool   = false ///< --print-cxx: the TU's C++ preamble (interface only) as text
     pub var emit_headers:        string = "" ///< --emit-headers <dir>: write each module's C++ interop header
+    pub var emit_header_lines:   bool   = false ///< --emit-headers-line-directives (kals only): `#line` to the Kairo source
     pub var print_symbols:       bool   = false
     /// The serialized-AST test flags (Compiler/Spec/Serialization.md):
     /// --emit-ast-bin=<path>, --ast-roundtrip (or KAIRO_AST_ROUNDTRIP=1 in
@@ -216,6 +217,7 @@ pub class FrontendOptions {
         o.print_panic_sets    = args.get_bool("print-panic-sets")
         o.print_cxx           = args.get_bool("print-cxx")
         o.emit_headers        = args.get_string("emit-headers")
+        o.emit_header_lines   = args.get_bool("emit-headers-line-directives")
         o.print_symbols       = args.get_bool("print-symbols")
         o.emit_ast_bin         = args.get_string("emit-ast-bin")
         o.verify_ast_roundtrip = args.get_bool("verify-ast-roundtrip")

@@ -2,9 +2,9 @@
 // declarations.mdx; classes.mdx): each is visible from its declaration to the
 // end of the block.
 //
-// Was XFAIL on the ticket "[Codegen] Functions, classes and enums declared in
-// a function body are not emitted" (2026-10-26):
-// each type-checked and ICEd in EmitIR. Each is now emitted at
+// Functions, classes and enums declared in
+// a function body are emitted:
+// each is emitted at
 // namespace scope (CXXSpell::is_hoisted_local); the shapes are in
 // local_decls_shapes.k, local_decls_generic.k, local_decls_cross_module.k
 // and local_decls_selfhost.k.

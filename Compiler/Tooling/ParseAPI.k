@@ -109,6 +109,12 @@ pub struct ParseOptions {
     /// would miss every unresolved-import and macro error. See
     /// Tooling/ToolDiagnostics.k.
     pub var capture_diags: bool = true
+
+    /// Check the file as the module the driver would name it (its stem
+    /// under the -I roots), not as a pathless entry: a C++ header of it
+    /// (--emit-headers) needs the module path, and kals' clangd bridge
+    /// asks for exactly that header.
+    pub var as_module: bool = false
 }
 
 /// \class ParsedUnit
@@ -383,9 +389,14 @@ pub fn parse_file(ci: unsafe *CompilerInstance, path: Path, opts: ParseOptions) 
         }
     }
 
+    var mp = ModulePath()
+    if opts.as_module {
+        mp = ci->input_module_path(path.full_path())
+    }
+
     var unsafe *action = kairo::std::create<FrontendAction>(
         path,
-        ModulePath(),
+        mp,
         ci->global_scope(),
         ci->imp(),
         ci,

@@ -2,8 +2,8 @@
 // `var b: i64? = find(3)` (find -> i32?) and `*Dog? -> *Animal?`, so the
 // program must build: null stays null, a value converts.
 //
-// Was XFAIL until : Nullable has no converting constructor, so the
-// static_cast the conversion was emitted as was CL001E in clang. EmitIR now
+// Nullable has no converting constructor, so a static_cast would be
+// CL001E in clang. EmitIR
 // tests the source once and converts only the value
 // (EmitIR::_nullable_convert); Tests/Codegen/nullable/pointer_convert.k
 // covers the pointer cases.

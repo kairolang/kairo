@@ -2224,6 +2224,19 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "",
     )
 
+    // kals' clangd bridge alone (LanguageServer.md section 15): every
+    // emitted line under `#line` naming its Kairo declaration, invented text
+    // under the header's own name, and a header whose text did not change is
+    // not rewritten. A user-requested header stays plain C++.
+    cmd->define<FlagKind::Bool>(
+        "emit-headers-line-directives",
+        "",
+        "emit-headers-line-directives",
+        "with --emit-headers: put #line directives naming the Kairo source in each header (for the language server)",
+        false,
+    )
+    cmd->mark_hidden("emit-headers-line-directives")
+
     cmd->define<FlagKind::Bool>(
         "print-symbols",
         "",

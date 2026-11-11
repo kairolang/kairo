@@ -19,6 +19,7 @@
 
 ffi "c++" import "vector"
 
+import API::FS::LinkFS
 import AST::Context::ASTContext::ASTContext
 import AST::Context::InstantiationRegistry::InstantiationRegistry
 import AST::Context::TranslationUnit::TranslationUnit
@@ -42,6 +43,15 @@ pub class EmitCXXHeader {
     priv var _ctx:       unsafe *ASTContext
     priv var _psym:      unsafe *PreprocessorSymbolTable
     priv var _instances: unsafe *InstantiationRegistry
+
+    /// kals' clangd bridge (--emit-headers-line-directives): `#line` before
+    /// every emitted line naming the Kairo declaration it comes from, so a
+    /// jump from C++ lands in the .k file; text with no Kairo counterpart
+    /// sits under `#line` naming \ref header_name. Off for every other
+    /// caller: a user-requested header is plain C++, and kcc injects tokens
+    /// that already carry Kairo locations.
+    pub var line_directives: bool   = false
+    pub var header_name:     string = ""
 
     pub fn EmitCXXHeader(self,
                          ctx:       unsafe *ASTContext,
@@ -74,6 +84,8 @@ pub class EmitCXXHeader {
         }
 
         var ts   = TextSink(self._ctx->sm, self._ctx->tcm)
+        ts.line_mode = self.line_directives
+        ts.self_path = self.header_name
         var cg   = CodegenContext(self._ctx, unsafe &ts, self._psym, self._instances)
         var plan = EmitPlan(unsafe &cg, PlanMode::Header)
         plan.run()
@@ -88,6 +100,9 @@ pub class EmitCXXHeader {
         // do -- they are part of the interface. Out of line, so the class
         // definitions stay byte-identical to every TU's (Pipeline.md invariant 24).
         ir.emit_visible(unsafe &plan)
+        if ts.line_mode {
+            ts.brk() // the last line is still buffered
+        }
         return ts.out
     }
 
@@ -130,12 +145,26 @@ pub class EmitCXXHeader {
 
     /// Render and write. False if nothing to write or the write failed.
     pub fn write(self, const dir: string) -> bool {
+        var p = self.path_under(dir)
+        if self.line_directives && self.header_name.empty() {
+            self.header_name = p
+        }
+
         var text = self.render()
         if text.size() == 0 {
             return false
         }
 
-        var p = self.path_under(dir)
+        // The bridge's headers are watched by clangd: an unchanged one is
+        // left alone, so an edit that does not touch the interface does not
+        // make clangd re-parse every file that includes it.
+        if self.line_directives {
+            var old: string = ""
+            if LinkFS::read(p, &old) && (old == text) {
+                return true
+            }
+        }
+
         Path::make_parent_dirs(p)
         return Path::write_file(p, text)
     }

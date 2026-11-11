@@ -1287,6 +1287,11 @@ pub class CompilerInstance {
     ///        (decision C). Empty for a pathless file -- one outside every
     ///        search dir, or one whose path a named library owns -- which
     ///        keeps the pathless rules (CXXSpell::is_entry_tu).
+    /// The module path the driver gives input \p path (ParseAPI's as_module).
+    pub fn input_module_path(self, const path: string) -> ModulePath {
+        return self._input_module_path(path)
+    }
+
     priv fn _input_module_path(self, const path: string) -> ModulePath {
         var mp = ModulePath()
         if self._imp == &null || self._pp == &null {

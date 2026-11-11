@@ -1,5 +1,5 @@
 // A `finally` after a `try` / `catch` is the standalone `finally` (PANIC.md
-// §3.3, decided 2026-10-27): it runs when its block is left. So the order is
+// §3.3): it runs when its block is left. So the order is
 // the try body (or the arm that caught), then the statements after the
 // `finally`, then the `finally` at the block's exit -- and a `return` out of
 // the `try` leaves before the `finally` is reached, so it does not run.

@@ -12,11 +12,10 @@
 /// ------------------------------------------------------------------------ ///
 ///
 ///   Every place the driver asks "is this a Kairo file, a C/C++ source, an
-///   object?" asks here. There used to be four hand-written extension lists
-///   (_native_lang, _plan_outputs, execute, _runtime_sources), and when
-///   Path::extension() started returning the dot three of them silently
-///   stopped matching: every .c/.cc/.o was lexed as Kairo. One function, one
-///   rule, and the extension is normalized once.
+///   object?" asks here. One function, one rule, and the extension is normalized
+///   once: per-caller extension lists drift apart when Path::extension()'s
+///   spelling (with or without the dot) changes, and a list that stops
+///   matching lexes every .c/.cc/.o as Kairo.
 ///
 ///   The table is clang's own (clang::driver::types), not a copy: an input
 ///   kairo hands to clang is classified exactly as clang would classify it,

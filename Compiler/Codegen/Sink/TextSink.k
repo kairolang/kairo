@@ -37,17 +37,37 @@ pub class TextSink derives EmitSink {
     priv var _pending_brk:   bool                      = false ///< a `}` was written; break unless `;` follows
     priv var _after_op_kw:   bool                      = false ///< the last token was `operator`: glue a punctuator to it
 
+    /// Line mode (EmitCXXHeader::line_directives, kals only): each line is
+    /// built in `_line` and written at its break, under a `#line` naming the
+    /// Kairo file and line of its first located token, or, for a line with
+    /// none (guards, includes, glue the emitter invents), under one naming
+    /// \ref self_path at the line's own number. A directive is written only
+    /// where the attribution changes, so a run of lines from consecutive
+    /// Kairo lines carries one.
+    pub var line_mode: bool   = false
+    pub var self_path: string = ""
+    priv var _line:      string = ""
+    priv var _line_file: string = ""
+    priv var _line_no:   usize  = 0
+    priv var _phys:      usize  = 0  ///< lines written to `out`
+    priv var _map_file:  string = "" ///< what the next line of `out` is attributed to
+    priv var _map_line:  usize  = 0
+
     pub fn TextSink(self, sm: unsafe *SourceManager, tcm: unsafe *TokenCacheManager) {
         self._sm  = sm
         self._tcm = tcm
     }
 
     override fn create(self, t: Token) -> bool {
+        self._flush_pending()
+        self._note(t.range)
         self._word(*TokenText::resolve(t, self._tcm).get_text(), false)
         return true
     }
 
     override fn create_ident(self, at: SourceRange, const spelling: string) -> bool {
+        self._flush_pending()
+        self._note(at)
         self._word(spelling, false)
         // spell() lexes `operator` as a word, not through keyword().
         if spelling == "operator" {
@@ -88,6 +108,7 @@ pub class TextSink derives EmitSink {
             }
 
             self._flush_pending()
+            self._note(at)
             self._word(s, false)
             self._pending_brk = true
             return true
@@ -97,6 +118,11 @@ pub class TextSink derives EmitSink {
             self._pending_brk = false
         }
 
+        if k != clang::tok::semi {
+            self._flush_pending()
+        }
+
+        self._note(at)
         self._word(s, tight_before)
         if tight_after {
             self._glue_next = true
@@ -120,6 +146,8 @@ pub class TextSink derives EmitSink {
             self.ice_at(at, "TextSink::keyword: kind is not a keyword")
         }
 
+        self._flush_pending()
+        self._note(at)
         self._word(string(unsafe ((kw as unsafe *const u8) as *const u8)), false)
         if k == clang::tok::kw_operator {
             self._after_op_kw = true
@@ -129,21 +157,29 @@ pub class TextSink derives EmitSink {
     }
 
     override fn literal(self, at: SourceRange, k: clang::tok::TokenKind) -> bool {
+        self._flush_pending()
+        self._note(at)
         self._word(*TokenText::from_range(at, self._sm).get_text(), false)
         return true
     }
 
     override fn create_int(self, at: SourceRange, @inout cxx_v: string) -> bool {
+        self._flush_pending()
+        self._note(at)
         self._word(cxx_v, false)
         return true
     }
 
     override fn create_str(self, at: SourceRange, @inout cxx_v: string) -> bool {
+        self._flush_pending()
+        self._note(at)
         self._word(cxx_v, false)
         return true
     }
 
     override fn create_char(self, at: SourceRange, @inout cxx_v: string) -> bool {
+        self._flush_pending()
+        self._note(at)
         self._word(cxx_v, false)
         return true
     }
@@ -157,7 +193,7 @@ pub class TextSink derives EmitSink {
             self.brk()
         }
 
-        self.out += text
+        self._put(text)
         self._at_line_start = false
         self.brk()
         return true
@@ -172,8 +208,71 @@ pub class TextSink derives EmitSink {
             return
         }
 
-        self.out += "\n"
+        if self.line_mode {
+            self._flush_line()
+        } else {
+            self.out += "\n"
+        }
+
         self._at_line_start = true
+    }
+
+    priv fn _put(self, const s: string) {
+        if self.line_mode {
+            self._line += s
+        } else {
+            self.out += s
+        }
+    }
+
+    /// The first located token of the line names the line (line mode).
+    priv fn _note(self, at: SourceRange) {
+        if (!self.line_mode) || (!self._line_file.empty()) || (!at.start.is_valid()) || (self._sm == &null) {
+            return
+        }
+
+        // Offset 0 is where the emitter anchors what it invents for a whole
+        // file (the lowering helpers, namespace braces): not a declaration.
+        if self._sm->resolve(at.start).offset == 0 {
+            return
+        }
+
+        var fl   = self._sm->get_line_col(at.start)
+        var name = self._sm->get_filename(fl.file_id as u32)
+        if (fl.line == 0) || (!name.ends_with(".k")) {
+            return
+        }
+
+        self._line_file = name
+        self._line_no   = fl.line
+    }
+
+    priv fn _flush_line(self) {
+        var file = self._line_file
+        var line = self._line_no
+        if file.empty() {
+            file = self.self_path
+            line = self._phys + 1
+            if (self._map_file != file) || (self._map_line != line) {
+                line += 1 // the directive takes this physical line
+            }
+        }
+
+        if (self._map_file != file) || (self._map_line != line) {
+            self.out += f"#line {line} \""
+            self.out += file
+            self.out += "\"\n"
+            self._phys += 1
+        }
+
+        self.out += self._line
+        self.out += "\n"
+        self._phys += 1
+        self._map_file  = file
+        self._map_line  = line + 1
+        self._line      = ""
+        self._line_file = ""
+        self._line_no   = 0
     }
 
     priv fn _flush_pending(self) {
@@ -187,16 +286,16 @@ pub class TextSink derives EmitSink {
         self._flush_pending()
         if self._at_line_start {
             for var i: usize = 0; i < self._depth; ++i {
-                self.out += "    "
+                self._put("    ")
             }
 
             self._at_line_start = false
         } else if !(tight || self._glue_next) {
-            self.out += " "
+            self._put(" ")
         }
 
         self._glue_next   = false
         self._after_op_kw = false
-        self.out += s
+        self._put(s)
     }
 }
