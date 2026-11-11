@@ -8,8 +8,8 @@
 // Compiled on its own (lit's cwd is this directory, the library's root) it is
 // still `geo::shapes`, the module path every importer gives it: an input is a
 // module like any import, and the cwd's
-// own module.k pin names it. As an entry it was `shapes`, and a separately
-// compiled importer's call to `geo::shapes::area` did not link.
+// own module.k pin names it. As an entry it is not `shapes` (a separately
+// compiled importer's call to `geo::shapes::area` would not link).
 // CXX: namespace geo::shapes {
 // CXX-NOT: namespace shapes
 

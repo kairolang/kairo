@@ -1,5 +1,5 @@
-// main.k's rule for INPUTS (decision E). Every input is a module now
-// (decision C), so `a.k` (the cwd's) and `Inputs/a.k` (under `-I Inputs`)
+// main.k's rule for INPUTS. Every input is a module,
+// so `a.k` (the cwd's) and `Inputs/a.k` (under `-I Inputs`)
 // given together are both module `a`: one C++ namespace, and one object
 // path, `a.o`, the second written over the first. Nothing imports either,
 // so the import-time R017E never ran, and the run exited 0 with one

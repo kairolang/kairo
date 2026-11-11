@@ -61,7 +61,9 @@
 ///     Vector, set, map and string that declare no `op in (self)` (a
 ///     declared one makes the loop IterKind::User, above) ICE naming what
 ///     they wait on; FeatureGateCheck (SC116E) rejects them first, so the ICE is an invariant. A dependent iterable (iter_kind None, no type) is left for M2;
-///     reaching codegen it ICEs in EmitIR.
+///     reaching codegen it ICEs in EmitIR. An imported C++ instance over the
+///     generic's parameter (cxx_dependent) is not lowered: EmitIR spells C++'s
+///     own range-for (P476).
 ///
 ///   Phase: LOWER, after CallLowering and before ExtensionLowering: a user
 ///   `op in` declared in an extension is called here through a chain, and
@@ -366,6 +368,10 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         }
 
         if n->iter_kind == IterKind::Pack {
+            return &null
+        }
+
+        if n->cxx_dependent { // C++'s own range-for, per instance: EmitIR::_cxx_dependent_for.
             return &null
         }
 

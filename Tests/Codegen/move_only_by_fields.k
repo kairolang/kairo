@@ -1,6 +1,6 @@
 // A class with no transfer constructor is MOVE when a field is
-// (Doc: Classes Lifecycle). Its `op finally` used to cost it C++'s implicit
-// move constructor and move assignment, so assigning or returning one fell
+// (Doc: Classes Lifecycle). Its `op finally` does not cost it C++'s implicit
+// move constructor and move assignment, so assigning or returning one does not fall
 // back to the deleted copy.
 // REQUIRES: clang
 // RUN: rm -rf %t.d

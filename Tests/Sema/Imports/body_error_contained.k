@@ -1,9 +1,9 @@
 // An error in a method BODY (here N's R020E) poisons that body, not the
-// module's declarations. N's errors used to stop the TU before T, so no
-// signature in it was ever resolved and every importer's call failed
-// "parameter type is unresolved" (self-host: `std::print` in
-// Command::print_help, 363 SC063E on `cmd->define<FlagKind::X>(...)` in
-// FlagRegistry.k). Now T runs, and the TU stops after it.
+// module's declarations. N's errors do not stop the TU before T (which would leave no
+// signature in it resolved and fail every importer's call
+// "parameter type is unresolved", as `std::print` in
+// Command::print_help, or SC063E on `cmd->define<FlagKind::X>(...)` in
+// FlagRegistry.k). T runs, and the TU stops after it.
 
 // RUN: cd %S/Inputs/body_error_contained && { %kairo %s -I . --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
 

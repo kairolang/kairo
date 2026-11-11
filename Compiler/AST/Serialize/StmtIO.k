@@ -265,6 +265,7 @@ fn io_ranged_for_stmt(ar: unsafe *ASTArchive, n: unsafe *Statements::RangedForSt
         ar->sema_null<Decl>(n->cxx_begin_fn, "RangedForStmt::cxx_begin_fn")
         ar->sema_null<Decl>(n->cxx_end_fn, "RangedForStmt::cxx_end_fn")
         ar->sema_false(n->cxx_free, "RangedForStmt::cxx_free")
+        ar->sema_false(n->cxx_dependent, "RangedForStmt::cxx_dependent")
         ar->sema_is(n->cxx_begin_inst == &null, "RangedForStmt::cxx_begin_inst")
         ar->sema_is(n->cxx_end_inst == &null, "RangedForStmt::cxx_end_inst")
         ar->sema_null<VariableDecl>(n->cxx_it, "RangedForStmt::cxx_it")

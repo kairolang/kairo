@@ -4,8 +4,8 @@
 // it at the call.
 //
 // XFAIL: *
-// Ticket "[Sema/Tether] A slice literal passed to a function that stores it
-// is not diagnosed". Today it
+// Waits on a diagnostic for a slice literal passed to a function that stores
+// it. Today it
 // compiles, and the stored slice dangles (status.mdx, Not Diagnosed; waits on
 // Tether). The code is not decided; the check asks for an error at the marked
 // line. When it XPASSes, delete the XFAIL and pin the code and message.

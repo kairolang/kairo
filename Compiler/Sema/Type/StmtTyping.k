@@ -2048,6 +2048,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return ce
         }
 
+        if rf != &null && (rf->cxx_dependent || at->is_poisoned()) { // left to C++, or _dependent_for_shape reported.
+            return &null
+        }
+
         if ce == &null && at->is_poisoned() { // the protocol applied and failed: reported.
             return &null
         }
@@ -2105,6 +2109,19 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         if !self._is_cxx_record(obj) {
+            return &null
+        }
+
+        // An instance over the generic's own parameter (`vector<T>`): a
+        // member call on it is left to C++ per instance (untyped), so
+        // begin()/end()/`*it` have no type here and the loop is C++'s own
+        // range-for (P476: it was poisoned with no diagnostic, then an ICE).
+        var unsafe *oc = canon_unqual(obj)
+        if rf != &null && oc != &null && (oc->is_dependent() || oc->is_instantiation_dependent()) {
+            if self._dependent_for_shape(rf) {
+                rf->cxx_dependent = true
+            }
+
             return &null
         }
 
@@ -2251,6 +2268,33 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
         *ok = true
         return self.dyn()->tu.as_value(elem)
+    }
+
+    /// The binders a C++ range-for over a dependent range can spell: one
+    /// name (a copy, `auto x`), one `*x` (the element's address) or `_`, or
+    /// plain names destructured (`auto [a, b]`). Anything else is reported
+    /// here, the iterable poisoned.
+    priv fn _dependent_for_shape(self, rf: unsafe *Statements::RangedForStmt) -> bool {
+        var n = rf->bindings.size()
+        for var i: usize = 0; i < n; ++i {
+            var unsafe *b = rf->bindings.get(i)
+            var plain = b->type_ == &null && b->shorthand.empty()
+            var ptr   = n == 1
+                && b->type_ == &null
+                && b->shorthand.has(Statements::BindingShorthand::Pointer)
+                && (!b->shorthand.has(Statements::BindingShorthand::Nullable))
+            if (!plain) && (!ptr) && (!b->is_discard) {
+                self.dyn()->sc->diag->report(
+                    DiagID::SC001E,
+                    b->range.start,
+                    "a loop over a C++ range that depends on a type parameter binds a name, '*name' or '_' (no type, no '?', '*' only on a single binder)",
+                ).first(b->range)->emit()
+                self.dyn()->poison_only(rf->iterable)
+                return false
+            }
+        }
+
+        return true
     }
 
     /// A record imported from a C++ header, or an instance of an imported

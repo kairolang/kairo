@@ -108,6 +108,7 @@ import AST::Node::Expressions::{
     AssignOperatorExpr,
     BinaryOperatorExpr,
     RangeExpr,
+    UnaryOperatorExpr,
 }
 import AST::Node::Types::{
     CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
@@ -130,6 +131,7 @@ import Sema::Type::Conversion::{
 }
 import Sema::Type::Substitution::Substitution
 import Sema::Type::TypeUtil::TypeUtil
+import Token::TokenKind::TokenKind
 
 /// \enum LitKind
 /// \brief An argument that is an untyped literal carries its shape so the
@@ -373,6 +375,9 @@ pub class Candidate {
     /// An imported template clang could not judge because an argument is a
     /// generic body's dependent type: its SFINAE verdict is the instance's.
     pub var sfinae_dep: bool = false
+    /// sfinae_dep, and the dependent argument is a dereference (`*slot` on
+    /// `slot: *T`): see OvlResult::deref_dep.
+    pub var deref_dep: bool = false
     /// Clang removed this imported template, but over a Kairo record's
     /// stand-in, which has the record's fields and none of its methods: the
     /// removal may be the stand-in's. Viable, and loses any tie to a
@@ -415,6 +420,11 @@ pub class OvlResult {
     /// Copied off the winner (Candidate::cxx_ret): call_result_type's answer
     /// where the declared return type has no Kairo shape.
     pub var cxx_ret: unsafe *Type = &null
+    /// Copied off the winner (Candidate::deref_dep): clang was not asked,
+    /// because an argument is a dereference of a pointer to the enclosing
+    /// generic's parameter, so an opaque declared return type is the
+    /// instance's to learn (call_result_type).
+    pub var deref_dep: bool = false
     fn OvlResult(self) { }
 }
 
@@ -786,6 +796,7 @@ pub class OverloadResolution {
         out.inout_params   = w->inout_params
         out.user_convs     = w->user_convs
         out.cxx_ret        = w->cxx_ret
+        out.deref_dep      = w->deref_dep
         return out
     }
 
@@ -1961,6 +1972,11 @@ pub class OverloadResolution {
             // C++ template. Flagged, so a tie it leaves defers (resolve_mixed).
             if t->is_dependent() || t->is_instantiation_dependent() {
                 c->sfinae_dep = true
+                var unsafe *ue = dyn_cast<UnaryOperatorExpr>(a->expr)
+                if ue != &null && ue->op_token.kind == TokenKind::OpStar {
+                    c->deref_dep = true
+                }
+
                 return
             }
 

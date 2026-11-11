@@ -5,8 +5,8 @@
 // is. `type Item impl Has<Self::Key>` is `Has<T::Key>` for `T::Item`, so
 // `d.item().key()` is a `T::Key`, read through Key's own bound
 // (`k.num()`); `type Item impl Into<V>` in `Source<V>` is `Into<i64>` for an `S
-// impl Source<i64>`. Such a bound used to be dropped (it was read only when
-// it was not dependent), leaving the member unresolvable.
+// impl Source<i64>`. Such a bound is not dropped (it is read even when
+// it is dependent), which would leave the member unresolvable.
 
 interface <K> Has { fn key(const self) -> K }
 interface Num { fn num(const self) -> i32 }

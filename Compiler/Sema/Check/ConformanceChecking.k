@@ -2852,6 +2852,26 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return NameLookup::representative(unsafe (f as unsafe *Decl))
         }
 
+        // Member lookup no longer returns an extension this TU does not
+        // import (P821), so the skip above never sees it: ask for the hidden
+        // extension's members directly, or the miss reads as a signature
+        // mismatch instead of "import its module here".
+        if self._hidden == &null {
+            var hid = cxx::std::vector<unsafe *Decl>()
+            self.ml.hidden_extension_members(x, self._name_of(m), unsafe &hid)
+            for var j: usize = 0; j < hid.size(); ++j {
+                var unsafe *hf = dyn_cast<Declarations::FunctionDecl>(hid[j])
+                if hf == &null || hf->is_poisoned() {
+                    continue
+                }
+
+                if self._signature_matches(hf, m, x, iface, idecl) {
+                    self._hidden = NameLookup::representative(unsafe (hf as unsafe *Decl))
+                    break
+                }
+            }
+        }
+
         return self._native_implementation(x, iface, idecl, m)
     }
 

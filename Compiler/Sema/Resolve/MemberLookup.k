@@ -398,6 +398,29 @@ pub class MemberLookup {
         return &null
     }
 
+    /// The members named \p name of the extension hidden_extension finds
+    /// for \p c, appended to \p out: what ConformanceChecking matches a
+    /// requirement against when lookup (which skips that extension) found
+    /// no witness, so the miss says "import it" rather than "no member".
+    fn hidden_extension_members(self,
+                                c:    unsafe *Type,
+                                name: DeclName,
+                                out:  unsafe *cxx::std::vector<unsafe *Decl>) {
+        var unsafe *e = self.hidden_extension(c, name)
+        if e == &null || out == &null {
+            return
+        }
+
+        var unsafe *cell = self.in_scope(unsafe (e as unsafe *DeclContext), name, self._spell(name))
+        if cell == &null {
+            return
+        }
+
+        for var i: usize = 0; i < cell->size(); ++i {
+            out->push_back(cell->get(i))
+        }
+    }
+
     /// # The lookup
 
     /// Every decl named \p name reachable from canonical type \p c: own

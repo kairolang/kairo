@@ -1,14 +1,14 @@
 // An import cycle is an ERROR under -fno-import-cycles (by default it is
 // the warning R058W and compiles: import_cycle.k): R058E at the
 // import that closes it, with a note at each import on the cycle, and a
-// nonzero exit. The dependency scan used to keep that edge, so no file on the
-// cycle was ever walked: `--type-check-only` printed nothing and exited 0, and
-// a build died in codegen (I006F) -- the ticket "[Driver] An import cycle
-// drops both user files: nothing is compiled, exit 0". Each case lives in
+// nonzero exit. The dependency scan keeps that edge, so a file on the
+// cycle is walked: `--type-check-only` does not print nothing and exit 0, and
+// a build does not die in codegen (I006F).
+// Each case lives in
 // Inputs/import_cycle/<case>/.
 //
 // Shapes: two files where the second imports the ENTRY back (fid 0, which
-// used to read as "unresolved" wherever an import fid was tested), three
+// does not read as "unresolved" wherever an import fid is tested), three
 // files, a file importing itself (with a fix-it that removes the import),
 // and a cycle through a `pub import`.
 

@@ -2,7 +2,7 @@
 // the definition, as a plain parameter's are (opaque_param_ops.k): with no
 // bound granting them they are the bound error naming the requirement, not
 // SC027E. An interpolation with no bound granting a string is
-// formatted per instance instead (decided 2026-11-03, FormatHole::deferred), so
+// formatted per instance instead (FormatHole::deferred), so
 // `formats` is clean; only a format spec on it is refused (SC080E). The
 // bounded forms compile and run in Codegen/packs/bound_conversions.k.
 fn <...T> casts(...args: T) {

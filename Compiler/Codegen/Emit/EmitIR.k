@@ -159,6 +159,7 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
+    BindingShorthand,
     BreakStmt,          CompoundStmt,   ConditionalStmt, ContinueStmt,      DeclStmt,
     ExpressionStmt,     IndexedForStmt, IterKind,        JumpIntrinsicStmt, LabelIntrinsicStmt,
     LoopStmt,           RangedForStmt,  ReturnStmt,      RuntimeAssertStmt, StaticAssertStmt,
@@ -1772,6 +1773,8 @@ pub class EmitIR {
                 var unsafe *rf = cast<RangedForStmt>(s)
                 if rf->iter_kind == IterKind::Pack {
                     self._pack_for(rf)
+                } else if rf->cxx_dependent {
+                    self._cxx_dependent_for(rf)
                 } else {
                     if !rf->is_eval {
                         self._ice(s->range, "EmitIR: ranged for; IterLowering owns it")
@@ -2648,6 +2651,61 @@ pub class EmitIR {
     /// `return true` from a copy, `break` `return false`, a `return` sets
     /// the function's flag (and value slot) and stops the fold, and the
     /// code after the outermost expansion returns.
+    /// A loop over an imported C++ range that depends on the generic's own
+    /// parameter (StmtTyping::_cxx_range, P476): C++'s range-for, which picks
+    /// begin()/end() per instance as every other member call on the range
+    /// is. A plain binder is a copy (`auto x`), `*x` the element's address,
+    /// several plain names a structured binding; the shapes StmtTyping lets
+    /// through.
+    priv fn _cxx_dependent_for(self, n: unsafe *RangedForStmt) {
+        var at = n->range
+        var s  = self._cg->sink
+        var nb = n->bindings.size()
+        var head = "auto&& __kairo_elem"
+        var ptr  = ""
+        if nb == 1 {
+            var unsafe *b = n->bindings.get(0)
+            if (!b->is_discard) && b->decl != &null {
+                var nm = self._spell.imm_name(b->decl->name.imm, self._owning_fid())
+                if b->shorthand.has(BindingShorthand::Pointer) {
+                    ptr = "auto* " + nm + " = __builtin_addressof(__kairo_elem);"
+                } else {
+                    head = "auto " + nm
+                }
+            } else {
+                head = "[[maybe_unused]] auto&& __kairo_elem"
+            }
+        } else {
+            head = "auto ["
+            for var i: usize = 0; i < nb; ++i {
+                var unsafe *b = n->bindings.get(i)
+                if i > 0 {
+                    head = head + ", "
+                }
+
+                if b->is_discard || b->decl == &null {
+                    head = head + f"__kairo_unused{i}"
+                } else {
+                    head = head + self._spell.imm_name(b->decl->name.imm, self._owning_fid())
+                }
+            }
+
+            head = head + "]"
+        }
+
+        s->spell(at, "for (" + head + " : ")
+        self.emit(n->iterable)
+        s->spell(at, ") {" + ptr)
+        var sl = self._ef_loops
+        self._ef_loops += 1 // its break/continue are this loop's, not an `eval for`'s fold.
+        for var i: usize = 0; i < n->body->body.size(); ++i {
+            self.emit(n->body->body[i])
+        }
+
+        self._ef_loops = sl
+        s->spell(at, "}")
+    }
+
     priv fn _pack_for(self, n: unsafe *RangedForStmt) {
         var at = n->range
         if n->bindings.size() != 1 {
@@ -6721,6 +6779,19 @@ pub class EmitIR {
         return b->info()->is_integer()
     }
 
+    /// A primitive whose `<=>` C++ answers with a `std::strong_ordering`: an
+    /// integer, `char` or `bool`. A float's is a `std::partial_ordering`,
+    /// whose unordered answer (NaN) has no Ordering variant, so it is left
+    /// as it was.
+    priv fn _cmp3_scalar(self, t: unsafe *Type) -> bool {
+        if self._wraps(t) {
+            return true
+        }
+
+        var unsafe *c = CXXSpell::strip_ref(t)
+        return c != &null && isa<BuiltinType>(c) && cast<BuiltinType>(c)->builtin == BuiltinKind::Bool
+    }
+
     priv fn _signed_int(self, t: unsafe *Type) -> bool {
         var unsafe *c = CXXSpell::strip_ref(t)
         if c == &null || !isa<BuiltinType>(c) {
@@ -7981,6 +8052,29 @@ pub class EmitIR {
             s->spell(n->range, ", ")
             self.emit(n->rhs)
             s->spell(n->range, "))")
+            return
+        }
+
+        if k == TokenKind::OpLessEqualGreater
+            && self._cmp3_scalar(n->lhs->type_)
+            && self._cmp3_scalar(n->rhs->type_) {
+            // A primitive `<=>` is the Ordering lang item (OperatorTyping),
+            // but C++'s answers a `std::strong_ordering`, which converts to no
+            // enum (P579). The sign of that one result picks the variant
+            // (-1 / 0 / 1, Lib/builtin/base/ordering.k): each operand is
+            // evaluated once and the lambda stays constant-evaluable.
+            // Parenthesized: as a subscript index, `v[[](...)]` opens a C++ attribute.
+            var unsafe *s = self._cg->sink
+            s->spell(
+                n->range,
+                "([](auto __kr) { return static_cast<" + self._spell._type(n->type_) +
+                    ">((__kr > 0) - (__kr < 0)); }((",
+            )
+
+            self.emit(n->lhs)
+            s->create(n->op_token)
+            self.emit(n->rhs)
+            s->spell(n->range, ")))")
             return
         }
 

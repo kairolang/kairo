@@ -89,8 +89,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    FunctionDecl, GenericParamDecl, InterfaceDecl, ParamDecl, TransferKind, TypeAliasDecl,
-    VariableDecl,
+    FunctionDecl, GenericParamDecl, InterfaceDecl, ModuleDecl, ParamDecl, TransferKind,
+    TypeAliasDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
     AlignOfExpr, CallExpr,     ClosureExpr,   ConstraintExpr,    NamedArgExpr, PackExpansionExpr,
@@ -785,6 +785,21 @@ pub class <T: type> CallTyping {
             rt = r->cxx_ret
         }
 
+        // The same opaque with a dereference of a pointer to the enclosing
+        // generic's parameter as argument (`cxx::std::move(*slot)` on `slot:
+        // *T`, Compiler/Memory/ArenaList.k): clang was never asked
+        // (_clang_substitute), and the declared spelling names the CALLEE's
+        // template parameters (`__libcpp_remove_reference_t<_Tp>&&`), which
+        // mean nothing at the call. Before P316 typed `*slot` as T the call
+        // deferred on an untyped argument; this restores exactly that (the
+        // local is `auto`, no cast spells `_Tp`). Only for the dereference:
+        // `move(a0)` on `a0: A0` has always carried the opaque, and an
+        // enclosing Kairo call (ASTContext's `_with_cleanup(&list, ...)`)
+        // relies on it staying typed.
+        if r->cxx_ret == &null && r->deref_dep && f->is_imported() && has_opaque_ffi(rt) {
+            return &null
+        }
+
         // A non-template C++ function declared `auto` (`auto* as_array()`
         // on toml++'s node_view<node>) imports its placeholder, an opaque
         // nothing can use: clang deduces it here, at the first call (P827).
@@ -1365,6 +1380,30 @@ pub class <T: type> CallTyping {
 
             if isa<GenericParamDecl>(d) {
                 return self._param_ctor_call(n, cast<GenericParamDecl>(d))
+            }
+
+            // A module is not callable. `import A::B::both` with both
+            // A/B/both.k and a `both` in A/B.k binds the MODULE (imports.mdx,
+            // "Resolution with `::`": the module path is tried first), and the
+            // call reached codegen as CL001E "no member named '_'" (P507).
+            if isa<ModuleDecl>(d) {
+                var sp = self.dyn()->sc->ctx->get_spelling(id->name)
+                var b  = self.dyn()->sc->diag->report(
+                    DiagID::SC001E,
+                    n->range.start,
+                    f"'{sp}' is a module, not a function",
+                )
+
+                b.first(callee->range)
+                b.note(
+                    d->range.start,
+                    "\x27" + sp + "\x27 is this module: where a module and a declaration share a name, an import path names the module and a braced import (`::{" + sp + "}`) names the declaration",
+                )
+                b.emit()
+                id->poison()
+                n->poison()
+                self._type_args_blind(n)
+                return &null
             }
 
             // a value: must be a function pointer.

@@ -67,7 +67,7 @@
 // DISJOINT-DAG: d.k:1:1: warning [R058W]: import cycle: c.k -> d.k -> c.k
 // RUN: %t.d/disjoint.exe; test $? -eq 33
 
-// A type error in a file on the cycle is seen -- it used to vanish with the
+// A type error in a file on the cycle is seen -- it does not vanish with the
 // file -- and the exit is nonzero.
 // RUN: cd %S/Inputs/import_cycle/error && not %kairo a.k --type-check-only 2>&1 | %FileCheck %s --check-prefix=ERR
 // ERR: a.k:3:{{[0-9]+}}: error [{{[A-Z]+[0-9]+}}E]:

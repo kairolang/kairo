@@ -1,9 +1,9 @@
 // A library's name is read from its module.k's FIRST declaration only, by
 // the resolver, before any parse (SearchRoot.k read_module_pin); the parser
 // accepts a bare `module foo` anywhere at top level. A pin anywhere else in
-// a module.k used to be accepted with no word and ignored: late/module.k
-// below kept its folder name, and the only symptom was the importer's
-// R011E. Now ModulePinCheck asks the resolver's own scanner whether the pin
+// a module.k is not accepted with no word and ignored (late/module.k
+// below would keep its folder name, the only symptom the importer's
+// R011E): ModulePinCheck asks the resolver's own scanner whether the pin
 // counts. A second pin, which the parser dropped, is an error as well.
 
 // --- lit wiring -----------------------------------------------------------

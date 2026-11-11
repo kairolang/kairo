@@ -23,8 +23,10 @@
 ///   kcc answers `--help` and `--version` itself; clang's own would describe
 ///   a different compiler. `-###` prints the jobs without running them:
 ///   each cc1 line, then the link (kairo's --print-jobs). The probes
-///   `-dumpversion`, `-print-resource-dir` and `--print-libgcc-file-name`
-///   are answered by clang's driver for kairo's target (--print-clang-query),
+///   `-dumpversion`, `-dumpmachine`, `-print-resource-dir`,
+///   `--print-libgcc-file-name`, `-print-target-triple`,
+///   `-print-effective-triple`, `-print-multiarch`, `-print-search-dirs`,
+///   `-print-prog-name=X` and `-print-file-name=X` are answered by clang's driver for kairo's target (--print-clang-query),
 ///   so a build system can configure with kcc as its compiler.
 ///
 ///   Startup is Driver/Runtime.k's init_runtime, shared with Kairo.k.
@@ -218,7 +220,7 @@ pub fn _kcc_words(argc:       i32,
 
         // Probes (CMake and friends ask the compiler for these): answered by
         // clang's driver itself, with no input (--print-clang-query).
-        if *w == "-dumpversion" || *w == "--print-libgcc-file-name" || *w == "-print-resource-dir" {
+        if _kcc_is_clang_query(*w) {
             out.push_back("--print-clang-query")
         }
 
@@ -236,6 +238,31 @@ pub fn _kcc_words(argc:       i32,
     }
 
     return true
+}
+
+/// \brief whether \p w is a driver probe clang answers with no input (its
+///        HandleImmediateArgs): -dumpversion and the -print-* family.
+/// \details compiler-rt's configure asks for -print-target-triple to
+///          normalise its triple (P607); the rest are what CMake, autoconf
+///          and libtool send. Both clang spellings of each (`-x` and `--x`)
+///          are accepted, as clang accepts them.
+fn _kcc_is_clang_query(w: string) -> bool {
+    if w == "-dumpversion" || w == "-dumpmachine" {
+        return true
+    }
+
+    var n = w
+    if w.starts_with("--") {
+        n = w.subslice(1, w.length() - 1)
+    }
+
+    if n == "-print-libgcc-file-name" || n == "-print-resource-dir"
+        || n == "-print-target-triple" || n == "-print-effective-triple"
+        || n == "-print-multiarch" || n == "-print-search-dirs" {
+        return true
+    }
+
+    return n.starts_with("-print-prog-name=") || n.starts_with("-print-file-name=")
 }
 
 pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {

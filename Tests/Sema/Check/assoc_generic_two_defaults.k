@@ -3,7 +3,7 @@
 // default applies is decided on the types they read as for the conformer:
 // `A<i32>, B<i32>` agree on i32 (`Same` conforms), `A<i32>, B<i64>` do not
 // (`Split` takes neither, interfaces.md, "Associated types and
-// inheritance"). Compared as written, U and V were always two defaults.
+// inheritance"). Compared as written, U and V would always be two defaults.
 
 interface <T> Source { type Item  fn get(const self) -> Self::Item }
 interface <U> A derives Source<U> { type Item = U }

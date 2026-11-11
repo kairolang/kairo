@@ -10,7 +10,7 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // A file that names f256 (the keyword) or f512 (here only a literal's
-// suffix) imports their class files implicitly (P723): the engine is in the
+// suffix) imports their class files implicitly: the engine is in the
 // graph, and the class's name binds with no import written, as it did when
 // the builtin root re-exported it.
 // RUN: { %kairo %s --type-check-only --print-imports 2>&1 || true; } | %FileCheck %s

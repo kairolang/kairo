@@ -902,6 +902,11 @@ pub class RangedForStmt derives Stmt {
     pub var cxx_cond:       unsafe *Expr          = &null ///< `__it != __end`, typed.
     pub var cxx_deref:      unsafe *Expr          = &null ///< `*__it`, typed: the element place.
     pub var cxx_next:       unsafe *Expr          = &null ///< `++__it`, typed.
+    /// The iterable is an imported C++ template instance over the generic's
+    /// own parameter (`cxx::std::vector<T>`): its begin()/end() are C++'s to
+    /// pick per instance, as any member call on it is, so EmitIR spells a C++
+    /// range-for and the binder stays untyped (P476). No other Cxx piece is set.
+    pub var cxx_dependent: bool = false
 
     pub static fn create(ctx:      *ASTContext,
                          range:    SourceRange,
