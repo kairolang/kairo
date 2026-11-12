@@ -1509,9 +1509,16 @@ fn rawc(p: unsafe *const i32) -> i32 { return 0 }
 
 fn maybe(p: *i32?) -> i32 { return 0 }
 
+fn maybec(p: *const i32?) -> i32 { return 0 }
+
 fn two(p: *i32, q: *const i32) -> i32 { return *q }
 
 type CPtr = *const i32
+
+class Cell {
+    pub var v: i32
+    pub fn Cell(self, @inout x: i32, p: *const i32) { self.v = *p; x = 0 }
+}
 
 fn peek_alias(p: CPtr) -> i32 { return *p }
 
@@ -1552,6 +1559,8 @@ fn main() -> i32 {
     bump(x: &n)
     var w = two(q: &n, p: &vs[0])
     var al = peek_alias(&n)
+    var ce = Cell(&n, &k)
+    var mc = maybec(&n)
     return stale() + fresh() + n + k + a + b + r1 + r2 + g + h + q + w + al
 }
 """
@@ -1998,6 +2007,12 @@ def styles(exe, root):
             check("styles: & of an element to *T is a pointer that mutates", t == "operator" and {"pointer", "mutates"} <= m and "readonly" not in m, (t, m))
             t, m = amp("peek_alias(&n)", 11)
             check("styles: & to an alias of *const T is a readonly pointer (the canonical type is read)", t == "operator" and {"pointer", "readonly"} <= m and "mutates" not in m, (t, m))
+            t, m = amp("maybec(&n)", 7)
+            check("styles: & to *const T? is a readonly pointer", t == "operator" and {"pointer", "readonly"} <= m and "mutates" not in m, (t, m))
+            t, m = amp("Cell(&n, &k)", 5)
+            check("styles: & to a constructor's @inout parameter is inout", t == "operator" and {"inout", "mutates"} <= m and "pointer" not in m, (t, m))
+            t, m = amp("Cell(&n, &k)", 9)
+            check("styles: & to a constructor's *const T parameter is a readonly pointer", t == "operator" and {"pointer", "readonly"} <= m and "mutates" not in m, (t, m))
             t, m = amp("unsafe *i32 = unsafe &n", 21)
             check("styles: an & that is not an argument carries no parameter kind", not ({"pointer", "inout"} & m), (t, m))
             check("styles: a call to a panic function panics (asked for)", "panics" in tok("risky(1)")[2], tok("risky(1)"))
