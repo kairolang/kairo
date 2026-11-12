@@ -37,6 +37,7 @@ ffi "c++" import "optional"
 ffi "c++" import "string"
 ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "chrono"
+ffi "c" import "kals_io.h"
 
 import API::FS::LinkFS
 import DocumentStore::{
@@ -94,6 +95,7 @@ pub fn server_main(const self_path: string) -> i32 {
     }
 
     s->exe = self_path
+    s->read_debug_knobs_()
     s->tmp = LinkFS::temp_dir("kals")
     if s->tmp.empty() {
         io::eprintln("kals: cannot create a scratch directory")
@@ -103,12 +105,24 @@ pub fn server_main(const self_path: string) -> i32 {
     return s->run()
 }
 
+/// Where the LSP session is (the protocol's lifecycle): before the
+/// `initialize` request only `exit` is taken; after its answer requests are
+/// served; `initialized` lets the server send notifications of its own;
+/// after `shutdown` nothing runs and only `exit` is taken.
+pub enum Session derives u8 {
+    AwaitInit,
+    Initializing,
+    Running,
+    ShutDown,
+}
+
 pub class Server {
     pub var t:       Transport
     pub var docs:    DocumentStore
     pub var project: Project
 
     pub var entries: [Entry]
+    pub var entry_seq: u64 = 0  ///< the last Entry::id handed out
     pub var jobs:    [Job]
     pub var parked:  [Parked]
 
@@ -116,14 +130,12 @@ pub class Server {
     pub var tmp:  string = ""  ///< scratch directory, removed at exit
     pub var root: string = ""  ///< workspace folder
 
-    pub var turn: u64 = 0      ///< loop turns so far; a run's length is measured in them
     pub var rev:  u64 = 1      ///< bumped on every change to any buffer or file
     pub var seq:  u64 = 0      ///< names scratch files and outgoing requests
 
-    pub var ready:           bool = false  ///< `initialized` arrived: notifications may be sent
+    pub var session:         Session = Session::AwaitInit
     pub var quit:            bool = false
     pub var exit_code:       i32  = 1
-    pub var shutdown_seen:   bool = false
     pub var refresh_tokens:  bool = false  ///< client honours semanticTokens/refresh
     pub var refresh_inlays:  bool = false
     pub var highlight_panics: bool = false ///< initializationOptions.highlightPanics: send `panics`
@@ -206,7 +218,64 @@ pub class Server {
     pub var comp_wait:    string = ""
     pub var comp_wait_id: string = ""
 
+    /// Worker launches refused in a row, and the time before which none is
+    /// tried again (launch_job): a binary that cannot start is retried with
+    /// a backoff, not on every loop turn.
+    pub var launch_refusals: u32 = 0
+    pub var launch_after_ms: i64 = 0
+
+    /// KALS_DEBUG_LAUNCH_FAIL (a test knob, smoke.py): `kind=n,...` refuses
+    /// the next n launches of each kind (index, syntax, header, complete,
+    /// syntax-server) as if the process could not start.
+    pub var dbg_fail_kind: [string]
+    pub var dbg_fail_left: [u32]
+
     fn Server(self) = default
+
+    /// `initialized` arrived: notifications of the server's own may be sent.
+    fn ready(const self) -> bool {
+        return (self.session == Session::Running) || (self.session == Session::ShutDown)
+    }
+
+    /// Ends all work: parked requests and a waiting completion are answered
+    /// "cancelled", every worker is killed and reaped and its progress
+    /// ended, the persistent and live workers are stopped. For `shutdown`
+    /// and for the loop's end (an `exit` without one, or the editor gone),
+    /// before the scratch directory the workers write into is removed.
+    fn stop_work_(self) {
+        for var q: usize = 0; q < self.parked.size(); ++q {
+            var pd = JsonDoc()
+            if pd.parse(self.parked[q].msg) {
+                self.respond_error(pd.dump(pd.get(pd.root, "id")), ERR_REQUEST_CANCELLED, "cancelled: the server is shutting down")
+            }
+        }
+
+        self.parked.clear()
+        if !self.comp_wait_id.empty() {
+            self.respond_error(self.comp_wait_id, ERR_REQUEST_CANCELLED, "cancelled: the server is shutting down")
+        }
+
+        self.comp_wait    = ""
+        self.comp_wait_id = ""
+        for var q: usize = 0; q < self.jobs.size(); ++q {
+            unsafe kals_kill(self.jobs[q].pi.Pid as i64)
+            var emsg: cxx::std::string
+            llvm::sys::Wait(self.jobs[q].pi, cxx::std::optional<u32>(cxx::std::nullopt), unsafe &emsg)
+            if (self.jobs[q].kind == JobKind::Complete) && (!self.jobs[q].cancelled) {
+                self.respond_error(self.jobs[q].id, ERR_REQUEST_CANCELLED, "cancelled: the server is shutting down")
+            }
+
+            if !self.jobs[q].progress.empty() {
+                self.progress(self.jobs[q].progress, "end", "", -1)
+            }
+
+            self.trace(f"stopped job rev={self.jobs[q].rev} kind=" + job_kind_name(self.jobs[q].kind))
+        }
+
+        self.jobs.clear()
+        self.syntax_stop()
+        self.live_stop_all()
+    }
 
     // --- wire ------------------------------------------------------------
 
@@ -236,6 +305,40 @@ pub class Server {
 
         self.trace(f"<- {id} {method} " + about)
 
+        // The protocol's lifecycle. `exit` is taken in any state; before
+        // `initialize` a request is answered ServerNotInitialized and a
+        // notification dropped; after `shutdown` a request is answered
+        // InvalidRequest (and nothing else is done).
+        if method == M_EXIT {
+            self.quit = true
+            if self.session == Session::ShutDown {
+                self.exit_code = 0
+            }
+
+            return
+        }
+
+        if (self.session == Session::AwaitInit) && (method != M_INITIALIZE) {
+            if has_id {
+                self.respond_error(id, ERR_SERVER_NOT_INITIALIZED, "the server is not initialized: send initialize first")
+            }
+
+            return
+        }
+
+        if self.session == Session::ShutDown {
+            if has_id {
+                self.respond_error(id, ERR_INVALID_REQUEST, "the server is shut down: only exit is taken")
+            }
+
+            return
+        }
+
+        if (method == M_INITIALIZE) && (self.session != Session::AwaitInit) {
+            self.respond_error(id, ERR_INVALID_REQUEST, "initialize may only be sent once")
+            return
+        }
+
         if method == M_INITIALIZE {
             // What the client says it supports decides what it will ask for;
             // when a feature never shows up in an editor, this is the first
@@ -252,11 +355,12 @@ pub class Server {
             self.trace(have)
             self.trace("client: " + d.dump(d.get(params, "clientInfo")))
             self.initialize(&d, params, id)
+            self.session = Session::Initializing
             return
         }
 
         if method == M_INITIALIZED {
-            self.ready = true
+            self.session = Session::Running
             self.say(MSG_INFO, "kals started in " + self.root)
             self.load_project()
             self.br_rescan = true
@@ -277,17 +381,9 @@ pub class Server {
         }
 
         if method == M_SHUTDOWN {
-            self.shutdown_seen = true
+            self.stop_work_()
+            self.session = Session::ShutDown
             self.respond(id, "null")
-            return
-        }
-
-        if method == M_EXIT {
-            self.quit = true
-            if self.shutdown_seen {
-                self.exit_code = 0
-            }
-
             return
         }
 
@@ -501,7 +597,7 @@ pub class Server {
 
             self.parked = kept
             for var q: usize = 0; q < self.jobs.size(); ++q {
-                if (self.jobs[q].kind == JOB_COMPLETE()) && (self.jobs[q].id == want) && (!self.jobs[q].cancelled) {
+                if (self.jobs[q].kind == JobKind::Complete) && (self.jobs[q].id == want) && (!self.jobs[q].cancelled) {
                     self.jobs[q].cancelled = true
                     self.respond_error(want, ERR_REQUEST_CANCELLED, "cancelled")
                 }
@@ -575,7 +671,10 @@ pub class Server {
                 // The persistent syntax pass starts on the change itself, no
                 // debounce; the worker being busy is the only thing it waits
                 // for (one request in flight).
-                self.syntax_kick()
+                if self.session != Session::ShutDown {
+                    self.syntax_kick()
+                }
+
                 continue // drain the queue before starting anything else
             }
 
@@ -583,7 +682,12 @@ pub class Server {
                 break // the editor went away without `exit`
             }
 
-            self.turn += 1
+            // Shut down: nothing more is started or answered (stop_work_
+            // ended what there was); only `exit` is waited for.
+            if self.session == Session::ShutDown {
+                continue
+            }
+
             self.reap()
             self.flush_trace()
 
@@ -591,8 +695,8 @@ pub class Server {
             // slow; what is parked on it is answered now, from what there is.
             var now = now_ms()
             for var q: usize = 0; q < self.jobs.size(); ++q {
-                var je = self.jobs[q].entry
-                if (self.jobs[q].kind == JOB_INDEX()) && (je < self.entries.size()) && (!self.entries[je].slow)
+                var je = self.entry_by_id(self.jobs[q].entry_id)
+                if (self.jobs[q].kind == JobKind::Index) && (je != usize::MAX) && (!self.entries[je].slow)
                     && ((now - self.jobs[q].started_ms) > SLOW_RUN_MS) {
                     self.entries[je].slow = true
                     self.retry_parked(false)
@@ -608,13 +712,12 @@ pub class Server {
             // The fallback path (no persistent worker): the syntax-only pass
             // of each edited buffer as a process, on its own (shorter)
             // debounce, one at a time per buffer.
-            if self.syn.failed && ((now - self.last_change_ms) >= self.syntax_ms) {
+            if self.syn.failed() && ((now - self.last_change_ms) >= self.syntax_ms) {
                 // At most two at once: each is a compiler process (about
                 // 190 MB in a debug build), and a change that touches many
                 // buffers (a rename) must not start one per buffer.
                 for var k: usize = 0; k < self.docs.docs.size(); ++k {
-                    if (!self.docs.docs[k].syn_running) && (self.docs.docs[k].changed_at > self.docs.docs[k].syn_started)
-                        && (self.running(JOB_SYNTAX()) < MAX_SYNTAX_PASSES) {
+                    if self.docs.docs[k].syn_due() && (self.running(JobKind::Syntax) < MAX_SYNTAX_PASSES) {
                         self.start_syntax(k)
                     }
                 }
@@ -652,7 +755,7 @@ pub class Server {
                     self.bridge_scan_()
                 }
 
-                if self.running(JOB_HEADER()) == 0 {
+                if self.running(JobKind::Header) == 0 {
                     var b = self.bridge_next_()
                     if b != usize::MAX {
                         self.start_header_(b)
@@ -669,7 +772,7 @@ pub class Server {
                 }
             }
 
-            if (!self.comp_wait.empty()) && (self.running(JOB_COMPLETE()) == 0) {
+            if (!self.comp_wait.empty()) && (self.running(JobKind::Complete) == 0) {
                 var m = self.comp_wait
                 self.comp_wait    = ""
                 self.comp_wait_id = ""
@@ -681,8 +784,7 @@ pub class Server {
             }
         }
 
-        self.syntax_stop()
-        self.live_stop_all()
+        self.stop_work_()
         if !self.tmp.empty() {
             Path::remove_tree(self.tmp)
         }

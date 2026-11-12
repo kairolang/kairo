@@ -800,10 +800,13 @@ extend Server {
     }
 
     fn start_header_(self, b: usize) {
+        if self.launch_held() {
+            return // still due
+        }
+
         self.docs.sync_all()
         var j = Job()
-        j.kind  = JOB_HEADER()
-        j.entry = b
+        j.kind  = JobKind::Header
         j.path  = self.br_files[b]
         j.out   = self.scratch(".json")
         j.log   = self.scratch(".log")
@@ -832,19 +835,9 @@ extend Server {
 
         argv.push_back("--as-module")
         for var i: usize = 0; i < self.docs.docs.size(); ++i {
-            if (self.docs.docs[i].tmp_rev != self.docs.docs[i].revision) || self.docs.docs[i].tmp_path.empty() {
-                if !self.docs.docs[i].tmp_path.empty() {
-                    self.garbage.push_back(self.docs.docs[i].tmp_path)
-                }
-
-                self.docs.docs[i].tmp_path = self.scratch(".k")
-                self.docs.docs[i].tmp_rev  = self.docs.docs[i].revision
-                LinkFS::write(self.docs.docs[i].tmp_path, self.docs.docs[i].text)
-            }
-
             argv.push_back("--overlay")
             argv.push_back(self.docs.docs[i].path)
-            argv.push_back(self.docs.docs[i].tmp_path)
+            argv.push_back(self.overlay_of_(i))
         }
 
         argv.push_back("--")
@@ -863,12 +856,13 @@ extend Server {
         argv.push_back("--emit-headers-layout")
         argv.push_back(self.br_files[b])
 
-        self.br_dirty[b] = false
-        if !self.launch(&argv, j.log, &j.pi) {
-            self.log("cannot start the header worker (" + self.exe + ")")
+        // Clean only once its job is running: a refused launch leaves the
+        // row due, and bridge_next_ offers it again after the backoff.
+        if self.launch_job(&argv, &j, "header") != LaunchResult::Started {
             return
         }
 
+        self.br_dirty[b]   = false
         self.br_running[b] = true
         self.trace("bridge: header start " + j.path)
         self.jobs.push_back(j)

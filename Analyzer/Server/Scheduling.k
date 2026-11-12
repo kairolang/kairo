@@ -69,25 +69,55 @@ import Server::Tokens::*
 import Server::Workers::*
 import Server::LiveIndex::*
 
-pub fn JOB_INDEX() -> u32 {
-    return 0
+/// What a worker process in flight is for. A job's kind never changes; the
+/// fields of Job each kind uses are marked with it.
+pub enum JobKind derives u8 {
+    Index,     ///< a run of an entry (`kals --worker`): its snapshot
+    Complete,  ///< a completion request's run on a marked copy of the buffer
+
+    /// A syntax-only pass over one buffer (`kals --worker ... --syntax-only`):
+    /// its parse errors and lexical tokens, long before the Sema run lands.
+    Syntax,
+
+    /// The clangd bridge's header job (LanguageServer.md section 15): one `.k`
+    /// file a C or C++ source includes, checked as a module, its interop header
+    /// written with `#line` directives into `<project>/.kairo/clangd/`.
+    Header,
 }
 
-pub fn JOB_COMPLETE() -> u32 {
-    return 1
+/// The name of \p k in the trace.
+pub fn job_kind_name(k: JobKind) -> string {
+    if k == JobKind::Index {
+        return "index"
+    }
+
+    if k == JobKind::Complete {
+        return "complete"
+    }
+
+    if k == JobKind::Syntax {
+        return "syntax"
+    }
+
+    return "header"
 }
 
-/// A syntax-only pass over one buffer (`kals --worker ... --syntax-only`):
-/// its parse errors and lexical tokens, long before the Sema run lands.
-pub fn JOB_SYNTAX() -> u32 {
-    return 2
+/// Whether an entry can answer a request now (Server::answerability;
+/// LanguageServer.md section 9).
+pub enum Answer derives u8 {
+    Fresh,          ///< its last run is of the current text: answer
+    StaleSlow,      ///< a run is due or running, and runs are slow: answer from the last index
+    StaleWaitable,  ///< a run is due or running, and fast: park the request
+    FirstPending,   ///< no index yet, and its first is due or running: wait for it
+    NoEntry,        ///< no entry holds the file yet (one is being tried): park
 }
 
-/// The clangd bridge's header job (LanguageServer.md section 15): one `.k`
-/// file a C or C++ source includes, checked as a module, its interop header
-/// written with `#line` directives into `<project>/.kairo/clangd/`.
-pub fn JOB_HEADER() -> u32 {
-    return 3
+/// What Server::launch_job did with a worker. A start function makes its
+/// owner's "started" transition only on Started; Refused leaves the work
+/// due, to be tried again after the launch backoff.
+pub enum LaunchResult derives u8 {
+    Started,
+    Refused,
 }
 
 /// Milliseconds on a monotonic clock: debounce deadlines and run lengths.
@@ -104,24 +134,49 @@ pub fn now_us() -> i64 {
     return d.count() as i64
 }
 
+/// The persistent syntax worker's state (SyntaxChild::state).
+pub enum SynWorker derives u8 {
+    NotRunning,
+    Idle,
+    Busy,
+    Failed,
+}
+
 /// The persistent syntax worker (`kals --worker --syntax-server`, section
 /// 11 item 2a): one process, fed buffers over its stdin, answering on its
 /// stdout. One request in flight at a time: a second write while it is
 /// still answering the first could fill both pipes and deadlock the two.
 pub class SyntaxChild {
-    pub var pid:      i64  = -1     ///< -1: not running
+    /// NotRunning -> Idle (spawned) or Failed; Idle -> Busy (a request
+    /// sent); Busy -> Idle (answered) or, lost (EOF, a timeout), stopped
+    /// and spawned again or Failed past SYNTAX_SERVER_MAX_RESTARTS.
+    /// Failed is for the session: the per-process path takes every pass.
+    pub var state:    SynWorker = SynWorker::NotRunning
+    pub var pid:      i64  = -1     ///< Idle and Busy: the process
     pub var t:        Transport     ///< over its pipes (fd_in, fd_out)
     pub var passes:   u64  = 0      ///< answers since it started: it is recycled (Tuning.k)
     pub var restarts: u64  = 0      ///< deaths and timeouts: past the cap, the per-process path only
-    pub var failed:   bool = false  ///< no pipes on this platform, or it keeps dying
 
-    pub var busy:    bool   = false ///< a request is in flight
+    /// Busy only: the request in flight.
     pub var id:      i64    = 0     ///< its id
     pub var path:    string = ""    ///< its buffer
     pub var rev:     u64    = 0     ///< the server revision it saw
     pub var sent_ms: i64    = 0
 
     fn SyntaxChild(self) = default
+
+    fn running(const self) -> bool {
+        return (self.state == SynWorker::Idle) || (self.state == SynWorker::Busy)
+    }
+
+    fn busy(const self) -> bool {
+        return self.state == SynWorker::Busy
+    }
+
+    /// No pipes on this platform, or it keeps dying.
+    fn failed(const self) -> bool {
+        return self.state == SynWorker::Failed
+    }
 }
 
 /// A request sent to a live index worker and not answered yet.
@@ -172,41 +227,46 @@ pub class LiveChild {
 
 /// A worker process in flight.
 pub class Job {
-    pub var kind:   u32    = 0
-    pub var entry:  usize  = 0
+    pub var kind:   JobKind = JobKind::Index
+
+    /// Index, Complete: the Entry::id it runs for. An id, not an
+    /// index into Server::entries: load_project rebuilds that list while
+    /// jobs are in flight, and a result whose entry is gone is dropped
+    /// (Server::entry_by_id) instead of landing in whichever entry took
+    /// its old place.
+    pub var entry_id: u64  = 0
     pub var pi:     llvm::sys::ProcessInfo
     pub var out:    string = ""     ///< the JSON the worker writes
     pub var log:    string = ""     ///< its stdout and stderr
     pub var rev:    u64    = 0      ///< server revision the run saw
-    pub var began:  u64    = 0      ///< loop turn the run started on
-    pub var id:     string = ""     ///< JOB_COMPLETE: the request id, as JSON
-    pub var path:   string = ""     ///< JOB_COMPLETE: the buffer completed in
-    pub var member: bool   = false  ///< JOB_COMPLETE: after `.`, `->` or `::`
-    pub var marked: string = ""     ///< JOB_COMPLETE: the marked copy of the buffer
-    pub var edit:   string = ""     ///< JOB_COMPLETE: the range an accepted item replaces, as JSON
-    pub var cancelled: bool = false ///< JOB_COMPLETE: already answered "cancelled"; drop the result
+    pub var id:     string = ""     ///< Complete: the request id, as JSON
+    pub var path:   string = ""     ///< Complete: the buffer completed in
+    pub var member: bool   = false  ///< Complete: after `.`, `->` or `::`
+    pub var marked: string = ""     ///< Complete: the marked copy of the buffer
+    pub var edit:   string = ""     ///< Complete: the range an accepted item replaces, as JSON
+    pub var cancelled: bool = false ///< Complete: already answered "cancelled"; drop the result
     pub var started_ms: i64 = 0
-    pub var rooted: bool = true    ///< JOB_INDEX: run with `--root` (worker_argv)
+    pub var rooted: bool = true    ///< Index: run with `--root` (worker_argv)
 
-    /// JOB_INDEX: killed because its entry changed under it (touch). Its
+    /// Index: killed because its entry changed under it (touch). Its
     /// result is dropped, and its exit is not a crash to report.
     pub var stale: bool = false
 
-    /// JOB_INDEX: the work-done progress token shown for this run (empty:
+    /// Index: the work-done progress token shown for this run (empty:
     /// none), the file the worker counts checked files into, and the last
     /// count reported.
     pub var progress:  string = ""
     pub var prog_file: string = ""
     pub var prog_n:    i64    = -1
 
-    /// JOB_INDEX: each overlaid buffer's path and the text it was handed
+    /// Index: each overlaid buffer's path and the text it was handed
     /// as, captured when the run starts. The buffer has usually moved on by
     /// the time the run lands, and an index is only ever mapped onto the
     /// text it read (Document::idx_text).
     pub var text_paths: [string]
     pub var texts:      [string]
 
-    /// JOB_INDEX: the answer of a live index worker, installed through
+    /// Index: the answer of a live index worker, installed through
     /// finish_index like a run's output: what the worker did (`full`: the
     /// whole graph; `refresh`: the files below), how many files it
     /// re-checked, and how many are still to come.
@@ -221,6 +281,12 @@ pub class Job {
 
 /// One entry point: its command, its last snapshot, and how stale that is.
 pub class Entry {
+    /// Stable for the life of the entry, never reused (Server::entry_seq):
+    /// what a job names its entry by. 0 is no entry.
+    pub var id:    u64    = 0
+
+    /// The entry file. Empty: retired (an ad-hoc entry a project entry now
+    /// answers for, Server::retire_); it keeps its place in the list.
     pub var entry: string = ""
     pub var dir:   string = ""
     pub var args:  [string]
@@ -314,13 +380,69 @@ pub class Entry {
 /// A request waiting for a fresh snapshot.
 pub class Parked {
     pub var msg:   string = ""
-    pub var turns: u32    = 0
     pub var since: i64    = 0   ///< now_ms() when it was parked
 
     fn Parked(self) = default
 }
 
 extend Server {
+    /// Adds \p e to the entry list under a new id; its index.
+    fn add_entry_(self, @inout e: Entry) -> usize {
+        self.entry_seq += 1
+        e.id = self.entry_seq
+        self.entries.push_back(e)
+        return self.entries.size() - 1
+    }
+
+    /// The index of the live (not retired) entry with id \p id, or
+    /// usize::MAX: the project was reloaded, or the entry retired, under
+    /// whoever holds the id.
+    fn entry_by_id(const self, id: u64) -> usize {
+        if id == 0 {
+            return usize::MAX
+        }
+
+        for var i: usize = 0; i < self.entries.size(); ++i {
+            if (self.entries[i].id == id) && (!self.entries[i].entry.empty()) {
+                return i
+            }
+        }
+
+        return usize::MAX
+    }
+
+    /// Kills every index run of entry \p id (0: of every entry). Its result
+    /// is dropped as a stale run's is, and reap still ends its progress.
+    fn disown_runs_(self, id: u64) {
+        for var q: usize = 0; q < self.jobs.size(); ++q {
+            if (self.jobs[q].kind != JobKind::Index) || self.jobs[q].stale {
+                continue
+            }
+
+            if (id == 0) || (self.jobs[q].entry_id == id) {
+                self.jobs[q].stale = true
+                self.trace(f"index disowned entry_id={self.jobs[q].entry_id} rev={self.jobs[q].rev}")
+                unsafe kals_kill(self.jobs[q].pi.Pid as i64)
+            }
+        }
+    }
+
+    /// Retires ad-hoc entry \p k: a project entry's graph holds its file
+    /// now and answers for it. Its diagnostics are cleared and its run in
+    /// flight, if any, is killed and disowned (entry_by_id no longer finds
+    /// it), so nothing it computed lands or is published.
+    fn retire_(self, k: usize) {
+        self.clear_published_(k)
+        self.disown_runs_(self.entries[k].id)
+        self.trace("entry retired " + self.entries[k].entry)
+        self.entries[k].files.clear()
+        self.entries[k].entry    = ""
+        self.entries[k].has_snap = false
+        self.entries[k].has_idx  = false
+        self.entries[k].dirty    = false
+        self.entries[k].running  = false
+    }
+
     fn clear_published_(self, ei: usize) {
         for var i: usize = 0; i < self.entries[ei].published.size(); ++i {
             var w = JsonWriter()
@@ -453,8 +575,7 @@ extend Server {
         e.args       = self.project.default_args
         e.adhoc      = true
         e.change_rev = self.rev
-        self.entries.push_back(e)
-        return self.entries.size() - 1
+        return self.add_entry_(&e)
     }
 
     /// The entry that already answers for buffer \p di as it is: its last
@@ -520,12 +641,12 @@ extend Server {
         // to be slow, and never an entry's first: a fast one is done before
         // the kill would matter, and a first index has nothing older to show.
         for var q: usize = 0; q < self.jobs.size(); ++q {
-            if (self.jobs[q].kind != JOB_INDEX()) || self.jobs[q].stale {
+            if (self.jobs[q].kind != JobKind::Index) || self.jobs[q].stale {
                 continue
             }
 
-            var je = self.jobs[q].entry
-            if (je < self.entries.size()) && self.entries[je].ran && self.entries[je].slow
+            var je = self.entry_by_id(self.jobs[q].entry_id)
+            if (je != usize::MAX) && self.entries[je].ran && self.entries[je].slow
                 && self.entries[je].holds(path) {
                 self.jobs[q].stale = true
                 self.trace(f"index kill entry={self.entries[je].entry} rev={self.jobs[q].rev}")
@@ -591,7 +712,7 @@ extend Server {
         var since = now_ms() - self.last_change_ms
         var syn_due = false
         for var k: usize = 0; k < self.docs.docs.size(); ++k {
-            if (!self.docs.docs[k].syn_running) && (self.docs.docs[k].changed_at > self.docs.docs[k].syn_started) {
+            if self.docs.docs[k].syn_due() {
                 syn_due = true
             }
         }
@@ -599,7 +720,7 @@ extend Server {
         // Only the fallback path has a deadline: the persistent worker is
         // fed on the turn of the change itself (syntax_kick).
         var left = self.syntax_ms - since
-        if syn_due && self.syn.failed && (left > 0) && (left < best) {
+        if syn_due && self.syn.failed() && (left > 0) && (left < best) {
             best = left
         }
 
@@ -651,9 +772,7 @@ extend Server {
             var stale  = force && (waited >= PARK_LIMIT_MS)
             // A first index that has not come after two minutes is not coming.
             if !self.feature(old[i].msg, stale, waited >= FIRST_INDEX_LIMIT_MS) {
-                var p = old[i]
-                p.turns += 1
-                self.parked.push_back(p)
+                self.parked.push_back(old[i])
             }
         }
     }

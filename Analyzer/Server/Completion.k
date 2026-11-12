@@ -80,7 +80,7 @@ extend Server {
             return
         }
 
-        if self.running(JOB_COMPLETE()) > 0 {
+        if self.running(JobKind::Complete) > 0 {
             if !self.comp_wait_id.empty() {
                 self.respond(self.comp_wait_id, "{\"isIncomplete\":true,\"items\":[]}")
             }
@@ -147,8 +147,8 @@ extend Server {
         marked += text->subslice(end, text->size() - end)
 
         var j = Job()
-        j.kind   = JOB_COMPLETE()
-        j.entry  = ei
+        j.kind   = JobKind::Complete
+        j.entry_id = self.entries[ei].id
         j.out    = self.scratch(".json")
         j.log    = self.scratch(".log")
         j.rev    = self.rev
@@ -160,7 +160,9 @@ extend Server {
         LinkFS::write(j.marked, marked)
 
         var argv = self.worker_argv(ei, j.out, path, j.marked)
-        if !self.launch(&argv, j.log, &j.pi) {
+        if self.launch_job(&argv, &j, "complete") != LaunchResult::Started {
+            // Nothing is due after a completion: the request is answered.
+            self.garbage.push_back(j.marked)
             self.respond(id, "[]")
             return
         }
@@ -452,13 +454,16 @@ extend Server {
             }
         }
 
-        if (!found) && (!j->member) && (j->entry < self.entries.size()) {
+        // The entry it ran for, if it is still there: a reload or a retire
+        // under the run leaves the request answered, without the outline.
+        var cei = self.entry_by_id(j->entry_id)
+        if (!found) && (!j->member) && (cei != usize::MAX) {
             // The marked buffer did not get as far as Sema (it does not
             // parse yet). The last good outline of the file is better than
             // nothing for a bare name.
-            var fn_ = self.file_node(j->entry, j->path)
+            var fn_ = self.file_node(cei, j->path)
             if fn_ != JSON_NONE() {
-                var *s = &self.entries[j->entry].idx
+                var *s = &self.entries[cei].idx
                 var c = s->first(s->get(fn_, "symbols"))
                 while c != JSON_NONE() {
                     self.item(&w, s->get_str(c, "name"), CIK_VARIABLE, "", "", j->edit)

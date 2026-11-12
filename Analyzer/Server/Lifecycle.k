@@ -83,6 +83,10 @@ extend Server {
             self.clear_published_(i)
         }
 
+        // Runs in flight are of the old list's commands: killed, and their
+        // results dropped (their entry ids are gone). Left to finish they
+        // would also hold the worker slots the new list's runs wait for.
+        self.disown_runs_(0)
         self.entries.clear()
         self.live_stop_all()
         for var i: usize = 0; i < self.project.entries.size(); ++i {
@@ -94,7 +98,7 @@ extend Server {
             // Not analysed until a buffer needs it (ensure_entry): a project
             // file may list a dozen entry points, each a whole compile.
             e.dirty = false
-            self.entries.push_back(e)
+            self.add_entry_(&e)
         }
     }
 

@@ -53,7 +53,7 @@ extend Server {
         // in flight, and each live index worker's while it owes an answer.
         var fds: [i32; 30]
         var n: i32 = 0
-        var syn = (self.syn.pid >= 0) && self.syn.busy
+        var syn = self.syn.busy()
         if syn {
             fds[0] = self.syn.t.fd_in
             n = 1
@@ -97,11 +97,11 @@ extend Server {
     /// Starts the worker if it is not running. False when it cannot run (the
     /// fallback path takes over).
     fn syntax_spawn(self) -> bool {
-        if self.syn.failed {
+        if self.syn.failed() {
             return false
         }
 
-        if self.syn.pid >= 0 {
+        if self.syn.running() {
             return true
         }
 
@@ -109,16 +109,20 @@ extend Server {
         var words = self.exe + "\n--worker\n--syntax-server\n--"
         var to_child: i32 = -1
         var from_child: i32 = -1
-        var pid: i64 = unsafe kals_child_spawn(unsafe &words.raw()[0], words.size() as u64, unsafe &to_child, unsafe &from_child)
+        var pid: i64 = -1
+        if !self.debug_refuse_("syntax-server") {
+            pid = unsafe kals_child_spawn(unsafe &words.raw()[0], words.size() as u64, unsafe &to_child, unsafe &from_child)
+        }
+
         if pid < 0 {
-            self.syn.failed = true
+            self.syn.state = SynWorker::Failed
             self.say(MSG_LOG, "syntax worker unavailable here: syntax passes run as a process each")
             return false
         }
 
         self.syn.pid    = pid
         self.syn.passes = 0
-        self.syn.busy   = false
+        self.syn.state  = SynWorker::Idle
         self.syn.t      = Transport()
         self.syn.t.fd_in  = from_child
         self.syn.t.fd_out = to_child
@@ -127,13 +131,13 @@ extend Server {
     }
 
     fn syntax_stop(self) {
-        if self.syn.pid < 0 {
+        if !self.syn.running() {
             return
         }
 
         unsafe kals_child_stop(self.syn.pid, self.syn.t.fd_out, self.syn.t.fd_in)
-        self.syn.pid  = -1
-        self.syn.busy = false
+        self.syn.pid   = -1
+        self.syn.state = SynWorker::NotRunning
     }
 
     /// The worker died or hung with a request in flight: restart it, and run
@@ -141,12 +145,12 @@ extend Server {
     /// diagnostics.
     fn syntax_lost(self, const why: string) {
         var path = self.syn.path
-        var was  = self.syn.busy
+        var was  = self.syn.busy()
         self.syntax_stop()
         self.syn.restarts += 1
         self.say(MSG_WARNING, "syntax worker " + why + ": restarted; this pass runs as a process")
         if self.syn.restarts >= SYNTAX_SERVER_MAX_RESTARTS {
-            self.syn.failed = true
+            self.syn.state = SynWorker::Failed
             self.say(MSG_WARNING, "syntax worker keeps failing: a process per pass for the rest of the session")
         } else {
             self.syntax_spawn() // now, so its start overlaps the fallback pass
@@ -161,11 +165,12 @@ extend Server {
             return
         }
 
-        self.docs.docs[di].syn_running = false
-        if self.running(JOB_SYNTAX()) < MAX_SYNTAX_PASSES {
+        // Due again (syntax_kick marked it started): the process pass
+        // below, or, if that cannot start now, the next worker or the
+        // fallback loop, takes it.
+        self.docs.docs[di].syn.abandon()
+        if self.running(JobKind::Syntax) < MAX_SYNTAX_PASSES {
             self.start_syntax(di)
-        } else {
-            self.docs.docs[di].syn_started = 0 // due again: the next worker takes it
         }
     }
 
@@ -173,13 +178,13 @@ extend Server {
     /// in flight: a buffer edited meanwhile is sent when the answer lands,
     /// so a newer revision supersedes every one typed during the pass.
     fn syntax_kick(self) {
-        if self.syn.failed || self.syn.busy {
+        if self.syn.failed() || self.syn.busy() {
             return
         }
 
         var di = usize::MAX
         for var k: usize = 0; k < self.docs.docs.size(); ++k {
-            if (!self.docs.docs[k].syn_running) && (self.docs.docs[k].changed_at > self.docs.docs[k].syn_started) {
+            if self.docs.docs[k].syn_due() {
                 di = k
                 break
             }
@@ -202,13 +207,12 @@ extend Server {
         w.field("text", self.docs.docs[di].text)
         w.end_object()
 
-        self.syn.busy    = true
+        self.syn.state   = SynWorker::Busy
         self.syn.id      = self.syn_seq
         self.syn.path    = self.docs.docs[di].path
         self.syn.rev     = self.rev
         self.syn.sent_ms = now_ms()
-        self.docs.docs[di].syn_started = self.docs.docs[di].changed_at
-        self.docs.docs[di].syn_running = true
+        self.docs.docs[di].syn.begin(self.docs.docs[di].changed_at)
         self.syn.t.send(w.out)
         if self.syn.t.closed {
             self.syntax_lost("exited")
@@ -221,34 +225,30 @@ extend Server {
             self.syntax_answer(self.syn.t.take())
         }
 
-        if self.syn.t.closed && (self.syn.pid >= 0) {
+        if self.syn.t.closed && self.syn.running() {
             self.syntax_lost("exited")
         }
     }
 
     fn syntax_answer(self, const msg: string) {
         var d = JsonDoc()
-        if (!d.parse(msg)) || (d.get_int(d.root, "id") != self.syn.id) || (!self.syn.busy) {
+        if (!d.parse(msg)) || (d.get_int(d.root, "id") != self.syn.id) || (!self.syn.busy()) {
             return // superseded inside the worker, or a reply to a lost request
         }
 
-        self.syn.busy    = false
+        self.syn.state   = SynWorker::Idle
         self.syn.passes += 1
         var took = now_ms() - self.syn.sent_ms
         var di   = self.docs.index_of_path(self.syn.path)
         self.trace(f"syntax done (worker) rev={self.syn.rev} {took} ms " + self.syn.path)
         if di != usize::MAX {
-            self.docs.docs[di].syn_running = false
+            self.docs.docs[di].syn.finish()
+            // A stale answer is dropped (land_syntax), and the pass for the
+            // newer text starts now (syntax_kick). This is also the publish
+            // coalescing: with one pass in flight, typing faster than a
+            // pass publishes nothing until it pauses for one pass's time.
             if d.get_bool(d.root, "ok") {
-                // A stale answer (the buffer changed after it was sent) is
-                // dropped: its positions are the old text's, and the pass
-                // for the newer text starts now (syntax_kick). This is also
-                // the publish coalescing: with one pass in flight, typing
-                // faster than a pass publishes nothing until it pauses for
-                // one pass's time.
-                if self.docs.docs[di].changed_at <= self.syn.rev {
-                    self.land_syntax(di, self.syn.rev, &d, true)
-                }
+                self.land_syntax(di, self.syn.rev, &d, true)
             }
         }
 
@@ -263,12 +263,12 @@ extend Server {
 
     /// Once a loop turn: a request past its time is a hung worker.
     fn syntax_watch(self) {
-        if self.syn.busy && ((now_ms() - self.syn.sent_ms) > SYNTAX_SERVER_TIMEOUT_MS) {
+        if self.syn.busy() && ((now_ms() - self.syn.sent_ms) > SYNTAX_SERVER_TIMEOUT_MS) {
             self.syntax_lost("timed out")
             return
         }
 
-        if (self.syn.pid >= 0) && self.syn.busy {
+        if self.syn.busy() {
             self.syntax_read()
         }
     }

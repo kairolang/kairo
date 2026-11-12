@@ -19,6 +19,7 @@ ffi "c++" import "optional"
 ffi "c++" import "string"
 ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "chrono"
+ffi "c++" import "cstdlib"
 
 import API::FS::LinkFS
 import DocumentStore::{
@@ -70,6 +71,70 @@ import Server::SyntaxWorker::*
 import Server::LiveIndex::*
 
 extend Server {
+    /// Reads KALS_DEBUG_LAUNCH_FAIL (`index=1,syntax=2`): a test makes a
+    /// launch fail on purpose, which no real setup does on demand.
+    fn read_debug_knobs_(self) {
+        var unsafe *env = cxx::std::getenv(r"KALS_DEBUG_LAUNCH_FAIL")
+        if env == &null {
+            return
+        }
+
+        var spec = string(unsafe ((env as unsafe *const u8) as *const u8))
+        var name: string = ""
+        var n: u32 = 0
+        var in_n = false
+        for var i: usize = 0; i <= spec.size(); ++i {
+            if (i == spec.size()) || (spec[i] == 44) { // ','
+                if !name.empty() {
+                    self.dbg_fail_kind.push_back(name)
+                    self.dbg_fail_left.push_back(n)
+                }
+
+                name = ""
+                n    = 0
+                in_n = false
+            } else if spec[i] == 61 { // '='
+                in_n = true
+            } else if in_n {
+                if (spec[i] >= 48) && (spec[i] <= 57) {
+                    n = (n * 10) + ((spec[i] - 48) as u32)
+                }
+            } else {
+                name += spec.subslice(i, 1)
+            }
+        }
+    }
+
+    /// True when the knob says the next launch of \p kind is to fail.
+    fn debug_refuse_(self, const kind: string) -> bool {
+        for var i: usize = 0; i < self.dbg_fail_kind.size(); ++i {
+            if (self.dbg_fail_kind[i] == kind) && (self.dbg_fail_left[i] > 0) {
+                self.dbg_fail_left[i] -= 1
+                self.trace("debug: launch of " + kind + " refused (KALS_DEBUG_LAUNCH_FAIL)")
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// Buffer \p i's text as a scratch file a worker reads as its overlay,
+    /// written again only when the buffer changed since (sync it first).
+    /// The file it replaces is removed once no worker runs.
+    fn overlay_of_(self, i: usize) -> string {
+        if (self.docs.docs[i].tmp_rev != self.docs.docs[i].revision) || self.docs.docs[i].tmp_path.empty() {
+            if !self.docs.docs[i].tmp_path.empty() {
+                self.garbage.push_back(self.docs.docs[i].tmp_path)
+            }
+
+            self.docs.docs[i].tmp_path = self.scratch(".k")
+            self.docs.docs[i].tmp_rev  = self.docs.docs[i].revision
+            LinkFS::write(self.docs.docs[i].tmp_path, self.docs.docs[i].text)
+        }
+
+        return self.docs.docs[i].tmp_path
+    }
+
     fn scratch(self, const suffix: string) -> string {
         self.seq += 1
         return Path::join_str(self.tmp, f"k{self.seq}{suffix}")
@@ -103,6 +168,58 @@ extend Server {
         )
 
         return !failed
+    }
+
+    /// In the backoff after a refused launch: a start function returns at
+    /// once rather than build a command line that launch_job refuses.
+    fn launch_held(const self) -> bool {
+        return now_ms() < self.launch_after_ms
+    }
+
+    /// Starts job \p j's worker, \p argv, for a start function. The caller
+    /// makes its owner's "started" transition (the entry no longer due, the
+    /// buffer's pass begun, the bridge row clean) only on Started: on Refused
+    /// the work is still due and is tried again, LAUNCH_RETRY_MS later and
+    /// doubling, so neither a passing failure drops it nor a binary that
+    /// cannot start is spawned on every loop turn. \p kind names it in the
+    /// log and to KALS_DEBUG_LAUNCH_FAIL.
+    fn launch_job(self, @inout argv: [string], j: *Job, const kind: string) -> LaunchResult {
+        if self.launch_held() {
+            return LaunchResult::Refused // the backoff of an earlier refusal
+        }
+
+        var now = now_ms()
+
+        if self.debug_refuse_(kind) || (!self.launch(&argv, j->log, &j->pi)) {
+            // Once per run of refusals: the retries say nothing new.
+            if self.launch_refusals == 0 {
+                self.log(f"cannot start a worker ({self.exe}) for a {kind} job; trying again")
+            }
+
+            var wait = LAUNCH_RETRY_MS
+            for var q: u32 = 0; (q < self.launch_refusals) && (wait < LAUNCH_RETRY_MAX_MS); ++q {
+                wait = wait * 2
+            }
+
+            if wait > LAUNCH_RETRY_MAX_MS {
+                wait = LAUNCH_RETRY_MAX_MS
+            }
+
+            self.launch_refusals += 1
+            self.launch_after_ms = now + wait
+            self.trace(f"launch refused kind={kind} refusals={self.launch_refusals} retry_ms={wait}")
+            self.garbage.push_back(j->out)
+            self.garbage.push_back(j->log)
+            return LaunchResult::Refused
+        }
+
+        if self.launch_refusals > 0 {
+            self.trace(f"launch recovered after {self.launch_refusals} refusal(s)")
+        }
+
+        self.launch_refusals = 0
+        self.launch_after_ms = 0
+        return LaunchResult::Started
     }
 
     /// Runs \p argv to completion with its output in \p log; its exit code, or
@@ -155,19 +272,9 @@ extend Server {
                 continue
             }
 
-            if (self.docs.docs[i].tmp_rev != self.docs.docs[i].revision) || self.docs.docs[i].tmp_path.empty() {
-                if !self.docs.docs[i].tmp_path.empty() {
-                    self.garbage.push_back(self.docs.docs[i].tmp_path)
-                }
-
-                self.docs.docs[i].tmp_path = self.scratch(".k")
-                self.docs.docs[i].tmp_rev  = self.docs.docs[i].revision
-                LinkFS::write(self.docs.docs[i].tmp_path, self.docs.docs[i].text)
-            }
-
             argv.push_back("--overlay")
             argv.push_back(path)
-            argv.push_back(self.docs.docs[i].tmp_path)
+            argv.push_back(self.overlay_of_(i))
         }
 
         if !marked_path.empty() {
@@ -186,7 +293,7 @@ extend Server {
     }
 
     /// Workers of \p kind in flight.
-    fn running(const self, kind: u32) -> usize {
+    fn running(const self, kind: JobKind) -> usize {
         var n: usize = 0
         for var i: usize = 0; i < self.jobs.size(); ++i {
             if self.jobs[i].kind == kind {
@@ -202,7 +309,7 @@ extend Server {
     /// whole compile, and two of a large tree is tens of GB.
     fn can_start(const self, ei: usize) -> bool {
         // A live worker answering a request is a run of its graph.
-        var n = self.running(JOB_INDEX()) + self.live_busy_others(ei)
+        var n = self.running(JobKind::Index) + self.live_busy_others(ei)
         if n == 0 {
             return true
         }
@@ -216,12 +323,12 @@ extend Server {
         }
 
         for var i: usize = 0; i < self.jobs.size(); ++i {
-            if self.jobs[i].kind != JOB_INDEX() {
+            if self.jobs[i].kind != JobKind::Index {
                 continue
             }
 
-            var o = self.jobs[i].entry
-            if (o >= self.entries.size()) || (!self.entries[o].ran) || (self.entries[o].files.size() > WIDE_INDEX_LIMIT) {
+            var o = self.entry_by_id(self.jobs[i].entry_id)
+            if (o == usize::MAX) || (!self.entries[o].ran) || (self.entries[o].files.size() > WIDE_INDEX_LIMIT) {
                 return false
             }
         }
@@ -230,13 +337,16 @@ extend Server {
     }
 
     fn start_index(self, ei: usize) {
+        if self.launch_held() {
+            return // still due
+        }
+
         var j = Job()
-        j.kind  = JOB_INDEX()
-        j.entry = ei
+        j.kind  = JobKind::Index
+        j.entry_id = self.entries[ei].id
         j.out   = self.scratch(".json")
         j.log   = self.scratch(".log")
         j.rev   = self.rev
-        j.began = self.turn
         j.started_ms = now_ms()
 
         var wargv = self.worker_argv(ei, j.out, "", "")
@@ -253,8 +363,6 @@ extend Server {
             j.text_paths.push_back(self.docs.docs[b].path)
             j.texts.push_back(self.docs.docs[b].text)
         }
-        self.entries[ei].dirty = false
-        self.trace(f"index start entry={self.entries[ei].entry} rev={j.rev}")
 
         // A first analysis, or one already known to be slow, is long enough
         // that an editor showing nothing looks frozen: show progress. The
@@ -276,12 +384,30 @@ extend Server {
             argv.push_back(wargv[q])
         }
 
-        if !self.launch(&argv, j.log, &j.pi) {
-            self.log("cannot start a worker (" + self.exe + ")")
-            self.entries[ei].ran      = true
-            self.entries[ei].done_rev = j.rev
+        if self.launch_job(&argv, &j, "index") != LaunchResult::Started {
+            if !j.prog_file.empty() {
+                self.garbage.push_back(j.prog_file)
+            }
+
+            // Still due, and retried after the backoff (a request waiting
+            // for the entry's first index waits for it). Past
+            // LAUNCH_GIVE_UP refusals in a row the run is not coming: the
+            // entry counts as run, with no snapshot, so what waits on it is
+            // answered from nothing now, and it is tried again on its next
+            // change.
+            if self.launch_refusals >= LAUNCH_GIVE_UP {
+                self.say(MSG_WARNING, f"cannot start a worker ({self.exe}): {self.entries[ei].entry} is not analysed until it changes")
+                self.entries[ei].dirty    = false
+                self.entries[ei].ran      = true
+                self.entries[ei].done_rev = j.rev
+                self.retry_parked(false)
+            }
+
             return
         }
+
+        self.entries[ei].dirty = false
+        self.trace(f"index start entry={self.entries[ei].entry} rev={j.rev}")
 
         // Only for a run that started: a begin is always followed by an end.
         if want && self.progress_ok {
@@ -326,7 +452,7 @@ extend Server {
             // Order does not matter: swap the last one in and drop the tail.
             self.jobs[i] = self.jobs[self.jobs.size() - 1]
             self.jobs.pop_back()
-            if j.kind == JOB_INDEX() {
+            if j.kind == JobKind::Index {
                 self.finish_index(&j, done.ReturnCode)
                 if !j.progress.empty() {
                     self.progress(j.progress, "end", "", -1)
@@ -335,9 +461,9 @@ extend Server {
                 if !j.prog_file.empty() {
                     self.garbage.push_back(j.prog_file)
                 }
-            } else if j.kind == JOB_SYNTAX() {
+            } else if j.kind == JobKind::Syntax {
                 self.finish_syntax(&j, done.ReturnCode)
-            } else if j.kind == JOB_HEADER() {
+            } else if j.kind == JobKind::Header {
                 self.finish_header_(&j, done.ReturnCode)
             } else {
                 self.finish_complete(&j, done.ReturnCode)
@@ -399,9 +525,12 @@ extend Server {
     }
 
     fn finish_index(self, j: *Job, rc: i32) {
-        var ei = j->entry
-        if ei >= self.entries.size() {
-            return // the project was reloaded under this run
+        // The project was reloaded, or the entry retired, under this run:
+        // its result belongs to no entry now (disown_runs_ killed it).
+        var ei = self.entry_by_id(j->entry_id)
+        if ei == usize::MAX {
+            self.trace(f"index dropped entry_id={j->entry_id} rev={j->rev}: its entry is gone")
+            return
         }
 
         // Killed by a later change (touch): no result, no crash report, and
@@ -501,15 +630,46 @@ extend Server {
         // redundant now: the project entry answers for it.
         if !self.entries[ei].adhoc {
             for var k: usize = 0; k < self.entries.size(); ++k {
-                if self.entries[k].adhoc && self.entries[ei].holds(self.entries[k].entry) {
-                    self.clear_published_(k)
-                    self.entries[k].files.clear()
-                    self.entries[k].entry    = ""
-                    self.entries[k].has_snap = false
-                    self.entries[k].has_idx  = false
-                    self.entries[k].dirty    = false
+                if self.entries[k].adhoc && (!self.entries[k].entry.empty()) && self.entries[ei].holds(self.entries[k].entry) {
+                    self.retire_(k)
                 }
             }
+        }
+
+        // A buffer this run read from the DISK: its graph did not hold the
+        // file when the run started, so it was not overlaid (worker_argv),
+        // and the rows and diagnostics for it are of the disk's text. When
+        // the buffer differs (an ad-hoc file the entry has just adopted, or
+        // one a new import reaches) it is as if changed now: older than this
+        // index, and the entry runs again with it overlaid.
+        for var k: usize = 0; k < self.docs.docs.size(); ++k {
+            var kp = self.docs.docs[k].path
+            if !self.entries[ei].holds(kp) {
+                continue
+            }
+
+            var read_it = false
+            for var q: usize = 0; q < j->text_paths.size(); ++q {
+                if j->text_paths[q] == kp {
+                    read_it = true
+                }
+            }
+
+            if read_it {
+                continue
+            }
+
+            self.docs.docs[k].sync()
+            var disk: string = ""
+            if LinkFS::read(kp, &disk) && (disk == self.docs.docs[k].text) {
+                continue
+            }
+
+            self.rev += 1
+            self.docs.docs[k].changed_at  = self.rev
+            self.entries[ei].dirty        = true
+            self.entries[ei].change_rev   = self.rev
+            self.trace("index read " + kp + " from the disk, not its buffer: run again")
         }
 
         var t6 = now_us()

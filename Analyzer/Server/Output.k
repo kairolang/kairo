@@ -75,7 +75,7 @@ extend Server {
     fn say(self, level: i64, const s: string) {
         io::eprintln("kals: " + s)
         self.trace("log " + s)
-        if self.ready {
+        if self.ready() {
             var w = JsonWriter()
             w.begin_object()
             w.field_int("type", level)
@@ -265,7 +265,7 @@ extend Server {
     /// run read (unknown on a very first run: a count without a percentage).
     fn report_progress(self) {
         for var q: usize = 0; q < self.jobs.size(); ++q {
-            if (self.jobs[q].kind != JOB_INDEX()) || self.jobs[q].progress.empty() {
+            if (self.jobs[q].kind != JobKind::Index) || self.jobs[q].progress.empty() {
                 continue
             }
 
@@ -287,8 +287,9 @@ extend Server {
 
             self.jobs[q].prog_n = n
             var m: i64 = 0
-            if self.jobs[q].entry < self.entries.size() {
-                m = self.entries[self.jobs[q].entry].files.size() as i64
+            var pe = self.entry_by_id(self.jobs[q].entry_id)
+            if pe != usize::MAX {
+                m = self.entries[pe].files.size() as i64
             }
 
             if m > 0 {

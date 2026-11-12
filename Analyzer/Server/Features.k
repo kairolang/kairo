@@ -68,6 +68,29 @@ import Server::Tokens::*
 import Server::Workers::*
 
 extend Server {
+    /// Can entry \p ei (usize::MAX: none known yet) answer a request now?
+    /// The first rows of LanguageServer.md section 9, in one place; a pure
+    /// query (feature() calls ensure_entry first).
+    fn answerability(const self, ei: usize) -> Answer {
+        if ei == usize::MAX {
+            return Answer::NoEntry
+        }
+
+        if self.entries[ei].fresh() {
+            return Answer::Fresh
+        }
+
+        if (!self.entries[ei].has_idx) && (self.entries[ei].running || self.entries[ei].dirty) {
+            return Answer::FirstPending
+        }
+
+        if self.entries[ei].slow && self.entries[ei].has_idx {
+            return Answer::StaleSlow
+        }
+
+        return Answer::StaleWaitable
+    }
+
     /// The features answered from a snapshot. False: not answerable yet (the
     /// entry is stale or unknown) and \p stale_ok is off, so park it.
     fn feature(self, const msg: string, stale_ok: bool, give_up: bool) -> bool {
@@ -94,8 +117,8 @@ extend Server {
         // editor's colours drifting for as long as the code is broken).
         if method.starts_with(M_SEMANTIC_TOKENS_PREFIX) {
             var ldi = self.docs.index_of_path(path)
-            if (ldi != usize::MAX) && self.docs.docs[ldi].syn_landed && (!self.docs.docs[ldi].syn_parsed)
-                && (self.docs.docs[ldi].syn_at >= self.docs.docs[ldi].changed_at) {
+            if (ldi != usize::MAX) && self.docs.docs[ldi].syn.current(self.docs.docs[ldi].changed_at)
+                && (!self.docs.docs[ldi].syn.parsed) {
                 var lei = self.entry_of(path)
                 // Fresh FOR THIS FILE: an index of a graph with syntax errors
                 // is current but may have no rows for the broken file
@@ -104,27 +127,27 @@ extend Server {
                     && (self.entries[lei].idx_rev >= self.docs.docs[ldi].changed_at)
                     && (self.file_node(lei, path) != JSON_NONE())
                 if !idx_fresh {
-                    self.send_tokens(&d, params, id, method, &self.docs.docs[ldi].syn_tokens)
+                    self.send_tokens(&d, params, id, method, &self.docs.docs[ldi].syn.tokens)
                     return true
                 }
             }
         }
 
+        // Which entry answers: found, or a run of one started, here (a
+        // request is what starts the analysis of a file no entry holds yet).
         var ei = self.ensure_entry(path)
-        if (ei == usize::MAX) || (!self.entries[ei].fresh()) {
+        var can = self.answerability(ei)
+        if can != Answer::Fresh {
             // "Answer from the last snapshot" needs a last snapshot. Until
             // an entry's FIRST index exists there is nothing to answer from,
             // and an empty answer would tell the editor the file has no
             // tokens, no hints and no symbols: wait for it, however slow
-            // (wait_first below bounds that).
-            var first = (ei != usize::MAX) && (!self.entries[ei].has_idx)
-                && (self.entries[ei].running || self.entries[ei].dirty)
-            var slow = (ei != usize::MAX) && self.entries[ei].slow && self.entries[ei].has_idx
-            if first && (!give_up) {
+            // (give_up bounds that, FIRST_INDEX_LIMIT_MS).
+            if (can == Answer::FirstPending) && (!give_up) {
                 return false
             }
 
-            if (!stale_ok) && (!slow) {
+            if (!stale_ok) && (can != Answer::StaleSlow) {
                 return false
             }
 

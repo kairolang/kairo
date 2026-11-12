@@ -107,7 +107,7 @@ extend Server {
         // nothing for it.
         for var k: usize = 0; k < self.docs.docs.size(); ++k {
             var dp = self.docs.docs[k].path
-            if self.docs.docs[k].syn_landed && (self.docs.docs[k].syn_at > self.entries[ei].snap_rev)
+            if self.docs.docs[k].syn.landed && (self.docs.docs[k].syn.at > self.entries[ei].snap_rev)
                 && self.entries[ei].holds(dp) {
                 var seen = false
                 for var q: usize = 0; q < paths.size(); ++q {
@@ -166,24 +166,19 @@ extend Server {
     /// Starts the syntax-only pass of buffer \p di: its current text, parsed
     /// alone (no imports, no Sema).
     fn start_syntax(self, di: usize) {
-        self.docs.docs[di].sync()
-        if (self.docs.docs[di].tmp_rev != self.docs.docs[di].revision) || self.docs.docs[di].tmp_path.empty() {
-            if !self.docs.docs[di].tmp_path.empty() {
-                self.garbage.push_back(self.docs.docs[di].tmp_path)
-            }
-
-            self.docs.docs[di].tmp_path = self.scratch(".k")
-            self.docs.docs[di].tmp_rev  = self.docs.docs[di].revision
-            LinkFS::write(self.docs.docs[di].tmp_path, self.docs.docs[di].text)
+        if self.launch_held() {
+            return // still due
         }
 
+        self.docs.docs[di].sync()
+        var overlay = self.overlay_of_(di)
+
         var j = Job()
-        j.kind       = JOB_SYNTAX()
+        j.kind       = JobKind::Syntax
         j.path       = self.docs.docs[di].path
         j.out        = self.scratch(".json")
         j.log        = self.scratch(".log")
         j.rev        = self.rev
-        j.began      = self.turn
         j.started_ms = now_ms()
 
         var argv: [string]
@@ -194,16 +189,17 @@ extend Server {
         argv.push_back(j.path)
         argv.push_back("--overlay")
         argv.push_back(j.path)
-        argv.push_back(self.docs.docs[di].tmp_path)
+        argv.push_back(overlay)
         argv.push_back("--")
         argv.push_back(j.path)
 
-        self.docs.docs[di].syn_started = self.docs.docs[di].changed_at
-        if !self.launch(&argv, j.log, &j.pi) {
+        // The buffer is no longer due only once its pass is running: a
+        // refused launch leaves it due, and the loop tries again.
+        if self.launch_job(&argv, &j, "syntax") != LaunchResult::Started {
             return
         }
 
-        self.docs.docs[di].syn_running = true
+        self.docs.docs[di].syn.begin(self.docs.docs[di].changed_at)
         self.trace(f"syntax start rev={j.rev} " + j.path)
         self.jobs.push_back(j)
     }
@@ -214,7 +210,7 @@ extend Server {
             return // closed meanwhile
         }
 
-        self.docs.docs[di].syn_running = false
+        self.docs.docs[di].syn.finish()
         var took = now_ms() - j->started_ms
         self.trace(f"syntax done rc={rc} rev={j->rev} {took} ms " + j->path)
 
@@ -229,33 +225,35 @@ extend Server {
 
     /// Takes a syntax pass's answer \p doc (as syntax_main writes it) for
     /// buffer \p di at server revision \p rev, and publishes it when \p
-    /// publish. Either path: a process per pass, or the persistent worker.
+    /// publish. Either path, a process per pass or the persistent worker,
+    /// under the one rule of SyntaxState::land: an answer for a text the
+    /// buffer no longer holds is dropped (its positions are the old
+    /// text's), and so is one older than what has landed.
     fn land_syntax(self, di: usize, rev: u64, doc: *JsonDoc, publish: bool) {
-        if self.docs.docs[di].syn_landed && (rev < self.docs.docs[di].syn_at) {
+        if !self.docs.docs[di].syn.accepts(rev, self.docs.docs[di].changed_at) {
+            self.trace(f"syntax dropped rev={rev}: the buffer changed since " + self.docs.docs[di].path)
             return
         }
 
-        var *dd = &self.docs.docs[di]
-        dd->syn_landed = true
-        dd->syn_at     = rev
-        dd->syn_parsed = doc->get_bool(doc->root, "parsed")
-        dd->syn_diags  = ""
+        var diags: string = ""
         var x = doc->first(doc->get(doc->root, "diagnostics"))
         while x != JSON_NONE() {
-            if !dd->syn_diags.empty() {
-                dd->syn_diags += ","
+            if !diags.empty() {
+                diags += ","
             }
 
-            dd->syn_diags += doc->dump(doc->get(x, "diag"))
+            diags += doc->dump(doc->get(x, "diag"))
             x = doc->next(x)
         }
 
-        dd->syn_tokens.clear()
+        var tokens: [i64]
         var t = doc->first(doc->get(doc->root, "tokens"))
         while t != JSON_NONE() {
-            dd->syn_tokens.push_back(doc->as_int(t))
+            tokens.push_back(doc->as_int(t))
             t = doc->next(t)
         }
+
+        self.docs.docs[di].syn.land(rev, self.docs.docs[di].changed_at, doc->get_bool(doc->root, "parsed"), diags, &tokens)
 
         if publish {
             self.publish_syntax(di)
@@ -275,10 +273,10 @@ extend Server {
         *n = 0
         var di = self.docs.index_of_path(path)
         var have_snap = (ei != usize::MAX) && self.entries[ei].has_snap
-        var syn_newer = (di != usize::MAX) && self.docs.docs[di].syn_landed
-            && ((!have_snap) || (self.docs.docs[di].syn_at > self.entries[ei].snap_rev))
-        if syn_newer && (!self.docs.docs[di].syn_diags.empty()) {
-            out += self.docs.docs[di].syn_diags
+        var syn_newer = (di != usize::MAX) && self.docs.docs[di].syn.landed
+            && ((!have_snap) || (self.docs.docs[di].syn.at > self.entries[ei].snap_rev))
+        if syn_newer && (!self.docs.docs[di].syn.diags.empty()) {
+            out += self.docs.docs[di].syn.diags
             *n = 1
         }
 
@@ -314,7 +312,7 @@ extend Server {
     fn publish_syntax(self, di: usize) {
         var path = self.docs.docs[di].path
         var ei = self.entry_of(path)
-        if (ei != usize::MAX) && self.entries[ei].has_snap && (self.entries[ei].snap_rev >= self.docs.docs[di].syn_at) {
+        if (ei != usize::MAX) && self.entries[ei].has_snap && (self.entries[ei].snap_rev >= self.docs.docs[di].syn.at) {
             return
         }
 

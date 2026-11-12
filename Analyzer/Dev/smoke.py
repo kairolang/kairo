@@ -167,6 +167,15 @@ def check(name, cond, detail=""):
         failures.append(name)
 
 
+# `--only a,b`: run just those checks (the function names in main()), for
+# iterating on one area; the full run is the gate.
+ONLY = set()
+if "--only" in sys.argv:
+    k = sys.argv.index("--only")
+    ONLY = set(sys.argv[k + 1].split(","))
+    del sys.argv[k:k + 2]
+
+
 def find_kals():
     if len(sys.argv) > 1:
         return os.path.abspath(sys.argv[1])
@@ -2863,6 +2872,196 @@ def live(exe, base):
     check("live, wide graph: clean shutdown", c.stop() == 0)
 
 
+def launch_failures(exe, base):
+    """A worker that cannot be started (K3, P892) leaves its work due: it is
+    tried again, with a backoff, instead of the first refusal dropping that
+    work until the next edit. KALS_DEBUG_LAUNCH_FAIL refuses the first n
+    launches of a kind. Process mode (KALS_LIVE_CHECK=0): a live worker is
+    not a launch."""
+    # The first index of an entry: the request waits for the retried run
+    # and gets the real answer, not "no index for this file".
+    root = os.path.join(base, "lfidx")
+    project(root)
+    c = Client(exe, root, env={"KALS_DEBUG_LAUNCH_FAIL": "index=1", "KALS_LIVE_CHECK": "0"})
+    c.start()
+    src = c.open("src/main.k")
+    h = c.request("textDocument/hover", c.at("src/main.k", *pos(src, "describe(n)")), timeout=60)
+    check("launch failures: an index run that could not start is retried, and the request gets its answer",
+          h and "fn describe" in h["contents"]["value"], h)
+    check("launch failures: the refusal is logged", any(n["method"] == "window/logMessage" and "cannot start" in n["params"]["message"] for n in c.notes))
+    check("launch failures: index, clean shutdown", c.stop() == 0)
+
+    # A syntax pass on the fallback path (no persistent worker): the pass
+    # for this edit still comes, well before the Sema run's 5 s debounce.
+    root = os.path.join(base, "lfsyn")
+    os.makedirs(root)
+    good = "pub fn ok() -> i32 { return 0 }\n"
+    bad = "pub fn ok() -> i32 { return 0 }\npub fn g0() -> i32 { return 0 }\npub fn bad( {\n"
+    open(os.path.join(root, "p.k"), "w").write(good)
+    c = Client(exe, root, env={"KALS_DEBUG_LAUNCH_FAIL": "syntax-server=1,syntax=1", "KALS_LIVE_CHECK": "0"})
+    c.start({"syntaxDebounceMs": 50, "debounceMs": 5000})
+    c.open("p.k", good)
+    c.change("p.k", 2, bad)
+    t = time.time()
+    lines = lambda: sorted({x["range"]["start"]["line"] for x in (c.diagnostics("p.k") or []) if x["code"].startswith("S") and not x["code"].startswith("SC")})
+    got = wait_for(lambda: lines() == [2], 3, c)
+    check("launch failures: a syntax pass that could not start is retried (fallback path)", got and (time.time() - t) < 4, (lines(), time.time() - t))
+    check("launch failures: syntax, clean shutdown", c.stop() == 0)
+
+    # A header job of the clangd bridge: the header is still written.
+    root = os.path.realpath(os.path.join(base, "lfhdr"))
+    os.makedirs(root)
+    open(os.path.join(root, "a.k"), "w").write(BR_A)
+    open(os.path.join(root, "b.cc"), "w").write(BR_B)
+    json.dump([{"directory": root, "file": "b.cc", "command": "clang++ -std=c++20 -c b.cc"}],
+              open(os.path.join(root, "compile_commands.json"), "w"))
+    hdr = os.path.join(root, ".kairo", "clangd", "a.hh")
+    c = Client(exe, root, env={"KALS_DEBUG_LAUNCH_FAIL": "header=1", "KALS_LIVE_CHECK": "0"})
+    c.start()
+    check("launch failures: a header job that could not start is retried", wait_for(lambda: os.path.exists(hdr), 60, c), os.listdir(root))
+    check("launch failures: header, clean shutdown", c.stop() == 0)
+
+
+def entry_identity(exe, base):
+    """Entries are named by id, not by their place in the list (K1, P891).
+    A run in flight when the project file is reloaded belongs to no entry of
+    the new list: it lands nowhere, even where the new list puts another
+    entry at its old index. A retired ad-hoc entry's run in flight is
+    disowned. Each run is held back 2.5 s (KALS_DEBUG_INDEX_DELAY_MS)."""
+    root = os.path.join(base, "ids")
+    project(root)
+    other = "/// Beside.\npub fn other() -> i32 {\n    return 3\n}\n\nfn main() -> i32 {\n    return other()\n}\n"
+    open(os.path.join(root, "src", "other.k"), "w").write(other)
+    pf = os.path.join(root, "kairo_compile.json")
+    c = Client(exe, root, env={"KALS_DEBUG_INDEX_DELAY_MS": "2500"})
+    c.start({"debounceMs": 50})
+    src = c.open("src/main.k")
+    c.settle()
+    analysed = lambda start: [n["params"] for n in c.notes[start:] if n["method"] == "$/kals/analysed"]
+    c.change("src/main.k", 2, src + "\n// during the reload\n")
+    c.pump(1.0)   # the run of this text is in its delay
+    # The new list puts another entry first, at the old one's index.
+    open(pf, "w").write('{ "version": 1, "entries": [ { "entry": "src/other.k", "args": ["-I", "src"] },'
+                        ' { "entry": "src/main.k", "args": ["-I", "src"] } ] }\n')
+    mark = len(c.notes)
+    c.notify("textDocument/didSave", {"textDocument": {"uri": "file://" + pf}})
+    c.pump(5)     # past the old run's end
+    stray = [a for a in analysed(mark) if a["entry"].endswith("other.k")]
+    check("entry ids: a run in flight at a project reload lands in no entry of the new list", not stray, stray)
+    h = c.request("textDocument/hover", c.at("src/main.k", *pos(src, "describe(n)")), timeout=60)
+    check("entry ids: and the reloaded entry answers for its file", h and "fn describe" in h["contents"]["value"], h)
+    check("entry ids: reload, clean shutdown", c.stop() == 0)
+
+    # An ad-hoc file the project entry later imports. Its own run is in
+    # flight when the project entry's run, whose graph now holds it, lands:
+    # that run is disowned, and the file is answered from the project entry
+    # at its BUFFER's positions (the run read it from the disk: it runs again
+    # with the buffer overlaid).
+    root = os.path.join(base, "retire")
+    project(root)
+    extra_disk = "/// Extra.\npub fn extra() -> i32 {\n    return 1\n}\n"
+    extra_buf = "// two lines\n// the disk does not have\n" + extra_disk
+    open(os.path.join(root, "src", "extra.k"), "w").write(extra_disk)
+    c = Client(exe, root, env={"KALS_DEBUG_INDEX_DELAY_MS": "2500"})
+    c.start({"debounceMs": 50})
+    src = c.open("src/main.k")
+    c.settle()
+    c.open("src/extra.k", extra_buf)
+    end = time.time() + 60
+    while time.time() < end and not any(a["entry"].endswith("extra.k") for a in analysed(0)):
+        c.pump(0.2)
+    check("entry ids: (the file is first checked on its own)", any(a["entry"].endswith("extra.k") for a in analysed(0)))
+    c.settle()
+    mark = len(c.notes)
+    c.change("src/main.k", 2, "import extra::extra\n" + src)
+    c.pump(1.0)   # the project entry's run is in its delay
+    c.change("src/extra.k", 2, extra_buf + "\n")
+    c.pump(8)     # both runs land, the project entry's first
+    tomb = [a for a in analysed(mark) if a["entry"] == ""]
+    check("entry ids: a retired ad-hoc entry's run lands nowhere", not tomb, analysed(mark))
+    c.settle()
+    text = extra_buf + "\n"
+    h = c.request("textDocument/hover", c.at("src/extra.k", *pos(text, "extra()")), timeout=60)
+    check("entry ids: the adopted file is answered at its buffer's positions", h and "fn extra" in h["contents"]["value"], h)
+    check("entry ids: retire, clean shutdown", c.stop() == 0)
+
+
+def stale_syntax(exe, base):
+    """The process-per-pass syntax path (no persistent worker: forced with
+    KALS_DEBUG_LAUNCH_FAIL) drops an answer for a text the buffer no longer
+    holds, as the persistent path does (K4, P893): its positions are the
+    old text's. Each pass is held back 1.5 s (KALS_DEBUG_SYNTAX_DELAY_MS);
+    the Sema run's debounce (5 s) keeps it out of the way."""
+    root = os.path.join(base, "stsyn")
+    os.makedirs(root)
+    good = "pub fn ok() -> i32 { return 0 }\n"
+    broken_at = lambda k: "".join(("pub fn bad%d( {\n" % i) if i == k else ("pub fn g%d() -> i32 { return %d }\n" % (i, i)) for i in range(10))
+    open(os.path.join(root, "p.k"), "w").write(good)
+    c = Client(exe, root, env={"KALS_DEBUG_LAUNCH_FAIL": "syntax-server=1", "KALS_DEBUG_SYNTAX_DELAY_MS": "1500"})
+    c.start({"syntaxDebounceMs": 50, "debounceMs": 5000})
+    c.open("p.k", good)
+    c.pump(2.5)   # the open's pass lands
+    u = c.uri("p.k")
+    c.change("p.k", 2, broken_at(3))
+    c.pump(0.4)   # its pass is in its delay
+    mark = len(c.notes)
+    c.change("p.k", 3, broken_at(7))
+    lines = lambda d: sorted({x["range"]["start"]["line"] for x in d if x["code"].startswith("S") and not x["code"].startswith("SC")})
+    got = wait_for(lambda: (lines(c.diagnostics("p.k") or []) or [None])[0] == 7, 4.4, c)
+    pubs = [lines(n["params"]["diagnostics"]) for n in c.notes[mark:] if n["method"] == "textDocument/publishDiagnostics" and n["params"]["uri"] == u]
+    check("stale syntax: the fallback path drops the pass of a text the buffer no longer holds", not any(p and p[0] == 3 for p in pubs), pubs)
+    check("stale syntax: and publishes the current text's", got, pubs)
+    check("stale syntax: clean shutdown", c.stop() == 0)
+
+
+def lifecycle(exe, base):
+    """The protocol's lifecycle (K6, P894; LSP 3.17 "Lifecycle Messages"):
+    a request before `initialize` is answered ServerNotInitialized (-32002)
+    and a notification dropped; a second `initialize` is InvalidRequest
+    (-32600); `shutdown` ends the work in flight (the worker is killed, its
+    progress ended); a request after it is InvalidRequest; `exit` after it
+    exits 0. Each run is held back 2.5 s (KALS_DEBUG_INDEX_DELAY_MS)."""
+    root = os.path.join(base, "life")
+    project(root)
+    c = Client(exe, root, env={"KALS_DEBUG_INDEX_DELAY_MS": "2500", "KALS_LIVE_CHECK": "0"})
+    r = c.request("textDocument/hover", c.at("src/main.k", 0, 0), raw=True, timeout=10)
+    check("lifecycle: a request before initialize is ServerNotInitialized", isinstance(r, dict) and r.get("__error__", {}).get("code") == -32002, r)
+    c.open("src/main.k", MAIN + "// dropped\n")
+    caps = {"window": {"workDoneProgress": True}}
+    init = {"processId": os.getpid(), "rootUri": "file://" + root, "capabilities": caps, "initializationOptions": {"debounceMs": 50}}
+    r = c.request("initialize", init, raw=True)
+    check("lifecycle: initialize is answered", isinstance(r, dict) and "capabilities" in r, str(r)[:200])
+    r = c.request("initialize", init, raw=True, timeout=10)
+    check("lifecycle: a second initialize is InvalidRequest", isinstance(r, dict) and r.get("__error__", {}).get("code") == -32600, r)
+    c.notify("initialized", {})
+    t = c.request("$/kals/text", {"textDocument": {"uri": c.uri("src/main.k")}}, raw=True, timeout=10)
+    check("lifecycle: a notification before initialize was dropped (no buffer)", t is None, t)
+    c.open("src/main.k")
+    end = time.time() + 30
+    begun = lambda: [n["params"]["token"] for n in c.notes if n["method"] == "$/progress" and n["params"]["value"]["kind"] == "begin"]
+    while time.time() < end and not begun():
+        c.pump(0.1)
+    workers = lambda: subprocess.run(["pgrep", "-P", str(c.p.pid), "-f", " --worker "], capture_output=True, text=True).stdout.split()
+    busy = [w for w in workers()]
+    r = c.request("shutdown", None, raw=True, timeout=10)
+    check("lifecycle: shutdown during a run is answered", r is None, r)
+    c.pump(0.5)
+    ended = {n["params"]["token"] for n in c.notes if n["method"] == "$/progress" and n["params"]["value"]["kind"] == "end"}
+    check("lifecycle: (a run with progress was in flight)", bool(begun()) and bool(busy), (begun(), busy))
+    check("lifecycle: shutdown ends every progress it began", set(begun()) <= ended, (begun(), ended))
+    left = [w for w in workers() if w in busy]
+    check("lifecycle: shutdown stops the workers", not left, left)
+    r = c.request("textDocument/hover", c.at("src/main.k", 0, 0), raw=True, timeout=10)
+    check("lifecycle: a request after shutdown is InvalidRequest", isinstance(r, dict) and r.get("__error__", {}).get("code") == -32600, r)
+    c.notify("exit", None)
+    try:
+        rc = c.p.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        c.p.kill()
+        rc = -9
+    check("lifecycle: exit after shutdown exits 0", rc == 0, rc)
+
+
 def main():
     exe = find_kals()
     print("kals:", exe)
@@ -2880,46 +3079,87 @@ def main():
         if os.path.dirname(up) == up:
             break
         up = os.path.dirname(up)
+    want = lambda name: (not ONLY) or (name in ONLY)
     try:
         real = os.path.join(base, "proj")
         project(real)
         t0 = time.time()
-        features(exe, real, "")
+        if want("features"):
+            features(exe, real, "")
         # The same workspace reached through a symlink: the editor's spelling
         # of a path and the compiler's differ, and nothing may depend on it.
         link = os.path.join(base, "link")
         os.symlink(real, link)
-        features(exe, link, "symlink: ")
-        crash(exe, real)
-        stale_index(exe, real)
-        broken_from_start(exe, base)
-        broken_unchecked(exe, base)
-        import_links(exe, real)
-        syntax(exe, real)
-        edits(exe, real)
-        macros(exe, real)
-        interfaces(exe, real)
-        styles(exe, real)
-        bridge(exe, base)
-        bridge_real(exe, base)
-        bridge_docs(exe, base)
-        bridge_layout(exe, base)
-        bridge_shared(exe, base)
-        bridge_order(exe, base)
-        bridge_through(exe, base)
-        syntax_server(exe, base)
-        persistent_syntax(exe, base)
-        waiting(exe, real)
-        reruns(exe, real)
-        fixits(exe, real)
-        heads(exe, real)
-        prims(exe, real)
-        cxx_refs(exe, real)
-        import_names(exe, real)
-        hovers(exe, real)
-        foreign_hovers(exe, real)
-        base_hovers(exe, real)
-        live(exe, base)
+        if want("features"):
+            features(exe, link, "symlink: ")
+        if want("crash"):
+            crash(exe, real)
+        if want("stale_index"):
+            stale_index(exe, real)
+        if want("broken_from_start"):
+            broken_from_start(exe, base)
+        if want("broken_unchecked"):
+            broken_unchecked(exe, base)
+        if want("import_links"):
+            import_links(exe, real)
+        if want("syntax"):
+            syntax(exe, real)
+        if want("edits"):
+            edits(exe, real)
+        if want("macros"):
+            macros(exe, real)
+        if want("interfaces"):
+            interfaces(exe, real)
+        if want("styles"):
+            styles(exe, real)
+        if want("bridge"):
+            bridge(exe, base)
+        if want("bridge_real"):
+            bridge_real(exe, base)
+        if want("bridge_docs"):
+            bridge_docs(exe, base)
+        if want("bridge_layout"):
+            bridge_layout(exe, base)
+        if want("bridge_shared"):
+            bridge_shared(exe, base)
+        if want("bridge_order"):
+            bridge_order(exe, base)
+        if want("bridge_through"):
+            bridge_through(exe, base)
+        if want("syntax_server"):
+            syntax_server(exe, base)
+        if want("persistent_syntax"):
+            persistent_syntax(exe, base)
+        if want("waiting"):
+            waiting(exe, real)
+        if want("reruns"):
+            reruns(exe, real)
+        if want("fixits"):
+            fixits(exe, real)
+        if want("heads"):
+            heads(exe, real)
+        if want("prims"):
+            prims(exe, real)
+        if want("cxx_refs"):
+            cxx_refs(exe, real)
+        if want("import_names"):
+            import_names(exe, real)
+        if want("hovers"):
+            hovers(exe, real)
+        if want("foreign_hovers"):
+            foreign_hovers(exe, real)
+        if want("base_hovers"):
+            base_hovers(exe, real)
+        if want("launch_failures"):
+            launch_failures(exe, base)
+        if want("stale_syntax"):
+            stale_syntax(exe, base)
+        if want("lifecycle"):
+            lifecycle(exe, base)
+        if want("entry_identity"):
+            entry_identity(exe, base)
+        if want("live"):
+            live(exe, base)
         print("%.1fs" % (time.time() - t0))
     finally:
         shutil.rmtree(base, ignore_errors=True)

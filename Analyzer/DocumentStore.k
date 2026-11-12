@@ -518,6 +518,88 @@ pub class GapText {
     }
 }
 
+/// Whether a buffer's syntax pass is in flight.
+pub enum SynReq derives u8 {
+    Idle,
+    InFlight,
+}
+
+/// \class SyntaxState
+/// \brief one buffer's syntax-only pass: the request, and the last result.
+///
+/// \details Both paths, the persistent syntax worker and a process per pass,
+///          go through these transitions, so they apply one rule: a pass is
+///          due when the buffer changed after the newest pass was started,
+///          and an answer lands only for the text the buffer still holds
+///          (an answer for an older text has the old text's positions).
+pub class SyntaxState {
+    pub var req:     SynReq = SynReq::Idle
+    pub var started: u64    = 0     ///< the buffer's changed_at the newest pass was started for (0: none)
+
+    /// The last pass that landed (valid when `landed`): the server
+    /// revision it saw, whether the text parsed, its diagnostics (LSP
+    /// Diagnostic objects, comma-joined) and its lexical tokens.
+    pub var landed: bool   = false
+    pub var at:     u64    = 0
+    pub var parsed: bool   = true
+    pub var diags:  string = ""
+    pub var tokens: [i64]
+
+    fn SyntaxState(self) = default
+
+    /// Is a pass due for a buffer last changed at \p changed_at?
+    fn due(const self, changed_at: u64) -> bool {
+        return (self.req == SynReq::Idle) && (changed_at > self.started)
+    }
+
+    /// A pass of the text as changed at \p changed_at has started.
+    fn begin(self, changed_at: u64) {
+        self.req     = SynReq::InFlight
+        self.started = changed_at
+    }
+
+    /// The pass in flight ended: its answer came, landed or not.
+    fn finish(self) {
+        self.req = SynReq::Idle
+    }
+
+    /// The pass in flight was lost (its worker died): due again.
+    fn abandon(self) {
+        self.req     = SynReq::Idle
+        self.started = 0
+    }
+
+    /// Would an answer computed at server revision \p rev land, for a
+    /// buffer last changed at \p changed_at? Not when the buffer changed
+    /// after the pass was sent (stale), nor over a newer landed result.
+    fn accepts(const self, rev: u64, changed_at: u64) -> bool {
+        if changed_at > rev {
+            return false
+        }
+
+        return (!self.landed) || (rev >= self.at)
+    }
+
+    /// The landed result is of the text as changed at \p changed_at.
+    fn current(const self, changed_at: u64) -> bool {
+        return self.landed && (self.at >= changed_at)
+    }
+
+    /// Lands an answer; false (nothing changes) when accepts() refuses it.
+    fn land(self, rev: u64, changed_at: u64, parsed: bool, const diags: string, @inout tokens: [i64]) -> bool {
+        if !self.accepts(rev, changed_at) {
+            return false
+        }
+
+        self.landed = true
+        self.at     = rev
+        self.parsed = parsed
+        self.diags  = diags
+        self.tokens = tokens
+        return true
+    }
+}
+
 /// \class Document
 /// \brief one open buffer: the editor's text, which wins over the disk.
 ///
@@ -535,16 +617,9 @@ pub class Document {
     pub var lines:   LineMap
     pub var text_rev: u64    = u64::MAX  ///< revision `text` was materialised at
 
-    /// The last syntax-only pass (Server.k): the server revision it saw,
-    /// whether the text parsed, its diagnostics (LSP Diagnostic objects,
-    /// comma-joined) and its lexical tokens.
-    pub var syn_landed:  bool   = false
-    pub var syn_at:      u64    = 0
-    pub var syn_started: u64    = 0      ///< server revision the newest pass was started for
-    pub var syn_running: bool   = false
-    pub var syn_parsed:  bool   = true
-    pub var syn_diags:   string = ""
-    pub var syn_tokens:  [i64]
+    /// Its syntax-only pass (Server/Diagnostics.k, Server/SyntaxWorker.k):
+    /// the request in flight and the last result that landed.
+    pub var syn: SyntaxState
 
     /// Bumped on every content change. A snapshot records the revision it
     /// was computed from; equal revisions mean its positions are exact.
@@ -563,6 +638,11 @@ pub class Document {
 
     pub var tmp_path: string = ""
     pub var tmp_rev:  u64    = 0
+
+    /// Is this buffer's syntax pass due (SyntaxState::due)?
+    fn syn_due(const self) -> bool {
+        return self.syn.due(self.changed_at)
+    }
 
     /// The text this buffer's file was last INDEXED from: the overlay a run
     /// read (Job::texts), or the disk text a buffer opened unchanged. The

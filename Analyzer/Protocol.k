@@ -87,7 +87,9 @@ pub const KIND_REFACTOR_EXTRACT: string = "refactor.extract"
 pub const CMD_SHOW_MACRO_EXPANSION: string = "kairo.showMacroExpansion"
 
 // --- JSON-RPC / LSP error codes --------------------------------------------
+pub const ERR_INVALID_REQUEST:    i64 = -32600
 pub const ERR_METHOD_NOT_FOUND:   i64 = -32601
+pub const ERR_SERVER_NOT_INITIALIZED: i64 = -32002
 pub const ERR_REQUEST_CANCELLED:  i64 = -32800
 pub const ERR_CONTENT_MODIFIED:   i64 = -32801
 pub const ERR_REQUEST_FAILED:     i64 = -32803

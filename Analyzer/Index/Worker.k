@@ -563,6 +563,16 @@ fn syntax_main(const out_path: string,
                real:           *const [string],
                tmps:           *const [string],
                @inout words:   cxx::std::vector<string>) -> i32 {
+    // A test knob: a process pass that takes at least this long, so a test
+    // can change the buffer while it runs (smoke.py, stale_syntax).
+    var unsafe *delay = cxx::std::getenv(r"KALS_DEBUG_SYNTAX_DELAY_MS")
+    if delay != &null {
+        var ms = cxx::std::atoi(delay)
+        if ms > 0 {
+            cxx::std::this_thread::sleep_for(cxx::std::chrono::milliseconds(ms))
+        }
+    }
+
     var held: [string]
     held.reserve(real->size())
     var named: [string]

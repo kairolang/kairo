@@ -235,12 +235,12 @@ extend Server {
                 continue
             }
 
-            var known = self.docs.docs[b].syn_landed && (self.docs.docs[b].syn_at >= self.docs.docs[b].changed_at)
+            var known = self.docs.docs[b].syn.current(self.docs.docs[b].changed_at)
             if (!known) && (self.docs.docs[b].changed_at > 0) && ((now - self.docs.docs[b].changed_ms) < LIVE_SYNTAX_WAIT_MS) {
                 return true
             }
 
-            if known && (!self.docs.docs[b].syn_parsed) {
+            if known && (!self.docs.docs[b].syn.parsed) {
                 self.trace(f"live skip entry={self.entries[ei].entry}: " + self.docs.docs[b].path + " does not parse")
                 return self.live_waiting_(k) > 0
             }
@@ -453,7 +453,7 @@ extend Server {
         if bg && (ei != usize::MAX) {
             newer = self.entries[ei].has_snap && (s.rev < self.entries[ei].snap_rev)
             for var q: usize = 0; q < self.jobs.size(); ++q {
-                if (self.jobs[q].kind == JOB_INDEX()) && (self.jobs[q].entry == ei) {
+                if (self.jobs[q].kind == JobKind::Index) && (self.jobs[q].entry_id == self.entries[ei].id) {
                     newer = true
                 }
             }
@@ -467,8 +467,8 @@ extend Server {
         if bg && out.empty() && d.get_bool(d.root, "ok") && (ei != usize::MAX) {
             self.entries[ei].live_pending = pending as usize
             var nj = Job()
-            nj.kind        = JOB_INDEX()
-            nj.entry       = ei
+            nj.kind        = JobKind::Index
+            nj.entry_id    = self.entries[ei].id
             nj.rev         = s.rev
             nj.live        = true
             nj.l_mode      = d.get_str(d.root, "mode")
@@ -501,8 +501,8 @@ extend Server {
 
         self.lives[k].steps += 1
         var j = Job()
-        j.kind        = JOB_INDEX()
-        j.entry       = ei
+        j.kind        = JobKind::Index
+        j.entry_id    = self.entries[ei].id
         j.out         = out
         j.rev         = s.rev
         // A slice took what the worker says it took, not the time since

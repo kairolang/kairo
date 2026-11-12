@@ -82,6 +82,20 @@ pub const FIRST_INDEX_LIMIT_MS: i64 = 120000
 /// typing, most of it never asked about.
 pub const WIDE_INDEX_LIMIT: usize = 96
 
+/// A worker that could not be started (its binary gone, no processes left)
+/// leaves its work due, and the next launch of any worker is tried after
+/// LAUNCH_RETRY_MS, doubling per refusal in a row up to LAUNCH_RETRY_MAX_MS:
+/// soon enough that a passing failure costs a fraction of a second, rare
+/// enough that a binary that cannot start is not spawned every loop turn.
+pub const LAUNCH_RETRY_MS:     i64 = 250
+pub const LAUNCH_RETRY_MAX_MS: i64 = 8000
+
+/// After this many refusals in a row an entry's run is taken as not coming
+/// (about 16 s of retries at the backoff above): a request waiting for its
+/// first index is answered from nothing, and the failure is shown once,
+/// rather than the request waiting out FIRST_INDEX_LIMIT_MS.
+pub const LAUNCH_GIVE_UP: u32 = 6
+
 /// The trace buffer ($/kals/text and --trace) is cut back to TRACE_KEEP_BYTES
 /// once it passes TRACE_CAP_BYTES: memory against how much history a bug
 /// report carries.
