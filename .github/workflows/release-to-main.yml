@@ -1,0 +1,37 @@
+# Fast-forwards main to every push on a release/* branch, so main's history
+# stays linear and holds the same signed commits as the branch.
+#
+# It only fast-forwards: a release branch has to contain main. When main has
+# a commit the branch lacks, rebase the branch onto main locally (so the
+# commits keep their signatures) and push it; the job then moves main.
+
+name: release to main
+
+on:
+  push:
+    branches: ['release/**']
+
+concurrency:
+  group: release-to-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  fast-forward:
+    runs-on: ubuntu-latest
+    if: github.event.deleted == false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fast-forward main
+        run: |
+          git fetch --no-tags origin main
+          if git merge-base --is-ancestor origin/main "$GITHUB_SHA"; then
+            git push origin "$GITHUB_SHA:refs/heads/main"
+          else
+            echo "::error::main has commits ${GITHUB_REF_NAME} does not contain: rebase the branch onto main and push it"
+            exit 1
+          fi
