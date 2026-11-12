@@ -237,17 +237,8 @@ pub class Conversion {
         self._ml = MemberLookup(sc)
     }
 
-    /// `-fno-implicit-conv` is the user's dialect choice for their own
-    /// files; Lib/builtin is written against the default lattice and is not
-    /// held to it, or a user flag would print the library's errors and spend
-    /// the error cap on them (P780).
     fn implicit_enabled(self) -> bool {
-        var sc = self.sc
-        if sc->ctx != &null && sc->g != &null && sc->g->is_builtin_fid(sc->ctx->fid) {
-            return true
-        }
-
-        return sc->opts.on(sc->opts.implicit_conv, true)
+        return self.sc->opts.on(self.sc->opts.implicit_conv, true)
     }
 
     /// # primitive lattice

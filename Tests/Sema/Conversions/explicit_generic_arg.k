@@ -5,9 +5,9 @@
 // argument rule is the same at every call). Deduction must not overrule a
 // written argument.
 //
-// Was XFAIL (ticket "[Sema] An explicit generic argument is overridden when
-// the call could deduce it", 2026-10-28); fixed by 4c1132c9, which stops a
-// call's explicit generic arguments leaking into its arguments' typing.
+// A call's explicit generic arguments do not leak into its arguments'
+// typing, so deduction never overrides them.
+//
 
 fn <T> pass(x: T) -> T { return x; }
 fn gi() -> i32 { return 1; }

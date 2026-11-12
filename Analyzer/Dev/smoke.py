@@ -2347,6 +2347,82 @@ def bridge_layout(exe, base):
     d.stop()
 
 
+BR_BOD_K = """// layout probe: definitions the emitter writes out of line.
+
+pub class Counter {
+    pub var n: i32
+    pub fn Counter(self) = default
+
+    /// Its count.
+    pub inline fn count(const self) -> i32 { return self.n }
+}
+
+/// The first of two.
+pub fn <T> first(a: T, b: T) -> T { return a }
+
+extend i32 {
+    /// Twice the value.
+    pub inline fn twice(const self) -> i32 { return self * 2 }
+}
+
+/// A square, at compile time.
+pub eval fn square(x: i32) -> i32 { return x * x }
+"""
+BR_BOD_USE = """#include "bod.k"
+static_assert(bod::square(3) == 9);
+int main() { bod::Counter c; int v = 2; return c.count() + bod::first(1, 2) + bod::__kairo_ext_i32::twice(&v); }
+"""
+
+
+def bridge_bodies(exe, base):
+    """P882: clangd's definition of an inline method, a function template and
+    an extend block's function is its own .k line (the header leaves out the
+    bodies the emitter writes after every class), its hover keeps the doc,
+    and a consteval function C++ evaluates keeps its body."""
+    root = os.path.realpath(os.path.join(base, "bridge_bodies"))
+    os.makedirs(root)
+    for n, t in (("bod.k", BR_BOD_K), ("use.cc", BR_BOD_USE)):
+        open(os.path.join(root, n), "w").write(t)
+    cache = os.path.join(root, ".kairo", "clangd")
+    read = lambda p: open(p).read() if os.path.exists(p) else ""
+    c = Client(exe, root)
+    c.start()
+    ok = wait_for(lambda: "bod.k" in read(os.path.join(cache, "overlay.yaml")), 120, c)
+    c.pump(1)
+    c.stop()
+    check("bridge bodies: the header is mapped", ok, os.listdir(cache) if os.path.isdir(cache) else root)
+    cdx = shutil.which("clangd")
+    if not cdx:
+        print("note: no clangd on PATH; the clangd checks of bridge bodies were skipped")
+        return
+    kl = BR_BOD_K.split("\n")
+    line_of = lambda s: next(i for i, x in enumerate(kl) if x.strip().startswith(s))
+    d = Client(cdx, root)
+    d.start()
+    d.notify("textDocument/didOpen", {"textDocument": {"uri": d.uri("use.cc"), "languageId": "cpp", "version": 1, "text": BR_BOD_USE}})
+    wait_for(lambda: d.diagnostics("use.cc") is not None, 120, d)
+    check("bridge bodies: clangd reports nothing in use.cc (the static_assert holds)",
+          d.diagnostics("use.cc") == [], d.diagnostics("use.cc"))
+    for needle, decl in (("count(", "pub inline fn count"), ("first(", "pub fn <T> first"), ("twice(", "pub inline fn twice")):
+        l, ch = pos(BR_BOD_USE, needle)
+        r = d.request("textDocument/definition", d.at("use.cc", l, ch), timeout=60)
+        r = r if isinstance(r, list) else ([r] if r else [])
+        got = (r[0].get("uri", r[0].get("targetUri")), (r[0].get("range") or r[0].get("targetSelectionRange"))["start"]["line"]) if r else None
+        want = line_of(decl)
+        check("bridge bodies: clangd's definition of %s is bod.k line %d" % (needle.rstrip("("), want + 1),
+              got == ("file://" + os.path.join(root, "bod.k"), want), got)
+    l, ch = pos(BR_BOD_USE, "count(")
+    got, end = "", time.time() + 60
+    while time.time() < end:
+        r = d.request("textDocument/hover", d.at("use.cc", l, ch), timeout=60)
+        got = ((r or {}).get("contents") or {}).get("value", "")
+        if "Its count." in got:
+            break
+        d.pump(0.5)
+    check("bridge bodies: clangd's hover on the inline method shows its doc", "Its count." in got, got[:300])
+    d.stop()
+
+
 def overlay_entries(text):
     """{.k path: header} of an overlay.yaml kals wrote."""
     import re
@@ -3120,6 +3196,8 @@ def main():
             bridge_docs(exe, base)
         if want("bridge_layout"):
             bridge_layout(exe, base)
+        if want("bridge_bodies"):
+            bridge_bodies(exe, base)
         if want("bridge_shared"):
             bridge_shared(exe, base)
         if want("bridge_order"):

@@ -1,7 +1,7 @@
 // A constructor called with a pack expansion inside a generic body,
 // `Sink(args...)`, is typed as its record even though which constructor
 // wins is the instance's question (clang picks it from the emitted
-// `Sink(args...)`). It reached codegen untyped and ICEd (I011W "untyped
+// `Sink(args...)`). It does not reach codegen untyped (I011W "untyped
 // constructor call"). Asserted: it compiles, both a two-argument and a
 // one-argument constructor are reached through the same forwarding
 // function, and the values arrive.

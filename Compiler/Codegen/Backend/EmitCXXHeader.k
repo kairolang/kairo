@@ -69,6 +69,12 @@ pub class EmitCXXHeader {
     pub var docs_placed:  usize = 0
     pub var docs_prelude: usize = 0
     pub var docs_dropped: usize = 0
+
+    /// Layout only: out-of-line function bodies left out, their declarations
+    /// holding their lines, and kept because C++ may need them (P882,
+    /// TextSink::bodies_dropped).
+    pub var bodies_dropped: usize = 0
+    pub var bodies_needed:  usize = 0
     priv var _prelude_path: string = ""
 
     pub fn EmitCXXHeader(self,
@@ -105,6 +111,9 @@ pub class EmitCXXHeader {
         ts.line_mode = self.line_directives
         ts.self_path = self.header_name
         ts.layout    = self.layout && self.line_directives
+        if ts.layout && (self._ctx->sm != &null) {
+            ts.home_path = self._ctx->sm->get_filename(tu->fid)
+        }
         var cg   = CodegenContext(self._ctx, unsafe &ts, self._psym, self._instances)
         var plan = EmitPlan(unsafe &cg, PlanMode::Header)
         plan.run()
@@ -129,6 +138,8 @@ pub class EmitCXXHeader {
             self.docs_placed  = ts.docs_placed
             self.docs_prelude = ts.docs_prelude
             self.docs_dropped = ts.docs_dropped
+            self.bodies_dropped = ts.bodies_dropped
+            self.bodies_needed  = ts.bodies_needed
         }
 
         return ts.out

@@ -1,6 +1,6 @@
 // `assert static` in a generic body: its condition is a C++ trait over T, so
 // no Kairo pass decides it. It goes out as a C++ static_assert and clang
-// decides it per instance (EmitIR used to ICE on the statement).
+// decides it per instance (EmitIR emits the statement).
 
 ffi "c++" import "type_traits";
 

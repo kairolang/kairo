@@ -9,8 +9,8 @@
 // a call (one_S), so the casts are runtime conversions at -O0.
 //
 // XFAIL: *
-// Ticket "[Toolchain] f80 -> bf16 links against __truncxfbf2, which the
-// bundle lacks" (2026-10-28). `x as bf16` on an f80 is E (R5); clang lowers
+// Waits on __truncxfbf2, which the bundle lacks:
+// `x as bf16` on an f80 is E (R5); clang lowers
 // the long double -> __bf16 truncation to a libcall the staged compiler-rt
 // builtins do not define (L001E).
 

@@ -1509,7 +1509,7 @@ pub class FrontendAction {
                     if h.write(fe.emit_headers) {
                         var docs: string = ""
                         if h.layout {
-                            docs = f" (doc comments: {h.docs_placed} in place, {h.docs_prelude} on a forward declaration, {h.docs_dropped} dropped)"
+                            docs = f" (doc comments: {h.docs_placed} in place, {h.docs_prelude} on a forward declaration, {h.docs_dropped} dropped; out-of-line bodies: {h.bodies_dropped} left out, {h.bodies_needed} kept as needed)"
                         }
 
                         kairo::Logger::info(

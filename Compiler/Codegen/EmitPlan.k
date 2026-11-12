@@ -2648,13 +2648,22 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
     /// The primaries of every interface \p f's bounds name: its template head
     /// carries their concepts (CXXSpell::requires_clause), so its declaration
-    /// needs them, not only its body.
+    /// needs them, not only its body. A primary record's head carries none
+    /// (CXXSpell::defers_bounds), but its member bodies still call through
+    /// `I_witness<A>`, and they are written where the record is defined: in
+    /// its own TU, a header has the primaries too (P900: base/alloc.hh's
+    /// AllocatorScope<A impl ScopedFullAllocator> named a witness no header
+    /// declared).
     fn _witness_bounds(self, f: unsafe *Decl) {
         if f == &null {
             return
         }
 
-        if self._spell.requires_clause(f).size() == 0 {
+        // Not in the escaping probe: its answer is what ordinary codegen puts
+        // in an anonymous namespace, which no header concerns.
+        var own_deferred = self._mode != PlanMode::Preamble && (!self._escaping_probe) && CXXSpell::defers_bounds(f)
+                        && CXXSpell::fid_of(f) == self._home && CXXSpell::template_params(f).size() > 0
+        if (!own_deferred) && (self._spell.requires_clause(f).size() == 0) {
             return
         }
 

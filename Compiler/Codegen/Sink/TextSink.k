@@ -62,6 +62,7 @@ pub class TextSink derives EmitSink {
     /// to the LOWEST Kairo line among its tokens from the first file named
     /// on it: a declaration's name precedes its parameters and result type.
     pub var layout: bool = false
+    pub var home_path: string = "" ///< the module's own .k file, as the source manager names it
     priv var _rec_text: [string]
     priv var _rec_file: [string]
     priv var _rec_line: [usize]
@@ -86,6 +87,15 @@ pub class TextSink derives EmitSink {
     priv var _c_end:    [usize]      ///< finish_layout: the last record of each record's chunk
     priv var _c_kind:   [u8]         ///< and the chunk's kind (_chunk_kind_)
     priv var _skip_fwd: [bool]       ///< a forward declaration that claims no line (_lay_)
+    priv var _pl_rec:   [usize]      ///< the record whose text claimed this physical line, else usize::MAX
+    priv var _drop:     [bool]       ///< a record of a definition the header leaves out (_mark_drops_)
+
+    /// Out-of-line function definitions (P882): left out because their
+    /// declaration holds their line, or kept because C++ in the including
+    /// file may need the body (constexpr, consteval, a deduced type, an
+    /// explicit specialization, internal linkage).
+    pub var bodies_dropped: usize = 0
+    pub var bodies_needed:  usize = 0
 
     /// Doc comments carried into a layout header (P876): above their
     /// declaration on the .k file's own lines, on the forward declaration in
@@ -401,10 +411,21 @@ pub class TextSink derives EmitSink {
     /// it spells, a specialization, alias or variable whose name it spells,
     /// or any other namespace-scope declaration, is a barrier). Text that
     /// claims no line: forward declarations whose definition then has it,
-    /// and what declares a name the compiler mints (P882).
+    /// and what declares a name the compiler mints (P882). Text left out:
+    /// an out-of-line function definition whose declaration holds its line,
+    /// when C++ cannot need its body (_mark_drops_).
     pub fn finish_layout(self, const include_line: string) -> string {
         var n    = self._rec_text.size()
         var home = self._home_file_()
+        // The module's own file when the emitter names it and any line is
+        // attributed to it: a small module that instantiates an imported
+        // template (a `Panic<T, E>`) has more lines from that template's
+        // file than from its own.
+        for var q: usize = 0; (q < n) && (!self.home_path.empty()); ++q {
+            if self._rec_file[q] == self.home_path {
+                home = self.home_path
+            }
+        }
 
         // Chunks: records from namespace scope (depth 0) back to it. kind:
         // 0 plain, 1 forward declarations, 2 prototypes.
@@ -433,6 +454,18 @@ pub class TextSink derives EmitSink {
             }
         }
 
+        // The prelude ends outside every conditional it opens: a guard
+        // split across the two files compiles in neither.
+        var open: usize = 0
+        for var q: usize = 0; q < first; ++q {
+            open = TextSink::_cond_depth_(self._rec_text[q], self._rec_dir[q], open)
+        }
+
+        while (open != 0) && (first < n) {
+            open = TextSink::_cond_depth_(self._rec_text[first], self._rec_dir[first], open)
+            first += 1
+        }
+
         // A forward declaration standing alone in its chunk's text names
         // its record's Kairo line, which the definition clangd jumps to
         // wants. First every such one claims no line; one whose line no
@@ -447,7 +480,16 @@ pub class TextSink derives EmitSink {
                 && (self._rec_line[q] > 1) && (!self._rec_dir[q]) && TextSink::_is_fwd_(TextSink::_trim_(self._rec_text[q])))
         }
 
+        self._drop.clear()
+        for var q: usize = 0; q < n; ++q {
+            self._drop.push_back(false)
+        }
+
         self._lay_(first, include_line)
+        if self._mark_drops_(first) {
+            self._lay_(first, include_line)
+        }
+
         for var pass: usize = 0; pass < 8; ++pass {
             var changed = false
             for var q: usize = 0; q < n; ++q {
@@ -540,14 +582,17 @@ pub class TextSink derives EmitSink {
         self._pl_depth.clear()
         self._pl_decl.clear()
         self._doc_done.clear()
+        self._pl_rec.clear()
         self._pl_text.push_back(include_line)
         self._pl_lock.push_back(true)
         self._pl_depth.push_back(0)
         self._pl_decl.push_back(0)
+        self._pl_rec.push_back(usize::MAX)
         self._pl_text.push_back("_Pragma(\"once\")")
         self._pl_lock.push_back(false)
         self._pl_depth.push_back(0)
         self._pl_decl.push_back(0)
+        self._pl_rec.push_back(usize::MAX)
         self._cursor  = 2
         self._run_dep = 0
         self._mapped  = false
@@ -597,7 +642,7 @@ pub class TextSink derives EmitSink {
                 }
             }
 
-            if c_kind[r] == 1 {
+            if (c_kind[r] == 1) || self._drop[r] {
                 r += 1
                 continue
             }
@@ -636,11 +681,13 @@ pub class TextSink derives EmitSink {
 
                     if k > self._cursor {
                         self._place_(k, piece, 0)
+                        self._pl_rec[k - 1] = q
                         landed = k
                     } else if hoist {
                         if self._pl_text[k - 1].empty() {
                             self._pl_text[k - 1] = piece
                             self._pl_decl[k - 1] = k
+                            self._pl_rec[k - 1]  = q
                         } else {
                             self._pl_text[k - 1] += " " + piece
                         }
@@ -682,6 +729,7 @@ pub class TextSink derives EmitSink {
 
                 if k > self._cursor {
                     self._place_(k, text, self._rec_depth[r])
+                    self._pl_rec[k - 1] = r
                 } else {
                     self._join_(text, self._rec_depth[r])
                 }
@@ -734,6 +782,277 @@ pub class TextSink derives EmitSink {
 
             r += 1
         }
+    }
+
+    /// Out-of-line function definitions the header leaves out, from the
+    /// placement just made; true if any (P882). The emitter writes inline
+    /// and template bodies after every class, where clangd's go-to-definition
+    /// then lands, though their declarations hold their Kairo lines. A body
+    /// clangd does not need goes, so the jump falls back to the declaration.
+    /// What C++ in the including file can need a body for, it keeps:
+    /// constant evaluation (constexpr, consteval), a deduced type (`auto`),
+    /// an explicit specialization (without it the primary template would be
+    /// used), internal linkage (an undefined `static` is a warning at every
+    /// use). A body is dropped only when every check passes, so a definition
+    /// is never the only declaration left out:
+    /// - its chunk is `namespace n {`, the head ending in `{`, the body, `}`, `}`;
+    /// - its head claimed no line, and its Kairo line is claimed by its
+    ///   declaration: for a member, a line inside a class spelling its name
+    ///   (never a friend, never the class head); for a free function, a
+    ///   prototype with the same text but `inline`.
+    /// A definition whose declaration is elsewhere keeps its body: dropping
+    /// it would gain nothing, and the definition may be what clangd finds.
+    priv fn _mark_drops_(self, first: usize) -> bool {
+        var n   = self._rec_text.size()
+        var any = false
+        var j0  = first
+        while j0 < n {
+            var j = self._c_end[j0]
+            var h = j0 + 1
+            if (self._c_kind[j0] != 0) || (h >= j) || (self._rec_file[h] != self._home) {
+                j0 = j + 1
+                continue
+            }
+
+            // The shape: one function definition and nothing else.
+            var opener = TextSink::_trim_(self._rec_text[j0])
+            var head   = TextSink::_trim_(self._rec_text[h])
+            var shape  = opener.starts_with("namespace ") && opener.ends_with("{") && (opener != "namespace {")
+                      && (TextSink::_openers_(opener) == opener) && (self._rec_depth[j0] == 1)
+                      && head.ends_with("{") && (self._rec_depth[h] == 2)
+                      && (TextSink::_trim_(self._rec_text[j]) == "}") && (self._rec_depth[j] == 0)
+                      && (TextSink::_trim_(self._rec_text[j - 1]) == "}") && (self._rec_depth[j - 1] == 1)
+            for var q = j0; shape && (q <= j); ++q {
+                if self._rec_dir[q] || ((q > h) && (q < (j - 1)) && (self._rec_depth[q] < 2)) {
+                    shape = false
+                }
+            }
+
+            var u = TextSink::_untemplate_all_(head)
+            if shape && ((!TextSink::_class_name_(u).empty()) || u.starts_with("namespace ") || u.starts_with("using ")
+                         || (!TextSink::_has_(u, "("))) {
+                shape = false
+            }
+
+            if !shape {
+                j0 = j + 1
+                continue
+            }
+
+            // What C++ beyond the header can need the body for.
+            if TextSink::_has_word_(head, "constexpr") || TextSink::_has_word_(head, "consteval")
+                || TextSink::_has_word_(head, "auto") || TextSink::_has_word_(head, "static")
+                || TextSink::_has_word_(head, "extern") || TextSink::_has_(head, "template<>")
+                || TextSink::_has_(head, "template <>") {
+                self.bodies_needed += 1
+                j0 = j + 1
+                continue
+            }
+
+            var qual = false
+            var name = TextSink::_fn_name_(u, &qual)
+            var k    = self._rec_line[h]
+            var c    = usize::MAX
+            if (!name.empty()) && (k >= 2) && (k <= self._pl_text.size()) && (self._pl_decl[k - 1] == k) {
+                c = self._pl_rec[k - 1]
+            }
+
+            var held = (c != usize::MAX) && (c != h) && (self._rec_file[c] == self._home) && (!self._rec_dir[c])
+            if held {
+                var t = TextSink::_trim_(self._rec_text[c])
+                if qual {
+                    held = (self._c_kind[c] == 0) && (self._rec_depth[c] >= 2) && TextSink::_has_word_(t, name)
+                        && (!TextSink::_has_word_(t, "friend")) && TextSink::_class_name_(TextSink::_untemplate_all_(t)).empty()
+                } else {
+                    held = (self._c_kind[c] == 2) && (TextSink::_proto_key_(t) == TextSink::_proto_key_(head))
+                }
+            }
+
+            if held {
+                for var q = j0; q <= j; ++q {
+                    self._drop[q] = true
+                }
+
+                self.bodies_dropped += 1
+                any = true
+            }
+
+            j0 = j + 1
+        }
+
+        return any
+    }
+
+    /// The preprocessor conditional depth after record \p t (a directive
+    /// when \p dir), from \p d.
+    priv static fn _cond_depth_(const t: string, dir: bool, d: usize) -> usize {
+        if !dir {
+            return d
+        }
+
+        var s = TextSink::_trim_ws_(t)
+        if s.starts_with("#if") {
+            return d + 1
+        }
+
+        if s.starts_with("#endif") && (d > 0) {
+            return d - 1
+        }
+
+        return d
+    }
+
+    /// \p t without every leading `template<...>` head (a member template
+    /// of a class template has two); `template<>` is kept.
+    priv static fn _untemplate_all_(const t: string) -> string {
+        var u = t
+        while u.starts_with("template<") && (!u.starts_with("template<>")) {
+            var v = TextSink::_untemplate_(u)
+            if v.size() == u.size() {
+                break
+            }
+
+            u = v
+        }
+
+        return u
+    }
+
+    /// The name a function head (no template head) declares, and in \p qual
+    /// whether it is qualified (`X<T>::f`, `X::~X`, `X::operator[]`): an
+    /// operator is `operator`; else the identifier before the first `(`
+    /// that is not a type or attribute spelling (`decltype(sizeof(0))`).
+    priv static fn _fn_name_(const u: string, qual: *bool) -> string {
+        *qual = false
+        if TextSink::_has_word_(u, "operator") {
+            *qual = TextSink::_has_(u, "::operator")
+            return "operator"
+        }
+
+        for var i: usize = 0; i < u.size(); ++i {
+            if u[i] != 40 {
+                continue
+            }
+
+            var e = i
+            while (e > 0) && (u[e - 1] == 32) {
+                e -= 1
+            }
+
+            var b = e
+            while (b > 0) && TextSink::_ident_char_(u[b - 1]) {
+                b -= 1
+            }
+
+            var id = u.subslice(b, e - b)
+            if id.empty() || (id == "decltype") || (id == "sizeof") || (id == "alignof") || (id == "__attribute__")
+                || (id == "noexcept") || (id == "alignas") || (id == "requires") {
+                continue
+            }
+
+            var p = b
+            if (p > 0) && (u[p - 1] == 126) { // `~X`
+                p -= 1
+            }
+
+            *qual = (p >= 2) && (u[p - 1] == 58) && (u[p - 2] == 58)
+            return id
+        }
+
+        return ""
+    }
+
+    /// A free function's prototype or definition head as one key: its
+    /// tokens without `inline`, attributes (`[[noreturn]]` and
+    /// `__attribute__((...))` sit on the prototype only) and the trailing
+    /// `;` or `{`, with a space kept only between two identifier characters
+    /// (`inline::T` and `>::T` spell the same tokens). What is left is the
+    /// signature: two heads with one key declare one function. The
+    /// prototype is the emitter's spelling of the same declaration, so they
+    /// agree unless one carries something the other does not, and then
+    /// nothing is dropped.
+    priv static fn _proto_key_(const t: string) -> string {
+        var s = TextSink::_trim_(t)
+        if s.ends_with(";") || s.ends_with("{") {
+            s = s.subslice(0, s.size() - 1)
+        }
+
+        var bare: string = ""
+        var i: usize = 0
+        while i < s.size() {
+            var rest = s.subslice(i, s.size() - i)
+            var before = (i > 0) && TextSink::_ident_char_(s[i - 1])
+            if (!before) && rest.starts_with("inline") && ((rest.size() == 6) || (!TextSink::_ident_char_(rest[6]))) {
+                bare += " "
+                i += 6
+                continue
+            }
+
+            // An attribute: through its balanced brackets or parentheses.
+            var open: u8 = 0
+            if rest.starts_with("[[") {
+                open = 91
+            } else if (!before) && rest.starts_with("__attribute__") {
+                open = 40
+            }
+
+            if open != 0 {
+                var close: u8 = 93
+                if open == 40 {
+                    close = 41
+                }
+
+                var d: usize = 0
+                var e = i
+                var seen = false
+                while e < s.size() {
+                    if s[e] == open {
+                        d += 1
+                        seen = true
+                    } else if s[e] == close {
+                        d -= 1
+                        if seen && (d == 0) {
+                            break
+                        }
+                    }
+
+                    e += 1
+                }
+
+                if e >= s.size() {
+                    return s // unbalanced: a key nothing else has
+                }
+
+                bare += " "
+                i = e + 1
+                continue
+            }
+
+            bare += s.subslice(i, 1)
+            i += 1
+        }
+
+        var out: string = ""
+        for var p: usize = 0; p < bare.size(); ++p {
+            if bare[p] != 32 {
+                out += bare.subslice(p, 1)
+                continue
+            }
+
+            var q = p
+            while (q < bare.size()) && (bare[q] == 32) {
+                q += 1
+            }
+
+            if (out.size() > 0) && (q < bare.size()) && TextSink::_ident_char_(out[out.size() - 1])
+                && TextSink::_ident_char_(bare[q]) {
+                out += " "
+            }
+
+            p = q - 1
+        }
+
+        return out
     }
 
     /// The Kairo file most lines are attributed to: the module's own.
@@ -837,12 +1156,14 @@ pub class TextSink derives EmitSink {
             self._pl_lock.push_back(false)
             self._pl_depth.push_back(self._run_dep)
             self._pl_decl.push_back(0)
+            self._pl_rec.push_back(usize::MAX)
         }
 
         self._pl_text.push_back(text)
         self._pl_lock.push_back(false)
         self._pl_depth.push_back(depth_after)
         self._pl_decl.push_back(0)
+        self._pl_rec.push_back(usize::MAX)
         self._cursor  = k
         self._run_dep = depth_after
     }
