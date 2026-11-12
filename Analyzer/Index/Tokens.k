@@ -36,6 +36,10 @@ import AST::DeclFacts::{
     decl_name_tok,
     decl_requires_clause,
 }
+import AST::LangItems::{
+    LangIntrinsics,
+    LangMacros,
+}
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -185,6 +189,84 @@ pub fn lexical_kind(t: Token, text: *const string, off: u32, len: u32, mods: *u3
     return TT_NONE()
 }
 
+/// \p word names a builtin macro or a parser `name!` intrinsic (the
+/// names the preprocessor reserves, so no user macro shares one).
+pub fn is_builtin_macro_name(const word: string) -> bool {
+    var i: usize = 0
+    while true {
+        var w = LangMacros::known(i)
+        if w.empty() {
+            break
+        }
+
+        if w == word {
+            return true
+        }
+
+        i += 1
+    }
+
+    i = 0
+    while true {
+        var w = LangIntrinsics::known(i)
+        if w.empty() {
+            break
+        }
+
+        if w == word {
+            return true
+        }
+
+        i += 1
+    }
+
+    return false
+}
+
+/// The length of the `macro` token for identifier \p t at [off, off+len)
+/// of \p text, its `!` included, or 0 when no `!` follows the name
+/// directly. A name followed by `!` is a macro wherever it is written: an
+/// invocation (`name!(...)`, `name! {...}`, `name!`, `a::name!`), a
+/// definition (`macro name!`), an import (`import lib::name!`). Both token
+/// passes read it from the raw lex, so it does not change when the file
+/// stops parsing. `x!=y` is a comparison, not a macro.
+pub fn macro_token_len(t: Token, text: *const string, off: u32, len: u32) -> u32 {
+    if t.kind != TokenKind::LitIdentifier {
+        return 0
+    }
+
+    var end = (off as usize) + (len as usize)
+    if (end >= text->size()) || ((*text)[end] != ('!' as u8)) {
+        return 0
+    }
+
+    if ((end + 1) < text->size()) && ((*text)[end + 1] == ('=' as u8)) {
+        return 0
+    }
+
+    return len + 1
+}
+
+/// The modifiers of the macro name at [off, off+len) of \p text, after a
+/// token of kind \p prev: `declaration` + `definition` after `macro`;
+/// `defaultLibrary` on an unqualified builtin (a qualified `a::file!` is a
+/// user macro).
+pub fn macro_token_mods(text: *const string, off: u32, len: u32, prev: TokenKind) -> u32 {
+    if prev == TokenKind::KwMacro {
+        return TM_DECLARATION() | TM_DEFINITION()
+    }
+
+    if (off > 0) && ((*text)[(off as usize) - 1] == (':' as u8)) {
+        return 0
+    }
+
+    if is_builtin_macro_name(text->subslice(off as usize, len as usize)) {
+        return TM_DEFAULT_LIB()
+    }
+
+    return 0
+}
+
 /// Writes \p all (sorted, in bytes of \p f) as the `tokens` array: LSP's
 /// relative five-integer encoding, one token per line of a multi-line one.
 pub fn encode_tokens(all: *const [SemTok], f: *const FileText, w: *JsonWriter) {
@@ -258,7 +340,8 @@ pub fn lexical_tokens(sm: unsafe *SourceManager, fid: u32, f: *const FileText, w
     }
 
     if lx->open(fid) {
-        var t = Token()
+        var t    = Token()
+        var prev = TokenKind::TkEof
         while lx->next(&t) {
             if t.kind == TokenKind::TkEof {
                 break
@@ -273,6 +356,17 @@ pub fn lexical_tokens(sm: unsafe *SourceManager, fid: u32, f: *const FileText, w
             var len       = chain_head_len(imm, t, t.range.size() as u32)
             var mods: u32 = 0
             var kind      = lexical_kind(t, &f->text, off, len, &mods)
+            var ml        = macro_token_len(t, &f->text, off, len)
+            if ml != 0 {
+                mods = macro_token_mods(&f->text, off, len, prev)
+                kind = TT_MACRO()
+                len  = ml
+            }
+
+            if t.kind != TokenKind::AtComment {
+                prev = t.kind
+            }
+
             if kind == TT_NONE() {
                 continue
             }
@@ -384,7 +478,8 @@ extend IndexWalker {
             return
         }
 
-        var t = Token()
+        var t    = Token()
+        var prev = TokenKind::TkEof
         while lx->next(&t) {
             if t.kind == TokenKind::TkEof {
                 break
@@ -395,7 +490,27 @@ extend IndexWalker {
                 continue
             }
 
+            var tk = prev
+            if t.kind != TokenKind::AtComment {
+                prev = t.kind
+            }
+
             var len = chain_head_len(imm, t, t.range.size() as u32)
+
+            // A macro name is the raw lex's, as in the syntax-only pass: the
+            // tree keeps no invocation, and an import path's last segment
+            // `name!` would otherwise read as a module.
+            var ml = macro_token_len(t, &self.files[0].text, off, len)
+            if ml != 0 {
+                var st = SemTok{}
+                st.off  = off
+                st.len  = ml
+                st.kind = TT_MACRO()
+                st.mods = macro_token_mods(&self.files[0].text, off, len, tk)
+                out->push_back(st)
+                continue
+            }
+
             var hit = by_off.get(off)
             if hit != null {
                 var st = self.toks[*hit as usize]

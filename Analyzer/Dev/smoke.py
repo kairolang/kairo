@@ -2022,6 +2022,35 @@ test "flags start clear" {
 """
 
 
+MSTYLE_LIB = """pub macro twice!(x) {
+    x + x
+}
+"""
+
+MSTYLE = """import self::mstyle_lib::twice!
+
+macro double!(x) {
+    x + x
+}
+
+macro greeting! {
+    "hello"
+}
+
+fn plain(x: i32) -> i32 { return x }
+
+fn main() -> i32 {
+    var a = double!(5)
+    var g = greeting!
+    var b = twice!(2)
+    var s = stringify!(abc)
+    var c = plain(1)
+    if a != b { return 1 }
+    return a + b + c
+}
+"""
+
+
 def member_test_name(exe, root):
     """`test` naming a member is a method, not the test-block keyword."""
     X = "src/test_member.k"
@@ -2036,6 +2065,54 @@ def member_test_name(exe, root):
     check("tokens: a method named test, called", tok("test(3)")[1] == "method", tok("test(3)"))
     check("tokens: a test block's test is a keyword", tok('test "flags')[1] == "keyword", tok('test "flags'))
     c.stop()
+
+
+def macro_styles(exe, root):
+    """A macro name and its `!` are one `macro` token, in the run's tokens and
+    in the syntax-only pass's alike; a plain call is not a macro."""
+    X, L = "src/mstyle.k", "src/mstyle_lib.k"
+    open(os.path.join(root, L), "w").write(MSTYLE_LIB)
+    open(os.path.join(root, X), "w").write(MSTYLE)
+    c = Client(exe, root)
+    c.start()
+    c.open(X, MSTYLE)
+    c.settle()
+
+    def run(label, text, toks):
+        by = {(l, col): (w, ty, m) for l, col, w, ty, m in toks}
+        tok = lambda needle, off=0: by.get(pos(text, needle, off), ("", "", set()))
+        w, t, m = tok("double!(5)")
+        check(label + "a user macro invocation is one macro token with its !", (w, t) == ("double!", "macro") and not m, (w, t, m))
+        w, t, m = tok("var g = greeting!", 8)
+        check(label + "an invocation with no arguments is a macro", (w, t) == ("greeting!", "macro"), (w, t, m))
+        w, t, m = tok("twice!(2)")
+        check(label + "an imported macro's invocation is a macro", (w, t) == ("twice!", "macro") and "defaultLibrary" not in m, (w, t, m))
+        w, t, m = tok("stringify!(abc)")
+        check(label + "a builtin macro is a defaultLibrary macro", (w, t) == ("stringify!", "macro") and "defaultLibrary" in m, (w, t, m))
+        w, t, m = tok("macro double!", 6)
+        check(label + "a macro definition's name is a macro declaration", (w, t) == ("double!", "macro") and "declaration" in m, (w, t, m))
+        w, t, m = tok("import self::mstyle_lib::twice!", 25)
+        check(label + "an imported macro's name in the import is a macro", (w, t) == ("twice!", "macro"), (w, t, m))
+        w, t, m = tok("plain(1)")
+        check(label + "a plain call is not a macro", t != "macro", (w, t, m))
+        w, t, m = tok("a != b", 0)
+        check(label + "x != y is not a macro", t != "macro", (w, t, m))
+
+    run("macro styles: ", MSTYLE, tokens(c, X, MSTYLE))
+    # A file that never parsed has no index: its tokens are the raw lex's.
+    B = "src/mstyle_broken.k"
+    broken = MSTYLE + "fn half( {\n"
+    open(os.path.join(root, B), "w").write(broken)
+    c.open(B, broken)
+    c.settle()
+    r = c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": c.uri(B)}}, raw=True)
+    lx = decode(r["data"], broken) if isinstance(r, dict) and "data" in r else []
+    check("macro styles (syntax-only pass): the answer is the raw lex's (no identifier classified)",
+          lx and not any(ty == "function" for _, _, _, ty, _ in lx), lx[:12])
+    run("macro styles (syntax-only pass): ", broken, lx)
+    c.stop()
+    for f in (X, L, B):
+        os.remove(os.path.join(root, f))
 
 
 def interfaces(exe, root):
@@ -4296,6 +4373,8 @@ def main():
             styles(exe, real)
         if want("member_test_name"):
             member_test_name(exe, real)
+        if want("macro_styles"):
+            macro_styles(exe, real)
         if want("bridge"):
             bridge(exe, base)
         if want("bridge_real"):
