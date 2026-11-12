@@ -644,13 +644,13 @@ pub class PPWalker
                     var mv =      if (k == TokenKind::KwPub) => (ModuleVisibility::Public)
                              else if (k == TokenKind::KwPriv) => (ModuleVisibility::Private)
                              else => ModuleVisibility::Protected
-                    self._emit(self._src->next()) // vis keyword IS emitted the
+                    self._emit_next() // vis keyword IS emitted the
                     // parser needs `pub module Foo {`
                     self._track_scope(self._src->peek(0), mv)
                     continue
                 }
 
-                self._emit(self._src->next()) // plain visibility on some other decl
+                self._emit_next() // plain visibility on some other decl
                 continue
             }
 
@@ -689,10 +689,10 @@ pub class PPWalker
 
     /// \param chain the token's macro-origin chain, as captured atomically by
     ///        TokenSource::next_with_origin at the moment it was pulled.
-    ///        &null (the default) for call sites that don't route through
-    ///        next_with_origin (ffi/vis-keyword passthrough, scope-tracked
-    ///        brace/module tokens, the poison sentinel): those tokens are
-    ///        never origin-wrapped.
+    ///        &null (the default) for tokens that are never origin-wrapped
+    ///        (the poison sentinel, a proc macro's `macro`). The walk's own
+    ///        passthroughs (visibility keywords, braces, `module` paths, the
+    ///        `ffi "lang"` head) go through _emit_next.
     priv fn _emit(self, t: Token, chain: unsafe *cxx::std::vector<InvokeHop> = &null) {
         // Sampled, same reasoning as _detect_invocation: the single choke
         // point every token passes through.
@@ -782,6 +782,22 @@ pub class PPWalker
         t->range = (chain)[0].loc           // outermost invocation: the token's reportable position
     }
 
+    /// \brief consumes the next source token and emits it with its macro
+    ///        origin, for the walk's own passthroughs (visibility keywords,
+    ///        scope-tracked braces and `module` paths, the `ffi "lang"` head).
+    ///
+    /// \details every token of a macro body reads at the invocation, these
+    ///          included: a `pub` or a `}` emitted unwrapped keeps its
+    ///          body-site range, and a `pub fn get() { ... }` from an
+    ///          imported macro then spans from the invoking file into the
+    ///          defining one, which the codegen token sink reads past the end
+    ///          of the invoking file's buffer (I003E).
+    priv fn _emit_next(self) {
+        var chain = cxx::std::vector<InvokeHop>()
+        var t     = self._src->next_with_origin(&chain)
+        self._emit(t, unsafe &chain)
+    }
+
     //  Scope tracking
     //  ScopeTracker consumes from a TokenSpan today. On the stream we feed it
     //  one token at a time via a 1-token shim. The tracker only needs the
@@ -795,11 +811,7 @@ pub class PPWalker
             return false
         }
 
-        self._tracker->feed_stream(
-            self._src,
-            vis,
-            fn(tok: Token) { self._emit(tok) },
-        )
+        self._tracker->feed_stream(self._src, vis, fn() { self._emit_next() })
 
         return true
     }
@@ -817,7 +829,7 @@ pub class PPWalker
         // parser reports it (S064E, "expected a language string") and the
         // next line is a statement of its own.
         if self._src->peek(1).kind != TokenKind::LitString {
-            self._emit(self._src->next()) // ffi
+            self._emit_next() // ffi
             return
         }
 
@@ -1027,8 +1039,8 @@ pub class PPWalker
         // Emit ffi + lang, then let the normal walk copy the rest. The block's
         // braces balance via ordinary emission; a single decl ends at its own
         // terminator. Nothing special needed just resume.
-        self._emit(self._src->next()) // ffi
-        self._emit(self._src->next()) // lang
+        self._emit_next() // ffi
+        self._emit_next() // lang
         for var i: usize = 0; i < nl; ++i {
             self._src->next() // the line break reported above: joined
         }

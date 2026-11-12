@@ -624,7 +624,7 @@ pub class ASTContext {
     ///          tokens of one body (`t.1`) share a start, and a spacing rule
     ///          read off those ranges reports whitespace that was never
     ///          written. Spacing questions about wrapped tokens ask this.
-    fn written_range(self, tok: Token) -> SourceRange {
+    pub fn written_range(self, tok: Token) -> SourceRange {
         if self.tcm == &null {
             return tok.range
         }
@@ -639,6 +639,36 @@ pub class ASTContext {
         }
 
         return u.def_range
+    }
+
+    /// \brief the macro a wrapped token came from, as written at its
+    ///        outermost invocation ("dup!"); empty for any other token.
+    ///
+    /// \details a wrapped token's range IS the outermost invocation, which
+    ///          spans the name, the `!` and any arguments, so the name is its
+    ///          text up to the `!`. The text is read from the source, never
+    ///          from the record's macro_name: that is a preprocessor symbol
+    ///          of the process that expanded it (Serialize/Archive.k).
+    pub fn macro_invocation_name(self, tok: Token) -> string {
+        if (tok.kind as u32) != (TokenKind::TkMacroExpand as u32)
+            || self.sm == &null
+            || self.tcm == &null {
+            return ""
+        }
+
+        var u = unwrap_expansion(tok, self.tcm)
+        if u.is_sentinel || u.depth == 0 || !tok.range.is_valid() {
+            return ""
+        }
+
+        var text = self.sm->get_text(tok.range)
+        for var i: usize = 0; i < text.length() && i < 64; ++i {
+            if text[i] == ('!' as u8) {
+                return text.subslice(0, i + 1)
+            }
+        }
+
+        return ""
     }
 
     /// \brief \p tok, a raw token another file lexed, wrapped as a macro

@@ -288,6 +288,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
                     fallback->range.start,
                     f"previous definition of '{name}' is here",
                 )->child_first(fallback->range)
+                self.sc->note_macro_origin(&b, members[i])
                 b.emit()
                 members[i]->poison()
                 return

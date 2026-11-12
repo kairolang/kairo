@@ -17,6 +17,6 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo --type-check-only %s 2>&1 || true; } | %FileCheck %s
-// CHECK: macro_declared_operator.k:7:65: error [SC055E]: '&&' is not overloadable
-// CHECK: macro_declared_operator.k:8:32: warning [SC053W]: 'op ++' does not say which form it is; prefix is assumed
+// CHECK: macro_declared_operator.k:12:5: error [SC055E]: '&&' is not overloadable
+// CHECK: macro_declared_operator.k:13:5: warning [SC053W]: 'op ++' does not say which form it is; prefix is assumed
 // CHECK-NOT: takes exactly one operand

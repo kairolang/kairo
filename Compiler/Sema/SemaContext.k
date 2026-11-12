@@ -45,6 +45,7 @@ import AST::DeclFacts::{
     decl_instantiated,
     decl_instantiated_from,
     decl_is_instance,
+    decl_name_tok,
     decl_spec_kind,
 }
 import AST::LangItems::{
@@ -76,6 +77,7 @@ import AST::VisibilityFacts::{
 import Config::CodeGen::UnmatchedPolicy
 import Config::Invocation::CompilerInvocation
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
+import Diagnostic::DiagBuilder::DiagBuilder
 import Lexer::Immediate::ImmediateTable
 import Location::SourceRange::SourceRange
 import Sema::Check::ConstraintSet::ConstraintSet
@@ -709,6 +711,37 @@ pub class SemaContext {
     /// unless it is marked `@unwind`, whatever the user passes.
     pub fn unwind_all_on(self) -> bool {
         return (!self.in_library()) && self.opts.unwind_all
+    }
+
+    /// ## Declarations a macro made
+
+    /// Adds "in expansion of macro 'm!'" at the body text that wrote \p d's
+    /// name, when a macro expansion declared \p d; nothing otherwise. An
+    /// operator has no name token (its `op` token is stored unwrapped), so
+    /// it gets no note.
+    ///
+    /// Such a declaration's range is the invocation (every body token reads
+    /// there), which is where its errors belong: the user wrote the
+    /// invocation. The note is what points at the macro body.
+    pub fn note_macro_origin(self, b: *DiagBuilder, d: unsafe *Decl) {
+        if d == &null || self.ctx == &null {
+            return
+        }
+
+        var name = decl_name_tok(d)
+        var mac  = self.ctx->macro_invocation_name(name)
+        if mac.length() == 0 {
+            return
+        }
+
+        // A name passed as an argument was written inside the invocation the
+        // error already points at: a note there says nothing new.
+        var body = self.ctx->written_range(name)
+        if !body.is_valid() || name.range.contains(body.start) {
+            return
+        }
+
+        b->note(body.start, f"in expansion of macro '{mac}'")->child_first(body)
     }
 
     /// ## Conveniences (the every-node-hot ones only)

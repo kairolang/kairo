@@ -117,7 +117,7 @@ pub class ScopeTracker {
 
     /// # Streaming driver (PP single-pass walk)
     /// Pulls from TokenSource; emits
-    /// consumed tokens through `emit` because module headers are real decls
+    /// consumed tokens through `take` because module headers are real decls
     /// the parser needs downstream. Mirrors update()+parse_module_decl but
     /// forward-only, UNBOUNDED path length (no window).
 
@@ -130,18 +130,24 @@ pub class ScopeTracker {
     ///       `<vis> import`/`<vis> macro` from `<vis> module`). So by the time
     ///       feed_stream sees a `module`, any visibility keyword is already
     ///       consumed+emitted by the walk and its value handed in via `vis`.
-    fn feed_stream(self, src: unsafe *TokenSource, vis: ModuleVisibility, emit: fn(Token)) {
+    ///
+    /// \param take consumes the next source token and emits it. The walk
+    ///        supplies it so a brace or `module` path from a macro body is
+    ///        emitted with its expansion origin like every other body token,
+    ///        and a node from a wrapped `fn` to its `}` stays in the invoking
+    ///        file.
+    fn feed_stream(self, src: unsafe *TokenSource, vis: ModuleVisibility, take: fn()) {
         var k = src->peek(0).kind
 
         if k == TokenKind::OpLBrace {
             ++self._brace_depth
-            emit(src->next())
+            take()
             return
         }
 
         if k == TokenKind::OpRBrace {
             --self._brace_depth
-            emit(src->next())
+            take()
             self.maybe_pop_scope()
             return
         }
@@ -150,11 +156,11 @@ pub class ScopeTracker {
             return
         }
 
-        emit(src->next()) // `module`
+        take() // `module`
 
         // case: `module :: ...`
         if src->peek(0).kind == TokenKind::OpColonColon {
-            emit(src->next()) // `::`
+            take() // `::`
 
             // `module :: {` global scope
             if src->peek(0).kind == TokenKind::OpLBrace {
@@ -163,7 +169,7 @@ pub class ScopeTracker {
             }
 
             // `module ::Path {` absolute
-            var path = self._consume_module_path_stream(src, emit)
+            var path = self._consume_module_path_stream(src, take)
             if path.segments.size() > 0 && src->peek(0).kind == TokenKind::OpLBrace {
                 self.push_absolute_scope(path, vis)
             }
@@ -182,7 +188,7 @@ pub class ScopeTracker {
             return
         }
 
-        var path = self._consume_module_path_stream(src, emit)
+        var path = self._consume_module_path_stream(src, take)
         if path.segments.size() > 0 && src->peek(0).kind == TokenKind::OpLBrace {
             self.push_scope(path, vis)
         }
@@ -190,9 +196,7 @@ pub class ScopeTracker {
 
     /// \brief stream twin of parse_module_path: ident (:: ident)*, UNBOUNDED.
     ///        Consumes and emits each token. Stops before the trailing `{`.
-    priv fn _consume_module_path_stream(self,
-                                        src:  unsafe *TokenSource,
-                                        emit: fn(Token)) -> ModulePath {
+    priv fn _consume_module_path_stream(self, src: unsafe *TokenSource, take: fn()) -> ModulePath {
         var path = ModulePath()
 
         while src->peek(0).kind == TokenKind::LitIdentifier {
@@ -204,13 +208,13 @@ pub class ScopeTracker {
             )
 
             path.segments.push_back(ident)
-            emit(src->next())
+            take()
 
             if src->peek(0).kind != TokenKind::OpColonColon {
                 break
             }
 
-            emit(src->next()) // `::`
+            take() // `::`
         }
 
         return path

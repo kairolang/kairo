@@ -3865,12 +3865,19 @@ pub class <T: type> DeclParse {
         // `fn goo { ... }` as a closure and take the body with it.
         var n = self.dyn()->span.size()
         for var i: usize = self.dyn()->c_idx; i < n; ++i {
+            // Kinds resolved through a macro wrapper: an interface declared
+            // by a macro body has its `{` and `fn` wrapped.
             var tk = self.dyn()->span.get(i)
-            if tk == &null || tk->kind == TokenKind::OpLBrace {
+            if tk == &null {
                 break
             }
 
-            if tk->kind == TokenKind::KwFn {
+            var tkk = self.dyn()->resolve_kind_deep(tk)
+            if tkk == TokenKind::OpLBrace {
+                break
+            }
+
+            if tkk == TokenKind::KwFn {
                 self._reject_member_removal(tk->range)
                 return false
             }

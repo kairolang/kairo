@@ -1517,15 +1517,19 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
         if defs.size() > 1 && !self._reopenable((group)[0]->kind) {
             var name = e.name.describe(self.sc->ctx)
-            self.sc->diag->report(
+            var b = self.sc->diag->report(
                 DiagID::R029E,
                 defs[1]->range.start,
                 f"redefinition of '{name}'",
-            ).first(defs[1]->range)->note(
+            )
+
+            b.first(defs[1]->range)->note(
                 DiagCode(DiagID::R029N),
                 defs[0]->range.start,
                 f"previous definition of '{name}' is here",
-            )->child_first(defs[0]->range)->emit()
+            )->child_first(defs[0]->range)
+            self.sc->note_macro_origin(&b, defs[1])
+            b.emit()
             for var i: usize = 1; i < defs.size(); ++i {
                 defs[i]->poison()
             }

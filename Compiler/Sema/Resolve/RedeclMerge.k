@@ -651,15 +651,19 @@ pub class RedeclMerge {
             // bodyless in-class declaration in both passes.
             var unsafe *prior = hit->definition()
             if prior != &null && prior != f {
-                self.sc->diag->report(
+                var b = self.sc->diag->report(
                     DiagID::R029E,
                     f->range.start,
                     f"redefinition of '{nm}'",
-                ).first(f->range)->note(
+                )
+
+                b.first(f->range)->note(
                     DiagCode(DiagID::R029N),
                     prior->range.start,
                     f"previous definition of '{nm}' is here",
-                )->child_first(prior->range)->emit()
+                )->child_first(prior->range)
+                self.sc->note_macro_origin(&b, f)
+                b.emit()
                 f->poison()
                 continue
             }
@@ -1912,15 +1916,19 @@ pub class RedeclMerge {
         // that the two disagree about const or return type is a second
         // diagnostic for one mistake, with the same fix.
         if in_type_body {
-            self.sc->diag->report(
+            var b = self.sc->diag->report(
                 DiagID::R041E,
                 cur->range.start,
                 f"class member '{name}' cannot be redeclared",
-            ).first(cur->range)->note(
+            )
+
+            b.first(cur->range)->note(
                 DiagCode(DiagID::R041N),
                 prev->range.start,
                 "previous declaration is here",
-            )->child_first(prev->range)->emit()
+            )->child_first(prev->range)
+            self.sc->note_macro_origin(&b, cur)
+            b.emit()
             cur->poison()
             return
         }
@@ -1933,15 +1941,19 @@ pub class RedeclMerge {
         self._check_conv_agrees(name, prev, cur)
 
         if prev->has_body() && cur->has_body() {
-            self.sc->diag->report(
+            var b = self.sc->diag->report(
                 DiagID::R029E,
                 cur->range.start,
                 f"redefinition of '{name}'",
-            ).first(cur->range)->note(
+            )
+
+            b.first(cur->range)->note(
                 DiagCode(DiagID::R029N),
                 prev->range.start,
                 f"previous definition of '{name}' is here",
-            )->child_first(prev->range)->emit()
+            )->child_first(prev->range)
+            self.sc->note_macro_origin(&b, cur)
+            b.emit()
             cur->poison()
             return
         }

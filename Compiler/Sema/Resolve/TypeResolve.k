@@ -6832,15 +6832,19 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         if both {
             var nm = self._decl_name_str(cur)
-            self.sc->diag->report(
+            var rb = self.sc->diag->report(
                 DiagID::R029E,
                 cur->range.start,
                 f"redefinition of specialization '{nm}'",
-            ).first(cur->range)->note(
+            )
+
+            rb.first(cur->range)->note(
                 DiagCode(DiagID::R029N),
                 prev->range.start,
                 "previous definition is here",
-            )->child_first(prev->range)->emit()
+            )->child_first(prev->range)
+            self.sc->note_macro_origin(&rb, cur)
+            rb.emit()
             cur->poison()
             return
         }

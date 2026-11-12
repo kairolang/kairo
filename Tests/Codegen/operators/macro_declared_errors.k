@@ -9,7 +9,7 @@ class Dup {
     var v: i32 = 0
     bin!(+)
     bin!(+)
-// DIAG: macro_declared_errors.k:6:65: error [R041E]: class member 'op +' cannot be redeclared
+// DIAG: macro_declared_errors.k:11:5: error [R041E]: class member 'op +' cannot be redeclared
     bin!(-)
 }
 
