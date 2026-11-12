@@ -1,8 +1,8 @@
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -fimplicit-conv --print-ir 2>&1 | %FileCheck %s --check-prefix=IR
-// RUN: %kairo %s -fimplicit-conv -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -fcxx-implicit-conv --print-ir 2>&1 | %FileCheck %s --check-prefix=IR
+// RUN: %kairo %s -fcxx-implicit-conv -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 12
-// P832: an argument C++ converts implicitly at a C++ callee (P825) is
+// An argument C++ converts implicitly at a C++ callee is
 // emitted as written. A cast spelled the parameter's unsubstituted type,
 // `static_cast< ::fs<T ...>>`, naming a T that does not exist at the call.
 // A literal at a C++ template's `T&&...` or `const T&` goes as a C string,

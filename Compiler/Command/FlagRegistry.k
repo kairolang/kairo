@@ -1119,6 +1119,10 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     )
 
     cmd->define<FlagKind::Feature>("implicit-conv", "allow implicit type conversions (on)")
+    cmd->define<FlagKind::Feature>(
+        "cxx-implicit-conv",
+        "at a call into C++, apply the implicit conversions C++ would (off: write 'as T')",
+    )
     cmd->define<FlagKind::Feature>("rtti", "runtime type information (on)")
     cmd->define<FlagKind::Feature>(
         "union-inference",

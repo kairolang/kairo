@@ -833,7 +833,7 @@ pub class Conversion {
     /// A non-explicit C++ conversion function of the imported record \p from
     /// whose result, cv and reference dropped, is the record \p to, or null.
     /// What C++ applies implicitly at a call ([class.conv.fct]); Kairo applies
-    /// it only at a C++ callee under an explicit -fimplicit-conv (P813), and
+    /// it only at a C++ callee under -fcxx-implicit-conv (P813), and
     /// `as` reaches it through the `op as` rung regardless.
     /// \p any_explicit admits an `explicit` one too: what `as` reaches, for a
     /// diagnostic that suggests the cast.

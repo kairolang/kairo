@@ -6,7 +6,7 @@
 // `x->m` on a class with `op ->` reads m from what the operator points to
 // ([over.ref]), chained while the result is itself such a class: how a C++
 // iterator or smart pointer is read (`it->second`), and what
-// operator-overloading.md promises for a Kairo `op ->`. It used to be
+// operator-overloading.md promises for a Kairo `op ->`. It is not
 // R027E "'->' requires a pointer on its left" for every record.
 
 ffi "c++" import "arrow_operator.h"

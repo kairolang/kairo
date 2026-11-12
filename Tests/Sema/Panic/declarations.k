@@ -2,7 +2,7 @@
 // - `main` can never panic, and nothing may reach it: each unhandled call
 //   is an error whose edit handles it or stops with `crash!()`;
 // - `panic` with `-> !` is contradictory: a panic returns its error;
-// - no constructor (any kind) or destructor can panic (decided 2026-10-27);
+// - no constructor (any kind) or destructor can panic (PANIC.md §7);
 // - what is called where no call is written cannot panic, since nothing
 //   could handle it there: an `@implicit` conversion, `op panic` itself.
 // Each gets an edit removing `panic`.

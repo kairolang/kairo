@@ -1864,13 +1864,14 @@ pub class ExprTyper
 
         // C++ initialises a class from a value through ONE user-defined
         // conversion ([dcl.init]/17.6.3, [over.best.ics]); Kairo applies it
-        // only under an explicit -fimplicit-conv, exactly as at a call
-        // argument (P813), and initialisation, assignment and return reach
-        // the same C++ boundary (P834). Without the flag the error says which
-        // conversion C++ would have used and the fix-it writes the cast.
+        // only under -fcxx-implicit-conv, exactly as at a call argument
+        // (P813), and initialisation, assignment and return reach the same
+        // C++ boundary (P834). -fimplicit-conv is the Kairo-side rules and
+        // has no say here. Without the flag the error says which conversion
+        // C++ would have used and the fix-it writes the cast.
         var via = self._cxx_user_conv(e, from, to)
         if via != "" {
-            if self.sc->opts.implicit_conv == 1 {
+            if self.sc->opts.on(self.sc->opts.cxx_implicit_conv, false) {
                 // C++ performs the conversion, so the value goes as written:
                 // a literal as its bytes, the `const char[N]` C++ converts
                 // from (as CallTyping does for a user_convs argument). Typed
@@ -1905,7 +1906,7 @@ pub class ExprTyper
 
             b.note(
                 e->range.start,
-                f"C++ would convert the value to '{tn}' implicitly through {via}; Kairo applies no C++ implicit conversion unless -fimplicit-conv is given: write 'as {tn}', or pass -fimplicit-conv",
+                f"C++ would convert the value to '{tn}' implicitly through {via}; Kairo applies no C++ implicit conversion unless -fcxx-implicit-conv is given: write 'as {tn}', or pass -fcxx-implicit-conv",
             )
 
             b.emit()

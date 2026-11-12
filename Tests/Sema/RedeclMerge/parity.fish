@@ -11,8 +11,8 @@ set -l root (realpath $here/../../..)
 
 set -l mode debug
 if set -q argv[1]; set mode $argv[1]; end
-# Do not hardcode a triple (the bash twin used to, and reported "no binary" on
-# every host but one). KAIRO_BIN wins if set, as it does in lit.
+# Do not hardcode a triple (a fixed one reports "no binary" on every host
+# but one). KAIRO_BIN wins if set, as it does in lit.
 set -l kairo $KAIRO_BIN
 if test -z "$kairo"
     for cand in $root/build/*/$mode/bin/kairo

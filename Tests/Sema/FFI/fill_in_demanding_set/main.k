@@ -5,7 +5,7 @@
 // instance over a cell.h type had no spelling there and never filled:
 // `size_type` stayed opaque, so `[]` / `resize` rejected a usize (SC063E,
 // `__n` of type '<ffi type>') and `i < v.size()` had no operator (SC066E).
-// The fill now falls back to this TU's own set, which sees both headers.
+// The fill falls back to this TU's own set, which sees both headers.
 // CHECK-NOT: error
 
 ffi "c++" import "vector"

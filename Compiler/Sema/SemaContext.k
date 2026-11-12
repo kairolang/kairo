@@ -156,6 +156,7 @@ pub class SemaOptions {
     pub var overflow_checks:   i32 = -1 ///< arith overflow checking semantics.
     pub var strict_null:       i32 = -1 ///< nullable strictness.
     pub var implicit_conv:     i32 = -1 ///< allow implicit conversions.
+    pub var cxx_implicit_conv: i32 = -1 ///< C++'s implicit conversions at a crossing (off).
     pub var rtti:              i32 = -1 ///< emit RTTI-dependent features.
 
     /// Longest chain of alias-through-alias expansions T will follow before
@@ -230,6 +231,7 @@ pub class SemaOptions {
         self.overflow_checks      = ci->lang.overflow_checks
         self.strict_null          = ci->lang.strict_null
         self.implicit_conv        = ci->lang.implicit_conv
+        self.cxx_implicit_conv    = ci->lang.cxx_implicit_conv
         self.rtti                 = ci->lang.rtti
         self.max_type_alias_depth = ci->lang.max_type_alias_depth
         self.unmatched            = ci->codegen.unmatched_policy()

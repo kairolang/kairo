@@ -549,7 +549,7 @@ pub class <T: type> CallTyping {
             pt = r->ded.through_receiver(f, r->receiver, pt)
 
             // A C++ callee takes this argument through one implicit
-            // user-defined conversion (-fimplicit-conv, P813): C++ performs
+            // user-defined conversion (-fcxx-implicit-conv, P813): C++ performs
             // it, so the argument is emitted as written -- a string literal
             // as its bytes, the `const char[N]` C++ converts from.
             if self._listed(&r->user_convs, i) {

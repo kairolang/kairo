@@ -1,9 +1,9 @@
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -fimplicit-conv -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -fcxx-implicit-conv -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 31
-// P834: under an explicit -fimplicit-conv, initialisation, assignment and
+// Under an explicit -fimplicit-conv, initialisation, assignment and
 // return of a C++ class take ONE C++ user-defined conversion, as a call
-// argument does (P813): a string literal through a converting constructor
+// argument does: a string literal through a converting constructor
 // (View(const char*), std::string's defaulted-allocator one), a C++ class
 // through a converting constructor (A to B) or a conversion operator (D to C).
 ffi "c++" import "cxx_user_conversion.h"

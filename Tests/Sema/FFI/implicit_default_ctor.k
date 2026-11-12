@@ -5,7 +5,7 @@
 //
 // `Result()` finds the default constructor clang declares lazily: the import
 // forces clang to declare a record's implicit special members before it reads
-// them. It used to be SC063E with only the copy / move constructors as
+// them, so it is not SC063E with only the copy / move constructors as
 // (non-viable) candidates.
 // DIAG-NOT: error
 

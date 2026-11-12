@@ -11,10 +11,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 ///
-///   No other file spells a clang flag for a kairo option. Before this file
-///   the mapping lived in five places (CompilerInstance::_codegen_cc1,
-///   _fast_math_cc1, _backend_config; ClangBackend::_clang_wargs_from_policy,
-///   _driver_target_args) and only went one way. Now:
+///   No other file spells a clang flag for a kairo option, so the
+///   mapping has one home. The forms:
 ///
 ///     cc1     what kairo's own TUs (the hand-built invocation in
 ///             ClangBackend::_cc1_common) and the ffi header sets compile with.
@@ -1164,7 +1162,7 @@ pub class FlagTranslator {
 
     /// \brief Whether -fdebug-macro goes to clang for \p triple. LLVM crashes emitting
     ///        macro debug info for a Mach-O target (a null MCExpr fragment in
-    ///        DwarfDebug::endModule, P774), so a Mach-O build keeps -g without the macro
+    ///        DwarfDebug::endModule), so a Mach-O build keeps -g without the macro
     ///        info instead of aborting. Linux, Windows and BSD targets are unaffected.
     pub static fn macros_for(const macros: bool, const triple: string) -> bool {
         var tr = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))

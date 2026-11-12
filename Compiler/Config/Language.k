@@ -45,6 +45,11 @@ pub class LangOptions {
     pub var overflow_checks:   i32 = -1
     pub var strict_null:       i32 = -1
     pub var implicit_conv:     i32 = -1
+    /// -fcxx-implicit-conv: at a call (or initialisation) that crosses into
+    /// C++, C++'s own implicit conversions apply (one user-defined
+    /// conversion, a literal crossing as `const char[N]`). Off unless 1;
+    /// -fimplicit-conv is the Kairo-side rules only and never turns it on.
+    pub var cxx_implicit_conv: i32 = -1
     pub var rtti:              i32 = -1
     pub var union_inference:   i32 = -1
     pub var exceptions:        i32 = -1
@@ -165,6 +170,7 @@ pub class LangOptions {
         o.overflow_checks   = args.get_feature("overflow-checks")
         o.strict_null       = args.get_feature("strict-null")
         o.implicit_conv     = args.get_feature("implicit-conv")
+        o.cxx_implicit_conv = args.get_feature("cxx-implicit-conv")
         o.rtti              = args.get_feature("rtti")
         o.union_inference   = args.get_feature("union-inference")
         o.exceptions        = args.get_feature("exceptions")

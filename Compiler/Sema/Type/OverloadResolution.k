@@ -363,7 +363,7 @@ pub class Candidate {
     pub var inout_unmarked: cxx::std::vector<usize>
     pub var inout_params:   cxx::std::vector<unsafe *ParamDecl>
     /// Arguments a C++ callee takes through ONE implicit user-defined
-    /// conversion (-fimplicit-conv, P813): ranked below every standard
+    /// conversion (-fcxx-implicit-conv, P813): ranked below every standard
     /// conversion (rank 2), emitted as written for C++ to convert.
     pub var user_convs: cxx::std::vector<usize>
     /// The subset of user_convs whose parameter Kairo cannot read before
@@ -2777,12 +2777,14 @@ pub class OverloadResolution {
 
             // C++ takes an argument through one implicit user-defined
             // conversion ([over.best.ics]); Kairo does only at a C++ callee
-            // and only under an explicit -fimplicit-conv (P813, owner's
-            // rule: crossing into C++ follows C++). Below every standard
+            // and only under -fcxx-implicit-conv (P813, owner's rule:
+            // crossing into C++ follows C++; -fimplicit-conv is the
+            // Kairo-side rules and has no say here). Below every standard
             // conversion, as C++ ranks it. Without the flag the reason says
             // which conversion C++ would have used.
             var uto: unsafe *Type = &null
             var        uvia = ""
+            var        cxx_conv = self.sc->opts.on(self.sc->opts.cxx_implicit_conv, false)
             if r == ImplicitRank::None && mode != ParamMode::Inout {
                 uto = self._cxx_conv_target(f, a, pt)
                 if uto != &null {
@@ -2798,7 +2800,7 @@ pub class OverloadResolution {
             if r == ImplicitRank::None
                 && uvia == ""
                 && mode != ParamMode::Inout
-                && self.sc->opts.implicit_conv == 1
+                && cxx_conv
                 && c->generic
                 && f->is_imported()
                 && (!a->marked)
@@ -2814,7 +2816,7 @@ pub class OverloadResolution {
                 continue
             }
 
-            if uvia != "" && self.sc->opts.implicit_conv == 1 {
+            if uvia != "" && cxx_conv {
                 c->user_convs.push_back(i)
                 if c->rank < 2 {
                     c->rank = 2
@@ -4009,7 +4011,7 @@ pub class OverloadResolution {
             var via = (*cs)[ufirst].uconv_via
             b.note(
                 (*cs)[ufirst].fix_open,
-                f"C++ would convert the argument to '{to}' implicitly through {via}; Kairo applies no C++ implicit conversion unless -fimplicit-conv is given: write 'as {to}', or pass -fimplicit-conv",
+                f"C++ would convert the argument to '{to}' implicitly through {via}; Kairo applies no C++ implicit conversion unless -fcxx-implicit-conv is given: write 'as {to}', or pass -fcxx-implicit-conv",
             )
         } else if utargets.size() > 1 {
             var list = ""
@@ -4023,7 +4025,7 @@ pub class OverloadResolution {
 
             b.note(
                 at.start,
-                f"C++ would convert the argument implicitly to one of {list}; Kairo applies no C++ implicit conversion unless -fimplicit-conv is given: write the cast to the one you mean, or pass -fimplicit-conv",
+                f"C++ would convert the argument implicitly to one of {list}; Kairo applies no C++ implicit conversion unless -fcxx-implicit-conv is given: write the cast to the one you mean, or pass -fcxx-implicit-conv",
             )
         }
 

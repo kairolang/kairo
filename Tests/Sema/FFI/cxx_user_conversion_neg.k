@@ -1,5 +1,5 @@
-// RUN: { %kairo %s -fimplicit-conv --type-check-only 2>&1 || true; } | %FileCheck %s
-// P813: even under -fimplicit-conv, an `explicit` constructor converts only
+// RUN: { %kairo %s -fcxx-implicit-conv --type-check-only 2>&1 || true; } | %FileCheck %s
+// Even under -fimplicit-conv, an `explicit` constructor converts only
 // through `as`, and no note claims C++ would convert. A Kairo `if` condition
 // must be bool with or without the flag (control-flow); a class with
 // operator bool gets the `as bool` fix-it.

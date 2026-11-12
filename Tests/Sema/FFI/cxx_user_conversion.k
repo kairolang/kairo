@@ -1,8 +1,8 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=NOFLAG
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -fimplicit-conv -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -fcxx-implicit-conv -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 32
-// P813: at a C++ callee, -fimplicit-conv applies ONE C++ implicit user-defined
+// At a C++ callee, -fimplicit-conv applies ONE C++ implicit user-defined
 // conversion (a non-explicit converting constructor or conversion function),
 // ranked below every standard conversion and performed by C++. Without the
 // flag the call is SC063E, with a note naming the conversion and an `as` fix-it.

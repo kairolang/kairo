@@ -1,11 +1,11 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// P834: without -fimplicit-conv, no C++ implicit conversion: the SC028E at
+// Without -fimplicit-conv, no C++ implicit conversion: the SC028E at
 // an initialisation, assignment or return says which conversion C++ would
 // use and the fix-it writes the cast. An `explicit` constructor is no
 // implicit route, flag or not: no note claims one.
 // CHECK: cxx_user_conversion_init_neg.k:22:12: error [SC028E]: cannot convert 'string' to 'View'
 // CHECK: fix-it:{{.*}}:{22:18-22:18}:" as View"
-// CHECK: note [{{[A-Z0-9]+}}]: C++ would convert the value to 'View' implicitly through 'View(unsafe *const c_char)'; Kairo applies no C++ implicit conversion unless -fimplicit-conv is given
+// CHECK: note [{{[A-Z0-9]+}}]: C++ would convert the value to 'View' implicitly through 'View(unsafe *const c_char)'; Kairo applies no C++ implicit conversion unless -fcxx-implicit-conv is given
 // CHECK: cxx_user_conversion_init_neg.k:27:16: error [SC028E]: cannot convert 'A' to 'B'
 // CHECK: fix-it:{{.*}}:{27:17-27:17}:" as B"
 // CHECK: cxx_user_conversion_init_neg.k:28:19: error [SC028E]: cannot convert 'string' to 'View'
