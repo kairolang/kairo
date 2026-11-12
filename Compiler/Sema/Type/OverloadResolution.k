@@ -290,6 +290,12 @@ pub enum OvlOutcome derives u8 {
     Empty, ///< nothing callable under that name.
 }
 
+/// Candidate::arg_to_param (and OvlResult's copy): the two entries that are
+/// no parameter index. Read past the end of the vector, an argument is the
+/// pack tail, as every reader treats it.
+pub const ARG_PACK_TAIL: usize = usize::MAX     ///< the Kairo pack parameter's tail.
+pub const ARG_C_VARARG:  usize = usize::MAX - 1 ///< a C `...` tail: no parameter at all.
+
 pub class Candidate {
     pub var f:       unsafe *FunctionDecl = &null
     pub var viable:  bool                 = true
@@ -317,9 +323,10 @@ pub class Candidate {
     /// is exactly ONE candidate; with an overload set the specific rule is a
     /// property of one candidate, not of the call, so it stays a note.
     pub var reason_code: DiagID = DiagID::SC001E
-    /// per arg: param index, usize(-1) for the Kairo pack tail, usize(-2) for
-    /// a C `...` tail (no parameter at all; finish_call_args finds none and
-    /// types a literal there with its default, which is C's promotion).
+    /// per arg: param index, ARG_PACK_TAIL for the Kairo pack tail,
+    /// ARG_C_VARARG for a C `...` tail (no parameter at all;
+    /// finish_call_args finds none and types a literal there with its
+    /// default, which is C's promotion).
     pub var arg_to_param: cxx::std::vector<usize>
     /// per arg: the reference kind it bound AT EXACT -- 0 none (a value
     /// parameter, or not Exact), 1 `const T&`, 2 `T&&`, 3 `T&` -- or, 4-6,
@@ -427,6 +434,36 @@ pub class OvlResult {
     /// instance's to learn (call_result_type).
     pub var deref_dep: bool = false
     fn OvlResult(self) { }
+}
+
+/// \class OvlCallScope
+/// \brief The ambient context one resolution reads -- call_syntax,
+///        explicit_args, recv_cat, which CallTyping sets for one call --
+///        put back as it was when the scope ends, however it ends. Every
+///        field, not the ones a site remembered to save: typing an argument
+///        is a call of its own, and one that read the outer call's explicit
+///        arguments said "it takes 0 generic argument(s), and 1 were
+///        written" (CallTyping::_call_candidates).
+pub class OvlCallScope {
+    priv var _ovl:         unsafe *OverloadResolution
+    priv var _call_syntax: bool
+    priv var _explicit:    cxx::std::vector<unsafe *Type>
+    priv var _recv_cat:    Expr::ValueCategory
+
+    fn OvlCallScope(self, ovl: unsafe *OverloadResolution) {
+        self._ovl         = ovl
+        self._call_syntax = ovl->call_syntax
+        self._explicit    = ovl->explicit_args
+        self._recv_cat    = ovl->recv_cat
+    }
+
+    @copy fn OvlCallScope(self, const other: Self) = delete
+
+    fn op finally (self) {
+        self._ovl->call_syntax   = self._call_syntax
+        self._ovl->explicit_args = self._explicit
+        self._ovl->recv_cat      = self._recv_cat
+    }
 }
 
 pub class OverloadResolution {
@@ -1902,7 +1939,7 @@ pub class OverloadResolution {
 
             if params[k]->is_pack {
                 for var i: usize = 0; i < args->size(); ++i {
-                    if c->arg_to_param[i] == usize::MAX {
+                    if c->arg_to_param[i] == ARG_PACK_TAIL {
                         order.push_back(i)
                     }
                 }
@@ -1918,7 +1955,7 @@ pub class OverloadResolution {
         }
 
         for var i: usize = 0; i < args->size(); ++i {
-            if c->arg_to_param[i] == usize::MAX - 1 {
+            if c->arg_to_param[i] == ARG_C_VARARG {
                 order.push_back(i)
             }
         }
@@ -2413,7 +2450,7 @@ pub class OverloadResolution {
         }
 
         for var i: usize = 0; i < args->size(); ++i {
-            c->arg_to_param.push_back(usize::MAX)
+            c->arg_to_param.push_back(ARG_PACK_TAIL) // placed below
             c->binds.push_back(0)
             c->ints.push_back(0)
             c->flits.push_back(0)
@@ -2490,7 +2527,7 @@ pub class OverloadResolution {
 
                 pack_hi = i
                 pack_n += 1
-                c->arg_to_param[i] = usize::MAX // pack tail
+                c->arg_to_param[i] = ARG_PACK_TAIL
                 filled[pack_at]    = 1
                 continue
             }
@@ -2504,7 +2541,7 @@ pub class OverloadResolution {
                 // no parameter to judge it against; C's default promotions
                 // are the callee's contract, not a Kairo conversion.
                 if f->ffi_c_variadic {
-                    c->arg_to_param[i] = usize::MAX - 1
+                    c->arg_to_param[i] = ARG_C_VARARG
                     continue
                 }
 
@@ -2592,7 +2629,7 @@ pub class OverloadResolution {
         for var i: usize = 0; i < args->size(); ++i {
             var *a = &(*args)[i]
             var pi = c->arg_to_param[i]
-            if pi == usize::MAX - 1 { // C `...` tail: Converted, unchecked.
+            if pi == ARG_C_VARARG { // Converted, unchecked.
                 if c->rank < 1 {
                     c->rank = 1
                 }
@@ -2600,7 +2637,7 @@ pub class OverloadResolution {
                 continue
             }
 
-            var p: unsafe *ParamDecl = if (pi != usize::MAX) => (params[pi]) else => params[pack_at]
+            var p: unsafe *ParamDecl = if (pi != ARG_PACK_TAIL) => (params[pi]) else => params[pack_at]
             var pt: unsafe *Type = &null
             if p->type_ != &null {
                 pt = p->type_->canonical
@@ -2666,11 +2703,11 @@ pub class OverloadResolution {
 
             // The parameter's mode. A pack tail ranks by value; the receiver
             // never reaches here (bound above, and it takes no mode).
-            var mode = if (pi == usize::MAX) => (ParamMode::Value) else => p->mode
+            var mode = if (pi == ARG_PACK_TAIL) => (ParamMode::Value) else => p->mode
             // A C++ `T&` is `@inout x: T` (cxx_lref_inout): judged as one,
             // against its referee, so `&x` is the marker and binds by reference.
             if self.call_syntax
-                && pi != usize::MAX
+                && pi != ARG_PACK_TAIL
                 && isa<CXXLValueRefType>(pt)
                 && cxx_lref_inout(f, p, a->marked) {
                 mode = ParamMode::Inout
@@ -2719,7 +2756,7 @@ pub class OverloadResolution {
                                  && self.tu.is_builtin(canon_unqual(lp), BuiltinKind::CChar)) => (1)
                              else => 2
             } else {
-                r = self._rank_arg(c, ra, rt, pi == usize::MAX, mode)
+                r = self._rank_arg(c, ra, rt, pi == ARG_PACK_TAIL, mode)
             }
 
             // `Box<i32>::Box(self, n)` from `class IntBox derives Box<i32>`:

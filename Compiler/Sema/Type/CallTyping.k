@@ -123,8 +123,11 @@ import Sema::Type::NullnessFlow::{
     NULL_READ_REFUSED,
 }
 import Sema::Type::OverloadResolution::{
+    ARG_C_VARARG,
+    ARG_PACK_TAIL,
     ArgInfo,
     LitKind,
+    OvlCallScope,
     OvlOutcome,
     OvlResult,
     cxx_lref_inout,
@@ -476,9 +479,9 @@ pub class <T: type> CallTyping {
 
         for var i: usize = 0; i < args->size(); ++i {
             var *a = &(*args)[i]
-            var pi = if (i < r->arg_to_param.size()) => (r->arg_to_param[i]) else => usize::MAX
+            var pi = if (i < r->arg_to_param.size()) => (r->arg_to_param[i]) else => ARG_PACK_TAIL
             var p: unsafe *ParamDecl = &null
-            if pi != usize::MAX {
+            if pi != ARG_PACK_TAIL {
                 if pi < view.size() {
                     p = view[pi]
                 }
@@ -497,7 +500,7 @@ pub class <T: type> CallTyping {
             // char *` (printf("%s", "x")). Any other string is a C++
             // class, which C's varargs cannot carry: clang would reject it
             // in the generated C++, so it is said here, with the edit.
-            if pi == usize::MAX - 1 && f->ffi_c_variadic {
+            if pi == ARG_C_VARARG && f->ffi_c_variadic {
                 var sl = self.dyn()->tu.c_string_literal(a->expr)
                 if sl != &null {
                     var cc = self.dyn()->sc->types->qualified(
@@ -565,7 +568,7 @@ pub class <T: type> CallTyping {
 
             // A C++ `T&` is `@inout x: T` (cxx_lref_inout), judged against T.
             var inout = p->mode == ParamMode::Inout
-            if pi != usize::MAX
+            if pi != ARG_PACK_TAIL
                 && cxx_lref_inout(f, p, a->marked)
                 && (a->marked || self._listed(&r->inout_unmarked, i)) {
                 inout = true
@@ -576,7 +579,7 @@ pub class <T: type> CallTyping {
             }
 
             // `@inout` with the marker: the operand is the argument.
-            if inout && a->marked && pi != usize::MAX {
+            if inout && a->marked && pi != ARG_PACK_TAIL {
                 self._commit_marker(a, if (pt != &null) => (canon_unqual(pt)) else => &null)
                 continue
             }
@@ -1048,21 +1051,21 @@ pub class <T: type> CallTyping {
         // The forwarder's `<T>` is still the explicit list resolution
         // reads; a constructor takes none, so it is set aside for this
         // resolution and put back for the rest of the forwarder's call.
-        var outer_ex = self.dyn()->ovl.explicit_args
-        self.dyn()->ovl.explicit_args.clear()
-        var outer_cs = self.dyn()->ovl.call_syntax
-        self.dyn()->ovl.call_syntax = true
-        var cr = self.dyn()->ovl.resolve(
-            &cands,
-            &args,
-            true,
-            n->range,
-            self.dyn()->tu.decl_name(d),
-            rec,
-        )
+        var cr = OvlResult()
+        {
+            var _ctx = OvlCallScope(unsafe &self.dyn()->ovl)
+            self.dyn()->ovl.explicit_args.clear()
+            self.dyn()->ovl.call_syntax = true
+            cr = self.dyn()->ovl.resolve(
+                &cands,
+                &args,
+                true,
+                n->range,
+                self.dyn()->tu.decl_name(d),
+                rec,
+            )
+        }
 
-        self.dyn()->ovl.call_syntax   = outer_cs
-        self.dyn()->ovl.explicit_args = outer_ex
         if cr.outcome == OvlOutcome::Dependent || cr.outcome == OvlOutcome::Deferred {
             return true
         }
@@ -1839,13 +1842,13 @@ pub class <T: type> CallTyping {
         // call, `make_box<Pair>(Pair(3, 4))`) read them as written on it:
         // "it takes 0 generic argument(s), and 1 were written".
         // The receiver's category likewise (ChainInfo::receiver_cat).
-        var outer_explicit = self.dyn()->ovl.explicit_args
-        var outer_cat      = self.dyn()->ovl.recv_cat
-        self.dyn()->ovl.explicit_args.clear()
-        self.dyn()->ovl.recv_cat = Expr::ValueCategory::LValue
-        var ok = self.build_args(n->args, &args)
-        self.dyn()->ovl.explicit_args = outer_explicit
-        self.dyn()->ovl.recv_cat      = outer_cat
+        var ok = false
+        {
+            var _ctx = OvlCallScope(unsafe &self.dyn()->ovl)
+            self.dyn()->ovl.explicit_args.clear()
+            self.dyn()->ovl.recv_cat = Expr::ValueCategory::LValue
+            ok = self.build_args(n->args, &args)
+        }
 
         // ADL ([basic.lookup.argdep]): an unqualified call also sees functions
         // of the same name in the modules of its arguments' types -- how
@@ -1929,6 +1932,10 @@ pub class <T: type> CallTyping {
             return &null
         }
 
+        // Not an OvlCallScope: `r` would then need a declared type ahead of
+        // the scope, which makes every call below it a checked one through
+        // a duck-typed receiver (TODO(DUCK-GENERIC)); resolve writes none of
+        // the context, so restoring call_syntax alone is the whole restore.
         var outer_cs = self.dyn()->ovl.call_syntax
         self.dyn()->ovl.call_syntax = true
         var r = self.dyn()->ovl.resolve(&all, &args, has_receiver, n->range, name, recv, qual)
@@ -2063,10 +2070,13 @@ pub class <T: type> CallTyping {
         }
 
         // Judged as the call will be (OverloadResolution::call_syntax).
-        var outer_cs = self.dyn()->ovl.call_syntax
-        self.dyn()->ovl.call_syntax = true
-        var ok_as_is = self.dyn()->ovl.any_viable(cands, args, has_receiver, &null, &null, recv)
-        self.dyn()->ovl.call_syntax = outer_cs
+        var ok_as_is = false
+        {
+            var _ctx = OvlCallScope(unsafe &self.dyn()->ovl)
+            self.dyn()->ovl.call_syntax = true
+            ok_as_is = self.dyn()->ovl.any_viable(cands, args, has_receiver, &null, &null, recv)
+        }
+
         if ok_as_is {
             return true
         }
@@ -2131,7 +2141,7 @@ pub class <T: type> CallTyping {
 
         var ok = true
         for var i: usize = 0; i < args->size(); ++i {
-            var pi = if (i < r->arg_to_param.size()) => (r->arg_to_param[i]) else => usize::MAX
+            var pi = if (i < r->arg_to_param.size()) => (r->arg_to_param[i]) else => ARG_PACK_TAIL
             if pi >= 32 { // pack tail / C `...`: no mask bit.
                 continue
             }
@@ -2251,12 +2261,12 @@ pub class <T: type> CallTyping {
         }
 
         for var i: usize = 0; i < args.size(); ++i {
-            var pi = if (i < r->arg_to_param.size()) => (r->arg_to_param[i]) else => usize::MAX
-            if pi == usize::MAX - 1 { // C `...` tail: no parameter at all.
+            var pi = if (i < r->arg_to_param.size()) => (r->arg_to_param[i]) else => ARG_PACK_TAIL
+            if pi == ARG_C_VARARG {
                 continue
             }
 
-            if pi == usize::MAX {
+            if pi == ARG_PACK_TAIL {
                 // Pack tail. Its run is contiguous (SC022E rejects otherwise),
                 // so the first index and the count describe it exactly.
                 if pack_lo == (-1 as i32) {
@@ -2453,7 +2463,7 @@ pub class <T: type> CallTyping {
                 rec,
             )
         } else {
-            var outer_cs = self.dyn()->ovl.call_syntax
+            var _ctx = OvlCallScope(unsafe &self.dyn()->ovl)
             self.dyn()->ovl.call_syntax = true
             r = self.dyn()->ovl.resolve(
                 &cands,
@@ -2463,8 +2473,6 @@ pub class <T: type> CallTyping {
                 self.dyn()->tu.decl_name(d),
                 rec,
             )
-
-            self.dyn()->ovl.call_syntax = outer_cs
         }
 
         // An argument only the instance types -- `Sink(args...)`, a pack

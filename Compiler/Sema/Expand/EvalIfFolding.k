@@ -165,17 +165,48 @@ import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 
-/// A folded condition's value: a bool, or an integer (a `defined!` is the
-/// literal `1` / `0`; an integer is true when it is not zero).
-pub struct FoldVal {
-    var ok:     bool
-    var is_int: bool
-    var b:      bool
-    var i:      Declarations::IntConst
+/// \enum FoldKind
+/// \brief What folding a condition came to.
+pub enum FoldKind derives u8 {
+    /// It does not fold: the reason is EvalIfFolding's `_why`, or none for
+    /// an integer that overflowed.
+    Failed = 0,
     /// Not decided yet: a type fact E cannot answer, or (late) a fact or a
-    /// name another deferred `eval if` still decides. `ok` is false with it;
-    /// it is not a failure.
-    var deferred: bool
+    /// name another deferred `eval if` still decides. Not a failure.
+    Deferred,
+    Bool, ///< `b`.
+    Int,  ///< `i` (a `defined!` is the literal `1` / `0`).
+}
+
+/// A folded condition's value: a bool, or an integer (true when it is not
+/// zero). Built only by EvalIfFolding's _no / _defer / _waits / _bool /
+/// _int, so `kind` always says which payload is meaningful.
+pub struct FoldVal {
+    var kind: FoldKind = FoldKind::Failed
+    var b:    bool
+    var i:    Declarations::IntConst
+}
+
+fn fold_ok(const v: FoldVal) -> bool {
+    return v.kind == FoldKind::Bool || v.kind == FoldKind::Int
+}
+
+fn fold_is_int(const v: FoldVal) -> bool {
+    return v.kind == FoldKind::Int
+}
+
+fn fold_deferred(const v: FoldVal) -> bool {
+    return v.kind == FoldKind::Deferred
+}
+
+/// \enum FoldMode
+/// \brief Which fold EvalIfFolding is running: run() is Early; run_late()
+///        is Late, then LateFinal for its last round, where nothing may
+///        wait any more and a wait is a failure, reported with its reason.
+pub enum FoldMode derives u8 {
+    Early = 0, ///< E: type facts defer.
+    Late,      ///< T: the type facts are answered.
+    LateFinal, ///< T, the last round.
 }
 
 /// After the late fold (file header, Type facts): every name N bound to a
@@ -326,11 +357,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     /// The last lookup found only declarations a deferred `eval if` may
     /// still discard: the condition waits for it rather than fails.
     priv var _pending_name: bool = false
-    /// run_late(): the type facts are answered, not deferred.
-    priv var _late: bool = false
-    /// The last late round: nothing may wait any more, so a wait is a
-    /// failure, reported with its reason.
-    priv var _force: bool = false
+    priv var _mode: FoldMode = FoldMode::Early ///< run() is Early; run_late() moves it on.
     /// This late round folded something / left something waiting.
     priv var _progress: bool = false
     priv var _waiting:  bool = false
@@ -340,6 +367,16 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     /// Type-fact leaves the late fold has answered so far: _ref compares it
     /// around an initializer to know whether a constant read one (_pin).
     priv var _leaves: u32 = 0
+
+    /// run_late(): the type facts are answered, not deferred.
+    priv fn _late(self) -> bool {
+        return self._mode != FoldMode::Early
+    }
+
+    /// The last late round: nothing may wait any more.
+    priv fn _final(self) -> bool {
+        return self._mode == FoldMode::LateFinal
+    }
 
     fn EvalIfFolding(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -385,7 +422,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             return
         }
 
-        self._late = true
+        self._mode = FoldMode::Late
         var folded = false
         while true {
             self._progress = false
@@ -405,12 +442,12 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                 lifecycle_of(self.sc)->forget_facts()
             }
 
-            if !self._waiting || self._force {
+            if !self._waiting || self._final() {
                 break
             }
 
             if !self._progress {
-                self._force = true
+                self._mode = FoldMode::LateFinal
             }
         }
 
@@ -452,7 +489,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                                n: unsafe *Declarations::FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
         // The late fold decides declaration-scope `eval if`s only: a body's
         // was folded by E or is `if constexpr`.
-        if self._late {
+        if self._late() {
             return self._one_decl(n)
         }
 
@@ -482,7 +519,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         }
 
         // The late fold decides only what E deferred.
-        if self._late && !n->eval_deferred {
+        if self._late() && !n->eval_deferred {
             return ASTWriter<EvalIfFolding>::transform_conditional_stmt(self, n)
         }
 
@@ -533,7 +570,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         }
 
         var unsafe *c = cast<ConditionalStmt>(n->stmt)
-        if self._late && !c->eval_deferred {
+        if self._late() && !c->eval_deferred {
             return self._one_decl(n)
         }
 
@@ -621,11 +658,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             self._pending_name = false
             self._dep          = false
             var v = self._fold(c->cond, 0)
-            if v.deferred {
+            if fold_deferred(v) {
                 return 2
             }
 
-            if !v.ok {
+            if !fold_ok(v) {
                 if self._body_depth == 0 {
                     self._report(c)
                 }
@@ -633,7 +670,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                 // Reported: what waits on it goes on (the error stops the run
                 // anyway) rather than add a second error for one mistake. Not
                 // in the last round, where each waiting one is reported itself.
-                if self._late && !self._force {
+                if self._late() && !self._final() {
                     self.sc->eval_branches.retire(n)
                 }
 
@@ -661,7 +698,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
         self._drop_untaken(n, chosen)
         self._taken = chosen
-        if self._late {
+        if self._late() {
             self.sc->eval_branches.retire(n)
             self._progress = true
         }
@@ -670,7 +707,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     }
 
     priv fn _truth(self, v: FoldVal) -> bool {
-        if v.is_int {
+        if fold_is_int(v) {
             return v.i.mag != (0 as u64)
         }
 
@@ -686,7 +723,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
         var why = if (self._why.size() > 0) => (self._why)
                   else => "it is not a compile-time constant"
-        var by_when = if (self._late) => ("must fold once types are resolved")
+        var by_when = if (self._late()) => ("must fold once types are resolved")
                       else => "must fold before names are resolved"
         var b = self.sc->diag->report(
             DiagID::SC230E,
@@ -716,7 +753,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
         // A layout the late fold does not predict: in a function body the
         // same condition is C++'s `if constexpr`, which sees every layout.
-        if self._late && (isa<SizeOfExpr>(at) || isa<AlignOfExpr>(at)) {
+        if self._late() && (isa<SizeOfExpr>(at) || isa<AlignOfExpr>(at)) {
             b.note(
                 DiagCode(DiagID::SC230N),
                 at->range.start,
@@ -796,7 +833,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     /// for the next one. \p record is the class or struct whose body holds
     /// it, or null.
     priv fn _wait(self, head: unsafe *ConditionalStmt, record: unsafe *Decl) {
-        if self._late {
+        if self._late() {
             self._waiting = true
             return
         }
@@ -1069,28 +1106,26 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         }
 
         var v = FoldVal{}
-        v.ok = false
+        v.kind = FoldKind::Failed
         return v
     }
 
     /// Not decided yet (FoldVal::deferred). In the last late round (_force)
     /// nothing may wait any more: it is a failure, with \p why.
     priv fn _defer(self, at: unsafe *Expr, const why: string) -> FoldVal {
-        if self._force {
+        if self._final() {
             return self._no(at, why)
         }
 
         var v = FoldVal{}
-        v.ok       = false
-        v.deferred = true
+        v.kind = FoldKind::Deferred
         return v
     }
 
     /// A combination one of whose operands waits: it waits too.
     priv fn _waits(self) -> FoldVal {
         var v = FoldVal{}
-        v.ok       = false
-        v.deferred = true
+        v.kind = FoldKind::Deferred
         return v
     }
 
@@ -1107,17 +1142,15 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
     priv fn _bool(self, b: bool) -> FoldVal {
         var v = FoldVal{}
-        v.ok     = true
-        v.is_int = false
-        v.b      = b
+        v.kind = FoldKind::Bool
+        v.b    = b
         return v
     }
 
     priv fn _int(self, c: Declarations::IntConst) -> FoldVal {
         var v = FoldVal{}
-        v.ok     = c.ok && !c.overflow
-        v.is_int = true
-        v.i      = c
+        v.kind = if (c.ok && !c.overflow) => (FoldKind::Int) else => FoldKind::Failed
+        v.i    = c
         return v
     }
 
@@ -1152,7 +1185,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             var unsafe *u = cast<UnaryOperatorExpr>(e)
             var        k  = u->op_token.kind
             var        x  = self._fold(u->operand, depth)
-            if !x.ok {
+            if !fold_ok(x) {
                 return x
             }
 
@@ -1160,11 +1193,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                 return self._bool(!self._truth(x))
             }
 
-            if k == TokenKind::OpMinus && x.is_int {
+            if k == TokenKind::OpMinus && fold_is_int(x) {
                 return self._int(self._ce.negate(x.i))
             }
 
-            if k == TokenKind::OpPlus && x.is_int {
+            if k == TokenKind::OpPlus && fold_is_int(x) {
                 return x
             }
 
@@ -1207,7 +1240,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         // Compiler/Spec/Eval.md#deferred-conditions: a type fact. E cannot answer one (types are not
         // resolved), so the `eval if` waits for the late fold, which can.
         if isa<SizeOfExpr>(e) || isa<AlignOfExpr>(e) {
-            if !self._late {
+            if !self._late() {
                 return self._defer(e, "")
             }
 
@@ -1218,7 +1251,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         }
 
         if isa<TypeTraitExpr>(e) {
-            if !self._late {
+            if !self._late() {
                 return self._defer(e, "")
             }
 
@@ -1234,25 +1267,25 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         var        l  = self._fold(b->lhs, depth)
         // A failure decides; a side that waits does not, unless the other
         // side fails (reported now) or settles `&&` / `||` by itself.
-        if !l.ok && !l.deferred {
+        if !fold_ok(l) && !fold_deferred(l) {
             return l
         }
 
         if k == TokenKind::OpAmpAmp || k == TokenKind::KwAnd {
-            if l.ok && !self._truth(l) {
+            if fold_ok(l) && !self._truth(l) {
                 return self._bool(false)
             }
 
             var r = self._fold(b->rhs, depth)
-            if !r.ok && !r.deferred {
+            if !fold_ok(r) && !fold_deferred(r) {
                 return r
             }
 
-            if r.ok && !self._truth(r) {
+            if fold_ok(r) && !self._truth(r) {
                 return self._bool(false)
             }
 
-            if l.deferred || r.deferred {
+            if fold_deferred(l) || fold_deferred(r) {
                 return self._waits()
             }
 
@@ -1260,20 +1293,20 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         }
 
         if k == TokenKind::OpPipePipe || k == TokenKind::KwOr {
-            if l.ok && self._truth(l) {
+            if fold_ok(l) && self._truth(l) {
                 return self._bool(true)
             }
 
             var r = self._fold(b->rhs, depth)
-            if !r.ok && !r.deferred {
+            if !fold_ok(r) && !fold_deferred(r) {
                 return r
             }
 
-            if r.ok && self._truth(r) {
+            if fold_ok(r) && self._truth(r) {
                 return self._bool(true)
             }
 
-            if l.deferred || r.deferred {
+            if fold_deferred(l) || fold_deferred(r) {
                 return self._waits()
             }
 
@@ -1281,19 +1314,19 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         }
 
         var r = self._fold(b->rhs, depth)
-        if !r.ok && !r.deferred {
+        if !fold_ok(r) && !fold_deferred(r) {
             return r
         }
 
-        if l.deferred || r.deferred {
+        if fold_deferred(l) || fold_deferred(r) {
             return self._waits()
         }
 
         if k == TokenKind::OpEqualEqual || k == TokenKind::OpExclaimEqual {
             var eq = false
-            if l.is_int && r.is_int {
+            if fold_is_int(l) && fold_is_int(r) {
                 eq = self._cmp(l.i, r.i) == 0
-            } else if !l.is_int && !r.is_int {
+            } else if !fold_is_int(l) && !fold_is_int(r) {
                 eq = l.b == r.b
             } else {
                 return self._no(e, "it compares a bool with an integer")
@@ -1302,7 +1335,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             return self._bool(if (k == TokenKind::OpEqualEqual) => (eq) else => !eq)
         }
 
-        if !l.is_int || !r.is_int {
+        if !fold_is_int(l) || !fold_is_int(r) {
             return self._no(e, f"'{self.ctx->get_spelling(b->op_token)}' needs integer operands")
         }
 
@@ -1596,7 +1629,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         }
 
         var k = (1 as u8)
-        if v.is_int {
+        if fold_is_int(v) {
             k = (3)
         } else if v.b {
             k = (2)
@@ -1664,13 +1697,13 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             self._dcs.pop_back()
         }
 
-        if !v.ok && !v.deferred {
+        if !fold_ok(v) && !fold_deferred(v) {
             self._why_at = at
             self._why    = f"the initializer of '{nm}' does not fold: {self._why}"
         }
 
         // A type fact went into this value: codegen pins it (_pin).
-        if self._late && v.ok && self._leaves != leaves {
+        if self._late() && fold_ok(v) && self._leaves != leaves {
             self._pin(d, v)
         }
 

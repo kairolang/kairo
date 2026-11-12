@@ -1,9 +1,9 @@
 // An ambiguous import (R016E: a user `BigInt` beside the builtin prelude's)
 // is CONTAINED: it poisons the uses of that one name and nothing else. It
-// used to hard-stop the importing TU after I, so no signature in it was ever
-// resolved and every caller of an unrelated generic method failed instead:
+// does not hard-stop the importing TU after I (which would leave no signature in it
+// resolved and fail every caller of an unrelated generic method:
 // "could not deduce every generic parameter" / "parameter type is
-// unresolved" (self-host: one BigInt clash in ASTContext.k, ~230 SC063E on
+// unresolved", as in one BigInt clash with many SC063E on
 // `ctx->alloc<Node>()`). The clash itself stays an error, reported once at
 // the WRITTEN import with a note per candidate; a use of the name is
 // poisoned without a second report.

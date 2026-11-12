@@ -131,11 +131,11 @@ pub class FallThrough {
                 var unsafe *c = cast<Statements::ConditionalStmt>(s)
                 // A decided `eval if typeof T == U`: only the taken
                 // side ever runs; the other is emptied, not a path.
-                if c->eval_taken == 1 {
+                if c->eval_taken == Statements::EvalTaken::Then {
                     return self.block_falls_through(c->then_)
                 }
 
-                if c->eval_taken == 2 {
+                if c->eval_taken == Statements::EvalTaken::Else {
                     return self.falls_through(c->else_)
                 }
 

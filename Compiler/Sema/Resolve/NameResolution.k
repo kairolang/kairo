@@ -444,11 +444,15 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     /// is possible: `self` is a keyword, so no user identifier shares it.
     priv var _self_imm: u32 = u32::MAX
 
-    /// A function body's params live in the frame pushed by
-    /// traverse_function_decl / traverse_closure_expr; the body's own
-    /// CompoundStmt must NOT push a second frame or a local would silently
-    /// shadow a param instead of colliding with it.
-    priv var _suppress_next_block_frame: bool = false
+    /// The block whose statements join the frame its binder already pushed:
+    /// a function's or closure's params, a `for`'s binders, a catch arm's
+    /// or a match arm's. That body's CompoundStmt must NOT push a second
+    /// frame, or a local would silently shadow a param instead of colliding
+    /// with it. A pointer, not a "next block" flag: only that block takes
+    /// it, so a block reached first (one in a default argument) still gets
+    /// its own frame, and a binder whose body is null arms nothing. Each
+    /// binder sets it around its body and restores it after.
+    priv var _join_block: unsafe *CompoundStmt = &null
 
     /// Set while the bare identifier heading an UnresolvedConstructorPattern
     /// (`case n`, `case n(...)`) is being bound, so a miss there can say
@@ -2016,8 +2020,8 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return n
         }
 
-        var unsafe *saved_dc      = self.cur_dc
-        var        saved_suppress = self._suppress_next_block_frame
+        var unsafe *saved_dc   = self.cur_dc
+        var unsafe *saved_join = self._join_block
 
         // An out-of-line def resolves against the type it was written FOR,
         // not the scope it was written IN. N(a) recorded that as semantic_dc.
@@ -2065,16 +2069,16 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             self._declare_local(self._name_imm(p->name), unsafe (p as unsafe *Decl), p->range)
         }
 
-        self._suppress_next_block_frame = true
+        self._join_block = n->body_block
         self._fn_depth += 1
         var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_function_decl(self, n)
         self._fn_depth -= 1
 
         self.sc->trace.close_scope()
         self.locals.pop_back()
-        self.cur_dc                     = saved_dc
-        self._ool_lexical               = saved_ool
-        self._suppress_next_block_frame = saved_suppress
+        self.cur_dc       = saved_dc
+        self._ool_lexical = saved_ool
+        self._join_block  = saved_join
         return out
     }
 
@@ -2103,7 +2107,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return n
         }
 
-        var saved_suppress = self._suppress_next_block_frame
+        var unsafe *saved_join = self._join_block
 
         self.locals.push_back(LocalScope())
         self.sc->trace.open_scope(TraceScopeKind::Closure, &null, n->range, self.cur_dc)
@@ -2125,14 +2129,14 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             self._declare_local(self._name_imm(p->name), unsafe (p as unsafe *Decl), p->range)
         }
 
-        self._suppress_next_block_frame = true
+        self._join_block = n->body_block
         self._fn_depth += 1
         var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_closure_expr(self, n)
         self._fn_depth -= 1
 
         self.sc->trace.close_scope()
         self.locals.pop_back()
-        self._suppress_next_block_frame = saved_suppress
+        self._join_block = saved_join
         return out
     }
 
@@ -2144,8 +2148,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return n
         }
 
-        var push = !self._suppress_next_block_frame
-        self._suppress_next_block_frame = false
+        var push = n != self._join_block
+        if !push {
+            self._join_block = &null
+        }
 
         if push {
             self.locals.push_back(LocalScope())
@@ -2566,8 +2572,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         self.locals.push_back(LocalScope())
         self.sc->trace.open_scope(TraceScopeKind::ForBody, &null, n->range, self.cur_dc)
         self._declare_bindings(&n->bindings)
-        self._suppress_next_block_frame = true
-        n->body                         = self.dyn()->traverse_block(n->body)
+        var unsafe *saved_join = self._join_block
+        self._join_block = n->body
+        n->body = self.dyn()->traverse_block(n->body)
+        self._join_block = saved_join
         self.sc->trace.close_scope()
         self.locals.pop_back()
         return n
@@ -2598,8 +2606,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             n->update = self.dyn()->dispatch_expr(n->update)
         }
 
-        self._suppress_next_block_frame = true
-        n->body                         = self.dyn()->traverse_block(n->body)
+        var unsafe *saved_join = self._join_block
+        self._join_block = n->body
+        n->body = self.dyn()->traverse_block(n->body)
+        self._join_block = saved_join
         self.sc->trace.close_scope()
         self.locals.pop_back()
         return n
@@ -2622,8 +2632,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         self.locals.push_back(LocalScope())
         self.sc->trace.open_scope(TraceScopeKind::ContextBinding, &null, n->range, self.cur_dc)
         self._declare_bindings(&n->bindings)
-        self._suppress_next_block_frame = true
-        n->body                         = self.dyn()->traverse_block(n->body)
+        var unsafe *saved_join = self._join_block
+        self._join_block = n->body
+        n->body = self.dyn()->traverse_block(n->body)
+        self._join_block = saved_join
         self.sc->trace.close_scope()
         self.locals.pop_back()
         return n
@@ -2672,10 +2684,13 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             self.locals.push_back(LocalScope())
             self.sc->trace.open_scope(TraceScopeKind::CatchArm, &null, arm->range, self.cur_dc)
             self._declare_binder_decl(arm->decl)
-            self._suppress_next_block_frame = true
+            var unsafe *saved_join = self._join_block
+            self._join_block = arm->body
             if arm->body != &null {
                 self.dyn()->dispatch_stmt(arm->body)
             }
+
+            self._join_block = saved_join
 
             self.sc->trace.close_scope()
             self.locals.pop_back()
@@ -2753,8 +2768,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             }
 
             if mc->body != &null {
-                self._suppress_next_block_frame = true
+                var unsafe *saved_join = self._join_block
+                self._join_block = mc->body
                 self.dyn()->dispatch_stmt(mc->body)
+                self._join_block = saved_join
             }
 
             if mc->expression != &null {

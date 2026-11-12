@@ -4914,7 +4914,7 @@ fn sema_lockstep(sems: unsafe *cxx::std::vector<unsafe *Sema>, front: bool) -> b
         if front && phases[p] == SemaPhase::Verified {
             for var i: usize = 0; i < n; ++i {
                 var unsafe *si = (*sems)[i]
-                if si->lockstep_stop == usize::MAX && si->sc.eval_branches.pending() > 0 {
+                if !si->stopped() && si->sc.eval_branches.pending() > 0 {
                     return false
                 }
             }
@@ -4923,7 +4923,7 @@ fn sema_lockstep(sems: unsafe *cxx::std::vector<unsafe *Sema>, front: bool) -> b
         if front && phases[p] == SemaPhase::TypesResolved {
             for var i: usize = 0; i < n; ++i {
                 var unsafe *si = (*sems)[i]
-                if si->lockstep_stop == usize::MAX && _defines_foreign_members(si->sc.tu, *sems) {
+                if !si->stopped() && _defines_foreign_members(si->sc.tu, *sems) {
                     return false
                 }
             }
@@ -4934,7 +4934,7 @@ fn sema_lockstep(sems: unsafe *cxx::std::vector<unsafe *Sema>, front: bool) -> b
         if phases[p] == SemaPhase::TypesResolved {
             for var i: usize = 0; i < n; ++i {
                 var unsafe *si = (*sems)[i]
-                if si->lockstep_stop != usize::MAX {
+                if si->stopped() {
                     continue
                 }
 
@@ -4947,9 +4947,13 @@ fn sema_lockstep(sems: unsafe *cxx::std::vector<unsafe *Sema>, front: bool) -> b
 
         for var i: usize = 0; i < n; ++i {
             var unsafe *si = (*sems)[i]
-            // run_to's continuation would carry a stopped TU on past
-            // its hard stop; one that fails a phase is left there.
-            if si->lockstep_stop != usize::MAX {
+            // A hard stop is final (run_to refuses a stopped TU, whose
+            // phase still names the stage that stopped). A TU that merely has
+            // errors goes on, as it would outside a cycle: run_to's result is
+            // false for both, so it is not what this asks. Asking it stopped
+            // a TU with an error in N before T, and its importers' calls into
+            // it failed on unresolved parameter types (P883).
+            if si->stopped() {
                 continue
             }
 
@@ -4958,12 +4962,7 @@ fn sema_lockstep(sems: unsafe *cxx::std::vector<unsafe *Sema>, front: bool) -> b
             }
 
             sema_sub(codes[p], i)
-            var ok = si->run_to(phases[p])
-            // A front's typed checks stop short of Conformance: whether
-            // the TU stops is the run that includes it, on the driver.
-            if !ok && !(front && phases[p] == SemaPhase::Typed) {
-                si->lockstep_stop = p
-            }
+            si->run_to(phases[p])
         }
 
         // Re-exports across the cycle, to a fixpoint: the TU that
@@ -4977,7 +4976,7 @@ fn sema_lockstep(sems: unsafe *cxx::std::vector<unsafe *Sema>, front: bool) -> b
             while grew {
                 grew = false
                 for var i: usize = 0; i < n; ++i {
-                    if (*sems)[i]->lockstep_stop != usize::MAX {
+                    if (*sems)[i]->stopped() {
                         continue
                     }
 

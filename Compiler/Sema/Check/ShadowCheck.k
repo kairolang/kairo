@@ -164,7 +164,8 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
     /// traverse_function_decl; the body's own CompoundStmt must NOT push a
     /// second frame, or a local colliding with a param would look like a
     /// shadow instead of the redefinition N already reported.
-    priv var _suppress_next_block_frame: bool = false
+    /// The pointer form, and why, is NameResolution::_join_block's.
+    priv var _join_block: unsafe *CompoundStmt = &null
 
     fn ShadowCheck(self, sc: unsafe *SemaContext) {
         self.sc = sc
@@ -314,7 +315,7 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
             return n
         }
 
-        var saved_suppress = self._suppress_next_block_frame
+        var unsafe *saved_join = self._join_block
 
         self._frames.push_back(ShadowFrame())
         for var i: usize = 0; i < n->params.size(); ++i {
@@ -326,11 +327,11 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
             self._declare(self._name_imm(p->name), p, p->range)
         }
 
-        self._suppress_next_block_frame = true
+        self._join_block = n->body_block
         var unsafe *out = RecursiveASTVisitor<ShadowCheck>::traverse_function_decl(self, n)
 
         self._frames.pop_back()
-        self._suppress_next_block_frame = saved_suppress
+        self._join_block = saved_join
         return out
     }
 
@@ -339,7 +340,7 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
             return n
         }
 
-        var saved_suppress = self._suppress_next_block_frame
+        var unsafe *saved_join = self._join_block
 
         self._frames.push_back(ShadowFrame())
         for var i: usize = 0; i < n->params.size(); ++i {
@@ -351,11 +352,11 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
             self._declare(self._name_imm(p->name), p, p->range)
         }
 
-        self._suppress_next_block_frame = true
+        self._join_block = n->body_block
         var unsafe *out = RecursiveASTVisitor<ShadowCheck>::traverse_closure_expr(self, n)
 
         self._frames.pop_back()
-        self._suppress_next_block_frame = saved_suppress
+        self._join_block = saved_join
         return out
     }
 
@@ -364,8 +365,10 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
             return n
         }
 
-        var push = !self._suppress_next_block_frame
-        self._suppress_next_block_frame = false
+        var push = n != self._join_block
+        if !push {
+            self._join_block = &null
+        }
 
         if push {
             self._frames.push_back(ShadowFrame())
@@ -411,8 +414,10 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
 
         self._frames.push_back(ShadowFrame())
         self._declare_bindings(&n->bindings)
-        self._suppress_next_block_frame = true
-        n->body                         = self.dyn()->traverse_block(n->body)
+        var unsafe *saved_join = self._join_block
+        self._join_block = n->body
+        n->body = self.dyn()->traverse_block(n->body)
+        self._join_block = saved_join
         self._frames.pop_back()
         return n
     }
@@ -439,8 +444,10 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
             n->update = self.dyn()->dispatch_expr(n->update)
         }
 
-        self._suppress_next_block_frame = true
-        n->body                         = self.dyn()->traverse_block(n->body)
+        var unsafe *saved_join = self._join_block
+        self._join_block = n->body
+        n->body = self.dyn()->traverse_block(n->body)
+        self._join_block = saved_join
         self._frames.pop_back()
         return n
     }
@@ -461,8 +468,10 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
 
         self._frames.push_back(ShadowFrame())
         self._declare_bindings(&n->bindings)
-        self._suppress_next_block_frame = true
-        n->body                         = self.dyn()->traverse_block(n->body)
+        var unsafe *saved_join = self._join_block
+        self._join_block = n->body
+        n->body = self.dyn()->traverse_block(n->body)
+        self._join_block = saved_join
         self._frames.pop_back()
         return n
     }
@@ -505,11 +514,13 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
             var unsafe *arm = n->arms.get(i)
             self._frames.push_back(ShadowFrame())
             self._declare_binder_decl(arm->decl)
-            self._suppress_next_block_frame = true
+            var unsafe *saved_join = self._join_block
+            self._join_block = arm->body
             if arm->body != &null {
                 self.dyn()->dispatch_stmt(arm->body)
             }
 
+            self._join_block = saved_join
             self._frames.pop_back()
         }
 
@@ -574,8 +585,10 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
             }
 
             if mc->body != &null {
-                self._suppress_next_block_frame = true
+                var unsafe *saved_join = self._join_block
+                self._join_block = mc->body
                 self.dyn()->dispatch_stmt(mc->body)
+                self._join_block = saved_join
             }
 
             if mc->expression != &null {

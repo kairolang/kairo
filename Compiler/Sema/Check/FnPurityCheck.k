@@ -157,23 +157,39 @@ import Sema::SemaContext::{
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
+/// \enum PurityLevel
+/// \brief The promise a body is held to. The values are the encoding of
+///        FunctionDecl::inferred_purity, which codegen reads as a u8.
+pub enum PurityLevel derives u8 {
+    None = 0, ///< no promise: the rules are off.
+    Const,    ///< `const fn`.
+    Pure,     ///< `@pure`.
+}
+
+/// \enum PurityWalk
+/// \brief What one walk over the items does. run() is one Check. infer()
+///        (-finfer-purity) is one Collect, then Infer rounds to a
+///        fixpoint, then back to Check.
+pub enum PurityWalk derives u8 {
+    Check = 0, ///< report every broken promise.
+    Collect,   ///< visit_function_decl only gathers candidates.
+    Infer,     ///< a silent walk: a broken rule, or a node kind the rules do not know, sets _fail.
+}
+
 pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     pub var  sc:  unsafe *SemaContext
     priv var _tu: TypeUtil
     priv var _ml: MemberLookup
-    /// The function whose body is being walked and the promise it made:
-    /// 0 none, 1 `const fn`, 2 `@pure` (the encoding of
-    /// FunctionDecl::inferred_purity). A nested function swaps both for its
-    /// own for the length of its body (visit_function_decl).
-    priv var _f:    unsafe *FunctionDecl = &null
-    priv var _mode: u32                  = 0
-    /// infer(): rules break silently into _fail instead of reporting, and
-    /// a node kind the rules do not know breaks them too.
-    priv var _infer: bool = false
-    priv var _fail:  bool = false
-    /// infer()'s first walk: visit_function_decl only gathers candidates.
-    priv var _collect: bool                                   = false
-    priv var _cands:   cxx::std::vector<unsafe *FunctionDecl>
+    /// The function whose body is being walked and the promise it made. A
+    /// nested function swaps both for its own for the length of its body
+    /// (visit_function_decl).
+    priv var _f:     unsafe *FunctionDecl = &null
+    priv var _level: PurityLevel          = PurityLevel::None
+    /// Which walk this is (see PurityWalk). Under Infer, rules break
+    /// silently into _fail instead of reporting.
+    priv var _walk:  PurityWalk                             = PurityWalk::Check
+    priv var _fail:  bool                                   = false
+    priv var _cands: cxx::std::vector<unsafe *FunctionDecl>
     pub var  n_const:  usize                                  = 0
     pub var  n_pure:   usize                                  = 0
 
@@ -227,7 +243,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return true
         }
 
-        if self._collect {
+        if self._walk == PurityWalk::Collect {
             // A local function is never a candidate (nothing outside its
             // parent names it), so bodies are not entered.
             if !n->is_poisoned() {
@@ -238,7 +254,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         // infer(): a nested function is its own question, never asked.
-        if self._infer {
+        if self._walk == PurityWalk::Infer {
             return false
         }
 
@@ -247,23 +263,23 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         var unsafe *saved_f = self._f
-        var        saved_m  = self._mode
+        var        saved_m  = self._level
         self._f    = n
-        self._mode = 0
+        self._level = PurityLevel::None
         if n->is_const_fn {
-            self._mode = 1
+            self._level = PurityLevel::Const
         } else if n->is_pure {
-            self._mode = 2
+            self._level = PurityLevel::Pure
         }
 
-        if self._mode != 0 {
+        if self._level != PurityLevel::None {
             self._check_head(n)
         }
 
         self._walk_body(n)
 
         self._f    = saved_f
-        self._mode = saved_m
+        self._level = saved_m
         return false
     }
 
@@ -277,9 +293,9 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
     /// -finfer-purity. PRE: every lowering ran, ParamPassInference has not.
     fn infer(self) {
-        self._collect = true
+        self._walk = PurityWalk::Collect
         self._walk_items()
-        self._collect = false
+        self._walk = PurityWalk::Check
 
         // The candidates, all optimistic: const until shown otherwise.
         var live = cxx::std::vector<unsafe *FunctionDecl>()
@@ -290,27 +306,27 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             }
 
             live.push_back(f)
-            self._stamp(f, 1)
+            self._stamp(f, PurityLevel::Const)
         }
 
         // Greatest fixpoint: a level only ever falls, so this ends after at
         // most two falls per candidate.
-        self._infer = true
+        self._walk = PurityWalk::Infer
         var changed = true
         while changed {
             changed = false
             for var i: usize = 0; i < live.size(); ++i {
                 var unsafe *f  = live[i]
-                var        cur = f->inferred_purity
-                if cur == 0 {
+                var        cur = (f->inferred_purity as PurityLevel)
+                if cur == PurityLevel::None {
                     continue
                 }
 
-                var lvl: u8 = 0
-                if cur == 1 && self._passes(f, 1) {
-                    lvl = 1
-                } else if self._passes(f, 2) {
-                    lvl = 2
+                var lvl = PurityLevel::None
+                if cur == PurityLevel::Const && self._passes(f, PurityLevel::Const) {
+                    lvl = PurityLevel::Const
+                } else if self._passes(f, PurityLevel::Pure) {
+                    lvl = PurityLevel::Pure
                 }
 
                 if lvl != cur {
@@ -320,24 +336,24 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             }
         }
 
-        self._infer = false
+        self._walk = PurityWalk::Check
 
         for var i: usize = 0; i < live.size(); ++i {
-            var p = live[i]->inferred_purity
-            if p == 1 {
+            var p = (live[i]->inferred_purity as PurityLevel)
+            if p == PurityLevel::Const {
                 self.n_const += 1
             }
 
-            if p == 2 {
+            if p == PurityLevel::Pure {
                 self.n_pure += 1
             }
         }
     }
 
     /// One silent walk of \p f's head and body under promise \p mode.
-    priv fn _passes(self, f: unsafe *FunctionDecl, mode: u32) -> bool {
-        self._f    = f
-        self._mode = mode
+    priv fn _passes(self, f: unsafe *FunctionDecl, level: PurityLevel) -> bool {
+        self._f     = f
+        self._level = level
         self._fail = false
         self._check_head(f)
         if !self._fail {
@@ -345,14 +361,15 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         self._f    = &null
-        self._mode = 0
+        self._level = PurityLevel::None
         return !self._fail
     }
 
     /// Write \p lvl on every link of \p f's chain: an importer's preamble
     /// spells the declaration from its own link, and the definition from
     /// this one, and both must carry the same attribute.
-    priv fn _stamp(self, f: unsafe *FunctionDecl, lvl: u8) {
+    priv fn _stamp(self, f: unsafe *FunctionDecl, level: PurityLevel) {
+        var lvl = (level as u8)
         var unsafe *head        = f->first_decl()
         var unsafe *cur         = head
         var        guard: usize = 0
@@ -534,7 +551,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         if self._returns_nothing(f) {
-            if self._infer {
+            if self._walk == PurityWalk::Infer {
                 self._fail = true
                 return
             }
@@ -589,7 +606,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// not model (a closure, a match a lowering has not removed, a panic
     /// slot), so the function is impure.
     fn visit_expr(self, n: *Expr) -> bool {
-        if self._mode == 0 || n == &null {
+        if self._level == PurityLevel::None || n == &null {
             return true
         }
 
@@ -603,7 +620,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             }
         }
 
-        if !self._infer {
+        if (self._walk != PurityWalk::Infer) {
             return true
         }
 
@@ -672,7 +689,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_stmt(self, n: *Stmt) -> bool {
-        if !self._infer || self._mode == 0 || n == &null {
+        if (self._walk != PurityWalk::Infer) || self._level == PurityLevel::None || n == &null {
             return true
         }
 
@@ -721,13 +738,13 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_named_ident_expr(self, n: unsafe *NamedIdentExpr) -> bool {
-        if self._mode == 0 || n == &null {
+        if self._level == PurityLevel::None || n == &null {
             return true
         }
 
         var unsafe *v = dyn_cast<VariableDecl>(n->resolved_decl)
         if v != &null {
-            if self._mode == 1 && self._is_global(v) {
+            if self._level == PurityLevel::Const && self._is_global(v) {
                 self._global(n->range, v, "read")
             }
 
@@ -738,7 +755,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return true
         }
 
-        if self._mode != 1 {
+        if self._level != PurityLevel::Const {
             return true
         }
 
@@ -759,7 +776,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_chain_expr(self, n: unsafe *ChainExpr) -> bool {
-        if self._mode == 0 || n == &null {
+        if self._level == PurityLevel::None || n == &null {
             return true
         }
 
@@ -770,12 +787,12 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                 // `p->x` reads through the pointer; as the target of an
                 // assignment it is a write, which visit_assign_operator_expr
                 // reports instead (a write is not also a read).
-                if self._mode == 1 {
+                if self._level == PurityLevel::Const {
                     self._deref(st->range, "read through a pointer")
                 }
             }
 
-            if self._mode == 1 {
+            if self._level == PurityLevel::Const {
                 var unsafe *v = dyn_cast<VariableDecl>(st->resolved_decl)
                 if v != &null && self._is_global(v) {
                     self._global(st->range, v, "read")
@@ -787,7 +804,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_subscript_expr(self, n: unsafe *Expressions::SubscriptExpr) -> bool {
-        if self._mode == 0 || n == &null {
+        if self._level == PurityLevel::None || n == &null {
             return true
         }
 
@@ -796,7 +813,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return true
         }
 
-        if self._mode != 1 {
+        if self._level != PurityLevel::Const {
             return true
         }
 
@@ -808,7 +825,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_unary_operator_expr(self, n: unsafe *Expressions::UnaryOperatorExpr) -> bool {
-        if self._mode == 0 || n == &null {
+        if self._level == PurityLevel::None || n == &null {
             return true
         }
 
@@ -819,14 +836,14 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         var k = n->op_token.kind
         if k == TokenKind::OpStar && n->fix == Expressions::UnaryOperatorExpr::Fix::Prefix {
-            if self._mode == 1 {
+            if self._level == PurityLevel::Const {
                 self._deref(n->range, "dereference a pointer")
             }
 
             return true
         }
 
-        if self._mode == 2 && (k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus) {
+        if self._level == PurityLevel::Pure && (k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus) {
             self._write(n->operand, n->range)
         }
 
@@ -834,7 +851,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_binary_operator_expr(self, n: unsafe *Expressions::BinaryOperatorExpr) -> bool {
-        if self._mode == 0 || n == &null {
+        if self._level == PurityLevel::None || n == &null {
             return true
         }
 
@@ -846,7 +863,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_assign_operator_expr(self, n: unsafe *Expressions::AssignOperatorExpr) -> bool {
-        if self._mode == 0 || n == &null {
+        if self._level == PurityLevel::None || n == &null {
             return true
         }
 
@@ -854,7 +871,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             self._callee(n->range, n->resolved_op)
         }
 
-        if self._mode == 2 {
+        if self._level == PurityLevel::Pure {
             self._write(n->lhs, n->range)
         }
 
@@ -862,7 +879,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_type_cast_expr(self, n: unsafe *Expressions::TypeCastExpr) -> bool {
-        if self._mode == 0 || n == &null {
+        if self._level == PurityLevel::None || n == &null {
             return true
         }
 
@@ -879,7 +896,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                 n->range,
                 "make an asserting downcast: a mismatch stops the program, and the promise says every call returns",
             )
-        } else if n->checked_downcast && self._mode == 1 {
+        } else if n->checked_downcast && self._level == PurityLevel::Const {
             self._report(
                 n->range,
                 "make a checked downcast: it reads the object's type through the pointer",
@@ -891,7 +908,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_call_expr(self, n: unsafe *Expressions::CallExpr) -> bool {
-        if self._mode == 0 || n == &null {
+        if self._level == PurityLevel::None || n == &null {
             return true
         }
 
@@ -908,7 +925,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             // A function value or a closure: nothing says what it does.
             // A callee the typer already rejected is its own error.
             var unsafe *ce = self._tu.strip_parens(n->callee)
-            if self._infer || ce != &null && !ce->is_poisoned() {
+            if self._walk == PurityWalk::Infer || ce != &null && !ce->is_poisoned() {
                 self._call(n->range, "a function value")
             }
 
@@ -940,7 +957,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_string_literal_expr(self, n: unsafe *StringLiteralExpr) -> bool {
-        if self._mode == 0 || n == &null {
+        if self._level == PurityLevel::None || n == &null {
             return true
         }
 
@@ -954,7 +971,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_named_initializer_expr(self, n: unsafe *Expressions::NamedInitializerExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._made(n, n->range)
         }
 
@@ -962,7 +979,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_anon_initializer_expr(self, n: unsafe *Expressions::AnonInitializerExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._made(n, n->range)
         }
 
@@ -970,7 +987,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_init_list_expr(self, n: unsafe *Expressions::InitListExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._made(n, n->range)
         }
 
@@ -978,7 +995,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_list_literal_expr(self, n: unsafe *Expressions::ListLiteralExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._made(n, n->range)
         }
 
@@ -986,7 +1003,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_set_literal_expr(self, n: unsafe *Expressions::SetLiteralExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._made(n, n->range)
         }
 
@@ -994,7 +1011,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_map_literal_expr(self, n: unsafe *Expressions::MapLiteralExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._made(n, n->range)
         }
 
@@ -1002,7 +1019,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_tuple_literal_expr(self, n: unsafe *Expressions::TupleLiteralExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._made(n, n->range)
         }
 
@@ -1010,7 +1027,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_variant_init_expr(self, n: unsafe *Expressions::VariantInitExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._made(n, n->range)
         }
 
@@ -1018,7 +1035,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_unwrap_expr(self, n: unsafe *Expressions::UnwrapExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._report(
                 n->range,
                 "unwrap with '!': a null stops the program, and the promise says every call returns",
@@ -1029,7 +1046,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_delete_expr(self, n: unsafe *Expressions::DeleteExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._report(n->range, "free memory")
         }
 
@@ -1037,7 +1054,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_cxx_new_expr(self, n: unsafe *Expressions::CxxNewExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._report(n->range, "allocate memory")
         }
 
@@ -1045,7 +1062,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_verbatim_expr(self, n: unsafe *Expressions::VerbatimExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._report(n->range, "run inline C++, which the compiler cannot check")
         }
 
@@ -1053,7 +1070,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_spawn_expr(self, n: unsafe *Expressions::SpawnExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._report(n->range, "spawn a task")
         }
 
@@ -1061,7 +1078,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_thread_expr(self, n: unsafe *Expressions::ThreadExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._report(n->range, "start a thread")
         }
 
@@ -1069,7 +1086,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_await_expr(self, n: unsafe *Expressions::AwaitExpr) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._report(n->range, "await")
         }
 
@@ -1082,7 +1099,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// pointer; anything else runs an iterator protocol (a container's,
     /// an `op in` generator's, C++'s begin/end) this check cannot see.
     fn visit_ranged_for_stmt(self, n: unsafe *RangedForStmt) -> bool {
-        if self._mode == 0 || n == &null {
+        if self._level == PurityLevel::None || n == &null {
             return true
         }
 
@@ -1095,7 +1112,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         if k == IterKind::Slice {
-            if self._mode == 1 {
+            if self._level == PurityLevel::Const {
                 self._deref(n->range, "loop over a slice: it reads through the slice's pointer")
             }
 
@@ -1115,7 +1132,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_runtime_assert_stmt(self, n: unsafe *RuntimeAssertStmt) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._report(
                 n->range,
                 "assert: a failed assert stops the program, and the promise says every call returns",
@@ -1129,7 +1146,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// record, that test is a call of the record's `op ==`, which the
     /// pattern is the only trace of until MatchLowering runs.
     fn visit_literal_pattern(self, n: unsafe *LiteralPattern) -> bool {
-        if self._mode != 0 && n != &null {
+        if self._level != PurityLevel::None && n != &null {
             self._pattern_eq(unsafe (n as unsafe *Pattern))
         }
 
@@ -1137,7 +1154,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_constructor_pattern(self, n: unsafe *ConstructorPattern) -> bool {
-        if self._mode != 0
+        if self._level != PurityLevel::None
             && n != &null
             && n->resolved_decl != &null
             && isa<VariableDecl>(n->resolved_decl) {
@@ -1148,7 +1165,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_unresolved_constructor_pattern(self, n: unsafe *UnresolvedConstructorPattern) -> bool {
-        if self._mode != 0
+        if self._level != PurityLevel::None
             && n != &null
             && n->resolved_decl != &null
             && isa<VariableDecl>(n->resolved_decl) {
@@ -1189,7 +1206,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// A local whose type owns memory: building it allocates, and leaving
     /// its scope frees. Parameters are ParamDecls and never come here.
     fn visit_variable_decl(self, n: unsafe *VariableDecl) -> bool {
-        if self._mode == 0 || n == &null || self._f == &null {
+        if self._level == PurityLevel::None || n == &null || self._f == &null {
             return true
         }
 
@@ -1310,7 +1327,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return
         }
 
-        if self._infer {
+        if self._walk == PurityWalk::Infer {
             self._fail = true
             return
         }
@@ -1341,7 +1358,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             if ai < 0 && (p->default_val != &null || p->default_thunk != &null) {
                 // The default is evaluated here, in the caller, and it is
                 // code nothing in this body shows.
-                if self._infer {
+                if self._walk == PurityWalk::Infer {
                     self._fail = true
                     return
                 }
@@ -1379,7 +1396,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                 continue
             }
 
-            if self._infer {
+            if self._walk == PurityWalk::Infer {
                 self._fail = true
                 return
             }
@@ -1429,7 +1446,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return true
         }
 
-        if self._infer {
+        if self._walk == PurityWalk::Infer {
             self._fail = true
             return false
         }
@@ -1467,7 +1484,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return true
         }
 
-        if self._mode == 2 {
+        if self._level == PurityLevel::Pure {
             if f->is_pure || f->inferred_purity == 2 {
                 return true
             }
@@ -1478,7 +1495,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         var fp = self._foreign_purity(f)
-        if fp == 1 || fp == 2 && self._mode == 2 {
+        if fp == 1 || fp == 2 && self._level == PurityLevel::Pure {
             return true
         }
 
@@ -1542,7 +1559,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return true
         }
 
-        if self._mode == 2 && (nm == "__builtin_compare_mem" || nm == "__builtin_prefetch") {
+        if self._level == PurityLevel::Pure && (nm == "__builtin_compare_mem" || nm == "__builtin_prefetch") {
             return true
         }
 
@@ -1636,7 +1653,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     priv fn _promise(self) -> string {
-        return if (self._mode == 1) => ("const") else => "@pure"
+        return if (self._level == PurityLevel::Const) => ("const") else => "@pure"
     }
 
     priv fn _head_range(self, f: unsafe *FunctionDecl) -> SourceRange {
@@ -1646,7 +1663,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// The error, with a note on the function's head that says what it
     /// promised. \p what: the sentence after "<f> is const, so it cannot".
     priv fn _report(self, at: SourceRange, const what: string) {
-        if self._infer {
+        if self._walk == PurityWalk::Infer {
             self._fail = true
             return
         }
@@ -1660,7 +1677,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         )
 
         b.first(at)
-        if self._mode == 1 {
+        if self._level == PurityLevel::Const {
             b.note(head.start, self._who() + " is const: it may read only its own inputs")
         } else {
             b.note(head.start, self._who() + " is @pure: it may read memory but never write it")
@@ -1672,7 +1689,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// The promise cannot stand on this function at all. \p fix: offer to
     /// remove the written `const` / `@pure` (FunctionDecl::purity_at).
     priv fn _report_head(self, f: unsafe *FunctionDecl, const why: string, fix: bool) {
-        if self._infer {
+        if self._walk == PurityWalk::Infer {
             self._fail = true
             return
         }
@@ -1695,7 +1712,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     priv fn _global(self, at: SourceRange, v: unsafe *VariableDecl, const verb: string) {
-        if self._infer {
+        if self._walk == PurityWalk::Infer {
             self._fail = true
             return
         }
@@ -1711,12 +1728,12 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     priv fn _call(self, at: SourceRange, const callee: string) {
-        if self._infer {
+        if self._walk == PurityWalk::Infer {
             self._fail = true
             return
         }
 
-        var ok = if (self._mode == 1) => ("a const fn, an eval fn or a side-effect-free intrinsic")
+        var ok = if (self._level == PurityLevel::Const) => ("a const fn, an eval fn or a side-effect-free intrinsic")
                  else => "a const fn, a @pure fn, an eval fn or a side-effect-free intrinsic"
         self._report(at, "call " + callee + ", which is not " + ok)
     }

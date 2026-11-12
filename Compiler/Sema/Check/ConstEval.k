@@ -91,6 +91,14 @@ import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
+/// \enum EvalFailure
+/// \brief How ConstEval's last evaluation failed.
+pub enum EvalFailure derives u8 {
+    None = 0,  ///< no failure recorded (the value is ok, or nothing said why).
+    Explained, ///< bad / bad_why / bad_decl say why: the caller reports it.
+    Reported,  ///< an earlier diagnostic covers it: the caller says nothing.
+}
+
 pub class ConstEval {
     pub var sc: unsafe *SemaContext
     pub var tu: TypeUtil
@@ -101,10 +109,9 @@ pub class ConstEval {
     pub var bad:      unsafe *Expr = &null
     pub var bad_why:  string
     pub var bad_decl: unsafe *Decl = &null
-    /// The failure is one an earlier diagnostic already explains: a node X
-    /// poisoned, or an earlier variant whose own value failed. The caller
-    /// reports nothing, so one mistake is one error.
-    pub var quiet: bool = false
+    /// How the last evaluation failed, if it did; bad / bad_why / bad_decl
+    /// are its record. Written only by _reset, _fail, _blame and _quiet.
+    priv var _failure: EvalFailure = EvalFailure::None
     /// The first `const` (not `eval`) variable the last evaluation read, and
     /// the name that read it. A pattern bound or a discriminant may read
     /// one; an array length or a generic value argument must be eval-able
@@ -252,7 +259,7 @@ pub class ConstEval {
         self.bad        = &null
         self.bad_why    = ""
         self.bad_decl   = &null
-        self.quiet      = false
+        self._failure   = EvalFailure::None
         self.const_decl = &null
         self.const_at   = &null
     }
@@ -556,19 +563,44 @@ pub class ConstEval {
 
     /// A failure at \p at, unless an inner one already said why.
     priv fn _fail(self, at: unsafe *Expr, const why: string, d: unsafe *Decl = &null) -> IntConst {
-        if self.bad == &null && !self.quiet {
-            self.bad      = at
-            self.bad_why  = why
-            self.bad_decl = d
+        if self._failure == EvalFailure::None {
+            self._record(at, why, d)
         }
 
         return IntConst{}
     }
 
-    /// A failure an earlier diagnostic already covers.
+    /// A failure at \p at that replaces an inner one's reason (the inner
+    /// sits in an initializer elsewhere), unless an earlier diagnostic
+    /// already covers it.
+    priv fn _blame(self, at: unsafe *Expr, const why: string, d: unsafe *Decl) {
+        if self._failure != EvalFailure::Reported {
+            self._record(at, why, d)
+        }
+    }
+
+    /// A record with no expression to point at leaves the slot open, so a
+    /// later failure that has one still records.
+    priv fn _record(self, at: unsafe *Expr, const why: string, d: unsafe *Decl) {
+        self.bad      = at
+        self.bad_why  = why
+        self.bad_decl = d
+        self._failure = if (at != &null) => (EvalFailure::Explained) else => EvalFailure::None
+    }
+
+    /// A failure an earlier diagnostic already covers. The record, if any,
+    /// stays: a caller that asks quiet() first reports nothing.
     priv fn _quiet(self) -> IntConst {
-        self.quiet = true
+        self._failure = EvalFailure::Reported
         return IntConst{}
+    }
+
+    /// The failure is one an earlier diagnostic already explains: a node X
+    /// poisoned, or an earlier variant whose own value failed. The caller
+    /// reports nothing, so one mistake is one error. Valid until the next
+    /// eval_* call, as the record is.
+    pub fn quiet(self) -> bool {
+        return self._failure == EvalFailure::Reported
     }
 
     /// \p depth counts `const` initializers followed, so a cycle of them
@@ -926,11 +958,7 @@ pub class ConstEval {
             var c = self._eval(vd->init, depth + 1)
             if !c.ok {
                 // The init sits elsewhere: point at the name, not inside it.
-                if !self.quiet {
-                    self.bad      = at
-                    self.bad_why  = f"the initializer of '{nm}' does not evaluate"
-                    self.bad_decl = d
-                }
+                self._blame(at, f"the initializer of '{nm}' does not evaluate", d)
 
                 return c
             }
@@ -960,11 +988,7 @@ pub class ConstEval {
 
             var fc = self._eval(fd->init, depth + 1)
             if !fc.ok {
-                if !self.quiet {
-                    self.bad      = at
-                    self.bad_why  = f"the initializer of '{fnm}' does not evaluate"
-                    self.bad_decl = d
-                }
+                self._blame(at, f"the initializer of '{fnm}' does not evaluate", d)
 
                 return fc
             }

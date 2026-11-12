@@ -684,6 +684,16 @@ pub class SwitchDispatchStmt derives Stmt {
     }
 }
 
+/// \enum EvalTaken
+/// \brief The side of an `eval if typeof T == U` X decided
+///        (ConditionalStmt::eval_taken). Undecided includes every statement
+///        that is no such `eval if`, and one decided only per instance.
+pub enum EvalTaken derives u8 {
+    Undecided = 0,
+    Then,          ///< the else side was dropped.
+    Else,          ///< the then branch was emptied.
+}
+
 ///
 ///  ConditionalStmt
 ///  Grammar:  'if' expr block ('else' 'if' expr block)* ('else' block)?
@@ -709,11 +719,11 @@ pub class ConditionalStmt derives Stmt {
     /// the hint for the else branch, as the statement's own attribute is for
     /// the then branch. EmitIR::_if reads it.
     pub var else_hint: u8
-    /// An `eval if` over `typeof T == U` that X decided: 1 the then
-    /// branch is taken, 2 the else side; 0 undecided. The untaken branch is
-    /// already emptied or dropped; ControlFlowAnalysis reads the taken one
-    /// alone, as the emptied branch is never run. One writer: StmtTyping.
-    pub var eval_taken: u8
+    /// An `eval if` over `typeof T == U` that X decided, and which side it
+    /// took. The untaken branch is already emptied or dropped;
+    /// ControlFlowAnalysis reads the taken one alone, as the emptied branch
+    /// is never run. One writer: StmtTyping.
+    pub var eval_taken: EvalTaken
 
     pub static fn create(ctx:   unsafe *ASTContext,
                          range: SourceRange,
@@ -730,7 +740,7 @@ pub class ConditionalStmt derives Stmt {
         node->is_eval       = false
         node->eval_deferred = false
         node->else_hint     = 0
-        node->eval_taken    = 0
+        node->eval_taken    = EvalTaken::Undecided
         return node
     }
 
@@ -741,7 +751,7 @@ pub class ConditionalStmt derives Stmt {
         node->is_eval       = false
         node->eval_deferred = false
         node->else_hint     = 0
-        node->eval_taken    = 0
+        node->eval_taken    = EvalTaken::Undecided
         node->range         = range
         node->init_annotations(unsafe &ctx->ast_alloc)
         return node

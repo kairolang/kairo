@@ -704,7 +704,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             }
 
             // A value (a `const` read, a negative one) is wrong, not unknown.
-            if c.ok || ce.quiet {
+            if c.ok || ce.quiet() {
                 self._bad_extent(n, unsafe &ce, c, "an array length")
                 n->poison()
                 return
@@ -877,7 +877,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return
         }
 
-        if c.ok || ce.quiet {
+        if c.ok || ce.quiet() {
             self._bad_value(n->expr, unsafe &ce, c, "a generic value argument")
             n->poison()
             return
@@ -1606,7 +1606,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                        ce:         unsafe *ConstEval,
                        c:          Declarations::IntConst,
                        const what: string) {
-        if ce->quiet {
+        if ce->quiet() {
             return
         }
 
@@ -2441,7 +2441,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                         // An eval constant C++ computes (one that calls an
                         // eval fn, or an eval class's object, Compiler/Spec/Eval.md#value-nodes /
                         // 7e): its value node.
-                        if !c.ok && !ce.quiet {
+                        if !c.ok && !ce.quiet() {
                             self._vx_bad = &null
                             self._vx_fn  = &null
                             var unsafe *vx = self._vx_name(at, r.cell->get(0))

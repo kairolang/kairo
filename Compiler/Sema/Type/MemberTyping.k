@@ -101,8 +101,24 @@ import Sema::Type::OverloadResolution::{
 import Sema::Type::Substitution::Substitution
 import Token::TokenKind::TokenKind
 
+/// \enum ChainKind
+/// \brief What the position a chain walk has reached denotes: the walk's
+///        state (MemberTyping::type_chain), one step at a time. `cur_type`
+///        is meaningful only in Type and `cur` only in Value; a step from
+///        Callable is SC100E and from Unknown stops the walk.
+pub enum ChainKind derives u8 {
+    Value = 0, ///< a value of type `cur`.
+    Type,      ///< the type `cur_type` (`Foo::`, `T::Item::`).
+    Module,    ///< a module or namespace.
+    Callable,  ///< a function or an overload set (`info.callable_cands`).
+    Unknown,   ///< dependent or foreign: nothing to say.
+}
+
 /// \class ChainInfo
 /// \brief What the typer learned about one ChainExpr, for CallTyping.
+///        Its flags stay apart rather than one ChainKind: has_receiver
+///        (`.` on a value) is orthogonal to what the last step names, and a
+///        chain that failed sets neither of the other two.
 pub class ChainInfo {
     pub var receiver:       unsafe *Type                   = &null ///< value type before the last step, if any.
     pub var has_receiver:   bool                           = false ///< last step was reached through `.`/`->`/`?.`/`?->` on a value.
@@ -208,9 +224,9 @@ pub class <T: type> MemberTyping {
     /// CallTyping::_instance_qualifier.
     priv fn _instance_through(self,
                               st:       unsafe *ChainExpr::Step,
-                              cur_kind: u8,
+                              cur_kind: ChainKind,
                               cur_type: unsafe *Type) -> unsafe *Type {
-        if cur_kind != 1
+        if cur_kind != ChainKind::Type
             || cur_type == &null
             || st->access_kind != ChainExpr::AccessKind::ColonColon {
             return &null
@@ -229,19 +245,19 @@ pub class <T: type> MemberTyping {
 
         /// ## base
         var cur:          unsafe *Type            = &null // value type of the current position
-        var cur_kind:     u8                      = 0 // 0 value, 1 type, 2 module, 3 callable, 4 unknown
-        var cur_type:     unsafe *Type            = &null // when cur_kind == 1
+        var cur_kind:     ChainKind               = ChainKind::Value
+        var cur_type:     unsafe *Type            = &null // the type named, while cur_kind is Type
         var saw_optional                          = false
         var last_variant: unsafe *EnumVariantDecl = &null // the chain ends naming this variant
 
         if n->base == &null {
-            cur_kind = 2
+            cur_kind = ChainKind::Module
         } else if self._is_cxx_head(n->base) {
             // `cxx` as a chain HEAD is the overlay's scope, which is what it
             // is for; _type_ident's R053E is for `cxx` standing alone, and
             // typing the head through it rejected `cxx::std::vector<i32>()`.
             self.dyn()->note_module_expr(n->base)
-            cur_kind = 2
+            cur_kind = ChainKind::Module
         } else {
             var bt = self.dyn()->type_of(n->base, &null)
             if n->base->is_poisoned() {
@@ -258,14 +274,14 @@ pub class <T: type> MemberTyping {
 
             var denoted = self.dyn()->denoted_type(n->base)
             if denoted != &null {
-                cur_kind = 1
+                cur_kind = ChainKind::Type
                 cur_type = denoted
             } else if self.dyn()->denotes_module(n->base) {
-                cur_kind = 2
+                cur_kind = ChainKind::Module
             } else if bt == &null {
-                cur_kind = 4
+                cur_kind = ChainKind::Unknown
             } else {
-                cur_kind = 0
+                cur_kind = ChainKind::Value
                 cur      = bt
             }
         }
@@ -293,13 +309,13 @@ pub class <T: type> MemberTyping {
                 obj_cat = Expr::ValueCategory::XValue // a member of a temporary.
             }
 
-            if cur_kind == 4 {
+            if cur_kind == ChainKind::Unknown {
                 info->unknown = true
                 self.dyn()->mark_unknown(n)
                 return &null
             }
 
-            if cur_kind == 3 {
+            if cur_kind == ChainKind::Callable {
                 self.dyn()->fail(
                     n,
                     DiagID::SC100E,
@@ -315,7 +331,7 @@ pub class <T: type> MemberTyping {
             // left the step unbound for this (its anchor was nullable), so
             // it binds below on the narrowed type. A nullable that is no
             // place (`f().v`) keeps the old answer, "no member in 'T?'".
-            if cur_kind == 0
+            if cur_kind == ChainKind::Value
                 && cur != &null
                 && (st->access_kind == ChainExpr::AccessKind::Dot
                     || st->access_kind == ChainExpr::AccessKind::Arrow)
@@ -343,10 +359,10 @@ pub class <T: type> MemberTyping {
                 // A value of an associated type (`x.show()`, `x: T::Item`)
                 // binds through the associated type's own bounds: the
                 // anchor is Dependent on it, and ChainBinding reads them.
-                if cur_kind == 0 && cur != &null {
+                if cur_kind == ChainKind::Value && cur != &null {
                     var a = self.dyn()->cb.anchor_for_value(&null, cur)
                     self.dyn()->cb.bind_step(n, st, a)
-                } else if cur_kind == 1 {
+                } else if cur_kind == ChainKind::Type {
                     // `X::Node` on a dependent head -- a bounded parameter or
                     // an associated type, at any depth (`T::Item::Inner`) --
                     // naming an associated type of its bounds is that type
@@ -435,7 +451,7 @@ pub class <T: type> MemberTyping {
             // The receiver OBJECT's cv, read before peel_ref strips it:
             // `s.data()` on a const `s` must rank `data() const` alone.
             var recv_q: u8 = 0
-            if cur_kind == 0 {
+            if cur_kind == ChainKind::Value {
                 recv_q = self._object_quals(val)
                 val    = self.dyn()->ml.peel_ref(val)
                 if st->access_kind == ChainExpr::AccessKind::QuestionDot
@@ -480,20 +496,20 @@ pub class <T: type> MemberTyping {
                 // the receiver on it and strips it for everything else. A
                 // `::` call off a type has that type as its receiver, so a
                 // static on `Vec<i64>::` seeds the extension's parameters.
-                var unsafe *recv_ty = if (cur_kind == 1) => (cur_type) else => val
+                var unsafe *recv_ty = if (cur_kind == ChainKind::Type) => (cur_type) else => val
                 info->receiver = if (recv_ty != &null) => (self.dyn()->sc->types->qualified(
                                      recv_ty,
                                      recv_q,
                                  ))
                                  else => &null
-                info->has_receiver = cur_kind == 0
+                info->has_receiver = cur_kind == ChainKind::Value
                     && st->access_kind != ChainExpr::AccessKind::ColonColon
                 info->receiver_cat = obj_cat
             }
 
             /// ### tuple index
             if st->is_tuple_index() {
-                if cur_kind != 0 || val == &null || !self.dyn()->tu.is_tuple(val) {
+                if cur_kind != ChainKind::Value || val == &null || !self.dyn()->tu.is_tuple(val) {
                     self.dyn()->fail(n, DiagID::SC101E, "tuple index on a non-tuple")
                     return &null
                 }
@@ -516,14 +532,14 @@ pub class <T: type> MemberTyping {
                 cur               = elems[st->index as usize]
                 st->resolved_type = cur
                 st->resolved_decl = unsafe (self.dyn()->tu.tuple_field(val, st->index as usize) as unsafe *Decl)
-                cur_kind          = 0
+                cur_kind          = ChainKind::Value
                 n->value_category = Expr::ValueCategory::LValue // a field: `t.0 = x` assigns through.
                 continue
             }
 
             /// ### operator step: `x.op+` / `Foo::op[]`
             if st->is_operator() {
-                var owner_ty: unsafe *Type = if (cur_kind == 1) => (cur_type) else => val
+                var owner_ty: unsafe *Type = if (cur_kind == ChainKind::Type) => (cur_type) else => val
                 if owner_ty == &null {
                     info->unknown = true
                     self.dyn()->mark_unknown(n)
@@ -565,7 +581,7 @@ pub class <T: type> MemberTyping {
                     return &null
                 }
 
-                cur_kind = 3
+                cur_kind = ChainKind::Callable
                 continue
             }
 
@@ -580,7 +596,7 @@ pub class <T: type> MemberTyping {
                     info->callable_cands.push_back(st->candidate_cell->get(j))
                 }
 
-                cur_kind = 3
+                cur_kind = ChainKind::Callable
                 continue
             }
 
@@ -607,10 +623,10 @@ pub class <T: type> MemberTyping {
                     // which is the right answer. Do not "fix" this into
                     // resolving the base record -- the field is not seen
                     // through Base's generic args, it is seen through T's.
-                    var unsafe *seen = if (cur_kind == 0) => (val) else => cur_type
+                    var unsafe *seen = if (cur_kind == ChainKind::Value) => (val) else => cur_type
                     cur               = self.dyn()->ded_scratch()->member_through(seen, ft)
                     st->through       = self._instance_through(st, cur_kind, cur_type)
-                    cur_kind          = 0
+                    cur_kind          = ChainKind::Value
                     st->resolved_type = cur
                     n->value_category = Expr::ValueCategory::LValue
                 } case DeclKind::VariableDecl {
@@ -628,7 +644,7 @@ pub class <T: type> MemberTyping {
                     }
 
                     st->through       = self._instance_through(st, cur_kind, cur_type)
-                    cur_kind          = 0
+                    cur_kind          = ChainKind::Value
                     st->resolved_type = cur
                     n->value_category = Expr::ValueCategory::LValue
                 } case DeclKind::ParamDecl {
@@ -640,7 +656,7 @@ pub class <T: type> MemberTyping {
                         return &null
                     }
 
-                    cur_kind          = 0
+                    cur_kind          = ChainKind::Value
                     st->resolved_type = cur
                     n->value_category = Expr::ValueCategory::LValue
                 } case DeclKind::EnumVariantDecl {
@@ -657,7 +673,7 @@ pub class <T: type> MemberTyping {
                     // enumerator named through its enclosing record
                     // (`LangStandard::lang_gnucxx26`, of `LangStandard::Kind`)
                     // is the enum's, not the record's.
-                    if cur_kind == 1 && self.dyn()->discr_enum == &null {
+                    if cur_kind == ChainKind::Type && self.dyn()->discr_enum == &null {
                         var qd = self.dyn()->tu.record_decl(cur_type)
                         if qd != &null
                             && NameLookup::representative(
@@ -667,7 +683,7 @@ pub class <T: type> MemberTyping {
                         }
                     }
 
-                    cur_kind          = 0
+                    cur_kind          = ChainKind::Value
                     st->resolved_type = cur
                     n->value_category = Expr::ValueCategory::RValue
                     if is_last {
@@ -680,9 +696,9 @@ pub class <T: type> MemberTyping {
                     st->through = self._instance_through(st, cur_kind, cur_type)
                     info->callable_cands.clear()
                     info->callable_cands.push_back(d)
-                    cur_kind = 3
+                    cur_kind = ChainKind::Callable
                 } case DeclKind::ModuleDecl {
-                    cur_kind = 2
+                    cur_kind = ChainKind::Module
                 } case DeclKind::GenericParamDecl {
                     info->unknown = true
                     self.dyn()->mark_unknown(n)
@@ -692,7 +708,7 @@ pub class <T: type> MemberTyping {
                     // the requirement itself: the associated type of T.
                     if isa<TypeAliasDecl>(d) && cast<TypeAliasDecl>(d)->is_associated {
                         var at: unsafe *Type = &null
-                        if cur_kind == 1 && cur_type != &null {
+                        if cur_kind == ChainKind::Type && cur_type != &null {
                             var unsafe *ct0 = canon_unqual(cur_type)
                             if isa<GenericParamType>(ct0) || isa<AssocType>(ct0) {
                                 at = self._assoc_step(ct0, st, self.dyn()->tu.decl_name(d))
@@ -719,7 +735,7 @@ pub class <T: type> MemberTyping {
                         // A further step (`T::Item::make()`) binds on it as on
                         // any dependent head, below.
                         cur_type           = at
-                        cur_kind           = 1
+                        cur_kind           = ChainKind::Type
                         st->resolved_type  = at
                         info->receiver     = at
                         info->has_receiver = false
@@ -727,7 +743,7 @@ pub class <T: type> MemberTyping {
                     }
 
                     if self.dyn()->tu.is_type_decl(d) {
-                        var unsafe *outer_t = if (cur_kind == 1) => (cur_type) else => &null
+                        var unsafe *outer_t = if (cur_kind == ChainKind::Type) => (cur_type) else => &null
                         cur_type = self.dyn()->type_from_type_decl(d, st->generic_args, n)
                         if cur_type == &null {
                             self.dyn()->poison_only(n)
@@ -748,7 +764,7 @@ pub class <T: type> MemberTyping {
                             }
                         }
 
-                        cur_kind          = 1
+                        cur_kind          = ChainKind::Type
                         st->resolved_type = cur_type
                     } else {
                         self.dyn()->fail(
@@ -765,7 +781,7 @@ pub class <T: type> MemberTyping {
 
         /// ## result
         match cur_kind {
-            case 0 {
+            case ChainKind::Value {
                 if cur == &null {
                     return &null
                 }
@@ -792,14 +808,14 @@ pub class <T: type> MemberTyping {
                 }
 
                 return cur
-            } case 1 {
+            } case ChainKind::Type {
                 info->last_is_type = true
                 self.dyn()->note_type_expr(n, cur_type)
                 return &null
-            } case 2 {
+            } case ChainKind::Module {
                 self.dyn()->note_module_expr(n)
                 return &null
-            } case 3 {
+            } case ChainKind::Callable {
                 // a unique non-method function named through a path is a value.
                 if info->callable_cands.size() == 1 && !info->has_receiver {
                     var f = dyn_cast<FunctionDecl>(info->callable_cands[0])
@@ -823,7 +839,7 @@ pub class <T: type> MemberTyping {
                 }
 
                 return &null // callable; CallTyping reads info.
-            } default {
+            } case ChainKind::Unknown {
                 info->unknown = true
                 self.dyn()->mark_unknown(n)
                 return &null

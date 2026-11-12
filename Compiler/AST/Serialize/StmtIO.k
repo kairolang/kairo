@@ -235,7 +235,7 @@ fn io_conditional_stmt(ar: unsafe *ASTArchive, n: unsafe *Statements::Conditiona
     ar->num8(&n->else_hint)
     eval if defined!(DEBUG) {
         ar->sema_false(n->eval_deferred, "ConditionalStmt::eval_deferred")
-        ar->sema_zero(n->eval_taken as u64, "ConditionalStmt::eval_taken")
+        ar->sema_zero((n->eval_taken as u8) as u64, "ConditionalStmt::eval_taken")
     }
 }
 

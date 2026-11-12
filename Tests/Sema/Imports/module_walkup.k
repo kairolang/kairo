@@ -5,10 +5,10 @@
 // wherever. Inputs/module_walkup/geometry/module.k says `module geo`, and no
 // search root of any run below registers that directory as a library.
 //
-// The walk used to stop at the deepest search root holding the file: from
-// inside geometry/inner, or through `-I geometry/inner`, x.k was `namespace
-// x`, while every importer above the library calls `geo::inner::x`, so a
-// `kcc -c` run from inside a library defined symbols nothing links against
+// The walk does not stop at the deepest search root holding the file: from
+// inside geometry/inner, or through `-I geometry/inner`, x.k is not `namespace
+// x` (every importer above the library calls `geo::inner::x`), so a
+// `kcc -c` run from inside a library does not define symbols nothing links against
 // (Kcc/kcc_library_paths.k links them).
 
 // --- lit wiring -----------------------------------------------------------

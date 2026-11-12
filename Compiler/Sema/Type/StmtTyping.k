@@ -1195,7 +1195,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 return
             }
 
-            if !c.ok && ce.quiet {
+            if !c.ok && ce.quiet() {
                 return
             }
 
@@ -1671,12 +1671,12 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var sel = if (n->is_eval) => (self._type_cmp_truth(n->cond)) else => -1
         if sel == 1 {
             n->else_      = &null
-            n->eval_taken = 1
+            n->eval_taken = Statements::EvalTaken::Then
         }
 
         if sel == 0 && n->then_ != &null {
             n->then_      = Statements::CompoundStmt::create(self.dyn()->sc->ctx, n->then_->range)
-            n->eval_taken = 2
+            n->eval_taken = Statements::EvalTaken::Else
         }
 
         if sel == 2 {

@@ -1,9 +1,9 @@
 // One directory under two spellings is one library. b/geolink is a symlink
 // to Inputs/module_walkup/geometry (`module geo`); the cwd's discovery finds
-// it through the link, and -I names the real path. Roots used to be compared
-// by the path as spelled, so the vendored link and the -I were two libraries
-// both called `geo`: a false R018E before anything was parsed. Roots, and
-// the files a module path names, are compared by real path now.
+// it through the link, and -I names the real path. Roots are not compared
+// by the path as spelled (the vendored link and the -I would be two libraries
+// both called `geo`: a false R018E before anything was parsed). Roots, and
+// the files a module path names, are compared by real path.
 
 // --- lit wiring -----------------------------------------------------------
 // `ln -s` needs a privilege a Windows host does not grant by default.

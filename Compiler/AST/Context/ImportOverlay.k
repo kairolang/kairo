@@ -177,6 +177,19 @@ pub class ImportUseLog {
 }
 
 /// \class ImportOverlay
+/// \enum OverlayState
+/// \brief Who may write an overlay. Building while phase I folds it, then
+///        Frozen for good -- except on an import cycle, where the driver's
+///        re-export fixpoint (ImportResolution::refold_reexports) takes it
+///        Frozen -> Refolding -> Frozen, once per round. Refolding is also
+///        what tells a fold to skip a target its entry already holds: a
+///        round re-folds what the rounds before it folded.
+pub enum OverlayState derives u8 {
+    Building = 0, ///< phase I is folding the imports.
+    Frozen,       ///< read-only; every later phase reads it.
+    Refolding,    ///< a re-export fixpoint round of an import cycle.
+}
+
 /// \brief THIS-TU imm-keyed map of imported names -> OverlayEntry.
 ///
 /// \details Keyed by the IMPORTING TU's imm indices (hard invariant #2): I
@@ -196,18 +209,18 @@ pub class ImportOverlay {
     /// out pointers that _fold_reexports holds across later entry_for()s.
     priv var _entries: llvm::MapVector<u64, unsafe *OverlayEntry>
     priv var _arena:   llvm::SpecificBumpPtrAllocator<OverlayEntry>
-    priv var _frozen:  bool                                         = false
+    priv var _state:   OverlayState                                 = OverlayState::Building
     /// Null unless --dump-import-uses is set (FrontendAction::_sema).
     pub var uses: unsafe *ImportUseLog = &null
 
     fn ImportOverlay(self) {
-        self._frozen = false
+        self._state = OverlayState::Building
     }
 
     /// Get-or-create the entry for this-TU imm \p key. Write path (I only).
     pub fn entry_for(self, key: u32) -> unsafe *OverlayEntry {
         eval if defined!(DEBUG) {
-            if self._frozen {
+            if self._state == OverlayState::Frozen {
                 kairo::std::ice_fail(
                     r"ImportOverlay::entry_for after freeze (I is the sole writer)",
                 )
@@ -228,15 +241,39 @@ pub class ImportOverlay {
         return self._entries.count(key) > 0
     }
 
+    /// The end of phase I's fold: Building -> Frozen, once.
     pub fn freeze(self) {
-        self._frozen = true
+        self._move(OverlayState::Building, OverlayState::Frozen, r"ImportOverlay::freeze of an overlay already frozen")
     }
 
     /// Writable again, for the one sanctioned late writer: the re-export
-    /// fixpoint of an import cycle (ImportResolution::refold_reexports),
-    /// which runs while every TU of the cycle is still in phase I.
-    pub fn thaw(self) {
-        self._frozen = false
+    /// fixpoint of an import cycle (ImportResolution::refold_reexports).
+    /// Frozen -> Refolding; end_refold takes it back.
+    pub fn begin_refold(self) {
+        self._move(OverlayState::Frozen, OverlayState::Refolding, r"ImportOverlay::begin_refold of an overlay phase I has not frozen")
+    }
+
+    pub fn end_refold(self) {
+        self._move(OverlayState::Refolding, OverlayState::Frozen, r"ImportOverlay::end_refold without begin_refold")
+    }
+
+    pub fn is_refolding(self) -> bool {
+        return self._state == OverlayState::Refolding
+    }
+
+    pub fn state(self) -> OverlayState {
+        return self._state
+    }
+
+    /// The only writer of _state: \p from -> \p to, which must be where it is.
+    priv fn _move(self, from: OverlayState, to: OverlayState, const why: string) {
+        eval if defined!(DEBUG) {
+            if self._state != from {
+                kairo::std::ice_fail(why)
+            }
+        }
+
+        self._state = to
     }
 
     /// Targets across every entry: what the fixpoint watches grow.
@@ -250,7 +287,7 @@ pub class ImportOverlay {
     }
 
     pub fn is_frozen(self) -> bool {
-        return self._frozen
+        return self._state == OverlayState::Frozen
     }
 
     pub fn size(self) -> usize {

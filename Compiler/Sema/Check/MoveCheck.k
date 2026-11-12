@@ -333,6 +333,15 @@ pub class LoopFrame {
     fn LoopFrame(self) { }
 }
 
+/// What one body's walk carries and a nested body (a function, a closure)
+/// starts without: saved and restored as one value (MoveCheck::_enter_body /
+/// _leave_body), so neither walker can restore part of it.
+pub struct BodyFlow {
+    pub var st:     MoveState
+    pub var loops:  cxx::std::vector<LoopFrame>
+    pub var blocks: cxx::std::vector<cxx::std::vector<unsafe *Statements::FinallyStmt>>
+}
+
 pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     pub var  sc:     unsafe *SemaContext
     priv var _tu:    TypeUtil
@@ -453,15 +462,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return n
         }
 
-        var saved_st     = self._st
-        var saved_loops  = self._loops
-        var saved_blocks = self._blocks
-        var saved_rs     = self._reuse_site
-        var saved_rr     = self._reuse_read
-        var saved_rd     = self._reuse_decl
-        self._st     = MoveState()
-        self._loops  = cxx::std::vector<LoopFrame>()
-        self._blocks = cxx::std::vector<cxx::std::vector<unsafe *Statements::FinallyStmt>>()
+        var saved    = self._enter_body()
+        var saved_rs = self._reuse_site
+        var saved_rr = self._reuse_read
+        var saved_rd = self._reuse_decl
         self._reuse_site.clear()
         self._reuse_read.clear()
         self._reuse_decl.clear()
@@ -476,18 +480,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             self._return_value(n->body_expr)
         }
 
-        if !self._blocks.empty() {
-            kairo::std::ice_fail("MoveCheck: a block frame outlived its body")
-        }
-
+        self._leave_body(saved)
         if self._reuse_site.size() > 0 {
             n->move_reuse_site.from_vec(unsafe &self._reuse_site, self.sc->ctx)
             n->move_reuse_read.from_vec(unsafe &self._reuse_read, self.sc->ctx)
         }
 
-        self._st         = saved_st
-        self._loops      = saved_loops
-        self._blocks     = saved_blocks
         self._reuse_site = saved_rs
         self._reuse_read = saved_rr
         self._reuse_decl = saved_rd
@@ -555,12 +553,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
-        var saved_st     = self._st
-        var saved_loops  = self._loops
-        var saved_blocks = self._blocks
-        self._st     = MoveState()
-        self._loops  = cxx::std::vector<LoopFrame>()
-        self._blocks = cxx::std::vector<cxx::std::vector<unsafe *Statements::FinallyStmt>>()
+        // A closure's demoted moves stay on the enclosing function's reuse
+        // rows: the function, not the closure, is what an instance judges.
+        var saved = self._enter_body()
         for var i: usize = 0; i < n->params.size(); ++i {
             self.dyn()->dispatch_decl(*n->params.get(i))
         }
@@ -577,14 +572,32 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
+        self._leave_body(saved)
+        return n
+    }
+
+    /// A body starts clean: the enclosing body's flow, handed back for
+    /// _leave_body, and a fresh one in its place.
+    priv fn _enter_body(self) -> BodyFlow {
+        var saved = BodyFlow{}
+        saved.st     = self._st
+        saved.loops  = self._loops
+        saved.blocks = self._blocks
+        self._st     = MoveState()
+        self._loops  = cxx::std::vector<LoopFrame>()
+        self._blocks = cxx::std::vector<cxx::std::vector<unsafe *Statements::FinallyStmt>>()
+        return saved
+    }
+
+    /// ...and leaves nothing behind: \p saved, _enter_body's, back.
+    priv fn _leave_body(self, const saved: BodyFlow) {
         if !self._blocks.empty() {
             kairo::std::ice_fail("MoveCheck: a block frame outlived its body")
         }
 
-        self._st     = saved_st
-        self._loops  = saved_loops
-        self._blocks = saved_blocks
-        return n
+        self._st     = saved.st
+        self._loops  = saved.loops
+        self._blocks = saved.blocks
     }
 
     /// `var b = a` moves a MOVE `a` into `b`. The declaration also makes `b`

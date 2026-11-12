@@ -45,7 +45,7 @@
 ///         element by element: `self.f[k] = e` with k a constant, every k
 ///         in 0..N-1 exactly once on every path, outside any loop, before
 ///         f or `self` is read. Each element is a bit of flow state like a
-///         field (CtorFlow::edef); f is assigned once its last element is,
+///         field (CtorFlow::elems); f is assigned once its last element is,
 ///         and each write that builds an element is marked ci_elem_init
 ///         (EmitIR builds the element in the slot, in place, so source
 ///         order holds);
@@ -345,17 +345,39 @@ pub class CtorSelfFind derives RecursiveASTVisitor<CtorSelfFind> {
     }
 }
 
-/// Definitely- and maybe-assigned, per field of the record (index = the
-/// field's position in the record's field list). `dead`: no path reaches
-/// here, so the state is every field assigned (the identity of the meet).
+/// \enum FieldInit
+/// \brief Whether a field (or an element) is assigned on the paths that
+///        reach a point: on none, on some, on every one. One value, so
+///        "definitely but not maybe" has no encoding.
+pub enum FieldInit derives u8 {
+    No = 0, ///< on no path.
+    Maybe,  ///< on some path, not every one.
+    Yes,    ///< on every path.
+}
+
+/// Where two paths join: assigned where both assigned it, maybe-assigned
+/// where either may have.
+fn field_init_meet(a: FieldInit, b: FieldInit) -> FieldInit {
+    if a == FieldInit::Yes && b == FieldInit::Yes {
+        return FieldInit::Yes
+    }
+
+    if a == FieldInit::No && b == FieldInit::No {
+        return FieldInit::No
+    }
+
+    return FieldInit::Maybe
+}
+
+/// Per field of the record (index = the field's position in the record's
+/// field list). `dead`: no path reaches here, so the state is every field
+/// assigned (the identity of the meet).
 pub struct CtorFlow {
-    pub var def:   cxx::std::vector<u8>
-    pub var maybe: cxx::std::vector<u8>
-    pub var dead:  bool                 = false
+    pub var fields: cxx::std::vector<FieldInit>
+    pub var dead:   bool                        = false
     /// The same per element of each array field built element by element,
     /// field i's elements at CtorInitCheck::_ebase[i].
-    pub var edef:   cxx::std::vector<u8>
-    pub var emaybe: cxx::std::vector<u8>
+    pub var elems: cxx::std::vector<FieldInit>
 }
 
 /// One thing the expression scan saw `self` do, in evaluation order.
@@ -552,7 +574,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     /// The array fields whose write the walk reported, so the end of the
     /// walk does not report the same field's paths again.
     priv var _erred: cxx::std::vector<unsafe *FieldDecl>
-    /// Per field (by index): where its elements start in CtorFlow::edef, or
+    /// Per field (by index): where its elements start in CtorFlow::elems, or
     /// usize(-1) for a field not built element by element (_elem_ok); its
     /// element count; and per element, where it was first built on the path
     /// being walked (the note on a second write).
@@ -926,7 +948,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         if !self._st.dead {
             for var i: usize = 0; i < fields.size(); ++i {
                 var unsafe *fd = fields[i]
-                if self._st.def[i] != 0 {
+                if self._st.fields[i] == FieldInit::Yes {
                     continue
                 }
 
@@ -1071,7 +1093,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             }
 
             slots.push_back(fd)
-            dense.push_back((self._st.dead || self._st.def[i] != 0) as u8)
+            dense.push_back((self._st.dead || self._st.fields[i] == FieldInit::Yes) as u8)
         }
 
         for var i: usize = 0; i < crossing.size(); ++i {
@@ -1258,15 +1280,17 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         self._loops -= 1
         var after = self._st
         self._st = before
-        for var i: usize = 0; i < self._st.maybe.size(); ++i {
-            if !after.dead && after.maybe[i] != 0 {
-                self._st.maybe[i] = 1
+        // A body that may run assigns maybe: what it assigned is at least
+        // Maybe after the loop, and nothing more.
+        for var i: usize = 0; i < self._st.fields.size(); ++i {
+            if !after.dead && after.fields[i] != FieldInit::No && self._st.fields[i] == FieldInit::No {
+                self._st.fields[i] = FieldInit::Maybe
             }
         }
 
-        for var i: usize = 0; i < self._st.emaybe.size(); ++i {
-            if !after.dead && after.emaybe[i] != 0 {
-                self._st.emaybe[i] = 1
+        for var i: usize = 0; i < self._st.elems.size(); ++i {
+            if !after.dead && after.elems[i] != FieldInit::No && self._st.elems[i] == FieldInit::No {
+                self._st.elems[i] = FieldInit::Maybe
             }
         }
     }
@@ -1283,14 +1307,12 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             return
         }
 
-        for var i: usize = 0; i < self._st.def.size(); ++i {
-            self._st.def[i]   = (self._st.def[i] != 0 && other.def[i] != 0) as u8
-            self._st.maybe[i] = (self._st.maybe[i] != 0 || other.maybe[i] != 0) as u8
+        for var i: usize = 0; i < self._st.fields.size(); ++i {
+            self._st.fields[i] = field_init_meet(self._st.fields[i], other.fields[i])
         }
 
-        for var i: usize = 0; i < self._st.edef.size(); ++i {
-            self._st.edef[i]   = (self._st.edef[i] != 0 && other.edef[i] != 0) as u8
-            self._st.emaybe[i] = (self._st.emaybe[i] != 0 || other.emaybe[i] != 0) as u8
+        for var i: usize = 0; i < self._st.elems.size(); ++i {
+            self._st.elems[i] = field_init_meet(self._st.elems[i], other.elems[i])
         }
     }
 
@@ -1368,7 +1390,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 b.emit()
                 self._erred.push_back(f)
                 self._failed = true
-            } else if self._st.maybe[i] != 0 {
+            } else if self._st.fields[i] != FieldInit::No {
                 var b = self.sc->diag->report(
                     DiagID::SC071E,
                     at.start,
@@ -1420,7 +1442,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 b.first(at)
                 b.emit()
                 self._failed = true
-            } else if self._st.maybe[i] != 0 {
+            } else if self._st.fields[i] != FieldInit::No {
                 var b = self.sc->diag->report(
                     DiagID::SC172E,
                     at.start,
@@ -1440,12 +1462,11 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             }
         }
 
-        if self._st.maybe[i] == 0 {
+        if self._st.fields[i] == FieldInit::No {
             self._assigned_at[i] = at
         }
 
-        self._st.def[i]   = 1
-        self._st.maybe[i] = 1
+        self._st.fields[i] = FieldInit::Yes
     }
 
     /// A read of `self.f` (or `self.f.<more>`).
@@ -1455,7 +1476,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             return
         }
 
-        if self._st.def[i] != 0 || self._quiet {
+        if self._st.fields[i] == FieldInit::Yes || self._quiet {
             return
         }
 
@@ -1533,7 +1554,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             return
         }
 
-        if self._st.def[i] != 0 || self._quiet {
+        if self._st.fields[i] == FieldInit::Yes || self._quiet {
             return
         }
 
@@ -1574,7 +1595,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             return
         }
 
-        if self._st.def[i] != 0 {
+        if self._st.fields[i] == FieldInit::Yes {
             return
         }
 
@@ -1634,7 +1655,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             b.emit()
             self._erred.push_back(f)
             self._failed = true
-        } else if self._st.emaybe[self._ebase[i] + k] != 0 {
+        } else if self._st.elems[self._ebase[i] + k] != FieldInit::No {
             var b = self.sc->diag->report(
                 DiagID::SC176E,
                 at.start,
@@ -1659,27 +1680,26 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         }
 
         var e = self._ebase[i] + k
-        if self._st.emaybe[(e)] == 0 {
+        if self._st.elems[(e)] == FieldInit::No {
             self._eat[(e)] = at
         }
 
-        self._st.edef[(e)]   = 1
-        self._st.emaybe[(e)] = 1
-        if self._st.maybe[i] == 0 {
+        self._st.elems[(e)] = FieldInit::Yes
+        if self._st.fields[i] == FieldInit::No {
             self._assigned_at[i] = at
+            self._st.fields[i]   = FieldInit::Maybe
         }
 
-        self._st.maybe[i] = 1
         var whole = true
         for var j: usize = 0; j < self._elen[i]; ++j {
-            if !(self._st.edef[self._ebase[i] + j] != 0) {
+            if self._st.elems[self._ebase[i] + j] != FieldInit::Yes {
                 whole = false
                 break
             }
         }
 
         if whole {
-            self._st.def[i] = 1
+            self._st.fields[i] = FieldInit::Yes
         }
     }
 
@@ -1795,7 +1815,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                     continue
                 }
 
-                if self._st.dead || self._st.def[i] != 0 {
+                if self._st.dead || self._st.fields[i] == FieldInit::Yes {
                     out[i] = s
                 }
             }
@@ -1832,8 +1852,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         self._st = CtorFlow{}
         self._assigned_at.clear()
         for var i: usize = 0; i < n; ++i {
-            self._st.def.push_back(0)
-            self._st.maybe.push_back(0)
+            self._st.fields.push_back(FieldInit::No)
             self._assigned_at.push_back(SourceRange::invalid())
         }
 
@@ -1844,8 +1863,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             }
 
             for var k: usize = 0; k < self._elen[i]; ++k {
-                self._st.edef.push_back(0)
-                self._st.emaybe.push_back(0)
+                self._st.elems.push_back(FieldInit::No)
                 self._eat.push_back(SourceRange::invalid())
             }
         }
@@ -2010,7 +2028,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         }
 
         for var k: usize = 0; k < self._elen[i]; ++k {
-            if self._st.emaybe[self._ebase[i] + k] != 0 {
+            if self._st.elems[self._ebase[i] + k] != FieldInit::No {
                 return true
             }
         }
@@ -2023,7 +2041,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     priv fn _missing_elems(self, i: usize) -> string {
         var miss = cxx::std::vector<usize>()
         for var k: usize = 0; k < self._elen[i]; ++k {
-            if !(self._st.edef[self._ebase[i] + k] != 0) {
+            if self._st.elems[self._ebase[i] + k] != FieldInit::Yes {
                 miss.push_back(k)
             }
         }

@@ -90,8 +90,6 @@ import std::c_char
 
 pub class ImportResolution {
     priv var sc: *SemaContext
-    /// refold_reexports is running: _add skips a target its entry holds.
-    priv var _dedup: bool = false
     /// The decls already in run()'s `cxx_std` list, by address (never a
     /// reserved key). _collect_cxx_std probed the list linearly for every
     /// header of every ffi import's closure, and the list grows by one
@@ -192,8 +190,16 @@ pub class ImportResolution {
 
         var unsafe *overlay = tu->import_overlay
         var        before   = overlay->target_count()
-        overlay->thaw()
-        self._dedup = true
+        // A TU whose I ran: the driver's lockstep calls this for every TU
+        // of the cycle after the group's I, and again when it resumes the
+        // group on the driver, past I, where a round finds nothing new.
+        eval if defined!(DEBUG) {
+            if (self.sc->phase as u8) < (SemaPhase::ImportsResolved as u8) {
+                kairo::std::ice_fail(r"ImportResolution::refold_reexports before phase I")
+            }
+        }
+
+        overlay->begin_refold()
         for var i: usize = 0; i < tu->imports.size(); ++i {
             var unsafe **slot = tu->imports[i]
             if slot == &null {
@@ -221,9 +227,8 @@ pub class ImportResolution {
             self._fold_reexports(id, overlay, src_tu, id->resolved_fid)
         }
 
-        self._dedup = false
         self._flush_merged()
-        overlay->freeze()
+        overlay->end_refold()
         return overlay->target_count() > before
     }
 
@@ -1146,7 +1151,7 @@ pub class ImportResolution {
 
         var unsafe *entry = overlay->entry_for(key)
         // A fixpoint round re-folds what an earlier round already folded.
-        if self._dedup {
+        if overlay->is_refolding() {
             for var i: usize = 0; i < entry->targets.size(); ++i {
                 var o = entry->targets[i]
                 if o.kind == t.kind && o.cell == t.cell && o.decl == t.decl {

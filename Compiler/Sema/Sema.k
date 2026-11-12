@@ -132,9 +132,34 @@ import std::io
 // The driver is the ONLY file that imports passes; passes import
 // SemaContext and never this file (import-cycle rule, see SemaContext.k).
 
+/// \enum SemaRun
+/// \brief Where a Sema is in the steps a driver runs it in, beside
+///        `sc.phase`. The phase names the last stage that finished; these are
+///        the facts it cannot hold: a stage done in part on purpose (T's
+///        pre-pass for an import cycle's lockstep, the typed checks of a split
+///        run, which leave the phase at TypesResolved), and a hard stop, after
+///        which the phase still names the stage that stopped.
+///
+///        Running -> TypesPreDone -> FrontDone, in that order, and any of them
+///        -> Stopped, which is final: run_to refuses a Stopped Sema, because a
+///        continuation would carry it on past its stop (into T over names N
+///        could not bind, which is cascade noise by _hard_stop's policy).
+///
+///        A plain u8: one thread at a time writes it (a pool worker during
+///        the front, SemaSlot::run_front), and the driver reads it after the
+///        slot's `done` publish, which orders the two.
+pub enum SemaRun derives u8 {
+    Running = 0,  ///< none of the below yet.
+    TypesPreDone, ///< resolve_types_pre ran; ChainBinding may follow.
+    FrontDone,    ///< the typed checks before Conformance ran.
+    Stopped,      ///< a stage's hard stop ended a run_to.
+}
+
 pub class Sema {
-    pub var  sc:              SemaContext
-    priv var _types_pre_done: bool        = false ///< resolve_types_pre ran.
+    pub var  sc:   SemaContext
+    priv var _run: SemaRun = SemaRun::Running
+    /// sc.phase when the run stopped; read only once `_run` is Stopped.
+    priv var _stop_phase: SemaPhase = SemaPhase::Parsed
     /// The driver runs a TU's typed checks up to ConformanceChecking on
     /// a pool worker, side by side with the other TUs of its import wave, and
     /// ConformanceChecking itself later on the driver thread, in import
@@ -144,30 +169,49 @@ pub class Sema {
     /// checks stage stops before Conformance and leaves the phase at
     /// TypesResolved; the next run_to resumes at Conformance.
     pub var split_conformance: bool = false
-    /// The lockstep phase (an index into the driver's list) at which this
-    /// TU of an import cycle stopped; usize::MAX while it runs on. Kept on
-    /// the Sema so a lockstep resumed on another thread sees it.
-    pub var  lockstep_stop:      usize = usize::MAX
-    priv var _checks_front_done: bool  = false      ///< the typed checks before Conformance ran.
+
+    pub fn run_state(self) -> SemaRun {
+        return self._run
+    }
 
     /// The typed checks before Conformance have run, so a split run that
     /// stopped at TypesResolved stopped there on purpose and continues; one
-    /// that stopped earlier hit a hard stop and must not be continued.
+    /// that stopped earlier hit a hard stop and must not be continued. A
+    /// stop after them (a later stage's, phase Typed or past) leaves them run.
     pub fn checks_front_done(self) -> bool {
-        return self._checks_front_done
+        if self._run == SemaRun::Stopped {
+            return (self._stop_phase as u8) >= (SemaPhase::Typed as u8)
+        }
+
+        return self._run == SemaRun::FrontDone
     }
 
     /// A stage's hard stop ended a run_to. A driver that continues a TU in
     /// steps asks this, not run_to's result, which is also false for
     /// a TU that merely has errors.
     pub fn stopped(self) -> bool {
-        return self._stopped
+        return self._run == SemaRun::Stopped
     }
 
-    priv var _stopped: bool = false
+    /// The only way into Stopped.
     priv fn _stop(self) -> bool {
-        self._stopped = true
+        self._stop_phase = self.sc.phase
+        self._run        = SemaRun::Stopped
         return false
+    }
+
+    /// The forward transitions, one step each: Running -> TypesPreDone ->
+    /// FrontDone. A skipped or repeated step is a driver schedule bug (a
+    /// second T pre-pass would re-resolve every type; typed checks before it
+    /// read types nothing resolved).
+    priv fn _advance_run(self, to: SemaRun) {
+        eval if defined!(DEBUG) {
+            if (to as u8) != (self._run as u8) + 1 || to == SemaRun::Stopped {
+                kairo::std::ice_fail(r"Sema: run state must advance one step at a time, and not past a stop")
+            }
+        }
+
+        self._run = to
     }
 
     /// The TU's lifecycle facts. A member, not a stage local: the checks
@@ -230,8 +274,28 @@ pub class Sema {
     }
 
     pub fn run_to(self, target: SemaPhase) -> bool {
-        if self.sc.tu == &null {
+        // A stop is final: the phase still names the stage that stopped,
+        // so a continuation would run the next stage over its errors.
+        if self._run == SemaRun::Stopped {
+            eval if defined!(DEBUG) {
+                kairo::std::ice_fail(r"Sema: run_to on a run a hard stop ended (ask stopped() first)")
+            }
+
             return false
+        }
+
+        // A split run's typed checks end short of Typed (the phase stays
+        // TypesResolved until Conformance): asked for more than Typed in the
+        // same call, the late checks would run before Conformance.
+        eval if defined!(DEBUG) {
+            if self.split_conformance && self._run != SemaRun::FrontDone
+                && (target as u8) > (SemaPhase::Typed as u8) {
+                kairo::std::ice_fail(r"Sema: a split run is taken to Typed first, then continued")
+            }
+        }
+
+        if self.sc.tu == &null {
+            return self._stop()
         }
 
         // --check-past-syntax-errors: a file with syntax errors, or one that
@@ -583,11 +647,19 @@ pub class Sema {
     /// before the TU declaring `LabeledStmt derives Stmt` had resolved that
     /// edge, and the base's members were missing (R025E).
     pub fn resolve_types_pre(self) {
-        if self._types_pre_done {
+        // Ran already (TypesPreDone, FrontDone), or stopped: a stop before T
+        // never reaches here (the lockstep asks first), one in T is after it.
+        if self._run != SemaRun::Running {
+            eval if defined!(DEBUG) {
+                if self._run == SemaRun::Stopped && (self._stop_phase as u8) < (SemaPhase::NamesResolved as u8) {
+                    kairo::std::ice_fail(r"Sema: T's pre-pass asked of a run stopped before N")
+                }
+            }
+
             return
         }
 
-        self._types_pre_done = true
+        self._advance_run(SemaRun::TypesPreDone)
         self.sc.require_phase(SemaPhase::NamesResolved)
         var _deps = DepLogScope(self.sc.tu->dep_log)
         {
@@ -647,9 +719,9 @@ pub class Sema {
 
         var _t = TimeRegion("Checks")
         self.sc.require_phase(SemaPhase::TypesResolved)
-        if !self._checks_front_done {
+        if self._run != SemaRun::FrontDone {
             self._typed_checks_front()
-            self._checks_front_done = true
+            self._advance_run(SemaRun::FrontDone)
             // The phase stays TypesResolved: run_to's Typed gate then stops
             // here, and the driver's next run_to comes back for Conformance.
             if self.split_conformance {

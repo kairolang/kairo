@@ -51,7 +51,7 @@ fn use_both() -> i32 {
 // NAMEEQ-SAME: -I foo=
 // NAMEEQ-SAME: module foo
 //
-// Whatever the part before `=` is: a name no pin could carry used to slip
+// Whatever the part before `=` is: a name no pin could carry does not slip
 // past and vanish as a missing directory literally named `foo-lib=...`,
 // with only the import's R011E left to see.
 // NAMEDASH: error [U007E]: -I foo-lib={{.*}}libfoo: no such directory; -I takes a directory only, and the name=dir form is gone
