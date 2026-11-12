@@ -44,6 +44,9 @@ import Diagnostic::Registry::{
     diag_explain,
 }
 import Driver::CompilerInstance::CompilerInstance
+import Driver::CompilerLink
+import Driver::CompilerNative
+import Driver::CompilerSetup
 import Driver::InputKinds::{
     InputClass,
     classify_input,

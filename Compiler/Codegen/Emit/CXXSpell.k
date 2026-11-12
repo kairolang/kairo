@@ -1666,6 +1666,15 @@ pub class CXXSpell {
             return s + builtin_info(cast<BuiltinType>(c)->builtin)->spelling
         }
 
+        // `extend [i32; 2]` (P325): a fixed array is neither a record nor a
+        // builtin; its scope is named from its C++ spelling, which is a
+        // function of the type and the target (an `isize` element is `long`
+        // or `long long`), never of the build order. A scope struct never
+        // crosses targets, so that is as stable as it needs to be.
+        if isa<FixedArrayType>(c) && !c->is_dependent() {
+            return s + "arr__" + CXXSpell::_path_ident(self._type(c))
+        }
+
         if !isa<RecordType>(c) {
             self._ice(
                 x->range,
@@ -3026,7 +3035,15 @@ pub class CXXSpell {
             s += "const "
         }
 
-        s += self._type(x->target, subst)
+        // A C array's declarator wraps the name (`int (*self)[2]`), and every
+        // caller appends the name after this text, so an array target is
+        // spelled as one type-specifier instead (P325, `extend [i32; 2]`).
+        var t = self._type(x->target, subst)
+        if x->target != &null && x->target->canonical != &null && isa<FixedArrayType>(canon_unqual(x->target->canonical)) {
+            t = "__typeof__(" + t + ")"
+        }
+
+        s += t
         s += if (f->is_operator) => ("&") else => "*"
         return s
     }

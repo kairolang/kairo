@@ -1,7 +1,7 @@
 // A CRTP base's bounds are Kairo's to check, at the class that names the
 // instance, with that class complete -- never left to clang (whose concept
-// on the template head used to fire at the base-specifier, before the
-// class had any members; crtp_bounded.k). A deriving class that does not
+// on the template head fires at the base-specifier, before the
+// class has any members; crtp_bounded.k). A deriving class that does not
 // meet the `impl` bound, or names the base over another class, is an
 // error here.
 

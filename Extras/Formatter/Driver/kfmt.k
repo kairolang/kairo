@@ -51,6 +51,7 @@ import AST::Printer::Printers::*
 import Diagnostic::Consumer::*
 import Diagnostic::Severity::*
 import DocIR::*
+import Driver::CompilerGraph
 import Driver::CompilerInstance::*
 import Driver::TUStage::*
 import Format::*

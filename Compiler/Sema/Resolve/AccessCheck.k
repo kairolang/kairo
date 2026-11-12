@@ -1047,8 +1047,72 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             b.insert(r->range.start, "pub ", f"make '{nm}' public")
         }
 
+        self._extension_note(&b, v, home, owner, nm, on)
         self._no_module_warning(&b, v, home, at, nm)
         b.emit()
+    }
+
+    /// The `extend` block the use site's innermost function is a member
+    /// of, or null when the use is not in one.
+    priv fn _use_extension(self) -> unsafe *ExtensionDecl {
+        if self._fns.size() == 0 {
+            return &null
+        }
+
+        var unsafe *dc        = self._fns[self._fns.size() - 1]->semantic_dc
+        var        depth: u32 = 0
+        while dc != &null && depth < 64 {
+            depth += 1
+            if dc->dc_kind == DeclContextKind::Extension {
+                return dyn_cast<ExtensionDecl>(dc->owner_decl())
+            }
+
+            dc = dc->dc_parent
+        }
+
+        return &null
+    }
+
+    /// A refused `prot` use inside an `extend` of a class deriving from the
+    /// member's class (P836): the extension is outside code, not a class
+    /// deriving from it, so subclass reach does not apply, and the one way
+    /// in is the module of the file that declares the member. Says so and
+    /// names that module's root, because the error alone reads as if the
+    /// extended class's own access should have carried.
+    priv fn _extension_note(self,
+                            b:        *DiagBuilder,
+                            v:        VisibilityKind,
+                            home:     unsafe *TranslationUnit,
+                            owner:    unsafe *Decl,
+                            const nm: string,
+                            const on: string) {
+        if v != VisibilityKind::Protected {
+            return
+        }
+
+        var unsafe *ext = self._use_extension()
+        if ext == &null || ext->target == &null || ext->target->canonical == &null {
+            return
+        }
+
+        var unsafe *rd = self._tu.record_decl(canon_unqual(ext->target->canonical))
+        var unsafe *tgt = if (rd != &null) => (self._rep(rd)) else => &null
+        var seen = cxx::std::vector<unsafe *Decl>()
+        if tgt == &null || tgt == owner || !self._derives(tgt, owner, unsafe &seen, 0) {
+            return
+        }
+
+        var tn  = self._tu.decl_name(tgt)
+        var dir = tu_module_dir(home)
+        var reach = f"the file that declares '{on}', which has no module.k above it"
+        if !dir.empty() {
+            reach = f"a file of the module '{on}' is declared in, rooted at '{dir}' (the directory of its module.k)"
+        }
+
+        b->note(
+            ext->range.start,
+            f"an 'extend' of '{tn}' is not a class deriving from '{on}', so it does not get '{on}'s 'prot' members through '{tn}': it can use '{nm}' only from {reach}",
+        )
     }
 
     /// A subclass reached an instance `prot` member through an object that

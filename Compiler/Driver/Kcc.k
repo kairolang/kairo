@@ -54,6 +54,7 @@ ffi "c++" import "cstring"
 
 import AST::LangItems::LowerTargets
 import Command::FlagTranslator::FlagTranslator
+import Driver::CompilerInfo
 import Driver::CompilerInstance::CompilerInstance
 import Driver::Runtime::init_runtime
 import Support::ExitCodes::{
@@ -248,7 +249,7 @@ pub fn _kcc_words(argc:       i32,
 /// \brief whether \p w is a driver probe clang answers with no input (its
 ///        HandleImmediateArgs): -dumpversion and the -print-* family.
 /// \details compiler-rt's configure asks for -print-target-triple to
-///          normalise its triple (P607); the rest are what CMake, autoconf
+///          normalise its triple; the rest are what CMake, autoconf
 ///          and libtool send. Both clang spellings of each (`-x` and `--x`)
 ///          are accepted, as clang accepts them.
 fn _kcc_is_clang_query(w: string) -> bool {

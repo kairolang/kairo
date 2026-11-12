@@ -5054,6 +5054,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         self._push_frame(NameLookup::representative(n), n->generic_params)
         if n->target != &null {
             self.dispatch_type(n->target)
+            self._reject_pointer_target(n)
         }
 
         // Self is the target as WRITTEN, args and all, after it resolved:
@@ -5078,6 +5079,39 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         self._pop_frame()
         self.cur_dc = saved
         return out
+    }
+
+    /// `extend *T`, `extend *const T`, `extend unsafe *T` (P325, decided
+    /// 2026-11-11: an error, not a feature): the members a pointer has are
+    /// its pointee's, reached with `->`, and before this check such a block
+    /// passed Sema and reached codegen, which has no scope to put its
+    /// members in (an ICE in CXXSpell::ext_scope_name). A container OF
+    /// pointers (`extend <T> [*T]`) is an ordinary record target and stays
+    /// legal.
+    priv fn _reject_pointer_target(self, n: unsafe *Declarations::ExtensionDecl) {
+        var unsafe *t = n->target
+        if t == &null || t->canonical == &null || n->is_poisoned() {
+            return
+        }
+
+        var unsafe *c = canon_unqual(t->canonical)
+        if !isa<PointerType>(c) {
+            return
+        }
+
+        var b = self.sc->diag->report(
+            DiagID::SC001E,
+            t->range.start,
+            "a pointer type cannot be extended; extend the type it points to, and call those members through the pointer with '->'",
+        )
+
+        b.first(t->range, "pointer target")
+        b.emit()
+        // The block is poisoned, not its target: a generic block is walked
+        // again and would report twice, while the target keeps its type so
+        // `Self` and `self` in the body still mean the pointer and cascade
+        // nothing. The TU has an error, so nothing is emitted.
+        n->poison()
     }
 
     /// True when `d`'s names live in another TU. DAG order guarantees that

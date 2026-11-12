@@ -22,8 +22,8 @@ fn ambiguous() -> i32 { return h(1.5, 2.5) }
 // --- lit wiring -----------------------------------------------------------
 // An untyped float literal is C++'s double when overloads differ only
 // by float type: identity to f64, a floating conversion to anything else
-// (OverloadResolution::_flit_better). It was SC064E ambiguous, so
-// `cxx::std::sqrt(16.0)` could not be called. Each argument still decides
+// (OverloadResolution::_flit_better). It is not SC064E ambiguous, so
+// `cxx::std::sqrt(16.0)` can be called. Each argument still decides
 // on its own: `h(1.5, 2.5)` prefers f64 at a different argument for each
 // candidate, which C++ calls ambiguous too.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not=error

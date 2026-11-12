@@ -34,7 +34,9 @@ import Command::FlagTranslator::{
 }
 import Diagnostic::Engine::DiagEngine
 import Diagnostic::Registry::DiagID
+import Driver::CompilerCache
 import Driver::CompilerInstance::CompilerInstance
+import Driver::CompilerLink
 import Driver::InputKinds::{
     InputClass,
     InputKind,

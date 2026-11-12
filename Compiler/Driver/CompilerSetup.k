@@ -54,6 +54,7 @@ import Diagnostic::Engine::{
 import Diagnostic::PrettyConsumer::PrettyDiagConsumer
 import Diagnostic::Registry::DiagID
 import Driver::CompilerInstance::CompilerInstance
+import Driver::CompilerNative
 import Interop::Clang::ClangBackend::ClangBackendConfig
 import Support::FileIO::Path::Path
 import Sysroot::Cache::SysCache

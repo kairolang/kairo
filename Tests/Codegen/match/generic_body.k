@@ -2,9 +2,9 @@
 // in a generic class's method (pattern-matching.mdx; enums-adt.mdx,
 // Destructuring with match).
 //
-// It used to ICE ("EmitIR: match MatchLowering left in place"): the
-// patterns were never resolved against a dependent scrutinee, so no decision
-// tree was built. Under they are: `Rep<T>`'s variants are its
+// It does not ICE ("EmitIR: match MatchLowering left in place"): the
+// patterns are resolved against a dependent scrutinee, so a decision
+// tree is built: `Rep<T>`'s variants are its
 // pattern's, a payload binder reads through the instance (`v: T`), the
 // match is checked for exhaustiveness here, and the tag is read through
 // `__kairo_which()` because C++ picks each instance's layout.

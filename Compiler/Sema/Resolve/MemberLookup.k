@@ -105,7 +105,7 @@ import Token::TokenKind::TokenKind
 
 /// The extension-visibility rule (RESOLUTION.md): TU \p sc sees `extend`
 /// block \p e, written in file \p efid, when that file is its own, a
-/// builtin file, one its imports reach transitively (all three
+/// builtin file, one it imports or one those re-export (all three
 /// SemaContext::sees_extension_file), or the file that declares the
 /// extended record: an extension written beside its type travels with it.
 pub fn extension_visible(sc: unsafe *SemaContext, e: unsafe *Declarations::ExtensionDecl, efid: u32) -> bool {

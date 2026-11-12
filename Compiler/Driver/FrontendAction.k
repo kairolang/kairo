@@ -133,6 +133,9 @@ import Codegen::Sink::TextSink::TextSink
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Driver::CompilerInstance::CompilerInstance
+import Driver::CompilerLink
+import Driver::CompilerNative
+import Driver::CompilerRecovery
 import Driver::ObjectCache::ObjectCache
 import Driver::Progress::{
     PROGRESS_CODEGEN, PROGRESS_PARSE, PROGRESS_SEMA, progress_begin, progress_end, progress_finish,

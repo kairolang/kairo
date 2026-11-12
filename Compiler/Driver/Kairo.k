@@ -50,6 +50,7 @@ ffi "c++" import "cstring"
 ffi "c++" import "cstdio"
 
 import Diagnostic::Registry::DiagID
+import Driver::CompilerInfo
 import Driver::CompilerInstance::CompilerInstance
 import Driver::Progress::progress_configure
 import Driver::Runtime::init_runtime

@@ -2,8 +2,8 @@
 // 11}` builds a hash set.
 //
 // ListLiteralLowering builds it as `HashSet(<the elements as a slice>)`
-// (Lib/builtin/containers/hash_set.k); the ticket "[Lower] Set and map
-// literals have no lowering and ICE" (2026-10-26) is fixed by that lowering.
+// (Lib/builtin/containers/hash_set.k).
+//
 
 fn main() -> i32 {
     var primes: {i32} = {2, 3, 5, 7, 11}

@@ -1,9 +1,9 @@
 // A type nested in a generic class, named THROUGH AN INSTANCE (`L<i32>::P`,
 // GH#91): it carries the instance's arguments, so its members read through
 // them (`q.k` is an i32, not `K`) and C++ spells it `::ns::L<int>::P`. The
-// pattern's `P` used to stand for every instance: `q.k` was SC028E "cannot
-// convert 'K' to 'i32'", and the local was spelled `typename ::ns::L<K>::P`
-// outside any template, which clang rejected.
+// pattern's `P` does not stand for every instance:
+// the local is never spelled `typename ::ns::L<K>::P` outside any template,
+// and `q.k` does not draw SC028E "cannot convert 'K' to 'i32'".
 //
 // Shapes: a nested struct (field read, built with a brace list), a nested
 // class with a method returning K, a nested plain enum, a nested type alias

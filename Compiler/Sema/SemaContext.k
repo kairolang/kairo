@@ -72,6 +72,7 @@ import AST::Node::Declarations::{
     SpecKind,
     StructDecl,
 }
+import AST::VisibilityFacts::same_module
 import Config::CodeGen::UnmatchedPolicy
 import Config::Invocation::CompilerInvocation
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
@@ -404,8 +405,10 @@ pub class SemaContext {
     pub var eval_branches: EvalBranchTable
 
     /// The files whose `extend` blocks this TU sees (RESOLUTION.md, the
-    /// extension-visibility rule): its own, and every fid its import edges
-    /// reach, transitively. One set per TU, built on first need by
+    /// extension-visibility rule): its own, each file it imports, and what
+    /// those re-export (`pub` edges onward, and `prot` ones within the
+    /// module, transitively; P842).
+    /// One set per TU, built on first need by
     /// sees_extension_file; member lookup, operator lookup and conformance
     /// all ask it, so the three cannot disagree. Membership only.
     pub var ext_visible:       llvm::DenseSet<u64>
@@ -532,8 +535,8 @@ pub class SemaContext {
     /// schedule and the pass's precondition disagree a bug in Sema.k,
     /// never in the pass.
     /// An `extend` block in file \p fid is visible to this TU: the TU's own
-    /// file, a builtin file (seen by every TU, like its names), or a file
-    /// this TU's imports reach. Without the filter a TU saw every extension
+    /// file, a builtin file (seen by every TU, like its names), a file this
+    /// TU imports, or one an imported file re-exports. Without the filter a TU saw every extension
     /// whose file happened to be resolved before it looked, so one program
     /// type-checked or not by check order (P821). Rule (c), an extension
     /// beside its target type, is the caller's: only it knows the target.
@@ -579,6 +582,25 @@ pub class SemaContext {
                 var        native0 = f == 0 && eid != &null && eid->file_seg_count > 0
                 if f == 0 && !native0 || f == u32::MAX {
                     continue
+                }
+
+                // Past this TU's own imports only a re-export carries an
+                // extension onward (P842): a `pub import` (a module.k's
+                // exports are its `pub import`s), or a `prot import` when
+                // this TU is in the module of the file that wrote it, the
+                // only files a `prot` re-export is for (imports.mdx). A
+                // file's `priv import` is its own business, so what it
+                // brings in is not its importers'. Conformance asks this
+                // set too, so an impl that arrives only through a private
+                // edge further down cannot satisfy a bound here either.
+                if t != root {
+                    if eid == &null {
+                        continue
+                    }
+
+                    if !(eid->is_public() || (eid->is_protected() && same_module(t, root))) {
+                        continue
+                    }
                 }
 
                 if !self.ext_visible.insert(f as u64).second {

@@ -6,8 +6,8 @@
 // a plain `bool` value outside any condition, `!x?` (folded into
 // `x.is_null()`, not `!!`), `not x?`, `!(x?)`, and a generic body's `t?` on
 // a `T?`. Each check prints, so a wrong branch shows which one.
-// Regression for the ticket "Postfix `?` null check is untyped": every `?`
-// here was SC066E "unary operator '?' is not defined on 'i32?'".
+// Each postfix `?` null check is typed:
+// none is SC066E "unary operator '?' is not defined on 'i32?'".
 
 import std::io::println
 

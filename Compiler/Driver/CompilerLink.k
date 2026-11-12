@@ -43,6 +43,7 @@ import AST::LangItems::{
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Driver::BatchResult::BatchResult
+import Driver::CompilerCache
 import Driver::CompilerInstance::CompilerInstance
 import Driver::InputKinds::{
     InputClass,

@@ -49,6 +49,7 @@ import Config::Invocation::CompilerInvocation
 import Diagnostic::Consumer::DiagConsumer
 import Diagnostic::Engine::DiagEngine
 import Diagnostic::Registry::DiagID
+import Driver::CompilerGraph
 import Driver::CompilerInstance::CompilerInstance
 import Driver::FrontendAction::FrontendAction
 import Driver::TUStage::TUStage

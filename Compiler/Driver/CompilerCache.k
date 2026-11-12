@@ -32,6 +32,7 @@ import Command::FlagTranslator::{
 }
 import Diagnostic::Registry::DiagID
 import Driver::CompilerInstance::CompilerInstance
+import Driver::CompilerNative
 import Driver::FrontendAction::FrontendAction
 import Location::SourceManager::FileID
 import Resolution::ModulePath::ModulePath

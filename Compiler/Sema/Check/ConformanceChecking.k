@@ -28,8 +28,8 @@
 ///     instance's rows are the union over every TU that checked it (Compiler/Spec/Generics.md
 ///     D7), so every TU's C++ carries the same ones. Which rows a TU's own
 ///     checks may USE is a per-TU filter, the extension-visibility rule: a
-///     row whose extension members are outside the TU's transitive import
-///     set is not this TU's (`_usable`; ConformanceRow::seen_by), and a use
+///     row whose extension members are outside the TU's extension-visible
+///     set (its imports and what they re-export) is not this TU's (`_usable`; ConformanceRow::seen_by), and a use
 ///     here is checked against what this TU sees, even of an instance
 ///     another TU made live first (`_recheck`). The row is
 ///     STRUCTURAL -- found at this use -- or DECLARED, found at the `impl`
@@ -2578,11 +2578,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// The member _implementation skipped last because this TU cannot see
     /// it, though it matched: why a detached row is not ok.
     priv var _hidden: unsafe *Decl = &null
-    // The transitive import set lives on SemaContext (sees_extension_file):
-    // member and operator lookup filter by the same set.
+    // The extension-visible set (imports, and what they re-export) lives on
+    // SemaContext (sees_extension_file): member and operator lookup filter
+    // by the same set.
 
     /// Table row \p row is usable in this TU: each implementing decl that is
-    /// an extension member is in this TU's transitive import set (an own
+    /// an extension member is in this TU's extension-visible set (an own
     /// member is visible wherever its type is). Remembered on the row
     /// (seen_by), so a second ask is one lookup.
     priv fn _usable(self, row: unsafe *ConformanceRow) -> bool {
@@ -2603,7 +2604,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     }
 
     /// \p d may implement a requirement here: not an extension member, or
-    /// one in a file this TU (transitively) imports.
+    /// one in a file this TU imports or gets re-exported (sees_extension_file).
     priv fn _sees(self, d: unsafe *Decl) -> bool {
         if decl_extension_of(d) == &null {
             return true

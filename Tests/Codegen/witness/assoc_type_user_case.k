@@ -1,7 +1,7 @@
-// The originally reported case, with the missing `return` added:
+// The reported case, with the missing `return` added:
 // a generic requirement `fn <T> foo(self, x: T) -> Node` and a bounded body
 // `-> T::Node`. Bare `Node` inside the interface and the class is legal and
-// draws the readability lint (SC001W, 4be237fd): expected here, and the
+// draws the readability lint (SC001W): expected here, and the
 // only diagnostics. Both an explicit (`class C impl Iface`) and a
 // structural conformer compile and run.
 

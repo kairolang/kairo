@@ -70,8 +70,8 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,    BuiltinType, QualifiedType, RecordType, canon_has_const, canon_has_volatile,
-    canon_unqual,
+    AssocType,    BuiltinKind,       BuiltinType, QualifiedType, RecordType, builtin_for_token,
+    canon_has_const, canon_has_volatile, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -296,6 +296,18 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             // primitive declares no members, so this is the type-position
             // R024E in expression position, naming what was asked for.
             if is_annotation(id->name.kind) {
+                // `i32::make()`, `void::probe()`: a static an `extend` of the
+                // primitive declares (extends.mdx: an extension adds static
+                // functions to any type it can extend). Only a `::` step this
+                // TU can see an extension member for; anything else is the
+                // R024E below (P325).
+                var unsafe *pt = self._primitive_static_head(id, n)
+                if pt != &null {
+                    a.kind = AnchorKind::Type
+                    a.ty   = pt
+                    return a
+                }
+
                 var sp   = self.sc->ctx->get_spelling(id->name)
                 var what = "a member"
                 if n->steps.size() > 0 {
@@ -2087,6 +2099,34 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 out.push_back(d)
             }
         }
+    }
+
+    /// The builtin type \p id names when \p n's first step is a `::` to a
+    /// member an extension of it declares, visible here; null otherwise.
+    priv fn _primitive_static_head(self, id: unsafe *NamedIdentExpr, n: unsafe *ChainExpr) -> unsafe *Type {
+        if n->steps.size() == 0 {
+            return &null
+        }
+
+        var unsafe *st0 = n->steps.get(0)
+        if st0 == &null || st0->name == &null || st0->access_kind != ChainExpr::AccessKind::ColonColon {
+            return &null
+        }
+
+        var bk = builtin_for_token(id->name.kind)
+        if bk == BuiltinKind::COUNT {
+            return &null
+        }
+
+        var unsafe *bt = self.sc->builtin(bk)
+        var imm = self._name_imm(st0->name->name)
+        if bt == &null || imm == u32::MAX {
+            return &null
+        }
+
+        var cands = cxx::std::vector<unsafe *Decl>()
+        self.ml.lookup(bt, DeclName::ident(imm), unsafe &cands)
+        return if (cands.empty()) => (&null) else => bt
     }
 
     priv fn _decl_name_str(self, d: unsafe *Decl) -> string {

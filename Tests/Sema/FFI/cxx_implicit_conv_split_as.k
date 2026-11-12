@@ -1,8 +1,8 @@
 // `as` reaches every conversion cxx_implicit_conv_split.k exercises, under
 // all four settings of -f[no-]implicit-conv x -f[no-]cxx-implicit-conv.
-// Under -fno-implicit-conv the builtin library itself does not type-check
-// (Tests/CLI/Lang/fimplicit_conv.k), so those two runs assert only that
-// this file's lines have no error.
+// -fno-implicit-conv holds only the user's files (the library keeps
+// the default rules), so those two runs assert that nothing at all is an
+// error: every conversion here is written with `as`.
 ffi "c++" import "cxx_user_conversion.h"
 ffi "c++" import "cxx_implicit_conv_split.h"
 
@@ -24,7 +24,6 @@ fn main() -> i32 {
 // RUN: %t1.exe; test $? -eq 20
 // RUN: %kairo %s -fcxx-implicit-conv -o %t2.exe --cache-dir %t.d2
 // RUN: %t2.exe; test $? -eq 20
-// RUN: { %kairo %s --type-check-only -fno-implicit-conv 2>&1 || true; } | %FileCheck %s
-// RUN: { %kairo %s --type-check-only -fno-implicit-conv -fcxx-implicit-conv 2>&1 || true; } | %FileCheck %s
-// CHECK: {{error}}
-// CHECK-NOT: cxx_implicit_conv_split_as.k:{{[0-9]+}}:{{[0-9]+}}: error
+// RUN: { %kairo %s --type-check-only -fno-implicit-conv 2>&1 || true; } | %FileCheck %s --allow-empty
+// RUN: { %kairo %s --type-check-only -fno-implicit-conv -fcxx-implicit-conv 2>&1 || true; } | %FileCheck %s --allow-empty
+// CHECK-NOT: error

@@ -1,9 +1,9 @@
 // A body that can fall off its end is SC104E whatever it is declared to
 // return -- also a DEPENDENT type (`Box<T>::Inner`, a member of a
 // dependent instance, which has a canonical since GH#91 and is named in the
-// note): it is still a value type, never void and never `!`. The check used to skip any return type without a
-// canonical, as if T had already reported it (ticket "Missing return goes
-// unreported when the return type is unresolved", 2026-10-27).
+// note): it is still a value type, never void and never `!`. The check does not skip a return type without a
+// canonical as if T had already reported it.
+//
 
 class <T> Box {
     class Inner { pub var v: i32 }

@@ -55,11 +55,15 @@ import DocumentStore::{
     LineMap,
     path_to_uri,
 }
+import Driver::CompilerGraph
 import Driver::CompilerInstance::CompilerInstance
+import Driver::CompilerNative
 import Driver::TUStage::TUStage
 import Index::Snapshot::*
 import Index::WorkerKeys::*
 import Index::Indexer::IndexWalker
+import Index::Hovers
+import Index::Writer
 import Index::Tokens::lexical_tokens
 import Protocol::*
 import Tuning::WIDE_INDEX_LIMIT

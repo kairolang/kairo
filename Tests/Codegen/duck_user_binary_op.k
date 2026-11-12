@@ -1,6 +1,6 @@
 // `start | self.dyn()->prev().range` -- a user `op |` whose right operand is
-// duck-typed (no type) under a `<T: type>` mixin -- ICEd "user operator;
-// OperatorLowering must rewrite it into a call". It is emitted as the C++
+// duck-typed (no type) under a `<T: type>` mixin -- is not rewritten into a call.
+// It is emitted as the C++
 // operator expression and clang picks the instance's operator.
 
 struct Rng {

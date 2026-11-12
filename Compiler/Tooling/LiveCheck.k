@@ -43,6 +43,8 @@ import Diagnostic::Diagnostic::Diagnostic
 import Diagnostic::FileDiagnostics::FileDiagConsumer
 import Diagnostic::Severity::DiagSeverity
 import AST::Context::ASTContext::ASTContext
+
+import Driver::CompilerGraph
 import Driver::CompilerInstance::CompilerInstance
 import Driver::FrontendAction::FrontendAction
 import Driver::TUStage::TUStage

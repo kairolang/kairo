@@ -2,8 +2,8 @@
 // (nullables.mdx, Pointers and nullability), and a `bool?` is one byte.
 //
 // XFAIL: *
-// Ticket "[Codegen] Every `T?` stores a presence flag"
-// (2026-10-26; note 2026-11-07). The pointer half is done: `*T?` uses the null
+// Waiting on a niche layout for every `T?` (each stores a presence flag today).
+// The pointer half is done: `*T?` uses the null
 // niche, so `sizeof *i32? == sizeof *i32` holds. `bool?` still carries a
 // presence flag (2 bytes), so the program exits 2 at the `bool?` check.
 // When it XPASSes, delete the XFAIL -- the run below is already the real

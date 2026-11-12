@@ -4,7 +4,7 @@
 // InputIt := u32 and bind both at Exact while the count overload needs a
 // widening for each. libc++ splits its templates by iterator category
 // (input vs forward) with enable_if, so Kairo alone found every call here
-// ambiguous, real iterators included (SC064E). Clang's substitution now
+// ambiguous, real iterators included (SC064E). Clang's substitution
 // removes the templates whose category test fails: the count overload is
 // the one candidate left for integers, one template for real iterators.
 
