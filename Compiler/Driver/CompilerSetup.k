@@ -1760,6 +1760,39 @@ extend CompilerInstance {
                 return
             }
         }
+
+        // On x86 --march names a CPU (clang's -march=haswell), so it is
+        // checked against the same list before the driver probe forwards it:
+        // an unknown name would otherwise reach clang's raw "unknown target
+        // CPU" and stop the backend start (I006F). `native` is the clang
+        // driver's to resolve. Elsewhere --march is an ISA string
+        // (armv8.2-a+crypto, rv64gc) that only clang's per-target parsers
+        // read, so it is left to them.
+        var march = self._inv.target.march
+        if (!march.empty()) && march != "native" && t->is_x86 {
+            var unsafe *XSTI = T->createMCSubtargetInfo(
+                tt,
+                kairo::sref(r""),
+                kairo::sref(r""),
+            )
+
+            finally {
+                @cxx::delete XSTI
+            }
+
+            if !XSTI->isCPUStringValid(kairo::sref(march)) {
+                self._diag->report(
+                    DiagID::P006E,
+                    f"unknown target CPU '{march}' given to --march for target '{t->effective_triple}'",
+                ).emit()
+                self._diag->report(
+                    DiagID::P006N,
+                    f"on x86 --march names a CPU; run with --print-cpus --target={t->effective_triple} to list valid values",
+                ).emit()
+                self.invocation()->ok = false
+                return
+            }
+        }
     }
 
     /// The one llvm::Triple -> ObjectFormat switch, for the target facts
